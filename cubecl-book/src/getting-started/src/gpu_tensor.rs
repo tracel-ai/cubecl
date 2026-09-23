@@ -2,70 +2,52 @@ use std::marker::PhantomData;
 
 use cubecl::{prelude::*, server::Handle, std::tensor::compact_strides};
 
-/// Simple GpuTensor
-#[derive(Debug)]
-pub struct GpuTensor<R: Runtime, F: Float + CubeElement> {
+/// A contiguous tensor stored on the device.
+#[derive(Debug, Clone)]
+pub struct GpuTensor<F: Float + CubeElement> {
     data: Handle,
     shape: Vec<usize>,
-    strides: Vec<usize>,
-    _r: PhantomData<R>,
     _f: PhantomData<F>,
 }
 
-impl<R: Runtime, F: Float + CubeElement> Clone for GpuTensor<R, F> {
-    fn clone(&self) -> Self {
-        Self {
-            data: self.data.clone(), // Handle is a pointer to the data, so cloning it is cheap
-            shape: self.shape.clone(),
-            strides: self.strides.clone(),
-            _r: PhantomData,
-            _f: PhantomData,
-        }
-    }
-}
-
-impl<R: Runtime, F: Float + CubeElement> GpuTensor<R, F> {
-    /// Create a GpuTensor with a shape filled by number in order
+impl<F: Float + CubeElement> GpuTensor<F> {
+    /// Create a tensor filled with consecutive values.
     pub fn arange(shape: Vec<usize>, client: &Client) -> Self {
         let size = shape.iter().product();
         let data: Vec<F> = (0..size).map(|i| F::from_int(i as i64)).collect();
-        let data = client.create(F::as_bytes(&data));
-
-        let strides = compact_strides(&shape);
+        let data = client.create_from_slice(F::as_bytes(&data));
         Self {
             data,
             shape,
-            strides,
-            _r: PhantomData,
             _f: PhantomData,
         }
     }
 
-    /// Create an empty GpuTensor with a shape
+    /// Allocate an uninitialized tensor that the kernel must fill before reading.
     pub fn empty(shape: Vec<usize>, client: &Client) -> Self {
         let size = shape.iter().product::<usize>() * core::mem::size_of::<F>();
         let data = client.empty(size);
-
-        let strides = compact_strides(&shape);
         Self {
             data,
             shape,
-            strides,
-            _r: PhantomData,
             _f: PhantomData,
         }
     }
 
-    /// Create a TensorArg to pass to a kernel
-    pub fn into_tensor_arg(&self, vector_size: u8) -> TensorArg<'_, R> {
+    /// Pass the tensor's storage, shape, and strides to a kernel.
+    pub fn as_arg(&self) -> TensorArg {
         unsafe {
-            TensorArg::from_raw_parts::<F>(&self.data, &self.strides, &self.shape, vector_size)
+            TensorArg::from_raw_parts(
+                self.data.clone(),
+                compact_strides(&self.shape),
+                self.shape.clone().into(),
+            )
         }
     }
 
-    /// Return the data from the client
+    /// Read the tensor back from the device.
     pub fn read(self, client: &Client) -> Vec<F> {
-        let bytes = client.read_one(self.data.binding());
+        let bytes = client.read_one(self.data).expect("Failed to read tensor");
         F::from_bytes(&bytes).to_vec()
     }
 }
