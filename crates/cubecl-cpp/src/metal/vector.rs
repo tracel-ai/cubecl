@@ -13,12 +13,18 @@ metal_op_with_out!(MagnitudeOp, |op, ctx| {
     format!("length({input})")
 });
 
+// The result is a vector too: the MSL vector is named from the scalar, and the value MSL returns
+// is reinterpreted back into the vector struct the result is declared as.
 metal_op_with_out!(NormalizeOp, |op, ctx| {
     let input = op.input(ctx).name(ctx);
-    let scalar_ty = op.result_type(ctx).to_cpp(ctx);
+    let scalar_ty = op.input(ctx).scalar_ty(ctx).to_cpp(ctx);
     let vec = op.input(ctx).vector_size(ctx);
-    let input = format!("reinterpret_cast<const thread {scalar_ty}{vec}&>({input})");
-    format!("normalize({input})")
+    let msl_ty = format!("{scalar_ty}{vec}");
+    let out_ty = op.result_type(ctx).to_cpp(ctx);
+    scoped_block!(
+        format!("{msl_ty} normalized = normalize(reinterpret_cast<const thread {msl_ty}&>({input}));")
+        format!("return reinterpret_cast<const thread {out_ty}&>(normalized);")
+    )
 });
 
 metal_op_with_out!(FDotOp, |op, ctx| {

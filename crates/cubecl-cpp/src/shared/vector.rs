@@ -7,7 +7,10 @@ use itertools::Itertools;
 
 use crate::{
     shared::{
-        binary::lower_binop, scoped_block, shared_op_with_out, ty::TypeExtCPP, unary::lower_unop,
+        binary::lower_binop,
+        scoped_block, shared_op_with_out,
+        ty::{TypeExtCPP, TypedExtCPP},
+        unary::lower_unop,
     },
     target::{CtxTarget, Target},
 };
@@ -107,16 +110,19 @@ fn dot<T: Float, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> T {
     sum(lhs * rhs)
 }
 
-lower_unop!(MagnitudeOp, magnitude, |_, ctx| {
-    ctx.target() != Target::Metal
+// MSL's `length`, `normalize` and `dot` cover `half` and `float` vectors, not `bfloat` ones.
+lower_unop!(MagnitudeOp, magnitude, |op, ctx| {
+    ctx.target() != Target::Metal || op.input(ctx).is_bf16(ctx)
 });
 
-lower_unop!(NormalizeOp, normalize, |_, ctx| {
-    ctx.target() != Target::Metal
+lower_unop!(NormalizeOp, normalize, |op, ctx| {
+    ctx.target() != Target::Metal || op.input(ctx).is_bf16(ctx)
 });
 
 lower_unop!(ISumOp, sum);
 lower_unop!(FSumOp, sum);
 lower_binop!(SDotOp, dot);
 lower_binop!(UDotOp, dot);
-lower_binop!(FDotOp, dot, |_, ctx| ctx.target() != Target::Metal);
+lower_binop!(FDotOp, dot, |op, ctx| {
+    ctx.target() != Target::Metal || op.lhs(ctx).is_bf16(ctx)
+});

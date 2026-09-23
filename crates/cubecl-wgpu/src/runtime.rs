@@ -7,6 +7,7 @@ use crate::{
 };
 use cubecl_common::device::{Device, DeviceService, ServiceId};
 use cubecl_common::profile::TimingMethod;
+use cubecl_core::WgpuCompilationOptions;
 use cubecl_core::device::{DeviceId, ServerUtilitiesHandle};
 use cubecl_core::ir::TargetProperties;
 use cubecl_core::server::ServerUtilities;
@@ -406,22 +407,13 @@ pub async fn init_setup_async<G: GraphicsApi>(
 }
 
 /// The runtime name for `backend`, naming the compiler that serves it.
-fn runtime_name(backend: wgpu::Backend) -> &'static str {
+///
+/// Read from the same options [`AutoCompiler`] picks its compiler from, so a device that fell
+/// back to WGSL says so.
+fn runtime_name(backend: wgpu::Backend, options: &WgpuCompilationOptions) -> &'static str {
     match backend {
-        wgpu::Backend::Vulkan => {
-            #[cfg(feature = "spirv")]
-            return "wgpu<spirv>";
-
-            #[cfg(not(feature = "spirv"))]
-            return "wgpu<wgsl>";
-        }
-        wgpu::Backend::Metal => {
-            #[cfg(feature = "msl")]
-            return "wgpu<msl>";
-
-            #[cfg(not(feature = "msl"))]
-            return "wgpu<wgsl>";
-        }
+        wgpu::Backend::Vulkan if options.supports_vulkan_compiler => "wgpu<spirv>",
+        wgpu::Backend::Metal if options.supports_msl_compiler => "wgpu<msl>",
         _ => "wgpu<wgsl>",
     }
 }
@@ -539,6 +531,7 @@ pub(crate) fn create_server<C: WgpuCompiler>(
     backend::register_features(&setup.adapter, &mut device_props, &mut compilation_options);
 
     let logger = alloc::sync::Arc::new(ServerLogger::default());
+    let name = runtime_name(setup.backend, &compilation_options);
 
     let allocator = ContiguousMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
     WgpuServer::new(
@@ -552,7 +545,7 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         time_measurement,
         ServerUtilities::new(
             ServiceId::of::<WgpuServer<C>>(device_id),
-            runtime_name(setup.backend),
+            name,
             device_props,
             WgpuRuntime::<C>::target_properties(),
             logger,

@@ -2,7 +2,7 @@ use super::{
     graph::{GraphRecording, ReplayDispatch, ReplayTask, WgpuGraph},
     mem_manager::{self, AuxiliaryMemory},
     poll::WgpuPoll,
-    timings::{QueryProfiler, TimestampQuerySetBudget},
+    timings::{QueryProfiler, TimestampAvailability, TimestampQuerySetBudget},
 };
 use crate::compute::copies::WgpuCopies;
 use crate::{
@@ -51,10 +51,30 @@ thread_local! {
 
 #[derive(Debug)]
 enum Timings {
+    /// Device timing the stream has not claimed yet. A query-set budget slot is claimed by the
+    /// stream's first window: Metal caps the slots per device below the stream count, and a
+    /// stream that never profiles must not hold one another stream then cannot get.
+    Unclaimed {
+        budget: Arc<TimestampQuerySetBudget>,
+        availability: TimestampAvailability,
+    },
     // Boxed: `QueryProfiler` is much larger than `TimestampProfiler`
     // (clippy::large_enum_variant).
     Device(Box<QueryProfiler>),
     System(TimestampProfiler),
+}
+
+impl Timings {
+    fn system() -> Self {
+        if cfg!(target_family = "wasm") {
+            // On WASM, there's not much we can do here anymore. This should be very rare however,
+            // all modern GPU's support timestamp queries.
+            panic!(
+                "Cannot profile on web assembly without timestamp_query feature as it requires blocking."
+            );
+        }
+        Timings::System(TimestampProfiler::default())
+    }
 }
 
 #[derive(Debug)]
@@ -158,25 +178,18 @@ impl WgpuStream {
         memory_config: MemoryConfiguration,
         timing_method: TimingMethod,
         timing_budget: Arc<TimestampQuerySetBudget>,
+        timestamp_availability: TimestampAvailability,
         tasks_max: usize,
         logger: Arc<ServerLogger>,
         use_vulkan_compiler: bool,
         recording: DeviceRecording,
     ) -> Self {
-        // Device timing needs a counter sample buffer per query set, capped per device on
-        // Metal. Reserve a budget slot up front (lock-free); if none is free, fall back to
-        // the system timer so we never exceed the hardware limit.
-        let timings = if timing_method == TimingMethod::Device && timing_budget.try_acquire() {
-            Timings::Device(Box::new(QueryProfiler::new(&queue, &device, timing_budget)))
-        } else {
-            if cfg!(target_family = "wasm") {
-                // On WASM, there's not much we can do here anymore. This should be very rare however,
-                // all modern GPU's support timestamp queries.
-                panic!(
-                    "Cannot profile on web assembly without timestamp_query feature as it requires blocking."
-                );
-            }
-            Timings::System(TimestampProfiler::default())
+        let timings = match timing_method {
+            TimingMethod::Device => Timings::Unclaimed {
+                budget: timing_budget,
+                availability: timestamp_availability,
+            },
+            TimingMethod::System => Timings::system(),
         };
 
         #[cfg(renderdoc)]
@@ -455,6 +468,28 @@ impl WgpuStream {
         })
     }
 
+    /// Device timing needs a counter sample buffer per query set, capped per device on Metal.
+    /// A stream claims a budget slot at its first window (lock-free); if none is free, it falls
+    /// back to the system timer so the device never exceeds the hardware limit.
+    fn claim_timings(&mut self) {
+        let Timings::Unclaimed {
+            budget,
+            availability,
+        } = &self.timings
+        else {
+            return;
+        };
+        self.timings = match budget.try_acquire() {
+            true => Timings::Device(Box::new(QueryProfiler::new(
+                &self.queue,
+                &self.device,
+                budget.clone(),
+                *availability,
+            ))),
+            false => Timings::system(),
+        };
+    }
+
     // Bit silly but needed to make the borrow checker happy.
     fn system_profiler(&mut self) -> &mut TimestampProfiler {
         let Timings::System(timing) = &mut self.timings else {
@@ -464,6 +499,7 @@ impl WgpuStream {
     }
 
     pub fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
+        self.claim_timings();
         if matches!(self.timings, Timings::System(_)) {
             cubecl_environment::future::block_on(self.sync(stream_id))?;
         } else {
@@ -471,6 +507,7 @@ impl WgpuStream {
         }
 
         match &mut self.timings {
+            Timings::Unclaimed { .. } => unreachable!("claimed above"),
             Timings::System(_) => {
                 let profiler = self.system_profiler();
                 Ok(profiler.start())
@@ -485,6 +522,7 @@ impl WgpuStream {
 
     pub fn profile_error(&mut self, error: ProfileError) {
         match &mut self.timings {
+            Timings::Unclaimed { .. } => {}
             Timings::Device(profiler) => {
                 profiler.error(error);
             }
@@ -500,6 +538,9 @@ impl WgpuStream {
         stream_id: StreamId,
     ) -> Result<ProfileDuration, ProfileError> {
         match &mut self.timings {
+            Timings::Unclaimed { .. } => Err(ProfileError::NotRegistered {
+                backtrace: BackTrace::capture(),
+            }),
             Timings::System(..) => {
                 // Nb: WASM _has_ to use device timing and will panic here if query timestamps are not supported.
                 let result = future::block_on(self.sync(stream_id));
@@ -515,14 +556,14 @@ impl WgpuStream {
                 self.compute_pass = None;
 
                 // Submit commands needed for profiling.
-                let buffer = {
+                let readback = {
                     let Timings::Device(timing) = &mut self.timings else {
                         return Err(ProfileError::Unknown {
                             reason: "Unexpected timings type".to_string(),
                             backtrace: BackTrace::capture(),
                         });
                     };
-                    timing.stop_profile_setup(token, &self.device, &mut self.encoder)?
+                    timing.stop_profile_setup(token, &self.device)?
                 };
 
                 // This flushes the queue to execute the encoder write command to write the
@@ -538,14 +579,31 @@ impl WgpuStream {
                 };
 
                 match result {
-                    Ok(_) => timing.stop_profile(buffer, poll),
+                    Ok(_) => {
+                        let map_buffer = readback.map(|readback| {
+                            if timing.availability() == TimestampAvailability::OnCompletion {
+                                // Blocks like system timing's sync at a window's end. Resolving
+                                // later without waiting is not an option: the window's query
+                                // sets return to the pool here, and a pass that reuses one
+                                // before the resolve runs would overwrite the window's ends.
+                                if let Err(err) =
+                                    self.device.poll(wgpu::PollType::wait_indefinitely())
+                                {
+                                    log::warn!("waiting for a profiled window to complete: {err}");
+                                }
+                            }
+                            self.queue.submit([readback.commands]);
+                            readback.map_buffer
+                        });
+                        timing.stop_profile(map_buffer, poll)
+                    }
                     Err(err) => {
                         // Dropped rather than mapped: the flush this window
                         // needed has failed, so a map requested here may never
                         // complete, and the map's callback is what releases the
                         // poll handle. The query sets were already given back in
                         // `stop_profile_setup`, so there is nothing else to undo.
-                        drop(buffer);
+                        drop(readback);
                         drop(poll);
                         Err(ProfileError::Server(Box::new(err)))
                     }
@@ -562,6 +620,7 @@ impl WgpuStream {
     /// window carries on as if it had never been bracketed.
     pub fn abandon_profile(&mut self, token: ProfilingToken) {
         match &mut self.timings {
+            Timings::Unclaimed { .. } => {}
             Timings::System(profiler) => profiler.abandon(token),
             Timings::Device(timing) => timing.abandon_profile(token),
         }
@@ -860,7 +919,7 @@ impl WgpuStream {
         compute_pass.get_or_insert_with(|| {
             let writes = match timings {
                 Timings::Device(query_time) => query_time.register_profile_device(device),
-                Timings::System(_) => None,
+                Timings::Unclaimed { .. } | Timings::System(_) => None,
             };
             encoder
                 .begin_compute_pass(&wgpu::ComputePassDescriptor {

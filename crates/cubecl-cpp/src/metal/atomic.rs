@@ -2,7 +2,7 @@ use cubecl_core::ir::{dialect::atomic::*, prelude::*};
 
 use crate::{
     metal::{metal_op, metal_op_with_out},
-    shared::CppValue,
+    shared::{CppValue, scoped_block, ty::TypeExtCPP},
 };
 
 metal_op_with_out!(AtomicLoadOp, |op, ctx| {
@@ -22,12 +22,20 @@ metal_op_with_out!(AtomicExchangeOp, |op, ctx| {
     format!("atomic_exchange_explicit({ptr}, {value}, memory_order_relaxed)")
 });
 
+// MSL's compare-exchange is weak and answers with a `bool`, writing the value it saw into
+// `expected` on failure; the op returns the value it saw, as CUDA's `atomicCAS` does. A failure
+// that saw `cmp` is spurious and is retried, so the value returned is never a spurious miss.
 metal_op_with_out!(AtomicCompareExchangeWeakOp, |op, ctx| {
     let ptr = op.ptr(ctx).name(ctx);
     let cmp = op.cmp(ctx).name(ctx);
     let value = op.value(ctx).name(ctx);
-    format!(
-        "atomic_compare_exchange_weak_explicit({ptr}, &{cmp}, {value}, memory_order_relaxed, memory_order_relaxed)"
+    let ty = op.cmp(ctx).get_type(ctx).to_cpp(ctx);
+    scoped_block!(
+        format!("{ty} expected = {cmp};")
+        format!(
+            "while (!atomic_compare_exchange_weak_explicit({ptr}, &expected, {value}, memory_order_relaxed, memory_order_relaxed) && expected == {cmp}) {{}}"
+        )
+        "return expected;"
     )
 });
 

@@ -126,7 +126,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                     mode,
                 )?;
                 let pipeline =
-                    self.create_pipeline(&entry.entrypoint_name, Some(repr), module, bindings);
+                    self.create_pipeline(&entry.entrypoint_name, Some(repr), module, bindings)?;
                 let io = entry.kernel.io.clone().map(std::sync::Arc::from);
                 Ok(Some(Ok((
                     pipeline,
@@ -152,33 +152,37 @@ impl<C: WgpuCompiler> WgpuServer<C> {
     ) -> Result<ShaderModule, CompilationError> {
         match source {
             #[cfg(feature = "spirv")]
-            ModuleSource::SpirV(repr) => unsafe {
-                Ok(self.device.create_shader_module_passthrough(
-                    wgpu::ShaderModuleDescriptorPassthrough {
-                        label: Some(entrypoint_name),
-                        spirv: Some(Cow::Borrowed(&repr.assembled_module)),
-                        entry_points: Cow::Borrowed(&[wgpu::PassthroughShaderEntryPoint {
-                            name: entrypoint_name.into(),
-                            workgroup_size: cube_dim.into(),
-                        }]),
-                        ..Default::default()
-                    },
-                ))
-            },
+            ModuleSource::SpirV(repr) => self
+                .validated(|| unsafe {
+                    self.device.create_shader_module_passthrough(
+                        wgpu::ShaderModuleDescriptorPassthrough {
+                            label: Some(entrypoint_name),
+                            spirv: Some(Cow::Borrowed(&repr.assembled_module)),
+                            entry_points: Cow::Borrowed(&[wgpu::PassthroughShaderEntryPoint {
+                                name: entrypoint_name.into(),
+                                workgroup_size: cube_dim.into(),
+                            }]),
+                            ..Default::default()
+                        },
+                    )
+                })
+                .map_err(|err| refused("SPIR-V module", entrypoint_name, err)),
             #[cfg(all(feature = "msl", target_os = "macos"))]
-            ModuleSource::Msl(source) => unsafe {
-                Ok(self.device.create_shader_module_passthrough(
-                    wgpu::ShaderModuleDescriptorPassthrough {
-                        label: Some(entrypoint_name),
-                        msl: Some(Cow::Borrowed(source)),
-                        entry_points: Cow::Borrowed(&[wgpu::PassthroughShaderEntryPoint {
-                            name: entrypoint_name.into(),
-                            workgroup_size: cube_dim.into(),
-                        }]),
-                        ..Default::default()
-                    },
-                ))
-            },
+            ModuleSource::Msl(source) => self
+                .validated(|| unsafe {
+                    self.device.create_shader_module_passthrough(
+                        wgpu::ShaderModuleDescriptorPassthrough {
+                            label: Some(entrypoint_name),
+                            msl: Some(Cow::Borrowed(source)),
+                            entry_points: Cow::Borrowed(&[wgpu::PassthroughShaderEntryPoint {
+                                name: entrypoint_name.into(),
+                                workgroup_size: cube_dim.into(),
+                            }]),
+                            ..Default::default()
+                        },
+                    )
+                })
+                .map_err(|err| refused("MSL module", entrypoint_name, err)),
             ModuleSource::Wgsl(source) => {
                 let _ = cube_dim;
                 let checks = wgpu::ShaderRuntimeChecks {
@@ -253,7 +257,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         repr: Option<AutoRepresentationRef<'_>>,
         module: ShaderModule,
         bindings: &KernelArguments,
-    ) -> Arc<ComputePipeline> {
+    ) -> Result<Arc<ComputePipeline>, CompilationError> {
         let bindings_info = match repr {
             Some(AutoRepresentationRef::Wgsl(repr)) => Some(wgsl::bindings(repr, bindings)),
             #[cfg(all(feature = "msl", target_os = "macos"))]
@@ -263,63 +267,110 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             _ => None,
         };
 
-        let layout = bindings_info.map(|(bindings, immediate_size)| {
-            if !bindings.is_empty() {
-                let bindings = bindings
-                    .into_iter()
-                    .map(|visibility| match visibility {
-                        Visibility::Uniform => BufferBindingType::Uniform,
-                        Visibility::Read => BufferBindingType::Storage { read_only: true },
-                        Visibility::ReadWrite => BufferBindingType::Storage { read_only: false },
-                    })
-                    .enumerate()
-                    .map(|(i, ty)| BindGroupLayoutEntry {
-                        binding: i as u32,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    })
-                    .collect::<Vec<_>>();
-                let layout = self
-                    .device
-                    .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                        label: None,
-                        entries: &bindings,
-                    });
-                self.device
-                    .create_pipeline_layout(&PipelineLayoutDescriptor {
-                        label: None,
-                        bind_group_layouts: &[Some(&layout)],
-                        immediate_size: immediate_size as u32,
-                    })
-            } else {
-                self.device
-                    .create_pipeline_layout(&PipelineLayoutDescriptor {
-                        label: None,
-                        bind_group_layouts: &[],
-                        immediate_size: immediate_size as u32,
-                    })
-            }
-        });
-
-        let pipeline = self
-            .device
-            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some(entrypoint_name),
-                layout: layout.as_ref(),
-                module: &module,
-                entry_point: Some(entrypoint_name),
-                compilation_options: wgpu::PipelineCompilationOptions {
-                    zero_initialize_workgroup_memory: false,
-                    ..Default::default()
-                },
-                cache: None,
+        let create = || {
+            let layout = bindings_info.map(|(bindings, immediate_size)| {
+                if !bindings.is_empty() {
+                    let bindings = bindings
+                        .into_iter()
+                        .map(|visibility| match visibility {
+                            Visibility::Uniform => BufferBindingType::Uniform,
+                            Visibility::Read => BufferBindingType::Storage { read_only: true },
+                            Visibility::ReadWrite => {
+                                BufferBindingType::Storage { read_only: false }
+                            }
+                        })
+                        .enumerate()
+                        .map(|(i, ty)| BindGroupLayoutEntry {
+                            binding: i as u32,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Buffer {
+                                ty,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        })
+                        .collect::<Vec<_>>();
+                    let layout = self
+                        .device
+                        .create_bind_group_layout(&BindGroupLayoutDescriptor {
+                            label: None,
+                            entries: &bindings,
+                        });
+                    self.device
+                        .create_pipeline_layout(&PipelineLayoutDescriptor {
+                            label: None,
+                            bind_group_layouts: &[Some(&layout)],
+                            immediate_size: immediate_size as u32,
+                        })
+                } else {
+                    self.device
+                        .create_pipeline_layout(&PipelineLayoutDescriptor {
+                            label: None,
+                            bind_group_layouts: &[],
+                            immediate_size: immediate_size as u32,
+                        })
+                }
             });
-        Arc::new(pipeline)
+
+            let pipeline = self
+                .device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some(entrypoint_name),
+                    layout: layout.as_ref(),
+                    module: &module,
+                    entry_point: Some(entrypoint_name),
+                    compilation_options: wgpu::PipelineCompilationOptions {
+                        zero_initialize_workgroup_memory: false,
+                        ..Default::default()
+                    },
+                    cache: None,
+                });
+            Arc::new(pipeline)
+        };
+        self.validated(create)
+            .map_err(|err| refused("pipeline", entrypoint_name, err))
+    }
+
+    /// Creates a device object under validation and internal error scopes, and returns what the
+    /// device reported against it.
+    ///
+    /// wgpu reports a creation it refuses as an uncaptured device error, which panics the thread
+    /// polling the device and leaves a read of the launch's outputs returning whatever they held.
+    /// The scopes make the refusal the launch's error, which the outputs then carry. Blocks until
+    /// the device has validated the creation; on wasm, which cannot block, the creation is
+    /// unchecked.
+    fn validated<T>(&self, create: impl FnOnce() -> T) -> Result<T, wgpu::Error> {
+        #[cfg(target_family = "wasm")]
+        return Ok(create());
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            // A passthrough module the backend fails to compile is reported as internal, a
+            // layout past the device's limits as validation. Both are refusals.
+            let validation = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+            let internal = self.device.push_error_scope(wgpu::ErrorFilter::Internal);
+            let created = create();
+            let internal = internal.pop();
+            let validation = validation.pop();
+            let refusal =
+                cubecl_environment::future::block_on(async { internal.await.or(validation.await) });
+            match refusal {
+                Some(err) => Err(err),
+                None => Ok(created),
+            }
+        }
+    }
+}
+
+/// The error a launch returns when the device refuses to create one of its objects.
+fn refused(object: &str, entrypoint_name: &str, err: wgpu::Error) -> CompilationError {
+    log::error!(
+        "[cubecl-wgpu] the device refused the {object} of kernel `{entrypoint_name}`: {err}"
+    );
+    CompilationError::Generic {
+        reason: format!("the device refused the {object} of kernel `{entrypoint_name}`: {err}"),
+        backtrace: cubecl_environment::backtrace::BackTrace::capture(),
     }
 }
 

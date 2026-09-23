@@ -21,7 +21,7 @@ use crate::{
     cuda::packed_ops::packable,
     shared::{
         CppValue,
-        convert::{no_half, promotes_int},
+        convert::{no_half, no_msl_bfloat, promotes_int},
         lowering::LowerOp,
         shared_op, shared_op_with_out,
         ty::{TypeExtCPP, TypedExtCPP},
@@ -132,6 +132,7 @@ shared_op_with_out!(FModFloorOp, |op, ctx| {
     format!("{lhs} - {rhs} * {floor}({lhs} / {rhs})")
 });
 unrolling!(FModFloorOp);
+no_msl_bfloat!(FModFloorOp);
 packable!(FModFloorOp);
 
 // pub struct FastDiv;
