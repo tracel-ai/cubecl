@@ -57,7 +57,7 @@ pub use local::*;
 pub use log::*;
 pub use operation::*;
 #[cfg(persistence)]
-pub use record::{Trial, TuneRecord};
+pub use record::{PlannedCandidate, Trial, TuneRecord};
 pub use tune_benchmark::*;
 pub use tune_cache::*;
 pub use tune_inputs::*;
