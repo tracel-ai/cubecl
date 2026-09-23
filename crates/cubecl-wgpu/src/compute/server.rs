@@ -607,6 +607,14 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         })
     }
 
+    fn memory_available(&mut self, stream_id: StreamId) -> Option<u64> {
+        self.scheduler
+            .stream(&stream_id)
+            .memory
+            .storage()
+            .memory_available()
+    }
+
     fn stream_ids(&self) -> Vec<StreamId> {
         self.scheduler.stream_ids().collect()
     }
