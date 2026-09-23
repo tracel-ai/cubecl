@@ -2,9 +2,9 @@
 Now that we have a basic understanding of how to perform a reduction operation, let's benchmark it to see how it performs in terms of speed and efficiency.
 
 ## Benchmarking struct
-For benchmarking, we will create a struct that holds the necessary information for the benchmark, such as the input shape, device, and client. This struct will be used to run the benchmark tests and configure the benchmarking environment. Please note that the `Runtime` and `Float` traits are used to make the benchmark generic over different CubeCL runtimes and floating-point types. A `PhantomData` is used to indicate that the struct holds a type parameter `F` without actually storing a value of that type, which is useful for generic programming in Rust, for more information see the [Rust documentation](https://doc.rust-lang.org/std/marker/struct.PhantomData.html) and in our case allows us to easily change the type of float used in the benchmark.
+For benchmarking, we will create a struct that holds the necessary information for the benchmark, such as the input shape, device, and client. This struct will be used to run the benchmark tests and configure the benchmarking environment. Please note that the `Float` and `CubeElement` traits make the benchmark generic over floating-point types, while `Client` selects the runtime. A `PhantomData` is used to indicate that the struct holds a type parameter `F` without actually storing a value of that type, which is useful for generic programming in Rust, for more information see the [Rust documentation](https://doc.rust-lang.org/std/marker/struct.PhantomData.html) and in our case allows us to easily change the type of float used in the benchmark.
 ```rust,ignore
-{{#include src/bin/v3-gpu.rs:1:11}}
+{{#include src/bin/v3-gpu.rs:benchmark_struct}}
 ```
 ## Implementing the benchmark trait
 To benchmark a CubeCL kernel, it is recommended to implement the `Benchmark` trait that defines the necessary methods for preparing, executing, and synchronizing the benchmark because GPUs are asynchronous and most benchmarking tools will not wait for the GPU to finish executing the kernel before measuring the time it takes to execute it with a sync.
@@ -29,7 +29,7 @@ pub trait Benchmark {
     ///
     /// It is important to return the output since otherwise deadcode optimization might optimize
     /// away code that should be benchmarked.
-    fn execute(&self, input: Self::Input) -> Self::Output;
+    fn execute(&self, input: Self::Input) -> Result<Self::Output, String>;
 
     /// Name of the benchmark, should be short and it should match the name
     /// defined in the crate Cargo.toml
@@ -43,13 +43,13 @@ pub trait Benchmark {
 
 In the `prepare` method, we will create the input data and return a `GpuTensor` that will be used in the `execute` method. The `execute` method will launch the kernel and the `sync` method will wait for the GPU to finish executing the kernel before measuring the time it takes to execute it. Don't forget to add the function that we want to benchmark.
 ```rust,ignore
-{{#include src/bin/v3-gpu.rs:1:56}}
+{{#include src/bin/v3-gpu.rs:implementation}}
 ```
 
 ## Running the benchmark
-Now that we have implemented the `Benchmark` trait, we can run the benchmark using the `Benchmark::run` method. This method will execute the benchmark and return the time it took to complete it.
+Now that we have implemented the `Benchmark` trait, we can run the benchmark using the `Benchmark::run` method. `Benchmark::run` returns a `Result` containing the measured durations or an error. The examples below are historical measurements; timings and sample counts depend on your device and configuration.
 ```rust,ignore
-{{#rustdoc_include src/bin/v3-gpu.rs:58:81}}
+{{#include src/bin/v3-gpu.rs:launch}}
 ```
 
 ## The Results

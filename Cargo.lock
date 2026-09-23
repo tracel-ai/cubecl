@@ -1128,6 +1128,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cubecl-example"
+version = "0.11.0-pre.4"
+dependencies = [
+ "cubecl",
+]
+
+[[package]]
 name = "cubecl-hip"
 version = "0.11.0-pre.4"
 dependencies = [

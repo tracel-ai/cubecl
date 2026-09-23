@@ -4,7 +4,7 @@
 # https://doc.rust-lang.org/cargo/reference/resolver.html#feature-resolver-version-2
 resolver = "2"
 
-members = ["crates/*", "examples/*", "xtask"]
+members = ["crates/*", "cubecl-book/src/getting-started", "examples/*", "xtask"]
 
 [workspace.package]
 edition = "2024"
