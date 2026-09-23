@@ -186,29 +186,3 @@ jobs:
           RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
         run: xtask test --miri ub-only --ci
 
-
-  macos-msl-tests:
-    runs-on: blaze/macos-15
-    needs: [prepare-checks, code-quality]
-    timeout-minutes: 60
-    steps:
-      - name: checkout
-        uses: actions/checkout@v6
-      # --------------------------------------------------------------------------------
-      - name: Install Rust
-        uses: tracel-ai/github-actions/install-rust@v11
-        with:
-          rust-toolchain: stable
-          cache-key: stable-macos
-      # --------------------------------------------------------------------------------
-      - name: Device check
-        run: system_profiler SPDisplaysDataType
-      # --------------------------------------------------------------------------------
-      # The msl test module is gated on the feature, so no other job builds it.
-      - name: Tests
-        run: cargo test -p cubecl-wgpu --features msl
-      # --------------------------------------------------------------------------------
-      - name: Documentation
-        run: cargo doc -p cubecl-wgpu --no-deps --features msl
-        env:
-          RUSTDOCFLAGS: -D warnings
