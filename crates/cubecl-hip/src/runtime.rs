@@ -37,6 +37,7 @@ use cubecl_cpp::{
     },
 };
 use cubecl_hip_sys::{hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
+use cubecl_llvm::shared::lowered_features::{GpuTarget, restrict_features};
 use cubecl_server::{
     allocator::PitchedMemoryLayoutPolicy, driver::checked, logging::ServerLogger, runtime::Runtime,
 };
@@ -186,11 +187,10 @@ impl DeviceService for HipServer {
 
         // Which backend compiles here decides what may be advertised: a feature the selected
         // one cannot honour is a kernel that fails to compile rather than a slower one.
-        if HipBackend::default() == HipBackend::Llvm {
-            cubecl_llvm::shared::lowered_features::restrict_amdgpu_features(
-                &mut device_props,
-                gfx.wmma(),
-            );
+        let backend = HipBackend::default();
+        if backend == HipBackend::Llvm {
+            let wmma = gfx.wmma();
+            restrict_features(&mut device_props, GpuTarget::AmdGpu { wmma });
         }
 
         let comp_opts = HipCompilationOptions {
@@ -204,12 +204,7 @@ impl DeviceService for HipServer {
             },
             arch: Some(gfx),
         };
-        let hip_ctx = HipContext::new(
-            comp_opts,
-            device_props.clone(),
-            fingerprint,
-            HipBackend::default(),
-        );
+        let hip_ctx = HipContext::new(comp_opts, device_props.clone(), fingerprint, backend);
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
         let utilities = ServerUtilities::new(

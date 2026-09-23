@@ -36,18 +36,15 @@ impl InsertGpuBuiltinsPass {
     pub fn new(values: Box<dyn ReadsLaunchValues>, plane_dim: u32) -> Self {
         Self { values, plane_dim }
     }
+}
 
-    /// Sets the per-axis values and every builtin that combines them.
-    fn derive(
-        &self,
-        values: &LaunchValues,
-        scope: &Scope,
-        builtins: &mut BuiltinValues,
-        cube_dim: Dim3,
-    ) {
-        let [unit_x, unit_y, unit_z] = values.unit_pos;
-        let [cube_x, cube_y, cube_z] = values.cube_pos;
-        let [count_x, count_y, count_z] = values.cube_count;
+impl LaunchValues {
+    /// Sets the per-axis values and every builtin that combines them, for a cube of
+    /// `cube_dim`.
+    fn derive(&self, scope: &Scope, builtins: &mut BuiltinValues, cube_dim: Dim3) {
+        let [unit_x, unit_y, unit_z] = self.unit_pos;
+        let [cube_x, cube_y, cube_z] = self.cube_pos;
+        let [count_x, count_y, count_z] = self.cube_count;
 
         let axes = [
             (Builtin::UnitPosX, unit_x),
@@ -59,7 +56,7 @@ impl InsertGpuBuiltinsPass {
             (Builtin::CubeCountX, count_x),
             (Builtin::CubeCountY, count_y),
             (Builtin::CubeCountZ, count_z),
-            (Builtin::UnitPosPlane, values.unit_pos_plane),
+            (Builtin::UnitPosPlane, self.unit_pos_plane),
         ];
         for (builtin, value) in axes {
             builtins.set(builtin, value);
@@ -135,7 +132,7 @@ impl Pass for InsertGpuBuiltinsPass {
                 Builtin::PlaneDim,
                 constant::expand(&scope, self.plane_dim).value(&scope),
             );
-            self.derive(&values, &scope, &mut builtins, cube_dim);
+            values.derive(&scope, &mut builtins, cube_dim);
         }
 
         let mut replacer = Replacer {

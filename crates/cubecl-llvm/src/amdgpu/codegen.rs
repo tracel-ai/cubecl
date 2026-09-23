@@ -84,7 +84,7 @@ pub fn emit_code_object(
         to_llvm_ir::convert_module(ctx, &llvm_ctx, module).map_err(|err| err.to_string())?;
 
     let module = LlvmModule::new(&converted.to_string())?;
-    finalize(&module, entrypoint, arch, entry.cube_dim, &entry.io)?;
+    finalize(&module, entrypoint, arch, &entry)?;
     let ir = module.print();
     let (object, asm) = compile(module, arch, Assembly::wanted())?;
 
@@ -110,7 +110,7 @@ pub fn emit_code_object(
 
 /// Whether a compile also emits the assembly, which only a debugging dump reads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Assembly {
+pub(crate) enum Assembly {
     Keep,
     Skip,
 }
@@ -118,9 +118,10 @@ pub enum Assembly {
 impl Assembly {
     /// `Keep` when `CUBECL_DEBUG_PLIRON` asks for the dumps.
     fn wanted() -> Self {
-        match std::env::var_os("CUBECL_DEBUG_PLIRON").is_some() {
-            true => Assembly::Keep,
-            false => Assembly::Skip,
+        if std::env::var_os("CUBECL_DEBUG_PLIRON").is_some() {
+            Assembly::Keep
+        } else {
+            Assembly::Skip
         }
     }
 }
@@ -134,9 +135,9 @@ fn finalize(
     module: &LlvmModule,
     entrypoint: &str,
     arch: &GfxArch,
-    cube_dim: Dim3,
-    io: &[BufferIOAttr],
+    entry: &AmdGpuEntry,
 ) -> Result<(), String> {
+    let cube_dim = entry.cube_dim;
     let flat_work_group_size = format!("1,{}", cube_dim.num_elems());
     let mut attributes = vec![
         ("target-cpu", arch.name()),
@@ -150,12 +151,12 @@ fn finalize(
     }
 
     module.set_triple(TRIPLE);
-    let entry = module.entry_point(entrypoint)?;
-    entry.set_calling_convention(AMDGPU_KERNEL_CC);
-    entry.add_attributes(&attributes);
-    require_work_group_size(&entry, cube_dim);
-    annotate_buffer_params(&entry, io, METADATA_PARAMS);
-    mark_atomics_device_local(&entry);
+    let entry_fn = module.entry_point(entrypoint)?;
+    entry_fn.set_calling_convention(AMDGPU_KERNEL_CC);
+    entry_fn.add_attributes(&attributes);
+    require_work_group_size(&entry_fn, cube_dim);
+    annotate_buffer_params(&entry_fn, &entry.io, METADATA_PARAMS);
+    mark_atomics_device_local(&entry_fn);
     module.add_module_flag("amdhsa_code_object_version", CODE_OBJECT_VERSION);
     Ok(())
 }
@@ -163,7 +164,6 @@ fn finalize(
 /// The cube dimensions are fixed when a kernel compiles, so the work-item ids are bounded by
 /// them exactly: an axis of one unit is always zero, and the backend then neither unpacks its
 /// id nor adds it into a position.
-///
 fn require_work_group_size(entry: &EntryFunction<'_>, cube_dim: Dim3) {
     entry.set_metadata(
         "reqd_work_group_size",
@@ -197,7 +197,7 @@ fn mark_atomics_device_local(entry: &EntryFunction<'_>) {
     }
 }
 
-/// The relocatable object `module` compiles to, and its assembly when `want_asm` is set.
+/// The relocatable object `module` compiles to, and its assembly when `assembly` keeps it.
 fn compile(
     module: LlvmModule,
     arch: &GfxArch,
@@ -495,7 +495,12 @@ entry:
         io: &[BufferIOAttr],
     ) -> Result<String, String> {
         let module = LlvmModule::new(ir)?;
-        finalize(&module, entrypoint, arch, cube_dim, io)?;
+        let entry = AmdGpuEntry {
+            cube_dim,
+            shared_memory_size: 0,
+            io: io.to_vec(),
+        };
+        finalize(&module, entrypoint, arch, &entry)?;
         Ok(module.print())
     }
 }

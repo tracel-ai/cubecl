@@ -1,35 +1,44 @@
 //! The LLVM module and target machine the pliron conversion hands its output to: parsed,
 //! finalized, optimized and emitted here, each handle owned and disposed on drop.
+//!
+//! The CPU target parses, optimizes and prints a module; finalizing an entry point and
+//! building a target machine are the GPU targets' alone, and are compiled only with them.
 
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 use llvm_sys::{
     LLVMAtomicOrdering, LLVMAttributeFunctionIndex, LLVMTypeKind,
     core::{
-        LLVMAddAttributeAtIndex, LLVMContextCreate, LLVMContextDispose, LLVMCountParams,
-        LLVMCreateEnumAttribute, LLVMCreateMemoryBufferWithMemoryRangeCopy,
-        LLVMCreateStringAttribute, LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMDisposeModule,
-        LLVMGetBufferSize, LLVMGetBufferStart, LLVMGetEnumAttributeKindForName,
-        LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetNamedFunction,
-        LLVMGetNextBasicBlock, LLVMGetNextInstruction, LLVMGetOrdering, LLVMGetParam,
-        LLVMGetTypeKind, LLVMIsALoadInst, LLVMPrintModuleToString, LLVMSetFunctionCallConv,
-        LLVMSetTarget, LLVMTypeOf,
+        LLVMAddAttributeAtIndex, LLVMCountParams, LLVMCreateEnumAttribute,
+        LLVMCreateStringAttribute, LLVMGetBufferSize, LLVMGetBufferStart,
+        LLVMGetEnumAttributeKindForName, LLVMGetFirstBasicBlock, LLVMGetFirstInstruction,
+        LLVMGetNamedFunction, LLVMGetNextBasicBlock, LLVMGetNextInstruction, LLVMGetOrdering,
+        LLVMGetParam, LLVMGetTypeKind, LLVMIsALoadInst, LLVMSetFunctionCallConv, LLVMSetTarget,
+        LLVMTypeOf,
     },
-    error::{LLVMDisposeErrorMessage, LLVMGetErrorMessage},
-    ir_reader::LLVMParseIRInContext2,
-    prelude::{LLVMContextRef, LLVMModuleRef, LLVMValueRef},
+    prelude::LLVMValueRef,
     target::{LLVMDisposeTargetData, LLVMSetModuleDataLayout},
     target_machine::{
         LLVMCodeGenFileType, LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout,
-        LLVMCreateTargetMachine, LLVMDisposeTargetMachine, LLVMGetTargetFromTriple, LLVMRelocMode,
-        LLVMTargetMachineEmitToMemoryBuffer, LLVMTargetMachineRef,
+        LLVMCreateTargetMachine, LLVMGetTargetFromTriple, LLVMRelocMode,
+        LLVMTargetMachineEmitToMemoryBuffer,
     },
+};
+use llvm_sys::{
+    core::{
+        LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy,
+        LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMDisposeModule, LLVMPrintModuleToString,
+    },
+    error::{LLVMDisposeErrorMessage, LLVMGetErrorMessage},
+    ir_reader::LLVMParseIRInContext2,
+    prelude::{LLVMContextRef, LLVMModuleRef},
+    target_machine::{LLVMDisposeTargetMachine, LLVMTargetMachineRef},
     transforms::pass_builder::{
         LLVMCreatePassBuilderOptions, LLVMDisposePassBuilderOptions, LLVMRunPasses,
     },
 };
-use std::{
-    ffi::{CStr, CString},
-    marker::PhantomData,
-};
+use std::ffi::CStr;
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+use std::{ffi::CString, marker::PhantomData};
 
 /// An LLVM module parsed from textual IR into a context of its own.
 pub(crate) struct LlvmModule {
@@ -64,22 +73,22 @@ impl LlvmModule {
         }
     }
 
-    #[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
+    #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
     pub(crate) fn raw(&self) -> LLVMModuleRef {
         self.module
     }
 
-    #[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
+    #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
     pub(crate) fn set_triple(&self, triple: &CStr) {
         // SAFETY: the module is live for `self`'s lifetime.
         unsafe { LLVMSetTarget(self.module, triple.as_ptr()) }
     }
 
-    #[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
     /// The function `name` defines, which a kernel's entry point must be.
     ///
     /// # Errors
     /// When the module defines no such function, or `name` contains a NUL.
+    #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
     pub(crate) fn entry_point(&self, name: &str) -> Result<EntryFunction<'_>, String> {
         let c_name =
             CString::new(name).map_err(|_| format!("kernel name '{name}' contains a NUL"))?;
@@ -91,9 +100,9 @@ impl LlvmModule {
         Ok(EntryFunction { module: self, func })
     }
 
-    #[cfg(feature = "amdgpu")]
     /// Adds the module flag `key = value`, which a module linked into this one must agree
     /// with.
+    #[cfg(feature = "amdgpu")]
     pub(crate) fn add_module_flag(&self, key: &str, value: u32) {
         use llvm_sys::LLVMModuleFlagBehavior;
         use llvm_sys::core::{
@@ -113,8 +122,8 @@ impl LlvmModule {
         }
     }
 
-    #[cfg(feature = "amdgpu")]
     /// The metadata kind `name` names in this module's context.
+    #[cfg(feature = "amdgpu")]
     fn metadata_kind(&self, name: &str) -> u32 {
         use llvm_sys::core::LLVMGetMDKindIDInContext;
 
@@ -164,13 +173,13 @@ impl Drop for LlvmModule {
 }
 
 /// A kernel's entry point in an [`LlvmModule`], and what finalizing a kernel does to it.
-#[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub(crate) struct EntryFunction<'m> {
     module: &'m LlvmModule,
     func: LLVMValueRef,
 }
 
-#[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 impl<'m> EntryFunction<'m> {
     pub(crate) fn set_calling_convention(&self, convention: u32) {
         // SAFETY: the function is live for the module's lifetime.
@@ -195,20 +204,33 @@ impl<'m> EntryFunction<'m> {
         }
     }
 
-    pub(crate) fn param_count(&self) -> u32 {
+    fn param_count(&self) -> u32 {
         // SAFETY: the function is live.
         unsafe { LLVMCountParams(self.func) }
     }
 
-    /// The function's parameters, in declaration order.
-    pub(crate) fn params(&self) -> impl DoubleEndedIterator<Item = Param> + use<> {
-        (0..self.param_count()).map(Param)
+    /// The parameters before the last `trailing`, then the last `trailing`, each in declaration
+    /// order: the entry ABI puts the buffers first and appends what the target passes after
+    /// them.
+    pub(crate) fn split_params(
+        &self,
+        trailing: u32,
+    ) -> (
+        impl Iterator<Item = Param> + use<>,
+        impl Iterator<Item = Param> + use<>,
+    ) {
+        let count = self.param_count();
+        let first_trailing = count.saturating_sub(trailing);
+        (
+            (0..first_trailing).map(Param),
+            (first_trailing..count).map(Param),
+        )
     }
 
     /// The parameter the entry ABI lowering appended last, or `None` for a function with none.
     #[cfg(feature = "nvptx")]
     pub(crate) fn last_param(&self) -> Option<Param> {
-        self.params().next_back()
+        self.split_params(1).1.next()
     }
 
     pub(crate) fn param_is_pointer(&self, param: Param) -> bool {
@@ -235,9 +257,9 @@ impl<'m> EntryFunction<'m> {
         true
     }
 
-    #[cfg(feature = "nvptx")]
     /// Declares `param` a by-value block of `bytes` bytes. Returns `false` when this LLVM has no
     /// `byval` attribute.
+    #[cfg(feature = "nvptx")]
     #[must_use]
     pub(crate) fn add_param_byval(&self, param: Param, bytes: u64) -> bool {
         use llvm_sys::core::{LLVMArrayType2, LLVMCreateTypeAttribute, LLVMInt8TypeInContext};
@@ -254,8 +276,8 @@ impl<'m> EntryFunction<'m> {
         true
     }
 
-    #[cfg(feature = "amdgpu")]
     /// Attaches the metadata `kind`, a tuple of 32-bit integers, to the function.
+    #[cfg(feature = "amdgpu")]
     pub(crate) fn set_metadata(&self, kind: &str, values: &[u32]) {
         use llvm_sys::core::{
             LLVMConstInt, LLVMGlobalSetMetadata, LLVMInt32TypeInContext, LLVMMDNodeInContext2,
@@ -322,13 +344,13 @@ impl<'m> EntryFunction<'m> {
 }
 
 /// An instruction of an [`EntryFunction`].
-#[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub(crate) struct Instruction<'m> {
     inst: LLVMValueRef,
     module: PhantomData<&'m LlvmModule>,
 }
 
-#[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 impl Instruction<'_> {
     pub(crate) fn is_atomic_load(&self) -> bool {
         // SAFETY: the instruction is live.
@@ -352,29 +374,19 @@ impl Instruction<'_> {
 
 /// One parameter of an [`EntryFunction`], which is the only thing that hands one out: an index
 /// of its own would name a parameter the function may not have.
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
 pub(crate) struct Param(u32);
 
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 impl Param {
     /// Its attribute index: 0 is the return value, the parameters follow.
     fn attribute_index(self) -> u32 {
         self.0 + 1
     }
-
-    /// Whether it is at or past `first`, in declaration order.
-    #[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
-    pub(crate) fn is_at_or_after(self, first: u32) -> bool {
-        self.0 >= first
-    }
-
-    /// Its position in declaration order, to read a parallel list by.
-    #[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
-    pub(crate) fn position(self) -> usize {
-        self.0 as usize
-    }
 }
 
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 fn enum_attribute_kind(name: &str) -> Option<u32> {
     // SAFETY: `name` is read for the length given.
     let kind = unsafe { LLVMGetEnumAttributeKindForName(name.as_ptr() as *const _, name.len()) };
@@ -382,7 +394,7 @@ fn enum_attribute_kind(name: &str) -> Option<u32> {
 }
 
 /// What a target machine is built from.
-#[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub(crate) struct TargetSpec<'a> {
     pub triple: &'a CStr,
     /// The architecture, as the target names it: `sm_60`, `gfx1201`.
@@ -392,9 +404,11 @@ pub(crate) struct TargetSpec<'a> {
 }
 
 /// An LLVM target machine at the aggressive optimization level.
+// The CPU runs its passes without one, so only the GPU targets ever build it.
+#[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
 pub(crate) struct TargetMachine(LLVMTargetMachineRef);
 
-#[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 impl TargetMachine {
     /// The target `spec` names must have been initialized.
     ///

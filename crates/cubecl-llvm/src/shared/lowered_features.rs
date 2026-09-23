@@ -17,6 +17,28 @@ use cubecl_core::ir::{IntKind, UIntKind};
 
 const HALF: ElemType = ElemType::Float(FloatKind::F16);
 
+/// The GPU target a device's features are narrowed for, with what its lowering depends on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GpuTarget {
+    #[cfg(feature = "nvptx")]
+    Nvptx,
+    /// `wmma` is the part's WMMA generation, `None` on a part without one.
+    #[cfg(feature = "amdgpu")]
+    AmdGpu { wmma: Option<AmdWmma> },
+}
+
+/// Narrows `props` to what the LLVM backend lowers for `target`: the matrix forms that target
+/// has register shapes for, and nothing that neither target lowers.
+pub fn restrict_features(props: &mut DeviceProperties, target: GpuTarget) {
+    match target {
+        #[cfg(feature = "nvptx")]
+        GpuTarget::Nvptx => keep_nvptx_matrix_forms(props),
+        #[cfg(feature = "amdgpu")]
+        GpuTarget::AmdGpu { wmma } => keep_amdgpu_matrix_forms(props, wmma),
+    }
+    restrict_common(props);
+}
+
 /// An accumulator the half-precision matrix instructions of both targets write.
 fn is_half_or_single(ty: ElemType) -> bool {
     matches!(
@@ -25,10 +47,9 @@ fn is_half_or_single(ty: ElemType) -> bool {
     )
 }
 
-/// Keeps the matrix forms NVPTX has register shapes for, and takes away what neither target
-/// lowers.
+/// Keeps the matrix forms NVPTX has register shapes for.
 #[cfg(feature = "nvptx")]
-pub fn restrict_nvptx_features(props: &mut DeviceProperties) {
+fn keep_nvptx_matrix_forms(props: &mut DeviceProperties) {
     // Both matrix families are lowered: the cooperative one through `wmma`, the manual one
     // through `mma.sync`. Each is narrowed to the element types its lowering has register
     // shapes for -- `f16` operands throughout, plus the narrow integers on the manual side,
@@ -59,16 +80,13 @@ pub fn restrict_nvptx_features(props: &mut DeviceProperties) {
     });
     // The manual `mma.sync` family, `ldmatrix` and `stmatrix` are advertised as lowered;
     // `test_cmma_manual` checks them element by element.
-
-    restrict_common(props);
 }
 
-/// Keeps the matrix forms AMDGPU lowers, then removes what neither target lowers. The matrix
-/// lowering is RDNA's WMMA with `f16` operands: CDNA's MFMA, the integer and fp8
+/// Keeps the matrix forms AMDGPU lowers. The matrix lowering is RDNA's WMMA with `f16` operands: CDNA's MFMA, the integer and fp8
 /// WMMA forms and `bf16` (see `restrict_common`) have none. The plane operations work under
 /// divergence, since they read the active lanes from `exec`, so they are left as advertised.
 #[cfg(feature = "amdgpu")]
-pub fn restrict_amdgpu_features(props: &mut DeviceProperties, wmma: Option<AmdWmma>) {
+fn keep_amdgpu_matrix_forms(props: &mut DeviceProperties, wmma: Option<AmdWmma>) {
     let lowered = |a: ElemType, b: ElemType, cd: ElemType| {
         wmma.is_some() && a == HALF && b == HALF && is_half_or_single(cd)
     };
@@ -79,8 +97,6 @@ pub fn restrict_amdgpu_features(props: &mut DeviceProperties, wmma: Option<AmdWm
     matmul
         .mma
         .retain(|config| lowered(config.a_type, config.b_type, config.cd_type));
-
-    restrict_common(props);
 }
 
 /// What neither GPU target lowers.
@@ -157,7 +173,8 @@ mod tests {
 
     fn restricted_for(arch: &str) -> DeviceProperties {
         let mut props = advertising_every_matrix_form();
-        restrict_amdgpu_features(&mut props, GfxArch::parse(arch).wmma());
+        let wmma = GfxArch::parse(arch).wmma();
+        restrict_features(&mut props, GpuTarget::AmdGpu { wmma });
         props
     }
 

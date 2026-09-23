@@ -18,17 +18,20 @@ pub(crate) fn annotate_buffer_params(
     // Atomic loads must retain coherent memory access.
     let may_say_readonly = !entry.instructions().any(|inst| inst.is_atomic_load());
 
-    let first_metadata = entry.param_count().saturating_sub(metadata_params);
-    for param in entry
-        .params()
-        .filter(|param| entry.param_is_pointer(*param))
-    {
-        let _ = entry.add_param_attribute(param, "noalias", 0);
+    let (buffers, metadata) = entry.split_params(metadata_params);
+    let buffers = buffers.enumerate().map(|(binding, param)| {
+        let read_only = io
+            .get(binding)
+            .is_some_and(|attr| *attr == BufferIOAttr::ReadOnly);
+        (param, read_only)
+    });
+    let metadata = metadata.map(|param| (param, true));
 
-        let read_only = param.is_at_or_after(first_metadata)
-            || io
-                .get(param.position())
-                .is_some_and(|attr| *attr == BufferIOAttr::ReadOnly);
+    for (param, read_only) in buffers.chain(metadata) {
+        if !entry.param_is_pointer(param) {
+            continue;
+        }
+        let _ = entry.add_param_attribute(param, "noalias", 0);
         if read_only && may_say_readonly {
             let _ = entry.add_param_attribute(param, "readonly", 0);
         }

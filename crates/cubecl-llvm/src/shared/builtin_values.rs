@@ -6,7 +6,7 @@ use cubecl_core::{self as cubecl, prelude::*};
 
 const NB_BUILTIN: usize = 31;
 
-/// Builtins available to CPU kernels.
+/// The value each builtin reads as, once a target has computed it.
 #[derive(Default)]
 pub(crate) struct BuiltinValues([Option<Value>; NB_BUILTIN]);
 
@@ -85,7 +85,7 @@ pub(crate) fn cube_count(cube_count_x: u32, cube_count_y: u32, cube_count_z: u32
 }
 
 /// Sets the builtins a cube's shape decides: the cube and cluster dimensions, and the cluster
-/// position, which is the single cluster neither GPU target nor the CPU has.
+/// position.
 pub(crate) fn set_dim_and_cluster_constants(
     scope: &Scope,
     builtins: &mut BuiltinValues,
@@ -106,7 +106,7 @@ pub(crate) fn set_dim_and_cluster_constants(
     set_const(Builtin::CubeClusterDimZ, cluster_dim.z);
     set_const(Builtin::CubeClusterDim, cluster_dim.num_elems());
 
-    // Clusters are not supported on this target.
+    // No target lowers clusters, so every cube is at cluster position zero.
     set_const(Builtin::CubePosCluster, 0);
     set_const(Builtin::CubePosClusterX, 0);
     set_const(Builtin::CubePosClusterY, 0);

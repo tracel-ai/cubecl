@@ -36,6 +36,7 @@ use cubecl_cpp::{
     },
 };
 use cubecl_llvm::nvptx::ptx_version::PtxVersion;
+use cubecl_llvm::shared::lowered_features::{GpuTarget, restrict_features};
 use cubecl_server::{
     allocator::PitchedMemoryLayoutPolicy, logging::ServerLogger, runtime::Runtime,
 };
@@ -368,7 +369,7 @@ impl DeviceService for CudaServer {
         // compile rather than a slower one.
         let backend = CudaBackend::default();
         if backend == CudaBackend::Llvm {
-            cubecl_llvm::shared::lowered_features::restrict_nvptx_features(&mut device_props);
+            restrict_features(&mut device_props, GpuTarget::Nvptx);
         }
 
         let comp_opts = CudaCompilationOptions {
