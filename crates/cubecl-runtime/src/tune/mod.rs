@@ -34,6 +34,9 @@ mod key_generator;
 mod local;
 mod log;
 mod operation;
+// What a tune leaves in the environment beside its answer.
+#[cfg(persistence)]
+mod record;
 // Both are the adaptive strategy, which only the native driver can run.
 #[cfg(not(target_family = "wasm"))]
 mod sampler;
@@ -53,6 +56,8 @@ pub use key_generator::*;
 pub use local::*;
 pub use log::*;
 pub use operation::*;
+#[cfg(persistence)]
+pub use record::{Trial, TuneRecord};
 pub use tune_benchmark::*;
 pub use tune_cache::*;
 pub use tune_inputs::*;

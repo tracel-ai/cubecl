@@ -90,10 +90,11 @@ embassy-time = { version = "0.5", default-features = false }
 etcetera = "0.11.0"
 js-sys = "0.3"
 parking_lot = { version = "0.12.5", default-features = false }
-rusqlite = { version = "0.40", features = ["bundled"] }
+turso = { version = "0.8.0-pre.8", default-features = false }
 sanitize-filename = "0.6"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4.45"
+wasm-bindgen-test = "0.3"
 web-sys = "0.3"
 web-time = "1.1.0"
 
@@ -183,9 +184,8 @@ llvm-sys = { version = "231", features = [
     "no-llvm-linking",
     "disable-alltargets-init",
 ] }
-# NVPTX is not in the released bundle; developing against the local checkout that adds it.
-# Back to the git rev once tracel-llvm cuts 23.1.0-2.
-tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm.git", rev = "4769fd52f2205435134d6a3c606f94aad6876155" }
+tracel-llvm-bundler = "23.1.0-3"
+# tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm.git", rev = "4769fd52f2205435134d6a3c606f94aad6876155" }
 # tracel-llvm-bundler = { path = "../tracel-llvm/crates/tracel-llvm-bundler" }
 
 cudarc = { version = "0.19.6", features = [

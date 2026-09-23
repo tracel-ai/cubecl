@@ -35,6 +35,7 @@ use cubecl_cpp::{
         register_scaled_mma_features, register_wmma_features,
     },
 };
+use cubecl_llvm::nvptx::ptx_version::PtxVersion;
 use cubecl_server::{
     allocator::PitchedMemoryLayoutPolicy,
     config::{CubeClRuntimeConfig, RuntimeConfig},
@@ -43,7 +44,9 @@ use cubecl_server::{
 };
 #[cfg(windows)]
 use cudarc::driver::sys::cuDeviceGetLuid;
-use cudarc::driver::sys::{CUDA_VERSION, CUdevice, cuDeviceGetPCIBusId, cuDeviceTotalMem_v2};
+use cudarc::driver::sys::{
+    CUDA_VERSION, CUdevice, cuDeviceGetPCIBusId, cuDeviceTotalMem_v2, cuDriverGetVersion,
+};
 use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
 
 /// Options configuring the CUDA runtime.
@@ -81,6 +84,15 @@ impl DeviceService for CudaServer {
         .unwrap();
             arch_major * 10 + minor
         } as u32;
+
+        // SAFETY: `cuDriverGetVersion` writes the version into `version`, which outlives the call.
+        let driver_version = unsafe {
+            let mut version = 0;
+            cuDriverGetVersion(&mut version)
+                .result()
+                .expect("the PTX version is chosen from the driver's");
+            version
+        };
 
         // This is the alignment returned by `cuMallocPitched`, so it's the one considered optimal
         // for row alignment by CUDA. This hasn't changed since at least the GTX 700 series.
@@ -365,6 +377,7 @@ impl DeviceService for CudaServer {
         let comp_opts = CudaCompilationOptions {
             cpp: comp_opts,
             arch: Some(SmArch::new(arch_version, arch.tensor_cores)),
+            ptx_version: PtxVersion::for_driver(driver_version),
         };
         // The context is current (set above), so the stream lands on it.
         let comm_stream = crate::compute::stream::create_cuda_stream(

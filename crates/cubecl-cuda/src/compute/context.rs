@@ -19,6 +19,7 @@ use cubecl_core::{
     server::ResourceLimitError,
 };
 use cubecl_environment::persistence::Store;
+use cubecl_llvm::nvptx::ptx_version::PtxVersion;
 use cubecl_server::{
     compiler::KernelCacheKey,
     kernel::{CompiledKernel, CubeKernel},
@@ -33,7 +34,9 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::{ffi::CStr, os::raw::c_void};
 
-use cubecl_server::compiler::{CompilationCache, compilation_store, store_compiled};
+use cubecl_server::compiler::{
+    CompilationCache, CompilationRecording, compilation_store, store_compiled,
+};
 
 #[derive(Debug)]
 pub(crate) struct CudaContext {
@@ -87,13 +90,19 @@ pub struct PtxCacheEntry {
 /// The namespace a backend's compiled artifacts live under.
 ///
 /// Both backends emit PTX, so without the backend in the key a stale artifact from one would
-/// load and run happily under the other -- tests passing while measuring nothing.
-fn cache_namespace(fingerprint: &str, backend: CudaBackend) -> String {
-    let backend = match backend {
-        CudaBackend::Cpp => "cpp",
-        CudaBackend::Llvm => "llvm",
-    };
-    format!("{fingerprint}-{backend}")
+/// load and run happily under the other -- tests passing while measuring nothing. The LLVM
+/// backend's PTX version follows the driver, so it is in the key too: after a driver downgrade,
+/// PTX newer than the driver loads would otherwise be read back and refused.
+fn cache_namespace(
+    fingerprint: &str,
+    backend: CudaBackend,
+    ptx_version: Option<PtxVersion>,
+) -> String {
+    match (backend, ptx_version) {
+        (CudaBackend::Cpp, _) => format!("{fingerprint}-cpp"),
+        (CudaBackend::Llvm, None) => format!("{fingerprint}-llvm"),
+        (CudaBackend::Llvm, Some(ptx_version)) => format!("{fingerprint}-llvm-{ptx_version}"),
+    }
 }
 
 impl CudaContext {
@@ -106,7 +115,11 @@ impl CudaContext {
         backend: CudaBackend,
         comm_stream: CUstream,
     ) -> Self {
-        let fingerprint = cache_namespace(&format!("ptx_sm{}", arch.version), backend);
+        let fingerprint = cache_namespace(
+            &format!("ptx_sm{}", arch.version),
+            backend,
+            compilation_options.ptx_version,
+        );
         let ptx_cache = compilation_store("cuda", &fingerprint);
         let second_line_ptx_cache = compilation_store("cuda-second-line", fingerprint);
 
@@ -179,8 +192,12 @@ impl CudaContext {
         kernel: Box<dyn CubeKernel>,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
+        let mut recording = CompilationRecording::new(kernel_id);
         let key = match self.try_load_cached(kernel_id)? {
-            Ok(()) => return Ok(()),
+            Ok(()) => {
+                recording.loaded();
+                return Ok(());
+            }
             Err(key) => key,
         };
 
@@ -190,6 +207,7 @@ impl CudaContext {
         validate_units(&self.properties, kernel_id)?;
 
         let definition = kernel.define();
+        recording.defined(&definition);
         let jitc_kernel = CompiledKernel::compile(
             &*kernel,
             definition,
@@ -198,31 +216,36 @@ impl CudaContext {
         )?;
 
         self.validate_shared(&jitc_kernel.repr)?;
+        recording.source(&jitc_kernel.source);
 
-        self.load_jit_kernel(kernel_id, key, jitc_kernel, logger)
+        self.load_jit_kernel(kernel_id, key, jitc_kernel, logger, recording)
     }
 
-    /// Loads what the compiler produced, by the route that backend's output takes.
+    /// Loads what the compiler produced, by the route that backend's output takes, and closes
+    /// `recording` with how the artifact was obtained.
     fn load_jit_kernel(
         &mut self,
         kernel_id: &KernelId,
         key: Option<KernelCacheKey>,
         jitc_kernel: CompiledKernel<CudaCompiler>,
         logger: Arc<ServerLogger>,
+        recording: CompilationRecording,
     ) -> Result<(), LaunchError> {
         match &jitc_kernel.repr {
             Some(CudaRepresentation::Cpp(_)) => {
-                self.load_transpiled(kernel_id, key, jitc_kernel, logger)
+                self.load_transpiled(kernel_id, key, jitc_kernel, logger, recording)
             }
             Some(CudaRepresentation::Llvm(_)) => {
-                self.load_emitted_ptx(kernel_id, key, jitc_kernel, logger)
+                self.load_emitted_ptx(kernel_id, key, jitc_kernel, logger, recording)
             }
             // A precompiled kernel: its text passed the language check in
             // `CompiledKernel::compile`, so it is whatever the default backend reads. CUDA
             // C++ goes through NVRTC like a transpiled kernel; the LLVM backend produces PTX
             // from the dialect and has no route for text.
             None => match CudaBackend::default() {
-                CudaBackend::Cpp => self.load_transpiled(kernel_id, key, jitc_kernel, logger),
+                CudaBackend::Cpp => {
+                    self.load_transpiled(kernel_id, key, jitc_kernel, logger, recording)
+                }
                 CudaBackend::Llvm => Err(CompilationError::Generic {
                     reason: "the LLVM backend cannot load a precompiled kernel: it has no text to \
                          compile from"
@@ -245,6 +268,7 @@ impl CudaContext {
         key: Option<KernelCacheKey>,
         mut jitc_kernel: CompiledKernel<CudaCompiler>,
         logger: Arc<ServerLogger>,
+        recording: CompilationRecording,
     ) -> Result<(), LaunchError> {
         let Some(CudaRepresentation::Llvm(module)) = &jitc_kernel.repr else {
             unreachable!("dispatched on the representation");
@@ -273,8 +297,8 @@ impl CudaContext {
         // `try_load_cached` hands back a key exactly when there is a cache to put it in. No
         // second-line entry: that cache is keyed on generated C++ source, which this backend
         // never produces.
-        if let Some((cache, key)) = self.ptx_cache.as_mut().zip(key) {
-            store_compiled(
+        let stored = match self.ptx_cache.as_mut().zip(key) {
+            Some((cache, key)) => store_compiled(
                 cache,
                 key,
                 PtxCacheEntry {
@@ -283,8 +307,10 @@ impl CudaContext {
                     ptx,
                     io,
                 },
-            );
-        }
+            ),
+            None => false,
+        };
+        recording.compiled(stored);
         Ok(())
     }
 
@@ -296,6 +322,7 @@ impl CudaContext {
         key: Option<KernelCacheKey>,
         mut jitc_kernel: CompiledKernel<CudaCompiler>,
         logger: Arc<ServerLogger>,
+        recording: CompilationRecording,
     ) -> Result<(), LaunchError> {
         if logger.compilation_source_activated() {
             jitc_kernel.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
@@ -314,10 +341,11 @@ impl CudaContext {
                 && let Some(entry) = cache.purge_key(&old_key)
             {
                 log::trace!("Using second-line PTX cache");
-                store_compiled(cache, key, entry);
+                let stored = store_compiled(cache, key, entry);
                 store_compiled(second_line_cache, cpp_hash, key);
                 self.try_load_cached(kernel_id)?
                     .expect("Should be cached now");
+                recording.rekeyed(stored);
                 return Ok(());
             }
 
@@ -340,21 +368,25 @@ impl CudaContext {
             .map(|repr| repr.shared_memory_size())
             .unwrap_or(0);
 
-        if let Some(cache) = &mut self.ptx_cache {
-            let second_line_cache = self.second_line_ptx_cache.as_mut().unwrap();
-            let key = key.unwrap();
-            store_compiled(
-                cache,
-                key,
-                PtxCacheEntry {
-                    entrypoint_name: jitc_kernel.entrypoint_name.clone(),
-                    shared_mem_bytes,
-                    ptx: ptx.clone(),
-                    io: io.clone(),
-                },
-            );
-            store_compiled(second_line_cache, cpp_hash.unwrap(), key);
-        }
+        let stored = match &mut self.ptx_cache {
+            Some(cache) => {
+                let second_line_cache = self.second_line_ptx_cache.as_mut().unwrap();
+                let key = key.unwrap();
+                let stored = store_compiled(
+                    cache,
+                    key,
+                    PtxCacheEntry {
+                        entrypoint_name: jitc_kernel.entrypoint_name.clone(),
+                        shared_mem_bytes,
+                        ptx: ptx.clone(),
+                        io: io.clone(),
+                    },
+                );
+                store_compiled(second_line_cache, cpp_hash.unwrap(), key);
+                stored
+            }
+            None => false,
+        };
 
         self.load_ptx(
             ptx,
@@ -364,6 +396,7 @@ impl CudaContext {
             shared_mem_bytes,
             io.map(Arc::from),
         )?;
+        recording.compiled(stored);
         Ok(())
     }
 
@@ -543,12 +576,25 @@ impl CudaContext {
 
 #[cfg(test)]
 mod tests {
+    use super::cache_namespace;
+    use crate::compiler::CudaBackend;
+    use cubecl_llvm::nvptx::ptx_version::PtxVersion;
+
     /// See [`super::cache_namespace`] for why this must hold.
     #[test]
     fn cache_namespace_separates_backends() {
         assert_ne!(
-            super::cache_namespace("ptx_sm86", crate::compiler::CudaBackend::Cpp),
-            super::cache_namespace("ptx_sm86", crate::compiler::CudaBackend::Llvm),
+            cache_namespace("ptx_sm86", CudaBackend::Cpp, None),
+            cache_namespace("ptx_sm86", CudaBackend::Llvm, None),
+        );
+    }
+
+    /// See [`super::cache_namespace`] for why this must hold.
+    #[test]
+    fn cache_namespace_separates_the_llvm_backends_ptx_versions() {
+        assert_ne!(
+            cache_namespace("ptx_sm86", CudaBackend::Llvm, PtxVersion::for_driver(12080)),
+            cache_namespace("ptx_sm86", CudaBackend::Llvm, PtxVersion::for_driver(12090)),
         );
     }
 }

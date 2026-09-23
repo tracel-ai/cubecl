@@ -74,6 +74,15 @@ impl ThroughputBenchmarker {
         }
     }
 
+    /// The value already measured for `key`, where the cache is on and holds one.
+    pub fn cached(&self, key: ThroughputKey) -> Option<ThroughputValue> {
+        if !self.cache_enabled {
+            return None;
+        }
+
+        self.cache.lock().get(&key).copied()
+    }
+
     /// The value for `key`, measured by `probe` unless the cache holds one.
     ///
     /// # Errors

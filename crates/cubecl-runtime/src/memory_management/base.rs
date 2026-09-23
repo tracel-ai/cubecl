@@ -5,7 +5,7 @@ use cubecl_environment::stream::StreamId;
 /// Amount of memory in use by this allocator
 /// and statistics on how much memory is reserved and
 /// wasted in total.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MemoryUsage {
     /// The number of allocations currently active.
     ///
@@ -98,7 +98,7 @@ impl core::fmt::Display for MemoryUsage {
 
 /// The pool shape a [`MemoryPoolReport`] describes, carrying the pool's
 /// effective configuration (after alignment rounding and page-size shrinking).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MemoryPoolKind {
     /// Allocations are slices carved from shared pages.
     Sliced {
@@ -131,7 +131,7 @@ pub enum MemoryPoolKind {
 
 /// A structured snapshot of one memory pool: its shape, its current usage, and
 /// the high-water marks a memory plan is derived from.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MemoryPoolReport {
     /// The pool's shape and effective configuration.
     pub kind: MemoryPoolKind,
@@ -169,14 +169,14 @@ pub enum MemoryScope {
 /// A tuning pass allocates like anything else, so its scratch counts toward
 /// these marks; warming the tune caches in an earlier pass leaves the peaks of
 /// a measured one to the workload alone.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MemoryReport {
     /// One entry per stream the scope covers.
     pub streams: Vec<StreamMemoryReport>,
 }
 
 /// What one stream's memory holds.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct StreamMemoryReport {
     /// The stream the memory belongs to.
     pub stream: StreamId,
@@ -189,7 +189,7 @@ pub struct StreamMemoryReport {
 }
 
 /// A memory a runtime keeps for its own use, and what it holds.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AuxiliaryMemoryReport {
     /// What the memory is for.
     pub name: String,
@@ -198,7 +198,7 @@ pub struct AuxiliaryMemoryReport {
 }
 
 /// What a memory holds, pool by pool.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MemoryPoolsReport {
     /// One entry per dynamic pool, in allocation-routing order, the pools a
     /// growth left behind last.
@@ -242,6 +242,21 @@ impl MemoryPoolsReport {
                 usage.combine(pool.usage.clone())
             })
     }
+}
+
+/// A [`MemoryReport`] as the environment records it: a snapshot of one
+/// stream's pools at a moment the caller named, written by
+/// [`Client::record_memory`](crate::client::Client::record_memory).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MemoryRecord {
+    /// What the caller was doing: `model loaded`, `after the dry run`.
+    pub label: alloc::string::String,
+    /// The pools at that moment.
+    pub report: MemoryReport,
+}
+
+impl cubecl_environment::records::Record for MemoryRecord {
+    const KIND: &'static str = "memory";
 }
 
 /// The managed tensor buffer handle that points to some memory segment.
