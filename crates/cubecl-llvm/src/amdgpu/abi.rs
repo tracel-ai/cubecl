@@ -1,7 +1,9 @@
 //! AMDGPU kernel arguments.
 
 use crate::{
-    amdgpu::builtins::InsertAmdgpuBuiltinsPass, prelude::*, shared::metadata::rebuild_func_type,
+    amdgpu::builtins::AmdGpuDispatch,
+    prelude::*,
+    shared::{builtins::InsertGpuBuiltinsPass, metadata::rebuild_func_type},
 };
 use cubecl_opt::passes::alloc_shared_memory::AllocateSharedMemoryBlockPass;
 
@@ -58,9 +60,10 @@ impl TargetLowering for AmdGpuLowering {
     }
 
     fn epilogue(&self, passes: &mut OpPass<FuncOp, Passes>) {
-        passes.add_pass(InsertAmdgpuBuiltinsPass {
-            plane_dim: self.plane_dim,
-        });
+        passes.add_pass(InsertGpuBuiltinsPass::new(
+            Box::new(AmdGpuDispatch),
+            self.plane_dim,
+        ));
     }
 
     fn arg_layout(&self) -> Box<dyn EntryArgLayout> {

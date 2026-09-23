@@ -2,7 +2,7 @@
 
 use crate::{
     prelude::*,
-    shared::plane::{PlaneLowering, bitcast, call_intrinsic, narrow_from_i32, widen_to_i32},
+    shared::plane::{PlaneLowering, call_intrinsic, route_words},
 };
 
 const LANEID: &str = "llvm.nvvm.read.ptx.sreg.laneid";
@@ -16,8 +16,7 @@ const VOTE_BALLOT: &str = "llvm.nvvm.vote.ballot.sync";
 const VOTE_ALL: &str = "llvm.nvvm.vote.all.sync";
 const VOTE_ANY: &str = "llvm.nvvm.vote.any.sync";
 
-/// Plane operations require participation from every lane.
-const FULL_MASK: i32 = -1;
+const ACTIVEMASK: &str = "llvm.nvvm.activemask";
 
 /// Shuffle bounds: bits 4:0 limit the source lane; bits 12:8 select the segment.
 const CLAMP_TO_TOP: i32 = 0x1f;
@@ -49,7 +48,7 @@ impl PlaneLowering for NvptxPlane {
         predicate: Value,
     ) -> Value {
         let ty = i32_ty(ctx);
-        let mask = insert_i32_const(ctx, rw, FULL_MASK);
+        let mask = member_mask(ctx, rw);
         call_intrinsic(ctx, rw, VOTE_BALLOT, ty, vec![mask, predicate])
     }
 
@@ -95,6 +94,14 @@ impl PlaneLowering for NvptxPlane {
     }
 }
 
+/// The lanes a plane operation synchronizes: the ones executing it, as the C++ backend's
+/// `__activemask()` does, so an operation inside a branch only a part of the plane takes waits
+/// for that part rather than for lanes that never reach it.
+fn member_mask(ctx: &mut Context, rw: &mut DialectConversionRewriter) -> Value {
+    let ty = i32_ty(ctx);
+    call_intrinsic(ctx, rw, ACTIVEMASK, ty, vec![])
+}
+
 fn vote(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
@@ -102,7 +109,7 @@ fn vote(
     predicate: Value,
 ) -> Value {
     let bool_ty = IntegerType::get(ctx, 1, Signedness::Signless).into();
-    let mask = insert_i32_const(ctx, rw, FULL_MASK);
+    let mask = member_mask(ctx, rw);
     call_intrinsic(ctx, rw, name, bool_ty, vec![mask, predicate])
 }
 
@@ -116,33 +123,11 @@ fn shfl(
     value_ty: TypeHandle,
 ) -> Value {
     let i32_ty = i32_ty(ctx);
-    let mask = insert_i32_const(ctx, rw, FULL_MASK);
+    let mask = member_mask(ctx, rw);
     let clamp = insert_i32_const(ctx, rw, clamp);
 
-    let llvm_ty = cube_type_to_llvm(ctx, value_ty);
-    let bits = value_ty.size_bits(ctx) as u32;
-    let words = bits.div_ceil(32);
-
-    if words == 1 {
-        let as_i32 = widen_to_i32(ctx, rw, value, bits);
-        let args = vec![mask, as_i32, operand, clamp];
-        let routed = call_intrinsic(ctx, rw, name, i32_ty, args);
-        return narrow_from_i32(ctx, rw, routed, bits, llvm_ty);
-    }
-
-    let words_ty = LlvmVectorType::get(ctx, i32_ty, words, VectorTypeKind::Fixed).into();
-    let as_words = bitcast(ctx, rw, value, words_ty);
-
-    let poison = llvm::PoisonOp::new(ctx, words_ty);
-    let mut acc = insert(ctx, rw, &poison);
-    for word in 0..words {
-        let index = insert_i32_const(ctx, rw, word as i32);
-        let extract = llvm::ExtractElementOp::new(ctx, as_words, index);
-        let word_value = insert(ctx, rw, &extract);
-        let args = vec![mask, word_value, operand, clamp];
-        let one = call_intrinsic(ctx, rw, name, i32_ty, args);
-        let op = llvm::InsertElementOp::new(ctx, acc, one, index);
-        acc = insert(ctx, rw, &op);
-    }
-    bitcast(ctx, rw, acc, llvm_ty)
+    route_words(ctx, rw, value, value_ty, |ctx, rw, word| {
+        let args = vec![mask, word, operand, clamp];
+        call_intrinsic(ctx, rw, name, i32_ty, args)
+    })
 }

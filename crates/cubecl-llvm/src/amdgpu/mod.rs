@@ -8,6 +8,8 @@ pub mod intrinsic;
 pub mod lld;
 pub mod matrix;
 pub mod ocml;
+#[cfg(test)]
+mod offline_tests;
 pub mod plane;
 pub mod printf;
 pub mod synchronization;
