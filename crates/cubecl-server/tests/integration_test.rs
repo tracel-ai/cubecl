@@ -507,6 +507,16 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     assert_eq!(tune.short_circuit, None);
     assert!(!tune.dry_run);
     assert!(tune.stored, "the table took the answer");
+    let plan: Vec<(&str, Option<usize>)> = tune
+        .plan
+        .iter()
+        .map(|planned| (planned.name.as_str(), planned.batch))
+        .collect();
+    assert_eq!(
+        plan,
+        vec![("add", Some(0)), ("add_slow_wrong", Some(0))],
+        "two ungrouped candidates share the one batch"
+    );
 
     let sessions = Records::new(&database).sessions();
     assert_eq!(sessions.len(), 1);

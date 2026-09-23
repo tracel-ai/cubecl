@@ -178,6 +178,17 @@ impl RuntimeConfig for CubeClRuntimeConfig {
             self.environment.name = val;
         }
 
+        if let Ok(val) = std::env::var("CUBECL_ENVIRONMENT_RECORDS") {
+            use cubecl_environment::records::RecordLevel;
+
+            match val.as_str() {
+                "off" | "0" => self.environment.records.level = RecordLevel::Off,
+                "basic" | "1" => self.environment.records.level = RecordLevel::Basic,
+                "full" | "2" => self.environment.records.level = RecordLevel::Full,
+                _ => {}
+            }
+        }
+
         if let Some(enabled) = env_bool("CUBECL_AUTOTUNE_CACHE") {
             self.autotune.disable_cache = !enabled;
         }

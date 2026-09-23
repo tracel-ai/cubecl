@@ -187,6 +187,12 @@ CubeCL supports several environment variables to override configuration at runti
   - `"full"`/`"3"`
 - `CUBECL_CPU_F16_EVAL`: Sets `compilation.f16_evaluation`.
   - `"per-operation"`, `"chain"`, `"accumulators"`
+- `CUBECL_ENVIRONMENT`: Sets `environment.name`, the environment to activate.
+- `CUBECL_ENVIRONMENT_RECORDS`: Sets `environment.records.level`, how much the
+  environment records of its own build.
+  - `"off"`/`"0"`
+  - `"basic"`/`"1"`
+  - `"full"`/`"2"`: also each compiled kernel's IR and source.
 
 **Example (Linux/macOS):**
 

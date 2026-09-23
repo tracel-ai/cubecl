@@ -303,7 +303,8 @@ impl<K: AutotuneKey> Tuner<K> {
         // After the fast path: a key with one candidate is answered, not
         // tuned, and leaves nothing to record.
         #[cfg(persistence)]
-        let recording = crate::tune::record::TuneRecording::new(&self.cache.lock(), key, &checksum);
+        let mut recording =
+            crate::tune::record::TuneRecording::new(&self.cache.lock(), key, &checksum);
         // A recorded tune tracks its steps whether or not anything logs them:
         // the log context is what collects the record's trials.
         #[cfg(persistence)]
@@ -313,6 +314,11 @@ impl<K: AutotuneKey> Tuner<K> {
 
         let test_inputs = tunables.generate_inputs(key, inputs);
         let plan = tunables.plan(key);
+        #[cfg(persistence)]
+        if recording.is_open() {
+            let names: Vec<&str> = autotunables.iter().map(|tune| tune.name.as_str()).collect();
+            recording.plan(&plan, &names);
+        }
         let bounds = tunables.bounds(key, inputs);
         let limit = bounds.as_ref().and_then(|bounds| bounds.time_limit());
 
