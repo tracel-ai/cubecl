@@ -10,8 +10,8 @@ use cubecl_hip::HipRuntime;
 use cubecl_server::runtime::Runtime;
 use std::sync::Mutex;
 
-/// Graph capture toggles device-global allocation state (persistent mode) on
-/// the one cached client, so two captures must not overlap — exactly one
+/// Graph capture holds the one cached client's stream for its whole window,
+/// so two captures must not overlap — exactly one
 /// capture at a time per device, as in real use. Serialize the tests instead
 /// of relying on `--test-threads 1`.
 static CAPTURE_LOCK: Mutex<()> = Mutex::new(());
@@ -51,7 +51,7 @@ fn hip_graph_capture_replay() {
         );
     };
 
-    // Prepare arms the persistent pool; it is mandatory before a capture.
+    // Prepare starts the warmup run; it is mandatory before a capture.
     client.graph_prepare().expect("graph_prepare");
 
     // Warm up: compile the kernel and allocate every buffer, so capture stays
@@ -81,9 +81,9 @@ fn hip_graph_capture_replay() {
 /// holding an allocation node it never frees cannot be relaunched: the first launch succeeds and
 /// every later one fails. Nothing else catches this — instantiation succeeds, and the graph
 /// upload does not inspect memory nodes — so a caller that trusted `stop_capture` would only
-/// discover it on its second replay, far from the cause. Warmup usually leaves the persistent
-/// pool able to serve the recorded run, so real workloads hit the growth path only
-/// intermittently; this forces it by allocating a size the pool has never seen inside the window.
+/// discover it on its second replay, far from the cause. So nothing is allocated while recording:
+/// warmup usually leaves the pools able to serve the recorded run, and this forces the case where
+/// it does not by asking for a size the pools have never seen inside the window.
 #[test]
 fn hip_graph_capture_growing_the_pool_is_rejected() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -178,11 +178,10 @@ fn hip_graph_input_rewrite() {
 /// reallocates sentinel buffers over its freed slice, then replays.
 ///
 /// The graph's own output stays correct (its first kernel rewrites `tmp`
-/// before the second reads it — write-before-read), and with buffer retention
-/// (`graph_prepare` routes capture-phase allocations into the persistent pool,
-/// warmup populates it, `end_capture` pins those slices) a later allocation
-/// can no longer reuse `tmp`'s slice, so replay does **not** clobber the
-/// sentinels. This is the acceptance test for that retention.
+/// before the second reads it — write-before-read), and because `end_capture`
+/// guards every page the recording touched, a later allocation can no longer
+/// reuse `tmp`'s slice, so replay does **not** clobber the sentinels. This is
+/// the acceptance test for that guard.
 #[test]
 fn hip_graph_intermediate_recycling() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -209,19 +208,18 @@ fn hip_graph_intermediate_recycling() {
         );
     };
 
-    // Prepare: capture-phase allocations now go to the persistent pool and are
-    // snapshotted for retention.
+    // Prepare: the warmup run below leaves the pools holding `tmp`.
     client.graph_prepare().expect("graph_prepare");
 
-    // Warm up so `tmp` is compiled + allocated in the persistent pool (then
-    // freed, so the capture run reuses it without a fresh malloc).
+    // Warm up so `tmp` is compiled and allocated, then freed, so the capture
+    // run reuses its slice without a fresh allocation.
     {
         let tmp = client.empty(bytes);
         run(&client, &tmp);
         let _ = client.read_one(output.clone()).unwrap();
     }
 
-    // Capture the two-kernel computation; `tmp` reuses the warm persistent slice.
+    // Capture the two-kernel computation; `tmp` reuses the warm slice.
     client.start_capture().expect("start_capture");
     let tmp = client.empty(bytes);
     run(&client, &tmp);
@@ -267,7 +265,7 @@ fn add_one_tensor(input: &Tensor<f32>, output: &mut Tensor<f32>) {
 }
 
 /// Decode-shaped stress: capture a window of many launches (well past the
-/// drop-queue flush threshold of 64 pushes, so the deferred-flush/pool-priming
+/// drop-queue flush threshold of 64 pushes, so the deferred-flush/staging-priming
 /// path is exercised) of a `Tensor` kernel that reads `shape(0)`, forcing
 /// every launch through the dynamic-metadata staging + info-cache path. Then
 /// verify the recorded pass did not execute, two replays re-run it exactly,

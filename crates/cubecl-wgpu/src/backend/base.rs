@@ -1,8 +1,7 @@
 use super::wgsl;
 use crate::{AutoRepresentationRef, WgpuCompiler, WgpuServer};
 use cubecl_core::{
-    CubeDim, ExecutionMode, MemoryConfiguration, WgpuCompilationOptions, prelude::Visibility,
-    server::KernelArguments,
+    CubeDim, ExecutionMode, WgpuCompilationOptions, prelude::Visibility, server::KernelArguments,
 };
 use cubecl_ir::{DeviceProperties, PhysicalDevice};
 use cubecl_server::{
@@ -366,12 +365,11 @@ pub fn register_features(
     adapter: &Adapter,
     props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
-    memory_config: &MemoryConfiguration,
 ) {
-    if register_vulkan_features(adapter, props, comp_options, memory_config) {
+    if register_vulkan_features(adapter, props, comp_options) {
         return;
     }
-    if register_metal_features(adapter, props, comp_options, memory_config) {
+    if register_metal_features(adapter, props, comp_options) {
         return;
     }
     wgsl::register_wgsl_features(adapter, props, comp_options);
@@ -382,10 +380,9 @@ pub fn register_vulkan_features(
     adapter: &Adapter,
     props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
-    memory_config: &MemoryConfiguration,
 ) -> bool {
     if is_vulkan(adapter) {
-        vulkan::register_vulkan_features(adapter, props, comp_options, memory_config)
+        vulkan::register_vulkan_features(adapter, props, comp_options)
     } else {
         false
     }
@@ -396,7 +393,6 @@ pub fn register_vulkan_features(
     _adapter: &Adapter,
     _props: &mut DeviceProperties,
     _comp_options: &mut WgpuCompilationOptions,
-    _memory_config: &MemoryConfiguration,
 ) -> bool {
     false
 }
@@ -406,7 +402,6 @@ pub fn register_metal_features(
     adapter: &Adapter,
     props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
-    _memory_config: &MemoryConfiguration,
 ) -> bool {
     if is_metal(adapter) {
         metal::register_metal_features(adapter, props, comp_options)
@@ -420,7 +415,6 @@ pub fn register_metal_features(
     _adapter: &Adapter,
     _props: &mut DeviceProperties,
     _comp_options: &mut WgpuCompilationOptions,
-    _memory_config: &MemoryConfiguration,
 ) -> bool {
     false
 }

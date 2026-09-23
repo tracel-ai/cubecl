@@ -13,6 +13,8 @@ use std::{collections::HashMap, ffi::c_void};
 /// which is optimized for fast data transfers between host and GPU in HIP applications.
 pub struct PinnedMemoryStorage {
     memory: HashMap<StorageId, PinnedMemory>,
+    /// The bytes `memory` holds.
+    allocated: u64,
     mem_alignment: usize,
     stream: cubecl_hip_sys::hipStream_t,
 }
@@ -22,6 +24,8 @@ pub struct PinnedMemoryStorage {
 struct PinnedMemory {
     /// Pointer to the pinned memory buffer.
     ptr: *mut c_void,
+    /// The size of the buffer in bytes.
+    size: u64,
     /// Device pointer: Pointer-to-pointer for HIP allocation, kept alive for async operations.
     #[allow(unused)]
     dev_ptr: *mut *mut c_void,
@@ -35,6 +39,7 @@ impl PinnedMemoryStorage {
     pub fn new(stream: cubecl_hip_sys::hipStream_t) -> Self {
         Self {
             memory: HashMap::new(),
+            allocated: 0,
             mem_alignment: PINNED_MEMORY_ALIGNMENT,
             stream,
         }
@@ -100,11 +105,12 @@ impl ComputeStorage for PinnedMemoryStorage {
             // For safety, reducing the odds of missing mapped memory page.
             cubecl_hip_sys::hipStreamSynchronize(self.stream);
 
-            PinnedMemory { ptr, dev_ptr }
+            PinnedMemory { ptr, size, dev_ptr }
         };
 
         let id = StorageId::new();
         self.memory.insert(id, resource);
+        self.allocated += size;
         Ok(StorageHandle::new(
             id,
             StorageUtilization { offset: 0, size },
@@ -114,6 +120,7 @@ impl ComputeStorage for PinnedMemoryStorage {
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn dealloc(&mut self, id: StorageId) {
         if let Some(resource) = self.memory.remove(&id) {
+            self.allocated -= resource.size;
             // SAFETY: `resource.ptr` was allocated by `hipHostMalloc` and has not been freed
             // yet. After this call, the pointer is invalid and removed from `self.memory`.
             unsafe {
@@ -124,5 +131,9 @@ impl ComputeStorage for PinnedMemoryStorage {
 
     fn flush(&mut self) {
         // We don't wait for dealloc.
+    }
+
+    fn bytes_allocated(&self) -> u64 {
+        self.allocated
     }
 }

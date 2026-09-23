@@ -1,6 +1,7 @@
 use super::{ManagedMemoryHandle, MemoryPool, PageMapping, Slice, calculate_padding};
+use crate::memory_management::Cleanup;
 use crate::memory_management::{
-    BytesFormat, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport,
+    BytesFormat, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, PageGuard,
 };
 use crate::storage::StorageUtilization;
 use crate::{memory_management::MemoryUsage, server::IoError};
@@ -8,8 +9,9 @@ use alloc::vec::Vec;
 use cubecl_environment::backtrace::BackTrace;
 
 /// A pool that does no carving: one device allocation per reservation, sized
-/// to the request, reused by exact size and returned to the driver only under
-/// memory pressure ([`reclaim_at`](Self::reclaim_at)).
+/// to the request, reused by exact size and returned to the driver when the
+/// memory [reclaims](Self::reclaim) it, down to
+/// [`reclaim_at`](Self::reclaim_at).
 ///
 /// The naive allocator, and the reason to want it is padding. A sliced pool
 /// wastes the remainder of every page it carves and a bucketed exclusive pool
@@ -33,18 +35,10 @@ pub struct DirectPool {
     vacant: Vec<usize>,
     alignment: u64,
     location_base: MemoryLocation,
-    /// Reserved-bytes ceiling above which free slices are returned to the
-    /// driver. A watermark, not a budget: when releasing everything free still
-    /// leaves the pool above it, the allocation is served anyway — live memory
-    /// is not something this pool can decline to provide. `None` never
-    /// reclaims on its own, leaving it to an explicit cleanup.
-    ///
-    /// Demand-driven rather than prompt, which is what keeps the pool from
-    /// distorting an autotune measurement: deallocating on every release would
-    /// charge each benchmark iteration for driver traffic the real workload
-    /// never pays, and charge candidates unequally by how much they allocate.
-    /// No measurement flag, no thread-local: the policy reads the pool's own
-    /// bytes.
+    /// Reserved-bytes ceiling above which a [reclaim](Self::reclaim) returns
+    /// free slices to the driver. A watermark, not a budget: live memory is
+    /// not something this pool can decline to provide. `None` never reclaims,
+    /// leaving it to an explicit cleanup.
     reclaim_at: Option<u64>,
     /// The most slices ever held at once.
     pages_peak: u64,
@@ -97,19 +91,23 @@ impl DirectPool {
     /// what keeps a replayed allocation stream landing the same way twice. A
     /// slice that was never materialized has nothing behind its minted id, so
     /// it is dropped without troubling the driver.
+    ///
+    /// Answers whether any slice went back, so a caller knows the storage has
+    /// deallocations to flush.
     fn release_free<Storage: crate::storage::ComputeStorage>(
         &mut self,
         storage: &mut Storage,
         headroom: u64,
         failures: &mut ErrorGraph,
-    ) {
+    ) -> bool {
         let Some(ceiling) = self.reclaim_at else {
-            return;
+            return false;
         };
         let mut reserved = self.reserved();
         if reserved + headroom <= ceiling {
-            return;
+            return false;
         }
+        let mut released = false;
 
         for (index, entry) in self.slices.iter_mut().enumerate() {
             if reserved + headroom <= ceiling {
@@ -126,7 +124,24 @@ impl DirectPool {
             reserved -= slice.effective_size();
             *entry = None;
             self.vacant.push(index);
+            released = true;
         }
+        released
+    }
+
+    /// Bring the pool back under [`reclaim_at`](Self::reclaim_at): for a pool
+    /// whose watermark is zero, return every freed slice. Answers whether any
+    /// went back.
+    ///
+    /// The only place slices go back outside an explicit cleanup: an
+    /// allocation never releases one, so a reservation that must keep every
+    /// slice where it is can still allocate.
+    pub(crate) fn reclaim<Storage: crate::storage::ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        failures: &mut ErrorGraph,
+    ) -> bool {
+        self.release_free(storage, 0, failures)
     }
 }
 
@@ -190,15 +205,10 @@ impl MemoryPool for DirectPool {
         storage: &mut Storage,
         size: u64,
         mapping: PageMapping,
-        failures: &mut ErrorGraph,
+        _failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
-
-        // Reclaim only if this allocation would not otherwise fit under the
-        // ceiling. `try_reserve` already failed, so nothing free is the right
-        // size; whatever is free here is dead weight against the ceiling.
-        self.release_free(storage, effective_size, failures);
 
         let storage_handle = mapping.storage_handle(storage, effective_size)?;
 
@@ -244,6 +254,11 @@ impl MemoryPool for DirectPool {
         slice.materialize(storage)
     }
 
+    fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
+        let slice = self.slices.get(location.slice as usize)?.as_ref()?;
+        Some(PageGuard::allocation(slice.handle.clone().binding()))
+    }
+
     fn get_memory_usage(&self) -> MemoryUsage {
         let used: Vec<_> = self.live().filter(|slice| !slice.is_free()).collect();
 
@@ -260,17 +275,16 @@ impl MemoryPool for DirectPool {
     /// memory right now, which is exactly the judgement
     /// [`reclaim_at`](Self::reclaim_at) automates in the absence of one.
     ///
-    /// Periodic (non-explicit) cleanups are ignored — below the ceiling, free
-    /// slices are held for reuse by design, and crossing the ceiling (handled
-    /// in `alloc`) is what returns memory to the driver.
+    /// Periodic cleanups are ignored here: the memory calls
+    /// [`reclaim`](Self::reclaim) for those, which honours the ceiling.
     fn cleanup<Storage: crate::storage::ComputeStorage>(
         &mut self,
         storage: &mut Storage,
         _alloc_nr: u64,
-        explicit: bool,
+        cleanup: Cleanup,
         failures: &mut ErrorGraph,
     ) {
-        if !explicit {
+        if cleanup == Cleanup::Periodic {
             return;
         }
 

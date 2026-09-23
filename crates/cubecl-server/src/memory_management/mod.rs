@@ -17,6 +17,12 @@ pub mod drop_queue;
 pub use error_graph::*;
 pub use taint::*;
 
+mod dynamic;
+pub(crate) use dynamic::*;
+
 /// Dynamic memory management strategy.
 mod memory_manage;
 pub use memory_manage::*;
+
+/// Moving live allocations off outdated pages.
+pub mod relocation;

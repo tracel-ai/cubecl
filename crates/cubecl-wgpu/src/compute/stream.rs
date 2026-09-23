@@ -1,11 +1,12 @@
 use super::{
     graph::{GraphRecording, ReplayDispatch, ReplayTask, WgpuGraph},
-    mem_manager::WgpuMemManager,
+    mem_manager::{self, AuxiliaryMemory},
     poll::WgpuPoll,
     timings::{QueryProfiler, TimestampQuerySetBudget},
 };
+use crate::compute::copies::WgpuCopies;
 use crate::{
-    WgpuResource,
+    WgpuResource, WgpuStorage,
     controller::WgpuAllocController,
     schedule::{Addresses, ScheduleTask},
 };
@@ -27,11 +28,15 @@ use cubecl_environment::stream::StreamId;
 #[cfg(renderdoc)]
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
+use cubecl_server::memory_management::relocation::{
+    RelocatableStream, RelocationNeed, RelocationReason,
+};
+use cubecl_server::memory_management::{Cleanup, MemoryManagement};
 use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ErrorGraph, FailureId, ManagedMemoryHandle, SharedMemoryBindings},
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{StreamCapture, StreamMemory},
+    stream::{DeviceRecording, StreamCapture, StreamMemory},
     timestamp_profiler::TimestampProfiler,
 };
 #[cfg(renderdoc)]
@@ -54,7 +59,10 @@ enum Timings {
 
 #[derive(Debug)]
 pub struct WgpuStream {
-    pub mem_manage: WgpuMemManager,
+    /// The memory every buffer a user allocates lives in.
+    pub memory: MemoryManagement<WgpuStorage>,
+    /// The memories the stream keeps for its own reads and launches.
+    pub auxiliary: AuxiliaryMemory,
     pub device: wgpu::Device,
     compute_pass: Option<wgpu::ComputePass<'static>>,
     timings: Timings,
@@ -78,7 +86,7 @@ pub struct WgpuStream {
     /// stable-shape launch costs no uniform reservation and no
     /// `queue.write_buffer`. The cached [`ManagedMemoryHandle`] keeps the slice
     /// reserved past the per-flush release in
-    /// [`WgpuMemManager::release_uniforms`].
+    /// [`AuxiliaryMemory::release_uniforms`].
     pub(crate) info_cache: MetadataInfoCache<(ManagedMemoryHandle, WgpuResource)>,
     /// This stream's position in the graph-capture lifecycle (see
     /// [`StreamCapture`]). Enforces the ordered `graph_prepare` →
@@ -92,19 +100,55 @@ pub struct WgpuStream {
 
 impl StreamMemory for WgpuStream {
     fn failure(&self, binding: &BufferBinding) -> Option<FailureId> {
-        self.mem_manage.failure(binding)
+        self.memory.failure(&binding.memory, binding.range())
     }
 
     fn taint(&mut self, binding: &BufferBinding, failure: FailureId, failures: &mut ErrorGraph) {
-        self.mem_manage.taint(binding, failure, failures)
+        self.memory
+            .taint(&binding.memory, binding.range(), failure, failures)
     }
 
     fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
-        self.mem_manage.written(binding, failures)
+        self.memory
+            .written(&binding.memory, binding.range(), failures)
+    }
+}
+
+impl RelocatableStream for WgpuStream {
+    fn recording(&self) -> bool {
+        self.capturing.any_recording()
+    }
+
+    fn has_outdated(&self) -> bool {
+        self.memory.has_outdated()
+    }
+
+    fn relocation_need(&self) -> RelocationNeed {
+        self.memory.relocation_need()
+    }
+
+    fn bytes_allocated(&self) -> u64 {
+        self.memory.bytes_allocated() + self.auxiliary.bytes_allocated()
+    }
+
+    fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
+        let mut copier = WgpuCopies::new(self.device.clone(), self.queue.clone());
+        self.memory.relocate(&mut copier, reason, failures);
+    }
+
+    fn cleanup_memory(&mut self, failures: &mut ErrorGraph) {
+        self.memory.cleanup(Cleanup::Explicit, failures);
+        self.auxiliary.cleanup_uniforms();
     }
 }
 
 impl WgpuStream {
+    /// The resource the bytes `binding` names live in.
+    pub(crate) fn resource(&mut self, binding: BufferBinding) -> Result<WgpuResource, IoError> {
+        self.memory
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+    }
+
     /// Creates a new WGPU stream.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -117,6 +161,7 @@ impl WgpuStream {
         tasks_max: usize,
         logger: Arc<ServerLogger>,
         use_vulkan_compiler: bool,
+        recording: DeviceRecording,
     ) -> Self {
         // Device timing needs a counter sample buffer per query set, capped per device on
         // Metal. Reserve a budget slot up front (lock-free); if none is free, fall back to
@@ -144,17 +189,19 @@ impl WgpuStream {
 
         let poll = WgpuPoll::new(device.clone());
 
-        #[allow(unused_mut)]
-        let mut mem_manage = WgpuMemManager::new(
-            device.clone(),
-            memory_properties,
+        let memory = mem_manager::main_memory(
+            &device,
+            &memory_properties,
             memory_config,
-            logger,
+            logger.clone(),
             use_vulkan_compiler,
         );
+        let auxiliary =
+            AuxiliaryMemory::new(&device, &memory_properties, logger, use_vulkan_compiler);
 
         Self {
-            mem_manage,
+            memory,
+            auxiliary,
             compute_pass: None,
             timings,
             encoder: {
@@ -175,7 +222,7 @@ impl WgpuStream {
             // entry pins a whole page (512 × 32 KiB ≈ 16 MiB worst case) —
             // unlike CUDA/HIP where an entry is a small dynamic-pool slice.
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::new(512, 2048)),
-            capturing: StreamCapture::default(),
+            capturing: StreamCapture::new(recording),
             recording: GraphRecording::default(),
         }
     }
@@ -252,7 +299,8 @@ impl WgpuStream {
                     // owned by another stream is the server-side rejection's to
                     // taint, and that rejection comes first.
                     let failure = failures.insert(err.clone());
-                    self.mem_manage.taint(&handle, failure, failures);
+                    self.memory
+                        .taint(&handle.memory, handle.range(), failure, failures);
                     failures.prune(failure);
                     self.capture_error(err);
                     return;
@@ -260,7 +308,7 @@ impl WgpuStream {
                 // It is important to flush before writing, as the write operation is inserted
                 // into the QUEUE not the encoder. We want to make sure all outstanding work
                 // happens _before_ the write operation.
-                self.submit(failures);
+                self.submit();
                 if !self.write_mapped(&buffer, &data) {
                     self.write_to_buffer(&buffer, &data);
                 }
@@ -296,14 +344,7 @@ impl WgpuStream {
                     .bindings
                     .append(&mut shared_inputs.bindings);
                 let (resources, custom_handles, addresses) = resources.into_resources(self);
-                self.register_pipeline(
-                    pipeline,
-                    &resources,
-                    &custom_handles,
-                    addresses,
-                    &count,
-                    failures,
-                );
+                self.register_pipeline(pipeline, &resources, &custom_handles, addresses, &count);
             }
         }
     }
@@ -322,7 +363,6 @@ impl WgpuStream {
         &mut self,
         descriptors: Vec<(WgpuResource, Shape, usize)>,
         stream_id: StreamId,
-        failures: &mut ErrorGraph,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         self.compute_pass = None;
         let mut staging_info = Vec::with_capacity(descriptors.len());
@@ -341,7 +381,7 @@ impl WgpuStream {
             // memory is 32 bytes aligned (see WgpuStorage).
             let align = wgpu::COPY_BUFFER_ALIGNMENT;
             let aligned_len = resource.size.div_ceil(align) * align;
-            let (staging, binding) = self.mem_manage.reserve_staging(aligned_len).unwrap();
+            let (staging, binding) = self.auxiliary.reserve_staging(aligned_len).unwrap();
 
             self.tasks_count += 1;
             self.encoder.copy_buffer_to_buffer(
@@ -359,7 +399,7 @@ impl WgpuStream {
         // a kernel that failed at launch (e.g. a compilation error) never wrote
         // the buffers this read is about to return, so returning bytes instead of
         // the error would silently hand back stale memory.
-        if let Err(err) = self.flush(stream_id, failures) {
+        if let Err(err) = self.flush(stream_id) {
             return Box::pin(async move { Err(err) });
         }
 
@@ -423,15 +463,11 @@ impl WgpuStream {
         timing
     }
 
-    pub fn start_profile(
-        &mut self,
-        stream_id: StreamId,
-        failures: &mut ErrorGraph,
-    ) -> Result<ProfilingToken, ServerError> {
+    pub fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
         if matches!(self.timings, Timings::System(_)) {
-            cubecl_environment::future::block_on(self.sync(stream_id, failures))?;
+            cubecl_environment::future::block_on(self.sync(stream_id))?;
         } else {
-            self.flush(stream_id, failures)?;
+            self.flush(stream_id)?;
         }
 
         match &mut self.timings {
@@ -462,12 +498,11 @@ impl WgpuStream {
         &mut self,
         token: ProfilingToken,
         stream_id: StreamId,
-        failures: &mut ErrorGraph,
     ) -> Result<ProfileDuration, ProfileError> {
         match &mut self.timings {
             Timings::System(..) => {
                 // Nb: WASM _has_ to use device timing and will panic here if query timestamps are not supported.
-                let result = future::block_on(self.sync(stream_id, failures));
+                let result = future::block_on(self.sync(stream_id));
                 let profiler = self.system_profiler();
 
                 if let Err(err) = result {
@@ -493,7 +528,7 @@ impl WgpuStream {
                 // This flushes the queue to execute the encoder write command to write the
                 // timings.
                 self.tasks_count += 1;
-                let result = self.flush(stream_id, failures);
+                let result = self.flush(stream_id);
 
                 let Timings::Device(timing) = &mut self.timings else {
                     return Err(ProfileError::Unknown {
@@ -535,11 +570,10 @@ impl WgpuStream {
     pub fn sync(
         &mut self,
         stream_id: StreamId,
-        failures: &mut ErrorGraph,
     ) -> Pin<Box<dyn Future<Output = Result<(), ServerError>> + Send + 'static>> {
         let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Internal);
 
-        let flush_error = self.flush(stream_id, failures).err();
+        let flush_error = self.flush(stream_id).err();
 
         let queue = self.queue.clone();
         let error_future = error_scope.pop();
@@ -568,17 +602,8 @@ impl WgpuStream {
         })
     }
 
-    /// Allocates a new empty buffer using the main memory pool.
-    pub fn empty(
-        &mut self,
-        size: u64,
-        failures: &mut ErrorGraph,
-    ) -> Result<ManagedMemoryHandle, IoError> {
-        self.mem_manage.reserve(size, failures)
-    }
-
     pub(crate) fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {
-        let (handle, resource) = self.mem_manage.reserve_uniform(data.len() as u64);
+        let (handle, resource) = self.auxiliary.reserve_uniform(data.len() as u64);
         // A uniform created inside a recording window (e.g. a Vulkan address
         // buffer) is referenced by the recorded task on every replay, so it is
         // pinned to the recording instead of released on the next flush.
@@ -605,7 +630,7 @@ impl WgpuStream {
         if let Some((_handle, resource)) = self.info_cache.get(&words) {
             return resource;
         }
-        let (handle, resource) = self.mem_manage.reserve_uniform(size as u64);
+        let (handle, resource) = self.auxiliary.reserve_uniform(size as u64);
         self.write_to_buffer(&resource, bytemuck::cast_slice(&words));
         self.info_cache.insert(words, (handle, resource.clone()));
         resource
@@ -723,12 +748,12 @@ impl WgpuStream {
         }
     }
 
-    fn flush_if_needed(&mut self, failures: &mut ErrorGraph) {
+    fn flush_if_needed(&mut self) {
         // Flush when there are too many tasks, or when too many handles are locked.
         // Locked handles should only accumulate in rare circumstances (where uniforms
         // are being created but no work is submitted).
         if self.tasks_count >= self.tasks_max {
-            self.submit(failures);
+            self.submit();
         }
     }
 
@@ -738,8 +763,8 @@ impl WgpuStream {
     /// asking — a full task queue, the ordering barrier before a write, the
     /// scheduler aligning streams. Whatever is queued stays queued, for the
     /// flush of the stream that owns it.
-    pub fn submit(&mut self, failures: &mut ErrorGraph) {
-        self.submit_tasks(failures);
+    pub fn submit(&mut self) {
+        self.submit_tasks();
         self.collect_validation_errors();
     }
 
@@ -747,16 +772,12 @@ impl WgpuStream {
     /// A launch failure is not the flush's to report: it lives on the buffers
     /// the launch left unwritten, and surfaces on any read, sync or check of
     /// them.
-    pub fn flush(
-        &mut self,
-        _owner: StreamId,
-        failures: &mut ErrorGraph,
-    ) -> Result<(), ServerError> {
-        self.submit(failures);
+    pub fn flush(&mut self, _owner: StreamId) -> Result<(), ServerError> {
+        self.submit();
         Ok(())
     }
 
-    fn submit_tasks(&mut self, failures: &mut ErrorGraph) {
+    fn submit_tasks(&mut self) {
         if self.tasks_count == 0 {
             self.shared_bindings.clear();
             return;
@@ -790,9 +811,9 @@ impl WgpuStream {
         self.submission_load
             .regulate(&self.device, self.tasks_count, index);
 
-        // Cleanup allocations and deallocations.
-        self.mem_manage.memory_cleanup(false, failures);
-        self.mem_manage.release_uniforms();
+        // The main pool's pages are cleaned up by the server before it
+        // reserves, and only while no stream records.
+        self.auxiliary.release_uniforms();
 
         #[cfg(renderdoc)]
         RENDERDOC.with(|renderdoc| {
@@ -885,9 +906,13 @@ impl WgpuStream {
             })
         });
 
+        if let CubeCount::Dynamic(binding) = dispatch {
+            self.capturing
+                .touch(binding.stream, binding.memory.descriptor().location());
+        }
         let dispatch = match dispatch.clone() {
             CubeCount::Static(x, y, z) => ReplayDispatch::Static(x, y, z),
-            CubeCount::Dynamic(binding) => match self.mem_manage.get_resource(binding) {
+            CubeCount::Dynamic(binding) => match self.resource(binding) {
                 Ok(resource) => ReplayDispatch::Dynamic(resource),
                 Err(err) => {
                     // The recording is now incomplete; `end_capture` sees the
@@ -920,7 +945,7 @@ impl WgpuStream {
     /// prebuilt state only — and let the normal `tasks_max`/submission-load
     /// batching decide when to submit. Fire-and-forget like a launch: the
     /// work lands on this stream's encoder in recorded order.
-    pub(crate) fn replay_graph(&mut self, graph: &WgpuGraph, failures: &mut ErrorGraph) {
+    pub(crate) fn replay_graph(&mut self, graph: &WgpuGraph) {
         // Consecutive tasks often share a pipeline (decode loops); skip the
         // redundant `set_pipeline`. Pass state does not survive a flush, so
         // the tracking resets whenever the pass was closed.
@@ -965,7 +990,7 @@ impl WgpuStream {
             }
 
             self.tasks_count += 1;
-            self.flush_if_needed(failures);
+            self.flush_if_needed();
         }
     }
 
@@ -976,7 +1001,6 @@ impl WgpuStream {
         custom_resources: &[WgpuResource],
         addresses: Option<Addresses>,
         dispatch: &CubeCount,
-        failures: &mut ErrorGraph,
     ) {
         if dispatch.is_empty() {
             return;
@@ -1033,12 +1057,15 @@ impl WgpuStream {
                 pass.dispatch_workgroups(x, y, z);
             }
             CubeCount::Dynamic(binding) => {
-                let res = self.mem_manage.get_resource(binding).unwrap();
+                let res = self
+                    .memory
+                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                    .unwrap();
                 pass.dispatch_workgroups_indirect(&res.buffer, res.offset);
             }
         }
 
-        self.flush_if_needed(failures);
+        self.flush_if_needed();
     }
 }
 

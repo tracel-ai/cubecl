@@ -9,8 +9,7 @@ use crate::{
     kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{
-        InstallMemoryPoolsError, ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode,
-        MemoryConfiguration, MemoryReport, MemoryUsage,
+        ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode, StreamMemoryReport,
     },
     server::{BufferBinding, KernelResource},
     storage::{ComputeStorage, ManagedResource},
@@ -638,25 +637,15 @@ pub trait Server:
     /// unwritten, and surfaces on any read, sync or check of them.
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
-    /// Prepare `stream_id` for an upcoming graph capture: route allocations
-    /// into a stable pool and snapshot it, so every buffer allocated between
-    /// here and [`end_capture`](Server::end_capture) can be pinned for
-    /// the graph's lifetime. Call this **before** the warmup run so the capture
-    /// window reuses the slices warmup left in the pool rather than allocating
-    /// its own — which a hardware-graph backend cannot do at all (a device
-    /// malloc inside the capture is illegal there), and which on any backend
-    /// would grow the memory a graph pins beyond what it replays against.
+    /// Prepare `stream_id` for an upcoming graph capture. Call this
+    /// **before** the warmup run: the capture window allocates nothing, so it
+    /// reuses what the warmup run left in the pools, and every page the
+    /// recording touches is guarded for the graph's lifetime.
     ///
-    /// Prefer having kernels already **autotuned before** this call: any
-    /// transient benchmark buffers autotune allocates while the window is armed
-    /// are forced into the persistent pool and pinned to the graph, so a graph
-    /// captured over a cold autotune cache retains more device memory than it
-    /// replays against. Warm the autotune cache first, then `graph_prepare` and
-    /// warm up only to populate the pool.
+    /// Prefer having kernels already **autotuned before** this call, so the
+    /// warmup run allocates what the recorded run asks for and nothing else.
     ///
-    /// A no-op by default (harmless on backends without graph support); a
-    /// backend with graph support enables its persistent pool + capture
-    /// recording.
+    /// A no-op by default (harmless on backends without graph support).
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let _ = stream_id;
         Ok(())
@@ -721,14 +710,11 @@ pub trait Server:
         let _ = (graph, stream_id);
     }
 
-    /// Memory usage of the given stream.
-    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage;
-
     /// Structured per-pool report of the given stream's **main GPU** memory:
     /// each pool's shape, usage, and high-water marks, in allocation-routing
     /// order. The read side of a measured memory plan — see
     /// `MemoryManagement::memory_report` in `cubecl-server`.
-    fn memory_report(&mut self, stream_id: StreamId) -> MemoryReport;
+    fn memory_report(&mut self, stream_id: StreamId) -> StreamMemoryReport;
 
     /// Stream ids the client should iterate to aggregate across the device.
     ///
@@ -740,37 +726,12 @@ pub trait Server:
     }
 
     /// Ask the server to release memory that it can release.
-    fn memory_cleanup(&mut self, stream_id: StreamId);
-
-    /// Install a new dynamic-pool layout for the device's **main GPU** memory.
-    ///
-    /// The calling stream's pools are rebuilt in place (see
-    /// `MemoryManagement::install_pools` in `cubecl-server`
-    /// — a rebuild only happens when nothing is live in them), and the layout
-    /// becomes the one every stream created afterwards is built with. Pool
-    /// layouts are a purely programmatic, runtime setting — there is no
-    /// config-file pathway — so callers size them per workload (e.g. per model,
-    /// just before loading it).
     ///
     /// # Errors
     ///
-    /// [`PoolsInUse`](InstallMemoryPoolsError::PoolsInUse) when the calling
-    /// stream kept its old layout because something was still live in its
-    /// pools — e.g. a garbage-collection task that has not released its
-    /// cross-stream pins yet, which can lag behind an explicit
-    /// [`memory_cleanup`](Self::memory_cleanup). The layout still applies to
-    /// streams created afterwards; retry to rebuild the calling stream too.
-    ///
-    /// [`Unsupported`](InstallMemoryPoolsError::Unsupported) from servers
-    /// without configurable pools, which is the default implementation.
-    fn install_memory_pools(
-        &mut self,
-        config: MemoryConfiguration,
-        stream_id: StreamId,
-    ) -> Result<(), InstallMemoryPoolsError> {
-        let _ = (config, stream_id);
-        Err(InstallMemoryPoolsError::Unsupported)
-    }
+    /// Refused while a stream records a graph: releasing memory waits on the
+    /// device, and a wait on a stream that records aborts its capture.
+    fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
     /// Enable collecting timestamps.
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError>;
@@ -1171,23 +1132,36 @@ pub enum IoError {
         backtrace: BackTrace,
     },
 
-    /// A memory pool with a fixed capacity cap is exhausted.
+    /// No room for the allocation in the pages the memory holds, and the
+    /// reservation was not allowed to add one.
     ///
-    /// Unlike [`IoError::BufferTooBig`] (the allocation can *never* fit), this
-    /// means the working set exceeded the configured budget. Server execution
-    /// paths treat it as fatal — the budget is a hard contract, so failing
-    /// early beats silently growing — but callers that manage their own
-    /// working set may free pool memory and retry.
+    /// A stream recording a graph reserves this way: an allocation would
+    /// become part of the recording, and a hardware graph holding one cannot
+    /// be relaunched. The warmup before a capture is what leaves the pools
+    /// holding what the recorded run asks for.
     #[error(
-        "memory pool capacity exceeded: failed to reserve {size} bytes, pool is capped at {capacity} bytes ({in_use} bytes in use)\n{backtrace}"
+        "No room for {size} bytes in the memory held, and no page may be added (a graph capture is recording: warm up with the same workload first)\n{backtrace}"
     )]
-    PoolCapacityExceeded {
-        /// The size of the failed reservation in bytes.
+    PageUpdateForbidden {
+        /// The size of the allocation in bytes.
         size: u64,
-        /// The configured pool capacity in bytes (whole pages).
-        capacity: u64,
-        /// Bytes currently in use in the pool.
-        in_use: u64,
+        /// The captured backtrace.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
+    /// An allocation needs pages of a new size, and the memory already holds
+    /// as many page sizes as it keeps track of.
+    ///
+    /// Every size a workload grew through keeps a pool until what lives on it
+    /// is freed or relocated. A cleanup relocates what it can, so reclaiming
+    /// and retrying is a reasonable response.
+    #[error(
+        "Can't allocate {size} bytes: every page size the memory tracks still holds live allocations\n{backtrace}"
+    )]
+    PageSizesExhausted {
+        /// The size of the allocation in bytes.
+        size: u64,
         /// The captured backtrace.
         #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
@@ -1278,9 +1252,13 @@ impl IoError {
     /// and a second attempt.
     ///
     /// A buffer larger than any page the device can hold is the exception. It
-    /// never fits, so reclaiming would only spend the time.
+    /// never fits, so reclaiming would only spend the time. So is an
+    /// allocation while a graph records, where nothing may be released.
     pub fn may_succeed_after_reclaim(&self) -> bool {
-        !matches!(self, IoError::BufferTooBig { .. })
+        !matches!(
+            self,
+            IoError::BufferTooBig { .. } | IoError::PageUpdateForbidden { .. }
+        )
     }
 }
 

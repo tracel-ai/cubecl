@@ -1,5 +1,6 @@
 use crossbeam_utils::CachePadded;
 use cubecl_core::CubeDim;
+use cubecl_server::memory_management::PageUpdate;
 use cubecl_server::{
     memory_management::{ErrorGraph, MemoryManagement},
     storage::BytesStorage,
@@ -140,7 +141,7 @@ fn reserve_shared_memories(
             0
         };
         let handle = memory
-            .reserve((block.size + padding) as u64, failures)
+            .reserve((block.size + padding) as u64, PageUpdate::Allow, failures)
             .expect("Failed to reserve the shared memory of the launch");
         let reserved = memory
             .get_resource(handle.clone().binding(), None, None)

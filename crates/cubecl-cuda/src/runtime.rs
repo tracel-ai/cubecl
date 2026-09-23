@@ -38,7 +38,10 @@ use cubecl_cpp::{
 use cubecl_llvm::nvptx::ptx_version::PtxVersion;
 use cubecl_llvm::shared::lowered_features::{GpuTarget, restrict_features};
 use cubecl_server::{
-    allocator::PitchedMemoryLayoutPolicy, logging::ServerLogger, runtime::Runtime,
+    allocator::PitchedMemoryLayoutPolicy,
+    config::{CubeClRuntimeConfig, RuntimeConfig},
+    logging::ServerLogger,
+    runtime::Runtime,
 };
 #[cfg(windows)]
 use cudarc::driver::sys::cuDeviceGetLuid;
@@ -377,7 +380,18 @@ impl DeviceService for CudaServer {
             arch: Some(SmArch::new(arch_version, arch.tensor_cores)),
             ptx_version: PtxVersion::for_driver(driver_version),
         };
-        let cuda_ctx = CudaContext::new(comp_opts, device_props.clone(), ctx, arch, backend);
+        // The context is current (set above), so the stream lands on it.
+        let comm_stream = crate::compute::stream::create_cuda_stream(
+            CubeClRuntimeConfig::get().streaming.priority,
+        );
+        let cuda_ctx = CudaContext::new(
+            comp_opts,
+            device_props.clone(),
+            ctx,
+            arch,
+            backend,
+            comm_stream,
+        );
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
         let mut utilities = ServerUtilities::new(

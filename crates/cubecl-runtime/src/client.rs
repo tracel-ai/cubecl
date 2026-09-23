@@ -1,13 +1,9 @@
 use crate::{
-    config::memory::MemoryPoolsConfig,
     config::{TypeNameFormatLevel, type_name_format},
     id::{GraphId, KernelId},
     kernel::CubeKernel,
     logging::ProfileLevel,
-    memory_management::{
-        InstallMemoryPoolsError, MemoryAllocationMode, MemoryConfiguration, MemoryReport,
-        MemoryUsage,
-    },
+    memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
         BufferBinding, Collective, CommunicationId, CopyDescriptor, CubeCount, Handle,
         KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
@@ -598,13 +594,45 @@ impl Client {
         input: Input,
         task: F,
     ) -> Re {
+        self.allocation_window(MemoryAllocationMode::Persistent, input, task)
+    }
+
+    /// Run `task` with every allocation it makes given its own device
+    /// allocation outside every pool, returned to the driver once freed, then
+    /// restore the previous mode.
+    ///
+    /// For buffers that exist for one measurement and nothing after it: they
+    /// stay out of the pools' reservations and out of the statistics an
+    /// adaptive pool sizes its pages from.
+    pub fn memory_dedicated_allocation<
+        'a,
+        Re: Send,
+        Input: Send,
+        F: FnOnce(Input) -> Re + Send + 'a,
+    >(
+        &'a self,
+        input: Input,
+        task: F,
+    ) -> Re {
+        self.allocation_window(MemoryAllocationMode::Dedicated, input, task)
+    }
+
+    /// Open a window of `mode` on the current stream around `task`, and close
+    /// it after. Private because `Auto` is what closes a window: the public
+    /// entry points each name a mode that opens one.
+    fn allocation_window<'a, Re: Send, Input: Send, F: FnOnce(Input) -> Re + Send + 'a>(
+        &'a self,
+        mode: MemoryAllocationMode,
+        input: Input,
+        task: F,
+    ) -> Re {
         let stream_id = StreamId::current();
 
         self.device.submit(move |server| {
-            server.allocation_mode(MemoryAllocationMode::Persistent, stream_id);
+            server.allocation_mode(mode, stream_id);
         });
 
-        // All tasks created on the same stream will have persistent memory.
+        // All tasks created on the same stream allocate in this mode.
         let output = task(input);
 
         self.device.submit(move |server| {
@@ -1268,8 +1296,7 @@ impl Client {
     }
 
     /// Prepare this client's stream for a graph capture (see
-    /// [`Server::graph_prepare`]) — enable the persistent pool + capture
-    /// recording. Call this **before** the warmup run, then
+    /// [`Server::graph_prepare`]). Call this **before** the warmup run, then
     /// [`start_capture`](Self::start_capture) around the run to record.
     pub fn graph_prepare(&self) -> Result<(), ServerError> {
         let stream_id = self.stream_id();
@@ -1288,9 +1315,9 @@ impl Client {
     /// refused, and so is writing to a handle — a recorded graph cannot carry a
     /// host copy, so feed fresh inputs by writing *between* replays instead. A
     /// refused write is reported late, by failing `stop_capture`, rather than
-    /// handing back a graph that silently skips it. Fresh allocation inside the
-    /// window is fatal on a hardware-graph backend and merely wasteful on a
-    /// software-graph one, which is what the warmup run exists to avoid.
+    /// handing back a graph that silently skips it. Nothing is allocated inside
+    /// the window: a request the pools cannot serve from what the warmup run
+    /// left fails the capture, which is what the warmup run exists to avoid.
     ///
     /// Returns an error on backends without graph support.
     pub fn start_capture(&self) -> Result<(), ServerError> {
@@ -1411,53 +1438,41 @@ impl Client {
         self.utilities.target_properties.clone()
     }
 
-    /// Total memory usage across all streams on this client's device.
+    /// Everything the memory of `scope` holds, stream by stream: each pool's
+    /// shape, usage and high-water marks. [`MemoryReport::usage`] sums them.
     ///
-    /// The closure iterates the server's `stream_ids()` and folds each
-    /// per-stream `memory_usage(id)` with `MemoryUsage::combine`, so the
-    /// result is correct regardless of which thread queries it.
-    pub fn memory_usage(&self) -> MemoryUsage {
+    /// Pools are per stream: a plan measured for a workload reads
+    /// [`CurrentStream`](MemoryScope::CurrentStream), the stream that runs it,
+    /// and a caller asking how much the device holds reads
+    /// [`Device`](MemoryScope::Device).
+    pub fn memory_report(&self, scope: MemoryScope) -> MemoryReport {
+        let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| {
-                server
-                    .stream_ids()
-                    .into_iter()
-                    .fold(MemoryUsage::default(), |acc, id| {
-                        acc.combine(server.memory_usage(id))
-                    })
+                let streams = match scope {
+                    MemoryScope::Device => server.stream_ids(),
+                    MemoryScope::CurrentStream => Vec::from([stream_id]),
+                };
+                MemoryReport {
+                    streams: streams
+                        .into_iter()
+                        .map(|id| server.memory_report(id))
+                        .collect(),
+                }
             })
             .unwrap_or_resume()
     }
 
-    /// Structured per-pool report of the **calling stream's** main GPU memory:
-    /// each pool's shape, usage, and high-water marks, in allocation-routing
-    /// order.
-    ///
-    /// The read side of a measured memory plan — install a layout with
-    /// [`install_memory_pools`](Self::install_memory_pools), measure under a
-    /// [`DryRun`](crate::dry_run::DryRun), cap at the observed peaks; the full
-    /// cycle is on [`MemoryReport`].
-    ///
-    /// Unlike [`memory_usage`](Self::memory_usage), which aggregates across
-    /// streams, this reads one stream: pools are per stream, and a plan is
-    /// measured and installed on the stream that runs the workload.
-    pub fn memory_report(&self) -> MemoryReport {
-        let stream_id = self.stream_id();
-        self.device
-            .submit_blocking(move |server| server.memory_report(stream_id))
-            .unwrap_or_resume()
-    }
-
-    /// Write a snapshot of the calling stream's [memory
-    /// report](Self::memory_report) to the environment's records, under
-    /// `label`. Nothing is read when the environment records nothing.
+    /// Write a snapshot of the device's [memory report](Self::memory_report),
+    /// every stream of it, to the environment's records under `label`.
+    /// Nothing is read when the environment records nothing.
     pub fn record_memory(&self, label: &str) {
         if !cubecl_environment::records::enabled() {
             return;
         }
         let record = crate::memory_management::MemoryRecord {
             label: label.into(),
-            report: self.memory_report(),
+            report: self.memory_report(MemoryScope::Device),
         };
         cubecl_environment::records::write(
             cubecl_environment::records::RecordEffect::Observed,
@@ -1480,66 +1495,19 @@ impl Client {
     ///
     /// Nb: Results will vary on what the memory allocator deems beneficial,
     /// so it's not guaranteed any memory is freed.
-    pub fn memory_cleanup(&self) {
-        self.device.submit(move |server| {
-            for id in server.stream_ids() {
-                server.memory_cleanup(id);
-            }
-        });
-    }
-
-    /// Install a new dynamic-pool layout for the device's main GPU memory.
-    ///
-    /// This replaces the pools themselves, not just a setting they read. It
-    /// lands in two places:
-    ///
-    /// - **The calling stream's pools are rebuilt in place**, discarding the
-    ///   old ones — which is why it only happens when nothing is live in them,
-    ///   and why the high-water marks in
-    ///   [`memory_report`](Self::memory_report) start over.
-    /// - **The layout becomes the one every stream created afterwards is
-    ///   built with.** Other streams that already exist keep theirs; memory is
-    ///   per stream, and rebuilding a stream this call is not synchronized
-    ///   with would swap pools under its live slices.
-    ///
-    /// Pool layouts are a purely programmatic, runtime setting — there is no
-    /// config-file pathway — sized per workload (e.g. per model, just before
-    /// loading it), so install at a quiescent point such as right after
-    /// unloading a model. Auxiliary pools (pinned CPU, staging, uniforms) and
-    /// the persistent pool are never affected.
     ///
     /// # Errors
     ///
-    /// [`PoolsInUse`](InstallMemoryPoolsError::PoolsInUse) when the current
-    /// stream kept its old layout because something was still live in its
-    /// pools — e.g. a garbage-collection task that has not released its
-    /// cross-stream pins yet, which can lag behind an explicit
-    /// [`memory_cleanup`](Self::memory_cleanup). Nothing is disturbed, the
-    /// layout still applies to streams created afterwards, and retrying after
-    /// the remaining work drains rebuilds the current stream too.
-    ///
-    /// [`Unsupported`](InstallMemoryPoolsError::Unsupported) from a runtime
-    /// with no configurable pools, where retrying will never succeed.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the layout is invalid (empty list, too many pools, zero page
-    /// size, slice larger than page, cap smaller than page, unavailable
-    /// preset) — that is a bad layout literal rather than a runtime condition,
-    /// and an explicit layout that cannot be honored must not be silently
-    /// replaced.
-    pub fn install_memory_pools(
-        &self,
-        pools: &MemoryPoolsConfig,
-    ) -> Result<(), InstallMemoryPoolsError> {
-        let config =
-            match MemoryConfiguration::default().resolve(Some(pools), &self.properties().memory) {
-                Ok(config) => config,
-                Err(err) => panic!("Invalid memory pools configuration: {err}"),
-            };
-        let stream_id = self.stream_id();
+    /// Refused while a stream records a graph: releasing memory waits on the
+    /// device, and a wait on a stream that records aborts its capture.
+    pub fn memory_cleanup(&self) -> Result<(), ServerError> {
         self.device
-            .submit_blocking(move |server| server.install_memory_pools(config, stream_id))
+            .submit_blocking(move |server| {
+                server
+                    .stream_ids()
+                    .into_iter()
+                    .try_for_each(|id| server.memory_cleanup(id))
+            })
             .unwrap_or_resume()
     }
 

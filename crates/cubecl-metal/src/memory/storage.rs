@@ -26,6 +26,8 @@ impl MetalBufferHandle {
 #[derive(Debug)]
 pub struct MetalStorage {
     buffers: HashMap<StorageId, MetalBufferHandle>,
+    /// The bytes `buffers` holds.
+    allocated: u64,
     device: Retained<ProtocolObject<dyn MTLDevice>>,
 }
 
@@ -33,6 +35,7 @@ impl MetalStorage {
     pub fn new(device: Retained<ProtocolObject<dyn MTLDevice>>) -> Self {
         Self {
             buffers: HashMap::new(),
+            allocated: 0,
             device,
         }
     }
@@ -70,6 +73,8 @@ impl ComputeStorage for MetalStorage {
                 backtrace: cubecl_environment::backtrace::BackTrace::capture(),
             })?;
 
+        // The device may round the length up; that is what it holds.
+        self.allocated += objc2_metal::MTLBuffer::length(&*buffer) as u64;
         self.buffers.insert(id, MetalBufferHandle::new(buffer));
 
         Ok(StorageHandle::new(
@@ -79,10 +84,18 @@ impl ComputeStorage for MetalStorage {
     }
 
     fn dealloc(&mut self, id: StorageId) {
-        self.buffers.remove(&id);
+        use objc2_metal::MTLBuffer;
+
+        if let Some(buffer) = self.buffers.remove(&id) {
+            self.allocated -= buffer.inner().length() as u64;
+        }
     }
 
     fn flush(&mut self) {
         // No deferred deallocations to flush.
+    }
+
+    fn bytes_allocated(&self) -> u64 {
+        self.allocated
     }
 }

@@ -9,6 +9,8 @@ use cubecl_environment::collections::HashMap;
 #[derive(Default)]
 pub struct BytesStorage {
     memory: HashMap<StorageId, AllocatedBytes>,
+    /// The bytes `memory` holds.
+    allocated: u64,
 }
 
 impl BytesStorage {
@@ -111,6 +113,7 @@ impl ComputeStorage for BytesStorage {
     )]
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
+        self.allocated += size;
         let handle = StorageHandle {
             id,
             utilization: StorageUtilization { offset: 0, size },
@@ -131,6 +134,7 @@ impl ComputeStorage for BytesStorage {
                 // which requires initialization.
                 let ptr = alloc_zeroed(layout);
                 if ptr.is_null() {
+                    self.allocated -= size;
                     return Err(IoError::BufferTooBig {
                         size,
                         backtrace: BackTrace::capture(),
@@ -146,17 +150,22 @@ impl ComputeStorage for BytesStorage {
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn dealloc(&mut self, id: StorageId) {
-        if let Some(memory) = self.memory.remove(&id)
-            && memory.layout.size() > 0
-        {
-            unsafe {
-                dealloc(memory.ptr, memory.layout);
+        if let Some(memory) = self.memory.remove(&id) {
+            self.allocated -= memory.layout.size() as u64;
+            if memory.layout.size() > 0 {
+                unsafe {
+                    dealloc(memory.ptr, memory.layout);
+                }
             }
         }
     }
 
     fn flush(&mut self) {
         // We don't wait for dealloc.
+    }
+
+    fn bytes_allocated(&self) -> u64 {
+        self.allocated
     }
 }
 

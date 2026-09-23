@@ -1,6 +1,7 @@
 mod dummy;
 
 use crate::dummy::{DummyDevice, DummyElementwiseAddition, test_client};
+use cubecl_server::memory_management::MemoryScope;
 
 use cubecl_common::bytes::Bytes;
 use cubecl_common::device::{DeviceId, ServiceId};
@@ -1152,6 +1153,9 @@ fn a_dry_run_still_autotunes() {
 /// first time the buffer is actually dereferenced.
 #[test_log::test]
 #[cfg(feature = "std")]
+// Lazy backing is a sliced pool's; the exclusive pages a build without
+// sub-slicing falls back to are always mapped at reservation.
+#[cfg(not(exclusive_memory_only))]
 #[serial_test::serial]
 fn a_dry_run_reserves_without_mapping() {
     use cubecl_server::dry_run::DryRun;
@@ -1170,8 +1174,9 @@ fn a_dry_run_reserves_without_mapping() {
     // predicting it.
     fn arena(report: &cubecl_server::memory_management::MemoryReport) -> MemoryPoolReport {
         report
-            .dynamic
+            .streams
             .iter()
+            .flat_map(|stream| stream.pools.dynamic.iter())
             .find(|pool| pool.largest_alloc == SIZE)
             .expect("some pool served the buffer")
             .clone()
@@ -1190,7 +1195,7 @@ fn a_dry_run_reserves_without_mapping() {
         ]),
     );
 
-    let report = client.memory_report();
+    let report = client.memory_report(MemoryScope::CurrentStream);
     let pool = arena(&report);
     assert_eq!(
         pool.pages_unmapped, pool.pages,
@@ -1201,7 +1206,7 @@ fn a_dry_run_reserves_without_mapping() {
     // Reading is a resolution: the backing appears exactly there.
     let data = client.read_one(out).unwrap();
     assert_eq!(data.len(), SIZE as usize);
-    let report = client.memory_report();
+    let report = client.memory_report(MemoryScope::CurrentStream);
     assert_eq!(
         arena(&report).pages_unmapped,
         0,
@@ -1416,7 +1421,10 @@ fn a_memory_snapshot_is_recorded_under_its_label() {
     let snapshots = Records::new(&database).read::<MemoryRecord>();
     assert_eq!(snapshots.len(), 1);
     assert_eq!(snapshots[0].record.label, "model loaded");
-    assert_eq!(snapshots[0].record.report, client.memory_report());
+    assert_eq!(
+        snapshots[0].record.report,
+        client.memory_report(MemoryScope::Device)
+    );
 }
 
 /// A launch is collected while a collection is open — the kernel a replay has
