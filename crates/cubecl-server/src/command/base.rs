@@ -17,8 +17,8 @@ use crate::memory_management::Cleanup;
 use crate::memory_management::drop_queue::Fence;
 use crate::memory_management::relocation::{RelocatingStreams, RelocationNeed, RelocationReason};
 use crate::memory_management::{
-    ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, PageGuard, PageUpdate,
-    StreamMemoryReport,
+    CachedInfoReservation, ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, PageGuard,
+    PageUpdate, StreamMemoryReport,
 };
 use crate::server::{BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ServerError};
 use crate::storage::ManagedResource;
@@ -143,9 +143,7 @@ impl<'a, D: Driver> Command<'a, D> {
         // slices as live.
         let signal = stream.signal();
         stream.drop_queue().drain(|| D::Stream::fence(signal));
-        // The info cache's buffers are live slices in the dynamic pools; an
-        // explicit cleanup exists to leave those pools empty, so every entry
-        // not pinned by a live graph goes too.
+        // Drop unpinned metadata before reclaiming its auxiliary pool.
         stream.info_cache().clear_unpinned();
 
         RelocatingStreams::reclaim(self)?;
@@ -228,6 +226,23 @@ impl<'a, D: Driver> Command<'a, D> {
         }
     }
 
+    fn reserve_info(&mut self, size: u64) -> Result<Option<CachedInfoReservation>, IoError> {
+        let cursor = self.cursor();
+        let (stream, failures) = self.streams.current_and_failures();
+        match stream.device_memory().reserve_info(size, cursor, failures) {
+            Ok(handle) => Ok(handle),
+            Err(err) if !err.may_succeed_after_reclaim() => Err(err),
+            Err(err) => {
+                log::warn!(
+                    "metadata allocation of {size} B failed ({err}); reclaiming and retrying"
+                );
+                let _ = self.memory_cleanup();
+                let (stream, failures) = self.streams.current_and_failures();
+                stream.device_memory().reserve_info(size, cursor, failures)
+            }
+        }
+    }
+
     /// Give `memory` `size` bytes of device memory on the current stream.
     ///
     /// Fatal rather than reported: `initialize_memory` has no error channel,
@@ -262,6 +277,13 @@ impl<'a, D: Driver> Command<'a, D> {
         self.bind(reserved, handle.memory.clone())?;
 
         Ok(handle)
+    }
+
+    fn empty_info(&mut self, size: u64) -> Result<Handle, IoError> {
+        let Some(reservation) = self.reserve_info(size)? else {
+            return self.empty(size);
+        };
+        Ok(reservation.into_handle(self.service, self.streams.current, size))
     }
 
     /// Give `reserved`'s storage to `new`, so handles issued against `new`
@@ -503,6 +525,20 @@ impl<'a, D: Driver> Command<'a, D> {
     ///
     /// Whatever the allocation or the copy reports.
     pub fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
+        self.create_with_data_inner(data, false)
+    }
+
+    /// Allocate and upload a metadata buffer through the metadata pool
+    /// when available. Capture windows use the persistent pool.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the allocation or the copy reports.
+    pub fn create_info_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
+        self.create_with_data_inner(data, true)
+    }
+
+    fn create_with_data_inner(&mut self, data: &[u8], info: bool) -> Result<Handle, IoError> {
         let mut staging =
             self.reserve_pinned(data.len(), None)
                 .ok_or_else(|| IoError::Unknown {
@@ -512,7 +548,11 @@ impl<'a, D: Driver> Command<'a, D> {
 
         staging.copy_from_slice(data);
 
-        let handle = self.empty(staging.len() as u64)?;
+        let handle = if info {
+            self.empty_info(staging.len() as u64)?
+        } else {
+            self.empty(staging.len() as u64)?
+        };
 
         self.write_to_gpu(
             CopyDescriptor {

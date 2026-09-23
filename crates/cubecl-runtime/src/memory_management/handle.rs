@@ -1,5 +1,6 @@
 use crate::memory_management::MemoryHandle;
 use alloc::{
+    boxed::Box,
     sync::{Arc, Weak},
     vec::Vec,
 };
@@ -11,12 +12,30 @@ pub struct ManagedMemoryHandle {
     descriptor: Arc<ManagedMemoryDescriptor>,
     // Holds only the reference counts of the handle.
     handle_count: Arc<()>,
+    release: Option<Arc<ReleaseOnDrop>>,
 }
 
 /// Binding of a memory handle
 #[derive(Debug)]
 pub struct ManagedMemoryBinding {
     descriptor: Arc<ManagedMemoryDescriptor>,
+    _release: Option<Arc<ReleaseOnDrop>>,
+}
+
+struct ReleaseOnDrop(Option<Box<dyn FnOnce() + Send + Sync>>);
+
+impl core::fmt::Debug for ReleaseOnDrop {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("ReleaseOnDrop")
+    }
+}
+
+impl Drop for ReleaseOnDrop {
+    fn drop(&mut self) {
+        if let Some(release) = self.0.take() {
+            release();
+        }
+    }
 }
 
 /// A [`ManagedMemoryBinding`] that does not keep its memory reserved: what a
@@ -25,6 +44,7 @@ pub struct ManagedMemoryBinding {
 #[derive(Debug, Clone)]
 pub struct WeakMemoryBinding {
     descriptor: Weak<ManagedMemoryDescriptor>,
+    release: Option<Weak<ReleaseOnDrop>>,
 }
 
 /// A list of bindings that are shared across multiple streams.
@@ -39,6 +59,7 @@ impl Clone for ManagedMemoryHandle {
         Self {
             descriptor: self.descriptor.clone(),
             handle_count: self.handle_count.clone(),
+            release: self.release.clone(),
         }
     }
 }
@@ -206,7 +227,19 @@ impl ManagedMemoryHandle {
                 location: AtomicU64::new(MemoryLocation::uninit().to_bits()),
             }),
             handle_count: Arc::new(()),
+            release: None,
         }
+    }
+
+    /// Run `release` after the last handle or binding carrying it is dropped.
+    /// Existing release callbacks remain attached when this is called again.
+    pub fn with_release(mut self, release: impl FnOnce() + Send + Sync + 'static) -> Self {
+        let previous = self.release.take();
+        self.release = Some(Arc::new(ReleaseOnDrop(Some(Box::new(move || {
+            release();
+            drop(previous);
+        })))));
+        self
     }
 
     /// Retrieves the descriptor for the current handle.
@@ -238,6 +271,7 @@ impl ManagedMemoryHandle {
     pub fn binding(self) -> ManagedMemoryBinding {
         ManagedMemoryBinding {
             descriptor: self.descriptor.clone(),
+            _release: self.release,
         }
     }
 
@@ -268,6 +302,7 @@ impl ManagedMemoryBinding {
     pub fn downgrade(&self) -> WeakMemoryBinding {
         WeakMemoryBinding {
             descriptor: Arc::downgrade(&self.descriptor),
+            release: self._release.as_ref().map(Arc::downgrade),
         }
     }
 }
@@ -282,7 +317,10 @@ impl WeakMemoryBinding {
             return None;
         }
         let descriptor = self.descriptor.upgrade()?;
-        Some(ManagedMemoryBinding { descriptor })
+        Some(ManagedMemoryBinding {
+            descriptor,
+            _release: self.release.as_ref().and_then(Weak::upgrade),
+        })
     }
 }
 
@@ -296,6 +334,7 @@ impl Clone for ManagedMemoryBinding {
     fn clone(&self) -> Self {
         Self {
             descriptor: self.descriptor.clone(),
+            _release: self._release.clone(),
         }
     }
 }
@@ -349,6 +388,32 @@ pub fn optimal_align(shape: usize, elem_size: usize, buffer_align: usize) -> usi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn release_callbacks_wait_for_the_last_binding() {
+        use core::sync::atomic::AtomicUsize;
+
+        let released = Arc::new(AtomicUsize::new(0));
+        let first = released.clone();
+        let second = released.clone();
+        let pooled = ManagedMemoryHandle::new();
+        let handle = pooled
+            .clone()
+            .with_release(move || {
+                first.fetch_add(1, Ordering::Relaxed);
+            })
+            .with_release(move || {
+                second.fetch_add(1, Ordering::Relaxed);
+            });
+        let binding = handle.clone().binding();
+        drop(handle);
+        let revived = binding.downgrade().upgrade().unwrap();
+        assert_eq!(released.load(Ordering::Relaxed), 0);
+        drop(binding);
+        assert_eq!(released.load(Ordering::Relaxed), 0);
+        drop(revived);
+        assert_eq!(released.load(Ordering::Relaxed), 2);
+    }
 
     #[test]
     fn test_memory_id_mutability() {
