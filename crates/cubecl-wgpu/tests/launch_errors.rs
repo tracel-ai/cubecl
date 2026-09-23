@@ -5,6 +5,10 @@
 //! read returning whatever the buffer held. The launch has to catch it instead,
 //! so the buffers it never wrote carry the failure, the read of one names it,
 //! and a caller such as autotune can tell a refusal from a fault.
+//!
+//! Metal only: the test goes over `max_bindings`, which is about 31 there but
+//! can be hundreds of thousands on Vulkan, far too many buffers for a test.
+#![cfg(all(target_os = "macos", not(feature = "spirv")))]
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
