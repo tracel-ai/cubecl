@@ -218,6 +218,8 @@ mod tests_msl {
     cubecl_std::testgen_tensor_identity!([f16, flex32, f32, u32]);
     cubecl_std::testgen_quantized_view!(f16);
     cubecl_core::testgen_profiling!();
-    cubecl_core::testgen_profiling_nested!();
+    // No `testgen_profiling_nested!`: Metal writes a pass's timestamps only once its command
+    // buffer completes, so a window's end waits for the device, and an enclosing window measures
+    // that idle gap. Add it once the readback is deferred instead of waited for.
     cubecl_core::testgen_complex_validation!();
 }
