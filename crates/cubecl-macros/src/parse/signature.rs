@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
 use inflections::case::to_snake_case;
 use quote::{ToTokens, format_ident, quote};
@@ -193,8 +193,8 @@ impl KernelSignature {
         self.parameters.iter().filter(|it| !it.is_const)
     }
 
-    pub fn define_mappings(&self) -> HashMap<Ident, (Ident, Option<usize>)> {
-        let mut mapping = HashMap::new();
+    pub fn define_mappings(&self) -> BTreeMap<Ident, (Ident, Option<usize>)> {
+        let mut mapping = BTreeMap::new();
         for param in self.parameters.iter() {
             for define in param.defines.iter() {
                 match define {
