@@ -77,15 +77,9 @@ fn cuda_graph_capture_replay() {
 
 /// A capture window that has to grow the memory pool must be REJECTED, not handed back.
 ///
-/// A stream-ordered allocation (`cuMemAllocAsync`) issued while recording is captured as a memory
-/// node, and a graph holding an allocation node it never frees cannot be relaunched: the first
-/// `cuGraphLaunch` succeeds and every later one fails with `CUDA_ERROR_INVALID_VALUE`. Nothing
-/// else catches this — instantiation succeeds and `cuGraphUpload` returns `CUDA_SUCCESS` — so a
-/// caller that trusted `stop_capture` would only discover it on its second replay, far from the
-/// cause. So nothing is allocated while recording: warmup usually leaves the pools able to serve
-/// the recorded run, so real
-/// workloads hit the growth path only intermittently; this forces it by allocating a size the pool
-/// has never seen inside the window.
+/// The server rejects storage growth while recording, so every replay uses buffers
+/// prepared during warmup. Force that guard by requesting an allocation larger than
+/// the pool has served before, then verify that capture is rejected.
 #[test]
 fn cuda_graph_capture_growing_the_pool_is_rejected() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -118,8 +112,7 @@ fn cuda_graph_capture_growing_the_pool_is_rejected() {
 
     assert!(
         rejected.is_err(),
-        "a capture that grew the pool recorded a memory node and is not relaunchable, so \
-         stop_capture must reject it rather than return a graph that fails on its second replay"
+        "stop_capture must reject a capture that tried to grow the memory pool"
     );
 
     drop(grown);

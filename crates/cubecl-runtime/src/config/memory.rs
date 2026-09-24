@@ -14,6 +14,32 @@ pub struct MemoryConfig {
     /// Configuration for persistent memory pools.
     #[serde(default)]
     pub persistent_memory: PersistentMemory,
+    /// CUDA-specific memory settings. Ignored by other backends.
+    #[serde(default)]
+    pub cuda: CudaMemoryConfig,
+}
+
+/// Memory settings for the CUDA runtime (`[memory.cuda]` in `cubecl.toml`).
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CudaMemoryConfig {
+    /// Allocator backing CubeCL's pools, selected when the runtime initializes.
+    #[serde(default)]
+    pub allocator: CudaAllocator,
+}
+
+/// CUDA allocator used to obtain backing memory for CubeCL's pools.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CudaAllocator {
+    /// Allocate and free synchronously, avoiding an additional CUDA memory pool.
+    /// Pool growth and cleanup may synchronize GPU work.
+    #[default]
+    Sync,
+    /// Use CUDA's stream-ordered allocator, which may reserve extra backing memory
+    /// but can preserve concurrency during pool growth and cleanup. Falls back to
+    /// synchronous allocation if an asynchronous allocation fails.
+    Async,
 }
 
 /// Configuration options for persistent memory pools in `CubeCL` runtimes.
@@ -64,6 +90,18 @@ impl LogLevel for MemoryLogLevel {}
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cuda_allocator_config() {
+        use crate::config::CubeClRuntimeConfig;
+
+        let config: CubeClRuntimeConfig = toml::from_str("").unwrap();
+        assert_eq!(config.memory.cuda.allocator, CudaAllocator::Sync);
+
+        let config: CubeClRuntimeConfig =
+            toml::from_str("[memory.cuda]\nallocator = \"async\"").unwrap();
+        assert_eq!(config.memory.cuda.allocator, CudaAllocator::Async);
+    }
 
     #[test]
     fn pools_rejected_in_config_files() {
