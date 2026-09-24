@@ -23,12 +23,12 @@ pub struct MemoryConfig {
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CudaMemoryConfig {
-    /// Allocator backing CubeCL's pools, selected when the runtime initializes.
+    /// Allocator backing `CubeCL`'s pools, selected when the runtime initializes.
     #[serde(default)]
     pub allocator: CudaAllocator,
 }
 
-/// CUDA allocator used to obtain backing memory for CubeCL's pools.
+/// CUDA allocator used to obtain backing memory for `CubeCL`'s pools.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CudaAllocator {

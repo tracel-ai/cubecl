@@ -54,7 +54,7 @@ impl GpuStorage {
     ///
     /// * `mem_alignment` - The memory alignment requirement in bytes.
     /// * `stream` - The stream used for asynchronous allocation and deallocation.
-    /// * `allocator` - How CUDA obtains backing memory for CubeCL's pools.
+    /// * `allocator` - How CUDA obtains backing memory for `CubeCL`'s pools.
     pub fn new(
         mem_alignment: usize,
         stream: cudarc::driver::sys::CUstream,
