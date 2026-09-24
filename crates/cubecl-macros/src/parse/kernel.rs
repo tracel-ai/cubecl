@@ -622,3 +622,32 @@ pub fn anon_lifetime_to_static(mut ty: Type) -> Type {
     map_ty(&mut ty);
     ty
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Each `HashMap` is seeded separately, so a hash-ordered expansion differs between calls.
+    #[test]
+    fn kernel_expansion_is_deterministic() {
+        let item: ItemFn = parse_quote! {
+            pub fn k<A: Float, B: Int, C: Numeric, D: CubePrimitive, E: Float, N: Size, M: Size>(
+                input: &Array<A>,
+                output: &mut Array<B>,
+                #[comptime] c: u32,
+            ) {}
+        };
+        let expand = || {
+            let args: KernelArgs = from_tokens(quote![launch]).unwrap();
+            Launch::from_item_fn(item.clone(), args)
+                .unwrap()
+                .to_token_stream()
+                .to_string()
+        };
+
+        let first = expand();
+        for _ in 0..16 {
+            assert_eq!(expand(), first);
+        }
+    }
+}
