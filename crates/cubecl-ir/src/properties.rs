@@ -28,8 +28,12 @@ use cubecl_common::profile::TimingMethod;
 /// be assumed.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HardwareProperties {
-    /// The maximum size of a single load instruction, in bits. Used for optimized vector sizes.
+    /// The widest single load instruction, in bits.
     pub load_width: u32,
+    /// How many `load_width`-bit vector registers a kernel may keep live, or `None` where that is
+    /// not a property of the device: a GPU trades its per-thread budget against occupancy, so it
+    /// states none. A kernel keeping more live than a stated budget spills them to memory.
+    pub vector_register_count: Option<u32>,
     /// The minimum size of a plane on this device
     pub plane_size_min: u32,
     /// The maximum size of a plane on this device
@@ -44,9 +48,10 @@ pub struct HardwareProperties {
     pub max_units_per_cube: u32,
     /// Maximum `CubeDim` in x, y, and z dimensions
     pub max_cube_dim: (u32, u32, u32),
-    /// Number of streaming multiprocessors (SM), if available
+    /// Number of streaming multiprocessors (SM). `None` says the device has none, as a CPU does,
+    /// or that the runtime reads none, so it never stands for a device holding one.
     pub num_streaming_multiprocessors: Option<u32>,
-    /// Number of available parallel cpu units, if the runtime is CPU.
+    /// Number of available parallel cpu units, and `None` on a device that is not a CPU.
     pub num_cpu_cores: Option<u32>,
     /// Bytes of the device's last level cache, and `None`, never `Some(0)`,
     /// where the runtime cannot read one.
@@ -54,9 +59,11 @@ pub struct HardwareProperties {
     /// The size a working set has to outgrow before what it reaches is set by
     /// memory rather than by the chip.
     pub last_level_cache_size: Option<usize>,
-    /// Number of tensor cores per SM, if any
+    /// Number of tensor cores per SM. `None` says the device has none or that the runtime does
+    /// not count them, so a device reporting none can still take a matrix instruction.
     pub num_tensor_cores: Option<u32>,
-    /// The minimum tiling dimension for a single axis in tensor cores.
+    /// The minimum tiling dimension for a single axis in tensor cores, and `None` on a device
+    /// that takes no matrix instruction.
     ///
     /// For a backend that only supports 16x16x16, the value would be 16.
     /// For a backend that also supports 32x8x16, the value would be 8.
@@ -65,6 +72,83 @@ pub struct HardwareProperties {
     pub max_vector_size: VectorSize,
     /// Memory reserved for the driver when using cube-scoped matrices
     pub cube_mma_reserved_shared_memory: usize,
+}
+
+/// A device's vector registers, counted in lanes of one element type.
+///
+/// A vector wider than one register is spread over several, and pays nothing for it until the
+/// registers a loop keeps live outnumber the device's: past that, every use is a load and a store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VectorRegisters {
+    count: usize,
+    lanes_per_register: usize,
+    max_lanes: usize,
+}
+
+impl VectorRegisters {
+    /// The registers of `hardware` as vectors of `elem_size`-byte elements see them, or `None`
+    /// where the device has no fixed set to budget.
+    pub fn of(hardware: &HardwareProperties, elem_size: usize) -> Option<Self> {
+        let count = hardware.vector_register_count? as usize;
+        let max_lanes = prev_power_of_two(hardware.max_vector_size.max(1));
+        let lanes_per_register =
+            (hardware.load_width as usize / (elem_size * 8)).clamp(1, max_lanes);
+
+        Some(VectorRegisters {
+            count,
+            lanes_per_register,
+            max_lanes,
+        })
+    }
+
+    /// Vector sizes, widest first, at which `live` vectors of `elem_size`-byte elements all stay
+    /// in registers, or the device's IO widths where it budgets no registers.
+    pub fn vector_sizes(
+        properties: &DeviceProperties,
+        elem_size: usize,
+        live: usize,
+    ) -> impl Iterator<Item = VectorSize> + Clone {
+        let widest = match Self::of(&properties.hardware, elem_size) {
+            Some(registers) => registers.widest_lanes(live),
+            None => properties.io_lanes(elem_size),
+        };
+
+        (0..widest.trailing_zeros() + 1)
+            .map(|power| 1 << power)
+            .rev()
+    }
+
+    /// How many registers the device has.
+    pub fn count(&self) -> usize {
+        self.count
+    }
+
+    /// Lanes one register holds, which is the widest vector a single load carries.
+    pub fn lanes_per_register(&self) -> usize {
+        self.lanes_per_register
+    }
+
+    /// Registers a vector of `lanes` lanes occupies.
+    pub fn registers_for(&self, lanes: usize) -> usize {
+        lanes.div_ceil(self.lanes_per_register)
+    }
+
+    /// The widest lanes, a power of two, at which `live` vectors all stay in registers.
+    ///
+    /// Never narrower than one register: past the budget a spill is unavoidable anyway.
+    pub fn widest_lanes(&self, live: usize) -> usize {
+        let registers = prev_power_of_two((self.count / live.max(1)).max(1));
+        (registers * self.lanes_per_register).min(self.max_lanes)
+    }
+
+    /// How many vectors of `lanes` lanes fit beside `reserved` registers held for other values.
+    pub fn vectors_fitting(&self, lanes: usize, reserved: usize) -> usize {
+        self.count.saturating_sub(reserved) / self.registers_for(lanes)
+    }
+}
+
+fn prev_power_of_two(value: usize) -> usize {
+    1 << (usize::BITS - 1 - value.leading_zeros())
 }
 
 /// Properties of the device related to allocation.
@@ -330,6 +414,10 @@ pub struct DeviceProperties {
     pub timing_method: TimingMethod,
     /// Who the device is, and what its kernels are keyed to.
     pub identity: DeviceIdentity,
+    /// The widest vector, in bits, that reads and writes are sized to. It defaults to the load
+    /// width, and a backend states a wider one where it measured that several loads move data
+    /// faster than one.
+    pub io_width: u32,
 }
 
 impl TypeHash for DeviceProperties {
@@ -355,10 +443,26 @@ impl DeviceProperties {
         DeviceProperties {
             features,
             memory: memory_props,
+            io_width: hardware.load_width,
             hardware,
             timing_method,
             identity,
         }
+    }
+
+    /// The widest vector, in lanes of `elem_size`-byte elements, that reads and writes are sized
+    /// to, which is a power of two and at least one.
+    pub fn io_lanes(&self, elem_size: usize) -> usize {
+        let lanes = self.io_width as usize / (elem_size * 8);
+        let lanes = usize::min(self.hardware.max_vector_size, lanes);
+
+        1 << lanes.trailing_zeros().min(usize::BITS - 1)
+    }
+
+    /// States the width IO is sized to, for a backend that measured one wider than a load.
+    pub fn with_io_width(mut self, io_width: u32) -> Self {
+        self.io_width = io_width;
+        self
     }
 
     /// Get the usages for a type
@@ -476,6 +580,86 @@ impl FastMath {
 mod tests {
     use super::*;
     use alloc::string::ToString;
+
+    fn hardware(load_width: u32, vector_register_count: Option<u32>) -> HardwareProperties {
+        HardwareProperties {
+            load_width,
+            vector_register_count,
+            plane_size_min: 1,
+            plane_size_max: 1,
+            max_bindings: u32::MAX,
+            max_shared_memory_size: 32 * 1024,
+            max_cube_count: (u32::MAX, u32::MAX, u32::MAX),
+            max_units_per_cube: 16,
+            max_cube_dim: (16, 16, 16),
+            num_streaming_multiprocessors: None,
+            num_cpu_cores: Some(16),
+            last_level_cache_size: None,
+            num_tensor_cores: None,
+            min_tensor_cores_dim: None,
+            max_vector_size: VectorSize::MAX,
+            cube_mma_reserved_shared_memory: 0,
+        }
+    }
+
+    const AVX2: (u32, Option<u32>) = (256, Some(16));
+    const AVX512: (u32, Option<u32>) = (512, Some(32));
+    const NEON: (u32, Option<u32>) = (128, Some(32));
+
+    fn registers((width, count): (u32, Option<u32>), elem_size: usize) -> VectorRegisters {
+        VectorRegisters::of(&hardware(width, count), elem_size).unwrap()
+    }
+
+    #[test]
+    fn a_device_without_a_fixed_register_set_has_no_budget() {
+        assert_eq!(VectorRegisters::of(&hardware(128, None), 4), None);
+    }
+
+    #[test]
+    fn six_live_f32_vectors_take_two_registers_each_on_avx2() {
+        let f32 = registers(AVX2, 4);
+        assert_eq!(f32.lanes_per_register(), 8);
+        assert_eq!(f32.widest_lanes(6), 16);
+        assert_eq!(f32.widest_lanes(8), 16);
+        assert_eq!(f32.widest_lanes(9), 8);
+        assert_eq!(registers(AVX2, 8).widest_lanes(6), 8);
+        assert_eq!(registers(AVX512, 4).widest_lanes(6), 64);
+    }
+
+    #[test]
+    fn neon_and_avx2_budget_the_same_lanes_from_equal_register_files() {
+        let (neon, avx2) = (registers(NEON, 4), registers(AVX2, 4));
+        assert_eq!(neon.lanes_per_register(), 4);
+        assert_eq!(neon.widest_lanes(3), avx2.widest_lanes(3));
+        assert_eq!(neon.widest_lanes(6), avx2.widest_lanes(6));
+        // Past the budget both floor at one register, and NEON's holds half the lanes.
+        assert_eq!(neon.widest_lanes(40), 4);
+        assert_eq!(avx2.widest_lanes(40), 8);
+    }
+
+    #[test]
+    fn more_live_vectors_than_registers_still_get_one_register_each() {
+        assert_eq!(registers(AVX2, 4).widest_lanes(40), 8);
+        assert_eq!(registers(AVX2, 4).widest_lanes(0), 128);
+    }
+
+    #[test]
+    fn a_block_fits_in_what_the_operands_leave() {
+        let f32 = registers(AVX2, 4);
+        assert_eq!(f32.registers_for(16), 2);
+        assert_eq!(f32.vectors_fitting(16, 0), 8);
+        assert_eq!(f32.vectors_fitting(8, 4), 12);
+        assert_eq!(f32.vectors_fitting(8, 20), 0);
+    }
+
+    #[test]
+    fn a_capped_vector_size_caps_the_lanes() {
+        let mut capped = hardware(256, Some(16));
+        capped.max_vector_size = 4;
+        let f32 = VectorRegisters::of(&capped, 4).unwrap();
+        assert_eq!(f32.lanes_per_register(), 4);
+        assert_eq!(f32.widest_lanes(1), 4);
+    }
 
     /// A capacity is stated only by the runtime that read one.
     ///

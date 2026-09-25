@@ -111,6 +111,47 @@ fn host_cpu_name(system: &System) -> String {
         .map_or_else(|| format!("CPU {}", std::env::consts::ARCH), String::from)
 }
 
+/// The vector registers the JIT lowers kernel arithmetic to.
+struct VectorRegisters {
+    width: u32,
+    count: Option<u32>,
+}
+
+/// Read at runtime, not from `cfg(target_feature)`: the JIT compiles for the CPU it runs on.
+/// An AVX-512 CPU tuned to prefer 256-bit vectors still lowers a 512-bit one to a single zmm
+/// register, because kernels carry no `min-legal-vector-width`.
+#[cfg(target_arch = "x86_64")]
+fn host_vector_registers() -> VectorRegisters {
+    let (width, count) = if std::arch::is_x86_feature_detected!("avx512f") {
+        (512, 32)
+    } else if std::arch::is_x86_feature_detected!("avx") {
+        (256, 16)
+    } else {
+        (128, 16)
+    };
+    VectorRegisters {
+        width,
+        count: Some(count),
+    }
+}
+
+/// NEON's registers. LLVM keeps a fixed-width vector on NEON even where SVE is present.
+#[cfg(target_arch = "aarch64")]
+fn host_vector_registers() -> VectorRegisters {
+    VectorRegisters {
+        width: 128,
+        count: Some(32),
+    }
+}
+
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+fn host_vector_registers() -> VectorRegisters {
+    VectorRegisters {
+        width: 128,
+        count: None,
+    }
+}
+
 impl DeviceService for CpuServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
         let options = RuntimeOptions::default();
@@ -146,8 +187,11 @@ impl DeviceService for CpuServer {
             .compilation
             .f16_evaluation
             .unwrap_or_else(|| F16Evaluation::for_native_f16(host_has_f16_arithmetic()));
+        let vector_registers = host_vector_registers();
+        let load_width = vector_registers.width;
         let topology = HardwareProperties {
-            load_width: 512,
+            load_width,
+            vector_register_count: vector_registers.count,
             plane_size_min: 1,
             plane_size_max: 1,
             max_bindings: u32::MAX,
@@ -179,14 +223,20 @@ impl DeviceService for CpuServer {
             TimingMethod::Device,
             // The CPU backend JITs through LLVM for whatever host it runs on
             // and persists no compiled code, so there is no per-machine
-            // namespace to match against. The architecture is the honest
-            // fingerprint: it is what the generated code is valid for.
+            // namespace to match against. The architecture and its load width
+            // are the honest fingerprint: they are what the generated code is
+            // valid for.
             DeviceIdentity {
                 name: host_cpu_name(&system),
-                fingerprint: format!("cpu_{}_f16-{}", std::env::consts::ARCH, f16_evaluation),
+                fingerprint: format!(
+                    "cpu_{}_load-{load_width}_f16-{f16_evaluation}",
+                    std::env::consts::ARCH
+                ),
                 physical: None,
             },
-        );
+        )
+        // Past one register, a wider vector still amortizes each IO iteration's index math.
+        .with_io_width(512);
         register_supported_types(&mut device_props);
 
         let utilities = ServerUtilities::new(

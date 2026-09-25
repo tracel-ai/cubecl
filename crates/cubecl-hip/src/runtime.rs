@@ -123,6 +123,7 @@ impl DeviceService for HipServer {
 
         let topology = HardwareProperties {
             load_width: 128,
+            vector_register_count: None,
             plane_size_min: probe.warp_size,
             plane_size_max: probe.warp_size,
             max_bindings: crate::device::AMD_MAX_BINDINGS,
