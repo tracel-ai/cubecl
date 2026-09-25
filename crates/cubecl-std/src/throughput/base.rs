@@ -44,9 +44,7 @@ pub fn measure_memory_curve(client: &Client, access: MemoryAccess) -> MemoryCurv
         })
     };
 
-    if probed {
-        PooledProbes::cleanup_unless_held(client);
-    }
+    PooledProbes::release(client, probed);
 
     MemoryCurve::new(access, points)
 }
@@ -104,9 +102,7 @@ pub fn measure_peak_throughput(
 ) -> Result<ThroughputValue, ThroughputError> {
     let (value, probed) = measure(client, key);
 
-    if probed {
-        PooledProbes::cleanup_unless_held(client);
-    }
+    PooledProbes::release(client, probed);
 
     value
 }
