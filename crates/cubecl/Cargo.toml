@@ -59,6 +59,13 @@ tracing = [
     "cubecl-hip?/tracing",
     "cubecl-wgpu?/tracing",
 ]
+nothreading = [
+    "cubecl-environment/nothreading",
+    "cubecl-runtime/nothreading",
+    "cubecl-common?/nothreading",
+    "cubecl-server?/nothreading",
+    "cubecl-cpu?/nothreading",
+]
 
 # Runtimes. A kernel library depends on this crate with none of them on and
 # compiles against no runtime at all; a binary turns on the ones it links.
@@ -91,6 +98,8 @@ test-runtime = ["wgpu"]
 
 [dependencies]
 cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.4", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.4", default-features = false, optional = true }
+cubecl-server = { path = "../cubecl-server", version = "=0.11.0-pre.4", default-features = false, optional = true }
 cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.4", default-features = false }
 cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.4", default-features = false }
 cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.4", default-features = false }

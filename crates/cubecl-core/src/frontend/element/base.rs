@@ -4,7 +4,7 @@ use crate::{
     prelude::{DynamicSize, KernelBuilder, KernelLauncher, Scalar, assign},
     unexpanded,
 };
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
 use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
 use cubecl_ir::{
@@ -13,6 +13,7 @@ use cubecl_ir::{
     pliron::{printable::Printable, r#type::Typed, value::Value},
     types::PointerType,
 };
+use cubecl_zspace::SmallVec;
 use half::{bf16, f16};
 use pliron::{builtin::given_names::set_operation_result_name, r#type::TypeHandle};
 use variadics_please::{all_tuples, all_tuples_enumerated};
@@ -398,6 +399,36 @@ impl<T: CubeDebug + ?Sized> CubeDebug for *mut T {
         T::set_debug_name(unsafe { &**self }, scope, name);
     }
 }
+impl<T: CubeDebug> CubeDebug for Option<T> {
+    fn set_debug_name(&self, scope: &Scope, name: &'static str) {
+        match self {
+            Some(val) => T::set_debug_name(val, scope, name),
+            None => (),
+        }
+    }
+}
+
+macro_rules! cube_debug_smallvec {
+    ($($lit:literal,)*) => {
+        $(
+            impl<T: CubeDebug> CubeDebug for SmallVec<[T; $lit]> {
+                fn set_debug_name(&self, scope: &Scope, name: &'static str) {
+                    self.iter().for_each(|v| T::set_debug_name(v, scope, name));
+                }
+            }
+        )*
+    }
+}
+cube_debug_smallvec!(
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+);
+impl<T: CubeDebug> CubeDebug for Rc<T> {
+    fn set_debug_name(&self, scope: &Scope, name: &'static str) {
+        T::set_debug_name(self.as_ref(), scope, name);
+    }
+}
+
+impl CubeDebug for cubecl_ir::DeviceProperties {}
 
 impl CubeDebug for i128 {}
 
@@ -815,7 +846,9 @@ impl<T: NativeAssign + NativeCubeType + CanReadValue> IntoMut for NativeExpand<T
 
 impl<T: ?Sized> CubeDebug for NativeExpand<T> {
     fn set_debug_name(&self, scope: &Scope, name: &'static str) {
-        let op = self.value(scope).defining_op().unwrap();
+        let Some(op) = self.value(scope).defining_op() else {
+            return; // hacky
+        };
         set_operation_result_name(scope.ctx(), op, 0, Some(ident(name)));
     }
 }

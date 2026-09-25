@@ -4,7 +4,7 @@ use crate as cubecl;
 use crate::prelude::*;
 
 #[derive_expand(CubeType, CubeTypeMut, IntoRuntime)]
-#[cube(runtime_variants, no_constructors)]
+#[cube(runtime_variants, no_constructors, no_debug)]
 pub enum Option<T: CubeType> {
     /// No value.
     None,

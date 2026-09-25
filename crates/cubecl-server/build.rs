@@ -15,6 +15,6 @@ fn main() {
         // `cubecl-runtime`, which alone decides it; a test run turns the
         // feature on through this crate's, which forwards there.
         exclusive_memory_only: { any(feature = "exclusive-memory-only", target_family = "wasm") },
-        multi_threading: { all(feature = "std", not(target_family = "wasm")) },
+        multi_threading: { all(feature = "std", not(feature = "nothreading"), not(target_family = "wasm")) },
     }
 }

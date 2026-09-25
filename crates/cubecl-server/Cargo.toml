@@ -21,11 +21,22 @@ default = ["std", "storage-bytes", "persistence", "cubecl-runtime/default"]
 exclusive-memory-only = ["cubecl-runtime/exclusive-memory-only"]
 persistence = ["std", "cubecl-runtime/persistence"]
 profile-tracy = ["cubecl-runtime/profile-tracy", "dep:tracy-client"]
-std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-environment/std", "thiserror/std"]
+std = [
+    "cubecl-runtime/std",
+    "cubecl-common/std",
+    "cubecl-environment/std",
+    "thiserror/std",
+]
 storage-bytes = []
 tokio = ["cubecl-runtime/tokio"]
 
-tracing = ["dep:tracing", "cubecl-runtime/tracing", "cubecl-common/tracing", "cubecl-ir/tracing"]
+tracing = [
+    "dep:tracing",
+    "cubecl-runtime/tracing",
+    "cubecl-common/tracing",
+    "cubecl-ir/tracing",
+]
+nothreading = []
 
 [dependencies]
 # Runtime Deps

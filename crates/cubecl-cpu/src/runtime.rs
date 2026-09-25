@@ -124,10 +124,13 @@ impl DeviceService for CpuServer {
             .map(|g| g.total_memory)
             .unwrap_or(system.total_memory()) as usize;
         let logger = cubecl_environment::sync::Arc::new(ServerLogger::default());
-
+        #[cfg(not(feature = "nothreading"))]
         let available_parallelism = std::thread::available_parallelism()
             .expect("Can't get available parallelism on this platform")
             .get();
+        #[cfg(feature = "nothreading")]
+        let available_parallelism = 1;
+
         let available_parallelism = available_parallelism as u32;
         let max_cube_dim = (
             available_parallelism,

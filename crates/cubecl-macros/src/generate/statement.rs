@@ -17,23 +17,28 @@ impl Statement {
                 let name = &variable.name;
                 let is_mut = variable.is_mut_owned || init.as_deref().is_some_and(is_mut_owned);
                 let mutable = variable.is_mut_owned.then(|| quote![mut]);
-                let is_const = init.as_ref().is_some_and(|it| it.is_const());
+                let mut is_const = init.as_ref().is_some_and(|it| it.is_const());
                 let init = if is_mut {
                     if let Some(as_const) =
                         init.as_ref().and_then(|it| it.as_const_primitive(context))
                     {
                         let expand = frontend_type("NativeExpand");
+                        is_const = true;
                         Some(quote_spanned![as_const.span()=> #expand::from_lit(scope, #as_const)])
                     } else if let Some(as_const) = init.as_ref().and_then(|it| it.as_const(context))
                     {
+                        is_const = true;
                         Some(quote_spanned![as_const.span()=> #as_const.clone()])
                     } else {
                         init.as_ref().map(|it| it.to_tokens(context))
                     }
                 } else {
                     init.as_ref().map(|init| {
-                        init.as_const(context)
-                            .unwrap_or_else(|| init.to_tokens(context))
+                        is_const = true;
+                        init.as_const(context).unwrap_or_else(|| {
+                            is_const = false;
+                            init.to_tokens(context)
+                        })
                     })
                 };
                 let ty = variable.ty.as_ref().map(|ty| {

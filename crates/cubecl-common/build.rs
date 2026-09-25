@@ -8,6 +8,6 @@ fn main() {
     }
     // Setup cfg aliases
     cfg_aliases! {
-        multi_threading: { all(feature = "std", not(target_family = "wasm")) },
+        multi_threading: { all(feature = "std", not(feature = "nothreading"), not(target_family = "wasm")) },
     }
 }
