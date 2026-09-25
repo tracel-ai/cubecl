@@ -50,11 +50,10 @@ impl DeviceHandleSpec for ReentrantMutexDeviceHandle {
 
     fn utilities(&self) -> ServerUtilitiesHandle {
         let state = self.lock.lock.lock();
-        state
-            .map
-            .borrow()
-            .get(&self.type_id)
-            .expect("Service not yet initialized — call init() before load()")
+
+        let mut map = state.map.borrow_mut();
+        map.entry(self.type_id)
+            .or_insert_with(|| (self.init)(self.device_id))
             .utilities
             .clone()
     }

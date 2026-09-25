@@ -23,7 +23,7 @@ default = [
     "cubecl-core/default",
     "cubecl-llvm/default",
 ]
-nothreading = ["cubecl-server/nothreading"]
+nothreading = ["cubecl-server/nothreading", "cubecl-common/nothreading"]
 
 pliron-dump = ["cubecl-llvm/pliron-dump"]
 persistence = ["cubecl-server/persistence"]

@@ -1,9 +1,13 @@
+#[cfg(feature = "nothreading")]
+use crate::compute::shared_memory::reserve_shared_memories;
 use crate::compute::stream::CpuStream;
 use cubecl_common::bytes::Bytes;
 use cubecl_core::{
     CubeDim, MemoryConfiguration, ir::MemoryDeviceProperties, server::MetadataBindingInfo,
 };
 use cubecl_environment::stream::StreamId;
+#[cfg(feature = "nothreading")]
+use cubecl_llvm::PlironData;
 use cubecl_llvm::PlironEngine;
 use cubecl_server::{
     logging::ServerLogger,
@@ -11,6 +15,9 @@ use cubecl_server::{
     storage::{BytesResource, ManagedResource},
     stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
+#[cfg(feature = "nothreading")]
+use cubecl_server::{memory_management::MemoryManagement, storage::BytesStorage};
+
 use std::sync::Arc;
 
 /// Defines tasks that can be scheduled on a cpu stream.
@@ -122,5 +129,52 @@ impl SchedulerStreamBackend for ScheduledCpuBackend {
 
     fn factory(&mut self) -> &mut Self::Factory {
         &mut self.factory
+    }
+}
+
+#[cfg(feature = "nothreading")]
+pub(crate) fn execute_data_inline(
+    pliron_engine: PlironEngine,
+    bindings: BindingsResource,
+    cube_dim: CubeDim,
+    cube_count: [u32; 3],
+    memory: &mut MemoryManagement<BytesStorage>,
+    failures: &mut ErrorGraph,
+) {
+    let requirements = pliron_engine.requirements().clone();
+
+    if requirements.needs_parallelism {
+        panic!("nothreading feature does not support kernels requiring cube barriers");
+    }
+
+    let BindingsResource { resources, info } = bindings;
+    let mut buffer_ptrs: Vec<*mut std::ffi::c_void> = resources
+        .iter()
+        .map(|r| r.resource().get_write_ptr_and_length().0 as *mut std::ffi::c_void)
+        .collect();
+
+    reserve_shared_memories(
+        memory,
+        failures,
+        &requirements.shared_memories,
+        &mut buffer_ptrs,
+    );
+
+    let keepalive: Vec<Box<dyn std::any::Any + Send>> = resources
+        .into_iter()
+        .map(|r| Box::new(r) as Box<dyn std::any::Any + Send>)
+        .collect();
+
+    let base_data = PlironData::new(buffer_ptrs, info.data, cube_count, keepalive);
+
+    for x in 0..cube_dim.x {
+        for y in 0..cube_dim.y {
+            for z in 0..cube_dim.z {
+                let engine = pliron_engine.clone();
+                let mut data = base_data.clone();
+                data.set_unit_pos([x, y, z]);
+                engine.run_kernel(&mut data);
+            }
+        }
     }
 }
