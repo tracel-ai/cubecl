@@ -1,10 +1,13 @@
 use crate::compute::uninit_vec;
 use cubecl_core::server::IoError;
 use cubecl_environment::backtrace::BackTrace;
+use cubecl_server::config::memory::CudaAllocator;
 use cubecl_server::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use cudarc::driver::DriverError;
 use std::collections::HashMap;
 
+/// Records the actual allocation path, which may differ from the configured
+/// [`CudaAllocator`] when asynchronous allocation falls back to synchronous.
 #[derive(Debug, Clone, Copy)]
 enum AllocationKind {
     Async,
@@ -23,6 +26,7 @@ pub struct GpuStorage {
     ptr_bindings: PtrBindings,
     stream: cudarc::driver::sys::CUstream,
     mem_alignment: usize,
+    allocator: CudaAllocator,
 }
 
 /// A GPU memory resource allocated for CUDA using [`GpuStorage`].
@@ -44,19 +48,26 @@ impl GpuResource {
 }
 
 impl GpuStorage {
-    /// Creates a new [`GpuStorage`] instance for the specified CUDA stream.
+    /// Creates storage using the selected allocator and CUDA stream.
     ///
     /// # Arguments
     ///
     /// * `mem_alignment` - The memory alignment requirement in bytes.
-    pub fn new(mem_alignment: usize, stream: cudarc::driver::sys::CUstream) -> Self {
+    /// * `stream` - The stream used for asynchronous allocation and deallocation.
+    /// * `allocator` - How CUDA obtains backing memory for `CubeCL`'s pools.
+    pub fn new(
+        mem_alignment: usize,
+        stream: cudarc::driver::sys::CUstream,
+        allocator: CudaAllocator,
+    ) -> Self {
         Self {
             memory: HashMap::new(),
             deallocations: Vec::new(),
             allocated: 0,
             ptr_bindings: PtrBindings::new(),
-            stream,
             mem_alignment,
+            stream,
+            allocator,
         }
     }
 
@@ -67,19 +78,16 @@ impl GpuStorage {
         self.deallocations
             .drain(..)
             .filter_map(|id| self.memory.remove(&id))
-            // SAFETY: Each `ptr` was obtained from a prior `malloc_async` or `malloc_sync`
-            // call and has not been freed yet. The deallocation method matches the allocation kind.
+            // SAFETY: Each pointer remains owned by this storage and has not been
+            // freed. Match the actual allocation kind, including async fallbacks.
             .for_each(|(ptr, kind, size)| unsafe {
                 self.allocated -= size;
-                match kind {
-                    AllocationKind::Async => {
-                        let _ = cudarc::driver::result::free_async(ptr, self.stream);
-                    }
-                    AllocationKind::Sync => {
-                        if let Err(e) = cudarc::driver::result::free_sync(ptr) {
-                            eprintln!("CUDA free error: {}", e);
-                        }
-                    }
+                let result = match kind {
+                    AllocationKind::Sync => cudarc::driver::result::free_sync(ptr),
+                    AllocationKind::Async => cudarc::driver::result::free_async(ptr, self.stream),
+                };
+                if let Err(e) = result {
+                    eprintln!("CUDA free error: {}", e);
                 }
             });
     }
@@ -175,32 +183,41 @@ impl ComputeStorage for GpuStorage {
     )]
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
-        // SAFETY: Calling CUDA driver FFI to allocate device memory. First tries async
-        // allocation on the stream; falls back to synchronous allocation if that fails.
-        // The returned pointer is stored in `self.memory` and freed on deallocation.
-        let ptr = unsafe { cudarc::driver::result::malloc_async(self.stream, size as usize) };
-        let (ptr, kind) = match ptr {
-            Ok(ptr) => (ptr, AllocationKind::Async),
-            Err(_) => unsafe {
-                match cudarc::driver::result::malloc_sync(size as usize) {
-                    Ok(ptr) => (ptr, AllocationKind::Sync),
-                    // Not `BufferTooBig`: that variant means the allocation can
-                    // never fit, and `Command::reserve` skips its reclaim-and-retry
-                    // when it sees it. A full device is a moment, not a verdict.
-                    Err(DriverError(cudarc::driver::sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY)) => {
-                        return Err(IoError::OutOfMemory {
-                            size,
-                            backtrace: BackTrace::capture(),
-                        });
-                    }
-                    Err(other) => {
-                        return Err(IoError::Unknown {
-                            description: format!("CUDA allocation error: {other}"),
-                            backtrace: BackTrace::capture(),
-                        });
-                    }
+        // CubeCL pools these allocations itself. Sync avoids CUDA's additional
+        // pool; async preserves stream ordering and the existing sync fallback.
+        // SAFETY: The context and stream are valid. Successful allocations remain
+        // owned by `self.memory` and are freed according to their actual kind.
+        let allocation = unsafe {
+            match self.allocator {
+                CudaAllocator::Sync => cudarc::driver::result::malloc_sync(size as usize)
+                    .map(|ptr| (ptr, AllocationKind::Sync)),
+                CudaAllocator::Async => {
+                    cudarc::driver::result::malloc_async(self.stream, size as usize)
+                        .map(|ptr| (ptr, AllocationKind::Async))
+                        .or_else(|_| {
+                            cudarc::driver::result::malloc_sync(size as usize)
+                                .map(|ptr| (ptr, AllocationKind::Sync))
+                        })
                 }
-            },
+            }
+        };
+        let (ptr, kind) = match allocation {
+            Ok(allocation) => allocation,
+            // Not `BufferTooBig`: that variant means the allocation can
+            // never fit, and `Command::reserve` skips its reclaim-and-retry
+            // when it sees it. A full device is a moment, not a verdict.
+            Err(DriverError(cudarc::driver::sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY)) => {
+                return Err(IoError::OutOfMemory {
+                    size,
+                    backtrace: BackTrace::capture(),
+                });
+            }
+            Err(other) => {
+                return Err(IoError::Unknown {
+                    description: format!("CUDA allocation error: {other}"),
+                    backtrace: BackTrace::capture(),
+                });
+            }
         };
 
         self.memory.insert(id, (ptr, kind, size));
