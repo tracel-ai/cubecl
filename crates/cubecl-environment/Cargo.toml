@@ -46,6 +46,7 @@ std = [
 ]
 tokio = ["std", "dep:tokio"]
 tracing = ["dep:tracing"]
+nothreading = []
 
 
 [dependencies]

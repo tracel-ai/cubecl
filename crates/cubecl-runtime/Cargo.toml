@@ -35,6 +35,7 @@ std = ["cubecl-common/std", "cubecl-environment/std", "toml", "thiserror/std"]
 tokio = ["cubecl-environment/tokio"]
 
 tracing = ["dep:tracing", "cubecl-common/tracing", "cubecl-ir/tracing"]
+nothreading = []
 
 [dependencies]
 # Runtime Deps

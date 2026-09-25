@@ -2,18 +2,19 @@
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 mod linux;
+
 #[cfg(any(target_os = "android", target_os = "linux"))]
-use linux::Platform;
+use linux::Platform as TruePlatform;
 
 #[cfg(target_os = "windows")]
 mod windows;
 #[cfg(target_os = "windows")]
-use windows::Platform;
+use windows::Platform as TruePlatform;
 
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
-use macos::Platform;
+use macos::Platform as TruePlatform;
 
 #[cfg(not(any(
     target_os = "linux",
@@ -28,7 +29,48 @@ mod fallback;
     target_os = "windows",
     target_os = "macos"
 )))]
-use fallback::Platform;
+use fallback::Platform as TruePlatform;
+#[cfg(feature = "nothreading")]
+use std::marker::PhantomData;
+
+#[cfg(feature = "nothreading")]
+struct Platform;
+#[cfg(feature = "nothreading")]
+impl ThreadAffinity for Platform {
+    fn active_cpus() -> Vec<CoreId> {
+        TruePlatform::active_cpus()[0..1].to_vec()
+    }
+
+    fn physical_core(cpu: CoreId) -> Option<CoreId> {
+        TruePlatform::physical_core(cpu)
+    }
+
+    fn l1d_cache_size() -> Option<usize> {
+        TruePlatform::l1d_cache_size()
+    }
+
+    fn llc_cache_size() -> Option<usize> {
+        TruePlatform::llc_cache_size()
+    }
+
+    fn pin_current(cpu: CoreId) {
+        TruePlatform::pin_current(cpu);
+    }
+}
+/// What the tests in [`super`] need of this platform beyond the trait.
+#[cfg(all(test, feature = "nothreading"))]
+impl Platform {
+    /// No topology to read, so the tests require nothing of it.
+    pub(super) const READS_TOPOLOGY: bool = TruePlatform::READS_TOPOLOGY;
+
+    /// Nothing is pinned, so there is nothing to observe.
+    pub(super) fn current_cpu() -> Option<CoreId> {
+        TruePlatform::current_cpu()
+    }
+}
+
+#[cfg(not(feature = "nothreading"))]
+type Platform = TruePlatform;
 
 /// A logical CPU, by the number the operating system enumerates it under.
 #[repr(transparent)]
