@@ -140,7 +140,7 @@ impl EventStreamBackend for CudaStreamBackend {
             &self.mem_props,
             self.mem_config.clone(),
             self.logger.clone(),
-            MemoryManagementOptions::new("Main GPU Memory"),
+            MemoryManagementOptions::new("Main GPU Memory").cached_info_pool(),
         );
         // We use the same page size and memory pools configuration for CPU pinned memory, since we
         // expect the CPU to have at least the same amount of RAM as GPU memory.

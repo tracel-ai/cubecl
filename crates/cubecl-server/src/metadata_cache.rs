@@ -10,13 +10,12 @@
 //! launches all hit warm buffers, so nothing is allocated or copied inside the
 //! capture window (a device allocation mid-capture is illegal).
 //!
-//! [`MetadataCachePolicy`] owns every decision: whether a given metadata info is
-//! worth caching at all (small enough, and the cache enabled) and how many
-//! entries to keep before the least-recently-used one is evicted. Its two knobs,
-//! `max_entries` and `max_cached_size`, are tuned by the backend. The current
-//! [`CacheMode`] feeds into those same decisions — during graph capture the
-//! policy caches everything and evicts nothing — so the runtime never has to
-//! special-case capture: it just asks the policy and follows the answer.
+//! [`MetadataCachePolicy`] sets the size limit and entry capacity. The
+//! [`lookup`](MetadataInfoCache::lookup) path used by CUDA and HIP admits only
+//! keys repeated within a bounded recent-key window in normal mode. WGPU uses
+//! the lower-level cache methods and keeps its own first-use policy. During
+//! graph capture every key is admitted and entries are not evicted, so warmup
+//! can prime each recorded buffer.
 //!
 //! A captured graph records the device pointer of every info buffer its launches
 //! touch, so those buffers must outlive the graph. While a capture is recording,
@@ -31,14 +30,15 @@
 //! refcounted, so an info buffer shared by two graphs survives until both are
 //! gone.
 //!
-//! A launch asks [`lookup`](MetadataInfoCache::lookup) and follows the
-//! [`Lookup`] it gets back: a hit is the buffer, and a miss says whether the
-//! one it is about to build is worth [`store`](MetadataInfoCache::store)ing.
-//! Info the policy will not cache is built and forgotten, so a value is only
-//! ever cloned into the cache when it will actually be kept, and the cache
-//! never learns a key it would not have used.
+//! CUDA and HIP launches ask [`lookup`](MetadataInfoCache::lookup) and follow
+//! the [`Lookup`] result: a hit is the buffer, and a miss says whether to
+//! [`store`](MetadataInfoCache::store) the one being built. One-off normal-mode
+//! keys do not retain device slices. Capture mode admits every key.
 
-use alloc::vec::Vec;
+use alloc::{
+    collections::{BTreeMap, VecDeque},
+    vec::Vec,
+};
 use cubecl_environment::collections::{HashMap, HashSet};
 
 use crate::id::GraphId;
@@ -54,12 +54,12 @@ use crate::id::GraphId;
 /// buffers are reused across kernels, not just within one.
 pub type InfoCacheKey = Vec<u64>;
 
-/// How the cache should behave for the current launch. Fed into the
-/// [`MetadataCachePolicy`], so it shapes every decision, not just a setting.
+/// How the cache should behave for the current launch. The policy uses this
+/// mode for size and capacity limits; the cache uses it for admission and pins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CacheMode {
-    /// Normal operation: cache only info small enough to be worth it, and evict
-    /// the least-recently-used entry once the cache is full.
+    /// Normal operation: apply size and capacity limits, evicting the
+    /// least-recently-used entry once the cache is full.
     Normal,
     /// Graph-capture warmup/recording: cache every info buffer regardless of
     /// size and never evict, so the capture window finds every buffer warm and
@@ -67,12 +67,8 @@ pub enum CacheMode {
     Capture,
 }
 
-/// Every caching decision, in one place. Given an info's size and the current
-/// [`CacheMode`], the policy decides whether that info is cached at all
-/// ([`should_cache`](Self::should_cache)) and, through its
-/// [`capacity`](Self::capacity), when the cache must evict to stay bounded. How
-/// those decisions are carried out (lookups, eviction) is the cache's job and
-/// differs per runtime; *what* to do lives here.
+/// Sets the size limit and entry capacity for the current [`CacheMode`].
+/// [`MetadataInfoCache::lookup`] adds the normal-mode admission rule.
 ///
 /// `max_entries` and `max_cached_size` are the backend-tunable knobs.
 #[derive(Debug, Clone, Copy)]
@@ -156,9 +152,9 @@ struct Entry<V> {
 
 /// What the cache says about an info buffer a launch is about to need.
 ///
-/// Two answers, because a miss still has to say whether the result is worth
-/// keeping: an info too large for the policy is built and forgotten, and the
-/// cache never learns a key it would not have used.
+/// On a miss, `store` says whether the built buffer should be retained. Normal
+/// mode admits a repeated key within its recent-key window; capture admits each
+/// key on first use.
 pub enum Lookup<V> {
     /// The buffer is already cached, and this is it.
     Hit(V),
@@ -174,21 +170,26 @@ pub enum Lookup<V> {
 /// entry drops its `V`; when `V` is a memory handle that returns the buffer to
 /// the pool, so the cache never pins more device memory than its live entries.
 ///
-/// All policy is delegated to [`MetadataCachePolicy`]; this type only carries
-/// out its decisions. See the [module docs](self) for the intended
-/// [`lookup`](MetadataInfoCache::lookup) is the entry point a launch wants;
-/// the steps it composes are public for the paths that need them apart.
+/// [`MetadataCachePolicy`] sets size and capacity limits. This type tracks
+/// recent misses, performs admission and eviction, and pins graph entries. See
+/// the [module docs](self). [`lookup`](MetadataInfoCache::lookup) is the entry
+/// point a launch wants; its component steps are public for paths that need them.
 #[derive(Debug)]
 pub struct MetadataInfoCache<V> {
     entries: HashMap<InfoCacheKey, Entry<V>>,
+    /// Oldest unpinned entry first. Pinned entries have no eviction index entry.
+    unpinned_lru: BTreeMap<u64, InfoCacheKey>,
     policy: MetadataCachePolicy,
-    /// Monotonic logical clock; advanced once per [`get`](Self::get).
+    /// Monotonic logical clock; advanced by [`get`](Self::get) and inserts.
     clock: u64,
     /// Keys touched during the in-progress capture, each pinned exactly once,
     /// awaiting association with a [`GraphId`] at
     /// [`capture_commit`](Self::capture_commit) (or release at
     /// [`capture_discard`](Self::capture_discard) if the capture is abandoned).
     pending: HashSet<InfoCacheKey>,
+    /// Normal-mode keys seen within the last capacity first-use misses.
+    seen_recently: HashSet<InfoCacheKey>,
+    seen_order: VecDeque<InfoCacheKey>,
     /// The keys each live captured graph pinned, so
     /// [`graph_release`](Self::graph_release) can drop that graph's locks when it
     /// is destroyed.
@@ -200,9 +201,12 @@ impl<V> MetadataInfoCache<V> {
     pub fn new(policy: MetadataCachePolicy) -> Self {
         Self {
             entries: HashMap::new(),
+            unpinned_lru: BTreeMap::new(),
             policy,
             clock: 0,
             pending: HashSet::new(),
+            seen_recently: HashSet::new(),
+            seen_order: VecDeque::new(),
             graph_locks: HashMap::new(),
         }
     }
@@ -233,17 +237,41 @@ impl<V> MetadataInfoCache<V> {
     /// Drop every cached entry (releasing every held `V`).
     pub fn clear(&mut self) {
         self.entries.clear();
+        self.unpinned_lru.clear();
+        self.seen_recently.clear();
+        self.seen_order.clear();
     }
 
     /// Drop every entry no live graph pins (releasing their held `V`s),
     /// keeping the pinned ones — their device pointers are recorded inside
     /// captured graphs that will replay against them.
     ///
-    /// The explicit-cleanup hook. Cached info buffers are live slices in the
-    /// dynamic memory pools, so a cleanup that left them there would hold a
-    /// page of every pool the workload ever grew out of.
+    /// Explicit cleanup drops unpinned entries so their storage can be
+    /// reclaimed. Pinned entries remain valid for graph replay.
     pub fn clear_unpinned(&mut self) {
         self.entries.retain(|_, entry| entry.locks > 0);
+        self.unpinned_lru.clear();
+        self.seen_recently.clear();
+        self.seen_order.clear();
+    }
+
+    fn remember_miss(&mut self, words: &[u64]) {
+        let Some(capacity) = self.policy.capacity() else {
+            return;
+        };
+        if capacity == 0 {
+            return;
+        }
+        if self.seen_order.len() == capacity {
+            let oldest = self
+                .seen_order
+                .pop_front()
+                .expect("recent-key queue is full");
+            self.seen_recently.remove(&oldest);
+        }
+        let key = words.to_vec();
+        self.seen_recently.insert(key.clone());
+        self.seen_order.push_back(key);
     }
 }
 
@@ -253,21 +281,15 @@ impl<V: Clone> MetadataInfoCache<V> {
     /// During a capture ([`pins_entries`](MetadataCachePolicy::pins_entries)) a
     /// hit also pins the entry to the graph being recorded, once per capture.
     ///
-    /// Call only when [`should_cache`](Self::should_cache) is `true`; on a miss
-    /// create the value and hand it to [`insert`](Self::insert).
-    /// What to do about the info `words`, under `mode`.
+    /// The returned [`Lookup::Build`] says whether to keep the created value.
     ///
     /// The one entry point a launch needs: it sets the mode, asks the policy
-    /// whether this info is worth caching at all, and looks it up if so. A
-    /// caller that reached for [`mode`](Self::mode), [`should_cache`] and
-    /// [`get`] in sequence was spelling this out, and every backend spelled it
-    /// out the same way.
+    /// whether this info is worth caching, and looks it up. In normal mode the
+    /// first miss is only remembered; a repeated miss is admitted. Capture mode
+    /// admits every miss.
     ///
-    /// The words are borrowed here so a hit clones nothing; a miss hands them
-    /// to [`store`](Self::store) by value, as the key.
-    ///
-    /// [`should_cache`]: Self::should_cache
-    /// [`get`]: Self::get
+    /// The words are borrowed so a hit clones nothing. An admitted miss hands
+    /// them to [`store`](Self::store) by value, as the key.
     pub fn lookup(&mut self, mode: CacheMode, words: &[u64]) -> Lookup<V> {
         self.mode(mode);
         if !self.should_cache(core::mem::size_of_val(words)) {
@@ -275,7 +297,12 @@ impl<V: Clone> MetadataInfoCache<V> {
         }
         match self.get(words) {
             Some(value) => Lookup::Hit(value),
-            None => Lookup::Build { store: true },
+            None if mode == CacheMode::Capture => Lookup::Build { store: true },
+            None if self.seen_recently.contains(words) => Lookup::Build { store: true },
+            None => {
+                self.remember_miss(words);
+                Lookup::Build { store: false }
+            }
         }
     }
 
@@ -300,6 +327,15 @@ impl<V: Clone> MetadataInfoCache<V> {
         // `pending`/`entries` are disjoint fields, so both borrows coexist.
         let pin = self.policy.pins_entries() && !self.pending.contains(key);
         let entry = self.entries.get_mut(key)?;
+        if entry.locks == 0 {
+            let owned_key = self
+                .unpinned_lru
+                .remove(&entry.last_used)
+                .expect("unpinned entry has an eviction index entry");
+            if !pin {
+                self.unpinned_lru.insert(clock, owned_key);
+            }
+        }
         entry.last_used = clock;
         if pin {
             self.pending.insert(key.to_vec());
@@ -314,9 +350,8 @@ impl<V: Clone> MetadataInfoCache<V> {
     /// [capacity](MetadataCachePolicy::capacity) (a capture is unbounded and
     /// never evicts).
     ///
-    /// Because the runtime only reaches here on a
-    /// [`should_cache`](Self::should_cache) miss, the value it clones in is
-    /// always kept — no wasted clones.
+    /// The launch calls this only when [`lookup`](Self::lookup) requested
+    /// storage, so the cloned value is kept.
     pub fn insert(&mut self, key: InfoCacheKey, value: V) {
         if let Some(capacity) = self.policy.capacity() {
             if capacity == 0 {
@@ -326,6 +361,7 @@ impl<V: Clone> MetadataInfoCache<V> {
                 self.evict_least_recently_used();
             }
         }
+        self.clock += 1;
         // A miss during capture pins the fresh entry to the graph being recorded.
         let locks = if self.policy.pins_entries() {
             self.pending.insert(key.clone());
@@ -333,6 +369,9 @@ impl<V: Clone> MetadataInfoCache<V> {
         } else {
             0
         };
+        if locks == 0 {
+            self.unpinned_lru.insert(self.clock, key.clone());
+        }
         self.entries.insert(
             key,
             Entry {
@@ -361,6 +400,9 @@ impl<V: Clone> MetadataInfoCache<V> {
         for key in keys {
             if let Some(entry) = self.entries.get_mut(&key) {
                 entry.locks = entry.locks.saturating_sub(1);
+                if entry.locks == 0 {
+                    self.unpinned_lru.insert(entry.last_used, key);
+                }
             }
         }
     }
@@ -386,16 +428,9 @@ impl<V: Clone> MetadataInfoCache<V> {
         }
     }
 
-    /// Drop the entry whose last use is oldest (largest "time since last use"),
-    /// skipping entries pinned to a live graph.
+    /// Drop the oldest unpinned entry.
     fn evict_least_recently_used(&mut self) {
-        let victim = self
-            .entries
-            .iter()
-            .filter(|(_, entry)| entry.locks == 0)
-            .min_by_key(|(_, entry)| entry.last_used)
-            .map(|(key, _)| key.clone());
-        if let Some(key) = victim {
+        if let Some((_, key)) = self.unpinned_lru.pop_first() {
             self.entries.remove(&key);
         }
     }
@@ -420,9 +455,8 @@ mod tests {
         assert!(!cache.should_cache(65), "over max_cached_size");
     }
 
-    /// An explicit cleanup drops every entry except the ones live graphs pin:
-    /// the unpinned buffers are what keeps the dynamic pools from ever being
-    /// rebuilt, and the pinned ones are what recorded graphs replay against.
+    /// Explicit cleanup drops unpinned entries. Graphs retain the entries
+    /// whose device pointers they recorded.
     #[test]
     fn clear_unpinned_keeps_only_graph_pinned_entries() {
         let mut cache = cache(8);
@@ -479,6 +513,88 @@ mod tests {
         assert_eq!(cache.get(&key(0)), Some(0), "recently used entry kept");
         assert!(cache.get(&key(1)).is_none(), "least-recently-used evicted");
         assert_eq!(cache.get(&key(2)), Some(2), "new entry cached");
+    }
+
+    #[test]
+    fn normal_mode_only_admits_repeated_keys_within_the_recent_window() {
+        let mut cache = cache(2);
+        assert!(matches!(
+            cache.lookup(CacheMode::Normal, &key(0)),
+            Lookup::Build { store: false }
+        ));
+        assert!(cache.is_empty());
+
+        assert!(matches!(
+            cache.lookup(CacheMode::Normal, &key(1)),
+            Lookup::Build { store: false }
+        ));
+        assert!(matches!(
+            cache.lookup(CacheMode::Normal, &key(2)),
+            Lookup::Build { store: false }
+        ));
+        assert!(matches!(
+            cache.lookup(CacheMode::Normal, &key(0)),
+            Lookup::Build { store: false }
+        ));
+
+        assert!(matches!(
+            cache.lookup(CacheMode::Normal, &key(2)),
+            Lookup::Build { store: true }
+        ));
+        cache.store(key(2), 2);
+        assert!(matches!(
+            cache.lookup(CacheMode::Normal, &key(2)),
+            Lookup::Hit(2)
+        ));
+    }
+
+    #[test]
+    fn changing_shape_keys_do_not_accumulate_after_they_repeat_outside_the_window() {
+        let mut cache = MetadataInfoCache::<u32>::new(MetadataCachePolicy::default());
+        for _ in 0..2 {
+            for i in 0..(4096 + 1) {
+                assert!(matches!(
+                    cache.lookup(CacheMode::Normal, &key(i)),
+                    Lookup::Build { store: false }
+                ));
+            }
+        }
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn capture_mode_admits_first_use() {
+        let mut cache = cache(1);
+        let graph = GraphId::new();
+        assert!(matches!(
+            cache.lookup(CacheMode::Capture, &key(0)),
+            Lookup::Build { store: true }
+        ));
+        cache.store(key(0), 0);
+        assert!(matches!(
+            cache.lookup(CacheMode::Capture, &key(0)),
+            Lookup::Hit(0)
+        ));
+        cache.capture_commit(graph);
+        cache.graph_release(graph);
+        assert!(matches!(
+            cache.lookup(CacheMode::Normal, &key(0)),
+            Lookup::Build { store: false }
+        ));
+    }
+
+    #[test]
+    fn default_normal_cache_stays_within_4096_entries() {
+        let mut cache = MetadataInfoCache::new(MetadataCachePolicy::default());
+        for i in 0..4097 {
+            let key = key(i);
+            assert!(cache.get(&key).is_none());
+            cache.insert(key, i as u32);
+        }
+
+        assert_eq!(cache.len(), 4096);
+        assert!(cache.get(&key(0)).is_none());
+        assert_eq!(cache.get(&key(4096)), Some(4096));
     }
 
     #[test]

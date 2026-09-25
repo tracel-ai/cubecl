@@ -588,7 +588,8 @@ fn info_buffer(command: &mut Command<'_>, words: Vec<u64>) -> Result<Handle, Ser
     match stream.info_cache.lookup(mode, &words) {
         Lookup::Hit(handle) => Ok(handle),
         Lookup::Build { store } => {
-            let handle = command.create_with_data(bytemuck::cast_slice(&words))?;
+            let bytes = bytemuck::cast_slice(&words);
+            let handle = command.create_info_with_data(bytes)?;
             if store {
                 command.stream().info_cache.store(words, handle.clone());
             }
