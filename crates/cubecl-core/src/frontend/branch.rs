@@ -94,6 +94,16 @@ fn for_expand_dyn<I: Iterable>(
 }
 
 pub fn if_expand(scope: &Scope, condition: NativeExpand<bool>, block: impl FnOnce(&Scope)) {
+    let mut block = Some(block);
+    if_expand_dyn(scope, condition, &mut |scope| call_once(&mut block, scope));
+}
+
+fn call_once(block: &mut Option<impl FnOnce(&Scope)>, scope: &Scope) {
+    let block = block.take().expect("an expanded block is called once");
+    block(scope)
+}
+
+fn if_expand_dyn(scope: &Scope, condition: NativeExpand<bool>, block: &mut dyn FnMut(&Scope)) {
     let comptime_cond = condition.expand.as_const().map(|it| it.as_bool());
     match comptime_cond {
         Some(cond) => {
@@ -133,6 +143,11 @@ pub enum IfElseExpand {
 
 impl IfElseExpand {
     pub fn or_else(self, scope: &Scope, else_block: impl FnOnce(&Scope)) {
+        let mut else_block = Some(else_block);
+        self.or_else_dyn(scope, &mut |scope| call_once(&mut else_block, scope));
+    }
+
+    fn or_else_dyn(self, scope: &Scope, else_block: &mut dyn FnMut(&Scope)) {
         match self {
             Self::Runtime {
                 if_op, then_child, ..
@@ -155,6 +170,17 @@ pub fn if_else_expand(
     scope: &Scope,
     condition: NativeExpand<bool>,
     then_block: impl FnOnce(&Scope),
+) -> IfElseExpand {
+    let mut then_block = Some(then_block);
+    if_else_expand_dyn(scope, condition, &mut |scope| {
+        call_once(&mut then_block, scope)
+    })
+}
+
+fn if_else_expand_dyn(
+    scope: &Scope,
+    condition: NativeExpand<bool>,
+    then_block: &mut dyn FnMut(&Scope),
 ) -> IfElseExpand {
     let comptime_cond = condition.expand.as_const().map(|it| it.as_bool());
     match comptime_cond {
