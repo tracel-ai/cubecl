@@ -5,7 +5,7 @@ use crate::{
     prelude::*,
     shared::builtin_values::{
         BuiltinValues, Replacer, absolute_pos, absolute_pos_x, absolute_pos_y, absolute_pos_z,
-        constant, cube_count, cube_pos, set_dim_and_cluster_constants, unit_pos,
+        constant, cube_count, cube_pos, plane_pos, set_dim_and_cluster_constants, unit_pos,
     },
 };
 use cubecl_core::{ir::dialect::general::ReadBuiltinOp, prelude::*};
@@ -133,6 +133,12 @@ impl Pass for InsertGpuBuiltinsPass {
                 constant::expand(&scope, self.plane_dim).value(&scope),
             );
             values.derive(&scope, &mut builtins, cube_dim);
+            let plane = plane_pos::expand(
+                &scope,
+                builtins.expect(Builtin::UnitPos).into(),
+                self.plane_dim,
+            );
+            builtins.set(Builtin::PlanePos, plane.value(&scope));
         }
 
         let mut replacer = Replacer {
