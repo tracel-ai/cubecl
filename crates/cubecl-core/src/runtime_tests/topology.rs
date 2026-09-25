@@ -2,6 +2,7 @@ use crate as cubecl;
 use alloc::vec::Vec;
 
 use cubecl::prelude::*;
+use cubecl_ir::features::Plane;
 
 #[cube(launch, address_type = "dynamic")]
 pub fn kernel_absolute_pos(output1: &mut [u32]) {
@@ -95,13 +96,17 @@ pub fn test_kernel_topology_absolute_pos_is_cube_major(client: Client, addr_type
 
 /// `PLANE_POS` is the plane a unit belongs to, planes being consecutive runs of `PLANE_DIM`
 /// units in `UNIT_POS` order: each unit is lane `UNIT_POS_PLANE` of plane `PLANE_POS`. Read on a
-/// two-dimensional cube of at least four planes of whatever width the kernel runs at, so the unit
-/// order the planes follow is the linearized one, and the lane the hardware reports checks the
-/// plane a target derives.
+/// cube of at least four planes of whatever width the kernel runs at, so the lane the hardware
+/// reports checks the plane a target derives. One-dimensional, as WGSL takes its subgroup
+/// builtins only in a one-dimensional workgroup; a device without plane operations has no planes
+/// to place a unit in, and is skipped.
 pub fn test_kernel_topology_plane_pos(client: Client) {
+    if !client.features().plane.contains(Plane::Ops) {
+        return;
+    }
     let hardware = &client.properties().hardware;
     let (min_dim, max_dim) = (hardware.plane_size_min, hardware.plane_size_max);
-    let cube_dim = CubeDim::new_2d(max_dim / 2, 8);
+    let cube_dim = CubeDim::new_1d(max_dim * 4);
     let units = cube_dim.num_elems() as usize;
     let handle = client.empty(units * 3 * core::mem::size_of::<u32>());
 
