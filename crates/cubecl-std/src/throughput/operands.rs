@@ -1,4 +1,4 @@
-use cubecl_core::ir::{ElemType, FloatKind};
+use cubecl_core::ir::{ElemType, FloatKind, features::Features};
 use cubecl_runtime::{client::Client, throughput::ComputeCmmaConfig};
 
 /// The operand types and vector widths an arithmetic ceiling is measured in.
@@ -51,8 +51,12 @@ pub(super) struct CooperativeMatrix;
 impl CooperativeMatrix {
     /// A non-empty capability list says the device has tensor hardware, not this
     /// shape of it. `mma` is not consulted: the probe issues `cmma::execute`.
-    pub(super) fn implemented(client: &Client, dtype: ElemType, config: ComputeCmmaConfig) -> bool {
-        client.properties().features.matmul.cmma.iter().any(|it| {
+    pub(super) fn implemented(
+        features: &Features,
+        dtype: ElemType,
+        config: ComputeCmmaConfig,
+    ) -> bool {
+        features.matmul.cmma.iter().any(|it| {
             it.a_type == dtype
                 && it.b_type == dtype
                 && it.cd_type == config.accumulator_type

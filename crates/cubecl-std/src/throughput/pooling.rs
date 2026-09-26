@@ -2,8 +2,18 @@ use cubecl_common::device::ServiceId;
 use cubecl_environment::{collections::HashMap, sync::Mutex};
 use cubecl_runtime::client::Client;
 
-/// How many sweeps are holding each device's pools open.
-static POOLED_PROBES: Mutex<Option<HashMap<ServiceId, usize>>> = Mutex::new(None);
+/// What each device has open, and what it has yet to give back.
+static POOLED_PROBES: Mutex<Option<HashMap<ServiceId, Pooled>>> = Mutex::new(None);
+
+/// One device's pooled probes.
+#[derive(Default)]
+struct Pooled {
+    /// Sweeps measuring against its pools right now.
+    holders: usize,
+    /// A release a probe could not make while one of them held the pools,
+    /// left for whoever finds them free next.
+    owed: bool,
+}
 
 /// A device whose probes leave their pools with the allocator, for as long as
 /// one of these is alive, since faulting the next one back in costs more than
@@ -21,39 +31,52 @@ impl PooledProbes {
     fn enter_service(service: ServiceId) -> Self {
         let mut pooled = POOLED_PROBES.lock();
 
-        *pooled
+        pooled
             .get_or_insert_with(HashMap::new)
             .entry(service)
-            .or_insert(0) += 1;
+            .or_default()
+            .holders += 1;
 
         Self { service }
     }
 
-    pub(super) fn cleanup_unless_held(client: &Client) {
+    /// Give back the pools a probe took, unless a sweep is still measuring
+    /// against them, where the release is left owed instead.
+    ///
+    /// `probed` is whether this caller took any. One that took none still makes
+    /// a release another owes: a sweep answered from the cache is otherwise the
+    /// last one out, and the unconditional cleanup this gate replaced meant
+    /// whoever finished last released.
+    pub(super) fn release(client: &Client, probed: bool) {
         // A cleanup refused because a stream records a graph leaves the memory
         // for the next one; the sweep needs nothing from it.
-        Self::cleanup_unless_held_by(client.service_id(), || {
+        Self::release_service(client.service_id(), probed, || {
             let _ = client.memory_cleanup();
         });
     }
 
     /// `release` runs with the lock dropped: it blocks on the device thread,
     /// which takes this lock itself when it autotunes.
-    fn cleanup_unless_held_by(service: ServiceId, release: impl FnOnce()) {
-        let held = {
-            let pooled = POOLED_PROBES.lock();
-            Self::held_by(&pooled, service)
+    fn release_service(service: ServiceId, probed: bool, release: impl FnOnce()) {
+        let owed = {
+            let mut pooled = POOLED_PROBES.lock();
+            let devices = pooled.get_or_insert_with(HashMap::new);
+            let device = devices.entry(service).or_default();
+
+            let owed = probed || device.owed;
+            let held = device.holders > 0;
+            device.owed = owed && held;
+
+            if !held && !device.owed {
+                devices.remove(&service);
+            }
+
+            owed && !held
         };
 
-        if !held {
+        if owed {
             release();
         }
-    }
-
-    fn held_by(pooled: &Option<HashMap<ServiceId, usize>>, service: ServiceId) -> bool {
-        pooled
-            .as_ref()
-            .is_some_and(|sweeps| sweeps.contains_key(&service))
     }
 }
 
@@ -64,10 +87,10 @@ impl Drop for PooledProbes {
             return;
         };
 
-        if let Some(holders) = sweeps.get_mut(&self.service) {
-            *holders -= 1;
+        if let Some(device) = sweeps.get_mut(&self.service) {
+            device.holders -= 1;
 
-            if *holders == 0 {
+            if device.holders == 0 && !device.owed {
                 sweeps.remove(&self.service);
             }
         }
@@ -85,7 +108,11 @@ mod tests {
     }
 
     fn pooled(service: ServiceId) -> bool {
-        PooledProbes::held_by(&POOLED_PROBES.lock(), service)
+        POOLED_PROBES
+            .lock()
+            .as_ref()
+            .and_then(|devices| devices.get(&service))
+            .is_some_and(|device| device.holders > 0)
     }
 
     /// A sweep that ends while another is running must not release the pool the
@@ -151,7 +178,53 @@ mod tests {
         let _pooled = PooledProbes::enter_service(device);
         let mut released = false;
 
-        PooledProbes::cleanup_unless_held_by(device, || released = true);
+        PooledProbes::release_service(device, true, || released = true);
+
+        assert!(!released);
+    }
+
+    /// The cache answering is not a probe, and releasing after one costs a
+    /// blocking device call for pools nothing took.
+    #[test]
+    fn a_caller_that_probed_nothing_releases_nothing() {
+        let mut released = false;
+
+        PooledProbes::release_service(service(7), false, || released = true);
+
+        assert!(!released);
+    }
+
+    /// A probe that runs beside a sweep cannot release while the sweep holds
+    /// the pools, and the sweep, answered from the cache, has nothing of its
+    /// own to release. Without the debt, what the probe took stays with the
+    /// allocator until another probe on that device happens to release it.
+    #[test]
+    fn a_release_a_probe_could_not_make_is_made_by_the_sweep() {
+        let device = service(8);
+        let sweep = PooledProbes::enter_service(device);
+        let mut released = false;
+
+        PooledProbes::release_service(device, true, || released = true);
+        assert!(!released, "the sweep is still measuring against the pools");
+
+        drop(sweep);
+        PooledProbes::release_service(device, false, || released = true);
+
+        assert!(released);
+    }
+
+    /// And once made, it is not owed twice.
+    #[test]
+    fn a_release_that_was_made_is_not_owed_again() {
+        let device = service(9);
+        let sweep = PooledProbes::enter_service(device);
+
+        PooledProbes::release_service(device, true, || ());
+        drop(sweep);
+        PooledProbes::release_service(device, false, || ());
+
+        let mut released = false;
+        PooledProbes::release_service(device, false, || released = true);
 
         assert!(!released);
     }
@@ -162,7 +235,7 @@ mod tests {
 
         let (took_lock, lock_taken) = mpsc::channel();
 
-        PooledProbes::cleanup_unless_held_by(service(6), || {
+        PooledProbes::release_service(service(6), true, || {
             std::thread::spawn(move || {
                 let _pooled = POOLED_PROBES.lock();
                 let _ = took_lock.send(());
