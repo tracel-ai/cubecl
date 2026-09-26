@@ -85,6 +85,9 @@ impl KernelBuilder {
 
     /// Build the [kernel definition](KernelDefinition).
     pub fn build(self) -> KernelDefinition {
+        for warning in self.scope.pop_warnings() {
+            log::warn!("[{}] {warning}", self.settings.kernel_name);
+        }
         let info = self.create_info();
         KernelIntegrator::new(KernelExpansion {
             scope: self.scope,
