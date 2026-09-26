@@ -733,6 +733,15 @@ pub trait Server:
     /// device, and a wait on a stream that records aborts its capture.
     fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
+    /// Bytes the device could still allocate beyond what this server holds,
+    /// when its driver says so: a CUDA device's free memory, the budget left
+    /// on a Vulkan device's largest device-local heap. `None` where the
+    /// runtime has no figure, which a caller reads as unknown, never as
+    /// nothing.
+    fn memory_available(&mut self, _stream_id: StreamId) -> Option<u64> {
+        None
+    }
+
     /// Enable collecting timestamps.
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError>;
 

@@ -1463,6 +1463,22 @@ impl Client {
             .unwrap_or_resume()
     }
 
+    /// Bytes the device could still allocate beyond what this client's server
+    /// holds, when its driver says so: `cuMemGetInfo` on CUDA, the budget left
+    /// on the largest device-local heap through `VK_EXT_memory_budget` on wgpu
+    /// over Vulkan. `None` where the runtime has no figure.
+    ///
+    /// What the [memory report](Self::memory_report) counts is reserved
+    /// already, so a caller sizing its work reads both: the pools serve an
+    /// allocation from what they hold before the device is asked for more.
+    pub fn memory_available(&self) -> Option<u64> {
+        let stream_id = self.stream_id();
+        self.device
+            .submit_blocking(move |server| server.memory_available(stream_id))
+            .ok()
+            .flatten()
+    }
+
     /// Write a snapshot of the device's [memory report](Self::memory_report),
     /// every stream of it, to the environment's records under `label`.
     /// Nothing is read when the environment records nothing.

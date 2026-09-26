@@ -687,6 +687,17 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         }
     }
 
+    fn memory_available(&mut self, _stream_id: StreamId) -> Option<u64> {
+        #[cfg(all(not(target_family = "wasm"), not(target_os = "macos")))]
+        {
+            vulkan_memory_available(&self.device)
+        }
+        #[cfg(any(target_family = "wasm", target_os = "macos"))]
+        {
+            None
+        }
+    }
+
     fn stream_ids(&self) -> Vec<StreamId> {
         self.scheduler.stream_ids().collect()
     }
@@ -937,4 +948,43 @@ impl<C: WgpuCompiler> ServerStorage for WgpuServer<C> {
             binding.offset_end,
         )?)
     }
+}
+
+/// What the driver's memory budget leaves on a Vulkan device's largest device-local heap,
+/// through the `VK_EXT_memory_budget` wgpu enables when the driver offers it: the one memory
+/// figure a wgpu device can read. The largest heap, not their sum, because a host-visible
+/// device-local heap is a window on the same memory. `None` on another backend or without
+/// the extension.
+#[cfg(all(not(target_family = "wasm"), not(target_os = "macos")))]
+fn vulkan_memory_available(device: &wgpu::Device) -> Option<u64> {
+    use ash::vk;
+    // SAFETY: the raw handles are only read, for a query that changes no state.
+    let hal = unsafe { device.as_hal::<wgpu::hal::api::Vulkan>() }?;
+    if !hal
+        .enabled_device_extensions()
+        .contains(&ash::ext::memory_budget::NAME)
+    {
+        return None;
+    }
+    let mut budget = vk::PhysicalDeviceMemoryBudgetPropertiesEXT::default();
+    let mut properties = vk::PhysicalDeviceMemoryProperties2::default().push_next(&mut budget);
+    // SAFETY: a Vulkan 1.1 query into structures this function owns, on the device's own
+    // instance.
+    unsafe {
+        hal.shared_instance()
+            .raw_instance()
+            .get_physical_device_memory_properties2(hal.raw_physical_device(), &mut properties)
+    };
+    let memory = properties.memory_properties;
+    Some(
+        (0..memory.memory_heap_count as usize)
+            .filter(|&heap| {
+                memory.memory_heaps[heap]
+                    .flags
+                    .contains(vk::MemoryHeapFlags::DEVICE_LOCAL)
+            })
+            .map(|heap| budget.heap_budget[heap].saturating_sub(budget.heap_usage[heap]))
+            .max()
+            .unwrap_or(0),
+    )
 }

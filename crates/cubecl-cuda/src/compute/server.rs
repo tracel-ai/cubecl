@@ -378,6 +378,13 @@ impl Server for CudaServer {
         command.memory_cleanup()
     }
 
+    fn memory_available(&mut self, _stream_id: StreamId) -> Option<u64> {
+        self.unsafe_set_current();
+        cudarc::driver::result::mem_get_info()
+            .ok()
+            .map(|(free, _)| free as u64)
+    }
+
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
         let mut command = self.command_no_inputs(stream_id);
         command.allocation_mode(mode)
