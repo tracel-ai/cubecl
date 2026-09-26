@@ -53,7 +53,7 @@ pub use pliron::{
 pub use pliron_llvm::{
     attributes::{
         AtomicOrderingAttr, AtomicRmwKindAttr, FCmpPredicateAttr, FastmathFlags, FastmathFlagsAttr,
-        ICmpPredicateAttr, IntegerOverflowFlagsAttr, LinkageAttr, SyncScopeAttr,
+        GepNoWrapFlags, ICmpPredicateAttr, IntegerOverflowFlagsAttr, LinkageAttr, SyncScopeAttr,
     },
     op_interfaces::{
         AlignableOpInterface, BinArithOp, CastOpInterface, CastOpWithNNegInterface, FastMathFlags,

@@ -1,3 +1,6 @@
+use crate::memory_management::relocation::{
+    RelocatableStream, RelocatingStreams, RelocationNeed, RelocationReason,
+};
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
@@ -141,6 +144,69 @@ pub struct SchedulerMultiStreamOptions {
     pub strategy: SchedulerStrategy,
 }
 
+/// A scheduler's streams, relocating one stream's memory: every stream's
+/// queued tasks run and are flushed first, since a queued task holds the
+/// addresses its buffers resolved to.
+pub struct SchedulerRelocation<'a, B: SchedulerStreamBackend> {
+    scheduler: &'a mut SchedulerMultiStream<B>,
+    stream_id: StreamId,
+}
+
+impl<B> RelocatingStreams for SchedulerRelocation<'_, B>
+where
+    B: SchedulerStreamBackend,
+    B::Stream: RelocatableStream,
+{
+    fn recording(&mut self) -> bool {
+        self.scheduler.stream(&self.stream_id).recording()
+    }
+
+    fn has_outdated(&mut self) -> bool {
+        self.scheduler.stream(&self.stream_id).has_outdated()
+    }
+
+    fn relocation_need(&mut self) -> RelocationNeed {
+        self.scheduler.stream(&self.stream_id).relocation_need()
+    }
+
+    fn bytes_allocated(&mut self) -> u64 {
+        self.scheduler
+            .streams()
+            .map(RelocatableStream::bytes_allocated)
+            .sum()
+    }
+
+    fn finish(&mut self) {
+        self.scheduler.flush_all();
+    }
+
+    fn relocate_memory(&mut self, reason: RelocationReason) {
+        let (stream, failures) = self.scheduler.stream_and_failures(&self.stream_id);
+        stream.relocate(reason, failures);
+    }
+
+    fn cleanup_memory(&mut self) {
+        let (stream, failures) = self.scheduler.stream_and_failures(&self.stream_id);
+        stream.cleanup_memory(failures);
+    }
+
+    fn device_has_outdated(&mut self) -> bool {
+        self.scheduler
+            .streams()
+            .any(RelocatableStream::has_outdated)
+    }
+
+    fn relocate_device_memory(&mut self, reason: RelocationReason) {
+        let stream_ids: Vec<_> = self.scheduler.stream_ids().collect();
+        for stream_id in stream_ids {
+            let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+            if stream.has_outdated() {
+                stream.relocate(reason, failures);
+            }
+        }
+    }
+}
+
 impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     /// Creates a new `SchedulerMultiStream` with the given backend and options.
     pub fn new(
@@ -190,6 +256,26 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     /// Synthetic [`StreamId`]s, one per initialized stream (see [`StreamPool::stream_ids`]).
     pub fn stream_ids(&self) -> impl Iterator<Item = StreamId> + '_ {
         self.pool.stream_ids()
+    }
+
+    /// The streams, as relocating `stream_id`'s memory needs them.
+    pub fn relocating(&mut self, stream_id: StreamId) -> SchedulerRelocation<'_, B> {
+        SchedulerRelocation {
+            scheduler: self,
+            stream_id,
+        }
+    }
+
+    /// Run every stream's queued tasks, then flush each stream with the
+    /// backend: what a caller about to touch memory any stream may use waits
+    /// on first.
+    pub fn flush_all(&mut self) {
+        let stream_ids: Vec<_> = self.stream_ids().collect();
+        self.execute_streams(stream_ids);
+        let graph = self.failures.graph_mut();
+        for stream in self.pool.streams_mut() {
+            B::flush(&mut stream.stream, graph);
+        }
     }
 
     /// Registers a task for execution on a specific stream, ensuring stream alignment.

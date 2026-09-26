@@ -19,6 +19,7 @@ use cubecl_core::{
     server::ResourceLimitError,
 };
 use cubecl_environment::persistence::Store;
+use cubecl_llvm::nvptx::ptx_version::PtxVersion;
 use cubecl_server::{
     compiler::KernelCacheKey,
     kernel::{CompiledKernel, CubeKernel},
@@ -26,7 +27,7 @@ use cubecl_server::{
 };
 use cudarc::driver::DriverError;
 use cudarc::driver::sys::CUfunc_st;
-use cudarc::driver::sys::{CUctx_st, CUfunction_attribute};
+use cudarc::driver::sys::{CUctx_st, CUfunction_attribute, CUstream};
 use std::ffi::CString;
 use std::ffi::c_char;
 use std::str::FromStr;
@@ -40,6 +41,9 @@ use cubecl_server::compiler::{
 #[derive(Debug)]
 pub(crate) struct CudaContext {
     pub context: *mut CUctx_st,
+    /// The stream collectives run on. Kept on the context so a relocation —
+    /// which reaches the context, not the server — can wait on it.
+    pub comm_stream: CUstream,
     /// The modules loaded on the device, in front of [`Self::ptx_cache`].
     ///
     /// An environment switch drops these, and nothing unloads the modules they
@@ -86,13 +90,19 @@ pub struct PtxCacheEntry {
 /// The namespace a backend's compiled artifacts live under.
 ///
 /// Both backends emit PTX, so without the backend in the key a stale artifact from one would
-/// load and run happily under the other -- tests passing while measuring nothing.
-fn cache_namespace(fingerprint: &str, backend: CudaBackend) -> String {
-    let backend = match backend {
-        CudaBackend::Cpp => "cpp",
-        CudaBackend::Llvm => "llvm",
-    };
-    format!("{fingerprint}-{backend}")
+/// load and run happily under the other -- tests passing while measuring nothing. The LLVM
+/// backend's PTX version follows the driver, so it is in the key too: after a driver downgrade,
+/// PTX newer than the driver loads would otherwise be read back and refused.
+fn cache_namespace(
+    fingerprint: &str,
+    backend: CudaBackend,
+    ptx_version: Option<PtxVersion>,
+) -> String {
+    match (backend, ptx_version) {
+        (CudaBackend::Cpp, _) => format!("{fingerprint}-cpp"),
+        (CudaBackend::Llvm, None) => format!("{fingerprint}-llvm"),
+        (CudaBackend::Llvm, Some(ptx_version)) => format!("{fingerprint}-llvm-{ptx_version}"),
+    }
 }
 
 impl CudaContext {
@@ -103,13 +113,19 @@ impl CudaContext {
         context: *mut CUctx_st,
         arch: CudaArchitecture,
         backend: CudaBackend,
+        comm_stream: CUstream,
     ) -> Self {
-        let fingerprint = cache_namespace(&format!("ptx_sm{}", arch.version), backend);
+        let fingerprint = cache_namespace(
+            &format!("ptx_sm{}", arch.version),
+            backend,
+            compilation_options.ptx_version,
+        );
         let ptx_cache = compilation_store("cuda", &fingerprint);
         let second_line_ptx_cache = compilation_store("cuda-second-line", fingerprint);
 
         Self {
             context,
+            comm_stream,
             modules: CompilationCache::mirroring(&ptx_cache),
             ptx_cache,
             second_line_ptx_cache,
@@ -558,18 +574,6 @@ impl CudaContext {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    /// See [`super::cache_namespace`] for why this must hold.
-    #[test]
-    fn cache_namespace_separates_backends() {
-        assert_ne!(
-            super::cache_namespace("ptx_sm86", crate::compiler::CudaBackend::Cpp),
-            super::cache_namespace("ptx_sm86", crate::compiler::CudaBackend::Llvm),
-        );
-    }
-}
-
 /// Writes the PTX for `kernel_id` under the directory named by `CUBECL_CUDA_DUMP_PTX`, if that
 /// variable is set.
 ///
@@ -597,4 +601,29 @@ fn dump_ptx(kernel_id: &KernelId, ptx: &[c_char]) {
     // SAFETY: the PTX handed to the driver is a null-terminated C string.
     let text = unsafe { CStr::from_ptr(ptx.as_ptr()) };
     let _ = std::fs::write(dir.join(format!("{name}.ptx")), text.to_bytes());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cache_namespace;
+    use crate::compiler::CudaBackend;
+    use cubecl_llvm::nvptx::ptx_version::PtxVersion;
+
+    /// See [`super::cache_namespace`] for why this must hold.
+    #[test]
+    fn cache_namespace_separates_backends() {
+        assert_ne!(
+            cache_namespace("ptx_sm86", CudaBackend::Cpp, None),
+            cache_namespace("ptx_sm86", CudaBackend::Llvm, None),
+        );
+    }
+
+    /// See [`super::cache_namespace`] for why this must hold.
+    #[test]
+    fn cache_namespace_separates_the_llvm_backends_ptx_versions() {
+        assert_ne!(
+            cache_namespace("ptx_sm86", CudaBackend::Llvm, PtxVersion::for_driver(12080)),
+            cache_namespace("ptx_sm86", CudaBackend::Llvm, PtxVersion::for_driver(12090)),
+        );
+    }
 }

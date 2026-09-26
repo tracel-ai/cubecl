@@ -24,7 +24,9 @@ use pliron::{
 use crate::{
     error::{CompileError, Result},
     shared::{
-        CppValue, format_const,
+        CppValue,
+        convert::no_msl_bfloat,
+        format_const,
         lowering::LowerOp,
         ty::{TypeExtCPP, TypedExtCPP},
         unroll::unrolling,
@@ -220,6 +222,7 @@ shared_op_with_out!(FmaOp, |op, ctx| {
 // `fma` has no vector overloads in CUDA/HIP headers, so a vector fma must be
 // scalarized lane by lane like the other math functions.
 unrolling!(FmaOp);
+no_msl_bfloat!(FmaOp);
 
 shared_op!(CommentOp, |op, ctx| {
     let content = String::from(op.comment(ctx).clone());

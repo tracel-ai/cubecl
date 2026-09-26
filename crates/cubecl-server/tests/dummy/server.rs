@@ -10,6 +10,7 @@ use cubecl_ir::{
     metadata::Info,
     settings::{Dim3, ExecutionMode, KernelSettings},
 };
+use cubecl_server::memory_management::{Cleanup, PageUpdate};
 use cubecl_server::server::ServerStorage;
 use cubecl_server::{
     allocator::ContiguousMemoryLayoutPolicy,
@@ -17,7 +18,7 @@ use cubecl_server::{
     kernel::{CubeKernel, KernelMetadata},
     logging::ServerLogger,
     memory_management::{
-        Claim, ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryUsage,
+        Claim, ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement,
     },
     server::{
         BufferBinding, CopyDescriptor, CubeCount, Handle, KernelArguments, KernelResource,
@@ -128,7 +129,7 @@ impl<M: Marker> Server for DummyServer<M> {
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, _stream_id: StreamId) {
         let reserved = self
             .memory_management
-            .reserve(size, &mut self.failures)
+            .reserve(size, PageUpdate::Allow, &mut self.failures)
             .unwrap();
         self.memory_management
             .bind(reserved, memory.clone(), 0, &mut self.failures)
@@ -301,19 +302,21 @@ impl<M: Marker> Server for DummyServer<M> {
         self.ensure_written(handles.iter())
     }
 
-    fn memory_usage(&mut self, _stream_id: StreamId) -> MemoryUsage {
-        self.memory_management.memory_usage()
-    }
-
     fn memory_report(
         &mut self,
-        _stream_id: StreamId,
-    ) -> cubecl_server::memory_management::MemoryReport {
-        self.memory_management.memory_report()
+        stream_id: StreamId,
+    ) -> cubecl_server::memory_management::StreamMemoryReport {
+        cubecl_server::memory_management::StreamMemoryReport {
+            stream: stream_id,
+            pools: self.memory_management.memory_report(),
+            auxiliary: Vec::new(),
+        }
     }
 
-    fn memory_cleanup(&mut self, _stream_id: StreamId) {
-        self.memory_management.cleanup(true, &mut self.failures);
+    fn memory_cleanup(&mut self, _stream_id: StreamId) -> Result<(), ServerError> {
+        self.memory_management
+            .cleanup(Cleanup::Explicit, &mut self.failures);
+        Ok(())
     }
 
     fn start_profile(&mut self, _stream_id: StreamId) -> Result<ProfilingToken, ServerError> {

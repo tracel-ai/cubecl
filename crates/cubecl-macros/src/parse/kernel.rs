@@ -9,7 +9,7 @@ use core::hash::Hash;
 use darling::{FromMeta, ast::NestedMeta, util::Flag};
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
-use std::{collections::HashMap, iter};
+use std::{collections::BTreeMap, iter};
 use syn::{
     AssocType, Attribute, ConstParam, Expr, GenericArgument, Generics, Ident, ItemFn, LitStr, Path,
     ReturnType, Signature, Type, TypeGroup, TypeParam, TypeParen, Visibility, parse_quote,
@@ -75,7 +75,7 @@ pub struct GenericArg {
 
 #[derive(Clone)]
 pub struct GenericAnalysis {
-    pub map: HashMap<syn::Ident, GenericArg>,
+    pub map: BTreeMap<syn::Ident, GenericArg>,
 }
 
 impl GenericAnalysis {
@@ -107,7 +107,7 @@ impl GenericAnalysis {
 
     pub fn register_types(
         &self,
-        mut name_mapping: HashMap<Ident, (Ident, Option<usize>)>,
+        mut name_mapping: BTreeMap<Ident, (Ident, Option<usize>)>,
         scope: TokenStream,
         has_self: bool,
         launch: bool,
@@ -165,7 +165,7 @@ impl GenericAnalysis {
     }
 
     pub fn process_ty(&self, ty: &syn::Type) -> syn::Type {
-        fn process_ty_inner(ty: &mut Type, map: &HashMap<syn::Ident, GenericArg>) {
+        fn process_ty_inner(ty: &mut Type, map: &BTreeMap<syn::Ident, GenericArg>) {
             match ty {
                 Type::Array(type_array) => process_ty_inner(&mut type_array.elem, map),
                 Type::Group(type_group) => process_ty_inner(&mut type_group.elem, map),
@@ -197,7 +197,7 @@ impl GenericAnalysis {
 
         fn process_generic_param_inner(
             arg: &mut GenericArgument,
-            map: &HashMap<syn::Ident, GenericArg>,
+            map: &BTreeMap<syn::Ident, GenericArg>,
         ) {
             match arg {
                 GenericArgument::Type(Type::Path(path))
@@ -228,7 +228,7 @@ impl GenericAnalysis {
     }
 
     pub fn from_generics(generics: &syn::Generics, explicit_defines: bool) -> Self {
-        let mut map = HashMap::new();
+        let mut map = BTreeMap::new();
         let elem_expand = prelude_type("DynamicScalar");
         let size_expand = prelude_type("DynamicSize");
 
@@ -621,4 +621,33 @@ pub fn anon_lifetime_to_static(mut ty: Type) -> Type {
 
     map_ty(&mut ty);
     ty
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Each `HashMap` is seeded separately, so a hash-ordered expansion differs between calls.
+    #[test]
+    fn kernel_expansion_is_deterministic() {
+        let item: ItemFn = parse_quote! {
+            pub fn k<A: Float, B: Int, C: Numeric, D: CubePrimitive, E: Float, N: Size, M: Size>(
+                input: &Array<A>,
+                output: &mut Array<B>,
+                #[comptime] c: u32,
+            ) {}
+        };
+        let expand = || {
+            let args: KernelArgs = from_tokens(quote![launch]).unwrap();
+            Launch::from_item_fn(item.clone(), args)
+                .unwrap()
+                .to_token_stream()
+                .to_string()
+        };
+
+        let first = expand();
+        for _ in 0..16 {
+            assert_eq!(expand(), first);
+        }
+    }
 }

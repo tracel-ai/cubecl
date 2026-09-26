@@ -109,9 +109,18 @@ impl ToLLVMDialect for IndexOp {
         };
         let elem_ty = cube_type_to_llvm(ctx, elem_ty);
 
+        // An index stays inside the object it indexes (checked modes clamp it first), and it
+        // is unsigned, so the offset never wraps below the base. Without these flags LLVM
+        // cannot reassociate the address arithmetic or fold constant offsets into the
+        // addressing mode of the access.
         let index = widen_gep_index(ctx, rewriter, index);
-        let gep =
-            llvm::GetElementPtrOp::new(ctx, base, vec![llvm::GepIndex::Value(index)], elem_ty);
+        let gep = llvm::GetElementPtrOp::new_with_no_wrap_flags(
+            ctx,
+            base,
+            vec![llvm::GepIndex::Value(index)],
+            elem_ty,
+            GepNoWrapFlags::INBOUNDS | GepNoWrapFlags::NUW,
+        );
         rewriter.insert_op(ctx, &gep);
         rewriter.replace_operation_with_values(
             ctx,

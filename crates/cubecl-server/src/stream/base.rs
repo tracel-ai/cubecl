@@ -91,6 +91,11 @@ impl<F: StreamFactory> StreamPool<F> {
         self.streams.iter().flatten()
     }
 
+    /// [`streams`](Self::streams), mutably.
+    pub fn streams_mut(&mut self) -> impl Iterator<Item = &mut F::Stream> {
+        self.streams.iter_mut().flatten()
+    }
+
     /// Synthetic [`StreamId`]s, one per initialized regular pool slot.
     ///
     /// Each id round-trips through [`Self::get_mut`] to the same slot it

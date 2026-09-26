@@ -1,6 +1,10 @@
 //! Structured control flow lowering.
 
 use crate::prelude::*;
+#[cfg(feature = "nvptx")]
+use crate::shared::loop_hints::LoopHint;
+#[cfg(feature = "nvptx")]
+use cubecl_core::ir::dialect::memory::{DeclareVariableOp, IndexOp};
 use cubecl_core::ir::dialect::{
     BlockPtrExt,
     branch::{self, ConditionOp, IsExitTerminator},
@@ -131,6 +135,9 @@ impl LowerCpuCF for RangeLoopOp {
         let body_region = self.loop_region(ctx);
         let body_term = terminator(ctx, body_block);
 
+        #[cfg(feature = "nvptx")]
+        let shape = LoopShape::new(ctx, op, start, end, step);
+
         let signed = type_cast::<dyn ScalarType>(&*end.get_type(ctx).deref(ctx))
             .map(|ty| ty.elem_type(ctx).is_signed_int())
             .unwrap_or(false);
@@ -176,6 +183,8 @@ impl LowerCpuCF for RangeLoopOp {
             back_args.extend(body_term.operands(ctx));
             let back_edge = llvm::BrOp::new(ctx, header, back_args);
             rewriter.append_op(ctx, &back_edge);
+            #[cfg(feature = "nvptx")]
+            shape.mark(ctx, back_edge.get_operation());
             rewriter.erase_operation(ctx, body_term);
         }
 
@@ -313,6 +322,94 @@ fn split_join_block(
     (pre, join)
 }
 
+/// What a loop's structure says about how it should be unrolled, which LLVM's cost model
+/// cannot see once the loop is lowered. Only NVPTX asks for a loop hint, so only a build with
+/// that target reads the shape.
+#[cfg(feature = "nvptx")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LoopShape {
+    /// A trip count known at compile time, and a body indexing a local array.
+    ConstantOverLocalArray,
+    Other,
+}
+
+#[cfg(feature = "nvptx")]
+impl LoopShape {
+    /// What this loop's target should be asked for, or `None` to leave it to LLVM's cost model.
+    ///
+    /// A loop of a constant trip count over a local array is worth unrolling completely on
+    /// NVPTX, as NVVM does: only then is every index a constant, and a local array indexed by
+    /// constants alone becomes registers instead of local memory. LLVM's NVPTX cost model stops
+    /// short of that for a loop of more than a handful of steps (a top-k accumulator's 64, say),
+    /// and the array it leaves in local memory costs several times the loop. AMDGPU's cost model
+    /// already raises its threshold for a loop that touches a private array, so it needs no hint.
+    fn hint(self, target: LlvmTarget) -> Option<LoopHint> {
+        match self {
+            LoopShape::ConstantOverLocalArray => match target {
+                LlvmTarget::Nvptx => Some(LoopHint::UnrollFull),
+                _ => None,
+            },
+            LoopShape::Other => None,
+        }
+    }
+
+    /// Gives the loop `latch` closes the hint its target wants.
+    fn mark(self, ctx: &Context, latch: Ptr<Operation>) {
+        if let Some(hint) = self.hint(ctx.target()) {
+            hint.attach(ctx, latch);
+        }
+    }
+
+    /// The bounds are checked first: they are read off their definitions, where the array
+    /// check walks the body.
+    fn new(ctx: &Context, op: Ptr<Operation>, start: Value, end: Value, step: Value) -> Self {
+        let constant = |value: Value| {
+            value
+                .defining_op()
+                .is_some_and(|def| Operation::get_op::<ConstantOp>(def, ctx).is_some())
+        };
+        if constant(start) && constant(end) && constant(step) && indexes_local_array(ctx, op) {
+            LoopShape::ConstantOverLocalArray
+        } else {
+            LoopShape::Other
+        }
+    }
+}
+
+/// Whether the body of `op` indexes a local array, stopping at the first index that does.
+#[cfg(feature = "nvptx")]
+fn indexes_local_array(ctx: &Context, op: Ptr<Operation>) -> bool {
+    use pliron::graph::walkers::{
+        IRNode, WALKCONFIG_PREORDER_FORWARD,
+        interruptible::{immutable::walk_op, walk_advance, walk_break},
+    };
+
+    walk_op(
+        ctx,
+        &mut (),
+        &WALKCONFIG_PREORDER_FORWARD,
+        op,
+        |ctx, _, node| {
+            let IRNode::Operation(op) = node else {
+                return walk_advance();
+            };
+            let local = op.as_op::<IndexOp>(ctx).is_some_and(|index| {
+                index
+                    .base(ctx)
+                    .defining_op()
+                    .and_then(|def| Operation::get_op::<DeclareVariableOp>(def, ctx))
+                    .is_some_and(|declare| declare.addr_space(ctx).0 == AddressSpace::Local)
+            });
+            if local {
+                walk_break(())
+            } else {
+                walk_advance()
+            }
+        },
+    )
+    .is_break()
+}
+
 fn branch_to_yielded(
     ctx: &mut Context,
     rewriter: &mut DialectConversionRewriter,
@@ -367,5 +464,32 @@ impl DialectConversion for CfToLlvmConversion {
         op_cast::<dyn LowerCpuCF>(&*op.dyn_op(ctx))
             .unwrap()
             .rewrite(ctx, rewriter, operands_info)
+    }
+}
+
+#[cfg(all(test, feature = "nvptx"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_nvptx_is_asked_to_unroll_a_constant_loop_over_a_local_array() {
+        let asked = |target| LoopShape::ConstantOverLocalArray.hint(target);
+        assert_eq!(asked(LlvmTarget::Nvptx), Some(LoopHint::UnrollFull));
+        // AMDGPU's own cost model already unrolls these, and the CPU has no such loop hint.
+        #[cfg(feature = "amdgpu")]
+        assert_eq!(asked(LlvmTarget::AmdGpu), None);
+        assert_eq!(asked(LlvmTarget::Cpu), None);
+    }
+
+    #[test]
+    fn any_other_loop_is_left_to_the_cost_model() {
+        for target in [
+            LlvmTarget::Nvptx,
+            #[cfg(feature = "amdgpu")]
+            LlvmTarget::AmdGpu,
+            LlvmTarget::Cpu,
+        ] {
+            assert_eq!(LoopShape::Other.hint(target), None, "{target:?}");
+        }
     }
 }

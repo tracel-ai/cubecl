@@ -3,7 +3,9 @@ use cubecl_environment::stream::StreamId;
 use cubecl_zspace::{Shape, Strides};
 
 use crate::{
-    memory_management::{ManagedMemoryBinding, ManagedMemoryHandle, ManagedMemoryId},
+    memory_management::{
+        ManagedMemoryBinding, ManagedMemoryHandle, ManagedMemoryId, WeakMemoryBinding,
+    },
     server::{CopyDescriptor, TensorMapBinding},
 };
 
@@ -176,7 +178,47 @@ pub struct BufferBinding {
     pub size: u64,
 }
 
+/// A [`BufferBinding`] that does not keep its memory reserved: what a record
+/// of a buffer holds when holding the buffer would change what its pool may
+/// reuse.
+#[derive(Clone, Debug)]
+pub struct WeakBufferBinding {
+    memory: WeakMemoryBinding,
+    service: ServiceId,
+    offset_start: Option<u64>,
+    offset_end: Option<u64>,
+    stream: StreamId,
+    size: u64,
+}
+
+impl WeakBufferBinding {
+    /// The binding back, while its memory is allocated (see
+    /// [`WeakMemoryBinding::upgrade`]).
+    pub fn upgrade(&self) -> Option<BufferBinding> {
+        Some(BufferBinding {
+            memory: self.memory.upgrade()?,
+            service: self.service,
+            offset_start: self.offset_start,
+            offset_end: self.offset_end,
+            stream: self.stream,
+            size: self.size,
+        })
+    }
+}
+
 impl BufferBinding {
+    /// This binding, without keeping its memory reserved.
+    pub fn downgrade(&self) -> WeakBufferBinding {
+        WeakBufferBinding {
+            memory: self.memory.downgrade(),
+            service: self.service,
+            offset_start: self.offset_start,
+            offset_end: self.offset_end,
+            stream: self.stream,
+            size: self.size,
+        }
+    }
+
     /// Get the size of the handle, in bytes, accounting for offsets
     pub fn size_in_used(&self) -> u64 {
         self.size - self.offset_start.unwrap_or(0) - self.offset_end.unwrap_or(0)

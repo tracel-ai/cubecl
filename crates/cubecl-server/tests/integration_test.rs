@@ -1,6 +1,7 @@
 mod dummy;
 
 use crate::dummy::{DummyDevice, DummyElementwiseAddition, test_client};
+use cubecl_server::memory_management::MemoryScope;
 
 use cubecl_common::bytes::Bytes;
 use cubecl_common::device::{DeviceId, ServiceId};
@@ -355,7 +356,7 @@ fn autotune_basic_multiplication_execution() {
 /// switching back serves the persisted result through hydration rather than
 /// re-tuning.
 #[test_log::test]
-#[cfg(all(feature = "std", autotune_persistence))]
+#[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
 fn autotune_resets_when_the_environment_switches() {
     use cubecl_server::tune::{TuneCacheResult, Tuner};
@@ -420,7 +421,7 @@ fn autotune_resets_when_the_environment_switches() {
 /// The runtime configuration is loaded first: it loads on first use and roots
 /// the environment where it says, so a test running beside this one could
 /// otherwise load it halfway through and move this test's records elsewhere.
-#[cfg(all(feature = "std", autotune_persistence))]
+#[cfg(all(feature = "std", persistence))]
 fn rooted_at(root: &std::path::Path) {
     use cubecl_server::config::RuntimeConfig;
 
@@ -429,7 +430,7 @@ fn rooted_at(root: &std::path::Path) {
 }
 
 /// Records at `level` from here on, keeping every session.
-#[cfg(all(feature = "std", autotune_persistence))]
+#[cfg(all(feature = "std", persistence))]
 fn recording_at(level: cubecl_environment::records::RecordLevel) {
     use cubecl_environment::records::{self, RecordsConfig};
 
@@ -443,7 +444,7 @@ fn recording_at(level: cubecl_environment::records::RecordLevel) {
 /// ran, each with its wall, the whole tune's wall, and the key and table the
 /// answer is stored under, stamped in the environment's session.
 #[test_log::test]
-#[cfg(all(feature = "std", autotune_persistence))]
+#[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
 fn a_tune_is_recorded_in_order_with_its_walls() {
     use cubecl_environment::persistence::Database;
@@ -506,6 +507,16 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     assert_eq!(tune.short_circuit, None);
     assert!(!tune.dry_run);
     assert!(tune.stored, "the table took the answer");
+    let plan: Vec<(&str, Option<usize>)> = tune
+        .plan
+        .iter()
+        .map(|planned| (planned.name.as_str(), planned.batch))
+        .collect();
+    assert_eq!(
+        plan,
+        vec![("add", Some(0)), ("add_slow_wrong", Some(0))],
+        "two ungrouped candidates share the one batch"
+    );
 
     let sessions = Records::new(&database).sessions();
     assert_eq!(sessions.len(), 1);
@@ -514,7 +525,7 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
 
 /// A tune stopped by the short circuit records which candidate stopped it.
 #[test_log::test]
-#[cfg(all(feature = "std", autotune_persistence, not(target_family = "wasm")))]
+#[cfg(all(feature = "std", persistence, not(target_family = "wasm")))]
 #[serial_test::serial]
 fn a_short_circuited_tune_records_where_it_stopped() {
     use cubecl_environment::persistence::Database;
@@ -560,7 +571,7 @@ fn a_short_circuited_tune_records_where_it_stopped() {
 
 /// Recording off writes nothing, and the tune answers as before.
 #[test_log::test]
-#[cfg(all(feature = "std", autotune_persistence))]
+#[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
 fn nothing_is_recorded_when_records_are_off() {
     use cubecl_environment::persistence::Database;
@@ -1152,6 +1163,9 @@ fn a_dry_run_still_autotunes() {
 /// first time the buffer is actually dereferenced.
 #[test_log::test]
 #[cfg(feature = "std")]
+// Lazy backing is a sliced pool's; the exclusive pages a build without
+// sub-slicing falls back to are always mapped at reservation.
+#[cfg(not(exclusive_memory_only))]
 #[serial_test::serial]
 fn a_dry_run_reserves_without_mapping() {
     use cubecl_server::dry_run::DryRun;
@@ -1170,8 +1184,9 @@ fn a_dry_run_reserves_without_mapping() {
     // predicting it.
     fn arena(report: &cubecl_server::memory_management::MemoryReport) -> MemoryPoolReport {
         report
-            .dynamic
+            .streams
             .iter()
+            .flat_map(|stream| stream.pools.dynamic.iter())
             .find(|pool| pool.largest_alloc == SIZE)
             .expect("some pool served the buffer")
             .clone()
@@ -1190,7 +1205,7 @@ fn a_dry_run_reserves_without_mapping() {
         ]),
     );
 
-    let report = client.memory_report();
+    let report = client.memory_report(MemoryScope::CurrentStream);
     let pool = arena(&report);
     assert_eq!(
         pool.pages_unmapped, pool.pages,
@@ -1201,7 +1216,7 @@ fn a_dry_run_reserves_without_mapping() {
     // Reading is a resolution: the backing appears exactly there.
     let data = client.read_one(out).unwrap();
     assert_eq!(data.len(), SIZE as usize);
-    let report = client.memory_report();
+    let report = client.memory_report(MemoryScope::CurrentStream);
     assert_eq!(
         arena(&report).pages_unmapped,
         0,
@@ -1281,7 +1296,7 @@ fn a_set_is_built_once_per_device_not_once_per_process() {
 /// the artifact was obtained: its kernel, the store key naming the artifact,
 /// and what the trip took.
 #[test_log::test]
-#[cfg(all(feature = "std", autotune_persistence))]
+#[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
 fn a_compilation_is_recorded_with_its_outcome() {
     use cubecl_environment::persistence::Database;
@@ -1320,7 +1335,7 @@ fn a_compilation_is_recorded_with_its_outcome() {
 /// full level only, whatever the backend hands the recording: the level is
 /// the recording's to check, not each backend's.
 #[test_log::test]
-#[cfg(all(feature = "std", autotune_persistence))]
+#[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
 fn a_compilation_keeps_its_code_only_when_records_are_full() {
     use cubecl_environment::persistence::Database;
@@ -1356,7 +1371,7 @@ fn a_compilation_keeps_its_code_only_when_records_are_full() {
 /// cache off — changes nothing, and a session that only does that leaves
 /// nothing behind. Storing an artifact is what changes the environment.
 #[test_log::test]
-#[cfg(all(feature = "std", autotune_persistence))]
+#[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
 fn a_compile_nothing_stored_leaves_no_session() {
     use cubecl_environment::persistence::{Database, Namespace, Store, StoreOptions};
@@ -1388,7 +1403,7 @@ fn a_compile_nothing_stored_leaves_no_session() {
 /// report the client answers — kept once the session changes something, as a
 /// build's does.
 #[test_log::test]
-#[cfg(all(feature = "std", autotune_persistence))]
+#[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
 fn a_memory_snapshot_is_recorded_under_its_label() {
     use cubecl_environment::persistence::Database;
@@ -1416,7 +1431,10 @@ fn a_memory_snapshot_is_recorded_under_its_label() {
     let snapshots = Records::new(&database).read::<MemoryRecord>();
     assert_eq!(snapshots.len(), 1);
     assert_eq!(snapshots[0].record.label, "model loaded");
-    assert_eq!(snapshots[0].record.report, client.memory_report());
+    assert_eq!(
+        snapshots[0].record.report,
+        client.memory_report(MemoryScope::Device)
+    );
 }
 
 /// A launch is collected while a collection is open — the kernel a replay has

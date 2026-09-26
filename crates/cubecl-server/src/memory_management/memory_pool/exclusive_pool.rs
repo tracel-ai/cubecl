@@ -1,6 +1,8 @@
+use crate::memory_management::Cleanup;
 use crate::{
     memory_management::{
         BytesFormat, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, MemoryUsage,
+        PageGuard,
     },
     server::IoError,
     storage::{ComputeStorage, StorageUtilization},
@@ -67,25 +69,35 @@ struct MemoryPage {
     free_count: u32,
 }
 
+/// What an [`ExclusiveMemoryPool`] serves, and the pool index its pages carry.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ExclusiveLayout {
+    /// The largest allocation the pool accepts, a multiple of the alignment.
+    pub max_alloc_size: u64,
+    /// The alignment every page is allocated at.
+    pub alignment: u64,
+    /// The allocations an unused page waits through before it is released;
+    /// `u64::MAX` keeps it for good.
+    pub dealloc_period: u64,
+    /// The pool index a page's location carries.
+    pub pool: u8,
+}
+
 impl ExclusiveMemoryPool {
-    pub(crate) fn new(
-        max_alloc_size: u64,
-        alignment: u64,
-        dealloc_period: u64,
-        pool_pos: u8,
-    ) -> Self {
+    /// A pool serving what `layout` says.
+    pub(crate) fn new(layout: ExclusiveLayout) -> Self {
         // Pages should be allocated to be aligned.
-        assert_eq!(max_alloc_size % alignment, 0);
+        assert_eq!(layout.max_alloc_size % layout.alignment, 0);
 
         Self {
             pages: Vec::new(),
             pages_tmp: Vec::new(),
-            alignment,
-            dealloc_period,
+            alignment: layout.alignment,
+            dealloc_period: layout.dealloc_period,
             last_dealloc_check: 0,
-            max_alloc_size,
-            cur_avg_size: max_alloc_size as f64 / 2.0,
-            location_base: MemoryLocation::new(pool_pos, 0, 0),
+            max_alloc_size: layout.max_alloc_size,
+            cur_avg_size: layout.max_alloc_size as f64 / 2.0,
+            location_base: MemoryLocation::new(layout.pool, 0, 0),
             pages_peak: 0,
             largest_alloc: 0,
         }
@@ -216,6 +228,11 @@ impl MemoryPool for ExclusiveMemoryPool {
         Ok(handle)
     }
 
+    fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
+        let page = self.pages.get(location.page as usize)?;
+        Some(PageGuard::allocation(page.slice.handle.clone().binding()))
+    }
+
     fn get_memory_usage(&self) -> MemoryUsage {
         let used_slices: Vec<_> = self
             .pages
@@ -238,13 +255,13 @@ impl MemoryPool for ExclusiveMemoryPool {
         &mut self,
         storage: &mut Storage,
         alloc_nr: u64,
-        explicit: bool,
+        cleanup: Cleanup,
         failures: &mut ErrorGraph,
     ) {
         // Check such that an alloc is free after at most dealloc_period.
         let check_period = self.dealloc_period / (ALLOC_AFTER_FREE as u64);
 
-        if explicit || alloc_nr - self.last_dealloc_check >= check_period {
+        if cleanup == Cleanup::Explicit || alloc_nr - self.last_dealloc_check >= check_period {
             self.last_dealloc_check = alloc_nr;
 
             for mut page in self.pages.drain(..) {
@@ -253,7 +270,7 @@ impl MemoryPool for ExclusiveMemoryPool {
 
                     // If free found is sufficiently high (ie. we've seen this alloc as free multiple times,
                     // without it being used in the meantime), deallocate it.
-                    if page.free_count >= ALLOC_AFTER_FREE || explicit {
+                    if page.free_count >= ALLOC_AFTER_FREE || cleanup == Cleanup::Explicit {
                         page.slice.tainted.clear(failures);
                         storage.dealloc(page.slice.storage.id);
                         continue;

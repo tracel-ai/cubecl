@@ -18,7 +18,7 @@ pub(crate) type Command<'a> = cubecl_server::command::Command<'a, driver::Cuda>;
 pub(crate) type Captures = cubecl_server::command::Captures<driver::Cuda>;
 
 /// A capture window on one stream, driven by [`driver::Cuda`].
-pub(crate) type Window<'a> = cubecl_server::command::Window<'a, driver::Cuda>;
+pub(crate) type Window<'c, 'a> = cubecl_server::command::Window<'c, 'a, driver::Cuda>;
 
 /// Creates a `Vec<I>` of the given length with uninitialized elements.
 ///

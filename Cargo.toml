@@ -4,7 +4,7 @@
 # https://doc.rust-lang.org/cargo/reference/resolver.html#feature-resolver-version-2
 resolver = "2"
 
-members = ["crates/*", "examples/*", "xtask"]
+members = ["crates/*", "cubecl-book/src/getting-started", "examples/*", "xtask"]
 
 [workspace.package]
 edition = "2024"
@@ -90,10 +90,11 @@ embassy-time = { version = "0.5", default-features = false }
 etcetera = "0.11.0"
 js-sys = "0.3"
 parking_lot = { version = "0.12.5", default-features = false }
-rusqlite = { version = "0.40", features = ["bundled"] }
+turso = { version = "0.8.0-pre.8", default-features = false }
 sanitize-filename = "0.6"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4.45"
+wasm-bindgen-test = "0.3"
 web-sys = "0.3"
 web-time = "1.1.0"
 

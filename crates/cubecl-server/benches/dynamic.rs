@@ -2,7 +2,7 @@ use cubecl_ir::MemoryDeviceProperties;
 use cubecl_server::{
     logging::ServerLogger,
     memory_management::{
-        ErrorGraph, MemoryConfiguration, MemoryManagement, MemoryManagementOptions,
+        ErrorGraph, MemoryConfiguration, MemoryManagement, MemoryManagementOptions, PageUpdate,
     },
     storage::BytesStorage,
 };
@@ -28,7 +28,7 @@ fn main() {
         if handles.len() >= 4000 {
             handles.pop_front();
         }
-        let handle = mm.reserve(MB, &mut ErrorGraph::default());
+        let handle = mm.reserve(MB, PageUpdate::Allow, &mut ErrorGraph::default());
         handles.push_back(handle);
     }
     println!("{:?}", start.elapsed());

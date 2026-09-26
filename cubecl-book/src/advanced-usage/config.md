@@ -133,7 +133,7 @@ max_streams: 4
 
 ### Memory
 
-The `[memory]` section controls memory-related logging and the persistent-memory policy.
+The `[memory]` section controls memory-related logging, the persistent-memory policy, and the CUDA allocator.
 
 **Log Levels:**
 
@@ -146,9 +146,23 @@ such as model weights.
 
 - `enabled` (default): used only when explicitly requested (e.g.
   `Client::memory_persistent_allocation`).
+- `size-match`: like `enabled`, and automatic allocations whose size matches an existing
+  persistent bucket are served from the persistent pool too.
+  A good fit for training, less so for inference.
 - `disabled`: requests to switch to persistent allocation are ignored.
 - `enforced`: every allocation is persistent. May cause out-of-memory errors when tensor sizes
   vary.
+
+**CUDA allocator** (`[memory.cuda] allocator`): selects how the CUDA backend obtains backing memory
+for CubeCL's pools. Other backends ignore this setting.
+
+- `sync` (default): uses synchronous CUDA allocation/free, avoiding the additional CUDA
+  async memory pool. Allocating or releasing pages may synchronize GPU work.
+- `async`: uses CUDA's stream-ordered allocation/free, which can preserve concurrency
+  when pages change but may reserve additional backing memory. If async allocation
+  fails, that allocation falls back to synchronous allocation/free.
+
+Both modes reuse CubeCL's existing pools.
 
 **Example:**
 
@@ -156,13 +170,15 @@ such as model weights.
 [memory]
 logger = { level = "basic", stdout = true }
 persistent_memory = "enabled"
+
+[memory.cuda]
+allocator = "sync" # or "async"
 ```
 
-**Memory pools are a programmatic setting, not a config-file one.** Pool layouts are dynamic.
-They are sized at runtime from the workload (model size, sequence length, batch) and change
-between workloads, so they must not freeze at process startup. See
-[Memory pool layouts](#memory-pool-layouts) below. A leftover `pools` entry in `[memory]` is a
-load error.
+The memory pools have no entry in the config file.
+The memory management lays them out from the allocations it serves, see
+[Memory pools](#memory-pools) below.
+A leftover `pools` entry in `[memory]` is a load error.
 
 ## Environment Variable Overrides
 
@@ -185,6 +201,12 @@ CubeCL supports several environment variables to override configuration at runti
   - `"full"`/`"3"`
 - `CUBECL_CPU_F16_EVAL`: Sets `compilation.f16_evaluation`.
   - `"per-operation"`, `"chain"`, `"accumulators"`
+- `CUBECL_ENVIRONMENT`: Sets `environment.name`, the environment to activate.
+- `CUBECL_ENVIRONMENT_RECORDS`: Sets `environment.records.level`, how much the
+  environment records of its own build.
+  - `"off"`/`"0"`
+  - `"basic"`/`"1"`
+  - `"full"`/`"2"`: also each compiled kernel's IR and source.
 
 **Example (Linux/macOS):**
 
@@ -217,50 +239,39 @@ Two sharp edges:
   `CUBECL_*` env vars in effect.
   Starting from `CubeClRuntimeConfig::default()` discards them.
 
-## Memory pool layouts
+## Memory pools
 
-The pool layout of a runtime's **main GPU** memory is configured at runtime through the compute
-client, never through a config file, so it can change between workloads instead of freezing at
-startup:
+The pools of a runtime's main GPU memory lay themselves out.
+Nothing is measured or tuned per workload.
+
+- Small allocations share a sliced pool of their own.
+- Everything else is carved from pages sized to the largest allocation served so far.
+- When an allocation outgrows the pages, pages of the new size take over.
+  The old ones are returned as they empty.
+- When memory runs low, or too many page sizes pile up, what lives on the old pages is relocated
+  onto the new ones so they can be returned sooner.
+- `memory_cleanup` relocates first, then returns every page nothing uses.
+
+A runtime can instead give every allocation its own page, in size buckets.
+Choose it by setting `memory_config` to `MemoryConfiguration::ExclusivePages` in the runtime's
+`RuntimeOptions`.
+A build with the `exclusive-memory-only` feature, and every wasm target, always does this.
+
+To see what the pools hold, ask the client for a report:
 
 ```rust
-use cubecl::config::memory::{MemoryPoolConfig, MemoryPoolsConfig};
-use cubecl::config::size::MemorySize;
+use cubecl::MemoryScope;
 
-let applied = client.configure_memory_pools(&MemoryPoolsConfig::Explicit(vec![
-    MemoryPoolConfig::Sliced {
-        page_size: MemorySize(page_bytes),
-        max_slice_size: None,
-        max_pool_size: Some(MemorySize(pages * page_bytes)),
-        dealloc_period: None,
-    },
-]));
-assert!(applied, "something was still live in the old pools");
+let report = client.memory_report(MemoryScope::Device);
+println!("{}", report.usage());
+for stream in &report.streams {
+    for pool in &stream.pools.dynamic {
+        println!("{:?}: {} pages", pool.kind, pool.pages);
+    }
+}
 ```
 
-The value is either a preset (`MemoryPoolsConfig::Preset` with `SubSlices` or `ExclusivePages`,
-matching the runtime defaults) or an explicit pool list. At allocation time, the first pool that
-accepts an allocation's size serves it. Auxiliary pools (pinned CPU, staging, uniforms) and the
-persistent pool are never affected.
-
-Semantics:
-
-- The **calling stream's** pools are rebuilt in place, provided nothing is live in them.
-  Reconfigure at a quiescent point, for example right after unloading a model and running
-  `memory_cleanup`. When something is still live, the call returns `false`, the old layout is
-  kept, and a memory log line says so. Garbage-collection tasks release their pins
-  asynchronously, so a `false` right after a cleanup usually succeeds on a retry.
-- Every stream **created afterwards** is built with the new layout, so workloads with different
-  layouts can coexist on different streams.
-- An invalid layout (empty list, too many pools, zero `page_size`, `max_slice_size` larger than
-  `page_size`, `max_pool_size` smaller than `page_size`) panics with a descriptive message. An
-  explicit layout is never silently replaced.
-- `page_size` may exceed the device's reported `max_page_size`: that value is a sizing heuristic
-  for the default layouts, not an allocation limit. A page the device truly cannot allocate
-  fails at allocation time.
-- A hard-capped sliced arena gives a **fixed memory footprint**: allocations of every size reuse
-  the same pages, and when the cap is reached and nothing fits after coalescing, the allocation
-  fails with a pool-capacity error instead of growing silently.
+`MemoryScope::CurrentStream` limits the report to the stream the client issues on.
 
 ## Logging
 

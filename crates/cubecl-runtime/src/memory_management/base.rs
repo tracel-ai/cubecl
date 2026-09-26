@@ -1,5 +1,6 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use cubecl_environment::stream::StreamId;
 
 /// Amount of memory in use by this allocator
 /// and statistics on how much memory is reserved and
@@ -105,8 +106,14 @@ pub enum MemoryPoolKind {
         page_size: u64,
         /// The largest allocation the pool accepts.
         max_slice_size: u64,
-        /// The pool's byte cap (`None` grows unbounded).
-        max_pool_size: Option<u64>,
+    },
+    /// Slices carved from pages sized after the largest allocation served.
+    Adaptive {
+        /// The size new pages are allocated at.
+        page_size: u64,
+        /// Pages held at an older, smaller size, waiting on their last live
+        /// slice before they are returned to the driver.
+        outdated_pages: u64,
     },
     /// Every allocation is its own device page.
     Exclusive {
@@ -132,12 +139,8 @@ pub struct MemoryPoolReport {
     pub usage: MemoryUsage,
     /// Device allocations (pages) currently held.
     pub pages: u64,
-    /// The most device allocations ever held at once.
-    ///
-    /// For a sliced pool this is the number a capped layout needs:
-    /// pages are carved by a deterministic first-fit policy, so replaying the
-    /// same allocation stream against `pages_peak * page_size` fits by
-    /// construction.
+    /// The most device allocations ever held at once: for a sliced pool, the
+    /// pages the workload needed at its peak.
     pub pages_peak: u64,
     /// How many of the current pages have no device backing yet — carved
     /// under a dry run and never resolved into anything that executes. They
@@ -150,38 +153,105 @@ pub struct MemoryPoolReport {
     pub largest_alloc: u64,
 }
 
-/// A per-pool report of one `MemoryManagement` (in `cubecl-server`)
-/// instance — the read side of a measured memory plan.
+/// Which memory a [`MemoryReport`] covers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryScope {
+    /// Every stream's memory on the device.
+    Device,
+    /// The memory of the stream the client issues on.
+    CurrentStream,
+}
+
+/// Everything the memory of a [`MemoryScope`] holds, stream by stream: the
+/// single place memory is read from. A caller that wants the totals asks for
+/// the [`usage`](Self::usage).
 ///
-/// The intended cycle: install a growable layout, run the workload once under
-/// a [`DryRun`](crate::dry_run::DryRun) (same allocation stream, no compute),
-/// read this report, and re-install the same layout capped at the observed
-/// `pages_peak`. Padding then comes only from alignment and the first-fit
-/// remainders the dry run already measured.
-///
-/// A tuning pass inside the measured run allocates too, and its scratch counts
-/// toward these marks like anything else. Warming the tune caches in an
-/// earlier pass and rebuilding the pools
-/// (`MemoryManagement::install_pools`, which resets the
-/// marks)
-/// before the measured one leaves the peaks to the workload alone.
+/// A tuning pass allocates like anything else, so its scratch counts toward
+/// these marks; warming the tune caches in an earlier pass leaves the peaks of
+/// a measured one to the workload alone.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MemoryReport {
-    /// One entry per dynamic pool, in allocation-routing order — the same
-    /// order the layout was configured with.
+    /// One entry per stream the scope covers.
+    pub streams: Vec<StreamMemoryReport>,
+}
+
+/// What one stream's memory holds.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StreamMemoryReport {
+    /// The stream the memory belongs to.
+    pub stream: StreamId,
+    /// The pools every allocation a user makes lives in.
+    pub pools: MemoryPoolsReport,
+    /// The memories a runtime keeps beside those pools for its own use, such
+    /// as staging buffers for reads or uniform buffers for launches. Empty
+    /// where the runtime keeps none.
+    pub auxiliary: Vec<AuxiliaryMemoryReport>,
+}
+
+/// A memory a runtime keeps for its own use, and what it holds.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AuxiliaryMemoryReport {
+    /// What the memory is for.
+    pub name: String,
+    /// Its pools.
+    pub pools: MemoryPoolsReport,
+}
+
+/// What a memory holds, pool by pool.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MemoryPoolsReport {
+    /// One entry per dynamic pool, in allocation-routing order, the pools a
+    /// growth left behind last.
     pub dynamic: Vec<MemoryPoolReport>,
     /// The persistent pool (weights, caches; explicit persistent windows).
     pub persistent: MemoryPoolReport,
+    /// The dedicated allocations, each its own device allocation.
+    pub dedicated: MemoryPoolReport,
 }
 
-/// A [`MemoryReport`] as the environment records it: a snapshot of one
-/// stream's pools at a moment the caller named, written by
+impl MemoryReport {
+    /// The usage of every pool of every stream together.
+    pub fn usage(&self) -> MemoryUsage {
+        self.streams
+            .iter()
+            .fold(MemoryUsage::default(), |usage, stream| {
+                usage.combine(stream.usage())
+            })
+    }
+}
+
+impl StreamMemoryReport {
+    /// The usage of this stream's pools together, the auxiliary memories'
+    /// included.
+    pub fn usage(&self) -> MemoryUsage {
+        self.auxiliary
+            .iter()
+            .fold(self.pools.usage(), |usage, memory| {
+                usage.combine(memory.pools.usage())
+            })
+    }
+}
+
+impl MemoryPoolsReport {
+    /// The usage of every pool together.
+    pub fn usage(&self) -> MemoryUsage {
+        self.dynamic
+            .iter()
+            .chain([&self.persistent, &self.dedicated])
+            .fold(MemoryUsage::default(), |usage, pool| {
+                usage.combine(pool.usage.clone())
+            })
+    }
+}
+
+/// A [`MemoryReport`] as the environment records it: a snapshot of every
+/// stream's memory on the device at a moment the caller named, written by
 /// [`Client::record_memory`](crate::client::Client::record_memory).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MemoryRecord {
     /// What the caller was doing: `model loaded`, `after the dry run`.
     pub label: alloc::string::String,
-    /// The pools at that moment.
+    /// The device's memory at that moment, stream by stream.
     pub report: MemoryReport,
 }
 
@@ -196,4 +266,60 @@ pub trait MemoryHandle<Binding>: Clone + core::fmt::Debug {
     fn can_mut(&self) -> bool;
     /// Get the binding associated to the current handle.
     fn binding(self) -> Binding;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+
+    fn pool(bytes_in_use: u64) -> MemoryPoolReport {
+        MemoryPoolReport {
+            kind: MemoryPoolKind::Direct,
+            usage: MemoryUsage {
+                number_allocs: 1,
+                bytes_in_use,
+                bytes_padding: 0,
+                bytes_reserved: bytes_in_use,
+            },
+            pages: 1,
+            pages_peak: 1,
+            pages_unmapped: 0,
+            largest_alloc: bytes_in_use,
+        }
+    }
+
+    fn stream(value: u64, bytes: u64) -> StreamMemoryReport {
+        StreamMemoryReport {
+            stream: StreamId { value },
+            pools: MemoryPoolsReport {
+                dynamic: vec![pool(bytes)],
+                persistent: pool(bytes),
+                dedicated: pool(bytes),
+            },
+            auxiliary: Vec::new(),
+        }
+    }
+
+    /// A device report is the sum of its streams, each the sum of its pools.
+    #[test]
+    fn usage_sums_every_pool_of_every_stream() {
+        let report = MemoryReport {
+            streams: vec![stream(0, 1), stream(1, 10)],
+        };
+        assert_eq!(report.streams[0].usage().bytes_in_use, 3);
+        assert_eq!(report.usage().bytes_in_use, 33);
+        assert_eq!(report.usage().number_allocs, 6);
+    }
+
+    /// The memories a runtime keeps for itself count toward the stream.
+    #[test]
+    fn usage_counts_auxiliary_memories() {
+        let mut report = stream(0, 1);
+        report.auxiliary.push(AuxiliaryMemoryReport {
+            name: "staging".to_string(),
+            pools: stream(0, 10).pools,
+        });
+        assert_eq!(report.usage().bytes_in_use, 33);
+    }
 }

@@ -9,8 +9,7 @@ use crate::{
     kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{
-        InstallMemoryPoolsError, ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode,
-        MemoryConfiguration, MemoryReport, MemoryUsage,
+        ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode, StreamMemoryReport,
     },
     server::{BufferBinding, KernelResource},
     storage::{ComputeStorage, ManagedResource},
@@ -42,7 +41,7 @@ use itertools::Itertools;
 use thiserror::Error;
 
 #[derive(Error, Clone)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 /// An error during profiling.
 pub enum ProfileError {
     /// An unknown error happened during profiling
@@ -53,7 +52,7 @@ pub enum ProfileError {
         /// The caused of the error
         reason: String,
         /// The captured backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -61,7 +60,7 @@ pub enum ProfileError {
     #[error("No profiling registered\nBacktrace:\n{backtrace}")]
     NotRegistered {
         /// The captured backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -76,7 +75,7 @@ pub enum ProfileError {
     #[error("The profiled window resolved no device timing\nBacktrace:\n{backtrace}")]
     NotMeasured {
         /// The captured backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -215,7 +214,7 @@ impl ServerUtilities {
 
 /// Kernel Launch Errors.
 #[derive(Error, Clone)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub enum LaunchError {
     /// The given kernel can't be compiled.
     #[error("A compilation error happened during launch\nCaused by:\n  {0}")]
@@ -229,7 +228,7 @@ pub enum LaunchError {
         /// The caused of the memory error.
         reason: String,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -245,14 +244,14 @@ pub enum LaunchError {
         /// The caused of the unknown error.
         reason: String,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 }
 
 /// Resource limit errors.
 #[derive(Error, Clone)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub enum ResourceLimitError {
     /// Shared memory exceeds maximum
     #[error(
@@ -264,7 +263,7 @@ pub enum ResourceLimitError {
         /// Maximum value
         max: usize,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
     /// Total units exceeds maximum
@@ -277,7 +276,7 @@ pub enum ResourceLimitError {
         /// Maximum value
         max: u32,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
     /// `CubeDim` exceeds maximum
@@ -290,7 +289,7 @@ pub enum ResourceLimitError {
         /// Maximum value
         max: (u32, u32, u32),
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 }
@@ -309,7 +308,7 @@ impl core::fmt::Debug for ResourceLimitError {
 
 /// A collective operation between the devices of one runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub enum Collective {
     /// Setting up the communication between a group of devices.
     CommInit,
@@ -337,7 +336,7 @@ impl Display for Collective {
 
 /// Error that can happen asynchronously while executing registered kernels.
 #[derive(Error, Clone)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub enum ServerError {
     /// A runtime validation error
     #[error(
@@ -347,7 +346,7 @@ pub enum ServerError {
         /// The details of the validation error.
         message: String,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -357,7 +356,7 @@ pub enum ServerError {
         /// The details of the generic error.
         reason: String,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -371,7 +370,7 @@ pub enum ServerError {
         /// The collective that was asked for.
         operation: Collective,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -384,7 +383,7 @@ pub enum ServerError {
         /// The service the client reaches.
         client: String,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -398,7 +397,7 @@ pub enum ServerError {
         /// The server type the caller asked for.
         requested: String,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -446,7 +445,7 @@ pub enum ServerError {
         root: Box<ServerError>,
         /// Where the question was asked, so the lazy report and the read that
         /// tripped over it can be tied together.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -472,7 +471,7 @@ pub enum ServerError {
         /// The failures, in the order they were found.
         errors: Vec<Self>,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 }
@@ -638,25 +637,15 @@ pub trait Server:
     /// unwritten, and surfaces on any read, sync or check of them.
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
-    /// Prepare `stream_id` for an upcoming graph capture: route allocations
-    /// into a stable pool and snapshot it, so every buffer allocated between
-    /// here and [`end_capture`](Server::end_capture) can be pinned for
-    /// the graph's lifetime. Call this **before** the warmup run so the capture
-    /// window reuses the slices warmup left in the pool rather than allocating
-    /// its own — which a hardware-graph backend cannot do at all (a device
-    /// malloc inside the capture is illegal there), and which on any backend
-    /// would grow the memory a graph pins beyond what it replays against.
+    /// Prepare `stream_id` for an upcoming graph capture. Call this
+    /// **before** the warmup run: the capture window allocates nothing, so it
+    /// reuses what the warmup run left in the pools, and every page the
+    /// recording touches is guarded for the graph's lifetime.
     ///
-    /// Prefer having kernels already **autotuned before** this call: any
-    /// transient benchmark buffers autotune allocates while the window is armed
-    /// are forced into the persistent pool and pinned to the graph, so a graph
-    /// captured over a cold autotune cache retains more device memory than it
-    /// replays against. Warm the autotune cache first, then `graph_prepare` and
-    /// warm up only to populate the pool.
+    /// Prefer having kernels already **autotuned before** this call, so the
+    /// warmup run allocates what the recorded run asks for and nothing else.
     ///
-    /// A no-op by default (harmless on backends without graph support); a
-    /// backend with graph support enables its persistent pool + capture
-    /// recording.
+    /// A no-op by default (harmless on backends without graph support).
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let _ = stream_id;
         Ok(())
@@ -721,14 +710,11 @@ pub trait Server:
         let _ = (graph, stream_id);
     }
 
-    /// Memory usage of the given stream.
-    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage;
-
     /// Structured per-pool report of the given stream's **main GPU** memory:
     /// each pool's shape, usage, and high-water marks, in allocation-routing
     /// order. The read side of a measured memory plan — see
     /// `MemoryManagement::memory_report` in `cubecl-server`.
-    fn memory_report(&mut self, stream_id: StreamId) -> MemoryReport;
+    fn memory_report(&mut self, stream_id: StreamId) -> StreamMemoryReport;
 
     /// Stream ids the client should iterate to aggregate across the device.
     ///
@@ -740,37 +726,12 @@ pub trait Server:
     }
 
     /// Ask the server to release memory that it can release.
-    fn memory_cleanup(&mut self, stream_id: StreamId);
-
-    /// Install a new dynamic-pool layout for the device's **main GPU** memory.
-    ///
-    /// The calling stream's pools are rebuilt in place (see
-    /// `MemoryManagement::install_pools` in `cubecl-server`
-    /// — a rebuild only happens when nothing is live in them), and the layout
-    /// becomes the one every stream created afterwards is built with. Pool
-    /// layouts are a purely programmatic, runtime setting — there is no
-    /// config-file pathway — so callers size them per workload (e.g. per model,
-    /// just before loading it).
     ///
     /// # Errors
     ///
-    /// [`PoolsInUse`](InstallMemoryPoolsError::PoolsInUse) when the calling
-    /// stream kept its old layout because something was still live in its
-    /// pools — e.g. a garbage-collection task that has not released its
-    /// cross-stream pins yet, which can lag behind an explicit
-    /// [`memory_cleanup`](Self::memory_cleanup). The layout still applies to
-    /// streams created afterwards; retry to rebuild the calling stream too.
-    ///
-    /// [`Unsupported`](InstallMemoryPoolsError::Unsupported) from servers
-    /// without configurable pools, which is the default implementation.
-    fn install_memory_pools(
-        &mut self,
-        config: MemoryConfiguration,
-        stream_id: StreamId,
-    ) -> Result<(), InstallMemoryPoolsError> {
-        let _ = (config, stream_id);
-        Err(InstallMemoryPoolsError::Unsupported)
-    }
+    /// Refused while a stream records a graph: releasing memory waits on the
+    /// device, and a wait on a stream that records aborts its capture.
+    fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
     /// Enable collecting timestamps.
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError>;
@@ -1064,7 +1025,7 @@ pub struct Reason {
     inner: ReasonInner,
 }
 
-#[cfg(std_io)]
+#[cfg(serializable)]
 mod _reason_serde {
     use super::*;
 
@@ -1141,7 +1102,7 @@ impl From<String> for Reason {
 /// Error returned from `create`/`read`/`write` functions. Due to async execution not all errors
 /// are able to be caught, so some IO errors will still panic.
 #[derive(Error, Clone)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub enum IoError {
     /// Buffer size exceeds the max available
     #[error("can't allocate buffer of size: {size}\n{backtrace}")]
@@ -1149,7 +1110,7 @@ pub enum IoError {
         /// The size of the buffer in bytes.
         size: u64,
         /// The captured backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -1167,29 +1128,42 @@ pub enum IoError {
         /// The size of the failed allocation in bytes.
         size: u64,
         /// The captured backtrace.
+        #[cfg_attr(serializable, serde(skip))]
+        backtrace: BackTrace,
+    },
+
+    /// No room for the allocation in the pages the memory holds, and the
+    /// reservation was not allowed to add one.
+    ///
+    /// A stream recording a graph reserves this way: an allocation would
+    /// become part of the recording, and a hardware graph holding one cannot
+    /// be relaunched. The warmup before a capture is what leaves the pools
+    /// holding what the recorded run asks for.
+    #[error(
+        "No room for {size} bytes in the memory held, and no page may be added (a graph capture is recording: warm up with the same workload first)\n{backtrace}"
+    )]
+    PageUpdateForbidden {
+        /// The size of the allocation in bytes.
+        size: u64,
+        /// The captured backtrace.
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
 
-    /// A memory pool with a fixed capacity cap is exhausted.
+    /// An allocation needs pages of a new size, and the memory already holds
+    /// as many page sizes as it keeps track of.
     ///
-    /// Unlike [`IoError::BufferTooBig`] (the allocation can *never* fit), this
-    /// means the working set exceeded the configured budget. Server execution
-    /// paths treat it as fatal — the budget is a hard contract, so failing
-    /// early beats silently growing — but callers that manage their own
-    /// working set may free pool memory and retry.
+    /// Every size a workload grew through keeps a pool until what lives on it
+    /// is freed or relocated. A cleanup relocates what it can, so reclaiming
+    /// and retrying is a reasonable response.
     #[error(
-        "memory pool capacity exceeded: failed to reserve {size} bytes, pool is capped at {capacity} bytes ({in_use} bytes in use)\n{backtrace}"
+        "Can't allocate {size} bytes: every page size the memory tracks still holds live allocations\n{backtrace}"
     )]
-    PoolCapacityExceeded {
-        /// The size of the failed reservation in bytes.
+    PageSizesExhausted {
+        /// The size of the allocation in bytes.
         size: u64,
-        /// The configured pool capacity in bytes (whole pages).
-        capacity: u64,
-        /// Bytes currently in use in the pool.
-        in_use: u64,
         /// The captured backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -1197,7 +1171,7 @@ pub enum IoError {
     #[error("the provided strides are not supported for this operation\n{backtrace}")]
     UnsupportedStrides {
         /// The backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -1205,7 +1179,7 @@ pub enum IoError {
     #[error("couldn't find resource for that handle: {reason}\n{backtrace}")]
     NotFound {
         /// The backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
         /// The reason the handle is invalid.
         reason: Reason,
@@ -1222,7 +1196,7 @@ pub enum IoError {
         /// Which id was looked up, and in which storage.
         reason: Reason,
         /// The backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -1244,7 +1218,7 @@ pub enum IoError {
         /// Why the device allocation failed.
         source: Box<IoError>,
         /// The backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -1254,7 +1228,7 @@ pub enum IoError {
         /// Details of the error
         description: String,
         /// The backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -1262,7 +1236,7 @@ pub enum IoError {
     #[error("The current IO operation is not supported\n{backtrace}")]
     UnsupportedIoOperation {
         /// The backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 }
@@ -1278,9 +1252,13 @@ impl IoError {
     /// and a second attempt.
     ///
     /// A buffer larger than any page the device can hold is the exception. It
-    /// never fits, so reclaiming would only spend the time.
+    /// never fits, so reclaiming would only spend the time. So is an
+    /// allocation while a graph records, where nothing may be released.
     pub fn may_succeed_after_reclaim(&self) -> bool {
-        !matches!(self, IoError::BufferTooBig { .. })
+        !matches!(
+            self,
+            IoError::BufferTooBig { .. } | IoError::PageUpdateForbidden { .. }
+        )
     }
 }
 
@@ -1614,7 +1592,7 @@ impl Clone for CubeCount {
 }
 
 #[derive(Debug, From, PartialEq, Eq, Clone, Copy, Hash, Deref, DerefMut)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 #[allow(missing_docs)]
 /// The number of units across all 3 axis totalling to the number of working units in a cube.
 pub struct CubeDim(pub Dim3);

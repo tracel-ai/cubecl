@@ -418,12 +418,15 @@ macro_rules! lower_binary_intrinsic_arith {
 
 lower_binary_intrinsic_arith!(ArcTan2Op => "llvm.atan2");
 lower_binary_intrinsic_arith!(PowfOp => "llvm.pow");
-lower_binary_intrinsic_arith!(FMinOp => "llvm.minimum");
+// `minnum`/`maxnum` ignore a NaN operand, as `fminf`/`fmaxf` in the C++ backends and Rust's
+// `f32::min` do. `minimum`/`maximum` propagate it instead, and have no single instruction
+// before sm_80 or gfx12, so every max-reduce and ReLU would pay for a NaN test and a select.
+lower_binary_intrinsic_arith!(FMinOp => "llvm.minnum");
 lower_binary_intrinsic_arith!(UMinOp => "llvm.umin");
 lower_binary_intrinsic_arith!(SMinOp => "llvm.smin");
 lower_binary_intrinsic_arith!(UMaxOp => "llvm.umax");
 lower_binary_intrinsic_arith!(SMaxOp => "llvm.smax");
-lower_binary_intrinsic_arith!(FMaxOp => "llvm.maximum");
+lower_binary_intrinsic_arith!(FMaxOp => "llvm.maxnum");
 lower_binary_intrinsic_arith!(SaturatingSAddOp => "llvm.sadd.sat");
 lower_binary_intrinsic_arith!(SaturatingUAddOp => "llvm.uadd.sat");
 lower_binary_intrinsic_arith!(SaturatingSSubOp => "llvm.ssub.sat");

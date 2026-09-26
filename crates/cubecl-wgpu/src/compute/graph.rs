@@ -19,7 +19,7 @@
 use crate::WgpuResource;
 use crate::schedule::Addresses;
 use cubecl_core::server::BufferBinding;
-use cubecl_server::memory_management::{ManagedMemoryHandle, SharedMemoryBindings};
+use cubecl_server::memory_management::{ManagedMemoryHandle, PageGuard, SharedMemoryBindings};
 use std::sync::Arc;
 use wgpu::ComputePipeline;
 
@@ -34,10 +34,13 @@ use wgpu::ComputePipeline;
 pub struct WgpuGraph {
     /// The recorded tasks, replayed in order.
     pub(crate) tasks: Vec<ReplayTask>,
-    /// Every pool slice the capture window allocated (intermediates, info
-    /// uniforms, Vulkan address buffers), pinned so the pools cannot reuse
-    /// memory a replay still runs against. Dropped with the graph.
-    pub(crate) _retained: Vec<ManagedMemoryHandle>,
+    /// Every main-pool page the recorded tasks were given memory on, guarded
+    /// so nothing on it moves or is reused while a replay still runs against
+    /// it. Dropped with the graph.
+    pub(crate) _guards: Vec<PageGuard>,
+    /// The uniforms the capture window created (Vulkan address buffers),
+    /// held so the uniforms pool cannot reuse them. Dropped with the graph.
+    pub(crate) _uniforms: Vec<ManagedMemoryHandle>,
     /// Cross-stream input bindings the recorded tasks reference, pinned for
     /// the graph's lifetime instead of until the next submission, which is
     /// where [`WgpuStream::flush`](super::stream::WgpuStream::flush) releases
@@ -61,8 +64,8 @@ pub(crate) struct ReplayTask {
     /// Vulkan buffer device addresses passed as immediates, resolved once at
     /// record time.
     ///
-    /// Addresses into slices the capture window allocated stay valid because
-    /// `_retained` pins them. An address into a buffer the *caller* owns is the
+    /// Addresses into pages the recording touched stay valid because
+    /// `_guards` guards them. An address into a buffer the *caller* owns is the
     /// caller's to keep alive, which is what
     /// [`Graph::replay`](cubecl_server::client::Graph::replay)'s liveness
     /// requirement is about — the same contract that lets a replay pick up
@@ -80,8 +83,8 @@ pub(crate) enum ReplayDispatch {
     Static(u32, u32, u32),
     /// Indirect dispatch: the workgroup count is read from this buffer at
     /// execution time rather than baked in, so replays pick up counts written
-    /// between them. Pinned by `_retained` when the capture window allocated
-    /// it; otherwise kept alive by the caller, as for
+    /// between them. Its page is guarded by `_guards`; the buffer itself is
+    /// kept alive by the caller, as for
     /// [`ReplayTask::immediates`].
     Dynamic(WgpuResource),
 }
@@ -94,7 +97,6 @@ pub(crate) struct GraphRecording {
     /// Cross-stream input bindings of recorded tasks (see [`WgpuGraph::_shared`]).
     pub(crate) shared: SharedMemoryBindings,
     /// Uniform slices created inside the window, held alive until
-    /// `end_capture` so the memory manager's `capture_end` retains them on
-    /// the graph — retention only covers slices still live at that point.
+    /// `end_capture` hands them to the graph.
     pub(crate) uniform_pins: Vec<ManagedMemoryHandle>,
 }

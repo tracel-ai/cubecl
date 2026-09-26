@@ -20,6 +20,7 @@ default = [
     "cubecl-core/default",
 ]
 exclusive-memory-only = ["cubecl-server/exclusive-memory-only"]
+persistence = ["cubecl-server/persistence"]
 std = [
     "cubecl-server/std",
     "cubecl-common/std",
@@ -29,8 +30,6 @@ std = [
     "pliron/std",
     "sanitize-filename",
 ]
-# 'msl' and 'spirv' features are exclusive
-# TODO find a way to have wgpu runtime auto-compiler to support several compilers at the same time
 msl = [
     "cubecl-cpp/metal",
     "dep:objc2",
@@ -100,8 +99,6 @@ wasm-bindgen-futures = { workspace = true }
 renderdoc = { workspace = true, optional = true }
 wgpu = { workspace = true, features = ["fragile-send-sync-non-atomic-wasm"] }
 
-## Uncomment if targeting metal through msl feature
-# wgpu = { git = "https://github.com/tracel-ai/wgpu", features = ["fragile-send-sync-non-atomic-wasm"], rev = "624db2ae762b83446693020ae637e2c5879b3af9" }
 ## For development on wgpu uncomment this one and make it point to your local wgpu repo
 # wgpu = { path = "../../../../tracel/wgpu/wgpu", features = ["fragile-send-sync-non-atomic-wasm"]}
 ## On macOS, the `vulkan-portability` feature is required due to the MoltenVK translation layer.
@@ -117,9 +114,6 @@ objc2 = { version = "0.6", optional = true }
 objc2-foundation = { version = "0.3", optional = true }
 objc2-metal = { version = "0.3", features = ["MTLLibrary"], optional = true }
 
-
-## Uncomment if targeting metal through msl feature
-# wgpu = { git = "https://github.com/tracel-ai/wgpu", features = ["vulkan-portability", "fragile-send-sync-non-atomic-wasm"], rev = "624db2ae762b83446693020ae637e2c5879b3af9" }
 ## For development on wgpu uncomment this one and make it point to your local wgpu repo
 # wgpu = { path = "../../../../tracel/wgpu/wgpu", features = ["vulkan-portability", "fragile-send-sync-non-atomic-wasm"]}
 

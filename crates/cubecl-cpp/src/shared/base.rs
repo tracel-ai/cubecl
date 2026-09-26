@@ -257,6 +257,8 @@ where
         func_passes.add_pass(LowerOpsCppPass::<Shared>::default());
         func_passes.add_pass(LowerOpsCppPass::<T>::default());
 
+        // MSL has `addsat` and `subsat` for every integer width, so Metal keeps the saturating
+        // ops and prints them as builtins.
         if T::target() != Target::Metal {
             func_passes.add_pass(LowerSaturatingArithmeticPass::default());
         }

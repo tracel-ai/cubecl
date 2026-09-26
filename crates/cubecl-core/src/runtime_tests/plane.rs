@@ -118,6 +118,22 @@ pub fn kernel_ballot(output: &mut Tensor<Vector<u32, Const<4>>>) {
     }
 }
 
+/// Votes taken by the first half of the plane only: each counts the lanes that reach it.
+#[cube(launch)]
+pub fn kernel_diverged_votes(output: &mut Tensor<Vector<u32, Const<4>>>) {
+    if UNIT_POS < 16 {
+        let ballot = plane_ballot(UNIT_POS < 8);
+        let all = plane_all(UNIT_POS < 16);
+        let any = plane_any(UNIT_POS >= 16);
+
+        if UNIT_POS == 0 {
+            output[0] = Vector::cast_from(ballot);
+            output[1] = Vector::new(u32::cast_from(all));
+            output[2] = Vector::new(u32::cast_from(any));
+        }
+    }
+}
+
 #[cube(launch)]
 pub fn kernel_shuffle<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>) {
     let val = output[UNIT_POS as usize];
@@ -568,6 +584,33 @@ pub fn test_plane_ballot<TestRuntime: Runtime>(client: Client) {
     assert_eq!(u32::from_bytes(&actual), &expected);
 }
 
+/// A backend advertising non-uniform control flow counts only the lanes that reach a vote.
+pub fn test_plane_diverged_votes<TestRuntime: Runtime>(client: Client) {
+    let plane = client.features().plane;
+    if !plane.contains(Plane::Ops) || !plane.contains(Plane::NonUniformControlFlow) {
+        // Can't execute the test.
+        return;
+    }
+
+    let handle = client.empty(size_of::<u32>() * 4 * 3);
+    let (shape, strides) = ([3], [1]);
+
+    unsafe {
+        kernel_diverged_votes::launch(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(32),
+            TensorArg::from_raw_parts(handle.clone(), strides.into(), shape.into()),
+        )
+    }
+
+    // The ballot, then `all` held and `any` did not among the lanes that voted.
+    let expected = [0b1111_1111, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0];
+    let actual = client.read_one_unchecked(handle);
+
+    assert_eq!(u32::from_bytes(&actual), &expected);
+}
+
 pub fn test_plane_elect<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
@@ -1003,6 +1046,14 @@ macro_rules! testgen_plane {
         fn test_plane_ballot() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::plane::test_plane_ballot::<TestRuntime>(client.clone());
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_plane_diverged_votes() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::plane::test_plane_diverged_votes::<TestRuntime>(
+                client.clone(),
+            );
         }
 
         fn impl_test_plane_shuffle(vectorization: VectorSize) {

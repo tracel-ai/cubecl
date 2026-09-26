@@ -266,6 +266,47 @@ lower_plane_op!(BallotOp, |op, lowering, ctx, rw, info| {
     Ok(())
 });
 
+/// Routes `value` through `route` one 32-bit word at a time and reassembles it: the plane
+/// intrinsics of both GPU targets move a single 32-bit register per call.
+pub fn route_words(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    value: Value,
+    value_ty: TypeHandle,
+    mut route: impl FnMut(&mut Context, &mut DialectConversionRewriter, Value) -> Value,
+) -> Value {
+    let i32_ty = i32_ty(ctx);
+    let llvm_ty = cube_type_to_llvm(ctx, value_ty);
+    let bits = value_ty.size_bits(ctx) as u32;
+    let words = bits.div_ceil(32);
+
+    if words == 1 {
+        let as_i32 = widen_to_i32(ctx, rw, value, bits);
+        let routed = route(ctx, rw, as_i32);
+        return narrow_from_i32(ctx, rw, routed, bits, llvm_ty);
+    }
+
+    debug_assert_eq!(
+        bits % 32,
+        0,
+        "a value wider than one word is routed as whole words"
+    );
+    let words_ty = LlvmVectorType::get(ctx, i32_ty, words, VectorTypeKind::Fixed).into();
+    let as_words = bitcast(ctx, rw, value, words_ty);
+
+    let poison = llvm::PoisonOp::new(ctx, words_ty);
+    let mut acc = insert(ctx, rw, &poison);
+    for word in 0..words {
+        let index = insert_i32_const(ctx, rw, word as i32);
+        let extract = llvm::ExtractElementOp::new(ctx, as_words, index);
+        let word_value = insert(ctx, rw, &extract);
+        let routed = route(ctx, rw, word_value);
+        let op = llvm::InsertElementOp::new(ctx, acc, routed, index);
+        acc = insert(ctx, rw, &op);
+    }
+    bitcast(ctx, rw, acc, llvm_ty)
+}
+
 pub fn mask_ty(ctx: &mut Context) -> TypeHandle {
     let width = ctx.plane_dim();
     IntegerType::get(ctx, width, Signedness::Signless).into()
