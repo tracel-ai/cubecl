@@ -133,8 +133,11 @@ pub fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMmaCombin
             k: 32,
         }));
     }
+    // Turing, not Volta: ptxas refuses `.m16n8k8` below sm_75, and sm_70 has
+    // `m8n8k4` alone.
+    //
     // Warning: this likely does not follow the same layout pattern as those after 80
-    if arch.get_version() >= 70 && arch.get_version() < 80 {
+    if arch.get_version() >= 75 && arch.get_version() < 80 {
         result.push(MmaConfig {
             a_type: ElemType::Float(FloatKind::F16),
             b_type: ElemType::Float(FloatKind::F16),
@@ -233,5 +236,34 @@ mod tests {
 
         assert!(supported_mma_combinations(&turing("NVIDIA GeForce GTX 1660 SUPER")).is_empty());
         assert!(!supported_mma_combinations(&turing("NVIDIA GeForce RTX 2060")).is_empty());
+    }
+
+    fn shapes(version: u32) -> Vec<(u32, u32, u32)> {
+        supported_mma_combinations(&CudaArchitecture {
+            version,
+            tensor_cores: true,
+        })
+        .into_iter()
+        .map(|config| (config.m, config.n, config.k))
+        .collect()
+    }
+
+    /// `ptxas -arch=sm_70`: "Feature `.m16n8k8` requires `.target sm_75` or higher".
+    /// Offering it there ends in `LLVM ERROR: Cannot select: intrinsic
+    /// llvm.nvvm.mma.m16n8k8`, which aborts the process rather than failing a launch.
+    #[test]
+    fn volta_is_offered_no_mma_shape() {
+        assert!(shapes(70).is_empty());
+    }
+
+    #[test]
+    fn turing_keeps_its_one_shape() {
+        assert_eq!(shapes(75), vec![(16, 8, 8)]);
+    }
+
+    /// The shapes from 80 on are their own set, reached by a separate branch.
+    #[test]
+    fn ampere_is_offered_more_than_turing() {
+        assert!(shapes(80).len() > shapes(75).len());
     }
 }
