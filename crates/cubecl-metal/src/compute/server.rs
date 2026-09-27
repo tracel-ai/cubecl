@@ -119,7 +119,12 @@ fn resolve_origin_resource(
 fn read_pitched(src: *const u8, shape: &[usize], strides: &[usize], elem_size: usize) -> Vec<u8> {
     let rank = shape.len();
     let total = shape.iter().product::<usize>() * elem_size;
-    if rank <= 1 {
+    if total == 0 {
+        return Vec::new();
+    }
+    // Like CUDA/HIP, use a linear copy unless the row stride includes padding.
+    let pitched = rank > 1 && strides[rank - 2] != *shape.last().unwrap_or(&1);
+    if !pitched {
         return unsafe { std::slice::from_raw_parts(src, total) }.to_vec();
     }
 
@@ -127,7 +132,7 @@ fn read_pitched(src: *const u8, shape: &[usize], strides: &[usize], elem_size: u
     let rows = shape[..rank - 1].iter().product::<usize>();
     let pitch = strides[rank - 2] * elem_size;
 
-    let mut out = vec![0u8; rows * width];
+    let mut out = vec![0u8; total];
     for row in 0..rows {
         let src_row = unsafe { std::slice::from_raw_parts(src.add(row * pitch), width) };
         out[row * width..(row + 1) * width].copy_from_slice(src_row);
@@ -138,8 +143,18 @@ fn read_pitched(src: *const u8, shape: &[usize], strides: &[usize], elem_size: u
 /// Writes packed bytes into a pitched row-major buffer — the inverse of [`read_pitched`].
 fn write_pitched(dst: *mut u8, data: &[u8], shape: &[usize], strides: &[usize], elem_size: usize) {
     let rank = shape.len();
-    if rank <= 1 {
-        unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len()) };
+    let total = shape.iter().product::<usize>() * elem_size;
+    if total == 0 {
+        return;
+    }
+    assert!(
+        data.len() >= total,
+        "input shorter than logical tensor bytes"
+    );
+    // Like CUDA/HIP, use a linear copy unless the row stride includes padding.
+    let pitched = rank > 1 && strides[rank - 2] != *shape.last().unwrap_or(&1);
+    if !pitched {
+        unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), dst, total) };
         return;
     }
 
@@ -247,6 +262,9 @@ impl Server for MetalServer {
                 let (resource, offset) = resolve_origin_resource(&mut resolved, &descriptor.handle)
                     .map_err(ServerError::from)?;
 
+                if descriptor.shape.iter().product::<usize>() * descriptor.elem_size == 0 {
+                    return Ok(Bytes::from_bytes_vec(Vec::new()));
+                }
                 let buffer = resource.inner();
                 let protocol_obj: &ProtocolObject<dyn MTLBuffer> = buffer.as_ref();
                 let base_ptr = protocol_obj.contents().as_ptr() as *const u8;
@@ -302,6 +320,9 @@ impl Server for MetalServer {
                 let (resource, offset) = resolve_origin_resource(&mut resolved, &descriptor.handle)
                     .map_err(ServerError::Io)?;
 
+                if descriptor.shape.iter().product::<usize>() * descriptor.elem_size == 0 {
+                    return Ok(());
+                }
                 let buffer = resource.inner();
                 let protocol_obj: &ProtocolObject<dyn MTLBuffer> = buffer.as_ref();
                 let base_ptr = protocol_obj.contents().as_ptr() as *mut u8;
@@ -764,18 +785,72 @@ mod pitched_tests {
 
     #[test]
     fn pitched_round_trip() {
-        // A [2, 3] tensor with a row pitch of 4 (one element of padding per row).
-        let shape = [2usize, 3];
-        let strides = [4usize, 1];
-        let packed = [10u8, 20, 30, 40, 50, 60];
+        // (shape, strides, element bytes): packed and genuinely pitched layouts.
+        let cases: &[(&[usize], &[usize], usize)] = &[
+            (&[6], &[1], 2),
+            (&[2, 3], &[3, 1], 2),
+            (&[2, 3, 1], &[3, 1, 1], 4), // Packed HWC1.
+            (&[2, 2, 3, 2], &[12, 6, 2, 1], 2),
+            (&[2, 3], &[4, 1], 2),
+            (&[2, 2, 3, 2], &[24, 12, 4, 1], 2),
+        ];
+        for &(shape, strides, elem_size) in cases {
+            let rank = shape.len();
+            let width = shape[rank - 1] * elem_size;
+            let rows = shape[..rank - 1].iter().product::<usize>();
+            let pitch = if rank == 1 {
+                width
+            } else {
+                strides[rank - 2] * elem_size
+            };
+            let total = rows * width;
+            // Extra input bytes must not be copied, even for a rank-one tensor.
+            let data: Vec<u8> = (0..total + 5).map(|i| i as u8).collect();
+            for offset in [0, 7] {
+                let mut buffer = vec![0xa5; offset + rows * pitch + 9];
+                let mut expected = buffer.clone();
+                for row in 0..rows {
+                    expected[offset + row * pitch..offset + row * pitch + width]
+                        .copy_from_slice(&data[row * width..(row + 1) * width]);
+                }
+                let dst = unsafe { buffer.as_mut_ptr().add(offset) };
+                write_pitched(dst, &data, shape, strides, elem_size);
+                assert_eq!(buffer, expected, "shape={shape:?}, offset={offset}");
+                let src = unsafe { buffer.as_ptr().add(offset) };
+                assert_eq!(read_pitched(src, shape, strides, elem_size), data[..total]);
+            }
+        }
+    }
 
-        let mut buffer = vec![0u8; 2 * 4];
-        write_pitched(buffer.as_mut_ptr(), &packed, &shape, &strides, 1);
-        // Rows land at offsets 0 and 4; the padding bytes (3, 7) stay zero.
-        assert_eq!(buffer, [10, 20, 30, 0, 40, 50, 60, 0]);
+    #[test]
+    fn short_input_panics_before_copy() {
+        for (shape, strides) in [
+            (&[6][..], &[1][..]),
+            (&[2, 3][..], &[3, 1][..]),
+            (&[2, 3][..], &[4, 1][..]),
+        ] {
+            let mut buffer = [0xa5; 16];
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                write_pitched(buffer.as_mut_ptr(), &[0; 5], shape, strides, 1);
+            }));
+            assert!(result.is_err());
+            assert_eq!(buffer, [0xa5; 16]);
+        }
+    }
 
-        let read_back = read_pitched(buffer.as_ptr(), &shape, &strides, 1);
-        assert_eq!(read_back, packed);
+    #[test]
+    fn empty_copies_accept_null_pointers() {
+        let cases: &[(&[usize], &[usize], usize)] = &[
+            (&[0], &[1], 1),
+            (&[0, 3], &[4, 1], 2),
+            (&[2, 0], &[0, 1], 2),
+            (&[2, 0, 3, 1], &[0, 3, 1, 1], 4),
+            (&[2, 3], &[3, 1], 0),
+        ];
+        for &(shape, strides, elem_size) in cases {
+            assert!(read_pitched(std::ptr::null(), shape, strides, elem_size).is_empty());
+            write_pitched(std::ptr::null_mut(), &[], shape, strides, elem_size);
+        }
     }
 }
 
