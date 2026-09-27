@@ -1,4 +1,9 @@
-use core::{fmt::Debug, hash::Hash, marker::PhantomData, ops::Deref};
+use core::{
+    fmt::Debug,
+    hash::Hash,
+    marker::PhantomData,
+    ops::{Deref, Range},
+};
 
 use cubecl_macros_internal::NamedRewrite;
 use derive_more::{Deref, DerefMut, From};
@@ -21,6 +26,7 @@ use pliron::{
         match_rewrite::{RewriterOrder, apply_match_rewrite},
     },
     op::{OpInterfaceMarker, OpObj},
+    value::Use,
     verify_err_noloc,
 };
 
@@ -390,12 +396,10 @@ impl<T: OpInterfaceMarker + 'static + ?Sized> Hash for TraitOp<T> {
     }
 }
 
+impl<T: OpInterfaceMarker + 'static + ?Sized> Copy for TraitOp<T> {}
 impl<T: OpInterfaceMarker + 'static + ?Sized> Clone for TraitOp<T> {
     fn clone(&self) -> Self {
-        Self {
-            obj: self.obj.clone(),
-            _marker: self._marker,
-        }
+        *self
     }
 }
 
@@ -406,59 +410,13 @@ impl<T: OpInterfaceMarker + 'static + ?Sized> Debug for TraitOp<T> {
     }
 }
 
-pub struct TraitOpPtr<T: OpInterfaceMarker + ?Sized> {
+pub(crate) fn operand_range_to_uses(
+    ctx: &Context,
     op: Ptr<Operation>,
-    _marker: PhantomData<T>,
-}
-
-impl<T: OpInterfaceMarker + 'static + ?Sized> TraitOpPtr<T> {
-    pub fn try_from_op(op: Ptr<Operation>, ctx: &Context) -> Option<Self> {
-        if !op.impls::<T>(ctx) {
-            None
-        } else {
-            Some(TraitOpPtr {
-                op,
-                _marker: PhantomData,
-            })
-        }
-    }
-
-    pub fn deref(&self, ctx: &Context) -> TraitOp<T> {
-        TraitOp {
-            obj: self.op.dyn_op(ctx),
-            _marker: PhantomData,
-        }
-    }
-
-    pub fn operation(&self) -> Ptr<Operation> {
-        self.op
-    }
-}
-
-impl<T: OpInterfaceMarker + 'static + ?Sized> Eq for TraitOpPtr<T> {}
-impl<T: OpInterfaceMarker + 'static + ?Sized> PartialEq for TraitOpPtr<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.op == other.op
-    }
-}
-
-impl<T: OpInterfaceMarker + 'static + ?Sized> Hash for TraitOpPtr<T> {
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        self.op.hash(state);
-    }
-}
-
-impl<T: OpInterfaceMarker + 'static + ?Sized> Copy for TraitOpPtr<T> {}
-impl<T: OpInterfaceMarker + 'static + ?Sized> Clone for TraitOpPtr<T> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<T: OpInterfaceMarker + 'static + ?Sized> Debug for TraitOpPtr<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        Debug::fmt(&self.op, f)
-    }
+    range: Range<usize>,
+) -> Vec<Use<Value>> {
+    let op = op.deref(ctx);
+    range.map(|idx| op.get_operand_as_use(idx)).collect()
 }
 
 #[macro_export]

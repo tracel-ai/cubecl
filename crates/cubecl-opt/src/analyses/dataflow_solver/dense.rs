@@ -122,7 +122,7 @@ pub trait DenseForwardDataflowAnalysis: Sized + 'static {
 
     fn build_operation_equivalent_lattice_anchor(
         this: &DenseForward<Self>,
-        solver: &mut DataflowSolver,
+        solver: &DataflowSolver,
         ctx: &Context,
         op: Ptr<Operation>,
     ) {
@@ -200,7 +200,7 @@ impl<T: DenseForwardDataflowAnalysis> DataflowAnalysis for DenseForward<T> {
 
     fn initialize(
         &mut self,
-        solver: &mut DataflowSolver,
+        solver: &DataflowSolver,
         ctx: &Context,
         root: Ptr<Operation>,
     ) -> Result<()> {
@@ -227,7 +227,7 @@ impl<T: DenseForwardDataflowAnalysis> DataflowAnalysis for DenseForward<T> {
 
     fn initialize_equivalent_lattice_anchor(
         &self,
-        solver: &mut DataflowSolver,
+        solver: &DataflowSolver,
         ctx: &Context,
         root: Ptr<Operation>,
     ) {
@@ -628,7 +628,7 @@ pub trait DenseBackwardDataflowAnalysis: Sized + 'static {
 
     fn build_operation_equivalent_lattice_anchor(
         this: &DenseBackward<Self>,
-        solver: &mut DataflowSolver,
+        solver: &DataflowSolver,
         ctx: &Context,
         op: Ptr<Operation>,
     ) {
@@ -722,7 +722,7 @@ impl<T: DenseBackwardDataflowAnalysis> DataflowAnalysis for DenseBackward<T> {
 
     fn initialize(
         &mut self,
-        solver: &mut DataflowSolver,
+        solver: &DataflowSolver,
         ctx: &Context,
         root: Ptr<Operation>,
     ) -> Result<()> {
@@ -749,7 +749,7 @@ impl<T: DenseBackwardDataflowAnalysis> DataflowAnalysis for DenseBackward<T> {
 
     fn initialize_equivalent_lattice_anchor(
         &self,
-        solver: &mut DataflowSolver,
+        solver: &DataflowSolver,
         ctx: &Context,
         root: Ptr<Operation>,
     ) {
@@ -944,7 +944,7 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
 
             if let Some(branch) = parent_op.cast::<dyn RegionBranchOpInterface>(ctx) {
                 let term = block.deref(ctx).get_terminator(ctx).unwrap();
-                let terminator = TraitOpPtr::try_from_op(term, ctx).unwrap();
+                let terminator = TraitOp::try_from_op(term, ctx).unwrap();
                 return self.visit_region_branch_operation(
                     solver,
                     ctx,

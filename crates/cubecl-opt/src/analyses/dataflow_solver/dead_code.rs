@@ -358,7 +358,7 @@ impl DeadCodeAnalysis {
                     .ops_with_interface::<dyn SymbolUserOpInterface>(ctx)
                     .flat_map(|user| {
                         let symbols = user.used_symbols(ctx);
-                        symbols.into_iter().map(move |sym| (user.clone(), sym))
+                        symbols.into_iter().map(move |sym| (user, sym))
                     });
                 for (user, used) in uses {
                     if op_impls::<dyn CallOpInterface>(user.dyn_op()) {
@@ -378,7 +378,7 @@ impl DeadCodeAnalysis {
 
     pub fn initialize_recursively(
         &self,
-        solver: &mut DataflowSolver,
+        solver: &DataflowSolver,
         ctx: &Context,
         op: Ptr<Operation>,
     ) -> Result<()> {
@@ -633,7 +633,7 @@ impl DataflowAnalysis for DeadCodeAnalysis {
 
     fn initialize(
         &mut self,
-        solver: &mut DataflowSolver,
+        solver: &DataflowSolver,
         ctx: &Context,
         root: Ptr<Operation>,
     ) -> Result<()> {

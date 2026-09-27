@@ -27,6 +27,7 @@ use pliron::{
     printable::Printable,
     region::Region,
     utils::table::{HMap, SmallMap},
+    value::Use,
 };
 
 use crate::{
@@ -726,11 +727,7 @@ impl CanonicalizeInterface for SwitchOp {
 }
 
 #[pliron_op(name = "scf.for", verifier = "succ")]
-#[op_interfaces(
-    OneRegionInterface,
-    SingleBlockRegionInterface,
-    OperandSegmentInterface
-)]
+#[op_interfaces(OneRegionInterface, SingleBlockRegionInterface)]
 #[op_traits(RecursiveMemoryEffects, RecursiveSideEffects)]
 pub struct ForOp;
 
@@ -828,6 +825,13 @@ impl ForOp {
 
     pub fn result_types(&self, ctx: &Context) -> Vec<TypeHandle> {
         self.get_operation().result_types(ctx)
+    }
+}
+
+#[op_interface_impl]
+impl OperandSegmentInterface for ForOp {
+    fn expected_num_segments(&self, _: &Context) -> Option<usize> {
+        Some(2)
     }
 }
 
@@ -1050,8 +1054,8 @@ impl MemorySSARegionOpInterface for ForOp {
 
 #[op_interface_impl]
 impl RegionBranchOpInterface for ForOp {
-    fn entry_successor_operands(&self, ctx: &Context, _successor: RegionSuccessor) -> Vec<Value> {
-        self.initial_carried_values(ctx)
+    fn entry_successor_operands(&self, ctx: &Context, _: RegionSuccessor) -> Vec<Use<Value>> {
+        operand_range_to_uses(ctx, self.get_operation(), self.segment_range(ctx, 1))
     }
 
     fn successor_regions(&self, ctx: &Context, _pred: RegionPredecessor) -> Vec<RegionSuccessor> {
@@ -1354,15 +1358,15 @@ impl MemorySSARegionOpInterface for WhileOp {
 
 #[op_interface_impl]
 impl RegionBranchOpInterface for WhileOp {
-    fn entry_successor_operands(&self, ctx: &Context, _successor: RegionSuccessor) -> Vec<Value> {
-        self.initial_carried_values(ctx)
+    fn entry_successor_operands(&self, ctx: &Context, _: RegionSuccessor) -> Vec<Use<Value>> {
+        self.get_operation().deref(ctx).operands_as_uses().collect()
     }
 
     fn successor_regions(&self, ctx: &Context, pred: RegionPredecessor) -> Vec<RegionSuccessor> {
         match pred {
             RegionPredecessor::Parent => vec![self.before_region(ctx).into()],
             RegionPredecessor::Terminator(term) => {
-                let op = term.deref(ctx).get_operation();
+                let op = term.get_operation();
                 let parent = op.deref(ctx).get_parent_region(ctx).unwrap();
                 if parent == self.after_region(ctx) {
                     vec![self.before_region(ctx).into()]

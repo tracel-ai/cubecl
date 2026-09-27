@@ -476,7 +476,7 @@ pub trait DataflowAnalysis: Downcast {
     #[allow(clippy::result_unit_err)]
     fn initialize(
         &mut self,
-        solver: &mut DataflowSolver,
+        solver: &DataflowSolver,
         ctx: &Context,
         root: Ptr<Operation>,
     ) -> Result<()>;
@@ -486,7 +486,7 @@ pub trait DataflowAnalysis: Downcast {
 
     fn initialize_equivalent_lattice_anchor(
         &self,
-        solver: &mut DataflowSolver,
+        solver: &DataflowSolver,
         ctx: &Context,
         root: Ptr<Operation>,
     ) {

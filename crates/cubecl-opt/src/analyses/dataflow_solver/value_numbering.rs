@@ -248,7 +248,7 @@ impl DataflowAnalysis for ValueNumberingAnalysis {
 
     fn initialize(
         &mut self,
-        solver: &mut DataflowSolver,
+        solver: &DataflowSolver,
         ctx: &Context,
         root: Ptr<Operation>,
     ) -> Result<()> {

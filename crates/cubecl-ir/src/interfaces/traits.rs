@@ -128,8 +128,8 @@ macro_rules! ReturnLike {
     ($ty: ty) => {
         #[::pliron::derive::op_interface_impl]
         impl $crate::interfaces::control_flow::RegionBranchTerminatorOpInterface for $ty {
-            fn successor_operands(&self, ctx: &Context, _successor: RegionSuccessor) -> Vec<Value> {
-                self.get_operation().deref(ctx).operands().collect()
+            fn successor_operands(&self, ctx: &Context, _: RegionSuccessor) -> Vec<Use<Value>> {
+                self.get_operation().deref(ctx).operands_as_uses().collect()
             }
         }
 

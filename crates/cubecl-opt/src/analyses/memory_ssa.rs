@@ -211,18 +211,18 @@ impl MemoryOpAnalyzer<'_> {
 #[derive(Clone, Copy)]
 pub enum NodeMemoryEffects {
     Opaque,
-    Op(TraitOpPtr<dyn MemoryEffectsOp>),
+    Op(TraitOp<dyn MemoryEffectsOp>),
 }
 
 impl NodeMemoryEffects {
     fn from_op(ctx: &Context, op: Ptr<Operation>) -> NodeMemoryEffects {
-        NodeMemoryEffects::Op(TraitOpPtr::try_from_op(op, ctx).unwrap())
+        NodeMemoryEffects::Op(TraitOp::try_from_op(op, ctx).unwrap())
     }
 
     pub fn effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         match self {
             NodeMemoryEffects::Opaque => vec![MemoryEffect::Opaque],
-            NodeMemoryEffects::Op(trait_op_ptr) => trait_op_ptr.deref(ctx).memory_effects(ctx),
+            NodeMemoryEffects::Op(trait_op_ptr) => trait_op_ptr.memory_effects(ctx),
         }
     }
 }
