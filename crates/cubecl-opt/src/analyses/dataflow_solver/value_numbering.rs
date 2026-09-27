@@ -55,9 +55,9 @@ impl LatticeValue for ValueNumber {
 
 impl Printable for ValueNumber {
     fn fmt(&self, _: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self == ValueNumber::UNINITIALIZED {
-            true => write!(f, "ValueNumber(Uninitialized)"),
-            false => write!(f, "ValueNumber({})", self.value),
+        match self.is_initialized() {
+            false => write!(f, "ValueNumber(Uninitialized)"),
+            true => write!(f, "ValueNumber({})", self.value),
         }
     }
 }
@@ -65,8 +65,12 @@ impl Printable for ValueNumber {
 impl ValueNumber {
     pub const UNINITIALIZED: ValueNumber = ValueNumber { value: u64::MAX };
 
-    pub fn value(&self) -> u64 {
-        self.value
+    pub fn value(&self) -> Option<u64> {
+        self.is_initialized().then_some(self.value)
+    }
+
+    pub fn is_initialized(&self) -> bool {
+        self != &Self::UNINITIALIZED
     }
 }
 
@@ -119,10 +123,7 @@ impl ValueClasses {
     fn get_value_number(&self, solver: &DataflowSolver, value: Value) -> Option<u64> {
         let number = solver.get_or_create::<ValueNumberLattice>(value);
         number.deref().use_def_subscribe::<SparseForward<Self>>();
-        match *number.deref().value() {
-            value if value == ValueNumber::UNINITIALIZED => None,
-            value => Some(value.value),
-        }
+        number.deref().value().value()
     }
 }
 

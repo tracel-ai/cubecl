@@ -29,7 +29,7 @@ use pliron::{
 };
 use smallvec::SmallVec;
 
-// pub(crate) type SparseBitSet = hi_sparse_bitset::BitSet<hi_sparse_bitset::config::_128bit>;
+pub(crate) type SparseBitSet = hi_sparse_bitset::BitSet<hi_sparse_bitset::config::_128bit>;
 
 pub use crate::analyses::liveness::shared::SharedLiveness;
 

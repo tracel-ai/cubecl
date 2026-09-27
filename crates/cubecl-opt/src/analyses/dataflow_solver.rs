@@ -29,6 +29,7 @@ pub mod dead_code;
 pub mod dense;
 pub mod sccp;
 pub mod sparse;
+pub mod value_dependents;
 pub mod value_numbering;
 pub mod value_uniformity;
 
