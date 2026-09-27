@@ -122,7 +122,6 @@ fn read_pitched(src: *const u8, shape: &[usize], strides: &[usize], elem_size: u
     if total == 0 {
         return Vec::new();
     }
-    // Like CUDA/HIP, use a linear copy unless the row stride includes padding.
     let pitched = rank > 1 && strides[rank - 2] != *shape.last().unwrap_or(&1);
     if !pitched {
         return unsafe { std::slice::from_raw_parts(src, total) }.to_vec();
@@ -151,7 +150,6 @@ fn write_pitched(dst: *mut u8, data: &[u8], shape: &[usize], strides: &[usize], 
         data.len() >= total,
         "input shorter than logical tensor bytes"
     );
-    // Like CUDA/HIP, use a linear copy unless the row stride includes padding.
     let pitched = rank > 1 && strides[rank - 2] != *shape.last().unwrap_or(&1);
     if !pitched {
         unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), dst, total) };
@@ -785,7 +783,7 @@ mod pitched_tests {
 
     #[test]
     fn pitched_round_trip() {
-        // (shape, strides, element bytes): packed and genuinely pitched layouts.
+        // (shape, strides, element bytes): packed and pitched layouts.
         let cases: &[(&[usize], &[usize], usize)] = &[
             (&[6], &[1], 2),
             (&[2, 3], &[3, 1], 2),
