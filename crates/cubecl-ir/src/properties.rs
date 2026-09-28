@@ -106,11 +106,6 @@ impl VectorRegisters {
         self.count
     }
 
-    /// The vector size one register holds, which is the widest a single load carries.
-    pub fn register_vector_size(&self) -> VectorSize {
-        self.register_vector_size
-    }
-
     /// Registers a vector of `vector_size` elements occupies, at least one.
     pub fn registers_for(&self, vector_size: VectorSize) -> usize {
         vector_size.div_ceil(self.register_vector_size).max(1)
@@ -627,7 +622,6 @@ mod tests {
     #[test]
     fn the_widest_vector_size_keeps_every_live_vector_in_registers() {
         let f32 = registers(AVX2, 4);
-        assert_eq!(f32.register_vector_size(), 8);
         assert_eq!(f32.widest_vector_size(6), 16);
         assert_eq!(f32.widest_vector_size(8), 16);
         assert_eq!(f32.widest_vector_size(9), 8);
@@ -638,7 +632,6 @@ mod tests {
     #[test]
     fn neon_and_avx2_budget_the_same_vector_sizes_from_equal_register_files() {
         let (neon, avx2) = (registers(NEON, 4), registers(AVX2, 4));
-        assert_eq!(neon.register_vector_size(), 4);
         assert_eq!(neon.widest_vector_size(3), avx2.widest_vector_size(3));
         assert_eq!(neon.widest_vector_size(6), avx2.widest_vector_size(6));
     }
@@ -663,7 +656,7 @@ mod tests {
         let mut capped = hardware(256, Some(16));
         capped.max_vector_size = 4;
         let f32 = VectorRegisters::new(&capped, 4).unwrap();
-        assert_eq!(f32.register_vector_size(), 4);
+        assert_eq!(f32.registers_for(8), 2);
         assert_eq!(f32.widest_vector_size(1), 4);
     }
 
