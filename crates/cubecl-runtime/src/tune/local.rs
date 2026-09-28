@@ -108,14 +108,23 @@ where
     }
 
     /// What the tunable `operations` settled on for `key` on `id` was
-    /// [identified](super::Tunable::identified) by: `None` until a round has settled a winner in
-    /// this process, and where the winner was identified by no `T`.
+    /// [identified](super::Tunable::identified) by: `None` until a result for the key is settled
+    /// — tuned by a round in this process, or read back from disk and validated by an
+    /// [`execute`](Self::execute) — or when the settled tunable was identified by nothing.
     ///
     /// It reads results and never produces one: it never starts a round, never waits on one in
-    /// flight, and never re-hydrates a persisted result — a key a round has not settled here yet,
-    /// or one only on disk, answers `None` until an [`execute`](Self::execute) settles it. Like
-    /// `execute`'s own lookup, it does reset the tuner's cache when the environment has switched. `operations` must be the set `id`
-    /// executes, as [`init`](Self::init) returns it: a winner is an index into that set.
+    /// flight, and never validates a persisted result itself. Like `execute`'s own lookup, it
+    /// resets the tuner's cache when the environment has switched.
+    ///
+    /// `operations` must be the set `id` executes, as [`init`](Self::init) returns it for the
+    /// initializer `execute` is handed: a result is an index into that set, and results are kept
+    /// per `id` alone, so a set another initializer built under the same `id` would map it onto
+    /// another tunable.
+    ///
+    /// # Panics
+    ///
+    /// When the settled tunable was identified by a value that is not a `T`
+    /// ([`TunableSet::identity`]).
     pub fn elected<I, Out, T>(
         &self,
         id: &ID,

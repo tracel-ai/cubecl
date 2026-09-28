@@ -124,14 +124,23 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
         &self.tunables[fastest_index].function
     }
 
-    /// The value the tunable at `index` was [identified](Tunable::identified) by, if it was
-    /// identified by a `T`.
+    /// The value the tunable at `index` was [identified](Tunable::identified) by, or `None` where
+    /// it was identified by nothing.
+    ///
+    /// # Panics
+    ///
+    /// When the tunable was identified by a value that is not a `T`: asking for another type is
+    /// the caller's mistake, which [`LocalTuner::init`](super::LocalTuner::init) treats the same.
     pub fn identity<T: 'static>(&self, index: usize) -> Option<&T> {
-        self.tunables
-            .get(index)?
-            .identity
-            .as_deref()?
-            .downcast_ref()
+        let tunable = self.tunables.get(index)?;
+        let identity = tunable.identity.as_deref()?;
+        Some(identity.downcast_ref().unwrap_or_else(|| {
+            panic!(
+                "the tunable `{}` was identified by a value that is not a `{}`",
+                tunable.function.name,
+                core::any::type_name::<T>()
+            )
+        }))
     }
 
     /// Compute a checksum that invalidates outdated cached auto-tune results when the
