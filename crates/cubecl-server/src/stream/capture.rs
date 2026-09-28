@@ -402,8 +402,7 @@ impl StreamCapture {
     /// Fails when no capture is recording, leaving the state untouched.
     pub fn end(&mut self, caller: StreamId) -> Result<CaptureEnd, ServerError> {
         let end = self.state.end(caller)?;
-        let (CaptureEnd::Owned { owner } | CaptureEnd::Abandoned { owner }) = end;
-        self.device.end(owner);
+        self.device.end(end.owner());
         Ok(end)
     }
 
@@ -951,42 +950,43 @@ mod tests {
     fn a_capture_is_seen_by_its_stream_until_it_ends() {
         const OTHER: StreamId = StreamId { value: 8 };
         let device = DeviceCaptures::default();
+        let status = device.status();
         let mut capture = StreamCapture::new(device.clone());
 
-        assert!(!device.is_capturing(OWNER), "no capture before prepare");
+        assert!(!status.is_capturing(OWNER), "no capture before prepare");
         capture.prepare(OWNER).unwrap();
-        assert!(device.is_capturing(OWNER), "the warmup run is part of it");
+        assert!(status.is_capturing(OWNER), "the warmup run is part of it");
         assert!(
-            !device.is_capturing(OTHER),
+            !status.is_capturing(OTHER),
             "another stream isn't capturing"
         );
         capture.begin().unwrap();
-        assert!(device.is_capturing(OWNER), "the recorded run is part of it");
+        assert!(status.is_capturing(OWNER), "the recorded run is part of it");
         capture.end(OWNER).unwrap();
-        assert!(!device.is_capturing(OWNER), "a sealed capture is over");
+        assert!(!status.is_capturing(OWNER), "a sealed capture is over");
 
         capture.prepare(OWNER).unwrap();
         capture.begin().unwrap();
         capture.end(OTHER).unwrap();
         assert!(
-            !device.is_capturing(OWNER),
+            !status.is_capturing(OWNER),
             "an abandoned capture is over for its owner too"
         );
 
         capture.prepare(OWNER).unwrap();
         capture.abort();
-        assert!(!device.is_capturing(OWNER), "an aborted capture is over");
+        assert!(!status.is_capturing(OWNER), "an aborted capture is over");
 
         let mut other = StreamCapture::new(device.clone());
         other.prepare(OTHER).unwrap();
         capture.prepare(OWNER).unwrap();
         drop(capture);
         assert!(
-            !device.is_capturing(OWNER),
+            !status.is_capturing(OWNER),
             "a dropped stream's capture is over"
         );
         assert!(
-            device.is_capturing(OTHER),
+            status.is_capturing(OTHER),
             "another stream's capture is untouched"
         );
     }

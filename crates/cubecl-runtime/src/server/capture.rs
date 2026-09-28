@@ -6,13 +6,20 @@ use cubecl_environment::sync::{Arc, AtomicUsize, Mutex, Ordering};
 /// one.
 ///
 /// Every stream of the device updates it as its capture moves from `graph_prepare` through
-/// `begin_capture` to `end_capture`, and every client of the device reads it, through the
-/// [server utilities](super::ServerUtilities), without reaching the device thread. Code that
-/// behaves differently while its stream captures a graph asks on every operation, eager ones
-/// included, so the answer has to cost no round trip: with no capture under way it is one atomic
-/// load.
+/// `begin_capture` to `end_capture`. The backend creates it and hands it to the streams it
+/// creates, and only them: everyone else reads it through its [status](Self::status), so the
+/// phases can't change without the streams' own state changing with them.
 #[derive(Debug, Clone, Default)]
 pub struct DeviceCaptures(Arc<CapturePhases>);
+
+/// A read-only view of a device's [captures](DeviceCaptures).
+///
+/// Every client of the device reads it, through the [server utilities](super::ServerUtilities),
+/// without reaching the device thread. Code that behaves differently while its stream captures a
+/// graph asks on every operation, eager ones included, so the answer has to cost no round trip:
+/// with no capture under way it is one atomic load.
+#[derive(Debug, Clone, Default)]
+pub struct CaptureStatus(Arc<CapturePhases>);
 
 /// Each capture's phase, and the counts read without the lock.
 #[derive(Debug, Default)]
@@ -34,22 +41,28 @@ enum CapturePhase {
     Recording,
 }
 
-impl DeviceCaptures {
+impl CaptureStatus {
     /// Whether `stream` is preparing or recording a graph capture, from `graph_prepare` until
     /// the capture ends however it ends.
     pub fn is_capturing(&self, stream: StreamId) -> bool {
-        self.0.active.load(Ordering::Acquire) > 0
-            && self
-                .0
-                .owners
-                .lock()
-                .iter()
-                .any(|(owner, _)| *owner == stream)
+        self.0.is_capturing(stream)
     }
 
     /// Whether any stream of the device records a graph.
     pub fn any_recording(&self) -> bool {
-        self.0.recording.load(Ordering::Acquire) > 0
+        self.0.any_recording()
+    }
+}
+
+impl DeviceCaptures {
+    /// The read-only view of these captures, for everyone but the streams.
+    pub fn status(&self) -> CaptureStatus {
+        CaptureStatus(self.0.clone())
+    }
+
+    /// Whether any stream of the device records a graph.
+    pub fn any_recording(&self) -> bool {
+        self.0.any_recording()
     }
 
     /// `owner` started the warmup run of a capture.
@@ -77,14 +90,29 @@ impl DeviceCaptures {
     /// Apply `change` to the phases and republish the counts from them, so the counts can't
     /// drift from the phases they summarize.
     fn update(&self, change: impl FnOnce(&mut Vec<(StreamId, CapturePhase)>)) {
-        let mut owners = self.0.owners.lock();
+        self.0.update(change);
+    }
+}
+
+impl CapturePhases {
+    fn is_capturing(&self, stream: StreamId) -> bool {
+        self.active.load(Ordering::Acquire) > 0
+            && self.owners.lock().iter().any(|(owner, _)| *owner == stream)
+    }
+
+    fn any_recording(&self) -> bool {
+        self.recording.load(Ordering::Acquire) > 0
+    }
+
+    fn update(&self, change: impl FnOnce(&mut Vec<(StreamId, CapturePhase)>)) {
+        let mut owners = self.owners.lock();
         change(&mut owners);
         let recording = owners
             .iter()
             .filter(|(_, phase)| *phase == CapturePhase::Recording)
             .count();
-        self.0.recording.store(recording, Ordering::Release);
-        self.0.active.store(owners.len(), Ordering::Release);
+        self.recording.store(recording, Ordering::Release);
+        self.active.store(owners.len(), Ordering::Release);
     }
 }
 
@@ -100,6 +128,7 @@ mod tests {
     #[test]
     fn unmatched_calls_leave_the_counts_true() {
         let captures = DeviceCaptures::default();
+        let status = captures.status();
 
         captures.end(OWNER);
         captures.begin(OWNER);
@@ -107,21 +136,21 @@ mod tests {
             !captures.any_recording(),
             "nothing prepared, nothing recording"
         );
-        assert!(!captures.is_capturing(OWNER));
+        assert!(!status.is_capturing(OWNER));
 
         captures.prepare(OWNER);
         captures.begin(OWNER);
         captures.end(OWNER);
         captures.end(OWNER);
         assert!(!captures.any_recording(), "a second end changes nothing");
-        assert!(!captures.is_capturing(OWNER));
+        assert!(!status.is_capturing(OWNER));
 
         captures.prepare(OWNER);
         captures.prepare(OTHER);
         captures.begin(OTHER);
         captures.end(OWNER);
         assert!(captures.any_recording(), "another capture still records");
-        assert!(captures.is_capturing(OTHER));
-        assert!(!captures.is_capturing(OWNER));
+        assert!(status.is_capturing(OTHER));
+        assert!(!status.is_capturing(OWNER));
     }
 }

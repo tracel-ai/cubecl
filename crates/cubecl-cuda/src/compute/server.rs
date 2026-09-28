@@ -4,7 +4,7 @@ use crate::compute::{
     Captures, Command, Window, context::CudaContext, events::Fence, stream::CudaStreamBackend,
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
-use cubecl_core::server::ServerStorage;
+use cubecl_core::server::{DeviceCaptures, ServerStorage};
 use cubecl_core::{
     MemoryConfiguration,
     device::DeviceId,
@@ -533,11 +533,14 @@ impl CudaServer {
         mem_config: MemoryConfiguration,
         mem_alignment: usize,
         device_id: DeviceId,
-        utilities: ServerUtilities,
+        mut utilities: ServerUtilities,
     ) -> Self {
         let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
         let stream_priority = config.streaming.priority;
+        // The streams update the captures; everyone else reads them through the utilities.
+        let captures = DeviceCaptures::default();
+        utilities.captures = captures.status();
 
         ctx.unsafe_set_current().unwrap();
 
@@ -553,7 +556,7 @@ impl CudaServer {
                     utilities.logger.clone(),
                     stream_priority,
                     config.memory.cuda.allocator,
-                    utilities.captures.clone(),
+                    captures,
                 ),
                 max_streams,
             ),

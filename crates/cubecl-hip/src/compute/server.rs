@@ -10,7 +10,7 @@ use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::{Captures, Window};
 use crate::compute::{Command, context::HipContext, stream::HipStreamBackend};
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
-use cubecl_core::server::ServerStorage;
+use cubecl_core::server::{DeviceCaptures, ServerStorage};
 use cubecl_core::{
     MemoryConfiguration,
     ir::MemoryDeviceProperties,
@@ -371,10 +371,13 @@ impl HipServer {
         mem_config: MemoryConfiguration,
         mem_alignment: usize,
         is_integrated: bool,
-        utilities: ServerUtilities,
+        mut utilities: ServerUtilities,
     ) -> Self {
         let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
+        // The streams update the captures; everyone else reads them through the utilities.
+        let captures = DeviceCaptures::default();
+        utilities.captures = captures.status();
 
         Self {
             ctx,
@@ -386,7 +389,7 @@ impl HipServer {
                     mem_alignment,
                     is_integrated,
                     utilities.logger.clone(),
-                    utilities.captures.clone(),
+                    captures,
                 ),
                 max_streams,
             ),
