@@ -126,14 +126,6 @@ impl VectorRegisters {
     }
 }
 
-fn prev_power_of_two(value: usize) -> usize {
-    1 << value.ilog2()
-}
-
-fn vector_sizes_down_from(widest: usize) -> impl Iterator<Item = VectorSize> + Clone {
-    (0..=widest.ilog2()).rev().map(|exponent| 1 << exponent)
-}
-
 /// Properties of the device related to allocation.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
@@ -437,15 +429,12 @@ impl DeviceProperties {
         self.io_width_override.unwrap_or(self.hardware.load_width)
     }
 
-    /// The widest vector size of `elem_size`-byte elements that reads and writes are sized to,
-    /// which is a power of two and at least one.
-    pub fn max_io_vector_size(&self, elem_size: usize) -> VectorSize {
-        self.hardware.vector_size_in(self.io_width(), elem_size)
-    }
-
     /// Vector sizes, widest first, that reads and writes of `elem_size`-byte elements are sized to.
-    pub fn io_vector_sizes(&self, elem_size: usize) -> impl Iterator<Item = VectorSize> + Clone {
-        vector_sizes_down_from(self.max_io_vector_size(elem_size))
+    pub fn io_optimized_vector_sizes(
+        &self,
+        elem_size: usize,
+    ) -> impl Iterator<Item = VectorSize> + Clone {
+        vector_sizes_down_from(self.widest_io_vector_size(elem_size))
     }
 
     /// Vector sizes, widest first, at which `live` vectors of `elem_size`-byte elements all stay
@@ -457,16 +446,10 @@ impl DeviceProperties {
     ) -> impl Iterator<Item = VectorSize> + Clone {
         let widest = match VectorRegisters::new(&self.hardware, elem_size) {
             Some(registers) => registers.widest_vector_size(live),
-            None => self.max_io_vector_size(elem_size),
+            None => self.widest_io_vector_size(elem_size),
         };
 
         vector_sizes_down_from(widest)
-    }
-
-    /// States the width IO is sized to, for a backend that measured one wider than a load.
-    pub fn with_io_width(mut self, io_width: u32) -> Self {
-        self.io_width_override = Some(io_width);
-        self
     }
 
     /// Get the usages for a type
@@ -546,6 +529,11 @@ impl DeviceProperties {
         self.hardware.hash(&mut hasher);
         hasher.finish()
     }
+
+    /// A power of two, and at least one.
+    fn widest_io_vector_size(&self, elem_size: usize) -> VectorSize {
+        self.hardware.vector_size_in(self.io_width(), elem_size)
+    }
 }
 
 /// Unchecked optimizations for float operations. May cause precision differences, or undefined
@@ -580,39 +568,18 @@ impl FastMath {
     }
 }
 
+fn prev_power_of_two(value: usize) -> usize {
+    1 << value.ilog2()
+}
+
+fn vector_sizes_down_from(widest: usize) -> impl Iterator<Item = VectorSize> + Clone {
+    (0..=widest.ilog2()).rev().map(|exponent| 1 << exponent)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use alloc::string::ToString;
-
-    fn hardware(load_width: u32, vector_register_count: Option<u32>) -> HardwareProperties {
-        HardwareProperties {
-            load_width,
-            vector_register_count,
-            plane_size_min: 1,
-            plane_size_max: 1,
-            max_bindings: u32::MAX,
-            max_shared_memory_size: 32 * 1024,
-            max_cube_count: (u32::MAX, u32::MAX, u32::MAX),
-            max_units_per_cube: 16,
-            max_cube_dim: (16, 16, 16),
-            num_streaming_multiprocessors: None,
-            num_cpu_cores: Some(16),
-            last_level_cache_size: None,
-            num_tensor_cores: None,
-            min_tensor_cores_dim: None,
-            max_vector_size: VectorSize::MAX,
-            cube_mma_reserved_shared_memory: 0,
-        }
-    }
-
-    const AVX2: (u32, Option<u32>) = (256, Some(16));
-    const AVX512: (u32, Option<u32>) = (512, Some(32));
-    const NEON: (u32, Option<u32>) = (128, Some(32));
-
-    fn registers((width, count): (u32, Option<u32>), elem_size: usize) -> VectorRegisters {
-        VectorRegisters::new(&hardware(width, count), elem_size).unwrap()
-    }
 
     #[test]
     fn a_device_without_a_fixed_register_set_has_no_budget() {
@@ -660,29 +627,20 @@ mod tests {
         assert_eq!(f32.widest_vector_size(1), 4);
     }
 
-    fn device(load_width: u32) -> DeviceProperties {
-        DeviceProperties::new(
-            Features::default(),
-            MemoryDeviceProperties::new(1024, 32),
-            hardware(load_width, None),
-            TimingMethod::System,
-            DeviceIdentity::default(),
-        )
-    }
-
     #[test]
     fn io_follows_a_load_width_raised_after_construction() {
         let mut device = device(128);
         device.hardware.load_width = 256;
-        assert_eq!(device.max_io_vector_size(4), 8);
+        assert_eq!(device.widest_io_vector_size(4), 8);
     }
 
     #[test]
     fn a_stated_io_width_outlasts_a_load_width_change() {
-        let mut device = device(256).with_io_width(512);
-        assert_eq!(device.max_io_vector_size(4), 16);
+        let mut device = device(256);
+        device.io_width_override = Some(512);
+        assert_eq!(device.widest_io_vector_size(4), 16);
         device.hardware.load_width = 128;
-        assert_eq!(device.max_io_vector_size(4), 16);
+        assert_eq!(device.widest_io_vector_size(4), 16);
     }
 
     #[test]
@@ -692,7 +650,9 @@ mod tests {
         device.hardware.vector_register_count = Some(32);
 
         assert_eq!(
-            device.io_vector_sizes(4).collect::<alloc::vec::Vec<_>>(),
+            device
+                .io_optimized_vector_sizes(4)
+                .collect::<alloc::vec::Vec<_>>(),
             alloc::vec![8, 4, 2, 1]
         );
         assert_eq!(device.vector_sizes_in_registers(4, 1).next(), Some(8));
@@ -704,7 +664,7 @@ mod tests {
         assert!(
             device
                 .vector_sizes_in_registers(4, 6)
-                .eq(device.io_vector_sizes(4))
+                .eq(device.io_optimized_vector_sizes(4))
         );
     }
 
@@ -832,5 +792,44 @@ mod tests {
         );
         assert!("07:00".parse::<PciAddress>().is_err());
         assert!("gpu".parse::<PciAddress>().is_err());
+    }
+
+    fn hardware(load_width: u32, vector_register_count: Option<u32>) -> HardwareProperties {
+        HardwareProperties {
+            load_width,
+            vector_register_count,
+            plane_size_min: 1,
+            plane_size_max: 1,
+            max_bindings: u32::MAX,
+            max_shared_memory_size: 32 * 1024,
+            max_cube_count: (u32::MAX, u32::MAX, u32::MAX),
+            max_units_per_cube: 16,
+            max_cube_dim: (16, 16, 16),
+            num_streaming_multiprocessors: None,
+            num_cpu_cores: Some(16),
+            last_level_cache_size: None,
+            num_tensor_cores: None,
+            min_tensor_cores_dim: None,
+            max_vector_size: VectorSize::MAX,
+            cube_mma_reserved_shared_memory: 0,
+        }
+    }
+
+    const AVX2: (u32, Option<u32>) = (256, Some(16));
+    const AVX512: (u32, Option<u32>) = (512, Some(32));
+    const NEON: (u32, Option<u32>) = (128, Some(32));
+
+    fn registers((width, count): (u32, Option<u32>), elem_size: usize) -> VectorRegisters {
+        VectorRegisters::new(&hardware(width, count), elem_size).unwrap()
+    }
+
+    fn device(load_width: u32) -> DeviceProperties {
+        DeviceProperties::new(
+            Features::default(),
+            MemoryDeviceProperties::new(1024, 32),
+            hardware(load_width, None),
+            TimingMethod::System,
+            DeviceIdentity::default(),
+        )
     }
 }

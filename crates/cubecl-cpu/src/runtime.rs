@@ -233,9 +233,9 @@ impl DeviceService for CpuServer {
                 ),
                 physical: None,
             },
-        )
+        );
         // Past one register, a wider vector still amortizes each IO iteration's index math.
-        .with_io_width(512);
+        device_props.io_width_override = Some(512);
         register_supported_types(&mut device_props);
 
         let utilities = ServerUtilities::new(

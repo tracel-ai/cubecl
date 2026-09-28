@@ -1742,7 +1742,7 @@ impl Client {
         &self,
         size: usize,
     ) -> impl Iterator<Item = VectorSize> + Clone {
-        self.properties().io_vector_sizes(size)
+        self.properties().io_optimized_vector_sizes(size)
     }
 
     /// Calculates the maximum throughput of the device given the given config (like tensor core with certain sizes and dtypes, or just arithmetic by dtype)
