@@ -31,8 +31,7 @@ pub struct HardwareProperties {
     /// The widest single load instruction, in bits.
     pub load_width: u32,
     /// How many `load_width`-bit vector registers a kernel may keep live, or `None` where the
-    /// runtime states no budget: a GPU trades its per-thread budget against occupancy, and a CPU
-    /// of an architecture the runtime does not model goes unread.
+    /// runtime states no budget, as a GPU does.
     pub vector_register_count: Option<u32>,
     /// The minimum size of a plane on this device
     pub plane_size_min: u32,
@@ -72,9 +71,6 @@ pub struct HardwareProperties {
 }
 
 /// A device's vector registers, counted in elements of one type.
-///
-/// A vector wider than one register is spread over several, and pays nothing for it until the
-/// registers a loop keeps live outnumber the device's: past that, every use is a load and a store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VectorRegisters {
     count: usize,
@@ -83,8 +79,7 @@ pub struct VectorRegisters {
 }
 
 impl VectorRegisters {
-    /// The registers of `hardware` as vectors of `elem_size`-byte elements see them, or `None`
-    /// where it states no register count.
+    /// The registers as `elem_size`-byte elements see them, or `None` without a register count.
     pub fn new(hardware: &HardwareProperties, elem_size: usize) -> Option<Self> {
         Some(VectorRegisters {
             count: hardware.vector_register_count? as usize,
@@ -102,16 +97,13 @@ impl VectorRegisters {
         vector_size.div_ceil(self.register_vector_size).max(1)
     }
 
-    /// The widest vector size, a power of two, at which `live` vectors all stay in registers.
-    ///
-    /// Never narrower than one register: past the budget a spill is unavoidable anyway.
+    /// The widest power-of-two size at which `live` vectors stay in registers, at least one.
     pub fn widest_vector_size(&self, live: usize) -> VectorSize {
         let registers = prev_power_of_two((self.count / live.max(1)).max(1));
         (registers * self.register_vector_size).min(self.max_vector_size)
     }
 
-    /// How many vectors of `vector_size` elements fit beside `reserved` registers held for other
-    /// values.
+    /// How many vectors of `vector_size` elements fit beside `reserved` registers.
     pub fn vectors_fitting(&self, vector_size: VectorSize, reserved: usize) -> usize {
         self.count.saturating_sub(reserved) / self.registers_for(vector_size)
     }
@@ -380,8 +372,7 @@ pub struct DeviceProperties {
     pub timing_method: TimingMethod,
     /// Who the device is, and what its kernels are keyed to.
     pub identity: DeviceIdentity,
-    /// The width IO is sized to, in bits, where a backend measured that several loads move data
-    /// faster than one. `None` sizes IO to the load width.
+    /// Bits IO is sized to in place of the load width, where a backend measured wider as faster.
     pub io_width_override: Option<u32>,
 }
 
@@ -428,8 +419,7 @@ impl DeviceProperties {
         vector_sizes_down_from(self.widest_io_vector_size(elem_size))
     }
 
-    /// Vector sizes, widest first, at which `live` vectors of `elem_size`-byte elements all stay
-    /// in registers, or the IO vector sizes where the device budgets no registers.
+    /// Vector sizes, widest first, that keep `live` vectors in registers, else the IO sizes.
     pub fn vector_sizes_in_registers(
         &self,
         elem_size: usize,
@@ -560,8 +550,7 @@ impl FastMath {
 }
 
 impl HardwareProperties {
-    /// The vector size of `elem_size`-byte elements in `width` bits, as a power of two the device
-    /// accepts.
+    /// `width` bits of `elem_size`-byte elements, as a power of two the device accepts.
     fn vector_size_in(&self, width: u32, elem_size: usize) -> VectorSize {
         let elems = width as usize / (elem_size * 8);
         prev_power_of_two(elems.min(self.max_vector_size).max(1))
