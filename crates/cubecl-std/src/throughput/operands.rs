@@ -22,9 +22,7 @@ impl Arithmetic {
         dtypes
     }
 
-    /// The probe issues no loads, so it sweeps down from the widest vector whose live values all
-    /// fit in registers. That counts `dtype`'s own size, so arithmetic that widens, such as f16
-    /// through f32 or an 8-bit multiply, spills at the top and a narrower width wins.
+    /// The probe issues no loads, so it sweeps down from the widest vector kept in registers.
     pub(super) fn widths(client: &Client, dtype: ElemType) -> alloc::vec::Vec<usize> {
         client
             .properties()

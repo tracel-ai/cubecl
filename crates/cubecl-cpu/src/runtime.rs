@@ -111,15 +111,12 @@ fn host_cpu_name(system: &System) -> String {
         .map_or_else(|| format!("CPU {}", std::env::consts::ARCH), String::from)
 }
 
-/// The vector registers the JIT lowers kernel arithmetic to.
 struct HostVectorRegisters {
     width: u32,
     count: Option<u32>,
 }
 
 /// Read at runtime, not from `cfg(target_feature)`: the JIT compiles for the CPU it runs on.
-/// An AVX-512 CPU tuned to prefer 256-bit vectors still lowers a 512-bit one to a single zmm
-/// register, because kernels carry no `min-legal-vector-width`.
 #[cfg(target_arch = "x86_64")]
 fn host_vector_registers() -> HostVectorRegisters {
     let (width, count) = if std::arch::is_x86_feature_detected!("avx512f") {
