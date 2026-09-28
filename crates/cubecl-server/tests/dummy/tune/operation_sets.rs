@@ -56,10 +56,12 @@ impl core::fmt::Display for Addition {
     }
 }
 
-/// [`addition_set`] with each tunable identified by an [`Addition`].
+/// [`addition_set`] with each tunable identified by an [`Addition`]. `slow_runs` counts the runs
+/// of the slow, wrong tunable: a round runs it, and an `execute` of the settled winner does not.
 pub fn identified_addition_set(
     client: DummyClient,
     shapes: Vec<Vec<usize>>,
+    slow_runs: Arc<AtomicUsize>,
 ) -> TunableSet<String, Vec<Handle>, (), Addition> {
     let op_add =
         OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
@@ -75,6 +77,7 @@ pub fn identified_addition_set(
         op_add.run(inputs)
     }))
     .with(Tunable::identified(Addition::SlowAndWrong, move |inputs| {
+        slow_runs.fetch_add(1, Ordering::Relaxed);
         op_add_slow.run(inputs)
     }))
 }

@@ -108,35 +108,39 @@ where
         content
     }
 
-    /// What the tunable `operations` settled on for `key` on `id` was
-    /// [identified](super::Tunable::identified) by: `None` until a result for the key is settled
-    /// — tuned by a round in this process, or read back from disk and validated by an
-    /// [`execute`](Self::execute) — or when the settled tunable was built by
-    /// [`Tunable::new`](super::Tunable::new), identified by nothing.
+    /// What the fastest tunable for `key` on `id` was [identified](super::Tunable::identified)
+    /// by, in the set an initializer of `F`'s type builds.
+    ///
+    /// `None` until a result for the key is settled — tuned by a round in this process, or read
+    /// back from disk and validated by an [`execute`](Self::execute); when the fastest tunable was
+    /// built by [`Tunable::new`](super::Tunable::new) and so is identified by nothing; and when
+    /// no initializer of `F`'s type built a set for `id`, since then none executed.
+    ///
+    /// The set is found the way [`init`](Self::init) finds it, by the initializer's type and
+    /// `id`, and only that type is read off `_init_set`: a result is an index into the set that
+    /// settled it, so it is never read against another.
     ///
     /// It reads results and never produces one: it never starts a round, never waits on one in
-    /// flight, and never validates a persisted result itself. Like `execute`'s own lookup, it
-    /// resets the tuner's cache when the environment has switched.
-    ///
-    /// `operations` must be the set `id` executes, as [`init`](Self::init) returns it for the
-    /// initializer `execute` is handed: a result is an index into that set, and results are kept
-    /// per `id` alone, so a set another initializer built under the same `id` would map it onto
-    /// another tunable.
-    pub fn elected<I, Out, Id>(
-        &self,
-        id: &ID,
-        operations: &TunableSet<AK, I, Out, Id>,
-        key: &AK,
-    ) -> Option<Id>
+    /// flight, never validates a persisted result, and never resets the tuner's cache after an
+    /// environment switch — it reports nothing settled there until the next `execute`.
+    pub fn fastest_identity<I, Out, Id, F>(&self, id: &ID, _init_set: &F, key: &AK) -> Option<Id>
     where
+        F: Fn() -> TunableSet<AK, I, Out, Id> + 'static,
         I: TuneInputs,
-        Id: Clone,
+        Out: 'static,
+        Id: Clone + Send + Sync + 'static,
     {
+        let set = self
+            .sets
+            .read()
+            .as_ref()?
+            .get(&(TypeId::of::<F>(), id.clone()))?
+            .clone()
+            .downcast::<TunableSet<AK, I, Out, Id>>()
+            .expect("an initializer builds one type of set");
         let tuner = self.state.lock().as_ref()?.get(id)?.clone();
-        match tuner.fastest(key) {
-            TuneCacheResult::Hit { fastest_index } => operations.identity(fastest_index).cloned(),
-            TuneCacheResult::Unchecked | TuneCacheResult::Pending | TuneCacheResult::Miss => None,
-        }
+        let fastest_index = tuner.settled(key)?;
+        set.identity(fastest_index).cloned()
     }
 
     /// Clear the autotune state.

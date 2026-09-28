@@ -57,7 +57,7 @@ impl<K, F: TuneInputs, Output: 'static, Id> Tunable<K, F, Output, Id> {
     }
 
     /// A tunable identified by `identity`, and named by it: the value
-    /// [`LocalTuner::elected`](super::LocalTuner::elected) hands back once the tunable wins a key.
+    /// [`LocalTuner::fastest_identity`](super::LocalTuner::fastest_identity) hands back once the tunable is the fastest for a key.
     ///
     /// For a caller that builds something else from the winner — a variant of the same kernel,
     /// say — and so needs to know *which* candidate won rather than only to run it again. The

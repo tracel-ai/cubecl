@@ -258,6 +258,21 @@ impl<K: AutotuneKey> TuneCache<K> {
         self.fastest(key)
     }
 
+    /// The index settled for `key`, reading only: `None` for anything but a verified result, and
+    /// for every key once the environment has switched away from the one this cache was built
+    /// under — the reset that switch owes is left to the next lookup that tunes.
+    pub(crate) fn settled(&self, key: &K) -> Option<usize> {
+        #[cfg(persistence)]
+        if self.environment_switched() {
+            return None;
+        }
+
+        match self.fastest(key) {
+            TuneCacheResult::Hit { fastest_index } => Some(fastest_index),
+            TuneCacheResult::Unchecked | TuneCacheResult::Pending | TuneCacheResult::Miss => None,
+        }
+    }
+
     /// Mark a key as being tuned. Used by [`Tuner::check_tune`] under the cache mutex so that
     /// concurrent callers see [`TuneCacheResult::Pending`] instead of starting a second job
     /// for the same key.
@@ -286,21 +301,22 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// still records a hardware-valid result, so the whole cost of the race
     /// is one duplicate tune per switch.
     pub(crate) fn reset_if_environment_switched(&mut self) {
-        // Persistence disabled means the tuning state is process-local and
-        // unbound, like a store without a storage: it survives switches.
-        if self.persistent_cache.is_none() {
-            return;
-        }
-
-        let generation = cubecl_environment::environment::generation();
-        if generation == self.generation {
+        if !self.environment_switched() {
             return;
         }
 
         log::debug!("Environment switched, resetting the autotune cache");
-        self.generation = generation;
+        self.generation = cubecl_environment::environment::generation();
         self.in_memory_cache.clear();
         self.hydrated = false;
+    }
+
+    /// Whether the environment switched since this cache was built. Never with persistence
+    /// disabled: the tuning state is then process-local and unbound, like a store without a
+    /// storage, and survives switches.
+    fn environment_switched(&self) -> bool {
+        self.persistent_cache.is_some()
+            && cubecl_environment::environment::generation() != self.generation
     }
 
     /// Ingest everything the persistent store holds into the in-memory cache,

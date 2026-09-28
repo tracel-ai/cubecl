@@ -16,6 +16,8 @@ use cubecl_server::{
     tune::{LocalTuner, TunableSet},
 };
 use dummy::*;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[test_log::test]
 fn created_resource_is_the_same_when_read() {
@@ -354,6 +356,158 @@ fn autotune_basic_multiplication_execution() {
     assert_eq!(obtained_resource, Vec::from([0, 4, 8]));
 }
 
+/// A key no round has settled has no fastest identity, on a tuner that has settled another.
+#[test_log::test]
+#[cfg(feature = "std")]
+#[serial_test::serial]
+fn a_key_no_round_settled_has_no_fastest_identity() {
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("a_key_no_round_settled_has_no_fastest_identity");
+
+    let client = test_client(&DummyDevice);
+    let id = "test".to_string();
+    let init = identified_addition_initializer(Default::default());
+    let set = TUNER.init(&id, init.clone());
+    let (handles, _) = addition_inputs(&client, &set);
+    TUNER.execute(&id, &client, set, handles);
+
+    let untuned = "a key no round has seen".to_string();
+    assert_eq!(TUNER.fastest_identity(&id, &init, &untuned), None);
+}
+
+/// The fastest tunable hands back what it was identified by. The environment is rooted afresh,
+/// so the answer is this round's and no earlier run's.
+#[test_log::test]
+#[cfg(feature = "std")]
+#[serial_test::serial]
+fn the_fastest_tunable_hands_back_its_identity() {
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("the_fastest_tunable_hands_back_its_identity");
+    #[cfg(persistence)]
+    let root = tempfile::tempdir().unwrap();
+    #[cfg(persistence)]
+    rooted_at(root.path());
+
+    let client = test_client(&DummyDevice);
+    let id = "test".to_string();
+    let init = identified_addition_initializer(Default::default());
+    let set = TUNER.init(&id, init.clone());
+    let (handles, key) = addition_inputs(&client, &set);
+    TUNER.execute(&id, &client, set, handles);
+
+    assert_eq!(
+        TUNER.fastest_identity(&id, &init, &key),
+        Some(dummy::Addition::Correct)
+    );
+}
+
+/// A result is read against the set that settled it: an initializer of another type built no set
+/// on this tuner, so it finds no fastest identity, though the key is settled.
+#[test_log::test]
+#[cfg(feature = "std")]
+#[serial_test::serial]
+fn another_initializer_finds_no_fastest_identity() {
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("another_initializer_finds_no_fastest_identity");
+
+    let client = test_client(&DummyDevice);
+    let id = "test".to_string();
+    let set = TUNER.init(&id, identified_addition_initializer(Default::default()));
+    let (handles, key) = addition_inputs(&client, &set);
+    TUNER.execute(&id, &client, set, handles);
+
+    let another = || {
+        dummy::identified_addition_set(
+            test_client(&DummyDevice),
+            addition_shapes(),
+            Default::default(),
+        )
+    };
+    assert_eq!(TUNER.fastest_identity(&id, &another, &key), None);
+}
+
+/// A fastest tunable identified by nothing has no fastest identity, though its key is settled.
+#[test_log::test]
+#[cfg(feature = "std")]
+#[serial_test::serial]
+fn a_fastest_tunable_identified_by_nothing_has_no_fastest_identity() {
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("a_fastest_tunable_identified_by_nothing_has_no_fastest_identity");
+
+    let client = test_client(&DummyDevice);
+    let id = "test".to_string();
+    let init = || dummy::addition_set(test_client(&DummyDevice), addition_shapes());
+    let set = TUNER.init(&id, init);
+    let (handles, key) = addition_inputs(&client, &set);
+    TUNER.execute(&id, &client, set, handles);
+
+    assert_eq!(TUNER.fastest_identity(&id, &init, &key), None);
+}
+
+/// A result belongs to the environment it was tuned under, and one only on disk has no fastest
+/// identity until an `execute` validates it: after a switch away the result is unreachable, and
+/// after the switch back it is found again once an `execute` has read it back — with no second
+/// round, since the slow tunable runs in the first round alone.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn a_result_only_on_disk_has_a_fastest_identity_once_an_execute_validates_it() {
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("a_result_only_on_disk_has_a_fastest_identity_once_an_execute_validates_it");
+    let (first, second) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    rooted_at(first.path());
+
+    let client = test_client(&DummyDevice);
+    let id = "test".to_string();
+    let slow_runs = Arc::new(AtomicUsize::new(0));
+    let init = identified_addition_initializer(slow_runs.clone());
+    let set = TUNER.init(&id, init.clone());
+    let (handles, key) = addition_inputs(&client, &set);
+    TUNER.execute(&id, &client, set.clone(), handles.clone());
+    let fastest_identity = || TUNER.fastest_identity(&id, &init, &key);
+    assert_eq!(fastest_identity(), Some(dummy::Addition::Correct));
+    let first_round = slow_runs.load(Ordering::Relaxed);
+    assert!(first_round > 0, "the first execute holds a round");
+
+    cubecl_environment::environment::set_root(second.path());
+    assert_eq!(
+        fastest_identity(),
+        None,
+        "a result tuned under another environment"
+    );
+
+    cubecl_environment::environment::set_root(first.path());
+    assert_eq!(
+        fastest_identity(),
+        None,
+        "a result only on disk, not yet validated"
+    );
+    TUNER.execute(&id, &client, set, handles);
+    assert_eq!(fastest_identity(), Some(dummy::Addition::Correct));
+    // `autotune-checks` runs every tunable on every `execute`, round or not.
+    #[cfg(not(feature = "autotune-checks"))]
+    assert_eq!(
+        slow_runs.load(Ordering::Relaxed),
+        first_round,
+        "the persisted result is validated, not tuned again"
+    );
+}
+
+/// The initializer of an [identified addition set](dummy::identified_addition_set): one value,
+/// cloned into `init`, so the set a test looks up is found by the same initializer type.
+fn identified_addition_initializer(
+    slow_runs: Arc<AtomicUsize>,
+) -> impl Fn() -> TunableSet<String, Vec<Handle>, (), dummy::Addition> + Clone + Send + Sync + 'static
+{
+    move || {
+        dummy::identified_addition_set(
+            test_client(&DummyDevice),
+            addition_shapes(),
+            slow_runs.clone(),
+        )
+    }
+}
+
 /// The handles an addition runs on, and the key its set generates for them.
 fn addition_inputs<Id>(
     client: &DummyClient,
@@ -371,103 +525,6 @@ fn addition_inputs<Id>(
 /// The shapes every addition set here is built for.
 fn addition_shapes() -> Vec<Vec<usize>> {
     vec![vec![1, 3], vec![1, 3], vec![1, 3]]
-}
-
-/// A key no round has settled elects nothing, on a tuner that has settled another.
-#[test_log::test]
-#[cfg(feature = "std")]
-#[serial_test::serial]
-fn nothing_is_elected_for_a_key_no_round_settled() {
-    static TUNER: LocalTuner<String, String> =
-        local_tuner!("nothing_is_elected_for_a_key_no_round_settled");
-
-    let client = test_client(&DummyDevice);
-    let id = "test".to_string();
-    let set = TUNER.init(&id, || {
-        dummy::identified_addition_set(test_client(&DummyDevice), addition_shapes())
-    });
-    let (handles, _) = addition_inputs(&client, &set);
-    TUNER.execute(&id, &client, set.clone(), handles);
-
-    let untuned = "a key no round has seen".to_string();
-    assert_eq!(TUNER.elected(&id, &set, &untuned), None);
-}
-
-/// The tunable a round elects hands back what it was identified by. The environment is rooted
-/// afresh, so the answer is this round's and no earlier run's.
-#[test_log::test]
-#[cfg(feature = "std")]
-#[serial_test::serial]
-fn the_elected_tunable_hands_back_its_identity() {
-    static TUNER: LocalTuner<String, String> =
-        local_tuner!("the_elected_tunable_hands_back_its_identity");
-    #[cfg(persistence)]
-    let root = tempfile::tempdir().unwrap();
-    #[cfg(persistence)]
-    rooted_at(root.path());
-
-    let client = test_client(&DummyDevice);
-    let id = "test".to_string();
-    let set = TUNER.init(&id, || {
-        dummy::identified_addition_set(test_client(&DummyDevice), addition_shapes())
-    });
-    let (handles, key) = addition_inputs(&client, &set);
-    TUNER.execute(&id, &client, set.clone(), handles);
-
-    assert_eq!(
-        TUNER.elected(&id, &set, &key),
-        Some(dummy::Addition::Correct)
-    );
-}
-
-/// A winner identified by nothing elects nothing, though its key is settled.
-#[test_log::test]
-#[cfg(feature = "std")]
-#[serial_test::serial]
-fn a_winner_identified_by_nothing_elects_nothing() {
-    static TUNER: LocalTuner<String, String> =
-        local_tuner!("a_winner_identified_by_nothing_elects_nothing");
-
-    let client = test_client(&DummyDevice);
-    let id = "test".to_string();
-    let set = TUNER.init(&id, || {
-        dummy::addition_set(test_client(&DummyDevice), addition_shapes())
-    });
-    let (handles, key) = addition_inputs(&client, &set);
-    TUNER.execute(&id, &client, set.clone(), handles);
-
-    assert_eq!(TUNER.elected(&id, &set, &key), None);
-}
-
-/// A result belongs to the environment it was tuned under, and one only on disk is not elected
-/// until an `execute` validates it: after a switch away the result is unreachable, and after the
-/// switch back it is elected again only once an `execute` has read it back, with no second round.
-#[test_log::test]
-#[cfg(all(feature = "std", persistence))]
-#[serial_test::serial]
-fn a_result_only_on_disk_is_elected_once_an_execute_validates_it() {
-    static TUNER: LocalTuner<String, String> =
-        local_tuner!("a_result_only_on_disk_is_elected_once_an_execute_validates_it");
-    let (first, second) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    rooted_at(first.path());
-
-    let client = test_client(&DummyDevice);
-    let id = "test".to_string();
-    let set = TUNER.init(&id, || {
-        dummy::identified_addition_set(test_client(&DummyDevice), addition_shapes())
-    });
-    let (handles, key) = addition_inputs(&client, &set);
-    TUNER.execute(&id, &client, set.clone(), handles.clone());
-    let elected = || TUNER.elected(&id, &set, &key);
-    assert_eq!(elected(), Some(dummy::Addition::Correct));
-
-    cubecl_environment::environment::set_root(second.path());
-    assert_eq!(elected(), None, "a result tuned under another environment");
-
-    cubecl_environment::environment::set_root(first.path());
-    assert_eq!(elected(), None, "a result only on disk, not yet validated");
-    TUNER.execute(&id, &client, set.clone(), handles);
-    assert_eq!(elected(), Some(dummy::Addition::Correct));
 }
 
 /// A tuned pick belongs to the environment it was tuned under: switching
