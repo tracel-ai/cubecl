@@ -1,4 +1,4 @@
-use cubecl_core::ir::{ElemType, FloatKind, VectorRegisters};
+use cubecl_core::ir::{ElemType, FloatKind};
 use cubecl_runtime::{client::Client, throughput::ComputeCmmaConfig};
 
 use crate::throughput::compute_direct;
@@ -22,21 +22,14 @@ impl Arithmetic {
         dtypes
     }
 
-    /// The probe issues no loads, so where the device counts its registers it is swept up to
-    /// the widest lanes its live accumulators all fit at, past one register if they fit.
+    /// The probe issues no loads, so where the device counts registers the sweep starts at the
+    /// widest lanes its live vectors fit at in `dtype`'s bytes. Arithmetic that widens, such as
+    /// f16 through f32 or an 8-bit multiply, spills there and a narrower width wins.
     pub(super) fn widths(client: &Client, dtype: ElemType) -> alloc::vec::Vec<usize> {
-        let widths: alloc::vec::Vec<usize> = VectorRegisters::vector_sizes(
-            client.properties(),
-            dtype.size(),
-            compute_direct::LIVE_VECTORS,
-        )
-        .collect();
-
-        if widths.is_empty() {
-            alloc::vec![1]
-        } else {
-            widths
-        }
+        client
+            .properties()
+            .vector_sizes_in_registers(dtype.size(), compute_direct::LIVE_VECTORS)
+            .collect()
     }
 
     /// What a kernel with `dtype` operands accumulates in when the device has no

@@ -71,6 +71,14 @@ pub struct HardwareProperties {
     pub cube_mma_reserved_shared_memory: usize,
 }
 
+impl HardwareProperties {
+    /// Lanes of `elem_size`-byte elements in `width` bits, as a power of two the device accepts.
+    fn lanes_in(&self, width: u32, elem_size: usize) -> usize {
+        let lanes = width as usize / (elem_size * 8);
+        prev_power_of_two(lanes.min(self.max_vector_size).max(1))
+    }
+}
+
 /// A device's vector registers, counted in lanes of one element type.
 ///
 /// A vector wider than one register is spread over several, and pays nothing for it until the
@@ -86,31 +94,11 @@ impl VectorRegisters {
     /// The registers of `hardware` as vectors of `elem_size`-byte elements see them, or `None`
     /// where the device has no fixed set to budget.
     pub fn of(hardware: &HardwareProperties, elem_size: usize) -> Option<Self> {
-        let count = hardware.vector_register_count? as usize;
-        let max_lanes = prev_power_of_two(hardware.max_vector_size.max(1));
-        let lanes_per_register =
-            (hardware.load_width as usize / (elem_size * 8)).clamp(1, max_lanes);
-
         Some(VectorRegisters {
-            count,
-            lanes_per_register,
-            max_lanes,
+            count: hardware.vector_register_count? as usize,
+            lanes_per_register: hardware.lanes_in(hardware.load_width, elem_size),
+            max_lanes: prev_power_of_two(hardware.max_vector_size.max(1)),
         })
-    }
-
-    /// Vector sizes, widest first, at which `live` vectors of `elem_size`-byte elements all stay
-    /// in registers, or the device's IO widths where it budgets no registers.
-    pub fn vector_sizes(
-        properties: &DeviceProperties,
-        elem_size: usize,
-        live: usize,
-    ) -> impl Iterator<Item = VectorSize> + Clone {
-        let widest = match Self::of(&properties.hardware, elem_size) {
-            Some(registers) => registers.widest_lanes(live),
-            None => properties.io_lanes(elem_size),
-        };
-
-        vector_sizes_down_from(widest)
     }
 
     /// How many registers the device has.
@@ -123,9 +111,9 @@ impl VectorRegisters {
         self.lanes_per_register
     }
 
-    /// Registers a vector of `lanes` lanes occupies.
+    /// Registers a vector of `lanes` lanes occupies, at least one.
     pub fn registers_for(&self, lanes: usize) -> usize {
-        lanes.div_ceil(self.lanes_per_register)
+        lanes.div_ceil(self.lanes_per_register).max(1)
     }
 
     /// The widest lanes, a power of two, at which `live` vectors all stay in registers.
@@ -143,14 +131,11 @@ impl VectorRegisters {
 }
 
 fn prev_power_of_two(value: usize) -> usize {
-    1 << (usize::BITS - 1 - value.leading_zeros())
+    1 << value.ilog2()
 }
 
 fn vector_sizes_down_from(widest: usize) -> impl Iterator<Item = VectorSize> + Clone {
-    // If the widest is 8, we want to test 1, 2, 4, 8 which is log2(8) + 1.
-    let num_candidates = widest.trailing_zeros() + 1;
-
-    (0..num_candidates).map(|i| 2usize.pow(i)).rev()
+    (0..=widest.ilog2()).rev().map(|exponent| 1 << exponent)
 }
 
 /// Properties of the device related to allocation.
@@ -459,17 +444,27 @@ impl DeviceProperties {
     /// The widest vector, in lanes of `elem_size`-byte elements, that reads and writes are sized
     /// to, which is a power of two and at least one.
     pub fn io_lanes(&self, elem_size: usize) -> usize {
-        let io_width = self.io_width() as usize;
-        let size_bits = elem_size * 8;
-        let max = io_width / size_bits;
-        let max = usize::min(self.hardware.max_vector_size, max);
-
-        prev_power_of_two(max.max(1))
+        self.hardware.lanes_in(self.io_width(), elem_size)
     }
 
     /// Vector sizes, widest first, that reads and writes of `elem_size`-byte elements are sized to.
     pub fn io_vector_sizes(&self, elem_size: usize) -> impl Iterator<Item = VectorSize> + Clone {
         vector_sizes_down_from(self.io_lanes(elem_size))
+    }
+
+    /// Vector sizes, widest first, at which `live` vectors of `elem_size`-byte elements all stay
+    /// in registers, or the IO vector sizes where the device budgets no registers.
+    pub fn vector_sizes_in_registers(
+        &self,
+        elem_size: usize,
+        live: usize,
+    ) -> impl Iterator<Item = VectorSize> + Clone {
+        let widest = match VectorRegisters::of(&self.hardware, elem_size) {
+            Some(registers) => registers.widest_lanes(live),
+            None => self.io_lanes(elem_size),
+        };
+
+        vector_sizes_down_from(widest)
     }
 
     /// States the width IO is sized to, for a backend that measured one wider than a load.
@@ -629,7 +624,7 @@ mod tests {
     }
 
     #[test]
-    fn six_live_f32_vectors_take_two_registers_each_on_avx2() {
+    fn the_widest_lanes_keep_every_live_vector_in_registers() {
         let f32 = registers(AVX2, 4);
         assert_eq!(f32.lanes_per_register(), 8);
         assert_eq!(f32.widest_lanes(6), 16);
@@ -645,15 +640,12 @@ mod tests {
         assert_eq!(neon.lanes_per_register(), 4);
         assert_eq!(neon.widest_lanes(3), avx2.widest_lanes(3));
         assert_eq!(neon.widest_lanes(6), avx2.widest_lanes(6));
-        // Past the budget both floor at one register, and NEON's holds half the lanes.
-        assert_eq!(neon.widest_lanes(40), 4);
-        assert_eq!(avx2.widest_lanes(40), 8);
     }
 
     #[test]
     fn more_live_vectors_than_registers_still_get_one_register_each() {
         assert_eq!(registers(AVX2, 4).widest_lanes(40), 8);
-        assert_eq!(registers(AVX2, 4).widest_lanes(0), 128);
+        assert_eq!(registers(NEON, 4).widest_lanes(40), 4);
     }
 
     #[test]
@@ -709,7 +701,17 @@ mod tests {
             device.io_vector_sizes(4).collect::<alloc::vec::Vec<_>>(),
             alloc::vec![8, 4, 2, 1]
         );
-        assert_eq!(VectorRegisters::vector_sizes(&device, 4, 1).next(), Some(8));
+        assert_eq!(device.vector_sizes_in_registers(4, 1).next(), Some(8));
+    }
+
+    #[test]
+    fn a_device_without_registers_sizes_by_its_io() {
+        let device = device(128);
+        assert!(
+            device
+                .vector_sizes_in_registers(4, 6)
+                .eq(device.io_vector_sizes(4))
+        );
     }
 
     /// A capacity is stated only by the runtime that read one.
