@@ -25,19 +25,14 @@ use crate::server::ServerError;
 /// once something else needs the same argument.
 ///
 /// A fence the driver refused to create or record holds that refusal instead
-/// of an event. Neither call can fail on a healthy device, so the refusal is
-/// in practice a poisoned device — and it belongs at the sync point the
-/// fence was raised for, which is where [`wait_sync`](Self::wait_sync) returns
-/// it, not in a panic on the server's thread where no caller can catch it.
+/// of an event.
 pub struct EventFence<A: EventApi> {
     event: Result<Event<A>, ServerError>,
 }
 
 impl<A: EventApi> EventFence<A> {
-    /// Record a fence at the current position of `stream`.
-    ///
-    /// Never fails: a fence the driver refused carries the refusal, and
-    /// waiting on it returns it.
+    /// Record a fence at the current position of `stream`. Carries a driver
+    /// refusal.
     pub fn new(stream: A::Stream) -> Self {
         let event = Event::new().and_then(|event| event.record(stream).map(|()| event));
 
@@ -51,7 +46,8 @@ impl<A: EventApi> EventFence<A> {
     ///
     /// # Errors
     ///
-    /// The fault the wait reveals, when the stream itself failed.
+    /// Returns a [`ServerError`] if the driver refused to create or record the
+    /// fence, or if the device was already faulty.
     pub fn wait_sync(self) -> Result<(), ServerError> {
         Ok(self.event?.wait()?)
     }
@@ -60,9 +56,8 @@ impl<A: EventApi> EventFence<A> {
     /// afterwards runs behind the fenced stream's. Does not block the host.
     ///
     /// A refused dependency is logged rather than raised: the driver only
-    /// refuses one on a poisoned device, where `stream` cannot run ahead of
-    /// anything because nothing runs, and every read and sync on it reports
-    /// the poisoning. A panic here would land on the server's thread instead.
+    /// refuses on a poisoned device, and every read and sync on it reports
+    /// the poisoning.
     pub fn wait_async(self, stream: A::Stream) {
         let waited = self
             .event
