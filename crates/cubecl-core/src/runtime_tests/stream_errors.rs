@@ -619,13 +619,9 @@ pub fn test_a_failed_in_place_launch_names_the_buffer_it_aliased<R: Runtime>(cli
 }
 
 /// A lazy read is a sync point too.
-///
-/// A caller checking `read_lazy_async` for an error is asking whether the
-/// bytes can be trusted, and a buffer whose writer never ran is already known
-/// not to be. Answering `Ok` with bytes that fail on first access simply defers
-/// error handling far from the call.
+/// `read_lazy_async` checks if the buffer carries an error.
 #[cfg(not(target_family = "wasm"))]
-pub fn test_a_lazy_read_of_a_stale_buffer_fails_at_the_read<R: Runtime>(client: Client) {
+pub fn lazy_read_of_stale_buffer_fails_at_read<R: Runtime>(client: Client) {
     let out = launch_rejected(&client, "lazy-read");
     let descriptor = out.copy_descriptor(
         cubecl_zspace::shape![1],
@@ -651,9 +647,9 @@ macro_rules! testgen_stream_errors {
 
             #[cfg(not(target_family = "wasm"))]
             #[$crate::runtime_tests::test_log::test]
-            fn test_a_lazy_read_of_a_stale_buffer_fails_at_the_read() {
+            fn lazy_read_of_stale_buffer_fails_at_read() {
                 let client = TestRuntime::client(&Default::default());
-                cubecl_core::runtime_tests::stream_errors::test_a_lazy_read_of_a_stale_buffer_fails_at_the_read::<
+                cubecl_core::runtime_tests::stream_errors::lazy_read_of_stale_buffer_fails_at_read::<
                     TestRuntime,
                 >(client);
             }
