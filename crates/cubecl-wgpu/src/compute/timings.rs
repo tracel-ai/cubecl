@@ -481,10 +481,13 @@ impl QueryProfiler {
                 });
 
             Ok(ProfileDuration::new_device_time_maybe(async move {
-                rec.recv()
-                    .await
-                    .expect("Unable to receive buffer slice result.")
-                    .expect("Failed to map buffer");
+                // The channel closes when the profile is dropped before the map
+                // completes, and the map fails when the device is lost or the
+                // buffer is destroyed under it. Neither leaves a measurement, and
+                // a panic here would take the resolver's thread down with it.
+                if !matches!(rec.recv().await, Ok(Ok(()))) {
+                    return None;
+                }
 
                 let binding = map_buffer.slice(..).get_mapped_range().unwrap();
                 let data: &[u64] = bytemuck::try_cast_slice(&binding).unwrap();
