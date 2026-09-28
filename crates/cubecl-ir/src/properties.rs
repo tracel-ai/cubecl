@@ -30,9 +30,9 @@ use cubecl_common::profile::TimingMethod;
 pub struct HardwareProperties {
     /// The widest single load instruction, in bits.
     pub load_width: u32,
-    /// How many `load_width`-bit vector registers a kernel may keep live, or `None` where that is
-    /// not a property of the device: a GPU trades its per-thread budget against occupancy, so it
-    /// states none.
+    /// How many `load_width`-bit vector registers a kernel may keep live, or `None` where the
+    /// runtime states no budget: a GPU trades its per-thread budget against occupancy, and a CPU
+    /// of an architecture the runtime does not model goes unread.
     pub vector_register_count: Option<u32>,
     /// The minimum size of a plane on this device
     pub plane_size_min: u32,
@@ -71,15 +71,6 @@ pub struct HardwareProperties {
     pub cube_mma_reserved_shared_memory: usize,
 }
 
-impl HardwareProperties {
-    /// The vector size of `elem_size`-byte elements in `width` bits, as a power of two the device
-    /// accepts.
-    fn vector_size_in(&self, width: u32, elem_size: usize) -> VectorSize {
-        let elems = width as usize / (elem_size * 8);
-        prev_power_of_two(elems.min(self.max_vector_size).max(1))
-    }
-}
-
 /// A device's vector registers, counted in elements of one type.
 ///
 /// A vector wider than one register is spread over several, and pays nothing for it until the
@@ -93,7 +84,7 @@ pub struct VectorRegisters {
 
 impl VectorRegisters {
     /// The registers of `hardware` as vectors of `elem_size`-byte elements see them, or `None`
-    /// where the device has no fixed set to budget.
+    /// where it states no register count.
     pub fn new(hardware: &HardwareProperties, elem_size: usize) -> Option<Self> {
         Some(VectorRegisters {
             count: hardware.vector_register_count? as usize,
@@ -568,6 +559,15 @@ impl FastMath {
     }
 }
 
+impl HardwareProperties {
+    /// The vector size of `elem_size`-byte elements in `width` bits, as a power of two the device
+    /// accepts.
+    fn vector_size_in(&self, width: u32, elem_size: usize) -> VectorSize {
+        let elems = width as usize / (elem_size * 8);
+        prev_power_of_two(elems.min(self.max_vector_size).max(1))
+    }
+}
+
 fn prev_power_of_two(value: usize) -> usize {
     1 << value.ilog2()
 }
@@ -631,16 +631,15 @@ mod tests {
     fn io_follows_a_load_width_raised_after_construction() {
         let mut device = device(128);
         device.hardware.load_width = 256;
-        assert_eq!(device.widest_io_vector_size(4), 8);
+        assert_eq!(device.io_width(), 256);
     }
 
     #[test]
     fn a_stated_io_width_outlasts_a_load_width_change() {
         let mut device = device(256);
         device.io_width_override = Some(512);
-        assert_eq!(device.widest_io_vector_size(4), 16);
         device.hardware.load_width = 128;
-        assert_eq!(device.widest_io_vector_size(4), 16);
+        assert_eq!(device.io_width(), 512);
     }
 
     #[test]
@@ -794,6 +793,10 @@ mod tests {
         assert!("gpu".parse::<PciAddress>().is_err());
     }
 
+    const AVX2: (u32, u32) = (256, 16);
+    const AVX512: (u32, u32) = (512, 32);
+    const NEON: (u32, u32) = (128, 32);
+
     fn hardware(load_width: u32, vector_register_count: Option<u32>) -> HardwareProperties {
         HardwareProperties {
             load_width,
@@ -815,12 +818,8 @@ mod tests {
         }
     }
 
-    const AVX2: (u32, Option<u32>) = (256, Some(16));
-    const AVX512: (u32, Option<u32>) = (512, Some(32));
-    const NEON: (u32, Option<u32>) = (128, Some(32));
-
-    fn registers((width, count): (u32, Option<u32>), elem_size: usize) -> VectorRegisters {
-        VectorRegisters::new(&hardware(width, count), elem_size).unwrap()
+    fn registers((width, count): (u32, u32), elem_size: usize) -> VectorRegisters {
+        VectorRegisters::new(&hardware(width, Some(count)), elem_size).unwrap()
     }
 
     fn device(load_width: u32) -> DeviceProperties {
