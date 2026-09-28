@@ -351,6 +351,34 @@ fn autotune_basic_multiplication_execution() {
     assert_eq!(obtained_resource, Vec::from([0, 4, 8]));
 }
 
+/// A tunable identified by a value hands it back once it wins its key, and nothing is elected
+/// before a round has settled one.
+#[test_log::test]
+#[cfg(feature = "std")]
+#[serial_test::serial]
+fn the_elected_tunable_hands_back_its_identity() {
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("the_elected_tunable_hands_back_its_identity");
+
+    let client = test_client(&DummyDevice);
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = vec![lhs, rhs, out];
+
+    let id = "test".to_string();
+    let set = TUNER.init(&id, || {
+        let client = test_client(&DummyDevice);
+        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+        dummy::identified_addition_set(client, shapes)
+    });
+    let key = set.generate_key(&handles);
+
+    assert_eq!(TUNER.elected::<_, _, &str>(&id, &set, &key), None);
+    TUNER.execute(&id, &client, set.clone(), handles);
+    assert_eq!(TUNER.elected::<_, _, &str>(&id, &set, &key), Some("add"));
+}
+
 /// A tuned pick belongs to the environment it was tuned under: switching
 /// environments makes it unreachable, tuning again lands in the new one, and
 /// switching back serves the persisted result through hydration rather than

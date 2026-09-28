@@ -40,6 +40,25 @@ pub fn addition_set(
     }))
 }
 
+/// [`addition_set`] with each tunable identified by its name.
+pub fn identified_addition_set(client: DummyClient, shapes: Vec<Vec<usize>>) -> TestSet {
+    let op_add =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+    let op_add_slow = OneKernelAutotuneOperation::new(
+        KernelTask::new(DummyElementwiseAdditionSlowWrong),
+        client.clone(),
+    );
+    TestSet::new(
+        move |_input: &Vec<Handle>| format!("{}-{}", "add", log_shape_input_key(&shapes)),
+        CloneInputGenerator,
+    )
+    .with(Tunable::new("add", move |inputs| op_add.run(inputs)).identified("add"))
+    .with(
+        Tunable::new("add_slow_wrong", move |inputs| op_add_slow.run(inputs))
+            .identified("add_slow_wrong"),
+    )
+}
+
 pub fn multiplication_set(client: DummyClient, shapes: Vec<Vec<usize>>) -> TestSet {
     let op_mul_slow = OneKernelAutotuneOperation::new(
         KernelTask::new(DummyElementwiseMultiplicationSlowWrong),

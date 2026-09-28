@@ -107,6 +107,31 @@ where
         content
     }
 
+    /// What the tunable `operations` settled on for `key` on `id` was
+    /// [identified](super::Tunable::identified) by: `None` until a round has settled a winner in
+    /// this process, and where the winner was identified by no `T`.
+    ///
+    /// Read-only: it never starts a round, never waits on one in flight, and never re-hydrates
+    /// a persisted result — a key a round has not settled here yet, or one only on disk, answers
+    /// `None` until an [`execute`](Self::execute) settles it. `operations` must be the set `id`
+    /// executes, as [`init`](Self::init) returns it: a winner is an index into that set.
+    pub fn elected<I, Out, T>(
+        &self,
+        id: &ID,
+        operations: &TunableSet<AK, I, Out>,
+        key: &AK,
+    ) -> Option<T>
+    where
+        I: TuneInputs,
+        T: Clone + 'static,
+    {
+        let tuner = self.state.lock().as_ref()?.get(id)?.clone();
+        match tuner.fastest(key) {
+            TuneCacheResult::Hit { fastest_index } => operations.identity(fastest_index).cloned(),
+            TuneCacheResult::Unchecked | TuneCacheResult::Pending | TuneCacheResult::Miss => None,
+        }
+    }
+
     /// Clear the autotune state.
     pub fn clear(&self) {
         if let Some(s) = self.state.lock().as_mut() {

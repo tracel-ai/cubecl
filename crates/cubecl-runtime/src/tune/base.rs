@@ -3,6 +3,7 @@ use super::{AutotuneError, AutotuneKey, TuneFn, TuneInputs};
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::{string::String, sync::Arc, vec, vec::Vec};
+use core::any::Any;
 use core::sync::atomic::{AtomicU32, Ordering};
 use cubecl_environment::collections::HashMap;
 
@@ -11,6 +12,8 @@ use cubecl_environment::collections::HashMap;
 pub struct Tunable<K, F: TuneInputs, Output> {
     pub(crate) function: TuneFn<F, Output>,
     groups: Vec<(TuneGroup<K>, PriorityFunc<K>)>,
+    /// What the tunable runs, as its caller names it; see [`identified`](Self::identified).
+    pub(crate) identity: Option<Arc<dyn Any + Send + Sync>>,
 }
 
 impl<K, F: TuneInputs, Output: 'static> Tunable<K, F, Output> {
@@ -45,7 +48,18 @@ impl<K, F: TuneInputs, Output: 'static> Tunable<K, F, Output> {
                 }),
             ),
             groups: Vec::new(),
+            identity: None,
         }
+    }
+
+    /// Name what this tunable runs with a value of the caller's, which
+    /// [`LocalTuner::elected`](super::LocalTuner::elected) hands back once the tunable wins a key.
+    ///
+    /// For a caller that builds something else from the winner — a variant of the same kernel,
+    /// say — and so needs to know *which* candidate won rather than only to run it again.
+    pub fn identified<T: Any + Send + Sync>(mut self, identity: T) -> Self {
+        self.identity = Some(Arc::new(identity));
+        self
     }
 
     /// Add this tunable to a [`TuneGroup`] with the given intra-group priority.

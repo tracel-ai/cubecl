@@ -124,6 +124,16 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
         &self.tunables[fastest_index].function
     }
 
+    /// The value the tunable at `index` was [identified](Tunable::identified) by, if it was
+    /// identified by a `T`.
+    pub fn identity<T: 'static>(&self, index: usize) -> Option<&T> {
+        self.tunables
+            .get(index)?
+            .identity
+            .as_deref()?
+            .downcast_ref()
+    }
+
     /// Compute a checksum that invalidates outdated cached auto-tune results when the
     /// set of tunable names changes.
     pub fn compute_checksum(&self) -> String {
