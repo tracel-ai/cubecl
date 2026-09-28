@@ -40,31 +40,43 @@ pub fn addition_set(
     }))
 }
 
-/// What [`identified_addition_set`]'s tunables are identified by: values that share nothing with
-/// their names, so a test reading one back reads the identity and nothing else.
+/// What [`identified_addition_set`]'s tunables are identified by, and named by.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Addition {
     Correct,
     SlowAndWrong,
 }
 
+impl core::fmt::Display for Addition {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Correct => write!(f, "add"),
+            Self::SlowAndWrong => write!(f, "add_slow_wrong"),
+        }
+    }
+}
+
 /// [`addition_set`] with each tunable identified by an [`Addition`].
-pub fn identified_addition_set(client: DummyClient, shapes: Vec<Vec<usize>>) -> TestSet {
+pub fn identified_addition_set(
+    client: DummyClient,
+    shapes: Vec<Vec<usize>>,
+) -> TunableSet<String, Vec<Handle>, (), Addition> {
     let op_add =
         OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
     let op_add_slow = OneKernelAutotuneOperation::new(
         KernelTask::new(DummyElementwiseAdditionSlowWrong),
         client.clone(),
     );
-    TestSet::new(
+    TunableSet::identified(
         move |_input: &Vec<Handle>| format!("{}-{}", "add", log_shape_input_key(&shapes)),
         CloneInputGenerator,
     )
-    .with(Tunable::new("add", move |inputs| op_add.run(inputs)).identified(Addition::Correct))
-    .with(
-        Tunable::new("add_slow_wrong", move |inputs| op_add_slow.run(inputs))
-            .identified(Addition::SlowAndWrong),
-    )
+    .with(Tunable::identified(Addition::Correct, move |inputs| {
+        op_add.run(inputs)
+    }))
+    .with(Tunable::identified(Addition::SlowAndWrong, move |inputs| {
+        op_add_slow.run(inputs)
+    }))
 }
 
 pub fn multiplication_set(client: DummyClient, shapes: Vec<Vec<usize>>) -> TestSet {

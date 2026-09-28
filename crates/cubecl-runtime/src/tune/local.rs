@@ -67,9 +67,10 @@ where
     /// questions for every device that followed — promoting kernels onto
     /// hardware that cannot run them, or withholding kernels from hardware
     /// that can.
-    pub fn init<I, Out, F>(&self, id: &ID, init_set: F) -> Arc<TunableSet<AK, I, Out>>
+    pub fn init<I, Out, Id, F>(&self, id: &ID, init_set: F) -> Arc<TunableSet<AK, I, Out, Id>>
     where
-        F: Fn() -> TunableSet<AK, I, Out> + 'static + Send + Sync,
+        F: Fn() -> TunableSet<AK, I, Out, Id> + 'static + Send + Sync,
+        Id: Send + Sync + 'static,
         I: TuneInputs,
         Out: AutotuneOutput,
     {
@@ -110,7 +111,8 @@ where
     /// What the tunable `operations` settled on for `key` on `id` was
     /// [identified](super::Tunable::identified) by: `None` until a result for the key is settled
     /// — tuned by a round in this process, or read back from disk and validated by an
-    /// [`execute`](Self::execute) — or when the settled tunable was identified by nothing.
+    /// [`execute`](Self::execute) — or when the settled tunable was built by
+    /// [`Tunable::new`](super::Tunable::new), identified by nothing.
     ///
     /// It reads results and never produces one: it never starts a round, never waits on one in
     /// flight, and never validates a persisted result itself. Like `execute`'s own lookup, it
@@ -120,20 +122,15 @@ where
     /// initializer `execute` is handed: a result is an index into that set, and results are kept
     /// per `id` alone, so a set another initializer built under the same `id` would map it onto
     /// another tunable.
-    ///
-    /// # Panics
-    ///
-    /// When the settled tunable was identified by a value that is not a `T`
-    /// ([`TunableSet::identity`]).
-    pub fn elected<I, Out, T>(
+    pub fn elected<I, Out, Id>(
         &self,
         id: &ID,
-        operations: &TunableSet<AK, I, Out>,
+        operations: &TunableSet<AK, I, Out, Id>,
         key: &AK,
-    ) -> Option<T>
+    ) -> Option<Id>
     where
         I: TuneInputs,
-        T: Clone + 'static,
+        Id: Clone,
     {
         let tuner = self.state.lock().as_ref()?.get(id)?.clone();
         match tuner.fastest(key) {
@@ -150,9 +147,9 @@ where
     }
 
     #[cfg(feature = "autotune-checks")]
-    fn checks<'a, I: TuneInputs, Out: AutotuneOutput>(
+    fn checks<'a, I: TuneInputs, Out: AutotuneOutput, Id>(
         &self,
-        operations: &TunableSet<AK, I, Out>,
+        operations: &TunableSet<AK, I, Out, Id>,
         inputs: &<I as TuneInputs>::At<'a>,
     ) -> alloc::vec::Vec<crate::tune::log::CheckResult>
     where
@@ -171,16 +168,17 @@ where
 
     /// Execute the fastest operation in a [`TunableSet`], triggering a tuning pass on
     /// the first call for a given key.
-    pub fn execute<'a, I: TuneInputs, Out>(
+    pub fn execute<'a, I: TuneInputs, Out, Id>(
         &self,
         id: &ID,
         client: &Client,
-        operations: Arc<TunableSet<AK, I, Out>>,
+        operations: Arc<TunableSet<AK, I, Out, Id>>,
         inputs: <I as TuneInputs>::At<'a>,
     ) -> Out
     where
         <I as TuneInputs>::At<'a>: Clone + Send,
         Out: AutotuneOutput,
+        Id: Send + Sync,
     {
         let key = operations.generate_key(&inputs);
 
@@ -200,7 +198,7 @@ where
         let mut log_context = crate::tune::AutotuneLogContext::new(&mut tuner.logger().lock());
 
         #[cfg(feature = "autotune-checks")]
-        log_context.set_checks(|| self.checks::<I, Out>(&operations, &inputs));
+        log_context.set_checks(|| self.checks::<I, Out, Id>(&operations, &inputs));
 
         // Fast path: a cached hit skips straight to the fastest operation.
         // `fastest` also resets the tuner cache if the environment switched, so
@@ -212,7 +210,7 @@ where
                 .expect("Should run when selected by autotune.");
         }
 
-        let fastest = tuner.check_tune::<I, Out>(
+        let fastest = tuner.check_tune::<I, Out, Id>(
             &key,
             &inputs,
             &operations,

@@ -11,7 +11,10 @@ use cubecl_server::client::Client;
 use cubecl_server::server::{
     CubeCount, Handle, IoError, KernelArguments, ReduceOperation, ServerError,
 };
-use cubecl_server::{local_tuner, tune::LocalTuner};
+use cubecl_server::{
+    local_tuner,
+    tune::{LocalTuner, TunableSet},
+};
 use dummy::*;
 
 #[test_log::test]
@@ -352,7 +355,10 @@ fn autotune_basic_multiplication_execution() {
 }
 
 /// The handles an addition runs on, and the key its set generates for them.
-fn addition_inputs(client: &DummyClient, set: &dummy::TestSet) -> (Vec<Handle>, String) {
+fn addition_inputs<Id>(
+    client: &DummyClient,
+    set: &TunableSet<String, Vec<Handle>, (), Id>,
+) -> (Vec<Handle>, String) {
     let handles = vec![
         client.create_from_slice(&[0, 1, 2]),
         client.create_from_slice(&[4, 4, 4]),
@@ -384,10 +390,7 @@ fn nothing_is_elected_for_a_key_no_round_settled() {
     TUNER.execute(&id, &client, set.clone(), handles);
 
     let untuned = "a key no round has seen".to_string();
-    assert_eq!(
-        TUNER.elected::<_, _, dummy::Addition>(&id, &set, &untuned),
-        None
-    );
+    assert_eq!(TUNER.elected(&id, &set, &untuned), None);
 }
 
 /// The tunable a round elects hands back what it was identified by. The environment is rooted
@@ -412,7 +415,7 @@ fn the_elected_tunable_hands_back_its_identity() {
     TUNER.execute(&id, &client, set.clone(), handles);
 
     assert_eq!(
-        TUNER.elected::<_, _, dummy::Addition>(&id, &set, &key),
+        TUNER.elected(&id, &set, &key),
         Some(dummy::Addition::Correct)
     );
 }
@@ -433,31 +436,7 @@ fn a_winner_identified_by_nothing_elects_nothing() {
     let (handles, key) = addition_inputs(&client, &set);
     TUNER.execute(&id, &client, set.clone(), handles);
 
-    assert_eq!(
-        TUNER.elected::<_, _, dummy::Addition>(&id, &set, &key),
-        None
-    );
-}
-
-/// Asking for another type than the winner was identified by is the caller's mistake, and says
-/// so rather than reading as a key no round has settled.
-#[test_log::test]
-#[cfg(feature = "std")]
-#[serial_test::serial]
-#[should_panic(expected = "was identified by a value that is not a")]
-fn asking_for_another_type_than_the_winners_identity_panics() {
-    static TUNER: LocalTuner<String, String> =
-        local_tuner!("asking_for_another_type_than_the_winners_identity_panics");
-
-    let client = test_client(&DummyDevice);
-    let id = "test".to_string();
-    let set = TUNER.init(&id, || {
-        dummy::identified_addition_set(test_client(&DummyDevice), addition_shapes())
-    });
-    let (handles, key) = addition_inputs(&client, &set);
-    TUNER.execute(&id, &client, set.clone(), handles);
-
-    let _ = TUNER.elected::<_, _, String>(&id, &set, &key);
+    assert_eq!(TUNER.elected(&id, &set, &key), None);
 }
 
 /// A result belongs to the environment it was tuned under, and one only on disk is not elected
@@ -479,7 +458,7 @@ fn a_result_only_on_disk_is_elected_once_an_execute_validates_it() {
     });
     let (handles, key) = addition_inputs(&client, &set);
     TUNER.execute(&id, &client, set.clone(), handles.clone());
-    let elected = || TUNER.elected::<_, _, dummy::Addition>(&id, &set, &key);
+    let elected = || TUNER.elected(&id, &set, &key);
     assert_eq!(elected(), Some(dummy::Addition::Correct));
 
     cubecl_environment::environment::set_root(second.path());

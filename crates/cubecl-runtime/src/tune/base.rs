@@ -3,20 +3,24 @@ use super::{AutotuneError, AutotuneKey, TuneFn, TuneInputs};
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::{string::String, sync::Arc, vec, vec::Vec};
-use core::any::Any;
+use core::fmt::Display;
 use core::sync::atomic::{AtomicU32, Ordering};
 use cubecl_environment::collections::HashMap;
 
 /// A single candidate for autotune: a named [`TuneFn`] plus the [groups](TuneGroup) it
 /// belongs to. A tunable is autotuned whenever any of its groups is prioritized.
-pub struct Tunable<K, F: TuneInputs, Output> {
+///
+/// `Id` is what a tunable of its set may be [identified](Self::identified) by, `()` for a set
+/// whose tunables are named and nothing more.
+pub struct Tunable<K, F: TuneInputs, Output, Id = ()> {
     pub(crate) function: TuneFn<F, Output>,
     groups: Vec<(TuneGroup<K>, PriorityFunc<K>)>,
-    /// What the tunable runs, as its caller names it; see [`identified`](Self::identified).
-    pub(crate) identity: Option<Arc<dyn Any + Send + Sync>>,
+    /// What the tunable runs, as its caller names it; `None` for one built by
+    /// [`new`](Self::new).
+    identity: Option<Id>,
 }
 
-impl<K, F: TuneInputs, Output: 'static> Tunable<K, F, Output> {
+impl<K, F: TuneInputs, Output: 'static, Id> Tunable<K, F, Output, Id> {
     /// Create a tunable from a closure.
     ///
     /// The `for<'a> Fn(F::At<'a>) -> _` bound is spelled out in the `where`-clause rather
@@ -52,14 +56,27 @@ impl<K, F: TuneInputs, Output: 'static> Tunable<K, F, Output> {
         }
     }
 
-    /// Name what this tunable runs with a value of the caller's, which
+    /// A tunable identified by `identity`, and named by it: the value
     /// [`LocalTuner::elected`](super::LocalTuner::elected) hands back once the tunable wins a key.
     ///
     /// For a caller that builds something else from the winner — a variant of the same kernel,
-    /// say — and so needs to know *which* candidate won rather than only to run it again.
-    pub fn identified<T: Any + Send + Sync>(mut self, identity: T) -> Self {
-        self.identity = Some(Arc::new(identity));
-        self
+    /// say — and so needs to know *which* candidate won rather than only to run it again. The
+    /// name a cached result is checksummed by is `identity`'s own, so the two cannot disagree.
+    pub fn identified<Func, Err>(identity: Id, func: Func) -> Self
+    where
+        Id: Display,
+        Err: Into<String> + 'static,
+        Func: for<'a> Fn(<F as TuneInputs>::At<'a>) -> Result<Output, Err> + Send + Sync + 'static,
+    {
+        let mut tunable = Self::new(&identity.to_string(), func);
+        tunable.identity = Some(identity);
+        tunable
+    }
+
+    /// What this tunable was [identified](Self::identified) by, `None` for one built by
+    /// [`new`](Self::new).
+    pub(crate) fn identity(&self) -> Option<&Id> {
+        self.identity.as_ref()
     }
 
     /// Add this tunable to a [`TuneGroup`] with the given intra-group priority.
@@ -201,9 +218,9 @@ struct Cleanup {
 }
 
 impl TunePlan {
-    pub fn new<K: AutotuneKey, F: TuneInputs, Out>(
+    pub fn new<K: AutotuneKey, F: TuneInputs, Out, Id>(
         key: &K,
-        tunables: &[Tunable<K, F, Out>],
+        tunables: &[Tunable<K, F, Out, Id>],
     ) -> Self {
         let mut priorities = Vec::<i8>::new();
         let mut no_groups = Vec::new();

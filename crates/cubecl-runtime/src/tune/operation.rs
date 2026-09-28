@@ -40,8 +40,12 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
 
 /// A set of candidate tunable functions for autotune, sharing a key generator and an
 /// input generator. See [`TuneInputs`] for the `F` parameter.
-pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static> {
-    tunables: Vec<Tunable<K, F, Output>>,
+///
+/// `Id` is what its tunables may be [identified](Tunable::identified) by: `()` for a set built by
+/// [`new`](Self::new), whose tunables are named and nothing more, and the caller's type for one
+/// built by [`identified`](Self::identified).
+pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static, Id = ()> {
+    tunables: Vec<Tunable<K, F, Output, Id>>,
     key_gen: Arc<dyn KeyGenerator<K, F> + Send + Sync>,
     input_gen: Arc<dyn InputGenerator<K, F> + Send + Sync>,
     bounds_gen: Option<Arc<dyn BoundsGenerator<K, F> + Send + Sync>>,
@@ -50,18 +54,29 @@ pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static> {
 }
 
 impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
-    /// The number of tunables in the set.
-    pub fn len(&self) -> usize {
-        self.tunables.len()
-    }
-
-    /// Whether this set contains no tunables.
-    pub fn is_empty(&self) -> bool {
-        self.tunables.is_empty()
-    }
-
     /// Create a tunable set from a key generator and an input generator.
     pub fn new(key_gen: impl KeyGenerator<K, F>, input_gen: impl InputGenerator<K, F>) -> Self {
+        Self::build(key_gen, input_gen)
+    }
+
+    /// Shorthand for [`new`](Self::new) with a [`CloneInputGenerator`]: benchmarks run
+    /// on clones of the real call inputs.
+    pub fn new_cloning_inputs(key_gen: impl KeyGenerator<K, F>) -> Self {
+        Self::new(key_gen, super::CloneInputGenerator)
+    }
+}
+
+impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output, Id> {
+    /// A set whose tunables may be [identified](Tunable::identified) by an `Id`, from a key
+    /// generator and an input generator.
+    pub fn identified(
+        key_gen: impl KeyGenerator<K, F>,
+        input_gen: impl InputGenerator<K, F>,
+    ) -> Self {
+        Self::build(key_gen, input_gen)
+    }
+
+    fn build(key_gen: impl KeyGenerator<K, F>, input_gen: impl InputGenerator<K, F>) -> Self {
         Self {
             tunables: Default::default(),
             input_gen: Arc::new(input_gen),
@@ -72,14 +87,18 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
         }
     }
 
-    /// Shorthand for [`new`](Self::new) with a [`CloneInputGenerator`]: benchmarks run
-    /// on clones of the real call inputs.
-    pub fn new_cloning_inputs(key_gen: impl KeyGenerator<K, F>) -> Self {
-        Self::new(key_gen, super::CloneInputGenerator)
+    /// The number of tunables in the set.
+    pub fn len(&self) -> usize {
+        self.tunables.len()
+    }
+
+    /// Whether this set contains no tunables.
+    pub fn is_empty(&self) -> bool {
+        self.tunables.is_empty()
     }
 
     /// Register a tunable with this tunable set.
-    pub fn with(mut self, tunable: Tunable<K, F, Output>) -> Self {
+    pub fn with(mut self, tunable: Tunable<K, F, Output, Id>) -> Self {
         self.tunables.push(tunable);
         self
     }
@@ -124,23 +143,11 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
         &self.tunables[fastest_index].function
     }
 
-    /// The value the tunable at `index` was [identified](Tunable::identified) by, or `None` where
-    /// it was identified by nothing.
-    ///
-    /// # Panics
-    ///
-    /// When the tunable was identified by a value that is not a `T`: asking for another type is
-    /// the caller's mistake, which [`LocalTuner::init`](super::LocalTuner::init) treats the same.
-    pub fn identity<T: 'static>(&self, index: usize) -> Option<&T> {
-        let tunable = self.tunables.get(index)?;
-        let identity = tunable.identity.as_deref()?;
-        Some(identity.downcast_ref().unwrap_or_else(|| {
-            panic!(
-                "the tunable `{}` was identified by a value that is not a `{}`",
-                tunable.function.name,
-                core::any::type_name::<T>()
-            )
-        }))
+    /// What the tunable at `index` was [identified](Tunable::identified) by, `None` for one
+    /// built by [`Tunable::new`]. The index is one the tuner stored for this set, so it panics
+    /// out of range as [`fastest`](Self::fastest) does.
+    pub(crate) fn identity(&self, index: usize) -> Option<&Id> {
+        self.tunables[index].identity()
     }
 
     /// Compute a checksum that invalidates outdated cached auto-tune results when the
