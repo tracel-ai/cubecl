@@ -152,6 +152,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             tasks_max,
             utilities.logger.clone(),
             compilation_options.supports_vulkan_compiler,
+            utilities.captures.clone(),
         );
 
         let config = CubeClRuntimeConfig::get();

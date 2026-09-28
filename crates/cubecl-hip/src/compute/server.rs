@@ -386,6 +386,7 @@ impl HipServer {
                     mem_alignment,
                     is_integrated,
                     utilities.logger.clone(),
+                    utilities.captures.clone(),
                 ),
                 max_streams,
             ),

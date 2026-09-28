@@ -1327,6 +1327,18 @@ impl Client {
             .unwrap_or_resume()
     }
 
+    /// Whether this client's stream is capturing a graph: from
+    /// [`graph_prepare`](Self::graph_prepare), through the warmup run and the recorded one, until
+    /// [`stop_capture`](Self::stop_capture) or a failed [`start_capture`](Self::start_capture)
+    /// ends it.
+    ///
+    /// Answered without reaching the device thread, so code whose buffer decisions have to
+    /// match between the warmup and the recording can ask on every operation, eager ones
+    /// included.
+    pub fn is_capturing(&self) -> bool {
+        self.utilities.captures.is_capturing(self.stream_id())
+    }
+
     /// Stop recording and return the captured graph, ready to
     /// [`replay`](Graph::replay).
     pub fn stop_capture(&self) -> Result<Graph, ServerError> {

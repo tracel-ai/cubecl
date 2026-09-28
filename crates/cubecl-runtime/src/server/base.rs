@@ -1,4 +1,4 @@
-use super::Handle;
+use super::{DeviceCaptures, Handle};
 use crate::kernel::BufferIOAttr;
 use crate::{
     client::Client,
@@ -143,6 +143,8 @@ pub struct ServerUtilities {
     pub check_mode: BoundsCheckMode,
     /// A set containing the ids for which the inter-device communication has already been initialized.
     pub initialized_comms: RwLock<HashSet<CommunicationId>>,
+    /// The graph captures under way on the device, which its streams update and its clients read.
+    pub captures: DeviceCaptures,
 }
 
 /// Defines how the memory layout is determined.
@@ -208,6 +210,7 @@ impl ServerUtilities {
             server_comm_enabled: false,
             check_mode: CubeClRuntimeConfig::get().compilation.check_mode,
             initialized_comms: RwLock::new(HashSet::default()),
+            captures: DeviceCaptures::default(),
         }
     }
 }
