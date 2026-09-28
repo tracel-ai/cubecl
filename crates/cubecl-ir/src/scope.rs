@@ -147,6 +147,7 @@ pub fn ident(name: impl Into<String>) -> Identifier {
 pub struct GlobalState {
     pub reference_arena: DropBump,
     pub errors: Vec<String>,
+    pub warnings: Vec<String>,
 
     pub module: ModuleOp,
     pub module_inserter: OpInserter,
@@ -336,6 +337,7 @@ fn new_context(settings: KernelSettings) -> Rc<UnsafeCell<Context>> {
         target_properties: Default::default(),
         device_properties: Default::default(),
         errors: Default::default(),
+        warnings: Default::default(),
     };
     settings.address_type.register(&mut state);
 
@@ -370,6 +372,7 @@ fn dummy_context() -> Rc<UnsafeCell<Context>> {
         target_properties: Default::default(),
         device_properties: Default::default(),
         errors: Default::default(),
+        warnings: Default::default(),
     };
 
     ctx.set_aux_ty(state);
@@ -721,6 +724,16 @@ impl Scope {
     /// Returns all validation errors.
     pub fn pop_errors(&self) -> Vec<String> {
         core::mem::take(&mut self.state_mut().errors)
+    }
+
+    /// Adds a non-fatal validation warning. Logged when the kernel is built.
+    pub fn push_warning(&self, msg: impl Into<String>) {
+        self.state_mut().warnings.push(msg.into());
+    }
+
+    /// Returns all validation warnings.
+    pub fn pop_warnings(&self) -> Vec<String> {
+        core::mem::take(&mut self.state_mut().warnings)
     }
 
     /// Obtain the index-th buffer
