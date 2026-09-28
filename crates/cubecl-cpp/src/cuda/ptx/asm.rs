@@ -189,18 +189,14 @@ cuda_op!(InlinePtxOp, |op, ctx| {
     let result = op.result(ctx);
     let inputs = op.inputs(ctx);
 
-    let mut ptx_idx = 0;
-    let mut plir_idx = 0;
-
-    if let Some(result) = result {
-        ptx = insert_placeholders(ctx, &ptx, result.get_type(ctx), plir_idx, &mut ptx_idx);
-        plir_idx += 1;
-    }
-
-    for input in inputs.iter() {
-        ptx = insert_placeholders(ctx, &ptx, input.get_type(ctx), plir_idx, &mut ptx_idx);
-        plir_idx += 1;
-    }
+    // The result is `$0` and the inputs follow it, which is the order the constraint lists below
+    // state them in, and so the order the PTX registers are numbered in.
+    let operands: Vec<TypeHandle> = result
+        .iter()
+        .chain(inputs.iter())
+        .map(|val| val.get_type(ctx))
+        .collect();
+    ptx = substitute_placeholders(&ptx, &registers_of(ctx, &operands));
 
     let out_regs = result
         .iter()
@@ -263,29 +259,69 @@ fn flatten_operand(ctx: &Context, val: Value) -> Vec<String> {
     }
 }
 
-fn insert_placeholders(
-    ctx: &Context,
-    ptx: &str,
-    ty: TypeHandle,
-    plir_idx: usize,
-    ptx_idx: &mut usize,
-) -> String {
-    let pat = format!("${plir_idx}");
-    if !ptx.contains(&pat) {
-        panic!("Tried substituting argument {pat} in PTX string {ptx:?}, but it wasn't found.")
+/// The PTX registers each operand stands for, in operand order. A vector operand takes one register
+/// per element and reads as a PTX vector expression.
+fn registers_of(ctx: &Context, operands: &[TypeHandle]) -> Vec<String> {
+    let mut ptx_idx = 0;
+    operands
+        .iter()
+        .map(|ty| {
+            if ty.deref(ctx).is::<VectorType>() {
+                let vec = ty.vector_size(ctx);
+                let elements = (0..vec).map(|i| format!("%{}", ptx_idx + i)).join(", ");
+                ptx_idx += vec;
+                format!("{{{elements}}}")
+            } else {
+                let register = format!("%{ptx_idx}");
+                ptx_idx += 1;
+                register
+            }
+        })
+        .collect()
+}
+
+/// Replace every `$idx` in `ptx` with the registers of operand `idx`.
+///
+/// One pass, reading the whole digit run after each `$`. Substituting one operand at a time with
+/// `str::replace` rewrites the `$1` inside `$10` as well, so a template with eleven or more
+/// operands lost its last ones and then panicked for the one it had just destroyed.
+///
+/// A `$` that no digit follows is left where it is. An operand the template never names, or a name
+/// no operand answers, is a disagreement between the two and panics: the constraint list and the
+/// register numbering are built from the operands, so neither side can be silently dropped.
+fn substitute_placeholders(ptx: &str, registers: &[String]) -> String {
+    let mut named = vec![false; registers.len()];
+    let mut out = String::with_capacity(ptx.len());
+    let mut rest = ptx;
+
+    while let Some(at) = rest.find('$') {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + 1..];
+        let digits = after
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(after.len());
+        let (index, tail) = after.split_at(digits);
+        match index.parse::<usize>() {
+            Err(_) => out.push('$'),
+            Ok(idx) => match registers.get(idx) {
+                Some(register) => {
+                    out.push_str(register);
+                    named[idx] = true;
+                }
+                None => panic!(
+                    "PTX string {ptx:?} substitutes argument ${idx}, but the op states {} operand(s).",
+                    registers.len()
+                ),
+            },
+        }
+        rest = tail;
     }
-    let substitute = if ty.deref(ctx).is::<VectorType>() {
-        let vec = ty.vector_size(ctx);
-        let mut placeholders = (0..vec).map(|i| format!("%{}", *ptx_idx + i));
-        let substitute = format!("{{{}}}", placeholders.join(", "));
-        *ptx_idx += vec;
-        substitute
-    } else {
-        let placeholder = format!("%{ptx_idx}");
-        *ptx_idx += 1;
-        placeholder
-    };
-    ptx.replace(&pat, &substitute)
+    out.push_str(rest);
+
+    if let Some(idx) = named.iter().position(|seen| !seen) {
+        panic!("Tried substituting argument ${idx} in PTX string {ptx:?}, but it wasn't found.")
+    }
+    out
 }
 
 fn infer_constraint_letter(ctx: &Context, ty: TypeHandle) -> char {
@@ -351,5 +387,56 @@ impl LowerOp<Cuda> for InlineAsmOp {
             .get_operation()
             .insert_before(ctx, self.get_operation());
         inline_ptx.get_operation().results(ctx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::substitute_placeholders;
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+
+    fn registers(count: usize) -> Vec<String> {
+        (0..count).map(|i| format!("%{i}")).collect()
+    }
+
+    #[test]
+    fn substitutes_every_operand() {
+        let out = substitute_placeholders("add.s32 $0, $1, $2;", &registers(3));
+        assert_eq!(out, "add.s32 %0, %1, %2;");
+    }
+
+    // `$1` is a prefix of `$10`. Replacing operands one at a time rewrote the `$1` inside `$10`
+    // first, which destroyed the eleventh placeholder and then panicked for not finding it.
+    #[test]
+    fn a_two_digit_placeholder_is_not_eaten_by_its_prefix() {
+        let template = "op $0, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10;";
+        let out = substitute_placeholders(template, &registers(11));
+        assert_eq!(out, "op %0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10;");
+    }
+
+    #[test]
+    fn a_vector_operand_reads_as_a_ptx_vector() {
+        let registers = vec!["{%0, %1}".to_string(), "%2".to_string()];
+        let out = substitute_placeholders("ld.v2 $0, [$1];", &registers);
+        assert_eq!(out, "ld.v2 {%0, %1}, [%2];");
+    }
+
+    #[test]
+    fn a_dollar_no_digit_follows_stays_put() {
+        let out = substitute_placeholders("mov $0, $x;", &registers(1));
+        assert_eq!(out, "mov %0, $x;");
+    }
+
+    #[test]
+    #[should_panic(expected = "but the op states 2 operand(s)")]
+    fn a_placeholder_no_operand_answers_is_refused() {
+        substitute_placeholders("op $0, $1, $2;", &registers(2));
+    }
+
+    #[test]
+    #[should_panic(expected = "wasn't found")]
+    fn an_operand_the_template_never_names_is_refused() {
+        substitute_placeholders("op $0;", &registers(2));
     }
 }
