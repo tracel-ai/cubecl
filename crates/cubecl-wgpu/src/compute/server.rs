@@ -138,13 +138,11 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         tasks_max: usize,
         backend: wgpu::Backend,
         timing_method: TimingMethod,
-        mut utilities: ServerUtilities,
+        utilities: ServerUtilities,
+        captures: DeviceCaptures,
     ) -> Self {
         #[cfg(feature = "spirv")]
         let adapter_info = device.adapter_info();
-        // The streams update the captures; everyone else reads them through the utilities.
-        let captures = DeviceCaptures::default();
-        utilities.captures = captures.status();
         let backend_scheduler = ScheduledWgpuBackend::new(
             device.clone(),
             queue.clone(),

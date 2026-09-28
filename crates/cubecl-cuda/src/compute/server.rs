@@ -533,14 +533,12 @@ impl CudaServer {
         mem_config: MemoryConfiguration,
         mem_alignment: usize,
         device_id: DeviceId,
-        mut utilities: ServerUtilities,
+        utilities: ServerUtilities,
+        captures: DeviceCaptures,
     ) -> Self {
         let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
         let stream_priority = config.streaming.priority;
-        // The streams update the captures; everyone else reads them through the utilities.
-        let captures = DeviceCaptures::default();
-        utilities.captures = captures.status();
 
         ctx.unsafe_set_current().unwrap();
 

@@ -189,7 +189,8 @@ impl DeviceService for CpuServer {
         );
         register_supported_types(&mut device_props);
 
-        let utilities = ServerUtilities::new(
+        // No graph capture on this backend: nothing updates the captures.
+        let (utilities, _captures) = ServerUtilities::init(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "cpu",
             device_props,

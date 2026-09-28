@@ -207,7 +207,7 @@ impl DeviceService for HipServer {
         let hip_ctx = HipContext::new(comp_opts, device_props.clone(), fingerprint, backend);
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
-        let utilities = ServerUtilities::new(
+        let (utilities, captures) = ServerUtilities::init(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "hip",
             device_props,
@@ -224,6 +224,7 @@ impl DeviceService for HipServer {
             probe.alignment,
             probe.integrated,
             utilities,
+            captures,
         )
     }
 
