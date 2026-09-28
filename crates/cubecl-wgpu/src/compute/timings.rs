@@ -80,6 +80,26 @@ impl TimestampQuerySetBudget {
     }
 }
 
+/// When a compute pass's timestamps can be resolved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimestampAvailability {
+    /// Once the command buffer holding the pass is submitted ahead of the resolve.
+    OnSubmission,
+    /// Only once the command buffer holding the pass has completed. Metal samples at stage
+    /// boundaries and writes the samples when the encoder retires: a resolve that runs earlier,
+    /// even from a later command buffer, reads zeros.
+    OnCompletion,
+}
+
+impl TimestampAvailability {
+    pub fn new(backend: wgpu::Backend) -> Self {
+        match backend {
+            wgpu::Backend::Metal => Self::OnCompletion,
+            _ => Self::OnSubmission,
+        }
+    }
+}
+
 /// Per-profiler allocation of timestamp query sets, backed by a shared device budget.
 ///
 /// Allocates a fresh query set (one more live counter sample buffer) per profile while it can
@@ -158,9 +178,18 @@ pub struct QueryProfiler {
     counter_token: u64,
     counter_query_set: u64,
     cleanups: Vec<QuerySetId>,
+    availability: TimestampAvailability,
     queue_period: f64,
     epoch_tick: u64,
     epoch_instant: Instant,
+}
+
+/// The commands that resolve a window's timestamps into a mappable buffer, submitted after the
+/// command buffer holding the window's passes.
+#[derive(Debug)]
+pub struct TimestampReadback {
+    pub commands: wgpu::CommandBuffer,
+    pub map_buffer: wgpu::Buffer,
 }
 
 #[derive(Debug)]
@@ -268,6 +297,7 @@ impl QueryProfiler {
         queue: &wgpu::Queue,
         #[allow(unused)] device: &wgpu::Device,
         budget: Arc<TimestampQuerySetBudget>,
+        availability: TimestampAvailability,
     ) -> Self {
         #[cfg(feature = "profile-tracy")]
         let sync_timestamps = get_cur_timestamp(queue, device);
@@ -282,6 +312,7 @@ impl QueryProfiler {
 
         Self {
             cleanups: Vec::new(),
+            availability,
             counter_query_set: 0,
             counter_token: 0,
             query_sets: HashMap::new(),
@@ -343,13 +374,21 @@ impl QueryProfiler {
         }
     }
 
+    /// When the readback [`stop_profile_setup`](Self::stop_profile_setup) returns may run.
+    pub fn availability(&self) -> TimestampAvailability {
+        self.availability
+    }
+
     /// Stop the profiling on a device.
+    ///
+    /// Returns the readback of the window's timestamps, which the caller submits after the
+    /// command buffer holding the window's passes, once [`availability`](Self::availability)
+    /// allows.
     pub fn stop_profile_setup(
         &mut self,
         token: ProfilingToken,
         device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-    ) -> Result<Option<wgpu::Buffer>, ProfileError> {
+    ) -> Result<Option<TimestampReadback>, ProfileError> {
         let timestamps =
             self.timestamps
                 .remove(&token)
@@ -401,11 +440,18 @@ impl QueryProfiler {
         let size = QUERY_SIZE as u64;
         let start_slot = PROFILE_START_INDEX..PROFILE_START_INDEX + 1;
         let end_slot = PROFILE_END_INDEX..PROFILE_END_INDEX + 1;
-        encoder.resolve_query_set(&query_set_start.query_set, start_slot, &resolve_start, 0);
-        encoder.resolve_query_set(&query_set_end.query_set, end_slot, &resolve_end, 0);
-        encoder.copy_buffer_to_buffer(&resolve_start, 0, &map_buffer, 0, size);
-        encoder.copy_buffer_to_buffer(&resolve_end, 0, &map_buffer, size, size);
-        Ok(Some(map_buffer))
+        let mut readback = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("CubeCL profile readback"),
+        });
+        readback.resolve_query_set(&query_set_start.query_set, start_slot, &resolve_start, 0);
+        readback.resolve_query_set(&query_set_end.query_set, end_slot, &resolve_end, 0);
+        readback.copy_buffer_to_buffer(&resolve_start, 0, &map_buffer, 0, size);
+        readback.copy_buffer_to_buffer(&resolve_end, 0, &map_buffer, size, size);
+
+        Ok(Some(TimestampReadback {
+            commands: readback.finish(),
+            map_buffer,
+        }))
     }
 
     pub fn stop_profile(

@@ -139,13 +139,6 @@ pub trait Storage: Send + core::fmt::Debug {
     /// [`purge`](Storage::purge).
     fn purge_key(&self, key: &[u8]);
 
-    /// Whether the storage is still loading its content asynchronously.
-    /// Entries become visible through [`get`](Storage::get) and
-    /// [`scan`](Storage::scan) once the load completes.
-    fn loading(&self) -> bool {
-        false
-    }
-
     /// Human-readable location for log messages.
     fn describe(&self) -> String;
 }
@@ -161,13 +154,7 @@ static MEMORY: LazyLock<Mutex<HashMap<String, Arc<Mutex<Entries>>>>> =
 pub(crate) type Entries = HashMap<Vec<u8>, (Bytes, Origin)>;
 
 /// The [`Storage`] contract applied to an in-memory namespace.
-///
-/// Every backend that keeps entries in memory shares these, so the insert
-/// arbitration exists once and the backends cannot drift on the contract
-/// documented on [`Storage`]. They take the map rather than owning it because
-/// the backends disagree on the lock around it and on what they do after a
-/// write lands.
-pub(crate) mod entries {
+mod entries {
     use super::{Bytes, Entries, Insertion, Origin, replaces};
 
     pub(crate) fn get(entries: &Entries, key: &[u8]) -> Option<Bytes> {
@@ -224,8 +211,8 @@ impl MemoryStorage {
     /// The in-memory storage for `namespace`, shared process-wide across every
     /// environment.
     ///
-    /// The environment-bound path uses [`in_environment`](Self::in_environment)
-    /// instead, which isolates the entries per environment so a switch doesn't
+    /// The environment-bound path uses `in_environment` instead, which
+    /// isolates the entries per environment so a switch doesn't
     /// serve the previous one's data. This unscoped constructor is for explicit
     /// storages that aren't tied to an environment (tests, benches).
     pub fn new(namespace: &str) -> Self {
@@ -240,7 +227,7 @@ impl MemoryStorage {
     /// global key to get the same isolation. Without this, a bound store that
     /// resets after a switch would reopen the memory storage and immediately
     /// re-ingest the previous environment's entries.
-    pub(crate) fn in_environment(namespace: &str) -> Self {
+    fn in_environment(namespace: &str) -> Self {
         // `\u{1f}` (unit separator) can appear in neither a `/`-separated
         // namespace nor a file-system path, so the split back out is
         // unambiguous.
@@ -327,7 +314,7 @@ impl Storage for MemoryStorage {
 /// Only one case overwrites: a locally computed value replacing an imported
 /// one. That is what keeps a stale bundle entry from wedging the application,
 /// now that imported entries live in the storage like any other.
-pub(crate) fn replaces(incoming: Origin, existing: Origin) -> bool {
+fn replaces(incoming: Origin, existing: Origin) -> bool {
     matches!((incoming, existing), (Origin::Local, Origin::Imported))
 }
 
@@ -342,33 +329,42 @@ pub struct NamespaceSummary {
     pub bytes: u64,
 }
 
-/// Every namespace the active environment holds.
+/// Every namespace the active environment holds durably.
 ///
-/// Empty on every backend but the database, which are the ones that do not
-/// outlive the process that wrote them.
+/// Empty without a durable backend: memory namespaces do not outlive the
+/// process that wrote them.
 pub fn namespaces() -> Vec<String> {
     cfg_if::cfg_if! {
-        if #[cfg(native_cache)] {
-            super::Database::open_active()
-                .map(|database| database.namespaces())
-                .unwrap_or_default()
+        if #[cfg(any(native_cache, browser_cache))] {
+            super::turso::summary()
+                .into_iter()
+                .map(|summary| summary.namespace)
+                .collect()
         } else {
             Vec::new()
         }
     }
 }
 
-/// The storage serving `namespace` in the active environment.
+/// The storage serving `namespace` in the active environment, degrading to
+/// process-wide memory when the database can't be opened.
 ///
 /// The location is not a parameter: an environment is the store, so a cache
 /// can't be opened somewhere else without making "a single active
 /// environment" false. See [`crate::environment`].
 pub fn open(namespace: &str) -> Box<dyn Storage> {
     cfg_if::cfg_if! {
-        if #[cfg(native_cache)] {
-            super::open_database_storage(namespace)
-        } else if #[cfg(browser_cache)] {
-            super::browser::open_storage(namespace)
+        if #[cfg(any(native_cache, browser_cache))] {
+            match super::turso::open(namespace) {
+                Ok(storage) => storage,
+                // Isolate the memory fallback per environment, so a switch after
+                // the database failed to open doesn't serve the previous
+                // environment's entries.
+                Err(error) => {
+                    log::warn!("Unable to open Turso cache for '{namespace}', using memory: {error}");
+                    Box::new(MemoryStorage::in_environment(namespace))
+                }
+            }
         } else {
             Box::new(MemoryStorage::in_environment(namespace))
         }

@@ -180,6 +180,7 @@ jobs:
     needs:
       - publish-cubecl-std
       - publish-cubecl-cpp
+      - publish-cubecl-llvm
       - publish-cubecl-common
       - publish-cubecl-runtime
       - publish-cubecl-server

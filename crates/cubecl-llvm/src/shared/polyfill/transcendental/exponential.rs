@@ -23,12 +23,11 @@ const EXP_MIN: f32 = -104.66522;
 
 #[cube]
 pub fn exp<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
-    let x = Vector::<f32, N>::cast_from(x).clamp(Vector::new(EXP_MIN), Vector::new(EXP_MAX));
+    let input = Vector::<f32, N>::cast_from(x);
+    // The clamp ignores a NaN, like every float min and max, so a NaN is put back at the end.
+    let x = input.clamp(Vector::new(EXP_MIN), Vector::new(EXP_MAX));
 
     let k = (x * Vector::new(LOG2_E)).round();
-
-    let finite = k.equal(&k);
-    let k = select_many(finite, k, Vector::new(0.0f32));
 
     let r = fma(-k, Vector::new(LN2_HI), x);
     let r = fma(-k, Vector::new(LN2_LO), r);
@@ -46,7 +45,8 @@ pub fn exp<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     let exponent = Vector::<i32, N>::cast_from(k);
     let half = exponent >> Vector::new(1i32);
 
-    Vector::<F, N>::cast_from(series * power_of_two(half) * power_of_two(exponent - half))
+    let result = series * power_of_two(half) * power_of_two(exponent - half);
+    Vector::<F, N>::cast_from(select_many(input.equal(&input), result, input))
 }
 
 #[cube]

@@ -8,8 +8,8 @@ use cubecl_cuda::CudaRuntime;
 use cubecl_server::runtime::Runtime;
 use std::sync::Mutex;
 
-/// Graph capture toggles device-global allocation state (persistent mode) on
-/// the one cached client, and `CU_STREAM_CAPTURE_MODE_GLOBAL` makes any
+/// Graph capture holds the one cached client's stream for its whole window,
+/// and `CU_STREAM_CAPTURE_MODE_GLOBAL` makes any
 /// concurrent unsafe call (alloc, sync) in the process abort a recording
 /// capture — so two captures must not overlap: exactly one capture at a time
 /// per device, as in real use. Serialize the tests instead of relying on
@@ -51,7 +51,7 @@ fn cuda_graph_capture_replay() {
         );
     };
 
-    // Prepare arms the persistent pool; it is mandatory before a capture.
+    // Prepare starts the warmup run; it is mandatory before a capture.
     client.graph_prepare().expect("graph_prepare");
 
     // Warm up: compile the kernel and allocate every buffer, so capture stays
@@ -77,14 +77,9 @@ fn cuda_graph_capture_replay() {
 
 /// A capture window that has to grow the memory pool must be REJECTED, not handed back.
 ///
-/// A stream-ordered allocation (`cuMemAllocAsync`) issued while recording is captured as a memory
-/// node, and a graph holding an allocation node it never frees cannot be relaunched: the first
-/// `cuGraphLaunch` succeeds and every later one fails with `CUDA_ERROR_INVALID_VALUE`. Nothing
-/// else catches this — instantiation succeeds and `cuGraphUpload` returns `CUDA_SUCCESS` — so a
-/// caller that trusted `stop_capture` would only discover it on its second replay, far from the
-/// cause. Warmup usually leaves the persistent pool able to serve the recorded run, so real
-/// workloads hit the growth path only intermittently; this forces it by allocating a size the pool
-/// has never seen inside the window.
+/// The server rejects storage growth while recording, so every replay uses buffers
+/// prepared during warmup. Force that guard by requesting an allocation larger than
+/// the pool has served before, then verify that capture is rejected.
 #[test]
 fn cuda_graph_capture_growing_the_pool_is_rejected() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -117,8 +112,7 @@ fn cuda_graph_capture_growing_the_pool_is_rejected() {
 
     assert!(
         rejected.is_err(),
-        "a capture that grew the pool recorded a memory node and is not relaunchable, so \
-         stop_capture must reject it rather than return a graph that fails on its second replay"
+        "stop_capture must reject a capture that tried to grow the memory pool"
     );
 
     drop(grown);
@@ -179,11 +173,10 @@ fn cuda_graph_input_rewrite() {
 /// reallocates sentinel buffers over its freed slice, then replays.
 ///
 /// The graph's own output stays correct (its first kernel rewrites `tmp`
-/// before the second reads it — write-before-read), and with buffer retention
-/// (`graph_prepare` routes capture-phase allocations into the persistent pool,
-/// warmup populates it, `end_capture` pins those slices) a later allocation
-/// can no longer reuse `tmp`'s slice, so replay does **not** clobber the
-/// sentinels. This is the acceptance test for that retention.
+/// before the second reads it — write-before-read), and because `end_capture`
+/// guards every page the recording touched, a later allocation can no longer
+/// reuse `tmp`'s slice, so replay does **not** clobber the sentinels. This is
+/// the acceptance test for that guard.
 #[test]
 fn cuda_graph_intermediate_recycling() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -210,19 +203,18 @@ fn cuda_graph_intermediate_recycling() {
         );
     };
 
-    // Prepare: capture-phase allocations now go to the persistent pool and are
-    // snapshotted for retention.
+    // Prepare: the warmup run below leaves the pools holding `tmp`.
     client.graph_prepare().expect("graph_prepare");
 
-    // Warm up so `tmp` is compiled + allocated in the persistent pool (then
-    // freed, so the capture run reuses it without a fresh malloc).
+    // Warm up so `tmp` is compiled and allocated, then freed, so the capture
+    // run reuses its slice without a fresh allocation.
     {
         let tmp = client.empty(bytes);
         run(&client, &tmp);
         let _ = client.read_one(output.clone()).unwrap();
     }
 
-    // Capture the two-kernel computation; `tmp` reuses the warm persistent slice.
+    // Capture the two-kernel computation; `tmp` reuses the warm slice.
     client.start_capture().expect("start_capture");
     let tmp = client.empty(bytes);
     run(&client, &tmp);
@@ -268,7 +260,7 @@ fn add_one_tensor(input: &Tensor<f32>, output: &mut Tensor<f32>) {
 }
 
 /// Decode-shaped stress: capture a window of many launches (well past the
-/// drop-queue flush threshold of 64 pushes, so the deferred-flush/pool-priming
+/// drop-queue flush threshold of 64 pushes, so the deferred-flush/staging-priming
 /// path is exercised) of a `Tensor` kernel that reads `shape(0)`, forcing
 /// every launch through the dynamic-metadata staging + info-cache path. Then
 /// verify the recorded pass did not execute, two replays re-run it exactly,

@@ -4,6 +4,7 @@ use cubecl_core::ir::nvidia::SmArch;
 use cubecl_core::prelude::KernelDefinition;
 use cubecl_cpp::shared::CompilationOptions;
 use cubecl_cpp::{ComputeKernel, shared::CppCompiler, target::Cuda};
+use cubecl_llvm::nvptx::ptx_version::PtxVersion;
 use cubecl_server::compiler::{CompilationError, Compiler};
 use cubecl_server::kernel::BufferIOAttr;
 
@@ -60,6 +61,8 @@ pub struct CudaCompilationOptions {
     pub cpp: CompilationOptions,
     /// The device, as the runtime read its compute capability.
     pub arch: Option<SmArch>,
+    /// The newest PTX version the driver loads, which the LLVM backend emits.
+    pub ptx_version: Option<PtxVersion>,
 }
 
 pub enum CudaRepresentation {
@@ -129,6 +132,7 @@ impl Compiler for CudaCompiler {
                 let pliron_options = cubecl_llvm::PlironOptions {
                     arch: None,
                     sm_arch: options.arch,
+                    ptx_version: options.ptx_version,
                     // Same flag the C++ backend reads, and it has to be: the server pushes the
                     // launch parameters from it, so both halves have to agree on the shape.
                     grid_constants: options.cpp.supports_features.grid_constants,

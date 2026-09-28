@@ -9,8 +9,9 @@ for:
 | -------------------- | --------------------------------------------------------------- |
 | `LlvmTarget::Cpu`    | a `PlironEngine`, JIT-compiled with ORC/LLJIT                    |
 | `LlvmTarget::AmdGpu` | an `AmdGpuModule`, a linked code object for `hipModuleLoadData`  |
+| `LlvmTarget::Nvptx`  | an `NvptxModule`, PTX text for `cuModuleLoadData`                |
 
-Either one arrives as a `PlironArtifact`, which a runtime calls into.
+Each one arrives as a `PlironArtifact`, which a runtime calls into.
 
 LLVM is vendored through `tracel-llvm-bundler` by this crate's `build.rs`, so
 there is no system LLVM to install.
@@ -27,11 +28,17 @@ there is no system LLVM to install.
 | `cpu::jit`         | LLVM IR conversion, the `default<O3>` pipeline and LLJIT                      |
 | `amdgpu`           | The AMDGPU target: hardware builtins, plane, matrix, LDS, the kernarg ABI     |
 | `amdgpu::codegen`  | LLVM IR to an AMD code object, through the AMDGPU backend and LLD             |
+| `nvptx`            | The NVPTX target: special registers, `shfl.sync`, `wmma`/`mma.sync`, libdevice |
+| `nvptx::codegen`   | LLVM IR to PTX, at the PTX version the installed driver loads                 |
+| `shared::llvm_module` | The LLVM module and target machine every target parses, optimizes and emits with |
+| `shared::lowered_features` | `restrict_features`: a device's features narrowed to what its GPU target lowers |
+| `shared::builtins` | The launch values each target reads, and every builtin derived from them       |
+| `shared::loop_hints` | What the lowering asks LLVM for on a loop its cost model would decide differently |
 
-The AMDGPU target reaches three parts of LLVM that have no C API: LLD's ELF
-driver, the bitcode linker's `--only-needed` mode, and the AMDGPU `printf`
-emitter. `build.rs` compiles `amdgpu/cpp_shims/` alongside the crate to wrap
-them.
+The GPU targets reach parts of LLVM that have no C API: the bitcode linker's
+`--only-needed` mode and the command-line option registry (`shared/cpp_shims/`), and for
+AMDGPU also LLD's ELF driver and the `printf` emitter (`amdgpu/cpp_shims/`). `build.rs`
+compiles them alongside the crate.
 
 ## Debugging the compiler
 
@@ -52,6 +59,8 @@ Use any binary, test, or example that launches a kernel. Per kernel you get:
 | `llvm.opt.ll`           | LLVM IR after the `default<O3>` pipeline  | CPU    |
 | `amdgpu.ll`             | LLVM IR stamped for the HSA target        | AMDGPU |
 | `amdgpu.s`              | AMDGPU assembly, HSA metadata included    | AMDGPU |
+| `nvptx.ll`              | LLVM IR stamped for the PTX target        | NVPTX  |
+| `nvptx.ptx`             | The PTX handed to the driver              | NVPTX  |
 
 Diffing `N-after-<pass>.plir` against `N+1-after-<next>.plir` is usually the
 fastest way to find the pass that broke a kernel. If both the `.plir` and the
@@ -59,12 +68,21 @@ LLVM IR look right, the bug is in LLVM. On AMDGPU, `amdgpu.s` is the last stop
 before the hardware: it carries the `amdhsa.kernels` metadata the loader reads,
 so a launch the driver rejects usually disagrees with something there.
 
+### Checking a lowering without a device
+
+`amdgpu/offline_tests.rs` and `nvptx/offline_tests.rs` compile real `#[cube]` kernels
+(`shared/offline_kernels.rs`) through the whole pipeline and assert on the assembly, so a
+lowering change can be checked on the instructions it produces on a machine with neither GPU:
+
+```bash
+cargo test -p cubecl-llvm --features nvptx,amdgpu
+```
+
 ### The `pliron-dump` feature
 
 ```bash
 cargo test -p cubecl-cpu --features cubecl-llvm/pliron-dump
 ```
 
-The feature is re-exported as `cubecl-cpu/pliron-dump`,
-`cubecl-hip/pliron-dump` and `cubecl/pliron-dump` for crates that depend on
-those instead.
+The feature is re-exported as `cubecl-cpu/pliron-dump`, `cubecl-hip/pliron-dump`,
+`cubecl-cuda/pliron-dump` and `cubecl/pliron-dump` for crates that depend on those instead.

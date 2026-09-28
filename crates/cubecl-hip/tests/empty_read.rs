@@ -1,3 +1,5 @@
+#![cfg(any(target_os = "linux", target_os = "windows"))]
+
 //! Regression test: reading a zero-size buffer stages through pinned host
 //! memory, and a zero-size pinned allocation carries a NULL pointer
 //! (`hipHostMalloc(0)` returns success without allocating). Building the

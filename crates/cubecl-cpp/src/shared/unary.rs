@@ -26,7 +26,7 @@ use crate::{
     cuda::packed_ops::{PackableOp, packable},
     shared::{
         CppValue, OpToCPP,
-        convert::{no_half, promotes_int},
+        convert::{no_half, no_msl_bfloat, promotes_int},
         lowering::LowerOp,
         shared_op, shared_op_with_out,
         ty::{TypeExtCPP, TypedExtCPP},
@@ -69,12 +69,12 @@ macro_rules! function {
     };
 }
 
-function!(LogOp, "log", packable);
+function!(LogOp, "log", packable, no_msl_bfloat);
 // function!(FastLog, "__logf", no_half);
-function!(SinOp, "sin", packable);
-function!(CosOp, "cos", packable);
+function!(SinOp, "sin", packable, no_msl_bfloat);
+function!(CosOp, "cos", packable, no_msl_bfloat);
 function!(TanOp, "tan", no_half);
-function!(TanhOp, "tanh", packable);
+function!(TanhOp, "tanh", packable, no_msl_bfloat);
 function!(SinhOp, "sinh", no_half);
 function!(CoshOp, "cosh", no_half);
 function!(ArcCosOp, "acos", no_half);
@@ -85,17 +85,17 @@ function!(ArcCoshOp, "acosh", no_half);
 function!(ArcTanhOp, "atanh", no_half);
 // function!(FastSinOp, "__sinf", false);
 // function!(FastCosOp, "__cosf", false);
-function!(SqrtOp, "sqrt", packable);
-function!(RsqrtOp, "rsqrt", packable);
+function!(SqrtOp, "sqrt", packable, no_msl_bfloat);
+function!(RsqrtOp, "rsqrt", packable, no_msl_bfloat);
 // function!(FastSqrt, "__fsqrt_rn", false);
 // function!(FastInverseSqrt, "__frsqrt_rn", false);
-function!(ExpOp, "exp", packable);
+function!(ExpOp, "exp", packable, no_msl_bfloat);
 // function!(FastExp, "__expf", false);
 function!(Expm1Op, "expm1", no_half);
-function!(CeilOp, "ceil", packable);
-function!(TruncOp, "trunc", packable);
-function!(FloorOp, "floor", packable);
-function!(RoundOp, "rint", packable);
+function!(CeilOp, "ceil", packable, no_msl_bfloat);
+function!(TruncOp, "trunc", packable, no_msl_bfloat);
+function!(FloorOp, "floor", packable, no_msl_bfloat);
+function!(RoundOp, "rint", packable, no_msl_bfloat);
 // function!(FastRecip, "__frcp_rn", false);
 // function!(FastTanhOp, "__tanhf", false);
 

@@ -37,6 +37,7 @@ use cubecl_cpp::{
     },
 };
 use cubecl_hip_sys::{hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
+use cubecl_llvm::shared::lowered_features::{GpuTarget, restrict_features};
 use cubecl_server::{
     allocator::PitchedMemoryLayoutPolicy, driver::checked, logging::ServerLogger, runtime::Runtime,
 };
@@ -60,6 +61,11 @@ pub struct HipRuntime;
 
 impl DeviceService for HipServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
+        assert!(
+            cubecl_hip_sys::is_available(),
+            "HIP runtime is unavailable; install ROCm or set ROCM_PATH/HIP_PATH"
+        );
+
         let device = AmdDevice::from_id(device_id);
         let probe = DeviceProbe::of(device.index as i32);
 
@@ -180,6 +186,14 @@ impl DeviceService for HipServer {
         register_mma_features(supported_mma_combinations, &mut device_props);
         register_scaled_mma_features(supported_scaled_mma_combinations, &mut device_props);
 
+        // Which backend compiles here decides what may be advertised: a feature the selected
+        // one cannot honour is a kernel that fails to compile rather than a slower one.
+        let backend = HipBackend::default();
+        if backend == HipBackend::Llvm {
+            let wmma = gfx.wmma();
+            restrict_features(&mut device_props, GpuTarget::AmdGpu { wmma });
+        }
+
         let comp_opts = HipCompilationOptions {
             cpp: CompilationOptions {
                 warp_size: arch.warp_size() as usize,
@@ -191,12 +205,7 @@ impl DeviceService for HipServer {
             },
             arch: Some(gfx),
         };
-        let hip_ctx = HipContext::new(
-            comp_opts,
-            device_props.clone(),
-            fingerprint,
-            HipBackend::default(),
-        );
+        let hip_ctx = HipContext::new(comp_opts, device_props.clone(), fingerprint, backend);
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
         let utilities = ServerUtilities::new(

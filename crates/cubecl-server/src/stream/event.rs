@@ -176,6 +176,17 @@ impl<'a, B: EventStreamBackend> ResolvedStreams<'a, B> {
         &mut stream.stream
     }
 
+    /// The id of every initialized stream, each of which [`get`](Self::get)
+    /// resolves back to it.
+    pub fn stream_ids(&self) -> Vec<StreamId> {
+        self.streams.stream_ids().collect()
+    }
+
+    /// Every initialized stream; unlike [`get`](Self::get), never creates one.
+    pub fn all(&mut self) -> impl Iterator<Item = &mut B::Stream> {
+        self.streams.streams_mut().map(|stream| &mut stream.stream)
+    }
+
     /// Get the stream associated to the [current `stream_id`](StreamId).
     pub fn current(&mut self) -> &mut B::Stream {
         let stream = self.streams.get_mut(&self.current);

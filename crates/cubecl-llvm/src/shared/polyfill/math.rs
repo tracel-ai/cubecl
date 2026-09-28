@@ -56,16 +56,21 @@ macro_rules! lower_unary_math_arith {
     };
 }
 
-/// Polynomial approximations are limited to f32 vectors.
-fn is_narrow_float_line(input: Value, ctx: &Context) -> bool {
-    input.vector_size(ctx) > 1 && !input.scalar_ty(ctx).is_float64(ctx)
+/// Polynomial approximations are limited to f32 vectors on the CPU, where the alternative is
+/// a scalar libm call per lane. A GPU target scalarizes the vector anyway, so each lane reaches
+/// the same device-library call or hardware instruction a scalar does, faster than the
+/// polynomial and with the scalar's result.
+fn is_cpu_narrow_float_line(input: Value, ctx: &Context) -> bool {
+    ctx.target() == LlvmTarget::Cpu
+        && input.vector_size(ctx) > 1
+        && !input.scalar_ty(ctx).is_float64(ctx)
 }
 
-lower_unary_math_arith!(ExpOp => exp, is_narrow_float_line);
-lower_unary_math_arith!(LogOp => ln, is_narrow_float_line);
-lower_unary_math_arith!(SinOp => sin, is_narrow_float_line);
-lower_unary_math_arith!(CosOp => cos, is_narrow_float_line);
-lower_unary_math_arith!(TanhOp => tanh, is_narrow_float_line);
+lower_unary_math_arith!(ExpOp => exp, is_cpu_narrow_float_line);
+lower_unary_math_arith!(LogOp => ln, is_cpu_narrow_float_line);
+lower_unary_math_arith!(SinOp => sin, is_cpu_narrow_float_line);
+lower_unary_math_arith!(CosOp => cos, is_cpu_narrow_float_line);
+lower_unary_math_arith!(TanhOp => tanh, is_cpu_narrow_float_line);
 
 macro_rules! lower_binary_math_arith {
     ($cube_op:ty => $polyfill:ident) => {

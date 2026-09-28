@@ -27,16 +27,13 @@ use cubecl_server::{
     id::GraphId,
     kernel::CubeKernel,
     logging::ServerLogger,
-    memory_management::{
-        InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryReport,
-        MemoryUsage,
-    },
+    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, StreamMemoryReport},
     server::Server,
     storage::{ComputeStorage, ManagedResource},
     stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
 };
 use cudarc::driver::sys::{
-    CUstream_st, CUtensorMap, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapInterleave,
+    CUstream, CUtensorMap, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapInterleave,
     CUtensorMapL2promotion, CUtensorMapSwizzle, cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
 };
 use std::{ffi::c_void, sync::Arc};
@@ -82,7 +79,6 @@ pub struct CudaServer {
     device_id: DeviceId,
     streams: MultiStream<CudaStreamBackend>,
     utilities: Arc<ServerUtilities>,
-    comm_stream: *mut CUstream_st,
     /// The groups this device has joined — see [`Collectives`].
     collectives: Collectives<Cuda>,
     /// Captured graphs owned by this server, keyed by the [`GraphId`] handed to
@@ -134,17 +130,8 @@ impl Server for CudaServer {
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
-        let mut command = self.command_no_inputs(stream_id);
-
-        // Fatal rather than reported: `initialize_memory` has no error channel,
-        // and an allocation that never got its storage cannot be handed back as
-        // a taint either — nothing has a binding to it yet.
-        let reserved = command
-            .reserve(size)
-            .unwrap_or_else(|err| panic!("failed to reserve {size} bytes of device memory: {err}"));
-        command
-            .bind(reserved, memory)
-            .unwrap_or_else(|err| panic!("failed to bind {size} bytes of device memory: {err}"));
+        self.command_no_inputs(stream_id)
+            .initialize_memory(memory, size);
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
@@ -252,19 +239,19 @@ impl Server for CudaServer {
 
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(stream_id);
-        Window::on(command.stream()).prepare(stream_id)
+        Window::on(&mut command).prepare(stream_id)
     }
 
     fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(stream_id);
-        Window::on(command.stream()).begin()
+        Window::on(&mut command).begin()
     }
 
     fn end_capture(&mut self, stream_id: StreamId) -> Result<GraphId, ServerError> {
         let id = GraphId::new();
         let instantiated = {
             let mut command = self.command_no_inputs(stream_id);
-            Window::on(command.stream()).instantiate(stream_id, id)
+            Window::on(&mut command).instantiate(stream_id, id)
         };
         match instantiated {
             Ok(graph) => {
@@ -378,11 +365,7 @@ impl Server for CudaServer {
         self.ctx.profiler.abandon(token);
     }
 
-    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
-        self.command_no_inputs(stream_id).memory_usage()
-    }
-
-    fn memory_report(&mut self, stream_id: StreamId) -> MemoryReport {
+    fn memory_report(&mut self, stream_id: StreamId) -> StreamMemoryReport {
         self.command_no_inputs(stream_id).memory_report()
     }
 
@@ -390,7 +373,7 @@ impl Server for CudaServer {
         self.streams.stream_ids().collect()
     }
 
-    fn memory_cleanup(&mut self, stream_id: StreamId) {
+    fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(stream_id);
         command.memory_cleanup()
     }
@@ -398,22 +381,6 @@ impl Server for CudaServer {
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
         let mut command = self.command_no_inputs(stream_id);
         command.allocation_mode(mode)
-    }
-
-    fn install_memory_pools(
-        &mut self,
-        config: MemoryConfiguration,
-        stream_id: StreamId,
-    ) -> Result<(), InstallMemoryPoolsError> {
-        // Streams created from now on build their GPU pools with the new
-        // layout; memory is per stream, so already-created streams keep theirs.
-        self.streams.backend_mut().set_gpu_pools(config.clone());
-        let (_, props) = self.streams.backend_mut().gpu_pools();
-
-        // The calling stream's pools are rebuilt in place, keeping the old
-        // layout when something is still live in them.
-        self.command_no_inputs(stream_id)
-            .install_memory_pools(config, &props)
     }
 }
 
@@ -471,7 +438,7 @@ impl ServerCommunication for CudaServer {
 
         // The collectives ran on their own stream; this is where the compute
         // stream waits for them.
-        Fence::new(self.comm_stream).wait_async(stream);
+        Fence::new(self.comm_stream()).wait_async(stream);
         Ok(())
     }
 
@@ -500,14 +467,14 @@ impl ServerCommunication for CudaServer {
         drop(command);
 
         // Wait for the data to be ready on the compute stream.
-        Fence::new(stream).wait_async(self.comm_stream);
+        Fence::new(stream).wait_async(self.comm_stream());
 
         let (peers, comm_id) = pair(self.device_id, device_id_dst);
         let comm = self.collectives.get(&comm_id)?;
         let peer = self.collectives.peer_rank(&peers)?;
         let (nccl_dtype, count) = Cuda::data_type(dtype, resource.size)?;
 
-        Cuda::send(comm, &resource, nccl_dtype, count, peer, self.comm_stream)
+        Cuda::send(comm, &resource, nccl_dtype, count, peer, self.comm_stream())
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
@@ -574,8 +541,6 @@ impl CudaServer {
 
         ctx.unsafe_set_current().unwrap();
 
-        let comm_stream = crate::compute::stream::create_cuda_stream(stream_priority);
-
         Self {
             ctx,
             device_id,
@@ -587,14 +552,19 @@ impl CudaServer {
                     mem_alignment,
                     utilities.logger.clone(),
                     stream_priority,
+                    config.memory.cuda.allocator,
                 ),
                 max_streams,
             ),
             utilities: Arc::new(utilities),
-            comm_stream,
             collectives: Collectives::new(device_id),
             graphs: Captures::default(),
         }
+    }
+
+    /// The stream collectives run on.
+    fn comm_stream(&self) -> CUstream {
+        self.ctx.comm_stream
     }
 
     fn command_no_inputs(&mut self, stream_id: StreamId) -> Command<'_> {
@@ -695,7 +665,7 @@ impl CudaServer {
         drop(command);
 
         // Wait for the data to be ready on the compute stream.
-        Fence::new(stream).wait_async(self.comm_stream);
+        Fence::new(stream).wait_async(self.comm_stream());
 
         let comm = self.collectives.get(&CommunicationId::from(device_ids))?;
         let (nccl_dtype, count) = Cuda::data_type(dtype, resource_src.size)?;
@@ -707,7 +677,7 @@ impl CudaServer {
             nccl_dtype,
             count,
             op,
-            self.comm_stream,
+            self.comm_stream(),
         )
     }
 
@@ -745,7 +715,7 @@ impl CudaServer {
             nccl_dtype,
             count,
             peer,
-            self.comm_stream,
+            self.comm_stream(),
         )
     }
 
@@ -1360,9 +1330,6 @@ impl ServerStorage for CudaServer {
         // whatever was there before.
         self.streams.ensure_written([&binding].into_iter())?;
         let mut command = self.command(stream_id, [&binding].into_iter());
-        let memory = binding.memory.clone();
-        let resource = command.resource(binding)?;
-
-        Ok(ManagedResource::new(memory, resource))
+        Ok(command.managed_resource(binding)?)
     }
 }

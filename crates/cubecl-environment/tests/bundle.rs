@@ -1,11 +1,11 @@
-#![cfg(feature = "cache")]
+#![cfg(all(feature = "persistence", not(target_family = "wasm")))]
 
 use cubecl_environment::bundle::{
     Bundle, BundleError, BundleFormat, BundleManifest, EmbeddedBundle, ExportOptions, SqliteBundle,
     export, import,
 };
 use cubecl_environment::bytes::Bytes;
-use cubecl_environment::persistence::{Database, Namespace, Store, StoreOptions};
+use cubecl_environment::persistence::{Namespace, Store, StoreOptions};
 
 // Storage resolves through the process-global active environment, so these
 // tests are serialized: only one environment is active at a time by design.
@@ -246,20 +246,45 @@ fn a_cache_root_lists_its_namespaces() {
         &[("k", 2), ("j", 3)],
     );
 
-    let database = Database::open_active().unwrap();
     let version = env!("CARGO_PKG_VERSION");
 
+    let summary = cubecl_environment::environment::namespaces();
     assert_eq!(
-        database.namespaces(),
+        summary
+            .iter()
+            .map(|entry| entry.namespace.clone())
+            .collect::<Vec<_>>(),
         vec![
             format!("autotune/{version}/device0/matmul"),
             format!("throughput/{version}/device0/copy"),
         ]
     );
-
-    let summary = database.summary();
     assert_eq!(summary[0].entries, 1);
     assert_eq!(summary[1].entries, 2);
+}
+
+/// A bundle file reports what it holds the same way a cache root does, and
+/// without reading any of it: the same question an application asks of a
+/// shipped file before importing it.
+#[test]
+#[serial_test::serial]
+fn a_bundle_file_summarizes_its_namespaces() {
+    let root = tempfile::tempdir().unwrap();
+    let bundle_dir = tempfile::tempdir().unwrap();
+    let bundle_path = bundle_dir.path().join("test.bundle");
+
+    warm(root.path(), "autotune", "device0/matmul", &[("k", 1)]);
+    warm(
+        root.path(),
+        "throughput",
+        "device0/copy",
+        &[("k", 2), ("j", 3)],
+    );
+    export_to(root.path(), &bundle_path, BundleFormat::Sqlite);
+
+    let expected = cubecl_environment::environment::namespaces();
+    let bundle = SqliteBundle::open(&bundle_path).unwrap();
+    assert_eq!(bundle.summary(), expected);
 }
 
 /// Merging cache roots dedupes on the primary key. The original file-copy
@@ -758,8 +783,8 @@ fn a_local_blob_replaces_a_stale_imported_one() {
 /// The shipping scenario: a bundle installed where it cannot be written to.
 ///
 /// A container image layer, a Nix store path and a macOS app bundle are all
-/// read-only *directories*, and `SQLite` needs to write next to the file to read
-/// a WAL database. An export that left WAL in the header would import zero
+/// read-only *directories*. The engine never checkpoints on close, so an
+/// export that shipped the file without folding its WAL in would import zero
 /// entries here, and report success while doing it.
 #[cfg(unix)]
 #[test]
@@ -787,10 +812,12 @@ fn a_bundle_installed_read_only_still_imports() {
     // Root ignores the mode bits, so the test would prove nothing there.
     let writable = std::fs::File::create(installed.path().join("probe")).is_ok();
 
-    let imported = (!writable).then(|| {
+    let imported = if writable {
+        None
+    } else {
         let bundle = SqliteBundle::open(&bundle_path).expect("a read-only bundle opens");
-        import_into(target.path(), &bundle).imported
-    });
+        Some(import_into(target.path(), &bundle).imported)
+    };
 
     std::fs::set_permissions(installed.path(), original).unwrap();
 
@@ -803,4 +830,211 @@ fn a_bundle_installed_read_only_still_imports() {
         open(target.path(), "default", "autotune/matmul").get(&"shape=2x2".to_string()),
         Some(&42)
     );
+}
+
+/// The same install, mounted rather than imported: `environment::load` on a
+/// file nobody may write opens it read-only and serves its entries, instead
+/// of degrading to memory because the rebuild-on-open can't write.
+#[cfg(unix)]
+#[test]
+#[serial_test::serial]
+fn a_bundle_installed_read_only_can_be_loaded_in_place() {
+    use cubecl_environment::environment;
+    use std::os::unix::fs::PermissionsExt;
+
+    let source = tempfile::tempdir().unwrap();
+    let installed = tempfile::tempdir().unwrap();
+    let cold_root = tempfile::tempdir().unwrap();
+
+    warm(source.path(), "autotune", "device0/matmul", &[("k", 7)]);
+    let bundle_path = installed.path().join("shipped.db");
+    export_to(source.path(), &bundle_path, BundleFormat::Sqlite);
+
+    let original = std::fs::metadata(installed.path()).unwrap().permissions();
+    std::fs::set_permissions(&bundle_path, std::fs::Permissions::from_mode(0o444)).unwrap();
+    std::fs::set_permissions(installed.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+
+    // Root ignores the mode bits, so the test would prove nothing there.
+    let writable = std::fs::File::create(installed.path().join("probe")).is_ok();
+
+    let served = if writable {
+        None
+    } else {
+        environment::set_root(cold_root.path());
+        environment::load(&bundle_path);
+        let store: Store<String, u32> = environment::store(
+            StoreOptions::new().storage(Namespace::scoped("autotune", "device0/matmul")),
+        );
+        Some(store.get(&"k".to_string()).copied())
+    };
+
+    environment::set_root(cold_root.path());
+    std::fs::set_permissions(installed.path(), original).unwrap();
+
+    if let Some(served) = served {
+        assert_eq!(served, Some(7));
+        assert!(
+            !installed.path().join("shipped.db-wal").exists(),
+            "a read-only mount must not write beside the file"
+        );
+    }
+}
+
+/// A shipped bundle is one file with a rollback-journal header: nothing
+/// beside it, and nothing a reader has to create beside it.
+///
+/// Turso is WAL-only and leaves a WAL header behind however the file was
+/// checkpointed, and `SQLite` reads that header as "build me a `-shm` first" —
+/// which fails in the read-only directory a bundle is usually installed into.
+/// The export rewrites the field once the WAL is folded in.
+#[test]
+#[serial_test::serial]
+fn a_shipped_bundle_is_a_single_rollback_journal_file() {
+    let source = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+
+    warm(source.path(), "autotune", "device0/matmul", &[("k", 7)]);
+    let bundle = out.path().join("shipped.db");
+    export_to(source.path(), &bundle, BundleFormat::Sqlite);
+
+    // Nothing beside it: a bundle copied without its sidecars is still whole.
+    for suffix in ["-wal", "-shm"] {
+        let sidecar = out.path().join(std::format!("shipped.db{suffix}"));
+        assert!(!sidecar.exists(), "{sidecar:?} was left behind");
+    }
+
+    let header = std::fs::read(&bundle).unwrap();
+    assert_eq!(
+        &header[18..20],
+        &[1, 1],
+        "the shipped header still says WAL"
+    );
+
+    // And it is still a bundle this build reads: the rewritten field must not
+    // cost the engine its own WAL.
+    let expected = cubecl_environment::environment::namespaces();
+    let opened = SqliteBundle::open(&bundle).unwrap();
+    assert_eq!(opened.summary(), expected);
+
+    // Importing it fills a cold root, which is what a shipped bundle is for.
+    let cold = tempfile::tempdir().unwrap();
+    import_into(cold.path(), &opened);
+    let store = open(cold.path(), "autotune", "device0/matmul");
+    assert_eq!(store.get(&"k".to_string()).copied(), Some(7));
+}
+
+/// A cache root nobody may write — a mounted bundle, a store path — can
+/// still be exported from: the sources are read, never opened for writing.
+#[cfg(unix)]
+#[test]
+#[serial_test::serial]
+fn exporting_from_a_read_only_root_works() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let source = tempfile::tempdir().unwrap();
+    let bundle_dir = tempfile::tempdir().unwrap();
+    let cold_root = tempfile::tempdir().unwrap();
+    let bundle_path = bundle_dir.path().join("from-read-only.bundle");
+
+    warm(source.path(), "autotune", "device0/matmul", &[("k", 7)]);
+    let database = cubecl_environment::environment::path();
+
+    let original = std::fs::metadata(source.path()).unwrap().permissions();
+    std::fs::set_permissions(&database, std::fs::Permissions::from_mode(0o444)).unwrap();
+    std::fs::set_permissions(source.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+
+    // Root ignores the mode bits, so the test would prove nothing there.
+    let writable = std::fs::File::create(source.path().join("probe")).is_ok();
+
+    let exported = if writable {
+        None
+    } else {
+        Some(export_roots(
+            "Read-only",
+            &[source.path()],
+            &bundle_path,
+            BundleFormat::Flat,
+            &[],
+        ))
+    };
+
+    std::fs::set_permissions(source.path(), original).unwrap();
+    let Some(exported) = exported else {
+        return;
+    };
+    exported.expect("a read-only root exports");
+
+    let bundle = open_bundle(&bundle_path, BundleFormat::Flat);
+    assert_eq!(import_into(cold_root.path(), bundle.as_ref()).imported, 1);
+}
+
+/// A bundle written at a database schema this build doesn't read is still a
+/// bundle: re-exporting over it replaces it rather than refusing to touch a
+/// "foreign" file.
+#[test]
+#[serial_test::serial]
+fn exporting_over_an_older_schema_bundle_replaces_it() {
+    let warm_root = tempfile::tempdir().unwrap();
+    let bundle_dir = tempfile::tempdir().unwrap();
+    let bundle_path = bundle_dir.path().join("old.bundle");
+
+    warm(warm_root.path(), "autotune", "device0/matmul", &[("k", 1)]);
+    export_to(warm_root.path(), &bundle_path, BundleFormat::Sqlite);
+
+    // Age the file: rewrite its schema version.
+    {
+        use cubecl_environment::future::block_on;
+
+        let database =
+            block_on(turso::Builder::new_local(bundle_path.to_str().unwrap()).build()).unwrap();
+        let connection = database.connect().unwrap();
+        block_on(connection.execute("UPDATE meta SET v = '0' WHERE k = 'schema_version'", ()))
+            .unwrap();
+    }
+    assert!(matches!(
+        SqliteBundle::open(&bundle_path),
+        Err(BundleError::UnsupportedDatabase(schema)) if schema == "0"
+    ));
+
+    export_to(warm_root.path(), &bundle_path, BundleFormat::Sqlite);
+    assert_eq!(
+        open_bundle(&bundle_path, BundleFormat::Sqlite)
+            .namespaces()
+            .len(),
+        1
+    );
+}
+
+/// An excluded prefix leaves its namespaces out of both formats, whole
+/// segments only, whatever the inclusion filter selected.
+#[test]
+#[serial_test::serial]
+fn exporting_can_leave_some_namespaces_out() {
+    let warm_root = tempfile::tempdir().unwrap();
+    let bundle_dir = tempfile::tempdir().unwrap();
+
+    warm(warm_root.path(), "autotune", "device0/matmul", &[("k", 1)]);
+    warm(warm_root.path(), "records", "sessions", &[("k", 2)]);
+    warm(warm_root.path(), "recordsmith", "device0", &[("k", 3)]);
+
+    let version = env!("CARGO_PKG_VERSION");
+    for format in [BundleFormat::Sqlite, BundleFormat::Flat] {
+        let bundle_path = bundle_dir.path().join(format!("stripped-{format:?}.ccb"));
+        let options = ExportOptions {
+            name: "Stripped".to_string(),
+            format,
+            excluded_namespaces: vec!["records".to_string()],
+            ..Default::default()
+        };
+        export(&[warm_root.path()], &bundle_path, &options).unwrap();
+
+        assert_eq!(
+            open_bundle(&bundle_path, format).namespaces(),
+            vec![
+                format!("autotune/{version}/device0/matmul"),
+                format!("recordsmith/{version}/device0"),
+            ],
+            "{format:?}"
+        );
+    }
 }

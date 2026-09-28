@@ -30,6 +30,7 @@ use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_server::id::KernelId;
 use cubecl_server::logging::ServerLogger;
+use cubecl_server::memory_management::{Cleanup, PageUpdate};
 use cubecl_server::memory_management::{
     ErrorGraph, FailureId, MemoryConfiguration, MemoryManagement, MemoryManagementOptions,
 };
@@ -238,10 +239,14 @@ impl Harness {
 
         let device = &mut self.device;
         let stream = device.pool.get_mut(&id);
-        let reserved = match stream.memory.reserve(size, device.failures.graph_mut()) {
-            Ok(reserved) => reserved,
-            Err(err) => panic!("the harness never outgrows its pools: {err}"),
-        };
+        let reserved =
+            match stream
+                .memory
+                .reserve(size, PageUpdate::Allow, device.failures.graph_mut())
+            {
+                Ok(reserved) => reserved,
+                Err(err) => panic!("the harness never outgrows its pools: {err}"),
+            };
         stream
             .memory
             .bind(
@@ -369,10 +374,13 @@ impl Harness {
 
     fn cleanup(&mut self) {
         let id = self.stream_id();
-        let explicit = self.rng.chance(50);
+        let cleanup = match self.rng.chance(50) {
+            true => Cleanup::Explicit,
+            false => Cleanup::Periodic,
+        };
         let device = &mut self.device;
         let stream = device.pool.get_mut(&id);
-        stream.memory.cleanup(explicit, device.failures.graph_mut());
+        stream.memory.cleanup(cleanup, device.failures.graph_mut());
     }
 
     fn sweep(&mut self) {
@@ -380,7 +388,9 @@ impl Harness {
         for value in 0..MAX_STREAMS as u64 {
             let id = StreamId { value };
             let stream = device.pool.get_mut(&id);
-            stream.memory.cleanup(true, device.failures.graph_mut());
+            stream
+                .memory
+                .cleanup(Cleanup::Explicit, device.failures.graph_mut());
         }
     }
 }
@@ -424,10 +434,10 @@ fn run(config: MemoryConfiguration, seed: u64) {
 }
 
 #[test]
-fn a_read_returns_bytes_iff_their_last_writer_succeeded_subslices() {
+fn a_read_returns_bytes_iff_their_last_writer_succeeded_adaptive() {
     #[cfg(not(exclusive_memory_only))]
     for seed in 0..SEEDS {
-        run(MemoryConfiguration::SubSlices, seed);
+        run(MemoryConfiguration::Adaptive, seed);
     }
 }
 

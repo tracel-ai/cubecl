@@ -12,7 +12,9 @@ use crate::AMD_MAX_BINDINGS;
 /// for launching kernels.
 pub struct GpuStorage {
     mem_alignment: usize,
-    memory: HashMap<StorageId, cubecl_hip_sys::hipDeviceptr_t>,
+    memory: HashMap<StorageId, (cubecl_hip_sys::hipDeviceptr_t, u64)>,
+    /// The bytes `memory` holds.
+    allocated: u64,
     deallocations: Vec<StorageId>,
     ptr_bindings: PtrBindings,
 }
@@ -38,6 +40,7 @@ impl GpuStorage {
         Self {
             mem_alignment,
             memory: HashMap::new(),
+            allocated: 0,
             deallocations: Vec::new(),
             ptr_bindings: PtrBindings::new(),
         }
@@ -48,7 +51,8 @@ impl GpuStorage {
     /// This method processes all pending deallocations by freeing the associated GPU memory.
     pub fn perform_deallocations(&mut self) {
         for id in self.deallocations.drain(..) {
-            if let Some(ptr) = self.memory.remove(&id) {
+            if let Some((ptr, size)) = self.memory.remove(&id) {
+                self.allocated -= size;
                 // SAFETY: `ptr` was obtained from a prior `hipMalloc` call and
                 // has not been freed yet. `hipFree` synchronizes the device, so
                 // in-flight work never sees the page disappear.
@@ -112,13 +116,15 @@ impl ComputeStorage for GpuStorage {
     }
 
     fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError> {
-        let ptr = *self
-            .memory
-            .get(&handle.id)
-            .ok_or_else(|| IoError::StorageHandleNotFound {
-                reason: format!("{} in the HIP gpu storage", handle.id).into(),
-                backtrace: BackTrace::capture(),
-            })? as u64;
+        let (ptr, _) =
+            *self
+                .memory
+                .get(&handle.id)
+                .ok_or_else(|| IoError::StorageHandleNotFound {
+                    reason: format!("{} in the HIP gpu storage", handle.id).into(),
+                    backtrace: BackTrace::capture(),
+                })?;
+        let ptr = ptr as u64;
 
         let offset = handle.offset();
         let size = handle.size();
@@ -153,7 +159,8 @@ impl ComputeStorage for GpuStorage {
 
             checked("hipMalloc", status)?;
 
-            self.memory.insert(id, ptr);
+            self.memory.insert(id, (ptr, size));
+            self.allocated += size;
         };
 
         Ok(StorageHandle::new(
@@ -169,6 +176,10 @@ impl ComputeStorage for GpuStorage {
 
     fn flush(&mut self) {
         self.perform_deallocations();
+    }
+
+    fn bytes_allocated(&self) -> u64 {
+        self.allocated
     }
 }
 

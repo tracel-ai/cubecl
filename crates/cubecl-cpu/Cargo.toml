@@ -25,6 +25,7 @@ default = [
 ]
 
 pliron-dump = ["cubecl-llvm/pliron-dump"]
+persistence = ["cubecl-server/persistence"]
 std = [
     "cubecl-server/std",
     "cubecl-common/std",

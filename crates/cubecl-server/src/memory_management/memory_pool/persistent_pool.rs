@@ -1,15 +1,14 @@
-use super::{
-    ManagedMemoryHandle, ManagedMemoryId, MemoryPool, PageMapping, Slice, calculate_padding,
-};
+use super::{ManagedMemoryHandle, MemoryPool, PageMapping, Slice, calculate_padding};
+use crate::memory_management::Cleanup;
 use crate::memory_management::{
-    BytesFormat, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport,
+    BytesFormat, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, PageGuard,
 };
 use crate::storage::StorageUtilization;
 use crate::{memory_management::MemoryUsage, server::IoError};
 use alloc::vec;
 use alloc::vec::Vec;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::collections::{HashMap, HashSet};
+use cubecl_environment::collections::HashMap;
 
 pub struct PersistentPool {
     slices: Vec<Slice>,
@@ -83,23 +82,6 @@ impl PersistentPool {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
         self.sizes.contains_key(&effective_size)
-    }
-
-    /// Retain a handle to every slice a capture window `touched` (reserved or
-    /// allocated while it was open), keeping those slices from ever being
-    /// reported free (and thus reused). These are exactly the slices the graph's
-    /// recorded kernels may replay against, so retaining them — and nothing more
-    /// — pins precisely the graph's working set: a slice the window never touched
-    /// is not retained (no over-retention), and a slice that was live at the
-    /// start but was freed and reused mid-window *is* (it was touched). The graph
-    /// holds the handles and releases the slices by dropping them. Cloning a
-    /// slice's handle is exactly what [`try_reserve`](Self::try_reserve) does.
-    pub fn retain_touched(&self, touched: &HashSet<ManagedMemoryId>) -> Vec<ManagedMemoryHandle> {
-        self.slices
-            .iter()
-            .filter(|slice| touched.contains(&slice.descriptor().id))
-            .map(|slice| slice.handle.clone())
-            .collect()
     }
 }
 
@@ -195,6 +177,11 @@ impl MemoryPool for PersistentPool {
         Ok(handle)
     }
 
+    fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
+        let slice = self.slices.get(location.slice as usize)?;
+        Some(PageGuard::allocation(slice.handle.clone().binding()))
+    }
+
     fn get_memory_usage(&self) -> MemoryUsage {
         let used_slices: Vec<_> = self
             .slices
@@ -214,10 +201,10 @@ impl MemoryPool for PersistentPool {
         &mut self,
         storage: &mut Storage,
         _alloc_nr: u64,
-        explicit: bool,
+        cleanup: Cleanup,
         failures: &mut ErrorGraph,
     ) {
-        if explicit {
+        if cleanup == Cleanup::Explicit {
             // We have to recompute all locations, so it's just safer to rebuild everything.
             let mut slices = Vec::new();
             let mut sizes = HashMap::<u64, Vec<usize>>::new();

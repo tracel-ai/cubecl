@@ -23,6 +23,7 @@ default = [
     "cubecl-core/default",
 ]
 
+persistence = ["cubecl-server/persistence"]
 std = [
     "cubecl-server/std",
     "cubecl-common/std",

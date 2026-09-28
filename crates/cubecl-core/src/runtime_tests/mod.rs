@@ -27,6 +27,7 @@ pub mod plane;
 pub mod profiling;
 pub mod properties;
 pub mod read_lazy;
+pub mod relocation;
 pub mod saturating;
 pub mod sequence;
 pub mod short_circuit;

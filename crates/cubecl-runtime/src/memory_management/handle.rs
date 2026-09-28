@@ -1,5 +1,8 @@
 use crate::memory_management::MemoryHandle;
-use alloc::{sync::Arc, vec::Vec};
+use alloc::{
+    sync::{Arc, Weak},
+    vec::Vec,
+};
 use core::sync::atomic::{AtomicU64, Ordering};
 
 /// Managed Memory handle
@@ -14,6 +17,14 @@ pub struct ManagedMemoryHandle {
 #[derive(Debug)]
 pub struct ManagedMemoryBinding {
     descriptor: Arc<ManagedMemoryDescriptor>,
+}
+
+/// A [`ManagedMemoryBinding`] that does not keep its memory reserved: what a
+/// record of an allocation holds when holding the allocation itself would
+/// change what the pools may reuse.
+#[derive(Debug, Clone)]
+pub struct WeakMemoryBinding {
+    descriptor: Weak<ManagedMemoryDescriptor>,
 }
 
 /// A list of bindings that are shared across multiple streams.
@@ -74,7 +85,7 @@ impl PartialEq for ManagedMemoryDescriptor {
 
 impl Eq for ManagedMemoryDescriptor {}
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 /// Defines where the [`ManagedMemoryId`] is located.
 #[doc(hidden)]
 pub struct MemoryLocation {
@@ -209,6 +220,15 @@ impl ManagedMemoryHandle {
         Arc::strong_count(&self.handle_count) <= 2
     }
 
+    /// Whether a [binding](Self::binding) is out: something holds the
+    /// allocation's address, not only its handle.
+    ///
+    /// Handles and bindings share the descriptor, and only handles count in
+    /// `handle_count`, so the difference is the bindings.
+    pub fn is_bound(&self) -> bool {
+        Arc::strong_count(&self.descriptor) > Arc::strong_count(&self.handle_count)
+    }
+
     /// Return whether the current handle is free.
     pub fn is_free(&self) -> bool {
         Arc::strong_count(&self.descriptor) <= 1
@@ -242,6 +262,27 @@ impl ManagedMemoryBinding {
     /// allocation lives and never reused by a later one.
     pub fn id(&self) -> ManagedMemoryId {
         self.descriptor.id
+    }
+
+    /// This binding, without keeping its memory reserved.
+    pub fn downgrade(&self) -> WeakMemoryBinding {
+        WeakMemoryBinding {
+            descriptor: Arc::downgrade(&self.descriptor),
+        }
+    }
+}
+
+impl WeakMemoryBinding {
+    /// The binding back, while the memory it names is allocated: held by
+    /// something other than the pool that carved it, which keeps a reference
+    /// of its own whether the slice is free or not (see
+    /// [`ManagedMemoryHandle::is_free`]). `None` once every owner let it go.
+    pub fn upgrade(&self) -> Option<ManagedMemoryBinding> {
+        if self.descriptor.strong_count() <= 1 {
+            return None;
+        }
+        let descriptor = self.descriptor.upgrade()?;
+        Some(ManagedMemoryBinding { descriptor })
     }
 }
 

@@ -127,6 +127,7 @@ struct Row {
 
 fn report(device: &Device, rows: impl FnOnce(&Client) -> Vec<Row>) {
     let client = device.client();
+    let start = std::time::Instant::now();
 
     println!(
         "Peak throughput — {} / {}",
@@ -145,6 +146,8 @@ fn report(device: &Device, rows: impl FnOnce(&Client) -> Vec<Row>) {
 
         println!("  {:<15}{:<24}{:>18}", row.mode, row.operands, value);
     }
+
+    println!("\n  measured in {:.1} s", start.elapsed().as_secs_f64());
 }
 
 fn compute_direct_rows(client: &Client) -> Vec<Row> {

@@ -70,7 +70,7 @@ fn wgpu_graph_capture_replay() {
         );
     };
 
-    // Prepare arms the persistent pools; it is mandatory before a capture.
+    // Prepare starts the warmup run; it is mandatory before a capture.
     client.graph_prepare().expect("graph_prepare");
 
     // Warm up: compile the kernel and allocate every buffer, so the capture
@@ -94,13 +94,11 @@ fn wgpu_graph_capture_replay() {
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 }
 
-/// A capture window that allocates fresh memory is fine on wgpu — the
-/// opposite of CUDA/HIP, where a mid-capture allocation records a memory node
-/// that makes the graph un-relaunchable. A software graph has no such
-/// constraint: the fresh slice is simply pinned to the graph like everything
-/// else the window touched.
+/// A capture window that needs memory the pools do not hold is refused: the
+/// recording must reuse what the warmup run left, as on every backend, so the
+/// pages it touches stay the ones the graph guards.
 #[test]
-fn wgpu_graph_mid_capture_allocation_is_allowed() {
+fn wgpu_graph_mid_capture_allocation_is_rejected() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let client = <WgpuRuntime>::client(&Default::default());
 
@@ -124,19 +122,14 @@ fn wgpu_graph_mid_capture_allocation_is_allowed() {
 
     client.start_capture().expect("start_capture");
     launch(&client);
-    // A size no warmup allocated and no pool bucket rounds to, so serving it
-    // forces the pool to grow *inside* the window — the thing under test.
-    // Deliberately not a round number: a power of two would land in an
-    // existing bucket and the window would allocate nothing.
+    // A size no warmup allocated, so serving it would need a page the pools
+    // do not hold.
     const UNPOOLED_BYTES: usize = 3_145_733;
     let grown = client.empty(UNPOOLED_BYTES);
-    let graph = client.stop_capture().expect(
-        "a mid-capture allocation is legal on wgpu: the fresh slice is pinned to the graph",
+    assert!(
+        client.stop_capture().is_err(),
+        "a capture that needed a fresh allocation must not seal"
     );
-
-    unsafe { graph.replay() }.expect("replay enqueues");
-    let out = client.read_one(output).unwrap();
-    assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 
     drop(grown);
 }
@@ -196,11 +189,10 @@ fn wgpu_graph_input_rewrite() {
 /// reallocates sentinel buffers over its freed slice, then replays.
 ///
 /// The graph's own output stays correct (its first kernel rewrites `tmp`
-/// before the second reads it — write-before-read), and with buffer retention
-/// (`graph_prepare` routes capture-phase allocations into the persistent
-/// pools, warmup populates them, `end_capture` pins those slices) a later
-/// allocation can no longer reuse `tmp`'s slice, so replay does **not**
-/// clobber the sentinels. This is the acceptance test for that retention.
+/// before the second reads it — write-before-read), and because `end_capture`
+/// guards every page the recording touched, a later allocation can no longer
+/// reuse `tmp`'s slice, so replay does **not** clobber the sentinels. This is
+/// the acceptance test for that guard.
 #[test]
 fn wgpu_graph_intermediate_recycling() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -227,19 +219,18 @@ fn wgpu_graph_intermediate_recycling() {
         );
     };
 
-    // Prepare: capture-phase allocations now go to the persistent pools and
-    // are tracked for retention.
+    // Prepare: the warmup run below leaves the pools holding `tmp`.
     client.graph_prepare().expect("graph_prepare");
 
-    // Warm up so `tmp` is compiled + allocated in the persistent pool (then
-    // freed, so the capture run reuses it without a fresh allocation).
+    // Warm up so `tmp` is compiled and allocated, then freed, so the capture
+    // run reuses its slice without a fresh allocation.
     {
         let tmp = client.empty(bytes);
         run(&client, &tmp);
         let _ = client.read_one(output.clone()).unwrap();
     }
 
-    // Capture the two-kernel computation; `tmp` reuses the warm persistent slice.
+    // Capture the two-kernel computation; `tmp` reuses the warm slice.
     client.start_capture().expect("start_capture");
     let tmp = client.empty(bytes);
     run(&client, &tmp);
@@ -937,11 +928,10 @@ fn wgpu_graph_capture_refuses_a_tainted_input() {
     );
 }
 
-/// A capture prepared but never opened is disarmed by the close that refuses
-/// it. `graph_prepare` armed persistent-pool routing and priming retention; a
-/// warmup that fails never reaches `start_capture`, and `stop_capture` is the
-/// only call the caller has left — so it unwinds the arming instead of
-/// leaving every later allocation persistent and the stream un-capturable.
+/// A capture prepared but never opened is unwound by the close that refuses
+/// it. A warmup that fails never reaches `start_capture`, and `stop_capture`
+/// is the only call the caller has left — so it releases the stream instead
+/// of leaving it held and un-capturable.
 #[test]
 fn wgpu_graph_a_prepared_capture_that_never_opened_is_disarmed_by_end() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());

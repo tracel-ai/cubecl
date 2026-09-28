@@ -150,6 +150,12 @@ impl KernelId {
         name.rsplit("::").next().unwrap_or(name)
     }
 
+    /// The kernel's type, in full: what names it before its comptime
+    /// arguments tell instances apart.
+    pub fn type_name(&self) -> &'static str {
+        self.type_name
+    }
+
     /// Create a new [kernel id](KernelId) for a type.
     pub fn new<T: 'static>() -> Self {
         Self {

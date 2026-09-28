@@ -24,7 +24,6 @@
 
 use crate::sync::{AtomicU32, Ordering};
 use alloc::string::{String, ToString};
-#[cfg(std_io)]
 use alloc::vec::Vec;
 
 use crate::persistence::{StoreKey, StoreValue};
@@ -278,6 +277,20 @@ pub fn list() -> Vec<String> {
     names
 }
 
+/// Opens the active environment's database, from a place that can await.
+///
+/// Opening is the one step of persistence that has to be awaited, because the
+/// browser reaches its files through promises. A browser page awaits this
+/// before its device comes up; a store opened before it serves memory alone.
+/// Natively it is optional: a store opens the database itself on first use.
+/// Without a durable backend there is nothing to open.
+pub async fn open() {
+    #[cfg(any(native_cache, browser_cache))]
+    if let Err(error) = crate::persistence::turso::open_ahead().await {
+        log::warn!("Unable to open the Turso cache ahead of its use: {error}");
+    }
+}
+
 /// A [`Store`] created from the options, bound to the active environment
 /// whenever the options name a storage.
 ///
@@ -341,18 +354,14 @@ impl Bundle {
 ///
 /// This is what you consult before bundling, to see which namespaces are warm
 /// and worth shipping.
-#[cfg(std_io)]
 pub fn namespaces() -> Vec<crate::persistence::NamespaceSummary> {
-    #[cfg(native_cache)]
-    match crate::persistence::Database::open_active() {
-        Some(database) => database.summary(),
-        // No database means nothing was ever written to disk; whatever this
-        // process warmed is in memory.
-        None => crate::persistence::MemoryStorage::namespaces(),
+    #[cfg(any(native_cache, browser_cache))]
+    if crate::persistence::turso::database().is_ok() {
+        return crate::persistence::turso::summary();
     }
 
-    // Without a persistence backend there is nothing durable to report on.
-    #[cfg(not(native_cache))]
+    // No database means nothing was ever written durably; whatever this
+    // process warmed is in memory.
     crate::persistence::MemoryStorage::namespaces()
 }
 

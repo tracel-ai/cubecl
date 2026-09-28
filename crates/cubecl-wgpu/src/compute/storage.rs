@@ -13,6 +13,8 @@ const MIN_BUFFER_SIZE: u64 = 32;
 /// Buffer storage for wgpu.
 pub struct WgpuStorage {
     memory: HashMap<StorageId, WgpuMemory>,
+    /// The bytes `memory` holds.
+    allocated: u64,
     device: wgpu::Device,
     buffer_usages: BufferUsages,
     mem_alignment: usize,
@@ -100,6 +102,7 @@ impl WgpuStorage {
     ) -> Self {
         Self {
             memory: HashMap::new(),
+            allocated: 0,
             device,
             buffer_usages: usages,
             mem_alignment,
@@ -151,6 +154,7 @@ impl ComputeStorage for WgpuStorage {
         })?;
 
         self.memory.insert(id, memory);
+        self.allocated += alloc_size;
         Ok(StorageHandle::new(
             id,
             StorageUtilization { offset: 0, size },
@@ -159,11 +163,17 @@ impl ComputeStorage for WgpuStorage {
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn dealloc(&mut self, id: StorageId) {
-        self.memory.remove(&id);
+        if let Some(memory) = self.memory.remove(&id) {
+            self.allocated -= memory.buffer.size();
+        }
     }
 
     fn flush(&mut self) {
         // We don't wait for dealloc
+    }
+
+    fn bytes_allocated(&self) -> u64 {
+        self.allocated
     }
 }
 

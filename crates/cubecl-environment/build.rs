@@ -8,13 +8,10 @@ fn main() {
         stream_local: { feature = "std" },
         // Filesystem and environment access for config loading and caching.
         std_io: { all(feature = "std", any(target_os = "windows", target_os = "linux", target_os = "macos", target_os = "android")) },
-        // The `SQLite` persistence backend. `cache` pulls in `rusqlite`, which is
-        // declared for non-wasm targets only, so the feature alone is not enough
-        // to gate the module: enabling `cache` on wasm must compile to nothing
-        // rather than to an unresolved import.
-        native_cache: { all(feature = "cache", std_io) },
-        // Browser storage persistence (IndexedDB).
-        browser_cache: { all(target_family = "wasm", feature = "browser-cache") },
+        // Native durable persistence and bundle tooling.
+        native_cache: { all(feature = "persistence", std_io) },
+        // Browser durable persistence.
+        browser_cache: { all(target_family = "wasm", feature = "persistence") },
         // Tokio runtime support (never on wasm).
         tokio_rt: { all(feature = "tokio", not(target_family = "wasm")) },
         // TODO: We can't yet activate it for everything because of how error handling is done in matmul.

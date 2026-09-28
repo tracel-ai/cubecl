@@ -98,14 +98,20 @@ pub trait ComputeStorage: Send {
 
     /// Flush deallocations when required.
     fn flush(&mut self);
+
+    /// The bytes this storage holds from the device right now: allocated and
+    /// not yet returned. A deallocation still waiting on [`flush`](Self::flush)
+    /// is still held.
+    fn bytes_allocated(&self) -> u64;
 }
 
 /// Access to the underlying resource.
 #[derive(new, Debug)]
 pub struct ManagedResource<Resource: Send> {
-    // This handle is here just to keep the underlying allocation alive.
-    // If the underlying allocation becomes invalid, someone else might
-    // allocate into this resource which could lead to bad behaviour.
+    /// Keeps the allocation alive and in place while the resource is held:
+    /// a bound allocation is never freed, handed out again or relocated, so
+    /// the raw address the resource carries stays valid. The rest of its page
+    /// keeps serving other allocations.
     #[allow(unused)]
     binding: ManagedMemoryBinding,
     resource: Resource,

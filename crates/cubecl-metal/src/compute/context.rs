@@ -5,7 +5,7 @@ use cubecl_core::server::{LaunchError, ResourceLimitError};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_server::kernel::BufferIOAttr;
 use cubecl_server::{
-    compiler::{KernelCacheKey, build_id_hash},
+    compiler::{CompilationRecording, KernelCacheKey, build_id_hash},
     kernel::CubeKernel,
     logging::ServerLogger,
 };
@@ -103,6 +103,7 @@ impl MetalContext {
             return Ok(compiled.clone());
         }
 
+        let mut recording = CompilationRecording::new(kernel_id);
         let cache_key = KernelCacheKey::new(kernel_id, self.build_id);
 
         if let Some(cache) = self.msl_cache.as_mut()
@@ -119,12 +120,14 @@ impl MetalContext {
 
             self.compiled_kernels
                 .insert(kernel_id.clone(), compiled.clone());
+            recording.loaded();
             return Ok(compiled);
         }
 
         log::trace!("Compiling kernel to MSL");
 
         let definition = kernel.define();
+        recording.defined(&definition);
         let mut kernel_compiled = cubecl_server::kernel::CompiledKernel::compile(
             &*kernel,
             definition,
@@ -163,9 +166,10 @@ impl MetalContext {
         let mut compiled = self.create_pipeline_from_source(&source, &entrypoint_name, cube_dim)?;
         compiled.shared_memory_bytes = shared_memory_bytes;
         compiled.io = io.clone().map(std::sync::Arc::from);
+        recording.source(&source);
 
-        if let Some(cache) = &mut self.msl_cache {
-            store_compiled(
+        let stored = match &mut self.msl_cache {
+            Some(cache) => store_compiled(
                 cache,
                 cache_key,
                 MslCacheEntry {
@@ -174,8 +178,10 @@ impl MetalContext {
                     source,
                     io,
                 },
-            );
-        }
+            ),
+            None => false,
+        };
+        recording.compiled(stored);
 
         self.compiled_kernels
             .insert(kernel_id.clone(), compiled.clone());

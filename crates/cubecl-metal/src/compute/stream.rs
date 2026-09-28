@@ -1,8 +1,10 @@
+use crate::compute::copies::MetalCopies;
 use crate::memory::MetalStorage;
 use cubecl_core::{MemoryConfiguration, server::ServerError};
 use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
+use cubecl_server::memory_management::relocation::RelocationReason;
 use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ErrorGraph, FailureId, MemoryManagement, MemoryManagementOptions},
@@ -170,9 +172,53 @@ impl MetalStream {
         self.active_encoder.as_mut().unwrap()
     }
 
+    /// Commit the batch this stream has open and wait until everything it
+    /// submitted has run.
+    pub fn finish(&mut self) {
+        use objc2_metal::{MTLCommandBuffer, MTLCommandEncoder};
+
+        if let Some(active) = self.active_encoder.take() {
+            (*active.encoder).endEncoding();
+            install_completion_handler(
+                &active.command_buffer,
+                active.temporaries,
+                None,
+                self.fault.clone(),
+            );
+            (*active.command_buffer).commit();
+            // As a flush does: an open profile measures the dispatches this
+            // buffer carries.
+            if self.batch_ops > 0
+                && let Some(buffers) = self.profiling.as_mut()
+            {
+                buffers.push(active.command_buffer.clone());
+            }
+            self.last_command_buffer = Some(active.command_buffer);
+        }
+        self.batch_ops = 0;
+        self.batch_bytes = 0;
+        if let Some(command_buffer) = self.last_command_buffer.take() {
+            (*command_buffer).waitUntilCompleted();
+            std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
+        }
+        // Everything submitted has run, so nothing is left to regulate.
+        self.submitted_ops = 0;
+    }
+
+    /// Empty the outdated pools into the current pages.
+    ///
+    /// The caller has [finished](Self::finish) every stream first: the blits
+    /// that move the bytes follow every dispatch that could still read them.
+    pub fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
+        let mut copier = MetalCopies::new(self.queue.clone());
+        self.memory_management
+            .relocate(&mut copier, reason, failures);
+    }
+
     /// Waits on a previously submitted command buffer if total queued ops
-    /// exceed `max_submitted_ops`, then resets the counter and runs memory cleanup.
-    pub fn regulate(&mut self, ops_in_batch: usize, failures: &mut ErrorGraph) {
+    /// exceed `max_submitted_ops`, then resets the counter. The memory is
+    /// cleaned up by its reservations, not here.
+    pub fn regulate(&mut self, ops_in_batch: usize) {
         self.submitted_ops += ops_in_batch;
 
         if self.submitted_ops >= self.max_submitted_ops {
@@ -181,7 +227,6 @@ impl MetalStream {
                 std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
             }
             self.submitted_ops = 0;
-            self.memory_management.cleanup(false, failures);
         }
     }
 }
@@ -284,11 +329,6 @@ pub struct MetalStreamBackend {
     mem_props: MemoryDeviceProperties,
     mem_config: MemoryConfiguration,
     logger: Arc<ServerLogger>,
-    /// Programmatic main-GPU pool layout (see
-    /// [`Server::install_memory_pools`](cubecl_server::server::Server::install_memory_pools)):
-    /// streams created after it is set build their GPU pools from it instead
-    /// of the runtime default.
-    gpu_pools_override: Option<MemoryConfiguration>,
 }
 
 impl MetalStreamBackend {
@@ -303,23 +343,7 @@ impl MetalStreamBackend {
             mem_props,
             mem_config,
             logger,
-            gpu_pools_override: None,
         }
-    }
-
-    /// The layout streams build their main-GPU pools with, and the memory
-    /// properties they are resolved against.
-    pub(crate) fn gpu_pools(&self) -> (MemoryConfiguration, MemoryDeviceProperties) {
-        let config = self
-            .gpu_pools_override
-            .clone()
-            .unwrap_or_else(|| self.mem_config.clone());
-        (config, self.mem_props.clone())
-    }
-
-    /// Set the main-GPU pool layout for streams created from now on.
-    pub(crate) fn set_gpu_pools(&mut self, config: MemoryConfiguration) {
-        self.gpu_pools_override = Some(config);
     }
 }
 
@@ -338,13 +362,10 @@ impl EventStreamBackend for MetalStreamBackend {
 
         let storage = MetalStorage::new(self.device.clone());
 
-        // The main GPU pool honors the programmatic pool override when one was
-        // installed (`install_memory_pools`).
-        let (gpu_config, _) = self.gpu_pools();
         let memory_management = MemoryManagement::from_configuration(
             storage,
             &self.mem_props,
-            gpu_config,
+            self.mem_config.clone(),
             self.logger.clone(),
             MemoryManagementOptions::new("Metal GPU Memory"),
         );
@@ -377,7 +398,7 @@ impl EventStreamBackend for MetalStreamBackend {
         }
     }
 
-    fn flush(stream: &mut Self::Stream, failures: &mut ErrorGraph) -> Self::Event {
+    fn flush(stream: &mut Self::Stream, _failures: &mut ErrorGraph) -> Self::Event {
         use objc2_metal::{MTLCommandBuffer, MTLCommandEncoder, MTLEvent};
 
         stream.event_counter += 1;
@@ -428,7 +449,7 @@ impl EventStreamBackend for MetalStreamBackend {
         stream.batch_ops = 0;
         stream.batch_bytes = 0;
 
-        stream.regulate(ops_in_batch, failures);
+        stream.regulate(ops_in_batch);
 
         MetalEvent::new(
             stream.shared_event.clone(),

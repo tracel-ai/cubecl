@@ -31,10 +31,7 @@ use cubecl_server::{
     id::GraphId,
     kernel::CubeKernel,
     logging::ServerLogger,
-    memory_management::{
-        InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryReport,
-        MemoryUsage,
-    },
+    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, StreamMemoryReport},
     server::Server,
     storage::{ComputeStorage, ManagedResource},
     stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
@@ -75,16 +72,8 @@ impl Server for HipServer {
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
-        // Fatal rather than reported: `initialize_memory` has no error channel,
-        // and an allocation that never got its storage cannot be handed back
-        // as a taint either — nothing has a binding to it yet.
-        let mut command = self.command_no_inputs(stream_id);
-        let reserved = command
-            .reserve(size)
-            .unwrap_or_else(|err| panic!("failed to reserve {size} bytes of device memory: {err}"));
-        command
-            .bind(reserved, memory)
-            .unwrap_or_else(|err| panic!("failed to bind {size} bytes of device memory: {err}"));
+        self.command_no_inputs(stream_id)
+            .initialize_memory(memory, size);
     }
 
     fn read(
@@ -210,19 +199,19 @@ impl Server for HipServer {
 
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(stream_id);
-        Window::on(command.stream()).prepare(stream_id)
+        Window::on(&mut command).prepare(stream_id)
     }
 
     fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(stream_id);
-        Window::on(command.stream()).begin()
+        Window::on(&mut command).begin()
     }
 
     fn end_capture(&mut self, stream_id: StreamId) -> Result<GraphId, ServerError> {
         let id = GraphId::new();
         let instantiated = {
             let mut command = self.command_no_inputs(stream_id);
-            Window::on(command.stream()).instantiate(stream_id, id)
+            Window::on(&mut command).instantiate(stream_id, id)
         };
         match instantiated {
             Ok(graph) => {
@@ -336,11 +325,7 @@ impl Server for HipServer {
         self.ctx.profiler.abandon(token);
     }
 
-    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
-        self.command_no_inputs(stream_id).memory_usage()
-    }
-
-    fn memory_report(&mut self, stream_id: StreamId) -> MemoryReport {
+    fn memory_report(&mut self, stream_id: StreamId) -> StreamMemoryReport {
         self.command_no_inputs(stream_id).memory_report()
     }
 
@@ -348,29 +333,13 @@ impl Server for HipServer {
         self.streams.stream_ids().collect()
     }
 
-    fn memory_cleanup(&mut self, stream_id: StreamId) {
+    fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.command_no_inputs(stream_id).memory_cleanup()
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
         let mut command = self.command_no_inputs(stream_id);
         command.allocation_mode(mode)
-    }
-
-    fn install_memory_pools(
-        &mut self,
-        config: MemoryConfiguration,
-        stream_id: StreamId,
-    ) -> Result<(), InstallMemoryPoolsError> {
-        // Streams created from now on build their GPU pools with the new
-        // layout; memory is per stream, so already-created streams keep theirs.
-        self.streams.backend_mut().set_gpu_pools(config.clone());
-        let (_, props) = self.streams.backend_mut().gpu_pools();
-
-        // The calling stream's pools are rebuilt in place, keeping the old
-        // layout when something is still live in them.
-        self.command_no_inputs(stream_id)
-            .install_memory_pools(config, &props)
     }
 }
 
@@ -641,9 +610,6 @@ impl ServerStorage for HipServer {
         // whatever was there before.
         self.streams.ensure_written([&binding].into_iter())?;
         let mut command = self.command(stream_id, [&binding].into_iter());
-        let memory = binding.memory.clone();
-        let resource = command.resource(binding)?;
-
-        Ok(ManagedResource::new(memory, resource))
+        Ok(command.managed_resource(binding)?)
     }
 }

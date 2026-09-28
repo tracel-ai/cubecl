@@ -8,7 +8,7 @@ use ash::vk::{
     SharingMode,
 };
 use cubecl_core::{
-    MemoryConfiguration, WgpuCompilationOptions,
+    WgpuCompilationOptions,
     ir::{AddressType, ElemType, FloatKind, IntKind, UIntKind},
     prelude::{CubeKernel, KernelDefinition, Visibility},
     server::{IoError, KernelArguments},
@@ -64,12 +64,11 @@ pub fn register_vulkan_features(
     adapter: &wgpu::Adapter,
     props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
-    memory_config: &MemoryConfiguration,
 ) -> bool {
     let features = adapter.features();
     unsafe {
         if let Some(adapter) = adapter.as_hal::<hal::api::Vulkan>() {
-            register_features(&adapter, props, features, comp_options, memory_config)
+            register_features(&adapter, props, features, comp_options)
         } else {
             false
         }
@@ -350,7 +349,6 @@ fn register_features(
     props: &mut DeviceProperties,
     features: Features,
     comp_options: &mut WgpuCompilationOptions,
-    memory_config: &MemoryConfiguration,
 ) -> bool {
     let ash = adapter.shared_instance();
     let heaps = device_local_heaps(ash, adapter.raw_physical_device());
@@ -460,10 +458,7 @@ fn register_features(
         && index_64.shader64_bit_indexing == TRUE
         && let Some(heap) = heaps.first()
     {
-        props.memory.max_page_size = match memory_config.is_sub_slices() {
-            true => heap.size / 4,
-            false => heap.size,
-        };
+        props.memory.max_page_size = heap.size;
     }
 
     if extended_feat.cooperative_matrix.is_some() {

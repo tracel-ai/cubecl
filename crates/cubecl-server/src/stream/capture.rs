@@ -1,10 +1,13 @@
 //! The stream-side graph-capture lifecycle, shared by every backend with
 //! graph support (see [`Server::graph_prepare`](crate::server::Server::graph_prepare)).
 
+use crate::memory_management::{ManagedMemoryBinding, MemoryLocation, PageUpdate};
 use crate::metadata_cache::CacheMode;
-use crate::server::{BufferBinding, ServerError};
+use crate::server::{BufferBinding, ServerError, WeakBufferBinding};
 use alloc::format;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use cubecl_common::bytes::Bytes;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
@@ -57,11 +60,9 @@ pub(crate) enum StreamCaptureState {
     /// No capture is prepared or recording.
     #[default]
     NoCapture,
-    /// `graph_prepare` has armed the persistent pools for the warmup run;
-    /// `begin_capture` may now open the window. Slices the warmup run reserves
-    /// are retained by the memory manager's priming until `begin_capture` calls
-    /// [`capture_priming_end`](crate::memory_management::MemoryManagement::capture_priming_end),
-    /// so the pool ends up owning the capture run's full working set.
+    /// `graph_prepare` has started the warmup run; `begin_capture` may now
+    /// open the window. The pinned staging the warmup run reserves is
+    /// [primed](StreamCapture::prime) until the window opens.
     Prepare {
         /// The logical stream that prepared the capture.
         owner: StreamId,
@@ -151,6 +152,27 @@ impl CaptureEnd {
     }
 }
 
+/// How many streams of a device record a graph right now, shared by the
+/// [`StreamCapture`] of every one of them: whether any does is one read
+/// rather than a walk over the streams.
+#[derive(Debug, Clone, Default)]
+pub struct DeviceRecording(Arc<AtomicUsize>);
+
+impl DeviceRecording {
+    /// Whether any stream of the device records a graph.
+    pub fn any(&self) -> bool {
+        self.0.load(Ordering::Acquire) > 0
+    }
+
+    fn enter(&self) {
+        self.0.fetch_add(1, Ordering::AcqRel);
+    }
+
+    fn leave(&self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 /// The graph capture of one pooled backend stream: where it sits in the
 /// lifecycle, and the memory its recorded launches were given.
 ///
@@ -169,7 +191,22 @@ impl CaptureEnd {
 #[derive(Debug, Default)]
 pub struct StreamCapture {
     state: StreamCaptureState,
-    recorded: Vec<BufferBinding>,
+    /// The device's count of recording streams, which this stream is part of
+    /// while it records.
+    device: DeviceRecording,
+    /// What the recorded launches write, kept without holding their memory:
+    /// a held binding keeps its slice from being reused, and the recording
+    /// has to reuse memory exactly as the warmup run did.
+    recorded: Vec<WeakBufferBinding>,
+    /// The memory the recorded launches were given, as the pages the graph
+    /// will [guard](crate::memory_management::PageGuard) once it seals.
+    touched: Vec<TouchedPage>,
+    /// The pinned staging the warmup run reserved, held until the window
+    /// opens. A recorded copy keeps its staging for the graph's life, so the
+    /// recorded run needs one slice per copy where the warmup run could reuse
+    /// one; holding them makes the pool that big before the window opens,
+    /// where nothing may be allocated.
+    primed: Vec<ManagedMemoryBinding>,
     /// The host memory the recorded copies read from, held while the window
     /// is open and handed to the graph it seals into. A recorded memcpy node
     /// keeps the raw host pointer, so the bytes must live exactly as long as
@@ -187,13 +224,76 @@ pub struct StreamCapture {
 }
 
 impl StreamCapture {
+    /// The capture of one stream of the device `device` counts the recording
+    /// streams of.
+    pub fn new(device: DeviceRecording) -> Self {
+        Self {
+            state: StreamCaptureState::default(),
+            device,
+            recorded: Vec::new(),
+            touched: Vec::new(),
+            primed: Vec::new(),
+            retained_host: Vec::new(),
+            failed: None,
+        }
+    }
+
+    /// Whether any stream of the device records a graph, this one included.
+    pub fn any_recording(&self) -> bool {
+        self.device.any()
+    }
+
     /// Remember the memory a launch was given, when the stream is recording.
     ///
     /// A no-op outside a window, where a launch that fails taints its own
     /// buffers on the spot and there is no graph to answer for them later.
     pub fn record(&mut self, buffers: impl IntoIterator<Item = BufferBinding>) {
         if self.state.is_recording() {
-            self.recorded.extend(buffers);
+            self.recorded
+                .extend(buffers.into_iter().map(|binding| binding.downgrade()));
+        }
+    }
+
+    /// Remember that a launch was given the memory at `location`, owned by
+    /// `stream`, when the stream is recording: the graph replays against that
+    /// page, so it has to stay where it is for the graph's life.
+    pub fn touch(&mut self, stream: StreamId, location: MemoryLocation) {
+        if self.state.is_recording() {
+            self.touched.push(TouchedPage { stream, location });
+        }
+    }
+
+    /// The pages the recording touched, each named once, taken as the window
+    /// closes. A launch touches its pages again on every recorded launch, so
+    /// the list is deduplicated here, once, rather than on every touch.
+    pub fn take_touched(&mut self) -> Vec<TouchedPage> {
+        let mut touched = core::mem::take(&mut self.touched);
+        touched.sort_unstable();
+        touched.dedup();
+        touched
+    }
+
+    /// What this stream's reservations may do to the pages held.
+    ///
+    /// A recording stream allocates nothing: an allocation would become part
+    /// of the recording. While any stream of the device records, no page is
+    /// released or renumbered, so the pages a recording touched are still the
+    /// ones it guards when it seals.
+    pub fn page_update(&self) -> PageUpdate {
+        match (self.is_recording(), self.any_recording()) {
+            (true, _) => PageUpdate::Forbidden,
+            (false, true) => PageUpdate::AddOnly,
+            (false, false) => PageUpdate::Allow,
+        }
+    }
+
+    /// Hold `staging` until the window opens, when the stream is preparing a
+    /// capture: a recorded copy keeps its staging for the graph's life, so the
+    /// recorded run needs a slice per copy where the warmup run could reuse
+    /// one, and holding them grows the pool before nothing may be allocated.
+    pub fn prime(&mut self, staging: &ManagedMemoryBinding) {
+        if matches!(self.state, StreamCaptureState::Prepare { .. }) {
+            self.primed.push(staging.clone());
         }
     }
 
@@ -206,8 +306,14 @@ impl StreamCapture {
     /// claims, and collapsing them to their shared memory id would leave
     /// every sibling but one unclaimed on a refusal and unreleased on a
     /// replay.
+    ///
+    /// A buffer whose memory is gone by then is left out: nothing will read
+    /// it again.
     pub fn take_recorded(&mut self) -> Vec<BufferBinding> {
-        let mut recorded = core::mem::take(&mut self.recorded);
+        let mut recorded: Vec<BufferBinding> = core::mem::take(&mut self.recorded)
+            .iter()
+            .filter_map(WeakBufferBinding::upgrade)
+            .collect();
         recorded.sort_unstable_by_key(|binding| binding.claim_key());
         recorded.dedup_by_key(|binding| binding.claim_key());
         recorded
@@ -278,10 +384,9 @@ impl StreamCapture {
         self.state.cache_mode()
     }
 
-    /// Arm the persistent pools for the warmup run; [`begin`](Self::begin)
-    /// may open the window afterwards. A capture starts from an empty
-    /// recording, so a window that was abandoned mid-flight cannot leak its
-    /// buffers into the next one.
+    /// Start the warmup run; [`begin`](Self::begin) may open the window
+    /// afterwards. A capture starts from an empty recording, so a window that
+    /// was abandoned mid-flight cannot leak its buffers into the next one.
     ///
     /// # Errors
     ///
@@ -289,9 +394,7 @@ impl StreamCapture {
     /// state and the recording untouched.
     pub fn prepare(&mut self, owner: StreamId) -> Result<(), ServerError> {
         self.state.prepare(owner)?;
-        self.recorded.clear();
-        self.retained_host.clear();
-        self.failed = None;
+        self.clear();
         Ok(())
     }
 
@@ -301,8 +404,14 @@ impl StreamCapture {
     /// # Errors
     ///
     /// Fails when no capture is prepared, or one is already recording.
+    ///
+    /// The staging the warmup run primed goes back to the pool, for the
+    /// recorded run to reuse.
     pub fn begin(&mut self) -> Result<(), ServerError> {
-        self.state.begin()
+        self.state.begin()?;
+        self.device.enter();
+        self.primed.clear();
+        Ok(())
     }
 
     /// Close the window, saying whether `caller` owned it — see
@@ -313,17 +422,50 @@ impl StreamCapture {
     ///
     /// Fails when no capture is recording, leaving the state untouched.
     pub fn end(&mut self, caller: StreamId) -> Result<CaptureEnd, ServerError> {
-        self.state.end(caller)
+        let end = self.state.end(caller)?;
+        self.device.leave();
+        Ok(end)
     }
 
     /// Give up a prepared capture that never opened, restoring the stream to
     /// no-capture. Whatever it had recorded or retained goes with it.
     pub fn abort(&mut self) {
+        if self.state.is_recording() {
+            self.device.leave();
+        }
         self.state.abort();
+        self.clear();
+    }
+
+    fn clear(&mut self) {
         self.recorded.clear();
+        self.touched.clear();
+        self.primed.clear();
         self.retained_host.clear();
         self.failed = None;
     }
+}
+
+impl Drop for StreamCapture {
+    fn drop(&mut self) {
+        if self.state.is_recording() {
+            self.device.leave();
+        }
+    }
+}
+
+/// A page a recorded launch was given memory on.
+///
+/// Ordered by stream, then the whole location: a pool whose slices are their
+/// own allocations tells its pages apart by slice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TouchedPage {
+    /// The stream whose memory holds the page.
+    pub stream: StreamId,
+    /// Where the memory sat when the launch was recorded. Nothing moves or
+    /// renumbers pages while a stream records, so it still names the page
+    /// when the window closes.
+    pub location: MemoryLocation,
 }
 
 impl StreamCaptureState {
@@ -400,8 +542,8 @@ impl StreamCaptureState {
     ///
     /// # Errors
     ///
-    /// Fails when [`prepare`](Self::prepare) has not run — the persistent pools
-    /// have to be primed by a warmup run first — or when a capture is already
+    /// Fails when [`prepare`](Self::prepare) has not run — the pools have to
+    /// be warmed by a warmup run first — or when a capture is already
     /// recording. The state is left untouched.
     pub(crate) fn begin(&mut self) -> Result<(), ServerError> {
         match self {
@@ -454,8 +596,8 @@ impl StreamCaptureState {
 
     /// Return to `NoCapture` from anywhere, for the failure path of a
     /// transition's own work: the window never opened, so the stream must be
-    /// left fully usable and re-capturable rather than stuck arming its
-    /// persistent pools forever. Unlike [`end`](Self::end) this asserts
+    /// left fully usable and re-capturable rather than stuck preparing
+    /// forever. Unlike [`end`](Self::end) this asserts
     /// nothing, because the state it is recovering from is precisely the one
     /// that could not be completed.
     pub(crate) fn abort(&mut self) {
@@ -478,7 +620,12 @@ mod tests {
 
     /// A distinct buffer per call, on the owner's stream.
     fn buffer() -> BufferBinding {
-        Handle::new(service(), OWNER, 8).binding()
+        let binding = Handle::new(service(), OWNER, 8).binding();
+        // The reference the pool's slice keeps on a real allocation, which
+        // no test here has: a recording only answers for allocations
+        // something other than their pool still holds.
+        core::mem::forget(binding.memory.clone());
+        binding
     }
 
     fn ids(bindings: &[BufferBinding]) -> Vec<ManagedMemoryId> {
@@ -810,6 +957,43 @@ mod tests {
         assert_eq!(
             StreamCaptureState::Capture { owner: OWNER }.cache_mode(),
             CacheMode::Capture
+        );
+    }
+
+    /// Every stream of a device sees a window one of them opens, and the
+    /// window leaves the count however it closes: sealed, aborted, or with
+    /// its stream dropped.
+    #[test]
+    fn a_recording_is_seen_device_wide() {
+        let device = DeviceRecording::default();
+        let mut recording = StreamCapture::new(device.clone());
+        let neighbour = StreamCapture::new(device.clone());
+        let recording_now =
+            |capture: &StreamCapture| (capture.page_update(), capture.any_recording());
+
+        recording.prepare(OWNER).unwrap();
+        assert!(!neighbour.any_recording(), "a warmup records nothing");
+        recording.begin().unwrap();
+        assert_eq!(recording_now(&recording), (PageUpdate::Forbidden, true));
+        assert_eq!(recording_now(&neighbour), (PageUpdate::AddOnly, true));
+        recording.end(OWNER).unwrap();
+        assert_eq!(recording_now(&neighbour), (PageUpdate::Allow, false));
+
+        recording.prepare(OWNER).unwrap();
+        recording.begin().unwrap();
+        recording.abort();
+        assert!(!device.any(), "an aborted window leaves the count");
+
+        recording.prepare(OWNER).unwrap();
+        recording.abort();
+        assert!(!device.any(), "aborting a warmup leaves the count alone");
+
+        recording.prepare(OWNER).unwrap();
+        recording.begin().unwrap();
+        drop(recording);
+        assert!(
+            !device.any(),
+            "a stream dropped while recording leaves the count"
         );
     }
 }
