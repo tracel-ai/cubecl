@@ -321,7 +321,7 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// Returns a [`ServerError`] if the read operation fails, or if a an error occured on the
+    /// Returns a [`ServerError`] if the read operation fails, or if a an error occurred on the
     /// compute server leading to the read.
     pub fn read(&self, handles: Vec<Handle>) -> Result<Vec<Bytes>, ServerError> {
         cubecl_environment::future::reader::read_sync(self.read_async(handles))
@@ -362,7 +362,7 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// Returns a [`ServerError`] if the read operation fails, or if a an error occured on the
+    /// Returns a [`ServerError`] if the read operation fails, or if a an error occurred on the
     /// compute server leading to the read.
     pub fn read_tensor(&self, descriptors: Vec<CopyDescriptor>) -> Result<Vec<Bytes>, ServerError> {
         cubecl_environment::future::reader::read_sync(self.read_tensor_async(descriptors))
@@ -416,7 +416,7 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// Returns a [`ServerError`] if a an error occured on the compute server leading to the read.
+    /// Returns a [`ServerError`] if a an error occurred on the compute server leading to the read.
     /// A device fault is not detected here: the copy is deferred, so it surfaces as an error on
     /// first access to the returned [`Bytes`].
     #[cfg(not(target_family = "wasm"))]
