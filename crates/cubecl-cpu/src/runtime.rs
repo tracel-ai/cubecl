@@ -135,7 +135,7 @@ fn host_vector_registers() -> HostVectorRegisters {
     }
 }
 
-/// NEON's registers. LLVM keeps a fixed-width vector on NEON even where SVE is present.
+/// LLVM keeps a fixed-width vector on NEON even where SVE is present.
 #[cfg(target_arch = "aarch64")]
 fn host_vector_registers() -> HostVectorRegisters {
     HostVectorRegisters {

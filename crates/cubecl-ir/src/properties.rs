@@ -32,7 +32,7 @@ pub struct HardwareProperties {
     pub load_width: u32,
     /// How many `load_width`-bit vector registers a kernel may keep live, or `None` where that is
     /// not a property of the device: a GPU trades its per-thread budget against occupancy, so it
-    /// states none. A kernel keeping more live than a stated budget spills them to memory.
+    /// states none.
     pub vector_register_count: Option<u32>,
     /// The minimum size of a plane on this device
     pub plane_size_min: u32,
@@ -93,7 +93,7 @@ pub struct VectorRegisters {
 impl VectorRegisters {
     /// The registers of `hardware` as vectors of `elem_size`-byte elements see them, or `None`
     /// where the device has no fixed set to budget.
-    pub fn of(hardware: &HardwareProperties, elem_size: usize) -> Option<Self> {
+    pub fn new(hardware: &HardwareProperties, elem_size: usize) -> Option<Self> {
         Some(VectorRegisters {
             count: hardware.vector_register_count? as usize,
             lanes_per_register: hardware.lanes_in(hardware.load_width, elem_size),
@@ -101,7 +101,6 @@ impl VectorRegisters {
         })
     }
 
-    /// How many registers the device has.
     pub fn count(&self) -> usize {
         self.count
     }
@@ -459,7 +458,7 @@ impl DeviceProperties {
         elem_size: usize,
         live: usize,
     ) -> impl Iterator<Item = VectorSize> + Clone {
-        let widest = match VectorRegisters::of(&self.hardware, elem_size) {
+        let widest = match VectorRegisters::new(&self.hardware, elem_size) {
             Some(registers) => registers.widest_lanes(live),
             None => self.io_lanes(elem_size),
         };
@@ -615,12 +614,12 @@ mod tests {
     const NEON: (u32, Option<u32>) = (128, Some(32));
 
     fn registers((width, count): (u32, Option<u32>), elem_size: usize) -> VectorRegisters {
-        VectorRegisters::of(&hardware(width, count), elem_size).unwrap()
+        VectorRegisters::new(&hardware(width, count), elem_size).unwrap()
     }
 
     #[test]
     fn a_device_without_a_fixed_register_set_has_no_budget() {
-        assert_eq!(VectorRegisters::of(&hardware(128, None), 4), None);
+        assert_eq!(VectorRegisters::new(&hardware(128, None), 4), None);
     }
 
     #[test]
@@ -649,7 +648,7 @@ mod tests {
     }
 
     #[test]
-    fn a_block_fits_in_what_the_operands_leave() {
+    fn vectors_fit_in_the_registers_left_unreserved() {
         let f32 = registers(AVX2, 4);
         assert_eq!(f32.registers_for(16), 2);
         assert_eq!(f32.vectors_fitting(16, 0), 8);
@@ -661,7 +660,7 @@ mod tests {
     fn a_capped_vector_size_caps_the_lanes() {
         let mut capped = hardware(256, Some(16));
         capped.max_vector_size = 4;
-        let f32 = VectorRegisters::of(&capped, 4).unwrap();
+        let f32 = VectorRegisters::new(&capped, 4).unwrap();
         assert_eq!(f32.lanes_per_register(), 4);
         assert_eq!(f32.widest_lanes(1), 4);
     }
