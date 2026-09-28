@@ -549,6 +549,7 @@ impl CudaServer {
                     mem_alignment,
                     utilities.logger.clone(),
                     stream_priority,
+                    config.memory.cuda.allocator,
                 ),
                 max_streams,
             ),
