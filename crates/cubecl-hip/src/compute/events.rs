@@ -6,10 +6,11 @@
 //! [`device_events`](cubecl_server::device_events) module, along with the
 //! design arguments for both.
 
+use crate::compute::status::checked;
 use cubecl_common::profile::Duration;
 use cubecl_hip_sys::{hipEvent_t, hipStream_t};
 use cubecl_server::device_events::EventApi;
-use cubecl_server::driver::{DriverError, checked};
+use cubecl_server::driver::DriverError;
 
 /// A fence, over HIP's event API.
 pub type Fence = cubecl_server::device_events::EventFence<Hip>;

@@ -30,6 +30,19 @@ pub enum CompilationError {
         #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
+    /// The device was poisoned before the compiled kernel could be loaded onto
+    /// it. See [`ServerError::DevicePoisoned`](crate::server::ServerError::DevicePoisoned).
+    #[error(
+        "The device is poisoned, the kernel could not be loaded the kernel\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}"
+    )]
+    DevicePoisoned {
+        /// The driver call that reported it.
+        reason: String,
+        /// The backtrace for this error.
+        #[cfg_attr(serializable, serde(skip))]
+        backtrace: BackTrace,
+    },
+
     /// A generic compilation error.
     #[error(
         "A validation error caused the compilation to fail\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}"

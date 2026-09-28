@@ -1,5 +1,6 @@
 pub(crate) mod controller;
 pub(crate) mod copies;
+pub(crate) mod device_poison;
 
 mod graph;
 mod storage;

@@ -10,7 +10,7 @@ use cubecl_common::profile::Duration;
 use cubecl_server::device_events::EventApi;
 use cubecl_server::driver::DriverError;
 use cudarc::driver::result::{event, stream};
-use cudarc::driver::sys::{CUevent, CUevent_flags, CUevent_wait_flags, CUstream};
+use cudarc::driver::sys::{CUevent, CUevent_flags, CUevent_wait_flags, CUresult, CUstream};
 
 /// A fence, over CUDA's event API.
 pub type Fence = cubecl_server::device_events::EventFence<Cuda>;
@@ -111,5 +111,36 @@ fn named<T>(
     op: &'static str,
     result: Result<T, cudarc::driver::DriverError>,
 ) -> Result<T, DriverError> {
-    result.map_err(|err| DriverError::new(op, err.0 as u32))
+    result.map_err(|err| driver_error(op, err))
+}
+
+/// A cudarc error as the runtime's [`DriverError`], flagged when its status
+/// poisoned the device.
+pub(crate) fn driver_error(op: &'static str, err: cudarc::driver::DriverError) -> DriverError {
+    match poisons_device(err.0) {
+        true => DriverError::poisoned(op, err.0 as u32),
+        false => DriverError::new(op, err.0 as u32),
+    }
+}
+
+/// Whether `status` is one of the faults CUDA makes sticky: once a kernel
+/// raises one, the context is corrupt and every later call on it — an event
+/// record, a copy, a launch — fails with the same status until the process
+/// exits. The CUDA driver API documents each of these with "the context
+/// cannot be used, so it must be destroyed".
+pub(crate) fn poisons_device(status: CUresult) -> bool {
+    matches!(
+        status,
+        CUresult::CUDA_ERROR_ECC_UNCORRECTABLE
+            | CUresult::CUDA_ERROR_ILLEGAL_ADDRESS
+            | CUresult::CUDA_ERROR_LAUNCH_TIMEOUT
+            | CUresult::CUDA_ERROR_CONTEXT_IS_DESTROYED
+            | CUresult::CUDA_ERROR_ASSERT
+            | CUresult::CUDA_ERROR_HARDWARE_STACK_ERROR
+            | CUresult::CUDA_ERROR_ILLEGAL_INSTRUCTION
+            | CUresult::CUDA_ERROR_MISALIGNED_ADDRESS
+            | CUresult::CUDA_ERROR_INVALID_ADDRESS_SPACE
+            | CUresult::CUDA_ERROR_INVALID_PC
+            | CUresult::CUDA_ERROR_LAUNCH_FAILED
+    )
 }

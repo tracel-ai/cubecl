@@ -5,6 +5,7 @@
 use crate::compute::context::HipContext;
 use crate::compute::events::Fence;
 use crate::compute::gpu::GpuResource;
+use crate::compute::status::checked;
 use crate::compute::storage::cpu::PinnedMemoryStorage;
 use crate::compute::storage::gpu::GpuStorage;
 use crate::compute::stream::{HipStreamBackend, Stream};
@@ -13,7 +14,6 @@ use cubecl_hip_sys::{
     hipMemcpyKind_hipMemcpyDeviceToHost, hipMemcpyKind_hipMemcpyHostToDevice, ihipStream_t,
 };
 use cubecl_server::command::{CopyLayout, DeviceStream, Driver};
-use cubecl_server::driver::checked;
 use cubecl_server::id::KernelId;
 use cubecl_server::memory_management::drop_queue::PendingDropQueue;
 use cubecl_server::memory_management::{ManagedMemoryBinding, MemoryManagement};

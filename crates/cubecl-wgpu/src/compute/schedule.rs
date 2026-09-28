@@ -1,3 +1,4 @@
+use crate::compute::device_poison::DevicePoison;
 use crate::{
     CompilerInfo, ParamsTransfer, WgpuResource,
     stream::WgpuStream,
@@ -96,6 +97,8 @@ pub struct WgpuStreamFactory {
     /// The device's count of recording streams, shared by every stream this
     /// creates.
     recording: DeviceRecording,
+    /// Whether the device is poisoned, shared by every stream the factory creates.
+    poison: DevicePoison,
 }
 
 impl StreamFactory for WgpuStreamFactory {
@@ -117,6 +120,7 @@ impl StreamFactory for WgpuStreamFactory {
             self.logger.clone(),
             self.use_vulkan_compiler,
             self.recording.clone(),
+            self.poison.clone(),
         )
     }
 }
@@ -141,6 +145,8 @@ impl ScheduledWgpuBackend {
             _ => TimestampQuerySetBudget::unbounded(),
         });
 
+        let poison = DevicePoison::watch(&device);
+
         Self {
             factory: WgpuStreamFactory {
                 device,
@@ -155,6 +161,7 @@ impl ScheduledWgpuBackend {
                 count: 0,
                 use_vulkan_compiler,
                 recording: DeviceRecording::default(),
+                poison,
             },
         }
     }

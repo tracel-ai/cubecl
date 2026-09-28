@@ -153,7 +153,10 @@ impl<B: EventStreamBackend> GcThread<B> {
 
         cubecl_environment::thread::spawn(move || {
             while let Ok(event) = recv.recv() {
-                B::wait_event_sync(event.event).unwrap();
+                // A failed wait means the device is poisoned.
+                if let Err(err) = B::wait_event_sync(event.event) {
+                    log::error!("a pinned-memory release could not wait on its fence: {err}");
+                }
                 core::mem::drop(event.to_drop);
             }
         });

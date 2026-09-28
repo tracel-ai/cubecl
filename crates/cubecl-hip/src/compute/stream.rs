@@ -23,7 +23,7 @@ use cubecl_server::{
 };
 use std::sync::Arc;
 
-use cubecl_server::driver::checked;
+use crate::compute::status::checked;
 
 use crate::compute::{cpu::PinnedMemoryStorage, events::Fence, gpu::GpuStorage};
 
