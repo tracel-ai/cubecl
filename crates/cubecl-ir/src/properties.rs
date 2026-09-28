@@ -414,10 +414,9 @@ pub struct DeviceProperties {
     pub timing_method: TimingMethod,
     /// Who the device is, and what its kernels are keyed to.
     pub identity: DeviceIdentity,
-    /// The widest vector, in bits, that reads and writes are sized to. It defaults to the load
-    /// width, and a backend states a wider one where it measured that several loads move data
-    /// faster than one.
-    pub io_width: u32,
+    /// The width IO is sized to, in bits, where a backend measured that several loads move data
+    /// faster than one. `None` sizes IO to the load width.
+    pub io_width_override: Option<u32>,
 }
 
 impl TypeHash for DeviceProperties {
@@ -443,25 +442,32 @@ impl DeviceProperties {
         DeviceProperties {
             features,
             memory: memory_props,
-            io_width: hardware.load_width,
             hardware,
             timing_method,
             identity,
+            io_width_override: None,
         }
+    }
+
+    /// The widest vector, in bits, that reads and writes are sized to.
+    pub fn io_width(&self) -> u32 {
+        self.io_width_override.unwrap_or(self.hardware.load_width)
     }
 
     /// The widest vector, in lanes of `elem_size`-byte elements, that reads and writes are sized
     /// to, which is a power of two and at least one.
     pub fn io_lanes(&self, elem_size: usize) -> usize {
-        let lanes = self.io_width as usize / (elem_size * 8);
-        let lanes = usize::min(self.hardware.max_vector_size, lanes);
+        let io_width = self.io_width() as usize;
+        let size_bits = elem_size * 8;
+        let max = io_width / size_bits;
+        let max = usize::min(self.hardware.max_vector_size, max);
 
-        1 << lanes.trailing_zeros().min(usize::BITS - 1)
+        1 << max.max(1).trailing_zeros()
     }
 
     /// States the width IO is sized to, for a backend that measured one wider than a load.
     pub fn with_io_width(mut self, io_width: u32) -> Self {
-        self.io_width = io_width;
+        self.io_width_override = Some(io_width);
         self
     }
 
@@ -659,6 +665,31 @@ mod tests {
         let f32 = VectorRegisters::of(&capped, 4).unwrap();
         assert_eq!(f32.lanes_per_register(), 4);
         assert_eq!(f32.widest_lanes(1), 4);
+    }
+
+    fn device(load_width: u32) -> DeviceProperties {
+        DeviceProperties::new(
+            Features::default(),
+            MemoryDeviceProperties::new(1024, 32),
+            hardware(load_width, None),
+            TimingMethod::System,
+            DeviceIdentity::default(),
+        )
+    }
+
+    #[test]
+    fn io_follows_a_load_width_raised_after_construction() {
+        let mut device = device(128);
+        device.hardware.load_width = 256;
+        assert_eq!(device.io_lanes(4), 8);
+    }
+
+    #[test]
+    fn a_stated_io_width_outlasts_a_load_width_change() {
+        let mut device = device(256).with_io_width(512);
+        assert_eq!(device.io_lanes(4), 16);
+        device.hardware.load_width = 128;
+        assert_eq!(device.io_lanes(4), 16);
     }
 
     /// A capacity is stated only by the runtime that read one.
