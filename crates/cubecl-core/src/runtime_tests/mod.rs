@@ -8,6 +8,7 @@ pub mod atomic;
 pub mod barrier;
 pub mod binary;
 pub mod branch;
+pub mod capture_status;
 pub mod cluster;
 pub mod cmma;
 pub mod cmma2;

@@ -1333,13 +1333,15 @@ impl Client {
     /// opened or the capture was only prepared, and also when another logical stream sharing
     /// the same backend stream stops it, or when opening the window fails once
     /// [`start_capture`](Self::start_capture) is accepted. A `start_capture` refused up front,
-    /// e.g. while a capture already records, leaves the capture as it was.
+    /// e.g. while a capture already records, leaves the capture as it was. Always `false` on a
+    /// backend without graph support.
     ///
     /// Answered without reaching the device thread, so code whose buffer decisions have to
-    /// match between the warmup and the recording can ask on every operation, eager ones
-    /// included.
+    /// match between the warmup and the recording can ask before every launch.
     pub fn is_capturing(&self) -> bool {
-        self.utilities.captures.is_capturing(self.stream_id())
+        let captures = &self.utilities.captures;
+        // The stream id costs more than the check, and no capture under way answers already.
+        captures.any_active() && captures.is_capturing(self.stream_id())
     }
 
     /// Stop recording and return the captured graph, ready to

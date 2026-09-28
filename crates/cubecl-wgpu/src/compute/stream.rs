@@ -235,7 +235,7 @@ impl WgpuStream {
             // entry pins a whole page (512 × 32 KiB ≈ 16 MiB worst case) —
             // unlike CUDA/HIP where an entry is a small dynamic-pool slice.
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::new(512, 2048)),
-            capturing: StreamCapture::new(captures),
+            capturing: StreamCapture::new(&captures),
             recording: GraphRecording::default(),
         }
     }

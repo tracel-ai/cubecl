@@ -218,7 +218,7 @@ impl Harness {
                     0,
                 ),
                 failures: Failures::new(logger),
-                capture: StreamCapture::default(),
+                capture: StreamCapture::new(&cubecl_runtime::server::DeviceCaptures::default()),
             },
             buffers: Vec::new(),
             rng: Rng(seed),

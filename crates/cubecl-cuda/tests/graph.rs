@@ -3,6 +3,7 @@
 use cubecl_common::bytes::Bytes;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::runtime_tests::capture_status;
 use cubecl_core::server::Handle;
 use cubecl_cuda::CudaRuntime;
 use cubecl_server::runtime::Runtime;
@@ -361,59 +362,16 @@ fn cuda_graph_many_launches_dynamic_metadata() {
     );
 }
 
-/// A client sees its stream's capture from `graph_prepare` until `stop_capture`, without asking
-/// the device thread: every client of the device shares what the streams report, and a stream
-/// that isn't capturing sees nothing. Code that has to decide the same way in the warmup and the
-/// recorded run reads this on every launch, so it must hold on each client, not only the one
-/// that prepared.
+/// See [`capture_status::a_capture_is_seen_by_every_client_of_its_stream`].
 #[test]
-fn cuda_graph_capture_is_reported_to_its_clients() {
+fn cuda_graph_capture_is_seen_by_every_client_of_its_stream() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = CudaRuntime::client(&Default::default());
-    let other_client = CudaRuntime::client(&Default::default());
-    let other_stream_capturing = || {
-        let client = client.clone();
-        std::thread::spawn(move || client.is_capturing())
-            .join()
-            .unwrap()
-    };
+    capture_status::a_capture_is_seen_by_every_client_of_its_stream::<CudaRuntime>();
+}
 
-    let n = 4usize;
-    let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
-    let output = client.empty(n * core::mem::size_of::<f32>());
-    let launch = |client: &Client| {
-        add_one::launch(
-            client,
-            CubeCount::Static(1, 1, 1),
-            CubeDim::new(client, n),
-            unsafe { BufferArg::from_raw_parts(input.clone(), n) },
-            unsafe { BufferArg::from_raw_parts(output.clone(), n) },
-        );
-    };
-    launch(&client);
-    let _ = client.read_one(output.clone()).unwrap();
-
-    assert!(!client.is_capturing(), "no capture before prepare");
-    client.graph_prepare().expect("graph_prepare");
-    assert!(
-        client.is_capturing(),
-        "the warmup run is part of the capture"
-    );
-    assert!(
-        other_client.is_capturing(),
-        "every client of the stream sees it"
-    );
-    assert!(!other_stream_capturing(), "another stream isn't capturing");
-
-    launch(&client);
-    let _ = client.read_one(output.clone()).unwrap();
-    client.start_capture().expect("start_capture");
-    assert!(
-        client.is_capturing(),
-        "the recorded run is part of the capture"
-    );
-    launch(&client);
-    let _graph = client.stop_capture().expect("stop_capture");
-    assert!(!client.is_capturing(), "the capture ends with stop_capture");
-    assert!(!other_client.is_capturing());
+/// See [`capture_status::a_prepared_capture_ends_at_stop_capture`].
+#[test]
+fn cuda_graph_prepared_capture_ends_at_stop_capture() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    capture_status::a_prepared_capture_ends_at_stop_capture::<CudaRuntime>();
 }
