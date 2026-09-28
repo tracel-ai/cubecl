@@ -110,9 +110,7 @@ impl VectorRegisters {
             None => properties.io_lanes(elem_size),
         };
 
-        (0..widest.trailing_zeros() + 1)
-            .map(|power| 1 << power)
-            .rev()
+        vector_sizes_down_from(widest)
     }
 
     /// How many registers the device has.
@@ -146,6 +144,13 @@ impl VectorRegisters {
 
 fn prev_power_of_two(value: usize) -> usize {
     1 << (usize::BITS - 1 - value.leading_zeros())
+}
+
+fn vector_sizes_down_from(widest: usize) -> impl Iterator<Item = VectorSize> + Clone {
+    // If the widest is 8, we want to test 1, 2, 4, 8 which is log2(8) + 1.
+    let num_candidates = widest.trailing_zeros() + 1;
+
+    (0..num_candidates).map(|i| 2usize.pow(i)).rev()
 }
 
 /// Properties of the device related to allocation.
@@ -459,7 +464,12 @@ impl DeviceProperties {
         let max = io_width / size_bits;
         let max = usize::min(self.hardware.max_vector_size, max);
 
-        1 << max.max(1).trailing_zeros()
+        prev_power_of_two(max.max(1))
+    }
+
+    /// Vector sizes, widest first, that reads and writes of `elem_size`-byte elements are sized to.
+    pub fn io_vector_sizes(&self, elem_size: usize) -> impl Iterator<Item = VectorSize> + Clone {
+        vector_sizes_down_from(self.io_lanes(elem_size))
     }
 
     /// States the width IO is sized to, for a backend that measured one wider than a load.
@@ -687,6 +697,19 @@ mod tests {
         assert_eq!(device.io_lanes(4), 16);
         device.hardware.load_width = 128;
         assert_eq!(device.io_lanes(4), 16);
+    }
+
+    #[test]
+    fn a_cap_between_powers_of_two_rounds_down_alike() {
+        let mut device = device(512);
+        device.hardware.max_vector_size = 12;
+        device.hardware.vector_register_count = Some(32);
+
+        assert_eq!(
+            device.io_vector_sizes(4).collect::<alloc::vec::Vec<_>>(),
+            alloc::vec![8, 4, 2, 1]
+        );
+        assert_eq!(VectorRegisters::vector_sizes(&device, 4, 1).next(), Some(8));
     }
 
     /// A capacity is stated only by the runtime that read one.

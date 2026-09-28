@@ -112,7 +112,7 @@ fn host_cpu_name(system: &System) -> String {
 }
 
 /// The vector registers the JIT lowers kernel arithmetic to.
-struct VectorRegisters {
+struct HostVectorRegisters {
     width: u32,
     count: Option<u32>,
 }
@@ -121,7 +121,7 @@ struct VectorRegisters {
 /// An AVX-512 CPU tuned to prefer 256-bit vectors still lowers a 512-bit one to a single zmm
 /// register, because kernels carry no `min-legal-vector-width`.
 #[cfg(target_arch = "x86_64")]
-fn host_vector_registers() -> VectorRegisters {
+fn host_vector_registers() -> HostVectorRegisters {
     let (width, count) = if std::arch::is_x86_feature_detected!("avx512f") {
         (512, 32)
     } else if std::arch::is_x86_feature_detected!("avx") {
@@ -129,7 +129,7 @@ fn host_vector_registers() -> VectorRegisters {
     } else {
         (128, 16)
     };
-    VectorRegisters {
+    HostVectorRegisters {
         width,
         count: Some(count),
     }
@@ -137,16 +137,16 @@ fn host_vector_registers() -> VectorRegisters {
 
 /// NEON's registers. LLVM keeps a fixed-width vector on NEON even where SVE is present.
 #[cfg(target_arch = "aarch64")]
-fn host_vector_registers() -> VectorRegisters {
-    VectorRegisters {
+fn host_vector_registers() -> HostVectorRegisters {
+    HostVectorRegisters {
         width: 128,
         count: Some(32),
     }
 }
 
 #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-fn host_vector_registers() -> VectorRegisters {
-    VectorRegisters {
+fn host_vector_registers() -> HostVectorRegisters {
+    HostVectorRegisters {
         width: 128,
         count: None,
     }

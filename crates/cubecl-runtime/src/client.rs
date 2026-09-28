@@ -1742,10 +1742,7 @@ impl Client {
         &self,
         size: usize,
     ) -> impl Iterator<Item = VectorSize> + Clone {
-        // If the widest is 8, we want to test 1, 2, 4, 8 which is log2(8) + 1.
-        let num_candidates = self.properties().io_lanes(size).trailing_zeros() + 1;
-
-        (0..num_candidates).map(|i| 2usize.pow(i)).rev()
+        self.properties().io_vector_sizes(size)
     }
 
     /// Calculates the maximum throughput of the device given the given config (like tensor core with certain sizes and dtypes, or just arithmetic by dtype)

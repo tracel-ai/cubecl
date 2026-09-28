@@ -48,7 +48,7 @@ pub fn build_kernel(client: &Client, dtype: ElemType, config: LaunchConfig) -> K
 const CHAINS: usize = 4;
 
 /// Vectors the kernel keeps live across its loop: the chains and their two operands.
-pub const LIVE_VECTORS: usize = CHAINS + 2;
+pub(crate) const LIVE_VECTORS: usize = CHAINS + 2;
 
 #[cube(launch_unchecked)]
 pub fn compute_direct_throughput<I: Numeric, N: Size>(
