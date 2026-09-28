@@ -1,12 +1,16 @@
 //! Storage tiling: how many fragments each logical dim is stored as.
 //!
-//! A `u16`, two bits per logical dim, dim `i` at bits `2i..2i + 2`, holding
+//! A `u32`, four bits per logical dim, dim `i` at bits `4i..4i + 4`, holding
 //! its number of fragments minus one. `0` is untiled.
 //!
 //! | Limit | |
 //! |---|---|
 //! | Logical dims | 8 |
-//! | Fragments of one logical dim | 4, so 3 levels of tiling |
+//! | Fragments of one logical dim | 16, so 15 levels of tiling |
+//!
+//! Sixteen, because a level is whatever a reader has to find whole: a packed
+//! word, a vector read, a storage tile, and the grid over them already take
+//! four pieces of one dim.
 //!
 //! The physical dims are level-major, coarsest first: every logical dim's
 //! coarsest fragment in logical order, then every dim still deep enough gives
@@ -20,11 +24,11 @@ use smallvec::SmallVec;
 
 use crate::MetadataError;
 
-/// The most logical dims a tiling describes: two bits each in a `u16`.
+/// The most logical dims a tiling describes: four bits each in a `u32`.
 pub const MAX_LOGICAL_DIMS: usize = 8;
 
 /// The most fragments one logical dim is stored as.
-pub const MAX_FRAGMENTS: usize = 4;
+pub const MAX_FRAGMENTS: usize = 16;
 
 /// How many fragments each logical dim is stored as. See the [module doc](self).
 ///
@@ -32,7 +36,7 @@ pub const MAX_FRAGMENTS: usize = 4;
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
-pub struct Tiling(u16);
+pub struct Tiling(u32);
 
 impl Tiling {
     /// Every logical dim is one fragment.
@@ -55,10 +59,10 @@ impl Tiling {
         )?;
         rule(
             fragments.iter().all(|f| (1..=MAX_FRAGMENTS).contains(f)),
-            "1 to 4 fragments a dim",
+            "1 to 16 fragments a dim",
         )?;
 
-        let field = |(dim, &count): (usize, &usize)| ((count - 1) as u16) << (2 * dim);
+        let field = |(dim, &count): (usize, &usize)| ((count - 1) as u32) << (4 * dim);
         Ok(Tiling(fragments.iter().enumerate().map(field).sum()))
     }
 
@@ -89,7 +93,7 @@ impl Tiling {
     }
 
     fn levels(self, dim: usize) -> usize {
-        ((self.0 >> (2 * dim)) & 0b11) as usize
+        ((self.0 >> (4 * dim)) & 0b1111) as usize
     }
 }
 
@@ -107,7 +111,11 @@ mod tests {
         let tiling = Tiling::new(&fragments).unwrap();
         assert!(tiling.is_tiled());
         assert_eq!(tiling.fragments(3).as_slice(), &fragments);
-        assert_eq!(Tiling::new(&[2, 2]).unwrap(), Tiling(0b01_01));
+        assert_eq!(Tiling::new(&[2, 2]).unwrap(), Tiling(0x11));
+        assert_eq!(
+            Tiling::new(&[16, 4]).unwrap().fragments(2).as_slice(),
+            &[16, 4]
+        );
         assert_eq!(Tiling::new(&[1, 1, 1]).unwrap(), Tiling::UNTILED);
         assert_eq!(Tiling::UNTILED.fragments(2).as_slice(), &[1, 1]);
     }
@@ -124,7 +132,7 @@ mod tests {
     #[test]
     fn refuses_what_the_protocol_cannot_hold() {
         assert!(Tiling::new(&[1; 9]).is_err());
-        assert!(Tiling::new(&[5]).is_err());
+        assert!(Tiling::new(&[17]).is_err());
         assert!(Tiling::new(&[0]).is_err());
     }
 }
