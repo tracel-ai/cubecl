@@ -39,7 +39,7 @@ mod device_sharing_wgpu {
 
     pub fn assert_wgpu_device_existing(device: &WgpuDevice) {
         assert!(
-            matches!(device, cubecl::wgpu::WgpuDevice::Existing(_)),
+            matches!(device.kind, cubecl::wgpu::WgpuDeviceKind::Existing(_)),
             "device should be WgpuDevice::Existing"
         );
     }

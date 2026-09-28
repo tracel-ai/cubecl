@@ -3,7 +3,7 @@
 //!
 //! The bookkeeping around them — which groups this device has joined, what its
 //! rank in one is — is the shared
-//! [`Collectives`](cubecl_runtime::command::Collectives)'.
+//! [`Collectives`](cubecl_server::command::Collectives)'.
 
 use std::{collections::HashMap, sync::OnceLock};
 
@@ -13,7 +13,7 @@ use cubecl_core::{
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::sync::Mutex;
-use cubecl_runtime::command::CollectiveDriver;
+use cubecl_server::command::CollectiveDriver;
 use std::mem::MaybeUninit;
 
 use crate::compute::driver::Cuda;

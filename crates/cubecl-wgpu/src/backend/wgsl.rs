@@ -18,7 +18,7 @@ pub fn bindings(
         .map(|vis| {
             // When slices are shared, it needs to be read-write if ANY of the slices is read-write,
             // and since we can't be sure, we'll assume everything is read-write.
-            if cfg!(exclusive_memory_only) {
+            if cubecl_server::memory_management::EXCLUSIVE_MEMORY_ONLY {
                 *vis
             } else {
                 Visibility::ReadWrite

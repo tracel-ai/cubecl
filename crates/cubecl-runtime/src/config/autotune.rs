@@ -7,14 +7,17 @@ pub struct AutotuneConfig {
     #[serde(default)]
     pub logger: LoggerConfig<AutotuneLogLevel>,
 
-    /// Recorder configuration: where to write one [`AutotuneRecord`](crate::tune::AutotuneRecord)
-    /// per tuning decision, as JSON, for a tool to read back.
+    /// Where to write one [`AutotuneDecision`](crate::tune::AutotuneDecision) per tuning
+    /// decision, as JSON, for a tool to read back.
     ///
     /// Independent of [`logger`](Self::logger), because the two answer different questions and both
-    /// can be wanted at once: the logger's level says how much to tell a human, the recorder says
-    /// where to put the machine-readable record.
+    /// can be wanted at once: the logger's level says how much to tell a human, `decisions` says
+    /// where to put the machine-readable account.
+    ///
+    /// Also read under `recorder`.
     #[serde(default)]
-    pub recorder: LoggerConfig<RecorderLevel>,
+    #[serde(alias = "recorder")]
+    pub decisions: LoggerConfig<DecisionLevel>,
 
     /// Autotune level, controlling the intensity of autotuning.
     #[serde(default)]
@@ -130,26 +133,26 @@ pub enum AutotuneLogLevel {
 
 impl LogLevel for AutotuneLogLevel {}
 
-/// The recorder's (absent) verbosity.
+/// The verbosity [`AutotuneConfig::decisions`] lacks.
 ///
-/// A record is one fixed schema, which is the whole point: a tool reads it back and depends on its
-/// shape, so there is no "how much" to choose. The recorder is simply on when it has a sink
-/// (see [`AutotuneConfig::recording_enabled`]); this type exists only so it can reuse
+/// A decision is written in one fixed schema, which is the whole point: a tool reads it back and depends on its
+/// shape, so there is no "how much" to choose. Decisions are written when they have a sink
+/// (see [`AutotuneConfig::decisions_enabled`]); this type exists only so it can reuse
 /// [`LoggerConfig`]'s sinks.
 #[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
-pub struct RecorderLevel;
+pub struct DecisionLevel;
 
-impl LogLevel for RecorderLevel {}
+impl LogLevel for DecisionLevel {}
 
 impl AutotuneConfig {
-    /// Whether tuning decisions are being recorded, i.e. the recorder has somewhere to write.
-    pub fn recording_enabled(&self) -> bool {
+    /// Whether tuning decisions have somewhere to be written.
+    pub fn decisions_enabled(&self) -> bool {
         #[cfg(std_io)]
-        let has_file = self.recorder.file.is_some();
+        let has_file = self.decisions.file.is_some();
         #[cfg(not(std_io))]
         let has_file = false;
 
-        has_file || self.recorder.stdout || self.recorder.stderr
+        has_file || self.decisions.stdout || self.decisions.stderr
     }
 }
 
@@ -172,4 +175,19 @@ pub enum AutotuneLevel {
     /// Maximum autotuning effort.
     #[serde(rename = "full")]
     Full,
+}
+
+#[cfg(all(test, feature = "std"))]
+mod tests {
+    use super::*;
+
+    /// A config naming the sink `recorder` still writes decisions there.
+    #[test]
+    fn decisions_are_read_under_recorder_too() {
+        let config: AutotuneConfig = toml::from_str("[recorder]\nstdout = true").unwrap();
+        assert!(config.decisions.stdout);
+        assert!(config.decisions_enabled());
+        let config: AutotuneConfig = toml::from_str("[decisions]\nstderr = true").unwrap();
+        assert!(config.decisions.stderr);
+    }
 }

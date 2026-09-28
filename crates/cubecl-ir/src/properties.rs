@@ -1,10 +1,13 @@
 use alloc::string::String;
-use core::hash::{BuildHasher, Hash, Hasher};
+use core::{
+    fmt,
+    hash::{BuildHasher, Hash, Hasher},
+    str::FromStr,
+};
 
-use crate::EnumSet;
-use crate::EnumSetType;
 use crate::{
-    AddressType, ElemType, OpaqueType, SemanticType, Type, TypeHash, VectorSize,
+    AddressType, ElemType, EnumSet, EnumSetType, OpaqueType, SemanticType, Type, TypeHash,
+    VectorSize,
     features::{AtomicUsage, ComplexUsage, Features, TypeUsage},
 };
 use cubecl_common::profile::TimingMethod;
@@ -66,16 +69,62 @@ pub struct HardwareProperties {
 
 /// Properties of the device related to allocation.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct MemoryDeviceProperties {
     /// The maximum nr. of bytes that can be allocated in one go.
     pub max_page_size: u64,
     /// The required memory offset alignment in bytes.
     pub alignment: u64,
+    /// Private because [`set_max_memory`](Self::set_max_memory) is its only
+    /// writer, and that is where a zero becomes `None`.
+    max_memory: Option<u64>,
+}
+
+impl MemoryDeviceProperties {
+    /// Properties that state no capacity. A runtime that can read one adds it
+    /// with [`with_max_memory`](Self::with_max_memory).
+    pub const fn new(max_page_size: u64, alignment: u64) -> Self {
+        Self {
+            max_page_size,
+            alignment,
+            max_memory: None,
+        }
+    }
+
+    /// How many bytes this memory may be asked to hold at once, or `None`,
+    /// never `Some(0)`, where the runtime has no figure.
+    ///
+    /// This sizes a whole workload, while
+    /// [`max_page_size`](Self::max_page_size) bounds a single allocation and
+    /// is often derived from it. It is a budget, not a hardware census: each
+    /// runtime reports the largest figure its own API stands behind, and
+    /// staying under it is what keeps the device off its paging path.
+    ///
+    /// A runtime with no figure leaves it `None` rather than guess, because a
+    /// guess reads as a measurement to every caller downstream.
+    pub const fn max_memory(&self) -> Option<u64> {
+        self.max_memory
+    }
+
+    /// States the capacity, as [`set_max_memory`](Self::set_max_memory) does.
+    pub const fn with_max_memory(mut self, max_memory: u64) -> Self {
+        self.set_max_memory(max_memory);
+        self
+    }
+
+    /// States the capacity, dropping a zero: an API with nothing to report
+    /// reports `0`, and [`max_memory`](Self::max_memory) says that as `None`.
+    pub const fn set_max_memory(&mut self, max_memory: u64) {
+        self.max_memory = match max_memory {
+            0 => None,
+            size => Some(size),
+        };
+    }
 }
 
 /// Who a device is, and what its compiled code is keyed to.
 ///
-/// The two fields answer different questions and must not be confused. `name`
+/// `name` and `fingerprint` answer different questions and must not be confused. `name`
 /// is for people: it names the physical part, and two machines holding the same
 /// part report the same name. `fingerprint` is for correctness: it is verbatim
 /// the string this runtime passes to
@@ -97,6 +146,174 @@ pub struct DeviceIdentity {
     /// Verbatim the `compilation_store` fingerprint, so a namespace read back
     /// out of a bundle compares against it directly.
     pub fingerprint: String,
+    /// The card behind the device, `None` for a device that is no card: a CPU, or a software
+    /// rasterizer.
+    pub physical: Option<PhysicalDevice>,
+}
+
+/// The card a device runs on. Two runtimes report different fields for one card, so compare with
+/// [`is_same_card`](Self::is_same_card), not `==`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
+pub struct PhysicalDevice {
+    /// The key every runtime reports alike on Linux.
+    pub pci_address: Option<PciAddress>,
+    /// The key every runtime reports alike on Windows.
+    pub luid: Option<AdapterLuid>,
+    pub vendor: Option<PciVendor>,
+}
+
+impl PhysicalDevice {
+    /// Whether `other` is known to be this card through another runtime: by PCI address, otherwise
+    /// by LUID. A card with neither matches nothing, itself included, since two such cards of one
+    /// make compare equal.
+    pub fn is_same_card(&self, other: &Self) -> bool {
+        if let (Some(mine), Some(theirs)) = (self.pci_address, other.pci_address) {
+            return mine == theirs;
+        }
+        matches!((self.luid, other.luid), (Some(mine), Some(theirs)) if mine == theirs)
+    }
+
+    /// Takes what this runtime left out from `other`, the same card seen through another runtime.
+    pub fn fill_from(&mut self, other: &Self) {
+        let Self {
+            pci_address,
+            luid,
+            vendor,
+        } = *other;
+        self.pci_address = self.pci_address.or(pci_address);
+        self.luid = self.luid.or(luid);
+        self.vendor = self.vendor.or(vendor);
+    }
+}
+
+/// The id Windows gives a graphics adapter. It changes on restart, so it has no serialization or
+/// text form: a stored key wants [`PhysicalDevice::pci_address`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct AdapterLuid([u8; 8]);
+
+impl AdapterLuid {
+    /// From the eight bytes of a Windows `LUID`, low part first.
+    pub fn new(bytes: [u8; 8]) -> Self {
+        Self(bytes)
+    }
+
+    pub fn from_parts(low_part: u32, high_part: i32) -> Self {
+        let mut bytes = [0; 8];
+        bytes[..4].copy_from_slice(&low_part.to_le_bytes());
+        bytes[4..].copy_from_slice(&high_part.to_le_bytes());
+        Self(bytes)
+    }
+
+    pub fn bytes(self) -> [u8; 8] {
+        self.0
+    }
+}
+
+/// The maker of a card, by PCI vendor id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PciVendor {
+    Nvidia,
+    Amd,
+    Intel,
+    Apple,
+    /// Mali GPUs.
+    Arm,
+    /// Adreno GPUs.
+    Qualcomm,
+    Other(u32),
+}
+
+impl PciVendor {
+    pub fn id(self) -> u32 {
+        match self {
+            Self::Nvidia => 0x10de,
+            Self::Amd => 0x1002,
+            Self::Intel => 0x8086,
+            Self::Apple => 0x106b,
+            Self::Arm => 0x13b5,
+            Self::Qualcomm => 0x5143,
+            Self::Other(id) => id,
+        }
+    }
+}
+
+impl From<u32> for PciVendor {
+    fn from(id: u32) -> Self {
+        match id {
+            0x10de => Self::Nvidia,
+            0x1002 => Self::Amd,
+            0x8086 => Self::Intel,
+            0x106b => Self::Apple,
+            0x13b5 => Self::Arm,
+            0x5143 => Self::Qualcomm,
+            other => Self::Other(other),
+        }
+    }
+}
+
+impl fmt::Display for PciVendor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Nvidia => f.write_str("NVIDIA"),
+            Self::Amd => f.write_str("AMD"),
+            Self::Intel => f.write_str("Intel"),
+            Self::Apple => f.write_str("Apple"),
+            Self::Arm => f.write_str("Arm"),
+            Self::Qualcomm => f.write_str("Qualcomm"),
+            Self::Other(id) => write!(f, "{id:#06x}"),
+        }
+    }
+}
+
+/// `domain:bus:device.function`, written `0000:07:00.0`. CUDA and NVML call it the bus id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PciAddress {
+    pub domain: u32,
+    pub bus: u8,
+    pub device: u8,
+    pub function: u8,
+}
+
+impl fmt::Display for PciAddress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{:04x}:{:02x}:{:02x}.{:x}",
+            self.domain, self.bus, self.device, self.function
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PciAddressError(pub String);
+
+impl fmt::Display for PciAddressError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "not a PCI address: {}", self.0)
+    }
+}
+
+impl core::error::Error for PciAddressError {}
+
+impl FromStr for PciAddress {
+    type Err = PciAddressError;
+
+    /// Also accepts the domainless `07:00.0` CUDA emits.
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let err = || PciAddressError(String::from(text));
+        let (rest, function) = text.rsplit_once('.').ok_or_else(err)?;
+        let mut parts = rest.rsplitn(3, ':');
+        let device = parts.next().ok_or_else(err)?;
+        let bus = parts.next().ok_or_else(err)?;
+        let domain = parts.next().unwrap_or("0");
+        Ok(Self {
+            domain: u32::from_str_radix(domain, 16).map_err(|_| err())?,
+            bus: u8::from_str_radix(bus, 16).map_err(|_| err())?,
+            device: u8::from_str_radix(device, 16).map_err(|_| err())?,
+            function: u8::from_str_radix(function, 16).map_err(|_| err())?,
+        })
+    }
 }
 
 /// Properties of what the device can do, like what `Feature` are
@@ -252,5 +469,137 @@ pub enum FastMath {
 impl FastMath {
     pub const fn all() -> EnumSet<FastMath> {
         EnumSet::all()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::string::ToString;
+
+    /// A capacity is stated only by the runtime that read one.
+    ///
+    /// Properties built without one must answer `None`, or a caller would
+    /// size a workload against a figure nobody measured.
+    #[test]
+    fn a_memory_states_no_capacity_until_one_is_read() {
+        let props = MemoryDeviceProperties::new(1024, 32);
+        assert_eq!(props.max_memory(), None);
+        assert_eq!(props.clone().with_max_memory(4096).max_memory(), Some(4096));
+    }
+
+    /// A zero from the runtime's API reads as no capacity.
+    ///
+    /// An API with nothing to report reports `0`, which must not reach a
+    /// caller as a device that holds nothing.
+    #[test]
+    fn a_capacity_of_zero_is_no_capacity() {
+        let mut props = MemoryDeviceProperties::new(1024, 32).with_max_memory(4096);
+        props.set_max_memory(0);
+        assert_eq!(props.max_memory(), None);
+    }
+
+    #[test]
+    fn a_vendor_keeps_its_id_whether_named_or_not() {
+        for id in [0x10de, 0x1002, 0x8086, 0x106b, 0x13b5, 0x5143, 0x1af4] {
+            assert_eq!(PciVendor::from(id).id(), id);
+        }
+        assert_eq!(PciVendor::from(0x10de), PciVendor::Nvidia);
+        assert_eq!(PciVendor::from(0x1af4), PciVendor::Other(0x1af4));
+        assert_eq!(PciVendor::Other(0x1af4).to_string(), "0x1af4");
+    }
+
+    #[test]
+    fn a_luid_from_parts_is_the_bytes_vulkan_reports() {
+        let bytes = [0x8a, 0x1d, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00];
+        assert_eq!(
+            AdapterLuid::from_parts(0x0001_1d8a, 0),
+            AdapterLuid::new(bytes)
+        );
+        assert_eq!(
+            AdapterLuid::from_parts(1, -1).bytes(),
+            [1, 0, 0, 0, 0xff, 0xff, 0xff, 0xff]
+        );
+    }
+
+    #[test]
+    fn a_card_is_matched_by_address_then_by_luid() {
+        let address = |bus| {
+            Some(PciAddress {
+                domain: 0,
+                bus,
+                device: 0,
+                function: 0,
+            })
+        };
+        let luid = |low| Some(AdapterLuid::from_parts(low, 0));
+        let card = |pci_address, luid| PhysicalDevice {
+            pci_address,
+            luid,
+            vendor: None,
+        };
+
+        assert!(card(address(7), None).is_same_card(&card(address(7), luid(1))));
+        assert!(!card(address(7), luid(1)).is_same_card(&card(address(8), luid(1))));
+        assert!(card(None, luid(1)).is_same_card(&card(address(7), luid(1))));
+        assert!(!card(None, luid(1)).is_same_card(&card(None, luid(2))));
+        assert!(!card(None, None).is_same_card(&card(None, None)));
+    }
+
+    #[test]
+    fn a_card_filled_from_another_runtime_keeps_what_it_reported() {
+        let address = |bus| {
+            Some(PciAddress {
+                domain: 0,
+                bus,
+                device: 0,
+                function: 0,
+            })
+        };
+        let luid = Some(AdapterLuid::from_parts(1, 0));
+        let mut card = PhysicalDevice {
+            pci_address: address(7),
+            luid: None,
+            vendor: None,
+        };
+
+        card.fill_from(&PhysicalDevice {
+            pci_address: address(8),
+            luid,
+            vendor: Some(PciVendor::Nvidia),
+        });
+
+        assert_eq!(
+            card,
+            PhysicalDevice {
+                pci_address: address(7),
+                luid,
+                vendor: Some(PciVendor::Nvidia),
+            }
+        );
+    }
+
+    #[test]
+    fn a_pci_address_round_trips_and_defaults_its_domain() {
+        let id = PciAddress {
+            domain: 0,
+            bus: 7,
+            device: 0,
+            function: 0,
+        };
+        assert_eq!(id.to_string(), "0000:07:00.0");
+        assert_eq!("0000:07:00.0".parse::<PciAddress>(), Ok(id));
+        assert_eq!("07:00.0".parse::<PciAddress>(), Ok(id));
+        assert_eq!(
+            "0001:a3:1f.7".parse::<PciAddress>(),
+            Ok(PciAddress {
+                domain: 1,
+                bus: 0xa3,
+                device: 0x1f,
+                function: 7
+            })
+        );
+        assert!("07:00".parse::<PciAddress>().is_err());
+        assert!("gpu".parse::<PciAddress>().is_err());
     }
 }

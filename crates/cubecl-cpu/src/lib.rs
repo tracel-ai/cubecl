@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate derive_new;
-
 extern crate alloc;
 
 #[cfg(test)]
@@ -14,7 +11,7 @@ mod tests {
     use cubecl_core::prelude::*;
     use cubecl_environment::config::RuntimeConfig;
     use cubecl_environment::stream::StreamId;
-    use cubecl_runtime::config::CubeClRuntimeConfig;
+    use cubecl_server::config::CubeClRuntimeConfig;
 
     cubecl_core::testgen_all!(f32: [f16, f32, f64], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
     cubecl_std::testgen!();
@@ -76,7 +73,7 @@ mod tests {
             )
         }
 
-        let read = |handle: &cubecl_runtime::server::Handle| {
+        let read = |handle: &cubecl_server::server::Handle| {
             f32::from_bytes(&client.read_one_unchecked(handle.clone())).to_vec()
         };
         [

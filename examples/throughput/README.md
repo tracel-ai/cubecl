@@ -15,13 +15,14 @@ Small benchmarks that measure a device's **peak throughput** for a few workloads
 
 ## Running
 
-Pick a backend with a feature flag:
+wgpu is the default backend. Pick another with a feature flag, turning the
+default off — every backend linked is measured, one after the other:
 
 ```sh
-cargo run --release -p throughput --features wgpu --example all
-cargo run --release -p throughput --features cuda --example memory
-cargo run --release -p throughput --features cuda --example compute_cmma
-cargo run --release -p throughput --features wgpu --example launch_overhead
+cargo run --release -p throughput --example all
+cargo run --release -p throughput --no-default-features --features cuda --example memory
+cargo run --release -p throughput --no-default-features --features cuda --example compute_cmma
+cargo run --release -p throughput --example launch_overhead
 ```
 
 Always use `--release`; a debug build measures the wrong thing.
@@ -91,7 +92,7 @@ measured value instantly. Toggle it with `CUBECL_THROUGHPUT_CACHE`:
 
 ```sh
 # force a fresh measurement (ignore and overwrite the cache)
-CUBECL_THROUGHPUT_CACHE=off cargo run --release -p throughput --example all --features wgpu
+CUBECL_THROUGHPUT_CACHE=off cargo run --release -p throughput --example all
 ```
 
 Accepted values: `on` / `1` / `true` to enable (the default), `off` / `0` /

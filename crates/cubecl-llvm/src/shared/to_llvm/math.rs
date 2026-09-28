@@ -1,9 +1,10 @@
-use super::prelude::*;
-use crate::target::{CtxTarget, LlvmTarget};
-use cubecl_core::ir::dialect::bitwise::*;
-use cubecl_core::ir::dialect::cmp::{FMaxOp, FMinOp, SMaxOp, SMinOp, UMaxOp, UMinOp};
-use cubecl_core::ir::dialect::general::{BoolAndOp, BoolNotOp, BoolOrOp};
-use cubecl_core::ir::dialect::math::*;
+use crate::prelude::*;
+use cubecl_core::ir::dialect::{
+    bitwise::*,
+    cmp::{FMaxOp, FMinOp, SMaxOp, SMinOp, UMaxOp, UMinOp},
+    general::{BoolAndOp, BoolNotOp, BoolOrOp},
+    math::*,
+};
 
 macro_rules! lower_unary_intrinsic_arith {
     ($cube_op:ty => $llvm_op:expr) => {
@@ -58,8 +59,7 @@ lower_unary_intrinsic_arith!(CeilOp => "llvm.ceil");
 lower_unary_intrinsic_arith!(TruncOp => "llvm.trunc");
 lower_unary_intrinsic_arith!(ReverseBitsOp => "llvm.bitreverse");
 
-/// `llvm.abs` is `i_ (i_, i1 immarg)`, the flag saying whether `INT_MIN` is poison. Cube's
-/// `SAbsOp` is defined to wrap like LLVM's non-poisoning form, so pass `false`.
+/// Integer absolute value wraps at `INT_MIN`.
 #[op_interface_impl]
 impl ToLLVMDialect for SAbsOp {
     fn rewrite(
@@ -88,7 +88,6 @@ impl ToLLVMDialect for SAbsOp {
     }
 }
 
-/// Width of an integer type, or of the elements of an integer vector type.
 fn int_elem_width(ctx: &Context, ty: TypeHandle) -> u32 {
     let elem_ty = ty
         .deref(ctx)
@@ -157,7 +156,6 @@ lower_count_bits_intrinsic!(CountOnesOp => "llvm.ctpop");
 lower_count_bits_intrinsic!(LeadingZerosBitsOp => "llvm.ctlz", true);
 lower_count_bits_intrinsic!(TrailingZerosBitsOp => "llvm.cttz", true);
 
-// See https://llvm.org/docs/LangRef.html#id1822 for more info
 const IS_NAN: i32 = 0x0003;
 const IS_INF: i32 = 0x0204;
 
@@ -182,7 +180,6 @@ macro_rules! lower_float_fpclass {
                     bool_ty =
                         LlvmVectorType::get(ctx, bool_ty, num_elems, VectorTypeKind::Fixed).into();
                 }
-                // `llvm.is.fpclass` is not variadic; the test mask is a plain `i32 immarg`.
                 let intrinsic_type =
                     FuncType::get(ctx, bool_ty, vec![elem_ty, int_ty.into()], false);
 
@@ -292,7 +289,12 @@ impl ToLLVMDialect for ShiftRightOp {
     ) -> Result<()> {
         let lhs = self.lhs(ctx);
         let rhs = self.rhs(ctx);
-        let original_lhs_ty = *operands_info.lookup_operand_history(lhs).first().unwrap();
+        // Shift signedness comes from the original operand type.
+        let original_lhs_ty = operands_info
+            .lookup_operand_history(lhs)
+            .first()
+            .copied()
+            .unwrap_or_else(|| lhs.get_type(ctx));
         let op: &dyn OneResultInterface = if original_lhs_ty.is_signed_int(ctx) {
             &llvm::AShrOp::new(ctx, lhs, rhs)
         } else {
@@ -306,7 +308,6 @@ impl ToLLVMDialect for ShiftRightOp {
 
 lower_int_bin_with_overflow_arith!(ShiftLeftOp => llvm::ShlOp);
 
-// LLVM has no boolean negation, so `!x` becomes `x ^ true`.
 #[op_interface_impl]
 impl ToLLVMDialect for BoolNotOp {
     fn rewrite(
@@ -332,20 +333,13 @@ impl ToLLVMDialect for BoolNotOp {
     }
 }
 
-/// Whether a multiply feeding an add may fuse into an FMA.
-///
-/// `contract` alone, never the rest of `fast`: assuming no NaNs or infinities and allowing
-/// reassociation change what the kernel computes, which is not the compiler's call to make.
-/// Contraction only rounds once instead of twice, and a matmul inner loop is made of it.
-///
-/// On the GPU only. The FMA is the instruction the hardware wants, and the C++ backends
-/// contract by default, so this is what the other runtimes already do. The CPU pipeline is
-/// the reference those runtimes get compared against, so its arithmetic stays exactly what
-/// the kernel wrote.
+/// FMA contraction is enabled only on GPU targets.
 fn fma_contraction(ctx: &Context) -> FastmathFlagsAttr {
     match ctx.target() {
         #[cfg(feature = "amdgpu")]
         LlvmTarget::AmdGpu => FastmathFlagsAttr(FastmathFlags::CONTRACT),
+        #[cfg(feature = "nvptx")]
+        LlvmTarget::Nvptx => FastmathFlagsAttr(FastmathFlags::CONTRACT),
         LlvmTarget::Cpu => FastmathFlagsAttr::default(),
     }
 }
@@ -376,7 +370,6 @@ macro_rules! lower_float_bin_arith {
     };
 }
 
-/// No flags. A division or a remainder has nothing to contract into.
 fn no_fast_math(_ctx: &Context) -> FastmathFlagsAttr {
     FastmathFlagsAttr::default()
 }
@@ -425,12 +418,15 @@ macro_rules! lower_binary_intrinsic_arith {
 
 lower_binary_intrinsic_arith!(ArcTan2Op => "llvm.atan2");
 lower_binary_intrinsic_arith!(PowfOp => "llvm.pow");
-lower_binary_intrinsic_arith!(FMinOp => "llvm.minimum");
+// `minnum`/`maxnum` ignore a NaN operand, as `fminf`/`fmaxf` in the C++ backends and Rust's
+// `f32::min` do. `minimum`/`maximum` propagate it instead, and have no single instruction
+// before sm_80 or gfx12, so every max-reduce and ReLU would pay for a NaN test and a select.
+lower_binary_intrinsic_arith!(FMinOp => "llvm.minnum");
 lower_binary_intrinsic_arith!(UMinOp => "llvm.umin");
 lower_binary_intrinsic_arith!(SMinOp => "llvm.smin");
 lower_binary_intrinsic_arith!(UMaxOp => "llvm.umax");
 lower_binary_intrinsic_arith!(SMaxOp => "llvm.smax");
-lower_binary_intrinsic_arith!(FMaxOp => "llvm.maximum");
+lower_binary_intrinsic_arith!(FMaxOp => "llvm.maxnum");
 lower_binary_intrinsic_arith!(SaturatingSAddOp => "llvm.sadd.sat");
 lower_binary_intrinsic_arith!(SaturatingUAddOp => "llvm.uadd.sat");
 lower_binary_intrinsic_arith!(SaturatingSSubOp => "llvm.ssub.sat");

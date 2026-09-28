@@ -1,4 +1,4 @@
-//! What the shared [`Command`](cubecl_runtime::command::Command) cannot do
+//! What the shared [`Command`](cubecl_server::command::Command) cannot do
 //! itself: CUDA's four device calls, and where a CUDA stream keeps the state
 //! they move in step with.
 
@@ -9,14 +9,14 @@ use crate::compute::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::stream::{CudaStreamBackend, Stream};
 use cubecl_common::bytes::Bytes;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_runtime::command::{CopyLayout, DeviceStream, Driver};
-use cubecl_runtime::id::KernelId;
-use cubecl_runtime::memory_management::drop_queue::PendingDropQueue;
-use cubecl_runtime::memory_management::{ManagedMemoryBinding, MemoryManagement};
-use cubecl_runtime::metadata_cache::MetadataInfoCache;
-use cubecl_runtime::server::{Handle, IoError, LaunchError};
-use cubecl_runtime::storage::{ComputeStorage, PinnedMemoryAllocController};
-use cubecl_runtime::stream::StreamCapture;
+use cubecl_server::command::{CopyLayout, DeviceStream, Driver};
+use cubecl_server::id::KernelId;
+use cubecl_server::memory_management::drop_queue::PendingDropQueue;
+use cubecl_server::memory_management::{ManagedMemoryBinding, MemoryManagement};
+use cubecl_server::metadata_cache::MetadataInfoCache;
+use cubecl_server::server::{Handle, IoError, LaunchError, ServerError};
+use cubecl_server::storage::{ComputeStorage, PinnedMemoryAllocController};
+use cubecl_server::stream::StreamCapture;
 use cudarc::driver::sys::{CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, cuMemcpy2DAsync_v2};
 use std::ffi::c_void;
 
@@ -175,6 +175,28 @@ impl Driver for Cuda {
         }
     }
 
+    unsafe fn copy_on_device(
+        source: &GpuResource,
+        target: &GpuResource,
+        queue: <Stream as DeviceStream>::Signal,
+    ) -> Result<(), IoError> {
+        debug_assert_eq!(source.size, target.size);
+        // SAFETY: the caller guarantees two live, same-sized, disjoint device
+        // allocations left alone until the stream is synchronized.
+        unsafe {
+            cudarc::driver::result::memcpy_dtod_async(
+                target.ptr,
+                source.ptr,
+                source.size as usize,
+                queue,
+            )
+        }
+        .map_err(|err| IoError::Unknown {
+            description: alloc::format!("memcpy_dtod_async failed: {err}"),
+            backtrace: BackTrace::capture(),
+        })
+    }
+
     fn launch(
         ctx: &mut CudaContext,
         stream: &mut Stream,
@@ -183,6 +205,13 @@ impl Driver for Cuda {
         args: &mut [*mut c_void],
     ) -> Result<(), LaunchError> {
         ctx.execute_task(stream, kernel, count, args)
+    }
+
+    fn wait_outside_streams(ctx: &mut CudaContext) -> Result<(), ServerError> {
+        // Collectives run on their own stream, which compute streams only wait
+        // on at a collective sync: one still reading or writing an allocation
+        // has to finish before the allocation moves.
+        Fence::new(ctx.comm_stream).wait_sync()
     }
 }
 

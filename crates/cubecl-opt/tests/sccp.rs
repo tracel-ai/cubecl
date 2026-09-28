@@ -772,7 +772,7 @@ fn sccp_materializes_constant_carried_through_loop_back_edge_region() -> Result<
             start_v1 = builtin.constant <builtin.integer <0: i32>> : builtin.integer i32 !1;
             step_v2 = builtin.constant <builtin.integer <1: i32>> : builtin.integer i32 !2;
             c_v3 = builtin.constant <builtin.integer <42: i64>> : builtin.integer i64 !3;
-            y_v4 = scf.for start_v1 to end_v0 step step_v2 iter_args(c_v3)
+            y_v4 = scf.for start_v1 to end_v0 step step_v2 iter_args(c_v3) 
             {
               ^body_block2v1(i_v5: builtin.integer i32, c2_v6: builtin.integer i64) !4:
                 c2_v8 = builtin.constant <builtin.integer <42: i64>> : builtin.integer i64 !5;
@@ -810,7 +810,7 @@ fn sccp_loop_back_edge_with_different_constant_meets_to_not_a_constant_region() 
         {
           ^entry_block1v1(cond_v0: cube.bool ) !0:
             c1_v1 = builtin.constant <builtin.integer <42: i64>> : builtin.integer i64 !1;
-            y_v5 = scf.while c1_v1 : builtin.integer i64
+            y_v5 = scf.while c1_v1 : builtin.integer i64 
             {
               ^before_block2v1(x_v2: builtin.integer i64) !2:
                 branch.condition (cond_v0, x_v2) !3

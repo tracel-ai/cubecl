@@ -1,3 +1,5 @@
+#![cfg(any(target_os = "linux", target_os = "windows"))]
+
 //! Regression test: reading a zero-size buffer stages through pinned host
 //! memory, and a zero-size pinned allocation carries a NULL pointer
 //! (`hipHostMalloc(0)` returns success without allocating). Building the
@@ -6,7 +8,7 @@
 
 use cubecl_core::prelude::*;
 use cubecl_hip::HipRuntime;
-use cubecl_runtime::runtime::Runtime;
+use cubecl_server::runtime::Runtime;
 
 #[test]
 fn read_empty_buffer() {

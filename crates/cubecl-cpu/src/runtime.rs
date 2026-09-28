@@ -12,8 +12,12 @@ use cubecl_core::{
     zspace::{Shape, Strides},
 };
 use cubecl_llvm::PlironCompiler;
-use cubecl_runtime::runtime::Runtime;
-use cubecl_runtime::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
+use cubecl_server::{
+    allocator::ContiguousMemoryLayoutPolicy,
+    config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
+    logging::ServerLogger,
+    runtime::Runtime,
+};
 use cubecl_std::tensor::is_contiguous;
 use std::sync::Arc;
 use sysinfo::{CpuRefreshKind, System};
@@ -80,6 +84,23 @@ fn register_supported_types(props: &mut DeviceProperties) {
     }
 }
 
+/// A feature bit promises the instructions, not their speed, and `compilation.f16_evaluation`
+/// overrides the mode chosen from it on a host where the two disagree.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn host_has_f16_arithmetic() -> bool {
+    std::arch::is_x86_feature_detected!("avx512fp16")
+}
+
+#[cfg(target_arch = "aarch64")]
+fn host_has_f16_arithmetic() -> bool {
+    std::arch::is_aarch64_feature_detected!("fp16")
+}
+
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
+fn host_has_f16_arithmetic() -> bool {
+    false
+}
+
 fn host_cpu_name(system: &System) -> String {
     system
         .cpus()
@@ -96,7 +117,8 @@ impl DeviceService for CpuServer {
         let mut system = System::new();
         system.refresh_memory();
         system.refresh_cpu_list(CpuRefreshKind::nothing());
-        // Bounds the allocator's page size, not a kernel's shared memory.
+        // The cgroup limit where one applies, else the host's RAM: the page size
+        // and the capacity both, and not a kernel's shared memory.
         let total_memory = system
             .cgroup_limits()
             .map(|g| g.total_memory)
@@ -120,6 +142,10 @@ impl DeviceService for CpuServer {
         // measured ~2.5x worse on decode gemv, stages outgrowing what stays
         // resident. GPU-like floor when the topology cannot be read.
         let max_shared_memory_size = affinity::l1d_cache_size().unwrap_or(64 * 1024);
+        let f16_evaluation = CubeClRuntimeConfig::get()
+            .compilation
+            .f16_evaluation
+            .unwrap_or_else(|| F16Evaluation::for_native_f16(host_has_f16_arithmetic()));
         let topology = HardwareProperties {
             load_width: 512,
             plane_size_min: 1,
@@ -138,12 +164,10 @@ impl DeviceService for CpuServer {
             cube_mma_reserved_shared_memory: 0,
         };
 
-        const ALIGNMENT: u64 = 8;
+        const ALIGNMENT: u64 = cubecl_server::storage::BytesStorage::ALIGNMENT as u64;
 
-        let mem_properties = MemoryDeviceProperties {
-            max_page_size: total_memory as u64,
-            alignment: ALIGNMENT,
-        };
+        let mem_properties = MemoryDeviceProperties::new(total_memory as u64, ALIGNMENT)
+            .with_max_memory(total_memory as u64);
 
         let mut device_props = DeviceProperties::new(
             Features {
@@ -159,7 +183,8 @@ impl DeviceService for CpuServer {
             // fingerprint: it is what the generated code is valid for.
             DeviceIdentity {
                 name: host_cpu_name(&system),
-                fingerprint: format!("cpu_{}", std::env::consts::ARCH),
+                fingerprint: format!("cpu_{}_f16-{}", std::env::consts::ARCH, f16_evaluation),
+                physical: None,
             },
         );
         register_supported_types(&mut device_props);
@@ -172,7 +197,12 @@ impl DeviceService for CpuServer {
             logger,
             ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize),
         );
-        CpuServer::new(mem_properties, options.memory_config, Arc::new(utilities))
+        CpuServer::new(
+            mem_properties,
+            options.memory_config,
+            f16_evaluation,
+            Arc::new(utilities),
+        )
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {

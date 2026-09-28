@@ -1,7 +1,7 @@
 use crate::{self as cubecl};
 use alloc::vec::Vec;
 use cubecl::prelude::*;
-use cubecl_common::bytes::{AccessError, AllocationProperty, Reader};
+use cubecl_common::bytes::{AccessError, AllocationProperty, Bytes, Reader};
 use cubecl_runtime::runtime::Runtime;
 use cubecl_runtime::server::MemoryLayout;
 use cubecl_zspace::shape;
@@ -87,6 +87,47 @@ pub fn test_read_lazy<R: Runtime>(client: Client) {
     );
 }
 
+/// Empty tensors can be read eagerly or lazily, including layouts with zero strides.
+pub fn test_read_empty_tensor<R: Runtime>(client: Client) {
+    for shape in [
+        shape![0],
+        shape![0, 2],
+        shape![2, 0],
+        shape![0, 0],
+        shape![2, 0, 3],
+    ] {
+        let elem_size = size_of::<f32>();
+        let MemoryLayout { memory, strides } = client.empty_tensor(shape.clone(), elem_size);
+        let lazy = client.read_lazy(memory.clone().copy_descriptor(
+            shape.clone(),
+            strides.clone(),
+            elem_size,
+        ));
+        // len() alone does not materialize a lazy device read.
+        assert!(lazy.read(Reader::new()).unwrap().is_empty());
+
+        let eager =
+            client.read_one_unchecked_tensor(memory.copy_descriptor(shape, strides, elem_size));
+        assert!(eager.read(Reader::new()).unwrap().is_empty());
+    }
+}
+
+/// Uploading an empty tensor must not reject its zero strides or attempt a device copy.
+pub fn test_create_empty_tensor<R: Runtime>(client: Client) {
+    for shape in [
+        shape![0],
+        shape![0, 2],
+        shape![2, 0],
+        shape![0, 0],
+        shape![2, 0, 3],
+    ] {
+        let allocation =
+            client.create_tensor(Bytes::from_bytes_vec(Vec::new()), shape, size_of::<f32>());
+        // Check the upload independently of readback so a read failure cannot mask it.
+        client.check([&allocation.memory]).unwrap();
+    }
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_read_lazy {
@@ -98,6 +139,18 @@ macro_rules! testgen_read_lazy {
         fn test_read_lazy() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::read_lazy::test_read_lazy::<TestRuntime>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_read_empty_tensor() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::read_lazy::test_read_empty_tensor::<TestRuntime>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_create_empty_tensor() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::read_lazy::test_create_empty_tensor::<TestRuntime>(client);
         }
     };
 }

@@ -29,14 +29,24 @@ impl PooledProbes {
         Self { service }
     }
 
-    /// Releases what `client` holds, unless a sweep is still measuring against
-    /// it. Decided under the lock: a sweep entering between the read and the
-    /// release would lose the pool it is about to measure.
     pub(super) fn cleanup_unless_held(client: &Client) {
-        let pooled = POOLED_PROBES.lock();
+        // A cleanup refused because a stream records a graph leaves the memory
+        // for the next one; the sweep needs nothing from it.
+        Self::cleanup_unless_held_by(client.service_id(), || {
+            let _ = client.memory_cleanup();
+        });
+    }
 
-        if !Self::held_by(&pooled, client.service_id()) {
-            client.memory_cleanup();
+    /// `release` runs with the lock dropped: it blocks on the device thread,
+    /// which takes this lock itself when it autotunes.
+    fn cleanup_unless_held_by(service: ServiceId, release: impl FnOnce()) {
+        let held = {
+            let pooled = POOLED_PROBES.lock();
+            Self::held_by(&pooled, service)
+        };
+
+        if !held {
+            release();
         }
     }
 
@@ -133,5 +143,34 @@ mod tests {
 
         assert!(pooled(service(3)));
         assert!(!pooled(service(4)));
+    }
+
+    #[test]
+    fn a_running_sweep_is_not_released() {
+        let device = service(5);
+        let _pooled = PooledProbes::enter_service(device);
+        let mut released = false;
+
+        PooledProbes::cleanup_unless_held_by(device, || released = true);
+
+        assert!(!released);
+    }
+
+    #[test]
+    fn a_release_is_issued_with_the_lock_dropped() {
+        use std::{sync::mpsc, time::Duration};
+
+        let (took_lock, lock_taken) = mpsc::channel();
+
+        PooledProbes::cleanup_unless_held_by(service(6), || {
+            std::thread::spawn(move || {
+                let _pooled = POOLED_PROBES.lock();
+                let _ = took_lock.send(());
+            });
+
+            lock_taken
+                .recv_timeout(Duration::from_secs(5))
+                .expect("another thread takes the lock while a release runs");
+        });
     }
 }

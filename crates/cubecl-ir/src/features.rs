@@ -24,6 +24,12 @@ pub struct Features {
 
     /// Whether `copy_async` is supported
     pub copy_async: bool,
+    /// Whether a [`SyncScope::Device`](crate::dialect::synchronization::SyncScope::Device)
+    /// synchronization is a release and an acquire at device scope, so that one cube's writes to
+    /// storage are visible to another that synchronizes after it. Without it the same
+    /// synchronization is a cube barrier and nothing more, which is all WebGPU's memory model
+    /// promises, so a kernel whose cubes hand each other data must ask before it runs.
+    pub device_memory_scope: bool,
     /// Tensor Memory Accelerator supported features
     pub tma: EnumSet<Tma>,
     /// Whether vectors can be read from / stored to addresses not aligned

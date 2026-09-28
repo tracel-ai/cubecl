@@ -40,7 +40,7 @@ mod embedded;
 mod import;
 // The manifest is the description of a bundle, not a way of storing one, so it
 // is available wherever a bundle can be read: the flat format exists for the
-// targets `cache` can't reach, and they need the same schema guards.
+// targets a database can't reach, and they need the same schema guards.
 mod manifest;
 
 pub use base::*;

@@ -35,7 +35,7 @@ pub fn device_throughput<R: Runtime>(
 ///
 /// Native only, panics on WASM
 pub fn measure_memory_curve(client: &Client, access: MemoryAccess) -> MemoryCurve {
-    let points = {
+    let (points, probed) = {
         // Every point of a sweep asks for the same pool, so the sweep holds one.
         let _pooled = PooledProbes::enter(client);
 
@@ -44,7 +44,9 @@ pub fn measure_memory_curve(client: &Client, access: MemoryAccess) -> MemoryCurv
         })
     };
 
-    PooledProbes::cleanup_unless_held(client);
+    if probed {
+        PooledProbes::cleanup_unless_held(client);
+    }
 
     MemoryCurve::new(access, points)
 }
@@ -53,18 +55,24 @@ fn sweep(
     client: &Client,
     access: MemoryAccess,
     mode: impl Fn(u64) -> ThroughputMode,
-) -> alloc::vec::Vec<MemoryPoint> {
-    working_set_sweep(working_set_cap(client, access))
+) -> (alloc::vec::Vec<MemoryPoint>, bool) {
+    let mut probed = false;
+
+    let points = working_set_sweep(working_set_cap(client, access))
         .into_iter()
         .filter_map(|bytes| {
             let key = ThroughputKey { mode: mode(bytes) };
+            let (value, ran) = measure(client, key);
+            probed |= ran;
 
             Some(MemoryPoint {
                 bytes,
-                value: measure_peak_throughput(client, key).ok()?,
+                value: value.ok()?,
             })
         })
-        .collect()
+        .collect();
+
+    (points, probed)
 }
 
 /// The largest working set `access` can be probed at: the largest window one
@@ -77,28 +85,58 @@ fn working_set_cap(client: &Client, access: MemoryAccess) -> u64 {
 
 /// Computes the peak throughput for a given runtime and key.
 ///
-/// Native only, panics on WASM
+/// Native only: a probe blocks on the device, which the browser can't do.
+/// There this reports [`Unsupported`](ThroughputError::Unsupported), so a
+/// roofline bound built from it has no peak and no time limit, and the tune
+/// runs without one rather than not at all.
 ///
 /// # Errors
 ///
 /// [`Unsupported`](ThroughputError::Unsupported) where the device implements
 /// no such operation, [`NoTiming`](ThroughputError::NoTiming) where it does
-/// and reported no elapsed time.
+/// and reported no elapsed time, [`Allocation`](ThroughputError::Allocation)
+/// where it has no room for the probe's buffers, [`Launch`](ThroughputError::Launch)
+/// where a memory probe's kernel did not run. None of them is cached, so a
+/// device that was full is measured the next time it is asked.
 pub fn measure_peak_throughput(
     client: &Client,
     key: ThroughputKey,
 ) -> Result<ThroughputValue, ThroughputError> {
-    // A throughput probe is a measurement: inside a dry run its launches must
-    // still execute, or they would be timed anyway and cache a garbage peak in
-    // the device-level throughput store. The guard is read where the launch is
-    // issued, which for these is this thread.
-    let _measurement = cubecl_runtime::dry_run::RealRun::new();
+    let (value, probed) = measure(client, key);
 
-    let value = client.measure_throughput(key, || probe(client, key));
-
-    PooledProbes::cleanup_unless_held(client);
+    if probed {
+        PooledProbes::cleanup_unless_held(client);
+    }
 
     value
+}
+
+/// The value for `key`, and whether a probe ran for it rather than the cache
+/// answering or the platform declining. Only a probe leaves pools with the
+/// allocator.
+fn measure(
+    client: &Client,
+    key: ThroughputKey,
+) -> (Result<ThroughputValue, ThroughputError>, bool) {
+    #[cfg(target_family = "wasm")]
+    {
+        let _ = (client, key);
+        (Err(ThroughputError::Unsupported), false)
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    {
+        let mut probed = false;
+        let value = client.measure_throughput(key, || {
+            // Read where the launch is issued, which here is the runner.
+            let _measurement = cubecl_runtime::dry_run::RealRun::new();
+
+            probed = true;
+            probe(client, key)
+        });
+
+        (value, probed)
+    }
 }
 
 /// Measures `key`, in the fastest shape its probe can be launched in.
@@ -113,7 +151,7 @@ fn probe(client: &Client, key: ThroughputKey) -> Result<ThroughputValue, Through
             }
 
             ShapeSweep::new(compute_direct_shapes(client, dtype, launch_config))
-                .fastest(|(dtype, config)| compute_direct::build_kernel(client, dtype, config))
+                .fastest(|(dtype, config)| Ok(compute_direct::build_kernel(client, dtype, config)))
                 .map(|(value, _)| value)
         }
         ThroughputMode::ComputeCmma {
@@ -125,7 +163,7 @@ fn probe(client: &Client, key: ThroughputKey) -> Result<ThroughputValue, Through
             }
 
             ShapeSweep::new(alloc::vec![launch_config])
-                .fastest(|config| compute_cmma::build_kernel(client, key, cmma_config, config))
+                .fastest(|config| Ok(compute_cmma::build_kernel(client, key, cmma_config, config)))
                 .map(|(value, _)| value)
         }
         ThroughputMode::Memory(spec) => {
@@ -145,7 +183,7 @@ fn probe(client: &Client, key: ThroughputKey) -> Result<ThroughputValue, Through
             Ok(value)
         }
         ThroughputMode::Launch => ShapeSweep::new(alloc::vec![launch_config])
-            .fastest(|config| launch_overhead::build_kernel(client, key, config))
+            .fastest(|config| Ok(launch_overhead::build_kernel(client, key, config)))
             .map(|(value, _)| value),
     }
 }

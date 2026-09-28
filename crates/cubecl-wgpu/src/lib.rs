@@ -43,11 +43,11 @@ mod tests {
     mod precompiled {
         use cubecl_core::prelude::*;
         use cubecl_ir::{UIntKind, metadata::Info, settings::Dim3};
-        use cubecl_runtime::kernel::{
+        use cubecl_server::kernel::{
             CubeKernel, KernelDefinition, KernelMetadata, PrecompiledSource,
         };
-        use cubecl_runtime::runtime::Runtime;
-        use cubecl_runtime::server::KernelArguments;
+        use cubecl_server::runtime::Runtime;
+        use cubecl_server::server::KernelArguments;
 
         use super::TestRuntime;
 
@@ -120,8 +120,8 @@ fn double(@builtin(global_invocation_id) id: vec3<u32>) {
         use cubecl_common::e4m3;
         use cubecl_core::prelude::*;
         use cubecl_core::{self as cubecl};
-        use cubecl_runtime::runtime::Runtime;
-        use cubecl_runtime::server::Handle;
+        use cubecl_server::runtime::Runtime;
+        use cubecl_server::server::Handle;
 
         use super::TestRuntime;
 
@@ -211,10 +211,15 @@ mod tests_spirv {
 #[allow(unexpected_cfgs)]
 mod tests_msl {
     pub type TestRuntime = crate::WgpuRuntime;
-    use half::f16;
+    use half::{bf16, f16};
 
-    cubecl_core::testgen_all!(f32: [f16, f32], i32: [i16, i32], u32: [u16, u32]);
+    cubecl_core::testgen_all!(f32: [f16, bf16, f32], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([f16, flex32, f32, u32]);
     cubecl_std::testgen_quantized_view!(f16);
+    cubecl_core::testgen_profiling!();
+    // No `testgen_profiling_nested!`: Metal writes a pass's timestamps only once its command
+    // buffer completes, so a window's end waits for the device, and an enclosing window measures
+    // that idle gap. Add it once the readback is deferred instead of waited for.
+    cubecl_core::testgen_complex_validation!();
 }

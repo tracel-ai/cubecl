@@ -235,12 +235,13 @@ mod tests {
         target::{CtxTarget, Target},
     };
     use cubecl_core::ir::{ComplexKind, ConstantValue, ElemType, FloatKind, UIntKind};
-    use pliron::builtin::ops::ConstantOp;
+    use pliron::{attribute::boxed_attr_cast, builtin::ops::ConstantOp};
 
     fn cast(input: ConstantValue, input_ty: ElemType, output_ty: ElemType) -> String {
         let mut ctx = Context::new();
         ctx.set_target(Target::Cuda);
         let input_attr = input.as_attribute(&ctx, input_ty);
+        let input_attr = boxed_attr_cast(input_attr).unwrap();
         let input = ConstantOp::new(&mut ctx, input_attr).get_result(&ctx);
         let input_name = input.name(&ctx).to_string();
         let output_ty = output_ty.to_type(&ctx);

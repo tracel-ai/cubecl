@@ -1,17 +1,14 @@
 use crate::{
-    config::memory::MemoryPoolsConfig,
     config::{TypeNameFormatLevel, type_name_format},
-    id::GraphId,
+    id::{GraphId, KernelId},
     kernel::CubeKernel,
     logging::ProfileLevel,
-    memory_management::{
-        InstallMemoryPoolsError, MemoryAllocationMode, MemoryConfiguration, MemoryReport,
-        MemoryUsage,
-    },
+    memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
-        BufferBinding, CommunicationId, CopyDescriptor, CubeCount, Handle, KernelArguments,
-        KernelResource, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutStrategy, ProfileError,
-        ReduceOperation, Server, ServerError, ServerStorage, ServerUtilities,
+        BufferBinding, Collective, CommunicationId, CopyDescriptor, CubeCount, Handle,
+        KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
+        MemoryLayoutStrategy, ProfileError, ProfilingToken, ReduceOperation, Server, ServerError,
+        ServerStorage, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -162,6 +159,21 @@ impl Drop for GraphHandle {
         self.device
             .submit(move |server| server.graph_destroy(id, stream_id));
     }
+}
+
+/// A profiling window opened by [`Client::profile_start`], closed by
+/// [`Client::profile_end`] or dropped by [`Client::profile_abandon`].
+///
+/// It remembers the stream it was opened on, so closing it from another
+/// thread still closes it on that stream. It is a plain value with no
+/// [`Drop`]: a window that is neither ended nor abandoned stays open on the
+/// server.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct ProfileWindow {
+    /// The stream the window was opened on.
+    pub stream_id: StreamId,
+    /// The server's token for the window.
+    pub token: ProfilingToken,
 }
 
 /// The state a `DeviceHandle` reaches, seen as the server it is. A client
@@ -582,13 +594,45 @@ impl Client {
         input: Input,
         task: F,
     ) -> Re {
+        self.allocation_window(MemoryAllocationMode::Persistent, input, task)
+    }
+
+    /// Run `task` with every allocation it makes given its own device
+    /// allocation outside every pool, returned to the driver once freed, then
+    /// restore the previous mode.
+    ///
+    /// For buffers that exist for one measurement and nothing after it: they
+    /// stay out of the pools' reservations and out of the statistics an
+    /// adaptive pool sizes its pages from.
+    pub fn memory_dedicated_allocation<
+        'a,
+        Re: Send,
+        Input: Send,
+        F: FnOnce(Input) -> Re + Send + 'a,
+    >(
+        &'a self,
+        input: Input,
+        task: F,
+    ) -> Re {
+        self.allocation_window(MemoryAllocationMode::Dedicated, input, task)
+    }
+
+    /// Open a window of `mode` on the current stream around `task`, and close
+    /// it after. Private because `Auto` is what closes a window: the public
+    /// entry points each name a mode that opens one.
+    fn allocation_window<'a, Re: Send, Input: Send, F: FnOnce(Input) -> Re + Send + 'a>(
+        &'a self,
+        mode: MemoryAllocationMode,
+        input: Input,
+        task: F,
+    ) -> Re {
         let stream_id = StreamId::current();
 
         self.device.submit(move |server| {
-            server.allocation_mode(MemoryAllocationMode::Persistent, stream_id);
+            server.allocation_mode(mode, stream_id);
         });
 
-        // All tasks created on the same stream will have persistent memory.
+        // All tasks created on the same stream allocate in this mode.
         let output = task(input);
 
         self.device.submit(move |server| {
@@ -830,7 +874,7 @@ impl Client {
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
         let same_runtime = dst_server.service_id().service == self.service_id().service;
-        if self.utilities.server_comm_enabled && same_runtime {
+        if self.has_device_transport() && same_runtime {
             self.to_client_tensor(src_descriptor, dst_server, dtype)
         } else {
             let alloc_desc = MemoryLayoutDescriptor::new(
@@ -849,6 +893,7 @@ impl Client {
         tracing::instrument(level = "trace", skip(self, device_ids))
     )]
     pub fn ensure_init_collective(&mut self, device_ids: Vec<DeviceId>) {
+        self.expect_device_transport(Collective::CommInit);
         let comm_id = CommunicationId::from(device_ids.clone());
         let is_comms_init = self.utilities.initialized_comms.read().contains(&comm_id);
         if !is_comms_init {
@@ -861,11 +906,37 @@ impl Client {
         }
     }
 
+    /// Whether this runtime moves data between its devices itself. Without it, `to_client`
+    /// copies through the host and the collectives refuse.
+    pub fn has_device_transport(&self) -> bool {
+        self.utilities.server_comm_enabled
+    }
+
+    /// Panics on the caller when the runtime has no device transport.
+    fn expect_device_transport(&self, operation: Collective) {
+        // The server refuses too, but on the device thread, where the channel turns the panic into
+        // a log line and the caller only sees a later read fail.
+        if !self.has_device_transport() {
+            let alternative = match operation {
+                Collective::Send | Collective::Recv => "; `to_client` copies through the host",
+                _ => "",
+            };
+            panic!(
+                "Can't use `{operation}` on {}, which has no transport between its devices{alternative}",
+                self.utilities.name
+            );
+        }
+    }
+
     /// Wait on the communication stream.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn sync_collective(&self) {
         if DeviceHandle::<dyn Server>::is_blocking() {
             panic!("Can't use `sync_collective` with a blocking device handle");
+        }
+        // Nothing was sent between devices, so there is nothing to wait for.
+        if !self.has_device_transport() {
+            return;
         }
         let stream_id = self.stream_id();
 
@@ -899,6 +970,7 @@ impl Client {
         if DeviceHandle::<dyn Server>::is_blocking() {
             panic!("Can't use `all_reduce` with a blocking device handle");
         }
+        self.expect_device_transport(Collective::AllReduce);
 
         let stream_id = self.stream_id();
         let src = src.binding();
@@ -933,6 +1005,7 @@ impl Client {
         dst_server: &Self,
         dtype: ElemType,
     ) -> Handle {
+        self.expect_device_transport(Collective::Send);
         self.expect_local(&src_descriptor.handle);
         let stream_id_src = self.stream_id();
         let stream_id_dst = dst_server.stream_id();
@@ -1020,6 +1093,8 @@ impl Client {
             });
         }
 
+        crate::launched::note(|| kernel.id());
+
         // Decided here, on the issuing thread, because that is the only place
         // that still knows whether this launch is an autotune measurement — by
         // the time it reaches the server thread, that context is gone.
@@ -1031,7 +1106,9 @@ impl Client {
         // which the caller's own context still exists, and attributing a
         // launch to what caused it is the whole reason the hook is here rather
         // than beside the logger's aggregation.
-        crate::logging::notify_launch(kernel.name());
+        if crate::logging::is_observing() {
+            crate::logging::notify_launch(kernel.name());
+        }
 
         // An observer asking for timing gets the profiled path even with the
         // profiling logger off — the two are separate readers of the same
@@ -1044,11 +1121,15 @@ impl Client {
             None | Some(ProfileLevel::ExecutionOnly) if !observed_timing => {
                 let utilities = self.utilities.clone();
                 self.device.submit(move |state| {
-                    let name = kernel.name();
+                    let execution_info = if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
+                        Some(profile_label(kernel.name(), &kernel.id()))
+                    } else {
+                        None
+                    };
+
                     unsafe { state.launch(kernel, count, bindings, stream_id, launch_mode) };
 
-                    if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                        let info = type_name_format(name, TypeNameFormatLevel::Balanced);
+                    if let Some(info) = execution_info {
                         utilities.logger.register_execution(info);
                     }
                 });
@@ -1099,6 +1180,7 @@ impl Client {
                             // unobserved run would have.
                             Some((kernel, count, bindings)) => {
                                 let utilities = self.utilities.clone();
+                                let kernel_id = kernel.id();
                                 self.device.submit(move |state| {
                                     unsafe {
                                         state.launch(
@@ -1110,8 +1192,7 @@ impl Client {
                                         )
                                     };
                                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                                        let info =
-                                            type_name_format(name, TypeNameFormatLevel::Balanced);
+                                        let info = profile_label(name, &kernel_id);
                                         utilities.logger.register_execution(info);
                                     }
                                 });
@@ -1120,8 +1201,7 @@ impl Client {
                             // only its measurement was lost.
                             None => {
                                 if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                                    let info =
-                                        type_name_format(name, TypeNameFormatLevel::Balanced);
+                                    let info = profile_label(name, &kernel_id);
                                     self.utilities.logger.register_execution(info);
                                 }
                             }
@@ -1132,51 +1212,44 @@ impl Client {
                         return;
                     }
                 };
-                // The observer is told first, because resolving the profile
-                // consumes it: the logger's copy is the one that can be
-                // deferred, an observer's cannot be recovered afterwards.
-                let profile = if observed_timing {
-                    let method = profile.timing_method();
-                    let ticks = cubecl_environment::future::block_on(profile.resolve());
-                    match &ticks {
-                        Some(ticks) => crate::logging::notify_timed(name, ticks.duration(), method),
-                        // Nothing to tell the observer: the window carried no
-                        // measurement, and reporting it as zero would put a
-                        // launch that was never timed in the timings.
-                        None => log::warn!(
-                            "Skipped timing a launch of `{name}` for its observer: \
-                             the profiled window carried no measurement"
-                        ),
+                // The observer alone: it takes the measurement unread, so the
+                // kernels around this one keep running back to back. An observer
+                // does not change what the logger writes, and `ExecutionOnly` is
+                // documented as the kernels that ran without their timings, so
+                // it logs the execution and never the profile.
+                if observed_timing && matches!(level, None | Some(ProfileLevel::ExecutionOnly)) {
+                    crate::logging::notify_profiled(name, profile);
+                    if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
+                        let info = profile_label(name, &kernel_id);
+                        self.utilities.logger.register_execution(info);
                     }
-                    // Handed on already resolved rather than measured again:
+                    return;
+                }
+                // Both read this measurement, and a measurement is read once.
+                // The observer is told first because resolving consumes it: the
+                // logger's copy is the one that can be deferred, an observer's
+                // cannot be recovered afterwards.
+                let profile = if observed_timing {
+                    // The observer asked to keep its measurements and cannot:
+                    // the logger reads this one, so the observer is told a
+                    // duration and its kernels stop overlapping.
+                    crate::logging::warn_logger_takes_deferred_measurements();
+                    // Comes back already resolved rather than measured again:
                     // the logger and the observer are two readers of one
                     // measurement, and a second would not be the same launch.
-                    ProfileDuration::new(alloc::boxed::Box::pin(async move { ticks }), method)
+                    crate::logging::read_and_notify_timed(name, profile)
                 } else {
                     profile
                 };
-                match level {
-                    // An observer does not change what the logger writes.
-                    // `ExecutionOnly` is documented as the kernels that ran
-                    // without their timings, and it reaches here only because
-                    // an observer asked for the profiled path — registering
-                    // the profile would turn a log the caller configured into
-                    // one it did not.
-                    Some(ProfileLevel::ExecutionOnly) => {
-                        let info = type_name_format(name, TypeNameFormatLevel::Balanced);
-                        self.utilities.logger.register_execution(info);
+                // Every level left times its launches: the ones that don't
+                // either never took this path or returned above.
+                let info = match level {
+                    Some(ProfileLevel::Full) => {
+                        format!("{name}: {kernel_id} CubeCount {count:?}")
                     }
-                    Some(level) => {
-                        let info = match level {
-                            ProfileLevel::Full => {
-                                format!("{name}: {kernel_id} CubeCount {count:?}")
-                            }
-                            _ => type_name_format(name, TypeNameFormatLevel::Balanced),
-                        };
-                        self.utilities.logger.register_profiled(info, profile);
-                    }
-                    None => {}
-                }
+                    _ => profile_label(name, &kernel_id),
+                };
+                self.utilities.logger.register_profiled(info, profile);
             }
         }
     }
@@ -1223,8 +1296,7 @@ impl Client {
     }
 
     /// Prepare this client's stream for a graph capture (see
-    /// [`Server::graph_prepare`]) — enable the persistent pool + capture
-    /// recording. Call this **before** the warmup run, then
+    /// [`Server::graph_prepare`]). Call this **before** the warmup run, then
     /// [`start_capture`](Self::start_capture) around the run to record.
     pub fn graph_prepare(&self) -> Result<(), ServerError> {
         let stream_id = self.stream_id();
@@ -1243,9 +1315,9 @@ impl Client {
     /// refused, and so is writing to a handle — a recorded graph cannot carry a
     /// host copy, so feed fresh inputs by writing *between* replays instead. A
     /// refused write is reported late, by failing `stop_capture`, rather than
-    /// handing back a graph that silently skips it. Fresh allocation inside the
-    /// window is fatal on a hardware-graph backend and merely wasteful on a
-    /// software-graph one, which is what the warmup run exists to avoid.
+    /// handing back a graph that silently skips it. Nothing is allocated inside
+    /// the window: a request the pools cannot serve from what the warmup run
+    /// left fails the capture, which is what the warmup run exists to avoid.
     ///
     /// Returns an error on backends without graph support.
     pub fn start_capture(&self) -> Result<(), ServerError> {
@@ -1366,41 +1438,46 @@ impl Client {
         self.utilities.target_properties.clone()
     }
 
-    /// Total memory usage across all streams on this client's device.
+    /// Everything the memory of `scope` holds, stream by stream: each pool's
+    /// shape, usage and high-water marks. [`MemoryReport::usage`] sums them.
     ///
-    /// The closure iterates the server's `stream_ids()` and folds each
-    /// per-stream `memory_usage(id)` with `MemoryUsage::combine`, so the
-    /// result is correct regardless of which thread queries it.
-    pub fn memory_usage(&self) -> MemoryUsage {
+    /// Pools are per stream: a plan measured for a workload reads
+    /// [`CurrentStream`](MemoryScope::CurrentStream), the stream that runs it,
+    /// and a caller asking how much the device holds reads
+    /// [`Device`](MemoryScope::Device).
+    pub fn memory_report(&self, scope: MemoryScope) -> MemoryReport {
+        let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| {
-                server
-                    .stream_ids()
-                    .into_iter()
-                    .fold(MemoryUsage::default(), |acc, id| {
-                        acc.combine(server.memory_usage(id))
-                    })
+                let streams = match scope {
+                    MemoryScope::Device => server.stream_ids(),
+                    MemoryScope::CurrentStream => Vec::from([stream_id]),
+                };
+                MemoryReport {
+                    streams: streams
+                        .into_iter()
+                        .map(|id| server.memory_report(id))
+                        .collect(),
+                }
             })
             .unwrap_or_resume()
     }
 
-    /// Structured per-pool report of the **calling stream's** main GPU memory:
-    /// each pool's shape, usage, and high-water marks, in allocation-routing
-    /// order.
-    ///
-    /// The read side of a measured memory plan — install a layout with
-    /// [`install_memory_pools`](Self::install_memory_pools), measure under a
-    /// [`DryRun`](crate::dry_run::DryRun), cap at the observed peaks; the full
-    /// cycle is on [`MemoryReport`].
-    ///
-    /// Unlike [`memory_usage`](Self::memory_usage), which aggregates across
-    /// streams, this reads one stream: pools are per stream, and a plan is
-    /// measured and installed on the stream that runs the workload.
-    pub fn memory_report(&self) -> MemoryReport {
-        let stream_id = self.stream_id();
-        self.device
-            .submit_blocking(move |server| server.memory_report(stream_id))
-            .unwrap_or_resume()
+    /// Write a snapshot of the device's [memory report](Self::memory_report),
+    /// every stream of it, to the environment's records under `label`.
+    /// Nothing is read when the environment records nothing.
+    pub fn record_memory(&self, label: &str) {
+        if !cubecl_environment::records::enabled() {
+            return;
+        }
+        let record = crate::memory_management::MemoryRecord {
+            label: label.into(),
+            report: self.memory_report(MemoryScope::Device),
+        };
+        cubecl_environment::records::write(
+            cubecl_environment::records::RecordEffect::Observed,
+            &record,
+        );
     }
 
     /// Change the memory allocation mode.
@@ -1418,67 +1495,67 @@ impl Client {
     ///
     /// Nb: Results will vary on what the memory allocator deems beneficial,
     /// so it's not guaranteed any memory is freed.
-    pub fn memory_cleanup(&self) {
-        self.device.submit(move |server| {
-            for id in server.stream_ids() {
-                server.memory_cleanup(id);
-            }
-        });
-    }
-
-    /// Install a new dynamic-pool layout for the device's main GPU memory.
-    ///
-    /// This replaces the pools themselves, not just a setting they read. It
-    /// lands in two places:
-    ///
-    /// - **The calling stream's pools are rebuilt in place**, discarding the
-    ///   old ones — which is why it only happens when nothing is live in them,
-    ///   and why the high-water marks in
-    ///   [`memory_report`](Self::memory_report) start over.
-    /// - **The layout becomes the one every stream created afterwards is
-    ///   built with.** Other streams that already exist keep theirs; memory is
-    ///   per stream, and rebuilding a stream this call is not synchronized
-    ///   with would swap pools under its live slices.
-    ///
-    /// Pool layouts are a purely programmatic, runtime setting — there is no
-    /// config-file pathway — sized per workload (e.g. per model, just before
-    /// loading it), so install at a quiescent point such as right after
-    /// unloading a model. Auxiliary pools (pinned CPU, staging, uniforms) and
-    /// the persistent pool are never affected.
     ///
     /// # Errors
     ///
-    /// [`PoolsInUse`](InstallMemoryPoolsError::PoolsInUse) when the current
-    /// stream kept its old layout because something was still live in its
-    /// pools — e.g. a garbage-collection task that has not released its
-    /// cross-stream pins yet, which can lag behind an explicit
-    /// [`memory_cleanup`](Self::memory_cleanup). Nothing is disturbed, the
-    /// layout still applies to streams created afterwards, and retrying after
-    /// the remaining work drains rebuilds the current stream too.
-    ///
-    /// [`Unsupported`](InstallMemoryPoolsError::Unsupported) from a runtime
-    /// with no configurable pools, where retrying will never succeed.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the layout is invalid (empty list, too many pools, zero page
-    /// size, slice larger than page, cap smaller than page, unavailable
-    /// preset) — that is a bad layout literal rather than a runtime condition,
-    /// and an explicit layout that cannot be honored must not be silently
-    /// replaced.
-    pub fn install_memory_pools(
-        &self,
-        pools: &MemoryPoolsConfig,
-    ) -> Result<(), InstallMemoryPoolsError> {
-        let config =
-            match MemoryConfiguration::default().resolve(Some(pools), &self.properties().memory) {
-                Ok(config) => config,
-                Err(err) => panic!("Invalid memory pools configuration: {err}"),
-            };
-        let stream_id = self.stream_id();
+    /// Refused while a stream records a graph: releasing memory waits on the
+    /// device, and a wait on a stream that records aborts its capture.
+    pub fn memory_cleanup(&self) -> Result<(), ServerError> {
         self.device
-            .submit_blocking(move |server| server.install_memory_pools(config, stream_id))
+            .submit_blocking(move |server| {
+                server
+                    .stream_ids()
+                    .into_iter()
+                    .try_for_each(|id| server.memory_cleanup(id))
+            })
             .unwrap_or_resume()
+    }
+
+    /// Open a profiling window at the current position of the calling stream.
+    ///
+    /// Prefer the bracketed [`profile`](Self::profile), which also holds the
+    /// device for the closure. This pair is for a caller that cannot bracket the
+    /// work in a closure — a lazy queue drained on another thread, say — and
+    /// only knows *when* on the stream its window opens and closes.
+    ///
+    /// The window keeps the stream it was opened on, and
+    /// [`profile_end`](Self::profile_end) closes it there whichever thread
+    /// calls it. Nothing keeps other streams' work out of the window.
+    ///
+    /// An open window costs something on every backend and stays open until it
+    /// is ended or [abandoned](Self::profile_abandon), so a caller that bails
+    /// out between the two calls has to abandon it.
+    pub fn profile_start(&self) -> Result<ProfileWindow, ProfileError> {
+        let stream_id = self.stream_id();
+        let token = self
+            .device
+            .submit_blocking(move |server| server.start_profile(stream_id))
+            .unwrap_or_resume()
+            .map_err(|err| ProfileError::from(&err))?;
+        Ok(ProfileWindow { stream_id, token })
+    }
+
+    /// Close `window` at the current position of the stream it was opened on.
+    pub fn profile_end(&self, window: ProfileWindow) -> Result<ProfileDuration, ProfileError> {
+        let ProfileWindow { stream_id, token } = window;
+        self.device
+            .submit_blocking(move |server| server.end_profile(stream_id, token))
+            .unwrap_or_resume()
+    }
+
+    /// Drop `window` without measuring it, for a caller that will never reach
+    /// [`profile_end`](Self::profile_end), such as an error path between the
+    /// two calls.
+    ///
+    /// Does not wait for the server to drop it, but does flush, because this
+    /// is usually a caller's last word: an abandon left sitting in the queue
+    /// holds the window open for exactly as long as it is the only thing in
+    /// there, which is the case it exists for.
+    pub fn profile_abandon(&self, window: ProfileWindow) {
+        let ProfileWindow { stream_id, token } = window;
+        self.device
+            .submit(move |server| server.abandon_profile(stream_id, token));
+        self.device.flush_queue();
     }
 
     /// Measure the execution time of some inner operations.
@@ -1571,11 +1648,18 @@ impl Client {
                     ProfileDuration::new(
                         alloc::boxed::Box::pin(async move {
                             let ticks = result.resolve().await;
-                            let start_duration =
-                                ticks.start_duration_since(epoch).as_nanos() as i64;
-                            let end_duration = ticks.end_duration_since(epoch).as_nanos() as i64;
-                            gpu_span.upload_timestamp_start(start_duration);
-                            gpu_span.upload_timestamp_end(end_duration);
+                            // A window that carried no measurement has no span
+                            // to place: `resolve` answers `None` rather than a
+                            // zero so nothing reports it as an instant at the
+                            // epoch.
+                            if let Some(ticks) = &ticks {
+                                let start_duration =
+                                    ticks.start_duration_since(epoch).as_nanos() as i64;
+                                let end_duration =
+                                    ticks.end_duration_since(epoch).as_nanos() as i64;
+                                gpu_span.upload_timestamp_start(start_duration);
+                                gpu_span.upload_timestamp_end(end_duration);
+                            }
                             ticks
                         }),
                         TimingMethod::Device,
@@ -1658,16 +1742,33 @@ impl Client {
 
     /// Calculates the maximum throughput of the device given the given config (like tensor core with certain sizes and dtypes, or just arithmetic by dtype)
     ///
+    /// `probe` runs on the device runner thread with the device to itself,
+    /// since one sharing it measures its share rather than the peak. A cached
+    /// answer takes neither.
+    ///
     /// # Errors
     ///
-    /// Whatever `probe` reports.
+    /// Whatever `probe` reports, or [`Launch`](ThroughputError::Launch) where
+    /// the device could not be taken.
     pub fn measure_throughput(
         &self,
         key: ThroughputKey,
-        probe: impl FnOnce() -> Result<ThroughputValue, ThroughputError>,
+        probe: impl FnOnce() -> Result<ThroughputValue, ThroughputError> + Send,
     ) -> Result<ThroughputValue, ThroughputError> {
         let cache = ThroughputCache::get_for_device(self.name(), self.properties());
         let mut throughputs = ThroughputBenchmarker::new(cache);
-        throughputs.measure(key, probe)
+
+        if let Some(value) = throughputs.cached(key) {
+            return Ok(value);
+        }
+
+        // Asked again inside: another thread may have answered while this one queued.
+        self.exclusive(move || throughputs.measure(key, probe))
+            .unwrap_or(Err(ThroughputError::Launch))
     }
+}
+
+fn profile_label(name: &'static str, kernel_id: &KernelId) -> String {
+    let base = type_name_format(name, TypeNameFormatLevel::Balanced);
+    kernel_id.entrypoint_name(&base)
 }

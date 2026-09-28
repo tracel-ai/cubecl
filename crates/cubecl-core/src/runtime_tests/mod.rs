@@ -2,6 +2,7 @@
 pub use test_log;
 
 pub mod all_reduce;
+pub mod arithmetic_chains;
 pub mod assign;
 pub mod atomic;
 pub mod barrier;
@@ -26,6 +27,7 @@ pub mod plane;
 pub mod profiling;
 pub mod properties;
 pub mod read_lazy;
+pub mod relocation;
 pub mod saturating;
 pub mod sequence;
 pub mod short_circuit;
@@ -97,6 +99,7 @@ macro_rules! testgen_all {
 #[macro_export]
 macro_rules! testgen_float {
     () => {
+        cubecl_core::testgen_arithmetic_chains!();
         cubecl_core::testgen_assign!();
         cubecl_core::testgen_barrier!();
         cubecl_core::testgen_binary!();

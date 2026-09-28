@@ -17,13 +17,14 @@ use pliron::value::Value;
 
 use crate::{
     metal::metal_op_with_out,
-    shared::{ty::TypeExtCPP, unary::lower_target_unop, unroll::unrolling},
+    shared::{convert::no_msl_bfloat, ty::TypeExtCPP, unary::lower_target_unop, unroll::unrolling},
     target::Metal,
 };
 
 metal_op_with_out!(FAbsOp, |op, ctx| {
     format!("abs({})", op.input(ctx).name(ctx))
 });
+no_msl_bfloat!(FAbsOp);
 
 metal_op_with_out!(CountOnesOp, |op, ctx| {
     format!("popcount({})", op.input(ctx).name(ctx))
@@ -63,6 +64,7 @@ pub struct MslTanhOp {
 }
 
 unrolling!(MslTanhOp);
+no_msl_bfloat!(MslTanhOp);
 metal_op_with_out!(MslTanhOp, |op, ctx| {
     format!("tanh({})", op.input(ctx).name(ctx))
 });

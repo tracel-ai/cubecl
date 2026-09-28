@@ -97,7 +97,15 @@ impl AttrToWgsl for IntegerAttr {
 #[attr_interface_impl]
 impl AttrToWgsl for FloatAttr {
     fn to_wgsl(&self, ctx: &Context) -> String {
-        let val = self.float_type(ctx).value_to_string(self.val);
+        let float = self.float_type(ctx);
+        // Format through f64 so finite f16/f32 values are represented exactly.
+        // The rounded APFloat spelling of f32::MAX exceeds the valid f32 range.
+        let value = float.value_to_f64(self.val);
+        let val = if value.is_finite() {
+            format!("{value:?}")
+        } else {
+            float.value_to_string(self.val)
+        };
         format!("{}({val})", self.ty.to_wgsl(ctx))
     }
 }
@@ -187,4 +195,29 @@ fn unroll_bool_or<T: Scalar, N: Size>(
         out.insert(i, lhs.extract(i) || rhs.extract(i));
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn f32_boundary_literals_preserve_value() {
+        let ctx = Context::new();
+        let ty = Float32Type::get(&ctx).to_handle();
+        for value in [f32::MIN, f32::MAX] {
+            let literal = FloatAttr::from_f64(&ctx, ty, f64::from(value)).to_wgsl(&ctx);
+            let decimal = literal
+                .strip_prefix("f32(")
+                .unwrap()
+                .strip_suffix(')')
+                .unwrap();
+            // Check before f32 rounding, which can hide an out-of-range literal.
+            assert_eq!(
+                decimal.parse::<f64>().unwrap(),
+                f64::from(value),
+                "{literal}"
+            );
+        }
+    }
 }

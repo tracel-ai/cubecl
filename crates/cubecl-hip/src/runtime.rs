@@ -4,8 +4,6 @@ use crate::{
     device::AmdDevice,
 };
 use core::ffi::c_int;
-use cubecl_runtime::runtime::Runtime;
-use std::sync::OnceLock;
 
 use cubecl_common::{
     device::{Device, DeviceService},
@@ -17,8 +15,8 @@ use cubecl_core::{
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         ContiguousElements, DeviceIdentity, DeviceProperties, HardwareProperties,
-        MemoryDeviceProperties, MmaProperties, TargetProperties, VectorSize, amd::GfxArch,
-        features::Plane,
+        MemoryDeviceProperties, MmaProperties, PciVendor, PhysicalDevice, TargetProperties,
+        VectorSize, amd::GfxArch, features::Plane,
     },
     server::ServerUtilities,
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
@@ -39,10 +37,15 @@ use cubecl_cpp::{
     },
 };
 use cubecl_hip_sys::{hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
-use cubecl_runtime::{
-    allocator::PitchedMemoryLayoutPolicy, driver::checked, logging::ServerLogger,
+use cubecl_llvm::shared::lowered_features::{GpuTarget, restrict_features};
+use cubecl_server::{
+    allocator::PitchedMemoryLayoutPolicy, driver::checked, logging::ServerLogger, runtime::Runtime,
 };
-use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
+use std::{
+    ffi::CStr,
+    mem::MaybeUninit,
+    sync::{Arc, OnceLock},
+};
 
 static AMD_WMMA: OnceLock<Option<AmdWmma>> = OnceLock::new();
 
@@ -58,6 +61,11 @@ pub struct HipRuntime;
 
 impl DeviceService for HipServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
+        assert!(
+            cubecl_hip_sys::is_available(),
+            "HIP runtime is unavailable; install ROCm or set ROCM_PATH/HIP_PATH"
+        );
+
         let device = AmdDevice::from_id(device_id);
         let probe = DeviceProbe::of(device.index as i32);
 
@@ -93,24 +101,20 @@ impl DeviceService for HipServer {
                 .expect("the current thread needs its device set before anything is issued");
         }
 
-        // SAFETY: Calling HIP FFI to query device memory info. The pointers to `free` and
-        // `total` are valid stack variables cast to mutable pointers; HIP writes the values
-        // through them on success (asserted below).
+        // SAFETY: Calling HIP FFI to query device memory info. `free` and `total` are valid
+        // stack variables borrowed mutably; HIP writes the values through them on success
+        // (asserted below).
         let max_memory = unsafe {
-            let free: usize = 0;
-            let total: usize = 0;
-            let status = cubecl_hip_sys::hipMemGetInfo(
-                &free as *const _ as *mut usize,
-                &total as *const _ as *mut usize,
-            );
+            let mut free: usize = 0;
+            let mut total: usize = 0;
+            let status = cubecl_hip_sys::hipMemGetInfo(&mut free, &mut total);
             checked("hipMemGetInfo", status)
                 .expect("the memory pools are sized against the device's capacity");
             total
         };
-        let mem_properties = MemoryDeviceProperties {
-            max_page_size: max_memory as u64 / 4,
-            alignment: probe.alignment as u64,
-        };
+        let mem_properties =
+            MemoryDeviceProperties::new(max_memory as u64 / 4, probe.alignment as u64)
+                .with_max_memory(max_memory as u64);
 
         let supported_wmma_combinations =
             HipCmmaCompiler::RocWmma.supported_cmma_combinations(&arch);
@@ -158,6 +162,7 @@ impl DeviceService for HipServer {
             DeviceIdentity {
                 name: probe.name.clone(),
                 fingerprint: fingerprint.clone(),
+                physical: Some(probe.physical.clone()),
             },
         );
         register_supported_types(&mut device_props);
@@ -168,6 +173,8 @@ impl DeviceService for HipServer {
 
         device_props.features.memory_reinterpret = true;
         device_props.features.alignment = true;
+        // `__threadfence` carries a block's writes to device scope.
+        device_props.features.device_memory_scope = true;
         device_props.features.plane.insert(Plane::Ops);
         device_props
             .features
@@ -177,6 +184,14 @@ impl DeviceService for HipServer {
         register_wmma_features(supported_wmma_combinations, &mut device_props);
         register_mma_features(supported_mma_combinations, &mut device_props);
         register_scaled_mma_features(supported_scaled_mma_combinations, &mut device_props);
+
+        // Which backend compiles here decides what may be advertised: a feature the selected
+        // one cannot honour is a kernel that fails to compile rather than a slower one.
+        let backend = HipBackend::default();
+        if backend == HipBackend::Llvm {
+            let wmma = gfx.wmma();
+            restrict_features(&mut device_props, GpuTarget::AmdGpu { wmma });
+        }
 
         let comp_opts = HipCompilationOptions {
             cpp: CompilationOptions {
@@ -189,12 +204,7 @@ impl DeviceService for HipServer {
             },
             arch: Some(gfx),
         };
-        let hip_ctx = HipContext::new(
-            comp_opts,
-            device_props.clone(),
-            fingerprint,
-            HipBackend::default(),
-        );
+        let hip_ctx = HipContext::new(comp_opts, device_props.clone(), fingerprint, backend);
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
         let utilities = ServerUtilities::new(
@@ -259,6 +269,10 @@ impl Runtime for HipRuntime {
 
     fn enumerate_devices(_: u16) -> Vec<cubecl_core::device::DeviceId> {
         fn device_count() -> usize {
+            if !cubecl_hip_sys::is_available() {
+                return 0;
+            }
+
             let mut device_count: c_int = 0;
             let result;
             // SAFETY: Calling HIP FFI to get the number of available devices.
@@ -311,6 +325,7 @@ struct DeviceProbe {
     /// An APU, sharing its memory and IOMMU with the host. The drop queue
     /// flushes more often on one, to keep the GPU off a 0-to-100% transition.
     integrated: bool,
+    physical: PhysicalDevice,
 }
 
 impl DeviceProbe {
@@ -350,6 +365,22 @@ impl DeviceProbe {
             )
         };
 
+        let mut bus_id = [0u8; 32];
+        // SAFETY: the buffer outlives the call and its length travels with it.
+        let status = unsafe {
+            cubecl_hip_sys::hipDeviceGetPCIBusId(
+                bus_id.as_mut_ptr().cast(),
+                bus_id.len() as c_int,
+                index,
+            )
+        };
+        let mut physical = PhysicalDevice::default();
+        physical.pci_address = checked("hipDeviceGetPCIBusId", status)
+            .ok()
+            .and_then(|()| CStr::from_bytes_until_nul(&bus_id).ok())
+            .and_then(|id| id.to_str().ok()?.parse().ok());
+        physical.vendor = Some(PciVendor::Amd);
+
         Self {
             arch_name,
             name,
@@ -370,6 +401,7 @@ impl DeviceProbe {
             // Both are checked: 32 is the floor either way.
             alignment: 32.max(props.textureAlignment).max(props.surfaceAlignment),
             integrated: props.integrated != 0,
+            physical,
         }
     }
 }

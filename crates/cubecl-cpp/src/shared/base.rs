@@ -257,6 +257,8 @@ where
         func_passes.add_pass(LowerOpsCppPass::<Shared>::default());
         func_passes.add_pass(LowerOpsCppPass::<T>::default());
 
+        // MSL has `addsat` and `subsat` for every integer width, so Metal keeps the saturating
+        // ops and prints them as builtins.
         if T::target() != Target::Metal {
             func_passes.add_pass(LowerSaturatingArithmeticPass::default());
         }
@@ -271,7 +273,7 @@ where
 
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(InstCombinePass::default());
-        func_passes.add_pass(SimpleCSEPass);
+        func_passes.add_pass(SimpleCSEPass::without_memory());
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(DCEPass);
         func_passes.add_pass(SROAPass);
@@ -281,7 +283,7 @@ where
 
         func_passes.add_pass(SROAPass);
         func_passes.add_pass(SCCPPass);
-        func_passes.add_pass(SimpleCSEPass);
+        func_passes.add_pass(SimpleCSEPass::with_memory());
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(DCEPass);
 

@@ -12,7 +12,7 @@ pub use crate::throughput::ResourceBound;
 
 /// A set of [`AutotuneBound`]s for a given key and reference inputs, with a launch overhead.
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(autotune_persistence, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub struct Bounds {
     /// The bounds for autotuning.
     pub bounds: Vec<AutotuneBound>,
@@ -56,7 +56,7 @@ pub trait TimeBound {
 /// A bound for autotuning a throughput kernel: a [`ResourceBound`] plus the
 /// threshold over which the kernel is considered accurate.
 #[derive(Debug, Clone)]
-#[cfg_attr(autotune_persistence, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub struct AutotuneBound {
     /// How much work, against what peak throughput.
     pub resource: ResourceBound,
@@ -82,7 +82,7 @@ pub use cubecl_common::work::Work;
 
 /// Target fractions of modeled peak compute and memory roofline throughput.
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub struct Thresholds {
     /// Fraction of peak compute throughput expected.
     pub compute: f32,

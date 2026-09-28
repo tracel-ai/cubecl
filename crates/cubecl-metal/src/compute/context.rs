@@ -3,9 +3,9 @@ use cubecl_common::hash::StableHash;
 use cubecl_core::prelude::*;
 use cubecl_core::server::{LaunchError, ResourceLimitError};
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_runtime::kernel::BufferIOAttr;
-use cubecl_runtime::{
-    compiler::{KernelCacheKey, build_id_hash},
+use cubecl_server::kernel::BufferIOAttr;
+use cubecl_server::{
+    compiler::{CompilationRecording, KernelCacheKey, build_id_hash},
     kernel::CubeKernel,
     logging::ServerLogger,
 };
@@ -19,7 +19,7 @@ use objc2_metal::{
 use std::sync::Arc;
 
 use cubecl_environment::persistence::Store;
-use cubecl_runtime::compiler::{CompilationCache, compilation_store, store_compiled};
+use cubecl_server::compiler::{CompilationCache, compilation_store, store_compiled};
 
 #[derive(Debug, Clone)]
 pub struct CompiledKernel {
@@ -103,6 +103,7 @@ impl MetalContext {
             return Ok(compiled.clone());
         }
 
+        let mut recording = CompilationRecording::new(kernel_id);
         let cache_key = KernelCacheKey::new(kernel_id, self.build_id);
 
         if let Some(cache) = self.msl_cache.as_mut()
@@ -119,13 +120,15 @@ impl MetalContext {
 
             self.compiled_kernels
                 .insert(kernel_id.clone(), compiled.clone());
+            recording.loaded();
             return Ok(compiled);
         }
 
         log::trace!("Compiling kernel to MSL");
 
         let definition = kernel.define();
-        let mut kernel_compiled = cubecl_runtime::kernel::CompiledKernel::compile(
+        recording.defined(&definition);
+        let mut kernel_compiled = cubecl_server::kernel::CompiledKernel::compile(
             &*kernel,
             definition,
             &mut MetalCompiler::default(),
@@ -163,9 +166,10 @@ impl MetalContext {
         let mut compiled = self.create_pipeline_from_source(&source, &entrypoint_name, cube_dim)?;
         compiled.shared_memory_bytes = shared_memory_bytes;
         compiled.io = io.clone().map(std::sync::Arc::from);
+        recording.source(&source);
 
-        if let Some(cache) = &mut self.msl_cache {
-            store_compiled(
+        let stored = match &mut self.msl_cache {
+            Some(cache) => store_compiled(
                 cache,
                 cache_key,
                 MslCacheEntry {
@@ -174,8 +178,10 @@ impl MetalContext {
                     source,
                     io,
                 },
-            );
-        }
+            ),
+            None => false,
+        };
+        recording.compiled(stored);
 
         self.compiled_kernels
             .insert(kernel_id.clone(), compiled.clone());
@@ -188,7 +194,7 @@ impl MetalContext {
         source: &str,
         entrypoint_name: &str,
         cube_dim: CubeDim,
-    ) -> Result<CompiledKernel, cubecl_runtime::compiler::CompilationError> {
+    ) -> Result<CompiledKernel, cubecl_server::compiler::CompilationError> {
         use objc2_metal::MTLDevice;
 
         let source_ns = NSString::from_str(source);
@@ -196,14 +202,14 @@ impl MetalContext {
         let library = self
             .device
             .newLibraryWithSource_options_error(&source_ns, Some(&self.msl_compile_options))
-            .map_err(|err| cubecl_runtime::compiler::CompilationError::Generic {
+            .map_err(|err| cubecl_server::compiler::CompilationError::Generic {
                 reason: format!("Failed to compile MSL: {:?}", err.localizedDescription()),
                 backtrace: BackTrace::capture(),
             })?;
 
         let entrypoint_ns = NSString::from_str(entrypoint_name);
         let function = library.newFunctionWithName(&entrypoint_ns).ok_or_else(|| {
-            cubecl_runtime::compiler::CompilationError::Generic {
+            cubecl_server::compiler::CompilationError::Generic {
                 reason: format!("Function '{}' not found in library", entrypoint_name),
                 backtrace: BackTrace::capture(),
             }
@@ -212,7 +218,7 @@ impl MetalContext {
         let pipeline = self
             .device
             .newComputePipelineStateWithFunction_error(&function)
-            .map_err(|err| cubecl_runtime::compiler::CompilationError::Generic {
+            .map_err(|err| cubecl_server::compiler::CompilationError::Generic {
                 reason: format!(
                     "Failed to create compute pipeline: {:?}",
                     err.localizedDescription()
@@ -225,7 +231,7 @@ impl MetalContext {
         let max_units = pipeline.maxTotalThreadsPerThreadgroup();
         let requested = (cube_dim.x as usize) * (cube_dim.y as usize) * (cube_dim.z as usize);
         if requested > max_units {
-            return Err(cubecl_runtime::compiler::CompilationError::Generic {
+            return Err(cubecl_server::compiler::CompilationError::Generic {
                 reason: format!(
                     "Cube dim {}x{}x{} ({requested} units) exceeds this kernel's limit of \
                      {max_units} threads per threadgroup",

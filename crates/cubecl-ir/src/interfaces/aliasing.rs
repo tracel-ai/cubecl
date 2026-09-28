@@ -23,6 +23,13 @@ pub trait PointerExt {
             DefiningEntity::Block(ptr) => Some(ptr),
         }
     }
+    fn get_root_value(&self, ctx: &Context) -> Value {
+        let index = self.find_root_index(ctx);
+        match self.get_root_defining_entity(ctx) {
+            DefiningEntity::Op(op) => op.deref(ctx).get_result(index),
+            DefiningEntity::Block(block) => block.deref(ctx).get_argument(index),
+        }
+    }
 }
 
 impl PointerExt for Value {

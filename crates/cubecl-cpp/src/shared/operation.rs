@@ -16,7 +16,7 @@ use cubecl_opt::passes::alloc_shared_memory::SliceSharedOp;
 use itertools::Itertools;
 use pliron::{
     arg_err,
-    attribute::AttrObj,
+    attribute::{AttrObj, boxed_attr_cast},
     builtin::{attributes::TypeAttr, ops::ConstantOp},
     opts::mem2reg::{AllocInfo, PromotableAllocationInterface},
 };
@@ -24,7 +24,9 @@ use pliron::{
 use crate::{
     error::{CompileError, Result},
     shared::{
-        CppValue, format_const,
+        CppValue,
+        convert::no_msl_bfloat,
+        format_const,
         lowering::LowerOp,
         ty::{TypeExtCPP, TypedExtCPP},
         unroll::unrolling,
@@ -113,6 +115,7 @@ impl PromotableAllocationInterface for DeclareLocalOp {
             return arg_err!(self.loc(ctx), UnrelatedAllocInfo);
         }
         if let Some(initializer) = self.initializer(ctx).map(|it| it.clone()) {
+            let initializer = boxed_attr_cast(initializer).unwrap();
             let constant = ConstantOp::new(ctx, initializer);
             inserter.insert_op(ctx, &constant);
             Ok(constant.get_result(ctx))
@@ -142,9 +145,7 @@ shared_op!(DeclareLocalOp, |op, ctx| {
     let name = op.get_result(ctx).name(ctx);
     let value_ty = ty.to_cpp(ctx);
     let out_ty = op.get_result(ctx).get_type(ctx).to_cpp(ctx);
-    let init = op
-        .initializer(ctx)
-        .map(|init| format_const(ctx, init.clone(), ty));
+    let init = op.initializer(ctx).map(|init| format_const(ctx, &init, ty));
     if let Some(init) = init {
         format!("{value_ty} {name}_store = {init};\n{out_ty} {name} = &{name}_store;")
     } else {
@@ -221,6 +222,7 @@ shared_op_with_out!(FmaOp, |op, ctx| {
 // `fma` has no vector overloads in CUDA/HIP headers, so a vector fma must be
 // scalarized lane by lane like the other math functions.
 unrolling!(FmaOp);
+no_msl_bfloat!(FmaOp);
 
 shared_op!(CommentOp, |op, ctx| {
     let content = String::from(op.comment(ctx).clone());

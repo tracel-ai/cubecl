@@ -7,16 +7,16 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     server::{BufferBinding, Handle, ServerError},
 };
-use cubecl_runtime::storage::PINNED_MEMORY_ALIGNMENT;
-use cubecl_runtime::{
-    config::streaming::StreamPriority,
+use cubecl_server::storage::PINNED_MEMORY_ALIGNMENT;
+use cubecl_server::{
+    config::{memory::CudaAllocator, streaming::StreamPriority},
     logging::ServerLogger,
     memory_management::{
         ErrorGraph, FailureId, MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
         drop_queue,
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{EventStreamBackend, StreamCapture, StreamMemory},
+    stream::{DeviceRecording, EventStreamBackend, StreamCapture, StreamMemory},
 };
 use std::{mem::MaybeUninit, sync::Arc};
 
@@ -65,29 +65,11 @@ pub struct CudaStreamBackend {
     mem_alignment: usize,
     logger: Arc<ServerLogger>,
     priority: StreamPriority,
-    /// Programmatic main-GPU pool layout (see
-    /// [`Server::install_memory_pools`](cubecl_runtime::server::Server::install_memory_pools)):
-    /// streams created after it is set build their GPU pools from it instead
-    /// of the runtime default. Auxiliary pools are unaffected.
+    allocator: CudaAllocator,
+    /// The device's count of recording streams, shared by every stream this
+    /// creates.
     #[new(default)]
-    gpu_pools_override: Option<MemoryConfiguration>,
-}
-
-impl CudaStreamBackend {
-    /// The layout streams build their main-GPU pools with, and the properties
-    /// to resolve it against.
-    pub(crate) fn gpu_pools(&self) -> (MemoryConfiguration, MemoryDeviceProperties) {
-        let config = self
-            .gpu_pools_override
-            .clone()
-            .unwrap_or_else(|| self.mem_config.clone());
-        (config, self.mem_props.clone())
-    }
-
-    /// Set the main-GPU pool layout for streams created from now on.
-    pub(crate) fn set_gpu_pools(&mut self, config: MemoryConfiguration) {
-        self.gpu_pools_override = Some(config);
-    }
+    recording: DeviceRecording,
 }
 
 /// Create a non-blocking CUDA stream, applying the requested priority hint.
@@ -151,28 +133,24 @@ impl EventStreamBackend for CudaStreamBackend {
     fn create_stream(&self) -> Self::Stream {
         let stream = create_cuda_stream(self.priority);
 
-        let storage = GpuStorage::new(self.mem_alignment, stream);
+        let storage = GpuStorage::new(self.mem_alignment, stream, self.allocator);
 
-        // The main GPU pool honors the programmatic pool override when one was
-        // installed (`install_memory_pools`). The pinned pool below is left
-        // alone: the override targets GPU activations, and the other pools
-        // have deliberate configurations that must not be overridden.
-        let (gpu_config, gpu_props) = self.gpu_pools();
         let memory_management_gpu = MemoryManagement::from_configuration(
             storage,
-            &gpu_props,
-            gpu_config,
+            &self.mem_props,
+            self.mem_config.clone(),
             self.logger.clone(),
             MemoryManagementOptions::new("Main GPU Memory"),
         );
         // We use the same page size and memory pools configuration for CPU pinned memory, since we
         // expect the CPU to have at least the same amount of RAM as GPU memory.
+        // The host was never measured, so this pool states no capacity.
         let memory_management_cpu = MemoryManagement::from_configuration(
             PinnedMemoryStorage::new(),
-            &MemoryDeviceProperties {
-                max_page_size: self.mem_props.max_page_size,
-                alignment: PINNED_MEMORY_ALIGNMENT as u64,
-            },
+            &MemoryDeviceProperties::new(
+                self.mem_props.max_page_size,
+                PINNED_MEMORY_ALIGNMENT as u64,
+            ),
             self.mem_config.clone(),
             self.logger.clone(),
             MemoryManagementOptions::new("Pinned CPU Memory").mode(MemoryAllocationMode::Auto),
@@ -183,7 +161,7 @@ impl EventStreamBackend for CudaStreamBackend {
             memory_management_gpu,
             memory_management_cpu,
             drop_queue: Default::default(),
-            capturing: StreamCapture::default(),
+            capturing: StreamCapture::new(self.recording.clone()),
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
         }
     }

@@ -1,6 +1,6 @@
 use core::mem::MaybeUninit;
 use cubecl_common::bytes::{AccessError, AccessPolicy, AllocationController, AllocationProperty};
-use cubecl_runtime::memory_management::ManagedMemoryBinding;
+use cubecl_server::memory_management::ManagedMemoryBinding;
 use wgpu::BufferView;
 
 /// Controller for managing wgpu staging buffers managed by a memory pool.

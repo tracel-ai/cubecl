@@ -14,9 +14,15 @@ use super::cache::CacheConfig;
 /// [environment]
 /// name = "h100"
 /// path = "target"
+///
+/// [environment.records]
+/// level = "basic"
+/// keep_sessions = 8
 /// ```
 ///
-/// `CUBECL_ENVIRONMENT` overrides the name.
+/// `CUBECL_ENVIRONMENT` overrides the name, and `CUBECL_ENVIRONMENT_RECORDS`
+/// (`off`, `basic` or `full`) the record level: a harness can record a build
+/// in full without editing the configuration the build reads.
 ///
 /// `path` only exists where there is a file system to put environments on;
 /// elsewhere the name still selects one, it just isn't backed by a directory.
@@ -30,6 +36,10 @@ pub struct EnvironmentConfig {
     #[cfg(std_io)]
     #[serde(default)]
     pub path: CacheConfig,
+
+    /// What the environment remembers of how it was built.
+    #[serde(default)]
+    pub records: cubecl_environment::records::RecordsConfig,
 }
 
 fn default_name() -> String {
@@ -42,6 +52,7 @@ impl Default for EnvironmentConfig {
             name: default_name(),
             #[cfg(std_io)]
             path: CacheConfig::default(),
+            records: Default::default(),
         }
     }
 }

@@ -239,7 +239,7 @@ impl CubeOp {
             quote! {
                 #vis fn #remove(&self, ctx: &::pliron::context::Context) {
                     use ::pliron::op::Op;
-                    self.get_operation().deref_mut(ctx).attributes.0.remove(&*#attr_key);
+                    self.get_operation().deref_mut(ctx).attributes.0.remove(&#attr_key);
                 }
             }
         });

@@ -8,50 +8,15 @@ pub mod memory;
 pub mod ty;
 pub mod vector;
 
-use cubecl_core::ir::NamedRewrite;
-use prelude::*;
+use crate::prelude::*;
 
 pub mod prelude {
-    pub use super::constant::{
-        I32_WIDTH, convert_attr, float_attr, insert_bool_const, insert_i32_const, insert_int_const,
-        int_attr,
-    };
-    pub use super::insert::insert;
-    pub use super::ty::{INDEX_WIDTH, cube_type_to_llvm, llvm_mangled_ty};
-    pub use super::vector::insert_splat;
-    pub use super::{CubeToLLVMType, ToLLVMDialect};
-
-    pub use cubecl_core::ir::interfaces::{AlignedType, ScalarizableType, TypedExt};
-    pub use cubecl_core::ir::prelude::*;
-    pub use cubecl_core::ir::types::scalar::{BoolType, IndexType};
-    pub use cubecl_core::ir::types::{
-        ArrayType as CubeArrayType, PointerType as CubePointerType, VectorType as CubeVectorType,
-    };
-
-    pub use pliron::attribute::AttrObj;
-    pub use pliron::builtin::attributes::{FPDoubleAttr, FPHalfAttr, FPSingleAttr, IntegerAttr};
-    pub use pliron::builtin::types::{FP16Type, FP32Type, FP64Type, IntegerType, Signedness};
-    pub use pliron::utils::apint::{APInt, bw};
-
-    pub use pliron_llvm::attributes::{
-        FCmpPredicateAttr, FastmathFlags, FastmathFlagsAttr, ICmpPredicateAttr,
-        IntegerOverflowFlagsAttr,
-    };
-    pub use pliron_llvm::op_interfaces::{
-        AlignableOpInterface, BinArithOp, CastOpInterface, CastOpWithNNegInterface, FastMathFlags,
-        FloatBinArithOpWithFastMathFlags, IntBinArithOpWithOverflowFlag,
-    };
-    pub use pliron_llvm::ops as llvm;
-    pub use pliron_llvm::types::{
-        ArrayType as LlvmArrayType, FuncType, PointerType as LlvmPointerType,
-        VectorType as LlvmVectorType, VectorTypeKind,
-    };
+    pub use crate::prelude::*;
 }
 
 #[type_interface]
 pub trait CubeToLLVMType {
     verify_ty_succ!();
-    /// Build the LLVM-dialect type equivalent to this cube type.
     fn convert(&self, ctx: &Context) -> TypeHandle;
 }
 

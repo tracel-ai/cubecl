@@ -67,7 +67,7 @@ pub(crate) fn handle_command(
         "std with exclusive_memory_only",
     )?;
     build_helpers::custom_crates_check(
-        vec!["cubecl-runtime"],
+        vec!["cubecl-runtime", "cubecl-server"],
         vec!["--no-default-features"],
         None,
         None,

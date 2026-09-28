@@ -1,0 +1,633 @@
+//! One unit of work against the device.
+//!
+//! Every operation a backend server exposes that touches memory or launches a
+//! kernel goes through a [`Command`]: it pairs the context holding the
+//! compiled kernels with the streams the operation was resolved against, and
+//! resolving is what orders the current stream behind whichever streams own
+//! the buffers it was handed.
+//!
+//! Everything here is the same whichever driver is underneath — the allocation
+//! and reclaim policy, when the drop queue may be flushed, what a copy stages.
+//! The calls that are not are [`Driver`](super::Driver)'s.
+
+use super::stream_copies::StreamCopies;
+use super::{CopyLayout, DeviceResource, DeviceStream, Driver, Staging};
+use crate::id::KernelId;
+use crate::memory_management::Cleanup;
+use crate::memory_management::drop_queue::Fence;
+use crate::memory_management::relocation::{RelocatingStreams, RelocationNeed, RelocationReason};
+use crate::memory_management::{
+    ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, PageGuard, PageUpdate,
+    StreamMemoryReport,
+};
+use crate::server::{BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ServerError};
+use crate::storage::ManagedResource;
+use crate::stream::ResolvedStreams;
+use crate::stream::TouchedPage;
+use alloc::boxed::Box;
+use alloc::vec;
+use alloc::vec::Vec;
+use cubecl_common::{bytes::Bytes, device::ServiceId};
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::future::DynFut;
+use cubecl_environment::stream::StreamId;
+
+/// One unit of work against the device: the context that holds its compiled
+/// kernels, and the streams it was resolved against.
+///
+/// Built per operation rather than held, because resolving is what orders the
+/// current stream behind whichever streams own the buffers it was given.
+pub struct Command<'a, D: Driver> {
+    ctx: &'a mut D::Context,
+    streams: ResolvedStreams<'a, D::Backend>,
+    /// The service issuing the command: what the handles it allocates are
+    /// stamped with.
+    service: ServiceId,
+}
+
+impl<'a, D: Driver> Command<'a, D> {
+    /// A command against `ctx` over the streams `streams` resolved.
+    pub fn new(
+        ctx: &'a mut D::Context,
+        streams: ResolvedStreams<'a, D::Backend>,
+        service: ServiceId,
+    ) -> Self {
+        Self {
+            ctx,
+            streams,
+            service,
+        }
+    }
+
+    /// The stream this command is issued on.
+    ///
+    /// The one part of the resolution a backend reaches for directly: the
+    /// driver calls take a stream, and this is the one they take.
+    pub fn stream(&mut self) -> &mut D::Stream {
+        self.streams.current()
+    }
+
+    /// The device allocation `binding` names, resolved on the stream that
+    /// created it rather than the current one.
+    ///
+    /// While the current stream records a graph, the page the allocation
+    /// sits on is remembered: the graph replays against the address resolved
+    /// here, so it guards that page once it seals.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::StorageHandleNotFound`] when the binding names no live allocation.
+    pub fn resource(&mut self, binding: BufferBinding) -> Result<DeviceResource<D>, IoError> {
+        self.streams
+            .current()
+            .capturing()
+            .touch(binding.stream, binding.memory.descriptor().location());
+        self.streams
+            .get(&binding.stream)
+            .device_memory()
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+    }
+
+    /// The device allocation `binding` names, for a caller outside the server
+    /// that keeps its raw address: it holds the allocation and a guard on its
+    /// page for as long as it lives.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::StorageHandleNotFound`] when the binding names no live allocation.
+    pub fn managed_resource(
+        &mut self,
+        binding: BufferBinding,
+    ) -> Result<ManagedResource<DeviceResource<D>>, IoError> {
+        self.streams
+            .get(&binding.stream)
+            .device_memory()
+            .managed_resource(binding.memory, binding.offset_start, binding.offset_end)
+    }
+
+    /// A guard on every page in `touched`, each looked up in the memory of the
+    /// stream that owns it.
+    pub fn guard_pages(&mut self, touched: &[TouchedPage]) -> Vec<PageGuard> {
+        touched
+            .iter()
+            .filter_map(|page| {
+                self.streams
+                    .get(&page.stream)
+                    .device_memory()
+                    .guard(page.location)
+            })
+            .collect()
+    }
+
+    /// Everything the current stream's device memory holds, pool by pool.
+    pub fn memory_report(&mut self) -> StreamMemoryReport {
+        StreamMemoryReport {
+            stream: self.streams.current,
+            pools: self.streams.current().device_memory().memory_report(),
+            auxiliary: Vec::new(),
+        }
+    }
+
+    /// Release everything the current stream is holding that nothing still
+    /// needs.
+    ///
+    /// # Errors
+    ///
+    /// Refused while any stream records a graph: releasing memory waits on
+    /// the device, and a wait on a stream that records aborts its capture.
+    pub fn memory_cleanup(&mut self) -> Result<(), ServerError> {
+        self.refuse_while_recording()?;
+        let stream = self.streams.current();
+        // Deferred frees sit in the drop queue until a fenced flush, so an
+        // explicit cleanup must drain it first or the pools still see those
+        // slices as live.
+        let signal = stream.signal();
+        stream.drop_queue().drain(|| D::Stream::fence(signal));
+        // The info cache's buffers are live slices in the dynamic pools; an
+        // explicit cleanup exists to leave those pools empty, so every entry
+        // not pinned by a live graph goes too.
+        stream.info_cache().clear_unpinned();
+
+        RelocatingStreams::reclaim(self)?;
+        let (stream, failures) = self.streams.current_and_failures();
+        stream.host_memory().cleanup(Cleanup::Explicit, failures);
+        Ok(())
+    }
+
+    /// Flush the current stream's drop queue, freeing what the device is
+    /// known to be done with.
+    ///
+    /// Deferred while the stream records a graph — the flush records a fence
+    /// on the capturing stream, which corrupts the recording — and the window
+    /// drains the queue itself when it closes. The rule lives here, on the one
+    /// path a server has to the queue, so no call site can rebuild the flush
+    /// without the guard.
+    pub fn flush_drops(&mut self) {
+        let stream = self.streams.current();
+        if stream.capturing().is_recording() {
+            return;
+        }
+        let signal = stream.signal();
+        stream.drop_queue().flush(|| D::Stream::fence(signal));
+    }
+
+    /// Set the [`MemoryAllocationMode`] for the current stream.
+    pub fn allocation_mode(&mut self, mode: MemoryAllocationMode) {
+        self.streams.current().device_memory().mode(mode)
+    }
+
+    /// Allocate `size` bytes of device memory on the current stream.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::BufferTooBig`] when no device could ever fit it, and
+    /// whatever the allocator reports when a reclaim-and-retry still cannot.
+    pub fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
+        let update = self.streams.current().capturing().page_update();
+        if update == PageUpdate::Allow {
+            self.relocate_when_wanted();
+        }
+
+        let (stream, failures) = self.streams.current_and_failures();
+        match stream.device_memory().reserve(size, update, failures) {
+            Ok(handle) => Ok(handle),
+            // The recording now misses whatever this memory was for.
+            Err(err @ IoError::PageUpdateForbidden { .. }) => {
+                stream.capturing().fail(err.clone().into());
+                Err(err)
+            }
+            Err(err) if update != PageUpdate::Allow || !err.may_succeed_after_reclaim() => Err(err),
+            // Reclaim and retry once; only a failure after that is reported.
+            // Without the retry a transient peak becomes a never-initialized
+            // handle whose every downstream use fails.
+            Err(err) => {
+                log::warn!("device allocation of {size} B failed ({err}); reclaiming and retrying");
+                self.make_room(&err);
+                let (stream, failures) = self.streams.current_and_failures();
+                stream
+                    .device_memory()
+                    .reserve(size, PageUpdate::Allow, failures)
+            }
+        }
+    }
+
+    /// Get back what the reservation that failed with `err` needs: a slot for
+    /// a new page size when the arena is full, memory otherwise.
+    fn make_room(&mut self, err: &IoError) {
+        match err {
+            // Only a relocation that may allocate empties the outdated pools
+            // whatever room the current pages have.
+            IoError::PageSizesExhausted { .. } => {
+                RelocatingStreams::relocate(self, RelocationReason::ArenaFull)
+            }
+            // No stream records (the caller checked), which is the only
+            // refusal a cleanup has.
+            _ => {
+                let _ = self.memory_cleanup();
+            }
+        }
+    }
+
+    /// Give `memory` `size` bytes of device memory on the current stream.
+    ///
+    /// Fatal rather than reported: `initialize_memory` has no error channel,
+    /// and an allocation that never got its storage cannot be handed back as
+    /// a taint either — nothing has a binding to it yet.
+    pub fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64) {
+        let reserved = match self.reserve(size) {
+            Ok(reserved) => reserved,
+            // The recording already failed on it, and `stop_capture` reports
+            // that: the handle stays unbound, and whatever uses it belongs to
+            // a recording that will not seal.
+            Err(IoError::PageUpdateForbidden { .. }) => return,
+            Err(err) => panic!("failed to reserve {size} bytes of device memory: {err}"),
+        };
+        self.bind(reserved, memory)
+            .unwrap_or_else(|err| panic!("failed to bind {size} bytes of device memory: {err}"));
+    }
+
+    /// The current stream's cursor.
+    pub fn cursor(&self) -> u64 {
+        self.streams.cursor
+    }
+
+    /// Allocate `size` bytes of device memory and a handle naming it.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the allocation or the bind reports.
+    pub fn empty(&mut self, size: u64) -> Result<Handle, IoError> {
+        let handle = Handle::new(self.service, self.streams.current, size);
+        let reserved = self.reserve(size)?;
+        self.bind(reserved, handle.memory.clone())?;
+
+        Ok(handle)
+    }
+
+    /// Give `reserved`'s storage to `new`, so handles issued against `new`
+    /// resolve to it.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError`] when the reservation has no initialized storage to give.
+    pub fn bind(
+        &mut self,
+        reserved: ManagedMemoryHandle,
+        new: ManagedMemoryHandle,
+    ) -> Result<(), IoError> {
+        let cursor = self.cursor();
+        let (stream, failures) = self.streams.current_and_failures();
+        stream.device_memory().bind(reserved, new, cursor, failures)
+    }
+
+    /// `size` bytes of host memory, pinned when the pool can serve it.
+    ///
+    /// Pinned pages transfer by DMA without a bounce, but they are scarce, so
+    /// an exhausted pool falls back to the heap rather than failing: this
+    /// always answers with a buffer of the size asked for.
+    pub fn reserve_cpu(&mut self, size: usize, origin: Option<StreamId>) -> Bytes {
+        self.reserve_pinned(size, origin)
+            .unwrap_or_else(|| Bytes::from_bytes_vec(vec![0; size]))
+    }
+
+    /// `size` bytes of pinned host memory, or `None` when the pool cannot
+    /// serve it.
+    fn reserve_pinned(&mut self, size: usize, origin: Option<StreamId>) -> Option<Bytes> {
+        let (stream, failures) = match origin {
+            Some(id) => self.streams.get_and_failures(&id),
+            None => self.streams.current_and_failures(),
+        };
+        // A stream recording a graph stages from what the pool holds, and
+        // falls back to the heap rather than allocate.
+        let update = stream.capturing().page_update();
+        let handle = stream
+            .host_memory()
+            .reserve(size as u64, update, failures)
+            .ok()?;
+
+        let binding = MemoryHandle::binding(handle);
+        stream.capturing().prime(&binding);
+        let resource = stream
+            .host_memory()
+            .get_resource(binding.clone(), None, None)
+            .ok()?;
+
+        // SAFETY: the binding has initialized memory for at least `size` bytes,
+        // and `resource` is what the manager just resolved it to.
+        Some(unsafe { D::pinned_bytes(binding, resource, size) })
+    }
+
+    /// Copy each descriptor's device memory back to the host, resolving once
+    /// the copies have landed.
+    ///
+    /// The copies are enqueued before the future is returned; awaiting it
+    /// waits on the fence that follows them.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::UnsupportedStrides`] for a layout the driver cannot copy,
+    /// and whatever the fence reports when the stream itself failed.
+    pub fn read_async(
+        &mut self,
+        descriptors: Vec<CopyDescriptor>,
+    ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send + use<D> {
+        let held = descriptors
+            .iter()
+            .map(|descriptor| descriptor.handle.clone())
+            .collect::<Vec<_>>();
+        let result = self.copies_to_bytes(descriptors);
+        let fence = D::Stream::fence(self.streams.current().signal());
+
+        async move {
+            let synced = fence.wait();
+            // The bindings kept the source allocations alive across the copies;
+            // the fence above is what says they are done being read.
+            core::mem::drop(held);
+
+            synced?;
+            result.map_err(Into::into)
+        }
+    }
+
+    /// Copy each descriptor's device memory into a fresh host buffer.
+    fn copies_to_bytes(&mut self, descriptors: Vec<CopyDescriptor>) -> Result<Vec<Bytes>, IoError> {
+        let mut result = Vec::with_capacity(descriptors.len());
+
+        for descriptor in descriptors {
+            match self.copy_to_bytes(descriptor, None) {
+                Ok(bytes) => result.push(bytes),
+                Err(err) => {
+                    // The buffers collected so far are the destinations of
+                    // copies already enqueued: dropping them hands their
+                    // pinned slices back to a pool whose reuse is gated on
+                    // the refcount alone, while the device is still writing
+                    // them. The fence `read_async` records to cover exactly
+                    // this does not exist yet on the error path, so record
+                    // one here and wait it out before the partial set drops.
+                    if !result.is_empty() {
+                        D::Stream::fence(self.streams.current().signal()).sync();
+                    }
+                    return Err(err);
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Copy one descriptor's device memory into a fresh host buffer.
+    fn copy_to_bytes(
+        &mut self,
+        descriptor: CopyDescriptor,
+        stream_id: Option<StreamId>,
+    ) -> Result<Bytes, IoError> {
+        let num_bytes = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
+        let mut bytes = self.reserve_cpu(num_bytes, stream_id);
+        self.write_to_cpu(descriptor, &mut bytes, stream_id)?;
+
+        Ok(bytes)
+    }
+
+    /// Enqueue a copy of `descriptor`'s device memory into `bytes`.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::UnsupportedStrides`] for a layout that is not pitched
+    /// row-major, [`IoError::StorageHandleNotFound`] for a binding that names no live
+    /// allocation, and the driver's refusal to copy.
+    pub fn write_to_cpu(
+        &mut self,
+        descriptor: CopyDescriptor,
+        bytes: &mut Bytes,
+        stream_id: Option<StreamId>,
+    ) -> Result<(), IoError> {
+        let CopyDescriptor {
+            handle: binding,
+            shape,
+            strides,
+            elem_size,
+        } = descriptor;
+        // Nothing to copy for an empty tensor, and `bytes` has no real backing
+        // for the driver to write into — a dangling zero-size buffer.
+        // Its strides may contain zeros, so skip copy-layout validation too.
+        if bytes.is_empty() {
+            return Ok(());
+        }
+
+        let layout = CopyLayout::of(&shape, &strides, elem_size)?;
+        let resource = self.resource(binding)?;
+        let stream = match stream_id {
+            Some(id) => self.streams.get(&id),
+            None => self.streams.current(),
+        };
+
+        // SAFETY: `resource` is a live device allocation the manager just
+        // resolved, `bytes` was sized for this copy, and the caller awaits the
+        // fence `read_async` records before reading it back.
+        unsafe { D::copy_to_host(&resource, &layout, bytes, stream) }
+    }
+
+    /// Enqueue a copy of `data` into the device memory `descriptor` names.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::UnsupportedStrides`] for a layout that is not pitched
+    /// row-major, [`IoError::StorageHandleNotFound`] for a binding that names no live
+    /// allocation, and the driver's refusal to copy.
+    pub fn write_to_gpu(&mut self, descriptor: CopyDescriptor, data: Bytes) -> Result<(), IoError> {
+        let CopyDescriptor {
+            handle: binding,
+            shape,
+            strides,
+            elem_size,
+        } = descriptor;
+        let size = data.len();
+
+        // An empty tensor (a zero dim in its shape) has nothing to copy. Bail
+        // before validating its potentially zero strides or staging: the zero-size
+        // staging buffer has no real backing (a dangling pointer), and a 2D copy
+        // would still transfer `width_bytes` from it when only the leading dims are zero.
+        if size == 0 {
+            return Ok(());
+        }
+
+        let layout = CopyLayout::of(&shape, &strides, elem_size)?;
+        let resource = self.resource(binding)?;
+        let staging = Staging::of(size, data.property());
+
+        let data = match staging.through_pinned {
+            true => {
+                // Pinned staging is a DMA optimization, not a requirement, so
+                // an exhausted pinned pool falls back to a plain heap buffer
+                // rather than failing the write — the same answer `reserve_cpu`
+                // gives for the same condition. File-backed data still lands in
+                // real memory before the driver reads it asynchronously, which
+                // is the half of the staging that is mandatory.
+                let mut buffer = self
+                    .reserve_pinned(size, None)
+                    .unwrap_or_else(|| Bytes::from_bytes_vec(vec![0; size]));
+                data.copy_into(&mut buffer);
+                buffer
+            }
+            false => data,
+        };
+
+        let current = self.streams.current();
+
+        // SAFETY: `resource` is a live device allocation, `data` is a valid
+        // host buffer, and either the drop queue or the capture window below
+        // keeps it alive for as long as the device reads it.
+        unsafe { D::copy_to_device(&resource, &layout, &data, current)? };
+
+        if current.capturing().is_recording() {
+            // A copy recorded into a graph is not executed now but re-read on
+            // every replay: the node keeps the raw host pointer, so the bytes
+            // ride the window onto the graph rather than the drop queue —
+            // which frees them when the window closes, exactly when the graph
+            // starts needing them.
+            current.capturing().retain_host(data);
+        } else {
+            current.drop_queue().push(data);
+            if staging.flush_after || current.drop_queue().should_flush() {
+                let signal = current.signal();
+                current.drop_queue().flush(|| D::Stream::fence(signal));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Allocate device memory for `data` and enqueue the copy into it.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the allocation or the copy reports.
+    pub fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
+        let mut staging =
+            self.reserve_pinned(data.len(), None)
+                .ok_or_else(|| IoError::Unknown {
+                    backtrace: BackTrace::capture(),
+                    description: "Unable to reserve pinned memory".into(),
+                })?;
+
+        staging.copy_from_slice(data);
+
+        let handle = self.empty(staging.len() as u64)?;
+
+        self.write_to_gpu(
+            CopyDescriptor {
+                handle: handle.clone().binding(),
+                shape: [data.len()].into(),
+                strides: [1].into(),
+                elem_size: 1,
+            },
+            staging,
+        )?;
+
+        Ok(handle)
+    }
+
+    /// Wait for everything already enqueued on the current stream to finish.
+    ///
+    /// # Errors
+    ///
+    /// The fault the barrier reveals, when the stream itself failed.
+    pub fn sync(&mut self) -> DynFut<Result<(), ServerError>> {
+        let fence = D::Stream::fence(self.streams.current().signal());
+
+        Box::pin(async move { fence.wait() })
+    }
+
+    /// Enqueue an already-compiled kernel on the current stream.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to enqueue the launch, returned whether or not a
+    /// profile is open. An open profile is not a reason to hold the failure
+    /// here: the caller's write scope is what claims the buffers the launch
+    /// never wrote, and the caller invalidates every open profile on the same
+    /// path, so keeping it would lose the claim and duplicate the report.
+    pub fn kernel(
+        &mut self,
+        kernel: KernelId,
+        count: (u32, u32, u32),
+        args: &mut D::LaunchArgs,
+    ) -> Result<(), LaunchError> {
+        let stream = self.streams.current();
+        let result = D::launch(self.ctx, stream, kernel, count, args);
+
+        // A fenced flush during capture would abort it; defer until the capture
+        // ends, when the deferred staging buffers are reclaimed.
+        if !stream.capturing().is_recording() && stream.drop_queue().should_flush() {
+            let signal = stream.signal();
+            stream.drop_queue().flush(|| D::Stream::fence(signal));
+        }
+
+        result
+    }
+}
+
+impl<D: Driver> RelocatingStreams for Command<'_, D> {
+    fn recording(&mut self) -> bool {
+        self.streams.current().capturing().any_recording()
+    }
+
+    fn has_outdated(&mut self) -> bool {
+        self.streams.current().device_memory().has_outdated()
+    }
+
+    fn relocation_need(&mut self) -> RelocationNeed {
+        self.streams.current().device_memory().relocation_need()
+    }
+
+    fn bytes_allocated(&mut self) -> u64 {
+        self.streams
+            .all()
+            .map(|stream| stream.device_memory().bytes_allocated())
+            .sum()
+    }
+
+    /// Nothing here: `StreamCopies` waits on every stream before its first
+    /// copy, so a relocation with nothing to move waits on none.
+    fn finish(&mut self) {}
+
+    fn cleanup_memory(&mut self) {
+        let (stream, failures) = self.streams.current_and_failures();
+        stream.device_memory().cleanup(Cleanup::Explicit, failures);
+    }
+
+    fn relocate_memory(&mut self, reason: RelocationReason) {
+        let current = self.streams.current;
+        self.relocate_stream(current, reason);
+    }
+
+    fn device_has_outdated(&mut self) -> bool {
+        self.streams
+            .all()
+            .any(|stream| stream.device_memory().has_outdated())
+    }
+
+    fn relocate_device_memory(&mut self, reason: RelocationReason) {
+        for stream_id in self.streams.stream_ids() {
+            if self.streams.get(&stream_id).device_memory().has_outdated() {
+                self.relocate_stream(stream_id, reason);
+            }
+        }
+    }
+}
+
+impl<D: Driver> Command<'_, D> {
+    /// Move what `stream_id`'s memory holds on outdated pages, with the copies
+    /// queued on that stream.
+    fn relocate_stream(&mut self, stream_id: StreamId, reason: RelocationReason) {
+        // Rare enough to gather the signals as it goes: it waits on the whole
+        // device anyway.
+        let signals: Vec<_> = self.streams.all().map(|stream| stream.signal()).collect();
+        let queue = self.streams.get(&stream_id).signal();
+        let mut copier = StreamCopies::<D>::new(signals, queue, self.ctx);
+        let (stream, failures) = self.streams.get_and_failures(&stream_id);
+        stream
+            .device_memory()
+            .relocate(&mut copier, reason, failures);
+    }
+}

@@ -18,11 +18,16 @@ use cubecl_core::{
 };
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
-use cubecl_runtime::{
+use cubecl_server::memory_management::Cleanup;
+use cubecl_server::memory_management::PageUpdate;
+use cubecl_server::{
     dry_run::LaunchMode,
     kernel::CubeKernel,
     logging::ServerLogger,
-    memory_management::{InstallMemoryPoolsError, ManagedMemoryHandle},
+    memory_management::{
+        ManagedMemoryHandle,
+        relocation::{RelocatingStreams, RelocationNeed, RelocationReason},
+    },
     server::Server,
     storage::{ComputeStorage, ManagedResource},
     stream::{
@@ -67,8 +72,8 @@ impl MetalServer {
         let backend = MetalStreamBackend::new(device, mem_props, mem_config, logger.clone());
 
         let config = {
-            use cubecl_runtime::config::RuntimeConfig;
-            cubecl_runtime::config::CubeClRuntimeConfig::get()
+            use cubecl_server::config::RuntimeConfig;
+            cubecl_server::config::CubeClRuntimeConfig::get()
         };
         let max_streams = config.streaming.max_streams;
 
@@ -196,10 +201,11 @@ impl Server for MetalServer {
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
         let cursor = resolved.cursor;
+        Relocating(&mut resolved).relocate_when_wanted();
         let (stream, failures) = resolved.current_and_failures();
         let reserved = stream
             .memory_management
-            .reserve(size, failures)
+            .reserve(size, PageUpdate::Allow, failures)
             .expect("Failed to reserve memory");
         stream
             .memory_management
@@ -337,8 +343,8 @@ impl Server for MetalServer {
         // fail unrelated reads of memory the run deliberately left alone.
         let kernel_id = kernel.id();
         let compiled = (|| {
-            cubecl_runtime::validation::validate_cube_dim(&self.utilities.properties, &kernel_id)?;
-            cubecl_runtime::validation::validate_units(&self.utilities.properties, &kernel_id)?;
+            cubecl_server::validation::validate_cube_dim(&self.utilities.properties, &kernel_id)?;
+            cubecl_server::validation::validate_units(&self.utilities.properties, &kernel_id)?;
             self.context.compile_kernel(
                 &kernel_id,
                 kernel,
@@ -654,54 +660,101 @@ impl Server for MetalServer {
         Ok(ProfileDuration::new_device_time(async move { ticks }))
     }
 
-    fn memory_usage(
-        &mut self,
-        stream_id: StreamId,
-    ) -> cubecl_runtime::memory_management::MemoryUsage {
-        let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
-        resolved.current().memory_management.memory_usage()
+    fn abandon_profile(&mut self, stream_id: StreamId, token: ProfilingToken) {
+        // Disarm the collector and drop what it has retained: left armed it
+        // would hold every later flush's command buffers until the next
+        // `start_profile`. No sync, which is the whole difference from
+        // `end_profile`: nothing is going to read these timestamps.
+        self.streams
+            .resolve(stream_id, std::iter::empty())
+            .current()
+            .profiling = None;
+        self.timestamps.abandon(token);
     }
 
     fn memory_report(
         &mut self,
         stream_id: StreamId,
-    ) -> cubecl_runtime::memory_management::MemoryReport {
+    ) -> cubecl_server::memory_management::StreamMemoryReport {
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
-        resolved.current().memory_management.memory_report()
+        cubecl_server::memory_management::StreamMemoryReport {
+            stream: stream_id,
+            pools: resolved.current().memory_management.memory_report(),
+            auxiliary: Vec::new(),
+        }
     }
 
-    fn memory_cleanup(&mut self, stream_id: StreamId) {
+    fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
-        let (stream, failures) = resolved.current_and_failures();
-        stream.memory_management.cleanup(true, failures);
+        Relocating(&mut resolved).reclaim()
     }
 
     fn allocation_mode(
         &mut self,
-        mode: cubecl_runtime::memory_management::MemoryAllocationMode,
+        mode: cubecl_server::memory_management::MemoryAllocationMode,
         stream_id: StreamId,
     ) {
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
         resolved.current().memory_management.mode(mode);
     }
+}
 
-    fn install_memory_pools(
-        &mut self,
-        config: MemoryConfiguration,
-        stream_id: StreamId,
-    ) -> Result<(), InstallMemoryPoolsError> {
-        // Streams created from now on build their GPU pools with the new
-        // layout; memory is per stream, so already-created streams keep theirs.
-        self.streams.backend_mut().set_gpu_pools(config.clone());
-        let (_, props) = self.streams.backend_mut().gpu_pools();
+/// A command's streams, as relocating the current stream's memory needs them.
+struct Relocating<'r, 'a>(&'r mut ResolvedStreams<'a, MetalStreamBackend>);
 
-        // The calling stream's pools are rebuilt in place, keeping the old
-        // layout when something is still live in them.
-        let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
-        let (stream, failures) = resolved.current_and_failures();
+impl RelocatingStreams for Relocating<'_, '_> {
+    /// Never: Metal records no graphs.
+    fn recording(&mut self) -> bool {
+        false
+    }
+
+    fn has_outdated(&mut self) -> bool {
+        self.0.current().memory_management.has_outdated()
+    }
+
+    fn relocation_need(&mut self) -> RelocationNeed {
+        self.0.current().memory_management.relocation_need()
+    }
+
+    fn bytes_allocated(&mut self) -> u64 {
+        self.0
+            .all()
+            .map(|stream| stream.memory_management.bytes_allocated())
+            .sum()
+    }
+
+    /// Commit every stream's open batch and wait for everything it submitted.
+    fn finish(&mut self) {
+        for stream in self.0.all() {
+            stream.finish();
+        }
+    }
+
+    fn cleanup_memory(&mut self) {
+        let (stream, failures) = self.0.current_and_failures();
         stream
             .memory_management
-            .install_pools(config, &props, failures)
+            .cleanup(Cleanup::Explicit, failures);
+    }
+
+    fn relocate_memory(&mut self, reason: RelocationReason) {
+        let (stream, failures) = self.0.current_and_failures();
+        stream.relocate(reason, failures);
+    }
+
+    fn device_has_outdated(&mut self) -> bool {
+        self.0
+            .all()
+            .any(|stream| stream.memory_management.has_outdated())
+    }
+
+    fn relocate_device_memory(&mut self, reason: RelocationReason) {
+        for stream_id in self.0.stream_ids() {
+            let (stream, failures) = self.0.get_and_failures(&stream_id);
+            if stream.memory_management.has_outdated() {
+                stream.relocate(reason, failures);
+            }
+        }
     }
 }
 
@@ -742,12 +795,10 @@ impl ServerStorage for MetalServer {
         // Resolve from the binding's origin stream; see `resolve_origin_resource`.
         let stream = resolved.get(&binding.stream);
 
-        let memory = binding.memory.clone();
-        let resource = stream
-            .memory_management
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .map_err(ServerError::from)?;
-
-        Ok(ManagedResource::new(memory, resource))
+        Ok(stream.memory_management.managed_resource(
+            binding.memory,
+            binding.offset_start,
+            binding.offset_end,
+        )?)
     }
 }

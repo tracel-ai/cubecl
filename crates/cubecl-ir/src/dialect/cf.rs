@@ -26,6 +26,7 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
+    NoMemoryEffect,
     attributes::{BoolAttr, IntegerVecAttr, ZeroAttr},
     prelude::*,
     types::scalar::BoolType,
@@ -42,6 +43,7 @@ use crate::{
     ],
     verifier = "succ"
 )]
+#[op_traits(NoMemoryEffect)]
 pub struct BranchOp;
 
 #[op_interface_impl]
@@ -89,6 +91,7 @@ impl BranchOp {
     verifier = "succ"
 )]
 #[op_interfaces(IsTerminatorInterface, NResultsInterface<0>, NSuccsInterface<2>, OperandSegmentInterface)]
+#[op_traits(NoMemoryEffect)]
 pub struct BranchConditionalOp;
 impl BranchConditionalOp {
     /// Create a new [`BranchConditionalOp`].
@@ -244,6 +247,7 @@ impl BranchOpInterface for BranchConditionalOp {
     attributes = (cf_switch_case_values: IntegerVecAttr)
 )]
 #[op_interfaces(IsTerminatorInterface, NResultsInterface<0>, OperandSegmentInterface)]
+#[op_traits(NoMemoryEffect)]
 pub struct SwitchOp;
 
 /// One case of a switch statement.

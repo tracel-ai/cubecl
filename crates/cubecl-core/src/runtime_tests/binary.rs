@@ -186,6 +186,50 @@ test_binary_impl!(
 );
 
 test_binary_impl!(
+    test_max,
+    F,
+    <Vector<F, In> as FloatOps>::max,
+    [
+        {
+            input_vectorization: 1,
+            out_vectorization: 1,
+            lhs: as_type![F: 1., -3., 2.5, -0.5],
+            rhs: as_type![F: -1., 2., 2.5, -0.25],
+            expected: as_type![F: 1., 2., 2.5, -0.25]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 4,
+            lhs: as_type![F: 1., -3., 2.5, -0.5],
+            rhs: as_type![F: -1., 2., 2.5, -0.25],
+            expected: as_type![F: 1., 2., 2.5, -0.25]
+        }
+    ]
+);
+
+test_binary_impl!(
+    test_min,
+    F,
+    <Vector<F, In> as FloatOps>::min,
+    [
+        {
+            input_vectorization: 1,
+            out_vectorization: 1,
+            lhs: as_type![F: 1., -3., 2.5, -0.5],
+            rhs: as_type![F: -1., 2., 2.5, -0.25],
+            expected: as_type![F: -1., -3., 2.5, -0.5]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 4,
+            lhs: as_type![F: 1., -3., 2.5, -0.5],
+            rhs: as_type![F: -1., 2., 2.5, -0.25],
+            expected: as_type![F: -1., -3., 2.5, -0.5]
+        }
+    ]
+);
+
+test_binary_impl!(
     test_atan2,
     F,
     Vector::atan2,
@@ -756,6 +800,8 @@ macro_rules! testgen_binary {
             add_test!(test_hypot);
             add_test!(test_rhypot);
             add_test!(test_powi);
+            add_test!(test_max);
+            add_test!(test_min);
             add_test!(test_atan2);
             add_test!(test_fma);
             add_test!(test_fma_from_sub);

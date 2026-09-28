@@ -127,7 +127,14 @@ impl MatchRewrite for SimplifyOps {
 pub fn const_operands(ctx: &Context, op: Ptr<Operation>) -> Vec<Option<AttrObj>> {
     op.deref(ctx)
         .operands()
-        .map(|opd| Some(opd.defining_op()?.as_op::<ConstantOp>(ctx)?.get_value(ctx)))
+        .map(|opd| {
+            Some(
+                opd.defining_op()?
+                    .as_op::<ConstantOp>(ctx)?
+                    .get_attr_builtin_constant_value(ctx)?
+                    .clone(),
+            )
+        })
         .collect()
 }
 
@@ -418,6 +425,10 @@ impl<T: OpInterfaceMarker + 'static + ?Sized> TraitOpPtr<T> {
             _marker: PhantomData,
         }
     }
+
+    pub fn operation(&self) -> Ptr<Operation> {
+        self.op
+    }
 }
 
 impl<T: OpInterfaceMarker + 'static + ?Sized> Eq for TraitOpPtr<T> {}
@@ -444,4 +455,22 @@ impl<T: OpInterfaceMarker + 'static + ?Sized> Debug for TraitOpPtr<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         Debug::fmt(&self.op, f)
     }
+}
+
+#[macro_export]
+macro_rules! small_map {
+    {$($k: expr => $v: expr),* $(,)?} => {{
+        let mut out = $crate::pliron::utils::table::SmallMap::new();
+        $(out.insert($k, $v);)*
+        out
+    }};
+}
+
+#[macro_export]
+macro_rules! small_set {
+    {$($v: expr),* $(,)?} => {{
+        let mut out = $crate::pliron::utils::table::SmallSet::new();
+        $(out.insert($v);)*
+        out
+    }};
 }

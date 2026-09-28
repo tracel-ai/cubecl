@@ -1,4 +1,5 @@
 use cubecl_llvm::PlironOptions;
+use cubecl_server::memory_management::relocation::RelocatingStreams;
 
 use crate::{
     CpuCompiler,
@@ -10,7 +11,7 @@ use crate::{
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::server::ServerStorage;
 use cubecl_core::{
-    CompilationError, CubeCount, MemoryConfiguration, MemoryUsage,
+    CompilationError, CubeCount, MemoryConfiguration,
     ir::MemoryDeviceProperties,
     server::{
         BufferBinding, CopyDescriptor, IoError, KernelArguments, KernelResource, LaunchError,
@@ -21,8 +22,8 @@ use cubecl_core::{
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
-use cubecl_runtime::{
-    config::{CubeClRuntimeConfig, RuntimeConfig},
+use cubecl_server::{
+    config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
     dry_run::LaunchMode,
     id::KernelId,
     kernel::{CompiledKernel, CubeKernel},
@@ -38,7 +39,8 @@ use std::{collections::HashMap, sync::Arc};
 pub struct CpuServer {
     scheduler: SchedulerMultiStream<ScheduledCpuBackend>,
     utilities: Arc<ServerUtilities>,
-    compilation_cache: HashMap<KernelId, CpuKernel>,
+    compilation_cache: HashMap<(KernelId, u32), CpuKernel>,
+    compilation_options: PlironOptions,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
 }
@@ -61,6 +63,7 @@ impl CpuServer {
     pub fn new(
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
+        f16_evaluation: F16Evaluation,
         utilities: Arc<ServerUtilities>,
     ) -> Self {
         let backend =
@@ -82,6 +85,10 @@ impl CpuServer {
             scheduler,
             utilities,
             compilation_cache: HashMap::new(),
+            compilation_options: PlironOptions {
+                f16_evaluation,
+                ..Default::default()
+            },
             streams_pool: Vec::new(),
         }
     }
@@ -98,10 +105,13 @@ impl CpuServer {
                 };
                 let stream = self.scheduler.stream(&binding.stream);
                 let memory = binding.memory.clone();
-                let resource = stream
-                    .memory_management
-                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                    .unwrap();
+                let resource = stream.get_resource(binding).unwrap();
+                // No page guard: a relocation runs every queued and running
+                // kernel to completion before anything moves, and a guard
+                // would keep the pages from serving new reservations for as
+                // long as the task is queued. A read-back outlives its task,
+                // and its binding is what keeps the allocation in place: a
+                // relocation leaves a page with a bound allocation as it is.
                 Some(ManagedResource::new(memory, resource))
             })
             .collect::<Vec<_>>();
@@ -114,7 +124,7 @@ impl CpuServer {
 
     fn prepare_task(
         &mut self,
-        kernel_id: KernelId,
+        kernel_id: (KernelId, u32),
         count: CubeCount,
         bindings: BindingsResource,
         stream_id: StreamId,
@@ -143,18 +153,22 @@ impl CpuServer {
 
     /// Compile and cache `kernel` without scheduling anything — everything a
     /// skipped launch owes the caches, touching no buffer.
-    fn compile_only(&mut self, kernel: &dyn CubeKernel) -> Result<(), CompilationError> {
-        let kernel_id = kernel.id();
+    fn compile_only(
+        &mut self,
+        kernel: &dyn CubeKernel,
+        alignment: u32,
+    ) -> Result<(), CompilationError> {
+        let kernel_id = (kernel.id(), alignment);
         if self.compilation_cache.contains_key(&kernel_id) {
             return Ok(());
         }
         let definition = kernel.define();
-        let compiled = CompiledKernel::compile(
-            kernel,
-            definition,
-            &mut CpuCompiler::default(),
-            &PlironOptions::default(),
-        )?;
+        let options = PlironOptions {
+            cpu_buffer_alignment: Some(alignment),
+            ..self.compilation_options.clone()
+        };
+        let compiled =
+            CompiledKernel::compile(kernel, definition, &mut CpuCompiler::default(), &options)?;
         // The executable artifact here is the JIT engine the compiler built,
         // not the text. A precompiled kernel brings text and no engine.
         if compiled.repr.is_none() {
@@ -173,7 +187,7 @@ impl CpuServer {
 
     fn prepare_task_inner(
         &mut self,
-        kernel_id: KernelId,
+        kernel_id: (KernelId, u32),
         cube_count: [u32; 3],
         bindings: BindingsResource,
         stream_id: StreamId,
@@ -229,6 +243,7 @@ impl Server for CpuServer {
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
+        self.scheduler.relocating(stream_id).relocate_when_wanted();
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
         // Fatal rather than reported, as on every other backend:
         // `initialize_memory` has no error channel, and an allocation that
@@ -318,13 +333,12 @@ impl Server for CpuServer {
                 // work has to land before this write overwrites the same
                 // memory.
                 let owner = desc.handle.stream;
-                let memory = desc.handle.memory.clone();
                 let stream = server.scheduler.stream(&owner);
+                let memory = desc.handle.memory.clone();
                 let resource = stream.get_resource(desc.handle).map_err(ServerError::Io)?;
-                let task = ScheduleTask::Write {
-                    data,
-                    buffer: ManagedResource::new(memory, resource),
-                };
+                // No page guard, as for a launch's bindings.
+                let buffer = ManagedResource::new(memory, resource);
+                let task = ScheduleTask::Write { data, buffer };
 
                 server.scheduler.register(stream_id, task, &[owner]);
                 Ok(())
@@ -332,30 +346,27 @@ impl Server for CpuServer {
         }
     }
 
-    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
-        self.scheduler
-            .stream(&stream_id)
-            .memory_management
-            .memory_usage()
-    }
-
     fn memory_report(
         &mut self,
         stream_id: StreamId,
-    ) -> cubecl_runtime::memory_management::MemoryReport {
-        self.scheduler
-            .stream(&stream_id)
-            .memory_management
-            .memory_report()
+    ) -> cubecl_server::memory_management::StreamMemoryReport {
+        cubecl_server::memory_management::StreamMemoryReport {
+            stream: stream_id,
+            pools: self
+                .scheduler
+                .stream(&stream_id)
+                .memory_management
+                .memory_report(),
+            auxiliary: Vec::new(),
+        }
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {
         self.scheduler.stream_ids().collect()
     }
 
-    fn memory_cleanup(&mut self, stream_id: StreamId) {
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        stream.memory_management.cleanup(true, failures)
+    fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        self.scheduler.relocating(stream_id).reclaim()
     }
 
     unsafe fn launch(
@@ -384,8 +395,26 @@ impl Server for CpuServer {
         // no stream dependency either, which is correct rather than an
         // oversight — nothing is scheduled, so there is no work for a later
         // stream to order against.
+        // Storage bases and pool offsets are 64-byte aligned. A view can weaken that
+        // guarantee, so cache a separate specialization for its common alignment.
+        // Inspect only descriptors: dry runs must not materialize any buffer.
+        let alignment =
+            bindings
+                .resources
+                .iter()
+                .fold(
+                    BytesStorage::ALIGNMENT as u32,
+                    |align, resource| match resource {
+                        KernelResource::Buffer(binding) => {
+                            let bits = binding.offset_start.unwrap_or(0).trailing_zeros();
+                            1u32 << bits.min(align.trailing_zeros())
+                        }
+                        _ => align,
+                    },
+                );
         let kernel_id = kernel.id();
-        if let Err(err) = self.compile_only(kernel.as_ref()) {
+        let cache_key = (kernel_id.clone(), alignment);
+        if let Err(err) = self.compile_only(kernel.as_ref(), alignment) {
             let error = ServerError::Launch(LaunchError::CompilationError(err));
             self.scheduler.stream(&stream_id).profile_failure(&error);
             if !launch_mode.is_skipped() {
@@ -401,7 +430,7 @@ impl Server for CpuServer {
 
         let io = self
             .compilation_cache
-            .get(&kernel_id)
+            .get(&cache_key)
             .and_then(|kernel| kernel.mlir.io.clone());
 
         // The scope claims what the launch writes until the body proves the
@@ -440,7 +469,7 @@ impl Server for CpuServer {
                 .for_each(|b| server.streams_pool.push(b.stream));
             let bindings = server.prepare_bindings(bindings);
             let task = server
-                .prepare_task(kernel_id, count, bindings, stream_id)
+                .prepare_task(cache_key, count, bindings, stream_id)
                 .map_err(|err| ServerError::Launch(LaunchError::CompilationError(err)))?;
 
             server
@@ -498,6 +527,12 @@ impl Server for CpuServer {
         stream.end_profile(token, stream_id)
     }
 
+    fn abandon_profile(&mut self, stream_id: StreamId, token: ProfilingToken) {
+        // No `execute_streams`: an abandon measures nothing, so it leaves the
+        // stream's queued work where it found it.
+        self.scheduler.stream(&stream_id).abandon_profile(token);
+    }
+
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
         stream.allocation_mode(mode);
@@ -534,9 +569,10 @@ impl ServerStorage for CpuServer {
         self.scheduler.execute_streams(streams);
 
         let stream = self.scheduler.stream(&binding.stream);
-        let memory = binding.memory.clone();
-        let resource = stream.get_resource(binding)?;
-
-        Ok(ManagedResource::new(memory, resource))
+        Ok(stream.memory_management.managed_resource(
+            binding.memory,
+            binding.offset_start,
+            binding.offset_end,
+        )?)
     }
 }

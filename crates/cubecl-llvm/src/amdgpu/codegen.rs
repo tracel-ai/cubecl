@@ -1,41 +1,44 @@
-//! Compiling the LLVM dialect to an AMD code object.
+//! AMDGPU code generation.
 
-use pliron::builtin::ops::ModuleOp;
-use pliron::context::Context;
-use pliron_llvm::attributes::set_data_layout;
-use pliron_llvm::llvm_sys::core::LLVMContext;
-use pliron_llvm::to_llvm_ir;
-use std::ffi::{CStr, CString};
-use std::sync::Once;
-
-use crate::amdgpu::device_libs::{DeviceLibs, link_device_libs};
-use crate::amdgpu::lld::link_relocatable;
-use crate::amdgpu::ocml::redirect_intrinsics_to_ocml;
-use crate::amdgpu::printf::lower_printf_to_hostcall;
-use crate::shared::AmdGpuModule;
-use cubecl_core::ir::amd::GfxArch;
-use cubecl_core::ir::attributes::BufferIOAttr;
+use crate::{
+    amdgpu::{
+        device_libs::{DeviceLibs, link_device_libs},
+        lld::link_relocatable,
+        ocml::Ocml,
+        printf::lower_printf_to_hostcall,
+    },
+    prelude::{BufferIOAttr, Context, ModuleOp},
+    shared::{
+        AmdGpuModule,
+        buffer_params::annotate_buffer_params,
+        llvm_module::{EntryFunction, LlvmModule, TargetMachine, TargetSpec},
+        math_library::redirect_intrinsics,
+    },
+};
+use cubecl_core::ir::{amd::GfxArch, settings::Dim3};
 use cubecl_environment::bytes::Bytes;
+use llvm_sys::{
+    LLVMAtomicRMWBinOp,
+    target_machine::{LLVMCodeGenFileType, LLVMRelocMode},
+};
+use pliron_llvm::{attributes::set_data_layout, llvm_sys::core::LLVMContext, to_llvm_ir};
+use std::{
+    ffi::{CStr, CString},
+    sync::Once,
+};
 
-/// The HSA target triple; the specific device is the `-mcpu`, not the triple.
 const TRIPLE: &CStr = c"amdgcn-amd-amdhsa";
 
-/// AMDGPU's private stack address space used by `alloca` instructions.
 const DATA_LAYOUT: &str = "A5";
 
-/// Code object version. v5 is what gfx1201's HSA loader accepts.
+/// HSA code object version.
 const CODE_OBJECT_VERSION: u32 = 500;
 
-/// LLVM's calling convention number for `amdgpu_kernel`
-/// (`llvm::CallingConv::AMDGPU_KERNEL`).
 const AMDGPU_KERNEL_CC: u32 = 91;
 
-/// The subtarget feature that selects wave32 on RDNA. Passed both as a function
-/// attribute and to the target machine so the two can never disagree.
+/// Wave32 feature for RDNA devices.
 const WAVE32: &str = "+wavefrontsize32";
 
-/// The pipeline run before machine-code emission. Same shape as the CPU path's,
-/// but handed the target machine, which is what makes it target-aware.
 const PASS_PIPELINE: &CStr = c"default<O3>";
 
 static INIT_AMDGPU: Once = Once::new();
@@ -49,7 +52,6 @@ fn init_amdgpu() {
     });
 }
 
-/// Subtarget feature string for `arch`, empty on the wave64 parts.
 fn features_for(arch: &GfxArch) -> &'static str {
     if arch.plane_dim() == Some(32) {
         WAVE32
@@ -58,26 +60,33 @@ fn features_for(arch: &GfxArch) -> &'static str {
     }
 }
 
-/// Lowers `module` to LLVM IR, compiles it to AMDGPU machine code, and links it.
+/// Kernel entry point requirements.
+pub struct AmdGpuEntry {
+    /// Units per cube along each axis.
+    pub cube_dim: Dim3,
+    /// Shared memory required per launch, in bytes.
+    pub shared_memory_size: usize,
+    /// Buffer access modes in binding order.
+    pub io: Vec<BufferIOAttr>,
+}
+
 pub fn emit_code_object(
     ctx: &Context,
     module: ModuleOp,
     entrypoint: &str,
     arch: &GfxArch,
-    cube_dim: u32,
-    shared_memory_size: usize,
-    io: Vec<BufferIOAttr>,
+    entry: AmdGpuEntry,
 ) -> Result<AmdGpuModule, String> {
     let llvm_ctx = LLVMContext::default();
 
     set_data_layout(ctx, module, DATA_LAYOUT.to_string());
-    let llvm_module =
+    let converted =
         to_llvm_ir::convert_module(ctx, &llvm_ctx, module).map_err(|err| err.to_string())?;
 
-    let ir = finalize_ir(&llvm_module.to_string(), entrypoint, arch, cube_dim)?;
-    let want_asm = std::env::var_os("CUBECL_DEBUG_PLIRON").is_some();
-
-    let (object, asm) = compile_to_object(&ir, arch, want_asm)?;
+    let module = LlvmModule::new(&converted.to_string())?;
+    finalize(&module, entrypoint, arch, &entry)?;
+    let ir = module.print();
+    let (object, asm) = compile(module, arch, Assembly::wanted())?;
 
     #[cfg(feature = "pliron-dump")]
     if let Some(dir) = crate::cpu::jit::engine::ir_dump_path(entrypoint) {
@@ -94,158 +103,145 @@ pub fn emit_code_object(
         entrypoint: entrypoint.to_string(),
         ir,
         asm,
-        shared_memory_size,
-        io,
+        shared_memory_size: entry.shared_memory_size,
+        io: entry.io,
     })
 }
 
-/// Stamps `ir` with what the AMDGPU backend keys off: the HSA triple, the
-/// `amdgpu_kernel` calling convention on `entrypoint`, the subtarget attributes,
-/// and the code object version.
-fn finalize_ir(
-    ir: &str,
+/// Whether a compile also emits the assembly, which only a debugging dump reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Assembly {
+    Keep,
+    Skip,
+}
+
+impl Assembly {
+    /// `Keep` when `CUBECL_DEBUG_PLIRON` asks for the dumps.
+    fn wanted() -> Self {
+        if std::env::var_os("CUBECL_DEBUG_PLIRON").is_some() {
+            Assembly::Keep
+        } else {
+            Assembly::Skip
+        }
+    }
+}
+
+/// The metadata pointer `KernargArgs` appends after the buffers.
+const METADATA_PARAMS: u32 = 1;
+
+/// Stamps the target, the code object version and the entry point's calling convention and
+/// attributes on `module`.
+fn finalize(
+    module: &LlvmModule,
     entrypoint: &str,
     arch: &GfxArch,
-    cube_dim: u32,
-) -> Result<String, String> {
-    use llvm_sys::LLVMModuleFlagBehavior::LLVMModuleFlagBehaviorError;
-    use llvm_sys::core::{
-        LLVMAddAttributeAtIndex, LLVMAddModuleFlag, LLVMConstInt, LLVMContextDispose,
-        LLVMCreateStringAttribute, LLVMDisposeMessage, LLVMDisposeModule, LLVMGetNamedFunction,
-        LLVMInt32TypeInContext, LLVMPrintModuleToString, LLVMSetFunctionCallConv, LLVMSetTarget,
-        LLVMValueAsMetadata,
-    };
-
-    // Built before the module is parsed so this error path has nothing to dispose.
-    let name = CString::new(entrypoint)
-        .map_err(|_| format!("kernel name '{entrypoint}' contains a NUL"))?;
-
-    let flat_work_group_size = format!("1,{cube_dim}");
+    entry: &AmdGpuEntry,
+) -> Result<(), String> {
+    let cube_dim = entry.cube_dim;
+    let flat_work_group_size = format!("1,{}", cube_dim.num_elems());
     let mut attributes = vec![
         ("target-cpu", arch.name()),
         ("amdgpu-flat-work-group-size", &flat_work_group_size),
+        // Every launch is a whole number of cubes.
+        ("uniform-work-group-size", "true"),
     ];
     let features = features_for(arch);
     if !features.is_empty() {
         attributes.push(("target-features", features));
     }
 
-    unsafe {
-        let (ctx, module) = parse_ir(ir)?;
+    module.set_triple(TRIPLE);
+    let entry_fn = module.entry_point(entrypoint)?;
+    entry_fn.set_calling_convention(AMDGPU_KERNEL_CC);
+    entry_fn.add_attributes(&attributes);
+    require_work_group_size(&entry_fn, cube_dim);
+    annotate_buffer_params(&entry_fn, &entry.io, METADATA_PARAMS);
+    mark_atomics_device_local(&entry_fn);
+    module.add_module_flag("amdhsa_code_object_version", CODE_OBJECT_VERSION);
+    Ok(())
+}
 
-        LLVMSetTarget(module, TRIPLE.as_ptr());
+/// The cube dimensions are fixed when a kernel compiles, so the work-item ids are bounded by
+/// them exactly: an axis of one unit is always zero, and the backend then neither unpacks its
+/// id nor adds it into a position.
+fn require_work_group_size(entry: &EntryFunction<'_>, cube_dim: Dim3) {
+    entry.set_metadata(
+        "reqd_work_group_size",
+        &[cube_dim.x, cube_dim.y, cube_dim.z],
+    );
+}
 
-        let func = LLVMGetNamedFunction(module, name.as_ptr());
-        if func.is_null() {
-            LLVMDisposeModule(module);
-            LLVMContextDispose(ctx);
-            return Err(format!(
-                "entry point '{entrypoint}' is not defined in the module"
-            ));
+/// What every atomic here may assume about the memory it touches, as the metadata the AMDGPU
+/// backend reads.
+///
+/// Kernel buffers are device allocations: coarse-grained, and never another device's memory,
+/// so no atomic has to stay correct against a concurrent host or peer access. Without saying
+/// so, the backend expands float atomics to CAS loops on the parts whose native instruction
+/// is not coherent for fine-grained memory (RDNA3, CDNA2). An f32 add also ignores the
+/// denormal mode, where the native instruction flushes, which is the trade NVRTC's
+/// `atomicAdd(float*)` makes and the NVPTX target makes too.
+const DEVICE_LOCAL_ATOMIC: [&str; 2] = ["amdgpu.no.fine.grained.memory", "amdgpu.no.remote.memory"];
+const DENORMAL_AGNOSTIC_ATOMIC: &str = "amdgpu.ignore.denormal.mode";
+
+fn mark_atomics_device_local(entry: &EntryFunction<'_>) {
+    for inst in entry.instructions() {
+        let Some(op) = inst.atomic_rmw_op() else {
+            continue;
+        };
+        for kind in DEVICE_LOCAL_ATOMIC {
+            entry.set_flag_metadata(&inst, kind);
         }
-        LLVMSetFunctionCallConv(func, AMDGPU_KERNEL_CC);
-
-        for (key, value) in attributes {
-            let attribute = LLVMCreateStringAttribute(
-                ctx,
-                key.as_ptr() as *const _,
-                key.len() as u32,
-                value.as_ptr() as *const _,
-                value.len() as u32,
-            );
-            LLVMAddAttributeAtIndex(func, llvm_sys::LLVMAttributeFunctionIndex, attribute);
+        if op == LLVMAtomicRMWBinOp::LLVMAtomicRMWBinOpFAdd {
+            entry.set_flag_metadata(&inst, DENORMAL_AGNOSTIC_ATOMIC);
         }
-
-        let version = LLVMConstInt(LLVMInt32TypeInContext(ctx), CODE_OBJECT_VERSION as u64, 0);
-        let key = "amdhsa_code_object_version";
-        LLVMAddModuleFlag(
-            module,
-            LLVMModuleFlagBehaviorError,
-            key.as_ptr() as *const _,
-            key.len(),
-            LLVMValueAsMetadata(version),
-        );
-
-        let c_ir = LLVMPrintModuleToString(module);
-        let finalized = CStr::from_ptr(c_ir).to_string_lossy().into_owned();
-        LLVMDisposeMessage(c_ir);
-        LLVMDisposeModule(module);
-        LLVMContextDispose(ctx);
-        Ok(finalized)
     }
 }
 
-/// Compiles `ir` to an AMDGPU relocatable object, and to assembly alongside it
-/// when `want_asm`.
-fn compile_to_object(
-    ir: &str,
+/// The relocatable object `module` compiles to, and its assembly when `assembly` keeps it.
+fn compile(
+    module: LlvmModule,
     arch: &GfxArch,
-    want_asm: bool,
+    assembly: Assembly,
 ) -> Result<(Vec<u8>, Option<String>), String> {
-    use llvm_sys::core::{LLVMContextDispose, LLVMDisposeMessage, LLVMDisposeModule};
-    use llvm_sys::target::{LLVMDisposeTargetData, LLVMSetModuleDataLayout};
-    use llvm_sys::target_machine::{
-        LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout, LLVMCreateTargetMachine,
-        LLVMDisposeTargetMachine, LLVMGetTargetFromTriple, LLVMRelocMode,
-    };
-
     init_amdgpu();
 
-    let cpu =
-        CString::new(arch.name()).map_err(|_| format!("arch '{}' contains a NUL", arch.name()))?;
     let features = CString::new(features_for(arch)).expect("static feature string");
+    // AMD code objects require position-independent code.
+    let machine = TargetMachine::new(&TargetSpec {
+        triple: TRIPLE,
+        cpu: arch.name(),
+        features: &features,
+        reloc: LLVMRelocMode::LLVMRelocPIC,
+    })?;
+    machine.set_data_layout(&module);
 
-    unsafe {
-        let mut target = std::ptr::null_mut();
-        let mut error = std::ptr::null_mut();
-        if LLVMGetTargetFromTriple(TRIPLE.as_ptr(), &mut target, &mut error) != 0 {
-            let message = CStr::from_ptr(error).to_string_lossy().into_owned();
-            LLVMDisposeMessage(error);
-            return Err(message);
-        }
+    // SAFETY: the module is live, stamped with the AMDGPU triple and layout.
+    unsafe { lower_to_device_libs(module.raw(), arch)? };
+    module.run_passes(PASS_PIPELINE, Some(&machine))?;
 
-        // `LLVMRelocPIC` is required: an AMD code object is a shared object, and the
-        // default reloc model emits relocations LLD cannot resolve into an `ET_DYN`.
-        let tm = LLVMCreateTargetMachine(
-            target,
-            TRIPLE.as_ptr(),
-            cpu.as_ptr(),
-            features.as_ptr(),
-            LLVMCodeGenOptLevel::LLVMCodeGenLevelAggressive,
-            LLVMRelocMode::LLVMRelocPIC,
-            LLVMCodeModel::LLVMCodeModelDefault,
-        );
-        if tm.is_null() {
-            return Err(format!("no target machine for '{}'", arch.name()));
-        }
-
-        let (ctx, module) = match parse_ir(ir) {
-            Ok(parsed) => parsed,
-            Err(err) => {
-                LLVMDisposeTargetMachine(tm);
-                return Err(err);
-            }
-        };
-
-        // Layout from the target machine, so the two can never drift apart. It has to be
-        // set before the device libraries are linked, since they carry their own.
-        let layout = LLVMCreateTargetDataLayout(tm);
-        LLVMSetModuleDataLayout(module, layout);
-        LLVMDisposeTargetData(layout);
-
-        let result = lower_to_device_libs(module, arch)
-            .and_then(|()| run_pipeline_and_emit(module, tm, want_asm));
-
-        LLVMDisposeModule(module);
-        LLVMContextDispose(ctx);
-        LLVMDisposeTargetMachine(tm);
-        result
-    }
+    // Emission consumes a module, so the assembly comes from a copy.
+    let asm = if assembly == Assembly::Keep {
+        let copy = LlvmModule::new(&module.print())?;
+        let bytes = machine.emit(copy, LLVMCodeGenFileType::LLVMAssemblyFile)?;
+        Some(String::from_utf8_lossy(&bytes).into_owned())
+    } else {
+        None
+    };
+    let object = machine.emit(module, LLVMCodeGenFileType::LLVMObjectFile)?;
+    Ok((object, asm))
 }
 
-/// Rewrites what the AMDGPU backend cannot handle on its own into calls to the `ROCm` device
-/// libraries, and links those in.
-///
+/// The object and assembly the finalized IR `ir` compiles to, for the tests that start from IR
+/// rather than from a kernel, in this module and in `amdgpu::offline_tests`.
+#[cfg(test)]
+pub(crate) fn compile_to_object(
+    ir: &str,
+    arch: &GfxArch,
+    assembly: Assembly,
+) -> Result<(Vec<u8>, Option<String>), String> {
+    compile(LlvmModule::new(ir)?, arch, assembly)
+}
+
 /// # Safety
 /// `module` must be a live LLVM module.
 unsafe fn lower_to_device_libs(
@@ -254,7 +250,7 @@ unsafe fn lower_to_device_libs(
 ) -> Result<(), String> {
     unsafe {
         let needs = DeviceLibs {
-            math: redirect_intrinsics_to_ocml(module)?,
+            math: redirect_intrinsics(module, &Ocml)?,
             printf: lower_printf_to_hostcall(module),
         };
 
@@ -265,141 +261,10 @@ unsafe fn lower_to_device_libs(
     }
 }
 
-/// Runs the pass `pipeline` over `module`.
-///
-/// # Safety
-/// `module` and `tm` must be live LLVM handles.
-unsafe fn run_passes(
-    module: llvm_sys::prelude::LLVMModuleRef,
-    tm: llvm_sys::target_machine::LLVMTargetMachineRef,
-    pipeline: &CStr,
-) -> Result<(), String> {
-    use llvm_sys::error::{LLVMDisposeErrorMessage, LLVMGetErrorMessage};
-    use llvm_sys::transforms::pass_builder::{
-        LLVMCreatePassBuilderOptions, LLVMDisposePassBuilderOptions, LLVMRunPasses,
-    };
-
-    unsafe {
-        let options = LLVMCreatePassBuilderOptions();
-        let err = LLVMRunPasses(module, pipeline.as_ptr(), tm, options);
-        LLVMDisposePassBuilderOptions(options);
-        if !err.is_null() {
-            let c_msg = LLVMGetErrorMessage(err);
-            let msg = CStr::from_ptr(c_msg).to_string_lossy().into_owned();
-            LLVMDisposeErrorMessage(c_msg);
-            return Err(msg);
-        }
-        Ok(())
-    }
-}
-
-/// Optimizes `module` for `tm` and emits the object (and optionally assembly).
-/// Split out so the caller can dispose its handles on every path.
-///
-/// # Safety
-/// `module` and `tm` must be live LLVM handles.
-unsafe fn run_pipeline_and_emit(
-    module: llvm_sys::prelude::LLVMModuleRef,
-    tm: llvm_sys::target_machine::LLVMTargetMachineRef,
-    want_asm: bool,
-) -> Result<(Vec<u8>, Option<String>), String> {
-    use llvm_sys::core::{LLVMCloneModule, LLVMDisposeModule};
-    use llvm_sys::target_machine::LLVMCodeGenFileType;
-
-    unsafe {
-        run_passes(module, tm, PASS_PIPELINE)?;
-
-        // Emission lowers the module in place, so a second file has to come off a copy.
-        let asm = if want_asm {
-            let copy = LLVMCloneModule(module);
-            let bytes = emit(copy, tm, LLVMCodeGenFileType::LLVMAssemblyFile);
-            LLVMDisposeModule(copy);
-            Some(String::from_utf8_lossy(&bytes?).into_owned())
-        } else {
-            None
-        };
-        let object = emit(module, tm, LLVMCodeGenFileType::LLVMObjectFile)?;
-        Ok((object, asm))
-    }
-}
-
-/// One `LLVMTargetMachineEmitToMemoryBuffer` call, copied out and disposed.
-///
-/// # Safety
-/// `module` and `tm` must be live LLVM handles.
-unsafe fn emit(
-    module: llvm_sys::prelude::LLVMModuleRef,
-    tm: llvm_sys::target_machine::LLVMTargetMachineRef,
-    kind: llvm_sys::target_machine::LLVMCodeGenFileType,
-) -> Result<Vec<u8>, String> {
-    use llvm_sys::core::{
-        LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMGetBufferSize, LLVMGetBufferStart,
-    };
-    use llvm_sys::target_machine::LLVMTargetMachineEmitToMemoryBuffer;
-
-    unsafe {
-        let mut buffer = std::ptr::null_mut();
-        let mut error = std::ptr::null_mut();
-        if LLVMTargetMachineEmitToMemoryBuffer(tm, module, kind, &mut error, &mut buffer) != 0 {
-            let message = CStr::from_ptr(error).to_string_lossy().into_owned();
-            LLVMDisposeMessage(error);
-            return Err(message);
-        }
-        let start = LLVMGetBufferStart(buffer) as *const u8;
-        let len = LLVMGetBufferSize(buffer);
-        let bytes = std::slice::from_raw_parts(start, len).to_vec();
-        LLVMDisposeMemoryBuffer(buffer);
-        Ok(bytes)
-    }
-}
-
-/// Parses textual `ir` into a fresh context, returning both so the caller can
-/// dispose them.
-///
-/// # Safety
-/// The returned context and module are owned by the caller.
-unsafe fn parse_ir(
-    ir: &str,
-) -> Result<
-    (
-        llvm_sys::prelude::LLVMContextRef,
-        llvm_sys::prelude::LLVMModuleRef,
-    ),
-    String,
-> {
-    use llvm_sys::core::{
-        LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy,
-        LLVMDisposeMessage,
-    };
-    use llvm_sys::ir_reader::LLVMParseIRInContext2;
-
-    unsafe {
-        let ctx = LLVMContextCreate();
-        let buffer = LLVMCreateMemoryBufferWithMemoryRangeCopy(
-            ir.as_ptr() as *const _,
-            ir.len(),
-            c"kernel".as_ptr(),
-        );
-        let mut module = std::ptr::null_mut();
-        let mut parse_err = std::ptr::null_mut();
-        // `LLVMParseIRInContext2` consumes the buffer, on failure included.
-        if LLVMParseIRInContext2(ctx, buffer, &mut module, &mut parse_err) != 0 {
-            let msg = CStr::from_ptr(parse_err).to_string_lossy().into_owned();
-            LLVMDisposeMessage(parse_err);
-            LLVMContextDispose(ctx);
-            return Err(msg);
-        }
-        Ok((ctx, module))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The wave32 subtarget feature goes on the RDNA parts and nothing else. It is passed
-    /// both as a function attribute and to the target machine, so a wrong answer here has
-    /// every cross-lane lowering generating for the wrong wavefront width.
     #[test]
     fn only_the_rdna_parts_ask_for_wave32() {
         for name in ["gfx1201", "gfx1100", "gfx1030"] {
@@ -410,7 +275,6 @@ mod tests {
         }
     }
 
-    /// The finalized module carries everything the AMDGPU backend needs.
     #[test]
     fn finalize_sets_triple_callconv_and_arch() {
         let ir = r#"
@@ -420,7 +284,8 @@ entry:
   ret void
 }
 "#;
-        let finalized = finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), 64).unwrap();
+        let finalized =
+            finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), Dim3::new_1d(64), &[]).unwrap();
         assert!(
             finalized.contains(r#"target triple = "amdgcn-amd-amdhsa""#),
             "{finalized}"
@@ -436,17 +301,14 @@ entry:
         );
     }
 
-    /// The shared memory block reaches the code object as LDS: the slices become `ds_`
-    /// accesses with their offset folded in, the generic pointers the rest of the pipeline
-    /// works with are inferred away, and the barrier is the hardware's own.
     #[test]
     fn shared_memory_becomes_lds() {
         let ir = r#"
-@cube_lds = external addrspace(3) global [0 x i8], align 16
+@cube_shared = external addrspace(3) global [0 x i8], align 16
 declare void @llvm.amdgcn.s.barrier()
 define void @k(ptr addrspace(1) %out, i32 %tid) {
 entry:
-  %slice = getelementptr i8, ptr addrspace(3) @cube_lds, i32 64
+  %slice = getelementptr i8, ptr addrspace(3) @cube_shared, i32 64
   %flat = addrspacecast ptr addrspace(3) %slice to ptr
   %idx = getelementptr float, ptr %flat, i32 %tid
   store float 1.0, ptr %idx, align 4
@@ -458,9 +320,10 @@ entry:
   ret void
 }
 "#;
-        let finalized = finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), 64).unwrap();
+        let finalized =
+            finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), Dim3::new_1d(64), &[]).unwrap();
         let (object, asm) =
-            compile_to_object(&finalized, &GfxArch::parse("gfx1201"), true).unwrap();
+            compile_to_object(&finalized, &GfxArch::parse("gfx1201"), Assembly::Keep).unwrap();
         assert_eq!(&object[..4], b"\x7fELF");
 
         let asm = asm.unwrap();
@@ -475,7 +338,6 @@ entry:
         );
         assert!(asm.contains("s_barrier"), "the cube barrier:\n{asm}");
 
-        // Dynamic, so the block costs the code object nothing and arrives as `sharedMemBytes`.
         assert!(
             asm.contains(".group_segment_fixed_size: 0"),
             "the block should be sized at launch, not baked in:\n{asm}"
@@ -484,10 +346,6 @@ entry:
         crate::amdgpu::lld::link_relocatable(&object, "k").unwrap();
     }
 
-    /// The matrix instruction reaches the code object, in the shape each generation asks for:
-    /// RDNA4 splits `k` between the halves of the wave and takes half the A/B fragment RDNA3
-    /// does. Getting the fragment width wrong fails to select rather than computing the wrong
-    /// answer, so this pins both.
     #[test]
     fn wmma_reaches_the_code_object() {
         for (name, ab) in [("gfx1201", "<8 x half>"), ("gfx1100", "<16 x half>")] {
@@ -508,8 +366,8 @@ entry:
 }}
 "#
             );
-            let finalized = finalize_ir(&ir, "k", &arch, 32).unwrap();
-            let (object, asm) = compile_to_object(&finalized, &arch, true).unwrap();
+            let finalized = finalize_ir(&ir, "k", &arch, Dim3::new_1d(32), &[]).unwrap();
+            let (object, asm) = compile_to_object(&finalized, &arch, Assembly::Keep).unwrap();
             assert_eq!(&object[..4], b"\x7fELF");
 
             let asm = asm.unwrap();
@@ -522,9 +380,68 @@ entry:
         }
     }
 
-    /// Codegen produces a relocatable ELF, and LLD turns it into the `ET_DYN`
-    /// shared object `hipModuleLoadData` requires. `e_type` is the 16-bit LE
-    /// field at offset 16: 1 = `ET_REL`, 3 = `ET_DYN`.
+    #[test]
+    fn a_uniform_metadata_read_stays_scalar_across_stores() {
+        // The bound is read on every iteration, after a store through another buffer: only
+        // knowing the two do not alias lets it be hoisted and loaded once, into an SGPR.
+        let ir = r#"
+define void @k(ptr addrspace(1) %out, ptr addrspace(1) %info) {
+entry:
+  br label %loop
+loop:
+  %i = phi i32 [ 0, %entry ], [ %next, %loop ]
+  %len = load i32, ptr addrspace(1) %info, align 4
+  %slot = getelementptr inbounds nuw i32, ptr addrspace(1) %out, i32 %i
+  store i32 %i, ptr addrspace(1) %slot, align 4
+  %next = add nuw i32 %i, 1
+  %more = icmp ult i32 %next, %len
+  br i1 %more, label %loop, label %exit
+exit:
+  ret void
+}
+"#;
+        let arch = GfxArch::parse("gfx1201");
+        let finalized =
+            finalize_ir(ir, "k", &arch, Dim3::new_1d(64), &[BufferIOAttr::WriteOnly]).unwrap();
+        assert!(finalized.contains("noalias"), "{finalized}");
+        assert!(
+            finalized.contains("readonly"),
+            "the metadata is read-only:\n{finalized}"
+        );
+
+        let (_, asm) = compile_to_object(&finalized, &arch, Assembly::Keep).unwrap();
+        let asm = asm.unwrap();
+        assert!(
+            asm.contains("s_load_b32"),
+            "the bound is a scalar load:\n{asm}"
+        );
+        assert!(
+            !asm.contains("global_load"),
+            "the bound is not reloaded per iteration:\n{asm}"
+        );
+    }
+
+    #[test]
+    fn a_float_atomic_add_is_the_native_instruction() {
+        let ir = r#"
+define void @k(ptr addrspace(1) %p, float %v, ptr addrspace(1) %o) {
+entry:
+  %r = atomicrmw fadd ptr addrspace(1) %p, float %v syncscope("agent") monotonic, align 4
+  store float %r, ptr addrspace(1) %o
+  ret void
+}
+"#;
+        // RDNA3 and CDNA2 are the parts that fall back to a CAS loop without the metadata.
+        for name in ["gfx1100", "gfx90a", "gfx1201", "gfx942"] {
+            let arch = GfxArch::parse(name);
+            let finalized = finalize_ir(ir, "k", &arch, Dim3::new_1d(64), &[]).unwrap();
+            let (_, asm) = compile_to_object(&finalized, &arch, Assembly::Keep).unwrap();
+            let asm = asm.unwrap();
+            assert!(asm.contains("global_atomic_add_f32"), "{name}:\n{asm}");
+            assert!(!asm.contains("cmpswap"), "{name} has no CAS loop:\n{asm}");
+        }
+    }
+
     #[test]
     fn emits_a_linked_shared_object() {
         let ir = r#"
@@ -534,9 +451,10 @@ entry:
   ret void
 }
 "#;
-        let finalized = finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), 64).unwrap();
+        let finalized =
+            finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), Dim3::new_1d(64), &[]).unwrap();
         let (object, asm) =
-            compile_to_object(&finalized, &GfxArch::parse("gfx1201"), true).unwrap();
+            compile_to_object(&finalized, &GfxArch::parse("gfx1201"), Assembly::Keep).unwrap();
         assert_eq!(&object[..4], b"\x7fELF");
         assert_eq!(
             u16::from_le_bytes([object[16], object[17]]),
@@ -567,5 +485,22 @@ entry:
             3,
             "lld must give ET_DYN"
         );
+    }
+
+    fn finalize_ir(
+        ir: &str,
+        entrypoint: &str,
+        arch: &GfxArch,
+        cube_dim: Dim3,
+        io: &[BufferIOAttr],
+    ) -> Result<String, String> {
+        let module = LlvmModule::new(ir)?;
+        let entry = AmdGpuEntry {
+            cube_dim,
+            shared_memory_size: 0,
+            io: io.to_vec(),
+        };
+        finalize(&module, entrypoint, arch, &entry)?;
+        Ok(module.print())
     }
 }

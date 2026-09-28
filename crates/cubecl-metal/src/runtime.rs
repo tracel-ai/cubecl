@@ -4,7 +4,7 @@ use cubecl_core::{
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         AddressType, DeviceIdentity, DeviceProperties, ElemType, FloatKind, HardwareProperties,
-        IntKind, MemoryDeviceProperties, TargetProperties, Type, UIntKind,
+        IntKind, MemoryDeviceProperties, PhysicalDevice, TargetProperties, Type, UIntKind,
         features::{AtomicUsage, Plane, TypeUsage},
     },
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
@@ -13,8 +13,8 @@ use cubecl_cpp::{
     metal::{arch::MetalArchitecture, supported_cmma_combinations_metal},
     shared::register_wmma_features,
 };
-use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
-use cubecl_runtime::runtime::Runtime;
+use cubecl_server::allocator::ContiguousMemoryLayoutPolicy;
+use cubecl_server::runtime::Runtime;
 use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLDevice, MTLGPUFamily};
 
@@ -61,10 +61,11 @@ impl DeviceService for MetalServer {
 
         use cubecl_common::profile::TimingMethod;
 
-        let mem_props = MemoryDeviceProperties {
-            max_page_size: (*metal_device).maxBufferLength() as u64,
-            alignment: 256,
-        };
+        // Metal states no total, only the working set it recommends a device
+        // stay under before it starts paging, around two thirds of unified
+        // memory on Apple silicon. That is the budget `max_memory` asks for.
+        let mem_props = MemoryDeviceProperties::new((*metal_device).maxBufferLength() as u64, 256)
+            .with_max_memory((*metal_device).recommendedMaxWorkingSetSize());
 
         let hardware_props = HardwareProperties {
             load_width: 128,
@@ -103,12 +104,13 @@ impl DeviceService for MetalServer {
             DeviceIdentity {
                 fingerprint: format!("msl_{device_name}"),
                 name: device_name,
+                physical: Some(PhysicalDevice::default()),
             },
         );
 
         register_metal_features(&mut device_props);
 
-        let logger = std::sync::Arc::new(cubecl_runtime::logging::ServerLogger::default());
+        let logger = std::sync::Arc::new(cubecl_server::logging::ServerLogger::default());
         let allocator = ContiguousMemoryLayoutPolicy::new(mem_props.alignment as usize);
         let utilities = std::sync::Arc::new(cubecl_core::server::ServerUtilities::new(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
@@ -181,6 +183,8 @@ fn register_metal_features(props: &mut DeviceProperties) {
     register_wmma(props);
 
     props.features.alignment = true;
+    // MSL's `threadgroup_barrier(mem_flags::mem_device)` orders device memory at device scope.
+    props.features.device_memory_scope = true;
     props.features.plane.insert(Plane::Ops);
     props.features.plane.insert(Plane::Sync);
     props.features.plane.insert(Plane::NonUniformControlFlow);

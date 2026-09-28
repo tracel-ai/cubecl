@@ -1,21 +1,16 @@
-//! Atomics carrying an explicit memory ordering.
-//!
-//! The `atomic` cube dialect ops lower with monotonic ordering, which is enough for a counter
-//! but not for [`sync_cube`](super::synchronization), which has to publish and acquire the
-//! writes of the other units. These carry the ordering instead.
+//! Atomics with explicit memory ordering.
 
-use cubecl_core::ir::dialect::atomic::AtomicLoadOp;
-use cubecl_core::ir::dialect::memory::LoadOp;
-use cubecl_core::ir::dialect::plane::{AtomicUniformLoadOp, UniformLoadOp};
-use cubecl_core::ir::dialect::synchronization::{SyncOp, SyncScope, SyncScopeAttr};
-use cubecl_core::ir::prelude::*;
-use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl};
-use pliron_llvm::attributes::AtomicOrderingAttr;
+use crate::prelude::*;
+use cubecl_core::{
+    ir::dialect::{
+        atomic::AtomicLoadOp,
+        memory::LoadOp,
+        plane::{AtomicUniformLoadOp, UniformLoadOp},
+        synchronization::{SyncOp, SyncScope, SyncScopeAttr},
+    },
+    prelude::*,
+};
 
-use crate::shared::polyfill::LowerOp;
-
-/// Atomic load, i.e. `atomic.load` with an explicit ordering.
 #[cube_op(name = "cpu.ordered_atomic_load")]
 #[result_ty(argument)]
 pub struct OrderedAtomicLoadOp {
@@ -23,7 +18,6 @@ pub struct OrderedAtomicLoadOp {
     pub ordering: AtomicOrderingAttr,
 }
 
-/// Atomic store, i.e. `atomic.store` with an explicit ordering.
 #[cube_op(name = "cpu.ordered_atomic_store")]
 #[result_ty(none)]
 pub struct OrderedAtomicStoreOp {
@@ -32,7 +26,6 @@ pub struct OrderedAtomicStoreOp {
     pub ordering: AtomicOrderingAttr,
 }
 
-/// Atomic add returning the previous value, i.e. `atomic.i_add` with an explicit ordering.
 #[cube_op(name = "cpu.ordered_atomic_fetch_add")]
 #[result_ty(same_as = value)]
 pub struct OrderedAtomicFetchAddOp {
@@ -41,7 +34,7 @@ pub struct OrderedAtomicFetchAddOp {
     pub ordering: AtomicOrderingAttr,
 }
 
-/// Atomically loads `atomic`, acquiring everything the unit that released it wrote before.
+/// Acquire load.
 #[cube]
 pub fn atomic_load_acquire(atomic: &Atomic<u32>) -> u32 {
     intrinsic!(|scope| {
@@ -52,7 +45,7 @@ pub fn atomic_load_acquire(atomic: &Atomic<u32>) -> u32 {
     })
 }
 
-/// Atomically stores `value` into `atomic`, releasing everything written before it.
+/// Release store.
 #[cube]
 pub fn atomic_store_release(atomic: &Atomic<u32>, value: u32) {
     intrinsic!(|scope| {
@@ -64,8 +57,7 @@ pub fn atomic_store_release(atomic: &Atomic<u32>, value: u32) {
     })
 }
 
-/// Atomically adds `value` to `atomic` and returns the previous value, releasing everything
-/// written before it and acquiring what the other units released.
+/// Acquire-release addition. Returns the previous value.
 #[cube]
 pub fn atomic_fetch_add_acq_rel(atomic: &Atomic<u32>, value: u32) -> u32 {
     intrinsic!(|scope| {
@@ -80,8 +72,6 @@ pub fn atomic_fetch_add_acq_rel(atomic: &Atomic<u32>, value: u32) -> u32 {
 #[op_interface_impl]
 impl LowerOp for UniformLoadOp {
     fn lower(&self, scope: &Scope) -> Vec<Value> {
-        // Barrier first: these ops are a sync plus a load, so a value written
-        // by one unit is visible to the rest.
         scope.register(&SyncOp::new(
             scope.ctx_mut(),
             SyncScopeAttr::new(SyncScope::Cube),
@@ -94,8 +84,6 @@ impl LowerOp for UniformLoadOp {
 #[op_interface_impl]
 impl LowerOp for AtomicUniformLoadOp {
     fn lower(&self, scope: &Scope) -> Vec<Value> {
-        // Barrier first: these ops are a sync plus a load, so a value written
-        // by one unit is visible to the rest.
         scope.register(&SyncOp::new(
             scope.ctx_mut(),
             SyncScopeAttr::new(SyncScope::Cube),

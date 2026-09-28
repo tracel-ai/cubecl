@@ -1,4 +1,5 @@
 pub mod context;
+pub(crate) mod copies;
 pub mod server;
 pub mod stream;
 

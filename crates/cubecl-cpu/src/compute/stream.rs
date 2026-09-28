@@ -9,7 +9,11 @@ use cubecl_core::{
     server::{BufferBinding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError},
 };
 use cubecl_environment::stream::StreamId;
-use cubecl_runtime::{
+use cubecl_server::memory_management::relocation::{
+    HostCopies, RelocatableStream, RelocationNeed, RelocationReason,
+};
+use cubecl_server::memory_management::{Cleanup, PageUpdate};
+use cubecl_server::{
     logging::ServerLogger,
     memory_management::{
         ErrorGraph, FailureId, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement,
@@ -53,6 +57,34 @@ impl StreamMemory for CpuStream {
     }
 }
 
+impl RelocatableStream for CpuStream {
+    /// Never: the CPU records no graphs.
+    fn recording(&self) -> bool {
+        false
+    }
+
+    fn has_outdated(&self) -> bool {
+        self.memory_management.has_outdated()
+    }
+
+    fn relocation_need(&self) -> RelocationNeed {
+        self.memory_management.relocation_need()
+    }
+
+    fn bytes_allocated(&self) -> u64 {
+        self.memory_management.bytes_allocated()
+    }
+
+    fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
+        self.memory_management
+            .relocate(&mut HostCopies, reason, failures);
+    }
+
+    fn cleanup_memory(&mut self, failures: &mut ErrorGraph) {
+        self.memory_management.cleanup(Cleanup::Explicit, failures);
+    }
+}
+
 impl core::fmt::Debug for CpuStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CpuStream").finish()
@@ -67,9 +99,7 @@ impl CpuStream {
     ) -> Self {
         // `memory_config` shapes the main pool only; the shared pool below is
         // left alone, as it has a deliberate configuration that must not be
-        // overridden. Pool layout overrides reach GPU runtimes through
-        // `install_memory_pools`; the CPU runtime has no such override and
-        // keeps the config it's handed.
+        // overridden.
         let memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &memory_properties,
@@ -189,7 +219,8 @@ impl CpuStream {
         size: u64,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
-        self.memory_management.reserve(size, failures)
+        self.memory_management
+            .reserve(size, PageUpdate::Allow, failures)
     }
 
     /// Maps handles to their corresponding buffers.
@@ -240,6 +271,16 @@ impl CpuStream {
         }
 
         self.timestamps.stop(token)
+    }
+
+    /// Drop `token`'s window without measuring it.
+    ///
+    /// Does not flush, which is the difference from
+    /// [`end_profile`](Self::end_profile): the flush is there to put the work
+    /// being measured behind the closing instant, and nothing is going to read
+    /// this one.
+    pub fn abandon_profile(&mut self, token: ProfilingToken) {
+        self.timestamps.abandon(token);
     }
 
     pub fn allocation_mode(&mut self, mode: MemoryAllocationMode) {

@@ -4,13 +4,13 @@
 //! Everything around those four — arming the pools, draining the drop queue,
 //! pinning what the window touched, claiming what a refused recording would
 //! have written — is the shared
-//! [`Window`](cubecl_runtime::command::Window)'s.
+//! [`Window`](cubecl_server::command::Window)'s.
 
 use crate::compute::driver::Cuda;
 use crate::compute::stream::Stream;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_runtime::command::GraphDriver;
-use cubecl_runtime::server::ServerError;
+use cubecl_server::command::GraphDriver;
+use cubecl_server::server::ServerError;
 use cudarc::driver::sys::{CUgraph, CUgraphExec, CUgraphNode, CUresult, CUstream};
 
 /// An instantiated CUDA executable graph, destroyed on drop.
@@ -108,7 +108,7 @@ unsafe fn instantiate_recording(
             return Err(ServerError::graph_state(format!(
                 "capture recorded {alloc_nodes} memory node(s): an allocation inside the capture \
                  window makes the graph un-relaunchable, so the capture is rejected (the \
-                 persistent pool should have served this allocation)"
+                 pages held before the capture should have served this allocation)"
             )));
         }
         let mut exec: CUgraphExec = std::ptr::null_mut();
@@ -126,8 +126,8 @@ unsafe fn instantiate_recording(
 /// A captured graph is only replayable if it owns no memory nodes: CUDA
 /// refuses to relaunch a graph whose allocation nodes have not been freed.
 /// Every allocation the capture window needs must therefore be served by the
-/// already-warmed persistent pool — the window growing the pool is precisely
-/// the condition this detects.
+/// pages warmed before it. The server refuses to allocate while recording, so
+/// a memory node here means something went around it.
 ///
 /// # Safety
 ///
@@ -181,7 +181,7 @@ unsafe fn count_memory_nodes(graph: CUgraph) -> usize {
 /// `Ok` when the CUDA driver says the call to `op` succeeded.
 ///
 /// CUDA reports through its own `CUresult` rather than the plain integer the
-/// shared [`checked`](cubecl_runtime::driver::checked) takes, and its error
+/// shared [`checked`](cubecl_server::driver::checked) takes, and its error
 /// values carry their own text, so this is the one place the two diverge.
 ///
 /// # Errors
