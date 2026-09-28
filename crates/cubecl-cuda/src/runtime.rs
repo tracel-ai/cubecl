@@ -394,7 +394,7 @@ impl DeviceService for CudaServer {
         );
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
-        let mut utilities = ServerUtilities::new(
+        let (mut utilities, captures) = ServerUtilities::init(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "cuda",
             device_props,
@@ -412,6 +412,7 @@ impl DeviceService for CudaServer {
             mem_alignment,
             device_id,
             utilities,
+            captures,
         )
     }
 

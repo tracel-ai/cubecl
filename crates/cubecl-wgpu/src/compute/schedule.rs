@@ -5,13 +5,13 @@ use crate::{
 };
 use alloc::sync::Arc;
 use cubecl_common::{bytes::Bytes, pool::LeaseHandle, profile::TimingMethod};
-use cubecl_core::server::BufferBinding;
+use cubecl_core::server::{BufferBinding, DeviceCaptures};
 use cubecl_core::{CubeCount, MemoryConfiguration, server::MetadataBindingInfo, zspace::SmallVec};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ErrorGraph, SharedMemoryBindings},
-    stream::{DeviceRecording, StreamFactory, scheduler::SchedulerStreamBackend},
+    stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
 
 /// Defines tasks that can be scheduled on a WGPU stream.
@@ -93,9 +93,9 @@ pub struct WgpuStreamFactory {
     logger: Arc<ServerLogger>,
     count: u64,
     use_vulkan_compiler: bool,
-    /// The device's count of recording streams, shared by every stream this
-    /// creates.
-    recording: DeviceRecording,
+    /// The captures under way on the device, shared by every stream this creates and by the
+    /// device's clients.
+    captures: DeviceCaptures,
 }
 
 impl StreamFactory for WgpuStreamFactory {
@@ -116,7 +116,7 @@ impl StreamFactory for WgpuStreamFactory {
             self.tasks_max,
             self.logger.clone(),
             self.use_vulkan_compiler,
-            self.recording.clone(),
+            self.captures.clone(),
         )
     }
 }
@@ -134,6 +134,7 @@ impl ScheduledWgpuBackend {
         tasks_max: usize,
         logger: Arc<ServerLogger>,
         use_vulkan_compiler: bool,
+        captures: DeviceCaptures,
     ) -> Self {
         // One budget per device. Only Metal caps counter sample buffers; others go unbounded.
         let timing_budget = Arc::new(match backend {
@@ -154,7 +155,7 @@ impl ScheduledWgpuBackend {
                 logger,
                 count: 0,
                 use_vulkan_compiler,
-                recording: DeviceRecording::default(),
+                captures,
             },
         }
     }

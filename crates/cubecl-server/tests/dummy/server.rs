@@ -383,14 +383,16 @@ impl<M: Marker> DummyServer<M> {
         );
         let logger = Arc::new(ServerLogger::default());
 
-        let utilities = Arc::new(ServerUtilities::new(
+        // No graph capture on this backend: nothing updates the captures.
+        let (utilities, _captures) = ServerUtilities::init(
             service,
             "dummy",
             props,
             TargetProperties::default(),
             logger,
             ContiguousMemoryLayoutPolicy::new(4),
-        ));
+        );
+        let utilities = Arc::new(utilities);
 
         Self {
             _marker: core::marker::PhantomData,

@@ -1,4 +1,4 @@
-use cubecl_core::server::ServerStorage;
+use cubecl_core::server::{DeviceCaptures, ServerStorage};
 use cubecl_server::kernel::BufferIOAttr;
 use cubecl_server::kernel::DebugInformation;
 use std::collections::HashMap;
@@ -139,6 +139,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         backend: wgpu::Backend,
         timing_method: TimingMethod,
         utilities: ServerUtilities,
+        captures: DeviceCaptures,
     ) -> Self {
         #[cfg(feature = "spirv")]
         let adapter_info = device.adapter_info();
@@ -152,6 +153,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             tasks_max,
             utilities.logger.clone(),
             compilation_options.supports_vulkan_compiler,
+            captures,
         );
 
         let config = CubeClRuntimeConfig::get();

@@ -1,0 +1,156 @@
+use alloc::vec::Vec;
+use cubecl_environment::stream::StreamId;
+use cubecl_environment::sync::{Arc, AtomicUsize, Mutex, Ordering};
+
+/// The graph captures under way on one device: which logical streams are preparing or recording
+/// one.
+///
+/// Every stream of the device updates it as its capture moves from `graph_prepare` through
+/// `begin_capture` to `end_capture`. The backend creates it and hands it to the streams it
+/// creates, and only them: everyone else reads it through its [status](Self::status), so the
+/// phases can't change without the streams' own state changing with them.
+#[derive(Debug, Clone, Default)]
+pub struct DeviceCaptures(Arc<CapturePhases>);
+
+/// A read-only view of a device's [captures](DeviceCaptures).
+///
+/// Every client of the device reads it, through the [server utilities](super::ServerUtilities),
+/// without reaching the device thread. Code that behaves differently while its stream captures a
+/// graph asks on every operation, eager ones included, so the answer has to cost no round trip:
+/// with no capture under way it is one atomic load.
+#[derive(Debug, Clone, Default)]
+pub struct CaptureStatus(Arc<CapturePhases>);
+
+/// Each capture's phase, and the counts read without the lock.
+#[derive(Debug, Default)]
+struct CapturePhases {
+    /// How many logical streams are preparing or recording a capture: `owners.len()`.
+    active: AtomicUsize,
+    /// How many captures are recording: the [`CapturePhase::Recording`] entries of `owners`.
+    recording: AtomicUsize,
+    /// The logical streams preparing or recording a capture, with the phase each is in.
+    owners: Mutex<Vec<(StreamId, CapturePhase)>>,
+}
+
+/// Where a capture is between `graph_prepare` and its end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CapturePhase {
+    /// The warmup run, before the window opens.
+    Preparing,
+    /// The window is open: launches are recorded.
+    Recording,
+}
+
+impl CaptureStatus {
+    /// Whether `stream` is preparing or recording a graph capture, from `graph_prepare` until
+    /// the capture ends however it ends.
+    pub fn is_capturing(&self, stream: StreamId) -> bool {
+        self.0.is_capturing(stream)
+    }
+
+    /// Whether any stream of the device records a graph.
+    pub fn any_recording(&self) -> bool {
+        self.0.any_recording()
+    }
+}
+
+impl DeviceCaptures {
+    /// The read-only view of these captures, for everyone but the streams.
+    pub fn status(&self) -> CaptureStatus {
+        CaptureStatus(self.0.clone())
+    }
+
+    /// Whether any stream of the device records a graph.
+    pub fn any_recording(&self) -> bool {
+        self.0.any_recording()
+    }
+
+    /// `owner` started the warmup run of a capture.
+    pub fn prepare(&self, owner: StreamId) {
+        self.update(|owners| {
+            owners.retain(|(stream, _)| *stream != owner);
+            owners.push((owner, CapturePhase::Preparing));
+        });
+    }
+
+    /// The capture `owner` prepared opened its recording window.
+    pub fn begin(&self, owner: StreamId) {
+        self.update(|owners| {
+            if let Some((_, phase)) = owners.iter_mut().find(|(stream, _)| *stream == owner) {
+                *phase = CapturePhase::Recording;
+            }
+        });
+    }
+
+    /// The capture `owner` prepared is over, whichever phase it had reached.
+    pub fn end(&self, owner: StreamId) {
+        self.update(|owners| owners.retain(|(stream, _)| *stream != owner));
+    }
+
+    /// Apply `change` to the phases and republish the counts from them, so the counts can't
+    /// drift from the phases they summarize.
+    fn update(&self, change: impl FnOnce(&mut Vec<(StreamId, CapturePhase)>)) {
+        self.0.update(change);
+    }
+}
+
+impl CapturePhases {
+    fn is_capturing(&self, stream: StreamId) -> bool {
+        self.active.load(Ordering::Acquire) > 0
+            && self.owners.lock().iter().any(|(owner, _)| *owner == stream)
+    }
+
+    fn any_recording(&self) -> bool {
+        self.recording.load(Ordering::Acquire) > 0
+    }
+
+    fn update(&self, change: impl FnOnce(&mut Vec<(StreamId, CapturePhase)>)) {
+        let mut owners = self.owners.lock();
+        change(&mut owners);
+        let recording = owners
+            .iter()
+            .filter(|(_, phase)| *phase == CapturePhase::Recording)
+            .count();
+        self.recording.store(recording, Ordering::Release);
+        self.active.store(owners.len(), Ordering::Release);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const OWNER: StreamId = StreamId { value: 7 };
+    const OTHER: StreamId = StreamId { value: 8 };
+
+    /// The counts follow the phases, whatever order the calls come in: a device that believed a
+    /// capture still recorded would keep every stream from releasing a page.
+    #[test]
+    fn unmatched_calls_leave_the_counts_true() {
+        let captures = DeviceCaptures::default();
+        let status = captures.status();
+
+        captures.end(OWNER);
+        captures.begin(OWNER);
+        assert!(
+            !captures.any_recording(),
+            "nothing prepared, nothing recording"
+        );
+        assert!(!status.is_capturing(OWNER));
+
+        captures.prepare(OWNER);
+        captures.begin(OWNER);
+        captures.end(OWNER);
+        captures.end(OWNER);
+        assert!(!captures.any_recording(), "a second end changes nothing");
+        assert!(!status.is_capturing(OWNER));
+
+        captures.prepare(OWNER);
+        captures.prepare(OTHER);
+        captures.begin(OTHER);
+        captures.end(OWNER);
+        assert!(captures.any_recording(), "another capture still records");
+        assert!(status.is_capturing(OTHER));
+        assert!(!status.is_capturing(OWNER));
+    }
+}

@@ -360,3 +360,60 @@ fn cuda_graph_many_launches_dynamic_metadata() {
         &exp_b[..]
     );
 }
+
+/// A client sees its stream's capture from `graph_prepare` until `stop_capture`, without asking
+/// the device thread: every client of the device shares what the streams report, and a stream
+/// that isn't capturing sees nothing. Code that has to decide the same way in the warmup and the
+/// recorded run reads this on every launch, so it must hold on each client, not only the one
+/// that prepared.
+#[test]
+fn cuda_graph_capture_is_reported_to_its_clients() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = CudaRuntime::client(&Default::default());
+    let other_client = CudaRuntime::client(&Default::default());
+    let other_stream_capturing = || {
+        let client = client.clone();
+        std::thread::spawn(move || client.is_capturing())
+            .join()
+            .unwrap()
+    };
+
+    let n = 4usize;
+    let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
+    let output = client.empty(n * core::mem::size_of::<f32>());
+    let launch = |client: &Client| {
+        add_one::launch(
+            client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(client, n),
+            unsafe { BufferArg::from_raw_parts(input.clone(), n) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+        );
+    };
+    launch(&client);
+    let _ = client.read_one(output.clone()).unwrap();
+
+    assert!(!client.is_capturing(), "no capture before prepare");
+    client.graph_prepare().expect("graph_prepare");
+    assert!(
+        client.is_capturing(),
+        "the warmup run is part of the capture"
+    );
+    assert!(
+        other_client.is_capturing(),
+        "every client of the stream sees it"
+    );
+    assert!(!other_stream_capturing(), "another stream isn't capturing");
+
+    launch(&client);
+    let _ = client.read_one(output.clone()).unwrap();
+    client.start_capture().expect("start_capture");
+    assert!(
+        client.is_capturing(),
+        "the recorded run is part of the capture"
+    );
+    launch(&client);
+    let _graph = client.stop_capture().expect("stop_capture");
+    assert!(!client.is_capturing(), "the capture ends with stop_capture");
+    assert!(!other_client.is_capturing());
+}
