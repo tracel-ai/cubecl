@@ -9,7 +9,7 @@ use alloc::vec::Vec;
 use cubecl_common::bytes::Bytes;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
-use cubecl_runtime::server::{DeviceCaptures, Recorded};
+use cubecl_runtime::server::DeviceCaptures;
 
 /// Where a stream sits in the graph-capture lifecycle, and the only thing
 /// allowed to move it. Capture is a strict `NoCapture → Prepare → Capture →
@@ -386,7 +386,9 @@ impl StreamCapture {
     /// recorded run to reuse.
     pub fn begin(&mut self) -> Result<(), ServerError> {
         self.state.begin()?;
-        self.device.begin();
+        if let Some(owner) = self.state.owner() {
+            self.device.begin(owner);
+        }
         self.primed.clear();
         Ok(())
     }
@@ -401,7 +403,7 @@ impl StreamCapture {
     pub fn end(&mut self, caller: StreamId) -> Result<CaptureEnd, ServerError> {
         let end = self.state.end(caller)?;
         let (CaptureEnd::Owned { owner } | CaptureEnd::Abandoned { owner }) = end;
-        self.device.end(owner, Recorded::Yes);
+        self.device.end(owner);
         Ok(end)
     }
 
@@ -416,11 +418,7 @@ impl StreamCapture {
     /// Report the end of this stream's capture, if one is under way, to the device.
     fn end_on_device(&self) {
         if let Some(owner) = self.state.owner() {
-            let recorded = match self.state.is_recording() {
-                true => Recorded::Yes,
-                false => Recorded::No,
-            };
-            self.device.end(owner, recorded);
+            self.device.end(owner);
         }
     }
 
