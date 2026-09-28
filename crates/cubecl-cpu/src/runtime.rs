@@ -221,7 +221,10 @@ impl DeviceService for CpuServer {
             mem_properties.clone(),
             topology.clone(),
             TimingMethod::Device,
-            // The JIT compiles for this host and keeps nothing, so key on what its code depends on.
+            // The CPU backend JITs through LLVM for whatever host it runs on
+            // and persists no compiled code, so there is no per-machine
+            // namespace to match against. The architecture and its load width
+            // are the honest fingerprint: they are what the generated code is valid for.
             DeviceIdentity {
                 name: host_cpu_name(&system),
                 fingerprint: format!(
