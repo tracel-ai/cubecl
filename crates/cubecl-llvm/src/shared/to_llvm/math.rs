@@ -497,6 +497,5 @@ impl ToLLVMDialect for FmaOp {
     }
 }
 
-// NSZ lets LLVM discard signed-zero-sensitive arithmetic feeding these ops.
 lower_binary_intrinsic_arith!(FMinNanOp => "llvm.minimum");
 lower_binary_intrinsic_arith!(FMaxNanOp => "llvm.maximum");
