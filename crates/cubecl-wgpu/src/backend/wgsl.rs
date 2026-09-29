@@ -31,7 +31,10 @@ pub fn bindings(
     (bindings, 0)
 }
 
-pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
+/// Request a WGSL device, returning device creation failures.
+pub async fn try_request_device(
+    adapter: &wgpu::Adapter,
+) -> Result<(wgpu::Device, wgpu::Queue), crate::WgpuInitError> {
     let limits = adapter.limits();
     adapter
         .request_device(&wgpu::DeviceDescriptor {
@@ -49,28 +52,23 @@ pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Que
             experimental_features: unsafe { wgpu::ExperimentalFeatures::enabled() },
         })
         .await
-        .map_err(|err| {
-            format!(
-                "Unable to request the device with the adapter {:?}, err {:?}",
-                adapter.get_info(),
-                err
-            )
+        .map_err(|err| crate::WgpuInitError::RequestDevice {
+            message: err.to_string(),
         })
-        .unwrap()
 }
 
 pub fn register_wgsl_features(
-    adapter: &wgpu::Adapter,
+    device: &wgpu::Device,
     props: &mut cubecl_ir::DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
 ) {
-    register_types(props, adapter);
+    register_types(props, device);
     if props.supports_type(ElemType::UInt(UIntKind::U64)) {
         comp_options.supports_u64 = true;
     }
 }
 
-pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
+pub fn register_types(props: &mut DeviceProperties, device: &wgpu::Device) {
     use cubecl_core::ir::{AddressType, ElemType, FloatKind, IntKind};
     use cubecl_ir::features::*;
 
@@ -106,7 +104,7 @@ pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
         );
     }
 
-    let feats = adapter.features();
+    let feats = device.features();
 
     if feats.contains(wgpu::Features::SHADER_INT64) {
         props.register_type_usage(ElemType::Int(IntKind::I64), TypeUsage::all());

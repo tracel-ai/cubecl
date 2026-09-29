@@ -49,7 +49,17 @@ pub fn bindings(repr: &SpirvKernel, _bindings: &KernelArguments) -> (Vec<Visibil
     }
 }
 
+/// Request a native Vulkan device, panicking if device creation fails.
 pub async fn request_vulkan_device(adapter: &wgpu::Adapter) -> Option<(wgpu::Device, wgpu::Queue)> {
+    try_request_vulkan_device(adapter)
+        .await
+        .expect("Unable to request Vulkan device")
+}
+
+/// Request a native Vulkan device, or return `None` when native compilation is unsupported.
+pub async fn try_request_vulkan_device(
+    adapter: &wgpu::Adapter,
+) -> Result<Option<(wgpu::Device, wgpu::Queue)>, crate::WgpuInitError> {
     let limits = adapter.limits();
     let features = adapter
         .features()
@@ -81,7 +91,7 @@ fn request_device(
     adapter: &vulkan::Adapter,
     features: Features,
     mut limits: Limits,
-) -> Option<(wgpu::Device, wgpu::Queue)> {
+) -> Result<Option<(wgpu::Device, wgpu::Queue)>, crate::WgpuInitError> {
     let ash = adapter.shared_instance();
 
     // Can't even query for required features without `PhysicalDeviceFeatures2`
@@ -90,13 +100,13 @@ fn request_device(
             .extensions()
             .contains(&KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_NAME)
     {
-        return None;
+        return Ok(None);
     }
 
     let mut extended_feat = ExtendedFeatures::from_adapter(ash.raw_instance(), adapter, features);
 
     if !extended_feat.has_required_features() {
-        return None;
+        return Ok(None);
     }
 
     let extensions = adapter.required_device_extensions(features);
@@ -144,7 +154,9 @@ fn request_device(
     let vk_device = unsafe {
         ash.raw_instance()
             .create_device(adapter.raw_physical_device(), &info, None)
-            .expect("Failed to create Vulkan device")
+            .map_err(|err| crate::WgpuInitError::RequestDevice {
+                message: err.to_string(),
+            })?
     };
 
     // The default is MemoryHints::Performance, which tries to do some bigger
@@ -163,7 +175,9 @@ fn request_device(
                 family_info.queue_family_index,
                 0,
             )
-            .expect("Failed to create HAL device")
+            .map_err(|err| crate::WgpuInitError::RequestDevice {
+                message: err.to_string(),
+            })?
     };
 
     let descriptor = DeviceDescriptor {
@@ -177,11 +191,13 @@ fn request_device(
     };
 
     unsafe {
-        Some(
+        Ok(Some(
             wgpu_adapter
                 .create_device_from_hal(device, &descriptor)
-                .expect("Failed to create wgpu device"),
-        )
+                .map_err(|err| crate::WgpuInitError::RequestDevice {
+                    message: err.to_string(),
+                })?,
+        ))
     }
 }
 
