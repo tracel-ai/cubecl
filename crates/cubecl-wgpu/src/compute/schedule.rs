@@ -93,8 +93,7 @@ pub struct WgpuStreamFactory {
     logger: Arc<ServerLogger>,
     count: u64,
     use_vulkan_compiler: bool,
-    /// The captures under way on the device, shared by every stream this creates and by the
-    /// device's clients.
+    /// The device's captures, which every stream this creates takes its capture state from.
     captures: DeviceCaptures,
 }
 
@@ -116,7 +115,7 @@ impl StreamFactory for WgpuStreamFactory {
             self.tasks_max,
             self.logger.clone(),
             self.use_vulkan_compiler,
-            self.captures.clone(),
+            &self.captures,
         )
     }
 }

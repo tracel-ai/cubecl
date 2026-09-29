@@ -8,6 +8,7 @@
 use cubecl_common::bytes::Bytes;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::runtime_tests::capture_status;
 use cubecl_core::server::Handle;
 use cubecl_environment::stream::StreamId;
 use cubecl_server::config::{CubeClRuntimeConfig, RuntimeConfig};
@@ -928,49 +929,6 @@ fn wgpu_graph_capture_refuses_a_tainted_input() {
     );
 }
 
-/// A capture prepared but never opened is unwound by the close that refuses
-/// it. A warmup that fails never reaches `start_capture`, and `stop_capture`
-/// is the only call the caller has left — so it releases the stream instead
-/// of leaving it held and un-capturable.
-#[test]
-fn wgpu_graph_a_prepared_capture_that_never_opened_is_disarmed_by_end() {
-    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = <WgpuRuntime>::client(&Default::default());
-
-    client.graph_prepare().expect("graph_prepare");
-    // The warmup failed; closing without opening is the caller's only move.
-    client
-        .stop_capture()
-        .expect_err("nothing is recording, so there is no graph to seal");
-
-    // The stream is fully usable and re-capturable: a whole cycle lands.
-    let n = 4usize;
-    let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
-    let output = client.empty(n * core::mem::size_of::<f32>());
-    let launch = |client: &Client| {
-        add_one::launch(
-            client,
-            CubeCount::Static(1, 1, 1),
-            CubeDim::new(client, n),
-            unsafe { BufferArg::from_raw_parts(input.clone(), n) },
-            unsafe { BufferArg::from_raw_parts(output.clone(), n) },
-        );
-    };
-
-    client
-        .graph_prepare()
-        .expect("the disarmed stream is re-capturable");
-    launch(&client);
-    let _ = client.read_one(output.clone()).unwrap();
-    client.start_capture().expect("start_capture");
-    launch(&client);
-    let graph = client.stop_capture().expect("stop_capture");
-
-    unsafe { graph.replay() }.expect("replay enqueues");
-    let out = client.read_one(output).unwrap();
-    assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
-}
-
 /// A launch that *fails* inside the window dooms the capture, exactly as a
 /// skipped one does: the scope reports both endings to the window through one
 /// path, so there is no failure a recording survives silently.
@@ -1068,59 +1026,16 @@ fn wgpu_graph_replay_settles_after_a_failed_enqueue() {
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 }
 
-/// A client sees its stream's capture from `graph_prepare` until `stop_capture`, without asking
-/// the device thread: every client of the device shares what the streams report, and a stream
-/// that isn't capturing sees nothing. Code that has to decide the same way in the warmup and the
-/// recorded run reads this on every launch, so it must hold on each client, not only the one
-/// that prepared.
+/// See [`capture_status::a_capture_is_seen_by_every_client_of_its_stream`].
 #[test]
-fn wgpu_graph_capture_is_reported_to_its_clients() {
+fn wgpu_graph_capture_is_seen_by_every_client_of_its_stream() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = <WgpuRuntime>::client(&Default::default());
-    let other_client = <WgpuRuntime>::client(&Default::default());
-    let other_stream_capturing = || {
-        let client = client.clone();
-        std::thread::spawn(move || client.is_capturing())
-            .join()
-            .unwrap()
-    };
+    capture_status::a_capture_is_seen_by_every_client_of_its_stream::<WgpuRuntime>();
+}
 
-    let n = 4usize;
-    let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
-    let output = client.empty(n * core::mem::size_of::<f32>());
-    let launch = |client: &Client| {
-        add_one::launch(
-            client,
-            CubeCount::Static(1, 1, 1),
-            CubeDim::new(client, n),
-            unsafe { BufferArg::from_raw_parts(input.clone(), n) },
-            unsafe { BufferArg::from_raw_parts(output.clone(), n) },
-        );
-    };
-    launch(&client);
-    let _ = client.read_one(output.clone()).unwrap();
-
-    assert!(!client.is_capturing(), "no capture before prepare");
-    client.graph_prepare().expect("graph_prepare");
-    assert!(
-        client.is_capturing(),
-        "the warmup run is part of the capture"
-    );
-    assert!(
-        other_client.is_capturing(),
-        "every client of the stream sees it"
-    );
-    assert!(!other_stream_capturing(), "another stream isn't capturing");
-
-    launch(&client);
-    let _ = client.read_one(output.clone()).unwrap();
-    client.start_capture().expect("start_capture");
-    assert!(
-        client.is_capturing(),
-        "the recorded run is part of the capture"
-    );
-    launch(&client);
-    let _graph = client.stop_capture().expect("stop_capture");
-    assert!(!client.is_capturing(), "the capture ends with stop_capture");
-    assert!(!other_client.is_capturing());
+/// See [`capture_status::a_prepared_capture_ends_at_stop_capture`].
+#[test]
+fn wgpu_graph_prepared_capture_ends_at_stop_capture() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    capture_status::a_prepared_capture_ends_at_stop_capture::<WgpuRuntime>();
 }

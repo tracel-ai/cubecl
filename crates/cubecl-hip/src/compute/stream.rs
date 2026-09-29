@@ -72,8 +72,7 @@ pub struct HipStreamBackend {
     mem_alignment: usize,
     is_integrated: bool,
     logger: Arc<ServerLogger>,
-    /// The captures under way on the device, shared by every stream this creates and by the
-    /// device's clients.
+    /// The device's captures, which every stream this creates takes its capture state from.
     captures: DeviceCaptures,
 }
 
@@ -123,7 +122,7 @@ impl EventStreamBackend for HipStreamBackend {
             sys: stream,
             memory_management_gpu,
             memory_management_cpu,
-            capturing: StreamCapture::new(self.captures.clone()),
+            capturing: StreamCapture::new(&self.captures),
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
             drop_queue: PendingDropQueue::new(FlushingPolicy {
                 max_bytes_count: match self.is_integrated {

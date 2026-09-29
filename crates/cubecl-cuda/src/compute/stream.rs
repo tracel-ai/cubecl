@@ -66,8 +66,7 @@ pub struct CudaStreamBackend {
     logger: Arc<ServerLogger>,
     priority: StreamPriority,
     allocator: CudaAllocator,
-    /// The captures under way on the device, shared by every stream this creates and by the
-    /// device's clients.
+    /// The device's captures, which every stream this creates takes its capture state from.
     captures: DeviceCaptures,
 }
 
@@ -160,7 +159,7 @@ impl EventStreamBackend for CudaStreamBackend {
             memory_management_gpu,
             memory_management_cpu,
             drop_queue: Default::default(),
-            capturing: StreamCapture::new(self.captures.clone()),
+            capturing: StreamCapture::new(&self.captures),
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
         }
     }
