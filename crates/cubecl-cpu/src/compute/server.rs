@@ -242,7 +242,12 @@ impl Server for CpuServer {
         self.utilities.clone()
     }
 
-    fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
+    fn initialize_memory(
+        &mut self,
+        memory: ManagedMemoryHandle,
+        size: u64,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
         self.scheduler.relocating(stream_id).relocate_when_wanted();
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
         // Fatal rather than reported, as on every other backend:
@@ -253,6 +258,7 @@ impl Server for CpuServer {
             .empty(size, failures)
             .unwrap_or_else(|err| panic!("failed to reserve {size} bytes of host memory: {err}"));
         stream.bind(reserved, memory, failures);
+        Ok(())
     }
 
     fn read(
@@ -349,8 +355,8 @@ impl Server for CpuServer {
     fn memory_report(
         &mut self,
         stream_id: StreamId,
-    ) -> cubecl_server::memory_management::StreamMemoryReport {
-        cubecl_server::memory_management::StreamMemoryReport {
+    ) -> Option<cubecl_server::memory_management::StreamMemoryReport> {
+        Some(cubecl_server::memory_management::StreamMemoryReport {
             stream: stream_id,
             pools: self
                 .scheduler
@@ -358,7 +364,7 @@ impl Server for CpuServer {
                 .memory_management
                 .memory_report(),
             auxiliary: Vec::new(),
-        }
+        })
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {

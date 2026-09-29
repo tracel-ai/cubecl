@@ -10,7 +10,7 @@
 
 use crate::id::KernelId;
 use crate::logging::ServerLogger;
-use crate::memory_management::{Claim, ErrorGraph, FailureId, Skipped};
+use crate::memory_management::{Claim, ErrorGraph, FailureId, ManagedMemoryHandle, Skipped};
 use crate::server::{BufferBinding, ServerError};
 use crate::stream::{ReadFailure, StreamFactory, StreamMemory, StreamPool, base};
 use alloc::sync::Arc;
@@ -149,6 +149,13 @@ pub trait FailureStore {
     fn written<'a>(&mut self, written: impl Iterator<Item = &'a BufferBinding>) {
         let (pool, failures) = self.split();
         base::written(pool, written, &mut failures.graph);
+    }
+
+    /// Record `error` as the reason `memory` was never allocated, so reading that memory
+    /// reports that error.
+    fn fail_unallocated(&mut self, memory: &ManagedMemoryHandle, error: ServerError) {
+        let (_, failures) = self.split();
+        failures.graph.fail_unallocated(memory, error);
     }
 
     /// A skipped launch's outputs take the failure that stopped it: nothing

@@ -257,27 +257,6 @@ impl<'a, B: EventStreamBackend> Drop for ResolvedStreams<'a, B> {
     }
 }
 
-/// `result`'s value, or `None` when it failed on a poisoned device.
-///
-/// For operations that cannot report a failure: nothing runs on a poisoned device anymore, so
-/// their work is skipped and the failure logged, and every later sync point reports the
-/// poisoning. A failure on a healthy device still panics, since skipping would silently drop
-/// work.
-///
-/// # Panics
-///
-/// When `result` failed and the device is not poisoned.
-pub fn skip_if_poisoned<T>(result: Result<T, ServerError>, operation: &str) -> Option<T> {
-    match result {
-        Ok(value) => Some(value),
-        Err(err) if err.is_device_poisoned() => {
-            log::error!("{operation} skipped on a poisoned device: {err}");
-            None
-        }
-        Err(err) => panic!("{operation} failed: {err}"),
-    }
-}
-
 impl<B: EventStreamBackend> MultiStream<B> {
     /// Mutable access to the stream-creation backend, e.g. to change the
     /// configuration new streams are created with. Already-created streams are

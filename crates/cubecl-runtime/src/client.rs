@@ -512,8 +512,11 @@ impl Client {
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         self.device.submit(move |server| {
-            server.initialize_memory(memory, size, stream_id);
-            server.write(descriptors, stream_id);
+            // Cannot write on memory that wasn't initialized. The error is attached to the
+            // buffer and is reported at the next sync point.
+            if server.initialize_memory(memory, size, stream_id).is_ok() {
+                server.write(descriptors, stream_id);
+            }
         });
 
         layouts
@@ -549,8 +552,11 @@ impl Client {
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         self.device.submit(move |server| {
-            server.initialize_memory(memory, size, stream_id);
-            server.write(descriptors, stream_id);
+            // Cannot write on memory that wasn't initialized. The error is attached to the
+            // buffer and is reported at the next sync point.
+            if server.initialize_memory(memory, size, stream_id).is_ok() {
+                server.write(descriptors, stream_id);
+            }
         });
 
         layouts
@@ -796,7 +802,8 @@ impl Client {
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         self.device.submit(move |server| {
-            server.initialize_memory(memory, size, stream_id);
+            // The error is attached to the buffer and is reported at the next sync point.
+            let _ = server.initialize_memory(memory, size, stream_id);
         });
 
         layouts
@@ -1491,7 +1498,7 @@ impl Client {
                 MemoryReport {
                     streams: streams
                         .into_iter()
-                        .map(|id| server.memory_report(id))
+                        .filter_map(|id| server.memory_report(id))
                         .collect(),
                 }
             })
@@ -1752,8 +1759,14 @@ impl Client {
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         dst_server.device.submit(move |server| {
-            server.initialize_memory(memory, size, stream_id_dst);
-            server.write(vec![(desc_descriptor, data.remove(0))], stream_id_dst)
+            // Cannot write on memory that wasn't initialized. The error is attached to the
+            // buffer and is reported at the next sync point.
+            if server
+                .initialize_memory(memory, size, stream_id_dst)
+                .is_ok()
+            {
+                server.write(vec![(desc_descriptor, data.remove(0))], stream_id_dst)
+            }
         });
 
         alloc

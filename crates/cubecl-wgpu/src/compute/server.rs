@@ -357,7 +357,12 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         .into())
     }
 
-    fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
+    fn initialize_memory(
+        &mut self,
+        memory: ManagedMemoryHandle,
+        size: u64,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
         let mut relocating = self.scheduler.relocating(stream_id);
         relocating.relocate_when_wanted();
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
@@ -369,11 +374,12 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             // whatever uses it belongs to a recording that will not seal.
             Err(err @ IoError::PageUpdateForbidden { .. }) => {
                 stream.capturing.fail(err.into());
-                return;
+                return Ok(());
             }
             Err(err) => panic!("failed to reserve {size} bytes of device memory: {err}"),
         };
         stream.memory.bind(reserved, memory, 0, failures).unwrap();
+        Ok(())
     }
 
     fn read(
@@ -679,14 +685,14 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         self.scheduler.stream(&stream_id).abandon_profile(token);
     }
 
-    fn memory_report(&mut self, stream_id: StreamId) -> StreamMemoryReport {
+    fn memory_report(&mut self, stream_id: StreamId) -> Option<StreamMemoryReport> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        StreamMemoryReport {
+        Some(StreamMemoryReport {
             stream: stream_id,
             pools: stream.memory.memory_report(),
             auxiliary: stream.auxiliary.report(),
-        }
+        })
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {

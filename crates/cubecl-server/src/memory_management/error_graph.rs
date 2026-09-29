@@ -14,7 +14,7 @@
 //! the graph leaks if and only if the program leaks memory.
 
 use crate::id::KernelId;
-use crate::memory_management::ManagedMemoryId;
+use crate::memory_management::{ManagedMemoryHandle, ManagedMemoryId, WeakMemoryBinding};
 use crate::server::{IoError, ServerError};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -63,6 +63,9 @@ pub enum Claim {
 #[derive(Debug, Default)]
 pub struct ErrorGraph {
     nodes: HashMap<FailureId, Failure>,
+    /// The failures of buffers no allocation ever gave a location, which have no slice to
+    /// carry a failure id. Each holds one tag on its failure, released once the buffer is gone.
+    unallocated: HashMap<ManagedMemoryId, (FailureId, WeakMemoryBinding)>,
     /// Ids handed out so far; the next one is `minted + 1`, which is never
     /// zero and, being 64 bits wide, never wraps.
     minted: u64,
@@ -208,10 +211,13 @@ impl ErrorGraph {
         for claim in claims {
             let (failure, memory) = match claim {
                 Claim::Failed(failure, memory) => (failure, memory),
-                Claim::Unallocated(memory) => {
-                    errors.push(Self::unallocated(memory));
-                    continue;
-                }
+                Claim::Unallocated(memory) => match self.unallocated.get(&memory) {
+                    Some((failure, _)) => (*failure, memory),
+                    None => {
+                        errors.push(Self::unallocated(memory));
+                        continue;
+                    }
+                },
             };
             if seen.contains(&failure) {
                 continue;
@@ -292,6 +298,32 @@ impl ErrorGraph {
     pub fn replace(&mut self, failure: FailureId, error: ServerError) {
         if let Some(node) = self.nodes.get_mut(&failure) {
             node.error = error;
+        }
+    }
+
+    /// Record `error` as the reason `memory` was never allocated, so a read of that memory
+    /// reports that error.
+    pub fn fail_unallocated(&mut self, memory: &ManagedMemoryHandle, error: ServerError) {
+        // Released lazily: a record whose buffer is gone is found here, when the next one is
+        // made, rather than through a drop hook the buffer does not have.
+        let dropped: Vec<_> = self
+            .unallocated
+            .iter()
+            .filter(|(_, (_, binding))| binding.upgrade().is_none())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in dropped {
+            if let Some((failure, _)) = self.unallocated.remove(&id) {
+                self.untag(Some(failure));
+            }
+        }
+
+        let failure = self.insert(error);
+        self.tag(failure);
+        let binding = memory.clone().binding();
+        let id = binding.id();
+        if let Some((previous, _)) = self.unallocated.insert(id, (failure, binding.downgrade())) {
+            self.untag(Some(previous));
         }
     }
 
@@ -489,5 +521,37 @@ mod tests {
         graph.prune(failure);
 
         assert!(graph.error(failure).is_some());
+    }
+
+    /// A buffer that never got an allocation reports the failure recorded for it;
+    /// the record goes once the buffer does.
+    #[test]
+    fn an_unallocated_failure_is_reported_and_released_with_its_buffer() {
+        let mut graph = ErrorGraph::default();
+        let memory = ManagedMemoryHandle::new();
+        let id = memory.descriptor().id;
+
+        graph.fail_unallocated(&memory, error("the device is poisoned"));
+        let reported = graph
+            .reports([Claim::Unallocated(id)].into_iter())
+            .expect_err("the buffer carries a failure");
+        assert!(
+            reported.to_string().contains("the device is poisoned"),
+            "{reported}"
+        );
+
+        let other = ManagedMemoryHandle::new();
+        let unrecorded = graph
+            .reports([Claim::Unallocated(other.descriptor().id)].into_iter())
+            .expect_err("an unallocated buffer never reads clean");
+        assert!(
+            unrecorded.to_string().contains("never allocated"),
+            "{unrecorded}"
+        );
+
+        // Released lazily, when the next record is made.
+        drop(memory);
+        graph.fail_unallocated(&other, error("again"));
+        assert_eq!(graph.len(), 1, "the dropped buffer's failure is released");
     }
 }

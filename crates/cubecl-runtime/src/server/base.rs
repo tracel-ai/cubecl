@@ -605,7 +605,18 @@ pub trait Server:
     core::any::Any + Send + core::fmt::Debug + ServerCommunication + device::DeviceService + 'static
 {
     /// Initializes [memory](ManagedMemoryHandle) on the given [stream](StreamId) with the given size.
-    fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId);
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ServerError`] when the memory could not be initialized, e.g. because the stream
+    /// cannot be created on a poisoned device. The memory then carries the error: the next
+    /// sync point reading that memory reports it.
+    fn initialize_memory(
+        &mut self,
+        memory: ManagedMemoryHandle,
+        size: u64,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError>;
 
     /// Reserves N [Bytes] of the provided sizes to be used as staging to load data.
     fn staging(
@@ -775,7 +786,9 @@ pub trait Server:
     /// each pool's shape, usage, and high-water marks, in allocation-routing
     /// order. The read side of a measured memory plan — see
     /// `MemoryManagement::memory_report` in `cubecl-server`.
-    fn memory_report(&mut self, stream_id: StreamId) -> StreamMemoryReport;
+    ///
+    /// `None` when the stream was never created.
+    fn memory_report(&mut self, stream_id: StreamId) -> Option<StreamMemoryReport>;
 
     /// Stream ids the client should iterate to aggregate across the device.
     ///

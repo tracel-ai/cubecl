@@ -23,7 +23,7 @@ use cubecl_core::{
 use cubecl_environment::future;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
-use cubecl_server::command::Refused;
+use cubecl_server::command::{DeviceStream, Refused};
 use cubecl_server::metadata_cache::Lookup;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
@@ -34,12 +34,9 @@ use cubecl_server::{
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, StreamMemoryReport},
     server::Server,
     storage::{ComputeStorage, ManagedResource},
-    stream::{
-        ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing,
-        skip_if_poisoned,
-    },
+    stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
 };
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 #[derive(Debug)]
 pub struct HipServer {
@@ -48,6 +45,9 @@ pub struct HipServer {
     utilities: Arc<ServerUtilities>,
     /// The graphs this server has captured — see [`Captures`].
     graphs: Captures,
+    /// Allocation modes set on streams that did not exist yet, applied when the stream is
+    /// created rather than creating it only to hold the mode.
+    pending_allocation_modes: HashMap<StreamId, MemoryAllocationMode>,
 }
 
 // SAFETY: `HipServer` is only accessed from one thread at a time via the `DeviceHandle`
@@ -74,12 +74,22 @@ impl Server for HipServer {
             .collect())
     }
 
-    fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
-        if let Some(mut command) =
-            skip_if_poisoned(self.command_no_inputs(stream_id), "initializing memory")
-        {
-            command.initialize_memory(memory, size);
-        }
+    fn initialize_memory(
+        &mut self,
+        memory: ManagedMemoryHandle,
+        size: u64,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        let error = match self.command_no_inputs(stream_id) {
+            Ok(mut command) => {
+                command.initialize_memory(memory, size);
+                return Ok(());
+            }
+            Err(error) => error,
+        };
+        // No stream to allocate on: the buffer carries the error instead.
+        self.streams.fail_unallocated(&memory, error.clone());
+        Err(error)
     }
 
     fn read(
@@ -272,12 +282,8 @@ impl Server for HipServer {
         // returns at enqueue time, so one may still be running against it. A
         // failed wait means no replay is still running, so destroying is safe.
         let synced = cubecl_environment::future::block_on(self.sync(Vec::new(), stream_id));
-        if let Some(mut streams) = skip_if_poisoned(
-            self.streams.resolve(stream_id, [].into_iter()),
-            "destroying a graph",
-        ) {
-            self.graphs.destroy(graph, streams.current());
-        }
+        let stream = self.streams.try_stream_mut(&stream_id);
+        self.graphs.destroy(graph, stream);
         if let Err(err) = synced {
             // Claimed rather than reported at large: work on this stream that
             // shares no buffer with the graph has nothing to do with this and
@@ -340,11 +346,13 @@ impl Server for HipServer {
         self.ctx.profiler.abandon(token);
     }
 
-    fn memory_report(&mut self, stream_id: StreamId) -> StreamMemoryReport {
+    fn memory_report(&mut self, stream_id: StreamId) -> Option<StreamMemoryReport> {
         // A stream that cannot be created has no memory to report.
+        self.streams.try_stream_mut(&stream_id)?;
+        // The stream exists, so resolving it creates nothing and cannot fail.
         self.command_no_inputs(stream_id)
-            .unwrap_or_else(|err| panic!("the memory of {stream_id} cannot be reported: {err}"))
-            .memory_report()
+            .ok()
+            .map(|mut command| command.memory_report())
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {
@@ -356,11 +364,11 @@ impl Server for HipServer {
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
-        if let Some(mut command) = skip_if_poisoned(
-            self.command_no_inputs(stream_id),
-            "setting the allocation mode",
-        ) {
-            command.allocation_mode(mode)
+        match self.streams.try_stream_mut(&stream_id) {
+            Some(stream) => stream.device_memory().mode(mode),
+            None => {
+                self.pending_allocation_modes.insert(stream_id, mode);
+            }
         }
     }
 }
@@ -415,6 +423,7 @@ impl HipServer {
             ),
             utilities: Arc::new(utilities),
             graphs: Captures::default(),
+            pending_allocation_modes: HashMap::new(),
         }
     }
 
@@ -427,7 +436,10 @@ impl HipServer {
         stream_id: StreamId,
         handles: impl Iterator<Item = &'a BufferBinding>,
     ) -> Result<Command<'_>, ServerError> {
-        let streams = self.streams.resolve(stream_id, handles)?;
+        let mut streams = self.streams.resolve(stream_id, handles)?;
+        if let Some(mode) = self.pending_allocation_modes.remove(&stream_id) {
+            streams.current().device_memory().mode(mode);
+        }
         Ok(Command::new(&mut self.ctx, streams, self.utilities.service))
     }
 
