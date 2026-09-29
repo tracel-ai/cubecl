@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use cubecl_core::ir::dialect::{
     bitwise::*,
-    cmp::{FMaxOp, FMinOp, SMaxOp, SMinOp, UMaxOp, UMinOp},
+    cmp::{FMaxNanOp, FMaxOp, FMinNanOp, FMinOp, SMaxOp, SMinOp, UMaxOp, UMinOp},
     general::{BoolAndOp, BoolNotOp, BoolOrOp},
     math::*,
 };
@@ -381,7 +381,7 @@ lower_float_bin_arith!(FDivOp => llvm::FDivOp, no_fast_math);
 lower_float_bin_arith!(FRemOp => llvm::FRemOp, no_fast_math);
 
 macro_rules! lower_binary_intrinsic_arith {
-    ($cube_op:ty => $llvm_op:expr) => {
+    ($cube_op:ty => $llvm_op:expr $(, $flags:expr)?) => {
         #[op_interface_impl]
         impl ToLLVMDialect for $cube_op {
             fn rewrite(
@@ -404,6 +404,7 @@ macro_rules! lower_binary_intrinsic_arith {
                 let op =
                     llvm::CallIntrinsicOp::new(ctx, llvm_op.into(), intrinsic_type, vec![lhs, rhs]);
 
+                $(op.set_attr_llvm_intrinsic_fastmath_flags(ctx, $flags);)?
                 rewriter.insert_op(ctx, &op);
                 rewriter.replace_operation_with_values(
                     ctx,
@@ -496,3 +497,7 @@ impl ToLLVMDialect for FmaOp {
         Ok(())
     }
 }
+
+// Propagate NaNs while permitting either sign for opposite-signed zero operands.
+lower_binary_intrinsic_arith!(FMinNanOp => "llvm.minimum", FastmathFlagsAttr(FastmathFlags::NSZ));
+lower_binary_intrinsic_arith!(FMaxNanOp => "llvm.maximum", FastmathFlagsAttr(FastmathFlags::NSZ));

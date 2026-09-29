@@ -47,6 +47,45 @@ fn signed_mod_floor<I: Int, N: Size>(lhs: Vector<I, N>, rhs: Vector<I, N>) -> Ve
     remainder + select_many(adjust, rhs, zero)
 }
 
+/// Lower NaN-preserving clamp to the corresponding binary operations.
+pub fn expand_clamp_nan(scope: &Scope, input: Value, min: Value, max: Value) -> Value {
+    use cubecl_ir::dialect::cmp::{FMaxNanOp, FMinNanOp};
+    let upper = FMinNanOp::new(scope.ctx_mut(), input, max);
+    let upper = scope.register_with_result(&upper);
+    let lower = FMaxNanOp::new(scope.ctx_mut(), upper, min);
+    scope.register_with_result(&lower)
+}
+
+/// Portable lowering for NaN-preserving minimum.
+pub fn expand_min_nan(scope: &Scope, lhs: Value, rhs: Value) -> Value {
+    define_scalar!(F);
+    define_size!(N);
+    scope.register_value_type::<F, N>(lhs);
+    min_nan_fallback::expand::<F, N>(scope, lhs.into(), rhs.into()).read_value(scope)
+}
+
+#[cube]
+fn min_nan_fallback<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> Vector<F, N> {
+    let value = lhs.min(rhs);
+    let value = select_many(rhs.is_nan(), rhs, value);
+    select_many(lhs.is_nan(), lhs, value)
+}
+
+/// Portable lowering for NaN-preserving maximum.
+pub fn expand_max_nan(scope: &Scope, lhs: Value, rhs: Value) -> Value {
+    define_scalar!(F);
+    define_size!(N);
+    scope.register_value_type::<F, N>(lhs);
+    max_nan_fallback::expand::<F, N>(scope, lhs.into(), rhs.into()).read_value(scope)
+}
+
+#[cube]
+fn max_nan_fallback<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> Vector<F, N> {
+    let value = lhs.max(rhs);
+    let value = select_many(rhs.is_nan(), rhs, value);
+    select_many(lhs.is_nan(), lhs, value)
+}
+
 #[cube]
 pub fn erf<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     let erf = erf_positive(x.abs());

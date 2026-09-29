@@ -324,6 +324,78 @@ shared_op_with_out!(FClampOp, |op, ctx| {
 unrolling!(FClampOp);
 packable!(FClampOp);
 
+// CUDA/HIP half intrinsics propagate NaNs and permit native packed lowering.
+macro_rules! nan_extreme {
+    ($op:ident, $name:literal, $fallback:ident) => {
+        shared_op_with_out!($op, |op, ctx| {
+            let lhs = op.lhs(ctx);
+            let rhs = op.rhs(ctx).name(ctx);
+            let name = $name;
+            if lhs.is_half(ctx) {
+                format!("__h{name}_nan({}, {rhs})", lhs.name(ctx))
+            } else if lhs.is_half2(ctx) {
+                format!("__h{name}2_nan({}, {rhs})", lhs.name(ctx))
+            } else {
+                let lhs = lhs.name(ctx);
+                // PTX NaN-propagating f32 min/max require SM 80.
+                format!(
+                    r#"[&] {{
+#if __CUDA_ARCH__ >= 800
+    float result;
+    asm("{name}.NaN.f32 %0, %1, %2;" : "=f"(result) : "f"({lhs}), "f"({rhs}));
+    return result;
+#else
+    return isnan({lhs}) ? {lhs} : (isnan({rhs}) ? {rhs} : f{name}f({lhs}, {rhs}));
+#endif
+}}()"#
+                )
+            }
+        });
+        unrolling!($op);
+        packable!($op);
+
+        #[op_interface_impl]
+        impl LowerOp for $op {
+            fn should_lower(&self, ctx: &Context) -> bool {
+                let ty = self.lhs(ctx).scalar_ty(ctx);
+                match ctx.target() {
+                    Target::Cuda => !(ty.is_half(ctx) || ty.is_float32(ctx)),
+                    Target::Hip => !ty.is_float16(ctx),
+                    Target::Metal => true,
+                }
+            }
+
+            fn lower(&self, scope: &Scope) -> Vec<Value> {
+                let ctx = scope.ctx();
+                vec![cubecl_core::frontend::polyfills::$fallback(
+                    scope,
+                    self.lhs(ctx),
+                    self.rhs(ctx),
+                )]
+            }
+        }
+    };
+}
+nan_extreme!(FMinNanOp, "min", expand_min_nan);
+nan_extreme!(FMaxNanOp, "max", expand_max_nan);
+
+#[op_interface_impl]
+impl LowerOp for FClampNanOp {
+    fn should_lower(&self, _ctx: &Context) -> bool {
+        true
+    }
+
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ctx = scope.ctx();
+        vec![cubecl_core::frontend::polyfills::expand_clamp_nan(
+            scope,
+            self.input(ctx),
+            self.min(ctx),
+            self.max(ctx),
+        )]
+    }
+}
+
 shared_op_with_out!(PowfOp, |op, ctx| {
     format!("pow({}, {})", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
 });

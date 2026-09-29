@@ -243,6 +243,114 @@ pub fn test_folded_vector<R: Runtime>(client: Client) {
     assert_eq!(u32::from_bytes(&actual), &[1, 1, 1, 1]);
 }
 
+#[cube(launch_unchecked)]
+fn min_max_nan_kernel<F: Float, N: Size>(
+    lhs: &[Vector<F, N>],
+    rhs: &[Vector<F, N>],
+    minima: &mut [Vector<F, N>],
+    maxima: &mut [Vector<F, N>],
+) {
+    if ABSOLUTE_POS < lhs.len() {
+        minima[ABSOLUTE_POS] = min_nan(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
+        maxima[ABSOLUTE_POS] = max_nan(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
+    }
+}
+
+/// Binary extrema propagate either NaN operand, for scalar and vector inputs.
+pub fn test_min_max_nan<R: Runtime, F: Float + CubeElement + num_traits::Float>(client: Client) {
+    let cases = [
+        (f32::NAN, 3.0, f32::NAN, f32::NAN),
+        (3.0, f32::NAN, f32::NAN, f32::NAN),
+        (f32::NAN, f32::NAN, f32::NAN, f32::NAN),
+        (-2.0, 3.0, -2.0, 3.0),
+    ];
+    for vector_size in [1, 4] {
+        let [lhs, rhs] = [
+            cases.map(|(lhs, _, _, _)| F::new(lhs)),
+            cases.map(|(_, rhs, _, _)| F::new(rhs)),
+        ]
+        .map(|values| client.create_from_slice(F::as_bytes(&values)));
+        let minima = client.empty(cases.len() * core::mem::size_of::<F>());
+        let maxima = client.empty(cases.len() * core::mem::size_of::<F>());
+        unsafe {
+            min_max_nan_kernel::launch_unchecked::<F>(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                CubeDim::new_1d(32),
+                vector_size,
+                BufferArg::from_raw_parts(lhs, cases.len()),
+                BufferArg::from_raw_parts(rhs, cases.len()),
+                BufferArg::from_raw_parts(minima.clone(), cases.len()),
+                BufferArg::from_raw_parts(maxima.clone(), cases.len()),
+            );
+        }
+        for (output, expected) in [
+            (minima, cases.map(|(_, _, min, _)| min)),
+            (maxima, cases.map(|(_, _, _, max)| max)),
+        ] {
+            let bytes = client.read_one_unchecked(output);
+            for (i, expected) in expected.into_iter().enumerate() {
+                let actual = F::from_bytes(&bytes)[i].to_f32().unwrap();
+                assert!(
+                    actual == expected || (actual.is_nan() && expected.is_nan()),
+                    "lane {i}: expected {expected}, got {actual}",
+                );
+            }
+        }
+    }
+}
+
+#[cube(launch_unchecked)]
+fn clamp_nan_kernel<F: Float, N: Size>(
+    input: &[Vector<F, N>],
+    min: &[Vector<F, N>],
+    max: &[Vector<F, N>],
+    output: &mut [Vector<F, N>],
+) {
+    if ABSOLUTE_POS < input.len() {
+        output[ABSOLUTE_POS] = clamp_nan(input[ABSOLUTE_POS], min[ABSOLUTE_POS], max[ABSOLUTE_POS]);
+    }
+}
+
+/// Clamp values and propagate NaN from each operand, for scalar and vector inputs.
+pub fn test_clamp_nan<R: Runtime, F: Float + CubeElement + num_traits::Float>(client: Client) {
+    let cases = [
+        (f32::NAN, 0.0, 1.0, f32::NAN),
+        (0.5, f32::NAN, 1.0, f32::NAN),
+        (0.5, 0.0, f32::NAN, f32::NAN),
+        (0.5, 2.0, 1.0, 2.0), // Upper bound first, then lower bound.
+    ];
+    for vector_size in [1, 4] {
+        let [input, min, max] = [
+            cases.map(|(input, _, _, _)| F::new(input)),
+            cases.map(|(_, min, _, _)| F::new(min)),
+            cases.map(|(_, _, max, _)| F::new(max)),
+        ]
+        .map(|values| client.create_from_slice(F::as_bytes(&values)));
+        let output = client.empty(cases.len() * core::mem::size_of::<F>());
+        unsafe {
+            clamp_nan_kernel::launch_unchecked::<F>(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                CubeDim::new_1d(32),
+                vector_size,
+                BufferArg::from_raw_parts(input, cases.len()),
+                BufferArg::from_raw_parts(min, cases.len()),
+                BufferArg::from_raw_parts(max, cases.len()),
+                BufferArg::from_raw_parts(output.clone(), cases.len()),
+            );
+        }
+        let bytes = client.read_one_unchecked(output);
+        for (i, &(_, _, _, expected)) in cases.iter().enumerate() {
+            let actual = F::from_bytes(&bytes)[i].to_f32().unwrap();
+            assert!(
+                actual == expected || (actual.is_nan() && expected.is_nan()),
+                "lane {i}: expected {expected}, got {actual}",
+            );
+        }
+    }
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_comparison {
@@ -268,6 +376,32 @@ macro_rules! testgen_comparison {
             add_test!(test_ne);
             add_test!(test_nan_ordering);
             add_test!(test_folded_vector);
+        }
+    };
+}
+
+#[allow(missing_docs)]
+#[macro_export]
+macro_rules! testgen_comparison_float {
+    () => {
+        mod comparison_float {
+            use super::*;
+
+            #[test]
+            fn test_min_max_nan() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::comparison::test_min_max_nan::<TestRuntime, FloatType>(
+                    client,
+                );
+            }
+
+            #[test]
+            fn test_clamp_nan() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::comparison::test_clamp_nan::<TestRuntime, FloatType>(
+                    client,
+                );
+            }
         }
     };
 }
