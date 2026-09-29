@@ -183,12 +183,18 @@ instead of panicking, and says the device is poisoned:
 - a backend flags the driver statuses that poison the device
   (`DriverError::poisoned`; for CUDA, `poisons_device` in `cubecl-cuda`'s
   events module), and every error built from one becomes a `DevicePoisoned`
-  variant;
+  variant. The four error types each have one, because a poisoning fault can
+  surface from any call and the calls do not return the same error — but they
+  all carry the same payload;
 - `ServerError::is_device_poisoned` walks a report to its roots, the
   counterpart of `is_refusal`: a refusal says drop the candidate, a poisoned
   device says drop the device. A module load on a poisoned device is a
   `CompilationError`, and it is
-  deliberately not a refusal;
+  deliberately not a refusal — a rule `CompilationError::is_refusal` states,
+  where the variant it excludes is in scope. Both predicates delegate: each
+  error type answers for its own variants and calls its children's method for
+  theirs, rather than the top naming every nesting path. So a variant added to
+  one of them, or a new type nested inside it, cannot come out silently `false`;
 - a fence the driver refused to create holds the refusal and returns it from
   its wait, rather than panicking on the server's thread.
 
@@ -200,7 +206,7 @@ wgpu is the exception to "the driver is the flag". It bounds-checks every
 access, so a kernel cannot fault it; the device can only be lost outright,
 and wgpu says so once, through its device-lost callback — work submitted
 afterwards completes as if it ran. So `cubecl-wgpu` marks the device
-poisoned when that callback fires (`DevicePoison`, one per device, shared by
+poisoned when that callback fires (`PoisonWatch`, one per device, shared by
 its streams) and every read and sync checks it. The same record keeps wgpu's panicking uncaptured-error handler
 from aborting the process once the device is gone: an unmap in a destructor
 errors then, and a panic there aborts. `crates/cubecl-wgpu/tests/device_poisoned.rs`

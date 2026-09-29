@@ -11,6 +11,7 @@ use crate::{
     memory_management::{
         ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode, StreamMemoryReport,
     },
+    poison::DevicePoison,
     server::{BufferBinding, KernelResource},
     storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
@@ -249,16 +250,8 @@ pub enum LaunchError {
 
     /// The device is poisoned: a kernel faulted in a way the driver makes
     /// sticky (an illegal address, a trap, a hardware fault, etc.)
-    #[error(
-        "The device was poisoned during launch\nCaused by:\n  {reason}\nBacktrace\n{backtrace}"
-    )]
-    DevicePoisoned {
-        /// The driver call that reported it.
-        reason: String,
-        /// The backtrace for this error.
-        #[cfg_attr(serializable, serde(skip))]
-        backtrace: BackTrace,
-    },
+    #[error("The device was poisoned during launch\nCaused by:\n  {0}")]
+    DevicePoisoned(#[from] DevicePoison),
 
     /// Unknown launch error.
     #[error(
@@ -316,6 +309,26 @@ pub enum ResourceLimitError {
         #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
+}
+
+impl LaunchError {
+    /// Whether the device that emitted the error is poisoned.
+    pub fn is_device_poisoned(&self) -> bool {
+        match self {
+            Self::DevicePoisoned(_) => true,
+            Self::CompilationError(error) => error.is_device_poisoned(),
+            _ => false,
+        }
+    }
+
+    /// Whether this is the kernel being refused before it ran.
+    pub fn is_refusal(&self) -> bool {
+        match self {
+            Self::CompilationError(error) => error.is_refusal(),
+            Self::TooManyResources(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl core::fmt::Debug for LaunchError {
@@ -427,14 +440,8 @@ pub enum ServerError {
 
     /// The device is poisoned: a kernel faulted in a way the driver makes
     /// sticky (an illegal address, a trap, a hardware fault, etc.)
-    #[error("The device is poisoned\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}")]
-    DevicePoisoned {
-        /// The driver call that reported it.
-        reason: String,
-        /// The backtrace for this error.
-        #[cfg_attr(serializable, serde(skip))]
-        backtrace: BackTrace,
-    },
+    #[error("The device is poisoned\nCaused by:\n  {0}")]
+    DevicePoisoned(#[from] DevicePoison),
 
     /// A launch error happened
     #[error("A launch error happened\nCaused by:\n  {0}")]
@@ -542,12 +549,7 @@ impl ServerError {
     /// refusals is still a real failure, and an empty group refuses nothing.
     pub fn is_refusal(&self) -> bool {
         match self {
-            Self::Launch(LaunchError::CompilationError(CompilationError::DevicePoisoned {
-                ..
-            })) => false,
-            Self::Launch(LaunchError::CompilationError(_) | LaunchError::TooManyResources(_)) => {
-                true
-            }
+            Self::Launch(error) => error.is_refusal(),
             Self::Unwritten { root, .. } => root.is_refusal(),
             Self::Several { errors, .. } => {
                 !errors.is_empty() && errors.iter().all(Self::is_refusal)
@@ -568,12 +570,9 @@ impl ServerError {
     /// device among other failures still means nothing on it can be trusted.
     pub fn is_device_poisoned(&self) -> bool {
         match self {
-            Self::DevicePoisoned { .. }
-            | Self::Launch(
-                LaunchError::DevicePoisoned { .. }
-                | LaunchError::CompilationError(CompilationError::DevicePoisoned { .. }),
-            )
-            | Self::Io(IoError::DevicePoisoned { .. }) => true,
+            Self::DevicePoisoned(_) => true,
+            Self::Launch(error) => error.is_device_poisoned(),
+            Self::Io(error) => error.is_device_poisoned(),
             Self::Unwritten { root, .. } => root.is_device_poisoned(),
             Self::Several { errors, .. } => errors.iter().any(Self::is_device_poisoned),
             _ => false,
@@ -1286,14 +1285,8 @@ pub enum IoError {
 
     /// The device is poisoned: a kernel faulted in a way the driver makes
     /// sticky (an illegal address, a trap, a hardware fault, etc.)
-    #[error("The device is poisoned: {reason}\n{backtrace}")]
-    DevicePoisoned {
-        /// The driver call that reported it.
-        reason: String,
-        /// The backtrace.
-        #[cfg_attr(serializable, serde(skip))]
-        backtrace: BackTrace,
-    },
+    #[error("The device is poisoned: {0}")]
+    DevicePoisoned(#[from] DevicePoison),
 
     /// Unknown error happened during execution
     #[error("Unknown error happened during execution: {description}\n{backtrace}")]
@@ -1315,6 +1308,15 @@ pub enum IoError {
 }
 
 impl IoError {
+    /// Whether the device that emitted the error is poisoned.
+    pub fn is_device_poisoned(&self) -> bool {
+        match self {
+            Self::DevicePoisoned(_) => true,
+            Self::StorageMappingFailed { source, .. } => source.is_device_poisoned(),
+            _ => false,
+        }
+    }
+
     /// Whether reclaiming memory could still make this allocation succeed.
     ///
     /// Out of memory *right now* is not out of memory for good: pool pages
@@ -1865,24 +1867,20 @@ mod tests {
     fn poisoned_device_read_through_every_path() {
         use crate::server::{IoError, LaunchError};
 
-        let reason = || String::from("cuEventSynchronize failed with status 700");
+        let poison = || DevicePoison {
+            reason: String::from("cuEventSynchronize failed with status 700"),
+            backtrace: Default::default(),
+        };
         let poisoned = [
-            ServerError::DevicePoisoned {
-                reason: reason(),
-                backtrace: Default::default(),
-            },
-            ServerError::Launch(LaunchError::DevicePoisoned {
-                reason: reason(),
-                backtrace: Default::default(),
-            }),
+            ServerError::DevicePoisoned(poison()),
+            ServerError::Launch(LaunchError::DevicePoisoned(poison())),
             ServerError::Launch(LaunchError::CompilationError(
-                CompilationError::DevicePoisoned {
-                    reason: reason(),
-                    backtrace: Default::default(),
-                },
+                CompilationError::DevicePoisoned(poison()),
             )),
-            ServerError::Io(IoError::DevicePoisoned {
-                reason: reason(),
+            ServerError::Io(IoError::DevicePoisoned(poison())),
+            ServerError::Io(IoError::StorageMappingFailed {
+                size: 1 << 20,
+                source: alloc::boxed::Box::new(IoError::DevicePoisoned(poison())),
                 backtrace: Default::default(),
             }),
         ];

@@ -9,17 +9,17 @@
 //! The device is marked poisoned here when the callback fires, shared by every
 //! stream on the device, and every sync point checks it
 
-use cubecl_environment::backtrace::BackTrace;
+use cubecl_server::driver::DevicePoison;
 use cubecl_server::server::ServerError;
 use std::sync::{Arc, OnceLock};
 
 /// Holds whether a wgpu device is poisoned. Shared by every stream on the device.
 #[derive(Clone, Debug, Default)]
-pub struct DevicePoison {
+pub struct PoisonWatch {
     reason: Arc<OnceLock<String>>,
 }
 
-impl DevicePoison {
+impl PoisonWatch {
     /// Start watching `device`, installing the callbacks that poison it once wgpu loses it.
     ///
     /// Installs an uncaptured-error handler too. wgpu's default one panics,
@@ -54,10 +54,7 @@ impl DevicePoison {
     /// Returns a [ServerError::DevicePoisoned](ServerError::DevicePoisoned) once the device is poisoned.
     pub fn check(&self) -> Result<(), ServerError> {
         match self.reason.get() {
-            Some(reason) => Err(ServerError::DevicePoisoned {
-                reason: reason.clone(),
-                backtrace: BackTrace::capture(),
-            }),
+            Some(reason) => Err(DevicePoison::new(reason.clone()).into()),
             None => Ok(()),
         }
     }

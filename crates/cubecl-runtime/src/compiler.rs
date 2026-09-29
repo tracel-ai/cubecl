@@ -1,4 +1,5 @@
 use crate::kernel::KernelDefinition;
+use crate::poison::DevicePoison;
 use alloc::string::{String, ToString};
 use cubecl_environment::backtrace::BackTrace;
 use thiserror::Error;
@@ -32,16 +33,8 @@ pub enum CompilationError {
     },
     /// The device was poisoned before the compiled kernel could be loaded onto
     /// it. See [`ServerError::DevicePoisoned`](crate::server::ServerError::DevicePoisoned).
-    #[error(
-        "The device is poisoned, the kernel could not be loaded the kernel\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}"
-    )]
-    DevicePoisoned {
-        /// The driver call that reported it.
-        reason: String,
-        /// The backtrace for this error.
-        #[cfg_attr(serializable, serde(skip))]
-        backtrace: BackTrace,
-    },
+    #[error("The device is poisoned, the kernel could not be loaded\nCaused by:\n  {0}")]
+    DevicePoisoned(#[from] DevicePoison),
 
     /// A generic compilation error.
     #[error(
@@ -54,6 +47,27 @@ pub enum CompilationError {
         #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
+}
+
+impl CompilationError {
+    /// Whether the device that emitted the error is poisoned.
+    ///
+    /// See [`ServerError::is_device_poisoned`](crate::server::ServerError::is_device_poisoned),
+    /// which reaches this through the error types that nest it.
+    pub fn is_device_poisoned(&self) -> bool {
+        matches!(self, Self::DevicePoisoned(_))
+    }
+
+    /// Whether this is the kernel being turned down, rather than something going
+    /// wrong while building it.
+    ///
+    /// Every compilation error is, except a device that died before the module
+    /// could load: that is the device's failure and not the kernel's, and read as
+    /// a refusal it would have an autotuner quietly drop the candidate and try
+    /// the next one on a dead device.
+    pub fn is_refusal(&self) -> bool {
+        !self.is_device_poisoned()
+    }
 }
 
 impl core::fmt::Debug for CompilationError {

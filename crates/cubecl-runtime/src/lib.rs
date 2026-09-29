@@ -70,5 +70,7 @@ pub mod compiler;
 /// running the workload itself.
 pub mod dry_run;
 pub mod launched;
+/// The payload every error type carries when the device is poisoned.
+pub mod poison;
 /// Runtime trait and related types
 pub mod runtime;

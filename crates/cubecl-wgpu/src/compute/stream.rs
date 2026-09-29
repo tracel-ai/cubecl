@@ -5,7 +5,7 @@ use super::{
     timings::{QueryProfiler, TimestampAvailability, TimestampQuerySetBudget},
 };
 use crate::compute::copies::WgpuCopies;
-use crate::compute::device_poison::DevicePoison;
+use crate::compute::device_poison::PoisonWatch;
 use crate::{
     WgpuResource, WgpuStorage,
     controller::WgpuAllocController,
@@ -86,7 +86,7 @@ pub struct WgpuStream {
     pub auxiliary: AuxiliaryMemory,
     pub device: wgpu::Device,
     /// Whether the device is poisoned, shared with every other stream on the device.
-    poison: DevicePoison,
+    poison: PoisonWatch,
     compute_pass: Option<wgpu::ComputePass<'static>>,
     timings: Timings,
     tasks_count: usize,
@@ -186,7 +186,7 @@ impl WgpuStream {
         logger: Arc<ServerLogger>,
         use_vulkan_compiler: bool,
         captures: &DeviceCaptures,
-        poison: DevicePoison,
+        poison: PoisonWatch,
     ) -> Self {
         let timings = match timing_method {
             TimingMethod::Device => Timings::Unclaimed {

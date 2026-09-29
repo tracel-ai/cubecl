@@ -1,4 +1,4 @@
-use crate::compute::device_poison::DevicePoison;
+use crate::compute::device_poison::PoisonWatch;
 use crate::{
     CompilerInfo, ParamsTransfer, WgpuResource,
     stream::WgpuStream,
@@ -97,7 +97,7 @@ pub struct WgpuStreamFactory {
     /// The device's captures, which every stream this creates takes its capture state from.
     captures: DeviceCaptures,
     /// Whether the device is poisoned, shared by every stream the factory creates.
-    poison: DevicePoison,
+    poison: PoisonWatch,
 }
 
 impl StreamFactory for WgpuStreamFactory {
@@ -145,7 +145,7 @@ impl ScheduledWgpuBackend {
             _ => TimestampQuerySetBudget::unbounded(),
         });
 
-        let poison = DevicePoison::watch(&device);
+        let poison = PoisonWatch::watch(&device);
 
         Self {
             factory: WgpuStreamFactory {

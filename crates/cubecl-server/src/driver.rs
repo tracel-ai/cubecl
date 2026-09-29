@@ -15,6 +15,9 @@ use crate::server::{IoError, LaunchError, ServerError};
 use alloc::string::ToString;
 use cubecl_environment::backtrace::BackTrace;
 
+/// The payload every error type carries once the device is poisoned, re-exported.
+pub use cubecl_runtime::poison::DevicePoison;
+
 /// A driver entry point that failed, named by what was called.
 ///
 /// The status is kept as a number rather than decoded: each API numbers its
@@ -83,10 +86,12 @@ impl core::error::Error for DriverError {}
 impl From<DriverError> for ServerError {
     fn from(error: DriverError) -> Self {
         let reason = error.to_string();
-        let backtrace = BackTrace::capture();
         match error.poisoned {
-            true => ServerError::DevicePoisoned { reason, backtrace },
-            false => ServerError::Generic { reason, backtrace },
+            true => DevicePoison::new(reason).into(),
+            false => ServerError::Generic {
+                reason,
+                backtrace: BackTrace::capture(),
+            },
         }
     }
 }
@@ -94,12 +99,11 @@ impl From<DriverError> for ServerError {
 impl From<DriverError> for IoError {
     fn from(error: DriverError) -> Self {
         let reason = error.to_string();
-        let backtrace = BackTrace::capture();
         match error.poisoned {
-            true => IoError::DevicePoisoned { reason, backtrace },
+            true => DevicePoison::new(reason).into(),
             false => IoError::Unknown {
                 description: reason,
-                backtrace,
+                backtrace: BackTrace::capture(),
             },
         }
     }
@@ -108,10 +112,12 @@ impl From<DriverError> for IoError {
 impl From<DriverError> for CompilationError {
     fn from(error: DriverError) -> Self {
         let reason = error.to_string();
-        let backtrace = BackTrace::capture();
         match error.poisoned {
-            true => CompilationError::DevicePoisoned { reason, backtrace },
-            false => CompilationError::Generic { reason, backtrace },
+            true => DevicePoison::new(reason).into(),
+            false => CompilationError::Generic {
+                reason,
+                backtrace: BackTrace::capture(),
+            },
         }
     }
 }
@@ -119,10 +125,12 @@ impl From<DriverError> for CompilationError {
 impl From<DriverError> for LaunchError {
     fn from(error: DriverError) -> Self {
         let reason = error.to_string();
-        let backtrace = BackTrace::capture();
         match error.poisoned {
-            true => LaunchError::DevicePoisoned { reason, backtrace },
-            false => LaunchError::Unknown { reason, backtrace },
+            true => DevicePoison::new(reason).into(),
+            false => LaunchError::Unknown {
+                reason,
+                backtrace: BackTrace::capture(),
+            },
         }
     }
 }
