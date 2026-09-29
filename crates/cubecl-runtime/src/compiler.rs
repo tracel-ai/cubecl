@@ -51,9 +51,6 @@ pub enum CompilationError {
 
 impl CompilationError {
     /// Whether the device that emitted the error is poisoned.
-    ///
-    /// See [`ServerError::is_device_poisoned`](crate::server::ServerError::is_device_poisoned),
-    /// which reaches this through the error types that nest it.
     pub fn is_device_poisoned(&self) -> bool {
         matches!(self, Self::DevicePoisoned(_))
     }
@@ -62,9 +59,7 @@ impl CompilationError {
     /// wrong while building it.
     ///
     /// Every compilation error is, except a device that died before the module
-    /// could load: that is the device's failure and not the kernel's, and read as
-    /// a refusal it would have an autotuner quietly drop the candidate and try
-    /// the next one on a dead device.
+    /// could load.
     pub fn is_refusal(&self) -> bool {
         !self.is_device_poisoned()
     }
