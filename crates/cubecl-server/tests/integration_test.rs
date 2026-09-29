@@ -366,13 +366,12 @@ fn a_key_no_round_settled_has_no_fastest_identity() {
 
     let client = test_client(&DummyDevice);
     let id = "test".to_string();
-    let init = identified_addition_initializer(Default::default());
-    let set = TUNER.init(&id, init.clone());
+    let set = TUNER.init(&id, identified_addition_initializer(Default::default()));
     let (handles, _) = addition_inputs(&client, &set);
-    TUNER.execute(&id, &client, set, handles);
+    TUNER.execute(&id, &client, set.clone(), handles);
 
     let untuned = "a key no round has seen".to_string();
-    assert_eq!(TUNER.fastest_identity(&id, &init, &untuned), None);
+    assert_eq!(TUNER.fastest_identity(&id, &set, &untuned), None);
 }
 
 /// The fastest tunable hands back what it was identified by. The environment is rooted afresh,
@@ -390,40 +389,14 @@ fn the_fastest_tunable_hands_back_its_identity() {
 
     let client = test_client(&DummyDevice);
     let id = "test".to_string();
-    let init = identified_addition_initializer(Default::default());
-    let set = TUNER.init(&id, init.clone());
-    let (handles, key) = addition_inputs(&client, &set);
-    TUNER.execute(&id, &client, set, handles);
-
-    assert_eq!(
-        TUNER.fastest_identity(&id, &init, &key),
-        Some(dummy::Addition::Correct)
-    );
-}
-
-/// An initializer of another type built no set on this tuner, so it finds no fastest identity,
-/// though the key is settled.
-#[test_log::test]
-#[cfg(feature = "std")]
-#[serial_test::serial]
-fn another_initializer_finds_no_fastest_identity() {
-    static TUNER: LocalTuner<String, String> =
-        local_tuner!("another_initializer_finds_no_fastest_identity");
-
-    let client = test_client(&DummyDevice);
-    let id = "test".to_string();
     let set = TUNER.init(&id, identified_addition_initializer(Default::default()));
     let (handles, key) = addition_inputs(&client, &set);
-    TUNER.execute(&id, &client, set, handles);
+    TUNER.execute(&id, &client, set.clone(), handles);
 
-    let another = || {
-        dummy::identified_addition_set(
-            test_client(&DummyDevice),
-            addition_shapes(),
-            Default::default(),
-        )
-    };
-    assert_eq!(TUNER.fastest_identity(&id, &another, &key), None);
+    assert_eq!(
+        TUNER.fastest_identity(&id, &set, &key),
+        Some(dummy::Addition::Correct)
+    );
 }
 
 /// A result belongs to the environment it was tuned under, and one only on disk has no fastest
@@ -442,11 +415,10 @@ fn a_result_only_on_disk_has_a_fastest_identity_once_an_execute_validates_it() {
     let client = test_client(&DummyDevice);
     let id = "test".to_string();
     let slow_runs = Arc::new(AtomicUsize::new(0));
-    let init = identified_addition_initializer(slow_runs.clone());
-    let set = TUNER.init(&id, init.clone());
+    let set = TUNER.init(&id, identified_addition_initializer(slow_runs.clone()));
     let (handles, key) = addition_inputs(&client, &set);
     TUNER.execute(&id, &client, set.clone(), handles.clone());
-    let fastest_identity = || TUNER.fastest_identity(&id, &init, &key);
+    let fastest_identity = || TUNER.fastest_identity(&id, &set, &key);
     assert_eq!(fastest_identity(), Some(dummy::Addition::Correct));
     let first_round = slow_runs.load(Ordering::Relaxed);
     assert!(first_round > 0, "the first execute holds a round");
@@ -464,7 +436,7 @@ fn a_result_only_on_disk_has_a_fastest_identity_once_an_execute_validates_it() {
         None,
         "a result only on disk, not yet validated"
     );
-    TUNER.execute(&id, &client, set, handles);
+    TUNER.execute(&id, &client, set.clone(), handles);
     assert_eq!(fastest_identity(), Some(dummy::Addition::Correct));
     // `autotune-checks` runs every tunable on every `execute`, round or not.
     #[cfg(not(feature = "autotune-checks"))]
@@ -475,12 +447,10 @@ fn a_result_only_on_disk_has_a_fastest_identity_once_an_execute_validates_it() {
     );
 }
 
-/// The initializer of an [identified addition set](dummy::identified_addition_set): one value,
-/// cloned into `init`, so the set a test looks up is found by the same initializer type.
+/// The initializer of an [identified addition set](dummy::identified_addition_set).
 fn identified_addition_initializer(
     slow_runs: Arc<AtomicUsize>,
-) -> impl Fn() -> TunableSet<String, Vec<Handle>, (), dummy::Addition> + Clone + Send + Sync + 'static
-{
+) -> impl Fn() -> TunableSet<String, Vec<Handle>, (), dummy::Addition> + Send + Sync + 'static {
     move || {
         dummy::identified_addition_set(
             test_client(&DummyDevice),
