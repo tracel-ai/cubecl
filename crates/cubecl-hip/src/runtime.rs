@@ -123,6 +123,7 @@ impl DeviceService for HipServer {
 
         let topology = HardwareProperties {
             load_width: 128,
+            vector_register_count: None,
             plane_size_min: probe.warp_size,
             plane_size_max: probe.warp_size,
             max_bindings: crate::device::AMD_MAX_BINDINGS,
@@ -207,7 +208,7 @@ impl DeviceService for HipServer {
         let hip_ctx = HipContext::new(comp_opts, device_props.clone(), fingerprint, backend);
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
-        let utilities = ServerUtilities::new(
+        let (utilities, captures) = ServerUtilities::init(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "hip",
             device_props,
@@ -224,6 +225,7 @@ impl DeviceService for HipServer {
             probe.alignment,
             probe.integrated,
             utilities,
+            captures,
         )
     }
 

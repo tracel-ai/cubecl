@@ -447,6 +447,7 @@ pub(crate) fn create_server<C: WgpuCompiler>(
     let max_count = adapter_limits.max_compute_workgroups_per_dimension;
     let hardware_props = HardwareProperties {
         load_width: 128,
+        vector_register_count: None,
         // On Apple Silicon, the plane size is 32,
         // though the minimum and maximum differ.
         // https://github.com/gpuweb/gpuweb/issues/3950
@@ -534,8 +535,17 @@ pub(crate) fn create_server<C: WgpuCompiler>(
     let name = runtime_name(setup.backend, &compilation_options);
 
     let allocator = ContiguousMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
+    let memory_properties = device_props.memory.clone();
+    let (utilities, captures) = ServerUtilities::init(
+        ServiceId::of::<WgpuServer<C>>(device_id),
+        name,
+        device_props,
+        WgpuRuntime::<C>::target_properties(),
+        logger,
+        allocator,
+    );
     WgpuServer::new(
-        device_props.memory.clone(),
+        memory_properties,
         options.memory_config,
         compilation_options,
         setup.device.clone(),
@@ -543,14 +553,8 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         options.tasks_max,
         setup.backend,
         time_measurement,
-        ServerUtilities::new(
-            ServiceId::of::<WgpuServer<C>>(device_id),
-            name,
-            device_props,
-            WgpuRuntime::<C>::target_properties(),
-            logger,
-            allocator,
-        ),
+        utilities,
+        captures,
     )
 }
 

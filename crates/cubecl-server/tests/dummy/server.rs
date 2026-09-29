@@ -353,6 +353,7 @@ impl<M: Marker> DummyServer<M> {
     ) -> Self {
         let hardware = HardwareProperties {
             load_width: 128,
+            vector_register_count: None,
             plane_size_min: 32,
             plane_size_max: 32,
             max_bindings: 32,
@@ -383,14 +384,16 @@ impl<M: Marker> DummyServer<M> {
         );
         let logger = Arc::new(ServerLogger::default());
 
-        let utilities = Arc::new(ServerUtilities::new(
+        // No graph capture on this backend: nothing updates the captures.
+        let (utilities, _captures) = ServerUtilities::init(
             service,
             "dummy",
             props,
             TargetProperties::default(),
             logger,
             ContiguousMemoryLayoutPolicy::new(4),
-        ));
+        );
+        let utilities = Arc::new(utilities);
 
         Self {
             _marker: core::marker::PhantomData,

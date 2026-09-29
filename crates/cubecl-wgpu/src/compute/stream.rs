@@ -20,7 +20,7 @@ use cubecl_common::{
 };
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
-    server::{BufferBinding, IoError, ProfileError, ProfilingToken, ServerError},
+    server::{BufferBinding, DeviceCaptures, IoError, ProfileError, ProfilingToken, ServerError},
     zspace::Shape,
 };
 use cubecl_environment::backtrace::BackTrace;
@@ -37,7 +37,7 @@ use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ErrorGraph, FailureId, ManagedMemoryHandle, SharedMemoryBindings},
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{DeviceRecording, StreamCapture, StreamMemory},
+    stream::{StreamCapture, StreamMemory},
     timestamp_profiler::TimestampProfiler,
 };
 #[cfg(renderdoc)]
@@ -139,7 +139,7 @@ impl StreamMemory for WgpuStream {
 
 impl RelocatableStream for WgpuStream {
     fn recording(&self) -> bool {
-        self.capturing.any_recording()
+        self.capturing.device().any_recording()
     }
 
     fn has_outdated(&self) -> bool {
@@ -185,7 +185,7 @@ impl WgpuStream {
         tasks_max: usize,
         logger: Arc<ServerLogger>,
         use_vulkan_compiler: bool,
-        recording: DeviceRecording,
+        captures: &DeviceCaptures,
         poison: DevicePoison,
     ) -> Self {
         let timings = match timing_method {
@@ -240,7 +240,7 @@ impl WgpuStream {
             // entry pins a whole page (512 × 32 KiB ≈ 16 MiB worst case) —
             // unlike CUDA/HIP where an entry is a small dynamic-pool slice.
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::new(512, 2048)),
-            capturing: StreamCapture::new(recording),
+            capturing: StreamCapture::new(captures),
             recording: GraphRecording::default(),
         }
     }

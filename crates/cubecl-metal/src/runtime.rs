@@ -69,6 +69,7 @@ impl DeviceService for MetalServer {
 
         let hardware_props = HardwareProperties {
             load_width: 128,
+            vector_register_count: None,
             plane_size_min: 32,
             plane_size_max: 32,
             // Metal allows 31 buffer bindings; one is reserved for the per-kernel info buffer.
@@ -112,14 +113,16 @@ impl DeviceService for MetalServer {
 
         let logger = std::sync::Arc::new(cubecl_server::logging::ServerLogger::default());
         let allocator = ContiguousMemoryLayoutPolicy::new(mem_props.alignment as usize);
-        let utilities = std::sync::Arc::new(cubecl_core::server::ServerUtilities::new(
+        // No graph capture on this backend: nothing updates the captures.
+        let (utilities, _captures) = cubecl_core::server::ServerUtilities::init(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "metal",
             device_props.clone(),
             MetalRuntime::target_properties(),
             logger,
             allocator,
-        ));
+        );
+        let utilities = std::sync::Arc::new(utilities);
 
         let mem_config = cubecl_core::MemoryConfiguration::default();
 
