@@ -176,6 +176,7 @@ impl DeviceService for CudaServer {
 
             HardwareProperties {
                 load_width: 128,
+                vector_register_count: None,
                 plane_size_min: warp_size,
                 plane_size_max: warp_size,
                 max_bindings: crate::device::CUDA_MAX_BINDINGS,
@@ -394,7 +395,7 @@ impl DeviceService for CudaServer {
         );
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
-        let mut utilities = ServerUtilities::new(
+        let (mut utilities, captures) = ServerUtilities::init(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "cuda",
             device_props,
@@ -412,6 +413,7 @@ impl DeviceService for CudaServer {
             mem_alignment,
             device_id,
             utilities,
+            captures,
         )
     }
 

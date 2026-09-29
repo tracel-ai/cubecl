@@ -1,6 +1,8 @@
 use cubecl_core::ir::{ElemType, FloatKind};
 use cubecl_runtime::{client::Client, throughput::ComputeCmmaConfig};
 
+use crate::throughput::compute_direct;
+
 /// The operand types and vector widths an arithmetic ceiling is measured in.
 pub(super) struct Arithmetic;
 
@@ -20,17 +22,12 @@ impl Arithmetic {
         dtypes
     }
 
-    /// `io_optimized_vector_sizes` is ordered for the loads and stores this
-    /// probe issues none of, and its widest is not the fastest on every device.
+    /// The probe issues no loads, so it sweeps down from the widest vector kept in registers.
     pub(super) fn widths(client: &Client, dtype: ElemType) -> alloc::vec::Vec<usize> {
-        let widths: alloc::vec::Vec<usize> =
-            client.io_optimized_vector_sizes(dtype.size()).collect();
-
-        if widths.is_empty() {
-            alloc::vec![1]
-        } else {
-            widths
-        }
+        client
+            .properties()
+            .vector_sizes_in_registers(dtype.size(), compute_direct::LIVE_VECTORS)
+            .collect()
     }
 
     /// What a kernel with `dtype` operands accumulates in when the device has no

@@ -1,4 +1,4 @@
-use super::Handle;
+use super::{CaptureStatus, DeviceCaptures, Handle};
 use crate::kernel::BufferIOAttr;
 use crate::{
     client::Client,
@@ -143,6 +143,9 @@ pub struct ServerUtilities {
     pub check_mode: BoundsCheckMode,
     /// A set containing the ids for which the inter-device communication has already been initialized.
     pub initialized_comms: RwLock<HashSet<CommunicationId>>,
+    /// The graph captures under way on the device, read-only: the streams update them through
+    /// the [`DeviceCaptures`] [`init`](Self::init) returns alongside.
+    pub captures: CaptureStatus,
 }
 
 /// Defines how the memory layout is determined.
@@ -170,20 +173,25 @@ impl core::fmt::Debug for ServerUtilities {
 }
 
 impl ServerUtilities {
-    /// Creates a new server utilities.
-    pub fn new(
+    /// Creates the utilities of a device, with the [captures](DeviceCaptures) its streams
+    /// update.
+    ///
+    /// The utilities are shared with every client and only read the captures; the server hands
+    /// the returned writer to the streams it creates, and to nothing else.
+    pub fn init(
         service: ServiceId,
         name: &'static str,
         properties: DeviceProperties,
         target_properties: TargetProperties,
         logger: Arc<ServerLogger>,
         allocator: impl MemoryLayoutPolicy,
-    ) -> Self {
+    ) -> (Self, DeviceCaptures) {
+        let captures = DeviceCaptures::default();
         // Start a tracy client if needed.
         #[cfg(feature = "profile-tracy")]
         let client = tracy_client::Client::start();
 
-        Self {
+        let utilities = Self {
             service,
             name,
             properties_hash: properties.checksum(),
@@ -208,7 +216,10 @@ impl ServerUtilities {
             server_comm_enabled: false,
             check_mode: CubeClRuntimeConfig::get().compilation.check_mode,
             initialized_comms: RwLock::new(HashSet::default()),
-        }
+            captures: captures.status(),
+        };
+
+        (utilities, captures)
     }
 }
 

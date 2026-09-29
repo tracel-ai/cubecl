@@ -12,6 +12,7 @@ use std::sync::Arc;
 pub(crate) fn device_properties(plane_dim: u32) -> Arc<DeviceProperties> {
     let hardware = HardwareProperties {
         load_width: 128,
+        vector_register_count: None,
         plane_size_min: plane_dim,
         plane_size_max: plane_dim,
         max_bindings: 32,
