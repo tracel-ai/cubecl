@@ -168,11 +168,11 @@ pub fn get_nested_memory_effects(ctx: &Context, op: Ptr<Operation>) -> Vec<Memor
 }
 
 pub enum Speculatability {
-    /// The Operation in question cannot be speculatively executed.  This could be
+    /// The Operation in question cannot be speculatively executed. This could be
     /// because it may invoke undefined behavior or have other side effects.
     NotSpeculatable,
 
-    // The Operation in question can be speculatively executed.  It does not have
+    // The Operation in question can be speculatively executed. It does not have
     // any side effects or undefined behavior.
     Speculatable,
 

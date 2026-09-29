@@ -3659,13 +3659,13 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 [[package]]
 name = "pliron"
 version = "0.18.0"
-source = "git+https://github.com/pliron-org/pliron.git?rev=b869e77c68af63b888bbe9c3e355138f00c3fad3#b869e77c68af63b888bbe9c3e355138f00c3fad3"
+source = "git+https://github.com/pliron-org/pliron.git?rev=81155d96b8797d149de1d88219c431a68a75ef33#81155d96b8797d149de1d88219c431a68a75ef33"
 dependencies = [
  "awint",
  "combine",
  "downcast-rs",
  "dyn-clone",
- "hashbrown 0.17.1",
+ "hashbrown 0.15.5",
  "hi_sparse_bitset",
  "indexmap",
  "inventory",
@@ -3686,7 +3686,7 @@ dependencies = [
 [[package]]
 name = "pliron-derive"
 version = "0.18.0"
-source = "git+https://github.com/pliron-org/pliron.git?rev=b869e77c68af63b888bbe9c3e355138f00c3fad3#b869e77c68af63b888bbe9c3e355138f00c3fad3"
+source = "git+https://github.com/pliron-org/pliron.git?rev=81155d96b8797d149de1d88219c431a68a75ef33#81155d96b8797d149de1d88219c431a68a75ef33"
 dependencies = [
  "combine",
  "convert_case 0.11.0",
@@ -3700,7 +3700,7 @@ dependencies = [
 [[package]]
 name = "pliron-llvm"
 version = "0.18.0"
-source = "git+https://github.com/pliron-org/pliron.git?rev=b869e77c68af63b888bbe9c3e355138f00c3fad3#b869e77c68af63b888bbe9c3e355138f00c3fad3"
+source = "git+https://github.com/pliron-org/pliron.git?rev=81155d96b8797d149de1d88219c431a68a75ef33#81155d96b8797d149de1d88219c431a68a75ef33"
 dependencies = [
  "bitflags 2.13.1",
  "llvm-sys",
@@ -3712,6 +3712,7 @@ dependencies = [
 [[package]]
 name = "pliron-spirv"
 version = "0.15.0+sdk-1.4.357.0"
+source = "git+https://github.com/tracel-ai/tracel-rspirv.git?rev=77996f97565f9a980d10d8fae9a56a60cb149614#77996f97565f9a980d10d8fae9a56a60cb149614"
 dependencies = [
  "derive-new",
  "derive_more",
@@ -5144,6 +5145,7 @@ dependencies = [
 [[package]]
 name = "tracel-rspirv"
 version = "0.15.0+sdk-1.4.357.0"
+source = "git+https://github.com/tracel-ai/tracel-rspirv.git?rev=77996f97565f9a980d10d8fae9a56a60cb149614#77996f97565f9a980d10d8fae9a56a60cb149614"
 dependencies = [
  "bitflags 2.13.1",
  "pliron",

@@ -21,6 +21,7 @@ pub mod analyses;
 pub mod passes;
 pub mod scoped_map;
 
+use hi_sparse_bitset::{Apply, BitSetInterface, ops};
 use pliron::{
     context::{Context, Ptr},
     operation::Operation,
@@ -30,6 +31,17 @@ use pliron::{
 use smallvec::SmallVec;
 
 pub(crate) type SparseBitSet = hi_sparse_bitset::BitSet<hi_sparse_bitset::config::_128bit>;
+
+pub(crate) trait BitSetExt: BitSetInterface {
+    #[inline]
+    fn difference<Other>(self, other: Other) -> Apply<ops::Sub, Self, Other>
+    where
+        Other: BitSetInterface<Conf = Self::Conf>,
+    {
+        hi_sparse_bitset::apply(ops::Sub, self, other)
+    }
+}
+impl<T: BitSetInterface> BitSetExt for T {}
 
 pub use crate::analyses::liveness::shared::SharedLiveness;
 

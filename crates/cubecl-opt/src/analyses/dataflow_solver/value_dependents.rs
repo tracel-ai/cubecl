@@ -22,6 +22,13 @@ use super::{DataflowSolver, ReadRef, WriteRef};
 #[derive(Deref, DerefMut, PartialEq, Default, Clone)]
 pub struct Dependents(pub SparseBitSet);
 
+impl Printable for Dependents {
+    fn fmt(&self, _: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let set = self.0.iter().map(|i| format!("e{i}")).join(", ");
+        write!(f, "Dependents({{{}}})", set)
+    }
+}
+
 impl LatticeValue for Dependents {
     fn join(this: &SparseLattice<Self>, rhs: &Self) -> Self {
         Dependents(this.value().intersection(&rhs.0).into())
@@ -32,16 +39,10 @@ impl LatticeValue for Dependents {
     }
 }
 
-impl Printable for Dependents {
-    fn fmt(&self, _: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let set = self.0.iter().map(|i| format!("e{i}")).join(", ");
-        write!(f, "{{{}}}", set)
-    }
-}
-
-pub type DependentsLattice = SparseLattice<ValueDependents>;
+pub type DependentsLattice = SparseLattice<Dependents>;
 pub type ValueDependentsAnalysis = SparseBackward<ValueDependents>;
 
+#[derive(Default)]
 pub struct ValueDependents;
 
 impl SparseBackwardDataflowAnalysis for ValueDependents {
@@ -59,7 +60,8 @@ impl SparseBackwardDataflowAnalysis for ValueDependents {
 
         for result_lattice in results {
             let result = result_lattice.deref().anchor();
-            let value = solver.get_or_create_for::<Self, ValueNumberLattice>(point, result);
+            let value =
+                solver.get_or_create_for::<SparseBackward<Self>, ValueNumberLattice>(point, result);
             let value = match value.deref().value().value() {
                 Some(value) => value,
                 None => return Ok(()),

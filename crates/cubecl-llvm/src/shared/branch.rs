@@ -11,7 +11,7 @@ use cubecl_core::ir::dialect::{
     cmp::{SLessThanOp, ULessThanOp},
     general::CastOp,
     math::IAddOp,
-    scf::{IfOp, RangeLoopOp, SwitchOp, WhileOp},
+    scf::{ForOp, IfOp, SwitchOp, WhileOp},
 };
 use pliron::region::Region;
 

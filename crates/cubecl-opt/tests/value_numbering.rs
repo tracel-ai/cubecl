@@ -595,10 +595,10 @@ fn value_numbering_ignores_folded_scf_if_branch() -> Result<()> {
     expect![[r#"
         a_v0: ValueNumber(0)
         b_v1: ValueNumber(1)
-        ab_v2: ValueNumber(2)
-        false_v3: ValueNumber(3)
-        live_v5: ValueNumber(2)
-        result_v6: ValueNumber(2)
+        ab_v2: ValueNumber(3)
+        false_v3: ValueNumber(2)
+        live_v5: ValueNumber(3)
+        result_v6: ValueNumber(3)
     "#]]
     .assert_eq(&display);
     Ok(())

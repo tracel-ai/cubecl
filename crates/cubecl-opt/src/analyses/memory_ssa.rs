@@ -766,6 +766,24 @@ impl MemorySSA {
         self.nodes.insert(DefiningEntity::Op(op), new_use.into());
         Some(clobbering_access)
     }
+
+    pub fn op_memory_def(&mut self, op: Ptr<Operation>) -> Option<MemoryValue> {
+        self.memory_def(DefiningEntity::Op(op))
+    }
+
+    pub fn block_memory_def(&mut self, block: Ptr<BasicBlock>) -> Option<MemoryValue> {
+        self.memory_def(DefiningEntity::Block(block))
+    }
+
+    pub fn memory_def(&mut self, defining: DefiningEntity) -> Option<MemoryValue> {
+        let node = self.nodes.get(&defining)?;
+        match node {
+            MemorySSANode::Def(def) => Some(def.result),
+            MemorySSANode::Use(_) => None,
+            MemorySSANode::Phi(phi) => Some(phi.result),
+            MemorySSANode::RegionPhi(phi) => Some(phi.result),
+        }
+    }
 }
 
 pub struct MemorySSAWalker<'a> {

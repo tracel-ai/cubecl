@@ -123,7 +123,6 @@ fn inline_block(
     block: Ptr<BasicBlock>,
     insertion_point: OpInsertionPoint,
 ) {
-    // test
     let ops = block.deref(ctx).iter(ctx).collect::<Vec<_>>();
     let mut insertion_pt = insertion_point;
     for op in ops {

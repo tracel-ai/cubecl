@@ -27,6 +27,7 @@ pub use solver::*;
 pub mod control_flow_uniformity;
 pub mod dead_code;
 pub mod dense;
+pub mod pre;
 pub mod sccp;
 pub mod sparse;
 pub mod value_dependents;
@@ -53,7 +54,7 @@ impl BitOrAssign for ChangeResult {
 mod solver {
     use core::cell::{Ref, RefMut};
 
-    use pliron::{indented_block, printable::indented_nl};
+    use pliron::{indented_block, printable::indented_nl, utils::table::IMap};
 
     use super::*;
 
@@ -119,7 +120,7 @@ mod solver {
     type StateEntry = Rc<RefCell<dyn PrintableState>>;
 
     pub struct DataflowSolver {
-        child_analyses: HashMap<TypeId, Box<dyn DataflowAnalysis>>,
+        child_analyses: IMap<TypeId, Box<dyn DataflowAnalysis>>,
         worklist: RefCell<VecDeque<SolverWorkItem>>,
         anchor_hash: FixedState,
         analysis_states: RefCell<AnalysisStates>,
@@ -242,6 +243,15 @@ mod solver {
         }
 
         pub fn initialize_and_run(&mut self, ctx: &Context, root: Ptr<Operation>) -> Result<()> {
+            self.initialize_filtered_and_run(ctx, root, |_| true)
+        }
+
+        pub fn initialize_filtered_and_run(
+            &mut self,
+            ctx: &Context,
+            root: Ptr<Operation>,
+            should_initialize: impl Fn(&dyn DataflowAnalysis) -> bool,
+        ) -> Result<()> {
             let is_interprocedural = self.config.is_interprocedural;
             if is_interprocedural && !root.impls::<dyn SymbolTableInterface>(ctx) {
                 self.config.is_interprocedural = false;
@@ -252,6 +262,9 @@ mod solver {
 
             // Initialize equivalent lattice anchors.
             for analysis in child_analyses.values() {
+                if !should_initialize(&**analysis) {
+                    continue;
+                }
                 analysis.initialize_equivalent_lattice_anchor(self, ctx, root);
             }
 
