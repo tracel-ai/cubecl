@@ -24,7 +24,7 @@ use crate::{
         convert::{no_half, no_msl_bfloat, promotes_int},
         lowering::LowerOp,
         shared_op, shared_op_with_out,
-        ty::{TypeExtCPP, TypedExtCPP},
+        ty::TypedExtCPP,
         unroll::unrolling,
     },
     target::{CtxTarget, Hip, Target},
@@ -116,13 +116,17 @@ shared_op_with_out!(FRemOp, |op, ctx| {
 unrolling!(FRemOp);
 no_half!(FRemOp);
 
-shared_op_with_out!(SModFloorOp, |op, ctx| {
-    let lhs = op.lhs(ctx).name(ctx);
-    let rhs = op.rhs(ctx).name(ctx);
-    let out_elem = op.get_result(ctx).get_type(ctx).to_cpp(ctx);
-    format!("{lhs} - {rhs} * ({out_elem})floor((float){lhs} / (float){rhs})")
-});
-unrolling!(SModFloorOp);
+#[op_interface_impl]
+impl LowerOp for SModFloorOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ctx = scope.ctx();
+        vec![cubecl_core::frontend::polyfills::expand_signed_mod_floor(
+            scope,
+            self.lhs(ctx),
+            self.rhs(ctx),
+        )]
+    }
+}
 
 shared_op_with_out!(FModFloorOp, |op, ctx| {
     let lhs = op.lhs(ctx).name(ctx);

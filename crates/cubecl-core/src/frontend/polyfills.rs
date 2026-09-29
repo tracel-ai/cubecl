@@ -30,6 +30,23 @@ pub mod set_polyfill {
     }
 }
 
+/// Floor modulo using integer arithmetic, preserving precision across the full input range.
+pub fn expand_signed_mod_floor(scope: &Scope, lhs: Value, rhs: Value) -> Value {
+    define_scalar!(I);
+    define_size!(N);
+    scope.register_value_type::<I, N>(lhs);
+    signed_mod_floor::expand::<I, N>(scope, lhs.into(), rhs.into()).read_value(scope)
+}
+
+#[cube]
+fn signed_mod_floor<I: Int, N: Size>(lhs: Vector<I, N>, rhs: Vector<I, N>) -> Vector<I, N> {
+    let remainder = lhs % rhs;
+    let zero = Vector::new(I::from_int(0));
+    let different_signs = (remainder ^ rhs).less_than(&zero);
+    let adjust = remainder.not_equal(&zero).vec_and(different_signs);
+    remainder + select_many(adjust, rhs, zero)
+}
+
 #[cube]
 pub fn erf<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     let erf = erf_positive(x.abs());

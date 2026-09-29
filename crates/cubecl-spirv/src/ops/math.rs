@@ -27,11 +27,35 @@ binop_to_spirv_dialect!(math::FMulOp => ops::FMulOp);
 binop_to_spirv_dialect!(math::SDivOp => ops::SDivOp);
 binop_to_spirv_dialect!(math::UDivOp => ops::UDivOp);
 binop_to_spirv_dialect!(math::FDivOp => ops::FDivOp);
-binop_to_spirv_dialect!(math::SRemOp => ops::SRemOp);
+lower_binop!(math::SRemOp, signed_remainder);
 binop_to_spirv_dialect!(math::URemOp => ops::UModOp);
 binop_to_spirv_dialect!(math::FRemOp => ops::FRemOp);
-binop_to_spirv_dialect!(math::SModFloorOp => ops::SModOp);
+lower_binop!(math::SModFloorOp, signed_mod_floor);
 binop_to_spirv_dialect!(math::FModFloorOp => ops::FModOp);
+
+// Vulkan only defines OpSRem/OpSMod for negative operands when maintenance8 is
+// enabled. Reconstruct the truncating remainder using integer arithmetic so
+// signed inputs work on devices without that feature too.
+#[cube]
+fn signed_remainder<I: Int, N: Size>(lhs: Vector<I, N>, rhs: Vector<I, N>) -> Vector<I, N> {
+    // MIN / -1 overflows, although its remainder is zero. Dividing by 1 gives
+    // that remainder without overflowing. No floating-point conversion is used.
+    let divisor = select_many(
+        rhs.equal(&Vector::new(I::from_int(-1))),
+        Vector::new(I::from_int(1)),
+        rhs,
+    );
+    lhs - (lhs / divisor) * divisor
+}
+
+#[cube]
+fn signed_mod_floor<I: Int, N: Size>(lhs: Vector<I, N>, rhs: Vector<I, N>) -> Vector<I, N> {
+    let remainder = signed_remainder(lhs, rhs);
+    let zero = Vector::new(I::from_int(0));
+    let different_signs = (remainder ^ rhs).less_than(&zero);
+    let adjust = remainder.not_equal(&zero).vec_and(different_signs);
+    remainder + select_many(adjust, rhs, zero)
+}
 
 #[op_interface_impl]
 impl LowerOp for math::Dp4aOp {
