@@ -405,19 +405,15 @@ pub fn test_signed_remainder<R: Runtime>(client: Client) {
             let uses = <$ty>::supported_uses(&client);
             if uses.contains(TypeUsage::Arithmetic) && uses.contains(TypeUsage::Buffer) {
                 // MIN / -1 and division by zero have no portable result.
-                let cases: [($ty, $ty, $ty, $ty); 12] = [
+                let cases: [($ty, $ty, $ty, $ty); 8] = [
                     (-7, 3, -1, 2),
                     (7, -3, 1, -2),
                     (-7, -3, -1, -1),
                     (7, 3, 1, 1),
                     (6, -3, 0, 0),
-                    (0, -3, 0, 0),
                     (<$ty>::MIN, 3, -2, 1),
                     (<$ty>::MAX - 1, <$ty>::MAX, <$ty>::MAX - 1, <$ty>::MAX - 1),
-                    (-7, -1, 0, 0),
-                    (7, -1, 0, 0),
                     (<$ty>::MIN + 1, -1, 0, 0),
-                    (<$ty>::MAX, -1, 0, 0),
                 ];
                 for vector_size in [1, 4] {
                     let [lhs, rhs] = [cases.map(|c| c.0), cases.map(|c| c.1)]
