@@ -38,14 +38,8 @@ binop_to_spirv_dialect!(math::FModFloorOp => ops::FModOp);
 // signed inputs work on devices without that feature too.
 #[cube]
 fn signed_remainder<I: Int, N: Size>(lhs: Vector<I, N>, rhs: Vector<I, N>) -> Vector<I, N> {
-    // MIN / -1 overflows, although its remainder is zero. Dividing by 1 gives
-    // that remainder without overflowing. No floating-point conversion is used.
-    let divisor = select_many(
-        rhs.equal(&Vector::new(I::from_int(-1))),
-        Vector::new(I::from_int(1)),
-        rhs,
-    );
-    lhs - (lhs / divisor) * divisor
+    // Division by zero and MIN / -1 are outside the portable contract.
+    lhs - (lhs / rhs) * rhs
 }
 
 #[cube]
