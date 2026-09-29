@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use cubecl_core::ir::dialect::{
     bitwise::*,
-    cmp::{FMaxOp, FMinOp, SMaxOp, SMinOp, UMaxOp, UMinOp},
+    cmp::{FMaxNanOp, FMaxOp, FMinNanOp, FMinOp, SMaxOp, SMinOp, UMaxOp, UMinOp},
     general::{BoolAndOp, BoolNotOp, BoolOrOp},
     math::*,
 };
@@ -519,3 +519,6 @@ impl ToLLVMDialect for FmaOp {
         Ok(())
     }
 }
+
+lower_binary_intrinsic_arith!(FMinNanOp => "llvm.minimum");
+lower_binary_intrinsic_arith!(FMaxNanOp => "llvm.maximum");

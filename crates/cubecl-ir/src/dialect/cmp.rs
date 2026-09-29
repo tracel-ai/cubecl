@@ -242,6 +242,65 @@ const_eval!(FClampOp, {
     [FloatAttr(f16, bf16, f32, f64)]: |inp, min, max| inp.clamp(min, max),
 });
 
+/// Floating-point minimum that propagates NaN from either operand.
+/// Opposite-signed zeros may yield either sign; NaN payloads and signs are unspecified.
+#[cube_op(name = "cmp.f_min_nan")]
+#[result_ty(same_as = lhs)]
+#[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
+pub struct FMinNanOp {
+    pub lhs: Value,
+    pub rhs: Value,
+}
+const_eval!(FMinNanOp, {
+    [FloatAttr(f16, bf16, f32, f64)]: |lhs, rhs| {
+        if lhs.is_nan() { lhs }
+        else if rhs.is_nan() { rhs }
+        else { lhs.min(rhs) }
+    },
+});
+
+/// Floating-point maximum that propagates NaN from either operand.
+/// Opposite-signed zeros may yield either sign; NaN payloads and signs are unspecified.
+#[cube_op(name = "cmp.f_max_nan")]
+#[result_ty(same_as = lhs)]
+#[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
+pub struct FMaxNanOp {
+    pub lhs: Value,
+    pub rhs: Value,
+}
+const_eval!(FMaxNanOp, {
+    [FloatAttr(f16, bf16, f32, f64)]: |lhs, rhs| {
+        if lhs.is_nan() { lhs }
+        else if rhs.is_nan() { rhs }
+        else { lhs.max(rhs) }
+    },
+});
+
+/// Floating-point clamp that propagates NaN from any operand.
+///
+/// Applies the upper bound first, then the lower bound; reversed non-NaN bounds
+/// yield `min`. If the result is zero and the operands include zeros of opposite
+/// signs, either sign of zero may be returned. NaN payloads and signs are unspecified.
+#[cube_op(name = "cmp.f_clamp_nan")]
+#[result_ty(same_as = input)]
+#[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
+pub struct FClampNanOp {
+    pub input: Value,
+    pub min: Value,
+    pub max: Value,
+}
+const_eval!(FClampNanOp, {
+    [FloatAttr(f16, bf16, f32, f64)]: |inp, min, max| {
+        if inp.is_nan() { inp }
+        else if min.is_nan() { min }
+        else if max.is_nan() { max }
+        else { inp.min(max).max(min) }
+    },
+});
+
 macro_rules! cmp_binop {
     ($name: literal, $ty: ident) => {
         #[cubecl_macros_internal::cube_op(name = $name)]
@@ -602,5 +661,72 @@ fn max_uint(width: usize) -> u64 {
         u64::MAX
     } else {
         (1u64 << width) - 1
+    }
+}
+
+#[cfg(test)]
+mod clamp_nan_tests {
+    use super::*;
+    use crate::types::scalar::Float32Type;
+    use alloc::boxed::Box;
+    use pliron::{
+        attribute::AttrObj, builtin::ops::ConstantOp, opts::constants::ConstFoldInterface,
+    };
+
+    fn constants<const N: usize>(
+        ctx: &mut Context,
+        values: [f64; N],
+    ) -> ([Value; N], [Option<AttrObj>; N]) {
+        let ty = Float32Type::get(ctx).to_handle();
+        let attrs = values.map(|v| FloatAttr::from_f64(ctx, ty, v));
+        let operands = attrs
+            .each_ref()
+            .map(|attr| ConstantOp::new(ctx, Box::new(attr.clone())).get_result(ctx));
+        (operands, attrs.map(|attr| Some(Box::new(attr) as AttrObj)))
+    }
+
+    fn assert_folded(ctx: &Context, folded: &[Option<AttrObj>], expected: f64) {
+        let actual = folded[0]
+            .as_ref()
+            .unwrap()
+            .downcast_ref::<FloatAttr>()
+            .unwrap();
+        let actual = actual.float_type(ctx).value_to_f64(actual.val);
+        assert!(
+            actual == expected || (actual.is_nan() && expected.is_nan()),
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    #[test]
+    fn min_max_nan_constant_folding() {
+        let mut ctx = Context::default();
+        for (lhs, rhs, expected_min, expected_max) in [
+            (f64::NAN, 3.0, f64::NAN, f64::NAN),
+            (3.0, f64::NAN, f64::NAN, f64::NAN),
+            (f64::NAN, f64::NAN, f64::NAN, f64::NAN),
+            (-2.0, 3.0, -2.0, 3.0),
+        ] {
+            let ([lhs, rhs], attrs) = constants(&mut ctx, [lhs, rhs]);
+            let min = FMinNanOp::new(&mut ctx, lhs, rhs).check_fold(&ctx, &attrs);
+            let max = FMaxNanOp::new(&mut ctx, lhs, rhs).check_fold(&ctx, &attrs);
+            assert_folded(&ctx, &min, expected_min);
+            assert_folded(&ctx, &max, expected_max);
+        }
+    }
+
+    #[test]
+    fn clamp_nan_constant_folding() {
+        let mut ctx = Context::default();
+        for (input, min, max, expected) in [
+            (f64::NAN, 0.0, 1.0, f64::NAN),
+            (0.5, f64::NAN, 1.0, f64::NAN),
+            (0.5, 0.0, f64::NAN, f64::NAN),
+            (2.0, 0.0, 1.0, 1.0),
+        ] {
+            let ([input, min, max], attrs) = constants(&mut ctx, [input, min, max]);
+            let folded = FClampNanOp::new(&mut ctx, input, min, max).check_fold(&ctx, &attrs);
+            assert_folded(&ctx, &folded, expected);
+        }
     }
 }

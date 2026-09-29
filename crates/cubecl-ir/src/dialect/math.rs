@@ -581,6 +581,8 @@ simplify!(FRemOp, {
     }
 });
 
+/// Signed floor modulo. A nonzero result has the same sign as the divisor.
+/// Division by zero and `MIN mod_floor -1` have no portable result or error guarantee.
 #[cube_op(name = "math.s_mod_floor")]
 #[result_ty(same_as = lhs)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
