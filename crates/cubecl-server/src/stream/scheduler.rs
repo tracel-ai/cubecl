@@ -5,7 +5,7 @@ use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
     memory_management::{ErrorGraph, FailureId},
-    server::BufferBinding,
+    server::{BufferBinding, ServerError},
     stream::{FailureStore, Failures, StreamFactory, StreamMemory, StreamPool},
 };
 use alloc::{format, sync::Arc, vec, vec::Vec};
@@ -124,12 +124,12 @@ impl<B: SchedulerStreamBackend> StreamFactory for SchedulerPoolMarker<B> {
     type Stream = Stream<B>;
 
     // Creates a new stream with an empty task list and a backend stream.
-    fn create(&mut self) -> Self::Stream {
-        Stream {
+    fn create(&mut self) -> Result<Self::Stream, ServerError> {
+        Ok(Stream {
             tasks: Vec::new(),
             // Uses the backend's factory to create a new stream.
-            stream: self.backend.factory().create(),
-        }
+            stream: self.backend.factory().create()?,
+        })
     }
 }
 

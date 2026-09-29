@@ -6,7 +6,7 @@ use crate::{
 };
 use alloc::sync::Arc;
 use cubecl_common::{bytes::Bytes, pool::LeaseHandle, profile::TimingMethod};
-use cubecl_core::server::{BufferBinding, DeviceCaptures};
+use cubecl_core::server::{BufferBinding, DeviceCaptures, ServerError};
 use cubecl_core::{CubeCount, MemoryConfiguration, server::MetadataBindingInfo, zspace::SmallVec};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_server::{
@@ -103,11 +103,11 @@ pub struct WgpuStreamFactory {
 impl StreamFactory for WgpuStreamFactory {
     type Stream = WgpuStream;
 
-    fn create(&mut self) -> Self::Stream {
+    fn create(&mut self) -> Result<Self::Stream, ServerError> {
         self.count += 1;
 
         let gpu_config = self.memory_config.clone();
-        WgpuStream::new(
+        Ok(WgpuStream::new(
             self.device.clone(),
             self.queue.clone(),
             self.memory_properties.clone(),
@@ -120,7 +120,7 @@ impl StreamFactory for WgpuStreamFactory {
             self.use_vulkan_compiler,
             &self.captures,
             self.poison.clone(),
-        )
+        ))
     }
 }
 

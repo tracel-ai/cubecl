@@ -30,7 +30,10 @@ use cubecl_server::{
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, StreamMemoryReport},
     server::Server,
     storage::{ComputeStorage, ManagedResource},
-    stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
+    stream::{
+        ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing,
+        skip_if_poisoned,
+    },
 };
 use cudarc::driver::sys::{
     CUstream, CUtensorMap, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapInterleave,
@@ -100,7 +103,7 @@ impl Server for CudaServer {
     }
 
     fn staging(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, ServerError> {
-        let mut command = self.command_no_inputs(stream_id);
+        let mut command = self.command_no_inputs(stream_id)?;
 
         Ok(sizes
             .iter()
@@ -125,13 +128,19 @@ impl Server for CudaServer {
             return Box::pin(async move { Err(err) });
         }
 
-        let mut command = self.command(stream_id, descriptors.iter().map(|d| &d.handle));
+        let mut command = match self.command(stream_id, descriptors.iter().map(|d| &d.handle)) {
+            Ok(command) => command,
+            Err(err) => return Box::pin(async move { Err(err) }),
+        };
         Box::pin(command.read_async(descriptors))
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
-        self.command_no_inputs(stream_id)
-            .initialize_memory(memory, size);
+        if let Some(mut command) =
+            skip_if_poisoned(self.command_no_inputs(stream_id), "initializing memory")
+        {
+            command.initialize_memory(memory, size);
+        }
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
@@ -151,7 +160,7 @@ impl Server for CudaServer {
             let mut written = self.write_set();
             written.push(descriptor.handle.clone());
             ExecuteScope::over(self, stream_id, written).execute(|server| {
-                let mut command = server.command(stream_id, [&descriptor.handle].into_iter());
+                let mut command = server.command(stream_id, [&descriptor.handle].into_iter())?;
                 command.write_to_gpu(descriptor, data).map_err(Into::into)
             });
         }
@@ -230,7 +239,7 @@ impl Server for CudaServer {
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         // A flush reports nothing: a failure lives on the buffers the work
         // left unwritten, and a read of one of them is what surfaces it.
-        let mut command = self.command_no_inputs(stream_id);
+        let mut command = self.command_no_inputs(stream_id)?;
         command.flush_drops();
         command.stream().memory_management_gpu.storage().flush();
 
@@ -238,19 +247,19 @@ impl Server for CudaServer {
     }
 
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        let mut command = self.command_no_inputs(stream_id);
+        let mut command = self.command_no_inputs(stream_id)?;
         Window::on(&mut command).prepare(stream_id)
     }
 
     fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        let mut command = self.command_no_inputs(stream_id);
+        let mut command = self.command_no_inputs(stream_id)?;
         Window::on(&mut command).begin()
     }
 
     fn end_capture(&mut self, stream_id: StreamId) -> Result<GraphId, ServerError> {
         let id = GraphId::new();
         let instantiated = {
-            let mut command = self.command_no_inputs(stream_id);
+            let mut command = self.command_no_inputs(stream_id)?;
             Window::on(&mut command).instantiate(stream_id, id)
         };
         match instantiated {
@@ -281,7 +290,7 @@ impl Server for CudaServer {
         self.graphs.extend_written(graph, &mut written);
         ExecuteScope::over(self, stream_id, written)
             .execute(|server| {
-                let mut streams = server.streams.resolve(stream_id, [].into_iter());
+                let mut streams = server.streams.resolve(stream_id, [].into_iter())?;
                 server.graphs.replay(graph, streams.current())
             })
             .into_result()
@@ -303,9 +312,12 @@ impl Server for CudaServer {
         // returns at enqueue time, so one may still be running against it. A
         // failed wait means no replay is still running, so destroying is safe.
         let synced = cubecl_environment::future::block_on(self.sync(Vec::new(), stream_id));
-        let mut streams = self.streams.resolve(stream_id, [].into_iter());
-        self.graphs.destroy(graph, streams.current());
-        drop(streams);
+        if let Some(mut streams) = skip_if_poisoned(
+            self.streams.resolve(stream_id, [].into_iter()),
+            "destroying a graph",
+        ) {
+            self.graphs.destroy(graph, streams.current());
+        }
         if let Err(err) = synced {
             // Claimed rather than reported at large: work on this stream that
             // shares no buffer with the graph has nothing to do with this and
@@ -331,7 +343,10 @@ impl Server for CudaServer {
         if let Err(err) = self.streams.ensure_written(handles.iter()) {
             return Box::pin(async move { Err(err) });
         }
-        self.command_no_inputs(stream_id).sync()
+        match self.command_no_inputs(stream_id) {
+            Ok(mut command) => command.sync(),
+            Err(err) => Box::pin(async move { Err(err) }),
+        }
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
@@ -366,7 +381,10 @@ impl Server for CudaServer {
     }
 
     fn memory_report(&mut self, stream_id: StreamId) -> StreamMemoryReport {
-        self.command_no_inputs(stream_id).memory_report()
+        // A stream that cannot be created has no memory to report.
+        self.command_no_inputs(stream_id)
+            .unwrap_or_else(|err| panic!("the memory of {stream_id} cannot be reported: {err}"))
+            .memory_report()
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {
@@ -374,13 +392,17 @@ impl Server for CudaServer {
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        let mut command = self.command_no_inputs(stream_id);
+        let mut command = self.command_no_inputs(stream_id)?;
         command.memory_cleanup()
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
-        let mut command = self.command_no_inputs(stream_id);
-        command.allocation_mode(mode)
+        if let Some(mut command) = skip_if_poisoned(
+            self.command_no_inputs(stream_id),
+            "setting the allocation mode",
+        ) {
+            command.allocation_mode(mode)
+        }
     }
 }
 
@@ -432,7 +454,7 @@ impl ServerCommunication for CudaServer {
     }
 
     fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        let mut command = self.command_no_inputs(stream_id);
+        let mut command = self.command_no_inputs(stream_id)?;
         let stream = command.stream().sys;
         drop(command);
 
@@ -461,7 +483,7 @@ impl ServerCommunication for CudaServer {
         // A command on the source server retrieves the resource from the right
         // memory pool, and aligns the current stream with the one the binding
         // was allocated on.
-        let mut command = self.command(stream_id, [&desc.handle].into_iter());
+        let mut command = self.command(stream_id, [&desc.handle].into_iter())?;
         let resource = command.resource(binding)?;
         let stream = command.stream().sys;
         drop(command);
@@ -569,7 +591,7 @@ impl CudaServer {
         self.ctx.comm_stream
     }
 
-    fn command_no_inputs(&mut self, stream_id: StreamId) -> Command<'_> {
+    fn command_no_inputs(&mut self, stream_id: StreamId) -> Result<Command<'_>, ServerError> {
         self.command(stream_id, [].into_iter())
     }
 
@@ -583,10 +605,10 @@ impl CudaServer {
         &mut self,
         stream_id: StreamId,
         handles: impl Iterator<Item = &'a BufferBinding>,
-    ) -> Command<'_> {
+    ) -> Result<Command<'_>, ServerError> {
         self.unsafe_set_current();
-        let streams = self.streams.resolve(stream_id, handles);
-        Command::new(&mut self.ctx, streams, self.utilities.service)
+        let streams = self.streams.resolve(stream_id, handles)?;
+        Ok(Command::new(&mut self.ctx, streams, self.utilities.service))
     }
 
     /// Compile `kernel` if this is the first launch of it, and say whether
@@ -660,7 +682,7 @@ impl CudaServer {
             });
         }
 
-        let mut command = self.command(stream_id, [&src, &dst].into_iter());
+        let mut command = self.command(stream_id, [&src, &dst].into_iter())?;
         let resource_src = command.resource(src)?;
         let resource_dst = command.resource(dst)?;
         let stream = command.stream().sys;
@@ -700,7 +722,7 @@ impl CudaServer {
     ) -> Result<(), ServerError> {
         // A command on the destination server reserves the memory the incoming
         // data lands in.
-        let mut command_dst = self.command_no_inputs(stream_id);
+        let mut command_dst = self.command_no_inputs(stream_id)?;
         let memory = command_dst.reserve(handle.size())?;
         command_dst.bind(memory, handle.memory.clone())?;
         let resource_dst = command_dst.resource(handle.binding())?;
@@ -742,7 +764,7 @@ impl CudaServer {
         entry_point: &'static str,
     ) -> Result<cudarc::driver::sys::CUstream, ServerError> {
         self.unsafe_set_current();
-        let mut streams = self.streams.resolve(stream_id, [].into_iter());
+        let mut streams = self.streams.resolve(stream_id, [].into_iter())?;
         let stream = streams.current();
 
         if stream.capturing.is_recording() {
@@ -767,16 +789,22 @@ impl CudaServer {
     /// so a read of it still fails on some other stream. Nothing is queued:
     /// the caller holds the only report owed.
     fn taint_returned(&mut self, stream_id: StreamId, error: ServerError, written: &BufferBinding) {
-        self.streams
-            .resolve(stream_id, [].into_iter())
-            .taint(error, [written].into_iter());
+        if let Some(mut streams) = skip_if_poisoned(
+            self.streams.resolve(stream_id, [].into_iter()),
+            "tainting a returned failure",
+        ) {
+            streams.taint(error, [written].into_iter());
+        }
     }
 
     /// Release the failure on `written`: work that writes it is on its way.
     fn mark_written(&mut self, stream_id: StreamId, written: &BufferBinding) {
-        self.streams
-            .resolve(stream_id, [].into_iter())
-            .written([written].into_iter());
+        if let Some(mut streams) = skip_if_poisoned(
+            self.streams.resolve(stream_id, [].into_iter()),
+            "releasing a written buffer's failure",
+        ) {
+            streams.written([written].into_iter());
+        }
     }
 
     /// The grid dimensions this launch runs with, host-read from the count
@@ -803,7 +831,7 @@ impl CudaServer {
             // For now, just read the dispatch settings from the buffer.
             CubeCount::Dynamic(binding) => {
                 self.streams.ensure_written([&binding].into_iter())?;
-                let mut command = self.command(stream_id, [&binding].into_iter());
+                let mut command = self.command(stream_id, [&binding].into_iter())?;
                 let data = future::block_on(command.read_async(vec![CopyDescriptor::new(
                     binding,
                     [3].into(),
@@ -834,7 +862,7 @@ impl CudaServer {
             .cpp
             .supports_features
             .grid_constants;
-        let mut command = self.command(stream_id, bindings.buffers());
+        let mut command = self.command(stream_id, bindings.buffers())?;
 
         let (info_const, info_binding) = if grid_constants {
             let info = &bindings.info;
@@ -1331,7 +1359,7 @@ impl ServerStorage for CudaServer {
         // filled reports the failure rather than handing back a pointer to
         // whatever was there before.
         self.streams.ensure_written([&binding].into_iter())?;
-        let mut command = self.command(stream_id, [&binding].into_iter());
+        let mut command = self.command(stream_id, [&binding].into_iter())?;
         Ok(command.managed_resource(binding)?)
     }
 }

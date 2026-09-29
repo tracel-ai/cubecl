@@ -351,7 +351,7 @@ impl EventStreamBackend for MetalStreamBackend {
     type Stream = MetalStream;
     type Event = MetalEvent;
 
-    fn create_stream(&self) -> Self::Stream {
+    fn create_stream(&self) -> Result<Self::Stream, ServerError> {
         let queue = (*self.device)
             .newCommandQueue()
             .expect("Failed to create command queue");
@@ -379,7 +379,7 @@ impl EventStreamBackend for MetalStreamBackend {
             _ => (40, 40, 512),               // base, pro, and unrecognized
         };
 
-        MetalStream {
+        Ok(MetalStream {
             device: self.device.clone(),
             queue,
             memory_management,
@@ -395,7 +395,7 @@ impl EventStreamBackend for MetalStreamBackend {
             last_command_buffer: None,
             profiling: None,
             fault: Arc::new(Mutex::new(None)),
-        }
+        })
     }
 
     fn flush(stream: &mut Self::Stream, _failures: &mut ErrorGraph) -> Self::Event {
