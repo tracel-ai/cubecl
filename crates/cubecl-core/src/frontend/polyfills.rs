@@ -30,7 +30,8 @@ pub mod set_polyfill {
     }
 }
 
-/// Floor modulo using integer arithmetic, preserving precision across the full input range.
+/// Floor modulo using integer arithmetic, preserving precision for supported inputs.
+/// Division by zero and signed `MIN % -1` have no portable result or error guarantee.
 pub fn expand_signed_mod_floor(scope: &Scope, lhs: Value, rhs: Value) -> Value {
     define_scalar!(I);
     define_size!(N);
