@@ -40,8 +40,11 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
 
 /// A set of candidate tunable functions for autotune, sharing a key generator and an
 /// input generator. See [`TuneInputs`] for the `F` parameter.
-pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static> {
-    tunables: Vec<Tunable<K, F, Output>>,
+///
+/// `Id` is what its tunables are [identified](Tunable::identified) by, inferred from the
+/// tunables it is given: `()` for tunables built by [`Tunable::new`], named and nothing more.
+pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static, Id = ()> {
+    tunables: Vec<Tunable<K, F, Output, Id>>,
     key_gen: Arc<dyn KeyGenerator<K, F> + Send + Sync>,
     input_gen: Arc<dyn InputGenerator<K, F> + Send + Sync>,
     bounds_gen: Option<Arc<dyn BoundsGenerator<K, F> + Send + Sync>>,
@@ -49,17 +52,7 @@ pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static> {
     short_circuit: bool,
 }
 
-impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
-    /// The number of tunables in the set.
-    pub fn len(&self) -> usize {
-        self.tunables.len()
-    }
-
-    /// Whether this set contains no tunables.
-    pub fn is_empty(&self) -> bool {
-        self.tunables.is_empty()
-    }
-
+impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output, Id> {
     /// Create a tunable set from a key generator and an input generator.
     pub fn new(key_gen: impl KeyGenerator<K, F>, input_gen: impl InputGenerator<K, F>) -> Self {
         Self {
@@ -72,14 +65,24 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
         }
     }
 
-    /// Shorthand for [`new`](Self::new) with a [`CloneInputGenerator`]: benchmarks run
+    /// Shorthand for [`new`](Self::new) with a [`CloneInputGenerator`](super::CloneInputGenerator): benchmarks run
     /// on clones of the real call inputs.
     pub fn new_cloning_inputs(key_gen: impl KeyGenerator<K, F>) -> Self {
         Self::new(key_gen, super::CloneInputGenerator)
     }
 
+    /// The number of tunables in the set.
+    pub fn len(&self) -> usize {
+        self.tunables.len()
+    }
+
+    /// Whether this set contains no tunables.
+    pub fn is_empty(&self) -> bool {
+        self.tunables.is_empty()
+    }
+
     /// Register a tunable with this tunable set.
-    pub fn with(mut self, tunable: Tunable<K, F, Output>) -> Self {
+    pub fn with(mut self, tunable: Tunable<K, F, Output, Id>) -> Self {
         self.tunables.push(tunable);
         self
     }
@@ -122,6 +125,13 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
     /// `autotunables`. Tunables are tried in order, so index 0 should be a good default.
     pub fn fastest(&self, fastest_index: usize) -> &TuneFn<F, Output> {
         &self.tunables[fastest_index].function
+    }
+
+    /// What the tunable at `index` is [identified](Tunable::identified) by. The index is one
+    /// the tuner stored for this set, so it panics out of range as [`fastest`](Self::fastest)
+    /// does.
+    pub(crate) fn identity(&self, index: usize) -> &Id {
+        self.tunables[index].identity()
     }
 
     /// Compute a checksum that invalidates outdated cached auto-tune results when the
