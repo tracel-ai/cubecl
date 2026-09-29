@@ -1,6 +1,8 @@
 //! Real kernels compiled to PTX without a device, checked on the assembly.
 
-use crate::shared::offline_kernels::{keep_largest_kernel, plane_moves_kernel, scale_kernel};
+use crate::shared::offline_kernels::{
+    keep_largest_kernel, plane_moves_kernel, scale_kernel, strided_walk_kernel,
+};
 use crate::target::LlvmTarget;
 use crate::{PlironArtifact, PlironCompiler, PlironOptions, nvptx::ptx_version::PtxVersion};
 use cubecl_core::Compiler;
@@ -44,6 +46,34 @@ fn a_local_array_under_a_constant_loop_is_registers() {
         !ptx.contains("ld.local") && !ptx.contains("st.local"),
         "the array is in local memory:\n{ptx}"
     );
+}
+
+/// The address of a strided walk advances by an add each iteration. Rebuilding it from the loop
+/// counter instead costs a multiply per load, and `ptxas` then interleaves the loads with the
+/// arithmetic that waits on them.
+#[test]
+fn a_strided_walk_advances_its_address() {
+    let ptx = ptx_of(strided_walk_kernel(), 75);
+    let body = loop_body(&ptx).expect("the walk is a loop");
+    assert!(
+        !body.contains("mad.lo") && !body.contains("mul.lo"),
+        "the address is rebuilt from the counter:\n{body}"
+    );
+}
+
+/// The instructions from the first label to the branch that jumps back to it.
+fn loop_body(ptx: &str) -> Option<String> {
+    let lines: Vec<&str> = ptx.lines().collect();
+    for (start, line) in lines.iter().enumerate() {
+        let Some(label) = line.strip_suffix(':') else {
+            continue;
+        };
+        let back_edge = format!("bra \t{label};");
+        if let Some(end) = lines[start..].iter().position(|l| l.contains(&back_edge)) {
+            return Some(lines[start..=start + end].join("\n"));
+        }
+    }
+    None
 }
 
 /// The PTX `kernel` compiles to for `sm_{arch}`.
