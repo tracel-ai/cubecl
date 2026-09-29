@@ -9,7 +9,7 @@ use crate::server::{BufferBinding, ServerError, WeakBufferBinding};
 use alloc::vec::Vec;
 use cubecl_common::bytes::Bytes;
 use cubecl_environment::stream::StreamId;
-use cubecl_runtime::server::{DeviceCaptures, StreamCaptureState};
+use cubecl_runtime::server::{CaptureStatus, DeviceCaptures, StreamCaptureState};
 
 pub use cubecl_runtime::server::CaptureEnd;
 
@@ -74,9 +74,9 @@ impl StreamCapture {
         }
     }
 
-    /// Whether any stream of the device records a graph, this one included.
-    pub fn any_recording(&self) -> bool {
-        self.state.any_recording()
+    /// The captures of the whole device this stream belongs to, this one included.
+    pub fn device(&self) -> &CaptureStatus {
+        self.state.device()
     }
 
     /// Remember the memory a launch was given, when the stream is recording.
@@ -116,7 +116,7 @@ impl StreamCapture {
     /// released or renumbered, so the pages a recording touched are still the
     /// ones it guards when it seals.
     pub fn page_update(&self) -> PageUpdate {
-        match (self.is_recording(), self.any_recording()) {
+        match (self.is_recording(), self.device().any_recording()) {
             (true, _) => PageUpdate::Forbidden,
             (false, true) => PageUpdate::AddOnly,
             (false, false) => PageUpdate::Allow,
@@ -546,11 +546,12 @@ mod tests {
         let device = DeviceCaptures::default();
         let mut recording = StreamCapture::new(&device);
         let neighbour = StreamCapture::new(&device);
+        let status = device.status();
         let recording_now =
-            |capture: &StreamCapture| (capture.page_update(), capture.any_recording());
+            |capture: &StreamCapture| (capture.page_update(), status.any_recording());
 
         recording.prepare(OWNER).unwrap();
-        assert!(!neighbour.any_recording(), "a warmup records nothing");
+        assert!(!status.any_recording(), "a warmup records nothing");
         recording.begin().unwrap();
         assert_eq!(recording_now(&recording), (PageUpdate::Forbidden, true));
         assert_eq!(recording_now(&neighbour), (PageUpdate::AddOnly, true));
@@ -561,14 +562,14 @@ mod tests {
         recording.begin().unwrap();
         recording.abort();
         assert!(
-            !neighbour.any_recording(),
+            !status.any_recording(),
             "an aborted window leaves the count"
         );
 
         recording.prepare(OWNER).unwrap();
         recording.abort();
         assert!(
-            !neighbour.any_recording(),
+            !status.any_recording(),
             "aborting a warmup leaves the count alone"
         );
 
@@ -576,7 +577,7 @@ mod tests {
         recording.begin().unwrap();
         drop(recording);
         assert!(
-            !neighbour.any_recording(),
+            !status.any_recording(),
             "a stream dropped while recording leaves the count"
         );
     }

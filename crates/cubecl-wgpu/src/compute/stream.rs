@@ -136,7 +136,7 @@ impl StreamMemory for WgpuStream {
 
 impl RelocatableStream for WgpuStream {
     fn recording(&self) -> bool {
-        self.capturing.any_recording()
+        self.capturing.device().any_recording()
     }
 
     fn has_outdated(&self) -> bool {
@@ -182,7 +182,7 @@ impl WgpuStream {
         tasks_max: usize,
         logger: Arc<ServerLogger>,
         use_vulkan_compiler: bool,
-        captures: DeviceCaptures,
+        captures: &DeviceCaptures,
     ) -> Self {
         let timings = match timing_method {
             TimingMethod::Device => Timings::Unclaimed {
@@ -235,7 +235,7 @@ impl WgpuStream {
             // entry pins a whole page (512 × 32 KiB ≈ 16 MiB worst case) —
             // unlike CUDA/HIP where an entry is a small dynamic-pool slice.
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::new(512, 2048)),
-            capturing: StreamCapture::new(&captures),
+            capturing: StreamCapture::new(captures),
             recording: GraphRecording::default(),
         }
     }

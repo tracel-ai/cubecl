@@ -115,7 +115,7 @@ impl StreamFactory for WgpuStreamFactory {
             self.tasks_max,
             self.logger.clone(),
             self.use_vulkan_compiler,
-            self.captures.clone(),
+            &self.captures,
         )
     }
 }

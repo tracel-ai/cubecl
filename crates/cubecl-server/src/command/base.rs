@@ -569,7 +569,7 @@ impl<'a, D: Driver> Command<'a, D> {
 
 impl<D: Driver> RelocatingStreams for Command<'_, D> {
     fn recording(&mut self) -> bool {
-        self.streams.current().capturing().any_recording()
+        self.streams.current().capturing().device().any_recording()
     }
 
     fn has_outdated(&mut self) -> bool {

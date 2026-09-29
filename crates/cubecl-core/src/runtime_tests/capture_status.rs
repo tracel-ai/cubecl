@@ -89,7 +89,8 @@ pub fn a_capture_is_seen_by_every_client_of_its_stream<R: Runtime>() {
 }
 
 /// A capture prepared but never opened ends at `stop_capture`, which is the only call left to a
-/// caller whose warmup failed: the stream stops reporting it, and can be prepared again.
+/// caller whose warmup failed: the stream stops reporting it, and a whole capture then lands on
+/// it, sealed and replayed.
 pub fn a_prepared_capture_ends_at_stop_capture<R: Runtime>() {
     let client = R::client(&Default::default());
     let owner = StreamId { value: 3_000_003 };
@@ -104,10 +105,35 @@ pub fn a_prepared_capture_ends_at_stop_capture<R: Runtime>() {
         .expect_err("nothing recorded, so there is no graph to seal");
     assert!(!capturing(), "the capture ended with stop_capture");
 
-    owner
-        .executes(|| client.graph_prepare())
-        .expect("the stream can be prepared again");
-    assert!(capturing());
-    let _ = owner.executes(|| client.stop_capture());
+    let n = 4usize;
+    let (input, output) = owner.executes(|| {
+        (
+            client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0])),
+            client.empty(n * core::mem::size_of::<f32>()),
+        )
+    });
+    let run = || {
+        add_one::launch(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(&client, n),
+            unsafe { BufferArg::from_raw_parts(input.clone(), n) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+        );
+    };
+
+    let out = owner.executes(|| {
+        client
+            .graph_prepare()
+            .expect("the stream can be prepared again");
+        run();
+        client.read_one(output.clone()).unwrap();
+        client.start_capture().expect("start_capture");
+        run();
+        let graph = client.stop_capture().expect("stop_capture");
+        unsafe { graph.replay() }.expect("replay enqueues");
+        client.read_one(output.clone()).unwrap()
+    });
+    assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
     assert!(!capturing());
 }

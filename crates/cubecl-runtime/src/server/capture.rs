@@ -1,4 +1,8 @@
 //! The graph-capture lifecycle of a device's streams, and the record of it every client reads.
+//!
+//! Only servers drive the lifecycle, yet it lives here beside the record rather than in the
+//! server crate: the record stays private to this module only if every transition that
+//! publishes to it does too, so no other code can write a phase the streams are not in.
 
 use alloc::format;
 use alloc::vec::Vec;
@@ -73,7 +77,7 @@ pub struct CaptureStatus(Arc<CaptureRecord>);
 pub struct StreamCaptureState {
     phase: CapturePhase,
     /// The device's record, which every transition publishes the new phase to.
-    device: Arc<CaptureRecord>,
+    device: CaptureStatus,
     /// This state's entry in the device's record.
     entry: usize,
 }
@@ -154,8 +158,8 @@ enum CapturePhase {
     /// No capture is prepared or recording.
     NoCapture,
     /// `graph_prepare` has started the warmup run; `begin_capture` may now
-    /// open the window. The pinned staging the warmup run reserves is
-    /// primed (see `StreamCapture::prime` in cubecl-server) until the window opens.
+    /// open the window. The pinned staging the warmup run reserves stays held
+    /// until the window opens.
     Prepare {
         /// The logical stream that prepared the capture.
         owner: StreamId,
@@ -181,11 +185,12 @@ enum CapturePhase {
 struct CaptureRecord {
     /// How many streams are preparing or recording a capture: `streams.len()`.
     active: AtomicUsize,
-    /// How many streams are recording: the recording entries of `streams`.
+    /// How many streams are recording: the [`Capture`](CapturePhase::Capture) entries of
+    /// `streams`.
     recording: AtomicUsize,
     /// One entry per stream with a capture under way: its [entry](StreamCaptureState::entry)
-    /// id, the logical stream the capture belongs to, and whether it records.
-    streams: Mutex<Vec<(usize, StreamId, bool)>>,
+    /// id and its phase, never [`NoCapture`](CapturePhase::NoCapture).
+    streams: Mutex<Vec<(usize, CapturePhase)>>,
     /// The next [entry](StreamCaptureState::entry) id.
     next_entry: AtomicUsize,
 }
@@ -195,7 +200,7 @@ impl DeviceCaptures {
     pub fn stream(&self) -> StreamCaptureState {
         StreamCaptureState {
             phase: CapturePhase::NoCapture,
-            device: self.0.clone(),
+            device: self.status(),
             entry: self.0.next_entry.fetch_add(1, Ordering::Relaxed),
         }
     }
@@ -214,16 +219,22 @@ impl CaptureStatus {
         self.0.active.load(Ordering::Acquire) > 0
     }
 
+    /// Whether any stream of the device records a graph.
+    #[inline]
+    pub fn any_recording(&self) -> bool {
+        self.0.recording.load(Ordering::Acquire) > 0
+    }
+
     /// Whether the logical `stream` is preparing or recording a graph capture, from
     /// `graph_prepare` until the capture ends however it ends.
+    ///
+    /// It takes the record's lock: a hot path asks [`any_active`](Self::any_active) first.
     pub fn is_capturing(&self, stream: StreamId) -> bool {
-        self.any_active()
-            && self
-                .0
-                .streams
-                .lock()
-                .iter()
-                .any(|(_, owner, _)| *owner == stream)
+        self.0
+            .streams
+            .lock()
+            .iter()
+            .any(|(_, phase)| phase.owner() == Some(stream))
     }
 }
 
@@ -248,16 +259,12 @@ impl StreamCaptureState {
 
     /// The logical stream this capture belongs to, `None` outside a window.
     pub fn owner(&self) -> Option<StreamId> {
-        match self.phase {
-            CapturePhase::NoCapture => None,
-            CapturePhase::Prepare { owner } | CapturePhase::Capture { owner } => Some(owner),
-        }
+        self.phase.owner()
     }
 
-    /// Whether any stream of the device records a graph, this one included.
-    #[inline]
-    pub fn any_recording(&self) -> bool {
-        self.device.recording.load(Ordering::Acquire) > 0
+    /// The captures of the whole device this stream belongs to, this one included.
+    pub fn device(&self) -> &CaptureStatus {
+        &self.device
     }
 
     /// `NoCapture → Prepare`, for `graph_prepare`. Call before arming the
@@ -293,18 +300,16 @@ impl StreamCaptureState {
     /// Since the state moves before that work, a backend whose window fails to
     /// open must undo it with [`abort`](Self::abort).
     ///
-    /// Returns the logical stream the capture belongs to.
-    ///
     /// # Errors
     ///
     /// Fails when [`prepare`](Self::prepare) has not run — the pools have to
     /// be warmed by a warmup run first — or when a capture is already
     /// recording. The state is left untouched.
-    pub fn begin(&mut self) -> Result<StreamId, ServerError> {
+    pub fn begin(&mut self) -> Result<(), ServerError> {
         match self.phase {
             CapturePhase::Prepare { owner } => {
                 self.move_to(CapturePhase::Capture { owner });
-                Ok(owner)
+                Ok(())
             }
             CapturePhase::NoCapture => Err(ServerError::graph_state(
                 "begin_capture: call graph_prepare before starting a capture",
@@ -354,25 +359,31 @@ impl StreamCaptureState {
     /// forever. Unlike [`end`](Self::end) this asserts
     /// nothing, because the state it is recovering from is precisely the one
     /// that could not be completed.
-    ///
-    /// Returns the logical stream the abandoned capture belonged to, if one was under way.
-    pub fn abort(&mut self) -> Option<StreamId> {
-        let owner = self.owner();
+    pub fn abort(&mut self) {
         self.move_to(CapturePhase::NoCapture);
-        owner
     }
 
     /// Enter `phase` and publish it to the device's record, in one step so the record can't
     /// miss a transition.
     fn move_to(&mut self, phase: CapturePhase) {
         self.phase = phase;
-        self.device.publish(self.entry, phase);
+        self.device.0.publish(self.entry, phase);
     }
 }
 
 impl Drop for StreamCaptureState {
     fn drop(&mut self) {
-        self.device.publish(self.entry, CapturePhase::NoCapture);
+        self.device.0.publish(self.entry, CapturePhase::NoCapture);
+    }
+}
+
+impl CapturePhase {
+    /// The logical stream the capture belongs to, `None` outside a window.
+    fn owner(&self) -> Option<StreamId> {
+        match self {
+            CapturePhase::NoCapture => None,
+            CapturePhase::Prepare { owner } | CapturePhase::Capture { owner } => Some(*owner),
+        }
     }
 }
 
@@ -381,15 +392,13 @@ impl CaptureRecord {
     /// entries under the lock, so they can't drift from the phases they summarize.
     fn publish(&self, entry: usize, phase: CapturePhase) {
         let mut streams = self.streams.lock();
-        streams.retain(|(id, _, _)| *id != entry);
-        match phase {
-            CapturePhase::NoCapture => {}
-            CapturePhase::Prepare { owner } => streams.push((entry, owner, false)),
-            CapturePhase::Capture { owner } => streams.push((entry, owner, true)),
+        streams.retain(|(id, _)| *id != entry);
+        if phase != CapturePhase::NoCapture {
+            streams.push((entry, phase));
         }
         let recording = streams
             .iter()
-            .filter(|(_, _, recording)| *recording)
+            .filter(|(_, phase)| matches!(phase, CapturePhase::Capture { .. }))
             .count();
         self.recording.store(recording, Ordering::Release);
         self.active.store(streams.len(), Ordering::Release);
@@ -420,7 +429,7 @@ mod tests {
         assert!(state.prepare(OWNER).is_err(), "one prepare per capture");
         assert!(state.end(OWNER).is_err(), "the window never opened");
 
-        assert_eq!(state.begin().unwrap(), OWNER);
+        state.begin().unwrap();
         assert!(state.is_recording() && state.owner() == Some(OWNER));
         assert!(state.begin().is_err(), "captures may not overlap");
         assert!(state.prepare(OWNER).is_err(), "captures may not overlap");
@@ -489,7 +498,6 @@ mod tests {
         state.begin().unwrap();
 
         assert!(state.end(neighbour).unwrap().is_abandoned());
-        assert!(!state.is_active());
         assert!(!state.is_active(), "the slot serves other work again");
         state
             .prepare(neighbour)
@@ -536,8 +544,7 @@ mod tests {
     }
 
     /// A rejected transition leaves the stream exactly as it was, so a caller
-    /// that miss orders a call can recover by issuing the right one — the
-    /// property `wgpu_graph_lifecycle_state_errors` defends end to end.
+    /// that misorders a call can recover by issuing the right one.
     #[test]
     fn a_rejected_transition_changes_nothing() {
         let mut state = DeviceCaptures::default().stream();
@@ -557,7 +564,7 @@ mod tests {
             if recorded {
                 state.begin().unwrap();
             }
-            assert_eq!(state.abort(), Some(OWNER));
+            state.abort();
             assert!(!state.is_active());
             state.prepare(OWNER).expect("the stream is re-capturable");
         }
@@ -577,19 +584,22 @@ mod tests {
         first.begin().unwrap();
         second.prepare(OWNER).unwrap();
         assert!(
-            first.any_recording(),
+            status.any_recording(),
             "a second stream of the owner hides nothing"
         );
         second.begin().unwrap();
         first.end(OWNER).unwrap();
         assert!(
-            second.any_recording(),
+            status.any_recording(),
             "one stream ending leaves the other recording"
         );
         assert!(status.is_capturing(OWNER));
 
         drop(second);
-        assert!(!first.any_recording(), "a dropped stream leaves the record");
+        assert!(
+            !status.any_recording(),
+            "a dropped stream leaves the record"
+        );
         assert!(!status.is_capturing(OWNER));
         assert!(!status.any_active());
     }
