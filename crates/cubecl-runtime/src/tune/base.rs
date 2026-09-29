@@ -10,17 +10,15 @@ use cubecl_environment::collections::HashMap;
 /// A single candidate for autotune: a named [`TuneFn`] plus the [groups](TuneGroup) it
 /// belongs to. A tunable is autotuned whenever any of its groups is prioritized.
 ///
-/// `Id` is what a tunable of its set may be [identified](Self::identified) by, `()` for a set
-/// whose tunables are named and nothing more.
+/// `Id` is what the tunables of a set are [identified](Self::identified) by, `()` for a set
+/// whose tunables are [named](Self::new) and nothing more.
 pub struct Tunable<K, F: TuneInputs, Output, Id = ()> {
     pub(crate) function: TuneFn<F, Output>,
     groups: Vec<(TuneGroup<K>, PriorityFunc<K>)>,
-    /// What the tunable runs, as its caller names it; `None` for one built by
-    /// [`new`](Self::new).
-    identity: Option<Id>,
+    identity: Id,
 }
 
-impl<K, F: TuneInputs, Output: 'static, Id> Tunable<K, F, Output, Id> {
+impl<K, F: TuneInputs, Output: 'static> Tunable<K, F, Output> {
     /// Create a tunable from a closure.
     ///
     /// The `for<'a> Fn(F::At<'a>) -> _` bound is spelled out in the `where`-clause rather
@@ -39,6 +37,32 @@ impl<K, F: TuneInputs, Output: 'static, Id> Tunable<K, F, Output, Id> {
         Err: Into<String> + 'static,
         Func: for<'a> Fn(<F as TuneInputs>::At<'a>) -> Result<Output, Err> + Send + Sync + 'static,
     {
+        Self::build(name, (), func)
+    }
+}
+
+impl<K, F: TuneInputs, Output: 'static, Id> Tunable<K, F, Output, Id> {
+    /// A tunable identified by `identity`, and named by it: the value
+    /// [`LocalTuner::fastest_identity`](super::LocalTuner::fastest_identity) hands back once
+    /// the tunable is the fastest for a key.
+    ///
+    /// For a caller that builds something else from the winner — a variant of the same kernel,
+    /// say — and so needs to know *which* candidate won rather than only to run it again. The
+    /// name a cached result is checksummed by is `identity`'s own, so the two cannot disagree.
+    pub fn identified<Func, Err>(identity: Id, func: Func) -> Self
+    where
+        Id: Display,
+        Err: Into<String> + 'static,
+        Func: for<'a> Fn(<F as TuneInputs>::At<'a>) -> Result<Output, Err> + Send + Sync + 'static,
+    {
+        Self::build(&identity.to_string(), identity, func)
+    }
+
+    fn build<Func, Err>(name: &str, identity: Id, func: Func) -> Self
+    where
+        Err: Into<String> + 'static,
+        Func: for<'a> Fn(<F as TuneInputs>::At<'a>) -> Result<Output, Err> + Send + Sync + 'static,
+    {
         let name: String = name.into();
         let name_for_err = name.clone();
         Self {
@@ -52,31 +76,13 @@ impl<K, F: TuneInputs, Output: 'static, Id> Tunable<K, F, Output, Id> {
                 }),
             ),
             groups: Vec::new(),
-            identity: None,
+            identity,
         }
     }
 
-    /// A tunable identified by `identity`, and named by it: the value
-    /// [`LocalTuner::fastest_identity`](super::LocalTuner::fastest_identity) hands back once the tunable is the fastest for a key.
-    ///
-    /// For a caller that builds something else from the winner — a variant of the same kernel,
-    /// say — and so needs to know *which* candidate won rather than only to run it again. The
-    /// name a cached result is checksummed by is `identity`'s own, so the two cannot disagree.
-    pub fn identified<Func, Err>(identity: Id, func: Func) -> Self
-    where
-        Id: Display,
-        Err: Into<String> + 'static,
-        Func: for<'a> Fn(<F as TuneInputs>::At<'a>) -> Result<Output, Err> + Send + Sync + 'static,
-    {
-        let mut tunable = Self::new(&identity.to_string(), func);
-        tunable.identity = Some(identity);
-        tunable
-    }
-
-    /// What this tunable was [identified](Self::identified) by, `None` for one built by
-    /// [`new`](Self::new).
-    pub(crate) fn identity(&self) -> Option<&Id> {
-        self.identity.as_ref()
+    /// What this tunable is [identified](Self::identified) by.
+    pub(crate) fn identity(&self) -> &Id {
+        &self.identity
     }
 
     /// Add this tunable to a [`TuneGroup`] with the given intra-group priority.

@@ -18,7 +18,7 @@ use crate::dummy::{
 
 use super::{DummyElementwiseAdditionBrokenCompilation, DummyElementwiseAdditionSlowWrong};
 
-pub type TestSet = TunableSet<String, Vec<Handle>, ()>;
+type TestSet = TunableSet<String, Vec<Handle>, ()>;
 
 pub fn addition_set(
     client: DummyClient,
@@ -69,7 +69,7 @@ pub fn identified_addition_set(
         KernelTask::new(DummyElementwiseAdditionSlowWrong),
         client.clone(),
     );
-    TunableSet::identified(
+    TunableSet::new(
         move |_input: &Vec<Handle>| format!("{}-{}", "add", log_shape_input_key(&shapes)),
         CloneInputGenerator,
     )

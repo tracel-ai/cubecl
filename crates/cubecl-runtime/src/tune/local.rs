@@ -108,26 +108,26 @@ where
         content
     }
 
-    /// What the fastest tunable for `key` on `id` was [identified](super::Tunable::identified)
+    /// What the fastest tunable for `key` on `id` is [identified](super::Tunable::identified)
     /// by, in the set an initializer of `F`'s type builds.
     ///
     /// `None` until a result for the key is settled — tuned by a round in this process, or read
-    /// back from disk and validated by an [`execute`](Self::execute); when the fastest tunable was
-    /// built by [`Tunable::new`](super::Tunable::new) and so is identified by nothing; and when
-    /// no initializer of `F`'s type built a set for `id`, since then none executed.
+    /// back from disk and validated by an [`execute`](Self::execute) — and when no initializer
+    /// of `F`'s type built a set for `id`, since then none executed.
     ///
     /// The set is found the way [`init`](Self::init) finds it, by the initializer's type and
-    /// `id`, and only that type is read off `_init_set`: a result is an index into the set that
-    /// settled it, so it is never read against another.
+    /// `id`; only that type is read off `_init_set`. Results are kept per `id` alone, as
+    /// `execute` keeps them, so one settled by a set another initializer built under the same
+    /// `id` is read against this one: a tuner is sound for one initializer per `id` and key.
     ///
     /// It reads results and never produces one: it never starts a round, never waits on one in
     /// flight, never validates a persisted result, and never resets the tuner's cache after an
     /// environment switch — it reports nothing settled there until the next `execute`.
     pub fn fastest_identity<I, Out, Id, F>(&self, id: &ID, _init_set: &F, key: &AK) -> Option<Id>
     where
-        F: Fn() -> TunableSet<AK, I, Out, Id> + 'static,
+        F: Fn() -> TunableSet<AK, I, Out, Id> + 'static + Send + Sync,
         I: TuneInputs,
-        Out: 'static,
+        Out: AutotuneOutput,
         Id: Clone + Send + Sync + 'static,
     {
         let set = self
@@ -140,7 +140,7 @@ where
             .expect("an initializer builds one type of set");
         let tuner = self.state.lock().as_ref()?.get(id)?.clone();
         let fastest_index = tuner.settled(key)?;
-        set.identity(fastest_index).cloned()
+        Some(set.identity(fastest_index).clone())
     }
 
     /// Clear the autotune state.

@@ -401,8 +401,8 @@ fn the_fastest_tunable_hands_back_its_identity() {
     );
 }
 
-/// A result is read against the set that settled it: an initializer of another type built no set
-/// on this tuner, so it finds no fastest identity, though the key is settled.
+/// An initializer of another type built no set on this tuner, so it finds no fastest identity,
+/// though the key is settled.
 #[test_log::test]
 #[cfg(feature = "std")]
 #[serial_test::serial]
@@ -424,24 +424,6 @@ fn another_initializer_finds_no_fastest_identity() {
         )
     };
     assert_eq!(TUNER.fastest_identity(&id, &another, &key), None);
-}
-
-/// A fastest tunable identified by nothing has no fastest identity, though its key is settled.
-#[test_log::test]
-#[cfg(feature = "std")]
-#[serial_test::serial]
-fn a_fastest_tunable_identified_by_nothing_has_no_fastest_identity() {
-    static TUNER: LocalTuner<String, String> =
-        local_tuner!("a_fastest_tunable_identified_by_nothing_has_no_fastest_identity");
-
-    let client = test_client(&DummyDevice);
-    let id = "test".to_string();
-    let init = || dummy::addition_set(test_client(&DummyDevice), addition_shapes());
-    let set = TUNER.init(&id, init);
-    let (handles, key) = addition_inputs(&client, &set);
-    TUNER.execute(&id, &client, set, handles);
-
-    assert_eq!(TUNER.fastest_identity(&id, &init, &key), None);
 }
 
 /// A result belongs to the environment it was tuned under, and one only on disk has no fastest

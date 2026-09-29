@@ -41,9 +41,8 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
 /// A set of candidate tunable functions for autotune, sharing a key generator and an
 /// input generator. See [`TuneInputs`] for the `F` parameter.
 ///
-/// `Id` is what its tunables may be [identified](Tunable::identified) by: `()` for a set built by
-/// [`new`](Self::new), whose tunables are named and nothing more, and the caller's type for one
-/// built by [`identified`](Self::identified).
+/// `Id` is what its tunables are [identified](Tunable::identified) by, inferred from the
+/// tunables it is given: `()` for tunables built by [`Tunable::new`], named and nothing more.
 pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static, Id = ()> {
     tunables: Vec<Tunable<K, F, Output, Id>>,
     key_gen: Arc<dyn KeyGenerator<K, F> + Send + Sync>,
@@ -53,30 +52,9 @@ pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static, Id = ()> {
     short_circuit: bool,
 }
 
-impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
+impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output, Id> {
     /// Create a tunable set from a key generator and an input generator.
     pub fn new(key_gen: impl KeyGenerator<K, F>, input_gen: impl InputGenerator<K, F>) -> Self {
-        Self::build(key_gen, input_gen)
-    }
-
-    /// Shorthand for [`new`](Self::new) with a [`CloneInputGenerator`]: benchmarks run
-    /// on clones of the real call inputs.
-    pub fn new_cloning_inputs(key_gen: impl KeyGenerator<K, F>) -> Self {
-        Self::new(key_gen, super::CloneInputGenerator)
-    }
-}
-
-impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output, Id> {
-    /// A set whose tunables may be [identified](Tunable::identified) by an `Id`, from a key
-    /// generator and an input generator.
-    pub fn identified(
-        key_gen: impl KeyGenerator<K, F>,
-        input_gen: impl InputGenerator<K, F>,
-    ) -> Self {
-        Self::build(key_gen, input_gen)
-    }
-
-    fn build(key_gen: impl KeyGenerator<K, F>, input_gen: impl InputGenerator<K, F>) -> Self {
         Self {
             tunables: Default::default(),
             input_gen: Arc::new(input_gen),
@@ -85,6 +63,12 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
             eviction: None,
             short_circuit: true,
         }
+    }
+
+    /// Shorthand for [`new`](Self::new) with a [`CloneInputGenerator`](super::CloneInputGenerator): benchmarks run
+    /// on clones of the real call inputs.
+    pub fn new_cloning_inputs(key_gen: impl KeyGenerator<K, F>) -> Self {
+        Self::new(key_gen, super::CloneInputGenerator)
     }
 
     /// The number of tunables in the set.
@@ -143,10 +127,10 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
         &self.tunables[fastest_index].function
     }
 
-    /// What the tunable at `index` was [identified](Tunable::identified) by, `None` for one
-    /// built by [`Tunable::new`]. The index is one the tuner stored for this set, so it panics
-    /// out of range as [`fastest`](Self::fastest) does.
-    pub(crate) fn identity(&self, index: usize) -> Option<&Id> {
+    /// What the tunable at `index` is [identified](Tunable::identified) by. The index is one
+    /// the tuner stored for this set, so it panics out of range as [`fastest`](Self::fastest)
+    /// does.
+    pub(crate) fn identity(&self, index: usize) -> &Id {
         self.tunables[index].identity()
     }
 
