@@ -20,16 +20,23 @@ impl LowerOp for SyncOp {
                 #[cfg(feature = "nvptx")]
                 LlvmTarget::Nvptx => crate::nvptx::synchronization::lower_sync_plane(scope),
             },
-            // GPU synchronization is limited to the current cube.
-            SyncScope::Cube | SyncScope::Device => match target {
-                LlvmTarget::Cpu if sync_scope == SyncScope::Device => {
-                    panic!("Device wide synchronization is not supported by the CPU runtime")
-                }
+            SyncScope::Cube => match target {
                 LlvmTarget::Cpu => crate::cpu::synchronization::lower_sync_cube(scope, op),
                 #[cfg(feature = "amdgpu")]
                 LlvmTarget::AmdGpu => crate::amdgpu::synchronization::lower_sync_cube(scope),
                 #[cfg(feature = "nvptx")]
                 LlvmTarget::Nvptx => crate::nvptx::synchronization::lower_sync_cube(scope),
+            },
+            // The units of the cube meet, as at a cube barrier, and what each wrote to storage is
+            // visible to every cube of the device, as what other cubes published is visible to it.
+            SyncScope::Device => match target {
+                LlvmTarget::Cpu => {
+                    panic!("Device wide synchronization is not supported by the CPU runtime")
+                }
+                #[cfg(feature = "amdgpu")]
+                LlvmTarget::AmdGpu => crate::amdgpu::synchronization::lower_sync_storage(scope),
+                #[cfg(feature = "nvptx")]
+                LlvmTarget::Nvptx => crate::nvptx::synchronization::lower_sync_storage(scope),
             },
         }
         vec![]
