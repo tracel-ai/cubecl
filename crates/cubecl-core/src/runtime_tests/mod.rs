@@ -2,6 +2,7 @@
 pub use test_log;
 
 pub mod all_reduce;
+pub mod allocation_mode;
 pub mod arithmetic_chains;
 pub mod assign;
 pub mod atomic;
@@ -170,6 +171,7 @@ macro_rules! testgen_untyped {
 
         cubecl_core::testgen_short_circuit!();
         cubecl_core::testgen_stream_errors!();
+        cubecl_core::testgen_allocation_mode!();
     };
 }
 
