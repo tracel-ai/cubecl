@@ -181,6 +181,10 @@ impl Driver for Cuda {
         queue: <Stream as DeviceStream>::Signal,
     ) -> Result<(), IoError> {
         debug_assert_eq!(source.size, target.size);
+        // Empty storage has a null device pointer and nothing to copy.
+        if source.size == 0 {
+            return Ok(());
+        }
         // SAFETY: the caller guarantees two live, same-sized, disjoint device
         // allocations left alone until the stream is synchronized.
         unsafe {
