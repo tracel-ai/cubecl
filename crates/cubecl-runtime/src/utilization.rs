@@ -74,3 +74,25 @@ impl fmt::Display for UtilizationUnavailable {
 }
 
 impl core::error::Error for UtilizationUnavailable {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_reading_from_0_to_100_is_kept_as_it_is() {
+        for busy_percent in [0, 37, 100] {
+            assert_eq!(
+                DeviceUtilization::new(busy_percent).busy_percent,
+                busy_percent
+            );
+        }
+    }
+
+    #[test]
+    fn a_reading_above_100_is_held_to_100() {
+        for busy_percent in [101, u32::MAX] {
+            assert_eq!(DeviceUtilization::new(busy_percent).busy_percent, 100);
+        }
+    }
+}
