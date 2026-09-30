@@ -40,6 +40,7 @@ use cubecl_cpp::{
 };
 use cubecl_hip_sys::{hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
 use cubecl_llvm::shared::lowered_features::{GpuTarget, restrict_features};
+use cubecl_server::utilization::{CardCounters, DeviceUtilization};
 use cubecl_server::{
     allocator::PitchedMemoryLayoutPolicy, driver::checked, logging::ServerLogger, runtime::Runtime,
 };
@@ -294,6 +295,10 @@ impl Runtime for HipRuntime {
         (0..device_count())
             .map(|i| DeviceId::new(0, i as u16))
             .collect()
+    }
+
+    fn utilization(device: &Self::Device) -> DeviceUtilization {
+        CardCounters::read_card_behind(&Self::client(device))
     }
 }
 

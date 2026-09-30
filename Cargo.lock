@@ -956,11 +956,6 @@ dependencies = [
  "cubecl-std",
  "cubecl-wgpu",
  "half",
- "nvml-wrapper",
- "objc2-core-foundation",
- "objc2-io-kit",
- "sysinfo",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1350,6 +1345,9 @@ dependencies = [
  "hashbrown 0.17.1",
  "itertools 0.15.0",
  "log",
+ "nvml-wrapper",
+ "objc2-core-foundation",
+ "objc2-io-kit",
  "pliron",
  "rand 0.10.2",
  "serde",
@@ -1361,6 +1359,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tracing",
  "tracy-client",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

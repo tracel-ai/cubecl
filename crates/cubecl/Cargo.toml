@@ -62,16 +62,16 @@ tracing = [
 
 # Runtimes. A kernel library depends on this crate with none of them on and
 # compiles against no runtime at all; a binary turns on the ones it links.
-cpu = ["cubecl-cpu", "device-utilization", "dep:sysinfo"]
-cuda = ["cubecl-cuda", "device-utilization"]
+cpu = ["cubecl-cpu"]
+cuda = ["cubecl-cuda"]
 cuda-cpp = ["cubecl-cuda?/cpp"]
 cuda-ptx-wmma = ["cubecl-cuda?/ptx-wmma"]
-hip = ["cubecl-hip", "device-utilization"]
+hip = ["cubecl-hip"]
 # Compile HIP kernels with the C++ backend instead of the default LLVM one.
 hip-cpp = ["cubecl-hip?/cpp"]
 hip-rocwmma = ["cubecl-hip?/rocwmma"]
 metal = ["wgpu-msl"]
-metal-native = ["cubecl-metal", "device-utilization"]
+metal-native = ["cubecl-metal"]
 pliron-dump = [
     "cubecl-cuda?/pliron-dump",
     "cubecl-hip?/pliron-dump",
@@ -82,18 +82,9 @@ pliron-dump = [
 rocm = ["hip"]
 vulkan = ["wgpu-spirv"]
 webgpu = ["wgpu"]
-wgpu = ["cubecl-wgpu", "device-utilization"]
+wgpu = ["cubecl-wgpu"]
 wgpu-msl = ["wgpu", "cubecl-wgpu/msl"]
 wgpu-spirv = ["wgpu", "cubecl-wgpu/spirv"]
-
-# The counters `Device::utilization` reads. Every runtime turns it on, and a
-# build that links none has no device to ask.
-device-utilization = [
-    "dep:nvml-wrapper",
-    "dep:objc2-core-foundation",
-    "dep:objc2-io-kit",
-    "dep:windows-sys",
-]
 
 # The runtime tests run on: wgpu unless exactly one other runtime is enabled.
 test-runtime = ["wgpu"]
@@ -111,17 +102,3 @@ cubecl-cuda = { path = "../cubecl-cuda", version = "=0.11.0-pre.4", default-feat
 cubecl-hip = { path = "../cubecl-hip", version = "=0.11.0-pre.4", default-features = false, optional = true }
 cubecl-metal = { path = "../cubecl-metal", version = "=0.11.0-pre.4", default-features = false, optional = true }
 cubecl-wgpu = { path = "../cubecl-wgpu", version = "=0.11.0-pre.4", default-features = false, optional = true }
-
-sysinfo = { workspace = true, optional = true }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-nvml-wrapper = { workspace = true, optional = true }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2-core-foundation = { version = "0.3", optional = true }
-objc2-io-kit = { version = "0.3", optional = true }
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, optional = true, features = [
-    "Win32_System_Performance",
-] }

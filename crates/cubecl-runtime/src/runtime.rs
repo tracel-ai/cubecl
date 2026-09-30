@@ -3,7 +3,7 @@ use cubecl_common::device::{Device, DeviceId};
 use cubecl_ir::TargetProperties;
 use cubecl_zspace::{Shape, Strides};
 
-use crate::{client::Client, server::ServerStorage};
+use crate::{client::Client, server::ServerStorage, utilization::DeviceUtilization};
 
 /// Runtime for the `CubeCL`.
 pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
@@ -71,4 +71,8 @@ pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
     fn is_available() -> bool {
         !Self::enumerate_all_devices().is_empty()
     }
+
+    /// How busy `device` is, by the counter its card's driver or its platform keeps. Asking
+    /// creates the device's client, and must never wait on the work the device is running.
+    fn utilization(device: &Self::Device) -> DeviceUtilization;
 }

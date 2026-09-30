@@ -59,6 +59,8 @@ pub mod device_events;
 pub mod compiler;
 /// Simple system profiling using timestamps.
 pub mod timestamp_profiler;
+/// How busy a device is, by the counter its card's driver or its platform keeps.
+pub mod utilization;
 
 /// Validation utils for shared properties
 pub mod validation;

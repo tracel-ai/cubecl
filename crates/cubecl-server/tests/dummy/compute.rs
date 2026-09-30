@@ -2,6 +2,7 @@ use super::{DummyServer, Marker};
 use cubecl_common::device::{Device, DeviceService};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_server::server::Server;
+use cubecl_server::utilization::{CardCounters, DeviceUtilization};
 use cubecl_server::{
     client::Client,
     logging::ServerLogger,
@@ -81,5 +82,9 @@ impl Runtime for DummyRuntime {
             type_id: 0,
             index_id: 0,
         }]
+    }
+
+    fn utilization(device: &Self::Device) -> DeviceUtilization {
+        CardCounters::read_card_behind(&Self::client(device))
     }
 }

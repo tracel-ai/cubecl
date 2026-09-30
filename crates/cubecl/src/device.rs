@@ -20,7 +20,7 @@ pub use cubecl_runtime::device::{
     AmdDevice, CpuDevice, CudaDevice, MetalDevice, WgpuBackend, WgpuDevice, WgpuDeviceKind,
 };
 
-pub use crate::utilization::{DeviceUtilization, UtilizationUnavailable};
+pub use cubecl_runtime::utilization::{DeviceUtilization, UtilizationUnavailable};
 
 /// A device of any runtime.
 ///
@@ -450,11 +450,11 @@ impl Device {
     /// statistics in the I/O Registry on macOS, and the processor times for the CPU.
     ///
     /// The card decides which counter answers, not the runtime, so an NVIDIA card reads the same
-    /// through CUDA as through wgpu. The counter is opened the first time a device is asked,
-    /// which creates the device's client, and kept for the life of the process.
+    /// through CUDA as through wgpu. Asking creates the device's client, and a card's counter is
+    /// opened the first time it is asked and kept for the life of the process.
     ///
     /// The Intel, Windows and CPU counters measure the time between two readings. A reading
-    /// covers the time since this device was last asked, by any caller, and the first is
+    /// covers the time since the card was last asked, by any caller, and the first is
     /// [`UtilizationUnavailable::NoPreviousReading`].
     ///
     /// ```no_run
@@ -465,11 +465,22 @@ impl Device {
     /// }
     /// ```
     pub fn utilization(&self) -> DeviceUtilization {
-        #[cfg(feature = "device-utilization")]
-        if self.runtime().is_linked() {
-            return crate::utilization::OpenedCounters::read_opening_on_first_use(self);
+        match *self {
+            #[cfg(feature = "cuda")]
+            Self::Cuda(ref device) => cubecl_cuda::CudaRuntime::utilization(device),
+            #[cfg(feature = "hip")]
+            Self::Hip(ref device) => cubecl_hip::HipRuntime::utilization(device),
+            #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
+            Self::Metal(ref device) => cubecl_metal::MetalRuntime::utilization(device),
+            #[cfg(feature = "wgpu")]
+            Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::utilization(device),
+            #[cfg(feature = "cpu")]
+            Self::Cpu(ref device) => cubecl_cpu::CpuRuntime::utilization(device),
+            // Unlike `client`, a reason rather than a panic: watching a device must never take
+            // the process down.
+            #[allow(unreachable_patterns)]
+            _ => DeviceUtilization::Unavailable(UtilizationUnavailable::RuntimeNotLinked),
         }
-        DeviceUtilization::Unavailable(UtilizationUnavailable::RuntimeNotLinked(self.runtime()))
     }
 
     /// The device a [`DeviceId`] in this type's encoding names.

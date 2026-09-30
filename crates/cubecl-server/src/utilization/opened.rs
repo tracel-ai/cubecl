@@ -1,6 +1,6 @@
 #[cfg(target_os = "linux")]
 use super::amdgpu_busy_percent::AmdgpuBusyPercentFile;
-#[cfg(windows)]
+#[cfg(target_os = "windows")]
 use super::gpu_engine_counters::GpuEngineCounters;
 #[cfg(target_os = "linux")]
 use super::intel_idle_residency::IntelIdleResidencyFiles;
@@ -8,8 +8,6 @@ use super::intel_idle_residency::IntelIdleResidencyFiles;
 use super::io_accelerator::IoAcceleratorStatistics;
 #[cfg(target_os = "linux")]
 use super::nvml::NvmlUtilizationCounter;
-#[cfg(feature = "cpu")]
-use super::processor_times::ProcessorTimes;
 use super::source::UtilizationSource;
 use crate::utilization::{DeviceUtilization, UtilizationUnavailable};
 
@@ -23,12 +21,10 @@ pub enum OpenedCounter {
     AmdgpuBusyPercentFile(AmdgpuBusyPercentFile),
     #[cfg(target_os = "linux")]
     IntelIdleResidencyFiles(IntelIdleResidencyFiles),
-    #[cfg(windows)]
+    #[cfg(target_os = "windows")]
     GpuEngineCounters(GpuEngineCounters),
     #[cfg(target_os = "macos")]
     IoAcceleratorStatistics(IoAcceleratorStatistics),
-    #[cfg(feature = "cpu")]
-    ProcessorTimes(ProcessorTimes),
     Unavailable(UtilizationUnavailable),
 }
 
@@ -47,7 +43,7 @@ impl OpenedCounter {
             UtilizationSource::IntelIdleResidencyFiles(pci_address) => {
                 IntelIdleResidencyFiles::new(pci_address).map(Self::IntelIdleResidencyFiles)
             }
-            #[cfg(windows)]
+            #[cfg(target_os = "windows")]
             UtilizationSource::GpuEngineCounters(luid) => {
                 GpuEngineCounters::new(luid).map(Self::GpuEngineCounters)
             }
@@ -55,8 +51,6 @@ impl OpenedCounter {
             UtilizationSource::IoAcceleratorStatistics(registry_entry_id) => {
                 IoAcceleratorStatistics::new(registry_entry_id).map(Self::IoAcceleratorStatistics)
             }
-            #[cfg(feature = "cpu")]
-            UtilizationSource::ProcessorTimes => Ok(Self::ProcessorTimes(ProcessorTimes::new())),
             UtilizationSource::Unavailable(reason) => Err(reason),
         };
         opened.unwrap_or_else(Self::Unavailable)
@@ -70,12 +64,10 @@ impl OpenedCounter {
             Self::AmdgpuBusyPercentFile(file) => file.read(),
             #[cfg(target_os = "linux")]
             Self::IntelIdleResidencyFiles(files) => files.read(),
-            #[cfg(windows)]
+            #[cfg(target_os = "windows")]
             Self::GpuEngineCounters(counters) => counters.read(),
             #[cfg(target_os = "macos")]
             Self::IoAcceleratorStatistics(statistics) => statistics.read(),
-            #[cfg(feature = "cpu")]
-            Self::ProcessorTimes(times) => times.read(),
             Self::Unavailable(reason) => DeviceUtilization::Unavailable(reason.clone()),
         }
     }

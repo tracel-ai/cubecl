@@ -467,6 +467,7 @@ mod tests {
 pub mod compute;
 pub mod device;
 pub mod frontend;
+mod processor_times;
 pub mod runtime;
 
 pub use device::CpuDevice;

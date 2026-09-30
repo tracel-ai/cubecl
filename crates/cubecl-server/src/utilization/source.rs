@@ -1,4 +1,4 @@
-#[cfg(windows)]
+#[cfg(target_os = "windows")]
 use cubecl_ir::AdapterLuid;
 use cubecl_ir::PhysicalDevice;
 #[cfg(target_os = "macos")]
@@ -6,9 +6,7 @@ use cubecl_ir::RegistryEntryId;
 #[cfg(target_os = "linux")]
 use cubecl_ir::{PciAddress, PciVendor};
 
-#[cfg(feature = "cpu")]
-use crate::RuntimeId;
-use crate::{Device, utilization::UtilizationUnavailable};
+use crate::utilization::UtilizationUnavailable;
 
 /// The counter a device's utilization is read from. The card and the platform decide it, never
 /// the runtime: an NVIDIA card driven through wgpu reads the same counter as through CUDA.
@@ -20,26 +18,15 @@ pub enum UtilizationSource {
     AmdgpuBusyPercentFile(PciAddress),
     #[cfg(target_os = "linux")]
     IntelIdleResidencyFiles(PciAddress),
-    #[cfg(windows)]
+    #[cfg(target_os = "windows")]
     GpuEngineCounters(AdapterLuid),
     /// Without a registry entry id, the machine's only accelerator.
     #[cfg(target_os = "macos")]
     IoAcceleratorStatistics(Option<RegistryEntryId>),
-    #[cfg(feature = "cpu")]
-    ProcessorTimes,
     Unavailable(UtilizationUnavailable),
 }
 
 impl UtilizationSource {
-    /// Asks the runtime which card `device` is, creating the device's client on first use.
-    pub fn of_device(device: &Device) -> Self {
-        match device.runtime() {
-            #[cfg(feature = "cpu")]
-            RuntimeId::Cpu => Self::ProcessorTimes,
-            _ => Self::of_card(device.client().properties().identity.physical.as_ref()),
-        }
-    }
-
     pub fn of_card(card: Option<&PhysicalDevice>) -> Self {
         match card {
             Some(card) => Self::counter_this_platform_keeps_for(card),
@@ -61,7 +48,7 @@ impl UtilizationSource {
         }
     }
 
-    #[cfg(windows)]
+    #[cfg(target_os = "windows")]
     fn counter_this_platform_keeps_for(card: &PhysicalDevice) -> Self {
         match card.luid {
             Some(luid) => Self::GpuEngineCounters(luid),
@@ -74,7 +61,7 @@ impl UtilizationSource {
         Self::IoAcceleratorStatistics(card.registry_entry_id)
     }
 
-    #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     fn counter_this_platform_keeps_for(card: &PhysicalDevice) -> Self {
         Self::Unavailable(UtilizationUnavailable::NoCounterForCard(card.vendor))
     }

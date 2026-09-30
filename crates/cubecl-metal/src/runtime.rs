@@ -16,6 +16,7 @@ use cubecl_cpp::{
 };
 use cubecl_server::allocator::ContiguousMemoryLayoutPolicy;
 use cubecl_server::runtime::Runtime;
+use cubecl_server::utilization::{CardCounters, DeviceUtilization};
 use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLDevice, MTLGPUFamily};
 
@@ -181,6 +182,10 @@ impl Runtime for MetalRuntime {
                 .collect(),
             _ => Vec::new(),
         }
+    }
+
+    fn utilization(device: &Self::Device) -> DeviceUtilization {
+        CardCounters::read_card_behind(&Self::client(device))
     }
 }
 

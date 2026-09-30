@@ -1,3 +1,4 @@
+use crate::processor_times::ProcessorTimes;
 use crate::{compute::affinity, compute::server::CpuServer, device::CpuDevice};
 use cubecl_common::{device::DeviceService, profile::TimingMethod};
 use cubecl_core::{
@@ -12,6 +13,7 @@ use cubecl_core::{
     zspace::{Shape, Strides},
 };
 use cubecl_llvm::PlironCompiler;
+use cubecl_server::utilization::DeviceUtilization;
 use cubecl_server::{
     allocator::ContiguousMemoryLayoutPolicy,
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
@@ -277,5 +279,9 @@ impl Runtime for CpuRuntime {
             type_id: 0,
             index_id: 0,
         }]
+    }
+
+    fn utilization(_device: &Self::Device) -> DeviceUtilization {
+        ProcessorTimes::read_machine_wide()
     }
 }
