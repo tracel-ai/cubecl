@@ -25,11 +25,57 @@ use pliron::{
     result::{ExpectOk, Result},
 };
 
-/// `for i in lo..hi { if i * s <= base { if (base - i * s) % d == 0 { out[0] = i
-/// } } }`, the shape `conv_transpose2d_direct_kernel` walks its dilated window
-/// with. The pure `nop`s in the two else arms give the decline tests something
-/// unique to turn into an effect.
-fn guarded_loop(lo: usize, hi: usize, base: usize, s: usize, d: usize, step: usize) -> String {
+const STORE: &str =
+    "memory.store (out, i) [] []: <(cube.ptr <cube.index , Global<0>>, cube.index ) -> ()>;";
+
+fn nop(name: &str) -> String {
+    format!(
+        "{name} = math.i_add (zero, zero) [] []: <(cube.index , cube.index ) -> (cube.index )>;"
+    )
+}
+
+/// One fixture for guarded and unguarded loops; pure else-arm nops anchor mutations.
+fn loop_ir([lo, hi, base, s, d, step]: [usize; 6], reachability: bool) -> String {
+    let gate_nop = if reachability {
+        nop("gate_nop")
+    } else {
+        String::new()
+    };
+    let gate = format!(
+        r#"
+        num = math.i_sub (base, prod) [] []: <(cube.index , cube.index ) -> (cube.index )>;
+        rem = math.u_rem (num, d) [] []: <(cube.index , cube.index ) -> (cube.index )>;
+        hit = cmp.i_equal (rem, zero) [] []: <(cube.index , cube.index ) -> (cube.bool )>;
+        branch.if hit then {{
+          ^then():
+            {STORE}
+            branch.yield ()
+        }} else {{
+          ^else():
+            {gate_nop}
+            branch.yield ()
+        }};
+    "#
+    );
+    let body = if reachability {
+        let reach_nop = nop("reach_nop");
+        format!(
+            r#"
+            reach = cmp.u_greater_than_or_equal (base, prod) [] []: <(cube.index , cube.index ) -> (cube.bool )>;
+            branch.if reach then {{
+              ^then():
+                {gate}
+                branch.yield ()
+            }} else {{
+              ^else():
+                {reach_nop}
+                branch.yield ()
+            }};
+        "#
+        )
+    } else {
+        gate
+    };
     format!(
         r#"
     builtin.func @f: builtin.function <(cube.ptr <cube.index , Global<0>>) -> ()> [] {{
@@ -44,43 +90,36 @@ fn guarded_loop(lo: usize, hi: usize, base: usize, s: usize, d: usize, step: usi
         branch.range_loop (lo, hi, step) [] []: <(cube.index , cube.index , cube.index ) -> ()> {{
           ^body(i: cube.index ):
             prod = math.i_mul (i, s) [] []: <(cube.index , cube.index ) -> (cube.index )>;
-            reach = cmp.u_greater_than_or_equal (base, prod) [] []: <(cube.index , cube.index ) -> (cube.bool )>;
-            branch.if reach then {{
-              ^then():
-                num = math.i_sub (base, prod) [] []: <(cube.index , cube.index ) -> (cube.index )>;
-                rem = math.u_rem (num, d) [] []: <(cube.index , cube.index ) -> (cube.index )>;
-                hit = cmp.i_equal (rem, zero) [] []: <(cube.index , cube.index ) -> (cube.bool )>;
-                branch.if hit then {{
-                  ^then():
-                    memory.store (out, i) [] []: <(cube.ptr <cube.index , Global<0>>, cube.index ) -> ()>;
-                    branch.yield ()
-                }} else {{
-                  ^else():
-                    gate_nop = math.i_add (zero, zero) [] []: <(cube.index , cube.index ) -> (cube.index )>;
-                    branch.yield ()
-                }};
-                branch.yield ()
-            }} else {{
-              ^else():
-                reach_nop = math.i_add (zero, zero) [] []: <(cube.index , cube.index ) -> (cube.index )>;
-                branch.yield ()
-            }};
+            {body}
             branch.yield ()
         }};
         branch.return
     }}
-  "#
+    "#
     )
 }
 
-fn rewrite(input: &str) -> Result<(IRStatus, String)> {
+fn guarded_loop(lo: usize, hi: usize, base: usize, s: usize, d: usize, step: usize) -> String {
+    loop_ir([lo, hi, base, s, d, step], true)
+}
+
+fn test_context(address: AddressType) -> Context {
     init_env_logger_for_tests!();
-    let ctx = &mut Context::new();
-    // The polyfill expansion registers types in the scope's global state.
-    init_dummy_state(ctx);
-    ctx.set_address_type(AddressType::U32);
+    let mut ctx = Context::new();
+    init_dummy_state(&mut ctx);
+    ctx.set_address_type(address);
+    ctx
+}
+
+fn parse_ir(ctx: &mut Context, input: &str) -> Result<Ptr<Operation>> {
     let op = parse_from_str(spaced(Operation::top_level_parser()), ctx, input).expect_ok(ctx);
     verify_operation(op, ctx)?;
+    Ok(op)
+}
+
+fn rewrite(input: &str) -> Result<(IRStatus, String)> {
+    let ctx = &mut test_context(AddressType::U32);
+    let op = parse_ir(ctx, input)?;
 
     let mut pass = QuotientRange;
     let changed = apply_match_rewrite(ctx, &mut pass, RewriterOrder::default(), op)?;
@@ -114,66 +153,24 @@ fn trip_count_is_independent_of_the_divisor() -> Result<()> {
     Ok(())
 }
 
-/// The recovery chain costs its ops per kept tap, so the rewrite only fires
-/// where the loop skips at least as many iterations as it keeps. A clipped
-/// window containing just one useful iteration stays unchanged even at d=4.
 #[test]
-fn declines_when_the_holes_do_not_pay() -> Result<()> {
-    let (changed, _) = rewrite(&guarded_loop(8, 9, 48, 1, 4, 1))?;
-    assert_eq!(changed, IRStatus::Unchanged);
-    Ok(())
-}
-
-/// d<=1 has no holes; d=2 does not amortize recovery in small-loop benchmarks.
-#[test]
-fn declines_on_a_small_divisor() -> Result<()> {
-    for dilation in [0usize, 1, 2] {
-        let hi = 9 + 5 * dilation.max(1);
-        let (changed, _) = rewrite(&guarded_loop(9, hi, 48, 1, dilation, 1))?;
+fn declines_unsupported_windows() -> Result<()> {
+    for (case, values) in [
+        ("unprofitable window", [8, 9, 48, 1, 4, 1]),
+        ("zero divisor", [9, 14, 48, 1, 0, 1]),
+        ("unit divisor", [9, 14, 48, 1, 1, 1]),
+        ("small divisor", [9, 19, 48, 1, 2, 1]),
+        ("non-unit loop step", [9, 49, 48, 1, 8, 2]),
+        ("product overflow", [1 << 31, (1 << 31) + 8, 16, 2, 8, 1]),
+        ("endpoint overflow", [(1 << 31) - 8, 1 << 31, 16, 2, 8, 1]),
+    ] {
         assert_eq!(
-            changed,
+            rewrite(&loop_ir(values, true))?.0,
             IRStatus::Unchanged,
-            "dilation {dilation} should be left alone"
+            "{case}"
         );
     }
     Ok(())
-}
-
-/// The same loop without the reachability guard: an `i * s` past `base` wraps
-/// the numerator onto a quotient the rewrite cannot account for, and those
-/// iterations may reach the body in the source loop.
-fn unguarded_loop(lo: usize, hi: usize, base: usize, s: usize, d: usize, step: usize) -> String {
-    format!(
-        r#"
-    builtin.func @f: builtin.function <(cube.ptr <cube.index , Global<0>>) -> ()> [] {{
-      ^entry(out: cube.ptr <cube.index , Global<0>>):
-        lo = builtin.constant <cube.index {lo}> : cube.index;
-        hi = builtin.constant <cube.index {hi}> : cube.index;
-        step = builtin.constant <cube.index {step}> : cube.index;
-        base = builtin.constant <cube.index {base}> : cube.index;
-        s = builtin.constant <cube.index {s}> : cube.index;
-        d = builtin.constant <cube.index {d}> : cube.index;
-        zero = builtin.constant <cube.index 0> : cube.index;
-        branch.range_loop (lo, hi, step) [] []: <(cube.index , cube.index , cube.index ) -> ()> {{
-          ^body(i: cube.index ):
-            prod = math.i_mul (i, s) [] []: <(cube.index , cube.index ) -> (cube.index )>;
-            num = math.i_sub (base, prod) [] []: <(cube.index , cube.index ) -> (cube.index )>;
-            rem = math.u_rem (num, d) [] []: <(cube.index , cube.index ) -> (cube.index )>;
-            hit = cmp.i_equal (rem, zero) [] []: <(cube.index , cube.index ) -> (cube.bool )>;
-            branch.if hit then {{
-              ^then():
-                memory.store (out, i) [] []: <(cube.ptr <cube.index , Global<0>>, cube.index ) -> ()>;
-                branch.yield ()
-            }} else {{
-              ^else():
-                branch.yield ()
-            }};
-            branch.yield ()
-        }};
-        branch.return
-    }}
-  "#
-    )
 }
 
 /// Without the reachability guard, an `i * s` past `base` wraps the numerator
@@ -181,7 +178,7 @@ fn unguarded_loop(lo: usize, hi: usize, base: usize, s: usize, d: usize, step: u
 /// the body in the source loop, and the rewrite would drop them.
 #[test]
 fn declines_without_the_reachability_guard() -> Result<()> {
-    let (changed, _) = rewrite(&unguarded_loop(9, 49, 48, 1, 8, 1))?;
+    let (changed, _) = rewrite(&loop_ir([9, 49, 48, 1, 8, 1], false))?;
     assert_eq!(changed, IRStatus::Unchanged);
     Ok(())
 }
@@ -314,74 +311,19 @@ fn rewrites_the_dilated_window_loop() -> Result<()> {
     Ok(())
 }
 
-/// Re-indexing must not change what the loop does, so it only fires when every
-/// effect is already behind the divisibility guard.
 #[test]
-fn declines_when_an_effect_escapes_the_guard() -> Result<()> {
-    let input = guarded_loop(9, 49, 48, 1, 8, 1).replace(
-        "prod = math.i_mul",
-        "memory.store (out, i) [] []: <(cube.ptr <cube.index , Global<0>>, cube.index ) -> ()>;
-            prod = math.i_mul",
-    );
-    let (changed, _) = rewrite(&input)?;
-    assert_eq!(changed, IRStatus::Unchanged);
-    Ok(())
-}
-
-/// The new bounds are computed once, outside the loop, so the divisor and the
-/// numerator have to be the same on every iteration.
-#[test]
-fn declines_when_the_divisor_varies_in_the_loop() -> Result<()> {
-    let input = guarded_loop(9, 49, 48, 1, 8, 1).replace(
-        "rem = math.u_rem (num, d)",
-        "inner_d = math.i_add (d, i) [] []: <(cube.index , cube.index ) -> (cube.index )>;
-            rem = math.u_rem (num, inner_d)",
-    );
-    let (changed, _) = rewrite(&input)?;
-    assert_eq!(changed, IRStatus::Unchanged);
-    Ok(())
-}
-
-/// A recovered `i` is only guaranteed to be an iteration the source loop had
-/// when the source loop walked every integer in its range.
-#[test]
-fn declines_on_a_strided_loop() -> Result<()> {
-    let (changed, _) = rewrite(&guarded_loop(9, 49, 48, 1, 8, 2))?;
-    assert_eq!(changed, IRStatus::Unchanged);
-    Ok(())
-}
-
-/// The quotient reaches only the iterations that pass the guard, so the arm
-/// the skipped ones would have taken has to be empty of effects.
-#[test]
-fn declines_when_the_guard_has_an_else_arm() -> Result<()> {
-    let input = guarded_loop(9, 49, 48, 1, 8, 1).replace(
-        "gate_nop = math.i_add (zero, zero) [] []: <(cube.index , cube.index ) -> (cube.index )>;",
-        "memory.store (out, i) [] []: <(cube.ptr <cube.index , Global<0>>, cube.index ) -> ()>;",
-    );
-    assert!(
-        !input.contains("gate_nop"),
-        "the else arm under test was not planted"
-    );
-    let (changed, _) = rewrite(&input)?;
-    assert_eq!(changed, IRStatus::Unchanged);
-    Ok(())
-}
-
-/// The stripped body drops the reachability guard, so the arm the dropped
-/// iterations take has to be empty of effects too.
-#[test]
-fn declines_when_the_reachability_guard_has_an_effectful_else() -> Result<()> {
-    let input = guarded_loop(9, 49, 48, 1, 8, 1).replace(
-        "reach_nop = math.i_add (zero, zero) [] []: <(cube.index , cube.index ) -> (cube.index )>;",
-        "memory.store (out, i) [] []: <(cube.ptr <cube.index , Global<0>>, cube.index ) -> ()>;",
-    );
-    assert!(
-        !input.contains("reach_nop"),
-        "the else arm under test was not planted"
-    );
-    let (changed, _) = rewrite(&input)?;
-    assert_eq!(changed, IRStatus::Unchanged);
+fn declines_when_effects_escape_or_the_divisor_varies() -> Result<()> {
+    let input = guarded_loop(9, 49, 48, 1, 8, 1);
+    for (case, from, to) in [
+        ("effect outside guards", "prod = math.i_mul".into(), format!("{STORE}\n prod = math.i_mul")),
+        ("effect in divisibility else", nop("gate_nop"), STORE.into()),
+        ("effect in reachability else", nop("reach_nop"), STORE.into()),
+        ("varying divisor", "rem = math.u_rem (num, d)".into(),
+         "inner_d = math.i_add (d, i) [] []: <(cube.index , cube.index ) -> (cube.index )>;\n rem = math.u_rem (num, inner_d)".into()),
+    ] {
+        assert_eq!(input.matches(&from).count(), 1, "{case}: missing fixture anchor");
+        assert_eq!(rewrite(&input.replace(&from, &to))?.0, IRStatus::Unchanged, "{case}");
+    }
     Ok(())
 }
 
@@ -487,22 +429,8 @@ fn preserves_boundary_iterations() {
 }
 
 #[test]
-fn declines_when_the_product_can_overflow() -> Result<()> {
-    for (lo, hi) in [(1 << 31, (1 << 31) + 8), ((1 << 31) - 8, 1 << 31)] {
-        assert_eq!(
-            rewrite(&guarded_loop(lo, hi, 16, 2, 8, 1))?.0,
-            IRStatus::Unchanged
-        );
-    }
-    Ok(())
-}
-
-#[test]
 fn preserves_return_inside_the_gate() -> Result<()> {
-    let input = guarded_loop(9, 49, 48, 1, 8, 1).replace(
-        "memory.store (out, i) [] []: <(cube.ptr <cube.index , Global<0>>, cube.index ) -> ()>;\n                    branch.yield ()",
-        "memory.store (out, i) [] []: <(cube.ptr <cube.index , Global<0>>, cube.index ) -> ()>;\n                    branch.return",
-    );
+    let input = guarded_loop(9, 49, 48, 1, 8, 1).replacen("branch.yield ()", "branch.return", 1);
     assert_eq!(input.matches("branch.return").count(), 2);
     let (changed, after) = rewrite(&input)?;
     assert_eq!(changed, IRStatus::Changed);
@@ -524,18 +452,13 @@ fn preserves_remainder_used_by_the_body() -> Result<()> {
 
 #[test]
 fn declines_when_return_escapes_the_gate() -> Result<()> {
-    for nop in ["gate_nop", "reach_nop"] {
-        let input = guarded_loop(9, 49, 48, 1, 8, 1).replace(
-            &format!("{nop} = math.i_add (zero, zero) [] []: <(cube.index , cube.index ) -> (cube.index )>;\n                    branch.yield ()"),
-            "branch.return",
-        );
-        // reach_nop has a different indentation level.
-        let input = input.replace(
-            &format!("{nop} = math.i_add (zero, zero) [] []: <(cube.index , cube.index ) -> (cube.index )>;\n                branch.yield ()"),
-            "branch.return",
-        );
+    for name in ["gate_nop", "reach_nop"] {
+        let mut input = guarded_loop(9, 49, 48, 1, 8, 1);
+        let start = input.find(&nop(name)).expect("missing else-arm nop");
+        let end = start + input[start..].find("branch.yield ()").unwrap() + "branch.yield ()".len();
+        input.replace_range(start..end, "branch.return");
         assert_eq!(input.matches("branch.return").count(), 2);
-        assert_eq!(rewrite(&input)?.0, IRStatus::Unchanged);
+        assert_eq!(rewrite(&input)?.0, IRStatus::Unchanged, "{name}");
     }
     Ok(())
 }
@@ -553,11 +476,8 @@ fn runtime_uses_quotient(args: [usize; 5], address: AddressType) -> Result<bool>
             "",
         );
     }
-    let ctx = &mut Context::new();
-    init_dummy_state(ctx);
-    ctx.set_address_type(address);
-    let op = parse_from_str(spaced(Operation::top_level_parser()), ctx, &input).expect_ok(ctx);
-    verify_operation(op, ctx)?;
+    let ctx = &mut test_context(address);
+    let op = parse_ir(ctx, &input)?;
     assert_eq!(
         apply_match_rewrite(ctx, &mut QuotientRange, RewriterOrder::default(), op)?,
         IRStatus::Changed
@@ -628,12 +548,9 @@ fn runtime_checks_safety_and_profitability() -> Result<()> {
 /// unswitch its own unswitch forever.
 #[test]
 fn is_idempotent() -> Result<()> {
-    init_env_logger_for_tests!();
-    let ctx = &mut Context::new();
-    init_dummy_state(ctx);
-    ctx.set_address_type(AddressType::U32);
+    let ctx = &mut test_context(AddressType::U32);
     let input = guarded_loop(9, 49, 48, 1, 8, 1);
-    let op = parse_from_str(spaced(Operation::top_level_parser()), ctx, &input).expect_ok(ctx);
+    let op = parse_ir(ctx, &input)?;
 
     let mut pass = QuotientRange;
     let first = apply_match_rewrite(ctx, &mut pass, RewriterOrder::default(), op)?;

@@ -1,48 +1,19 @@
-//! Re-index a divisibility-guarded range loop by the quotient of its guard.
-//!
-//! Experimental: backend pipelines leave this pass disabled unless
-//! `CUBECL_ENABLE_QUOTIENT_RANGE=1` is set before compilation. A trip-count
-//! heuristic cannot guarantee that changing a kernel makes it faster on every
-//! device. Keeping the pass out of the default pipeline preserves its input IR
-//! without adding runtime guards or a second loop. Directly running this
-//! rewrite is also an explicit opt-in.
+//! Re-index loops whose effects are guarded by `i*s <= base && (base-i*s)%d == 0`.
 //!
 //! ```text
 //! for i in lo..hi {
-//!     if i * s <= base {                       // reachability guard
-//!         if (base - i * s) % d == 0 { body }  // divisibility gate
+//!     if i * s <= base {
+//!         if (base - i * s) % d == 0 { body }
 //!     }
 //! }
 //! ```
 //!
-//! runs `hi - lo` times but only reaches `body` on the `i` where `d` divides
-//! `base - i * s`. Dilated conv-transpose is the motivating shape: the window
-//! it walks is `kernel * dilation` wide and every `dilation`-th tap survives,
-//! so the trip count grows with `dilation` while the arithmetic does not. The
-//! reachability guard is what makes an `i` past `base` effect-free — the
-//! rewrite drops those iterations instead of restoring them.
-//!
-//! The surviving taps are in bijection with the quotient
-//! `q = (base - i * s) / d`, whose inverse is `i = (base - q * d) / s` wherever
-//! `s` divides `base - q * d`. Driving the loop by `q` reaches each tap exactly
-//! once. `q` climbs as `i` falls, so the loop counts back down to restore the
-//! source order.
-//!
-//! Once enabled, the rewrite uses a cost heuristic. The chain costs ops per
-//! surviving tap whether or not the loop had holes, so it fires only where the
-//! loop skips at least as many iterations as it keeps. Constant operands get
-//! that question answered at compile time — a window that would never pay is
-//! left alone — and dynamic ones are wrapped in a runtime unswitch on
-//! [`quotient_applicable`], which also keeps the arithmetic well defined and
-//! parks losing windows in the source arm. In the paying arm both guards are
-//! provable on every surviving tap, so the body moves across with them
-//! stripped, along with the products the recovery already computed.
-//!
-//! The arithmetic is written as polyfill functions: [`quotient_applicable`] is
-//! the unswitch condition, [`quotient_bounds`] hoists the quotient range, and
-//! [`recover_tap`] recovers `i` and the tap index from `q`. The pass itself
-//! only matches the guarded-loop shape, clones the body, and parks the source
-//! loop in the unswitch's else arm.
+//! Enumerating `q = (base-i*s)/d` skips the holes in dilated conv-transpose.
+//! Descending quotients preserve source order; recovery validates each tap.
+//! Unsafe or unprofitable dynamic windows use the original loop. The arithmetic
+//! lives in three polyfills; the rewrite substitutes their results into the body.
+//! Backends require [`enabled`] to opt in; directly running the rewrite is also
+//! explicit opt-in.
 
 use alloc::vec::Vec;
 use cubecl_core as cubecl;
@@ -86,28 +57,46 @@ define_size!(Lane);
 /// the fixpoint walk does not unswitch it again.
 const UNSWITCHED: &str = "quotient_range_unswitched";
 
-/// A [`RangeLoopOp`] whose every effect sits under
-/// `i * s <= base && (base - i * s) % d == 0`.
+/// The two guards and the affine expression they share.
 #[derive(Clone, Copy)]
 struct Guarded {
     loop_op: RangeLoopOp,
-    /// The `i * s <= base` guard: iterations past `base` cannot reach the body.
     outer: IfOp,
-    /// The `(base - i * s) % d == 0` gate the holes hide behind.
     gate: IfOp,
-    /// `i * s`: the reachability guard's product, the body's `numerator_tmp`.
-    scaled: Value,
-    /// `base - i * s`: the dividend the body divides by `d`.
-    numerator: Value,
-    /// `(base - i * s) % d`: zero on every tap the body runs for.
-    rem: Value,
-    /// The zero the gate compares the remainder against.
-    zero: Value,
+    product: Value,
+    division: Divisibility,
+}
+
+#[derive(Clone, Copy)]
+struct Reachability {
     base: Value,
-    /// Multiplier on the induction variable.
-    s: Value,
-    /// Divisor whose holes the loop is spinning through.
-    d: Value,
+    scale: Value,
+    product: Value,
+}
+
+#[derive(Clone, Copy)]
+struct Divisibility {
+    base: Value,
+    scale: Value,
+    divisor: Value,
+    numerator: Value,
+    remainder: Value,
+    zero: Value,
+}
+
+struct PreparedRange {
+    start: Value,
+    last: Value,
+    end: Value,
+    applicable: Value,
+}
+
+struct RecoveredTap {
+    index: Value,
+    quotient: Value,
+    numerator: Value,
+    scaled: Value,
+    keep: Value,
 }
 
 fn const_index(ctx: &Context, value: Value) -> Option<usize> {
@@ -130,14 +119,17 @@ fn holes_pay(ctx: &Context, lo: usize, hi: usize, base: usize, s: usize, d: usiz
     q_last + 1 - q_start <= (hi - lo) / 2
 }
 
-/// Match `(base - iv * s) % d == 0`, the shape that skips the holes. Returns
-/// `(base, s, d)`, the dividend `base - iv * s`, the remainder the gate
-/// compares against zero, and that zero.
-fn as_divisibility(
-    ctx: &Context,
-    cond: Value,
-    iv: Value,
-) -> Option<(Value, Value, Value, Value, Value, Value)> {
+fn scale_of(ctx: &Context, product: Value, iv: Value) -> Option<Value> {
+    let mul = product.defining_op()?.as_op::<IMulOp>(ctx)?;
+    match (mul.lhs(ctx), mul.rhs(ctx)) {
+        (l, r) if l == iv => Some(r),
+        (l, r) if r == iv => Some(l),
+        _ => None,
+    }
+}
+
+/// Match `(base - iv * scale) % divisor == 0`.
+fn as_divisibility(ctx: &Context, cond: Value, iv: Value) -> Option<Divisibility> {
     let eq = cond.defining_op()?.as_op::<IEqualOp>(ctx)?;
     let (lhs, rhs) = (eq.lhs(ctx), eq.rhs(ctx));
     let (rem, zero) = match (const_index(ctx, lhs), const_index(ctx, rhs)) {
@@ -147,18 +139,18 @@ fn as_divisibility(
     };
     let rem_op = rem.defining_op()?.as_op::<URemOp>(ctx)?;
     let sub = rem_op.lhs(ctx).defining_op()?.as_op::<ISubOp>(ctx)?;
-    let mul = sub.rhs(ctx).defining_op()?.as_op::<IMulOp>(ctx)?;
-    let s = match (mul.lhs(ctx), mul.rhs(ctx)) {
-        (l, r) if l == iv => r,
-        (l, r) if r == iv => l,
-        _ => return None,
-    };
-    Some((sub.lhs(ctx), s, rem_op.rhs(ctx), rem_op.lhs(ctx), rem, zero))
+    Some(Divisibility {
+        base: sub.lhs(ctx),
+        scale: scale_of(ctx, sub.rhs(ctx), iv)?,
+        divisor: rem_op.rhs(ctx),
+        numerator: rem_op.lhs(ctx),
+        remainder: rem,
+        zero,
+    })
 }
 
-/// Match `base >= iv * s` (or its swap): the guard that makes an `i` past
-/// `base` effect-free. Returns `(base, s, iv * s)`.
-fn as_reachability(ctx: &Context, cond: Value, iv: Value) -> Option<(Value, Value, Value)> {
+/// Match `base >= iv * scale` or its swapped comparison.
+fn as_reachability(ctx: &Context, cond: Value, iv: Value) -> Option<Reachability> {
     let defining = cond.defining_op()?;
     let (prod, base) = if let Some(cmp) = defining.as_op::<UGreaterThanOrEqualOp>(ctx) {
         (cmp.rhs(ctx), cmp.lhs(ctx))
@@ -167,41 +159,24 @@ fn as_reachability(ctx: &Context, cond: Value, iv: Value) -> Option<(Value, Valu
     } else {
         return None;
     };
-    let mul = prod.defining_op()?.as_op::<IMulOp>(ctx)?;
-    let s = match (mul.lhs(ctx), mul.rhs(ctx)) {
-        (l, r) if l == iv => r,
-        (l, r) if r == iv => l,
-        _ => return None,
-    };
-    Some((base, s, prod))
-}
-
-/// The `i * s <= base` guard, searched through the `then` arms.
-fn find_reachability(ctx: &Context, block: Ptr<BasicBlock>, iv: Value) -> Option<IfOp> {
-    block.deref(ctx).iter(ctx).find_map(|op| {
-        let if_op = op.as_op::<IfOp>(ctx)?;
-        match as_reachability(ctx, if_op.condition(ctx), iv) {
-            Some(_) => Some(if_op),
-            None => find_reachability(ctx, if_op.then_block(ctx), iv),
-        }
+    Some(Reachability {
+        base,
+        scale: scale_of(ctx, prod, iv)?,
+        product: prod,
     })
 }
 
-/// The innermost divisibility `if` under `block`, searched through the `then`
-/// arms the guard chain nests it in.
-fn find_gate(
+/// Depth-first search through `then` arms, stopping at the first matching guard.
+fn find_guard<T>(
     ctx: &Context,
     block: Ptr<BasicBlock>,
-    iv: Value,
-) -> Option<(IfOp, Value, Value, Value, Value, Value, Value)> {
+    match_condition: &impl Fn(Value) -> Option<T>,
+) -> Option<(IfOp, T)> {
     block.deref(ctx).iter(ctx).find_map(|op| {
         let if_op = op.as_op::<IfOp>(ctx)?;
-        match as_divisibility(ctx, if_op.condition(ctx), iv) {
-            Some((base, s, d, numerator, rem, zero)) => {
-                Some((if_op, base, s, d, numerator, rem, zero))
-            }
-            None => find_gate(ctx, if_op.then_block(ctx), iv),
-        }
+        match_condition(if_op.condition(ctx))
+            .map(|matched| (if_op, matched))
+            .or_else(|| find_guard(ctx, if_op.then_block(ctx), match_condition))
     })
 }
 
@@ -305,23 +280,20 @@ fn matched(ctx: &Context, op: Ptr<Operation>) -> Option<Guarded> {
     let iv = loop_op.iter_var(ctx);
     // Reachability excludes subtraction underflow. Multiplication overflow
     // needs a separate check in quotient_applicable.
-    let outer = find_reachability(ctx, body, iv)?;
-    let (base, s, scaled) = as_reachability(ctx, outer.condition(ctx), iv)?;
-    let (gate, gate_base, gate_s, d, numerator, rem, zero) =
-        find_gate(ctx, outer.then_block(ctx), iv)?;
-    if base != gate_base || s != gate_s {
+    let (outer, reach) = find_guard(ctx, body, &|cond| as_reachability(ctx, cond, iv))?;
+    let (gate, division) = find_guard(ctx, outer.then_block(ctx), &|cond| {
+        as_divisibility(ctx, cond, iv)
+    })?;
+    if (reach.base, reach.scale) != (division.base, division.scale) {
         return None;
     }
+    let (base, s, d) = (division.base, division.scale, division.divisor);
     // d <= 1 has no holes. At d == 2 the recovery chain's cost still outweighs
     // the saved iterations in small-loop benchmarks, so keep the source loop.
     if matches!(const_index(ctx, d), Some(0..=2)) {
         return None;
     }
-    // With constant operands the profitability question is settled here: an
-    // unswitch whose condition is statically false would only ever route to
-    // the source arm, so the rewrite declines instead of emitting it. Dynamic
-    // windows — a clipped dilated window has far fewer holes than its nominal
-    // `d` suggests — keep the runtime check in `quotient_applicable`.
+    // Static rejection avoids generating a runtime unswitch for losing windows.
     if let (Some(lo), Some(hi), Some(b), Some(s_c), Some(d_c)) = (
         const_index(ctx, loop_op.start(ctx)),
         const_index(ctx, loop_op.end(ctx)),
@@ -341,13 +313,8 @@ fn matched(ctx: &Context, op: Ptr<Operation>) -> Option<Guarded> {
         loop_op,
         outer,
         gate,
-        scaled,
-        numerator,
-        rem,
-        zero,
-        base,
-        s,
-        d,
+        product: reach.product,
+        division,
     })
 }
 
@@ -365,13 +332,8 @@ mod policy_tests {
     }
 }
 
-/// The rewrite fires where skipping beats checking. The chain costs its ops
-/// per surviving tap whether or not the loop had holes, so the rewrite is only
-/// worth it when the loop skips at least as many iterations as it keeps — a
-/// per-window decision, since a clipped window of a dilated loop can have far
-/// fewer holes than its nominal `d` suggests. The `s`/`d` checks keep the
-/// arithmetic well defined and park the pathological operands on the source
-/// path.
+/// Require at least as many skipped iterations as candidates. Invalid operands
+/// and overflowing products take the source arm, including for clipped windows.
 #[cube]
 fn quotient_applicable<I: Int, N: Size>(
     lo: Vector<I, N>,
@@ -394,14 +356,9 @@ fn quotient_applicable<I: Int, N: Size>(
         .vec_and(taps.less_equal(&(trips / Vector::new(I::new(2)))))
 }
 
-/// The quotient range bracketing every tap the loop can produce. Hoisted out
-/// of the loop: one evaluation per loop entry, not one per tap.
-///
-/// `base - i * s` is widest at `i == lo` and narrowest at `i == hi`, so those
-/// two ends bracket every quotient. The subtractions saturate because the
-/// numerator is unsigned. The range is a superset of the surviving taps;
-/// [`recover_tap`] re-validates each one. The divisors are clamped so the
-/// range stays defined even on operands [`quotient_applicable`] rejects.
+/// Bracket all quotients using the two endpoints, once per loop entry. Saturate
+/// unsigned subtractions and clamp divisors even for rejected windows, since
+/// these bounds are evaluated before the unswitch.
 #[cube]
 fn quotient_bounds<I: Int, N: Size>(
     lo: Vector<I, N>,
@@ -424,14 +381,9 @@ fn quotient_bounds<I: Int, N: Size>(
     (q_start, q_last, q_last + Vector::new(I::new(1)))
 }
 
-/// Recover the source iteration `i` from `q`. Bounds guarantee `tap*d <= base`;
-/// `exact` keeps `i` integral and `in_range` keeps it in the source loop.
-///
-/// `i` falls as `q` climbs, so a forward `q` would run the body in reverse.
-/// Counting back down from the top of the range (`tap`) restores the source
-/// order. `tap * d` is exactly `base - i * s` — the numerator the body divides
-/// by `d` to find its kernel position — and `scaled` is `i * s`; the stripped
-/// body substitutes both, so its own recomputation disappears.
+/// Descending quotients restore source order. Bounds guarantee `tap*d <= base`;
+/// exactness and range checks validate i. The other results replace arithmetic
+/// already present in the body: `tap*d = base-i*s` and `scaled = i*s`.
 #[cube]
 fn recover_tap<I: Int, N: Size>(
     q: Vector<I, N>,
@@ -466,155 +418,124 @@ fn recover_tap<I: Int, N: Size>(
     (recovered, tap, numerator, scaled, keep)
 }
 
-/// Untyped [`quotient_applicable`] expansion: binds `Idx`/`Lane` to the
-/// loop's index values and hands the result back as a [`Value`].
-fn expand_applicable(
-    scope: &Scope,
-    lo: Value,
-    hi: Value,
-    s: Value,
-    d: Value,
-    q_start: Value,
-    q_end: Value,
-) -> Value {
-    scope.register_value_type::<Idx, Lane>(s);
-    quotient_applicable::expand::<Idx, Lane>(
-        scope,
-        lo.into(),
-        hi.into(),
-        s.into(),
-        d.into(),
-        q_start.into(),
-        q_end.into(),
-        (u64::MAX >> (64 - scope.ctx().address_type().size_bits())) as i64,
-    )
-    .value(scope)
-}
-
-/// Untyped [`quotient_bounds`] expansion; see [`expand_applicable`].
-fn expand_bounds(
-    scope: &Scope,
-    lo: Value,
-    hi: Value,
-    base: Value,
-    s: Value,
-    d: Value,
-) -> (Value, Value, Value) {
-    scope.register_value_type::<Idx, Lane>(lo);
-    let (q_start, q_last, q_end) = quotient_bounds::expand::<Idx, Lane>(
-        scope,
-        lo.into(),
-        hi.into(),
-        base.into(),
-        s.into(),
-        d.into(),
-    );
-    (
-        q_start.value(scope),
-        q_last.value(scope),
-        q_end.value(scope),
-    )
-}
-
-/// Untyped [`recover_tap`] expansion; see [`expand_applicable`].
-#[allow(clippy::too_many_arguments)]
-fn expand_recover(
-    scope: &Scope,
-    q: Value,
-    lo: Value,
-    hi: Value,
-    base: Value,
-    s: Value,
-    d: Value,
-    q_start: Value,
-    q_last: Value,
-    unit_stride: bool,
-) -> (Value, Value, Value, Value, Value) {
-    scope.register_value_type::<Idx, Lane>(q);
-    let (i, tap, numerator, scaled, keep) = recover_tap::expand::<Idx, Lane>(
-        scope,
-        q.into(),
-        lo.into(),
-        hi.into(),
-        base.into(),
-        s.into(),
-        d.into(),
-        q_start.into(),
-        q_last.into(),
-        unit_stride,
-    );
-    (
-        i.value(scope),
-        tap.value(scope),
-        numerator.value(scope),
-        scaled.value(scope),
-        keep.value(scope),
-    )
-}
-
-/// The body's `kernel_y = numerator / d`: the tap index the chain recovered.
-fn as_quotient_of(ctx: &Context, op: Ptr<Operation>, numerator: Value, d: Value) -> Option<Value> {
-    let udiv = op.as_op::<UDivOp>(ctx)?;
-    (udiv.lhs(ctx) == numerator && udiv.rhs(ctx) == d).then(|| op.deref(ctx).get_result(0))
-}
-
-/// Clone the body into the stripped gate: flatten the two guards the chain now
-/// proves, drop the defs it has already substituted, and copy the rest.
-/// Returns true when a copied terminator ends the destination block.
-fn clone_body(
-    ctx: &mut Context,
-    rewriter: &mut MatchRewriter,
-    mapper: &mut IrMapping,
-    src: Ptr<BasicBlock>,
-    dst: Ptr<BasicBlock>,
-    outer: IfOp,
-    gate: IfOp,
-    subbed: &[Value],
-    numerator: Value,
-    d: Value,
-    tap: Value,
-) -> bool {
-    let ops = src.deref(ctx).iter(ctx).collect::<Vec<_>>();
-    for old in ops {
-        if old.as_op::<YieldOp>(ctx).is_some() {
-            continue;
-        }
-        if old == outer.get_operation() || old == gate.get_operation() {
-            // The chain proves reachability and divisibility on every tap the
-            // body runs for, so both guards are free to go.
-            let then = if old == outer.get_operation() {
-                outer.then_block(ctx)
-            } else {
-                gate.then_block(ctx)
-            };
-            if clone_body(
-                ctx, rewriter, mapper, then, dst, outer, gate, subbed, numerator, d, tap,
-            ) {
-                return true;
-            }
-            continue;
-        }
-        let result = {
-            let op_ref = old.deref(ctx);
-            (op_ref.result_types().count() == 1).then(|| op_ref.get_result(0))
-        };
-        if let Some(result) = result {
-            if subbed.contains(&result) {
-                continue;
-            }
-            if let Some(quotient) = as_quotient_of(ctx, old, numerator, d) {
-                mapper.map_value(quotient, tap);
-                continue;
-            }
-        }
-        rewriter.set_insertion_point(OpInsertionPoint::AtBlockEnd(dst));
-        let cloned = clone_operation(old, ctx, rewriter, mapper);
-        rewriter.append_operation(ctx, cloned);
-        if old.is_terminator(ctx) {
-            return true;
+impl Guarded {
+    /// Expand both invariant polyfills with one binding of the loop's index type.
+    fn prepare(&self, scope: &Scope) -> PreparedRange {
+        let lo = self.loop_op.start(scope.ctx());
+        let hi = self.loop_op.end(scope.ctx());
+        let div = self.division;
+        scope.register_value_type::<Idx, Lane>(lo);
+        let (start, last, end) = quotient_bounds::expand::<Idx, Lane>(
+            scope,
+            lo.into(),
+            hi.into(),
+            div.base.into(),
+            div.scale.into(),
+            div.divisor.into(),
+        );
+        let (start, last, end) = (start.value(scope), last.value(scope), end.value(scope));
+        let applicable = quotient_applicable::expand::<Idx, Lane>(
+            scope,
+            lo.into(),
+            hi.into(),
+            div.scale.into(),
+            div.divisor.into(),
+            start.into(),
+            end.into(),
+            (u64::MAX >> (64 - scope.ctx().address_type().size_bits())) as i64,
+        )
+        .value(scope);
+        PreparedRange {
+            start,
+            last,
+            end,
+            applicable,
         }
     }
-    false
+
+    fn recover(&self, scope: &Scope, q: Value, range: &PreparedRange) -> RecoveredTap {
+        let div = self.division;
+        let (index, quotient, numerator, scaled, keep) = recover_tap::expand::<Idx, Lane>(
+            scope,
+            q.into(),
+            self.loop_op.start(scope.ctx()).into(),
+            self.loop_op.end(scope.ctx()).into(),
+            div.base.into(),
+            div.scale.into(),
+            div.divisor.into(),
+            range.start.into(),
+            range.last.into(),
+            const_index(scope.ctx(), div.scale) == Some(1),
+        );
+        RecoveredTap {
+            index: index.value(scope),
+            quotient: quotient.value(scope),
+            numerator: numerator.value(scope),
+            scaled: scaled.value(scope),
+            keep: keep.value(scope),
+        }
+    }
+
+    /// The same substitutions drive value mapping and omission of redundant definitions.
+    fn replacements(&self, ctx: &Context, tap: &RecoveredTap) -> [(Value, Value); 6] {
+        [
+            (self.loop_op.iter_var(ctx), tap.index),
+            (self.product, tap.scaled),
+            (self.division.numerator, tap.numerator),
+            (self.division.remainder, self.division.zero),
+            (self.outer.condition(ctx), tap.keep),
+            (self.gate.condition(ctx), tap.keep),
+        ]
+    }
+
+    /// Flatten the proven guards and substitute recovered values. True means an
+    /// early exit terminated the destination; callers must not append a yield.
+    fn clone_body(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut MatchRewriter,
+        mapper: &mut IrMapping,
+        src: Ptr<BasicBlock>,
+        dst: Ptr<BasicBlock>,
+        tap: &RecoveredTap,
+    ) -> bool {
+        let replacements = self.replacements(ctx, tap);
+        let ops = src.deref(ctx).iter(ctx).collect::<Vec<_>>();
+        for old in ops {
+            if old.as_op::<YieldOp>(ctx).is_some() {
+                continue;
+            }
+            if old == self.outer.get_operation() || old == self.gate.get_operation() {
+                let then = old.as_op::<IfOp>(ctx).unwrap().then_block(ctx);
+                if self.clone_body(ctx, rewriter, mapper, then, dst, tap) {
+                    return true;
+                }
+                continue;
+            }
+            let result = {
+                let op = old.deref(ctx);
+                (op.result_types().count() == 1).then(|| op.get_result(0))
+            };
+            if let Some(result) = result {
+                if replacements.iter().any(|(from, _)| *from == result) {
+                    continue;
+                }
+                if old.as_op::<UDivOp>(ctx).is_some_and(|div| {
+                    div.lhs(ctx) == self.division.numerator && div.rhs(ctx) == self.division.divisor
+                }) {
+                    mapper.map_value(result, tap.quotient);
+                    continue;
+                }
+            }
+            rewriter.set_insertion_point(OpInsertionPoint::AtBlockEnd(dst));
+            let cloned = clone_operation(old, ctx, rewriter, mapper);
+            rewriter.append_operation(ctx, cloned);
+            if old.is_terminator(ctx) {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 impl MatchRewrite for QuotientRange {
@@ -628,106 +549,49 @@ impl MatchRewrite for QuotientRange {
         rewriter: &mut MatchRewriter,
         op: Ptr<Operation>,
     ) -> Result<()> {
-        let Some(Guarded {
-            loop_op,
-            outer,
-            gate,
-            scaled,
-            numerator,
-            rem,
-            zero,
-            base,
-            s,
-            d,
-        }) = matched(ctx, op)
-        else {
+        let Some(guard) = matched(ctx, op) else {
             return Ok(());
         };
-        let (lo, hi) = (loop_op.start(ctx), loop_op.end(ctx));
-        let iv = loop_op.iter_var(ctx);
-
-        // The body may use the remainder itself. Its replacement zero must
-        // dominate both arms, even when originally declared inside the loop.
-        if !invariant(ctx, zero, loop_op.loop_region(ctx)) {
+        // A locally declared replacement zero must dominate both loop versions.
+        let zero = guard.division.zero;
+        if !invariant(ctx, zero, guard.loop_op.loop_region(ctx)) {
             rewriter.move_operation(
                 ctx,
                 zero.defining_op().unwrap(),
                 OpInsertionPoint::BeforeOperation(op),
             );
         }
-
-        // The source loop parks in the unswitch's else arm with its shape
-        // intact; mark it so the fixpoint walk leaves it there.
         mark_unswitched(ctx, op);
 
-        // Everything up to the unswitch is loop invariant, so it costs one
-        // evaluation per loop entry rather than one per tap. The quotient range
-        // also feeds the trip-count arithmetic the profitability check
-        // compares against, so both are computed up front.
         rewriter.set_insertion_point(OpInsertionPoint::BeforeOperation(op));
-        let (q_start, q_last, q_end) = {
-            let scope = Scope::from_context_and_inserter(ctx, rewriter);
-            expand_bounds(&scope, lo, hi, base, s, d)
-        };
-        let applicable = {
-            let scope = Scope::from_context_and_inserter(ctx, rewriter);
-            expand_applicable(&scope, lo, hi, s, d, q_start, q_end)
-        };
-        let unswitch = IfOp::new(ctx, applicable);
+        let range = guard.prepare(&Scope::from_context_and_inserter(ctx, rewriter));
+        let unswitch = IfOp::new(ctx, range.applicable);
         rewriter.append_op(ctx, &unswitch);
         let (then_block, else_block) = (unswitch.then_block(ctx), unswitch.else_block(ctx));
 
-        // The quotient arm.
         rewriter.set_insertion_point(OpInsertionPoint::AtBlockStart(then_block));
-        let q_loop = RangeLoopOp::new(ctx, q_start, q_end, loop_op.step(ctx));
+        let q_loop = RangeLoopOp::new(ctx, range.start, range.end, guard.loop_op.step(ctx));
         mark_unswitched(ctx, q_loop.get_operation());
         rewriter.append_op(ctx, &q_loop);
         let q = q_loop.iter_var(ctx);
         let q_body = q_loop.loop_body(ctx);
-
         rewriter.set_insertion_point(OpInsertionPoint::AtBlockStart(q_body));
-        let unit_stride = const_index(ctx, s) == Some(1);
-        let (iter_var, tap, num, scaled_v, keep) = {
-            let scope = Scope::from_context_and_inserter(ctx, rewriter);
-            expand_recover(&scope, q, lo, hi, base, s, d, q_start, q_last, unit_stride)
-        };
-
-        let body_gate = IfOp::new(ctx, keep);
+        let tap = guard.recover(&Scope::from_context_and_inserter(ctx, rewriter), q, &range);
+        let body_gate = IfOp::new(ctx, tap.keep);
         rewriter.append_op(ctx, &body_gate);
 
-        // The body keeps neither guard and none of the arithmetic the chain
-        // already did. What the guards computed is known on every tap the body
-        // runs for: the remainder was zero, the reachability and divisibility
-        // checks held — the same thing `keep` says. Substituting them means
-        // neither the guards nor their recomputation survive the move.
         let mut mapper = IrMapping::new();
-        mapper.map_value(iv, iter_var);
-        mapper.map_value(scaled, scaled_v);
-        mapper.map_value(numerator, num);
-        mapper.map_value(rem, zero);
-        mapper.map_value(outer.condition(ctx), keep);
-        mapper.map_value(gate.condition(ctx), keep);
-        let subbed = [
-            scaled,
-            numerator,
-            rem,
-            outer.condition(ctx),
-            gate.condition(ctx),
-        ];
-        let body_exits = clone_body(
+        for (from, to) in guard.replacements(ctx, &tap) {
+            mapper.map_value(from, to);
+        }
+        let body_exits = guard.clone_body(
             ctx,
             rewriter,
             &mut mapper,
-            loop_op.loop_body(ctx),
+            guard.loop_op.loop_body(ctx),
             body_gate.then_block(ctx),
-            outer,
-            gate,
-            &subbed,
-            numerator,
-            d,
-            tap,
+            &tap,
         );
-
         for block in [q_body, body_gate.else_block(ctx), then_block, else_block] {
             rewriter.set_insertion_point(OpInsertionPoint::AtBlockEnd(block));
             let terminator = YieldOp::new(ctx);
@@ -739,10 +603,8 @@ impl MatchRewrite for QuotientRange {
             rewriter.append_op(ctx, &terminator);
         }
 
-        // The source arm.
         rewriter.set_insertion_point(OpInsertionPoint::AtBlockStart(else_block));
         rewriter.move_operation(ctx, op, OpInsertionPoint::AtBlockStart(else_block));
-
         Ok(())
     }
 }
