@@ -345,20 +345,19 @@ fn new_context(settings: KernelSettings) -> Rc<UnsafeCell<Context>> {
     Rc::new(UnsafeCell::new(ctx))
 }
 
-/// Create a dummy context that can't be used for actual codegen. Useful for registering and
-/// resolving types without making the interface for that overly complex.
-/// Maybe we can replace the `&Scope` with a type registration trait on that function only at some point.
-fn dummy_context() -> Rc<UnsafeCell<Context>> {
-    let mut ctx = Context::default();
-
-    let module = ModuleOp::new(&mut ctx, ident("dummy_module"));
-    let module_block = module.get_body(&ctx, 0);
+/// Install a minimal [`GlobalState`] into `ctx` so a [`Scope`] can expand
+/// polyfill code into an IR that no kernel [`Scope`] built — a parsed module
+/// in tests, say. The attached module and entry function are dummies and must
+/// never be used for codegen; only the type and size maps are meaningful.
+pub fn init_dummy_state(ctx: &mut Context) {
+    let module = ModuleOp::new(ctx, ident("dummy_module"));
+    let module_block = module.get_body(ctx, 0);
     let mut module_inserter = OpInserter::new_at_block_end(module_block);
 
-    let entry_func_ty = FunctionType::get(&ctx, vec![], vec![UnitType::get(&ctx).into()]);
+    let entry_func_ty = FunctionType::get(ctx, vec![], vec![UnitType::get(ctx).into()]);
     let entry_name = ident("dummy_entry");
-    let entry_func = FuncOp::new(&mut ctx, entry_name, entry_func_ty);
-    module_inserter.append_op(&ctx, &entry_func);
+    let entry_func = FuncOp::new(ctx, entry_name, entry_func_ty);
+    module_inserter.append_op(ctx, &entry_func);
 
     let state = GlobalState {
         reference_arena: Default::default(),
@@ -376,6 +375,14 @@ fn dummy_context() -> Rc<UnsafeCell<Context>> {
     };
 
     ctx.set_aux_ty(state);
+}
+
+/// Create a dummy context that can't be used for actual codegen. Useful for registering and
+/// resolving types without making the interface for that overly complex.
+/// Maybe we can replace the `&Scope` with a type registration trait on that function only at some point.
+fn dummy_context() -> Rc<UnsafeCell<Context>> {
+    let mut ctx = Context::default();
+    init_dummy_state(&mut ctx);
     Rc::new(UnsafeCell::new(ctx))
 }
 

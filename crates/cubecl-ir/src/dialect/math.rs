@@ -530,12 +530,9 @@ const_eval!(SRemOp, {
         _ => None
     }
 });
-simplify!(SRemOp, {
-    |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::Int(1) => Some(self.lhs(ctx)),
-        _ => None?,
-    }
-});
+// No `simplify!` fold for `x % 1`: `check_fold` can only forward an existing
+// value, and the remainder is zero, never `lhs`. The `const_eval!` arm above
+// folds it to a zero constant in SCCP.
 
 #[cube_op(name = "math.u_rem")]
 #[result_ty(same_as = lhs)]
@@ -558,12 +555,8 @@ const_eval!(URemOp, {
         _ => None
     }
 });
-simplify!(URemOp, {
-    |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::UInt(1) => Some(self.lhs(ctx)),
-        _ => None?,
-    }
-});
+// No `simplify!` fold for `x % 1`: see `SRemOp` above; the `const_eval!` arm
+// folds it to a zero constant in SCCP.
 
 pure_binop!("math.f_rem", FRemOp);
 const_eval!(FRemOp, {
@@ -574,12 +567,8 @@ const_eval!(FRemOp, {
         _ => None
     },
 });
-simplify!(FRemOp, {
-    |_, rhs| match rhs?.float_as_f64(ctx) {
-        Some(1.0) => Some(self.lhs(ctx)),
-        _ => None?,
-    }
-});
+// No `simplify!` fold for `x % 1.0`: the remainder is fractional, neither
+// `lhs` nor a constant.
 
 /// Signed floor modulo. A nonzero result has the same sign as the divisor.
 /// Division by zero and `MIN mod_floor -1` have no portable result or error guarantee.
