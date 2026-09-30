@@ -3,7 +3,7 @@ use cubecl_common::hash::StableHash;
 use cubecl_core::prelude::*;
 use cubecl_core::server::{LaunchError, ResourceLimitError};
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_server::kernel::BufferIOAttr;
+use cubecl_server::kernel::{BufferIOAttr, DebugInformation};
 use cubecl_server::{
     compiler::{CompilationRecording, KernelCacheKey, build_id_hash},
     kernel::CubeKernel,
