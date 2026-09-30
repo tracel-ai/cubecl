@@ -1,7 +1,6 @@
 use crate::compute::copies::MetalCopies;
 use crate::memory::MetalStorage;
 use cubecl_core::{MemoryConfiguration, server::ServerError};
-use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_server::memory_management::relocation::RelocationReason;
