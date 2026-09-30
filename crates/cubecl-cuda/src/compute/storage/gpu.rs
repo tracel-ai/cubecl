@@ -12,6 +12,8 @@ use std::collections::HashMap;
 enum AllocationKind {
     Async,
     Sync,
+    /// A zero-size buffer has no backing allocation.
+    Empty,
 }
 
 /// Buffer storage for NVIDIA GPUs.
@@ -78,11 +80,12 @@ impl GpuStorage {
         self.deallocations
             .drain(..)
             .filter_map(|id| self.memory.remove(&id))
-            // SAFETY: Each pointer remains owned by this storage and has not been
-            // freed. Match the actual allocation kind, including async fallbacks.
+            // SAFETY: Nonempty pointers are owned by this storage and have not
+            // been freed. Empty entries make no driver call.
             .for_each(|(ptr, kind, size)| unsafe {
                 self.allocated -= size;
                 let result = match kind {
+                    AllocationKind::Empty => Ok(()),
                     AllocationKind::Sync => cudarc::driver::result::free_sync(ptr),
                     AllocationKind::Async => cudarc::driver::result::free_async(ptr, self.stream),
                 };
@@ -185,19 +188,25 @@ impl ComputeStorage for GpuStorage {
         let id = StorageId::new();
         // CubeCL pools these allocations itself. Sync avoids CUDA's additional
         // pool; async preserves stream ordering and the existing sync fallback.
-        // SAFETY: The context and stream are valid. Successful allocations remain
-        // owned by `self.memory` and are freed according to their actual kind.
-        let allocation = unsafe {
-            match self.allocator {
-                CudaAllocator::Sync => cudarc::driver::result::malloc_sync(size as usize)
-                    .map(|ptr| (ptr, AllocationKind::Sync)),
-                CudaAllocator::Async => {
-                    cudarc::driver::result::malloc_async(self.stream, size as usize)
-                        .map(|ptr| (ptr, AllocationKind::Async))
-                        .or_else(|_| {
-                            cudarc::driver::result::malloc_sync(size as usize)
-                                .map(|ptr| (ptr, AllocationKind::Sync))
-                        })
+        let allocation = if size == 0 {
+            // cuMemAlloc rejects zero bytes. Empty buffers still need a storage
+            // entry for binding resolution, but no CUDA allocation or free.
+            Ok((0, AllocationKind::Empty))
+        } else {
+            // SAFETY: The context and stream are valid. Successful allocations
+            // remain owned by `self.memory` and are freed by their actual kind.
+            unsafe {
+                match self.allocator {
+                    CudaAllocator::Sync => cudarc::driver::result::malloc_sync(size as usize)
+                        .map(|ptr| (ptr, AllocationKind::Sync)),
+                    CudaAllocator::Async => {
+                        cudarc::driver::result::malloc_async(self.stream, size as usize)
+                            .map(|ptr| (ptr, AllocationKind::Async))
+                            .or_else(|_| {
+                                cudarc::driver::result::malloc_sync(size as usize)
+                                    .map(|ptr| (ptr, AllocationKind::Sync))
+                            })
+                    }
                 }
             }
         };
@@ -240,5 +249,33 @@ impl ComputeStorage for GpuStorage {
 
     fn bytes_allocated(&self) -> u64 {
         self.allocated
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zero_size_allocations() {
+        let context = cudarc::driver::CudaContext::new(0).unwrap();
+        let stream = context.new_stream().unwrap();
+
+        for allocator in [CudaAllocator::Sync, CudaAllocator::Async] {
+            let mut storage = GpuStorage::new(512, stream.cu_stream(), allocator);
+            for size in [0, 16] {
+                let handle = storage.alloc(size).unwrap();
+                let resource = storage.get(&handle).unwrap();
+                assert_eq!(handle.size(), size);
+                assert_eq!(resource.size, size);
+                assert_eq!(resource.ptr == 0, size == 0);
+                assert_eq!(storage.bytes_allocated(), size);
+
+                storage.dealloc(handle.id);
+                storage.flush();
+                stream.synchronize().unwrap();
+                assert_eq!(storage.bytes_allocated(), 0);
+            }
+        }
     }
 }
