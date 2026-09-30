@@ -24,19 +24,14 @@ impl NvmlUtilizationCounter {
         Ok(Self { nvml, pci_bus_id })
     }
 
-    pub fn read(&self) -> DeviceUtilization {
+    pub fn read(&self) -> Result<DeviceUtilization, UtilizationUnavailable> {
         // NVML's device handle borrows the library, so it cannot live beside it in this struct;
         // the card is looked up again by its bus id.
-        let utilization = self
-            .nvml
+        self.nvml
             .device_by_pci_bus_id(self.pci_bus_id.as_str())
-            .and_then(|device| device.utilization_rates());
-        match utilization {
-            Ok(utilization) => DeviceUtilization::Measured {
-                busy_percent: utilization.gpu,
-            },
-            Err(error) => DeviceUtilization::Unavailable(unavailability_from_nvml_error(error)),
-        }
+            .and_then(|device| device.utilization_rates())
+            .map(|utilization| DeviceUtilization::new(utilization.gpu))
+            .map_err(unavailability_from_nvml_error)
     }
 }
 

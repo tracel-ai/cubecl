@@ -22,19 +22,17 @@ impl AmdgpuBusyPercentFile {
         }
     }
 
-    pub fn read(&self) -> DeviceUtilization {
-        let reading = std::fs::read_to_string(&self.path)
+    pub fn read(&self) -> Result<DeviceUtilization, UtilizationUnavailable> {
+        std::fs::read_to_string(&self.path)
             .map_err(|error| error.to_string())
             .and_then(|text| {
                 text.trim()
                     .parse::<u32>()
                     .map_err(|error| error.to_string())
-            });
-        match reading {
-            Ok(busy_percent) => DeviceUtilization::Measured { busy_percent },
-            Err(message) => DeviceUtilization::Unavailable(UtilizationUnavailable::QueryFailed(
-                format!("{}: {message}", self.path.display()),
-            )),
-        }
+            })
+            .map(DeviceUtilization::new)
+            .map_err(|message| {
+                UtilizationUnavailable::QueryFailed(format!("{}: {message}", self.path.display()))
+            })
     }
 }

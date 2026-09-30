@@ -34,7 +34,7 @@ impl IoAcceleratorStatistics {
         Ok(Self { accelerator })
     }
 
-    pub fn read(&self) -> DeviceUtilization {
+    pub fn read(&self) -> Result<DeviceUtilization, UtilizationUnavailable> {
         let performance_statistics = CFString::from_static_str("PerformanceStatistics");
         // SAFETY: the entry is retained by `self`, and the property is returned retained.
         let statistics = unsafe {
@@ -47,7 +47,9 @@ impl IoAcceleratorStatistics {
         };
         let Some(statistics) = statistics.and_then(|value| value.downcast::<CFDictionary>().ok())
         else {
-            return Self::query_failed("the accelerator keeps no PerformanceStatistics");
+            return Err(Self::query_failed(
+                "the accelerator keeps no PerformanceStatistics",
+            ));
         };
         // SAFETY: the keys of an I/O Registry property dictionary are strings.
         let statistics = unsafe { statistics.cast_unchecked::<CFString, CFType>() };
@@ -57,12 +59,11 @@ impl IoAcceleratorStatistics {
                 .downcast_ref::<CFNumber>()?
                 .as_i64()
         });
-        match busy_percent {
-            Some(busy_percent) => DeviceUtilization::Measured {
-                busy_percent: busy_percent.clamp(0, 100) as u32,
-            },
-            None => Self::query_failed("the PerformanceStatistics hold no device utilization"),
-        }
+        busy_percent
+            .map(|busy_percent| DeviceUtilization::new(busy_percent.clamp(0, 100) as u32))
+            .ok_or_else(|| {
+                Self::query_failed("the PerformanceStatistics hold no device utilization")
+            })
     }
 
     fn accelerator_with_entry_id(
@@ -125,8 +126,8 @@ impl IoAcceleratorStatistics {
         Ok(accelerators)
     }
 
-    fn query_failed(message: &str) -> DeviceUtilization {
-        DeviceUtilization::Unavailable(UtilizationUnavailable::QueryFailed(message.to_string()))
+    fn query_failed(message: &str) -> UtilizationUnavailable {
+        UtilizationUnavailable::QueryFailed(message.to_string())
     }
 }
 

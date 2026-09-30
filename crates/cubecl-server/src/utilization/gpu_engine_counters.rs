@@ -53,8 +53,7 @@ impl GpuEngineCounters {
         // SAFETY: a null data source is the live system, and the handle lands in `query`, which
         // closes it on drop.
         let status = unsafe { PdhOpenQueryW(ptr::null(), 0, &mut query.query) };
-        GpuEngineQuery::succeeded("PdhOpenQueryW", status)
-            .map_err(UtilizationUnavailable::QueryFailed)?;
+        GpuEngineQuery::succeeded("PdhOpenQueryW", status)?;
         let counter_path: Vec<u16> = GPU_ENGINE_UTILIZATION_COUNTER_PATH
             .encode_utf16()
             .chain([0])
@@ -63,35 +62,32 @@ impl GpuEngineCounters {
         let status = unsafe {
             PdhAddEnglishCounterW(query.query, counter_path.as_ptr(), 0, &mut query.counter)
         };
-        GpuEngineQuery::succeeded("PdhAddEnglishCounterW", status)
-            .map_err(UtilizationUnavailable::QueryFailed)?;
+        GpuEngineQuery::succeeded("PdhAddEnglishCounterW", status)?;
         Ok(Self {
             adapter,
             query: Mutex::new(query),
         })
     }
 
-    pub fn read(&self) -> DeviceUtilization {
+    pub fn read(&self) -> Result<DeviceUtilization, UtilizationUnavailable> {
         self.query
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .busiest_engine_of(self.adapter)
-            .unwrap_or_else(|message| {
-                DeviceUtilization::Unavailable(UtilizationUnavailable::QueryFailed(message))
-            })
     }
 }
 
 impl GpuEngineQuery {
-    fn busiest_engine_of(&mut self, adapter: AdapterLuid) -> Result<DeviceUtilization, String> {
+    fn busiest_engine_of(
+        &mut self,
+        adapter: AdapterLuid,
+    ) -> Result<DeviceUtilization, UtilizationUnavailable> {
         // SAFETY: the query is open for as long as `self` lives.
         let status = unsafe { PdhCollectQueryData(self.query) };
         Self::succeeded("PdhCollectQueryData", status)?;
         // A utilization percentage is a rate, which one collection has nothing to measure against.
         if !core::mem::replace(&mut self.has_collected_once, true) {
-            return Ok(DeviceUtilization::Unavailable(
-                UtilizationUnavailable::NoPreviousReading,
-            ));
+            return Err(UtilizationUnavailable::NoPreviousReading);
         }
         let item_count = self.collect_formatted_items()?;
         self.sum_busy_percent_by_engine_of(adapter, item_count);
@@ -100,14 +96,14 @@ impl GpuEngineQuery {
             .values()
             .copied()
             .fold(0.0, f64::max);
-        Ok(DeviceUtilization::Measured {
-            busy_percent: busiest_engine.clamp(0.0, 100.0).round() as u32,
-        })
+        Ok(DeviceUtilization::new(
+            busiest_engine.clamp(0.0, 100.0).round() as u32,
+        ))
     }
 
     /// Fills the item buffer, growing it for as long as PDH asks: the processes using the GPU come
     /// and go between two calls.
-    fn collect_formatted_items(&mut self) -> Result<usize, String> {
+    fn collect_formatted_items(&mut self) -> Result<usize, UtilizationUnavailable> {
         loop {
             let mut buffer_bytes = (self.item_buffer.len() * size_of::<u64>()) as u32;
             let mut item_count = 0;
@@ -129,9 +125,9 @@ impl GpuEngineQuery {
                     .item_buffer
                     .resize((buffer_bytes as usize).div_ceil(size_of::<u64>()), 0),
                 status => {
-                    return Err(format!(
+                    return Err(UtilizationUnavailable::QueryFailed(format!(
                         "PdhGetFormattedCounterArrayW returned {status:#010x}"
-                    ));
+                    )));
                 }
             }
         }
@@ -186,10 +182,12 @@ impl GpuEngineQuery {
         );
     }
 
-    fn succeeded(function: &str, status: u32) -> Result<(), String> {
+    fn succeeded(function: &str, status: u32) -> Result<(), UtilizationUnavailable> {
         match status {
             0 => Ok(()),
-            status => Err(format!("{function} returned {status:#010x}")),
+            status => Err(UtilizationUnavailable::QueryFailed(format!(
+                "{function} returned {status:#010x}"
+            ))),
         }
     }
 }

@@ -43,15 +43,10 @@ impl IntelIdleResidencyFiles {
         })
     }
 
-    pub fn read(&self) -> DeviceUtilization {
-        let reading = match self.read_idle_residency() {
-            Ok(reading) => reading,
-            Err(message) => {
-                return DeviceUtilization::Unavailable(UtilizationUnavailable::QueryFailed(
-                    message,
-                ));
-            }
-        };
+    pub fn read(&self) -> Result<DeviceUtilization, UtilizationUnavailable> {
+        let reading = self
+            .read_idle_residency()
+            .map_err(UtilizationUnavailable::QueryFailed)?;
         let mut previous_reading = self
             .previous_reading
             .lock()
@@ -60,10 +55,9 @@ impl IntelIdleResidencyFiles {
             .as_ref()
             .map(|earlier| reading.busy_percent_of_busiest_gt_since(earlier));
         *previous_reading = Some(reading);
-        match busy_percent {
-            Some(busy_percent) => DeviceUtilization::Measured { busy_percent },
-            None => DeviceUtilization::Unavailable(UtilizationUnavailable::NoPreviousReading),
-        }
+        busy_percent
+            .map(DeviceUtilization::new)
+            .ok_or(UtilizationUnavailable::NoPreviousReading)
     }
 
     fn read_idle_residency(&self) -> Result<IdleResidencyReading, String> {

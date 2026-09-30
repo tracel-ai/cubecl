@@ -13,7 +13,7 @@ use cubecl_core::{
     zspace::{Shape, Strides},
 };
 use cubecl_llvm::PlironCompiler;
-use cubecl_server::utilization::DeviceUtilization;
+use cubecl_server::utilization::{DeviceUtilization, UtilizationUnavailable};
 use cubecl_server::{
     allocator::ContiguousMemoryLayoutPolicy,
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
@@ -281,7 +281,7 @@ impl Runtime for CpuRuntime {
         }]
     }
 
-    fn utilization(_device: &Self::Device) -> DeviceUtilization {
+    fn utilization(_device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
         ProcessorTimes::read_machine_wide()
     }
 }

@@ -12,7 +12,7 @@ static PREVIOUS_READING: Mutex<Option<System>> = Mutex::new(None);
 impl ProcessorTimes {
     /// The share of the time since the previous reading the cores spent running, averaged over
     /// every core.
-    pub fn read_machine_wide() -> DeviceUtilization {
+    pub fn read_machine_wide() -> Result<DeviceUtilization, UtilizationUnavailable> {
         let mut previous_reading = PREVIOUS_READING
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
@@ -20,11 +20,11 @@ impl ProcessorTimes {
             let mut system = System::new();
             system.refresh_cpu_usage();
             *previous_reading = Some(system);
-            return DeviceUtilization::Unavailable(UtilizationUnavailable::NoPreviousReading);
+            return Err(UtilizationUnavailable::NoPreviousReading);
         };
         system.refresh_cpu_usage();
-        DeviceUtilization::Measured {
-            busy_percent: system.global_cpu_usage().clamp(0.0, 100.0).round() as u32,
-        }
+        Ok(DeviceUtilization::new(
+            system.global_cpu_usage().clamp(0.0, 100.0).round() as u32,
+        ))
     }
 }

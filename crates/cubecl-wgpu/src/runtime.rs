@@ -19,7 +19,7 @@ use cubecl_server::allocator::ContiguousMemoryLayoutPolicy;
 use cubecl_server::logging::ProfileLevel;
 pub use cubecl_server::memory_management::MemoryConfiguration;
 use cubecl_server::runtime::Runtime;
-use cubecl_server::utilization::{CardCounters, DeviceUtilization};
+use cubecl_server::utilization::{CardCounters, DeviceUtilization, UtilizationUnavailable};
 use cubecl_server::{client::Client, logging::ServerLogger};
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 
@@ -149,7 +149,7 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
         }
     }
 
-    fn utilization(device: &Self::Device) -> DeviceUtilization {
+    fn utilization(device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
         CardCounters::read_card_behind(&Self::client(device))
     }
 }

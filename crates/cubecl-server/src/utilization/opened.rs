@@ -56,7 +56,7 @@ impl OpenedCounter {
         opened.unwrap_or_else(Self::Unavailable)
     }
 
-    pub fn read(&self) -> DeviceUtilization {
+    pub fn read(&self) -> Result<DeviceUtilization, UtilizationUnavailable> {
         match self {
             #[cfg(target_os = "linux")]
             Self::Nvml(counter) => counter.read(),
@@ -68,7 +68,7 @@ impl OpenedCounter {
             Self::GpuEngineCounters(counters) => counters.read(),
             #[cfg(target_os = "macos")]
             Self::IoAcceleratorStatistics(statistics) => statistics.read(),
-            Self::Unavailable(reason) => DeviceUtilization::Unavailable(reason.clone()),
+            Self::Unavailable(reason) => Err(reason.clone()),
         }
     }
 }

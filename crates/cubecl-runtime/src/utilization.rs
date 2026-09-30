@@ -4,17 +4,21 @@ use core::fmt;
 use cubecl_ir::PciVendor;
 
 /// How busy a device is, as [`Runtime::utilization`](crate::runtime::Runtime::utilization) read
-/// it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum DeviceUtilization {
-    /// The counter answered: the percent of its last period the device spent running work, from
-    /// 0 to 100.
-    Measured {
-        /// The share of the period the device was busy.
-        busy_percent: u32,
-    },
-    /// No counter answered, and why.
-    Unavailable(UtilizationUnavailable),
+/// it from its counter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct DeviceUtilization {
+    /// The percent of the counter's last period the device spent running work, from 0 to 100.
+    pub busy_percent: u32,
+}
+
+impl DeviceUtilization {
+    /// Holds a reading above 100 to 100.
+    pub fn new(busy_percent: u32) -> Self {
+        Self {
+            busy_percent: busy_percent.min(100),
+        }
+    }
 }
 
 /// Why a device's utilization could not be read.

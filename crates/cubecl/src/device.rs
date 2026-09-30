@@ -458,13 +458,14 @@ impl Device {
     /// [`UtilizationUnavailable::NoPreviousReading`].
     ///
     /// ```no_run
-    /// use cubecl::device::{Device, DeviceUtilization};
+    /// use cubecl::Device;
     ///
-    /// if let DeviceUtilization::Measured { busy_percent } = Device::default().utilization() {
-    ///     println!("{busy_percent}% busy");
+    /// match Device::default().utilization() {
+    ///     Ok(utilization) => println!("{}% busy", utilization.busy_percent),
+    ///     Err(reason) => println!("no reading: {reason}"),
     /// }
     /// ```
-    pub fn utilization(&self) -> DeviceUtilization {
+    pub fn utilization(&self) -> Result<DeviceUtilization, UtilizationUnavailable> {
         match *self {
             #[cfg(feature = "cuda")]
             Self::Cuda(ref device) => cubecl_cuda::CudaRuntime::utilization(device),
@@ -479,7 +480,7 @@ impl Device {
             // Unlike `client`, a reason rather than a panic: watching a device must never take
             // the process down.
             #[allow(unreachable_patterns)]
-            _ => DeviceUtilization::Unavailable(UtilizationUnavailable::RuntimeNotLinked),
+            _ => Err(UtilizationUnavailable::RuntimeNotLinked),
         }
     }
 

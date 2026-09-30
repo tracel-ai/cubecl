@@ -7,9 +7,7 @@ use cubecl_runtime::client::Client;
 
 #[cfg(std_io)]
 use super::{opened::OpenedCounter, source::UtilizationSource};
-use crate::utilization::DeviceUtilization;
-#[cfg(not(std_io))]
-use crate::utilization::UtilizationUnavailable;
+use crate::utilization::{DeviceUtilization, UtilizationUnavailable};
 
 /// The counters of the cards the GPU runtimes drive, each opened the first time its card is asked
 /// and kept for the life of the process: opening is the costly half, loading NVML or opening a
@@ -25,7 +23,7 @@ impl CardCounters {
     /// counter answers, never the runtime: an NVIDIA card reads the same through CUDA as through
     /// wgpu.
     #[cfg(std_io)]
-    pub fn read_card_behind(client: &Client) -> DeviceUtilization {
+    pub fn read_card_behind(client: &Client) -> Result<DeviceUtilization, UtilizationUnavailable> {
         let card = client.properties().identity.physical.as_ref();
         Self::opened_for(UtilizationSource::of_card(card)).read()
     }
@@ -33,12 +31,11 @@ impl CardCounters {
     /// How busy the card behind `client`'s device is: never known off a desktop platform, where no
     /// counter is read.
     #[cfg(not(std_io))]
-    pub fn read_card_behind(client: &Client) -> DeviceUtilization {
-        let reason = match client.properties().identity.physical.as_ref() {
+    pub fn read_card_behind(client: &Client) -> Result<DeviceUtilization, UtilizationUnavailable> {
+        Err(match client.properties().identity.physical.as_ref() {
             Some(card) => UtilizationUnavailable::NoCounterForCard(card.vendor),
             None => UtilizationUnavailable::NoCard,
-        };
-        DeviceUtilization::Unavailable(reason)
+        })
     }
 
     /// Keyed by the counter rather than the device, so the devices of every runtime on one card
