@@ -56,3 +56,42 @@ impl CardCounters {
         opened
     }
 }
+
+#[cfg(all(test, std_io))]
+mod tests {
+    use alloc::string::String;
+
+    use super::*;
+
+    fn counter_that_failed_with(message: &str) -> UtilizationSource {
+        UtilizationSource::Unavailable(UtilizationUnavailable::QueryFailed(String::from(message)))
+    }
+
+    #[test]
+    fn asking_twice_for_one_counter_hands_back_the_one_opened_first() {
+        let first = CardCounters::opened_for(counter_that_failed_with("asked for twice"));
+        let second = CardCounters::opened_for(counter_that_failed_with("asked for twice"));
+
+        assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn two_counters_are_opened_and_kept_apart() {
+        let first = CardCounters::opened_for(counter_that_failed_with("the first of two"));
+        let second = CardCounters::opened_for(counter_that_failed_with("the second of two"));
+
+        assert!(!Arc::ptr_eq(&first, &second));
+        assert_eq!(
+            first.read(),
+            Err(UtilizationUnavailable::QueryFailed(String::from(
+                "the first of two"
+            )))
+        );
+        assert_eq!(
+            second.read(),
+            Err(UtilizationUnavailable::QueryFailed(String::from(
+                "the second of two"
+            )))
+        );
+    }
+}
