@@ -202,18 +202,26 @@ pub struct PhysicalDevice {
     pub pci_address: Option<PciAddress>,
     /// The key every runtime reports alike on Windows.
     pub luid: Option<AdapterLuid>,
+    /// The key every runtime reports alike on macOS.
+    pub registry_entry_id: Option<RegistryEntryId>,
     pub vendor: Option<PciVendor>,
 }
 
 impl PhysicalDevice {
     /// Whether `other` is known to be this card through another runtime: by PCI address, otherwise
-    /// by LUID. A card with neither matches nothing, itself included, since two such cards of one
-    /// make compare equal.
+    /// by LUID, otherwise by registry entry id. A card with none of them matches nothing, itself
+    /// included, since two such cards of one make compare equal.
     pub fn is_same_card(&self, other: &Self) -> bool {
         if let (Some(mine), Some(theirs)) = (self.pci_address, other.pci_address) {
             return mine == theirs;
         }
-        matches!((self.luid, other.luid), (Some(mine), Some(theirs)) if mine == theirs)
+        if let (Some(mine), Some(theirs)) = (self.luid, other.luid) {
+            return mine == theirs;
+        }
+        matches!(
+            (self.registry_entry_id, other.registry_entry_id),
+            (Some(mine), Some(theirs)) if mine == theirs
+        )
     }
 
     /// Takes what this runtime left out from `other`, the same card seen through another runtime.
@@ -221,11 +229,29 @@ impl PhysicalDevice {
         let Self {
             pci_address,
             luid,
+            registry_entry_id,
             vendor,
         } = *other;
         self.pci_address = self.pci_address.or(pci_address);
         self.luid = self.luid.or(luid);
+        self.registry_entry_id = self.registry_entry_id.or(registry_entry_id);
         self.vendor = self.vendor.or(vendor);
+    }
+}
+
+/// The id of the GPU's entry in the macOS I/O Registry, which Metal reports as `registryID`. Like
+/// [`AdapterLuid`] it is not promised to survive a restart, so it has no serialization or text
+/// form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RegistryEntryId(u64);
+
+impl RegistryEntryId {
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
+
+    pub fn get(self) -> u64 {
+        self.0
     }
 }
 
@@ -715,6 +741,7 @@ mod tests {
         let card = |pci_address, luid| PhysicalDevice {
             pci_address,
             luid,
+            registry_entry_id: None,
             vendor: None,
         };
 
@@ -739,12 +766,14 @@ mod tests {
         let mut card = PhysicalDevice {
             pci_address: address(7),
             luid: None,
+            registry_entry_id: None,
             vendor: None,
         };
 
         card.fill_from(&PhysicalDevice {
             pci_address: address(8),
             luid,
+            registry_entry_id: None,
             vendor: Some(PciVendor::Nvidia),
         });
 
@@ -753,6 +782,7 @@ mod tests {
             PhysicalDevice {
                 pci_address: address(7),
                 luid,
+                registry_entry_id: None,
                 vendor: Some(PciVendor::Nvidia),
             }
         );

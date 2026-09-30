@@ -34,7 +34,6 @@ msl = [
     "cubecl-cpp/metal",
     "dep:objc2",
     "dep:objc2-foundation",
-    "dep:objc2-metal",
 ]
 profile-tracy = ["tracy-client"]
 spirv = ["cubecl-spirv", "ash", "tracel-ash", "cubecl-common/hash"]
@@ -112,7 +111,7 @@ wgpu = { workspace = true, features = [
 [target.'cfg(target_vendor = "apple")'.dependencies]
 objc2 = { version = "0.6", optional = true }
 objc2-foundation = { version = "0.3", optional = true }
-objc2-metal = { version = "0.3", features = ["MTLLibrary"], optional = true }
+objc2-metal = { version = "0.3", features = ["MTLDevice", "MTLLibrary"] }
 
 ## For development on wgpu uncomment this one and make it point to your local wgpu repo
 # wgpu = { path = "../../../../tracel/wgpu/wgpu", features = ["vulkan-portability", "fragile-send-sync-non-atomic-wasm"]}
