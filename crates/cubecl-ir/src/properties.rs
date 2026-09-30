@@ -789,6 +789,63 @@ mod tests {
     }
 
     #[test]
+    fn a_card_with_neither_address_nor_luid_is_matched_by_registry_entry_id() {
+        let card = |registry_entry_id| PhysicalDevice {
+            pci_address: None,
+            luid: None,
+            registry_entry_id: Some(RegistryEntryId::new(registry_entry_id)),
+            vendor: None,
+        };
+
+        assert!(card(0x1_0000_04c8).is_same_card(&card(0x1_0000_04c8)));
+        assert!(!card(0x1_0000_04c8).is_same_card(&card(0x1_0000_04c9)));
+    }
+
+    #[test]
+    fn the_address_and_the_luid_outrank_the_registry_entry_id() {
+        let address = |bus| {
+            Some(PciAddress {
+                domain: 0,
+                bus,
+                device: 0,
+                function: 0,
+            })
+        };
+        let luid = |low| Some(AdapterLuid::from_parts(low, 0));
+        let card = |pci_address, luid| PhysicalDevice {
+            pci_address,
+            luid,
+            registry_entry_id: Some(RegistryEntryId::new(0x1_0000_04c8)),
+            vendor: None,
+        };
+
+        assert!(!card(address(7), None).is_same_card(&card(address(8), None)));
+        assert!(!card(None, luid(1)).is_same_card(&card(None, luid(2))));
+    }
+
+    #[test]
+    fn a_card_filled_from_another_runtime_takes_the_registry_entry_id_it_left_out() {
+        let registry_entry_id = |id| Some(RegistryEntryId::new(id));
+        let card = |registry_entry_id| PhysicalDevice {
+            pci_address: None,
+            luid: None,
+            registry_entry_id,
+            vendor: None,
+        };
+
+        let mut without_one = card(None);
+        without_one.fill_from(&card(registry_entry_id(0x1_0000_04c8)));
+        let mut with_one = card(registry_entry_id(0x1_0000_04c8));
+        with_one.fill_from(&card(registry_entry_id(0x1_0000_04c9)));
+
+        assert_eq!(
+            without_one.registry_entry_id,
+            registry_entry_id(0x1_0000_04c8)
+        );
+        assert_eq!(with_one.registry_entry_id, registry_entry_id(0x1_0000_04c8));
+    }
+
+    #[test]
     fn a_pci_address_round_trips_and_defaults_its_domain() {
         let id = PciAddress {
             domain: 0,
