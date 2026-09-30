@@ -22,9 +22,16 @@ use cubecl_server::runtime::Runtime;
 use cubecl_server::{client::Client, logging::ServerLogger};
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 
-/// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
-/// For advanced configuration, use [`init_setup`] to pass in runtime options or to select a
-/// specific graphics API.
+/// Runtime that uses the [wgpu] crate.
+///
+/// The default [`AutoCompiler`] selects a native shader compiler when supported and falls back to
+/// WGSL otherwise. Supply an explicit compiler type when fallback is not desired.
+/// With `msl` enabled, [`AutoCompiler`] requires native MSL support for devices pinned to Metal;
+/// an automatic device can still fall back to WGSL. An explicit [`crate::WgslCompiler`] continues
+/// to use WGSL on Metal without requiring native MSL support.
+///
+/// For advanced configuration, use [`init_setup`] to pass runtime options or select a specific
+/// graphics API.
 #[derive(Debug)]
 pub struct WgpuRuntime<Compiler = AutoCompiler> {
     _p: PhantomData<Compiler>,
@@ -43,7 +50,13 @@ impl<C: WgpuCompiler> DeviceService for WgpuServer<C> {
             &device,
             resolve_backend(device.backend),
         ));
-        create_server(setup, RuntimeOptions::default(), device_id)
+        let requested_backend = device.backend;
+        create_server(
+            setup,
+            RuntimeOptions::default(),
+            device_id,
+            requested_backend,
+        )
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {
@@ -328,6 +341,9 @@ pub struct WgpuSetup {
 /// Create a [`WgpuDevice`] on an existing [`WgpuSetup`].
 /// Useful when you want to share a device between `CubeCL` and other wgpu-dependent libraries.
 ///
+/// Uses [`AutoCompiler`] with WGSL fallback. Use [`init_device_with_api`] to request a graphics
+/// API explicitly, including native MSL on Metal when `msl` is enabled.
+///
 /// # Note
 ///
 /// Please **do not** to call on the same [`setup`](WgpuSetup) more than once.
@@ -335,7 +351,34 @@ pub struct WgpuSetup {
 /// This function generates a new, globally unique ID for the device every time it is called,
 /// even if called on the same device multiple times.
 pub fn init_device(setup: WgpuSetup, options: RuntimeOptions) -> WgpuDevice {
+    init_device_with_api::<AutoGraphicsApi>(setup, options)
+}
+
+/// Import a setup with an explicitly selected graphics API.
+///
+/// With `msl` enabled, importing through [`crate::Metal`] requires native MSL support.
+/// [`AutoGraphicsApi`] permits WGSL fallback, as [`init_device`] does.
+///
+/// Like [`init_device`], each call generates a unique device ID; do not import the same setup twice.
+///
+/// # Panics
+///
+/// When the requested API differs from the setup's backend, or when Metal was explicitly selected
+/// with `msl` enabled and native MSL is unavailable.
+pub fn init_device_with_api<G: GraphicsApi>(
+    setup: WgpuSetup,
+    options: RuntimeOptions,
+) -> WgpuDevice {
     use core::sync::atomic::{AtomicU32, Ordering};
+
+    let requested_backend = G::backend_for(&WgpuDevice::default());
+    if requested_backend != WgpuBackend::Auto {
+        let requested = resolve_backend(requested_backend);
+        assert_eq!(
+            setup.backend, requested,
+            "The imported setup does not use the requested graphics API"
+        );
+    }
 
     static COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -345,7 +388,8 @@ pub fn init_device(setup: WgpuSetup, options: RuntimeOptions) -> WgpuDevice {
     }
 
     let device_id = WgpuDevice::new(WgpuDeviceKind::Existing(device_id));
-    let server = create_server::<AutoCompiler>(setup, options, device_id.to_id());
+    let server =
+        create_server::<AutoCompiler>(setup, options, device_id.to_id(), requested_backend);
     let _ = Client::init(device_id.to_id(), server);
     device_id
 }
@@ -362,6 +406,7 @@ pub fn init_device(setup: WgpuSetup, options: RuntimeOptions) -> WgpuDevice {
 ///
 /// Where `device` pins a graphics API and `G` names another: see
 /// [`init_setup_async`].
+/// With `msl` enabled, an explicitly selected Metal API also panics if native MSL is unavailable.
 pub fn init_setup<G: GraphicsApi>(device: &WgpuDevice, options: RuntimeOptions) -> WgpuSetup {
     cfg_if::cfg_if! {
         if #[cfg(target_family = "wasm")] {
@@ -385,11 +430,13 @@ pub fn init_setup<G: GraphicsApi>(device: &WgpuDevice, options: RuntimeOptions) 
 /// Where `device` pins a graphics API and `G` names another. The client is
 /// registered under the device's id, and a pinned id promises its API to
 /// every caller who reaches for that client afterwards.
+/// With `msl` enabled, an explicitly selected Metal API also panics if native MSL is unavailable.
 pub async fn init_setup_async<G: GraphicsApi>(
     device: &WgpuDevice,
     options: RuntimeOptions,
 ) -> WgpuSetup {
-    let backend = G::backend_for(device);
+    let requested_backend = G::backend_for(device);
+    let backend = resolve_backend(requested_backend);
 
     if device.backend != WgpuBackend::Auto {
         let pinned = resolve_backend(device.backend);
@@ -401,7 +448,7 @@ pub async fn init_setup_async<G: GraphicsApi>(
 
     let setup = create_setup_for_device(device, backend).await;
     let return_setup = setup.clone();
-    let server = create_server::<AutoCompiler>(setup, options, device.to_id());
+    let server = create_server::<AutoCompiler>(setup, options, device.to_id(), requested_backend);
     let _ = Client::init(device.to_id(), server);
     return_setup
 }
@@ -422,6 +469,7 @@ pub(crate) fn create_server<C: WgpuCompiler>(
     setup: WgpuSetup,
     options: RuntimeOptions,
     device_id: DeviceId,
+    requested_backend: WgpuBackend,
 ) -> WgpuServer<C> {
     let limits = setup.device.limits();
     let adapter_limits = setup.adapter.limits();
@@ -530,6 +578,9 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         .insert(cubecl_ir::features::Plane::NonUniformControlFlow);
 
     backend::register_features(&setup.adapter, &mut device_props, &mut compilation_options);
+
+    C::validate_runtime(setup.backend, &compilation_options, requested_backend)
+        .unwrap_or_else(|err| panic!("Failed to initialize the wgpu compiler: {err}"));
 
     let logger = alloc::sync::Arc::new(ServerLogger::default());
     let name = runtime_name(setup.backend, &compilation_options);
@@ -849,7 +900,8 @@ mod device_tests {
         ] {
             let device = WgpuDevice::new(WgpuDeviceKind::DefaultDevice).on(backend);
 
-            assert_eq!(AutoGraphicsApi::backend_for(&device), api);
+            assert_eq!(AutoGraphicsApi::backend_for(&device), backend);
+            assert_eq!(resolve_backend(AutoGraphicsApi::backend_for(&device)), api);
         }
     }
 
