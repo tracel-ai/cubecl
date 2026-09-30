@@ -9,6 +9,8 @@ use cubecl_common::{
     device::{Device, DeviceService},
     profile::TimingMethod,
 };
+#[cfg(windows)]
+use cubecl_core::ir::AdapterLuid;
 use cubecl_core::{
     MemoryConfiguration,
     cmma::MatrixLayout,
@@ -382,6 +384,12 @@ impl DeviceProbe {
             .and_then(|()| CStr::from_bytes_until_nul(&bus_id).ok())
             .and_then(|id| id.to_str().ok()?.parse().ok());
         physical.vendor = Some(PciVendor::Amd);
+        #[cfg(windows)]
+        {
+            let luid = props.luid.map(|byte| byte as u8);
+            // A zeroed LUID names no adapter.
+            physical.luid = (luid != [0; 8]).then(|| AdapterLuid::new(luid));
+        }
 
         Self {
             arch_name,
