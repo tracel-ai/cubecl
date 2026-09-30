@@ -14,7 +14,7 @@ mod nvml;
 
 #[cfg(all(std_io, target_os = "windows"))]
 mod gpu_engine_counters;
-#[cfg(all(std_io, target_os = "windows"))]
+#[cfg(any(all(std_io, target_os = "windows"), test))]
 mod gpu_engine_instance;
 
 #[cfg(all(std_io, target_os = "macos"))]
