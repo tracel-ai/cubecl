@@ -22,9 +22,13 @@ use cubecl_server::runtime::Runtime;
 use cubecl_server::{client::Client, logging::ServerLogger};
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 
-/// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
-/// For advanced configuration, use [`init_setup`] to pass in runtime options or to select a
-/// specific graphics API.
+/// Runtime that uses the [wgpu] crate.
+///
+/// The default [`AutoCompiler`] selects a native shader compiler when supported and falls back to
+/// WGSL otherwise. Supply an explicit compiler type when fallback is not desired.
+///
+/// For advanced configuration, use [`init_setup`] to pass runtime options or select a specific
+/// graphics API.
 #[derive(Debug)]
 pub struct WgpuRuntime<Compiler = AutoCompiler> {
     _p: PhantomData<Compiler>,
@@ -530,6 +534,9 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         .insert(cubecl_ir::features::Plane::NonUniformControlFlow);
 
     backend::register_features(&setup.adapter, &mut device_props, &mut compilation_options);
+
+    C::validate_runtime(setup.backend, &compilation_options)
+        .unwrap_or_else(|err| panic!("Failed to initialize the wgpu compiler: {err}"));
 
     let logger = alloc::sync::Arc::new(ServerLogger::default());
     let name = runtime_name(setup.backend, &compilation_options);
