@@ -22,6 +22,7 @@ pub mod scoped_map;
 use pliron::{context::Context, r#type::TypeHandle, value::Value};
 
 pub use crate::analyses::liveness::shared::SharedLiveness;
+pub use crate::passes::licm::LoopInvariantCodeMotionPass;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MemoryResource {

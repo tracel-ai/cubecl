@@ -737,6 +737,8 @@ impl CanonicalizeInterface for SwitchOp {
 )]
 pub struct RangeLoopOp;
 
+pub type ForOp = RangeLoopOp;
+
 impl RangeLoopOp {
     pub fn new(
         ctx: &mut Context,
