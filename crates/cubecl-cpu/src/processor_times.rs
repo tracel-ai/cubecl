@@ -28,3 +28,20 @@ impl ProcessorTimes {
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_first_reading_measures_nothing_and_the_next_is_a_percent() {
+        assert_eq!(
+            ProcessorTimes::read_machine_wide(),
+            Err(UtilizationUnavailable::NoPreviousReading)
+        );
+
+        let next = ProcessorTimes::read_machine_wide().map(|utilization| utilization.busy_percent);
+
+        assert!(matches!(next, Ok(0..=100)), "{next:?}");
+    }
+}
