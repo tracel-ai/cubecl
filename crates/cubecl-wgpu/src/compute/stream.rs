@@ -1,4 +1,5 @@
 use super::{
+    bind_group_cache::BindGroupCache,
     graph::{GraphRecording, ReplayDispatch, ReplayTask, WgpuGraph},
     mem_manager::{self, AuxiliaryMemory},
     poll::WgpuPoll,
@@ -116,6 +117,9 @@ pub struct WgpuStream {
     /// The launches recorded since `begin_capture`, drained into a
     /// [`WgpuGraph`] at `end_capture`.
     recording: GraphRecording,
+    /// Bind groups of recently launched kernels, keyed by full binding
+    /// identity; see [`BindGroupCache`].
+    bind_groups: BindGroupCache,
 }
 
 impl StreamMemory for WgpuStream {
@@ -237,6 +241,7 @@ impl WgpuStream {
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::new(512, 2048)),
             capturing: StreamCapture::new(captures),
             recording: GraphRecording::default(),
+            bind_groups: BindGroupCache::default(),
         }
     }
 
@@ -816,6 +821,15 @@ impl WgpuStream {
         }
     }
 
+    /// Drop every cached bind group.
+    ///
+    /// Cached bind groups keep their buffers alive; an explicit memory
+    /// cleanup asks for exactly that retention to end, at the cost of
+    /// re-creating the groups on the next launches.
+    pub fn clear_cached_bind_groups(&mut self) {
+        self.bind_groups.clear();
+    }
+
     /// Submit the queued work and surface nothing.
     ///
     /// For the pooled paths that flush the stream without any logical stream
@@ -1065,15 +1079,6 @@ impl WgpuStream {
             return;
         }
 
-        let entries = resources
-            .iter()
-            .enumerate()
-            .map(|(i, r)| wgpu::BindGroupEntry {
-                binding: i as u32,
-                resource: r.as_wgpu_bind_resource(),
-            })
-            .collect::<Vec<_>>();
-
         let pass = Self::current_pass(
             &mut self.compute_pass,
             &mut self.timings,
@@ -1086,12 +1091,14 @@ impl WgpuStream {
         pass.set_pipeline(&pipeline);
 
         if !resources.is_empty() {
-            let group_layout = pipeline.get_bind_group_layout(0);
-            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &group_layout,
-                entries: &entries,
-            });
+            // Reuse the bind group when the same pipeline is launched over
+            // the same buffer slices again, which the memory pool makes the
+            // common case: weights are bound for the lifetime of the model
+            // and activations cycle through a fixed set of pool slices.
+            // A miss falls back to the original entry-by-entry creation.
+            let bind_group = self
+                .bind_groups
+                .get_or_create(&self.device, &pipeline, resources);
 
             pass.set_bind_group(0, &bind_group, &[]);
         }

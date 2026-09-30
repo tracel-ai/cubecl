@@ -704,6 +704,9 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         // pinned by a live graph goes too (entries are recreated on their next
         // miss).
         stream.info_cache.clear_unpinned();
+        // Cached bind groups retain the buffers they bind; give that memory
+        // back as well (the groups are recreated on their next miss).
+        stream.clear_cached_bind_groups();
         self.scheduler.relocating(stream_id).reclaim()
     }
 
