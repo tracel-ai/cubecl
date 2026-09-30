@@ -40,7 +40,8 @@ pub enum UtilizationUnavailable {
     /// The driver's library would not load: no driver installed, or none on the loader's path.
     /// Holds the loader's message.
     DriverLibraryNotFound(String),
-    /// The counter measures the time between two readings, and this was the device's first.
+    /// The counter measures the time between two readings, and this was the device's first, or
+    /// the first since the counter restarted.
     NoPreviousReading,
     /// The counter was reached and gave no reading. Holds the driver's, the platform's or the
     /// filesystem's message.

@@ -53,7 +53,7 @@ impl IntelIdleResidencyFiles {
             .unwrap_or_else(PoisonError::into_inner);
         let busy_percent = previous_reading
             .as_ref()
-            .map(|earlier| reading.busy_percent_of_busiest_gt_since(earlier));
+            .and_then(|earlier| reading.busy_percent_of_busiest_gt_since(earlier));
         *previous_reading = Some(reading);
         busy_percent
             .map(DeviceUtilization::new)
@@ -131,15 +131,102 @@ impl IntelIdleResidencyFiles {
 }
 
 impl IdleResidencyReading {
-    fn busy_percent_of_busiest_gt_since(&self, earlier: &Self) -> u32 {
+    /// `None` where a GT's counter went backwards, as a driver resetting it does: the interval
+    /// then measures nothing, and this reading starts the next one.
+    fn busy_percent_of_busiest_gt_since(&self, earlier: &Self) -> Option<u32> {
         let elapsed_milliseconds =
             self.taken_at.duration_since(earlier.taken_at).as_secs_f64() * 1000.0;
-        let busiest_share = self
+        let mut busiest_share: f64 = 0.0;
+        for (now, then) in self
             .idle_milliseconds_per_gt
             .iter()
             .zip(&earlier.idle_milliseconds_per_gt)
-            .map(|(now, then)| 1.0 - now.saturating_sub(*then) as f64 / elapsed_milliseconds)
-            .fold(0.0, f64::max);
-        (busiest_share.clamp(0.0, 1.0) * 100.0).round() as u32
+        {
+            let idle_milliseconds = now.checked_sub(*then)?;
+            busiest_share =
+                busiest_share.max(1.0 - idle_milliseconds as f64 / elapsed_milliseconds);
+        }
+        Some((busiest_share.clamp(0.0, 1.0) * 100.0).round() as u32)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::time::Duration;
+
+    use super::*;
+
+    const INTERVAL: Duration = Duration::from_millis(1000);
+
+    fn busy_percent_after_one_interval(
+        idle_milliseconds_before: &[u64],
+        idle_milliseconds_after: &[u64],
+    ) -> Option<u32> {
+        let earlier = IdleResidencyReading {
+            taken_at: Instant::now(),
+            idle_milliseconds_per_gt: idle_milliseconds_before.to_vec(),
+        };
+        let later = IdleResidencyReading {
+            taken_at: earlier.taken_at + INTERVAL,
+            idle_milliseconds_per_gt: idle_milliseconds_after.to_vec(),
+        };
+        later.busy_percent_of_busiest_gt_since(&earlier)
+    }
+
+    #[test]
+    fn a_gt_reads_the_share_of_the_interval_it_spent_out_of_idle() {
+        assert_eq!(busy_percent_after_one_interval(&[5000], &[6000]), Some(0));
+        assert_eq!(busy_percent_after_one_interval(&[5000], &[5000]), Some(100));
+        assert_eq!(busy_percent_after_one_interval(&[5000], &[5500]), Some(50));
+    }
+
+    #[test]
+    fn the_busiest_gt_decides() {
+        let render_idle_a_fifth = [5000, 5200];
+        let media_idle_throughout = [9000, 10000];
+
+        assert_eq!(
+            busy_percent_after_one_interval(
+                &[render_idle_a_fifth[0], media_idle_throughout[0]],
+                &[render_idle_a_fifth[1], media_idle_throughout[1]],
+            ),
+            Some(80)
+        );
+    }
+
+    #[test]
+    fn idle_time_a_little_past_the_wall_clock_reads_as_idle() {
+        assert_eq!(busy_percent_after_one_interval(&[5000], &[6003]), Some(0));
+    }
+
+    #[test]
+    fn the_first_reading_and_the_first_after_a_reset_measure_nothing() {
+        let directory = tempfile::tempdir().unwrap();
+        let idle_residency_file = directory.path().join("idle_residency_ms");
+        let files = IntelIdleResidencyFiles {
+            idle_residency_file_per_gt: alloc::vec![idle_residency_file.clone()],
+            previous_reading: Mutex::new(None),
+        };
+        let read_with_idle_milliseconds = |idle_milliseconds: &str| {
+            std::fs::write(&idle_residency_file, idle_milliseconds).unwrap();
+            files.read()
+        };
+
+        assert_eq!(
+            read_with_idle_milliseconds("5000\n"),
+            Err(UtilizationUnavailable::NoPreviousReading)
+        );
+        assert_eq!(
+            read_with_idle_milliseconds("5000\n"),
+            Ok(DeviceUtilization::new(100))
+        );
+        assert_eq!(
+            read_with_idle_milliseconds("200\n"),
+            Err(UtilizationUnavailable::NoPreviousReading)
+        );
+        assert_eq!(
+            read_with_idle_milliseconds("200\n"),
+            Ok(DeviceUtilization::new(100))
+        );
     }
 }
