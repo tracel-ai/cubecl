@@ -6,7 +6,6 @@
 
 use cubecl_core::{self as cubecl, prelude::*};
 use cubecl_core::{
-    Runtime,
     server::{LaunchError, ResourceLimitError, ServerError},
 };
 use cubecl_server::runtime::Runtime;
