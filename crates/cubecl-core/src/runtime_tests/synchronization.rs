@@ -452,6 +452,98 @@ pub fn test_sync_storage_across_cubes<R: Runtime>(client: Client) {
     assert_eq!(u32::from_bytes(&actual), &expected);
 }
 
+/// Every cube reads every slot before writing its own, so the cubes that read early cache zeros in
+/// whatever cache serves them, then writes its slot and arrives; the last to arrive sums every
+/// slot. A storage barrier that orders the writes without making them visible to other cubes hands
+/// it the zeros it cached: where [`kernel_test_sync_storage_across_cubes`] reads each slot once,
+/// fresh, this reads over a stale copy. `before` only keeps the early reads alive; the host never
+/// reads it.
+#[cube(launch)]
+fn kernel_test_sync_storage_over_a_stale_copy(
+    slots: &mut [u32],
+    counter: &mut [Atomic<u32>],
+    before: &mut [u32],
+    out: &mut [u32],
+    #[comptime] cubes: u32,
+) {
+    // Every slot as it is before this cube writes, kept live so the read is made.
+    let mut cached = 0u32;
+    let mut slot = UNIT_POS;
+    while slot < cubes {
+        cached += slots[slot as usize];
+        slot += CUBE_DIM;
+    }
+    before[CUBE_POS * CUBE_DIM as usize + UNIT_POS as usize] = cached;
+
+    if UNIT_POS == 0 {
+        slots[CUBE_POS] = CUBE_POS as u32 + 1;
+    }
+    let mut arrived = Shared::<u32>::new();
+    // Release: this cube's slot is visible to whichever cube is last.
+    sync_storage();
+    if UNIT_POS == 0 {
+        *arrived = counter[0].fetch_add(1u32);
+    }
+    // Acquire: every slot the cubes before published is visible here, over what this cube cached.
+    sync_storage();
+
+    if *arrived == cubes - 1 {
+        let mut sum = 0u32;
+        let mut slot = UNIT_POS;
+        while slot < cubes {
+            sum += slots[slot as usize];
+            slot += CUBE_DIM;
+        }
+        out[UNIT_POS as usize] = sum;
+    }
+}
+
+pub fn test_sync_storage_over_a_stale_copy<R: Runtime>(client: Client) {
+    if !client.properties().features.device_memory_scope {
+        std::println!("device memory scope not supported - skipped");
+        return;
+    }
+    let ty = Type::atomic(u32::elem_type_native());
+    if !client
+        .properties()
+        .atomic_type_usage(ty)
+        .contains(AtomicUsage::Add)
+    {
+        std::println!("u32 atomic add not supported - skipped");
+        return;
+    }
+
+    let cubes = 256u32;
+    let units = core::cmp::min(64, client.properties().hardware.max_units_per_cube);
+
+    let slots = client.create_from_slice(u32::as_bytes(&vec![0u32; cubes as usize]));
+    let counter = client.create_from_slice(u32::as_bytes(&[0u32]));
+    let before = client.empty((cubes * units) as usize * core::mem::size_of::<u32>());
+    let out = client.create_from_slice(u32::as_bytes(&vec![0u32; units as usize]));
+
+    kernel_test_sync_storage_over_a_stale_copy::launch(
+        &client,
+        CubeCount::Static(cubes, 1, 1),
+        CubeDim::new_1d(units),
+        unsafe { BufferArg::from_raw_parts(slots, cubes as usize) },
+        unsafe { BufferArg::from_raw_parts(counter, 1) },
+        unsafe { BufferArg::from_raw_parts(before, (cubes * units) as usize) },
+        unsafe { BufferArg::from_raw_parts(out.clone(), units as usize) },
+        cubes,
+    );
+
+    let expected: Vec<u32> = (0..units)
+        .map(|unit| {
+            (unit..cubes)
+                .step_by(units as usize)
+                .map(|slot| slot + 1)
+                .sum()
+        })
+        .collect();
+    let actual = client.read_one_unchecked(out);
+    assert_eq!(u32::from_bytes(&actual), &expected);
+}
+
 #[macro_export]
 macro_rules! testgen_sync_plane {
     () => {
@@ -481,6 +573,14 @@ macro_rules! testgen_sync_plane {
         fn test_sync_storage_across_cubes() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::synchronization::test_sync_storage_across_cubes::<
+                TestRuntime,
+            >(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_sync_storage_over_a_stale_copy() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::synchronization::test_sync_storage_over_a_stale_copy::<
                 TestRuntime,
             >(client);
         }
