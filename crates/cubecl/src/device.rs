@@ -20,6 +20,8 @@ pub use cubecl_runtime::device::{
     AmdDevice, CpuDevice, CudaDevice, MetalDevice, WgpuBackend, WgpuDevice, WgpuDeviceKind,
 };
 
+pub use crate::utilization::{DeviceUtilization, UtilizationUnavailable};
+
 /// A device of any runtime.
 ///
 /// A value names both the runtime and the device on it. A value can name a
@@ -440,6 +442,34 @@ impl Device {
             Self::Wgpu(_) => RuntimeId::Wgpu,
             Self::Cpu(_) => RuntimeId::Cpu,
         }
+    }
+
+    /// How busy this device is, by the counter its card's driver or its platform keeps: NVML
+    /// for an NVIDIA card, `gpu_busy_percent` for an AMD one and the idle residency of an Intel
+    /// one on Linux, the GPU engine counters Task Manager reads on Windows, the accelerator's
+    /// statistics in the I/O Registry on macOS, and the processor times for the CPU.
+    ///
+    /// The card decides which counter answers, not the runtime, so an NVIDIA card reads the same
+    /// through CUDA as through wgpu. The counter is opened the first time a device is asked,
+    /// which creates the device's client, and kept for the life of the process.
+    ///
+    /// The Intel, Windows and CPU counters measure the time between two readings. A reading
+    /// covers the time since this device was last asked, by any caller, and the first is
+    /// [`UtilizationUnavailable::NoPreviousReading`].
+    ///
+    /// ```no_run
+    /// use cubecl::device::{Device, DeviceUtilization};
+    ///
+    /// if let DeviceUtilization::Measured { busy_percent } = Device::default().utilization() {
+    ///     println!("{busy_percent}% busy");
+    /// }
+    /// ```
+    pub fn utilization(&self) -> DeviceUtilization {
+        #[cfg(feature = "device-utilization")]
+        if self.runtime().is_linked() {
+            return crate::utilization::OpenedCounters::read_opening_on_first_use(self);
+        }
+        DeviceUtilization::Unavailable(UtilizationUnavailable::RuntimeNotLinked(self.runtime()))
     }
 
     /// The device a [`DeviceId`] in this type's encoding names.

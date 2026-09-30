@@ -169,6 +169,10 @@ winapi = { version = "^0.3.9", features = [
 
 inflections = "1"
 
+# Device utilization counters
+nvml-wrapper = "0.13"
+windows-sys = "0.61"
+
 # Crates.io
 pliron = { version = "0.18", default-features = false }
 pliron-llvm = { version = "0.18", default-features = false }

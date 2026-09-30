@@ -93,6 +93,8 @@ pub use cubecl_runtime::logging;
 /// A device of any runtime, and the runtime it belongs to.
 pub mod device;
 
+mod utilization;
+
 pub use device::{Device, RuntimeId};
 
 #[cfg(feature = "stdlib")]
