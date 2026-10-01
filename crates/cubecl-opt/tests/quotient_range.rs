@@ -18,6 +18,8 @@ use pliron::{
     init_env_logger_for_tests,
     irbuild::{
         IRStatus,
+        cloning::{IrMapping, clone_operation},
+        inserter::OpInsertionPoint,
         match_rewrite::{RewriterOrder, apply_match_rewrite},
     },
     irfmt::parsers::spaced,
@@ -412,6 +414,81 @@ fn wrap_loop(input: &str, prefix: &str, suffix: &str) -> String {
 
 const OUTER_PREFIX: &str = "branch.range_loop (lo, hi, step) [] []: <(cube.index, cube.index, cube.index) -> ()> { ^outer(j: cube.index):";
 const OUTER_SUFFIX: &str = "branch.yield () };";
+
+#[test]
+fn bounds_versioning_in_nested_guarded_loops() -> Result<()> {
+    let mut input = dynamic_loop();
+    for depth in 1..=4 {
+        let ctx = &mut test_context(AddressType::U32);
+        let op = parse_ir(ctx, &input)?;
+        apply_match_rewrite(ctx, &mut QuotientRange, RewriterOrder::default(), op)?;
+        verify_operation(op, ctx)?;
+        assert_eq!(
+            apply_match_rewrite(ctx, &mut QuotientRange, RewriterOrder::default(), op)?,
+            IRStatus::Unchanged
+        );
+        cleanup(ctx, op)?;
+        let loops = descendants(ctx, op)
+            .into_iter()
+            .filter(|op| op.is_op::<RangeLoopOp>(ctx))
+            .count();
+        assert_eq!(loops, depth + 4, "only the innermost loop is versioned");
+
+        input = wrap_loop(
+            &input,
+            &format!(
+                r#"branch.range_loop (lo, hi, step) [] []: <(cube.index, cube.index, cube.index) -> ()> {{
+                  ^outer{depth}(i{depth}: cube.index):
+                    prod{depth} = math.i_mul (i{depth}, s) [] []: <(cube.index, cube.index) -> (cube.index)>;
+                    reach{depth} = cmp.u_greater_than_or_equal (base, prod{depth}) [] []: <(cube.index, cube.index) -> (cube.bool)>;
+                    branch.if reach{depth} then {{ ^reach{depth}():
+                      num{depth} = math.i_sub (base, prod{depth}) [] []: <(cube.index, cube.index) -> (cube.index)>;
+                      rem{depth} = math.u_rem (num{depth}, d) [] []: <(cube.index, cube.index) -> (cube.index)>;
+                      hit{depth} = cmp.i_equal (rem{depth}, zero) [] []: <(cube.index, cube.index) -> (cube.bool)>;
+                      branch.if hit{depth} then {{ ^hit{depth}():"#
+            ),
+            "branch.yield () } else { ^miss(): branch.yield () }; branch.yield () } else { ^unreachable(): branch.yield () }; branch.yield () };",
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn versions_sibling_loops_independently() -> Result<()> {
+    let input = wrap_loop(&dynamic_loop(), OUTER_PREFIX, OUTER_SUFFIX);
+    let ctx = &mut test_context(AddressType::U32);
+    let op = parse_ir(ctx, &input)?;
+    let loops = descendants(ctx, op)
+        .into_iter()
+        .filter_map(|op| op.as_op::<RangeLoopOp>(ctx))
+        .collect::<Vec<_>>();
+    let outer = loops[0];
+    let mut rewriter = MatchRewriter::default();
+    rewriter.set_insertion_point(OpInsertionPoint::AtBlockStart(outer.loop_body(ctx)));
+    let sibling = clone_operation(
+        loops[1].get_operation(),
+        ctx,
+        &mut rewriter,
+        &mut IrMapping::new(),
+    );
+    rewriter.append_operation(ctx, sibling);
+    verify_operation(op, ctx)?;
+    apply_match_rewrite(ctx, &mut QuotientRange, RewriterOrder::default(), op)?;
+    cleanup(ctx, op)?;
+    assert_eq!(
+        descendants(ctx, op)
+            .into_iter()
+            .filter(|op| op.is_op::<RangeLoopOp>(ctx))
+            .count(),
+        11,
+        "one outer loop and at most five versions per sibling"
+    );
+    assert_eq!(
+        apply_match_rewrite(ctx, &mut QuotientRange, RewriterOrder::default(), op)?,
+        IRStatus::Unchanged
+    );
+    Ok(())
+}
 
 #[test]
 fn hoists_preparation_and_dispatch_across_invariant_outer_loops() -> Result<()> {

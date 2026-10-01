@@ -1,19 +1,8 @@
-//! Re-index loops whose effects are guarded by `i*s <= base && (base-i*s)%d == 0`.
-//!
-//! ```text
-//! for i in lo..hi {
-//!     if i * s <= base {
-//!         if (base - i * s) % d == 0 { body }
-//!     }
-//! }
-//! ```
+//! Re-index innermost loops guarded by `i*s <= base && (base-i*s)%d == 0`.
 //!
 //! Enumerating `q = (base-i*s)/d` skips the holes in dilated conv-transpose.
-//! Descending quotients preserve source order; recovery validates each tap.
-//! Unsafe or unprofitable dynamic windows use the original loop. The arithmetic
-//! lives in polyfills; cheap rejections bypass bound preparation, which is moved
-//! across immediately enclosing range loops when all its inputs are invariant.
-//! The rewrite substitutes recovered values into the body.
+//! Descending quotients preserve source order. Unsafe or unprofitable windows
+//! retain the source loop; invariant preparation moves outside enclosing ranges.
 
 use alloc::{boxed::Box, vec::Vec};
 use cubecl_core as cubecl;
@@ -52,11 +41,8 @@ pub type QuotientRangePass = MatchRewritePass<QuotientRange>;
 #[derive(Default, Clone, Copy, NamedRewrite)]
 pub struct QuotientRange;
 
-/// Marker on a loop that already lives in an unswitch this pass created, so
-/// the fixpoint walk does not unswitch it again.
 const UNSWITCHED: &str = "quotient_range_unswitched";
 
-/// The two guards and the affine expression they share.
 #[derive(Clone, Copy)]
 struct Guarded {
     loop_op: RangeLoopOp,
@@ -109,7 +95,6 @@ struct SmallDivision {
     remainder: usize,
 }
 
-/// Specialize the common small divisors without preparing a quotient range.
 #[cube]
 fn small_division(numerator: usize, divisor: usize, #[comptime] by_three: bool) -> SmallDivision {
     if by_three {
@@ -131,8 +116,7 @@ fn is_small_divisor(divisor: usize) -> bool {
     divisor == 1 || divisor == 2
 }
 
-/// Constant division is cheaper than range preparation for a single tiny
-/// window. Repeated or larger windows still benefit from quotient traversal.
+/// Repeated windows amortize setup; a single tiny window uses constant division.
 #[cube]
 fn use_constant_three(
     lo: usize,
@@ -147,6 +131,89 @@ fn use_constant_three(
     let outer_span = outer_end - outer_start.min(outer_end);
     let reused = outer_step > 0 && outer_span > outer_step;
     divisor == 3 && (scale != 1 || (span <= 3 && !reused))
+}
+
+#[cube]
+fn prepare_range(
+    lo: usize,
+    hi: usize,
+    base: usize,
+    scale: usize,
+    divisor: usize,
+    small_three: bool,
+) -> QuotientRangeValues {
+    let mut start = 0usize;
+    let mut last = 0usize;
+    let mut end = 0usize;
+    let mut applicable = false;
+    if divisor >= 3 && !small_three {
+        // Require a 2x reduction in density; unreachable iterations are cheap.
+        let eligible = scale >= 1 && scale <= divisor / 2 && lo < hi;
+        if eligible {
+            // Keep divisions and q_last + 1 safe even under speculative evaluation.
+            let divisor_safe = divisor.max(3);
+            let widest = base - (lo * scale).min(base);
+            let upper_product = hi * scale;
+            let narrowest = base - upper_product.min(base);
+            // Exclude q for i == hi: base - q*divisor must be less than hi*scale.
+            let past_end = (base >= upper_product) as usize;
+            let q_start = narrowest / divisor_safe + past_end;
+            let q_last = widest / divisor_safe;
+            let q_end = q_last + 1;
+            // A zero high half proves hi*scale fits without a dynamic division.
+            let no_overflow = high_product(hi, scale) == 0;
+            start = q_start;
+            last = q_last;
+            end = q_end;
+            // Keep at most half as many candidates as source iterations.
+            applicable = no_overflow && q_end - q_start <= (hi - lo) / 2;
+        }
+    }
+    QuotientRangeValues {
+        start,
+        last,
+        end,
+        applicable,
+    }
+}
+
+#[cube]
+fn high_product(lhs: usize, rhs: usize) -> usize {
+    intrinsic!(|scope| {
+        polyfills::expand_himul_sim(scope, lhs.value(scope), rhs.value(scope)).into()
+    })
+}
+
+/// Descending quotients preserve source order; recovery must be exact and in range.
+#[cube]
+fn recover_index(
+    q: usize,
+    lo: usize,
+    hi: usize,
+    base: usize,
+    scale: usize,
+    divisor: usize,
+    q_start: usize,
+    q_last: usize,
+    #[comptime] unit_stride: bool,
+) -> RecoveredIndex {
+    let tap = q_last - (q - q_start);
+    let numerator = tap * divisor;
+    let scaled = base - numerator;
+    let recovered = if unit_stride { scaled } else { scaled / scale };
+    let exact = if unit_stride {
+        true.runtime()
+    } else {
+        scaled.is_multiple_of(scale)
+    };
+    let keep = exact && (recovered >= lo && recovered < hi);
+    RecoveredIndex {
+        index: recovered,
+        quotient: tap,
+        numerator,
+        scaled,
+        keep,
+    }
 }
 
 fn const_index(ctx: &Context, value: Value) -> Option<usize> {
@@ -203,7 +270,6 @@ fn as_reachability(ctx: &Context, cond: Value, iv: Value) -> Option<Reachability
     })
 }
 
-/// Depth-first search through `then` arms, stopping at the first matching guard.
 fn find_guard<T>(
     ctx: &Context,
     block: Ptr<BasicBlock>,
@@ -221,17 +287,12 @@ fn has_effects(ctx: &Context, op: Ptr<Operation>) -> bool {
     op_cast::<dyn SideEffects>(&*op.dyn_op(ctx)).is_none_or(|it| it.has_side_effects(ctx))
 }
 
-/// Whether every effect reachable from `block` is inside the `then` arm of
-/// `gate`. Only `if`s are descended into, so any other region holder is taken
-/// to be effectful.
+/// Skipped iterations must have no effects, including early exits.
 fn effects_only_under(ctx: &Context, block: Ptr<BasicBlock>, gate: IfOp) -> bool {
     block.deref(ctx).iter(ctx).all(|op| {
         if op == gate.get_operation() {
-            // Only the iterations that enter the gate survive the rewrite, so
-            // the arm its skipped ones take has to be effect free as well.
             effects_only_under(ctx, gate.else_block(ctx), gate)
         } else if op.is_terminator(ctx) {
-            // Returning from a skipped iteration is observable too.
             op.as_op::<YieldOp>(ctx).is_some()
         } else if let Some(nested) = op.as_op::<IfOp>(ctx) {
             [nested.then_block(ctx), nested.else_block(ctx)]
@@ -243,7 +304,6 @@ fn effects_only_under(ctx: &Context, block: Ptr<BasicBlock>, gate: IfOp) -> bool
     })
 }
 
-/// Whether `value` is defined outside `region`, and so holds still across the loop.
 fn invariant(ctx: &Context, value: Value, region: Ptr<Region>) -> bool {
     let mut block = match value.defining_op() {
         Some(op) => op.deref(ctx).get_parent_block(),
@@ -274,13 +334,20 @@ fn mark_unswitched(ctx: &mut Context, op: Ptr<Operation>) {
         .set(ident(UNSWITCHED), UnitAttr::new());
 }
 
+fn has_nested_range(ctx: &Context, op: Ptr<Operation>) -> bool {
+    op.regions(ctx).iter().any(|region| {
+        region.deref(ctx).iter(ctx).any(|block| {
+            block
+                .deref(ctx)
+                .iter(ctx)
+                .any(|child| child.is_op::<RangeLoopOp>(ctx) || has_nested_range(ctx, child))
+        })
+    })
+}
+
 fn matched(ctx: &Context, op: Ptr<Operation>) -> Option<Guarded> {
-    if marked_unswitched(ctx, op) {
-        return None;
-    }
     let loop_op = op.as_op::<RangeLoopOp>(ctx)?;
-    // A recovered `i` only lands on iterations the original loop had.
-    if const_index(ctx, loop_op.step(ctx)) != Some(1) {
+    if marked_unswitched(ctx, op) || const_index(ctx, loop_op.step(ctx)) != Some(1) {
         return None;
     }
     let body = loop_op.loop_body(ctx);
@@ -295,8 +362,6 @@ fn matched(ctx: &Context, op: Ptr<Operation>) -> Option<Guarded> {
         return None;
     }
     let (base, s, d) = (division.base, division.scale, division.divisor);
-    // Reject known ineligible strides/divisors before cloning the loop.
-    // Dynamic values are checked by prepare_range.
     match (const_index(ctx, s), const_index(ctx, d)) {
         (Some(0), _) | (_, Some(0..=2)) => return None,
         (Some(s), Some(d)) if s > d / 2 => return None,
@@ -306,111 +371,36 @@ fn matched(ctx: &Context, op: Ptr<Operation>) -> Option<Guarded> {
     let stable = [base, s, d]
         .into_iter()
         .all(|it| invariant(ctx, it, region));
-    // Skipping an iteration is only sound if it could not have done anything.
-    (stable && effects_only_under(ctx, body, gate)).then_some(Guarded {
-        loop_op,
-        outer,
-        gate,
-        product: reach.product,
-        division,
-    })
+    // Only version leaf ranges, so nested matches cannot multiply the clones.
+    (stable && !has_nested_range(ctx, op) && effects_only_under(ctx, body, gate)).then_some(
+        Guarded {
+            loop_op,
+            outer,
+            gate,
+            product: reach.product,
+            division,
+        },
+    )
 }
 
-/// Prepare scalar `cube.index` bounds; `usize` follows the backend's index width.
-/// Cheap rejections bypass bound and overflow preparation entirely.
-#[cube]
-fn prepare_range(
-    lo: usize,
-    hi: usize,
-    base: usize,
-    scale: usize,
-    divisor: usize,
-    small_three: bool,
-) -> QuotientRangeValues {
-    let mut start = 0usize;
-    let mut last = 0usize;
-    let mut end = 0usize;
-    let mut applicable = false;
-    // The common small-divisor fallback needs only this check. Keep the
-    // remaining eligibility arithmetic inside the branch.
-    if divisor >= 3 && !small_three {
-        // Require a 2x reduction in density; unreachable iterations are cheap.
-        let eligible = scale >= 1 && scale <= divisor / 2 && lo < hi;
-        if eligible {
-            // Keep divisions and q_last + 1 safe even under speculative evaluation.
-            let divisor_safe = divisor.max(3);
-            let widest = base - (lo * scale).min(base);
-            let upper_product = hi * scale;
-            let narrowest = base - upper_product.min(base);
-            // Exclude q for i == hi: base - q*divisor must be less than hi*scale.
-            let past_end = (base >= upper_product) as usize;
-            let q_start = narrowest / divisor_safe + past_end;
-            let q_last = widest / divisor_safe;
-            let q_end = q_last + 1;
-            // A zero high half proves hi*scale fits without a dynamic division.
-            let no_overflow = high_product(hi, scale) == 0;
-            start = q_start;
-            last = q_last;
-            end = q_end;
-            // Keep at most half as many candidates as source iterations.
-            applicable = no_overflow && q_end - q_start <= (hi - lo) / 2;
-        }
-    }
-    QuotientRangeValues {
-        start,
-        last,
-        end,
-        applicable,
-    }
+fn append_yield(ctx: &mut Context, rewriter: &mut MatchRewriter, block: Ptr<BasicBlock>) {
+    rewriter.set_insertion_point(OpInsertionPoint::AtBlockEnd(block));
+    let terminator = YieldOp::new(ctx);
+    rewriter.append_op(ctx, &terminator);
 }
 
-#[cube]
-fn high_product(lhs: usize, rhs: usize) -> usize {
-    intrinsic!(|scope| {
-        polyfills::expand_himul_sim(scope, lhs.value(scope), rhs.value(scope)).into()
-    })
-}
-
-/// Descending quotients preserve source order. Exactness and range checks
-/// validate the recovered index; the other values replace body arithmetic.
-#[cube]
-fn recover_index(
-    q: usize,
-    lo: usize,
-    hi: usize,
-    base: usize,
-    scale: usize,
-    divisor: usize,
-    q_start: usize,
-    q_last: usize,
-    #[comptime] unit_stride: bool,
-) -> RecoveredIndex {
-    let tap = q_last - (q - q_start);
-    let numerator = tap * divisor;
-    let scaled = base - numerator;
-    let recovered = if unit_stride { scaled } else { scaled / scale };
-    let exact = if unit_stride {
-        true.runtime()
-    } else {
-        scaled.is_multiple_of(scale)
-    };
-    let keep = exact && (recovered >= lo && recovered < hi);
-    RecoveredIndex {
-        index: recovered,
-        quotient: tap,
-        numerator,
-        scaled,
-        keep,
+fn branch(ctx: &mut Context, rewriter: &mut MatchRewriter, condition: Value) -> IfOp {
+    let branch = IfOp::new(ctx, condition);
+    rewriter.append_op(ctx, &branch);
+    for block in [branch.then_block(ctx), branch.else_block(ctx)] {
+        append_yield(ctx, rewriter, block);
     }
+    branch
 }
 
 impl Guarded {
-    /// Only move our own total preparation across immediately enclosing range
-    /// loops whose bodies define none of its inputs. Valid SSA then guarantees
-    /// those inputs also dominate the insertion point before the outer loop.
-    /// Do not cross an if or move any original loads/computation. A loop nest
-    /// with only pure siblings can also select its version outside the nest;
-    /// stop at other regions to avoid multiplying unrelated loop bodies.
+    /// Hoist total preparation across invariant ranges. Hoist dispatch only
+    /// across a single loop spine, without other effects or regions to clone.
     fn insertion_points(&self, ctx: &Context) -> (Ptr<Operation>, Ptr<Operation>) {
         let inputs = [
             self.loop_op.start(ctx),
@@ -475,20 +465,17 @@ impl Guarded {
     }
 
     fn prepare(&self, scope: &Scope, small_three: NativeExpand<bool>) -> QuotientRangeValuesExpand {
-        let lo = self.loop_op.start(scope.ctx());
         let div = self.division;
         let range = prepare_range::expand(
             scope,
-            lo.into(),
+            self.loop_op.start(scope.ctx()).into(),
             self.loop_op.end(scope.ctx()).into(),
             div.base.into(),
             div.scale.into(),
             div.divisor.into(),
             small_three,
         );
-        // The conditional polyfill returns mutable locals. Materialize their
-        // values here so all consumers, including the loop bounds, use values
-        // rather than local pointers, and the reads are outside the outer loop.
+        // Read the polyfill's mutable locals before entering the loop nest.
         QuotientRangeValuesExpand {
             start: range.start.read_value(scope).into(),
             last: range.last.read_value(scope).into(),
@@ -518,6 +505,82 @@ impl Guarded {
         )
     }
 
+    fn prepare_dispatch(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut MatchRewriter,
+        preparation: Ptr<Operation>,
+        dispatch: Ptr<Operation>,
+    ) -> QuotientRangeValuesExpand {
+        if const_index(ctx, self.division.divisor).is_some() {
+            rewriter.set_insertion_point(OpInsertionPoint::BeforeOperation(preparation));
+            let scope = Scope::from_context_and_inserter(ctx, rewriter);
+            let range = self.prepare(&scope, false.into_expand(&scope));
+            rewriter.set_insertion_point(OpInsertionPoint::BeforeOperation(dispatch));
+            return range;
+        }
+        let hoisted = (preparation != dispatch).then(|| {
+            rewriter.set_insertion_point(OpInsertionPoint::BeforeOperation(preparation));
+            let scope = Scope::from_context_and_inserter(ctx, rewriter);
+            let small = self.small_three(&scope, preparation);
+            (self.prepare(&scope, small), small)
+        });
+        rewriter.set_insertion_point(OpInsertionPoint::BeforeOperation(dispatch));
+        let small = {
+            let scope = Scope::from_context_and_inserter(ctx, rewriter);
+            is_small_divisor::expand(&scope, self.division.divisor.into()).value(&scope)
+        };
+        self.specialize_divisor(ctx, rewriter, dispatch, small, false);
+        let small_three = match &hoisted {
+            Some((_, small)) => *small,
+            None => self.small_three(
+                &Scope::from_context_and_inserter(ctx, rewriter),
+                preparation,
+            ),
+        };
+        let condition = small_three.value(&Scope::from_context_and_inserter(ctx, rewriter));
+        self.specialize_divisor(ctx, rewriter, dispatch, condition, true);
+        hoisted.map_or_else(
+            || {
+                self.prepare(
+                    &Scope::from_context_and_inserter(ctx, rewriter),
+                    small_three,
+                )
+            },
+            |(range, _)| range,
+        )
+    }
+
+    fn quotient_loop(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut MatchRewriter,
+        range: &QuotientRangeValuesExpand,
+    ) -> RangeLoopOp {
+        let (start, end) = {
+            let scope = Scope::from_context_and_inserter(ctx, rewriter);
+            (range.start.value(&scope), range.end.value(&scope))
+        };
+        let loop_op = RangeLoopOp::new(ctx, start, end, self.loop_op.step(ctx));
+        mark_unswitched(ctx, loop_op.get_operation());
+        rewriter.append_op(ctx, &loop_op);
+        let body = loop_op.loop_body(ctx);
+        append_yield(ctx, rewriter, body);
+        rewriter.set_insertion_point(OpInsertionPoint::AtBlockStart(body));
+        let tap = self.recover(
+            &Scope::from_context_and_inserter(ctx, rewriter),
+            loop_op.iter_var(ctx),
+            range,
+        );
+        let keep = tap
+            .keep
+            .value(&Scope::from_context_and_inserter(ctx, rewriter));
+        let gate = branch(ctx, rewriter, keep);
+        rewriter.set_insertion_point(OpInsertionPoint::BeforeOperation(gate.get_operation()));
+        self.clone_body(ctx, rewriter, gate.then_block(ctx), &tap);
+        loop_op
+    }
+
     /// Select unit-scale recovery once per nest, without a branch per candidate.
     fn specialize_unit_scale(
         &self,
@@ -534,8 +597,7 @@ impl Guarded {
         let one = one.get_result(ctx);
         let condition = IEqualOp::new(ctx, self.division.scale, one);
         rewriter.append_op(ctx, &condition);
-        let choice = IfOp::new(ctx, condition.get_result(ctx));
-        rewriter.append_op(ctx, &choice);
+        let choice = branch(ctx, rewriter, condition.get_result(ctx));
         let mut mapper = IrMapping::new();
         mapper.map_value(self.division.scale, one);
         rewriter.set_insertion_point(OpInsertionPoint::AtBlockStart(choice.then_block(ctx)));
@@ -546,11 +608,6 @@ impl Guarded {
             nest,
             OpInsertionPoint::AtBlockStart(choice.else_block(ctx)),
         );
-        for block in [choice.then_block(ctx), choice.else_block(ctx)] {
-            rewriter.set_insertion_point(OpInsertionPoint::AtBlockEnd(block));
-            let terminator = YieldOp::new(ctx);
-            rewriter.append_op(ctx, &terminator);
-        }
     }
 
     fn replace_quotients(
@@ -577,15 +634,16 @@ impl Guarded {
         }
     }
 
-    /// Keep the original iteration order and guards, specializing only the
-    /// division/remainder pair. No index recovery is needed on this path.
-    fn clone_small_divisor(
+    fn specialize_divisor(
         &self,
         ctx: &mut Context,
         rewriter: &mut MatchRewriter,
         source: Ptr<Operation>,
+        condition: Value,
         by_three: bool,
     ) {
+        let choice = branch(ctx, rewriter, condition);
+        rewriter.set_insertion_point(OpInsertionPoint::AtBlockStart(choice.then_block(ctx)));
         let mut mapper = IrMapping::new();
         let cloned = clone_operation(source, ctx, rewriter, &mut mapper);
         rewriter.append_operation(ctx, cloned);
@@ -611,10 +669,10 @@ impl Guarded {
         remainder.replace_all_uses_with(ctx, &replacement);
         rewriter.erase_operation(ctx, remainder.defining_op().unwrap());
         self.replace_quotients(ctx, rewriter, &mapper, quotient);
+        rewriter.set_insertion_point(OpInsertionPoint::AtBlockStart(choice.else_block(ctx)));
     }
 
-    /// Clone the body unchanged, then substitute proven values in the clone.
-    /// SCCP/DCE remove the redundant guards and definitions afterwards.
+    /// Substitute proven values; SCCP/DCE remove the redundant guards.
     fn clone_body(
         &self,
         ctx: &mut Context,
@@ -641,9 +699,12 @@ impl Guarded {
             .loop_body(ctx)
             .deref(ctx)
             .iter(ctx)
+            .filter(|op| !op.is_terminator(ctx))
             .collect::<Vec<_>>();
         for old in ops {
-            rewriter.set_insertion_point(OpInsertionPoint::AtBlockEnd(dst));
+            rewriter.set_insertion_point(OpInsertionPoint::BeforeOperation(
+                dst.deref(ctx).get_terminator(ctx).unwrap(),
+            ));
             let cloned = clone_operation(old, ctx, rewriter, &mut mapper);
             rewriter.append_operation(ctx, cloned);
         }
@@ -681,63 +742,13 @@ impl MatchRewrite for QuotientRange {
         };
         mark_unswitched(ctx, op);
         let (preparation, dispatch) = guard.insertion_points(ctx);
-        let dynamic_divisor = const_index(ctx, guard.division.divisor).is_none();
-        let (range, mut small_three) = if preparation != dispatch || !dynamic_divisor {
-            rewriter.set_insertion_point(OpInsertionPoint::BeforeOperation(preparation));
-            let scope = Scope::from_context_and_inserter(ctx, rewriter);
-            let small = if dynamic_divisor {
-                guard.small_three(&scope, preparation)
-            } else {
-                false.into_expand(&scope)
-            };
-            (Some(guard.prepare(&scope, small)), Some(small))
-        } else {
-            (None, None)
-        };
-        rewriter.set_insertion_point(OpInsertionPoint::BeforeOperation(dispatch));
-        let mut quick_paths = Vec::new();
-        if dynamic_divisor {
-            for by_three in [false, true] {
-                let small = {
-                    let scope = Scope::from_context_and_inserter(ctx, rewriter);
-                    if by_three {
-                        small_three
-                            .get_or_insert_with(|| guard.small_three(&scope, preparation))
-                            .value(&scope)
-                    } else {
-                        is_small_divisor::expand(&scope, guard.division.divisor.into())
-                            .value(&scope)
-                    }
-                };
-                let quick = IfOp::new(ctx, small);
-                rewriter.append_op(ctx, &quick);
-                rewriter.set_insertion_point(OpInsertionPoint::AtBlockStart(quick.then_block(ctx)));
-                guard.clone_small_divisor(ctx, rewriter, dispatch, by_three);
-                rewriter.set_insertion_point(OpInsertionPoint::AtBlockEnd(quick.then_block(ctx)));
-                let yield_op = YieldOp::new(ctx);
-                rewriter.append_op(ctx, &yield_op);
-                rewriter.set_insertion_point(OpInsertionPoint::AtBlockStart(quick.else_block(ctx)));
-                quick_paths.push(quick);
-            }
-        }
-        let range = range.unwrap_or_else(|| {
-            guard.prepare(
-                &Scope::from_context_and_inserter(ctx, rewriter),
-                small_three.unwrap(),
-            )
-        });
-        let (start, end, applicable) = {
-            let scope = Scope::from_context_and_inserter(ctx, rewriter);
-            (
-                range.start.value(&scope),
-                range.end.value(&scope),
-                range.applicable.value(&scope),
-            )
-        };
+        let range = guard.prepare_dispatch(ctx, rewriter, preparation, dispatch);
+        let applicable = range
+            .applicable
+            .value(&Scope::from_context_and_inserter(ctx, rewriter));
         let use_source = BoolNotOp::new(ctx, applicable);
         rewriter.append_op(ctx, &use_source);
-        let unswitch = IfOp::new(ctx, use_source.get_result(ctx));
-        rewriter.append_op(ctx, &unswitch);
+        let unswitch = branch(ctx, rewriter, use_source.get_result(ctx));
         let (optimized, fallback) = (unswitch.else_block(ctx), unswitch.then_block(ctx));
 
         if dispatch != op {
@@ -749,26 +760,7 @@ impl MatchRewrite for QuotientRange {
         } else {
             rewriter.set_insertion_point(OpInsertionPoint::AtBlockStart(optimized));
         }
-        let q_loop = RangeLoopOp::new(ctx, start, end, guard.loop_op.step(ctx));
-        mark_unswitched(ctx, q_loop.get_operation());
-        rewriter.append_op(ctx, &q_loop);
-        let q = q_loop.iter_var(ctx);
-        let q_body = q_loop.loop_body(ctx);
-        rewriter.set_insertion_point(OpInsertionPoint::AtBlockStart(q_body));
-        let tap = guard.recover(&Scope::from_context_and_inserter(ctx, rewriter), q, &range);
-        let keep = tap
-            .keep
-            .value(&Scope::from_context_and_inserter(ctx, rewriter));
-        let body_gate = IfOp::new(ctx, keep);
-        rewriter.append_op(ctx, &body_gate);
-
-        rewriter.set_insertion_point(OpInsertionPoint::BeforeOperation(body_gate.get_operation()));
-        guard.clone_body(ctx, rewriter, body_gate.then_block(ctx), &tap);
-        for block in [q_body, body_gate.else_block(ctx), optimized, fallback] {
-            rewriter.set_insertion_point(OpInsertionPoint::AtBlockEnd(block));
-            let terminator = YieldOp::new(ctx);
-            rewriter.append_op(ctx, &terminator);
-        }
+        let q_loop = guard.quotient_loop(ctx, rewriter, &range);
         let nest = if dispatch != op {
             rewriter.erase_operation(ctx, op);
             rewriter.move_operation(ctx, dispatch, OpInsertionPoint::AtBlockStart(optimized));
@@ -778,11 +770,6 @@ impl MatchRewrite for QuotientRange {
             q_loop.get_operation()
         };
         guard.specialize_unit_scale(ctx, rewriter, nest);
-        for quick in quick_paths {
-            rewriter.set_insertion_point(OpInsertionPoint::AtBlockEnd(quick.else_block(ctx)));
-            let yield_op = YieldOp::new(ctx);
-            rewriter.append_op(ctx, &yield_op);
-        }
         Ok(())
     }
 }
