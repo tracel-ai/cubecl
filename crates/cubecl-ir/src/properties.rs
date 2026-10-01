@@ -202,18 +202,26 @@ pub struct PhysicalDevice {
     pub pci_address: Option<PciAddress>,
     /// The key every runtime reports alike on Windows.
     pub luid: Option<AdapterLuid>,
+    /// The key every runtime reports alike on macOS.
+    pub registry_entry_id: Option<RegistryEntryId>,
     pub vendor: Option<PciVendor>,
 }
 
 impl PhysicalDevice {
     /// Whether `other` is known to be this card through another runtime: by PCI address, otherwise
-    /// by LUID. A card with neither matches nothing, itself included, since two such cards of one
-    /// make compare equal.
+    /// by LUID, otherwise by registry entry id. A card with none of them matches nothing, itself
+    /// included, since two such cards of one make compare equal.
     pub fn is_same_card(&self, other: &Self) -> bool {
         if let (Some(mine), Some(theirs)) = (self.pci_address, other.pci_address) {
             return mine == theirs;
         }
-        matches!((self.luid, other.luid), (Some(mine), Some(theirs)) if mine == theirs)
+        if let (Some(mine), Some(theirs)) = (self.luid, other.luid) {
+            return mine == theirs;
+        }
+        matches!(
+            (self.registry_entry_id, other.registry_entry_id),
+            (Some(mine), Some(theirs)) if mine == theirs
+        )
     }
 
     /// Takes what this runtime left out from `other`, the same card seen through another runtime.
@@ -221,11 +229,29 @@ impl PhysicalDevice {
         let Self {
             pci_address,
             luid,
+            registry_entry_id,
             vendor,
         } = *other;
         self.pci_address = self.pci_address.or(pci_address);
         self.luid = self.luid.or(luid);
+        self.registry_entry_id = self.registry_entry_id.or(registry_entry_id);
         self.vendor = self.vendor.or(vendor);
+    }
+}
+
+/// The id of the GPU's entry in the macOS I/O Registry, which Metal reports as `registryID`. Like
+/// [`AdapterLuid`] it is not promised to survive a restart, so it has no serialization or text
+/// form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RegistryEntryId(u64);
+
+impl RegistryEntryId {
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
+
+    pub fn get(self) -> u64 {
+        self.0
     }
 }
 
@@ -715,6 +741,7 @@ mod tests {
         let card = |pci_address, luid| PhysicalDevice {
             pci_address,
             luid,
+            registry_entry_id: None,
             vendor: None,
         };
 
@@ -739,12 +766,14 @@ mod tests {
         let mut card = PhysicalDevice {
             pci_address: address(7),
             luid: None,
+            registry_entry_id: None,
             vendor: None,
         };
 
         card.fill_from(&PhysicalDevice {
             pci_address: address(8),
             luid,
+            registry_entry_id: None,
             vendor: Some(PciVendor::Nvidia),
         });
 
@@ -753,9 +782,67 @@ mod tests {
             PhysicalDevice {
                 pci_address: address(7),
                 luid,
+                registry_entry_id: None,
                 vendor: Some(PciVendor::Nvidia),
             }
         );
+    }
+
+    #[test]
+    fn a_card_with_neither_address_nor_luid_is_matched_by_registry_entry_id() {
+        let card = |registry_entry_id| PhysicalDevice {
+            pci_address: None,
+            luid: None,
+            registry_entry_id: Some(RegistryEntryId::new(registry_entry_id)),
+            vendor: None,
+        };
+
+        assert!(card(0x1_0000_04c8).is_same_card(&card(0x1_0000_04c8)));
+        assert!(!card(0x1_0000_04c8).is_same_card(&card(0x1_0000_04c9)));
+    }
+
+    #[test]
+    fn the_address_and_the_luid_outrank_the_registry_entry_id() {
+        let address = |bus| {
+            Some(PciAddress {
+                domain: 0,
+                bus,
+                device: 0,
+                function: 0,
+            })
+        };
+        let luid = |low| Some(AdapterLuid::from_parts(low, 0));
+        let card = |pci_address, luid| PhysicalDevice {
+            pci_address,
+            luid,
+            registry_entry_id: Some(RegistryEntryId::new(0x1_0000_04c8)),
+            vendor: None,
+        };
+
+        assert!(!card(address(7), None).is_same_card(&card(address(8), None)));
+        assert!(!card(None, luid(1)).is_same_card(&card(None, luid(2))));
+    }
+
+    #[test]
+    fn a_card_filled_from_another_runtime_takes_the_registry_entry_id_it_left_out() {
+        let registry_entry_id = |id| Some(RegistryEntryId::new(id));
+        let card = |registry_entry_id| PhysicalDevice {
+            pci_address: None,
+            luid: None,
+            registry_entry_id,
+            vendor: None,
+        };
+
+        let mut without_one = card(None);
+        without_one.fill_from(&card(registry_entry_id(0x1_0000_04c8)));
+        let mut with_one = card(registry_entry_id(0x1_0000_04c8));
+        with_one.fill_from(&card(registry_entry_id(0x1_0000_04c9)));
+
+        assert_eq!(
+            without_one.registry_entry_id,
+            registry_entry_id(0x1_0000_04c8)
+        );
+        assert_eq!(with_one.registry_entry_id, registry_entry_id(0x1_0000_04c8));
     }
 
     #[test]

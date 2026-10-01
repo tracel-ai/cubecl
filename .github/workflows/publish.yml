@@ -71,11 +71,22 @@ jobs:
     secrets:
       CRATES_IO_API_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
 
+  publish-cubecl-monitoring:
+    needs:
+      - publish-cubecl-ir
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
+    with:
+      crate: cubecl-monitoring
+      dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
+    secrets:
+      CRATES_IO_API_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
+
   publish-cubecl-runtime:
     needs:
       - publish-cubecl-ir
       - publish-cubecl-common
       - publish-cubecl-environment
+      - publish-cubecl-monitoring
       - publish-cubecl-zspace
     uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:

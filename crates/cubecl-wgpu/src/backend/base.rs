@@ -24,6 +24,9 @@ use super::metal;
 #[cfg(windows)]
 use super::dx12;
 
+#[cfg(target_vendor = "apple")]
+use super::metal_card;
+
 /// What a shader module is built from: the compiler's representation and the
 /// source text, reconciled.
 ///
@@ -482,7 +485,10 @@ pub fn register_metal_features(
 }
 
 /// The card behind `adapter`, `None` for a software adapter, which is no card at all.
-#[cfg_attr(not(any(feature = "spirv", windows)), expect(unused_variables))]
+#[cfg_attr(
+    not(any(feature = "spirv", windows, target_vendor = "apple")),
+    expect(unused_variables)
+)]
 pub fn physical_device(adapter: &Adapter, info: &wgpu::AdapterInfo) -> Option<PhysicalDevice> {
     if info.device_type == wgpu::DeviceType::Cpu {
         return None;
@@ -501,6 +507,8 @@ pub fn physical_device(adapter: &Adapter, info: &wgpu::AdapterInfo) -> Option<Ph
     }
     #[cfg(windows)]
     dx12::describe_card(adapter, &mut physical);
+    #[cfg(target_vendor = "apple")]
+    metal_card::describe_card(adapter, &mut physical);
     Some(physical)
 }
 

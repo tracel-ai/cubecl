@@ -10,4 +10,7 @@ pub mod metal;
 #[cfg(windows)]
 pub mod dx12;
 
+#[cfg(target_vendor = "apple")]
+pub mod metal_card;
+
 pub use base::*;

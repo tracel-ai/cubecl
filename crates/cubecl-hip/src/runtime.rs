@@ -9,6 +9,8 @@ use cubecl_common::{
     device::{Device, DeviceService},
     profile::TimingMethod,
 };
+#[cfg(windows)]
+use cubecl_core::ir::AdapterLuid;
 use cubecl_core::{
     MemoryConfiguration,
     cmma::MatrixLayout,
@@ -38,6 +40,7 @@ use cubecl_cpp::{
 };
 use cubecl_hip_sys::{hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
 use cubecl_llvm::shared::lowered_features::{GpuTarget, restrict_features};
+use cubecl_monitoring::{DeviceUtilization, UtilizationUnavailable, gpu_utilization::CardCounters};
 use cubecl_server::{
     allocator::PitchedMemoryLayoutPolicy, driver::checked, logging::ServerLogger, runtime::Runtime,
 };
@@ -293,6 +296,10 @@ impl Runtime for HipRuntime {
             .map(|i| DeviceId::new(0, i as u16))
             .collect()
     }
+
+    fn utilization(device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
+        CardCounters::read(Self::client(device).properties().identity.physical.as_ref())
+    }
 }
 
 /// What the driver says about one AMD device.
@@ -382,6 +389,12 @@ impl DeviceProbe {
             .and_then(|()| CStr::from_bytes_until_nul(&bus_id).ok())
             .and_then(|id| id.to_str().ok()?.parse().ok());
         physical.vendor = Some(PciVendor::Amd);
+        #[cfg(windows)]
+        {
+            let luid = props.luid.map(|byte| byte as u8);
+            // A zeroed LUID names no adapter.
+            physical.luid = (luid != [0; 8]).then(|| AdapterLuid::new(luid));
+        }
 
         Self {
             arch_name,

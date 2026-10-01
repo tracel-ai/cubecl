@@ -1,3 +1,4 @@
+use crate::processor_times::ProcessorTimes;
 use crate::{compute::affinity, compute::server::CpuServer, device::CpuDevice};
 use cubecl_common::{device::DeviceService, profile::TimingMethod};
 use cubecl_core::{
@@ -16,7 +17,7 @@ use cubecl_server::{
     allocator::ContiguousMemoryLayoutPolicy,
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
     logging::ServerLogger,
-    runtime::Runtime,
+    runtime::{DeviceUtilization, Runtime, UtilizationUnavailable},
 };
 use cubecl_std::tensor::is_contiguous;
 use std::sync::Arc;
@@ -277,5 +278,9 @@ impl Runtime for CpuRuntime {
             type_id: 0,
             index_id: 0,
         }]
+    }
+
+    fn utilization(_device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
+        ProcessorTimes::read_machine_wide()
     }
 }
