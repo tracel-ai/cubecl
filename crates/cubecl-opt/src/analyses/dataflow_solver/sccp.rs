@@ -62,8 +62,8 @@ pub struct SparseConstantPropagation;
 impl SparseForwardDataflowAnalysis for SparseConstantPropagation {
     type LatticeValue = ConstantValue;
 
-    fn verify(solver: &DataflowSolver, _ctx: &Context, _root: Ptr<Operation>) -> Result<()> {
-        solver.require_loaded::<DeadCodeAnalysis>()
+    fn on_load(solver: &mut DataflowSolver) {
+        solver.ensure_loaded(DeadCodeAnalysis::default);
     }
 
     fn visit_operation(

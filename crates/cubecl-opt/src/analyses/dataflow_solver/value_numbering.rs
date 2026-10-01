@@ -130,8 +130,8 @@ impl ValueClasses {
 impl SparseForwardDataflowAnalysis for ValueClasses {
     type LatticeValue = ValueClass;
 
-    fn verify(solver: &DataflowSolver, _: &Context, _: Ptr<Operation>) -> Result<()> {
-        solver.require_loaded::<ValueNumberingAnalysis>()
+    fn on_load(solver: &mut DataflowSolver) {
+        solver.ensure_loaded(ValueNumberingAnalysis::default);
     }
 
     fn visit_operation(
@@ -243,8 +243,8 @@ impl ValueNumberingAnalysis {
 }
 
 impl DataflowAnalysis for ValueNumberingAnalysis {
-    fn verify(&self, solver: &DataflowSolver, _: &Context, _: Ptr<Operation>) -> Result<()> {
-        solver.require_loaded::<SparseForward<ValueClasses>>()
+    fn on_load(&self, solver: &mut DataflowSolver) {
+        solver.ensure_loaded(SparseForward::<ValueClasses>::default);
     }
 
     fn initialize(

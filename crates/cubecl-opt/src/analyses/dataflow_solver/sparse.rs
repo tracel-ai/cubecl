@@ -136,6 +136,10 @@ impl<T: LatticeValue> AnalysisState for SparseLattice<T> {
 pub trait SparseForwardDataflowAnalysis: Sized + 'static {
     type LatticeValue: LatticeValue;
 
+    fn on_load(solver: &mut DataflowSolver) {
+        let _ = solver;
+    }
+
     /// Verify analysis can be run on the solver. Should be used to verify required analyses are
     /// loaded.
     fn verify(solver: &DataflowSolver, ctx: &Context, root: Ptr<Operation>) -> Result<()> {
@@ -643,6 +647,11 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
 }
 
 impl<T: SparseForwardDataflowAnalysis + 'static> DataflowAnalysis for SparseForward<T> {
+    fn on_load(&self, solver: &mut DataflowSolver) {
+        solver.ensure_loaded(DeadCodeAnalysis::default);
+        T::on_load(solver);
+    }
+
     fn verify(&self, solver: &DataflowSolver, ctx: &Context, root: Ptr<Operation>) -> Result<()> {
         T::verify(solver, ctx, root)
     }
@@ -674,6 +683,10 @@ impl<T: SparseForwardDataflowAnalysis + 'static> DataflowAnalysis for SparseForw
 
 pub trait SparseBackwardDataflowAnalysis: Sized + 'static {
     type LatticeValue: LatticeValue;
+
+    fn on_load(solver: &mut DataflowSolver) {
+        let _ = solver;
+    }
 
     /// Verify analysis can be run on the solver. Should be used to verify required analyses are
     /// loaded.

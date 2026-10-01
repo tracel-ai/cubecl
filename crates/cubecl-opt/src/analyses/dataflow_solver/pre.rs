@@ -26,14 +26,13 @@ use crate::{
         MaybeUninitBitset,
         dataflow_solver::{
             DataflowAnalysis, ProgramPoint, SolverConfig,
-            dead_code::{DeadCodeAnalysis, is_block_live},
+            dead_code::is_block_live,
             dense::{
                 DenseBackwardDataflowAnalysis, DenseForwardDataflowAnalysis, DenseLattice,
                 LatticeValue,
             },
-            sccp::SparseConstantPropagationAnalysis,
             value_dependents::{DependentsLattice, ValueDependentsAnalysis},
-            value_numbering::{ValueClassAnalysis, ValueNumberLattice, ValueNumberingAnalysis},
+            value_numbering::{ValueNumberLattice, ValueNumberingAnalysis},
         },
         memory_ssa::MemorySSA,
     },
@@ -46,10 +45,6 @@ use super::{
 
 pub fn compute_lcm_analyses(ctx: &Context, op: Ptr<Operation>) -> Result<DataflowSolver> {
     let mut solver = DataflowSolver::new(SolverConfig::default());
-    solver.load(DeadCodeAnalysis::default());
-    solver.load(SparseConstantPropagationAnalysis::default());
-    solver.load(ValueClassAnalysis::default());
-    solver.load(ValueNumberingAnalysis::default());
     solver.load(ComputesAnalysis);
     solver.load(ValueDependentsAnalysis::default());
     solver.initialize_and_run(ctx, op)?;
@@ -91,6 +86,7 @@ impl LatticeValue for ComputesSet {
 
 pub type Computes = DenseLattice<ComputesSet>;
 
+#[derive(new, Default)]
 pub struct ComputesAnalysis;
 
 impl ComputesAnalysis {
@@ -120,8 +116,8 @@ impl ComputesAnalysis {
 }
 
 impl DataflowAnalysis for ComputesAnalysis {
-    fn verify(&self, solver: &DataflowSolver, _: &Context, _: Ptr<Operation>) -> Result<()> {
-        solver.require_loaded::<ValueNumberingAnalysis>()
+    fn on_load(&self, solver: &mut DataflowSolver) {
+        solver.ensure_loaded(ValueNumberingAnalysis::default);
     }
 
     fn initialize(
@@ -190,6 +186,10 @@ pub struct Available;
 impl DenseForwardDataflowAnalysis for Available {
     type LatticeValue = AvailableSet;
 
+    fn on_load(solver: &mut DataflowSolver) {
+        solver.ensure_loaded(ComputesAnalysis::new);
+    }
+
     fn visit_operation(
         _: &DenseForward<Self>,
         solver: &DataflowSolver,
@@ -251,6 +251,13 @@ pub(crate) fn collect_memory_kill_sets(
     solver: &DataflowSolver,
     root: Ptr<Operation>,
 ) -> HMap<MemoryValue, SparseBitSet> {
+    solver
+        .require_loaded::<ComputesAnalysis>()
+        .expect("Missing `Computes` state");
+    solver
+        .require_loaded::<ValueDependentsAnalysis>()
+        .expect("Missing `Dependents` state");
+
     let mut out = HMap::new();
 
     walk_op(
@@ -312,6 +319,10 @@ pub struct Anticipated {
 
 impl DenseBackwardDataflowAnalysis for Anticipated {
     type LatticeValue = AnticipatedSet;
+
+    fn on_load(solver: &mut DataflowSolver) {
+        solver.ensure_loaded(ComputesAnalysis::new);
+    }
 
     fn visit_operation(
         this: &DenseBackward<Self>,

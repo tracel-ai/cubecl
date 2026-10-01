@@ -627,8 +627,8 @@ pub(crate) fn is_region_or_callable_return(ctx: &Context, op: Ptr<Operation>) ->
 }
 
 impl DataflowAnalysis for DeadCodeAnalysis {
-    fn verify(&self, solver: &DataflowSolver, _ctx: &Context, _root: Ptr<Operation>) -> Result<()> {
-        solver.require_loaded::<SparseConstantPropagationAnalysis>()
+    fn on_load(&self, solver: &mut DataflowSolver) {
+        solver.ensure_loaded(SparseConstantPropagationAnalysis::default);
     }
 
     fn initialize(
