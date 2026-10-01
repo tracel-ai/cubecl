@@ -11,9 +11,10 @@ use core::fmt::{self, Formatter};
 use itertools::Itertools;
 
 use cubecl_ir::{
-    interfaces::{MemoryEffects, memory_slot::MemoryValue},
+    interfaces::{memory_slot::MemoryValue, side_effects::MemoryEffectsOp},
     prelude::{Rewriter as _, *},
 };
+use derive_more::{Eq, PartialEq};
 use pliron::{
     attribute::AttributeDict,
     graph::ControlFlowGraph,
@@ -44,7 +45,7 @@ impl ExpressionKey {
     pub fn new(ctx: &Context, op: Ptr<Operation>, mem_value: Option<MemoryValue>) -> Self {
         let op_id = op.dyn_op(ctx).get_opid();
         let operands = op.operands(ctx);
-        let attributes = op.deref(ctx).attributes.clone();
+        let attributes = op.deref(ctx).attributes.clone_skip_outlined(ctx);
         let result_types = op.deref(ctx).result_types().collect();
         Self {
             op_id,
@@ -175,7 +176,7 @@ fn can_eliminate(
     if op_cast::<dyn SideEffects>(&*dyn_op).is_none_or(|effects| effects.has_side_effects(ctx)) {
         return Err(());
     }
-    let Some(effects) = op_cast::<dyn MemoryEffects>(&*dyn_op) else {
+    let Some(effects) = op_cast::<dyn MemoryEffectsOp>(&*dyn_op) else {
         return Err(());
     };
     if effects.has_effects(ctx) {

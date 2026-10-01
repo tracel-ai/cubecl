@@ -165,7 +165,7 @@ pub struct CreateViewOp {}
     attributes = (spirv_slice_layout_rank: IndexAttr),
     verifier = "succ"
 )]
-#[op_interfaces(NResultsInterface<1>, OneResultInterface, OperandSegmentInterface)]
+#[op_interfaces(NResultsInterface<1>, OneResultInterface)]
 #[op_traits(CanMaterialize, Pure)]
 pub struct SliceOp;
 
@@ -198,5 +198,12 @@ impl SliceOp {
 
     pub fn shape(&self, ctx: &Context) -> Vec<Value> {
         self.get_segment(ctx, 2)
+    }
+}
+
+#[op_interface_impl]
+impl OperandSegmentInterface for SliceOp {
+    fn expected_num_segments(&self, _: &Context) -> Option<usize> {
+        Some(3)
     }
 }

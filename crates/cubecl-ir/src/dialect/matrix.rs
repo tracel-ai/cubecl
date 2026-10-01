@@ -27,10 +27,14 @@ use pliron::{
 };
 
 use crate::{
-    CanMaterialize, Pure,
+    CanMaterialize, HasSideEffects, Pure,
     attributes::{BoolAttr, IndexAttr},
     dialect::{general::SymbolUserOpVerifyErr, synchronization::SyncScope},
-    interfaces::{MemoryEffect, MemoryEffects, TypedExt, synchronizes},
+    interfaces::{
+        TypedExt,
+        side_effects::{MemoryEffect, MemoryEffectsOp},
+        synchronizes,
+    },
     prelude::*,
     types::{
         ArrayType, MatrixShape, PointerType, VectorType,
@@ -55,7 +59,7 @@ pub struct MatrixShapeAttr(pub MatrixShape);
 /// coordination between threads.
 #[cube_op(name = "matrix.fill")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct FillOp {
     #[operand(ptr_write)]
     pub matrix: Value,
@@ -64,7 +68,7 @@ pub struct FillOp {
 
 #[cube_op(name = "matrix.load")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct LoadOp {
     #[operand(ptr_write)]
     pub matrix: Value,
@@ -77,7 +81,7 @@ synchronizes!(LoadOp, SyncScope::Plane);
 
 #[cube_op(name = "matrix.store")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct StoreOp {
     #[operand(ptr_read)]
     pub matrix: Value,
@@ -90,7 +94,7 @@ synchronizes!(StoreOp, SyncScope::Plane);
 
 #[cube_op(name = "matrix.multiply_accumulate")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct MultiplyAccumulateOp {
     #[operand(ptr_read)]
     pub mat_a: Value,
@@ -108,7 +112,7 @@ synchronizes!(MultiplyAccumulateOp, SyncScope::Plane);
 /// coordination between threads.
 #[cube_op(name = "matrix.cast")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct CastOp {
     #[operand(ptr_read)]
     pub input: Value,
@@ -136,24 +140,20 @@ pub struct ColIndexOp {
 
 #[cube_op(name = "matrix.ldmatrix")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct LdMatrixOp {
+    #[operand(ptr_read)]
     pub ptr: Value,
+    #[operand(ptr_write)]
     pub out_arr: Value,
     pub factor: IndexAttr,
     pub transpose: BoolAttr,
 }
 synchronizes!(LdMatrixOp, SyncScope::Plane);
 
-impl MemoryEffects for LdMatrixOp {
-    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
-        vec![MemoryEffect::Read(self.ptr(ctx))]
-    }
-}
-
 #[cube_op(name = "matrix.stmatrix")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 #[op_interfaces(OperandNOfType<0, ArrayType>, OperandNOfType<1, PointerType>)]
 pub struct StMatrixOp {
     pub registers: Value,
@@ -166,7 +166,7 @@ synchronizes!(StMatrixOp, SyncScope::Plane);
 
 #[cube_op(name = "matrix.mma_manual")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 #[op_interfaces(
     OperandNOfType<0, ArrayType>, OperandNOfType<1, ArrayType>, OperandNOfType<2, ArrayType>,
     OperandNOfType<3, PointerType>,
@@ -175,6 +175,7 @@ pub struct MmaManualOp {
     pub registers_a: Value,
     pub registers_b: Value,
     pub registers_c: Value,
+    #[operand(ptr_write)]
     pub registers_d: Value,
     pub shape: MatrixShapeAttr,
 }
@@ -182,7 +183,7 @@ synchronizes!(MmaManualOp, SyncScope::Plane);
 
 #[cube_op(name = "matrix.mma_manual_scaled")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 #[op_interfaces(
     OperandNOfType<0, ArrayType>, OperandNOfType<1, ArrayType>, OperandNOfType<2, ArrayType>,
     OperandNOfType<3, PointerType>, OperandNOfType<4, VectorType>, OperandNOfType<5, VectorType>,
@@ -191,6 +192,7 @@ pub struct MmaManualScaledOp {
     pub registers_a: Value,
     pub registers_b: Value,
     pub registers_c: Value,
+    #[operand(ptr_write)]
     pub registers_d: Value,
     pub scales_a: Value,
     pub scales_b: Value,
@@ -207,7 +209,7 @@ synchronizes!(MmaManualScaledOp, SyncScope::Plane);
     attributes = (matrix_elementwise_closure: IdentifierAttr),
     verifier = "succ"
 )]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct ElementwiseOp;
 
 impl ElementwiseOp {
@@ -300,7 +302,7 @@ impl Parsable for ElementwiseOp {
 }
 
 #[op_interface_impl]
-impl MemoryEffects for ElementwiseOp {
+impl MemoryEffectsOp for ElementwiseOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         vec![
             MemoryEffect::Read(self.matrix_in(ctx)),

@@ -35,7 +35,7 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    AddressSpace, CanMaterialize, NoSideEffects, PropagatesUniformity, Pure,
+    AddressSpace, CanMaterialize, HasSideEffects, NoSideEffects, PropagatesUniformity, Pure,
     attributes::{IndexAttr, ZeroAttr},
     dialect::{general::PoisonOp, math::index_attr, ptr_value_ty},
     interfaces::{
@@ -429,7 +429,7 @@ impl Debug for StoreOpError {
 #[cube_op(name = "memory.store", verifier = "custom")]
 #[result_ty(none)]
 #[op_interfaces(OperandNOfType<0, PointerType>, TriviallyUnrollable)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct StoreOp {
     #[operand(ptr_write)]
     pub ptr: Value,
@@ -497,7 +497,7 @@ impl SafeMemorySlotAccessOpInterface for StoreOp {
 #[cube_op(name = "memory.copy")]
 #[result_ty(none)]
 #[op_interfaces(OperandNOfType<0, PointerType>, SameOperandsType)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct CopyOp {
     #[operand(ptr_read)]
     pub source: Value,
