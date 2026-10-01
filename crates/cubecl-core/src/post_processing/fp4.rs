@@ -12,6 +12,17 @@
 //! decoding is one select over the subnormal arm and encoding is a count of the midpoints a
 //! magnitude clears.
 
+use cubecl_ir::{
+    NamedRewrite, Scope,
+    dialect::{base::OperationPtrExt, general::CastOp},
+    interfaces::TypedExt,
+    prelude::*,
+    types::scalar::Float4E2M1x2Type,
+};
+use half::f16;
+use pliron::r#type::TypeHandle;
+
+use crate::post_processing::minifloat::Fp8Container;
 use crate::{self as cubecl, prelude::*};
 
 /// The sign bit of an `e2m1` code.
@@ -143,6 +154,249 @@ pub fn float_to_e2m1_bits<F: Numeric, N: Size>(value: Vector<F, N>) -> Vector<u3
 #[cube]
 fn cleared<N: Size>(above: Vector<bool, N>) -> Vector<u32, N> {
     select_many(above, Vector::new(1u32), Vector::new(0u32))
+}
+
+/// What a code placed as an `f16` near the bottom of its range ([`f16_pair_bits`]) is short of
+/// its value by: `2^14`, the gap between an `e2m1` exponent of zero and an `f16` one.
+const F16_LIFT: f32 = 16384.0;
+
+/// The `f16` pair two codes name, from a word holding one code in its low nibble and the other
+/// sixteen bits up.
+///
+/// An `e2m1` code is already an `f16`'s top bits in order, sign, exponent, mantissa, so each
+/// lands by one mask and one shift: the magnitude where an `f16`'s exponent ends, the sign on its
+/// sign bit. What it lands on is the value `2^14` times too small, and exactly that: the exponent
+/// field is the code's own, so a code of exponent zero is an `f16` subnormal, which is the
+/// format's own subnormal arm with no select. Two codes sixteen bits apart move together, so one
+/// pair costs what one code does.
+#[cube]
+fn f16_pair_bits(codes: u32) -> u32 {
+    ((codes & 0x0007_0007) << 9) | ((codes & 0x0008_0008) << 12)
+}
+
+/// Decode the eight codes of each word of `words`, lowest nibble first, to `f16`.
+///
+/// A word's codes `j` and `j + 4` sit sixteen bits apart, so a word is four pairs and four
+/// [`f16_pair_bits`]; the pairs land on their lanes by compile-time inserts. One multiply for
+/// every lane lifts them to their values, exactly, the factor being a power of two.
+#[cube]
+pub fn e2m1_words_to_f16<W: Size, V: Size>(words: Vector<u32, W>) -> Vector<f16, V> {
+    let mut values = Vector::<f16, V>::empty();
+    #[unroll]
+    for w in 0..W::value() {
+        let word = words.extract(w);
+        #[unroll]
+        for j in 0..4usize {
+            let shift = comptime![4 * j as u32];
+            let pair = Vector::<f16, Const<2>>::reinterpret(f16_pair_bits(word >> shift));
+            values.insert(8 * w + j, pair.extract(0usize));
+            values.insert(8 * w + j + 4, pair.extract(1usize));
+        }
+    }
+    values * Vector::new(f16::new(F16_LIFT))
+}
+
+/// [`e2m1_words_to_f16`] for bytes that do not fill a word, one `e2m1x2` per lane of `bytes`:
+/// the high nibble moves up to the second half of the word first, one more mask and shift a pair.
+#[cube]
+pub fn e2m1_bytes_to_f16<B: Size, V: Size>(bytes: Vector<u32, B>) -> Vector<f16, V> {
+    let mut values = Vector::<f16, V>::empty();
+    #[unroll]
+    for b in 0..B::value() {
+        let byte = bytes.extract(b);
+        let codes = (byte & 0xF) | ((byte & 0xF0) << 12);
+        let pair = Vector::<f16, Const<2>>::reinterpret(f16_pair_bits(codes));
+        values.insert(2 * b, pair.extract(0usize));
+        values.insert(2 * b + 1, pair.extract(1usize));
+    }
+    values * Vector::new(f16::new(F16_LIFT))
+}
+
+/// The codes of the `e2m1x2` bytes in `bytes`, one a lane, low nibble first: what the `f32`
+/// decode reads.
+#[cube]
+fn bytes_to_codes<B: Size, V: Size>(bytes: Vector<u32, B>) -> Vector<u32, V> {
+    let mut codes = Vector::<u32, V>::empty();
+    #[unroll]
+    for b in 0..B::value() {
+        let byte = bytes.extract(b);
+        codes.insert(2 * b, byte & NIBBLE);
+        codes.insert(2 * b + 1, (byte >> 4) & NIBBLE);
+    }
+    codes
+}
+
+/// The `e2m1x2` bytes two codes a lane make, low nibble first: what an encode stores.
+#[cube]
+fn codes_to_bytes<V: Size, B: Size>(codes: Vector<u32, V>) -> Vector<u32, B> {
+    let mut bytes = Vector::<u32, B>::empty();
+    #[unroll]
+    for b in 0..B::value() {
+        bytes.insert(
+            b,
+            (codes.extract(2 * b) & NIBBLE) | ((codes.extract(2 * b + 1) & NIBBLE) << 4),
+        );
+    }
+    bytes
+}
+
+/// Bytes, one a lane, packed four to a word, lane 0 in the low byte.
+#[cube]
+fn bytes_to_words<B: Size, W: Size>(bytes: Vector<u32, B>) -> Vector<u32, W> {
+    let mut words = Vector::<u32, W>::empty();
+    #[unroll]
+    for w in 0..W::value() {
+        let mut word = 0u32;
+        #[unroll]
+        for offset in 0..4usize {
+            let shift = comptime![8 * offset as u32];
+            word |= (bytes.extract(4 * w + offset) & 0xFF) << shift;
+        }
+        words.insert(w, word);
+    }
+    words
+}
+
+/// Words, each four bytes, as one byte a lane, lane 0 in the low byte.
+#[cube]
+fn words_to_bytes<W: Size, B: Size>(words: Vector<u32, W>) -> Vector<u32, B> {
+    let mut bytes = Vector::<u32, B>::empty();
+    #[unroll]
+    for b in 0..B::value() {
+        let shift = comptime![8 * (b % 4) as u32];
+        bytes.insert(b, (words.extract(b / 4) >> shift) & 0xFF);
+    }
+    bytes
+}
+
+define_size!(B);
+define_size!(V);
+define_size!(W);
+
+pub type LowerFp4CastPass = MatchRewritePass<LowerFp4Cast>;
+
+/// Lowers every cast from or to `e2m1x2` onto the software codec, for a backend that has no
+/// native fp4 conversion.
+///
+/// The decode goes through `f16` pairs ([`e2m1_words_to_f16`]) where the backend has `f16`, and
+/// through `f32` ([`e2m1_bits_to_float`]) where it does not: the pairs decode two codes for what
+/// the `f32` path spends on one and need no select, and the backend is what knows whether `f16`
+/// exists. A cast whose bytes fill whole words decodes a word at a time, codes four apart
+/// sharing a pair. The encode is [`float_to_e2m1_bits`] either way.
+#[derive(new, Clone, Copy, Debug, Default, NamedRewrite)]
+pub struct LowerFp4Cast {
+    /// Whether the backend computes in `f16`.
+    half: bool,
+    container: Fp8Container,
+}
+
+fn is_e2m1x2(ctx: &Context, ty: TypeHandle) -> bool {
+    ty.scalar_ty(ctx).deref(ctx).is::<Float4E2M1x2Type>()
+}
+
+impl MatchRewrite for LowerFp4Cast {
+    fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
+        if !op.is_op::<CastOp>(ctx) {
+            return false;
+        }
+        is_e2m1x2(ctx, op.operand(ctx, 0).get_type(ctx))
+            || is_e2m1x2(ctx, op.result(ctx).get_type(ctx))
+    }
+
+    fn rewrite(
+        &mut self,
+        ctx: &mut Context,
+        rewriter: &mut MatchRewriter,
+        op: Ptr<Operation>,
+    ) -> Result<()> {
+        let scope = Scope::from_context_and_inserter(ctx, rewriter);
+        let input = op.operand(ctx, 0);
+        let result_ty = op.result(ctx).get_type(ctx);
+        let value = if is_e2m1x2(ctx, input.get_type(ctx)) {
+            self.decode(&scope, input, result_ty)
+        } else {
+            self.encode(&scope, input, result_ty)
+        };
+        rewriter.replace_operation_with_values(ctx, op, vec![value]);
+        Ok(())
+    }
+}
+
+impl LowerFp4Cast {
+    /// `input`'s bytes as `u32` lanes, one byte a lane.
+    fn byte_lanes(&self, scope: &Scope, input: Value, bytes: usize) -> Value {
+        match self.container {
+            Fp8Container::Bytes => {
+                let lanes =
+                    reinterpret_value(scope, input, Vector::<u8, B>::__expand_as_type(scope));
+                cast_value(scope, lanes, Vector::<u32, B>::__expand_as_type(scope))
+            }
+            Fp8Container::Words => {
+                let words = reinterpret_value(scope, input, self.words_type(scope, bytes));
+                words_to_bytes::expand::<W, B>(scope, words.into()).read_value(scope)
+            }
+        }
+    }
+
+    /// Registers `W`, the words `bytes` bytes fill, and names their type.
+    fn words_type(&self, scope: &Scope, bytes: usize) -> TypeHandle {
+        assert!(
+            bytes.is_multiple_of(4),
+            "fp4 is packed four bytes to a u32 on this backend: vectors of {bytes} e2m1x2 lanes \
+             are not supported, use a multiple of four"
+        );
+        scope.register_size::<W>(bytes / 4);
+        Vector::<u32, W>::__expand_as_type(scope)
+    }
+
+    fn decode(&self, scope: &Scope, input: Value, result_ty: TypeHandle) -> Value {
+        let ctx = scope.ctx();
+        let bytes = input.vector_size(ctx);
+        let values = result_ty.vector_size(ctx);
+        debug_assert_eq!(values, 2 * bytes, "an e2m1x2 lane casts to two values");
+        scope.register_size::<B>(bytes);
+        scope.register_size::<V>(values);
+        let decoded = match (self.half, bytes.is_multiple_of(4)) {
+            (true, true) => {
+                let words = reinterpret_value(scope, input, self.words_type(scope, bytes));
+                e2m1_words_to_f16::expand::<W, V>(scope, words.into()).read_value(scope)
+            }
+            (true, false) => {
+                let lanes = self.byte_lanes(scope, input, bytes);
+                e2m1_bytes_to_f16::expand::<B, V>(scope, lanes.into()).read_value(scope)
+            }
+            (false, _) => {
+                let lanes = self.byte_lanes(scope, input, bytes);
+                let codes = bytes_to_codes::expand::<B, V>(scope, lanes.into());
+                e2m1_bits_to_float::expand::<f32, V>(scope, codes).read_value(scope)
+            }
+        };
+        cast_value(scope, decoded, result_ty)
+    }
+
+    fn encode(&self, scope: &Scope, input: Value, result_ty: TypeHandle) -> Value {
+        let ctx = scope.ctx();
+        let values = input.vector_size(ctx);
+        let bytes = result_ty.vector_size(ctx);
+        debug_assert_eq!(values, 2 * bytes, "two values cast to an e2m1x2 lane");
+        scope.register_size::<B>(bytes);
+        scope.register_size::<V>(values);
+        let value = cast_value(scope, input, Vector::<f32, V>::__expand_as_type(scope));
+        let codes = float_to_e2m1_bits::expand::<f32, V>(scope, value.into());
+        let packed = codes_to_bytes::expand::<V, B>(scope, codes);
+        let container = match self.container {
+            Fp8Container::Bytes => cast_value(
+                scope,
+                packed.read_value(scope),
+                Vector::<u8, B>::__expand_as_type(scope),
+            ),
+            Fp8Container::Words => {
+                self.words_type(scope, bytes);
+                bytes_to_words::expand::<B, W>(scope, packed).read_value(scope)
+            }
+        };
+        reinterpret_value(scope, container, result_ty)
+    }
 }
 
 #[cfg(test)]
