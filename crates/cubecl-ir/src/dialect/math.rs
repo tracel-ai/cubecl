@@ -530,12 +530,6 @@ const_eval!(SRemOp, {
         _ => None
     }
 });
-simplify!(SRemOp, {
-    |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::Int(1) => Some(self.lhs(ctx)),
-        _ => None?,
-    }
-});
 
 #[cube_op(name = "math.u_rem")]
 #[result_ty(same_as = lhs)]
@@ -558,12 +552,6 @@ const_eval!(URemOp, {
         _ => None
     }
 });
-simplify!(URemOp, {
-    |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::UInt(1) => Some(self.lhs(ctx)),
-        _ => None?,
-    }
-});
 
 pure_binop!("math.f_rem", FRemOp);
 const_eval!(FRemOp, {
@@ -573,12 +561,6 @@ const_eval!(FRemOp, {
         Some(0.0) => Some(float_attr(ctx, lhs?.get_type(ctx), 0.0)),
         _ => None
     },
-});
-simplify!(FRemOp, {
-    |_, rhs| match rhs?.float_as_f64(ctx) {
-        Some(1.0) => Some(self.lhs(ctx)),
-        _ => None?,
-    }
 });
 
 /// Signed floor modulo. A nonzero result has the same sign as the divisor.

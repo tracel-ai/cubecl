@@ -42,7 +42,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
-    sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
+    quotient_range::QuotientRangePass, sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::compiler::{CompilationError, Compiler};
 use pliron::{
@@ -272,6 +272,10 @@ where
         func_passes.add_pass(LowerOpsAfterUnrollCppPass::<T>::default());
 
         func_passes.add_pass(SCCPPass);
+        func_passes.add_pass(QuotientRangePass::default());
+        // Conditional polyfills can introduce fresh local declarations.
+        func_passes.add_pass(LowerOpsCppPass::<Shared>::default());
+        func_passes.add_pass(LowerOpsCppPass::<T>::default());
         func_passes.add_pass(InstCombinePass::default());
         func_passes.add_pass(SimpleCSEPass::without_memory());
         func_passes.add_pass(SimplifyOpsPass::default());

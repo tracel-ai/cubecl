@@ -433,6 +433,16 @@ impl IfOp {
             return Ok(());
         };
         let taken = taken.deref(ctx).get_entry_block().unwrap();
+        // Inlining below discards the region yield. A function return must stay
+        // inside the branch until control-flow lowering can preserve the exit.
+        if !taken
+            .deref(ctx)
+            .get_terminator(ctx)
+            .unwrap()
+            .is_op::<YieldOp>(ctx)
+        {
+            return Ok(());
+        }
 
         inline_block(ctx, rewriter, taken, OpInsertionPoint::BeforeOperation(op));
         rewriter.erase_operation(ctx, op);
@@ -646,6 +656,16 @@ impl SwitchOp {
             return Ok(());
         };
         let taken = taken.deref(ctx).get_entry_block().unwrap();
+        // Inlining below discards the region yield. A function return must stay
+        // inside the branch until control-flow lowering can preserve the exit.
+        if !taken
+            .deref(ctx)
+            .get_terminator(ctx)
+            .unwrap()
+            .is_op::<YieldOp>(ctx)
+        {
+            return Ok(());
+        }
 
         inline_block(ctx, rewriter, taken, OpInsertionPoint::BeforeOperation(op));
         rewriter.erase_operation(ctx, op);
