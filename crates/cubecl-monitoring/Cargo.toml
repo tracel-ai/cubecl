@@ -1,0 +1,66 @@
+[package]
+categories = ["science", "mathematics", "algorithms"]
+description = "How busy a CubeCL device is, by the counter its card's driver or its platform keeps."
+keywords = ["gpu", "monitoring"]
+name = "cubecl-monitoring"
+
+edition.workspace = true
+license.workspace = true
+readme.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+
+[lints]
+workspace = true
+
+
+# One feature per GPU counter, so a runtime pulls in only the ones its cards are read through.
+# With none on, the crate is only the types a runtime reports a reading with.
+[features]
+default = [
+    "amdgpu-busy-percent",
+    "gpu-engine-counters",
+    "intel-idle-residency",
+    "io-accelerator",
+    "nvml",
+]
+std = []
+
+# Linux, an AMD card: the amdgpu driver's `gpu_busy_percent`.
+amdgpu-busy-percent = ["std"]
+
+# Windows, any card: the `\GPU Engine(*)` performance counters Task Manager reads.
+gpu-engine-counters = ["std", "dep:windows-sys"]
+
+# Linux, an Intel card: the i915 or xe driver's idle residency.
+intel-idle-residency = ["std"]
+
+# macOS, any card: the accelerator's statistics in the I/O Registry.
+io-accelerator = ["std", "dep:objc2-core-foundation", "dep:objc2-io-kit"]
+
+# Linux, an NVIDIA card: NVIDIA's management library, loaded at run time.
+nvml = ["std", "dep:nvml-wrapper"]
+
+[dependencies]
+cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.4", default-features = false, features = [
+    "serde",
+] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nvml-wrapper = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-foundation = { version = "0.3", optional = true }
+objc2-io-kit = { version = "0.3", optional = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { workspace = true, optional = true, features = [
+    "Win32_System_Performance",
+] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[build-dependencies]
+cfg_aliases = { workspace = true }

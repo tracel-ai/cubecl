@@ -79,7 +79,7 @@ pub mod prelude {
         pass::*,
         result::Result,
         r#type::{Type, TypeHandle, Typed, TypedHandle, type_cast, type_impls},
-        value::Value,
+        value::{Use, Value},
     };
     pub type PassRewriter = pliron::irbuild::rewriter::IRRewriter<Recorder>;
 }

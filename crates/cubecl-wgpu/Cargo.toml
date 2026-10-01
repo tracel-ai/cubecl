@@ -34,7 +34,6 @@ msl = [
     "cubecl-cpp/metal",
     "dep:objc2",
     "dep:objc2-foundation",
-    "dep:objc2-metal",
 ]
 profile-tracy = ["tracy-client"]
 spirv = ["cubecl-spirv", "ash", "tracel-ash", "cubecl-common/hash"]
@@ -62,6 +61,13 @@ cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.4", default-feat
 cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.4", default-features = false }
 cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.4", default-features = false }
 cubecl-opt = { path = "../cubecl-opt", version = "=0.11.0-pre.4", default-features = false }
+cubecl-monitoring = { path = "../cubecl-monitoring", version = "=0.11.0-pre.4", default-features = false, features = [
+    "amdgpu-busy-percent",
+    "gpu-engine-counters",
+    "intel-idle-residency",
+    "io-accelerator",
+    "nvml",
+] }
 cubecl-server = { path = "../cubecl-server", version = "=0.11.0-pre.4", default-features = false }
 derive_more = { workspace = true }
 half = { workspace = true }
@@ -112,7 +118,7 @@ wgpu = { workspace = true, features = [
 [target.'cfg(target_vendor = "apple")'.dependencies]
 objc2 = { version = "0.6", optional = true }
 objc2-foundation = { version = "0.3", optional = true }
-objc2-metal = { version = "0.3", features = ["MTLLibrary"], optional = true }
+objc2-metal = { version = "0.3", features = ["MTLDevice", "MTLLibrary"] }
 
 ## For development on wgpu uncomment this one and make it point to your local wgpu repo
 # wgpu = { path = "../../../../tracel/wgpu/wgpu", features = ["vulkan-portability", "fragile-send-sync-non-atomic-wasm"]}
@@ -127,6 +133,9 @@ cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.4", features = [
 half = { workspace = true }
 paste = { workspace = true }
 test-log = { workspace = true, features = ["trace"] }
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+wgpu = { workspace = true, features = ["noop"] }
 
 [build-dependencies]
 cfg_aliases = { workspace = true }

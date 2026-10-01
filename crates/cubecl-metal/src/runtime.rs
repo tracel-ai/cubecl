@@ -4,7 +4,8 @@ use cubecl_core::{
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         AddressType, DeviceIdentity, DeviceProperties, ElemType, FloatKind, HardwareProperties,
-        IntKind, MemoryDeviceProperties, PhysicalDevice, TargetProperties, Type, UIntKind,
+        IntKind, MemoryDeviceProperties, PhysicalDevice, RegistryEntryId, TargetProperties, Type,
+        UIntKind,
         features::{AtomicUsage, Plane, TypeUsage},
     },
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
@@ -13,6 +14,7 @@ use cubecl_cpp::{
     metal::{arch::MetalArchitecture, supported_cmma_combinations_metal},
     shared::register_wmma_features,
 };
+use cubecl_monitoring::{DeviceUtilization, UtilizationUnavailable, gpu_utilization::CardCounters};
 use cubecl_server::allocator::ContiguousMemoryLayoutPolicy;
 use cubecl_server::runtime::Runtime;
 use objc2::runtime::ProtocolObject;
@@ -97,6 +99,9 @@ impl DeviceService for MetalServer {
         // string.
         let device_name = metal_device.name().to_string();
 
+        let mut physical = PhysicalDevice::default();
+        physical.registry_entry_id = Some(RegistryEntryId::new(metal_device.registryID()));
+
         let mut device_props = DeviceProperties::new(
             Default::default(),
             mem_props.clone(),
@@ -105,7 +110,7 @@ impl DeviceService for MetalServer {
             DeviceIdentity {
                 fingerprint: format!("msl_{device_name}"),
                 name: device_name,
-                physical: Some(PhysicalDevice::default()),
+                physical: Some(physical),
             },
         );
 
@@ -177,6 +182,10 @@ impl Runtime for MetalRuntime {
                 .collect(),
             _ => Vec::new(),
         }
+    }
+
+    fn utilization(device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
+        CardCounters::read(Self::client(device).properties().identity.physical.as_ref())
     }
 }
 

@@ -30,7 +30,7 @@ pub struct LocalTuner<AK: AutotuneKey, ID> {
 #[macro_export]
 macro_rules! local_tuner {
     ($name:expr) => {
-        LocalTuner::new(concat!(module_path!(), "-", $name));
+        LocalTuner::new(concat!(module_path!(), "-", $name))
     };
     () => {
         LocalTuner::new(module_path!());

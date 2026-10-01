@@ -24,6 +24,9 @@ use super::metal;
 #[cfg(windows)]
 use super::dx12;
 
+#[cfg(target_vendor = "apple")]
+use super::metal_card;
+
 /// What a shader module is built from: the compiler's representation and the
 /// source text, reconciled.
 ///
@@ -374,42 +377,53 @@ fn refused(object: &str, entrypoint_name: &str, err: wgpu::Error) -> Compilation
     }
 }
 
-pub async fn request_device(adapter: &Adapter) -> (Device, Queue) {
-    if let Some(result) = request_vulkan_device(adapter).await {
-        return result;
+/// Request a device, returning device creation failures.
+pub async fn try_request_device(
+    adapter: &Adapter,
+) -> Result<(Device, Queue), crate::WgpuInitError> {
+    if let Some(result) = request_vulkan_device(adapter).await? {
+        return Ok(result);
     }
-    if let Some(result) = request_metal_device(adapter).await {
-        return result;
+    if let Some(result) = request_metal_device(adapter).await? {
+        return Ok(result);
     }
-    wgsl::request_device(adapter).await
+    wgsl::try_request_device(adapter).await
 }
 
 #[cfg(feature = "spirv")]
-async fn request_vulkan_device(adapter: &Adapter) -> Option<(Device, Queue)> {
+async fn request_vulkan_device(
+    adapter: &Adapter,
+) -> Result<Option<(Device, Queue)>, crate::WgpuInitError> {
     if is_vulkan(adapter) {
-        vulkan::request_vulkan_device(adapter).await
+        vulkan::try_request_vulkan_device(adapter).await
     } else {
-        None
+        Ok(None)
     }
 }
 
 #[cfg(not(feature = "spirv"))]
-async fn request_vulkan_device(_adapter: &Adapter) -> Option<(Device, Queue)> {
-    None
+async fn request_vulkan_device(
+    _adapter: &Adapter,
+) -> Result<Option<(Device, Queue)>, crate::WgpuInitError> {
+    Ok(None)
 }
 
 #[cfg(all(feature = "msl", target_os = "macos"))]
-async fn request_metal_device(adapter: &Adapter) -> Option<(Device, Queue)> {
+async fn request_metal_device(
+    adapter: &Adapter,
+) -> Result<Option<(Device, Queue)>, crate::WgpuInitError> {
     if is_metal(adapter) {
-        Some(metal::request_metal_device(adapter).await)
+        metal::try_request_metal_device(adapter).await.map(Some)
     } else {
-        None
+        Ok(None)
     }
 }
 
 #[cfg(not(all(feature = "msl", target_os = "macos")))]
-async fn request_metal_device(_adapter: &Adapter) -> Option<(Device, Queue)> {
-    None
+async fn request_metal_device(
+    _adapter: &Adapter,
+) -> Result<Option<(Device, Queue)>, crate::WgpuInitError> {
+    Ok(None)
 }
 
 pub fn register_features(
@@ -471,7 +485,10 @@ pub fn register_metal_features(
 }
 
 /// The card behind `adapter`, `None` for a software adapter, which is no card at all.
-#[cfg_attr(not(any(feature = "spirv", windows)), expect(unused_variables))]
+#[cfg_attr(
+    not(any(feature = "spirv", windows, target_vendor = "apple")),
+    expect(unused_variables)
+)]
 pub fn physical_device(adapter: &Adapter, info: &wgpu::AdapterInfo) -> Option<PhysicalDevice> {
     if info.device_type == wgpu::DeviceType::Cpu {
         return None;
@@ -490,6 +507,8 @@ pub fn physical_device(adapter: &Adapter, info: &wgpu::AdapterInfo) -> Option<Ph
     }
     #[cfg(windows)]
     dx12::describe_card(adapter, &mut physical);
+    #[cfg(target_vendor = "apple")]
+    metal_card::describe_card(adapter, &mut physical);
     Some(physical)
 }
 

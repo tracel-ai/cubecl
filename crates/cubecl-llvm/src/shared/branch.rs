@@ -11,7 +11,7 @@ use cubecl_core::ir::dialect::{
     cmp::{SLessThanOp, ULessThanOp},
     general::CastOp,
     math::IAddOp,
-    scf::{IfOp, RangeLoopOp, SwitchOp, WhileOp},
+    scf::{ForOp, IfOp, SwitchOp, WhileOp},
 };
 use pliron::region::Region;
 
@@ -119,7 +119,7 @@ impl LowerCpuCF for WhileOp {
 }
 
 #[op_interface_impl]
-impl LowerCpuCF for RangeLoopOp {
+impl LowerCpuCF for ForOp {
     fn rewrite(
         &self,
         ctx: &mut Context,
