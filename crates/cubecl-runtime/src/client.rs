@@ -203,16 +203,23 @@ impl Client {
 
     /// Create a new client with a new server.
     pub fn init<S: ServerStorage>(device_id: DeviceId, server: S) -> Self {
-        let utilities = Server::utilities(&server);
-        let context = DeviceHandle::<S>::insert(device_id, server)
+        Self::try_init(device_id, server)
             .expect("Can't create a new client on an already registered server")
-            .seen_as(as_server::<S>);
+    }
 
-        Self {
+    /// Register a server, returning an error if its device is already registered.
+    pub fn try_init<S: ServerStorage>(
+        device_id: DeviceId,
+        server: S,
+    ) -> Result<Self, cubecl_common::device_handle::ServiceCreationError> {
+        let utilities = Server::utilities(&server);
+        let context = DeviceHandle::<S>::insert(device_id, server)?.seen_as(as_server::<S>);
+
+        Ok(Self {
             device: context,
             utilities,
             stream_id: None,
-        }
+        })
     }
 
     /// Load the client for the given device, starting a server of type `S`
@@ -1327,6 +1334,23 @@ impl Client {
             .unwrap_or_resume()
     }
 
+    /// Whether this client's stream is capturing a graph: from
+    /// [`graph_prepare`](Self::graph_prepare), through the warmup run and the recorded one, until
+    /// the capture ends. It ends with [`stop_capture`](Self::stop_capture), whether the window
+    /// opened or the capture was only prepared, and also when another logical stream sharing
+    /// the same backend stream stops it, or when opening the window fails once
+    /// [`start_capture`](Self::start_capture) is accepted. A `start_capture` refused up front,
+    /// e.g. while a capture already records, leaves the capture as it was. Always `false` on a
+    /// backend without graph support.
+    ///
+    /// Answered without reaching the device thread, so code whose buffer decisions have to
+    /// match between the warmup and the recording can ask before every launch.
+    pub fn is_capturing(&self) -> bool {
+        let captures = &self.utilities.captures;
+        // The stream id costs more than the check, and no capture under way answers already.
+        captures.any_active() && captures.is_capturing(self.stream_id())
+    }
+
     /// Stop recording and return the captured graph, ready to
     /// [`replay`](Graph::replay).
     pub fn stop_capture(&self) -> Result<Graph, ServerError> {
@@ -1729,15 +1753,7 @@ impl Client {
         &self,
         size: usize,
     ) -> impl Iterator<Item = VectorSize> + Clone {
-        let load_width = self.properties().hardware.load_width as usize;
-        let size_bits = size * 8;
-        let max = load_width / size_bits;
-        let max = usize::min(self.properties().hardware.max_vector_size, max);
-
-        // If the max is 8, we want to test 1, 2, 4, 8 which is log2(8) + 1.
-        let num_candidates = max.trailing_zeros() + 1;
-
-        (0..num_candidates).map(|i| 2usize.pow(i)).rev()
+        self.properties().io_optimized_vector_sizes(size)
     }
 
     /// Calculates the maximum throughput of the device given the given config (like tensor core with certain sizes and dtypes, or just arithmetic by dtype)

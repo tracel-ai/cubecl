@@ -124,7 +124,7 @@ impl BlockUniformityAnalysis {
 
     fn initialize_recursively(
         &self,
-        solver: &mut DataflowSolver,
+        solver: &DataflowSolver,
         ctx: &Context,
         op: Ptr<Operation>,
     ) -> Result<()> {
@@ -344,7 +344,7 @@ impl BlockUniformityAnalysis {
 impl DataflowAnalysis for BlockUniformityAnalysis {
     fn initialize(
         &mut self,
-        solver: &mut DataflowSolver,
+        solver: &DataflowSolver,
         ctx: &Context,
         root: Ptr<Operation>,
     ) -> Result<()> {

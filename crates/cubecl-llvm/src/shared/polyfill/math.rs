@@ -305,3 +305,16 @@ fn f_clamp_op<T: Float, N: Size>(
 }
 
 lower_clamp_math_arith!(FClampOp => f_clamp_op);
+
+#[op_interface_impl]
+impl LowerOp for cubecl_core::ir::dialect::cmp::FClampNanOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ctx = scope.ctx();
+        vec![cubecl_core::frontend::polyfills::expand_clamp_nan(
+            scope,
+            self.input(ctx),
+            self.min(ctx),
+            self.max(ctx),
+        )]
+    }
+}

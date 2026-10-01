@@ -9,6 +9,8 @@ use cubecl_common::{
     device::{Device, DeviceService},
     profile::TimingMethod,
 };
+#[cfg(windows)]
+use cubecl_core::ir::AdapterLuid;
 use cubecl_core::{
     MemoryConfiguration,
     cmma::MatrixLayout,
@@ -38,6 +40,7 @@ use cubecl_cpp::{
 };
 use cubecl_hip_sys::{hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
 use cubecl_llvm::shared::lowered_features::{GpuTarget, restrict_features};
+use cubecl_monitoring::{DeviceUtilization, UtilizationUnavailable, gpu_utilization::CardCounters};
 use cubecl_server::{
     allocator::PitchedMemoryLayoutPolicy, driver::checked, logging::ServerLogger, runtime::Runtime,
 };
@@ -123,6 +126,7 @@ impl DeviceService for HipServer {
 
         let topology = HardwareProperties {
             load_width: 128,
+            vector_register_count: None,
             plane_size_min: probe.warp_size,
             plane_size_max: probe.warp_size,
             max_bindings: crate::device::AMD_MAX_BINDINGS,
@@ -207,7 +211,7 @@ impl DeviceService for HipServer {
         let hip_ctx = HipContext::new(comp_opts, device_props.clone(), fingerprint, backend);
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
-        let utilities = ServerUtilities::new(
+        let (utilities, captures) = ServerUtilities::init(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "hip",
             device_props,
@@ -224,6 +228,7 @@ impl DeviceService for HipServer {
             probe.alignment,
             probe.integrated,
             utilities,
+            captures,
         )
     }
 
@@ -290,6 +295,10 @@ impl Runtime for HipRuntime {
         (0..device_count())
             .map(|i| DeviceId::new(0, i as u16))
             .collect()
+    }
+
+    fn utilization(device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
+        CardCounters::read(Self::client(device).properties().identity.physical.as_ref())
     }
 }
 
@@ -380,6 +389,12 @@ impl DeviceProbe {
             .and_then(|()| CStr::from_bytes_until_nul(&bus_id).ok())
             .and_then(|id| id.to_str().ok()?.parse().ok());
         physical.vendor = Some(PciVendor::Amd);
+        #[cfg(windows)]
+        {
+            let luid = props.luid.map(|byte| byte as u8);
+            // A zeroed LUID names no adapter.
+            physical.luid = (luid != [0; 8]).then(|| AdapterLuid::new(luid));
+        }
 
         Self {
             arch_name,

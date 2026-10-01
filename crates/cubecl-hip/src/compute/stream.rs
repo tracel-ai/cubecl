@@ -9,7 +9,7 @@
 use cubecl_core::{
     MemoryConfiguration,
     ir::MemoryDeviceProperties,
-    server::{BufferBinding, Handle, ServerError},
+    server::{BufferBinding, DeviceCaptures, Handle, ServerError},
 };
 use cubecl_server::storage::PINNED_MEMORY_ALIGNMENT;
 use cubecl_server::{
@@ -19,7 +19,7 @@ use cubecl_server::{
         drop_queue::{self, FlushingPolicy, PendingDropQueue},
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{DeviceRecording, EventStreamBackend, StreamCapture, StreamMemory},
+    stream::{EventStreamBackend, StreamCapture, StreamMemory},
 };
 use std::sync::Arc;
 
@@ -72,10 +72,8 @@ pub struct HipStreamBackend {
     mem_alignment: usize,
     is_integrated: bool,
     logger: Arc<ServerLogger>,
-    /// The device's count of recording streams, shared by every stream this
-    /// creates.
-    #[new(default)]
-    recording: DeviceRecording,
+    /// The device's captures, which every stream this creates takes its capture state from.
+    captures: DeviceCaptures,
 }
 
 impl EventStreamBackend for HipStreamBackend {
@@ -124,7 +122,7 @@ impl EventStreamBackend for HipStreamBackend {
             sys: stream,
             memory_management_gpu,
             memory_management_cpu,
-            capturing: StreamCapture::new(self.recording.clone()),
+            capturing: StreamCapture::new(&self.captures),
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
             drop_queue: PendingDropQueue::new(FlushingPolicy {
                 max_bytes_count: match self.is_integrated {

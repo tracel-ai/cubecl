@@ -1,17 +1,23 @@
+use core::fmt::{self, Debug};
+
 use crate::{
-    AddressSpace, CanMaterialize, ConstantValue, ElemType, NoMemoryEffect,
+    CanMaterialize, ConstantValue, ElemType,
     dialect::synchronization::SyncScope,
+    interfaces::memory_slot::MemoryValue,
     prelude::*,
     types::{AtomicType, PointerType, VectorType, scalar::*},
 };
+use alloc::string::ToString;
+use derive_new::new;
+use itertools::Itertools;
 use pliron::{
     alloc::vec::Vec,
     attribute::{AttrObj, AttributeDict},
     builtin::{attr_interfaces::TypedAttrInterface, ops::ConstantOp, types::IntegerType},
     context::Context,
     derive::{op_interface, type_interface},
-    opts::dce::SideEffects,
-    printable::Printable,
+    op::OpId,
+    printable::{self, Printable},
     r#type::{TypeHandle, type_cast},
     utils::apint::APInt,
     value::Use,
@@ -20,6 +26,7 @@ use pliron::{
 pub mod aliasing;
 pub mod control_flow;
 pub mod memory_slot;
+pub mod side_effects;
 pub mod traits;
 pub mod uniformity;
 
@@ -96,7 +103,7 @@ pub trait MaterializableOp {
 CanMaterialize!(ConstantOp);
 
 #[op_interface]
-pub trait Synchronizes: SideEffects {
+pub trait Synchronizes {
     verify_op_succ!();
 
     /// Synchronizes at least at this scope. Should be used for optimizations where smaller scopes
@@ -120,74 +127,9 @@ macro_rules! synchronizes {
                 $scope
             }
         }
-        #[pliron::derive::op_interface_impl]
-        impl pliron::opts::dce::SideEffects for $ty {
-            fn has_side_effects(&self, _ctx: &Context) -> bool {
-                true
-            }
-        }
     };
 }
 pub(crate) use synchronizes;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum MemoryEffect {
-    Read(Value),
-    Write(Value),
-    ReadAllInSpace(AddressSpace),
-    WriteAllInSpace(AddressSpace),
-    ReadAll,
-    WriteAll,
-    // Not analyzable, clobber the entire state
-    Opaque,
-}
-
-impl MemoryEffect {
-    pub fn value(&self) -> Option<Value> {
-        match self {
-            MemoryEffect::Read(value) | MemoryEffect::Write(value) => Some(*value),
-            MemoryEffect::ReadAllInSpace(_)
-            | MemoryEffect::WriteAllInSpace(_)
-            | MemoryEffect::ReadAll
-            | MemoryEffect::WriteAll
-            | MemoryEffect::Opaque => None,
-        }
-    }
-}
-
-impl Printable for MemoryEffect {
-    fn fmt(
-        &self,
-        ctx: &Context,
-        _state: &pliron::printable::State,
-        f: &mut core::fmt::Formatter<'_>,
-    ) -> core::fmt::Result {
-        match self {
-            MemoryEffect::Read(value) => write!(f, "Read({})", value.disp(ctx)),
-            MemoryEffect::Write(value) => write!(f, "Write({})", value.disp(ctx)),
-            MemoryEffect::ReadAllInSpace(address_space) => {
-                write!(f, "ReadAllInSpace({})", address_space.disp(ctx))
-            }
-            MemoryEffect::WriteAllInSpace(address_space) => {
-                write!(f, "WriteAllInSpace({})", address_space.disp(ctx))
-            }
-            MemoryEffect::ReadAll => write!(f, "ReadAll"),
-            MemoryEffect::WriteAll => write!(f, "WriteAll"),
-            MemoryEffect::Opaque => write!(f, "Opaque"),
-        }
-    }
-}
-
-#[op_interface]
-pub trait MemoryEffects {
-    verify_op_succ!();
-    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect>;
-    fn has_effects(&self, ctx: &Context) -> bool {
-        !self.memory_effects(ctx).is_empty()
-    }
-}
-
-NoMemoryEffect!(ConstantOp);
 
 #[type_interface]
 pub trait AlignedType {
@@ -323,6 +265,64 @@ pub trait SimplifyInterface {
 pub trait CanonicalizeInterface {
     verify_op_succ!();
     fn canonicalize(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()>;
+}
+
+#[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ExpressionValue(u64);
+
+impl Printable for ExpressionValue {
+    fn fmt(&self, _: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "e{}", self.0)
+    }
+}
+
+#[derive(new, Clone, PartialEq, Eq, Hash)]
+pub struct Expression {
+    pub result_type: TypeHandle,
+    #[new(default)]
+    pub result_idx: usize,
+    pub op_id: OpId,
+    pub operands: Vec<ExpressionValue>,
+    pub attributes: AttributeDict,
+    #[new(default)]
+    pub mem_value: Option<MemoryValue>,
+}
+
+impl Printable for Expression {
+    fn fmt(&self, ctx: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut opds = self.operands.iter().map(|it| it.disp(ctx).to_string());
+        write!(
+            f,
+            "result{} = {} ({}{}) {} : {}",
+            self.result_idx,
+            self.op_id,
+            opds.join(", "),
+            self.mem_value
+                .map(|it| alloc::format!(", {it}"))
+                .unwrap_or_default(),
+            self.attributes.disp(ctx),
+            self.result_type.disp(ctx)
+        )
+    }
+}
+
+impl Debug for Expression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Expression")
+            .field("result_type", &self.result_type)
+            .field("result_idx", &self.result_idx)
+            .field("op_id", &self.op_id.to_string())
+            .field("operands", &self.operands)
+            .field("attributes", &self.attributes)
+            .field("mem_value", &self.mem_value)
+            .finish()
+    }
+}
+
+#[op_interface]
+pub trait ExpressionCanonicalize: OneResultInterface {
+    verify_op_succ!();
+    fn canonical_expression(&self, ctx: &Context, operands: Vec<ExpressionValue>) -> Expression;
 }
 
 #[attr_interface]

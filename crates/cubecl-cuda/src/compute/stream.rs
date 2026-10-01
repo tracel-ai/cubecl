@@ -5,7 +5,7 @@ use crate::compute::{
 use cubecl_core::{
     MemoryConfiguration,
     ir::MemoryDeviceProperties,
-    server::{BufferBinding, Handle, ServerError},
+    server::{BufferBinding, DeviceCaptures, Handle, ServerError},
 };
 use cubecl_server::storage::PINNED_MEMORY_ALIGNMENT;
 use cubecl_server::{
@@ -16,7 +16,7 @@ use cubecl_server::{
         drop_queue,
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{DeviceRecording, EventStreamBackend, StreamCapture, StreamMemory},
+    stream::{EventStreamBackend, StreamCapture, StreamMemory},
 };
 use std::{mem::MaybeUninit, sync::Arc};
 
@@ -66,10 +66,8 @@ pub struct CudaStreamBackend {
     logger: Arc<ServerLogger>,
     priority: StreamPriority,
     allocator: CudaAllocator,
-    /// The device's count of recording streams, shared by every stream this
-    /// creates.
-    #[new(default)]
-    recording: DeviceRecording,
+    /// The device's captures, which every stream this creates takes its capture state from.
+    captures: DeviceCaptures,
 }
 
 /// Create a non-blocking CUDA stream, applying the requested priority hint.
@@ -161,7 +159,7 @@ impl EventStreamBackend for CudaStreamBackend {
             memory_management_gpu,
             memory_management_cpu,
             drop_queue: Default::default(),
-            capturing: StreamCapture::new(self.recording.clone()),
+            capturing: StreamCapture::new(&self.captures),
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
         }
     }

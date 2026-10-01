@@ -11,7 +11,7 @@ use pliron::{
 };
 
 use crate::{
-    ConstantValue,
+    Commutative, ConstantValue,
     attributes::{IndexAttr, IntAttrExt},
     dialect::{
         cmp::{is_max_uint, width},
@@ -26,6 +26,7 @@ use crate::{
 };
 
 pure_binop!("bitwise.and", BitwiseAndOp);
+Commutative!(BitwiseAndOp);
 const_eval!(BitwiseAndOp, {
     [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs & rhs,
     // x & 0 -> 0; 0 & x -> 0;
@@ -63,6 +64,7 @@ simplify!(BitwiseAndOp, {
 });
 
 pure_binop!("bitwise.or", BitwiseOrOp);
+Commutative!(BitwiseOrOp);
 const_eval!(BitwiseOrOp, {
     [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs | rhs
 });
@@ -85,6 +87,7 @@ simplify!(BitwiseOrOp, {
 });
 
 pure_binop!("bitwise.xor", BitwiseXorOp);
+Commutative!(BitwiseXorOp);
 const_eval!(BitwiseXorOp, {
     [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs ^ rhs,
     // x ^ x -> 0. Only for one lane: `int_attr` carries no vectorization.

@@ -8,6 +8,7 @@ pub mod atomic;
 pub mod barrier;
 pub mod binary;
 pub mod branch;
+pub mod capture_status;
 pub mod cluster;
 pub mod cmma;
 pub mod cmma2;
@@ -103,6 +104,7 @@ macro_rules! testgen_float {
         cubecl_core::testgen_assign!();
         cubecl_core::testgen_barrier!();
         cubecl_core::testgen_binary!();
+        cubecl_core::testgen_comparison_float!();
         cubecl_core::testgen_branch!();
         cubecl_core::testgen_different_rank!();
         cubecl_core::testgen_index!();

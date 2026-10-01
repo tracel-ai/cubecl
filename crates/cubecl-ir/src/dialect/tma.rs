@@ -8,7 +8,10 @@ use thiserror::Error;
 use crate::{
     AddressSpace,
     attributes::IndexAttr,
-    interfaces::{MemoryEffect, MemoryEffects, TypeExt},
+    interfaces::{
+        TypeExt,
+        side_effects::{MemoryEffect, MemoryEffectsOp},
+    },
     prelude::*,
     types::{
         PointerType,
@@ -85,7 +88,7 @@ impl TmaLoadOp {
 }
 
 #[op_interface_impl]
-impl MemoryEffects for TmaLoadOp {
+impl MemoryEffectsOp for TmaLoadOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         vec![MemoryEffect::Write(self.destination(ctx))]
     }
@@ -191,7 +194,7 @@ impl TmaLoadIm2colOp {
 }
 
 #[op_interface_impl]
-impl MemoryEffects for TmaLoadIm2colOp {
+impl MemoryEffectsOp for TmaLoadIm2colOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         vec![MemoryEffect::Write(self.destination(ctx))]
     }
@@ -270,7 +273,7 @@ impl TmaStoreOp {
 }
 
 #[op_interface_impl]
-impl MemoryEffects for TmaStoreOp {
+impl MemoryEffectsOp for TmaStoreOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         vec![MemoryEffect::Read(self.source(ctx))]
     }
