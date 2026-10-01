@@ -18,6 +18,9 @@ warnings = "warn"
 
 [workspace.lints.clippy]
 doc_markdown = "warn"
+# Temporary workaround for linting generated code:
+# https://github.com/rust-lang/rust-clippy/issues/17525
+redundant_field_names = "allow"
 
 [workspace.lints.rustdoc]
 broken_intra_doc_links = "warn"
