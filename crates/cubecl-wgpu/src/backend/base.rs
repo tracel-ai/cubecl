@@ -374,42 +374,53 @@ fn refused(object: &str, entrypoint_name: &str, err: wgpu::Error) -> Compilation
     }
 }
 
-pub async fn request_device(adapter: &Adapter) -> (Device, Queue) {
-    if let Some(result) = request_vulkan_device(adapter).await {
-        return result;
+/// Request a device, returning device creation failures.
+pub async fn try_request_device(
+    adapter: &Adapter,
+) -> Result<(Device, Queue), crate::WgpuInitError> {
+    if let Some(result) = request_vulkan_device(adapter).await? {
+        return Ok(result);
     }
-    if let Some(result) = request_metal_device(adapter).await {
-        return result;
+    if let Some(result) = request_metal_device(adapter).await? {
+        return Ok(result);
     }
-    wgsl::request_device(adapter).await
+    wgsl::try_request_device(adapter).await
 }
 
 #[cfg(feature = "spirv")]
-async fn request_vulkan_device(adapter: &Adapter) -> Option<(Device, Queue)> {
+async fn request_vulkan_device(
+    adapter: &Adapter,
+) -> Result<Option<(Device, Queue)>, crate::WgpuInitError> {
     if is_vulkan(adapter) {
-        vulkan::request_vulkan_device(adapter).await
+        vulkan::try_request_vulkan_device(adapter).await
     } else {
-        None
+        Ok(None)
     }
 }
 
 #[cfg(not(feature = "spirv"))]
-async fn request_vulkan_device(_adapter: &Adapter) -> Option<(Device, Queue)> {
-    None
+async fn request_vulkan_device(
+    _adapter: &Adapter,
+) -> Result<Option<(Device, Queue)>, crate::WgpuInitError> {
+    Ok(None)
 }
 
 #[cfg(all(feature = "msl", target_os = "macos"))]
-async fn request_metal_device(adapter: &Adapter) -> Option<(Device, Queue)> {
+async fn request_metal_device(
+    adapter: &Adapter,
+) -> Result<Option<(Device, Queue)>, crate::WgpuInitError> {
     if is_metal(adapter) {
-        Some(metal::request_metal_device(adapter).await)
+        metal::try_request_metal_device(adapter).await.map(Some)
     } else {
-        None
+        Ok(None)
     }
 }
 
 #[cfg(not(all(feature = "msl", target_os = "macos")))]
-async fn request_metal_device(_adapter: &Adapter) -> Option<(Device, Queue)> {
-    None
+async fn request_metal_device(
+    _adapter: &Adapter,
+) -> Result<Option<(Device, Queue)>, crate::WgpuInitError> {
+    Ok(None)
 }
 
 pub fn register_features(
