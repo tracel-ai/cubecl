@@ -343,6 +343,10 @@ fn runtime_checks_safety_and_profitability() -> Result<()> {
         ([9, 9, 48, 1, 8], false),
         ([8, 9, 48, 1, 4], false),
         ([0, 4, 100, 100, 4], false),
+        // A clipped count alone can pass the old heuristic even when d/s is
+        // too dense; accept the equality boundary of the new density gate.
+        ([0, 8, 2, 2, 3], false),
+        ([0, 16, 32, 2, 4], true),
         ([0, 8, u32::MAX as usize, 1, 1], false),
         ([0, 8, 48, 0, 8], false),
         ([9, 0, 48, 1, 8], false),

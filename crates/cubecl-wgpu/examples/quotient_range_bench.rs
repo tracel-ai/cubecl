@@ -7,6 +7,7 @@
 //! ```bash
 //! cargo run --release -p cubecl-wgpu --features std --example quotient_range_bench
 //! ```
+//! Add `-- --device-time` to measure with GPU timestamps rather than launch + sync.
 //! On macOS, use `--features msl,std` for the native Metal compiler.
 //!
 //! Sweep 1/8/128/512 channels at length 4096, plus clipped windows. Channels
@@ -34,14 +35,28 @@ const KERNELS: [u32; 5] = [1, 3, 5, 9, 17];
 const DILATIONS: [u32; 6] = [1, 2, 3, 4, 8, 16];
 
 /// Alternate measurement order to reduce systematic clock/temperature drift.
-/// Times include launch + sync; use a release build to limit host overhead.
+/// By default times include launch + sync; device timing excludes host overhead.
 fn time_launches(
     client: &Client,
     samples: usize,
-    mut filter: impl FnMut(&Client),
-    mut kpos: impl FnMut(&Client),
+    device_time: bool,
+    mut filter: impl FnMut(&Client) + Send,
+    mut kpos: impl FnMut(&Client) + Send,
 ) -> (Samples, Samples) {
-    let measure = |launch: &mut dyn FnMut(&Client)| {
+    let measure = |launch: &mut (dyn FnMut(&Client) + Send)| {
+        if device_time {
+            let (_, elapsed) = client
+                .profile(|| launch(client), "quotient_range_bench")
+                .unwrap();
+            assert_eq!(
+                elapsed.timing_method(),
+                cubecl_common::profile::TimingMethod::Device,
+                "--device-time requires hardware timestamps"
+            );
+            return cubecl_core::future::block_on(elapsed.resolve())
+                .expect("the profiling window must contain a measurement")
+                .duration();
+        }
         let start = Instant::now();
         launch(client);
         cubecl_core::future::block_on(client.sync()).unwrap();
@@ -89,11 +104,13 @@ impl Samples {
 
 fn main() {
     let mut samples = 100usize;
+    let mut device_time = false;
     let mut channels = CHANNELS.to_vec();
     let mut raw_output = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--device-time" => device_time = true,
             "--samples" => {
                 samples = args
                     .next()
@@ -117,7 +134,9 @@ fn main() {
                 raw_output = Some(std::io::BufWriter::new(file));
             }
             _ => {
-                panic!("unknown argument {arg}; use --samples N --channels 1,8,128,512 --raw PATH")
+                panic!(
+                    "unknown argument {arg}; use --samples N --channels 1,8,128,512 --raw PATH [--device-time]"
+                )
             }
         }
     }
@@ -131,9 +150,10 @@ fn main() {
     let client = R::client(&Default::default());
 
     println!(
-        "adapter: {} ({})",
+        "adapter: {} ({}), timing: {}",
         client.properties().identity.name,
-        client.name()
+        client.name(),
+        if device_time { "device" } else { "launch+sync" },
     );
     println!(
         "channels,length,kernel,dilation,stride,filter_min_ms,filter_median_ms,filter_max_ms,kpos_median_ms"
@@ -175,6 +195,7 @@ fn main() {
         let (filter_ms, kpos_ms) = time_launches(
             &client,
             samples,
+            device_time,
             |client| {
                 launch_filter(client, &input, &weight, output.clone(), problem);
             },

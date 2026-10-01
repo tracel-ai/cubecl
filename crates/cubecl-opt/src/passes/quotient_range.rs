@@ -283,6 +283,11 @@ fn prepare_range<I: Int, N: Size>(
     let eligible = d
         .greater_equal(&Vector::new(I::new(3)))
         .vec_and(s.greater_equal(&Vector::new(I::new(1))))
+        // Require a 2x reduction in candidate density, not just total trips:
+        // unreachable source iterations do not pay for a division/remainder.
+        // This conservatively rejects dense ranges even when clipping would
+        // reduce their total candidate count. Division by 2 cannot overflow.
+        .vec_and(s.less_equal(&(d / Vector::new(I::new(2)))))
         .vec_and(lo.less_than(&hi));
     let mut start = Vector::new(I::new(0));
     let mut last = Vector::new(I::new(0));

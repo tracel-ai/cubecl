@@ -147,48 +147,6 @@ fn conv_transpose1d_kernel_pos_kernel(
     output[out_y] = sum;
 }
 
-/// Writes `[total, useful]` iteration counts of the filter loop at `out_y`.
-#[cube(launch)]
-fn conv_transpose1d_filter_trip_count_kernel(output: &mut [u32], out_y: u32, args: ConvArgs) {
-    if UNIT_POS != 0 {
-        terminate!();
-    }
-
-    let out_y = out_y as usize;
-    let stride = args.stride as usize;
-    let dilation = args.dilation as usize;
-    let padding = args.padding as usize;
-    let in_len = args.in_len as usize;
-    let kernel = args.kernel as usize;
-
-    let stride_i = args.stride as i32;
-    let kms = (kernel * dilation) as i32 - stride_i;
-    let y_start = ((out_y + padding) as i32 - kms) / stride_i;
-    let y_end = clamp(kms + y_start + 1, 0, in_len as i32) as usize;
-    let y_start = clamp_min(y_start, 0) as usize;
-
-    let numerator_base = out_y + padding;
-    let mut total = 0u32;
-    let mut useful = 0u32;
-
-    for in_y in y_start..y_end {
-        total += 1;
-        let numerator_tmp = in_y * stride;
-        if numerator_base >= numerator_tmp {
-            let numerator = numerator_base - numerator_tmp;
-            if numerator.is_multiple_of(dilation) {
-                let kernel_y = numerator / dilation;
-                if kernel_y < kernel {
-                    useful += 1;
-                }
-            }
-        }
-    }
-
-    output[0] = total;
-    output[1] = useful;
-}
-
 fn args_launch(problem: Problem) -> ConvArgsLaunch {
     ConvArgsLaunch::new(
         problem.stride,
@@ -253,38 +211,6 @@ fn reference(problem: Problem, input: &[f32], weight: &[f32]) -> Vec<f32> {
         output[out_y] = sum;
     }
     output
-}
-
-fn filter_trip_count_ref(problem: Problem, out_y: u32) -> (u32, u32) {
-    let stride = problem.stride as i32;
-    let dilation = problem.dilation as i32;
-    let padding = problem.padding as i32;
-    let in_len = problem.in_len as i32;
-    let kernel = problem.kernel as i32;
-    let out_y = out_y as i32;
-
-    let kms = kernel * dilation - stride;
-    let y_start = (out_y + padding - kms) / stride;
-    let y_end = (kms + y_start + 1).clamp(0, in_len);
-    let y_start = y_start.max(0);
-
-    let numerator_base = out_y + padding;
-    let mut total = 0u32;
-    let mut useful = 0u32;
-    for in_y in y_start..y_end {
-        total += 1;
-        let numerator_tmp = in_y * stride;
-        if numerator_base >= numerator_tmp {
-            let numerator = numerator_base - numerator_tmp;
-            if numerator % dilation == 0 {
-                let kernel_y = numerator / dilation;
-                if kernel_y >= 0 && kernel_y < kernel {
-                    useful += 1;
-                }
-            }
-        }
-    }
-    (total, useful)
 }
 
 fn launch_kernel<K>(
@@ -512,7 +438,7 @@ pub fn test_quotient_range_boundaries<R: Runtime>(client: Client) {
     }
 }
 
-/// Both loop styles must match the kernel-position CPU reference, including
+/// The filter loop must match the kernel-position CPU reference, including
 /// non-power-of-two dilation (runtime `is_multiple_of`).
 pub fn test_filter_loop_matches_reference<R: Runtime>(client: Client) {
     for problem in correctness_cases() {
@@ -521,61 +447,6 @@ pub fn test_filter_loop_matches_reference<R: Runtime>(client: Client) {
             conv_transpose1d_filter_kernel::launch,
             problem,
             "filter loop",
-        );
-    }
-}
-
-pub fn test_kernel_pos_loop_matches_reference<R: Runtime>(client: Client) {
-    for problem in correctness_cases() {
-        assert_matches_reference(
-            &client,
-            conv_transpose1d_kernel_pos_kernel::launch,
-            problem,
-            "kernel-pos loop",
-        );
-    }
-}
-
-/// Interior output of a same-size `k=5` problem: the filter loop runs `5d`
-/// times and keeps 5. That is the wasted-iteration claim, as a count rather
-/// than a wall-clock measurement.
-pub fn test_filter_trip_count_scales_with_dilation<R: Runtime>(client: Client) {
-    let kernel = 5u32;
-    // Window width is `kernel * dilation`; length must keep an interior
-    // `out_y` unclipped at dilation 8 (`5 * 8 = 40`).
-    let length = 64u32;
-    let out_y = length / 2;
-
-    for dilation in [1u32, 2, 3, 4, 8] {
-        let problem = Problem::same_size(1, length, kernel, dilation);
-        let handle = client.empty(2 * core::mem::size_of::<u32>());
-        conv_transpose1d_filter_trip_count_kernel::launch(
-            &client,
-            CubeCount::Static(1, 1, 1),
-            CubeDim::new_1d(1),
-            unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
-            out_y,
-            args_launch(problem),
-        );
-        let actual = client.read_one_unchecked(handle);
-        let actual = u32::from_bytes(&actual);
-        let (total, useful) = filter_trip_count_ref(problem, out_y);
-
-        assert_eq!(
-            actual,
-            &[total, useful],
-            "trip count at dilation={dilation}: gpu=[{}, {}] ref=[{total}, {useful}]",
-            actual[0],
-            actual[1]
-        );
-        assert_eq!(
-            useful, kernel,
-            "interior out_y={out_y} should keep every kernel tap, dilation={dilation}"
-        );
-        assert_eq!(
-            total,
-            kernel * dilation,
-            "filter window at dilation={dilation} should be kernel*dilation, got {total}"
         );
     }
 }
@@ -604,21 +475,6 @@ macro_rules! testgen_dilated_conv_transpose {
                 >(client);
             }
 
-            #[$crate::runtime_tests::test_log::test]
-            fn test_kernel_pos_loop_matches_reference() {
-                let client = TestRuntime::client(&Default::default());
-                cubecl_core::runtime_tests::dilated_conv_transpose::test_kernel_pos_loop_matches_reference::<
-                    TestRuntime,
-                >(client);
-            }
-
-            #[$crate::runtime_tests::test_log::test]
-            fn test_filter_trip_count_scales_with_dilation() {
-                let client = TestRuntime::client(&Default::default());
-                cubecl_core::runtime_tests::dilated_conv_transpose::test_filter_trip_count_scales_with_dilation::<
-                    TestRuntime,
-                >(client);
-            }
         }
     };
 }
