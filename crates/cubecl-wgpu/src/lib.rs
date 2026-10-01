@@ -8,16 +8,14 @@ mod compiler;
 mod compute;
 mod device;
 mod graphics;
-mod initialization;
 mod runtime;
 
 pub use compiler::base::*;
 pub use compute::*;
 pub use device::*;
 pub use graphics::*;
-pub use initialization::WgpuInitError;
 pub use runtime::*;
-/// The exact wgpu version used by this runtime, for sharing handles with applications.
+/// The exact wgpu version used by this runtime, for sharing resources with applications.
 pub use wgpu;
 
 #[cfg(feature = "spirv")]

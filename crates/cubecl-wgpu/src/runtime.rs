@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
+use crate::WgpuCompiler;
 use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuBackend, WgpuDevice, WgpuDeviceKind, backend,
     compute::WgpuServer, contiguous_strides,
 };
-use crate::{WgpuCompiler, WgpuInitError};
 use cubecl_common::device::{Device, DeviceService, ServiceId};
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::WgpuCompilationOptions;
@@ -283,6 +283,44 @@ fn adapter_device_ids(adapters: Vec<wgpu::Adapter>) -> Vec<DeviceId> {
 fn enumerate_all_adapters(instance: wgpu::Instance, backend: wgpu::Backend) -> Vec<wgpu::Adapter> {
     // `enumerate_adapters` is now async & available on WebGPU
     cubecl_environment::future::block_on(instance.enumerate_adapters(backend.into()))
+}
+
+/// A recoverable failure while acquiring or registering a wgpu runtime.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum WgpuInitError {
+    /// Options, environment defaults, or supplied setup handles are invalid.
+    #[error("Invalid wgpu configuration: {message}")]
+    InvalidConfiguration {
+        /// The invalid configuration and why it was rejected.
+        message: String,
+    },
+    /// The requested API is not compiled for this platform.
+    #[error("Graphics API {api:?} is unavailable in this build")]
+    UnsupportedGraphicsApi {
+        /// The requested API.
+        api: WgpuBackend,
+    },
+    /// No adapter matches the requested selector.
+    #[error("No adapter available for {device:?}: {message}")]
+    AdapterUnavailable {
+        /// The requested selector, including its graphics API.
+        device: WgpuDevice,
+        /// Details from adapter selection.
+        message: String,
+    },
+    /// The adapter refused to create a device.
+    #[error("Unable to request a wgpu device: {message}")]
+    RequestDevice {
+        /// Details from the graphics API.
+        message: String,
+    },
+    /// A runtime could not be registered.
+    #[error("Unable to register wgpu runtime: {message}")]
+    Registration {
+        /// Registration failure details.
+        message: String,
+    },
 }
 
 /// The values that control how a WGPU Runtime will perform its calculations.
