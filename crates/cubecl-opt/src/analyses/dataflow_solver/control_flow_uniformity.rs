@@ -19,8 +19,9 @@ use smallvec::SmallVec;
 
 use crate::analyses::dataflow_solver::{
     AnalysisState, ChangeResult, DataflowSolver, SmallPtrVec, SolverWorkItem,
-    dead_code::{Executable, PredecessorState, is_region_or_callable_return},
-    value_uniformity::StrictUniformityLattice,
+    dead_code::{DeadCodeAnalysis, Executable, PredecessorState, is_region_or_callable_return},
+    sparse::SparseForward,
+    value_uniformity::{StrictUniformityLattice, StrictValueUniformity},
 };
 
 use super::{DataflowAnalysis, ProgramPoint};
@@ -342,6 +343,11 @@ impl BlockUniformityAnalysis {
 }
 
 impl DataflowAnalysis for BlockUniformityAnalysis {
+    fn on_load(&self, solver: &mut DataflowSolver) {
+        solver.ensure_loaded(DeadCodeAnalysis::default);
+        solver.ensure_loaded(SparseForward::<StrictValueUniformity>::default);
+    }
+
     fn initialize(
         &mut self,
         solver: &DataflowSolver,

@@ -106,6 +106,10 @@ impl<T: LatticeValue> AnalysisState for DenseLattice<T> {
 pub trait DenseForwardDataflowAnalysis: Sized + 'static {
     type LatticeValue: LatticeValue;
 
+    fn on_load(solver: &mut DataflowSolver) {
+        let _ = solver;
+    }
+
     /// Verify analysis can be run on the solver. Should be used to verify required analyses are
     /// loaded.
     fn verify(solver: &DataflowSolver, ctx: &Context, root: Ptr<Operation>) -> Result<()> {
@@ -204,6 +208,11 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
 }
 
 impl<T: DenseForwardDataflowAnalysis> DataflowAnalysis for DenseForward<T> {
+    fn on_load(&self, solver: &mut DataflowSolver) {
+        solver.ensure_loaded(DeadCodeAnalysis::default);
+        T::on_load(solver);
+    }
+
     fn verify(&self, solver: &DataflowSolver, ctx: &Context, root: Ptr<Operation>) -> Result<()> {
         solver.require_loaded::<DeadCodeAnalysis>()?;
         T::verify(solver, ctx, root)
@@ -630,6 +639,10 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
 pub trait DenseBackwardDataflowAnalysis: Sized + 'static {
     type LatticeValue: LatticeValue;
 
+    fn on_load(solver: &mut DataflowSolver) {
+        let _ = solver;
+    }
+
     /// Verify analysis can be run on the solver. Should be used to verify required analyses are
     /// loaded.
     fn verify(solver: &DataflowSolver, ctx: &Context, root: Ptr<Operation>) -> Result<()> {
@@ -729,8 +742,12 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
 }
 
 impl<T: DenseBackwardDataflowAnalysis> DataflowAnalysis for DenseBackward<T> {
+    fn on_load(&self, solver: &mut DataflowSolver) {
+        solver.ensure_loaded(DeadCodeAnalysis::default);
+        T::on_load(solver);
+    }
+
     fn verify(&self, solver: &DataflowSolver, ctx: &Context, root: Ptr<Operation>) -> Result<()> {
-        solver.require_loaded::<DeadCodeAnalysis>()?;
         T::verify(solver, ctx, root)
     }
 

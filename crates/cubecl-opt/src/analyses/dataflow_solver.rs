@@ -120,6 +120,8 @@ mod solver {
     type StateEntry = Rc<RefCell<dyn PrintableState>>;
 
     pub struct DataflowSolver {
+        /// Analyses that have been given to `load` but may still be in the pre-load phase.
+        preloaded_analyses: Vec<TypeId>,
         child_analyses: IMap<TypeId, Box<dyn DataflowAnalysis>>,
         worklist: RefCell<VecDeque<SolverWorkItem>>,
         anchor_hash: FixedState,
@@ -132,6 +134,7 @@ mod solver {
     impl DataflowSolver {
         pub fn new(config: SolverConfig) -> Self {
             Self {
+                preloaded_analyses: Default::default(),
                 child_analyses: Default::default(),
                 worklist: Default::default(),
                 anchor_hash: Default::default(),
@@ -224,12 +227,21 @@ mod solver {
     impl DataflowSolver {
         pub fn load<A: DataflowAnalysis>(&mut self, analysis: A) {
             let key = TypeId::of::<A>();
-            let existing = self.child_analyses.insert(key, Box::new(analysis));
-            assert!(
-                existing.is_none(),
-                "Tried loading {} twice",
-                type_name::<A>()
-            )
+            // `on_load` is called before actually loading, because we generally want to initialize
+            // dependencies before their dependents to ensure as much state can be propagated during
+            // the first initialization pass as possible.
+            // However, we also need to track which analyses have been registered to allow resolving
+            // cyclic dependencies. So there's a separate list of analyses that have been passed to
+            // load but not yet loaded and treat them as present in `ensure_loaded`.
+            self.preloaded_analyses.push(key);
+            analysis.on_load(self);
+            self.child_analyses.insert(key, Box::new(analysis));
+        }
+
+        pub fn ensure_loaded<A: DataflowAnalysis>(&mut self, analysis: impl FnOnce() -> A) {
+            if !self.preloaded_analyses.contains(&TypeId::of::<A>()) {
+                self.load(analysis());
+            }
         }
 
         pub fn require_loaded<A: DataflowAnalysis>(&self) -> Result<()> {
@@ -481,6 +493,11 @@ pub trait AnalysisState: PrintableState + Sized + 'static {
 }
 
 pub trait DataflowAnalysis: Downcast {
+    /// Called before loading an analysis, to load dependency analyses
+    fn on_load(&self, solver: &mut DataflowSolver) {
+        let _ = solver;
+    }
+
     /// Verify analysis can be run on the solver. Should be used to verify required analyses are
     /// loaded.
     fn verify(&self, solver: &DataflowSolver, ctx: &Context, root: Ptr<Operation>) -> Result<()> {

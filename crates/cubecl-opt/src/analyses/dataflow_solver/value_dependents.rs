@@ -13,7 +13,7 @@ use crate::{
     analyses::dataflow_solver::{
         ProgramPoint,
         sparse::{LatticeValue, SparseBackward, SparseBackwardDataflowAnalysis, SparseLattice},
-        value_numbering::ValueNumberLattice,
+        value_numbering::{ValueNumberLattice, ValueNumberingAnalysis},
     },
 };
 
@@ -47,6 +47,10 @@ pub struct ValueDependents;
 
 impl SparseBackwardDataflowAnalysis for ValueDependents {
     type LatticeValue = Dependents;
+
+    fn on_load(solver: &mut DataflowSolver) {
+        solver.ensure_loaded(ValueNumberingAnalysis::default);
+    }
 
     fn visit_operation(
         _: &SparseBackward<Self>,
