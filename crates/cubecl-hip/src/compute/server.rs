@@ -80,16 +80,18 @@ impl Server for HipServer {
         size: u64,
         stream_id: StreamId,
     ) -> Result<(), ServerError> {
-        let error = match self.command_no_inputs(stream_id) {
-            Ok(mut command) => {
-                command.initialize_memory(memory, size);
-                return Ok(());
-            }
-            Err(error) => error,
+        let result = match self.command_no_inputs(stream_id) {
+            Ok(mut command) => command
+                .initialize_memory(memory.clone(), size)
+                .map_err(ServerError::from),
+            Err(error) => Err(error),
         };
-        // No stream to allocate on: the buffer carries the error instead.
-        self.streams.fail_unallocated(&memory, error.clone());
-        Err(error)
+        // No stream to allocate on, or no memory to allocate: the buffer carries the
+        // error instead.
+        if let Err(error) = &result {
+            self.streams.fail_unallocated(&memory, error.clone());
+        }
+        result
     }
 
     fn read(

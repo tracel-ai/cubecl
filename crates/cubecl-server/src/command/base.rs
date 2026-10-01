@@ -230,20 +230,24 @@ impl<'a, D: Driver> Command<'a, D> {
 
     /// Give `memory` `size` bytes of device memory on the current stream.
     ///
-    /// Fatal rather than reported: `initialize_memory` has no error channel,
-    /// and an allocation that never got its storage cannot be handed back as
-    /// a taint either — nothing has a binding to it yet.
-    pub fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64) {
+    /// # Errors
+    ///
+    /// Returns an [`IoError`] when the memory cannot be reserved or bound, e.g. when the device
+    /// is out of memory. The caller records it on `memory`, which has no binding to carry it.
+    pub fn initialize_memory(
+        &mut self,
+        memory: ManagedMemoryHandle,
+        size: u64,
+    ) -> Result<(), IoError> {
         let reserved = match self.reserve(size) {
             Ok(reserved) => reserved,
             // The recording already failed on it, and `stop_capture` reports
             // that: the handle stays unbound, and whatever uses it belongs to
             // a recording that will not seal.
-            Err(IoError::PageUpdateForbidden { .. }) => return,
-            Err(err) => panic!("failed to reserve {size} bytes of device memory: {err}"),
+            Err(IoError::PageUpdateForbidden { .. }) => return Ok(()),
+            Err(err) => return Err(err),
         };
         self.bind(reserved, memory)
-            .unwrap_or_else(|err| panic!("failed to bind {size} bytes of device memory: {err}"));
     }
 
     /// The current stream's cursor.

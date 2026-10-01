@@ -122,7 +122,12 @@ pub trait FailureStore {
     ) -> Option<ReadFailure> {
         let (pool, failures) = self.parts();
         reads.find_map(|handle| {
-            let failure = pool.try_get(&handle.stream)?.failure(handle)?;
+            // A buffer that was never allocated has no slice to carry a failure: the reason
+            // it was not allocated is recorded on the graph instead.
+            let failure = match handle.memory.descriptor().is_allocated() {
+                true => pool.try_get(&handle.stream)?.failure(handle)?,
+                false => failures.graph.unallocated_failure(handle.memory.id())?,
+            };
             Some(ReadFailure {
                 failure,
                 needed: handle.memory.id(),

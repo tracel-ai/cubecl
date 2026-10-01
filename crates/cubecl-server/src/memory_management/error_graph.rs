@@ -327,6 +327,11 @@ impl ErrorGraph {
         }
     }
 
+    /// The failure recorded for `memory` by [`fail_unallocated`](Self::fail_unallocated), if any.
+    pub fn unallocated_failure(&self, memory: ManagedMemoryId) -> Option<FailureId> {
+        self.unallocated.get(&memory).map(|(failure, _)| *failure)
+    }
+
     /// Drop `failure` if nothing took its id — for a failure that turned out
     /// to taint nothing, whose node would otherwise wait forever at zero.
     pub fn prune(&mut self, failure: FailureId) {
