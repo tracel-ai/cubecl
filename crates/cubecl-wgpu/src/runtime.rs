@@ -533,7 +533,7 @@ pub fn try_init_device_with_api<G: GraphicsApi>(
     }
     // External DeviceId indices are u16. Never wrap an ID onto a live runtime.
     let id = COUNTER
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| {
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| {
             (id <= u16::MAX as u32).then_some(id + 1)
         })
         .map_err(|_| WgpuInitError::Registration {
