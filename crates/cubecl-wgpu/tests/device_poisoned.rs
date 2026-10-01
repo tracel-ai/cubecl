@@ -46,6 +46,9 @@ fn a_poisoned_device_surfaces_at_every_sync_point() {
     assert_eq!(u32::from_bytes(&bytes), &[7]);
 
     wgpu_device.destroy();
+    // `destroy` defers the device-lost notification to the device's next poll, once its queue
+    // is empty: wait for it, so the sync points below see the poisoning.
+    let _ = wgpu_device.poll(wgpu::PollType::wait_indefinitely());
 
     let sync = cubecl_environment::future::block_on(client.sync());
     eprintln!("sync after the poisoning: {sync:?}");
