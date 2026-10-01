@@ -12,6 +12,7 @@ pub mod shared {
     };
     use hashbrown::HashSet;
     use pliron::{
+        basic_block::BasicBlock,
         builtin::attr_interfaces::TypedAttrInterface,
         graph::walkers::{
             IRNode, WALKCONFIG_PREORDER_FORWARD, uninterruptible::immutable::walk_op,
@@ -61,6 +62,11 @@ pub mod shared {
         /// The shared memories declared and not yet freed at the point the walk has reached: the
         /// allocations a new declaration may not overlap.
         live: HashSet<Value>,
+        /// The frees the walk is still inside the block of, each with that block: a declaration
+        /// after a free in its block, or nested in that block after it, runs after the free on
+        /// every path. Once the walk leaves the block, a branch or a loop body, the freed memory is
+        /// live again, as it is on the paths that never ran the free.
+        frees: Vec<(Ptr<BasicBlock>, Value)>,
     }
 
     impl Analysis for SharedLiveness {
@@ -84,11 +90,16 @@ pub mod shared {
                 op,
                 |ctx, state, node| {
                     if let IRNode::Operation(op) = node {
+                        state.leave_finished_blocks(ctx, op);
                         let op_dyn = Operation::get_op_dyn(op, ctx);
                         if op_dyn.downcast_ref::<FreeOp>().is_some() {
                             let memory = op.deref(ctx).get_operand(0);
-                            if let Some(root) = state.declaration_of(ctx, memory) {
-                                state.live.remove(&root);
+                            let block = op.deref(ctx).get_parent_block();
+                            if let (Some(root), Some(block)) =
+                                (state.declaration_of(ctx, memory), block)
+                                && state.live.remove(&root)
+                            {
+                                state.frees.push((block, root));
                             }
                             return;
                         }
@@ -126,30 +137,43 @@ pub mod shared {
     }
 
     impl SharedLiveness {
-        /// The shared memory declaration `memory` points into: the one this analysis has seen
-        /// that its defining operations' operands lead back to, through whatever slicing, field
-        /// extraction or casting derived it. `None` where it leads to none, or to more than one.
+        /// The shared memory declaration `memory` points into: the one its chain of pointers leads
+        /// back to, through whatever slicing, field extraction or casting derived it, each step's
+        /// pointer being its defining operation's first operand. `None` where the chain ends
+        /// anywhere else, and a free the analysis cannot trace leaves its memory live.
         fn declaration_of(&self, ctx: &Context, memory: Value) -> Option<Value> {
-            let mut found = None;
-            let mut seen = HashSet::new();
-            let mut pending = alloc::vec![memory];
-            while let Some(value) = pending.pop() {
-                if !seen.insert(value) {
-                    continue;
-                }
+            let mut value = memory;
+            loop {
                 if self.shared_memories.contains_key(&value) {
-                    match found {
-                        None => found = Some(value),
-                        Some(other) if other != value => return None,
-                        Some(_) => {}
-                    }
-                    continue;
+                    return Some(value);
                 }
-                if let DefiningEntity::Op(op) = value.defining_entity() {
-                    pending.extend(op.deref(ctx).operands());
-                }
+                let DefiningEntity::Op(op) = value.defining_entity() else {
+                    return None;
+                };
+                value = op.deref(ctx).operands().next()?;
             }
-            found
+        }
+
+        /// Make live again what was freed in a block the walk has left by reaching `op`: one that
+        /// is no longer among `op`'s enclosing blocks.
+        fn leave_finished_blocks(&mut self, ctx: &Context, op: Ptr<Operation>) {
+            if self.frees.is_empty() {
+                return;
+            }
+            let mut enclosing = HashSet::new();
+            let mut block = op.deref(ctx).get_parent_block();
+            while let Some(current) = block {
+                enclosing.insert(current);
+                block = current.deref(ctx).get_parent_block(ctx);
+            }
+            let live = &mut self.live;
+            self.frees.retain(|(block, value)| {
+                let inside = enclosing.contains(block);
+                if !inside {
+                    live.insert(*value);
+                }
+                inside
+            });
         }
 
         /// Finds a valid offset for a specific slice, taking into account ranges that are already

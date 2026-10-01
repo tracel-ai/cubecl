@@ -149,14 +149,17 @@ impl<T: CubePrimitive> Shared<T> {
 
 #[cube]
 impl<T: NativeCubeType + ?Sized> Shared<T> {
-    /// Frees the shared memory for reuse: a shared memory declared after this, in program order,
-    /// may take its bytes.
+    /// Frees the shared memory for reuse: a shared memory declared after this in the same block,
+    /// or nested in that block after it, may take its bytes. Past the end of that block, a branch
+    /// arm or a loop body, the memory counts as live again.
     ///
     /// # Safety
     /// *Must* be used in uniform control flow
     /// *Must not* have any dangling references to this shared memory
     /// *Must* be followed by a cube barrier before any unit touches what is declared in its place,
-    /// so no unit still reading the freed memory sees another's writes to the new one
+    /// so no unit still reading the freed memory sees another's writes to the new one; in a loop,
+    /// also before the freed memory is touched again on the next iteration
+    /// *Must not* have what is declared in its place used past the end of the block that freed it
     pub unsafe fn free(&self) {
         intrinsic!(|scope| {
             let val = scope.extract_field(self.value(scope), 0);
