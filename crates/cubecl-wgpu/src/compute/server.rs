@@ -376,9 +376,18 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 stream.capturing.fail(err.into());
                 return Ok(());
             }
-            Err(err) => panic!("failed to reserve {size} bytes of device memory: {err}"),
+            Err(err) => {
+                // Nothing to allocate: the buffer carries the error instead.
+                let err = ServerError::from(err);
+                failures.fail_unallocated(&memory, err.clone());
+                return Err(err);
+            }
         };
-        stream.memory.bind(reserved, memory, 0, failures).unwrap();
+        if let Err(err) = stream.memory.bind(reserved, memory.clone(), 0, failures) {
+            let err = ServerError::from(err);
+            failures.fail_unallocated(&memory, err.clone());
+            return Err(err);
+        }
         Ok(())
     }
 
