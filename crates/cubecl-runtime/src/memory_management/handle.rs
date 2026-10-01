@@ -147,7 +147,7 @@ impl ManagedMemoryDescriptor {
         // Never `Err`: the closure always has an update to make.
         let _ = self
             .location
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |bits| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |bits| {
                 Some(update(MemoryLocation::from_bits(bits)).to_bits())
             });
     }
