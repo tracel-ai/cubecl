@@ -96,9 +96,7 @@ impl GpuEngineQuery {
             .values()
             .copied()
             .fold(0.0, f64::max);
-        Ok(DeviceUtilization::new(
-            busiest_engine.clamp(0.0, 100.0).round() as u32,
-        ))
+        Ok(DeviceUtilization::new(busiest_engine as f32))
     }
 
     /// Fills the item buffer, growing it for as long as PDH asks: the processes using the GPU come

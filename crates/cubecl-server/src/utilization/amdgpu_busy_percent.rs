@@ -27,7 +27,7 @@ impl AmdgpuBusyPercentFile {
             .map_err(|error| error.to_string())
             .and_then(|text| {
                 text.trim()
-                    .parse::<u32>()
+                    .parse::<f32>()
                     .map_err(|error| error.to_string())
             })
             .map(DeviceUtilization::new)

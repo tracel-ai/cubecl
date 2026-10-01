@@ -23,9 +23,7 @@ impl ProcessorTimes {
             return Err(UtilizationUnavailable::NoPreviousReading);
         };
         system.refresh_cpu_usage();
-        Ok(DeviceUtilization::new(
-            system.global_cpu_usage().clamp(0.0, 100.0).round() as u32,
-        ))
+        Ok(DeviceUtilization::new(system.global_cpu_usage()))
     }
 }
 
@@ -42,6 +40,9 @@ mod tests {
 
         let next = ProcessorTimes::read_machine_wide().map(|utilization| utilization.busy_percent);
 
-        assert!(matches!(next, Ok(0..=100)), "{next:?}");
+        assert!(
+            matches!(next, Ok(busy_percent) if (0.0..=100.0).contains(&busy_percent)),
+            "{next:?}"
+        );
     }
 }

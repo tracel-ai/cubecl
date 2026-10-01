@@ -57,10 +57,10 @@ impl IoAcceleratorStatistics {
             statistics
                 .get(&CFString::from_static_str(key))?
                 .downcast_ref::<CFNumber>()?
-                .as_i64()
+                .as_f64()
         });
         busy_percent
-            .map(|busy_percent| DeviceUtilization::new(busy_percent.clamp(0, 100) as u32))
+            .map(|busy_percent| DeviceUtilization::new(busy_percent as f32))
             .ok_or_else(|| {
                 Self::query_failed("the PerformanceStatistics hold no device utilization")
             })

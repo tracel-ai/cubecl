@@ -30,7 +30,7 @@ impl NvmlUtilizationCounter {
         self.nvml
             .device_by_pci_bus_id(self.pci_bus_id.as_str())
             .and_then(|device| device.utilization_rates())
-            .map(|utilization| DeviceUtilization::new(utilization.gpu))
+            .map(|utilization| DeviceUtilization::new(utilization.gpu as f32))
             .map_err(unavailability_from_nvml_error)
     }
 }

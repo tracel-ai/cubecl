@@ -133,7 +133,7 @@ impl IntelIdleResidencyFiles {
 impl IdleResidencyReading {
     /// `None` where a GT's counter went backwards, as a driver resetting it does: the interval
     /// then measures nothing, and this reading starts the next one.
-    fn busy_percent_of_busiest_gt_since(&self, earlier: &Self) -> Option<u32> {
+    fn busy_percent_of_busiest_gt_since(&self, earlier: &Self) -> Option<f32> {
         let elapsed_milliseconds =
             self.taken_at.duration_since(earlier.taken_at).as_secs_f64() * 1000.0;
         let mut busiest_share: f64 = 0.0;
@@ -146,7 +146,7 @@ impl IdleResidencyReading {
             busiest_share =
                 busiest_share.max(1.0 - idle_milliseconds as f64 / elapsed_milliseconds);
         }
-        Some((busiest_share.clamp(0.0, 1.0) * 100.0).round() as u32)
+        Some((busiest_share * 100.0) as f32)
     }
 }
 
@@ -161,7 +161,7 @@ mod tests {
     fn busy_percent_after_one_interval(
         idle_milliseconds_before: &[u64],
         idle_milliseconds_after: &[u64],
-    ) -> Option<u32> {
+    ) -> Option<f32> {
         let earlier = IdleResidencyReading {
             taken_at: Instant::now(),
             idle_milliseconds_per_gt: idle_milliseconds_before.to_vec(),
@@ -175,9 +175,15 @@ mod tests {
 
     #[test]
     fn a_gt_reads_the_share_of_the_interval_it_spent_out_of_idle() {
-        assert_eq!(busy_percent_after_one_interval(&[5000], &[6000]), Some(0));
-        assert_eq!(busy_percent_after_one_interval(&[5000], &[5000]), Some(100));
-        assert_eq!(busy_percent_after_one_interval(&[5000], &[5500]), Some(50));
+        assert_eq!(busy_percent_after_one_interval(&[5000], &[6000]), Some(0.0));
+        assert_eq!(
+            busy_percent_after_one_interval(&[5000], &[5000]),
+            Some(100.0)
+        );
+        assert_eq!(
+            busy_percent_after_one_interval(&[5000], &[5500]),
+            Some(50.0)
+        );
     }
 
     #[test]
@@ -190,13 +196,13 @@ mod tests {
                 &[render_idle_a_fifth[0], media_idle_throughout[0]],
                 &[render_idle_a_fifth[1], media_idle_throughout[1]],
             ),
-            Some(80)
+            Some(80.0)
         );
     }
 
     #[test]
     fn idle_time_a_little_past_the_wall_clock_reads_as_idle() {
-        assert_eq!(busy_percent_after_one_interval(&[5000], &[6003]), Some(0));
+        assert_eq!(busy_percent_after_one_interval(&[5000], &[6003]), Some(0.0));
     }
 
     #[test]
@@ -218,7 +224,7 @@ mod tests {
         );
         assert_eq!(
             read_with_idle_milliseconds("5000\n"),
-            Ok(DeviceUtilization::new(100))
+            Ok(DeviceUtilization::new(100.0))
         );
         assert_eq!(
             read_with_idle_milliseconds("200\n"),
@@ -226,7 +232,7 @@ mod tests {
         );
         assert_eq!(
             read_with_idle_milliseconds("200\n"),
-            Ok(DeviceUtilization::new(100))
+            Ok(DeviceUtilization::new(100.0))
         );
     }
 }

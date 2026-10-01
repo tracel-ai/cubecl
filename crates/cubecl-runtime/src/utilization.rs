@@ -5,18 +5,18 @@ use cubecl_ir::PciVendor;
 
 /// How busy a device is, as [`Runtime::utilization`](crate::runtime::Runtime::utilization) read
 /// it from its counter.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct DeviceUtilization {
     /// The percent of the counter's last period the device spent running work, from 0 to 100.
-    pub busy_percent: u32,
+    pub busy_percent: f32,
 }
 
 impl DeviceUtilization {
-    /// Holds a reading above 100 to 100.
-    pub fn new(busy_percent: u32) -> Self {
+    /// Holds a reading outside 0 to 100 to the nearer bound.
+    pub fn new(busy_percent: f32) -> Self {
         Self {
-            busy_percent: busy_percent.min(100),
+            busy_percent: busy_percent.clamp(0.0, 100.0),
         }
     }
 }
@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn a_reading_from_0_to_100_is_kept_as_it_is() {
-        for busy_percent in [0, 37, 100] {
+        for busy_percent in [0.0, 37.5, 100.0] {
             assert_eq!(
                 DeviceUtilization::new(busy_percent).busy_percent,
                 busy_percent
@@ -91,8 +91,8 @@ mod tests {
 
     #[test]
     fn a_reading_above_100_is_held_to_100() {
-        for busy_percent in [101, u32::MAX] {
-            assert_eq!(DeviceUtilization::new(busy_percent).busy_percent, 100);
+        for busy_percent in [100.5, f32::MAX] {
+            assert_eq!(DeviceUtilization::new(busy_percent).busy_percent, 100.0);
         }
     }
 }
