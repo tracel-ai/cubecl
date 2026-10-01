@@ -75,17 +75,23 @@ fn a_device_fault_surfaces_at_the_sync_point() {
 
     // Another thread gets a stream of its own, created on first use: on a poisoned
     // device the driver refuses it, and that too must come back as an error.
-    let (sync, read) = std::thread::spawn(move || {
+    let (sync, read, created) = std::thread::spawn(move || {
         let sync = cubecl_environment::future::block_on(client.sync())
             .expect_err("a sync on a poisoned device must fail");
         // A buffer this thread allocates has no stream to live on: its read reports why.
         let read = client
             .read_one(client.empty(size))
             .expect_err("a buffer that was never allocated must not read clean");
-        (sync, read)
+        // The same for a buffer created with data: the write that fills it is skipped,
+        // since there is nothing allocated to write to.
+        let created = client
+            .read_one(client.create_from_slice(&[7u8; 4]))
+            .expect_err("a buffer created on a poisoned device must not read clean");
+        (sync, read, created)
     })
     .join()
     .expect("creating a stream on a poisoned device must not panic");
     assert!(sync.is_device_poisoned(), "got: {sync}");
     assert!(read.is_device_poisoned(), "got: {read}");
+    assert!(created.is_device_poisoned(), "got: {created}");
 }

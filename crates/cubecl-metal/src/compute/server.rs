@@ -211,14 +211,20 @@ impl Server for MetalServer {
         let cursor = resolved.cursor;
         Relocating(&mut resolved).relocate_when_wanted();
         let (stream, failures) = resolved.current_and_failures();
-        let reserved = stream
+        let allocated = stream
             .memory_management
             .reserve(size, PageUpdate::Allow, failures)
-            .expect("Failed to reserve memory");
-        stream
-            .memory_management
-            .bind(reserved, memory, cursor, failures)
-            .expect("Failed to bind memory");
+            .and_then(|reserved| {
+                stream
+                    .memory_management
+                    .bind(reserved, memory.clone(), cursor, failures)
+            });
+        if let Err(err) = allocated {
+            // Nothing to allocate: the buffer carries the error instead.
+            let err = ServerError::from(err);
+            failures.fail_unallocated(&memory, err.clone());
+            return Err(err);
+        }
         Ok(())
     }
 

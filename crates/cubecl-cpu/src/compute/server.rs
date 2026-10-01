@@ -250,13 +250,15 @@ impl Server for CpuServer {
     ) -> Result<(), ServerError> {
         self.scheduler.relocating(stream_id).relocate_when_wanted();
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        // Fatal rather than reported, as on every other backend:
-        // `initialize_memory` has no error channel, and an allocation that
-        // never got its storage cannot be handed back as a taint either —
-        // nothing has a binding to it yet.
-        let reserved = stream
-            .empty(size, failures)
-            .unwrap_or_else(|err| panic!("failed to reserve {size} bytes of host memory: {err}"));
+        let reserved = match stream.empty(size, failures) {
+            Ok(reserved) => reserved,
+            Err(err) => {
+                // Nothing to allocate: the buffer carries the error instead.
+                let err = ServerError::from(err);
+                failures.fail_unallocated(&memory, err.clone());
+                return Err(err);
+            }
+        };
         stream.bind(reserved, memory, failures);
         Ok(())
     }
