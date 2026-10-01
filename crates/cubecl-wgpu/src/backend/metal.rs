@@ -43,6 +43,7 @@ pub async fn request_metal_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgp
 }
 
 /// Request a native Metal device, returning device creation failures.
+/// Returns an error if the adapter does not use Metal.
 pub async fn try_request_metal_device(
     adapter: &wgpu::Adapter,
 ) -> Result<(wgpu::Device, wgpu::Queue), crate::WgpuInitError> {
@@ -51,7 +52,11 @@ pub async fn try_request_metal_device(
         .features()
         .difference(Features::MAPPABLE_PRIMARY_BUFFERS);
     unsafe {
-        let hal_adapter = adapter.as_hal::<hal::api::Metal>().unwrap();
+        let hal_adapter = adapter.as_hal::<hal::api::Metal>().ok_or_else(|| {
+            crate::WgpuInitError::InvalidConfiguration {
+                message: "requesting a native Metal device requires a Metal adapter".into(),
+            }
+        })?;
         request_device(adapter, &hal_adapter, features, limits)
     }
 }

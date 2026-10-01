@@ -57,6 +57,7 @@ pub async fn request_vulkan_device(adapter: &wgpu::Adapter) -> Option<(wgpu::Dev
 }
 
 /// Request a native Vulkan device, or return `None` when native compilation is unsupported.
+/// Returns an error if the adapter does not use Vulkan.
 pub async fn try_request_vulkan_device(
     adapter: &wgpu::Adapter,
 ) -> Result<Option<(wgpu::Device, wgpu::Queue)>, crate::WgpuInitError> {
@@ -65,7 +66,11 @@ pub async fn try_request_vulkan_device(
         .features()
         .difference(Features::MAPPABLE_PRIMARY_BUFFERS);
     unsafe {
-        let hal_adapter = adapter.as_hal::<hal::api::Vulkan>().unwrap();
+        let hal_adapter = adapter.as_hal::<hal::api::Vulkan>().ok_or_else(|| {
+            crate::WgpuInitError::InvalidConfiguration {
+                message: "requesting a native Vulkan device requires a Vulkan adapter".into(),
+            }
+        })?;
         request_device(adapter, &hal_adapter, features, limits)
     }
 }

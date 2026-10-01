@@ -560,7 +560,7 @@ pub fn try_init_setup<G: GraphicsApi>(
 /// Initialize the selected runtime, returning acquisition or registration failures.
 ///
 /// An initialized selector cannot be configured again. Registration is atomic in
-/// CubeCL's service registry, but concurrent calls may each acquire a device before
+/// `CubeCL`'s service registry, but concurrent calls may each acquire a device before
 /// one registers successfully. Failed or cancelled acquisition leaves no registration.
 /// With `msl` enabled, explicitly selecting Metal requires native MSL support;
 /// automatic selection permits WGSL fallback. Compiler validation failures are returned
@@ -685,7 +685,11 @@ fn try_create_server<C: WgpuCompiler>(
 
     let features = setup.device.features();
 
-    let time_measurement = if features.contains(wgpu::Features::TIMESTAMP_QUERY) {
+    let time_measurement = if setup
+        .adapter
+        .features()
+        .contains(wgpu::Features::TIMESTAMP_QUERY)
+    {
         TimingMethod::Device
     } else {
         TimingMethod::System
@@ -885,7 +889,7 @@ async fn request_adapter(
                 num,
                 "No Discrete GPU device found",
                 &instance,
-                &device,
+                device,
                 backend,
             )
             .await
@@ -896,7 +900,7 @@ async fn request_adapter(
                 num,
                 "No Integrated GPU device found",
                 &instance,
-                &device,
+                device,
                 backend,
             )
             .await
@@ -907,19 +911,18 @@ async fn request_adapter(
                 num,
                 "No Virtual GPU device found",
                 &instance,
-                &device,
+                device,
                 backend,
             )
             .await
         }
         #[cfg(not(target_family = "wasm"))]
         WgpuDeviceKind::Other(num) => {
-            select_from_adapter_list(num, "No Other device found", &instance, &device, backend)
-                .await
+            select_from_adapter_list(num, "No Other device found", &instance, device, backend).await
         }
         #[cfg(not(target_family = "wasm"))]
         WgpuDeviceKind::Cpu => {
-            select_from_adapter_list(0, "No CPU device found", &instance, &device, backend).await
+            select_from_adapter_list(0, "No CPU device found", &instance, device, backend).await
         }
         #[cfg(target_family = "wasm")]
         WgpuDeviceKind::IntegratedGpu(_) => {

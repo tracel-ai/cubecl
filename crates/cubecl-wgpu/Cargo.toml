@@ -128,5 +128,8 @@ half = { workspace = true }
 paste = { workspace = true }
 test-log = { workspace = true, features = ["trace"] }
 
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+wgpu = { workspace = true, features = ["noop"] }
+
 [build-dependencies]
 cfg_aliases = { workspace = true }
