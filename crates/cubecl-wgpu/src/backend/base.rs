@@ -425,7 +425,6 @@ async fn request_metal_device(
 
 pub fn register_features(
     adapter: &Adapter,
-    device: &Device,
     props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
 ) {
@@ -435,7 +434,7 @@ pub fn register_features(
     if register_metal_features(adapter, props, comp_options) {
         return;
     }
-    wgsl::register_wgsl_features(device, props, comp_options);
+    wgsl::register_wgsl_features(adapter, props, comp_options);
 }
 
 #[cfg(feature = "spirv")]

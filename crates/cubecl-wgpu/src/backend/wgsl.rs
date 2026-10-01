@@ -58,17 +58,17 @@ pub async fn try_request_device(
 }
 
 pub fn register_wgsl_features(
-    device: &wgpu::Device,
+    adapter: &wgpu::Adapter,
     props: &mut cubecl_ir::DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
 ) {
-    register_types(props, device);
+    register_types(props, adapter);
     if props.supports_type(ElemType::UInt(UIntKind::U64)) {
         comp_options.supports_u64 = true;
     }
 }
 
-pub fn register_types(props: &mut DeviceProperties, device: &wgpu::Device) {
+pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
     use cubecl_core::ir::{AddressType, ElemType, FloatKind, IntKind};
     use cubecl_ir::features::*;
 
@@ -104,7 +104,7 @@ pub fn register_types(props: &mut DeviceProperties, device: &wgpu::Device) {
         );
     }
 
-    let feats = device.features();
+    let feats = adapter.features();
 
     if feats.contains(wgpu::Features::SHADER_INT64) {
         props.register_type_usage(ElemType::Int(IntKind::I64), TypeUsage::all());

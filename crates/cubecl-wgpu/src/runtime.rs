@@ -619,6 +619,7 @@ fn try_create_server<C: WgpuCompiler>(
     requested_backend: WgpuBackend,
 ) -> Result<WgpuServer<C>, WgpuInitError> {
     let limits = setup.device.limits();
+    let adapter_limits = setup.adapter.limits();
     let mut adapter_info = setup.adapter.get_info();
 
     // Workaround: WebGPU reports some "fake" subgroup info atm, as it's not really supported yet.
@@ -642,7 +643,7 @@ fn try_create_server<C: WgpuCompiler>(
             .min_uniform_buffer_offset_alignment
             .max(limits.min_storage_buffer_offset_alignment) as u64,
     );
-    let max_count = limits.max_compute_workgroups_per_dimension;
+    let max_count = adapter_limits.max_compute_workgroups_per_dimension;
     let hardware_props = HardwareProperties {
         load_width: 128,
         vector_register_count: None,
@@ -665,11 +666,11 @@ fn try_create_server<C: WgpuCompiler>(
             .saturating_sub(1),
         max_shared_memory_size: limits.max_compute_workgroup_storage_size as usize,
         max_cube_count: (max_count, max_count, max_count),
-        max_units_per_cube: limits.max_compute_invocations_per_workgroup,
+        max_units_per_cube: adapter_limits.max_compute_invocations_per_workgroup,
         max_cube_dim: (
-            limits.max_compute_workgroup_size_x,
-            limits.max_compute_workgroup_size_y,
-            limits.max_compute_workgroup_size_z,
+            adapter_limits.max_compute_workgroup_size_x,
+            adapter_limits.max_compute_workgroup_size_y,
+            adapter_limits.max_compute_workgroup_size_z,
         ),
         num_streaming_multiprocessors: None,
         num_tensor_cores: None,
@@ -683,13 +684,9 @@ fn try_create_server<C: WgpuCompiler>(
 
     let mut compilation_options = Default::default();
 
-    let features = setup.device.features();
+    let features = setup.adapter.features();
 
-    let time_measurement = if setup
-        .adapter
-        .features()
-        .contains(wgpu::Features::TIMESTAMP_QUERY)
-    {
+    let time_measurement = if features.contains(wgpu::Features::TIMESTAMP_QUERY) {
         TimingMethod::Device
     } else {
         TimingMethod::System
@@ -725,12 +722,7 @@ fn try_create_server<C: WgpuCompiler>(
         }
     }
 
-    backend::register_features(
-        &setup.adapter,
-        &setup.device,
-        &mut device_props,
-        &mut compilation_options,
-    );
+    backend::register_features(&setup.adapter, &mut device_props, &mut compilation_options);
 
     #[cfg(any(feature = "spirv", feature = "msl"))]
     if compilation_options.supports_vulkan_compiler || compilation_options.supports_msl_compiler {
