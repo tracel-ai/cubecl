@@ -163,7 +163,7 @@ pub struct AvailableSet(MaybeUninitBitset);
 impl Printable for AvailableSet {
     fn fmt(&self, _: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.0 {
-            MaybeUninitBitset::Uninitialized => write!(f, "Available(Unitialized)"),
+            MaybeUninitBitset::Uninitialized => write!(f, "Available(Uninitialized)"),
             MaybeUninitBitset::Initialized(set) => {
                 let set = set.iter().map(|i| format!("e{i}")).join(", ");
                 write!(f, "Available({{{}}})", set)
@@ -228,7 +228,7 @@ pub struct AnticipatedSet(MaybeUninitBitset);
 impl Printable for AnticipatedSet {
     fn fmt(&self, _: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.0 {
-            MaybeUninitBitset::Uninitialized => write!(f, "Anticipated(Unitialized)"),
+            MaybeUninitBitset::Uninitialized => write!(f, "Anticipated(Uninitialized)"),
             MaybeUninitBitset::Initialized(set) => {
                 let set = set.iter().map(|i| format!("e{i}")).join(", ");
                 write!(f, "Anticipated({{{}}})", set)
