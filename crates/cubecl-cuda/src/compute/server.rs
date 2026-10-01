@@ -21,6 +21,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::{self, DynFut};
 use cubecl_environment::stream::StreamId;
 use cubecl_server::command::{CollectiveDriver, Collectives, Refused};
+use cubecl_server::metadata_cache::Lookup;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
     dry_run::LaunchMode,
@@ -45,32 +46,28 @@ use std::{ffi::c_void, sync::Arc};
 /// inside a capture window (all launches hit warm buffers, so the captured
 /// graph gains no memcpy nodes for them).
 ///
-/// The cache's policy makes every decision (see
+/// The cache's lookup makes the admission decision (see
 /// [`MetadataInfoCache`](cubecl_server::metadata_cache::MetadataInfoCache)),
 /// and the capture lifecycle drives its mode so that during capture every
-/// buffer is cached and none is evicted. We ask the policy first and only touch
-/// the cache when it says to — otherwise we just build the buffer, never
-/// cloning a key we wouldn't keep. The buffer's bytes always equal the key
-/// bytes, so a hit is byte-identical to what the miss path would have built.
+/// buffer is cached and none is evicted. Normal mode keeps a buffer only after
+/// its key repeats within the recent-key window. The buffer's bytes always
+/// equal the key bytes, so a hit is byte-identical to what the miss path builds.
 fn info_buffer(command: &mut Command<'_>, words: &[u64]) -> Result<Handle, ServerError> {
-    let size = core::mem::size_of_val(words);
-    let cache_mode = command.stream().capturing.cache_mode();
-    command.stream().info_cache.mode(cache_mode);
-
-    if !command.stream().info_cache.should_cache(size) {
-        return Ok(command.create_with_data(bytemuck::cast_slice(words))?);
+    let mode = command.stream().capturing.cache_mode();
+    match command.stream().info_cache.lookup(mode, words) {
+        Lookup::Hit(handle) => Ok(handle),
+        Lookup::Build { store } => {
+            let bytes = bytemuck::cast_slice(words);
+            let handle = command.create_info_with_data(bytes)?;
+            if store {
+                command
+                    .stream()
+                    .info_cache
+                    .store(words.to_vec(), handle.clone());
+            }
+            Ok(handle)
+        }
     }
-    // Look up by the borrowed words — a hit clones nothing. On a miss we build
-    // the buffer and clone the words into the cache as the key.
-    if let Some(handle) = command.stream().info_cache.get(words) {
-        return Ok(handle);
-    }
-    let handle = command.create_with_data(bytemuck::cast_slice(words))?;
-    command
-        .stream()
-        .info_cache
-        .insert(words.to_vec(), handle.clone());
-    Ok(handle)
 }
 
 #[derive(Debug)]
