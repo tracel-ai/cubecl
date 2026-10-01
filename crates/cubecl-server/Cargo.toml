@@ -67,17 +67,6 @@ serde_json = { workspace = true, features = ["std"] }
 # Tracy if enabled.
 tracy-client = { workspace = true, optional = true }
 
-# The device utilization counters, one set per cfg(std_io) platform that keeps them.
-[target.'cfg(target_os = "linux")'.dependencies]
-nvml-wrapper = { workspace = true }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2-core-foundation = { version = "0.3" }
-objc2-io-kit = { version = "0.3" }
-
-[target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_System_Performance"] }
-
 [dev-dependencies]
 rand = { workspace = true, features = ["thread_rng"] }
 serde_json = { workspace = true, features = ["std"] }

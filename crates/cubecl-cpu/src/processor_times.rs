@@ -1,6 +1,6 @@
 use std::sync::{Mutex, PoisonError};
 
-use cubecl_server::utilization::{DeviceUtilization, UtilizationUnavailable};
+use cubecl_server::runtime::{DeviceUtilization, UtilizationUnavailable};
 use sysinfo::System;
 
 /// The time every core of the machine spent running, which the CPU runtime's device is. The

@@ -1,27 +1,28 @@
-#[cfg(target_os = "windows")]
+#[cfg(gpu_engine_counters)]
 use cubecl_ir::AdapterLuid;
 use cubecl_ir::PhysicalDevice;
-#[cfg(target_os = "macos")]
+#[cfg(io_accelerator)]
 use cubecl_ir::RegistryEntryId;
-#[cfg(target_os = "linux")]
+#[cfg(any(amdgpu_busy_percent, intel_idle_residency, nvml))]
 use cubecl_ir::{PciAddress, PciVendor};
 
 use crate::utilization::UtilizationUnavailable;
 
-/// The counter a device's utilization is read from. The card and the platform decide it, never
-/// the runtime: an NVIDIA card driven through wgpu reads the same counter as through CUDA.
+/// The counter a device's utilization is read from, among the ones this build compiles. The card
+/// and the platform decide it, never the runtime: an NVIDIA card driven through wgpu reads the same
+/// counter as through CUDA.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UtilizationSource {
-    #[cfg(target_os = "linux")]
+    #[cfg(nvml)]
     Nvml(PciAddress),
-    #[cfg(target_os = "linux")]
+    #[cfg(amdgpu_busy_percent)]
     AmdgpuBusyPercentFile(PciAddress),
-    #[cfg(target_os = "linux")]
+    #[cfg(intel_idle_residency)]
     IntelIdleResidencyFiles(PciAddress),
-    #[cfg(target_os = "windows")]
+    #[cfg(gpu_engine_counters)]
     GpuEngineCounters(AdapterLuid),
     /// Without a registry entry id, the machine's only accelerator.
-    #[cfg(target_os = "macos")]
+    #[cfg(io_accelerator)]
     IoAcceleratorStatistics(Option<RegistryEntryId>),
     Unavailable(UtilizationUnavailable),
 }
@@ -29,16 +30,19 @@ pub enum UtilizationSource {
 impl UtilizationSource {
     pub fn of_card(card: Option<&PhysicalDevice>) -> Self {
         match card {
-            Some(card) => Self::counter_this_platform_keeps_for(card),
+            Some(card) => Self::counter_this_build_keeps_for(card),
             None => Self::Unavailable(UtilizationUnavailable::NoCard),
         }
     }
 
-    #[cfg(target_os = "linux")]
-    fn counter_this_platform_keeps_for(card: &PhysicalDevice) -> Self {
+    #[cfg(any(amdgpu_busy_percent, intel_idle_residency, nvml))]
+    fn counter_this_build_keeps_for(card: &PhysicalDevice) -> Self {
         let counter_at: fn(PciAddress) -> Self = match card.vendor {
+            #[cfg(nvml)]
             Some(PciVendor::Nvidia) => Self::Nvml,
+            #[cfg(amdgpu_busy_percent)]
             Some(PciVendor::Amd) => Self::AmdgpuBusyPercentFile,
+            #[cfg(intel_idle_residency)]
             Some(PciVendor::Intel) => Self::IntelIdleResidencyFiles,
             vendor => return Self::Unavailable(UtilizationUnavailable::NoCounterForCard(vendor)),
         };
@@ -48,22 +52,17 @@ impl UtilizationSource {
         }
     }
 
-    #[cfg(target_os = "windows")]
-    fn counter_this_platform_keeps_for(card: &PhysicalDevice) -> Self {
+    #[cfg(gpu_engine_counters)]
+    fn counter_this_build_keeps_for(card: &PhysicalDevice) -> Self {
         match card.luid {
             Some(luid) => Self::GpuEngineCounters(luid),
             None => Self::Unavailable(UtilizationUnavailable::CardAddressNotReported),
         }
     }
 
-    #[cfg(target_os = "macos")]
-    fn counter_this_platform_keeps_for(card: &PhysicalDevice) -> Self {
+    #[cfg(io_accelerator)]
+    fn counter_this_build_keeps_for(card: &PhysicalDevice) -> Self {
         Self::IoAcceleratorStatistics(card.registry_entry_id)
-    }
-
-    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
-    fn counter_this_platform_keeps_for(card: &PhysicalDevice) -> Self {
-        Self::Unavailable(UtilizationUnavailable::NoCounterForCard(card.vendor))
     }
 }
 
@@ -79,7 +78,7 @@ mod tests {
         );
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(all(amdgpu_busy_percent, intel_idle_residency, nvml))]
     mod linux {
         use super::*;
 
@@ -139,7 +138,7 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(gpu_engine_counters)]
     mod windows {
         use cubecl_ir::PciVendor;
 
@@ -179,7 +178,7 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(io_accelerator)]
     mod macos {
         use super::*;
 

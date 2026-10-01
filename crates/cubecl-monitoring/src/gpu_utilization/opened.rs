@@ -1,12 +1,12 @@
-#[cfg(target_os = "linux")]
+#[cfg(amdgpu_busy_percent)]
 use super::amdgpu_busy_percent::AmdgpuBusyPercentFile;
-#[cfg(target_os = "windows")]
+#[cfg(gpu_engine_counters)]
 use super::gpu_engine_counters::GpuEngineCounters;
-#[cfg(target_os = "linux")]
+#[cfg(intel_idle_residency)]
 use super::intel_idle_residency::IntelIdleResidencyFiles;
-#[cfg(target_os = "macos")]
+#[cfg(io_accelerator)]
 use super::io_accelerator::IoAcceleratorStatistics;
-#[cfg(target_os = "linux")]
+#[cfg(nvml)]
 use super::nvml::NvmlUtilizationCounter;
 use super::source::UtilizationSource;
 use crate::utilization::{DeviceUtilization, UtilizationUnavailable};
@@ -15,15 +15,15 @@ use crate::utilization::{DeviceUtilization, UtilizationUnavailable};
 /// only ever opened once.
 #[derive(Debug)]
 pub enum OpenedCounter {
-    #[cfg(target_os = "linux")]
+    #[cfg(nvml)]
     Nvml(NvmlUtilizationCounter),
-    #[cfg(target_os = "linux")]
+    #[cfg(amdgpu_busy_percent)]
     AmdgpuBusyPercentFile(AmdgpuBusyPercentFile),
-    #[cfg(target_os = "linux")]
+    #[cfg(intel_idle_residency)]
     IntelIdleResidencyFiles(IntelIdleResidencyFiles),
-    #[cfg(target_os = "windows")]
+    #[cfg(gpu_engine_counters)]
     GpuEngineCounters(GpuEngineCounters),
-    #[cfg(target_os = "macos")]
+    #[cfg(io_accelerator)]
     IoAcceleratorStatistics(IoAcceleratorStatistics),
     Unavailable(UtilizationUnavailable),
 }
@@ -31,23 +31,23 @@ pub enum OpenedCounter {
 impl OpenedCounter {
     pub fn open(source: UtilizationSource) -> Self {
         let opened = match source {
-            #[cfg(target_os = "linux")]
+            #[cfg(nvml)]
             UtilizationSource::Nvml(pci_address) => {
                 NvmlUtilizationCounter::new(pci_address).map(Self::Nvml)
             }
-            #[cfg(target_os = "linux")]
+            #[cfg(amdgpu_busy_percent)]
             UtilizationSource::AmdgpuBusyPercentFile(pci_address) => Ok(
                 Self::AmdgpuBusyPercentFile(AmdgpuBusyPercentFile::new(pci_address)),
             ),
-            #[cfg(target_os = "linux")]
+            #[cfg(intel_idle_residency)]
             UtilizationSource::IntelIdleResidencyFiles(pci_address) => {
                 IntelIdleResidencyFiles::new(pci_address).map(Self::IntelIdleResidencyFiles)
             }
-            #[cfg(target_os = "windows")]
+            #[cfg(gpu_engine_counters)]
             UtilizationSource::GpuEngineCounters(luid) => {
                 GpuEngineCounters::new(luid).map(Self::GpuEngineCounters)
             }
-            #[cfg(target_os = "macos")]
+            #[cfg(io_accelerator)]
             UtilizationSource::IoAcceleratorStatistics(registry_entry_id) => {
                 IoAcceleratorStatistics::new(registry_entry_id).map(Self::IoAcceleratorStatistics)
             }
@@ -58,15 +58,15 @@ impl OpenedCounter {
 
     pub fn read(&self) -> Result<DeviceUtilization, UtilizationUnavailable> {
         match self {
-            #[cfg(target_os = "linux")]
+            #[cfg(nvml)]
             Self::Nvml(counter) => counter.read(),
-            #[cfg(target_os = "linux")]
+            #[cfg(amdgpu_busy_percent)]
             Self::AmdgpuBusyPercentFile(file) => file.read(),
-            #[cfg(target_os = "linux")]
+            #[cfg(intel_idle_residency)]
             Self::IntelIdleResidencyFiles(files) => files.read(),
-            #[cfg(target_os = "windows")]
+            #[cfg(gpu_engine_counters)]
             Self::GpuEngineCounters(counters) => counters.read(),
-            #[cfg(target_os = "macos")]
+            #[cfg(io_accelerator)]
             Self::IoAcceleratorStatistics(statistics) => statistics.read(),
             Self::Unavailable(reason) => Err(reason.clone()),
         }

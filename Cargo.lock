@@ -1072,6 +1072,7 @@ dependencies = [
  "cubecl-cpp",
  "cubecl-environment",
  "cubecl-llvm",
+ "cubecl-monitoring",
  "cubecl-server",
  "cubecl-std",
  "cudarc",
@@ -1145,6 +1146,7 @@ dependencies = [
  "cubecl-environment",
  "cubecl-hip-sys",
  "cubecl-llvm",
+ "cubecl-monitoring",
  "cubecl-server",
  "cubecl-std",
  "derive-new",
@@ -1254,6 +1256,7 @@ dependencies = [
  "cubecl-cpp",
  "cubecl-environment",
  "cubecl-ir",
+ "cubecl-monitoring",
  "cubecl-server",
  "cubecl-std",
  "derive-new",
@@ -1266,6 +1269,19 @@ dependencies = [
  "paste",
  "serde",
  "test-log",
+]
+
+[[package]]
+name = "cubecl-monitoring"
+version = "0.11.0-pre.4"
+dependencies = [
+ "cfg_aliases",
+ "cubecl-ir",
+ "nvml-wrapper",
+ "objc2-core-foundation",
+ "objc2-io-kit",
+ "tempfile",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1302,6 +1318,7 @@ dependencies = [
  "cubecl-common",
  "cubecl-environment",
  "cubecl-ir",
+ "cubecl-monitoring",
  "cubecl-zspace",
  "derive-new",
  "derive_more",
@@ -1345,9 +1362,6 @@ dependencies = [
  "hashbrown 0.17.1",
  "itertools 0.15.0",
  "log",
- "nvml-wrapper",
- "objc2-core-foundation",
- "objc2-io-kit",
  "pliron",
  "rand 0.10.2",
  "serde",
@@ -1359,7 +1373,6 @@ dependencies = [
  "thiserror 2.0.20",
  "tracing",
  "tracy-client",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1414,6 +1427,7 @@ dependencies = [
  "cubecl-cpp",
  "cubecl-environment",
  "cubecl-ir",
+ "cubecl-monitoring",
  "cubecl-opt",
  "cubecl-server",
  "cubecl-spirv",

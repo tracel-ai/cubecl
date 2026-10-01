@@ -13,12 +13,11 @@ use cubecl_core::{
     zspace::{Shape, Strides},
 };
 use cubecl_llvm::PlironCompiler;
-use cubecl_server::utilization::{DeviceUtilization, UtilizationUnavailable};
 use cubecl_server::{
     allocator::ContiguousMemoryLayoutPolicy,
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
     logging::ServerLogger,
-    runtime::Runtime,
+    runtime::{DeviceUtilization, Runtime, UtilizationUnavailable},
 };
 use cubecl_std::tensor::is_contiguous;
 use std::sync::Arc;

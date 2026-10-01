@@ -20,7 +20,7 @@ pub use cubecl_runtime::device::{
     AmdDevice, CpuDevice, CudaDevice, MetalDevice, WgpuBackend, WgpuDevice, WgpuDeviceKind,
 };
 
-pub use cubecl_runtime::utilization::{DeviceUtilization, UtilizationUnavailable};
+pub use cubecl_runtime::runtime::{DeviceUtilization, UtilizationUnavailable};
 
 /// A device of any runtime.
 ///

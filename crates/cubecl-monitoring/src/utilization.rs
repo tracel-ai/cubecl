@@ -3,8 +3,7 @@ use core::fmt;
 
 use cubecl_ir::PciVendor;
 
-/// How busy a device is, as [`Runtime::utilization`](crate::runtime::Runtime::utilization) read
-/// it from its counter.
+/// How busy a device is, as its counter read it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct DeviceUtilization {
@@ -28,6 +27,8 @@ pub enum UtilizationUnavailable {
     /// This build does not link the device's runtime, which is what says which card the device
     /// is.
     RuntimeNotLinked,
+    /// The device's runtime reads no counter for its devices.
+    RuntimeReadsNoCounter,
     /// The runtime reports no card behind the device: a software adapter.
     NoCard,
     /// This platform keeps no counter read here for a card of this vendor, or of no vendor the
@@ -52,6 +53,9 @@ impl fmt::Display for UtilizationUnavailable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::RuntimeNotLinked => f.write_str("this build does not link the device's runtime"),
+            Self::RuntimeReadsNoCounter => {
+                f.write_str("the device's runtime reads no utilization counter")
+            }
             Self::NoCard => f.write_str("the device is no card: a software adapter"),
             Self::NoCounterForCard(Some(vendor)) => {
                 write!(f, "no counter on this platform for a {vendor} card")

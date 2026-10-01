@@ -14,9 +14,9 @@ use cubecl_cpp::{
     metal::{arch::MetalArchitecture, supported_cmma_combinations_metal},
     shared::register_wmma_features,
 };
+use cubecl_monitoring::{DeviceUtilization, UtilizationUnavailable, gpu_utilization::CardCounters};
 use cubecl_server::allocator::ContiguousMemoryLayoutPolicy;
 use cubecl_server::runtime::Runtime;
-use cubecl_server::utilization::{CardCounters, DeviceUtilization, UtilizationUnavailable};
 use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLDevice, MTLGPUFamily};
 
@@ -185,7 +185,7 @@ impl Runtime for MetalRuntime {
     }
 
     fn utilization(device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
-        CardCounters::read_card_behind(&Self::client(device))
+        CardCounters::read(Self::client(device).properties().identity.physical.as_ref())
     }
 }
 
