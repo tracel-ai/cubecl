@@ -203,16 +203,23 @@ impl Client {
 
     /// Create a new client with a new server.
     pub fn init<S: ServerStorage>(device_id: DeviceId, server: S) -> Self {
-        let utilities = Server::utilities(&server);
-        let context = DeviceHandle::<S>::insert(device_id, server)
+        Self::try_init(device_id, server)
             .expect("Can't create a new client on an already registered server")
-            .seen_as(as_server::<S>);
+    }
 
-        Self {
+    /// Register a server, returning an error if its device is already registered.
+    pub fn try_init<S: ServerStorage>(
+        device_id: DeviceId,
+        server: S,
+    ) -> Result<Self, cubecl_common::device_handle::ServiceCreationError> {
+        let utilities = Server::utilities(&server);
+        let context = DeviceHandle::<S>::insert(device_id, server)?.seen_as(as_server::<S>);
+
+        Ok(Self {
             device: context,
             utilities,
             stream_id: None,
-        }
+        })
     }
 
     /// Load the client for the given device, starting a server of type `S`

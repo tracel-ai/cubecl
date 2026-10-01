@@ -35,13 +35,28 @@ pub fn bindings(repr: &MslComputeKernel, args: &KernelArguments) -> (Vec<Visibil
     (buffers.chain(info_vis).collect(), 0)
 }
 
+/// Request a native Metal device, panicking if device creation fails.
 pub async fn request_metal_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
+    try_request_metal_device(adapter)
+        .await
+        .expect("Unable to request Metal device")
+}
+
+/// Request a native Metal device, returning device creation failures.
+/// Returns an error if the adapter does not use Metal.
+pub async fn try_request_metal_device(
+    adapter: &wgpu::Adapter,
+) -> Result<(wgpu::Device, wgpu::Queue), crate::WgpuInitError> {
     let limits = adapter.limits();
     let features = adapter
         .features()
         .difference(Features::MAPPABLE_PRIMARY_BUFFERS);
     unsafe {
-        let hal_adapter = adapter.as_hal::<hal::api::Metal>().unwrap();
+        let hal_adapter = adapter.as_hal::<hal::api::Metal>().ok_or_else(|| {
+            crate::WgpuInitError::InvalidConfiguration {
+                message: "requesting a native Metal device requires a Metal adapter".into(),
+            }
+        })?;
         request_device(adapter, &hal_adapter, features, limits)
     }
 }
@@ -51,7 +66,7 @@ fn request_device(
     adapter: &metal::Adapter,
     features: Features,
     limits: Limits,
-) -> (wgpu::Device, wgpu::Queue) {
+) -> Result<(wgpu::Device, wgpu::Queue), crate::WgpuInitError> {
     // The default is MemoryHints::Performance, which tries to do some bigger
     // block allocations. However, we already batch allocations, so we
     // can use MemoryHints::MemoryUsage to lower memory usage.
@@ -59,7 +74,9 @@ fn request_device(
     let device = unsafe {
         adapter
             .open(features, &limits, &memory_hints)
-            .expect("should create metal HAL device")
+            .map_err(|err| crate::WgpuInitError::RequestDevice {
+                message: err.to_string(),
+            })?
     };
 
     let descriptor = DeviceDescriptor {
@@ -75,7 +92,9 @@ fn request_device(
     unsafe {
         wgpu_adapter
             .create_device_from_hal(device, &descriptor)
-            .expect("Failed to create wgpu device")
+            .map_err(|err| crate::WgpuInitError::RequestDevice {
+                message: err.to_string(),
+            })
     }
 }
 
