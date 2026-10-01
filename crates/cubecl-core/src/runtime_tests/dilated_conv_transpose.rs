@@ -18,7 +18,7 @@ use cubecl_runtime::server::Handle;
 
 /// 1-D conv-transpose hyperparameters. Layouts are `[in_c, in_len]` and
 /// `[in_c, kernel]`, one output channel.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Problem {
     pub in_c: u32,
     pub in_len: u32,
@@ -251,7 +251,7 @@ pub fn prepare_buffers(client: &Client, problem: Problem) -> (Handle, Handle, Ha
     (input, weight, output)
 }
 
-/// Launch the input-window filter kernel. Used by the Metal dilation-timing test.
+/// Launch the input-window filter kernel for correctness checks and benchmarks.
 pub fn launch_filter(
     client: &Client,
     input: &Handle,
@@ -269,7 +269,7 @@ pub fn launch_filter(
     )
 }
 
-/// Launch the kernel-position loop. Used by the Metal dilation-timing test.
+/// Launch the kernel-position reference loop for benchmarks.
 pub fn launch_kernel_pos(
     client: &Client,
     input: &Handle,
@@ -287,55 +287,23 @@ pub fn launch_kernel_pos(
     )
 }
 
-fn run_and_read<K>(client: &Client, kernel: K, problem: Problem) -> Vec<f32>
-where
-    K: Fn(&Client, CubeCount, CubeDim, BufferArg, BufferArg, BufferArg, ConvArgsLaunch),
-{
+fn assert_matches_reference(client: &Client, problem: Problem) {
     let input_data = fill_input(problem);
     let weight_data = fill_weight(problem);
+    let expected = reference(problem, &input_data, &weight_data);
     let input = client.create_from_slice(f32::as_bytes(&input_data));
     let weight = client.create_from_slice(f32::as_bytes(&weight_data));
-    let output = client.empty(problem.out_len() as usize * core::mem::size_of::<f32>());
-    let output = launch_kernel(client, kernel, &input, &weight, output, problem);
+    let output = client.empty(expected.len() * core::mem::size_of::<f32>());
+    let output = launch_filter(client, &input, &weight, output, problem);
     let bytes = client.read_one_unchecked(output);
-    f32::from_bytes(&bytes).to_vec()
-}
-
-fn assert_matches_reference<K>(client: &Client, kernel: K, problem: Problem, label: &str)
-where
-    K: Fn(&Client, CubeCount, CubeDim, BufferArg, BufferArg, BufferArg, ConvArgsLaunch),
-{
-    let input = fill_input(problem);
-    let weight = fill_weight(problem);
-    let expected = reference(problem, &input, &weight);
-    let actual = run_and_read(client, kernel, problem);
-    assert_eq!(
-        actual.len(),
-        expected.len(),
-        "{label}: length mismatch for {problem:?}"
-    );
-    for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
+    let actual = f32::from_bytes(&bytes);
+    assert_eq!(actual.len(), expected.len(), "{problem:?}");
+    for (i, (a, e)) in actual.iter().zip(&expected).enumerate() {
         let tol = 1e-4f32 * e.abs().max(1.0);
         assert!(
             (a - e).abs() <= tol,
-            "{label}: index {i}: actual={a} expected={e} problem={problem:?}"
+            "index {i}: actual={a} expected={e} problem={problem:?}"
         );
-    }
-}
-
-impl core::fmt::Debug for Problem {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "in_c={} in_len={} k={} d={} pad={} stride={} out={}",
-            self.in_c,
-            self.in_len,
-            self.kernel,
-            self.dilation,
-            self.padding,
-            self.stride,
-            self.out_len()
-        )
     }
 }
 
@@ -357,7 +325,7 @@ fn correctness_cases() -> [Problem; 6] {
     ]
 }
 
-/// A last-write-wins body checks the order and presence of surviving taps.
+/// A rolling checksum checks the sequence of surviving taps, including interior ones.
 /// All bounds are runtime arguments so the compiler must emit its safety checks.
 #[cube(launch)]
 fn guarded_range_kernel(
@@ -382,7 +350,7 @@ fn guarded_range_kernel(
         if base >= scaled {
             let numerator = base - scaled;
             if numerator.is_multiple_of(divisor) {
-                output[0] = i as u32;
+                output[0] = output[0] * 31 + i as u32;
                 if stop_after_first {
                     terminate!();
                 }
@@ -398,8 +366,9 @@ pub fn test_quotient_range_boundaries<R: Runtime>(client: Client) {
         ((1 << 31) - 8, 1 << 31, u32::MAX, 2, 8),
         (u32::MAX - 8, u32::MAX, u32::MAX, 1, 8),
         (0, 8, u32::MAX, 1, 1),
-        (0, 30, 80, 3, 4),
-        (0, 4, 100, 100, 2),
+        // Exercise recovery with both coprime and shared stride/divisor factors.
+        (0, 30, 80, 3, 8),
+        (0, 16, 32, 2, 4),
         (0, 8, 48, 0, 8),
         (9, 0, u32::MAX, 2, 8),
         (0, 0, 0, 0, 0),
@@ -442,12 +411,7 @@ pub fn test_quotient_range_boundaries<R: Runtime>(client: Client) {
 /// non-power-of-two dilation (runtime `is_multiple_of`).
 pub fn test_filter_loop_matches_reference<R: Runtime>(client: Client) {
     for problem in correctness_cases() {
-        assert_matches_reference(
-            &client,
-            conv_transpose1d_filter_kernel::launch,
-            problem,
-            "filter loop",
-        );
+        assert_matches_reference(&client, problem);
     }
 }
 
