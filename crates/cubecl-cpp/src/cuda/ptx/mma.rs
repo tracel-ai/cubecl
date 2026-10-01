@@ -135,13 +135,14 @@ impl LowerOp<Cuda> for MmaManualOp {
         let frag_d = self.registers_d(ctx);
         let shape = self.shape(ctx).0;
 
-        let kind = if frag_a.element_ty(ctx).is_fp8_fp6_fp4(ctx)
-            || frag_b.element_ty(ctx).is_fp8_fp6_fp4(ctx)
-        {
-            ".kind::f8f6f4"
-        } else {
-            ""
-        };
+        // fp8 alone is a plain `mma.sync` from sm_89 on; only fp6 and fp4 need the kind, which
+        // only the sm_120 family takes (`supported_mma_combinations` offers them nowhere else).
+        let narrow = [frag_a.element_ty(ctx), frag_b.element_ty(ctx)]
+            .iter()
+            .any(|ty| {
+                ty.is_float6(ctx) || ty.is_float6x2(ctx) || ty.is_float4(ctx) || ty.is_float4x2(ctx)
+            });
+        let kind = if narrow { ".kind::f8f6f4" } else { "" };
 
         let (frag_a, frag_b, frag_c) = frags_as_vectors(scope, shape, frag_a, frag_b, frag_c);
 

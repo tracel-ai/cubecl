@@ -115,24 +115,32 @@ pub fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMmaCombin
             // TODO: u4/i4/b1, there's no types for them yet
         ]);
     }
-    if arch.get_version() >= 89 {
-        let f8f6f4_types = [
-            FloatKind::E4M3,
-            FloatKind::E5M2,
-            FloatKind::E3M2,
-            FloatKind::E2M3,
-            FloatKind::E2M1,
-        ];
-        let combinations = f8f6f4_types.iter().cartesian_product(f8f6f4_types.iter());
-        result.extend(combinations.map(|(t1, t2)| MmaConfig {
-            a_type: ElemType::Float(*t1),
-            b_type: ElemType::Float(*t2),
-            cd_type: ElemType::Float(FloatKind::F32),
-            m: 16,
-            n: 8,
-            k: 32,
-        }));
-    }
+    // fp8 runs from Ada on, as a plain `mma.sync` with no `.kind`: ptxas refuses
+    // `.kind::f8f6f4` on sm_89, sm_90 and plain sm_120. fp6 and fp4 need that kind, which only
+    // the sm_120 family takes (compiled here as `sm_120a`); sm_100a and sm_103a take the kind
+    // for fp8 but refuse fp6 and fp4 under it.
+    let fp8_types = [FloatKind::E4M3, FloatKind::E5M2];
+    let f8f6f4_types = [
+        FloatKind::E4M3,
+        FloatKind::E5M2,
+        FloatKind::E3M2,
+        FloatKind::E2M3,
+        FloatKind::E2M1,
+    ];
+    let types = match arch.get_version() {
+        ..89 => &[][..],
+        120..130 => &f8f6f4_types[..],
+        _ => &fp8_types[..],
+    };
+    let combinations = types.iter().cartesian_product(types.iter());
+    result.extend(combinations.map(|(t1, t2)| MmaConfig {
+        a_type: ElemType::Float(*t1),
+        b_type: ElemType::Float(*t2),
+        cd_type: ElemType::Float(FloatKind::F32),
+        m: 16,
+        n: 8,
+        k: 32,
+    }));
     // Warning: this likely does not follow the same layout pattern as those after 80
     if arch.get_version() >= 70 && arch.get_version() < 80 {
         result.push(MmaConfig {
@@ -221,6 +229,7 @@ pub fn contiguous_elements_cuda(
 mod tests {
     use super::supported_mma_combinations;
     use crate::cuda::arch::CudaArchitecture;
+    use cubecl_core::ir::{ElemType, FloatKind};
 
     /// A die with no tensor cores offers no MMA at all, so nothing downstream can pick a tile
     /// and measure the FP16 pipeline in units that claim tensor hardware.
@@ -233,5 +242,40 @@ mod tests {
 
         assert!(supported_mma_combinations(&turing("NVIDIA GeForce GTX 1660 SUPER")).is_empty());
         assert!(!supported_mma_combinations(&turing("NVIDIA GeForce RTX 2060")).is_empty());
+    }
+
+    /// The minifloat pairs each arch offers, `a` and `b` alike: fp8 from Ada on, fp6 and fp4
+    /// only on the sm_120 family, the one target whose ptxas takes them.
+    #[test]
+    fn fp6_and_fp4_are_offered_only_on_the_sm_120_family() {
+        let minifloats = |version: u32| {
+            let arch = CudaArchitecture {
+                version,
+                tensor_cores: true,
+            };
+            let mut kinds: Vec<FloatKind> = supported_mma_combinations(&arch)
+                .into_iter()
+                .filter_map(|config| match config.a_type {
+                    ElemType::Float(
+                        kind @ (FloatKind::E4M3
+                        | FloatKind::E5M2
+                        | FloatKind::E3M2
+                        | FloatKind::E2M3
+                        | FloatKind::E2M1),
+                    ) => Some(kind),
+                    _ => None,
+                })
+                .collect();
+            kinds.sort_by_key(|kind| format!("{kind:?}"));
+            kinds.dedup();
+            kinds
+        };
+        let fp8 = vec![FloatKind::E4M3, FloatKind::E5M2];
+
+        assert!(minifloats(86).is_empty());
+        assert_eq!(minifloats(89), fp8);
+        assert_eq!(minifloats(90), fp8);
+        assert_eq!(minifloats(100), fp8);
+        assert_eq!(minifloats(120).len(), 5);
     }
 }
