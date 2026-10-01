@@ -424,14 +424,13 @@ fn lower(
     func_passes.add_pass(SimpleCSEPass::with_memory());
     func_passes.add_pass(SimplifyOpsPass::default());
     func_passes.add_pass(PromoteBitwisePass);
-    if cubecl_opt::passes::quotient_range::enabled() {
-        func_passes.add_pass(QuotientRangePass::default());
-    }
+    func_passes.add_pass(QuotientRangePass::default());
     func_passes.add_pass(InstCombinePass::default());
     func_passes.add_pass(LowerMinifloatCastPass::default());
     func_passes.add_pass(LowerMinifloatComparePass::default());
     func_passes.add_pass(LowerComplexOpPass::default());
     target.epilogue(&mut func_passes);
+    func_passes.add_pass(SCCPPass);
     func_passes.add_pass(DCEPass);
     func_passes.add_pass(SROAPass);
 

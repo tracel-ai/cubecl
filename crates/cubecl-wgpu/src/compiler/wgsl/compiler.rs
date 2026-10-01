@@ -154,9 +154,9 @@ impl WgslCompiler {
         func_passes.add_pass(LowerBuiltinsPass);
 
         func_passes.add_pass(SCCPPass);
-        if cubecl_opt::passes::quotient_range::enabled() {
-            func_passes.add_pass(QuotientRangePass::default());
-        }
+        func_passes.add_pass(QuotientRangePass::default());
+        // Conditional polyfills can introduce fresh local declarations.
+        func_passes.add_pass(LowerOpsWgslPass::default());
         func_passes.add_pass(InstCombinePass::default());
         func_passes.add_pass(SimpleCSEPass::without_memory());
         func_passes.add_pass(SimplifyOpsPass::default());

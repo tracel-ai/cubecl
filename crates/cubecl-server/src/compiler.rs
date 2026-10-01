@@ -41,12 +41,6 @@ pub fn compilation_store<K: StoreKey, V: StoreValue>(
             return None;
         }
 
-        // The experimental pass is selected outside KernelId. Its artifacts
-        // must not be read from or written into the default compilation store.
-        if std::env::var("CUBECL_ENABLE_QUOTIENT_RANGE").as_deref() == Ok("1") {
-            return None;
-        }
-
         Some(Store::new(
             StoreOptions::new()
                 .storage(Namespace::scoped(backend, fingerprint))
