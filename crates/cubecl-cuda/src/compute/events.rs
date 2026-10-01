@@ -88,6 +88,13 @@ impl EventApi for Cuda {
         })
     }
 
+    fn stream_synchronize(stream: Self::Stream) -> Result<(), DriverError> {
+        // SAFETY: `stream` is a stream the caller holds.
+        named("cuStreamSynchronize", unsafe {
+            stream::synchronize(stream)
+        })
+    }
+
     fn stream_create_non_blocking() -> Result<Self::Stream, DriverError> {
         named(
             "cuStreamCreate",

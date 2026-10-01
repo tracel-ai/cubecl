@@ -96,6 +96,12 @@ impl EventApi for Hip {
         checked("hipStreamWaitEvent", status)
     }
 
+    fn stream_synchronize(stream: Self::Stream) -> Result<(), DriverError> {
+        // SAFETY: `stream` is a stream the caller holds.
+        let status = unsafe { cubecl_hip_sys::hipStreamSynchronize(stream) };
+        checked("hipStreamSynchronize", status)
+    }
+
     fn stream_create_non_blocking() -> Result<Self::Stream, DriverError> {
         let mut stream: hipStream_t = core::ptr::null_mut();
 

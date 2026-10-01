@@ -146,8 +146,8 @@ impl EventStreamBackend for HipStreamBackend {
         Fence::new(stream.sys)
     }
 
-    fn wait_event(stream: &mut Self::Stream, event: Self::Event) {
-        event.wait_async(stream.sys);
+    fn wait_event(stream: &mut Self::Stream, event: Self::Event) -> Result<(), ServerError> {
+        event.wait_async(stream.sys)
     }
 
     fn wait_event_sync(event: Self::Event) -> Result<(), ServerError> {

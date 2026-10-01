@@ -467,8 +467,9 @@ impl EventStreamBackend for MetalStreamBackend {
             .unwrap_or(u64::MAX)
     }
 
-    fn wait_event(stream: &mut Self::Stream, event: Self::Event) {
+    fn wait_event(stream: &mut Self::Stream, event: Self::Event) -> Result<(), ServerError> {
         event.wait_async(stream);
+        Ok(())
     }
 
     fn wait_event_sync(event: Self::Event) -> Result<(), ServerError> {

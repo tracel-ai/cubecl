@@ -88,6 +88,13 @@ pub trait EventApi: Send + Sync + 'static {
     /// [`DriverError`] when the driver refuses the dependency.
     fn stream_wait_event(stream: Self::Stream, event: &Self::Event) -> Result<(), DriverError>;
 
+    /// Block the host until every operation enqueued on `stream` has completed.
+    ///
+    /// # Errors
+    ///
+    /// [`DriverError`] when the stream's work failed.
+    fn stream_synchronize(stream: Self::Stream) -> Result<(), DriverError>;
+
     /// Create a stream that does not synchronize with the legacy default one.
     ///
     /// # Errors

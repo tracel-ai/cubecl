@@ -470,7 +470,7 @@ impl ServerCommunication for CudaServer {
 
         // The collectives ran on their own stream; this is where the compute
         // stream waits for them.
-        Fence::new(self.comm_stream()).wait_async(stream);
+        Fence::new(self.comm_stream()).wait_async(stream)?;
         Ok(())
     }
 
@@ -499,7 +499,7 @@ impl ServerCommunication for CudaServer {
         drop(command);
 
         // Wait for the data to be ready on the compute stream.
-        Fence::new(stream).wait_async(self.comm_stream());
+        Fence::new(stream).wait_async(self.comm_stream())?;
 
         let (peers, comm_id) = pair(self.device_id, device_id_dst);
         let comm = self.collectives.get(&comm_id)?;
@@ -703,7 +703,7 @@ impl CudaServer {
         drop(command);
 
         // Wait for the data to be ready on the compute stream.
-        Fence::new(stream).wait_async(self.comm_stream());
+        Fence::new(stream).wait_async(self.comm_stream())?;
 
         let comm = self.collectives.get(&CommunicationId::from(device_ids))?;
         let (nccl_dtype, count) = Cuda::data_type(dtype, resource_src.size)?;
