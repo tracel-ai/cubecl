@@ -309,7 +309,7 @@ impl ErrorGraph {
         let dropped: Vec<_> = self
             .unallocated
             .iter()
-            .filter(|(_, (_, binding))| binding.upgrade().is_none())
+            .filter(|(_, (_, binding))| !binding.is_alive())
             .map(|(id, _)| *id)
             .collect();
         for id in dropped {
@@ -536,7 +536,10 @@ mod tests {
         let memory = ManagedMemoryHandle::new();
         let id = memory.descriptor().id;
 
-        graph.fail_unallocated(&memory, error("the device is poisoned"));
+        graph.fail_unallocated(
+            &memory,
+            crate::driver::DevicePoison::new("the device is poisoned").into(),
+        );
         let reported = graph
             .reports([Claim::Unallocated(id)].into_iter())
             .expect_err("the buffer carries a failure");
@@ -553,6 +556,14 @@ mod tests {
             unrecorded.to_string().contains("never allocated"),
             "{unrecorded}"
         );
+
+        // An unallocated buffer's sole reference belongs to its caller, not a pool.
+        graph.fail_unallocated(&other, error("again"));
+        let reported = graph
+            .reports([Claim::Unallocated(id)].into_iter())
+            .unwrap_err();
+        assert!(reported.is_device_poisoned(), "{reported}");
+        assert_eq!(graph.len(), 2);
 
         // Released lazily, when the next record is made.
         drop(memory);

@@ -1,7 +1,9 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
-    memory_management::{ErrorGraph, FailureId, ManagedMemoryId, SharedMemoryBindings},
+    memory_management::{
+        ErrorGraph, FailureId, ManagedMemoryId, SharedMemoryBindings, release_or_leak,
+    },
     server::{BufferBinding, ServerError},
     stream::{FailureStore, Failures, StreamFactory, StreamMemory, StreamPool, base},
 };
@@ -149,20 +151,6 @@ impl<B: EventStreamBackend> StreamFactory for EventStreamBackendWrapper<B> {
             cursor: 0,
             last_synced: Default::default(),
         })
-    }
-}
-
-/// Drop `memory` the device may still be using, after `err` stopped the wait for it.
-///
-/// A poisoned device runs nothing anymore, so the memory is released. Otherwise the device may
-/// still be reading it, and freeing it would let another allocation reuse it under that work:
-/// it is leaked instead.
-fn release_or_leak<T>(memory: T, err: &ServerError) {
-    if err.is_device_poisoned() {
-        core::mem::drop(memory);
-    } else {
-        log::error!("leaking memory the device may still be using, after a failed wait: {err}");
-        core::mem::forget(memory);
     }
 }
 

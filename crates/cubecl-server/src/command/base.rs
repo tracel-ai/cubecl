@@ -13,9 +13,9 @@
 use super::stream_copies::StreamCopies;
 use super::{CopyLayout, DeviceResource, DeviceStream, Driver, Staging};
 use crate::id::KernelId;
-use crate::memory_management::Cleanup;
 use crate::memory_management::drop_queue::Fence;
 use crate::memory_management::relocation::{RelocatingStreams, RelocationNeed, RelocationReason};
+use crate::memory_management::{Cleanup, release_or_leak};
 use crate::memory_management::{
     ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, PageGuard, PageUpdate,
     StreamMemoryReport,
@@ -343,12 +343,15 @@ impl<'a, D: Driver> Command<'a, D> {
         let fence = D::Stream::fence(self.streams.current().signal());
 
         async move {
-            let synced = fence.wait();
+            if let Err(err) = fence.wait() {
+                // Both the device sources and host destinations may still be in use.
+                release_or_leak((held, result), &err);
+                return Err(err);
+            }
             // The bindings kept the source allocations alive across the copies;
             // the fence above is what says they are done being read.
             core::mem::drop(held);
 
-            synced?;
             result.map_err(Into::into)
         }
     }
@@ -368,8 +371,10 @@ impl<'a, D: Driver> Command<'a, D> {
                     // them. The fence `read_async` records to cover exactly
                     // this does not exist yet on the error path, so record
                     // one here and wait it out before the partial set drops.
-                    if !result.is_empty() {
-                        D::Stream::fence(self.streams.current().signal()).sync();
+                    if !result.is_empty()
+                        && !D::Stream::fence(self.streams.current().signal()).sync()
+                    {
+                        core::mem::forget(result);
                     }
                     return Err(err);
                 }
