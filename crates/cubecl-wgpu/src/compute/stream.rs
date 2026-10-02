@@ -5,6 +5,7 @@ use super::{
     timings::{QueryProfiler, TimestampAvailability, TimestampQuerySetBudget},
 };
 use crate::compute::copies::WgpuCopies;
+use crate::compute::device_poison::PoisonWatch;
 use crate::{
     WgpuResource, WgpuStorage,
     controller::WgpuAllocController,
@@ -84,6 +85,8 @@ pub struct WgpuStream {
     /// The memories the stream keeps for its own reads and launches.
     pub auxiliary: AuxiliaryMemory,
     pub device: wgpu::Device,
+    /// Whether the device is poisoned, shared with every other stream on the device.
+    poison: PoisonWatch,
     compute_pass: Option<wgpu::ComputePass<'static>>,
     timings: Timings,
     tasks_count: usize,
@@ -183,6 +186,7 @@ impl WgpuStream {
         logger: Arc<ServerLogger>,
         use_vulkan_compiler: bool,
         captures: &DeviceCaptures,
+        poison: PoisonWatch,
     ) -> Self {
         let timings = match timing_method {
             TimingMethod::Device => Timings::Unclaimed {
@@ -223,6 +227,7 @@ impl WgpuStream {
                 })
             },
             device,
+            poison,
             queue,
             tasks_count: 0,
             tasks_max,
@@ -415,6 +420,11 @@ impl WgpuStream {
         if let Err(err) = self.flush(stream_id) {
             return Box::pin(async move { Err(err) });
         }
+        // A poisoned device completes the copy as if it ran.
+        // Return the poisoning instead.
+        if let Err(err) = self.poison.check() {
+            return Box::pin(async move { Err(err) });
+        }
 
         for entry in staging_info.iter() {
             if let Some((staging, _binding, _size)) = entry {
@@ -435,14 +445,28 @@ impl WgpuStream {
         }
 
         let poll = self.poll.start_polling();
+        let poison = self.poison.clone();
 
         Box::pin(async move {
             for receiver in callbacks.iter().flatten() {
-                receiver
-                    .recv()
-                    .await
-                    .expect("Unable to receive buffer slice result.")
-                    .expect("Failed to map buffer");
+                let mapped = receiver.recv().await;
+                // The device can be poisoned while the copy is in flight.
+                poison.check()?;
+                match mapped {
+                    Ok(Ok(())) => {}
+                    Ok(Err(err)) => {
+                        return Err(ServerError::Generic {
+                            reason: format!("the staging buffer could not be mapped: {err}"),
+                            backtrace: BackTrace::capture(),
+                        });
+                    }
+                    Err(_) => {
+                        return Err(ServerError::Generic {
+                            reason: "the staging buffer's map never completed".into(),
+                            backtrace: BackTrace::capture(),
+                        });
+                    }
+                }
             }
 
             // Can stop polling now.
@@ -637,6 +661,7 @@ impl WgpuStream {
         let queue = self.queue.clone();
         let error_future = error_scope.pop();
         let poll = self.poll.start_polling();
+        let poison = self.poison.clone();
 
         Box::pin(async move {
             let (sender, receiver) = cubecl_environment::future::channel::bounded::<()>(1);
@@ -646,6 +671,8 @@ impl WgpuStream {
                 core::mem::drop(poll);
             });
             let _ = receiver.recv().await;
+
+            poison.check()?;
 
             if let Some(error) = error_future.await {
                 return Err(ServerError::Generic {

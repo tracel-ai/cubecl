@@ -11,6 +11,7 @@ use crate::{
     memory_management::{
         ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode, StreamMemoryReport,
     },
+    poison::DevicePoison,
     server::{BufferBinding, KernelResource},
     storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
@@ -247,6 +248,11 @@ pub enum LaunchError {
     #[error("Too many resources were requested during launch\n{0}")]
     TooManyResources(#[from] ResourceLimitError),
 
+    /// The device is poisoned: a kernel faulted in a way the driver makes
+    /// sticky (an illegal address, a trap, a hardware fault, etc.)
+    #[error("The device was poisoned during launch\nCaused by:\n  {0}")]
+    DevicePoisoned(#[from] DevicePoison),
+
     /// Unknown launch error.
     #[error(
         "An unknown error happened during launch\nCaused by:\n  {reason}\nBacktrace\n{backtrace}"
@@ -303,6 +309,26 @@ pub enum ResourceLimitError {
         #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
+}
+
+impl LaunchError {
+    /// Whether the device that emitted the error is poisoned.
+    pub fn is_device_poisoned(&self) -> bool {
+        match self {
+            Self::DevicePoisoned(_) => true,
+            Self::CompilationError(error) => error.is_device_poisoned(),
+            _ => false,
+        }
+    }
+
+    /// Whether this is the kernel being refused before it ran.
+    pub fn is_refusal(&self) -> bool {
+        match self {
+            Self::CompilationError(error) => error.is_refusal(),
+            Self::TooManyResources(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl core::fmt::Debug for LaunchError {
@@ -412,6 +438,11 @@ pub enum ServerError {
         backtrace: BackTrace,
     },
 
+    /// The device is poisoned: a kernel faulted in a way the driver makes
+    /// sticky (an illegal address, a trap, a hardware fault, etc.)
+    #[error("The device is poisoned\nCaused by:\n  {0}")]
+    DevicePoisoned(#[from] DevicePoison),
+
     /// A launch error happened
     #[error("A launch error happened\nCaused by:\n  {0}")]
     Launch(#[from] LaunchError),
@@ -519,12 +550,32 @@ impl ServerError {
     /// refusals is still a real failure, and an empty group refuses nothing.
     pub fn is_refusal(&self) -> bool {
         match self {
-            Self::Launch(LaunchError::CompilationError(error)) => error.is_refusal(),
-            Self::Launch(LaunchError::TooManyResources(_)) => true,
+            Self::Launch(error) => error.is_refusal(),
             Self::Unwritten { root, .. } => root.is_refusal(),
             Self::Several { errors, .. } => {
                 !errors.is_empty() && errors.iter().all(Self::is_refusal)
             }
+            _ => false,
+        }
+    }
+
+    /// Whether the device that emitted the error is poisoned.
+    ///
+    /// The other half of [`is_refusal`](Self::is_refusal): a refusal says
+    /// "drop this candidate", a poisoned device says "drop the device". Anything
+    /// else — an out-of-memory, a failed copy, a skipped launch — leaves the
+    /// device usable, and redoing the work may well succeed.
+    ///
+    /// Walks [`Several`](Self::Several) and [`Unwritten`](Self::Unwritten) to
+    /// the roots, and answers yes when *any* root poisoned the device: one poisoned
+    /// device among other failures still means nothing on it can be trusted.
+    pub fn is_device_poisoned(&self) -> bool {
+        match self {
+            Self::DevicePoisoned(_) => true,
+            Self::Launch(error) => error.is_device_poisoned(),
+            Self::Io(error) => error.is_device_poisoned(),
+            Self::Unwritten { root, .. } => root.is_device_poisoned(),
+            Self::Several { errors, .. } => errors.iter().any(Self::is_device_poisoned),
             _ => false,
         }
     }
@@ -555,7 +606,18 @@ pub trait Server:
     core::any::Any + Send + core::fmt::Debug + ServerCommunication + device::DeviceService + 'static
 {
     /// Initializes [memory](ManagedMemoryHandle) on the given [stream](StreamId) with the given size.
-    fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId);
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ServerError`] when the memory could not be initialized, e.g. because the stream
+    /// cannot be created on a poisoned device. The memory then carries the error: the next
+    /// sync point reading that memory reports it.
+    fn initialize_memory(
+        &mut self,
+        memory: ManagedMemoryHandle,
+        size: u64,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError>;
 
     /// Reserves N [Bytes] of the provided sizes to be used as staging to load data.
     fn staging(
@@ -725,7 +787,9 @@ pub trait Server:
     /// each pool's shape, usage, and high-water marks, in allocation-routing
     /// order. The read side of a measured memory plan — see
     /// `MemoryManagement::memory_report` in `cubecl-server`.
-    fn memory_report(&mut self, stream_id: StreamId) -> StreamMemoryReport;
+    ///
+    /// `None` when the stream was never created.
+    fn memory_report(&mut self, stream_id: StreamId) -> Option<StreamMemoryReport>;
 
     /// Stream ids the client should iterate to aggregate across the device.
     ///
@@ -1233,6 +1297,11 @@ pub enum IoError {
         backtrace: BackTrace,
     },
 
+    /// The device is poisoned: a kernel faulted in a way the driver makes
+    /// sticky (an illegal address, a trap, a hardware fault, etc.)
+    #[error("The device is poisoned: {0}")]
+    DevicePoisoned(#[from] DevicePoison),
+
     /// Unknown error happened during execution
     #[error("Unknown error happened during execution: {description}\n{backtrace}")]
     Unknown {
@@ -1253,6 +1322,15 @@ pub enum IoError {
 }
 
 impl IoError {
+    /// Whether the device that emitted the error is poisoned.
+    pub fn is_device_poisoned(&self) -> bool {
+        match self {
+            Self::DevicePoisoned(_) => true,
+            Self::StorageMappingFailed { source, .. } => source.is_device_poisoned(),
+            _ => false,
+        }
+    }
+
     /// Whether reclaiming memory could still make this allocation succeed.
     ///
     /// Out of memory *right now* is not out of memory for good: pool pages
@@ -1792,6 +1870,68 @@ mod tests {
         assert_eq!(read.len(), 2, "ReadOnly and ReadWrite are read");
         assert!(core::ptr::eq(read[0], args.buffers().next().unwrap()));
         assert!(core::ptr::eq(read[1], args.buffers().nth(2).unwrap()));
+    }
+
+    /// A poisoned device is the one failure a caller must not retry.
+    ///
+    /// Loading the next kernel is the case that matters most: it arrives as a
+    /// compilation error, and read as a refusal it would have an autotuner
+    /// quietly drop the candidate and try the next one on a dead device.
+    #[test_log::test]
+    fn poisoned_device_read_through_every_path() {
+        use crate::server::{IoError, LaunchError};
+
+        let poison = || DevicePoison {
+            reason: String::from("cuEventSynchronize failed with status 700"),
+            backtrace: Default::default(),
+        };
+        let poisoned = [
+            ServerError::DevicePoisoned(poison()),
+            ServerError::Launch(LaunchError::DevicePoisoned(poison())),
+            ServerError::Launch(LaunchError::CompilationError(
+                CompilationError::DevicePoisoned(poison()),
+            )),
+            ServerError::Io(IoError::DevicePoisoned(poison())),
+            ServerError::Io(IoError::StorageMappingFailed {
+                size: 1 << 20,
+                source: alloc::boxed::Box::new(IoError::DevicePoisoned(poison())),
+                backtrace: Default::default(),
+            }),
+        ];
+        let refused =
+            ServerError::Launch(LaunchError::CompilationError(CompilationError::Generic {
+                reason: "no such intrinsic on this target".into(),
+                backtrace: Default::default(),
+            }));
+        let transient = ServerError::Generic {
+            reason: "the copy failed".into(),
+            backtrace: Default::default(),
+        };
+
+        for error in &poisoned {
+            assert!(error.is_device_poisoned(), "{error}");
+            assert!(
+                !error.is_refusal(),
+                "a poisoned device is not a refusal: {error}"
+            );
+        }
+        assert!(!refused.is_device_poisoned());
+        assert!(!transient.is_device_poisoned());
+
+        let unwritten = ServerError::Unwritten {
+            failure: 1,
+            claimed: 1,
+            chain: Vec::new(),
+            root: alloc::boxed::Box::new(poisoned[1].clone()),
+            backtrace: Default::default(),
+        };
+        assert!(unwritten.is_device_poisoned());
+        let group = ServerError::Several {
+            errors: vec![refused, unwritten],
+            backtrace: Default::default(),
+        };
+        assert!(group.is_device_poisoned());
+        assert!(!group.is_refusal());
     }
 
     /// A refusal is the kernel being turned down, and nothing else is.

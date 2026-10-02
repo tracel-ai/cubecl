@@ -385,7 +385,8 @@ impl DeviceService for CudaServer {
         // The context is current (set above), so the stream lands on it.
         let comm_stream = crate::compute::stream::create_cuda_stream(
             CubeClRuntimeConfig::get().streaming.priority,
-        );
+        )
+        .expect("Can create the communication stream.");
         let cuda_ctx = CudaContext::new(
             comp_opts,
             device_props.clone(),

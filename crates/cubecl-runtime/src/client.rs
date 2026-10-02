@@ -326,11 +326,12 @@ impl Client {
 
     /// Given bindings, returns owned resources as bytes.
     ///
-    /// # Remarks
+    /// # Errors
     ///
-    /// Panics if the read operation fails.
-    pub fn read(&self, handles: Vec<Handle>) -> Vec<Bytes> {
-        cubecl_environment::future::reader::read_sync(self.read_async(handles)).expect("TODO")
+    /// Returns a [`ServerError`] if the read operation fails, or if a an error occurred on the
+    /// compute server leading to the read.
+    pub fn read(&self, handles: Vec<Handle>) -> Result<Vec<Bytes>, ServerError> {
+        cubecl_environment::future::reader::read_sync(self.read_async(handles))
     }
 
     /// Given a binding, returns owned resource as bytes.
@@ -359,19 +360,19 @@ impl Client {
 
     /// Given bindings, returns owned resources as bytes.
     ///
-    /// # Remarks
-    ///
-    /// Panics if the read operation fails.
-    ///
     /// The tensor must be in the same layout as created by the runtime, or more strict.
     /// Contiguous tensors are always fine, strided tensors are only ok if the stride is similar to
     /// the one created by the runtime (i.e. padded on only the last dimension). A way to check
     /// stride compatibility on the runtime will be added in the future.
     ///
     /// Also see [`Client::create_tensor`].
-    pub fn read_tensor(&self, descriptors: Vec<CopyDescriptor>) -> Vec<Bytes> {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ServerError`] if the read operation fails, or if a an error occurred on the
+    /// compute server leading to the read.
+    pub fn read_tensor(&self, descriptors: Vec<CopyDescriptor>) -> Result<Vec<Bytes>, ServerError> {
         cubecl_environment::future::reader::read_sync(self.read_tensor_async(descriptors))
-            .expect("TODO")
     }
 
     /// Given a binding, returns owned resource as bytes.
@@ -392,7 +393,9 @@ impl Client {
     /// Panics if the read operation fails.
     /// See [`Client::read_tensor`]
     pub fn read_one_unchecked_tensor(&self, descriptor: CopyDescriptor) -> Bytes {
-        self.read_tensor(vec![descriptor]).remove(0)
+        self.read_tensor(vec![descriptor])
+            .expect("the read failed, use `read_one_tensor_async` to handle the error")
+            .remove(0)
     }
 
     /// Reads the device resource described by `descriptor` lazily.
@@ -417,12 +420,27 @@ impl Client {
     ///
     /// On native targets the returned future is immediately ready and yields a lazy [`Bytes`]
     /// whose device-to-host copy is deferred to first access (see [`read_lazy`](Self::read_lazy)).
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ServerError`] if a an error occurred on the compute server leading to the read.
+    /// A device fault is not detected here: the copy is deferred, so it surfaces as an error on
+    /// first access to the returned [`Bytes`].
     #[cfg(not(target_family = "wasm"))]
     pub fn read_lazy_async(
         &self,
         descriptor: CopyDescriptor,
     ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
         if let Err(err) = self.local(&descriptor.handle) {
+            return core::future::ready(Err(err));
+        }
+        let binding = descriptor.handle.clone();
+        let stream_id = self.stream_id();
+        let checked = self
+            .device
+            .submit_blocking(move |server| server.check(vec![binding], stream_id))
+            .unwrap_or_resume();
+        if let Err(err) = checked {
             return core::future::ready(Err(err));
         }
         let len = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
@@ -501,8 +519,11 @@ impl Client {
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         self.device.submit(move |server| {
-            server.initialize_memory(memory, size, stream_id);
-            server.write(descriptors, stream_id);
+            // Cannot write on memory that wasn't initialized. The error is attached to the
+            // buffer and is reported at the next sync point.
+            if server.initialize_memory(memory, size, stream_id).is_ok() {
+                server.write(descriptors, stream_id);
+            }
         });
 
         layouts
@@ -538,8 +559,11 @@ impl Client {
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         self.device.submit(move |server| {
-            server.initialize_memory(memory, size, stream_id);
-            server.write(descriptors, stream_id);
+            // Cannot write on memory that wasn't initialized. The error is attached to the
+            // buffer and is reported at the next sync point.
+            if server.initialize_memory(memory, size, stream_id).is_ok() {
+                server.write(descriptors, stream_id);
+            }
         });
 
         layouts
@@ -785,7 +809,8 @@ impl Client {
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         self.device.submit(move |server| {
-            server.initialize_memory(memory, size, stream_id);
+            // The error is attached to the buffer and is reported at the next sync point.
+            let _ = server.initialize_memory(memory, size, stream_id);
         });
 
         layouts
@@ -1480,7 +1505,7 @@ impl Client {
                 MemoryReport {
                     streams: streams
                         .into_iter()
-                        .map(|id| server.memory_report(id))
+                        .filter_map(|id| server.memory_report(id))
                         .collect(),
                 }
             })
@@ -1741,8 +1766,14 @@ impl Client {
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         dst_server.device.submit(move |server| {
-            server.initialize_memory(memory, size, stream_id_dst);
-            server.write(vec![(desc_descriptor, data.remove(0))], stream_id_dst)
+            // Cannot write on memory that wasn't initialized. The error is attached to the
+            // buffer and is reported at the next sync point.
+            if server
+                .initialize_memory(memory, size, stream_id_dst)
+                .is_ok()
+            {
+                server.write(vec![(desc_descriptor, data.remove(0))], stream_id_dst)
+            }
         });
 
         alloc

@@ -126,7 +126,12 @@ impl<M: Marker> Server for DummyServer<M> {
         self.utilities.clone()
     }
 
-    fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, _stream_id: StreamId) {
+    fn initialize_memory(
+        &mut self,
+        memory: ManagedMemoryHandle,
+        size: u64,
+        _stream_id: StreamId,
+    ) -> Result<(), ServerError> {
         let reserved = self
             .memory_management
             .reserve(size, PageUpdate::Allow, &mut self.failures)
@@ -134,6 +139,7 @@ impl<M: Marker> Server for DummyServer<M> {
         self.memory_management
             .bind(reserved, memory.clone(), 0, &mut self.failures)
             .unwrap();
+        Ok(())
     }
 
     fn read(
@@ -305,12 +311,12 @@ impl<M: Marker> Server for DummyServer<M> {
     fn memory_report(
         &mut self,
         stream_id: StreamId,
-    ) -> cubecl_server::memory_management::StreamMemoryReport {
-        cubecl_server::memory_management::StreamMemoryReport {
+    ) -> Option<cubecl_server::memory_management::StreamMemoryReport> {
+        Some(cubecl_server::memory_management::StreamMemoryReport {
             stream: stream_id,
             pools: self.memory_management.memory_report(),
             auxiliary: Vec::new(),
-        }
+        })
     }
 
     fn memory_cleanup(&mut self, _stream_id: StreamId) -> Result<(), ServerError> {
@@ -448,7 +454,8 @@ impl<M: Marker> DummyServer<M> {
         let strides: Strides = [1].into();
         let shape: Shape = [data.len()].into();
 
-        self.initialize_memory(handle.memory.clone(), handle.size(), stream_id);
+        self.initialize_memory(handle.memory.clone(), handle.size(), stream_id)
+            .expect("the dummy server always allocates");
         self.write(
             vec![(
                 CopyDescriptor::new(handle.binding(), shape, strides, 1),

@@ -9,6 +9,7 @@
 use super::storage::gpu::GpuResource;
 use crate::compiler::{HipBackend, HipCompilationOptions, HipCompiler, HipRepresentation};
 use crate::compute::events::EventProfiler;
+use crate::compute::status::checked;
 use crate::compute::stream::Stream;
 use cubecl_core::hash::StableHasher;
 use cubecl_core::{hash::StableHash, ir::DeviceProperties, prelude::*, server::ResourceLimitError};
@@ -19,7 +20,6 @@ use cubecl_hip_sys::get_hip_include_path;
 use cubecl_server::compiler::{
     CompilationCache, CompilationRecording, build_id_hash, compilation_store, store_compiled,
 };
-use cubecl_server::driver::checked;
 use cubecl_server::kernel::BufferIOAttr;
 use cubecl_server::kernel::DebugInformation;
 use cubecl_server::{

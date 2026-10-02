@@ -1,7 +1,9 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
-    memory_management::{ErrorGraph, FailureId, ManagedMemoryId, SharedMemoryBindings},
+    memory_management::{
+        ErrorGraph, FailureId, ManagedMemoryId, SharedMemoryBindings, release_or_leak,
+    },
     server::{BufferBinding, ServerError},
     stream::{FailureStore, Failures, StreamFactory, StreamMemory, StreamPool, base},
 };
@@ -27,7 +29,12 @@ pub trait EventStreamBackend: 'static {
     type Event: Send + 'static;
 
     /// Initializes and returns a new stream associated with the given stream ID.
-    fn create_stream(&self) -> Self::Stream;
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ServerError`] when the driver cannot create the stream, e.g. on a device that
+    /// is poisoned.
+    fn create_stream(&self) -> Result<Self::Stream, ServerError>;
     /// Returns the cursor of the given handle on the given stream.
     fn handle_cursor(stream: &Self::Stream, handle: &BufferBinding) -> u64;
     /// Flushes the given stream, ensuring all pending operations are submitted, and returns an event
@@ -38,7 +45,12 @@ pub trait EventStreamBackend: 'static {
     /// where a pool sheds the failures its slices carry.
     fn flush(stream: &mut Self::Stream, failures: &mut ErrorGraph) -> Self::Event;
     /// Makes the stream wait for the specified event to complete before proceeding with further operations.
-    fn wait_event(stream: &mut Self::Stream, event: Self::Event);
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ServerError`] when the dependency cannot be honoured, because the work the
+    /// event marks failed.
+    fn wait_event(stream: &mut Self::Stream, event: Self::Event) -> Result<(), ServerError>;
     /// Wait for the given event synching the CPU.
     fn wait_event_sync(event: Self::Event) -> Result<(), ServerError>;
 }
@@ -133,12 +145,12 @@ impl<B: EventStreamBackend> StreamMemory for StreamWrapper<B> {
 impl<B: EventStreamBackend> StreamFactory for EventStreamBackendWrapper<B> {
     type Stream = StreamWrapper<B>;
 
-    fn create(&mut self) -> Self::Stream {
-        StreamWrapper {
-            stream: self.backend.create_stream(),
+    fn create(&mut self) -> Result<Self::Stream, ServerError> {
+        Ok(StreamWrapper {
+            stream: self.backend.create_stream()?,
             cursor: 0,
             last_synced: Default::default(),
-        }
+        })
     }
 }
 
@@ -153,8 +165,10 @@ impl<B: EventStreamBackend> GcThread<B> {
 
         cubecl_environment::thread::spawn(move || {
             while let Ok(event) = recv.recv() {
-                B::wait_event_sync(event.event).unwrap();
-                core::mem::drop(event.to_drop);
+                match B::wait_event_sync(event.event) {
+                    Ok(()) => core::mem::drop(event.to_drop),
+                    Err(err) => release_or_leak(event.to_drop, &err),
+                }
             }
         });
 
@@ -241,10 +255,15 @@ impl<'a, B: EventStreamBackend> Drop for ResolvedStreams<'a, B> {
         let event_origin = B::flush(&mut stream.stream, self.failures);
 
         let stream_gc = &mut unsafe { self.streams.get_special(0) }.stream;
-        B::wait_event(stream_gc, event_origin);
+        let pinned = core::mem::take(&mut self.analysis.pinned);
+        // Without the dependency, the release stream's fence could be reached while this
+        // stream still reads the pinned memory.
+        if let Err(err) = B::wait_event(stream_gc, event_origin) {
+            release_or_leak(pinned, &err);
+            return;
+        }
         let event = B::flush(stream_gc, self.failures);
 
-        let pinned = core::mem::take(&mut self.analysis.pinned);
         self.gc.register(GcTask::new(pinned, event));
     }
 }
@@ -294,24 +313,36 @@ impl<B: EventStreamBackend> MultiStream<B> {
     ///
     /// This method ensures that the stream is synchronized with any shared bindings from other streams
     /// before returning the stream reference.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ServerError`] when the stream, or the stream that releases memory shared
+    /// between streams, has to be created and cannot be, e.g. on a poisoned device.
     pub fn resolve<'a>(
         &mut self,
         stream_id: StreamId,
         handles: impl Iterator<Item = &'a BufferBinding>,
-    ) -> ResolvedStreams<'_, B> {
-        let analysis = self.align_streams(stream_id, handles);
+    ) -> Result<ResolvedStreams<'_, B>, ServerError> {
+        self.streams.get_or_create(&stream_id)?;
+        let analysis = self.align_streams(stream_id, handles)?;
+        if !analysis.pinned.is_empty() {
+            // The release of pinned memory goes through this stream when the resolved
+            // streams are dropped, where a failure could not be returned.
+            // SAFETY: the pool is created with one special stream.
+            unsafe { self.streams.get_or_create_special(0) }?;
+        }
 
         let stream = self.streams.get_mut(&stream_id);
         stream.cursor += 1;
 
-        ResolvedStreams {
+        Ok(ResolvedStreams {
             cursor: stream.cursor,
             streams: &mut self.streams,
             failures: self.failures.graph_mut(),
             current: stream_id,
             analysis,
             gc: &self.gc,
-        }
+        })
     }
 
     /// Aligns the target stream with other streams based on shared bindings.
@@ -322,8 +353,8 @@ impl<B: EventStreamBackend> MultiStream<B> {
         &mut self,
         stream_id: StreamId,
         handles: impl Iterator<Item = &'a BufferBinding>,
-    ) -> SharedBindingAnalysis {
-        let analysis = self.update_shared_bindings(stream_id, handles);
+    ) -> Result<SharedBindingAnalysis, ServerError> {
+        let analysis = self.update_shared_bindings(stream_id, handles)?;
 
         self.apply_analysis(stream_id, analysis)
     }
@@ -336,7 +367,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
         &mut self,
         stream_id: StreamId,
         handles: impl Iterator<Item = &'a BufferBinding>,
-    ) -> SharedBindingAnalysis {
+    ) -> Result<SharedBindingAnalysis, ServerError> {
         // We reset the memory pool for the info.
         self.shared_bindings_pool.clear();
 
@@ -345,7 +376,8 @@ impl<B: EventStreamBackend> MultiStream<B> {
         // We only consider handles whose stream is different from the current stream.
         for handle in handles.filter(|handle| handle.stream != stream_id) {
             let index = stream_index(&handle.stream, self.max_streams);
-            let stream = unsafe { self.streams.get_mut_index(index) };
+            // SAFETY: `stream_index` keeps the index within the regular streams.
+            let stream = unsafe { self.streams.get_or_create_index(index) }?;
             let cursor_handle = B::handle_cursor(&stream.stream, handle);
 
             self.shared_bindings_pool.push((
@@ -392,16 +424,16 @@ impl<B: EventStreamBackend> MultiStream<B> {
             }
         }
 
-        analysis
+        Ok(analysis)
     }
 
     pub(crate) fn apply_analysis(
         &mut self,
         stream_id: StreamId,
         analysis: SharedBindingAnalysis,
-    ) -> SharedBindingAnalysis {
+    ) -> Result<SharedBindingAnalysis, ServerError> {
         if analysis.slices.is_empty() {
-            return analysis;
+            return Ok(analysis);
         }
 
         let mut events = Vec::with_capacity(analysis.slices.len());
@@ -418,17 +450,17 @@ impl<B: EventStreamBackend> MultiStream<B> {
         let stream = self.streams.get_mut(&stream_id);
 
         for ((stream_origin, cursor_origin), event) in events {
-            stream.last_synced.insert(*stream_origin, cursor_origin);
-
             self.logger.log_streaming(
                 |level| !matches!(level, StreamingLogLevel::Disabled),
                 || format!("Waiting on {stream_origin} from {stream_id}",),
             );
 
-            B::wait_event(&mut stream.stream, event);
+            B::wait_event(&mut stream.stream, event)?;
+            // Only once the wait is in place: a stream that did not wait has not synced.
+            stream.last_synced.insert(*stream_origin, cursor_origin);
         }
 
-        analysis
+        Ok(analysis)
     }
 }
 
@@ -514,10 +546,12 @@ mod tests {
         let binding_2 = handle(stream_2);
 
         let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
-        ms.resolve(stream_1, [].into_iter());
-        ms.resolve(stream_2, [].into_iter());
+        ms.resolve(stream_1, [].into_iter()).unwrap();
+        ms.resolve(stream_2, [].into_iter()).unwrap();
 
-        let analysis = ms.update_shared_bindings(stream_1, [&binding_1, &binding_2].into_iter());
+        let analysis = ms
+            .update_shared_bindings(stream_1, [&binding_1, &binding_2].into_iter())
+            .unwrap();
 
         let mut expected = SharedBindingAnalysis::default();
         expected.shared(
@@ -539,11 +573,12 @@ mod tests {
         let binding_3 = handle(stream_1);
 
         let mut ms = MultiStream::new(logger, TestBackend, 4);
-        ms.resolve(stream_1, [].into_iter());
-        ms.resolve(stream_2, [].into_iter());
+        ms.resolve(stream_1, [].into_iter()).unwrap();
+        ms.resolve(stream_2, [].into_iter()).unwrap();
 
-        let analysis =
-            ms.update_shared_bindings(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
+        let analysis = ms
+            .update_shared_bindings(stream_1, [&binding_1, &binding_2, &binding_3].into_iter())
+            .unwrap();
 
         let mut expected = SharedBindingAnalysis::default();
         expected.shared(
@@ -565,11 +600,12 @@ mod tests {
         let binding_3 = handle(stream_1);
 
         let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
-        ms.resolve(stream_1, [].into_iter());
-        ms.resolve(stream_2, [].into_iter());
+        ms.resolve(stream_1, [].into_iter()).unwrap();
+        ms.resolve(stream_2, [].into_iter()).unwrap();
 
-        let analysis =
-            ms.update_shared_bindings(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
+        let analysis = ms
+            .update_shared_bindings(stream_1, [&binding_1, &binding_2, &binding_3].into_iter())
+            .unwrap();
 
         let expected = SharedBindingAnalysis::default();
 
@@ -587,10 +623,11 @@ mod tests {
         let binding_3 = handle(stream_1);
 
         let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
-        ms.resolve(stream_1, [].into_iter());
-        ms.resolve(stream_2, [].into_iter());
+        ms.resolve(stream_1, [].into_iter()).unwrap();
+        ms.resolve(stream_2, [].into_iter()).unwrap();
 
-        ms.resolve(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
+        ms.resolve(stream_1, [&binding_1, &binding_2, &binding_3].into_iter())
+            .unwrap();
 
         let stream1 = ms.streams.get_mut(&stream_1);
         let index_2 = stream_index(&stream_2, MAX_STREAMS as usize);
@@ -610,14 +647,14 @@ mod tests {
 
         let gate = Arc::new(AtomicBool::new(false));
         let mut ms = MultiStream::new(logger, GatedBackend { gate: gate.clone() }, MAX_STREAMS);
-        ms.resolve(stream_1, [].into_iter());
-        ms.resolve(stream_2, [].into_iter());
+        ms.resolve(stream_1, [].into_iter()).unwrap();
+        ms.resolve(stream_2, [].into_iter()).unwrap();
 
         let handle = Handle::new(service(), stream_1, 10);
         let observer = handle.memory.clone();
         let binding = handle.binding();
 
-        drop(ms.resolve(stream_2, [&binding].into_iter()));
+        drop(ms.resolve(stream_2, [&binding].into_iter()).unwrap());
         drop(binding);
 
         // The GC thread is blocked on the (gated) consumer event, so the pinned
@@ -640,13 +677,13 @@ mod tests {
 
         let gate = Arc::new(AtomicBool::new(true));
         let mut ms = MultiStream::new(logger, GatedBackend { gate: gate.clone() }, MAX_STREAMS);
-        ms.resolve(stream_1, [].into_iter());
-        ms.resolve(stream_2, [].into_iter());
+        ms.resolve(stream_1, [].into_iter()).unwrap();
+        ms.resolve(stream_2, [].into_iter()).unwrap();
 
         // First resolve records stream_1 as synced on stream_2.
         let handle_1 = Handle::new(service(), stream_1, 10);
         let binding_1 = handle_1.binding();
-        drop(ms.resolve(stream_2, [&binding_1].into_iter()));
+        drop(ms.resolve(stream_2, [&binding_1].into_iter()).unwrap());
         drop(binding_1);
 
         // Close the gate for the second round.
@@ -660,7 +697,7 @@ mod tests {
         // analysis is empty — but the binding must still be pinned: the origin
         // stream could otherwise free/reuse the memory under the in-flight
         // consumer.
-        let resolved = ms.resolve(stream_2, [&binding_2].into_iter());
+        let resolved = ms.resolve(stream_2, [&binding_2].into_iter()).unwrap();
         assert!(resolved.analysis.slices.is_empty());
         drop(resolved);
         drop(binding_2);
@@ -750,10 +787,10 @@ mod tests {
         type Stream = GatedStream;
         type Event = GatedEvent;
 
-        fn create_stream(&self) -> Self::Stream {
-            GatedStream {
+        fn create_stream(&self) -> Result<Self::Stream, ServerError> {
+            Ok(GatedStream {
                 gate: self.gate.clone(),
-            }
+            })
         }
 
         fn flush(stream: &mut Self::Stream, _failures: &mut ErrorGraph) -> Self::Event {
@@ -762,7 +799,9 @@ mod tests {
             }
         }
 
-        fn wait_event(_stream: &mut Self::Stream, _event: Self::Event) {}
+        fn wait_event(_stream: &mut Self::Stream, _event: Self::Event) -> Result<(), ServerError> {
+            Ok(())
+        }
 
         fn wait_event_sync(event: Self::Event) -> Result<(), ServerError> {
             while !event.gate.load(Ordering::Acquire) {
@@ -780,15 +819,17 @@ mod tests {
         type Stream = TestStream;
         type Event = TestEvent;
 
-        fn create_stream(&self) -> Self::Stream {
-            TestStream
+        fn create_stream(&self) -> Result<Self::Stream, ServerError> {
+            Ok(TestStream)
         }
 
         fn flush(_stream: &mut Self::Stream, _failures: &mut ErrorGraph) -> Self::Event {
             TestEvent {}
         }
 
-        fn wait_event(_stream: &mut Self::Stream, _event: Self::Event) {}
+        fn wait_event(_stream: &mut Self::Stream, _event: Self::Event) -> Result<(), ServerError> {
+            Ok(())
+        }
 
         fn wait_event_sync(_event: Self::Event) -> Result<(), ServerError> {
             Ok(())
@@ -797,5 +838,21 @@ mod tests {
         fn handle_cursor(_stream: &Self::Stream, _handle: &BufferBinding) -> u64 {
             0
         }
+    }
+
+    #[test]
+    fn memory_is_released_only_when_the_device_runs_nothing_anymore() {
+        let memory = Arc::new(());
+
+        let other = ServerError::Generic {
+            reason: "the wait failed".into(),
+            backtrace: Default::default(),
+        };
+        release_or_leak(memory.clone(), &other);
+        assert_eq!(Arc::strong_count(&memory), 2, "leaked, not released");
+
+        let poisoned: ServerError = crate::driver::DevicePoison::new("status 700").into();
+        release_or_leak(memory.clone(), &poisoned);
+        assert_eq!(Arc::strong_count(&memory), 2, "released, not leaked");
     }
 }

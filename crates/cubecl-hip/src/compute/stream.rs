@@ -23,7 +23,7 @@ use cubecl_server::{
 };
 use std::sync::Arc;
 
-use cubecl_server::driver::checked;
+use crate::compute::status::checked;
 
 use crate::compute::{cpu::PinnedMemoryStorage, events::Fence, gpu::GpuStorage};
 
@@ -80,9 +80,9 @@ impl EventStreamBackend for HipStreamBackend {
     type Stream = Stream;
     type Event = Fence;
 
-    fn create_stream(&self) -> Self::Stream {
+    fn create_stream(&self) -> Result<Self::Stream, ServerError> {
         // SAFETY: Calling HIP FFI to create a non-blocking stream. The stream handle is
-        // initialized by HIP on success (asserted below) and stored for the lifetime of
+        // initialized by HIP on success (checked below) and stored for the lifetime of
         // this `Stream`.
         let stream = unsafe {
             let mut stream: cubecl_hip_sys::hipStream_t = std::ptr::null_mut();
@@ -90,9 +90,7 @@ impl EventStreamBackend for HipStreamBackend {
                 &mut stream,
                 cubecl_hip_sys::hipStreamNonBlocking,
             );
-            // Fatal: the pool hands out streams by value and every operation
-            // on this backend is issued against one.
-            checked("hipStreamCreateWithFlags", stream_status).expect("the pool needs a stream");
+            checked("hipStreamCreateWithFlags", stream_status)?;
             stream
         };
         let storage = GpuStorage::new(self.mem_alignment);
@@ -118,7 +116,7 @@ impl EventStreamBackend for HipStreamBackend {
             MemoryManagementOptions::new("Pinned CPU Memory").mode(MemoryAllocationMode::Auto),
         );
 
-        Stream {
+        Ok(Stream {
             sys: stream,
             memory_management_gpu,
             memory_management_cpu,
@@ -141,15 +139,15 @@ impl EventStreamBackend for HipStreamBackend {
                 },
                 ..Default::default()
             }),
-        }
+        })
     }
 
     fn flush(stream: &mut Self::Stream, _failures: &mut ErrorGraph) -> Self::Event {
         Fence::new(stream.sys)
     }
 
-    fn wait_event(stream: &mut Self::Stream, event: Self::Event) {
-        event.wait_async(stream.sys);
+    fn wait_event(stream: &mut Self::Stream, event: Self::Event) -> Result<(), ServerError> {
+        event.wait_async(stream.sys)
     }
 
     fn wait_event_sync(event: Self::Event) -> Result<(), ServerError> {
