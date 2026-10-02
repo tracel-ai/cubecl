@@ -255,7 +255,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         validate_cube_dim(&self.utilities.properties, &kernel_id)?;
         validate_units(&self.utilities.properties, &kernel_id)?;
 
-        let definition = kernel.define();
+        let definition = cubecl_core::define_kernel(&*kernel)?;
         recording.defined(&definition);
 
         let mut compiler = C::init(self.backend, &self.compilation_options);

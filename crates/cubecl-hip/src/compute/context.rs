@@ -187,7 +187,7 @@ impl HipContext {
 
         // CubeCL compilation
         // jitc = just-in-time compiled
-        let definition = cube_kernel.define();
+        let definition = cubecl_core::define_kernel(&*cube_kernel)?;
         recording.defined(&definition);
         let jitc_kernel = CompiledKernel::compile(
             &*cube_kernel,
