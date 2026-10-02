@@ -172,55 +172,74 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
         value: NativeExpand<Vector<Q, NQ>>,
         read_scale: impl FnOnce(&Scope) -> NativeExpand<S>,
     ) -> NativeExpand<Vector<F, NF>> {
-        // The reading variants are where the register can disagree with the scheme: the static
-        // constructors take a scheme without inspecting it. A whole scale stands for whatever the
-        // caller multiplied into it, so the scheme says nothing about it.
-        check_table_bindings(&self.scheme, self.table.is_some());
-        match self.known_scale {
-            KnownScaleExpand::None => {
-                assert!(
-                    self.scheme.num_levels() == 1,
-                    "every scale is read from the scales view, but {:?} has a per-tensor scale nothing multiplies in",
-                    self.scheme,
-                );
-                let scale = read_scale(scope);
-                dequantize_aligned::expand::<Q, S, F, NQ, NF>(
-                    scope,
-                    value,
-                    scale,
-                    self.table.clone(),
-                    self.scheme,
-                )
-            }
-            KnownScaleExpand::Global(global_scale) => {
-                assert!(
-                    self.scheme.num_levels() > 1,
-                    "an global scale rides in a register, but {:?} has no per-tensor level over its blocks it could hold",
-                    self.scheme,
-                );
-                check_global_levels(&self.scheme);
-                let scale = read_scale(scope);
-                let scale = multiply_global_scale::expand::<S>(scope, global_scale, scale);
-                dequantize_aligned_wide::expand::<Q, F, NQ, NF>(
-                    scope,
-                    value,
-                    scale,
-                    self.table.clone(),
-                    self.scheme,
-                )
-            }
-            KnownScaleExpand::Whole(scale) => dequantize_aligned_wide::expand::<Q, F, NQ, NF>(
-                scope,
-                value,
-                scale,
-                self.table.clone(),
-                self.scheme,
-            ),
-        }
+        let mut read_scale = Some(read_scale);
+        dequant_value::<Q, NQ, S, F, NF>(
+            scope,
+            value,
+            self.known_scale,
+            &self.table,
+            self.scheme,
+            &mut |scope| read_scale.take().expect("the scale is read once")(scope),
+        )
     }
 
     pub fn __expand_view_method(self, scope: &Scope) -> ViewExpand<'a, Vector<F, NF>, C> {
         ViewExpand::new(scope, self)
+    }
+}
+
+fn dequant_value<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size>(
+    scope: &Scope,
+    value: NativeExpand<Vector<Q, NQ>>,
+    known_scale: KnownScaleExpand,
+    table: &ComptimeOptionExpand<Box<[f32]>>,
+    scheme: QuantScheme,
+    read_scale: &mut dyn FnMut(&Scope) -> NativeExpand<S>,
+) -> NativeExpand<Vector<F, NF>> {
+    // The reading variants are where the register can disagree with the scheme: the static
+    // constructors take a scheme without inspecting it. A whole scale stands for whatever the
+    // caller multiplied into it, so the scheme says nothing about it.
+    check_table_bindings(&scheme, table.is_some());
+    match known_scale {
+        KnownScaleExpand::None => {
+            assert!(
+                scheme.num_levels() == 1,
+                "every scale is read from the scales view, but {:?} has a per-tensor scale nothing multiplies in",
+                scheme,
+            );
+            let scale = read_scale(scope);
+            dequantize_aligned::expand::<Q, S, F, NQ, NF>(
+                scope,
+                value,
+                scale,
+                table.clone(),
+                scheme,
+            )
+        }
+        KnownScaleExpand::Global(global_scale) => {
+            assert!(
+                scheme.num_levels() > 1,
+                "an global scale rides in a register, but {:?} has no per-tensor level over its blocks it could hold",
+                scheme,
+            );
+            check_global_levels(&scheme);
+            let scale = read_scale(scope);
+            let scale = multiply_global_scale::expand::<S>(scope, global_scale, scale);
+            dequantize_aligned_wide::expand::<Q, F, NQ, NF>(
+                scope,
+                value,
+                scale,
+                table.clone(),
+                scheme,
+            )
+        }
+        KnownScaleExpand::Whole(scale) => dequantize_aligned_wide::expand::<Q, F, NQ, NF>(
+            scope,
+            value,
+            scale,
+            table.clone(),
+            scheme,
+        ),
     }
 }
 
