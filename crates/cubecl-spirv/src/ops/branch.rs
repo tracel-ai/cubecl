@@ -227,7 +227,7 @@ impl ToSpirvCFDialect for scf::SwitchOp {
 }
 
 #[op_interface_impl]
-impl ToSpirvCFDialect for scf::RangeLoopOp {
+impl ToSpirvCFDialect for scf::ForOp {
     fn rewrite(
         &self,
         ctx: &mut Context,

@@ -1188,7 +1188,6 @@ dependencies = [
  "num-complex",
  "num-integer",
  "num-traits",
- "paste",
  "pliron",
  "pliron-spirv",
  "portable-atomic",
@@ -1299,6 +1298,7 @@ dependencies = [
  "expect-test",
  "foldhash 0.2.0",
  "hashbrown 0.17.1",
+ "hi_sparse_bitset",
  "itertools 0.15.0",
  "log",
  "pliron",
@@ -3659,14 +3659,13 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 [[package]]
 name = "pliron"
 version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4569fbc8e56df3331511fbdf266664e97c851c894840a4dc166c1505c94a2492"
+source = "git+https://github.com/pliron-org/pliron.git?rev=81155d96b8797d149de1d88219c431a68a75ef33#81155d96b8797d149de1d88219c431a68a75ef33"
 dependencies = [
  "awint",
  "combine",
  "downcast-rs",
  "dyn-clone",
- "hashbrown 0.17.1",
+ "hashbrown 0.15.5",
  "hi_sparse_bitset",
  "indexmap",
  "inventory",
@@ -3687,8 +3686,7 @@ dependencies = [
 [[package]]
 name = "pliron-derive"
 version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f3aac081c3e21485f283f602816a337d4810e0c1b36191804e95dcca506ce66"
+source = "git+https://github.com/pliron-org/pliron.git?rev=81155d96b8797d149de1d88219c431a68a75ef33#81155d96b8797d149de1d88219c431a68a75ef33"
 dependencies = [
  "combine",
  "convert_case 0.11.0",
@@ -3702,8 +3700,7 @@ dependencies = [
 [[package]]
 name = "pliron-llvm"
 version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6bb66ac18b5f3aecfe37b74d9b4e3c9f845cddf86601eacfb89d9b17406b3a02"
+source = "git+https://github.com/pliron-org/pliron.git?rev=81155d96b8797d149de1d88219c431a68a75ef33#81155d96b8797d149de1d88219c431a68a75ef33"
 dependencies = [
  "bitflags 2.13.1",
  "llvm-sys",
@@ -3715,8 +3712,7 @@ dependencies = [
 [[package]]
 name = "pliron-spirv"
 version = "0.15.0+sdk-1.4.357.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e4de33072f8752616fee5dd701fed15eb17a218913d36dde71556f4103cdfc9"
+source = "git+https://github.com/tracel-ai/tracel-rspirv.git?rev=77996f97565f9a980d10d8fae9a56a60cb149614#77996f97565f9a980d10d8fae9a56a60cb149614"
 dependencies = [
  "derive-new",
  "derive_more",
@@ -5149,8 +5145,7 @@ dependencies = [
 [[package]]
 name = "tracel-rspirv"
 version = "0.15.0+sdk-1.4.357.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe40b56cba6c5d88c88ff8b4d9cdd3d2b2972ac756e06f92fed7f81eb174da93"
+source = "git+https://github.com/tracel-ai/tracel-rspirv.git?rev=77996f97565f9a980d10d8fae9a56a60cb149614#77996f97565f9a980d10d8fae9a56a60cb149614"
 dependencies = [
  "bitflags 2.13.1",
  "pliron",

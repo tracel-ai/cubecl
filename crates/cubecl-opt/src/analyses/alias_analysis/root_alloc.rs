@@ -1,9 +1,9 @@
 use crate::{
-    analyses::alias_analysis::{AliasAnalysis, AliasResult, ModRefResult, effect_mod_ref},
+    analyses::alias_analysis::{AliasAnalysis, AliasResult, ModRefResult},
     passes::alloc_shared_memory::SliceSharedOp,
 };
 use cubecl_ir::{
-    interfaces::{MemoryEffect, aliasing::PointerExt},
+    interfaces::{aliasing::PointerExt, side_effects::MemoryEffect},
     prelude::*,
 };
 use pliron::opts::mem2reg::PromotableAllocationInterface;
@@ -60,7 +60,7 @@ impl AliasAnalysis for RootAllocAA {
         match self.alias(ctx, lhs_val, rhs_val) {
             AliasResult::NoAlias => ModRefResult::NoModRef,
             AliasResult::MayAlias | AliasResult::PartialAlias | AliasResult::MustAlias => {
-                effect_mod_ref(rhs)
+                rhs.mod_ref_mask()
             }
         }
     }

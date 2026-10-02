@@ -1,10 +1,10 @@
-use core::{
-    cell::RefMut,
-    ops::{BitAndAssign, BitOrAssign},
-};
+use core::cell::RefMut;
 
 use alloc::{boxed::Box, vec::Vec};
-use cubecl_ir::{interfaces::MemoryEffect, prelude::*};
+use cubecl_ir::{
+    interfaces::side_effects::{MemoryEffect, ModRefResult},
+    prelude::*,
+};
 use pliron::{context::Context, pass::AnalysisManager, value::Value};
 
 use crate::analyses::{
@@ -14,59 +14,6 @@ use crate::analyses::{
 
 pub mod address_space;
 pub mod root_alloc;
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-pub enum ModRefResult {
-    NoModRef,
-    Ref,
-    Mod,
-    ModRef,
-}
-
-impl ModRefResult {
-    pub fn join(&self, other: ModRefResult) -> ModRefResult {
-        match (*self, other) {
-            (ModRefResult::NoModRef, other) | (other, ModRefResult::NoModRef) => other,
-            (_, ModRefResult::ModRef) | (ModRefResult::ModRef, _) => ModRefResult::ModRef,
-            (ModRefResult::Ref, ModRefResult::Ref) => ModRefResult::Ref,
-            (ModRefResult::Mod, ModRefResult::Mod) => ModRefResult::Mod,
-            (ModRefResult::Ref, ModRefResult::Mod) | (ModRefResult::Mod, ModRefResult::Ref) => {
-                ModRefResult::ModRef
-            }
-        }
-    }
-
-    pub fn meet(&self, other: ModRefResult) -> ModRefResult {
-        match (*self, other) {
-            (ModRefResult::NoModRef, _) | (_, ModRefResult::NoModRef) => ModRefResult::NoModRef,
-            (ModRefResult::ModRef, other) | (other, ModRefResult::ModRef) => other,
-            (ModRefResult::Ref, ModRefResult::Ref) => ModRefResult::Ref,
-            (ModRefResult::Mod, ModRefResult::Mod) => ModRefResult::Mod,
-            (ModRefResult::Mod, ModRefResult::Ref) | (ModRefResult::Ref, ModRefResult::Mod) => {
-                ModRefResult::NoModRef
-            }
-        }
-    }
-
-    pub fn contains_mod(&self) -> bool {
-        match self {
-            ModRefResult::NoModRef | ModRefResult::Ref => false,
-            ModRefResult::Mod | ModRefResult::ModRef => true,
-        }
-    }
-}
-
-impl BitOrAssign for ModRefResult {
-    fn bitor_assign(&mut self, rhs: Self) {
-        *self = self.join(rhs);
-    }
-}
-
-impl BitAndAssign for ModRefResult {
-    fn bitand_assign(&mut self, rhs: Self) {
-        *self = self.meet(rhs);
-    }
-}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum AliasResult {
@@ -138,18 +85,6 @@ impl AliasAnalysisStack {
         }
 
         result
-    }
-}
-
-pub(crate) fn effect_mod_ref(effect: &MemoryEffect) -> ModRefResult {
-    match effect {
-        MemoryEffect::Read(_) | MemoryEffect::ReadAllInSpace(_) | MemoryEffect::ReadAll => {
-            ModRefResult::Ref
-        }
-        MemoryEffect::Write(_) | MemoryEffect::WriteAllInSpace(_) | MemoryEffect::WriteAll => {
-            ModRefResult::Mod
-        }
-        MemoryEffect::Opaque => ModRefResult::ModRef,
     }
 }
 
