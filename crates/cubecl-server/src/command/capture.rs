@@ -192,9 +192,11 @@ impl<D: GraphDriver> Captures<D> {
     ///
     /// The caller syncs `stream` first — a replay enqueued against this
     /// executable may still be running.
-    pub fn destroy(&mut self, id: GraphId, stream: &mut D::Stream) {
+    pub fn destroy(&mut self, id: GraphId, stream: Option<&mut D::Stream>) {
         self.graphs.remove(&id);
-        stream.info_cache().graph_release(id);
+        if let Some(stream) = stream {
+            stream.info_cache().graph_release(id);
+        }
     }
 }
 

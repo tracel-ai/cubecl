@@ -197,7 +197,7 @@ fn try_to_destructure_values(
                 break;
             }
             if !destructured_any_value {
-                new_worklist.push(constructor.clone());
+                new_worklist.push(*constructor);
             }
             changes_in_this_round |= destructured_any_value;
         }

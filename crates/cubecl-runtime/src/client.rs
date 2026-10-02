@@ -203,16 +203,23 @@ impl Client {
 
     /// Create a new client with a new server.
     pub fn init<S: ServerStorage>(device_id: DeviceId, server: S) -> Self {
-        let utilities = Server::utilities(&server);
-        let context = DeviceHandle::<S>::insert(device_id, server)
+        Self::try_init(device_id, server)
             .expect("Can't create a new client on an already registered server")
-            .seen_as(as_server::<S>);
+    }
 
-        Self {
+    /// Register a server, returning an error if its device is already registered.
+    pub fn try_init<S: ServerStorage>(
+        device_id: DeviceId,
+        server: S,
+    ) -> Result<Self, cubecl_common::device_handle::ServiceCreationError> {
+        let utilities = Server::utilities(&server);
+        let context = DeviceHandle::<S>::insert(device_id, server)?.seen_as(as_server::<S>);
+
+        Ok(Self {
             device: context,
             utilities,
             stream_id: None,
-        }
+        })
     }
 
     /// Load the client for the given device, starting a server of type `S`
@@ -319,11 +326,12 @@ impl Client {
 
     /// Given bindings, returns owned resources as bytes.
     ///
-    /// # Remarks
+    /// # Errors
     ///
-    /// Panics if the read operation fails.
-    pub fn read(&self, handles: Vec<Handle>) -> Vec<Bytes> {
-        cubecl_environment::future::reader::read_sync(self.read_async(handles)).expect("TODO")
+    /// Returns a [`ServerError`] if the read operation fails, or if a an error occurred on the
+    /// compute server leading to the read.
+    pub fn read(&self, handles: Vec<Handle>) -> Result<Vec<Bytes>, ServerError> {
+        cubecl_environment::future::reader::read_sync(self.read_async(handles))
     }
 
     /// Given a binding, returns owned resource as bytes.
@@ -352,19 +360,19 @@ impl Client {
 
     /// Given bindings, returns owned resources as bytes.
     ///
-    /// # Remarks
-    ///
-    /// Panics if the read operation fails.
-    ///
     /// The tensor must be in the same layout as created by the runtime, or more strict.
     /// Contiguous tensors are always fine, strided tensors are only ok if the stride is similar to
     /// the one created by the runtime (i.e. padded on only the last dimension). A way to check
     /// stride compatibility on the runtime will be added in the future.
     ///
     /// Also see [`Client::create_tensor`].
-    pub fn read_tensor(&self, descriptors: Vec<CopyDescriptor>) -> Vec<Bytes> {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ServerError`] if the read operation fails, or if a an error occurred on the
+    /// compute server leading to the read.
+    pub fn read_tensor(&self, descriptors: Vec<CopyDescriptor>) -> Result<Vec<Bytes>, ServerError> {
         cubecl_environment::future::reader::read_sync(self.read_tensor_async(descriptors))
-            .expect("TODO")
     }
 
     /// Given a binding, returns owned resource as bytes.
@@ -385,7 +393,9 @@ impl Client {
     /// Panics if the read operation fails.
     /// See [`Client::read_tensor`]
     pub fn read_one_unchecked_tensor(&self, descriptor: CopyDescriptor) -> Bytes {
-        self.read_tensor(vec![descriptor]).remove(0)
+        self.read_tensor(vec![descriptor])
+            .expect("the read failed, use `read_one_tensor_async` to handle the error")
+            .remove(0)
     }
 
     /// Reads the device resource described by `descriptor` lazily.
@@ -410,12 +420,27 @@ impl Client {
     ///
     /// On native targets the returned future is immediately ready and yields a lazy [`Bytes`]
     /// whose device-to-host copy is deferred to first access (see [`read_lazy`](Self::read_lazy)).
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ServerError`] if a an error occurred on the compute server leading to the read.
+    /// A device fault is not detected here: the copy is deferred, so it surfaces as an error on
+    /// first access to the returned [`Bytes`].
     #[cfg(not(target_family = "wasm"))]
     pub fn read_lazy_async(
         &self,
         descriptor: CopyDescriptor,
     ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
         if let Err(err) = self.local(&descriptor.handle) {
+            return core::future::ready(Err(err));
+        }
+        let binding = descriptor.handle.clone();
+        let stream_id = self.stream_id();
+        let checked = self
+            .device
+            .submit_blocking(move |server| server.check(vec![binding], stream_id))
+            .unwrap_or_resume();
+        if let Err(err) = checked {
             return core::future::ready(Err(err));
         }
         let len = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
@@ -494,8 +519,11 @@ impl Client {
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         self.device.submit(move |server| {
-            server.initialize_memory(memory, size, stream_id);
-            server.write(descriptors, stream_id);
+            // Cannot write on memory that wasn't initialized. The error is attached to the
+            // buffer and is reported at the next sync point.
+            if server.initialize_memory(memory, size, stream_id).is_ok() {
+                server.write(descriptors, stream_id);
+            }
         });
 
         layouts
@@ -531,8 +559,11 @@ impl Client {
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         self.device.submit(move |server| {
-            server.initialize_memory(memory, size, stream_id);
-            server.write(descriptors, stream_id);
+            // Cannot write on memory that wasn't initialized. The error is attached to the
+            // buffer and is reported at the next sync point.
+            if server.initialize_memory(memory, size, stream_id).is_ok() {
+                server.write(descriptors, stream_id);
+            }
         });
 
         layouts
@@ -778,7 +809,8 @@ impl Client {
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         self.device.submit(move |server| {
-            server.initialize_memory(memory, size, stream_id);
+            // The error is attached to the buffer and is reported at the next sync point.
+            let _ = server.initialize_memory(memory, size, stream_id);
         });
 
         layouts
@@ -1327,6 +1359,23 @@ impl Client {
             .unwrap_or_resume()
     }
 
+    /// Whether this client's stream is capturing a graph: from
+    /// [`graph_prepare`](Self::graph_prepare), through the warmup run and the recorded one, until
+    /// the capture ends. It ends with [`stop_capture`](Self::stop_capture), whether the window
+    /// opened or the capture was only prepared, and also when another logical stream sharing
+    /// the same backend stream stops it, or when opening the window fails once
+    /// [`start_capture`](Self::start_capture) is accepted. A `start_capture` refused up front,
+    /// e.g. while a capture already records, leaves the capture as it was. Always `false` on a
+    /// backend without graph support.
+    ///
+    /// Answered without reaching the device thread, so code whose buffer decisions have to
+    /// match between the warmup and the recording can ask before every launch.
+    pub fn is_capturing(&self) -> bool {
+        let captures = &self.utilities.captures;
+        // The stream id costs more than the check, and no capture under way answers already.
+        captures.any_active() && captures.is_capturing(self.stream_id())
+    }
+
     /// Stop recording and return the captured graph, ready to
     /// [`replay`](Graph::replay).
     pub fn stop_capture(&self) -> Result<Graph, ServerError> {
@@ -1456,7 +1505,7 @@ impl Client {
                 MemoryReport {
                     streams: streams
                         .into_iter()
-                        .map(|id| server.memory_report(id))
+                        .filter_map(|id| server.memory_report(id))
                         .collect(),
                 }
             })
@@ -1717,8 +1766,14 @@ impl Client {
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         dst_server.device.submit(move |server| {
-            server.initialize_memory(memory, size, stream_id_dst);
-            server.write(vec![(desc_descriptor, data.remove(0))], stream_id_dst)
+            // Cannot write on memory that wasn't initialized. The error is attached to the
+            // buffer and is reported at the next sync point.
+            if server
+                .initialize_memory(memory, size, stream_id_dst)
+                .is_ok()
+            {
+                server.write(vec![(desc_descriptor, data.remove(0))], stream_id_dst)
+            }
         });
 
         alloc
@@ -1729,15 +1784,7 @@ impl Client {
         &self,
         size: usize,
     ) -> impl Iterator<Item = VectorSize> + Clone {
-        let load_width = self.properties().hardware.load_width as usize;
-        let size_bits = size * 8;
-        let max = load_width / size_bits;
-        let max = usize::min(self.properties().hardware.max_vector_size, max);
-
-        // If the max is 8, we want to test 1, 2, 4, 8 which is log2(8) + 1.
-        let num_candidates = max.trailing_zeros() + 1;
-
-        (0..num_candidates).map(|i| 2usize.pow(i)).rev()
+        self.properties().io_optimized_vector_sizes(size)
     }
 
     /// Calculates the maximum throughput of the device given the given config (like tensor core with certain sizes and dtypes, or just arithmetic by dtype)

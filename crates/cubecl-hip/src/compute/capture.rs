@@ -7,10 +7,10 @@
 //! [`Window`](cubecl_server::command::Window)'s.
 
 use crate::compute::driver::Hip;
+use crate::compute::status::checked;
 use crate::compute::stream::Stream;
 use cubecl_hip_sys::{hipGraph_t, hipGraphExec_t};
 use cubecl_server::command::GraphDriver;
-use cubecl_server::driver::checked;
 use cubecl_server::server::ServerError;
 
 /// An instantiated HIP executable graph, destroyed on drop.

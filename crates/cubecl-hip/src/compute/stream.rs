@@ -9,7 +9,7 @@
 use cubecl_core::{
     MemoryConfiguration,
     ir::MemoryDeviceProperties,
-    server::{BufferBinding, Handle, ServerError},
+    server::{BufferBinding, DeviceCaptures, Handle, ServerError},
 };
 use cubecl_server::storage::PINNED_MEMORY_ALIGNMENT;
 use cubecl_server::{
@@ -19,11 +19,11 @@ use cubecl_server::{
         drop_queue::{self, FlushingPolicy, PendingDropQueue},
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{DeviceRecording, EventStreamBackend, StreamCapture, StreamMemory},
+    stream::{EventStreamBackend, StreamCapture, StreamMemory},
 };
 use std::sync::Arc;
 
-use cubecl_server::driver::checked;
+use crate::compute::status::checked;
 
 use crate::compute::{cpu::PinnedMemoryStorage, events::Fence, gpu::GpuStorage};
 
@@ -72,19 +72,17 @@ pub struct HipStreamBackend {
     mem_alignment: usize,
     is_integrated: bool,
     logger: Arc<ServerLogger>,
-    /// The device's count of recording streams, shared by every stream this
-    /// creates.
-    #[new(default)]
-    recording: DeviceRecording,
+    /// The device's captures, which every stream this creates takes its capture state from.
+    captures: DeviceCaptures,
 }
 
 impl EventStreamBackend for HipStreamBackend {
     type Stream = Stream;
     type Event = Fence;
 
-    fn create_stream(&self) -> Self::Stream {
+    fn create_stream(&self) -> Result<Self::Stream, ServerError> {
         // SAFETY: Calling HIP FFI to create a non-blocking stream. The stream handle is
-        // initialized by HIP on success (asserted below) and stored for the lifetime of
+        // initialized by HIP on success (checked below) and stored for the lifetime of
         // this `Stream`.
         let stream = unsafe {
             let mut stream: cubecl_hip_sys::hipStream_t = std::ptr::null_mut();
@@ -92,9 +90,7 @@ impl EventStreamBackend for HipStreamBackend {
                 &mut stream,
                 cubecl_hip_sys::hipStreamNonBlocking,
             );
-            // Fatal: the pool hands out streams by value and every operation
-            // on this backend is issued against one.
-            checked("hipStreamCreateWithFlags", stream_status).expect("the pool needs a stream");
+            checked("hipStreamCreateWithFlags", stream_status)?;
             stream
         };
         let storage = GpuStorage::new(self.mem_alignment);
@@ -120,11 +116,11 @@ impl EventStreamBackend for HipStreamBackend {
             MemoryManagementOptions::new("Pinned CPU Memory").mode(MemoryAllocationMode::Auto),
         );
 
-        Stream {
+        Ok(Stream {
             sys: stream,
             memory_management_gpu,
             memory_management_cpu,
-            capturing: StreamCapture::new(self.recording.clone()),
+            capturing: StreamCapture::new(&self.captures),
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
             drop_queue: PendingDropQueue::new(FlushingPolicy {
                 max_bytes_count: match self.is_integrated {
@@ -143,15 +139,15 @@ impl EventStreamBackend for HipStreamBackend {
                 },
                 ..Default::default()
             }),
-        }
+        })
     }
 
     fn flush(stream: &mut Self::Stream, _failures: &mut ErrorGraph) -> Self::Event {
         Fence::new(stream.sys)
     }
 
-    fn wait_event(stream: &mut Self::Stream, event: Self::Event) {
-        event.wait_async(stream.sys);
+    fn wait_event(stream: &mut Self::Stream, event: Self::Event) -> Result<(), ServerError> {
+        event.wait_async(stream.sys)
     }
 
     fn wait_event_sync(event: Self::Event) -> Result<(), ServerError> {

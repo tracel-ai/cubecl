@@ -221,6 +221,13 @@ impl<K: AutotuneKey> Tuner<K> {
         cache.fastest(key)
     }
 
+    /// The index settled for `key`, reading only: never starts a round, never waits on one, never
+    /// validates a persisted result, and never resets the cache after an environment switch — it
+    /// reports nothing settled there instead, until the next [`check_tune`](Self::check_tune).
+    pub(crate) fn settled(&self, key: &K) -> Option<usize> {
+        self.cache.lock().settled(key)
+    }
+
     /// Fetch the logger instance.
     pub fn logger(&self) -> Arc<Mutex<Logger>> {
         self.logger.clone()
@@ -228,11 +235,11 @@ impl<K: AutotuneKey> Tuner<K> {
 
     /// Check the cache, validate checksums if needed, and kick off a tuning job if the
     /// key is a miss. Returns the resolved cache state.
-    pub fn check_tune<'a, F: TuneInputs, Out: AutotuneOutput>(
+    pub fn check_tune<'a, F: TuneInputs, Out: AutotuneOutput, Id>(
         &self,
         key: &K,
         inputs: &F::At<'a>,
-        tunables: &TunableSet<K, F, Out>,
+        tunables: &TunableSet<K, F, Out, Id>,
         #[cfg_attr(not(persistence), allow(unused))] checksum: impl FnOnce() -> String + Send + Sync,
         client: &Client,
         mut log_context: Option<crate::tune::AutotuneLogContext>,

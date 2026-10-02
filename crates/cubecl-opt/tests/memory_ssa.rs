@@ -1,6 +1,6 @@
 use cubecl_ir::{
     dialect::memory::AddressSpaceAttr,
-    interfaces::{MemoryEffect, MemoryEffects},
+    interfaces::side_effects::{MemoryEffect, MemoryEffectsOp},
     prelude::*,
 };
 use cubecl_opt::analyses::{alias_analysis::address_space::AddressSpaceAA, memory_ssa::memory_ssa};
@@ -35,7 +35,7 @@ pub struct UnsupportedOp;
 pub struct MemoryDefOp;
 
 #[op_interface_impl]
-impl MemoryEffects for MemoryDefOp {
+impl MemoryEffectsOp for MemoryDefOp {
     fn memory_effects(&self, _ctx: &Context) -> Vec<MemoryEffect> {
         vec![MemoryEffect::WriteAll]
     }
@@ -50,7 +50,7 @@ impl MemoryEffects for MemoryDefOp {
 pub struct MemoryUseOp;
 
 #[op_interface_impl]
-impl MemoryEffects for MemoryUseOp {
+impl MemoryEffectsOp for MemoryUseOp {
     fn memory_effects(&self, _ctx: &Context) -> Vec<MemoryEffect> {
         vec![MemoryEffect::ReadAll]
     }
@@ -66,7 +66,7 @@ impl MemoryEffects for MemoryUseOp {
 pub struct MemoryDefInSpaceOp;
 
 #[op_interface_impl]
-impl MemoryEffects for MemoryDefInSpaceOp {
+impl MemoryEffectsOp for MemoryDefInSpaceOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         let space = self.get_attr_def_address_space(ctx).unwrap().0;
         vec![MemoryEffect::WriteAllInSpace(space)]
@@ -83,7 +83,7 @@ impl MemoryEffects for MemoryDefInSpaceOp {
 pub struct MemoryUseInSpaceOp;
 
 #[op_interface_impl]
-impl MemoryEffects for MemoryUseInSpaceOp {
+impl MemoryEffectsOp for MemoryUseInSpaceOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         let space = self.get_attr_use_address_space(ctx).unwrap().0;
         vec![MemoryEffect::ReadAllInSpace(space)]

@@ -302,7 +302,7 @@ impl<'a> AllocPromoter<'a> {
                 let parent_region = op.deref(ctx).get_parent_region(ctx).unwrap();
                 let region_blocking_uses = self.info.user_to_blocking_uses.entry(parent_region);
                 if region_blocking_uses.or_default().contains_key(&op) {
-                    self.reaching_defs.insert(promotable.clone(), reaching_def);
+                    self.reaching_defs.insert(promotable, reaching_def);
                 }
 
                 if let PromotableOpKind::Store(stored) = promotable.promotion_kind(ctx, &self.alloc)

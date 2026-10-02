@@ -197,7 +197,7 @@ impl AdaptiveMemory {
     /// new page.
     ///
     /// A plan whose copies fail is abandoned: every allocation stays where it
-    /// was, and the targets it reserved are freed.
+    /// was. Targets are freed only once the device is known to be done with them.
     pub fn relocate<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
@@ -218,8 +218,8 @@ impl AdaptiveMemory {
                 // flush: a reservation retried after this needs that room.
                 storage.flush();
             }
-            // Dropping the plan gave every target it reserved back. Settled
-            // as moving nothing, so a device that keeps refusing the copies
+            // No allocation moved; an inconclusive wait keeps the reservations alive.
+            // Settled as moving nothing, so a device that keeps refusing the copies
             // is not waited on again until the pools change.
             Err(err) => {
                 self.trigger.stalled(&self.arena.state());

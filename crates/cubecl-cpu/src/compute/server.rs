@@ -162,7 +162,7 @@ impl CpuServer {
         if self.compilation_cache.contains_key(&kernel_id) {
             return Ok(());
         }
-        let definition = kernel.define();
+        let definition = cubecl_core::define_kernel(kernel)?;
         let options = PlironOptions {
             cpu_buffer_alignment: Some(alignment),
             ..self.compilation_options.clone()
@@ -242,17 +242,25 @@ impl Server for CpuServer {
         self.utilities.clone()
     }
 
-    fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
+    fn initialize_memory(
+        &mut self,
+        memory: ManagedMemoryHandle,
+        size: u64,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
         self.scheduler.relocating(stream_id).relocate_when_wanted();
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        // Fatal rather than reported, as on every other backend:
-        // `initialize_memory` has no error channel, and an allocation that
-        // never got its storage cannot be handed back as a taint either —
-        // nothing has a binding to it yet.
-        let reserved = stream
-            .empty(size, failures)
-            .unwrap_or_else(|err| panic!("failed to reserve {size} bytes of host memory: {err}"));
+        let reserved = match stream.empty(size, failures) {
+            Ok(reserved) => reserved,
+            Err(err) => {
+                // Nothing to allocate: the buffer carries the error instead.
+                let err = ServerError::from(err);
+                failures.fail_unallocated(&memory, err.clone());
+                return Err(err);
+            }
+        };
         stream.bind(reserved, memory, failures);
+        Ok(())
     }
 
     fn read(
@@ -349,8 +357,8 @@ impl Server for CpuServer {
     fn memory_report(
         &mut self,
         stream_id: StreamId,
-    ) -> cubecl_server::memory_management::StreamMemoryReport {
-        cubecl_server::memory_management::StreamMemoryReport {
+    ) -> Option<cubecl_server::memory_management::StreamMemoryReport> {
+        Some(cubecl_server::memory_management::StreamMemoryReport {
             stream: stream_id,
             pools: self
                 .scheduler
@@ -358,7 +366,7 @@ impl Server for CpuServer {
                 .memory_management
                 .memory_report(),
             auxiliary: Vec::new(),
-        }
+        })
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {

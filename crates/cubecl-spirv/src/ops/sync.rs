@@ -3,9 +3,21 @@ use cubecl_ir::{
     prelude::*,
 };
 use pliron_spirv::ops::ControlBarrierOp;
-use rspirv::spirv::{MemorySemantics, Scope};
+use rspirv::spirv::{Capability, MemorySemantics, Scope};
 
-use crate::ops::to_spirv_dialect::ToSpirvDialectOp;
+use crate::{CustomCapabilitiesOp, ops::to_spirv_dialect::ToSpirvDialectOp};
+
+// A barrier at the device's memory scope needs the capability the Vulkan memory model gates that
+// scope behind, as a device-scope atomic does; nothing declares it for a kernel with no such atomic.
+#[op_interface_impl]
+impl CustomCapabilitiesOp for ControlBarrierOp {
+    fn custom_capabilities(&self, ctx: &Context) -> Vec<Capability> {
+        match self.get_attr_memory(ctx).0 {
+            Scope::Device => vec![Capability::VulkanMemoryModelDeviceScopeKHR],
+            _ => vec![],
+        }
+    }
+}
 
 #[op_interface_impl]
 impl ToSpirvDialectOp for SyncOp {
@@ -28,10 +40,14 @@ impl ToSpirvDialectOp for SyncOp {
         let semantics = match scope {
             SyncScope::Plane => MemorySemantics::ACQUIRE_RELEASE | MemorySemantics::SUBGROUP_MEMORY,
             SyncScope::Cube => MemorySemantics::ACQUIRE_RELEASE | MemorySemantics::WORKGROUP_MEMORY,
+            // Under the Vulkan memory model a barrier orders, but only availability and visibility
+            // operations carry one workgroup's plain writes to another at device scope.
             SyncScope::Device => {
                 MemorySemantics::ACQUIRE_RELEASE
                     | MemorySemantics::UNIFORM_MEMORY
                     | MemorySemantics::WORKGROUP_MEMORY
+                    | MemorySemantics::MAKE_AVAILABLE
+                    | MemorySemantics::MAKE_VISIBLE
             }
             SyncScope::Unit => unreachable!(),
         };

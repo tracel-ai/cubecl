@@ -1,9 +1,14 @@
-use cubecl_ir::{AddressSpace, interfaces::MemoryEffect, prelude::Value, types::PointerType};
+use cubecl_ir::{
+    AddressSpace,
+    interfaces::side_effects::{MemoryEffect, ModRefResult},
+    prelude::Value,
+    types::PointerType,
+};
 use pliron::{context::Context, r#type::Typed};
 
-use crate::analyses::alias_analysis::{AliasAnalysis, effect_mod_ref};
+use crate::analyses::alias_analysis::AliasAnalysis;
 
-use super::{AliasResult, ModRefResult};
+use super::AliasResult;
 
 pub struct AddressSpaceAA;
 
@@ -33,7 +38,7 @@ impl AliasAnalysis for AddressSpaceAA {
         if location_space != rhs_space {
             ModRefResult::NoModRef
         } else {
-            effect_mod_ref(rhs)
+            rhs.mod_ref_mask()
         }
     }
 }

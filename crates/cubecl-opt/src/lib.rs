@@ -13,13 +13,35 @@ extern crate alloc;
 #[cfg(any(feature = "std", test))]
 extern crate std;
 
+use core::ops::Range;
+
 use cubecl_ir::{AddressSpace, interfaces::TypedExt};
 
 pub mod analyses;
 pub mod passes;
 pub mod scoped_map;
 
-use pliron::{context::Context, r#type::TypeHandle, value::Value};
+use hi_sparse_bitset::{Apply, BitSetInterface, ops};
+use pliron::{
+    context::{Context, Ptr},
+    operation::Operation,
+    r#type::TypeHandle,
+    value::{Use, Value},
+};
+use smallvec::SmallVec;
+
+pub(crate) type SparseBitSet = hi_sparse_bitset::BitSet<hi_sparse_bitset::config::_128bit>;
+
+pub(crate) trait BitSetExt: BitSetInterface {
+    #[inline]
+    fn difference<Other>(self, other: Other) -> Apply<ops::Sub, Self, Other>
+    where
+        Other: BitSetInterface<Conf = Self::Conf>,
+    {
+        hi_sparse_bitset::apply(ops::Sub, self, other)
+    }
+}
+impl<T: BitSetInterface> BitSetExt for T {}
 
 pub use crate::analyses::liveness::shared::SharedLiveness;
 
@@ -46,4 +68,13 @@ pub struct BufferVisibility {
     pub readable: bool,
     /// Whether the buffer is ever written to
     pub writable: bool,
+}
+
+pub(crate) fn operand_range_to_uses(
+    ctx: &Context,
+    op: Ptr<Operation>,
+    range: Range<usize>,
+) -> SmallVec<[Use<Value>; 4]> {
+    let op = op.deref(ctx);
+    range.map(|idx| op.get_operand_as_use(idx)).collect()
 }

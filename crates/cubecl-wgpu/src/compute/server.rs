@@ -1,4 +1,4 @@
-use cubecl_core::server::ServerStorage;
+use cubecl_core::server::{DeviceCaptures, ServerStorage};
 use cubecl_server::kernel::BufferIOAttr;
 use cubecl_server::kernel::DebugInformation;
 use std::collections::HashMap;
@@ -139,6 +139,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         backend: wgpu::Backend,
         timing_method: TimingMethod,
         utilities: ServerUtilities,
+        captures: DeviceCaptures,
     ) -> Self {
         #[cfg(feature = "spirv")]
         let adapter_info = device.adapter_info();
@@ -152,6 +153,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             tasks_max,
             utilities.logger.clone(),
             compilation_options.supports_vulkan_compiler,
+            captures,
         );
 
         let config = CubeClRuntimeConfig::get();
@@ -253,7 +255,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         validate_cube_dim(&self.utilities.properties, &kernel_id)?;
         validate_units(&self.utilities.properties, &kernel_id)?;
 
-        let definition = kernel.define();
+        let definition = cubecl_core::define_kernel(&*kernel)?;
         recording.defined(&definition);
 
         let mut compiler = C::init(self.backend, &self.compilation_options);
@@ -355,7 +357,12 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         .into())
     }
 
-    fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
+    fn initialize_memory(
+        &mut self,
+        memory: ManagedMemoryHandle,
+        size: u64,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
         let mut relocating = self.scheduler.relocating(stream_id);
         relocating.relocate_when_wanted();
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
@@ -367,11 +374,21 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             // whatever uses it belongs to a recording that will not seal.
             Err(err @ IoError::PageUpdateForbidden { .. }) => {
                 stream.capturing.fail(err.into());
-                return;
+                return Ok(());
             }
-            Err(err) => panic!("failed to reserve {size} bytes of device memory: {err}"),
+            Err(err) => {
+                // Nothing to allocate: the buffer carries the error instead.
+                let err = ServerError::from(err);
+                failures.fail_unallocated(&memory, err.clone());
+                return Err(err);
+            }
         };
-        stream.memory.bind(reserved, memory, 0, failures).unwrap();
+        if let Err(err) = stream.memory.bind(reserved, memory.clone(), 0, failures) {
+            let err = ServerError::from(err);
+            failures.fail_unallocated(&memory, err.clone());
+            return Err(err);
+        }
+        Ok(())
     }
 
     fn read(
@@ -677,14 +694,14 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         self.scheduler.stream(&stream_id).abandon_profile(token);
     }
 
-    fn memory_report(&mut self, stream_id: StreamId) -> StreamMemoryReport {
+    fn memory_report(&mut self, stream_id: StreamId) -> Option<StreamMemoryReport> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        StreamMemoryReport {
+        Some(StreamMemoryReport {
             stream: stream_id,
             pools: stream.memory.memory_report(),
             auxiliary: stream.auxiliary.report(),
-        }
+        })
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {
