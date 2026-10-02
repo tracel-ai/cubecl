@@ -301,7 +301,8 @@ fn resource_error(client: &Client, out: Handle) -> ResourceLimitError {
 }
 
 /// A launch whose kernel panicked while expanding never wrote its output, so the read fails on
-/// that panic instead of handing back the bytes the buffer held before.
+/// that panic instead of handing back the bytes the buffer held before, and fails as a defect,
+/// not as a refusal.
 ///
 /// The launch runs on the device thread inside a task nobody waits on, so the panic cannot reach
 /// the caller there: the output's claim is what carries it.
@@ -323,6 +324,10 @@ pub fn test_expansion_panic_fails_the_read<R: Runtime>(client: Client) {
     assert!(
         report.contains("this kernel refuses to expand"),
         "the read must fail on the expansion's panic, got: {report}"
+    );
+    assert!(
+        !err.is_refusal(),
+        "a panic is a defect a test harness must report, not a refusal it may skip: {report}"
     );
 }
 

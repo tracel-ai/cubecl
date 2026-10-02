@@ -121,7 +121,8 @@ pub trait CubeKernel: KernelMetadata {
 /// channel and only logged: the launch returns, its outputs are never written, and nothing marks
 /// them, so a later read hands back whatever the memory held before. As a [`CompilationError`]
 /// the panic takes the path a compiler's refusal takes, and the outputs carry the failure to
-/// whoever reads them.
+/// whoever reads them; as [`ExpansionPanicked`](CompilationError::ExpansionPanicked) it is not
+/// a refusal, so a harness that skips refused kernels reports it instead.
 pub fn define_kernel<K: CubeKernel + ?Sized>(
     kernel: &K,
 ) -> Result<KernelDefinition, CompilationError> {
@@ -134,8 +135,9 @@ pub fn define_kernel<K: CubeKernel + ?Sized>(
                     .map(|message| String::from(*message))
                     .or_else(|| payload.downcast_ref::<String>().cloned())
                     .unwrap_or_else(|| String::from("a panic with no message"));
-                CompilationError::Generic {
-                    reason: alloc::format!("expanding `{}` panicked: {message}", kernel.name()),
+                CompilationError::ExpansionPanicked {
+                    kernel: kernel.name().into(),
+                    message,
                     backtrace: BackTrace::capture(),
                 }
             },
