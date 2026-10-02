@@ -106,7 +106,7 @@ impl<T: LatticeValue> AnalysisState for DenseLattice<T> {
 pub trait DenseForwardDataflowAnalysis: Sized + 'static {
     type LatticeValue: LatticeValue;
 
-    fn on_load(solver: &mut DataflowSolver) {
+    fn on_load(&self, solver: &mut DataflowSolver) {
         let _ = solver;
     }
 
@@ -210,7 +210,7 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
 impl<T: DenseForwardDataflowAnalysis> DataflowAnalysis for DenseForward<T> {
     fn on_load(&self, solver: &mut DataflowSolver) {
         solver.ensure_loaded(DeadCodeAnalysis::default);
-        T::on_load(solver);
+        self.inner.on_load(solver);
     }
 
     fn verify(&self, solver: &DataflowSolver, ctx: &Context, root: Ptr<Operation>) -> Result<()> {
@@ -639,7 +639,7 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
 pub trait DenseBackwardDataflowAnalysis: Sized + 'static {
     type LatticeValue: LatticeValue;
 
-    fn on_load(solver: &mut DataflowSolver) {
+    fn on_load(&self, solver: &mut DataflowSolver) {
         let _ = solver;
     }
 
@@ -720,8 +720,7 @@ pub trait DenseBackwardDataflowAnalysis: Sized + 'static {
         after: &ReadRef<DenseLattice<Self::LatticeValue>>,
         before: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) -> Result<()> {
-        this.visit_call_control_flow_transfer(solver, ctx, call, action, after, before);
-        Ok(())
+        this.visit_call_control_flow_transfer(solver, ctx, call, action, after, before)
     }
 }
 
@@ -744,7 +743,7 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
 impl<T: DenseBackwardDataflowAnalysis> DataflowAnalysis for DenseBackward<T> {
     fn on_load(&self, solver: &mut DataflowSolver) {
         solver.ensure_loaded(DeadCodeAnalysis::default);
-        T::on_load(solver);
+        self.inner.on_load(solver);
     }
 
     fn verify(&self, solver: &DataflowSolver, ctx: &Context, root: Ptr<Operation>) -> Result<()> {
@@ -881,11 +880,12 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
         action: CallControlFlowAction,
         after: &ReadRef<DenseLattice<T::LatticeValue>>,
         before: &WriteRef<DenseLattice<T::LatticeValue>>,
-    ) {
+    ) -> Result<()> {
         self.meet(solver, ctx, before, after);
         if action == CallControlFlowAction::ExternalCallee {
             T::set_to_exit_state(self, solver, ctx, before);
         }
+        Ok(())
     }
 
     fn process_operation(

@@ -1,10 +1,20 @@
+use core::ops::Range;
+
+use alloc::{format, string::ToString};
 use pliron::{
     attribute::AttrObj,
     basic_block::BasicBlock,
-    builtin::attributes::IntegerAttr,
+    builtin::{
+        attributes::{IdentifierAttr, IntegerAttr},
+        ops::FuncOp,
+        types::FunctionType,
+    },
+    identifier::Identifier,
     irbuild::inserter::OpInsertionPoint,
     linked_list::ContainsLinkedList,
+    printable::Printable,
     region::Region,
+    symbol_table::SymbolTableCollection,
     utils::{
         apint::APInt,
         const_bound_n::I,
@@ -19,7 +29,7 @@ use crate::{
     CanMaterialize, NoMemoryEffect, Pure, RecursiveMemoryEffects, RecursiveSideEffects,
     RecursivelySpeculatable, ReturnLike,
     attributes::{BoolAttr, IntegerVecAttr, ZeroAttr},
-    dialect::scf::block_mem_val,
+    dialect::{general::SymbolUserOpVerifyErr, scf::block_mem_val},
     interfaces::{
         CanonicalizeInterface,
         control_flow::{
@@ -239,6 +249,101 @@ impl UnreachableOp {
     pub fn new(ctx: &mut Context) -> Self {
         let op = Operation::new(ctx, Self::get_concrete_op_info(), vec![], vec![], vec![], 0);
         Self { op }
+    }
+}
+
+#[pliron_op(
+    name = "branch.call",
+    format = "`@` attr($callee, $IdentifierAttr) ` (` operands(CharSpace(`,`)) `) : ` typesig",
+    verifier = "succ",
+    attributes = (callee: IdentifierAttr)
+)]
+#[op_traits(CanMaterialize)]
+pub struct CallOp;
+
+impl CallOp {
+    pub fn new(
+        ctx: &mut Context,
+        result_types: Vec<TypeHandle>,
+        callee: Identifier,
+        operands: Vec<Value>,
+    ) -> Self {
+        let op = Self {
+            op: Operation::new(
+                ctx,
+                Self::get_concrete_op_info(),
+                result_types,
+                operands,
+                vec![],
+                0,
+            ),
+        };
+        op.set_attr_callee(ctx, callee.into());
+        op
+    }
+
+    pub fn callee(&self, ctx: &Context) -> Identifier {
+        self.get_attr_callee(ctx).unwrap().as_ref().clone()
+    }
+}
+
+#[op_interface_impl]
+impl CallOpInterface for CallOp {
+    verify_op_succ!();
+
+    fn callee(&self, ctx: &Context) -> CallOpCallable {
+        CallOpCallable::Direct(self.callee(ctx))
+    }
+
+    fn arg_range(&self, ctx: &Context) -> Range<usize> {
+        0..self.get_operation().deref(ctx).get_num_operands()
+    }
+
+    fn callee_type(&self, ctx: &Context) -> TypeHandle {
+        let op = self.get_operation().deref(ctx);
+        let arg_types = op.operand_types(ctx).collect();
+        let res_types = op.result_types().collect();
+        FunctionType::get(ctx, arg_types, res_types).to_handle()
+    }
+}
+
+#[op_interface_impl]
+impl SymbolUserOpInterface for CallOp {
+    fn verify_symbol_uses(
+        &self,
+        ctx: &Context,
+        symbol_tables: &mut SymbolTableCollection,
+    ) -> Result<()> {
+        let callee_sym = self.callee(ctx);
+        let Some(callee) =
+            symbol_tables.lookup_symbol_in_nearest_table(ctx, self.get_operation(), &callee_sym)
+        else {
+            // External callee
+            return Ok(());
+        };
+        let Some(func_op) = (&*callee as &dyn Op).downcast_ref::<FuncOp>() else {
+            return verify_err!(
+                self.loc(ctx),
+                SymbolUserOpVerifyErr::NotFunc(callee_sym.to_string())
+            );
+        };
+        let func_op_ty = func_op.get_type(ctx);
+
+        if func_op_ty != self.callee_type(ctx) {
+            return verify_err!(
+                self.loc(ctx),
+                SymbolUserOpVerifyErr::FuncTypeErr(format!(
+                    "expected {}, got {}",
+                    func_op_ty.disp(ctx),
+                    self.callee_type(ctx).disp(ctx)
+                ))
+            );
+        }
+        Ok(())
+    }
+
+    fn used_symbols(&self, ctx: &Context) -> Vec<Identifier> {
+        vec![self.callee(ctx)]
     }
 }
 

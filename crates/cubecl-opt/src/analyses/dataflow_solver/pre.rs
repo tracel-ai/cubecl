@@ -40,7 +40,7 @@ use crate::{
 
 use super::{
     ChangeResult, DataflowSolver, ReadRef, WriteRef,
-    dense::{DenseBackward, DenseForward},
+    dense::{CallControlFlowAction, DenseBackward, DenseForward},
 };
 
 pub fn compute_lcm_analyses(ctx: &Context, op: Ptr<Operation>) -> Result<DataflowSolver> {
@@ -186,7 +186,7 @@ pub struct Available;
 impl DenseForwardDataflowAnalysis for Available {
     type LatticeValue = AvailableSet;
 
-    fn on_load(solver: &mut DataflowSolver) {
+    fn on_load(&self, solver: &mut DataflowSolver) {
         solver.ensure_loaded(ComputesAnalysis::new);
     }
 
@@ -262,15 +262,15 @@ pub(crate) fn collect_memory_kill_sets(
 
     walk_op(
         ctx,
-        &mut (solver, &mut out),
+        &mut (solver, &mut out, root),
         &WALKCONFIG_ANY,
         root,
-        |ctx, (solver, out), node| {
+        |ctx, (solver, out, root), node| {
             let IRNode::Operation(op) = node else {
                 return;
             };
             let mut analyses = solver.analyses();
-            let mut memory_ssa = MemorySSA::get_for_nearest_root(ctx, &mut analyses, op).unwrap();
+            let mut memory_ssa = analyses.get_analysis_mut::<MemorySSA>(*root, ctx).unwrap();
 
             let Some(mem_use) = memory_ssa.optimized_use(ctx, op) else {
                 return;
@@ -320,7 +320,7 @@ pub struct Anticipated {
 impl DenseBackwardDataflowAnalysis for Anticipated {
     type LatticeValue = AnticipatedSet;
 
-    fn on_load(solver: &mut DataflowSolver) {
+    fn on_load(&self, solver: &mut DataflowSolver) {
         solver.ensure_loaded(ComputesAnalysis::new);
     }
 
@@ -333,7 +333,7 @@ impl DenseBackwardDataflowAnalysis for Anticipated {
         before: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) -> Result<()> {
         let mut analyses = solver.analyses();
-        let mut memory_ssa = MemorySSA::get_for_nearest_root(ctx, &mut analyses, op)?;
+        let memory_ssa = analyses.get_analysis::<MemorySSA>(solver.root().unwrap(), ctx)?;
 
         let after = after.deref();
         let MaybeUninitBitset::Initialized(after_set) = &after.value().0 else {
@@ -369,11 +369,8 @@ impl DenseBackwardDataflowAnalysis for Anticipated {
         after: &ReadRef<DenseLattice<Self::LatticeValue>>,
         before: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) -> Result<()> {
-        let Some(op) = successor.deref(ctx).get_parent_op(ctx) else {
-            return this.visit_block_transfer(solver, ctx, block, point, successor, after, before);
-        };
         let mut analyses = solver.analyses();
-        let mut memory_ssa = MemorySSA::get_for_nearest_root(ctx, &mut analyses, op)?;
+        let memory_ssa = analyses.get_analysis::<MemorySSA>(solver.root().unwrap(), ctx)?;
 
         let Some(def) = memory_ssa.block_memory_def(successor) else {
             return this.visit_block_transfer(solver, ctx, block, point, successor, after, before);
@@ -399,8 +396,7 @@ impl DenseBackwardDataflowAnalysis for Anticipated {
         before: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) -> Result<()> {
         let mut analyses = solver.analyses();
-        let mut memory_ssa =
-            MemorySSA::get_for_nearest_root(ctx, &mut analyses, branch.get_operation())?;
+        let memory_ssa = analyses.get_analysis::<MemorySSA>(solver.root().unwrap(), ctx)?;
 
         let def = match to {
             RegionSuccessor::Region(region)
@@ -420,6 +416,39 @@ impl DenseBackwardDataflowAnalysis for Anticipated {
             return this.visit_region_branch_control_flow_transfer(
                 solver, ctx, branch, from, to, after, before,
             );
+        };
+
+        let new_value = after.deref().value().raw_difference(kill_set);
+        solver.update_state(ctx, before, |it| it.meet(&AnticipatedSet(new_value)));
+        Ok(())
+    }
+
+    fn visit_call_control_flow_transfer(
+        this: &DenseBackward<Self>,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        call: &dyn CallOpInterface,
+        action: CallControlFlowAction,
+        after: &ReadRef<DenseLattice<Self::LatticeValue>>,
+        before: &WriteRef<DenseLattice<Self::LatticeValue>>,
+    ) -> Result<()> {
+        let mut analyses = solver.analyses();
+        let memory_ssa = analyses.get_analysis::<MemorySSA>(solver.root().unwrap(), ctx)?;
+
+        let def = match action {
+            CallControlFlowAction::EnterCallee => {
+                let block = after.deref().anchor().block().unwrap();
+                memory_ssa.block_memory_def(block)
+            }
+            CallControlFlowAction::ExitCallee => memory_ssa.op_memory_def(call.get_operation()),
+            // External callees are handled by MemorySSA so we can still use the call
+            CallControlFlowAction::ExternalCallee => memory_ssa.op_memory_def(call.get_operation()),
+        };
+        let Some(def) = def else {
+            return this.visit_call_control_flow_transfer(solver, ctx, call, action, after, before);
+        };
+        let Some(kill_set) = this.memory_kill_sets.get(&def) else {
+            return this.visit_call_control_flow_transfer(solver, ctx, call, action, after, before);
         };
 
         let new_value = after.deref().value().raw_difference(kill_set);

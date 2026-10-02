@@ -1,4 +1,4 @@
-use core::cell::Ref;
+use core::{any::Any, cell::Ref, hash::Hash};
 
 use crate::{
     prelude::*,
@@ -53,6 +53,11 @@ pub trait RegionPtrExt: Sized {
 
 pub trait OperationExt {
     fn immediately_nested_ops(&self, ctx: &Context) -> impl Iterator<Item = Ptr<Operation>>;
+}
+
+pub trait UniquedExt<T> {
+    fn map(&self, ctx: &Context, update: impl FnOnce(T) -> T) -> Self;
+    fn update<R>(&mut self, ctx: &Context, update: impl FnOnce(&mut T) -> R) -> R;
 }
 
 impl OperationPtrExt for Ptr<Operation> {
@@ -175,6 +180,20 @@ impl RegionPtrExt for Ptr<Region> {
     }
 }
 
+impl<T: Any + Hash + Eq + Send + Clone> UniquedExt<T> for Uniqued<T> {
+    fn map(&self, ctx: &Context, map: impl FnOnce(T) -> T) -> Self {
+        let new = map(self.get(ctx).clone());
+        Uniqued::new(ctx, new)
+    }
+
+    fn update<R>(&mut self, ctx: &Context, update: impl FnOnce(&mut T) -> R) -> R {
+        let mut new = self.get(ctx).clone();
+        let res = update(&mut new);
+        *self = Uniqued::new(ctx, new);
+        res
+    }
+}
+
 macro_rules! pure_unop {
     ($name: literal, $ty: ident) => {
         #[cubecl_macros_internal::cube_op(name = $name)]
@@ -205,6 +224,7 @@ use pliron::{
     op::{OpInterfaceMarker, OpObj, op_impls},
     region::Region,
     r#type::TypeHandle,
+    uniqued_any::Uniqued,
     value::Use,
 };
 pub(crate) use pure_unop;
