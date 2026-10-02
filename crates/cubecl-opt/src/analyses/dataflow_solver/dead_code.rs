@@ -33,7 +33,10 @@ use smallvec::SmallVec;
 use crate::analyses::{
     dataflow_solver::{
         AnalysisState, ChangeResult, DataflowAnalysis, ProgramPoint, SolverWorkItem,
-        sccp::{ConstantLattice, ConstantValue, SparseConstantPropagationAnalysis},
+        sccp::{
+            ConstantLattice, ConstantValue, DummySparseConstantPropagation,
+            SparseConstantPropagationAnalysis,
+        },
     },
     symbol_table::walk_symbol_tables,
 };
@@ -620,7 +623,7 @@ pub(crate) fn is_region_or_callable_return(ctx: &Context, op: Ptr<Operation>) ->
     };
     let parent_op = block.deref(ctx).get_parent_op(ctx).unwrap();
     let parent_region_or_callable = parent_op.impls::<dyn RegionBranchOpInterface>(ctx)
-        || parent_op.impls::<dyn CallOpInterface>(ctx);
+        || parent_op.impls::<dyn CallableOpInterface>(ctx);
     op.deref(ctx).get_num_successors() == 0
         && parent_region_or_callable
         && block.deref(ctx).get_terminator(ctx) == Some(op)
@@ -628,7 +631,9 @@ pub(crate) fn is_region_or_callable_return(ctx: &Context, op: Ptr<Operation>) ->
 
 impl DataflowAnalysis for DeadCodeAnalysis {
     fn on_load(&self, solver: &mut DataflowSolver) {
-        solver.ensure_loaded(SparseConstantPropagationAnalysis::default);
+        if !solver.is_loaded::<DummySparseConstantPropagation>() {
+            solver.ensure_loaded(SparseConstantPropagationAnalysis::default);
+        }
     }
 
     fn initialize(

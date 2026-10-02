@@ -6,8 +6,8 @@ use cubecl_ir::{
     interfaces::{
         ReturnLike,
         control_flow::{
-            CallOpInterface, CallableOpInterface, RegionBranchOpInterface,
-            RegionBranchTerminatorOpInterface, RegionPredecessor, RegionSuccessor,
+            CallableOpInterface, RegionBranchOpInterface, RegionBranchTerminatorOpInterface,
+            RegionPredecessor, RegionSuccessor,
         },
     },
     prelude::*,
@@ -136,7 +136,7 @@ impl<T: LatticeValue> AnalysisState for SparseLattice<T> {
 pub trait SparseForwardDataflowAnalysis: Sized + 'static {
     type LatticeValue: LatticeValue;
 
-    fn on_load(solver: &mut DataflowSolver) {
+    fn on_load(&self, solver: &mut DataflowSolver) {
         let _ = solver;
     }
 
@@ -649,7 +649,7 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
 impl<T: SparseForwardDataflowAnalysis + 'static> DataflowAnalysis for SparseForward<T> {
     fn on_load(&self, solver: &mut DataflowSolver) {
         solver.ensure_loaded(DeadCodeAnalysis::default);
-        T::on_load(solver);
+        self.inner.on_load(solver);
     }
 
     fn verify(&self, solver: &DataflowSolver, ctx: &Context, root: Ptr<Operation>) -> Result<()> {
@@ -684,7 +684,7 @@ impl<T: SparseForwardDataflowAnalysis + 'static> DataflowAnalysis for SparseForw
 pub trait SparseBackwardDataflowAnalysis: Sized + 'static {
     type LatticeValue: LatticeValue;
 
-    fn on_load(solver: &mut DataflowSolver) {
+    fn on_load(&self, solver: &mut DataflowSolver) {
         let _ = solver;
     }
 
@@ -950,7 +950,7 @@ impl<T: SparseBackwardDataflowAnalysis> SparseBackward<T> {
             // If the call invokes an external function (or a function treated as
             // external due to config), defer to the corresponding extension hook.
             // By default, it just does `visitCallOperand` for all operands.
-            let arg_operands = operand_range_to_uses(ctx, op, call.args_range(ctx));
+            let arg_operands = operand_range_to_uses(ctx, op, call.arg_range(ctx));
             let region = callable.callable_region(ctx);
             if region.is_none_or(|region| region.is_empty(ctx))
                 || !solver.config().is_interprocedural

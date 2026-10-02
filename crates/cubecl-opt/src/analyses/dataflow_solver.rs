@@ -115,11 +115,11 @@ mod solver {
         }
     }
 
-    type AnalysisStates = HashMap<u64, States>;
-    type States = HashMap<TypeId, StateEntry>;
+    type AnalysisStates = HashMap<(u64, TypeId), StateEntry>;
     type StateEntry = Rc<RefCell<dyn PrintableState>>;
 
     pub struct DataflowSolver {
+        root: Option<Ptr<Operation>>,
         /// Analyses that have been given to `load` but may still be in the pre-load phase.
         preloaded_analyses: Vec<TypeId>,
         child_analyses: IMap<TypeId, Box<dyn DataflowAnalysis>>,
@@ -134,6 +134,7 @@ mod solver {
     impl DataflowSolver {
         pub fn new(config: SolverConfig) -> Self {
             Self {
+                root: Default::default(),
                 preloaded_analyses: Default::default(),
                 child_analyses: Default::default(),
                 worklist: Default::default(),
@@ -161,10 +162,8 @@ mod solver {
         pub fn get_or_create<T: AnalysisState>(&self, anchor: T::Anchor) -> ReadRef<'_, T> {
             let anchor_hash = self.hash_anchor(&anchor);
             let mut states = self.analysis_states.borrow_mut();
-            let state = states.entry(anchor_hash).or_default();
-            let id = TypeId::of::<T>();
-            let state = state
-                .entry(id)
+            let state = states
+                .entry((anchor_hash, TypeId::of::<T>()))
                 .or_insert_with(|| Rc::new(RefCell::new(T::create(anchor))))
                 .clone();
             ReadRef {
@@ -176,10 +175,8 @@ mod solver {
         pub fn get_or_create_mut<T: AnalysisState>(&self, anchor: T::Anchor) -> WriteRef<'_, T> {
             let anchor_hash = self.hash_anchor(&anchor);
             let mut states = self.analysis_states.borrow_mut();
-            let state = states.entry(anchor_hash).or_default();
-            let id = TypeId::of::<T>();
-            let state = state
-                .entry(id)
+            let state = states
+                .entry((anchor_hash, TypeId::of::<T>()))
                 .or_insert_with(|| Rc::new(RefCell::new(T::create(anchor))))
                 .clone();
             WriteRef {
@@ -204,7 +201,7 @@ mod solver {
         pub fn lookup_state<T: AnalysisState>(&self, anchor: T::Anchor) -> Option<ReadRef<'_, T>> {
             let anchor_hash = self.hash_anchor(&anchor);
             let states = self.analysis_states.borrow();
-            let state = states.get(&anchor_hash)?.get(&TypeId::of::<T>())?.clone();
+            let state = states.get(&(anchor_hash, TypeId::of::<T>()))?.clone();
             Some(ReadRef {
                 value: state,
                 _ty: PhantomData,
@@ -214,9 +211,9 @@ mod solver {
         pub fn states_of_type<T: AnalysisState>(&self) -> Vec<ReadRef<'_, T>> {
             let states = self.analysis_states.borrow();
             states
-                .values()
-                .flat_map(|it| it.get(&TypeId::of::<T>()))
-                .map(|state| ReadRef {
+                .iter()
+                .filter(|((_, t), _)| t == &TypeId::of::<T>())
+                .map(|(_, state)| ReadRef {
                     value: state.clone(),
                     _ty: PhantomData,
                 })
@@ -238,8 +235,12 @@ mod solver {
             self.child_analyses.insert(key, Box::new(analysis));
         }
 
+        pub fn is_loaded<A: DataflowAnalysis>(&self) -> bool {
+            self.preloaded_analyses.contains(&TypeId::of::<A>())
+        }
+
         pub fn ensure_loaded<A: DataflowAnalysis>(&mut self, analysis: impl FnOnce() -> A) {
-            if !self.preloaded_analyses.contains(&TypeId::of::<A>()) {
+            if !self.is_loaded::<A>() {
                 self.load(analysis());
             }
         }
@@ -264,6 +265,8 @@ mod solver {
             root: Ptr<Operation>,
             should_initialize: impl Fn(&dyn DataflowAnalysis) -> bool,
         ) -> Result<()> {
+            self.root = Some(root);
+
             let is_interprocedural = self.config.is_interprocedural;
             if is_interprocedural && !root.impls::<dyn SymbolTableInterface>(ctx) {
                 self.config.is_interprocedural = false;
@@ -283,6 +286,7 @@ mod solver {
             // Initialize the analyses.
             for analysis in child_analyses.values_mut() {
                 if let Err(err) = analysis.initialize(self, ctx, root) {
+                    self.root = None;
                     self.child_analyses = child_analyses;
                     self.config.is_interprocedural = is_interprocedural;
                     return Err(err);
@@ -297,11 +301,13 @@ mod solver {
             } {
                 let analysis = self.child_analyses.get(&analysis).expect("Should exist");
                 if let Err(err) = analysis.visit(self, ctx, point) {
+                    self.root = None;
                     self.config.is_interprocedural = is_interprocedural;
                     return Err(err);
                 }
             }
 
+            self.root = None;
             self.config.is_interprocedural = is_interprocedural;
             Ok(())
         }
@@ -316,6 +322,10 @@ mod solver {
 
         pub fn config(&self) -> &SolverConfig {
             &self.config
+        }
+
+        pub fn root(&self) -> Option<Ptr<Operation>> {
+            self.root
         }
 
         pub fn is_equivalent<T: AnalysisState>(
@@ -349,11 +359,8 @@ mod solver {
             {
                 let _indent = state.indent();
                 let states = self.analysis_states.borrow();
-                let mut entries = states
-                    .values()
-                    .flat_map(|states| states.iter())
-                    .collect::<Vec<_>>();
-                entries.sort_by_key(|it| it.0);
+                let mut entries = states.iter().collect::<Vec<_>>();
+                entries.sort_by_key(|((_, t), _)| t);
 
                 for (_, entry) in entries {
                     write!(f, "{}", indented_nl(state))?;

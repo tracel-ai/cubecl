@@ -1,4 +1,4 @@
-use core::{fmt, ops::Range};
+use core::fmt;
 
 use crate::{dialect::RegionPtrExt, prelude::*};
 use derive_more::From;
@@ -129,12 +129,6 @@ pub trait SymbolOpInterface: pliron::builtin::op_interfaces::SymbolOpInterface {
     fn is_nested(&self, ctx: &Context) -> bool {
         matches!(self.get_visibility(ctx), SymbolVisibility::Nested)
     }
-}
-
-#[op_interface]
-pub trait CallOpInterface: pliron::builtin::op_interfaces::CallOpInterface {
-    verify_op_succ!();
-    fn args_range(&self, ctx: &Context) -> Range<usize>;
 }
 
 /// This interface provides information for region-holding operations that

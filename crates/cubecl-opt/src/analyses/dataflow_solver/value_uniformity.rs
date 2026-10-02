@@ -164,7 +164,7 @@ pub struct StrictValueUniformity;
 impl SparseForwardDataflowAnalysis for StrictValueUniformity {
     type LatticeValue = StrictUniformity;
 
-    fn on_load(solver: &mut DataflowSolver) {
+    fn on_load(&self, solver: &mut DataflowSolver) {
         solver.ensure_loaded(SparseForward::<DynamicValueUniformity>::default);
         solver.ensure_loaded(BlockUniformityAnalysis::default);
     }

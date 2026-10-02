@@ -48,7 +48,7 @@ pub struct ValueDependents;
 impl SparseBackwardDataflowAnalysis for ValueDependents {
     type LatticeValue = Dependents;
 
-    fn on_load(solver: &mut DataflowSolver) {
+    fn on_load(&self, solver: &mut DataflowSolver) {
         solver.ensure_loaded(ValueNumberingAnalysis::default);
     }
 

@@ -130,7 +130,7 @@ impl ValueClasses {
 impl SparseForwardDataflowAnalysis for ValueClasses {
     type LatticeValue = ValueClass;
 
-    fn on_load(solver: &mut DataflowSolver) {
+    fn on_load(&self, solver: &mut DataflowSolver) {
         solver.ensure_loaded(ValueNumberingAnalysis::default);
     }
 
@@ -146,14 +146,14 @@ impl SparseForwardDataflowAnalysis for ValueClasses {
             this.set_all_to_entry_states(solver, ctx, results);
             return Ok(());
         }
-
         let has_side_effects = op
             .cast::<dyn SideEffects>(ctx)
             .is_none_or(|op| op.has_side_effects(ctx));
         let (has_innumerable_effects, mem_val) = match op.cast::<dyn MemoryEffectsOp>(ctx) {
             Some(effects) if effects.has_effects(ctx) => {
                 let mut analyses = solver.analyses();
-                let mut memory_ssa = MemorySSA::get_for_nearest_root(ctx, &mut analyses, op)?;
+                let mut memory_ssa =
+                    analyses.get_analysis_mut::<MemorySSA>(solver.root().unwrap(), ctx)?;
                 memory_ssa.set_alias_analysis_stack(default_stack());
 
                 let mem_val = memory_ssa.optimized_use(ctx, op);
