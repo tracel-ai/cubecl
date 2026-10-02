@@ -1,4 +1,4 @@
-use cubecl_core::ir::ElemType;
+use cubecl_core::ir::{ElemType, features::Features};
 use cubecl_runtime::{
     client::Client,
     runtime::Runtime,
@@ -126,6 +126,12 @@ fn measure(
 
     #[cfg(not(target_family = "wasm"))]
     {
+        // Errors are never cached, so a declined key would otherwise take
+        // the device on every call.
+        if declined(&client.properties().features, key) {
+            return (Err(ThroughputError::Unsupported), false);
+        }
+
         let mut probed = false;
         let value = client.measure_throughput(key, || {
             // Read where the launch is issued, which here is the runner.
@@ -145,27 +151,16 @@ fn probe(client: &Client, key: ThroughputKey) -> Result<ThroughputValue, Through
 
     match key.mode {
         ThroughputMode::ComputeDirect { dtype } => {
-            // A type the backend cannot lower panics rather than answering.
-            if !client.properties().features.supports_type(dtype) {
-                return Err(ThroughputError::Unsupported);
-            }
-
             ShapeSweep::new(compute_direct_shapes(client, dtype, launch_config))
                 .fastest(|(dtype, config)| Ok(compute_direct::build_kernel(client, dtype, config)))
                 .map(|(value, _)| value)
         }
         ThroughputMode::ComputeCmma {
-            dtype,
             config: cmma_config,
-        } => {
-            if !CooperativeMatrix::implemented(client, dtype, cmma_config) {
-                return Err(ThroughputError::Unsupported);
-            }
-
-            ShapeSweep::new(alloc::vec![launch_config])
-                .fastest(|config| Ok(compute_cmma::build_kernel(client, key, cmma_config, config)))
-                .map(|(value, _)| value)
-        }
+            ..
+        } => ShapeSweep::new(alloc::vec![launch_config])
+            .fastest(|config| Ok(compute_cmma::build_kernel(client, key, cmma_config, config)))
+            .map(|(value, _)| value),
         ThroughputMode::Memory(spec) => {
             let (value, fastest) = ShapeSweep::new(WorkerSweep::shapes(
                 client,
@@ -185,6 +180,18 @@ fn probe(client: &Client, key: ThroughputKey) -> Result<ThroughputValue, Through
         ThroughputMode::Launch => ShapeSweep::new(alloc::vec![launch_config])
             .fastest(|config| Ok(launch_overhead::build_kernel(client, key, config)))
             .map(|(value, _)| value),
+    }
+}
+
+/// Whether the device properties alone refuse `key`. A type the backend
+/// cannot lower panics rather than answering, so this runs before any probe.
+fn declined(features: &Features, key: ThroughputKey) -> bool {
+    match key.mode {
+        ThroughputMode::ComputeDirect { dtype } => !features.supports_type(dtype),
+        ThroughputMode::ComputeCmma { dtype, config } => {
+            !CooperativeMatrix::implemented(features, dtype, config)
+        }
+        ThroughputMode::Memory(_) | ThroughputMode::Launch => false,
     }
 }
 
@@ -288,4 +295,96 @@ pub fn measure_launch_overhead(client: &Client) -> core::time::Duration {
     measure_peak_throughput(client, launch_key)
         .map(|value| value.duration_per_op())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cubecl_core::ir::{
+        FloatKind,
+        features::{MmaConfig, TypeUsage},
+    };
+    use cubecl_runtime::throughput::{CmmaDims, ComputeCmmaConfig};
+
+    const F16: ElemType = ElemType::Float(FloatKind::F16);
+    const F32: ElemType = ElemType::Float(FloatKind::F32);
+
+    const DIMS: CmmaDims = CmmaDims {
+        m: 16,
+        n: 16,
+        k: 16,
+    };
+
+    fn cmma_key(dims: CmmaDims) -> ThroughputKey {
+        ThroughputKey {
+            mode: ThroughputMode::ComputeCmma {
+                dtype: F16,
+                config: ComputeCmmaConfig {
+                    accumulator_type: F32,
+                    cmma_dims: dims,
+                },
+            },
+        }
+    }
+
+    fn cmma_features(dims: CmmaDims) -> Features {
+        let mut features = Features::default();
+
+        features.matmul.cmma.insert(MmaConfig {
+            a_type: F16,
+            b_type: F16,
+            cd_type: F32,
+            m: dims.m as u32,
+            n: dims.n as u32,
+            k: dims.k as u32,
+        });
+
+        features
+    }
+
+    #[test]
+    fn a_type_the_device_cannot_lower_is_declined() {
+        let key = ThroughputKey {
+            mode: ThroughputMode::ComputeDirect { dtype: F16 },
+        };
+
+        assert!(declined(&Features::default(), key));
+
+        let mut features = Features::default();
+        features
+            .types
+            .elem
+            .insert(F16, TypeUsage::Arithmetic.into());
+
+        assert!(!declined(&features, key));
+    }
+
+    #[test]
+    fn a_cmma_shape_the_device_does_not_have_is_declined() {
+        let features = cmma_features(DIMS);
+
+        assert!(!declined(&features, cmma_key(DIMS)));
+        assert!(declined(&features, cmma_key(CmmaDims { k: 8, ..DIMS })));
+        assert!(declined(&Features::default(), cmma_key(DIMS)));
+    }
+
+    #[test]
+    fn memory_and_launch_are_left_to_the_probe() {
+        let features = Features::default();
+
+        for access in [MemoryAccess::Copy, MemoryAccess::Read, MemoryAccess::Write] {
+            let key = ThroughputKey {
+                mode: ThroughputMode::Memory(MemorySpec::new(access, 1024)),
+            };
+
+            assert!(!declined(&features, key));
+        }
+
+        assert!(!declined(
+            &features,
+            ThroughputKey {
+                mode: ThroughputMode::Launch
+            }
+        ));
+    }
 }
