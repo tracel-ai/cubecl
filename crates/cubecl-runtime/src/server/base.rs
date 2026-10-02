@@ -538,8 +538,9 @@ impl ServerError {
     ///
     /// The distinction a test harness or an autotuner needs: a kernel a
     /// backend cannot build at this configuration is a candidate to drop or a
-    /// case to skip, while a fault, an out-of-memory or an IO failure is a
-    /// defect that has to be reported. Answering it by reading the message is
+    /// case to skip, while a fault, an out-of-memory, an IO failure or a
+    /// kernel that panicked while expanding is a defect that has to be
+    /// reported. Answering it by reading the message is
     /// how a harness ends up accepting the second as the first.
     ///
     /// Walks [`Several`](Self::Several) and [`Unwritten`](Self::Unwritten) to
@@ -1959,9 +1960,21 @@ mod tests {
             backtrace: Default::default(),
         };
 
+        let panicked = ServerError::Launch(LaunchError::CompilationError(
+            CompilationError::ExpansionPanicked {
+                kernel: "kernel".into(),
+                message: "an assertion failed".into(),
+                backtrace: Default::default(),
+            },
+        ));
+
         assert!(refused.is_refusal());
         assert!(over_budget.is_refusal());
         assert!(!fault.is_refusal(), "a fault is not a refusal");
+        assert!(
+            !panicked.is_refusal(),
+            "a kernel that panicked while expanding is a defect, not a refusal"
+        );
 
         // A read reports the failure that stopped the buffer's writer, so the
         // question has to reach through the report to the root.
@@ -1974,6 +1987,7 @@ mod tests {
         };
         assert!(unwritten(&refused).is_refusal());
         assert!(!unwritten(&fault).is_refusal());
+        assert!(!unwritten(&panicked).is_refusal());
 
         let group = |errors: Vec<ServerError>| ServerError::Several {
             errors,

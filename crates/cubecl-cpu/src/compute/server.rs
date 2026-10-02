@@ -162,7 +162,7 @@ impl CpuServer {
         if self.compilation_cache.contains_key(&kernel_id) {
             return Ok(());
         }
-        let definition = kernel.define();
+        let definition = cubecl_core::define_kernel(kernel)?;
         let options = PlironOptions {
             cpu_buffer_alignment: Some(alignment),
             ..self.compilation_options.clone()

@@ -47,6 +47,20 @@ pub enum CompilationError {
         #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
+    /// The kernel's own code panicked while it expanded, an assertion in it included: a defect
+    /// in the kernel, where every other variant is a compiler turning it down.
+    #[error(
+        "Expanding the kernel `{kernel}` panicked\nCaused by:\n  {message}\nBacktrace:\n{backtrace}"
+    )]
+    ExpansionPanicked {
+        /// The kernel that panicked.
+        kernel: String,
+        /// The panic's message.
+        message: String,
+        /// The backtrace for this error.
+        #[cfg_attr(serializable, serde(skip))]
+        backtrace: BackTrace,
+    },
 }
 
 impl CompilationError {
@@ -55,13 +69,15 @@ impl CompilationError {
         matches!(self, Self::DevicePoisoned(_))
     }
 
-    /// Whether this is the kernel being turned down, rather than something going
-    /// wrong while building it.
+    /// Whether this is the kernel being turned down, a candidate to drop or a case to skip,
+    /// rather than a defect in it to report or something going wrong while building it.
     ///
-    /// Every compilation error is, except a device that died before the module
-    /// could load.
+    /// Every variant is, except two:
+    /// - a kernel that panicked while it expanded: a kernel declines a configuration by
+    ///   returning an error, so a panic is a bug that skipping would hide;
+    /// - a device that died before the module could load.
     pub fn is_refusal(&self) -> bool {
-        !self.is_device_poisoned()
+        !matches!(self, Self::ExpansionPanicked { .. }) && !self.is_device_poisoned()
     }
 }
 
