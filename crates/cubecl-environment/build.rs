@@ -3,7 +3,7 @@ use cfg_aliases::cfg_aliases;
 fn main() {
     // Setup cfg aliases
     cfg_aliases! {
-        multi_threading: { all(feature = "std", not(target_family = "wasm")) },
+        multi_threading: { all(feature = "std", not(feature = "nothreading"), not(target_family = "wasm")) },
         // Targets with a working `thread_local!` (includes single-threaded wasm with std).
         stream_local: { feature = "std" },
         // Filesystem and environment access for config loading and caching.

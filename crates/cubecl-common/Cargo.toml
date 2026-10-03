@@ -27,7 +27,7 @@ serde = []
 shared-bytes = ["cubecl-environment/shared-bytes"]
 std = ["cubecl-environment/std"]
 tracing = ["cubecl-environment/tracing"]
-
+nothreading = []
 
 [dependencies]
 cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.4", default-features = false }

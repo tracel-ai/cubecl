@@ -11,6 +11,6 @@ fn main() {
         // records derive serde wherever either exists.
         serializable: { any(std_io, persistence) },
         exclusive_memory_only: { any(feature = "exclusive-memory-only", target_family = "wasm") },
-        multi_threading: { all(feature = "std", not(target_family = "wasm")) },
+        multi_threading: { all(feature = "std", not(feature = "nothreading"), not(target_family = "wasm")) },
     }
 }

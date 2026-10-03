@@ -945,6 +945,7 @@ dependencies = [
 name = "cubecl"
 version = "0.11.0-pre.4"
 dependencies = [
+ "cubecl-common",
  "cubecl-core",
  "cubecl-cpu",
  "cubecl-cuda",
@@ -953,6 +954,7 @@ dependencies = [
  "cubecl-ir",
  "cubecl-metal",
  "cubecl-runtime",
+ "cubecl-server",
  "cubecl-std",
  "cubecl-wgpu",
  "half",

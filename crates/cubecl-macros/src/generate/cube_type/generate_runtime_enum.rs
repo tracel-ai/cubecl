@@ -126,6 +126,11 @@ impl CubeTypeEnum {
         } else {
             None
         };
+        let debug_impl = if self.with_debug {
+            Some(quote! { impl #generics #debug for #name #generic_names #where_clause {} })
+        } else {
+            None
+        };
 
         quote! {
             impl #generics #into_expand for #name_expand #generic_names #where_clause {
@@ -145,7 +150,7 @@ impl CubeTypeEnum {
                 }
             }
 
-            impl #generics #debug for #name #generic_names #where_clause {}
+            #debug_impl
             impl #generics #debug for #name_expand #generic_names #where_clause {}
             impl #generics #as_ref for #name_expand #generic_names #where_clause {
                 fn __expand_ref_method(&self, _: &#scope) -> &Self {

@@ -1,6 +1,6 @@
-use crate::compute::{
-    alloc_controller::CpuAllocController, schedule::ScheduleTask, threadpool::Threadpool,
-};
+#[cfg(not(feature = "nothreading"))]
+use crate::compute::threadpool::Threadpool;
+use crate::compute::{alloc_controller::CpuAllocController, schedule::ScheduleTask};
 use crossbeam_utils::CachePadded;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
@@ -35,8 +35,11 @@ pub struct CpuStream {
     /// slice to shared memory, aliasing an input and corrupting it in place.
     pub(crate) shared_memory_management: MemoryManagement<BytesStorage>,
     pub(crate) timestamps: TimestampProfiler,
+    #[cfg(not(feature = "nothreading"))]
     threadpool: &'static spin::Mutex<Threadpool>,
+    #[cfg(not(feature = "nothreading"))]
     next_counter_step: u64,
+    #[cfg(not(feature = "nothreading"))]
     atomic_counter: Arc<CachePadded<AtomicU64>>,
 }
 
@@ -114,16 +117,27 @@ impl CpuStream {
             logger.clone(),
             MemoryManagementOptions::new("Shared CPU"),
         );
-        let threadpool = Threadpool::get();
-        let next_counter_step = 0;
-        let atomic_counter = Arc::new(CachePadded::new(AtomicU64::new(0)));
-        Self {
-            memory_management,
-            shared_memory_management,
-            timestamps: TimestampProfiler::default(),
-            threadpool,
-            next_counter_step,
-            atomic_counter,
+        #[cfg(not(feature = "nothreading"))]
+        {
+            let threadpool = Threadpool::get();
+            let next_counter_step = 0;
+            let atomic_counter = Arc::new(CachePadded::new(AtomicU64::new(0)));
+            Self {
+                memory_management,
+                shared_memory_management,
+                timestamps: TimestampProfiler::default(),
+                threadpool,
+                next_counter_step,
+                atomic_counter,
+            }
+        }
+        #[cfg(feature = "nothreading")]
+        {
+            Self {
+                memory_management,
+                shared_memory_management,
+                timestamps: TimestampProfiler::default(),
+            }
         }
     }
 
@@ -147,31 +161,47 @@ impl CpuStream {
                 cube_count,
                 ..
             } => {
-                if !pliron_engine
-                    .requirements()
-                    .shared_memories
-                    .blocks
-                    .is_empty()
+                #[cfg(not(feature = "nothreading"))]
                 {
-                    self.submit();
+                    if !pliron_engine
+                        .requirements()
+                        .shared_memories
+                        .blocks
+                        .is_empty()
+                    {
+                        self.submit();
+                    }
+                    let units = cube_dim.num_elems();
+                    self.threadpool.lock().execute_data(
+                        pliron_engine,
+                        bindings,
+                        cube_dim,
+                        cube_count,
+                        &mut self.shared_memory_management,
+                        failures,
+                        self.next_counter_step,
+                        &self.atomic_counter,
+                    );
+                    self.next_counter_step += units as u64;
                 }
-                // No unit cap: the threadpool grows to fit any cube_dim, one
-                // worker per unit for barrier kernels.
-                let units = cube_dim.num_elems();
-                self.threadpool.lock().execute_data(
-                    pliron_engine,
-                    bindings,
-                    cube_dim,
-                    cube_count,
-                    &mut self.shared_memory_management,
-                    failures,
-                    self.next_counter_step,
-                    &self.atomic_counter,
-                );
-                self.next_counter_step += units as u64;
+                #[cfg(feature = "nothreading")]
+                {
+                    super::schedule::execute_data_inline(
+                        pliron_engine,
+                        bindings,
+                        cube_dim,
+                        cube_count,
+                        &mut self.shared_memory_management,
+                        failures,
+                    );
+                }
             }
         }
     }
+
+    /// No-up when nothreading is enabled
+    #[cfg(feature = "nothreading")]
+    pub fn submit(&mut self) {}
 
     /// Wait for the queued work and surface nothing.
     ///
@@ -179,6 +209,7 @@ impl CpuStream {
     /// asking — a full task queue, the ordering barrier before a write, the
     /// scheduler aligning streams. Whatever is queued stays queued, for the
     /// flush of the stream that owns it.
+    #[cfg(not(feature = "nothreading"))]
     pub fn submit(&mut self) {
         // Spin briefly, then yield between polls: the client is not pinned,
         // and a pure spin parked on a worker's logical CPU keeps that worker
