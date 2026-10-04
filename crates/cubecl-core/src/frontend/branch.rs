@@ -778,7 +778,10 @@ impl WhileBuilder {
             cond = binary_expand(&cond_scope, cond, return_flag, BoolAndOp::new);
         }
 
-        cond_scope.register(&ConditionOp::new(scope.ctx_mut(), cond.read_value(scope)));
+        cond_scope.register(&ConditionOp::new(
+            scope.ctx_mut(),
+            cond.read_value(&cond_scope),
+        ));
 
         scope.register(&while_op);
     }
@@ -839,7 +842,10 @@ pub(crate) fn register_range_loop<I: Int>(scope: &Scope, for_op: &RangeLoopOp, b
         cond = binary_expand(&cond_scope, cond, inv_return_flag, BoolAndOp::new);
     }
 
-    cond_scope.register(&ConditionOp::new(scope.ctx_mut(), cond.read_value(scope)));
+    cond_scope.register(&ConditionOp::new(
+        scope.ctx_mut(),
+        cond.read_value(&cond_scope),
+    ));
 
     rewriter.erase_region(ctx, while_op.after_region(ctx));
     Region::move_to_op(for_op.get_region(ctx), while_op.get_operation(), ctx);
@@ -851,4 +857,32 @@ pub(crate) fn register_range_loop<I: Int>(scope: &Scope, for_op: &RangeLoopOp, b
 // Don't make this `FnOnce`, it must be executable multiple times
 pub fn loop_expand(scope: &Scope, block: impl FnMut(&Scope)) {
     WhileBuilder::new(scope, |scope| true.__expand_runtime_method(scope)).with_body(scope, block);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cubecl_ir::{
+        AddressType,
+        settings::{Dim3, ExecutionMode, KernelSettings},
+        types::scalar::BoolType,
+    };
+
+    #[test]
+    fn while_reads_mutable_condition_inside_loop() {
+        let scope = Scope::root(KernelSettings::new(
+            Dim3::new_1d(1),
+            ExecutionMode::Unchecked,
+            AddressType::U32,
+        ));
+        let flag = scope.create_local_mut(BoolType::get(scope.ctx()), None);
+        let builder = WhileBuilder::new(&scope, |_| flag.into());
+        let before = builder.while_op.before_block(scope.ctx());
+        builder.with_body(&scope, |_| {});
+
+        let ctx = scope.ctx();
+        let terminator = before.deref(ctx).get_terminator(ctx).unwrap();
+        let condition = ConditionOp::from_operation(terminator).condition(ctx);
+        assert_eq!(condition.get_defining_block(ctx), Some(before));
+    }
 }

@@ -234,6 +234,26 @@ pub fn kernel_for_loop_with_break<F: Float>(output: &mut [F]) {
 }
 
 #[cube(launch)]
+pub fn kernel_while_short_circuit(data: &[u32], output: &mut [u32]) {
+    let mut i = 0usize;
+    while i < data.len() && data[i] == 0u32 {
+        i += 1;
+    }
+    output[0] = i as u32;
+}
+
+#[cube(launch)]
+pub fn kernel_while_flag(output: &mut [u32]) {
+    let mut running = true;
+    let mut count = 0u32;
+    while running {
+        count += 1;
+        running = count < 3;
+    }
+    output[0] = count;
+}
+
+#[cube(launch)]
 pub fn kernel_for_loop_with_return<F: Float>(output: &mut [F]) {
     let max_iterations = comptime!(20_i32);
     for i in 0..max_iterations {
@@ -375,6 +395,37 @@ pub fn test_for_loop_with_break<R: Runtime, F: Float + CubeElement>(client: Clie
     assert_eq!(actual, expected.as_slice());
 }
 
+pub fn test_while_short_circuit<R: Runtime>(client: Client) {
+    for (case, values, stopping_index) in [
+        ("stops at first nonzero", [0, 0, 1], 2),
+        ("stops at array end", [0, 0, 0], 3),
+    ] {
+        let data = client.create_from_slice(u32::as_bytes(&values));
+        let output = client.create_from_slice(u32::as_bytes(&[u32::MAX]));
+        kernel_while_short_circuit::launch(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(1),
+            unsafe { BufferArg::from_raw_parts(data, values.len()) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), 1) },
+        );
+        let actual = client.read_one_unchecked(output);
+        assert_eq!(u32::from_bytes(&actual), &[stopping_index], "{case}");
+    }
+}
+
+pub fn test_while_flag<R: Runtime>(client: Client) {
+    let output = client.create_from_slice(u32::as_bytes(&[0]));
+    kernel_while_flag::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(1),
+        unsafe { BufferArg::from_raw_parts(output.clone(), 1) },
+    );
+    let actual = client.read_one_unchecked(output);
+    assert_eq!(u32::from_bytes(&actual), &[3]);
+}
+
 pub fn test_for_loop_with_return<R: Runtime, F: Float + CubeElement>(client: Client) {
     let zeros = vec![F::new(0.0); 20];
     let handle = client.create_from_slice(F::as_bytes(&zeros));
@@ -475,6 +526,18 @@ macro_rules! testgen_branch {
             cubecl_core::runtime_tests::branch::test_for_loop_with_break::<TestRuntime, FloatType>(
                 client,
             );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_while_short_circuit() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::branch::test_while_short_circuit::<TestRuntime>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_while_flag() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::branch::test_while_flag::<TestRuntime>(client);
         }
 
         #[$crate::runtime_tests::test_log::test]
