@@ -52,6 +52,10 @@ impl Fragment {
 fn fragment_of(ctx: &Context, matrix: &MatrixType) -> Option<Fragment> {
     let elem = matrix.elem_ty;
     match matrix.ident {
+        MatrixIdent::A | MatrixIdent::B if elem.is_tfloat32(ctx) => Some(Fragment {
+            regs: 4,
+            per_reg: 1,
+        }),
         MatrixIdent::A | MatrixIdent::B if elem.is_float16(ctx) => Some(Fragment {
             regs: 8,
             per_reg: 2,
@@ -75,6 +79,10 @@ pub(crate) fn fragment_ty(ctx: &Context, matrix: &MatrixType) -> TypeHandle {
 }
 
 fn register_ty(ctx: &mut Context, frag: Fragment, elem: TypeHandle) -> TypeHandle {
+    if elem.is_tfloat32(ctx) {
+        return word_ty(ctx);
+    }
+    let elem = cube_type_to_llvm(ctx, elem);
     if frag.per_reg == 1 {
         elem
     } else {
@@ -83,12 +91,42 @@ fn register_ty(ctx: &mut Context, frag: Fragment, elem: TypeHandle) -> TypeHandl
 }
 
 fn wmma_type(ctx: &Context, elem: TypeHandle) -> Option<&'static str> {
-    if elem.is_float32(ctx) {
+    if elem.is_tfloat32(ctx) {
+        Some("tf32")
+    } else if elem.is_float32(ctx) {
         Some("f32")
     } else if elem.is_float16(ctx) {
         Some("f16")
     } else {
         None
+    }
+}
+
+/// Round FP32 storage to TF32 using the same ties-away rounding as CUDA `__float_to_tf32`.
+/// NVVM returns the encoding in an i32 register; keep FP32 storage outside matrix calls.
+pub(crate) fn round_tf32(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    value: Value,
+) -> Value {
+    let ty = value.get_type(ctx);
+    let lanes = ty
+        .deref(ctx)
+        .downcast_ref::<LlvmVectorType>()
+        .map(|ty| ty.num_elements());
+    if let Some(lanes) = lanes {
+        let mut rounded = poison(ctx, rw, ty);
+        for lane in 0..lanes as usize {
+            let scalar = extract_lane(ctx, rw, value, lane);
+            let scalar = round_tf32(ctx, rw, scalar);
+            rounded = insert_lane(ctx, rw, rounded, scalar, lane);
+        }
+        rounded
+    } else {
+        let word = word_ty(ctx);
+        let op = call_op(ctx, "llvm.nvvm.f2tf32.rna", word, vec![value]);
+        let bits = insert(ctx, rw, &op);
+        bitcast(ctx, rw, bits, ty)
     }
 }
 
@@ -163,7 +201,8 @@ fn to_registers(
     (0..frag.regs)
         .map(|r| {
             if frag.per_reg == 1 {
-                return extract_lane(ctx, rw, fragment, r);
+                let value = extract_lane(ctx, rw, fragment, r);
+                return bitcast(ctx, rw, value, reg_ty);
             }
             let mut reg = poison(ctx, rw, reg_ty);
             for lane in 0..frag.per_reg {
@@ -185,6 +224,12 @@ fn from_registers(
     let mut acc = poison(ctx, rw, frag_ty);
     for (r, &reg) in regs.iter().enumerate() {
         if frag.per_reg == 1 {
+            let elem_ty = frag_ty
+                .deref(ctx)
+                .downcast_ref::<LlvmVectorType>()
+                .unwrap()
+                .elem_type();
+            let reg = bitcast(ctx, rw, reg, elem_ty);
             acc = insert_lane(ctx, rw, acc, reg, r);
             continue;
         }
@@ -325,8 +370,7 @@ pub(crate) fn load(
     };
 
     let frag_ty = fragment_ty(ctx, &ty);
-    let elem = cube_type_to_llvm(ctx, ty.elem_ty);
-    let reg_ty = register_ty(ctx, frag, elem);
+    let reg_ty = register_ty(ctx, frag, ty.elem_ty);
     let stride = stride_as_i32(ctx, rw, stride);
 
     // WMMA memory instructions require the source address space for specialization.
@@ -373,8 +417,7 @@ pub(crate) fn store(
     };
 
     let frag_ty = fragment_ty(ctx, &ty);
-    let elem = cube_type_to_llvm(ctx, ty.elem_ty);
-    let reg_ty = register_ty(ctx, frag, elem);
+    let reg_ty = register_ty(ctx, frag, ty.elem_ty);
     let stride = stride_as_i32(ctx, rw, stride);
 
     let value = load_fragment(ctx, rw, matrix, frag_ty);
@@ -432,10 +475,8 @@ pub(crate) fn multiply_accumulate(
 
     let ab_frag_ty = fragment_ty(ctx, &a_ty);
     let cd_frag_ty = fragment_ty(ctx, &c_ty);
-    let ab_elem = cube_type_to_llvm(ctx, a_ty.elem_ty);
-    let cd_elem = cube_type_to_llvm(ctx, c_ty.elem_ty);
-    let ab_reg_ty = register_ty(ctx, ab_frag, ab_elem);
-    let cd_reg_ty = register_ty(ctx, cd_frag, cd_elem);
+    let ab_reg_ty = register_ty(ctx, ab_frag, a_ty.elem_ty);
+    let cd_reg_ty = register_ty(ctx, cd_frag, c_ty.elem_ty);
 
     let a_val = load_fragment(ctx, rw, a, ab_frag_ty);
     let b_val = load_fragment(ctx, rw, b, ab_frag_ty);
@@ -446,8 +487,13 @@ pub(crate) fn multiply_accumulate(
     args.extend(to_registers(ctx, rw, c_val, cd_frag, cd_reg_ty));
 
     let name = format!(
-        "llvm.nvvm.wmma.{}.mma.{a_layout}.{b_layout}.{cd_name}.{cd_name}",
+        "llvm.nvvm.wmma.{}.mma.{a_layout}.{b_layout}.{}",
         geometry(a_ty.shape),
+        mma_signature(
+            wmma_type(ctx, a_ty.elem_ty).unwrap(),
+            wmma_type(ctx, b_ty.elem_ty).unwrap(),
+            cd_name
+        ),
     );
     let regs = call_returning_registers(ctx, rw, &name, vec![cd_reg_ty; cd_frag.regs], args);
 
@@ -549,7 +595,9 @@ enum RegisterForm {
 }
 
 fn mma_type(ctx: &Context, elem: TypeHandle) -> Option<(&'static str, RegisterForm)> {
-    if elem.is_float16(ctx) {
+    if elem.is_tfloat32(ctx) {
+        Some(("tf32", RegisterForm::Word))
+    } else if elem.is_float16(ctx) {
         Some(("f16", RegisterForm::Packed(2)))
     } else if elem.is_float32(ctx) {
         Some(("f32", RegisterForm::Scalar))
@@ -597,7 +645,12 @@ fn registers_of(
         }
         RegisterForm::Word => {
             let word = word_ty(ctx);
-            let bits = elems * elem.size_bits(ctx);
+            let elem_bits = if elem.deref(ctx).is::<FP32Type>() {
+                32
+            } else {
+                elem.size_bits(ctx)
+            };
+            let bits = elems * elem_bits;
             let words = bits / 32;
             let words_ty =
                 LlvmVectorType::get(ctx, word, words as u32, VectorTypeKind::Fixed).into();

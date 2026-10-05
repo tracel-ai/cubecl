@@ -142,6 +142,11 @@ pub struct CastOp {
 }
 const_eval!(CastOp, {
     custom: |inp| {
+        // TF32 uses FP32 storage, but casts require backend-specific rounding.
+        // Keep the cast until lowering instead of folding it as an FP32 alias.
+        if self.result_type(ctx).scalar_ty(ctx).is_tfloat32(ctx) {
+            return None;
+        }
         let val = inp?.as_const_val(ctx);
         let out_ty = self.get_result(ctx).get_type(ctx).deref(ctx);
         let elem = type_cast::<dyn ScalarType>(&*out_ty)?.elem_type(ctx);

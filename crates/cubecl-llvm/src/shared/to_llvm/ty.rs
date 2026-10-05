@@ -5,7 +5,7 @@ use cubecl_core::ir::types::{
     ArrayType, AtomicType,
     scalar::{
         Float8E4M3Type, Float8E5M2Type, Float8E8M0Type, Float16Type, Float32Type, Float64Type,
-        FloatFlex32Type,
+        FloatFlex32Type, TFloat32Type,
     },
 };
 
@@ -52,6 +52,8 @@ impl_cube_to_llvm_type!(IndexType, self, ctx => IntegerType::get(ctx, index_widt
 impl_cube_to_llvm_type!(Float64Type, self, ctx => FP64Type::get(ctx));
 impl_cube_to_llvm_type!(Float32Type, self, ctx => FP32Type::get(ctx));
 impl_cube_to_llvm_type!(FloatFlex32Type, self, ctx => FP32Type::get(ctx));
+// TF32 keeps its FP32 storage. Casts round the mantissa; matrix instructions take its bits.
+impl_cube_to_llvm_type!(TFloat32Type, self, ctx => FP32Type::get(ctx));
 impl_cube_to_llvm_type!(Float16Type, self, ctx => FP16Type::get(ctx));
 impl_cube_to_llvm_type!(Float8E4M3Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
 impl_cube_to_llvm_type!(Float8E5M2Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
