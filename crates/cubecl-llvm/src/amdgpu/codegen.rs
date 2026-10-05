@@ -422,6 +422,61 @@ exit:
     }
 
     #[test]
+    fn a_read_after_an_atomic_handoff_is_not_scalar() {
+        // Another cube writes `carry`, then hands the turn on through `turns`: the read after the
+        // acquire must reach memory, where a scalar load is served from a cache it does not
+        // invalidate. `weights`, which no cube writes, keeps its promises.
+        let ir = r#"
+define void @k(ptr addrspace(1) %turns, ptr addrspace(1) %carry, ptr addrspace(1) %weights, ptr addrspace(1) %out) {
+entry:
+  br label %spin
+spin:
+  %turn = load atomic i32, ptr addrspace(1) %turns syncscope("agent") monotonic, align 4
+  %ready = icmp eq i32 %turn, 1
+  br i1 %ready, label %taken, label %spin
+taken:
+  fence syncscope("agent") acquire
+  %carried = load float, ptr addrspace(1) %carry, align 4
+  %weight = load float, ptr addrspace(1) %weights, align 4
+  %sum = fadd float %carried, %weight
+  store float %sum, ptr addrspace(1) %carry, align 4
+  store float %sum, ptr addrspace(1) %out, align 4
+  ret void
+}
+"#;
+        let arch = GfxArch::parse("gfx1151");
+        let io = [
+            BufferIOAttr::ReadWrite,
+            BufferIOAttr::ReadWrite,
+            BufferIOAttr::ReadOnly,
+            BufferIOAttr::WriteOnly,
+        ];
+        let finalized = finalize_ir(ir, "k", &arch, Dim3::new_1d(64), &io).unwrap();
+        let signature = finalized
+            .lines()
+            .find(|line| line.starts_with("define"))
+            .unwrap();
+        for written in ["%turns", "%carry", "%out"] {
+            assert!(
+                !signature.contains(&format!("noalias {written}")),
+                "{written} is written by some cube within the launch:\n{signature}"
+            );
+        }
+        assert!(
+            signature.contains("noalias readonly %weights"),
+            "no cube writes the weights:\n{signature}"
+        );
+
+        let (_, asm) = compile_to_object(&finalized, &arch, Assembly::Keep).unwrap();
+        let asm = asm.unwrap();
+        let scalar_loads = asm.matches("s_load_b32").count();
+        assert_eq!(
+            scalar_loads, 1,
+            "the weight alone is a scalar load, the carry is not:\n{asm}"
+        );
+    }
+
+    #[test]
     fn a_float_atomic_add_is_the_native_instruction() {
         let ir = r#"
 define void @k(ptr addrspace(1) %p, float %v, ptr addrspace(1) %o) {

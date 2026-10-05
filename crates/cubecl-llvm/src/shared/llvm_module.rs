@@ -11,9 +11,10 @@ use llvm_sys::{
         LLVMAddAttributeAtIndex, LLVMCountParams, LLVMCreateEnumAttribute,
         LLVMCreateStringAttribute, LLVMGetBufferSize, LLVMGetBufferStart,
         LLVMGetEnumAttributeKindForName, LLVMGetFirstBasicBlock, LLVMGetFirstInstruction,
-        LLVMGetNamedFunction, LLVMGetNextBasicBlock, LLVMGetNextInstruction, LLVMGetOrdering,
-        LLVMGetParam, LLVMGetTypeKind, LLVMIsALoadInst, LLVMSetFunctionCallConv, LLVMSetTarget,
-        LLVMTypeOf,
+        LLVMGetNamedFunction, LLVMGetNextBasicBlock, LLVMGetNextInstruction, LLVMGetOperand,
+        LLVMGetOrdering, LLVMGetParam, LLVMGetTypeKind, LLVMIsAArgument, LLVMIsACastInst,
+        LLVMIsAConstantExpr, LLVMIsAGetElementPtrInst, LLVMIsALoadInst, LLVMSetFunctionCallConv,
+        LLVMSetTarget, LLVMTypeOf,
     },
     prelude::LLVMValueRef,
     target::{LLVMDisposeTargetData, LLVMSetModuleDataLayout},
@@ -312,6 +313,29 @@ impl<'m> EntryFunction<'m> {
         }
     }
 
+    /// The parameter `pointer` addresses, followed back through address arithmetic and casts,
+    /// or `None` where it passes through anything else: a phi, a select, a load.
+    pub(crate) fn param_under(&self, pointer: LLVMValueRef) -> Option<Param> {
+        let mut value = pointer;
+        // SAFETY: every value walked is live, an operand of a live instruction or expression.
+        unsafe {
+            loop {
+                if !LLVMIsAArgument(value).is_null() {
+                    return (0..self.param_count())
+                        .find(|&index| LLVMGetParam(self.func, index) == value)
+                        .map(Param);
+                }
+                let through = !LLVMIsAGetElementPtrInst(value).is_null()
+                    || !LLVMIsACastInst(value).is_null()
+                    || !LLVMIsAConstantExpr(value).is_null();
+                if !through {
+                    return None;
+                }
+                value = LLVMGetOperand(value, 0);
+            }
+        }
+    }
+
     /// The function's instructions, block by block.
     pub(crate) fn instructions(&self) -> impl Iterator<Item = Instruction<'m>> + use<'m> {
         // SAFETY: the function, its blocks and their instructions are live for the module's
@@ -358,6 +382,13 @@ impl Instruction<'_> {
             !LLVMIsALoadInst(self.inst).is_null()
                 && LLVMGetOrdering(self.inst) != LLVMAtomicOrdering::LLVMAtomicOrderingNotAtomic
         }
+    }
+
+    /// The pointer an atomic load reads, or `None` for any other instruction.
+    pub(crate) fn atomically_loaded(&self) -> Option<LLVMValueRef> {
+        // SAFETY: the instruction is live, and a load's first operand is its pointer.
+        self.is_atomic_load()
+            .then(|| unsafe { LLVMGetOperand(self.inst, 0) })
     }
 
     /// The operation of an `atomicrmw`, or `None` for any other instruction.
