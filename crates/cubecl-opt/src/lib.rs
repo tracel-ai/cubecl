@@ -43,6 +43,31 @@ pub(crate) trait BitSetExt: BitSetInterface {
 }
 impl<T: BitSetInterface> BitSetExt for T {}
 
+pub(crate) trait BitsetLatticeExt {
+    fn set(&mut self, new: Self) -> ChangeResult;
+    fn unite_changed(&mut self, other: &Self) -> ChangeResult;
+}
+
+impl BitsetLatticeExt for SparseBitSet {
+    fn set(&mut self, new: Self) -> ChangeResult
+    where
+        Self: PartialEq,
+    {
+        match *self == new {
+            true => ChangeResult::Unchanged,
+            false => {
+                *self = new;
+                ChangeResult::Changed
+            }
+        }
+    }
+
+    fn unite_changed(&mut self, other: &Self) -> ChangeResult {
+        self.set(self.union(other).into())
+    }
+}
+
+use crate::analyses::dataflow_solver::ChangeResult;
 pub use crate::analyses::liveness::shared::SharedLiveness;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

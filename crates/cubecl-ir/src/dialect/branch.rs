@@ -196,15 +196,8 @@ impl RegionBranchTerminatorOpInterface for ConditionOp {
 
 #[op_interface_impl]
 impl UniformRegionTerminatorOpInterface for ConditionOp {
-    fn successor_region_uniformity(
-        &self,
-        ctx: &Context,
-        operands: &[Uniformity],
-    ) -> Vec<Uniformity> {
-        self.all_successor_regions(ctx)
-            .iter()
-            .map(|_| operands[0])
-            .collect()
+    fn successor_region_uniformity(&self, _: &Context, operands: &[Uniformity]) -> Uniformity {
+        operands[0]
     }
 }
 

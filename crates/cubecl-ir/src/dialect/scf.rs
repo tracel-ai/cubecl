@@ -309,16 +309,16 @@ impl RegionBranchOpInterface for IfOp {
 
 #[op_interface_impl]
 impl UniformRegionOpInterface for IfOp {
-    fn result_uniformity(&self, _ctx: &Context, operands: &[Uniformity]) -> Uniformity {
+    fn result_uniformity(&self, _: &Context, operands: &[Uniformity]) -> Uniformity {
         operands[0]
     }
 
     fn entry_successor_region_uniformity(
         &self,
-        _ctx: &Context,
+        _: &Context,
         operands: &[Uniformity],
-    ) -> Vec<Uniformity> {
-        vec![operands[0], operands[0]]
+    ) -> Uniformity {
+        operands[0]
     }
 }
 
@@ -664,11 +664,10 @@ impl UniformRegionOpInterface for SwitchOp {
 
     fn entry_successor_region_uniformity(
         &self,
-        ctx: &Context,
+        _: &Context,
         operands: &[Uniformity],
-    ) -> Vec<Uniformity> {
-        let num_regions = self.get_operation().deref(ctx).num_regions();
-        vec![operands[0]; num_regions]
+    ) -> Uniformity {
+        operands[0]
     }
 }
 
@@ -1078,11 +1077,10 @@ impl UniformRegionOpInterface for ForOp {
 
     fn entry_successor_region_uniformity(
         &self,
-        _ctx: &Context,
+        _: &Context,
         operands: &[Uniformity],
-    ) -> Vec<Uniformity> {
-        let uniformity = operands[0].min(operands[1]).min(operands[2]);
-        vec![uniformity, uniformity]
+    ) -> Uniformity {
+        operands[0].min(operands[1]).min(operands[2])
     }
 }
 
@@ -1397,8 +1395,8 @@ impl UniformRegionOpInterface for WhileOp {
         &self,
         _ctx: &Context,
         _operands: &[Uniformity],
-    ) -> Vec<Uniformity> {
-        vec![Uniformity::Cube]
+    ) -> Uniformity {
+        Uniformity::Cube
     }
 }
 

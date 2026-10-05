@@ -38,6 +38,22 @@ pub enum RegionSuccessor {
     AfterOp,
 }
 
+impl Printable for RegionSuccessor {
+    fn fmt(&self, ctx: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RegionSuccessor::Region(region)
+                if let Some(entry) = region.deref(ctx).get_entry_block() =>
+            {
+                write!(f, "{}", entry.label(ctx))
+            }
+            RegionSuccessor::Region(region) => {
+                write!(f, "{region:?}")
+            }
+            RegionSuccessor::AfterOp => f.write_str("AfterOp"),
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct InvocationBounds {
     lower_bound: usize,

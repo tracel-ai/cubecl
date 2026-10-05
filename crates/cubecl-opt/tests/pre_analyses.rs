@@ -7,7 +7,10 @@ use cubecl_ir::{
 use cubecl_opt::analyses::dataflow_solver::{
     AnalysisState, DataflowSolver, ProgramPoint, ReadRef,
     dense::{self, DenseLattice},
-    pre::{AnticipatedExpressions, AvailableExpressions, Computes, compute_lcm_analyses},
+    pre::{
+        AnticipatedExpressions, AvailableExpressions, Computes, compute_lcm_analyses,
+        compute_slcm_analyses,
+    },
 };
 use expect_test::expect;
 use itertools::Itertools;
@@ -68,6 +71,18 @@ fn run_pre_analyses_on_text(ctx: &mut Context, input: &str) -> Result<String> {
     std::println!("{}", solver.disp(ctx));
 
     Ok(display_sets(ctx, &solver, op))
+}
+
+fn run_speculative_pre_analyses_on_text(ctx: &mut Context, input: &str) -> Result<String> {
+    init_env_logger_for_tests!();
+    let op = parse_from_str(spaced(Operation::top_level_parser()), ctx, input).expect_ok(ctx);
+
+    verify_operation(op, ctx)?;
+
+    let solver = compute_slcm_analyses(ctx, op)?;
+    std::println!("{}", solver.disp(ctx));
+
+    Ok(display_sorted_anticipated(ctx, &solver, op))
 }
 
 fn display_dense_fwd<T: dense::LatticeValue>(
@@ -925,6 +940,262 @@ fn pre_region_memory_clobber() -> Result<()> {
         result_v6 = scf.if cond_v0 : builtin.integer ui32 then {..} else {..}: Anticipated({})
         before_v2 = pre.memory_use Shared:builtin.integer ui32: Anticipated({e2})
     "#]].assert_eq(&sets);
+
+    Ok(())
+}
+
+#[test]
+fn slcm_if_uniform_condition() -> Result<()> {
+    let input = r#"
+    builtin.module @module {
+      ^module_block():
+      builtin.func @f: builtin.function <(cube.bool, builtin.integer i64, builtin.integer i64) -> ()>
+          [entry_point: cube.entrypoint_abi <cube_dim: (1, 1, 1)>] {
+        ^entry(cond: cube.bool, a: builtin.integer i64, b: builtin.integer i64):
+          result = scf.if cond : builtin.integer i64 then {
+            ^then():
+              value = math.i_add (a, b) [] []:
+                  <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>;
+              branch.yield (value)
+          } else {
+            ^else():
+              branch.yield (a)
+          };
+          branch.return
+      }
+    }
+  "#;
+
+    let ctx = &mut Context::new();
+    let actual = run_speculative_pre_analyses_on_text(ctx, input)?;
+
+    // Anticipated *should not* propagate through `if`
+    expect![[r#"
+        block_end(^module_block_block1v1): Anticipated({})
+        block_end(^entry_block2v1): Anticipated({})
+        branch.return : Anticipated({})
+        block_end(^then_block3v1): Anticipated({})
+        branch.yield (value_v3): Anticipated({})
+        value_v3 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Anticipated({e3})
+        block_end(^else_block4v1): Anticipated({})
+        branch.yield (a_v1): Anticipated({})
+        result_v4 = scf.if cond_v0 : builtin.integer i64 then {..} else {..}: Anticipated({})
+        builtin.func @f: builtin.function <(cube.bool , builtin.integer i64, builtin.integer i64) -> ()> 
+          [entry_point: cube.entrypoint_abi <cube_dim: (1, 1, 1)>]{..}: Anticipated({})
+    "#]]
+    .assert_eq(&actual);
+
+    Ok(())
+}
+
+#[test]
+fn slcm_if_divergent_condition() -> Result<()> {
+    let input = r#"
+    builtin.module @module {
+      ^module_block():
+      builtin.func @f: builtin.function <(builtin.integer i64, builtin.integer i64) -> ()> [] {
+        ^entry(a: builtin.integer i64, b: builtin.integer i64):
+          cond = plane.elect () [] []: <() -> (cube.bool)>;
+          result = scf.if cond : builtin.integer i64 then {
+            ^then():
+              value = math.i_add (a, b) [] []:
+                  <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>;
+              branch.yield (value)
+          } else {
+            ^else():
+              branch.yield (a)
+          };
+          branch.return
+      }
+    }
+  "#;
+
+    let ctx = &mut Context::new();
+    let actual = run_speculative_pre_analyses_on_text(ctx, input)?;
+
+    // Anticipated *should* propagate through `if`
+    expect![[r#"
+        block_end(^module_block_block1v1): Anticipated({})
+        block_end(^entry_block2v1): Anticipated({})
+        branch.return : Anticipated({})
+        block_end(^then_block3v1): Anticipated({})
+        branch.yield (value_v3): Anticipated({})
+        value_v3 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Anticipated({e3})
+        block_end(^else_block4v1): Anticipated({})
+        branch.yield (a_v0): Anticipated({})
+        result_v4 = scf.if cond_v2 : builtin.integer i64 then {..} else {..}: Anticipated({e3})
+        cond_v2 = plane.elect () [] []: <() -> (cube.bool )>: Anticipated({e2, e3})
+        builtin.func @f: builtin.function <(builtin.integer i64, builtin.integer i64) -> ()> {..}: Anticipated({})
+    "#]]
+    .assert_eq(&actual);
+
+    Ok(())
+}
+
+#[test]
+fn slcm_for_uniform_bounds() -> Result<()> {
+    let input = r#"
+    builtin.module @module {
+      ^module_block():
+      builtin.func @f: builtin.function <(cube.index, cube.index, cube.index, builtin.integer i64, builtin.integer i64) -> ()>
+          [entry_point: cube.entrypoint_abi <cube_dim: (1, 1, 1)>] {
+        ^entry(start: cube.index, end: cube.index, step: cube.index, a: builtin.integer i64, b: builtin.integer i64):
+          scf.for start to end step step iter_args() {
+            ^body(i: builtin.integer i32):
+              value = math.i_add (a, b) [] []:
+                  <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>;
+              branch.yield ()
+          };
+          branch.return
+      }
+    }
+  "#;
+
+    let ctx = &mut Context::new();
+    let actual = run_speculative_pre_analyses_on_text(ctx, input)?;
+
+    // Anticipated *should not* propagate before the loop
+    expect![[r#"
+        block_end(^module_block_block1v1): Anticipated({})
+        block_end(^entry_block2v1): Anticipated({})
+        branch.return : Anticipated({})
+        block_end(^body_block3v1): Anticipated({})
+        branch.yield (): Anticipated({})
+        value_v6 = math.i_add (a_v3, b_v4) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Anticipated({e6})
+        scf.for start_v0 to end_v1 step step_v2 {..}: Anticipated({})
+        builtin.func @f: builtin.function <(cube.index , cube.index , cube.index , builtin.integer i64, builtin.integer i64) -> ()> 
+          [entry_point: cube.entrypoint_abi <cube_dim: (1, 1, 1)>]{..}: Anticipated({})
+    "#]]
+    .assert_eq(&actual);
+
+    Ok(())
+}
+
+#[test]
+fn slcm_for_divergent_bounds() -> Result<()> {
+    let input = r#"
+    builtin.module @module {
+      ^module_block():
+      builtin.func @f: builtin.function <(cube.index, cube.index, builtin.integer i64, builtin.integer i64) -> ()>
+        [entry_point: cube.entrypoint_abi <cube_dim: (1, 1, 1)>] {
+        ^entry(start: cube.index, step: cube.index, a: builtin.integer i64, b: builtin.integer i64):
+          end = cube.read_builtin (UnitPos) : cube.index;
+          scf.for start to end step step iter_args() {
+            ^body(i: builtin.integer i32):
+              value = math.i_add (a, b) [] []:
+                  <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>;
+              branch.yield ()
+          };
+          branch.return
+      }
+    }
+  "#;
+
+    let ctx = &mut Context::new();
+    let actual = run_speculative_pre_analyses_on_text(ctx, input)?;
+
+    // Anticipated *should* propagate before the loop
+    expect![[r#"
+        block_end(^module_block_block1v1): Anticipated({})
+        block_end(^entry_block2v1): Anticipated({})
+        branch.return : Anticipated({})
+        block_end(^body_block3v1): Anticipated({})
+        branch.yield (): Anticipated({})
+        value_v6 = math.i_add (a_v2, b_v3) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Anticipated({e6})
+        scf.for start_v0 to end_v4 step step_v1 {..}: Anticipated({e6})
+        end_v4 = cube.read_builtin (UnitPos) : cube.index : Anticipated({e4, e6})
+        builtin.func @f: builtin.function <(cube.index , cube.index , builtin.integer i64, builtin.integer i64) -> ()> 
+          [entry_point: cube.entrypoint_abi <cube_dim: (1, 1, 1)>]{..}: Anticipated({})
+    "#]]
+    .assert_eq(&actual);
+
+    Ok(())
+}
+
+#[test]
+fn slcm_while_uniform_condition() -> Result<()> {
+    let input = r#"
+    builtin.module @module {
+      ^module_block():
+      builtin.func @f: builtin.function <(cube.bool, builtin.integer i64, builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>
+          [entry_point: cube.entrypoint_abi <cube_dim: (1, 1, 1)>] {
+        ^entry(cond: cube.bool, init: builtin.integer i64, a: builtin.integer i64, b: builtin.integer i64):
+          y = scf.while init : builtin.integer i64 {
+            ^before(x: builtin.integer i64):
+              branch.condition (cond, x)
+          } do {
+            ^after(x2: builtin.integer i64):
+              value = math.i_add (a, b) [] []:
+                  <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>;
+              branch.yield (value)
+          };
+          branch.return y
+      }
+    }
+  "#;
+
+    let ctx = &mut Context::new();
+    let actual = run_speculative_pre_analyses_on_text(ctx, input)?;
+
+    // Anticipated *should not* propagate into ^before
+    expect![[r#"
+        block_end(^module_block_block1v1): Anticipated({})
+        block_end(^entry_block2v1): Anticipated({})
+        branch.return y_v7: Anticipated({})
+        block_end(^before_block3v1): Anticipated({})
+        branch.condition (cond_v0, x_v4): Anticipated({})
+        block_end(^after_block4v1): Anticipated({})
+        branch.yield (value_v6): Anticipated({})
+        value_v6 = math.i_add (a_v2, b_v3) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Anticipated({e4})
+        y_v7 = scf.while init_v1 : builtin.integer i64 {..} do {..}: Anticipated({})
+        builtin.func @f: builtin.function <(cube.bool , builtin.integer i64, builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)> 
+          [entry_point: cube.entrypoint_abi <cube_dim: (1, 1, 1)>]{..}: Anticipated({})
+    "#]]
+    .assert_eq(&actual);
+
+    Ok(())
+}
+
+#[test]
+fn slcm_while_divergent_condition() -> Result<()> {
+    let input = r#"
+    builtin.module @module {
+      ^module_block():
+      builtin.func @f: builtin.function <(builtin.integer i64, builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)> [] {
+        ^entry(init: builtin.integer i64, a: builtin.integer i64, b: builtin.integer i64):
+          cond = plane.elect () [] []: <() -> (cube.bool)>;
+          y = scf.while init : builtin.integer i64 {
+            ^before(x: builtin.integer i64):
+              branch.condition (cond, x)
+          } do {
+            ^after(x2: builtin.integer i64):
+              value = math.i_add (a, b) [] []:
+                  <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>;
+              branch.yield (value)
+          };
+          branch.return y
+      }
+    }
+  "#;
+
+    let ctx = &mut Context::new();
+    let actual = run_speculative_pre_analyses_on_text(ctx, input)?;
+
+    // Anticipated *should* propagate into ^before, and out of the loop entirely
+    expect![[r#"
+        block_end(^module_block_block1v1): Anticipated({})
+        block_end(^entry_block2v1): Anticipated({})
+        branch.return y_v7: Anticipated({})
+        block_end(^before_block3v1): Anticipated({e4})
+        branch.condition (cond_v3, x_v4): Anticipated({e4})
+        block_end(^after_block4v1): Anticipated({e4})
+        branch.yield (value_v6): Anticipated({e4})
+        value_v6 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Anticipated({e4})
+        y_v7 = scf.while init_v0 : builtin.integer i64 {..} do {..}: Anticipated({e4})
+        cond_v3 = plane.elect () [] []: <() -> (cube.bool )>: Anticipated({e3, e4})
+        builtin.func @f: builtin.function <(builtin.integer i64, builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)> {..}: Anticipated({})
+    "#]]
+    .assert_eq(&actual);
 
     Ok(())
 }

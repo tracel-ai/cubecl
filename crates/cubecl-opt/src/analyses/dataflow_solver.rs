@@ -3,7 +3,7 @@ use core::{
     cell::RefCell,
     hash::{BuildHasher, Hash, Hasher},
     marker::PhantomData,
-    ops::BitOrAssign,
+    ops::{BitOr, BitOrAssign},
 };
 
 use alloc::{boxed::Box, collections::VecDeque, rc::Rc, vec::Vec};
@@ -40,6 +40,17 @@ pub type SmallPtrVec<T> = SmallVec<[T; 8]>;
 pub enum ChangeResult {
     Changed,
     Unchanged,
+}
+
+impl BitOr for ChangeResult {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self::Output {
+        if matches!(rhs, ChangeResult::Changed) {
+            ChangeResult::Changed
+        } else {
+            self
+        }
+    }
 }
 
 impl BitOrAssign for ChangeResult {
@@ -253,6 +264,10 @@ mod solver {
                 );
             }
             Ok(())
+        }
+
+        pub fn loaded_analyses(&self) -> &[TypeId] {
+            &self.preloaded_analyses
         }
 
         pub fn initialize_and_run(&mut self, ctx: &Context, root: Ptr<Operation>) -> Result<()> {
