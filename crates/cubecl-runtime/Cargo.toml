@@ -55,6 +55,7 @@ cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.4", default-features
     "serde",
 ] }
 cubecl-zspace = { path = "../cubecl-zspace", version = "=0.11.0-pre.4", default-features = false }
+cubecl-monitoring = { path = "../cubecl-monitoring", version = "=0.11.0-pre.4", default-features = false }
 
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = ["eq"] }

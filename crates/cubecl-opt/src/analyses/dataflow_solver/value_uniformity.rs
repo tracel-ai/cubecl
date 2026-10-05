@@ -33,8 +33,8 @@ impl Printable for StrictUniformity {
 }
 
 impl LatticeValue for StrictUniformity {
-    fn join(&self, rhs: &Self) -> Self {
-        Self(self.0.min(rhs.0))
+    fn join(this: &SparseLattice<Self>, rhs: &Self) -> Self {
+        Self(this.value().0.min(rhs.0))
     }
 }
 
@@ -53,8 +53,8 @@ impl Printable for DynamicUniformity {
 }
 
 impl LatticeValue for DynamicUniformity {
-    fn join(&self, rhs: &Self) -> Self {
-        Self(self.0.min(rhs.0))
+    fn join(this: &SparseLattice<Self>, rhs: &Self) -> Self {
+        Self(this.value().0.min(rhs.0))
     }
 }
 
@@ -64,6 +64,7 @@ pub type DynamicUniformityAnalysis = SparseForward<DynamicValueUniformity>;
 pub type StrictUniformityLattice = SparseLattice<StrictUniformity>;
 pub type StrictUniformityAnalysis = SparseForward<StrictValueUniformity>;
 
+#[derive(Default)]
 pub struct DynamicValueUniformity;
 
 impl SparseForwardDataflowAnalysis for DynamicValueUniformity {
@@ -157,12 +158,13 @@ impl SparseForwardDataflowAnalysis for DynamicValueUniformity {
     }
 }
 
+#[derive(Default)]
 pub struct StrictValueUniformity;
 
 impl SparseForwardDataflowAnalysis for StrictValueUniformity {
     type LatticeValue = StrictUniformity;
 
-    fn verify(&self, solver: &DataflowSolver, _ctx: &Context, _root: Ptr<Operation>) -> Result<()> {
+    fn verify(solver: &DataflowSolver, _ctx: &Context, _root: Ptr<Operation>) -> Result<()> {
         solver.require_loaded::<BlockUniformityAnalysis>()?;
         solver.require_loaded::<SparseForward<DynamicValueUniformity>>()?;
         Ok(())

@@ -1,3 +1,4 @@
+use crate::WgpuBackend;
 pub use wgpu::Backend;
 /// The basic trait to specify which graphics API to use as Backend.
 ///
@@ -11,13 +12,23 @@ pub trait GraphicsApi: Send + Sync + core::fmt::Debug + Default + Clone + 'stati
     /// The wgpu backend.
     fn backend() -> Backend;
 
-    /// The wgpu backend `device` comes up on when set up through this API.
+    /// The graphics API selection for `device`, before automatic selection is resolved.
     ///
-    /// A named API is itself, whatever the device. [`AutoGraphicsApi`] is the
-    /// one that defers, to the API the device pins where it pins one.
-    fn backend_for(device: &crate::WgpuDevice) -> Backend {
-        let _ = device;
-        Self::backend()
+    /// A named API returns its own backend. [`AutoGraphicsApi`] returns the device's backend,
+    /// preserving [`WgpuBackend::Auto`] when the device does not pin an API.
+    ///
+    /// # Panics
+    ///
+    /// The default implementation rejects the noop backend, which has no `WgpuBackend` variant.
+    fn backend_for(_device: &crate::WgpuDevice) -> WgpuBackend {
+        match Self::backend() {
+            Backend::Vulkan => WgpuBackend::Vulkan,
+            Backend::Metal => WgpuBackend::Metal,
+            Backend::Dx12 => WgpuBackend::Dx12,
+            Backend::Gl => WgpuBackend::Gl,
+            Backend::BrowserWebGpu => WgpuBackend::WebGpu,
+            Backend::Noop => panic!("The noop backend has no WgpuBackend selection"),
+        }
     }
 }
 
@@ -129,8 +140,42 @@ impl GraphicsApi for AutoGraphicsApi {
         crate::runtime::resolve_backend(crate::WgpuBackend::Auto)
     }
 
-    /// The API `device` pins, or where it pins none, [`backend`](Self::backend).
-    fn backend_for(device: &crate::WgpuDevice) -> Backend {
-        crate::runtime::resolve_backend(device.backend)
+    /// The API `device` pins, or [`WgpuBackend::Auto`] when it pins none.
+    fn backend_for(device: &crate::WgpuDevice) -> WgpuBackend {
+        device.backend
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+
+    #[test]
+    fn named_apis_preserve_their_backend() {
+        fn check<G: GraphicsApi>(expected: WgpuBackend) {
+            let selected = G::backend_for(&crate::WgpuDevice::default());
+            assert_eq!(selected, expected);
+        }
+
+        check::<Vulkan>(WgpuBackend::Vulkan);
+        check::<Metal>(WgpuBackend::Metal);
+        check::<Dx12>(WgpuBackend::Dx12);
+        check::<OpenGl>(WgpuBackend::Gl);
+        check::<WebGpu>(WgpuBackend::WebGpu);
+    }
+
+    #[test]
+    fn automatic_api_preserves_auto_and_pinned_selections() {
+        for backend in [
+            WgpuBackend::Auto,
+            WgpuBackend::Vulkan,
+            WgpuBackend::Metal,
+            WgpuBackend::Dx12,
+            WgpuBackend::Gl,
+            WgpuBackend::WebGpu,
+        ] {
+            let device = crate::WgpuDevice::default().on(backend);
+            assert_eq!(AutoGraphicsApi::backend_for(&device), backend);
+        }
     }
 }

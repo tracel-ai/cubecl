@@ -8,6 +8,7 @@ macro_rules! Pure {
     ($ty: ty) => {
         $crate::NoSideEffects!($ty);
         $crate::NoMemoryEffect!($ty);
+        $crate::AlwaysSpeculatable!($ty);
     };
 }
 
@@ -43,12 +44,60 @@ macro_rules! CanMaterialize {
 macro_rules! NoMemoryEffect {
     ($ty: ty) => {
         #[::pliron::derive::op_interface_impl]
-        impl $crate::interfaces::MemoryEffects for $ty {
+        impl $crate::interfaces::side_effects::MemoryEffectsOp for $ty {
             fn memory_effects(
                 &self,
                 _ctx: &pliron::context::Context,
-            ) -> $crate::alloc::vec::Vec<$crate::interfaces::MemoryEffect> {
+            ) -> $crate::alloc::vec::Vec<$crate::interfaces::side_effects::MemoryEffect> {
                 $crate::alloc::vec![]
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! RecursiveMemoryEffects {
+    ($ty: ty) => {
+        #[::pliron::derive::op_interface_impl]
+        impl $crate::interfaces::side_effects::MemoryEffectsOp for $ty {
+            fn memory_effects(
+                &self,
+                ctx: &pliron::context::Context,
+            ) -> $crate::alloc::vec::Vec<$crate::interfaces::side_effects::MemoryEffect> {
+                $crate::interfaces::side_effects::get_nested_memory_effects(
+                    ctx,
+                    self.get_operation(),
+                )
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! AlwaysSpeculatable {
+    ($ty: ty) => {
+        #[::pliron::derive::op_interface_impl]
+        impl $crate::interfaces::side_effects::ConditionallySpeculatable for $ty {
+            fn speculatability(
+                &self,
+                _ctx: &pliron::context::Context,
+            ) -> $crate::interfaces::side_effects::Speculatability {
+                $crate::interfaces::side_effects::Speculatability::Speculatable
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! RecursivelySpeculatable {
+    ($ty: ty) => {
+        #[::pliron::derive::op_interface_impl]
+        impl $crate::interfaces::side_effects::ConditionallySpeculatable for $ty {
+            fn speculatability(
+                &self,
+                _ctx: &pliron::context::Context,
+            ) -> $crate::interfaces::side_effects::Speculatability {
+                $crate::interfaces::side_effects::Speculatability::RecursivelySpeculatable
             }
         }
     };
@@ -79,8 +128,8 @@ macro_rules! ReturnLike {
     ($ty: ty) => {
         #[::pliron::derive::op_interface_impl]
         impl $crate::interfaces::control_flow::RegionBranchTerminatorOpInterface for $ty {
-            fn successor_operands(&self, ctx: &Context, _successor: RegionSuccessor) -> Vec<Value> {
-                self.get_operation().deref(ctx).operands().collect()
+            fn successor_operands(&self, ctx: &Context, _: RegionSuccessor) -> Vec<Use<Value>> {
+                self.get_operation().deref(ctx).operands_as_uses().collect()
             }
         }
 
@@ -116,12 +165,49 @@ macro_rules! HasSideEffects {
 }
 
 #[macro_export]
+macro_rules! RecursiveSideEffects {
+    ($ty: ty) => {
+        #[::pliron::derive::op_interface_impl]
+        impl pliron::opts::dce::SideEffects for $ty {
+            fn has_side_effects(&self, ctx: &pliron::context::Context) -> bool {
+                $crate::interfaces::side_effects::get_nested_side_effects(ctx, self.get_operation())
+            }
+        }
+    };
+}
+
+#[macro_export]
 macro_rules! NoSideEffects {
     ($ty: ty) => {
         #[::pliron::derive::op_interface_impl]
         impl pliron::opts::dce::SideEffects for $ty {
             fn has_side_effects(&self, _ctx: &pliron::context::Context) -> bool {
                 false
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! Commutative {
+    ($ty: ty) => {
+        #[::pliron::derive::op_interface_impl]
+        impl $crate::interfaces::ExpressionCanonicalize for $ty {
+            fn canonical_expression(
+                &self,
+                ctx: &pliron::context::Context,
+                mut operands: alloc::vec::Vec<$crate::interfaces::ExpressionValue>,
+            ) -> $crate::interfaces::Expression {
+                operands.sort();
+                $crate::interfaces::Expression::new(
+                    self.result_type(ctx),
+                    <$ty>::get_opid_static(),
+                    operands,
+                    self.get_operation()
+                        .deref(ctx)
+                        .attributes
+                        .clone_skip_outlined(ctx),
+                )
             }
         }
     };

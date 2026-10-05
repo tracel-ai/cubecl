@@ -10,7 +10,7 @@ use pliron::{
 
 use crate::{
     AddressSpaceVecAttr, CanMaterialize,
-    interfaces::{MemoryEffect, MemoryEffects},
+    interfaces::side_effects::{MemoryEffect, MemoryEffectsOp},
     prelude::*,
     typed_vec_attr,
 };
@@ -149,7 +149,7 @@ impl SideEffects for InlineAsmOp {
 }
 
 #[op_interface_impl]
-impl MemoryEffects for InlineAsmOp {
+impl MemoryEffectsOp for InlineAsmOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         match &*self.memory_clobbers(ctx) {
             MemoryClobbers::Nomem => vec![],

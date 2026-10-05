@@ -1,22 +1,23 @@
 use crate::compute::{
-    events::Fence,
+    events::{Fence, driver_error},
     storage::{cpu::PinnedMemoryStorage, gpu::GpuStorage},
 };
 use cubecl_core::{
     MemoryConfiguration,
     ir::MemoryDeviceProperties,
-    server::{BufferBinding, Handle, ServerError},
+    server::{BufferBinding, DeviceCaptures, Handle, ServerError},
 };
+use cubecl_server::driver::DriverError;
 use cubecl_server::storage::PINNED_MEMORY_ALIGNMENT;
 use cubecl_server::{
-    config::streaming::StreamPriority,
+    config::{memory::CudaAllocator, streaming::StreamPriority},
     logging::ServerLogger,
     memory_management::{
         ErrorGraph, FailureId, MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
         drop_queue,
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{DeviceRecording, EventStreamBackend, StreamCapture, StreamMemory},
+    stream::{EventStreamBackend, StreamCapture, StreamMemory},
 };
 use std::{mem::MaybeUninit, sync::Arc};
 
@@ -65,10 +66,9 @@ pub struct CudaStreamBackend {
     mem_alignment: usize,
     logger: Arc<ServerLogger>,
     priority: StreamPriority,
-    /// The device's count of recording streams, shared by every stream this
-    /// creates.
-    #[new(default)]
-    recording: DeviceRecording,
+    allocator: CudaAllocator,
+    /// The device's captures, which every stream this creates takes its capture state from.
+    captures: DeviceCaptures,
 }
 
 /// Create a non-blocking CUDA stream, applying the requested priority hint.
@@ -84,7 +84,14 @@ pub struct CudaStreamBackend {
 ///
 /// Both calls require a current CUDA context; callers in this crate always
 /// set the context before invoking stream creation.
-pub(crate) fn create_cuda_stream(priority: StreamPriority) -> cudarc::driver::sys::CUstream {
+///
+/// # Errors
+///
+/// Returns a [`DriverError`] when the driver refuses to create the stream, flagged as poisoning
+/// the device when the context is poisoned.
+pub(crate) fn create_cuda_stream(
+    priority: StreamPriority,
+) -> Result<cudarc::driver::sys::CUstream, DriverError> {
     use cudarc::driver::sys::{self, CUstream_flags};
 
     let use_greatest = match priority {
@@ -92,25 +99,25 @@ pub(crate) fn create_cuda_stream(priority: StreamPriority) -> cudarc::driver::sy
             return cudarc::driver::result::stream::create(
                 cudarc::driver::result::stream::StreamKind::NonBlocking,
             )
-            .expect("Can create a new stream.");
+            .map_err(|err| driver_error("cuStreamCreate", err));
         }
         StreamPriority::High => true,
         StreamPriority::Low => false,
     };
 
     // SAFETY: `cuCtxGetStreamPriorityRange` writes through both pointers on
-    // success; we only read the locals after the `.expect()` confirms success.
+    // success; we only read the locals after `?` confirms success.
     let value = unsafe {
         let mut least: i32 = 0;
         let mut greatest: i32 = 0;
         sys::cuCtxGetStreamPriorityRange(&mut least, &mut greatest)
             .result()
-            .expect("Can query CUDA stream priority range.");
+            .map_err(|err| driver_error("cuCtxGetStreamPriorityRange", err))?;
         if use_greatest { greatest } else { least }
     };
 
     // SAFETY: `cuStreamCreateWithPriority` writes the new stream handle through
-    // the out pointer on success; `.expect()` ensures we only `assume_init` on
+    // the out pointer on success; `?` ensures we only `assume_init` on
     // success.
     unsafe {
         let mut stream = MaybeUninit::uninit();
@@ -120,8 +127,8 @@ pub(crate) fn create_cuda_stream(priority: StreamPriority) -> cudarc::driver::sy
             value,
         )
         .result()
-        .expect("Can create a new CUDA stream with priority.");
-        stream.assume_init()
+        .map_err(|err| driver_error("cuStreamCreateWithPriority", err))?;
+        Ok(stream.assume_init())
     }
 }
 
@@ -129,10 +136,10 @@ impl EventStreamBackend for CudaStreamBackend {
     type Stream = Stream;
     type Event = Fence;
 
-    fn create_stream(&self) -> Self::Stream {
-        let stream = create_cuda_stream(self.priority);
+    fn create_stream(&self) -> Result<Self::Stream, ServerError> {
+        let stream = create_cuda_stream(self.priority)?;
 
-        let storage = GpuStorage::new(self.mem_alignment, stream);
+        let storage = GpuStorage::new(self.mem_alignment, stream, self.allocator);
 
         let memory_management_gpu = MemoryManagement::from_configuration(
             storage,
@@ -155,22 +162,22 @@ impl EventStreamBackend for CudaStreamBackend {
             MemoryManagementOptions::new("Pinned CPU Memory").mode(MemoryAllocationMode::Auto),
         );
 
-        Stream {
+        Ok(Stream {
             sys: stream,
             memory_management_gpu,
             memory_management_cpu,
             drop_queue: Default::default(),
-            capturing: StreamCapture::new(self.recording.clone()),
+            capturing: StreamCapture::new(&self.captures),
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
-        }
+        })
     }
 
     fn flush(stream: &mut Self::Stream, _failures: &mut ErrorGraph) -> Self::Event {
         Fence::new(stream.sys)
     }
 
-    fn wait_event(stream: &mut Self::Stream, event: Self::Event) {
-        event.wait_async(stream.sys);
+    fn wait_event(stream: &mut Self::Stream, event: Self::Event) -> Result<(), ServerError> {
+        event.wait_async(stream.sys)
     }
 
     fn wait_event_sync(event: Self::Event) -> Result<(), ServerError> {

@@ -3,6 +3,7 @@
 use cubecl_common::bytes::Bytes;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::runtime_tests::capture_status;
 use cubecl_core::server::Handle;
 use cubecl_cuda::CudaRuntime;
 use cubecl_server::runtime::Runtime;
@@ -77,15 +78,9 @@ fn cuda_graph_capture_replay() {
 
 /// A capture window that has to grow the memory pool must be REJECTED, not handed back.
 ///
-/// A stream-ordered allocation (`cuMemAllocAsync`) issued while recording is captured as a memory
-/// node, and a graph holding an allocation node it never frees cannot be relaunched: the first
-/// `cuGraphLaunch` succeeds and every later one fails with `CUDA_ERROR_INVALID_VALUE`. Nothing
-/// else catches this — instantiation succeeds and `cuGraphUpload` returns `CUDA_SUCCESS` — so a
-/// caller that trusted `stop_capture` would only discover it on its second replay, far from the
-/// cause. So nothing is allocated while recording: warmup usually leaves the pools able to serve
-/// the recorded run, so real
-/// workloads hit the growth path only intermittently; this forces it by allocating a size the pool
-/// has never seen inside the window.
+/// The server rejects storage growth while recording, so every replay uses buffers
+/// prepared during warmup. Force that guard by requesting an allocation larger than
+/// the pool has served before, then verify that capture is rejected.
 #[test]
 fn cuda_graph_capture_growing_the_pool_is_rejected() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -118,8 +113,7 @@ fn cuda_graph_capture_growing_the_pool_is_rejected() {
 
     assert!(
         rejected.is_err(),
-        "a capture that grew the pool recorded a memory node and is not relaunchable, so \
-         stop_capture must reject it rather than return a graph that fails on its second replay"
+        "stop_capture must reject a capture that tried to grow the memory pool"
     );
 
     drop(grown);
@@ -366,4 +360,18 @@ fn cuda_graph_many_launches_dynamic_metadata() {
         f32::from_bytes(&client.read_one(b.clone()).unwrap()),
         &exp_b[..]
     );
+}
+
+/// See [`capture_status::a_capture_is_seen_by_every_client_of_its_stream`].
+#[test]
+fn cuda_graph_capture_is_seen_by_every_client_of_its_stream() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    capture_status::a_capture_is_seen_by_every_client_of_its_stream::<CudaRuntime>();
+}
+
+/// See [`capture_status::a_prepared_capture_ends_at_stop_capture`].
+#[test]
+fn cuda_graph_prepared_capture_ends_at_stop_capture() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    capture_status::a_prepared_capture_ends_at_stop_capture::<CudaRuntime>();
 }

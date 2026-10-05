@@ -46,6 +46,13 @@ pub(crate) fn unit_pos(
     unit_pos_x + unit_pos_y * cube_dim_x + unit_pos_z * cube_dim_x * cube_dim_y
 }
 
+/// The plane a unit belongs to within its cube: planes are consecutive runs of `plane_dim` units
+/// in unit order, as on every target's hardware.
+#[cube]
+pub(crate) fn plane_pos(unit_pos: u32, #[comptime] plane_dim: u32) -> u32 {
+    unit_pos / plane_dim
+}
+
 #[cube]
 pub(crate) fn absolute_pos_x(cube_pos_x: u32, unit_pos_x: u32, #[comptime] cube_dim_x: u32) -> u32 {
     cube_pos_x * cube_dim_x + unit_pos_x

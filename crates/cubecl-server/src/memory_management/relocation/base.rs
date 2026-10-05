@@ -7,7 +7,7 @@
 //! before its bytes are where it moves to.
 
 use super::CopyQueue;
-use crate::memory_management::ManagedMemoryHandle;
+use crate::memory_management::{ManagedMemoryHandle, release_or_leak};
 use crate::server::ServerError;
 use crate::storage::ComputeStorage;
 use crate::storage::StorageHandle;
@@ -102,9 +102,12 @@ impl Relocation {
             .iter()
             .filter_map(|relocated| relocated.copy.as_ref())
             .try_for_each(|copy| queue.copy(storage, copy));
-        let landed = queue.wait_copies();
+        if let Err(err) = queue.wait_copies() {
+            release_or_leak(self, &err);
+            enqueued?;
+            return Err(err);
+        }
         enqueued?;
-        landed?;
         Ok(Landed { moves: self.moves })
     }
 }
@@ -113,5 +116,45 @@ impl Landed {
     /// The moves, for the pools that planned them to commit.
     pub(crate) fn into_moves(self) -> Vec<Move> {
         self.moves
+    }
+}
+
+#[cfg(all(test, feature = "storage-bytes"))]
+mod tests {
+    use super::*;
+    use crate::{driver::DriverError, server::IoError, storage::BytesStorage};
+
+    struct FailedWait;
+
+    impl CopyQueue<BytesStorage> for FailedWait {
+        fn wait_device(&mut self) -> Result<(), ServerError> {
+            Ok(())
+        }
+
+        fn copy(&mut self, _: &mut BytesStorage, _: &StorageCopy) -> Result<(), IoError> {
+            Ok(())
+        }
+
+        fn wait_copies(&mut self) -> Result<(), ServerError> {
+            Err(DriverError::new("wait", 201).into())
+        }
+    }
+
+    #[test]
+    fn failed_wait_keeps_pending_relocation_reserved() {
+        let mut storage = BytesStorage::default();
+        let source = ManagedMemoryHandle::new();
+        let target = ManagedMemoryHandle::new();
+        let relocation = Relocation::new(alloc::vec![Move {
+            allocation: source.clone(),
+            target: target.clone(),
+            copy: Some(StorageCopy {
+                source: storage.alloc(4).unwrap(),
+                target: storage.alloc(4).unwrap(),
+            }),
+        }]);
+        assert!(relocation.copy(&mut storage, &mut FailedWait).is_err());
+        assert!(!source.is_free());
+        assert!(!target.is_free());
     }
 }

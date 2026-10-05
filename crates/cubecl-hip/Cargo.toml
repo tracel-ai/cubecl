@@ -63,6 +63,10 @@ cubecl-llvm = { path = "../cubecl-llvm", version = "=0.11.0-pre.4", default-feat
     "std",
     "amdgpu",
 ] }
+cubecl-monitoring = { path = "../cubecl-monitoring", version = "=0.11.0-pre.4", default-features = false, features = [
+    "amdgpu-busy-percent",
+    "gpu-engine-counters",
+] }
 cubecl-server = { path = "../cubecl-server", version = "=0.11.0-pre.4", default-features = false }
 
 bytemuck = { workspace = true }

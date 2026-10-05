@@ -9,7 +9,7 @@ use cubecl_server::{
 };
 
 use crate::compiler::{CudaBackend, CudaCompilationOptions, CudaCompiler, CudaRepresentation};
-use crate::compute::events::EventProfiler;
+use crate::compute::events::{EventProfiler, driver_error, poisons_device};
 use crate::compute::stream::Stream;
 use crate::install::{cccl_include_path, include_path};
 use cubecl_core::{
@@ -206,7 +206,7 @@ impl CudaContext {
         validate_cube_dim(&self.properties, kernel_id)?;
         validate_units(&self.properties, kernel_id)?;
 
-        let definition = kernel.define();
+        let definition = cubecl_core::define_kernel(&*kernel)?;
         recording.defined(&definition);
         let jitc_kernel = CompiledKernel::compile(
             &*kernel,
@@ -478,9 +478,12 @@ impl CudaContext {
         // null-terminated `CString` matching the kernel entry point in the compiled module.
         let func = unsafe {
             let module = cudarc::driver::result::module::load_data(ptx.as_ptr() as *const _)
-                .map_err(|err| CompilationError::Generic {
-                    reason: format!("Unable to load the PTX: {err}"),
-                    backtrace: BackTrace::capture(),
+                .map_err(|err| match poisons_device(err.0) {
+                    true => driver_error("cuModuleLoadData", err).into(),
+                    false => CompilationError::Generic {
+                        reason: format!("Unable to load the PTX: {err}"),
+                        backtrace: BackTrace::capture(),
+                    },
                 })?;
 
             cudarc::driver::result::module::get_function(module, func_name).map_err(|err| {
@@ -533,10 +536,7 @@ impl CudaContext {
                 CUfunction_attribute::CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
                 kernel.shared_mem_bytes as i32,
             )
-            .map_err(|err| LaunchError::Unknown {
-                reason: format!("{err}"),
-                backtrace: BackTrace::capture(),
-            })?;
+            .map_err(|err| launch_failed("cuFuncSetAttribute", err))?;
             cudarc::driver::result::launch_kernel(
                 kernel.func,
                 dispatch_count,
@@ -547,10 +547,7 @@ impl CudaContext {
                 stream.sys,
                 resources,
             )
-            .map_err(|err| LaunchError::Unknown {
-                reason: format!("{err}"),
-                backtrace: BackTrace::capture(),
-            })?;
+            .map_err(|err| launch_failed("cuLaunchKernel", err))?;
         };
 
         Ok(())
@@ -601,6 +598,18 @@ fn dump_ptx(kernel_id: &KernelId, ptx: &[c_char]) {
     // SAFETY: the PTX handed to the driver is a null-terminated C string.
     let text = unsafe { CStr::from_ptr(ptx.as_ptr()) };
     let _ = std::fs::write(dir.join(format!("{name}.ptx")), text.to_bytes());
+}
+
+/// A refused launch error : maps to a poisoned-device error if that call happened right after
+/// a fault.
+fn launch_failed(op: &'static str, err: cudarc::driver::DriverError) -> LaunchError {
+    match poisons_device(err.0) {
+        true => driver_error(op, err).into(),
+        false => LaunchError::Unknown {
+            reason: format!("{err}"),
+            backtrace: BackTrace::capture(),
+        },
+    }
 }
 
 #[cfg(test)]

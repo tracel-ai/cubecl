@@ -55,6 +55,90 @@ pub mod clamp {
     }
 }
 
+/// Floating-point minimum, propagating NaN from either operand.
+///
+/// Opposite-signed zeros may yield either sign; NaN payloads and signs are unspecified.
+#[allow(unused_variables)]
+pub fn min_nan<C: CubePrimitive<Scalar: Float>>(lhs: C, rhs: C) -> C {
+    unexpanded!()
+}
+
+/// Expansion of [`min_nan()`].
+pub mod min_nan {
+    use super::*;
+    use cubecl_ir::dialect::cmp::FMinNanOp;
+
+    pub fn expand<C: CubePrimitive<Scalar: Float>>(
+        scope: &Scope,
+        lhs: NativeExpand<C>,
+        rhs: NativeExpand<C>,
+    ) -> NativeExpand<C> {
+        let [lhs, rhs] =
+            normalize_same_vectorization(scope, [lhs.read_value(scope), rhs.read_value(scope)]);
+        let op = FMinNanOp::new(scope.ctx_mut(), lhs, rhs);
+        scope.register_with_result(&op).into()
+    }
+}
+
+/// Floating-point maximum, propagating NaN from either operand.
+///
+/// Opposite-signed zeros may yield either sign; NaN payloads and signs are unspecified.
+#[allow(unused_variables)]
+pub fn max_nan<C: CubePrimitive<Scalar: Float>>(lhs: C, rhs: C) -> C {
+    unexpanded!()
+}
+
+/// Expansion of [`max_nan()`].
+pub mod max_nan {
+    use super::*;
+    use cubecl_ir::dialect::cmp::FMaxNanOp;
+
+    pub fn expand<C: CubePrimitive<Scalar: Float>>(
+        scope: &Scope,
+        lhs: NativeExpand<C>,
+        rhs: NativeExpand<C>,
+    ) -> NativeExpand<C> {
+        let [lhs, rhs] =
+            normalize_same_vectorization(scope, [lhs.read_value(scope), rhs.read_value(scope)]);
+        let op = FMaxNanOp::new(scope.ctx_mut(), lhs, rhs);
+        scope.register_with_result(&op).into()
+    }
+}
+
+/// Clamp a float scalar or vector, propagating NaN from the input or either bound.
+///
+/// Applies the upper bound first, then the lower bound; reversed non-NaN bounds
+/// yield `min`. If the result is zero and the operands include zeros of opposite
+/// signs, either sign of zero may be returned. NaN payloads and signs are unspecified.
+#[allow(unused_variables)]
+pub fn clamp_nan<C: CubePrimitive<Scalar: Float>>(input: C, min: C, max: C) -> C {
+    unexpanded!()
+}
+
+/// Expansion of [`clamp_nan()`].
+pub mod clamp_nan {
+    use super::*;
+    use cubecl_ir::dialect::cmp::FClampNanOp;
+
+    pub fn expand<C: CubePrimitive<Scalar: Float>>(
+        scope: &Scope,
+        input: NativeExpand<C>,
+        min: NativeExpand<C>,
+        max: NativeExpand<C>,
+    ) -> NativeExpand<C> {
+        let [input, min, max] = normalize_same_vectorization(
+            scope,
+            [
+                input.read_value(scope),
+                min.read_value(scope),
+                max.read_value(scope),
+            ],
+        );
+        let op = FClampNanOp::new(scope.ctx_mut(), input, min, max);
+        scope.register_with_result(&op).into()
+    }
+}
+
 pub mod clamp_max {
     use super::*;
 

@@ -5,6 +5,8 @@ use cubecl_zspace::{Shape, Strides};
 
 use crate::{client::Client, server::ServerStorage};
 
+pub use cubecl_monitoring::{DeviceUtilization, UtilizationUnavailable};
+
 /// Runtime for the `CubeCL`.
 pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
     /// The compute server used to run kernels and perform autotuning.
@@ -70,5 +72,13 @@ pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
     /// leaving a native CPU runtime to claim it.
     fn is_available() -> bool {
         !Self::enumerate_all_devices().is_empty()
+    }
+
+    /// How busy `device` is, by the counter its card's driver or its platform keeps. Asking
+    /// creates the device's client, and must never wait on the work the device is running.
+    ///
+    /// A runtime that reads no counter for its devices says so.
+    fn utilization(_device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
+        Err(UtilizationUnavailable::RuntimeReadsNoCounter)
     }
 }

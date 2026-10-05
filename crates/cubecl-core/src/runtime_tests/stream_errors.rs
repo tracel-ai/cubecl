@@ -618,12 +618,41 @@ pub fn test_a_failed_in_place_launch_names_the_buffer_it_aliased<R: Runtime>(cli
     reader.executes(|| assert_rejected(&client, inout, "aliased-output"));
 }
 
+/// A lazy read is a sync point too.
+/// `read_lazy_async` checks if the buffer carries an error.
+#[cfg(not(target_family = "wasm"))]
+pub fn lazy_read_of_stale_buffer_fails_at_read<R: Runtime>(client: Client) {
+    let out = launch_rejected(&client, "lazy-read");
+    let descriptor = out.copy_descriptor(
+        cubecl_zspace::shape![1],
+        cubecl_zspace::strides![1],
+        core::mem::size_of::<u32>(),
+    );
+
+    let err = cubecl_environment::future::block_on(client.read_lazy_async(descriptor))
+        .expect_err("the buffer's writer was refused, the lazy read must say so")
+        .to_string();
+    assert!(
+        err.contains("lazy-read"),
+        "the lazy read must report the launch that never wrote the buffer, got: {err}"
+    );
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_stream_errors {
     () => {
         mod stream_errors {
             use super::*;
+
+            #[cfg(not(target_family = "wasm"))]
+            #[$crate::runtime_tests::test_log::test]
+            fn lazy_read_of_stale_buffer_fails_at_read() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::stream_errors::lazy_read_of_stale_buffer_fails_at_read::<
+                    TestRuntime,
+                >(client);
+            }
 
             #[$crate::runtime_tests::test_log::test]
             fn test_a_read_surfaces_the_producers_rejection() {

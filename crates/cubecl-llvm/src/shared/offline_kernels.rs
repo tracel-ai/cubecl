@@ -12,6 +12,7 @@ use std::sync::Arc;
 pub(crate) fn device_properties(plane_dim: u32) -> Arc<DeviceProperties> {
     let hardware = HardwareProperties {
         load_width: 128,
+        vector_register_count: None,
         plane_size_min: plane_dim,
         plane_size_max: plane_dim,
         max_bindings: 32,
@@ -120,5 +121,45 @@ pub(crate) fn keep_largest_kernel(k: usize) -> impl CubeKernel {
         BufferCompilationArg { inplace: None },
         BufferCompilationArg { inplace: None },
         k,
+    )
+}
+
+/// Walks a column in steps of 32 rows, one row per unit: how a matmul reads its weight along
+/// the reduced axis. A cube starts at its position split by a runtime count, so the start of
+/// every address holds a division by a value only known at launch.
+#[cube(launch)]
+fn strided_walk(
+    input: &[f32],
+    output: &mut [f32],
+    bands: u32,
+    pitch: u32,
+    stride: u32,
+    steps: u32,
+) {
+    let start = (CUBE_POS_Y % bands) * pitch;
+    let mut sum = 0.0f32;
+    for step in 0..steps {
+        let row = step * 32 + UNIT_POS_X;
+        sum += input[(row * stride + start) as usize];
+    }
+    output[ABSOLUTE_POS] = sum;
+}
+
+pub(crate) fn strided_walk_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    strided_walk::StridedWalk::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        (),
+        (),
+        (),
+        (),
     )
 }

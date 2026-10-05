@@ -168,7 +168,7 @@ impl ManagedMemoryDescriptor {
         // Never `Err`: the closure always has an update to make.
         let _ = self
             .location
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |bits| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |bits| {
                 Some(update(MemoryLocation::from_bits(bits)).to_bits())
             });
     }
@@ -308,6 +308,12 @@ impl ManagedMemoryBinding {
 }
 
 impl WeakMemoryBinding {
+    /// Whether any handle or binding still owns the descriptor, including the pool's reference.
+    /// Unlike [`upgrade`](Self::upgrade), this also counts the sole owner of unallocated memory.
+    pub fn is_alive(&self) -> bool {
+        self.descriptor.strong_count() != 0
+    }
+
     /// The binding back, while the memory it names is allocated: held by
     /// something other than the pool that carved it, which keeps a reference
     /// of its own whether the slice is free or not (see
