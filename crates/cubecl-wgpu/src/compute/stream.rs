@@ -2,7 +2,7 @@ use super::{
     graph::{GraphRecording, ReplayDispatch, ReplayTask, WgpuGraph},
     mem_manager::{self, AuxiliaryMemory},
     poll::WgpuPoll,
-    timings::{QueryProfiler, TimestampAvailability, TimestampQuerySetBudget},
+    timings::{QueryProfiler, TimestampQuerySetBudget, TimestampSampling},
 };
 use crate::compute::copies::WgpuCopies;
 use crate::compute::device_poison::PoisonWatch;
@@ -57,7 +57,7 @@ enum Timings {
     /// stream that never profiles must not hold one another stream then cannot get.
     Unclaimed {
         budget: Arc<TimestampQuerySetBudget>,
-        availability: TimestampAvailability,
+        sampling: TimestampSampling,
     },
     // Boxed: `QueryProfiler` is much larger than `TimestampProfiler`
     // (clippy::large_enum_variant).
@@ -181,7 +181,7 @@ impl WgpuStream {
         memory_config: MemoryConfiguration,
         timing_method: TimingMethod,
         timing_budget: Arc<TimestampQuerySetBudget>,
-        timestamp_availability: TimestampAvailability,
+        timestamp_sampling: TimestampSampling,
         tasks_max: usize,
         logger: Arc<ServerLogger>,
         use_vulkan_compiler: bool,
@@ -191,7 +191,7 @@ impl WgpuStream {
         let timings = match timing_method {
             TimingMethod::Device => Timings::Unclaimed {
                 budget: timing_budget,
-                availability: timestamp_availability,
+                sampling: timestamp_sampling,
             },
             TimingMethod::System => Timings::system(),
         };
@@ -496,11 +496,7 @@ impl WgpuStream {
     /// A stream claims a budget slot at its first window (lock-free); if none is free, it falls
     /// back to the system timer so the device never exceeds the hardware limit.
     fn claim_timings(&mut self) {
-        let Timings::Unclaimed {
-            budget,
-            availability,
-        } = &self.timings
-        else {
+        let Timings::Unclaimed { budget, sampling } = &self.timings else {
             return;
         };
         self.timings = match budget.try_acquire() {
@@ -508,7 +504,7 @@ impl WgpuStream {
                 &self.queue,
                 &self.device,
                 budget.clone(),
-                *availability,
+                *sampling,
             ))),
             false => Timings::system(),
         };
@@ -524,10 +520,17 @@ impl WgpuStream {
 
     pub fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
         self.claim_timings();
-        if matches!(self.timings, Timings::System(_)) {
-            cubecl_environment::future::block_on(self.sync(stream_id))?;
-        } else {
-            self.flush(stream_id)?;
+        match &self.timings {
+            Timings::System(_) => cubecl_environment::future::block_on(self.sync(stream_id))?,
+            Timings::Device(query) if query.sampling().drains_before_window() => {
+                self.flush(stream_id)?;
+                // Waits like system timing's sync, for the reason `drains_before_window` gives:
+                // work still running when the window's first pass starts is timed as its own.
+                if let Err(err) = self.device.poll(wgpu::PollType::wait_indefinitely()) {
+                    log::warn!("waiting for the work ahead of a profiled window: {err}");
+                }
+            }
+            Timings::Device(_) | Timings::Unclaimed { .. } => self.flush(stream_id)?,
         }
 
         match &mut self.timings {
@@ -605,7 +608,7 @@ impl WgpuStream {
                 match result {
                     Ok(_) => {
                         let map_buffer = readback.map(|readback| {
-                            if timing.availability() == TimestampAvailability::OnCompletion {
+                            if timing.sampling().resolves_after_completion() {
                                 // Blocks like system timing's sync at a window's end. Resolving
                                 // later without waiting is not an option: the window's query
                                 // sets return to the pool here, and a pass that reuses one
