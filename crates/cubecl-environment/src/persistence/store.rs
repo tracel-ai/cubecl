@@ -330,6 +330,10 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     ///   left untouched — [`StoreError::DuplicatedKey`] when this process
     ///   wrote or read it, [`StoreError::KeyOutOfSync`] when another process
     ///   sharing the environment got there first. Both are routine, not bugs.
+    /// - The storage refuses the write: [`StoreError::Backend`], and the value
+    ///   stays in memory whatever the cache option, so this process reads it
+    ///   back rather than computing it again. Only the next run pays for the
+    ///   failure.
     ///
     /// The exception is an entry that came from a bundle: the storage lets a
     /// locally computed value replace it, so a stale bundle can never wedge
@@ -364,7 +368,17 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
                 self.record(key, value);
                 Ok(())
             }
-            Written::Failed(error) => Err(StoreError::Backend { key, error }),
+            Written::Failed(error) => {
+                // The value was computed; only keeping it failed. Memory is
+                // the one place left to keep it, whatever the cache option: a
+                // lazy store drops what it writes only because the storage can
+                // hand it back, and this one can't. So this process reads it
+                // back rather than computing it again, and the failure costs
+                // the next run alone. A value memory already holds stays:
+                // nothing was written, so nothing arbitrated a replacement.
+                self.entries.entry(key.clone()).or_insert(value);
+                Err(StoreError::Backend { key, error })
+            }
             Written::Conflict(existing) => {
                 // A later read must serve the durable value, so the eager map
                 // memoizes it; the clone only happens on this cold path.
