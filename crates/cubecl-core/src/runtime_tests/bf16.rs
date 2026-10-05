@@ -3,7 +3,7 @@
 
 use alloc::vec::Vec;
 use cubecl_runtime::runtime::Runtime;
-use half::bf16;
+use half::{bf16, f16};
 use std::println;
 
 use crate::{self as cubecl};
@@ -263,6 +263,99 @@ fn encode_from<S: Scalar + CubeElement>(client: &Client, cases: &[(S, u16)]) {
     }
 }
 
+#[cube(launch_unchecked)]
+fn kernel_convert<A: Scalar, B: Scalar>(input: &[A], out: &mut [B]) {
+    if ABSOLUTE_POS < input.len() {
+        out[ABSOLUTE_POS] = B::cast_from(input[ABSOLUTE_POS]);
+    }
+}
+
+/// Every `f16` code converts to the `bf16` nearest it and back, as through `f32`. The two share a
+/// width but no conversion instruction, so a backend that only relabels the bits is caught here.
+pub fn half_precision_exhaustive<R: Runtime>(client: Client) {
+    let halves = f16::supported_uses(&client);
+    if !supported(&client) || !halves.is_superset(TypeUsage::Conversion | TypeUsage::Buffer) {
+        println!("Unsupported, skipping");
+        return;
+    }
+
+    let codes: Vec<u16> = (0..=u16::MAX).collect();
+    let to_bf16 = convert::<f16, bf16>(&client, &codes);
+    let to_f16 = convert::<bf16, f16>(&client, &codes);
+    for (code, (to_bf16, to_f16)) in codes.iter().zip(to_bf16.into_iter().zip(to_f16)) {
+        let expected = bf16::from_f32(f16::from_bits(*code).to_f32());
+        let actual = bf16::from_bits(to_bf16);
+        let case = Case::new("f16", *code);
+        case.assert(
+            actual.to_bits(),
+            actual.is_nan(),
+            expected.to_bits(),
+            expected.is_nan(),
+        );
+        let expected = f16::from_f32(bf16::from_bits(*code).to_f32());
+        let actual = f16::from_bits(to_f16);
+        let case = Case::new("bf16", *code);
+        case.assert(
+            actual.to_bits(),
+            actual.is_nan(),
+            expected.to_bits(),
+            expected.is_nan(),
+        );
+    }
+}
+
+/// `codes` read as `A` on the device and cast to `B`, as `B`'s bits.
+fn convert<A: Scalar + CubeElement, B: Scalar + CubeElement>(
+    client: &Client,
+    codes: &[u16],
+) -> Vec<u16> {
+    let input = client.create_from_slice(u16::as_bytes(codes));
+    let out = client.empty(core::mem::size_of_val(codes));
+    unsafe {
+        kernel_convert::launch_unchecked::<A, B>(
+            client,
+            CubeCount::Static(codes.len().div_ceil(256) as u32, 1, 1),
+            CubeDim::new_1d(256),
+            BufferArg::from_raw_parts(input, codes.len()),
+            BufferArg::from_raw_parts(out.clone(), codes.len()),
+        )
+    };
+    let actual = client.read_one_unchecked(out);
+    let actual = u16::from_bytes(&actual).to_vec();
+    assert_eq!(
+        actual.len(),
+        codes.len(),
+        "a failed launch reads back nothing"
+    );
+    actual
+}
+
+/// One half-precision code converted to the other format.
+#[derive(new)]
+struct Case {
+    from: &'static str,
+    code: u16,
+}
+
+impl Case {
+    /// The converted bits match, or are any NaN where a NaN is expected: the backends pick
+    /// their own NaN payload.
+    fn assert(&self, actual: u16, actual_is_nan: bool, expected: u16, expected_is_nan: bool) {
+        let Self { from, code } = self;
+        if expected_is_nan {
+            assert!(
+                actual_is_nan,
+                "{from} {code:#06x} converts to a NaN, got {actual:#06x}"
+            );
+        } else {
+            assert_eq!(
+                actual, expected,
+                "{from} {code:#06x} converts to {expected:#06x}, got {actual:#06x}"
+            );
+        }
+    }
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_bf16 {
@@ -285,6 +378,12 @@ macro_rules! testgen_bf16 {
             fn encode_wide_sources() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::bf16::encode_wide_sources::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn half_precision_exhaustive() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::bf16::half_precision_exhaustive::<TestRuntime>(client);
             }
 
             #[$crate::runtime_tests::test_log::test]

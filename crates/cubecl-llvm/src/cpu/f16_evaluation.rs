@@ -9,7 +9,6 @@ use cubecl_core::ir::{
         math::{FAddOp, FDivOp, FMulOp, FNegOp, FRemOp, FSubOp, FmaOp, RecipOp, RsqrtOp, SqrtOp},
         memory::{DeclareVariableOp, LoadOp, StoreOp},
     },
-    interfaces::TypeExt,
     try_cast_op,
     types::{
         PointerType, VectorType,
@@ -448,5 +447,11 @@ fn is_widening(ctx: &Context, op: Ptr<Operation>) -> bool {
 
 fn widen_ty(ctx: &mut Context, ty: TypeHandle) -> TypeHandle {
     let f32_ty = Float32Type::get(ctx).to_handle();
-    ty.with_scalar(ctx, f32_ty)
+    match ty.deref(ctx).downcast_ref::<VectorType>() {
+        Some(vector) => {
+            let vectorization = vector.vectorization;
+            VectorType::get(ctx, f32_ty, vectorization).to_handle()
+        }
+        None => f32_ty,
+    }
 }

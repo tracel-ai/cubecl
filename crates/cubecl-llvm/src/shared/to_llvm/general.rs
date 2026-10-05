@@ -146,12 +146,8 @@ fn cast_float_to_float(
     let res_ty = cube_type_to_llvm(ctx, cast_op.result_type(ctx));
     let input = cast_op.input(ctx);
     let old_op = cast_op.get_operation();
-    let input_size = in_ty.size(ctx);
-    let output_size = out_ty.size(ctx);
-
-    let value = if input_size != output_size
-        || cube_type_to_llvm(ctx, in_ty) != cube_type_to_llvm(ctx, out_ty)
-    {
+    // TF32 shares `f32`'s LLVM type: its rounding is `finish_float_cast`'s.
+    let value = if cube_type_to_llvm(ctx, in_ty) != cube_type_to_llvm(ctx, out_ty) {
         convert_float(ctx, rewriter, input, res_ty)
     } else {
         input
