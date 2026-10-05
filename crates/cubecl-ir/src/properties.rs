@@ -1,10 +1,13 @@
 use alloc::string::String;
-use core::hash::{BuildHasher, Hash, Hasher};
+use core::{
+    fmt,
+    hash::{BuildHasher, Hash, Hasher},
+    str::FromStr,
+};
 
-use crate::EnumSet;
-use crate::EnumSetType;
 use crate::{
-    AddressType, ElemType, OpaqueType, SemanticType, Type, TypeHash, VectorSize,
+    AddressType, ElemType, EnumSet, EnumSetType, OpaqueType, SemanticType, Type, TypeHash,
+    VectorSize,
     features::{AtomicUsage, ComplexUsage, Features, TypeUsage},
 };
 use cubecl_common::profile::TimingMethod;
@@ -25,8 +28,11 @@ use cubecl_common::profile::TimingMethod;
 /// be assumed.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HardwareProperties {
-    /// The maximum size of a single load instruction, in bits. Used for optimized vector sizes.
+    /// The widest single load instruction, in bits.
     pub load_width: u32,
+    /// How many `load_width`-bit vector registers a kernel may keep live, or `None` where the
+    /// runtime states no budget, as a GPU does.
+    pub vector_register_count: Option<u32>,
     /// The minimum size of a plane on this device
     pub plane_size_min: u32,
     /// The maximum size of a plane on this device
@@ -64,18 +70,103 @@ pub struct HardwareProperties {
     pub cube_mma_reserved_shared_memory: usize,
 }
 
+/// A device's vector registers, counted in elements of one type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VectorRegisters {
+    count: usize,
+    register_vector_size: VectorSize,
+    max_vector_size: VectorSize,
+}
+
+impl VectorRegisters {
+    /// The registers as `elem_size`-byte elements see them, or `None` without a register count.
+    pub fn new(hardware: &HardwareProperties, elem_size: usize) -> Option<Self> {
+        Some(VectorRegisters {
+            count: hardware.vector_register_count? as usize,
+            register_vector_size: hardware.vector_size_in(hardware.load_width, elem_size),
+            max_vector_size: prev_power_of_two(hardware.max_vector_size.max(1)),
+        })
+    }
+
+    pub fn count(&self) -> usize {
+        self.count
+    }
+
+    /// Registers a vector of `vector_size` elements occupies, at least one.
+    pub fn registers_for(&self, vector_size: VectorSize) -> usize {
+        vector_size.div_ceil(self.register_vector_size).max(1)
+    }
+
+    /// The widest power-of-two size at which `live` vectors stay in registers, at least one.
+    pub fn widest_vector_size(&self, live: usize) -> VectorSize {
+        let registers = prev_power_of_two((self.count / live.max(1)).max(1));
+        (registers * self.register_vector_size).min(self.max_vector_size)
+    }
+
+    /// How many vectors of `vector_size` elements fit beside `reserved` registers.
+    pub fn vectors_fitting(&self, vector_size: VectorSize, reserved: usize) -> usize {
+        self.count.saturating_sub(reserved) / self.registers_for(vector_size)
+    }
+}
+
 /// Properties of the device related to allocation.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct MemoryDeviceProperties {
     /// The maximum nr. of bytes that can be allocated in one go.
     pub max_page_size: u64,
     /// The required memory offset alignment in bytes.
     pub alignment: u64,
+    /// Private because [`set_max_memory`](Self::set_max_memory) is its only
+    /// writer, and that is where a zero becomes `None`.
+    max_memory: Option<u64>,
+}
+
+impl MemoryDeviceProperties {
+    /// Properties that state no capacity. A runtime that can read one adds it
+    /// with [`with_max_memory`](Self::with_max_memory).
+    pub const fn new(max_page_size: u64, alignment: u64) -> Self {
+        Self {
+            max_page_size,
+            alignment,
+            max_memory: None,
+        }
+    }
+
+    /// How many bytes this memory may be asked to hold at once, or `None`,
+    /// never `Some(0)`, where the runtime has no figure.
+    ///
+    /// This sizes a whole workload, while
+    /// [`max_page_size`](Self::max_page_size) bounds a single allocation and
+    /// is often derived from it. It is a budget, not a hardware census: each
+    /// runtime reports the largest figure its own API stands behind, and
+    /// staying under it is what keeps the device off its paging path.
+    ///
+    /// A runtime with no figure leaves it `None` rather than guess, because a
+    /// guess reads as a measurement to every caller downstream.
+    pub const fn max_memory(&self) -> Option<u64> {
+        self.max_memory
+    }
+
+    /// States the capacity, as [`set_max_memory`](Self::set_max_memory) does.
+    pub const fn with_max_memory(mut self, max_memory: u64) -> Self {
+        self.set_max_memory(max_memory);
+        self
+    }
+
+    /// States the capacity, dropping a zero: an API with nothing to report
+    /// reports `0`, and [`max_memory`](Self::max_memory) says that as `None`.
+    pub const fn set_max_memory(&mut self, max_memory: u64) {
+        self.max_memory = match max_memory {
+            0 => None,
+            size => Some(size),
+        };
+    }
 }
 
 /// Who a device is, and what its compiled code is keyed to.
 ///
-/// The two fields answer different questions and must not be confused. `name`
+/// `name` and `fingerprint` answer different questions and must not be confused. `name`
 /// is for people: it names the physical part, and two machines holding the same
 /// part report the same name. `fingerprint` is for correctness: it is verbatim
 /// the string this runtime passes to
@@ -97,6 +188,200 @@ pub struct DeviceIdentity {
     /// Verbatim the `compilation_store` fingerprint, so a namespace read back
     /// out of a bundle compares against it directly.
     pub fingerprint: String,
+    /// The card behind the device, `None` for a device that is no card: a CPU, or a software
+    /// rasterizer.
+    pub physical: Option<PhysicalDevice>,
+}
+
+/// The card a device runs on. Two runtimes report different fields for one card, so compare with
+/// [`is_same_card`](Self::is_same_card), not `==`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
+pub struct PhysicalDevice {
+    /// The key every runtime reports alike on Linux.
+    pub pci_address: Option<PciAddress>,
+    /// The key every runtime reports alike on Windows.
+    pub luid: Option<AdapterLuid>,
+    /// The key every runtime reports alike on macOS.
+    pub registry_entry_id: Option<RegistryEntryId>,
+    pub vendor: Option<PciVendor>,
+}
+
+impl PhysicalDevice {
+    /// Whether `other` is known to be this card through another runtime: by PCI address, otherwise
+    /// by LUID, otherwise by registry entry id. A card with none of them matches nothing, itself
+    /// included, since two such cards of one make compare equal.
+    pub fn is_same_card(&self, other: &Self) -> bool {
+        if let (Some(mine), Some(theirs)) = (self.pci_address, other.pci_address) {
+            return mine == theirs;
+        }
+        if let (Some(mine), Some(theirs)) = (self.luid, other.luid) {
+            return mine == theirs;
+        }
+        matches!(
+            (self.registry_entry_id, other.registry_entry_id),
+            (Some(mine), Some(theirs)) if mine == theirs
+        )
+    }
+
+    /// Takes what this runtime left out from `other`, the same card seen through another runtime.
+    pub fn fill_from(&mut self, other: &Self) {
+        let Self {
+            pci_address,
+            luid,
+            registry_entry_id,
+            vendor,
+        } = *other;
+        self.pci_address = self.pci_address.or(pci_address);
+        self.luid = self.luid.or(luid);
+        self.registry_entry_id = self.registry_entry_id.or(registry_entry_id);
+        self.vendor = self.vendor.or(vendor);
+    }
+}
+
+/// The id of the GPU's entry in the macOS I/O Registry, which Metal reports as `registryID`. Like
+/// [`AdapterLuid`] it is not promised to survive a restart, so it has no serialization or text
+/// form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RegistryEntryId(u64);
+
+impl RegistryEntryId {
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
+
+    pub fn get(self) -> u64 {
+        self.0
+    }
+}
+
+/// The id Windows gives a graphics adapter. It changes on restart, so it has no serialization or
+/// text form: a stored key wants [`PhysicalDevice::pci_address`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct AdapterLuid([u8; 8]);
+
+impl AdapterLuid {
+    /// From the eight bytes of a Windows `LUID`, low part first.
+    pub fn new(bytes: [u8; 8]) -> Self {
+        Self(bytes)
+    }
+
+    pub fn from_parts(low_part: u32, high_part: i32) -> Self {
+        let mut bytes = [0; 8];
+        bytes[..4].copy_from_slice(&low_part.to_le_bytes());
+        bytes[4..].copy_from_slice(&high_part.to_le_bytes());
+        Self(bytes)
+    }
+
+    pub fn bytes(self) -> [u8; 8] {
+        self.0
+    }
+}
+
+/// The maker of a card, by PCI vendor id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PciVendor {
+    Nvidia,
+    Amd,
+    Intel,
+    Apple,
+    /// Mali GPUs.
+    Arm,
+    /// Adreno GPUs.
+    Qualcomm,
+    Other(u32),
+}
+
+impl PciVendor {
+    pub fn id(self) -> u32 {
+        match self {
+            Self::Nvidia => 0x10de,
+            Self::Amd => 0x1002,
+            Self::Intel => 0x8086,
+            Self::Apple => 0x106b,
+            Self::Arm => 0x13b5,
+            Self::Qualcomm => 0x5143,
+            Self::Other(id) => id,
+        }
+    }
+}
+
+impl From<u32> for PciVendor {
+    fn from(id: u32) -> Self {
+        match id {
+            0x10de => Self::Nvidia,
+            0x1002 => Self::Amd,
+            0x8086 => Self::Intel,
+            0x106b => Self::Apple,
+            0x13b5 => Self::Arm,
+            0x5143 => Self::Qualcomm,
+            other => Self::Other(other),
+        }
+    }
+}
+
+impl fmt::Display for PciVendor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Nvidia => f.write_str("NVIDIA"),
+            Self::Amd => f.write_str("AMD"),
+            Self::Intel => f.write_str("Intel"),
+            Self::Apple => f.write_str("Apple"),
+            Self::Arm => f.write_str("Arm"),
+            Self::Qualcomm => f.write_str("Qualcomm"),
+            Self::Other(id) => write!(f, "{id:#06x}"),
+        }
+    }
+}
+
+/// `domain:bus:device.function`, written `0000:07:00.0`. CUDA and NVML call it the bus id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PciAddress {
+    pub domain: u32,
+    pub bus: u8,
+    pub device: u8,
+    pub function: u8,
+}
+
+impl fmt::Display for PciAddress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{:04x}:{:02x}:{:02x}.{:x}",
+            self.domain, self.bus, self.device, self.function
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PciAddressError(pub String);
+
+impl fmt::Display for PciAddressError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "not a PCI address: {}", self.0)
+    }
+}
+
+impl core::error::Error for PciAddressError {}
+
+impl FromStr for PciAddress {
+    type Err = PciAddressError;
+
+    /// Also accepts the domainless `07:00.0` CUDA emits.
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let err = || PciAddressError(String::from(text));
+        let (rest, function) = text.rsplit_once('.').ok_or_else(err)?;
+        let mut parts = rest.rsplitn(3, ':');
+        let device = parts.next().ok_or_else(err)?;
+        let bus = parts.next().ok_or_else(err)?;
+        let domain = parts.next().unwrap_or("0");
+        Ok(Self {
+            domain: u32::from_str_radix(domain, 16).map_err(|_| err())?,
+            bus: u8::from_str_radix(bus, 16).map_err(|_| err())?,
+            device: u8::from_str_radix(device, 16).map_err(|_| err())?,
+            function: u8::from_str_radix(function, 16).map_err(|_| err())?,
+        })
+    }
 }
 
 /// Properties of what the device can do, like what `Feature` are
@@ -113,6 +398,8 @@ pub struct DeviceProperties {
     pub timing_method: TimingMethod,
     /// Who the device is, and what its kernels are keyed to.
     pub identity: DeviceIdentity,
+    /// Bits IO is sized to in place of the load width, where a backend measured wider as faster.
+    pub io_width_override: Option<u32>,
 }
 
 impl TypeHash for DeviceProperties {
@@ -141,7 +428,35 @@ impl DeviceProperties {
             hardware,
             timing_method,
             identity,
+            io_width_override: None,
         }
+    }
+
+    /// The widest vector, in bits, that reads and writes are sized to.
+    pub fn io_width(&self) -> u32 {
+        self.io_width_override.unwrap_or(self.hardware.load_width)
+    }
+
+    /// Vector sizes, widest first, that reads and writes of `elem_size`-byte elements are sized to.
+    pub fn io_optimized_vector_sizes(
+        &self,
+        elem_size: usize,
+    ) -> impl Iterator<Item = VectorSize> + Clone {
+        vector_sizes_down_from(self.widest_io_vector_size(elem_size))
+    }
+
+    /// Vector sizes, widest first, that keep `live` vectors in registers, else the IO sizes.
+    pub fn vector_sizes_in_registers(
+        &self,
+        elem_size: usize,
+        live: usize,
+    ) -> impl Iterator<Item = VectorSize> + Clone {
+        let widest = match VectorRegisters::new(&self.hardware, elem_size) {
+            Some(registers) => registers.widest_vector_size(live),
+            None => self.widest_io_vector_size(elem_size),
+        };
+
+        vector_sizes_down_from(widest)
     }
 
     /// Get the usages for a type
@@ -221,6 +536,11 @@ impl DeviceProperties {
         self.hardware.hash(&mut hasher);
         hasher.finish()
     }
+
+    /// A power of two, and at least one.
+    fn widest_io_vector_size(&self, elem_size: usize) -> VectorSize {
+        self.hardware.vector_size_in(self.io_width(), elem_size)
+    }
 }
 
 /// Unchecked optimizations for float operations. May cause precision differences, or undefined
@@ -252,5 +572,339 @@ pub enum FastMath {
 impl FastMath {
     pub const fn all() -> EnumSet<FastMath> {
         EnumSet::all()
+    }
+}
+
+impl HardwareProperties {
+    /// `width` bits of `elem_size`-byte elements, as a power of two the device accepts.
+    fn vector_size_in(&self, width: u32, elem_size: usize) -> VectorSize {
+        let elems = width as usize / (elem_size * 8);
+        prev_power_of_two(elems.min(self.max_vector_size).max(1))
+    }
+}
+
+fn prev_power_of_two(value: usize) -> usize {
+    1 << value.ilog2()
+}
+
+fn vector_sizes_down_from(widest: usize) -> impl Iterator<Item = VectorSize> + Clone {
+    (0..=widest.ilog2()).rev().map(|exponent| 1 << exponent)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::string::ToString;
+
+    #[test]
+    fn a_device_without_a_fixed_register_set_has_no_budget() {
+        assert_eq!(VectorRegisters::new(&hardware(128, None), 4), None);
+    }
+
+    #[test]
+    fn the_widest_vector_size_keeps_every_live_vector_in_registers() {
+        let f32 = registers(AVX2, 4);
+        assert_eq!(f32.widest_vector_size(6), 16);
+        assert_eq!(f32.widest_vector_size(8), 16);
+        assert_eq!(f32.widest_vector_size(9), 8);
+        assert_eq!(registers(AVX2, 8).widest_vector_size(6), 8);
+        assert_eq!(registers(AVX512, 4).widest_vector_size(6), 64);
+    }
+
+    #[test]
+    fn neon_and_avx2_budget_the_same_vector_sizes_from_equal_register_files() {
+        let (neon, avx2) = (registers(NEON, 4), registers(AVX2, 4));
+        assert_eq!(neon.widest_vector_size(3), avx2.widest_vector_size(3));
+        assert_eq!(neon.widest_vector_size(6), avx2.widest_vector_size(6));
+    }
+
+    #[test]
+    fn more_live_vectors_than_registers_still_get_one_register_each() {
+        assert_eq!(registers(AVX2, 4).widest_vector_size(40), 8);
+        assert_eq!(registers(NEON, 4).widest_vector_size(40), 4);
+    }
+
+    #[test]
+    fn vectors_fit_in_the_registers_left_unreserved() {
+        let f32 = registers(AVX2, 4);
+        assert_eq!(f32.registers_for(16), 2);
+        assert_eq!(f32.vectors_fitting(16, 0), 8);
+        assert_eq!(f32.vectors_fitting(8, 4), 12);
+        assert_eq!(f32.vectors_fitting(8, 20), 0);
+    }
+
+    #[test]
+    fn a_capped_vector_size_caps_the_register_vector_size() {
+        let mut capped = hardware(256, Some(16));
+        capped.max_vector_size = 4;
+        let f32 = VectorRegisters::new(&capped, 4).unwrap();
+        assert_eq!(f32.registers_for(8), 2);
+        assert_eq!(f32.widest_vector_size(1), 4);
+    }
+
+    #[test]
+    fn io_follows_a_load_width_raised_after_construction() {
+        let mut device = device(128);
+        device.hardware.load_width = 256;
+        assert_eq!(device.io_width(), 256);
+    }
+
+    #[test]
+    fn a_stated_io_width_outlasts_a_load_width_change() {
+        let mut device = device(256);
+        device.io_width_override = Some(512);
+        device.hardware.load_width = 128;
+        assert_eq!(device.io_width(), 512);
+    }
+
+    #[test]
+    fn a_cap_between_powers_of_two_rounds_down_alike() {
+        let mut device = device(512);
+        device.hardware.max_vector_size = 12;
+        device.hardware.vector_register_count = Some(32);
+
+        assert_eq!(
+            device
+                .io_optimized_vector_sizes(4)
+                .collect::<alloc::vec::Vec<_>>(),
+            alloc::vec![8, 4, 2, 1]
+        );
+        assert_eq!(device.vector_sizes_in_registers(4, 1).next(), Some(8));
+    }
+
+    #[test]
+    fn a_device_without_registers_sizes_by_its_io() {
+        let device = device(128);
+        assert!(
+            device
+                .vector_sizes_in_registers(4, 6)
+                .eq(device.io_optimized_vector_sizes(4))
+        );
+    }
+
+    /// A capacity is stated only by the runtime that read one.
+    ///
+    /// Properties built without one must answer `None`, or a caller would
+    /// size a workload against a figure nobody measured.
+    #[test]
+    fn a_memory_states_no_capacity_until_one_is_read() {
+        let props = MemoryDeviceProperties::new(1024, 32);
+        assert_eq!(props.max_memory(), None);
+        assert_eq!(props.clone().with_max_memory(4096).max_memory(), Some(4096));
+    }
+
+    /// A zero from the runtime's API reads as no capacity.
+    ///
+    /// An API with nothing to report reports `0`, which must not reach a
+    /// caller as a device that holds nothing.
+    #[test]
+    fn a_capacity_of_zero_is_no_capacity() {
+        let mut props = MemoryDeviceProperties::new(1024, 32).with_max_memory(4096);
+        props.set_max_memory(0);
+        assert_eq!(props.max_memory(), None);
+    }
+
+    #[test]
+    fn a_vendor_keeps_its_id_whether_named_or_not() {
+        for id in [0x10de, 0x1002, 0x8086, 0x106b, 0x13b5, 0x5143, 0x1af4] {
+            assert_eq!(PciVendor::from(id).id(), id);
+        }
+        assert_eq!(PciVendor::from(0x10de), PciVendor::Nvidia);
+        assert_eq!(PciVendor::from(0x1af4), PciVendor::Other(0x1af4));
+        assert_eq!(PciVendor::Other(0x1af4).to_string(), "0x1af4");
+    }
+
+    #[test]
+    fn a_luid_from_parts_is_the_bytes_vulkan_reports() {
+        let bytes = [0x8a, 0x1d, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00];
+        assert_eq!(
+            AdapterLuid::from_parts(0x0001_1d8a, 0),
+            AdapterLuid::new(bytes)
+        );
+        assert_eq!(
+            AdapterLuid::from_parts(1, -1).bytes(),
+            [1, 0, 0, 0, 0xff, 0xff, 0xff, 0xff]
+        );
+    }
+
+    #[test]
+    fn a_card_is_matched_by_address_then_by_luid() {
+        let address = |bus| {
+            Some(PciAddress {
+                domain: 0,
+                bus,
+                device: 0,
+                function: 0,
+            })
+        };
+        let luid = |low| Some(AdapterLuid::from_parts(low, 0));
+        let card = |pci_address, luid| PhysicalDevice {
+            pci_address,
+            luid,
+            registry_entry_id: None,
+            vendor: None,
+        };
+
+        assert!(card(address(7), None).is_same_card(&card(address(7), luid(1))));
+        assert!(!card(address(7), luid(1)).is_same_card(&card(address(8), luid(1))));
+        assert!(card(None, luid(1)).is_same_card(&card(address(7), luid(1))));
+        assert!(!card(None, luid(1)).is_same_card(&card(None, luid(2))));
+        assert!(!card(None, None).is_same_card(&card(None, None)));
+    }
+
+    #[test]
+    fn a_card_filled_from_another_runtime_keeps_what_it_reported() {
+        let address = |bus| {
+            Some(PciAddress {
+                domain: 0,
+                bus,
+                device: 0,
+                function: 0,
+            })
+        };
+        let luid = Some(AdapterLuid::from_parts(1, 0));
+        let mut card = PhysicalDevice {
+            pci_address: address(7),
+            luid: None,
+            registry_entry_id: None,
+            vendor: None,
+        };
+
+        card.fill_from(&PhysicalDevice {
+            pci_address: address(8),
+            luid,
+            registry_entry_id: None,
+            vendor: Some(PciVendor::Nvidia),
+        });
+
+        assert_eq!(
+            card,
+            PhysicalDevice {
+                pci_address: address(7),
+                luid,
+                registry_entry_id: None,
+                vendor: Some(PciVendor::Nvidia),
+            }
+        );
+    }
+
+    #[test]
+    fn a_card_with_neither_address_nor_luid_is_matched_by_registry_entry_id() {
+        let card = |registry_entry_id| PhysicalDevice {
+            pci_address: None,
+            luid: None,
+            registry_entry_id: Some(RegistryEntryId::new(registry_entry_id)),
+            vendor: None,
+        };
+
+        assert!(card(0x1_0000_04c8).is_same_card(&card(0x1_0000_04c8)));
+        assert!(!card(0x1_0000_04c8).is_same_card(&card(0x1_0000_04c9)));
+    }
+
+    #[test]
+    fn the_address_and_the_luid_outrank_the_registry_entry_id() {
+        let address = |bus| {
+            Some(PciAddress {
+                domain: 0,
+                bus,
+                device: 0,
+                function: 0,
+            })
+        };
+        let luid = |low| Some(AdapterLuid::from_parts(low, 0));
+        let card = |pci_address, luid| PhysicalDevice {
+            pci_address,
+            luid,
+            registry_entry_id: Some(RegistryEntryId::new(0x1_0000_04c8)),
+            vendor: None,
+        };
+
+        assert!(!card(address(7), None).is_same_card(&card(address(8), None)));
+        assert!(!card(None, luid(1)).is_same_card(&card(None, luid(2))));
+    }
+
+    #[test]
+    fn a_card_filled_from_another_runtime_takes_the_registry_entry_id_it_left_out() {
+        let registry_entry_id = |id| Some(RegistryEntryId::new(id));
+        let card = |registry_entry_id| PhysicalDevice {
+            pci_address: None,
+            luid: None,
+            registry_entry_id,
+            vendor: None,
+        };
+
+        let mut without_one = card(None);
+        without_one.fill_from(&card(registry_entry_id(0x1_0000_04c8)));
+        let mut with_one = card(registry_entry_id(0x1_0000_04c8));
+        with_one.fill_from(&card(registry_entry_id(0x1_0000_04c9)));
+
+        assert_eq!(
+            without_one.registry_entry_id,
+            registry_entry_id(0x1_0000_04c8)
+        );
+        assert_eq!(with_one.registry_entry_id, registry_entry_id(0x1_0000_04c8));
+    }
+
+    #[test]
+    fn a_pci_address_round_trips_and_defaults_its_domain() {
+        let id = PciAddress {
+            domain: 0,
+            bus: 7,
+            device: 0,
+            function: 0,
+        };
+        assert_eq!(id.to_string(), "0000:07:00.0");
+        assert_eq!("0000:07:00.0".parse::<PciAddress>(), Ok(id));
+        assert_eq!("07:00.0".parse::<PciAddress>(), Ok(id));
+        assert_eq!(
+            "0001:a3:1f.7".parse::<PciAddress>(),
+            Ok(PciAddress {
+                domain: 1,
+                bus: 0xa3,
+                device: 0x1f,
+                function: 7
+            })
+        );
+        assert!("07:00".parse::<PciAddress>().is_err());
+        assert!("gpu".parse::<PciAddress>().is_err());
+    }
+
+    const AVX2: (u32, u32) = (256, 16);
+    const AVX512: (u32, u32) = (512, 32);
+    const NEON: (u32, u32) = (128, 32);
+
+    fn hardware(load_width: u32, vector_register_count: Option<u32>) -> HardwareProperties {
+        HardwareProperties {
+            load_width,
+            vector_register_count,
+            plane_size_min: 1,
+            plane_size_max: 1,
+            max_bindings: u32::MAX,
+            max_shared_memory_size: 32 * 1024,
+            max_cube_count: (u32::MAX, u32::MAX, u32::MAX),
+            max_units_per_cube: 16,
+            max_cube_dim: (16, 16, 16),
+            num_streaming_multiprocessors: None,
+            num_cpu_cores: Some(16),
+            last_level_cache_size: None,
+            num_tensor_cores: None,
+            min_tensor_cores_dim: None,
+            max_vector_size: VectorSize::MAX,
+            cube_mma_reserved_shared_memory: 0,
+        }
+    }
+
+    fn registers((width, count): (u32, u32), elem_size: usize) -> VectorRegisters {
+        VectorRegisters::new(&hardware(width, Some(count)), elem_size).unwrap()
+    }
+
+    fn device(load_width: u32) -> DeviceProperties {
+        DeviceProperties::new(
+            Features::default(),
+            MemoryDeviceProperties::new(1024, 32),
+            hardware(load_width, None),
+            TimingMethod::System,
+            DeviceIdentity::default(),
+        )
     }
 }

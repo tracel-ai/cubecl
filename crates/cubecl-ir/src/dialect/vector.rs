@@ -13,7 +13,7 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    CanMaterialize, Pure,
+    CanMaterialize, PropagatesUniformity, Pure,
     attributes::IndexAttr,
     interfaces::{
         aliasing::AliasingOp,
@@ -33,7 +33,7 @@ use crate::{
     format = "operands(CharSpace(`,`)) ` : ` type($0)"
 )]
 #[op_interfaces(NResultsInterface<1>, OneResultInterface, AtLeastNOpdsInterface<1>)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct CompositeConstructOp;
 
 impl CompositeConstructOp {
@@ -106,7 +106,7 @@ impl DestructurableConstructorOpInterface for CompositeConstructOp {
     verifier = "custom"
 )]
 #[result_ty(from_inputs = composite_extract_type)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct CompositeExtractOp {
     pub composite: Value,
     pub index: IndexAttr,
@@ -239,7 +239,7 @@ impl DestructurableAccessorOpInterface for CompositeExtractOp {
     verifier = "custom"
 )]
 #[result_ty(same_as = composite)]
-#[op_traits(CanMaterialize, Pure)]
+#[op_traits(CanMaterialize, Pure, PropagatesUniformity)]
 pub struct CompositeInsertOp {
     pub composite: Value,
     pub value: Value,
@@ -331,7 +331,7 @@ impl DestructurableConstructorOpInterface for CompositeInsertOp {
 )]
 #[result_ty(argument)]
 #[op_interfaces(ResultNOfType<0, VectorType>, TriviallyUnrollable)]
-#[op_traits(CanMaterialize, Pure)]
+#[op_traits(CanMaterialize, Pure, PropagatesUniformity)]
 pub struct VectorBroadcastOp {
     pub input: Value,
 }
@@ -405,7 +405,7 @@ impl DestructurableConstructorOpInterface for VectorBroadcastOp {
 )]
 #[result_ty(same_as = vector)]
 #[op_interfaces(OperandNOfType<0, VectorType>, OperandNOfType<2, IndexType>)]
-#[op_traits(CanMaterialize, Pure)]
+#[op_traits(CanMaterialize, Pure, PropagatesUniformity)]
 pub struct VectorInsertDynamicOp {
     pub vector: Value,
     pub value: Value,
@@ -433,7 +433,7 @@ impl Verify for VectorInsertDynamicOp {
 #[cube_op(name = "vector.extract_dynamic", format = "$0 `[` $1 `] : ` type($0)")]
 #[result_ty(from_inputs = |ctx, vector, _| scalar_ty(ctx, vector))]
 #[op_interfaces(OperandNOfType<0, VectorType>, OperandNOfType<1, IndexType>)]
-#[op_traits(CanMaterialize, Pure)]
+#[op_traits(CanMaterialize, Pure, PropagatesUniformity)]
 pub struct VectorExtractDynamicOp {
     pub vector: Value,
     pub index: Value,
@@ -442,7 +442,7 @@ pub struct VectorExtractDynamicOp {
 #[cube_op(name = "vector.magnitude")]
 #[result_ty(from_inputs = scalar_ty)]
 #[op_interfaces(OperandNOfType<0, VectorType>)]
-#[op_traits(CanMaterialize, Pure)]
+#[op_traits(CanMaterialize, Pure, PropagatesUniformity)]
 pub struct MagnitudeOp {
     pub input: Value,
 }
@@ -450,7 +450,7 @@ pub struct MagnitudeOp {
 #[cube_op(name = "vector.normalize")]
 #[result_ty(same_as = input)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, OperandNOfType<0, VectorType>)]
-#[op_traits(CanMaterialize, Pure)]
+#[op_traits(CanMaterialize, Pure, PropagatesUniformity)]
 pub struct NormalizeOp {
     pub input: Value,
 }
@@ -458,7 +458,7 @@ pub struct NormalizeOp {
 #[cube_op(name = "vector.i_sum")]
 #[result_ty(from_inputs = scalar_ty)]
 #[op_interfaces(OperandNOfType<0, VectorType>)]
-#[op_traits(CanMaterialize, Pure)]
+#[op_traits(CanMaterialize, Pure, PropagatesUniformity)]
 pub struct ISumOp {
     pub input: Value,
 }
@@ -466,7 +466,7 @@ pub struct ISumOp {
 #[cube_op(name = "vector.f_sum")]
 #[result_ty(from_inputs = scalar_ty)]
 #[op_interfaces(OperandNOfType<0, VectorType>)]
-#[op_traits(CanMaterialize, Pure)]
+#[op_traits(CanMaterialize, Pure, PropagatesUniformity)]
 pub struct FSumOp {
     pub input: Value,
 }
@@ -474,7 +474,7 @@ pub struct FSumOp {
 #[cube_op(name = "vector.s_dot")]
 #[result_ty(from_inputs = |ctx, lhs, _| scalar_ty(ctx, lhs))]
 #[op_interfaces(OperandNOfType<0, VectorType>, OperandNOfType<1, VectorType>)]
-#[op_traits(CanMaterialize, Pure)]
+#[op_traits(CanMaterialize, Pure, PropagatesUniformity)]
 pub struct SDotOp {
     pub lhs: Value,
     pub rhs: Value,
@@ -483,7 +483,7 @@ pub struct SDotOp {
 #[cube_op(name = "vector.u_dot")]
 #[result_ty(from_inputs = |ctx, lhs, _| scalar_ty(ctx, lhs))]
 #[op_interfaces(OperandNOfType<0, VectorType>, OperandNOfType<1, VectorType>)]
-#[op_traits(CanMaterialize, Pure)]
+#[op_traits(CanMaterialize, Pure, PropagatesUniformity)]
 pub struct UDotOp {
     pub lhs: Value,
     pub rhs: Value,
@@ -492,7 +492,7 @@ pub struct UDotOp {
 #[cube_op(name = "vector.f_dot")]
 #[result_ty(from_inputs = |ctx, lhs, _| scalar_ty(ctx, lhs))]
 #[op_interfaces(OperandNOfType<0, VectorType>, OperandNOfType<1, VectorType>)]
-#[op_traits(CanMaterialize, Pure)]
+#[op_traits(CanMaterialize, Pure, PropagatesUniformity)]
 pub struct FDotOp {
     pub lhs: Value,
     pub rhs: Value,

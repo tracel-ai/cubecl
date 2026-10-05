@@ -9,7 +9,11 @@ use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_ir::{
     AddressSpace,
     dialect::{base::OperationPtrExt, memory::DeclareVariableOp},
-    interfaces::{MemoryEffect, MemoryEffects, TypedExt, aliasing::AliasingOp},
+    interfaces::{
+        TypedExt,
+        aliasing::AliasingOp,
+        side_effects::{MemoryEffect, MemoryEffectsOp},
+    },
     prelude::*,
     types::PointerType,
 };
@@ -179,7 +183,7 @@ impl Analysis for GlobalVisibility {
             |ctx, state, node| {
                 if let IRNode::Operation(op) = node {
                     let op_dyn = op.dyn_op(ctx);
-                    if let Some(effects) = op_cast::<dyn MemoryEffects>(op_dyn.as_ref()) {
+                    if let Some(effects) = op_cast::<dyn MemoryEffectsOp>(op_dyn.as_ref()) {
                         for effect in effects.memory_effects(ctx) {
                             match effect {
                                 MemoryEffect::Read(affects) => state.check_read(ctx, affects),
@@ -197,6 +201,15 @@ impl Analysis for GlobalVisibility {
                                 // Not affecting global
                                 MemoryEffect::ReadAllInSpace(_)
                                 | MemoryEffect::WriteAllInSpace(_) => {}
+                                MemoryEffect::Opaque => {
+                                    // Untracked op in a nested region, should normally be treated
+                                    // conservatively but this is a rare case where we can be
+                                    // optimistic relatively safely. All backends will reject
+                                    // invalid visibility during compilation/validation, so a
+                                    // skipped op that actually reads/writes should be caught.
+                                    // Otherwise we would catch things like barriers as writes to
+                                    // all buffers.
+                                }
                             }
                         }
                     }

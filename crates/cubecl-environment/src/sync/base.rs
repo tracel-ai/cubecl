@@ -72,6 +72,23 @@ impl<T> Mutex<T> {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
         }
     }
+
+    /// Consumes the mutex, returning the value it protected. A poisoned lock
+    /// is recovered, as in [`lock`](Self::lock).
+    #[inline(always)]
+    pub fn into_inner(self) -> T {
+        #[cfg(not(feature = "std"))]
+        {
+            self.inner.into_inner()
+        }
+
+        #[cfg(feature = "std")]
+        {
+            self.inner
+                .into_inner()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+        }
+    }
 }
 
 /// A reader-writer lock which is exclusively locked for writing or shared for reading.

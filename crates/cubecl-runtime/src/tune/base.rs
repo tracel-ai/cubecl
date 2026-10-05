@@ -3,14 +3,19 @@ use super::{AutotuneError, AutotuneKey, TuneFn, TuneInputs};
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::{string::String, sync::Arc, vec, vec::Vec};
+use core::fmt::Display;
 use core::sync::atomic::{AtomicU32, Ordering};
 use cubecl_environment::collections::HashMap;
 
 /// A single candidate for autotune: a named [`TuneFn`] plus the [groups](TuneGroup) it
 /// belongs to. A tunable is autotuned whenever any of its groups is prioritized.
-pub struct Tunable<K, F: TuneInputs, Output> {
+///
+/// `Id` is what the tunables of a set are [identified](Self::identified) by, `()` for a set
+/// whose tunables are [named](Self::new) and nothing more.
+pub struct Tunable<K, F: TuneInputs, Output, Id = ()> {
     pub(crate) function: TuneFn<F, Output>,
     groups: Vec<(TuneGroup<K>, PriorityFunc<K>)>,
+    identity: Id,
 }
 
 impl<K, F: TuneInputs, Output: 'static> Tunable<K, F, Output> {
@@ -32,6 +37,32 @@ impl<K, F: TuneInputs, Output: 'static> Tunable<K, F, Output> {
         Err: Into<String> + 'static,
         Func: for<'a> Fn(<F as TuneInputs>::At<'a>) -> Result<Output, Err> + Send + Sync + 'static,
     {
+        Self::build(name, (), func)
+    }
+}
+
+impl<K, F: TuneInputs, Output: 'static, Id> Tunable<K, F, Output, Id> {
+    /// A tunable identified by `identity`, and named by it: the value
+    /// [`LocalTuner::fastest_identity`](super::LocalTuner::fastest_identity) hands back once
+    /// the tunable is the fastest for a key.
+    ///
+    /// For a caller that builds something else from the winner — a variant of the same kernel,
+    /// say — and so needs to know *which* candidate won rather than only to run it again. The
+    /// name a cached result is checksummed by is `identity`'s own, so the two cannot disagree.
+    pub fn identified<Func, Err>(identity: Id, func: Func) -> Self
+    where
+        Id: Display,
+        Err: Into<String> + 'static,
+        Func: for<'a> Fn(<F as TuneInputs>::At<'a>) -> Result<Output, Err> + Send + Sync + 'static,
+    {
+        Self::build(&identity.to_string(), identity, func)
+    }
+
+    fn build<Func, Err>(name: &str, identity: Id, func: Func) -> Self
+    where
+        Err: Into<String> + 'static,
+        Func: for<'a> Fn(<F as TuneInputs>::At<'a>) -> Result<Output, Err> + Send + Sync + 'static,
+    {
         let name: String = name.into();
         let name_for_err = name.clone();
         Self {
@@ -45,7 +76,13 @@ impl<K, F: TuneInputs, Output: 'static> Tunable<K, F, Output> {
                 }),
             ),
             groups: Vec::new(),
+            identity,
         }
+    }
+
+    /// What this tunable is [identified](Self::identified) by.
+    pub(crate) fn identity(&self) -> &Id {
+        &self.identity
     }
 
     /// Add this tunable to a [`TuneGroup`] with the given intra-group priority.
@@ -132,16 +169,34 @@ impl<K> TuneGroup<K> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// A group plan dictates which [tunables](Tunable) should be executed, and in what order.
 pub(crate) struct TunePlan {
     priorities: Vec<i8>,
     no_groups: Vec<usize>,
     groups: HashMap<i8, GroupPlan>,
     returned: Vec<usize>,
+    /// Each tunable's place in each of its groups, by tunable index, as the
+    /// key priced it.
+    #[cfg(persistence)]
+    placements: Vec<Vec<Placement>>,
 }
 
-#[derive(Default, Debug)]
+/// A tunable's place in one of its [groups](TuneGroup), as one key priced it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Placement {
+    /// The group's name.
+    pub group: String,
+    /// Whether the group is [ordered](TuneGroup::ordered): its members'
+    /// priorities order one round rather than cutting it into rounds.
+    pub ordered: bool,
+    /// The group's own priority: higher groups run first.
+    pub group_priority: i8,
+    /// The tunable's priority within the group; negative skips it.
+    pub priority: i8,
+}
+
+#[derive(Default, Debug, Clone)]
 struct GroupPlan {
     priorities: Vec<i8>,
     indices: HashMap<i8, Vec<Planned>>,
@@ -153,7 +208,7 @@ struct GroupPlan {
 /// The group is its id, not its name: a name is the caller's label and two groups may
 /// share one, which the cross-level dedup in [`TunePlan::group_plan_next`] would then
 /// read as a single group and strike a live candidate out of the plan.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Planned {
     index: usize,
     group: u32,
@@ -169,9 +224,9 @@ struct Cleanup {
 }
 
 impl TunePlan {
-    pub fn new<K: AutotuneKey, F: TuneInputs, Out>(
+    pub fn new<K: AutotuneKey, F: TuneInputs, Out, Id>(
         key: &K,
-        tunables: &[Tunable<K, F, Out>],
+        tunables: &[Tunable<K, F, Out, Id>],
     ) -> Self {
         let mut priorities = Vec::<i8>::new();
         let mut no_groups = Vec::new();
@@ -182,6 +237,8 @@ impl TunePlan {
         // once every member is priced.
         let mut priced = Vec::new();
         let mut ordered_levels = HashMap::<u32, i8>::new();
+        #[cfg(persistence)]
+        let mut placements = vec![Vec::new(); tunables.len()];
 
         for (index, tunable) in tunables.iter().enumerate() {
             if tunable.groups.is_empty() {
@@ -192,6 +249,13 @@ impl TunePlan {
             for (group, within_group_priority_fn) in tunable.groups.iter() {
                 let group_priority = (group.priority)(key);
                 let priority = within_group_priority_fn(key);
+                #[cfg(persistence)]
+                placements[index].push(Placement {
+                    group: group.name.to_string(),
+                    ordered: group.ordered,
+                    group_priority,
+                    priority,
+                });
 
                 if group.ordered && priority >= 0 {
                     let level = ordered_levels.entry(group.id).or_insert(priority);
@@ -246,7 +310,35 @@ impl TunePlan {
             no_groups,
             groups,
             returned: Vec::new(),
+            #[cfg(persistence)]
+            placements,
         }
+    }
+
+    /// The whole plan as a recorded tune reports it: every tunable named by
+    /// `names`, in the order the plan releases them, with the batch each
+    /// comes in and its place in each of its groups. A tunable no batch
+    /// holds, its every priority negative, comes last.
+    #[cfg(persistence)]
+    pub(crate) fn account(&self, names: &[&str]) -> Vec<super::record::PlannedCandidate> {
+        let mut plan = self.clone();
+        let batches = core::iter::from_fn(|| Some(plan.next()).filter(|batch| !batch.is_empty()));
+        let mut account: Vec<_> = batches
+            .enumerate()
+            .flat_map(|(batch, indices)| indices.into_iter().map(move |index| (index, Some(batch))))
+            .collect();
+        let excluded =
+            (0..names.len()).filter(|index| !account.iter().any(|(seen, _)| seen == index));
+        account.extend(excluded.map(|index| (index, None)).collect::<Vec<_>>());
+        account
+            .into_iter()
+            .map(|(index, batch)| super::record::PlannedCandidate {
+                name: names[index].to_string(),
+                index,
+                batch,
+                groups: self.placements[index].clone(),
+            })
+            .collect()
     }
 
     /// Get the next batch of [tunable](Tunable) index to be autotuned.
@@ -489,6 +581,52 @@ mod tests {
         assert_eq!(plan.next(), vec![2, 0]);
         assert_eq!(plan.next(), vec![3]);
         assert!(plan.next().is_empty());
+    }
+
+    #[cfg(persistence)]
+    #[test_log::test]
+    fn test_plan_account_lists_every_tunable_in_release_order() {
+        let group0 = TuneGroup::<FakeAutotuneKey>::new("group0", |_| 2);
+        let group1 = TuneGroup::<FakeAutotuneKey>::new("group1", |_| 1);
+
+        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel);
+        let tunable1 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| -1);
+        let tunable2 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| 2);
+        let tunable3 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group1, |_| 2);
+
+        let key = FakeAutotuneKey;
+        let plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
+        let account = plan.account(&["t0", "t1", "t2", "t3"]);
+
+        let order: Vec<_> = account
+            .iter()
+            .map(|planned| (planned.name.as_str(), planned.batch))
+            .collect();
+        assert_eq!(
+            order,
+            vec![
+                ("t2", Some(0)),
+                ("t0", Some(0)),
+                ("t3", Some(1)),
+                ("t1", None)
+            ]
+        );
+        assert_eq!(
+            account[0].groups,
+            vec![Placement {
+                group: "group0".into(),
+                ordered: false,
+                group_priority: 2,
+                priority: 2,
+            }]
+        );
+        assert!(account[1].groups.is_empty());
+        // Accounting for the plan leaves it to run from its first batch.
+        let mut plan = plan;
+        assert_eq!(plan.next(), vec![2, 0]);
     }
 
     #[test_log::test]

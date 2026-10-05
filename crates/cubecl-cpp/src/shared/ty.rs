@@ -100,6 +100,10 @@ pub trait TypedExtCPP: Typed {
         is_one_of!(ty; Float16Type, BFloat16Type)
     }
 
+    fn is_bf16(&self, ctx: &Context) -> bool {
+        self.scalar_ty(ctx).deref(ctx).is::<BFloat16Type>()
+    }
+
     fn is_half2(&self, ctx: &Context) -> bool {
         let ty = self.scalar_ty(ctx).deref(ctx);
         is_one_of!(ty; Float16x2Type, BFloat16x2Type)

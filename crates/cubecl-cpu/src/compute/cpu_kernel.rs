@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use cubecl_core::prelude::CompiledKernel;
+use cubecl_server::kernel::CompiledKernel;
 
 use cubecl_llvm::PlironCompiler;
 

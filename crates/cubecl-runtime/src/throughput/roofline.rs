@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 /// what lets [`AutotuneBound`](crate::tune::AutotuneBound) compose this with
 /// a threshold instead of reimplementing the arithmetic.
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(autotune_persistence, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub struct ResourceBound {
     /// How much of the resource the run must move.
     pub amount: usize,

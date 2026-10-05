@@ -1,10 +1,12 @@
 use alloc::{vec, vec::Vec};
 
 use crate::{
-    NoMemoryEffect,
+    NoMemoryEffect, PropagatesUniformity,
     interfaces::{
-        AlignedType, MaybeVectorizedType, MemoryEffect, MemoryEffects, ScalarizableType, TypedExt,
+        AlignedType, MaybeVectorizedType, ScalarizableType, TypedExt,
         memory_slot::PromotableRegionOpInterface,
+        side_effects::{MemoryEffect, MemoryEffectsOp},
+        uniformity::{UniformOpInterface, Uniformity},
     },
     scalar,
 };
@@ -22,16 +24,18 @@ use pliron::{
     value::Value,
 };
 use pliron_spirv::{
-    ops::{AccessChainOp, InBoundsAccessChainOp, LoadOp, LoopOp, SelectionOp},
+    ops::{AccessChainOp, GlobalVariableOp, InBoundsAccessChainOp, LoadOp, LoopOp, SelectionOp},
     spirv::StorageClass,
     types::{ArrayType, FloatType, PointerType, VectorType, khr::CooperativeMatrixType},
 };
 
 NoMemoryEffect!(InBoundsAccessChainOp);
+PropagatesUniformity!(InBoundsAccessChainOp);
 NoMemoryEffect!(AccessChainOp);
+PropagatesUniformity!(AccessChainOp);
 
 #[op_interface_impl]
-impl MemoryEffects for LoadOp {
+impl MemoryEffectsOp for LoadOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         let ptr = self.get_operand_pointer(ctx);
         let Ok(ptr_ty) = TypedHandle::<PointerType>::from_handle(ptr.get_type(ctx), ctx) else {
@@ -48,6 +52,30 @@ impl MemoryEffects for LoadOp {
             | StorageClass::IncomingCallableDataKHR
             | StorageClass::IncomingRayPayloadKHR => vec![],
             _ => vec![MemoryEffect::Read(self.get_operand_pointer(ctx))],
+        }
+    }
+}
+
+PropagatesUniformity!(LoadOp);
+
+#[op_interface_impl]
+impl UniformOpInterface for GlobalVariableOp {
+    fn uniformity(&self, ctx: &Context, _operands: &[Uniformity]) -> Uniformity {
+        match self
+            .get_attr_spirv_global_variable_storage_class(ctx)
+            .unwrap()
+            .0
+        {
+            StorageClass::UniformConstant
+            | StorageClass::Input
+            | StorageClass::Uniform
+            | StorageClass::Output
+            | StorageClass::CrossWorkgroup
+            | StorageClass::PushConstant
+            | StorageClass::AtomicCounter
+            | StorageClass::StorageBuffer => Uniformity::Device,
+            StorageClass::Workgroup | StorageClass::TaskPayloadWorkgroupEXT => Uniformity::Cube,
+            _ => Uniformity::None,
         }
     }
 }

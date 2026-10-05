@@ -1,5 +1,4 @@
 use cubecl_core::{
-    self as cubecl,
     cmma::{MatrixIdent, MatrixType},
     ir::{
         ElemType, FloatKind, IntKind, UIntKind,
@@ -12,6 +11,8 @@ use cubecl_core::{
 };
 use itertools::Itertools;
 use pliron::r#type::TypedHandle;
+
+use cubecl_core::prelude::polyfills::mma::{col_index, row_index};
 
 use crate::{
     cuda::arch::CudaArchitecture,
@@ -42,61 +43,6 @@ impl LowerOp<Cuda> for ColIndexOp {
         let i = self.i(scope.ctx());
         let out = col_index::expand(scope, lane_id.into(), i.into(), elems_per_reg, matrix.ident);
         vec![out.value(scope)]
-    }
-}
-
-/// Derived from PTX shape documentation
-/// <https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-instructions-for-mma>
-#[cube]
-fn row_index(
-    lane_id: u32,
-    i: u32,
-    #[comptime] elems_per_reg: usize,
-    #[comptime] ident: MatrixIdent,
-) -> u32 {
-    let elems_per_reg = elems_per_reg as u32;
-    match ident {
-        MatrixIdent::A => {
-            let group_id = lane_id / 4;
-            let odd_register = (i / elems_per_reg) & 1;
-            group_id + odd_register * 8
-        }
-        MatrixIdent::B => {
-            let thread_id_in_group = lane_id % 4;
-            let offset = thread_id_in_group * elems_per_reg + (i % elems_per_reg);
-            let reg = i / elems_per_reg;
-            offset + elems_per_reg * 4 * reg
-        }
-        MatrixIdent::Accumulator => {
-            let group_id = lane_id / 4;
-            let offset = (i << 2) & 8;
-            group_id + offset
-        }
-    }
-}
-
-/// Derived from PTX shape documentation
-/// <https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-instructions-for-mma>
-#[cube]
-fn col_index(
-    lane_id: u32,
-    i: u32,
-    #[comptime] elems_per_reg: usize,
-    #[comptime] ident: MatrixIdent,
-) -> u32 {
-    let elems_per_reg = elems_per_reg as u32;
-    match ident {
-        MatrixIdent::A => {
-            let thread_id_in_group = lane_id % 4;
-            let offset = thread_id_in_group * elems_per_reg + (i % elems_per_reg);
-            let group_2 = (i / (2 * elems_per_reg)) & 1;
-            offset + 4 * elems_per_reg * group_2
-        }
-        MatrixIdent::B => lane_id >> 2,
-        MatrixIdent::Accumulator => {
-            let thread_id_in_group = lane_id % 4;
-            (thread_id_in_group * 2) + (i % 2)
-        }
     }
 }
 
@@ -187,8 +133,11 @@ pub fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMmaCombin
             k: 32,
         }));
     }
+    // Turing, not Volta: ptxas refuses `.m16n8k8` below sm_75, and sm_70 has
+    // `m8n8k4` alone.
+    //
     // Warning: this likely does not follow the same layout pattern as those after 80
-    if arch.get_version() >= 70 && arch.get_version() < 80 {
+    if arch.get_version() >= 75 && arch.get_version() < 80 {
         result.push(MmaConfig {
             a_type: ElemType::Float(FloatKind::F16),
             b_type: ElemType::Float(FloatKind::F16),
@@ -287,5 +236,34 @@ mod tests {
 
         assert!(supported_mma_combinations(&turing("NVIDIA GeForce GTX 1660 SUPER")).is_empty());
         assert!(!supported_mma_combinations(&turing("NVIDIA GeForce RTX 2060")).is_empty());
+    }
+
+    fn shapes(version: u32) -> Vec<(u32, u32, u32)> {
+        supported_mma_combinations(&CudaArchitecture {
+            version,
+            tensor_cores: true,
+        })
+        .into_iter()
+        .map(|config| (config.m, config.n, config.k))
+        .collect()
+    }
+
+    /// `ptxas -arch=sm_70`: "Feature `.m16n8k8` requires `.target sm_75` or higher".
+    /// Offering it there ends in `LLVM ERROR: Cannot select: intrinsic
+    /// llvm.nvvm.mma.m16n8k8`, which aborts the process rather than failing a launch.
+    #[test]
+    fn volta_is_offered_no_mma_shape() {
+        assert!(shapes(70).is_empty());
+    }
+
+    #[test]
+    fn turing_keeps_its_one_shape() {
+        assert_eq!(shapes(75), vec![(16, 8, 8)]);
+    }
+
+    /// The shapes from 80 on are their own set, reached by a separate branch.
+    #[test]
+    fn ampere_is_offered_more_than_turing() {
+        assert!(shapes(80).len() > shapes(75).len());
     }
 }

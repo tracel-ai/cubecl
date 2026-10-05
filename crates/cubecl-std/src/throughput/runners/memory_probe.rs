@@ -2,10 +2,11 @@ use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, ir::ElemType};
 use cubecl_runtime::{
     server::Handle,
-    throughput::{DEFAULT_WORKING_SET_BYTES, MemorySpec},
+    throughput::{DEFAULT_WORKING_SET_BYTES, MemorySpec, ThroughputError},
 };
 
 use crate::throughput::LaunchConfig;
+use cubecl_common::profile::Duration;
 
 /// Windows the pool holds. What decides whether a rewritten line is still
 /// resident is the pool's size against the last level cache, not the positions
@@ -131,6 +132,55 @@ impl MemoryProbe {
             blocked,
         }
     }
+}
+
+/// Reserves a probe's buffers outside every pool: each is its own device
+/// allocation, returned to the driver once the probe drops it.
+///
+/// A probe's gigabyte is no part of any workload. Held in a pool it would stay
+/// reserved after the probe, and grow the pages an adaptive memory carves
+/// every later allocation from. Dedicated, it exists exactly as long as the
+/// probe does.
+///
+/// # Errors
+///
+/// [`ThroughputError::Allocation`] when the device has no room for them. A
+/// reservation is only enqueued, and one that fails still leaves a handle, over
+/// which a launch does nothing: the probe would time an empty pass and cache it
+/// as the device's peak.
+pub fn reserve<const N: usize>(
+    client: &Client,
+    bytes: [usize; N],
+) -> Result<[Handle; N], ThroughputError> {
+    let handles =
+        client.memory_dedicated_allocation((), |_| bytes.map(|bytes| client.empty(bytes)));
+
+    client
+        .check(&handles)
+        .map_err(|_| ThroughputError::Allocation)?;
+
+    Ok(handles)
+}
+
+/// Runs one pass and confirms it wrote `written`, before any pass is timed.
+///
+/// A launch that fails leaves its failure on the buffers it never wrote, and
+/// `sync` answers `Ok` regardless. A sample has no way to say so, and would
+/// time the launch overhead and report it as bandwidth.
+///
+/// # Errors
+///
+/// [`ThroughputError::Launch`] when the pass did not run. The cause is logged
+/// by the device where it happened.
+pub fn verify(
+    client: &Client,
+    sample: impl Fn(usize) -> Duration,
+    written: &Handle,
+) -> Result<(), ThroughputError> {
+    sample(1);
+
+    cubecl_core::future::block_on(client.sync_buffers([written]))
+        .map_err(|_| ThroughputError::Launch)
 }
 
 /// Writes every line of `handle`, once, before it is handed to a probe that

@@ -150,6 +150,12 @@ impl KernelId {
         name.rsplit("::").next().unwrap_or(name)
     }
 
+    /// The kernel's type, in full: what names it before its comptime
+    /// arguments tell instances apart.
+    pub fn type_name(&self) -> &'static str {
+        self.type_name
+    }
+
     /// Create a new [kernel id](KernelId) for a type.
     pub fn new<T: 'static>() -> Self {
         Self {
@@ -184,6 +190,11 @@ impl KernelId {
         self.info.hash(&mut hasher);
 
         hasher.finalize()
+    }
+
+    /// Return the entrypoint name disambiguated with a stable hash discriminator.
+    pub fn entrypoint_name(&self, base: &str) -> String {
+        format!("{base}_{:08x}", self.stable_hash() as u32)
     }
 
     /// Add information to the [kernel id](KernelId).

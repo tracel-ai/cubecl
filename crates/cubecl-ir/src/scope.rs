@@ -1,4 +1,7 @@
-use crate::EnumSet;
+use crate::{
+    EnumSet,
+    interfaces::control_flow::{SymbolOpInterface, SymbolVisibility},
+};
 use alloc::{boxed::Box, format, rc::Rc, string::String, vec, vec::Vec};
 use core::{
     any::{TypeId, type_name},
@@ -144,6 +147,7 @@ pub fn ident(name: impl Into<String>) -> Identifier {
 pub struct GlobalState {
     pub reference_arena: DropBump,
     pub errors: Vec<String>,
+    pub warnings: Vec<String>,
 
     pub module: ModuleOp,
     pub module_inserter: OpInserter,
@@ -155,6 +159,8 @@ pub struct GlobalState {
     pub target_properties: TargetProperties,
     pub device_properties: Option<Rc<DeviceProperties>>,
 }
+
+unsafe impl Send for GlobalState {}
 
 impl GlobalState {
     /// Register the element type for the given generic type.
@@ -184,16 +190,16 @@ fn ty_key<T: 'static>(ctx: &Context) -> Option<AuxDataIndex> {
 }
 
 pub trait ContextExt {
-    fn aux_ty<T: 'static>(&self) -> &T;
-    fn aux_ty_mut<T: 'static>(&mut self) -> &mut T;
-    fn set_aux_ty<T: 'static>(&mut self, value: T);
+    fn aux_ty<T: Send + 'static>(&self) -> &T;
+    fn aux_ty_mut<T: Send + 'static>(&mut self) -> &mut T;
+    fn set_aux_ty<T: Send + 'static>(&mut self, value: T);
     fn set_address_type(&mut self, addr: AddressType);
     fn address_type(&self) -> AddressType;
 }
 
 impl ContextExt for Context {
     #[track_caller]
-    fn aux_ty<T: 'static>(&self) -> &T {
+    fn aux_ty<T: Send + 'static>(&self) -> &T {
         let key = ty_key::<T>(self)
             .ok_or_else(|| format!("Key for {} should exist", type_name::<T>()))
             .unwrap();
@@ -201,14 +207,14 @@ impl ContextExt for Context {
     }
 
     #[track_caller]
-    fn aux_ty_mut<T: 'static>(&mut self) -> &mut T {
+    fn aux_ty_mut<T: Send + 'static>(&mut self) -> &mut T {
         let key = ty_key::<T>(self)
             .ok_or_else(|| format!("Key for {} should exist", type_name::<T>()))
             .unwrap();
         self.aux_data[key].downcast_mut().unwrap()
     }
 
-    fn set_aux_ty<T: 'static>(&mut self, value: T) {
+    fn set_aux_ty<T: Send + 'static>(&mut self, value: T) {
         if let Some(key) = ty_key::<T>(self) {
             *self.aux_data.get_mut(key).unwrap() = Box::new(value);
         } else {
@@ -219,7 +225,7 @@ impl ContextExt for Context {
     }
 
     fn set_address_type(&mut self, addr: AddressType) {
-        if let Some(key) = self.aux_data_map.get(&*ADDRESS_TYPE_KEY).copied() {
+        if let Some(key) = self.aux_data_map.get(&ADDRESS_TYPE_KEY).copied() {
             *self.aux_data.get_mut(key).unwrap() = Box::new(addr);
         } else {
             let key = self.aux_data.insert(Box::new(addr));
@@ -228,7 +234,7 @@ impl ContextExt for Context {
     }
 
     fn address_type(&self) -> AddressType {
-        let key = self.aux_data_map[&*ADDRESS_TYPE_KEY];
+        let key = self.aux_data_map[&ADDRESS_TYPE_KEY];
         *self.aux_data[key].downcast_ref::<AddressType>().unwrap()
     }
 }
@@ -252,7 +258,7 @@ impl FuncOpExt for FuncOp {
 
         arg_types.insert(id, ty);
         let new_func_ty = FunctionType::get(ctx, arg_types, res_types).to_handle();
-        self.set_attr_func_type(ctx, new_func_ty.into());
+        self.set_attr_builtin_func_type(ctx, new_func_ty.into());
         id
     }
 
@@ -268,9 +274,9 @@ impl FuncOpExt for FuncOp {
 
         arg_types.pop();
         let new_func_ty = FunctionType::get(ctx, arg_types, res_types).to_handle();
-        self.set_attr_func_type(ctx, new_func_ty.into());
+        self.set_attr_builtin_func_type(ctx, new_func_ty.into());
         let mut op = self.get_operation().deref_mut(ctx);
-        let arg_attrs = op.attributes.0.get_mut(&*ATTR_KEY_ARG_ATTRS);
+        let arg_attrs = op.attributes.0.get_mut(&ATTR_KEY_ARG_ATTRS);
         if let Some(arg_attrs) = arg_attrs.and_then(|attr| attr.downcast_mut::<VecAttr>()) {
             arg_attrs.0.truncate(last_idx);
         }
@@ -287,10 +293,10 @@ impl FuncOpExt for FuncOp {
 
         arg_types.remove(arg_idx);
         let new_func_ty = FunctionType::get(ctx, arg_types, res_types).to_handle();
-        self.set_attr_func_type(ctx, new_func_ty.into());
+        self.set_attr_builtin_func_type(ctx, new_func_ty.into());
 
         let mut op = self.get_operation().deref_mut(ctx);
-        let arg_attrs = op.attributes.0.get_mut(&*ATTR_KEY_ARG_ATTRS);
+        let arg_attrs = op.attributes.0.get_mut(&ATTR_KEY_ARG_ATTRS);
         if let Some(arg_attrs) = arg_attrs.and_then(|attr| attr.downcast_mut::<VecAttr>()) {
             arg_attrs.0.remove(arg_idx);
         }
@@ -315,6 +321,7 @@ fn new_context(settings: KernelSettings) -> Rc<UnsafeCell<Context>> {
     let entry_name = Identifier::try_new(settings.kernel_name).unwrap_or(ident("kernel_entry"));
     let abi = EntrypointAbiAttr::new(settings.cube_dim, settings.cluster_dim);
     let entry_func = FuncOp::new(&mut ctx, entry_name, entry_func_ty);
+    entry_func.set_visibility(&mut ctx, SymbolVisibility::Public);
     entry_func.set_entrypoint_abi(&mut ctx, abi);
     module_inserter.append_op(&ctx, &entry_func);
 
@@ -330,6 +337,7 @@ fn new_context(settings: KernelSettings) -> Rc<UnsafeCell<Context>> {
         target_properties: Default::default(),
         device_properties: Default::default(),
         errors: Default::default(),
+        warnings: Default::default(),
     };
     settings.address_type.register(&mut state);
 
@@ -364,6 +372,7 @@ fn dummy_context() -> Rc<UnsafeCell<Context>> {
         target_properties: Default::default(),
         device_properties: Default::default(),
         errors: Default::default(),
+        warnings: Default::default(),
     };
 
     ctx.set_aux_ty(state);
@@ -536,8 +545,9 @@ impl Scope {
 
     /// Create a new function.
     pub fn register_func(&self, func: FuncOp) {
-        let ctx = self.ctx();
+        let ctx = self.ctx_mut();
         let state = self.state_mut();
+        func.set_visibility(ctx, SymbolVisibility::Private);
         state.module_inserter.append_op(ctx, &func);
     }
 
@@ -716,6 +726,16 @@ impl Scope {
         core::mem::take(&mut self.state_mut().errors)
     }
 
+    /// Adds a non-fatal validation warning. Logged when the kernel is built.
+    pub fn push_warning(&self, msg: impl Into<String>) {
+        self.state_mut().warnings.push(msg.into());
+    }
+
+    /// Returns all validation warnings.
+    pub fn pop_warnings(&self) -> Vec<String> {
+        core::mem::take(&mut self.state_mut().warnings)
+    }
+
     /// Obtain the index-th buffer
     pub fn global(
         &self,
@@ -769,12 +789,12 @@ impl Scope {
     }
 
     pub fn const_usize(&self, value: usize) -> Value {
-        let op = ConstantOp::new(self.ctx_mut(), IndexAttr::new(value).into());
+        let op = ConstantOp::new(self.ctx_mut(), Box::new(IndexAttr::new(value)));
         self.register_with_result(&op)
     }
 
     pub fn const_bool(&self, value: bool) -> Value {
-        let op = ConstantOp::new(self.ctx_mut(), BoolAttr::new(value).into());
+        let op = ConstantOp::new(self.ctx_mut(), Box::new(BoolAttr::new(value)));
         self.register_with_result(&op)
     }
 

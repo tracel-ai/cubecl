@@ -1,7 +1,4 @@
-// C ABI over LLD's C++ entry point
-//
-// `LLD_HAS_DRIVER` declares `lld::elf::link` and commits us to linking the ELF
-// driver, which `build.rs` does via `lldELF`.
+// C bindings for the LLD ELF driver.
 
 #include <cstddef>
 #include <lld/Common/Driver.h>

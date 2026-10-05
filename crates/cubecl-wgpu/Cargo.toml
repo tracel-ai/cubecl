@@ -15,26 +15,25 @@ workspace = true
 
 [features]
 default = [
-    "cubecl-runtime/default",
+    "cubecl-server/default",
     "cubecl-common/default",
     "cubecl-core/default",
 ]
-exclusive-memory-only = ["cubecl-runtime/exclusive-memory-only"]
+exclusive-memory-only = ["cubecl-server/exclusive-memory-only"]
+persistence = ["cubecl-server/persistence"]
 std = [
-    "cubecl-runtime/std",
+    "cubecl-server/std",
     "cubecl-common/std",
     "cubecl-core/std",
     "cubecl-cpp/std",
     "cubecl-opt/std",
+    "pliron/std",
     "sanitize-filename",
 ]
-# 'msl' and 'spirv' features are exclusive
-# TODO find a way to have wgpu runtime auto-compiler to support several compilers at the same time
 msl = [
     "cubecl-cpp/metal",
     "dep:objc2",
     "dep:objc2-foundation",
-    "dep:objc2-metal",
 ]
 profile-tracy = ["tracy-client"]
 spirv = ["cubecl-spirv", "ash", "tracel-ash", "cubecl-common/hash"]
@@ -47,7 +46,7 @@ vulkan-validate = []
 renderdoc = ["std", "dep:renderdoc"]
 tracing = [
     "dep:tracing",
-    "cubecl-runtime/tracing",
+    "cubecl-server/tracing",
     "cubecl-common/tracing",
     "cubecl-core/tracing",
 ]
@@ -57,14 +56,19 @@ tracing = [
 log = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
 
-cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.3", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.3", default-features = false }
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.3", default-features = false }
-cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.3", default-features = false }
-cubecl-opt = { path = "../cubecl-opt", version = "=0.11.0-pre.3", default-features = false }
-cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.3", default-features = false, features = [
-    "channel-mutex",
+cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.4", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.4", default-features = false }
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.4", default-features = false }
+cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.4", default-features = false }
+cubecl-opt = { path = "../cubecl-opt", version = "=0.11.0-pre.4", default-features = false }
+cubecl-monitoring = { path = "../cubecl-monitoring", version = "=0.11.0-pre.4", default-features = false, features = [
+    "amdgpu-busy-percent",
+    "gpu-engine-counters",
+    "intel-idle-residency",
+    "io-accelerator",
+    "nvml",
 ] }
+cubecl-server = { path = "../cubecl-server", version = "=0.11.0-pre.4", default-features = false }
 derive_more = { workspace = true }
 half = { workspace = true }
 itertools = { workspace = true }
@@ -75,11 +79,11 @@ tracy-client = { workspace = true, optional = true }
 
 # SPIR-V
 ash = { workspace = true, optional = true }
-cubecl-spirv = { path = "../cubecl-spirv", version = "=0.11.0-pre.3", optional = true }
+cubecl-spirv = { path = "../cubecl-spirv", version = "=0.11.0-pre.4", optional = true }
 tracel-ash = { workspace = true, optional = true }
 
 # Metal
-cubecl-cpp = { path = "../cubecl-cpp", version = "=0.11.0-pre.3", features = [
+cubecl-cpp = { path = "../cubecl-cpp", version = "=0.11.0-pre.4", features = [
     "metal",
 ], optional = true }
 
@@ -93,9 +97,6 @@ hashbrown = { workspace = true }
 
 cfg-if = { workspace = true }
 
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
-pliron = { workspace = true, features = ["std"] }
-
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen-futures = { workspace = true }
 
@@ -104,8 +105,6 @@ wasm-bindgen-futures = { workspace = true }
 renderdoc = { workspace = true, optional = true }
 wgpu = { workspace = true, features = ["fragile-send-sync-non-atomic-wasm"] }
 
-## Uncomment if targeting metal through msl feature
-# wgpu = { git = "https://github.com/tracel-ai/wgpu", features = ["fragile-send-sync-non-atomic-wasm"], rev = "624db2ae762b83446693020ae637e2c5879b3af9" }
 ## For development on wgpu uncomment this one and make it point to your local wgpu repo
 # wgpu = { path = "../../../../tracel/wgpu/wgpu", features = ["fragile-send-sync-non-atomic-wasm"]}
 ## On macOS, the `vulkan-portability` feature is required due to the MoltenVK translation layer.
@@ -119,24 +118,24 @@ wgpu = { workspace = true, features = [
 [target.'cfg(target_vendor = "apple")'.dependencies]
 objc2 = { version = "0.6", optional = true }
 objc2-foundation = { version = "0.3", optional = true }
-objc2-metal = { version = "0.3", features = ["MTLLibrary"], optional = true }
+objc2-metal = { version = "0.3", features = ["MTLDevice", "MTLLibrary"] }
 
-
-## Uncomment if targeting metal through msl feature
-# wgpu = { git = "https://github.com/tracel-ai/wgpu", features = ["vulkan-portability", "fragile-send-sync-non-atomic-wasm"], rev = "624db2ae762b83446693020ae637e2c5879b3af9" }
 ## For development on wgpu uncomment this one and make it point to your local wgpu repo
 # wgpu = { path = "../../../../tracel/wgpu/wgpu", features = ["vulkan-portability", "fragile-send-sync-non-atomic-wasm"]}
 
 [dev-dependencies]
-cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.3", features = [
+cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.4", features = [
     "export_tests",
 ] }
-cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.3", features = [
+cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.4", features = [
     "export_tests",
 ] }
 half = { workspace = true }
 paste = { workspace = true }
 test-log = { workspace = true, features = ["trace"] }
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+wgpu = { workspace = true, features = ["noop"] }
 
 [build-dependencies]
 cfg_aliases = { workspace = true }

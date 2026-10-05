@@ -40,7 +40,10 @@ hip_op!(SyncOp, |op, ctx| {
 __builtin_amdgcn_fence(__ATOMIC_ACQ_REL, \"wavefront\");
 __builtin_amdgcn_wave_barrier();\n"
         }
-        SyncScope::Cube | SyncScope::Device => "__syncthreads();\n",
+        SyncScope::Cube => "__syncthreads();\n",
+        // As on CUDA: `__syncthreads` is the block's own ordering, and the fence is what makes
+        // this block's writes visible to the others.
+        SyncScope::Device => "__threadfence();\n__syncthreads();\n",
         SyncScope::Unit => "",
     }
     .into()

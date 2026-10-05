@@ -30,6 +30,63 @@ pub mod set_polyfill {
     }
 }
 
+/// Floor modulo using integer arithmetic, preserving precision for supported inputs.
+/// Division by zero and signed `MIN % -1` have no portable result or error guarantee.
+pub fn expand_signed_mod_floor(scope: &Scope, lhs: Value, rhs: Value) -> Value {
+    define_scalar!(I);
+    define_size!(N);
+    scope.register_value_type::<I, N>(lhs);
+    signed_mod_floor::expand::<I, N>(scope, lhs.into(), rhs.into()).read_value(scope)
+}
+
+#[cube]
+fn signed_mod_floor<I: Int, N: Size>(lhs: Vector<I, N>, rhs: Vector<I, N>) -> Vector<I, N> {
+    let remainder = lhs % rhs;
+    let zero = Vector::new(I::from_int(0));
+    let different_signs = (remainder ^ rhs).less_than(&zero);
+    let adjust = remainder.not_equal(&zero).vec_and(different_signs);
+    remainder + select_many(adjust, rhs, zero)
+}
+
+/// Lower NaN-preserving clamp to the corresponding binary operations.
+pub fn expand_clamp_nan(scope: &Scope, input: Value, min: Value, max: Value) -> Value {
+    use cubecl_ir::dialect::cmp::{FMaxNanOp, FMinNanOp};
+    let upper = FMinNanOp::new(scope.ctx_mut(), input, max);
+    let upper = scope.register_with_result(&upper);
+    let lower = FMaxNanOp::new(scope.ctx_mut(), upper, min);
+    scope.register_with_result(&lower)
+}
+
+/// Portable lowering for NaN-preserving minimum.
+pub fn expand_min_nan(scope: &Scope, lhs: Value, rhs: Value) -> Value {
+    define_scalar!(F);
+    define_size!(N);
+    scope.register_value_type::<F, N>(lhs);
+    min_nan_fallback::expand::<F, N>(scope, lhs.into(), rhs.into()).read_value(scope)
+}
+
+#[cube]
+fn min_nan_fallback<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> Vector<F, N> {
+    let value = lhs.min(rhs);
+    let value = select_many(rhs.is_nan(), rhs, value);
+    select_many(lhs.is_nan(), lhs, value)
+}
+
+/// Portable lowering for NaN-preserving maximum.
+pub fn expand_max_nan(scope: &Scope, lhs: Value, rhs: Value) -> Value {
+    define_scalar!(F);
+    define_size!(N);
+    scope.register_value_type::<F, N>(lhs);
+    max_nan_fallback::expand::<F, N>(scope, lhs.into(), rhs.into()).read_value(scope)
+}
+
+#[cube]
+fn max_nan_fallback<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> Vector<F, N> {
+    let value = lhs.max(rhs);
+    let value = select_many(rhs.is_nan(), rhs, value);
+    select_many(lhs.is_nan(), lhs, value)
+}
+
 #[cube]
 pub fn erf<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     let erf = erf_positive(x.abs());
@@ -402,5 +459,74 @@ pub mod plane {
         let inclusive = plane_reduce_inclusive::<T, N, Op>(val);
         let shfl = plane_shuffle_up(inclusive, 1);
         select(UNIT_POS_PLANE == 0, Vector::new(T::from_int(default)), shfl)
+    }
+}
+
+/// Where a lane's registers sit in the tile, for the manual `mma.sync` matrix API.
+///
+/// Unlike the cooperative API, whose fragment layout is the hardware's business, the manual one
+/// hands a kernel the registers and expects it to know which element of the tile each holds.
+/// NVIDIA documents that mapping, and every backend generating `mma.sync` has to agree with it
+/// exactly -- a kernel that indexes its own fragment differently from the way the instruction
+/// reads it computes a wrong answer rather than failing -- so it is written once here and the
+/// C++ and LLVM backends both expand it.
+///
+/// Derived from the PTX shape documentation:
+/// <https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-instructions-for-mma>
+pub mod mma {
+    use super::*;
+    use crate::ir::types::MatrixIdent;
+
+    /// The row of the tile that `lane_id`'s `i`th element holds.
+    #[cube]
+    pub fn row_index(
+        lane_id: u32,
+        i: u32,
+        #[comptime] elems_per_reg: usize,
+        #[comptime] ident: MatrixIdent,
+    ) -> u32 {
+        let elems_per_reg = elems_per_reg as u32;
+        match ident {
+            MatrixIdent::A => {
+                let group_id = lane_id / 4;
+                let odd_register = (i / elems_per_reg) & 1;
+                group_id + odd_register * 8
+            }
+            MatrixIdent::B => {
+                let thread_id_in_group = lane_id % 4;
+                let offset = thread_id_in_group * elems_per_reg + (i % elems_per_reg);
+                let reg = i / elems_per_reg;
+                offset + elems_per_reg * 4 * reg
+            }
+            MatrixIdent::Accumulator => {
+                let group_id = lane_id / 4;
+                let offset = (i << 2) & 8;
+                group_id + offset
+            }
+        }
+    }
+
+    /// The column of the tile that `lane_id`'s `i`th element holds.
+    #[cube]
+    pub fn col_index(
+        lane_id: u32,
+        i: u32,
+        #[comptime] elems_per_reg: usize,
+        #[comptime] ident: MatrixIdent,
+    ) -> u32 {
+        let elems_per_reg = elems_per_reg as u32;
+        match ident {
+            MatrixIdent::A => {
+                let thread_id_in_group = lane_id % 4;
+                let offset = thread_id_in_group * elems_per_reg + (i % elems_per_reg);
+                let group_2 = (i / (2 * elems_per_reg)) & 1;
+                offset + 4 * elems_per_reg * group_2
+            }
+            MatrixIdent::B => lane_id >> 2,
+            MatrixIdent::Accumulator => {
+                let thread_id_in_group = lane_id % 4;
+                (thread_id_in_group * 2) + (i % 2)
+            }
+        }
     }
 }

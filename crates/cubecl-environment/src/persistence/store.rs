@@ -154,9 +154,9 @@ impl StoreOptions {
     }
 }
 
-/// A typed key-value store over an optional persistence [`Storage`]: an
-/// embedded database on native targets, browser storage on wasm (feature
-/// `browser-cache`), or nothing at all.
+/// A typed key-value store over an optional persistence [`Storage`]: a Turso
+/// database on native targets and in the browser (feature `persistence`), or
+/// nothing at all.
 ///
 /// Reads follow `HashMap`'s shape and mutation rules, with no interior
 /// mutability: [`get`](Store::get) serves shared references from memory,
@@ -184,10 +184,6 @@ impl StoreOptions {
 /// [`get_mut`](Store::get_mut) changes only the in-memory copy, never the
 /// storage.
 ///
-/// On an asynchronous storage (browser) a read can miss until the background
-/// load finishes, which costs a recompute and nothing else; any `&mut`
-/// operation ingests newly delivered content first.
-///
 /// # Environment switches
 ///
 /// A store opened on the active environment stays bound to *the environment*,
@@ -210,9 +206,6 @@ pub struct Store<K, V> {
     storage: Option<Box<dyn Storage>>,
     namespace: Option<Namespace>,
     cache: CacheOption,
-    /// `false` while an asynchronous storage may still deliver entries that
-    /// the eager map has not ingested.
-    loaded: bool,
     /// The environment generation the state belongs to, for stores bound to
     /// the active environment; `None` for unbound ones (explicit storage, or
     /// none). A mismatch with the current generation means everything here
@@ -224,10 +217,7 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     /// Create a new store from the options.
     ///
     /// With an [`Eager`](CacheOption::Eager) cache over a storage, everything
-    /// the storage holds is ingested before returning. On asynchronous
-    /// storages (browser) the store returns with the load in flight: existing
-    /// entries become visible to a later `&mut` operation or
-    /// [`sync`](Store::sync).
+    /// the storage holds is ingested before returning.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip_all, fields(options = ?options))
@@ -255,15 +245,11 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
             storage,
             namespace,
             cache: options.cache,
-            loaded: false,
             generation,
         };
 
-        match (store.cache, &store.storage) {
-            (CacheOption::Eager, Some(_)) => store.sync(),
-            // Nothing to ingest eagerly: lazy reads consult the storage per
-            // key, and an in-memory map is always complete.
-            _ => store.loaded = true,
+        if matches!(store.cache, CacheOption::Eager) && store.storage.is_some() {
+            store.ingest();
         }
 
         store
@@ -297,7 +283,6 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     /// Mutating the value changes only the in-memory copy, never the storage.
     pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
         self.reset_if_stale();
-        self.refresh_if_pending();
 
         if matches!(self.cache, CacheOption::Lazy)
             && !self.entries.contains_key(key)
@@ -319,7 +304,6 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     /// loaded — because nothing is cloned and nothing stays memoized.
     pub fn remove(&mut self, key: &K) -> Option<V> {
         self.reset_if_stale();
-        self.refresh_if_pending();
 
         let value = match self.entries.remove(key) {
             Some(value) => Some(value),
@@ -352,7 +336,6 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     /// the application that imported it.
     pub fn insert(&mut self, key: K, value: V) -> Result<(), StoreError<K, V>> {
         self.reset_if_stale();
-        self.refresh_if_pending();
 
         let known = match self.entries.get(&key) {
             Some(existing) if existing == &value => return Ok(()),
@@ -420,7 +403,6 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     /// environment and free to reinsert.
     pub fn purge_key(&mut self, key: &K) -> Option<V> {
         self.reset_if_stale();
-        self.refresh_if_pending();
 
         let value = match self.entries.remove(key) {
             Some(value) => Some(value),
@@ -477,23 +459,25 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     /// Ingest everything the storage holds into memory.
     ///
     /// This is what makes an eager store complete, and [`new`](Store::new)
-    /// performs it; call it again to ingest content an asynchronous storage
-    /// delivered since, or content another store wrote to a shared storage.
+    /// performs it; call it again to ingest content another store or process
+    /// wrote to the storage since.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip_all, fields(namespace = ?self.namespace))
     )]
     pub fn sync(&mut self) {
-        self.reset_if_stale();
+        // A reset re-ingests an eager store on its own.
+        if self.reset_if_stale() && matches!(self.cache, CacheOption::Eager) {
+            return;
+        }
+        self.ingest();
+    }
 
+    /// Reads every entry of the storage into memory.
+    fn ingest(&mut self) {
         let Some(storage) = self.storage.as_deref() else {
-            self.loaded = true;
             return;
         };
-
-        // Sampled before the scan: a load completing halfway through would
-        // otherwise mark a partial snapshot as fully ingested.
-        let loading = storage.loading();
         let entries = &mut self.entries;
 
         storage.scan(&mut |key, value| {
@@ -501,16 +485,6 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
                 entries.insert(key, value);
             }
         });
-
-        self.loaded = !loading;
-    }
-
-    /// Whether asynchronously delivered content may still be waiting to be
-    /// ingested. `false` for synchronous storages (database, memory), whose
-    /// content is fully ingested at open. Also `true` right after an
-    /// environment switch, whose content is pending until the reset.
-    pub fn pending_load(&self) -> bool {
-        !self.loaded || self.stale()
     }
 
     /// Visits every entry the storage holds, decoded and handed out owned,
@@ -521,31 +495,21 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     /// hydration read for a caller keeping its own index over a
     /// [`Lazy`](CacheOption::Lazy) store — everything is visited once, and
     /// nothing stays resident afterwards.
-    ///
-    /// Returns whether the visit was complete. `false` means an asynchronous
-    /// storage was still loading, so entries may be missing: call again later
-    /// to see the rest.
-    pub fn scan<F: FnMut(K, V)>(&mut self, mut func: F) -> bool {
+    pub fn scan<F: FnMut(K, V)>(&mut self, mut func: F) {
         self.reset_if_stale();
 
         let Some(storage) = self.storage.as_deref() else {
             for (key, value) in self.entries.iter() {
                 func(key.clone(), value.clone());
             }
-            return true;
+            return;
         };
-
-        // Sampled before the scan: a load completing halfway through would
-        // otherwise report a partial visit as complete.
-        let loading = storage.loading();
 
         storage.scan(&mut |key, value| {
             if let Some((key, value)) = decode_entry::<K, V>(key, value) {
                 func(key, value);
             }
         });
-
-        !loading
     }
 
     /// Iterate over all in-memory entries of the store.
@@ -593,14 +557,6 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
         }
     }
 
-    /// Ingests content an asynchronous storage delivered since the last scan.
-    /// A one-bool check once the load completed.
-    fn refresh_if_pending(&mut self) {
-        if !self.loaded {
-            self.sync();
-        }
-    }
-
     /// Whether the in-memory state belongs to an environment that is no
     /// longer active. One relaxed atomic load for bound stores; unbound ones
     /// are never stale.
@@ -612,19 +568,16 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     }
 
     /// Drops everything belonging to the previous environment and reopens the
-    /// storage against the active one.
-    ///
-    /// The eager rescan is not performed here: `loaded` is left `false`, so
-    /// the caller's ordinary refresh ingests the new environment in the same
-    /// operation.
-    fn reset_if_stale(&mut self) {
+    /// storage against the active one, re-ingesting it when eager. Reports
+    /// whether a reset happened.
+    fn reset_if_stale(&mut self) -> bool {
         if !self.stale() {
-            return;
+            return false;
         }
 
         // `stale` implies `generation` and an environment-bound namespace.
         let (Some(namespace), Some(_)) = (&self.namespace, self.generation) else {
-            return;
+            return false;
         };
 
         log::debug!("Environment switched, resetting the store for {namespace}");
@@ -635,7 +588,11 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
         self.storage = Some(super::storage::open(namespace.as_str()));
         self.entries.clear();
         self.known.clear();
-        self.loaded = matches!(self.cache, CacheOption::Lazy);
+        if matches!(self.cache, CacheOption::Eager) {
+            self.ingest();
+        }
+
+        true
     }
 }
 
@@ -647,7 +604,6 @@ impl<K, V> core::fmt::Debug for Store<K, V> {
             .field("entries", &self.entries.len())
             .field("known", &self.known.len())
             .field("storage", &self.storage)
-            .field("loaded", &self.loaded)
             .finish()
     }
 }
@@ -738,7 +694,7 @@ fn decode_entry<K: StoreKey, V: StoreValue>(key: &[u8], value: &[u8]) -> Option<
     Some((decode::<K>(key)?, decode::<V>(value)?))
 }
 
-#[cfg(all(test, feature = "cache"))]
+#[cfg(all(test, native_cache))]
 mod tests {
     use std::string::ToString;
     use std::vec;
@@ -792,8 +748,6 @@ mod tests {
     #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
     fn test_on_disk_format_is_stable() {
-        use super::super::sqlite::{Database, db_file_name};
-
         let dir = tempfile::tempdir().unwrap();
         crate::environment::set_root(dir.path());
         let namespace = Namespace::scoped("golden", "device0/matmul");
@@ -805,16 +759,15 @@ mod tests {
             std::format!("golden/{}/device0/matmul", env!("CARGO_PKG_VERSION"));
         assert_eq!(cache.namespace().unwrap().as_str(), expected_namespace);
 
-        let path = dir.path().join(db_file_name(&crate::environment::active()));
+        let path = crate::environment::path();
         assert!(path.exists(), "Database missing at {path:?}");
 
-        // Read it back through a fresh connection: the entry must be
-        // addressable by namespace and encoded key alone.
-        let database = Database::open(&path, true).unwrap();
-        let stored = database
-            .get(&expected_namespace, &encode(&"shape=2x2".to_string()))
-            .expect("Entry should be stored");
-        assert_eq!(decode::<u32>(&stored), Some(42));
+        // Read it back through a fresh store: the entry must be addressable
+        // by namespace and encoded key alone.
+        let reopened = Store::<String, u32>::new(
+            StoreOptions::new().storage(Namespace::scoped("golden", "device0/matmul")),
+        );
+        assert_eq!(reopened.get(&"shape=2x2".to_string()), Some(&42));
     }
 
     /// A store reopened over the same root must see what the previous one
@@ -935,7 +888,6 @@ mod tests {
         crate::environment::set_root(second.path());
         assert_eq!(store.get(&"key".to_string()), None);
         assert_eq!(store.len(), 0);
-        assert!(store.pending_load());
 
         // The next write lands in the new environment, with no conflict
         // against the value the old one holds.
@@ -1059,10 +1011,9 @@ mod tests {
         store.insert("b".to_string(), 2).unwrap();
 
         let mut seen = std::vec::Vec::new();
-        let complete = store.scan(|key, value| seen.push((key, value)));
+        store.scan(|key, value| seen.push((key, value)));
         seen.sort();
 
-        assert!(complete, "a synchronous storage is scanned in full");
         assert_eq!(seen, std::vec![("a".to_string(), 1), ("b".to_string(), 2)]);
         assert!(store.is_empty(), "nothing stays resident after a scan");
     }

@@ -46,11 +46,19 @@ macro_rules! lower_unop {
             }
 
             fn lower(&self, scope: &Scope) -> Vec<Value> {
+                let uniformity = cubecl_opt::passes::uniformity::op_dyn_uniformity(
+                    scope.ctx(),
+                    self.get_operation(),
+                );
                 define_scalar!(T);
                 define_size!(S);
                 let input = self.get_operand(scope.ctx());
                 scope.register_value_type::<T, S>(input);
-                vec![$name::expand::<T, S>(scope, input.into()).read_value(scope)]
+                let value = $name::expand::<T, S>(scope, input.into()).read_value(scope);
+                if let pliron::value::DefiningEntity::Op(op) = value.defining_entity() {
+                    crate::compiler::decorate_uniform(scope.ctx(), op, uniformity);
+                }
+                vec![value]
             }
         }
     };
@@ -70,12 +78,20 @@ macro_rules! lower_binop {
 
             fn lower(&self, scope: &cubecl_ir::Scope) -> Vec<Value> {
                 use cubecl_core::ir::dialect::OperationPtrExt;
+                let uniformity = cubecl_opt::passes::uniformity::op_dyn_uniformity(
+                    scope.ctx(),
+                    self.get_operation(),
+                );
                 define_scalar!(T);
                 define_size!(S);
                 let lhs = self.get_operation().operand(scope.ctx(), 0);
                 let rhs = self.get_operation().operand(scope.ctx(), 1);
                 scope.register_value_type::<T, S>(lhs);
-                vec![$name::expand::<T, S>(scope, lhs.into(), rhs.into()).read_value(scope)]
+                let value = $name::expand::<T, S>(scope, lhs.into(), rhs.into()).read_value(scope);
+                if let pliron::value::DefiningEntity::Op(op) = value.defining_entity() {
+                    crate::compiler::decorate_uniform(scope.ctx(), op, uniformity);
+                }
+                vec![value]
             }
         }
     };

@@ -20,7 +20,7 @@ fn compact_strides(shape: &[usize]) -> Vec<usize> {
 }
 
 impl CpuTensor {
-    /// Create a CpuTensor with a shape filled by number in order
+    /// Create a `CpuTensor` with a shape filled by number in order
     pub fn arange(shape: Vec<usize>) -> Self {
         let size = shape.iter().product();
         let data = (0..size).map(|i| i as f32).collect();
@@ -32,7 +32,7 @@ impl CpuTensor {
         }
     }
 
-    /// Create an empty CpuTensor with a shape
+    /// Create an empty `CpuTensor` with a shape
     pub fn empty(shape: Vec<usize>) -> Self {
         let size = shape.iter().product();
         let data = vec![0.0; size];

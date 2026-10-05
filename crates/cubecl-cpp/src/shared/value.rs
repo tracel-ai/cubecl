@@ -18,6 +18,7 @@ use crate::shared::{
     shared_op_with_out,
     ty::{TypeExtCPP, TypedExtCPP},
 };
+use crate::target::{CtxTarget, Target};
 
 pub trait CppValue {
     fn name(&self, ctx: &Context) -> Identifier;
@@ -121,17 +122,19 @@ impl CppConstantAttr for ZeroAttr {
 }
 
 shared_op_with_out!(ConstantOp, |op, ctx| {
-    format_const(ctx, op.get_value(ctx), op.get_result(ctx).get_type(ctx))
+    let attr = op.get_attr_builtin_constant_value(ctx).unwrap();
+    format_const(ctx, &attr, op.get_result(ctx).get_type(ctx))
 });
 
-pub(crate) fn format_const(ctx: &Context, value: AttrObj, ty: TypeHandle) -> String {
-    let const_attr = attr_cast::<dyn CppConstantAttr>(&*value).expect("Should be constant attr");
+pub(crate) fn format_const(ctx: &Context, value: &AttrObj, ty: TypeHandle) -> String {
+    let const_attr = attr_cast::<dyn CppConstantAttr>(&**value).expect("Should be constant attr");
     if let Some(attr) = value.downcast_ref::<FloatAttr>() {
         let val = attr.float_type(ctx).value_to_f64(attr.val);
         // minifloats are represented as raw bits, so use special handling
         if ty.is_fp8_fp6_fp4(ctx) {
-            format!("{}", attr.val.to_bits())
-        } else if val.is_nan() {
+            return format!("{}", attr.val.to_bits());
+        }
+        let literal = if val.is_nan() {
             "(0.0f/0.0f)".into()
         } else if val.is_infinite() && val.is_sign_positive() {
             "(1.0f/0.0f)".into()
@@ -139,8 +142,41 @@ pub(crate) fn format_const(ctx: &Context, value: AttrObj, ty: TypeHandle) -> Str
             "(-1.0f/0.0f)".into()
         } else {
             attr.to_cpp(ctx)
+        };
+        // MSL's `bfloat` converts from `float` only explicitly.
+        match ctx.target() == Target::Metal && ty.is_bf16(ctx) {
+            true => format!("bfloat({literal})"),
+            false => literal,
         }
     } else {
         const_attr.to_cpp(ctx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{shared::operation::OpToCPP, target::Shared};
+    use cubecl_core::ir::{ConstantValue, ElemType, FloatKind};
+    use pliron::{attribute::boxed_attr_cast, builtin::ops::ConstantOp};
+
+    fn metal_constant(value: f64, kind: FloatKind) -> String {
+        let mut ctx = Context::new();
+        ctx.set_target(Target::Metal);
+        let attr = ConstantValue::Float(value).as_attribute(&ctx, ElemType::Float(kind));
+        let op = ConstantOp::new(&mut ctx, boxed_attr_cast(attr).unwrap());
+        let msl = OpToCPP::<Shared>::to_cpp(&op, &ctx);
+        msl.split_once(" = ").unwrap().1.to_string()
+    }
+
+    /// A bf16 literal compiles in MSL only as an explicit conversion from `float`, NaN included.
+    #[test]
+    fn a_metal_bf16_literal_converts_explicitly() {
+        assert_eq!(metal_constant(0.5, FloatKind::BF16), "bfloat(0.5);\n");
+        assert_eq!(
+            metal_constant(f64::NAN, FloatKind::BF16),
+            "bfloat((0.0f/0.0f));\n"
+        );
+        assert_eq!(metal_constant(0.5, FloatKind::F16), "0.5;\n");
     }
 }

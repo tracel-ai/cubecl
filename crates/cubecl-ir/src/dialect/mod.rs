@@ -4,6 +4,7 @@ pub mod barrier;
 pub mod base;
 pub mod bitwise;
 pub mod branch;
+pub mod cf;
 pub mod cmp;
 pub mod general;
 pub mod math;

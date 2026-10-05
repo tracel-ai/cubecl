@@ -1,4 +1,5 @@
 use crate::{
+    compiler::{CudaBackend, CudaCompilationOptions},
     compute::{CudaServer, context::CudaContext},
     device::CudaDevice,
 };
@@ -6,21 +7,23 @@ use cubecl_common::{
     device::{Device, DeviceService},
     profile::TimingMethod,
 };
+#[cfg(windows)]
+use cubecl_core::ir::AdapterLuid;
 use cubecl_core::{
     MemoryConfiguration,
     cmma::MatrixLayout,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         ComplexKind, ContiguousElements, DeviceIdentity, DeviceProperties, ElemType, FloatKind,
-        HardwareProperties, MemoryDeviceProperties, MmaProperties, OpaqueType, TargetProperties,
-        Type, VectorSize,
+        HardwareProperties, MemoryDeviceProperties, MmaProperties, OpaqueType, PciVendor,
+        PhysicalDevice, TargetProperties, Type, VectorSize,
         features::{AtomicUsage, ComplexUsage, Plane, Tma, TypeUsage},
+        nvidia::SmArch,
     },
     server::ServerUtilities,
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_cpp::{
-    ComputeKernel,
     cuda::{
         self,
         arch::CudaArchitecture,
@@ -28,15 +31,25 @@ use cubecl_cpp::{
     },
     register_supported_types,
     shared::{
-        CompilationOptions, CppCompiler, CppSupportedFeatures, register_mma_features,
+        CompilationOptions, CppSupportedFeatures, register_mma_features,
         register_scaled_mma_features, register_wmma_features,
     },
-    target::Cuda,
 };
-use cubecl_runtime::runtime::Runtime;
-use cubecl_runtime::{allocator::PitchedMemoryLayoutPolicy, logging::ServerLogger};
-use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
-use std::{mem::MaybeUninit, sync::Arc};
+use cubecl_llvm::nvptx::ptx_version::PtxVersion;
+use cubecl_llvm::shared::lowered_features::{GpuTarget, restrict_features};
+use cubecl_monitoring::{DeviceUtilization, UtilizationUnavailable, gpu_utilization::CardCounters};
+use cubecl_server::{
+    allocator::PitchedMemoryLayoutPolicy,
+    config::{CubeClRuntimeConfig, RuntimeConfig},
+    logging::ServerLogger,
+    runtime::Runtime,
+};
+#[cfg(windows)]
+use cudarc::driver::sys::cuDeviceGetLuid;
+use cudarc::driver::sys::{
+    CUDA_VERSION, CUdevice, cuDeviceGetPCIBusId, cuDeviceTotalMem_v2, cuDriverGetVersion,
+};
+use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
 
 /// Options configuring the CUDA runtime.
 #[derive(Default)]
@@ -74,20 +87,26 @@ impl DeviceService for CudaServer {
             arch_major * 10 + minor
         } as u32;
 
+        // SAFETY: `cuDriverGetVersion` writes the version into `version`, which outlives the call.
+        let driver_version = unsafe {
+            let mut version = 0;
+            cuDriverGetVersion(&mut version)
+                .result()
+                .expect("the PTX version is chosen from the driver's");
+            version
+        };
+
         // This is the alignment returned by `cuMallocPitched`, so it's the one considered optimal
         // for row alignment by CUDA. This hasn't changed since at least the GTX 700 series.
         // Querying texture row align is a heuristic, but also not guaranteed to be the same.
         let mem_alignment = 512;
 
-        // The name is the only signal for tensor cores. A driver that declines to give one
-        // costs only the tensor-core exception, never initialization.
-        let device_name = cudarc::driver::result::device::get_name(device_ptr)
-            .unwrap_or_else(|_| "unknown CUDA device".to_string());
+        let probe = DeviceProbe::of(device_ptr);
 
         // Ask the wmma compiler for its supported combinations
         let arch = CudaArchitecture {
             version: arch_version,
-            tensor_cores: CudaArchitecture::has_tensor_cores(arch_version, &device_name),
+            tensor_cores: CudaArchitecture::has_tensor_cores(arch_version, &probe.name),
         };
         let supported_cmma_combinations = CudaCmmaCompiler::Cpp.supported_cmma_combinations(&arch);
         let supported_mma_combinations = cuda::supported_mma_combinations(&arch);
@@ -102,16 +121,17 @@ impl DeviceService for CudaServer {
         };
 
         // SAFETY: `device_ptr` is valid. `cuDeviceTotalMem_v2` writes the total device memory
-        // into the `MaybeUninit`, making `assume_init()` valid on success.
+        // into the `MaybeUninit`, making `assume_init()` valid on the success asserted below.
         let max_memory = unsafe {
             let mut bytes = MaybeUninit::uninit();
-            cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
+            let status = cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
+            status
+                .result()
+                .expect("the memory pools are sized against the device's capacity");
             bytes.assume_init() as u64
         };
-        let mem_properties = MemoryDeviceProperties {
-            max_page_size: max_memory / 4,
-            alignment: mem_alignment as u64,
-        };
+        let mem_properties = MemoryDeviceProperties::new(max_memory / 4, mem_alignment as u64)
+            .with_max_memory(max_memory);
 
         let mut comp_opts = CompilationOptions {
             supports_features: CppSupportedFeatures {
@@ -157,6 +177,7 @@ impl DeviceService for CudaServer {
 
             HardwareProperties {
                 load_width: 128,
+                vector_register_count: None,
                 plane_size_min: warp_size,
                 plane_size_max: warp_size,
                 max_bindings: crate::device::CUDA_MAX_BINDINGS,
@@ -189,8 +210,9 @@ impl DeviceService for CudaServer {
             hardware_props,
             TimingMethod::Device,
             DeviceIdentity {
-                name: device_name,
+                name: probe.name,
                 fingerprint: fingerprint.clone(),
+                physical: Some(probe.physical),
             },
         );
         register_supported_types(&mut device_props);
@@ -202,7 +224,6 @@ impl DeviceService for CudaServer {
                 ComplexUsage::Core | ComplexUsage::Compare | ComplexUsage::Math,
             );
         }
-        device_props.register_type_usage(ElemType::Float(FloatKind::TF32), TypeUsage::Conversion);
         if arch_version >= 60 {
             device_props.register_atomic_type_usage(
                 Type::atomic(ElemType::Float(FloatKind::F64)),
@@ -238,6 +259,8 @@ impl DeviceService for CudaServer {
         }
 
         if arch_version >= 80 {
+            device_props
+                .register_type_usage(ElemType::Float(FloatKind::TF32), TypeUsage::Conversion);
             device_props.features.copy_async = true;
         }
 
@@ -335,6 +358,8 @@ impl DeviceService for CudaServer {
 
         device_props.features.memory_reinterpret = true;
         device_props.features.alignment = true;
+        // `__threadfence` carries a block's writes to device scope.
+        device_props.features.device_memory_scope = true;
         device_props.features.plane.insert(Plane::Ops);
         device_props
             .features
@@ -345,10 +370,35 @@ impl DeviceService for CudaServer {
         register_mma_features(supported_mma_combinations, &mut device_props);
         register_scaled_mma_features(supported_scaled_mma_combinations, &mut device_props);
 
-        let cuda_ctx = CudaContext::new(comp_opts, device_props.clone(), ctx, arch);
+        // Which backend compiles here decides what may be advertised: the two are not at the
+        // same point, and a feature the selected one cannot honour is a kernel that fails to
+        // compile rather than a slower one.
+        let backend = CudaBackend::default();
+        if backend == CudaBackend::Llvm {
+            restrict_features(&mut device_props, GpuTarget::Nvptx);
+        }
+
+        let comp_opts = CudaCompilationOptions {
+            cpp: comp_opts,
+            arch: Some(SmArch::new(arch_version, arch.tensor_cores)),
+            ptx_version: PtxVersion::for_driver(driver_version),
+        };
+        // The context is current (set above), so the stream lands on it.
+        let comm_stream = crate::compute::stream::create_cuda_stream(
+            CubeClRuntimeConfig::get().streaming.priority,
+        )
+        .expect("Can create the communication stream.");
+        let cuda_ctx = CudaContext::new(
+            comp_opts,
+            device_props.clone(),
+            ctx,
+            arch,
+            backend,
+            comm_stream,
+        );
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
-        let mut utilities = ServerUtilities::new(
+        let (mut utilities, captures) = ServerUtilities::init(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "cuda",
             device_props,
@@ -356,7 +406,8 @@ impl DeviceService for CudaServer {
             logger,
             policy,
         );
-        utilities.server_comm_enabled = true;
+        // SAFETY: the call only tries to `dlopen` each candidate name.
+        utilities.server_comm_enabled = unsafe { cudarc::nccl::sys::is_culib_present() };
 
         CudaServer::new(
             cuda_ctx,
@@ -365,6 +416,7 @@ impl DeviceService for CudaServer {
             mem_alignment,
             device_id,
             utilities,
+            captures,
         )
     }
 
@@ -372,9 +424,6 @@ impl DeviceService for CudaServer {
         self.utilities() as ServerUtilitiesHandle
     }
 }
-
-pub type CudaCompiler = CppCompiler<Cuda>;
-pub type CudaComputeKernel = ComputeKernel;
 
 fn tensor_cores_per_sm(arch: &CudaArchitecture) -> Option<u32> {
     if !arch.tensor_cores {
@@ -412,6 +461,15 @@ impl Runtime for CudaRuntime {
     }
 
     fn enumerate_devices(_: u16) -> Vec<cubecl_core::device::DeviceId> {
+        // `device_count` loads `libcuda` on the way in and panics rather than
+        // erroring when it is not installed, so ask first. A machine with no
+        // NVIDIA driver has no CUDA devices; it is not failing the question.
+        //
+        // SAFETY: the call only tries to `dlopen` each candidate name.
+        if !unsafe { cudarc::driver::sys::is_culib_present() } {
+            return Vec::new();
+        }
+
         let count = cudarc::driver::CudaContext::device_count().unwrap_or(0) as usize;
         (0..count)
             .map(|i| DeviceId {
@@ -419,5 +477,47 @@ impl Runtime for CudaRuntime {
                 index_id: i as u16,
             })
             .collect()
+    }
+
+    fn utilization(device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
+        CardCounters::read(Self::client(device).properties().identity.physical.as_ref())
+    }
+}
+
+/// What the driver says about a device. A refused query leaves its field empty rather than
+/// failing initialization.
+struct DeviceProbe {
+    /// The only signal for tensor cores.
+    name: String,
+    physical: PhysicalDevice,
+}
+
+impl DeviceProbe {
+    fn of(device: CUdevice) -> Self {
+        let name = cudarc::driver::result::device::get_name(device)
+            .unwrap_or_else(|_| "unknown CUDA device".to_string());
+
+        let mut bus_id = [0u8; 32];
+        // SAFETY: the buffer outlives the call and its length travels with it.
+        let pci_address = unsafe {
+            cuDeviceGetPCIBusId(bus_id.as_mut_ptr().cast(), bus_id.len() as _, device).result()
+        }
+        .ok()
+        .and_then(|()| CStr::from_bytes_until_nul(&bus_id).ok())
+        .and_then(|id| id.to_str().ok()?.parse().ok());
+        let mut physical = PhysicalDevice::default();
+        physical.pci_address = pci_address;
+        physical.vendor = Some(PciVendor::Nvidia);
+        #[cfg(windows)]
+        {
+            let mut luid = [0 as core::ffi::c_char; 8];
+            let mut node_mask = 0;
+            // SAFETY: both out-parameters outlive the call and `luid` has the eight bytes written.
+            physical.luid = unsafe { cuDeviceGetLuid(luid.as_mut_ptr(), &mut node_mask, device) }
+                .result()
+                .ok()
+                .map(|()| AdapterLuid::new(luid.map(|byte| byte as u8)));
+        }
+        Self { name, physical }
     }
 }

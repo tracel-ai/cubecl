@@ -1,38 +1,53 @@
-//! Linking `ROCm`'s device libraries into a kernel.
-//!
-//! Only the definitions the kernel calls are taken. They arrive `linkonce_odr hidden`, so the
-//! optimization pipeline inlines them and strips the rest back out.
+//! `ROCm` device libraries.
 
-use std::collections::HashMap;
-use std::ffi::{CStr, c_char};
-use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
-
-use llvm_sys::prelude::LLVMModuleRef;
-
+use crate::shared::bitcode::{link_bitcode, read_library};
 use cubecl_core::ir::amd::GfxArch;
+use llvm_sys::prelude::LLVMModuleRef;
+use std::{path::PathBuf, sync::OnceLock};
 
-unsafe extern "C" {
-    /// See `cpp_shims/device_libs.cpp`. Returns null on success, else an owned message.
-    fn cubecl_link_device_bitcode(
-        dest: LLVMModuleRef,
-        data: *const c_char,
-        len: usize,
-    ) -> *mut c_char;
-
-    /// Frees what `cubecl_link_device_bitcode` returned.
-    fn cubecl_free_message(message: *mut c_char);
-}
-
-/// Where to look for `amdgcn/bitcode`, in the order a `ROCm` install makes them true.
-///
-/// `CUBECL_ROCM_DEVICE_LIB_PATH` names the directory itself and is the escape hatch for an
-/// install none of the rest find. `HIP_DEVICE_LIB_PATH` is what hipcc itself reads.
+/// `CUBECL_ROCM_DEVICE_LIB_PATH` and `HIP_DEVICE_LIB_PATH` override the search paths.
 const DEVICE_LIB_PATH_VARS: [&str; 2] = ["CUBECL_ROCM_DEVICE_LIB_PATH", "HIP_DEVICE_LIB_PATH"];
 const ROCM_ROOT_VARS: [&str; 2] = ["ROCM_PATH", "HIP_PATH"];
 const DEFAULT_ROCM_ROOTS: [&str; 2] = ["/opt/rocm", "/usr"];
 
-/// The `amdgcn/bitcode` directory of the `ROCm` install, found once per process.
+/// `LLVM` installs under a `ROCm` root whose clang resource directory holds the bitcode:
+/// upstream `ROCm` (`lib/llvm`, `llvm`) and distribution packages (Fedora's `lib64/rocm/llvm`).
+const LLVM_SUBDIRS: [&str; 4] = ["lib/llvm", "llvm", "lib64/rocm/llvm", "lib/rocm/llvm"];
+
+/// Bitcode directories under a `ROCm` root, the legacy `amdgcn/bitcode` first, then each `LLVM`
+/// install's `lib/clang/<version>/lib/amdgcn/bitcode`, newest clang first.
+fn bitcode_candidates(root: PathBuf) -> Vec<PathBuf> {
+    let mut candidates = vec![root.join("amdgcn").join("bitcode")];
+
+    for llvm in LLVM_SUBDIRS {
+        let Ok(entries) = std::fs::read_dir(root.join(llvm).join("lib").join("clang")) else {
+            continue;
+        };
+        let mut versions: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        versions.sort_by_key(|dir| clang_version(dir));
+        candidates.extend(
+            versions
+                .into_iter()
+                .rev()
+                .map(|dir| dir.join("lib").join("amdgcn").join("bitcode")),
+        );
+    }
+
+    candidates
+}
+
+/// The numeric components of a clang resource directory's name (`20`, `17.0.0`).
+fn clang_version(dir: &std::path::Path) -> Vec<u64> {
+    dir.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| {
+            name.split('.')
+                .map(|part| part.parse().unwrap_or(0))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn bitcode_dir() -> Result<&'static PathBuf, String> {
     static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
@@ -45,7 +60,7 @@ fn bitcode_dir() -> Result<&'static PathBuf, String> {
             .filter_map(std::env::var_os)
             .map(PathBuf::from)
             .chain(DEFAULT_ROCM_ROOTS.iter().map(PathBuf::from))
-            .map(|root| root.join("amdgcn").join("bitcode"));
+            .flat_map(bitcode_candidates);
 
         direct
             .chain(roots)
@@ -55,42 +70,27 @@ fn bitcode_dir() -> Result<&'static PathBuf, String> {
     .ok_or_else(|| {
         format!(
             "no ROCm device libraries found: looked for ocml.bc via {}, and for \
-             amdgcn/bitcode/ocml.bc under {} and {}. \
+             amdgcn/bitcode/ocml.bc and {{{}}}/lib/clang/*/lib/amdgcn/bitcode/ocml.bc \
+             under {} and {}. \
              Set CUBECL_ROCM_DEVICE_LIB_PATH to the directory holding ocml.bc",
             DEVICE_LIB_PATH_VARS.join(", "),
+            LLVM_SUBDIRS.join(","),
             ROCM_ROOT_VARS.join(", "),
             DEFAULT_ROCM_ROOTS.join(", "),
         )
     })
 }
 
-/// The bitcode of `name`, read once and kept: every kernel compiled for a given device links
-/// the same few hundred kilobytes.
 fn device_lib(name: &str) -> Result<&'static [u8], String> {
-    static CACHE: OnceLock<Mutex<HashMap<String, &'static [u8]>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(Mutex::default);
-
-    let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(bitcode) = cache.get(name) {
-        return Ok(bitcode);
-    }
-
-    let path = bitcode_dir()?.join(name);
-    let bitcode = std::fs::read(&path).map_err(|err| format!("{}: {err}", path.display()))?;
-    let bitcode: &'static [u8] = Vec::leak(bitcode);
-    cache.insert(name.to_string(), bitcode);
-    Ok(bitcode)
+    read_library(&bitcode_dir()?.join(name))
 }
 
-/// What a module needs out of the device libraries. A kernel that needs neither links nothing,
-/// and so still compiles on a machine with no `ROCm` installed.
+/// Device libraries required by a kernel.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DeviceLibs {
-    /// `OCML`, for the float intrinsics the hardware has no correct answer for. See
-    /// [`ocml`](super::ocml).
+    /// Math functions.
     pub math: bool,
-    /// `OCKL`, for the `__printf_*` buffer a lowered `printf` writes into. See
-    /// [`printf`](super::printf).
+    /// Device printing.
     pub printf: bool,
 }
 
@@ -100,11 +100,7 @@ impl DeviceLibs {
     }
 }
 
-/// The device libraries a kernel for `arch` links against, in link order.
-///
-/// Each library leaves control globals undefined, one bitcode file per global. The math options
-/// take the conservative side: operands are not assumed finite and reassociation is not assumed
-/// safe. The other three follow the device and the code object.
+/// Device libraries in link order.
 fn device_libs_for(arch: &GfxArch, needs: DeviceLibs, code_object_version: u32) -> Vec<String> {
     let mut libs = Vec::new();
 
@@ -124,15 +120,12 @@ fn device_libs_for(arch: &GfxArch, needs: DeviceLibs, code_object_version: u32) 
         libs.push(format!("oclc_wavefrontsize64_{wave}.bc"));
     }
     if needs.any() {
-        // Wanted by both, so appended once.
         libs.push(format!("oclc_isa_version_{}.bc", arch.isa_version()));
     }
 
     libs
 }
 
-/// Links what `module` needs out of the `ROCm` device libraries for `arch`.
-///
 /// # Safety
 /// `module` must be a live LLVM module, already stamped with the AMDGPU triple and layout.
 pub unsafe fn link_device_libs(
@@ -143,17 +136,8 @@ pub unsafe fn link_device_libs(
 ) -> Result<(), String> {
     for name in device_libs_for(arch, needs, code_object_version) {
         let bitcode = device_lib(&name)?;
-
-        // SAFETY: `bitcode` lives for the process, and the shim only reads it.
-        let err = unsafe {
-            cubecl_link_device_bitcode(module, bitcode.as_ptr() as *const c_char, bitcode.len())
-        };
-        if !err.is_null() {
-            // SAFETY: the shim returns a NUL-terminated `malloc`'d string we now own.
-            let message = unsafe { CStr::from_ptr(err).to_string_lossy().into_owned() };
-            unsafe { cubecl_free_message(err) };
-            return Err(format!("{name}: {message}"));
-        }
+        // SAFETY: the caller keeps `module` live.
+        unsafe { link_bitcode(module, bitcode) }.map_err(|message| format!("{name}: {message}"))?;
     }
     Ok(())
 }
@@ -171,8 +155,6 @@ mod tests {
         printf: true,
     };
 
-    /// The ISA control library is named by the bare architecture number, and comes along
-    /// whichever library asked.
     #[test]
     fn the_isa_library_follows_the_architecture() {
         for needs in [MATH, PRINTF] {
@@ -197,15 +179,11 @@ mod tests {
         }
     }
 
-    /// A kernel that needs nothing links nothing, so `ROCm` is only required by the kernels
-    /// that actually reach into it.
     #[test]
     fn needing_nothing_links_nothing() {
         assert!(device_libs_for(&GfxArch::parse("gfx1201"), DeviceLibs::default(), 500).is_empty());
     }
 
-    /// Printing pulls in OCKL, and with it the two control globals OCML never wanted: the
-    /// code object's ABI version and the wavefront width of the device.
     #[test]
     fn printing_pulls_in_ockl_and_its_controls() {
         let libs = device_libs_for(&GfxArch::parse("gfx1201"), PRINTF, 500);
@@ -214,12 +192,10 @@ mod tests {
             libs.contains(&"oclc_abi_version_500.bc".to_string()),
             "{libs:?}"
         );
-        // gfx1201 is RDNA, so wave32.
         assert!(
             libs.contains(&"oclc_wavefrontsize64_off.bc".to_string()),
             "{libs:?}"
         );
-        // gfx90a is CDNA, so wave64.
         let cdna = device_libs_for(&GfxArch::parse("gfx90a"), PRINTF, 500);
         assert!(
             cdna.contains(&"oclc_wavefrontsize64_on.bc".to_string()),
@@ -227,7 +203,6 @@ mod tests {
         );
     }
 
-    /// The ISA library is not linked twice when both halves want it.
     #[test]
     fn the_shared_control_library_is_listed_once() {
         let libs = device_libs_for(

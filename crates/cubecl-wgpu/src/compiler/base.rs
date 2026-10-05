@@ -1,21 +1,23 @@
-use cubecl_runtime::kernel::BufferIOAttr;
+use cubecl_server::kernel::BufferIOAttr;
+use cubecl_server::kernel::CompiledKernel;
 use std::fmt::Display;
 
 use cubecl_core::{
     Compiler, WgpuCompilationOptions,
-    prelude::{CompiledKernel, CubeKernel, KernelDefinition},
+    prelude::{CubeKernel, KernelDefinition},
     server::{LaunchError, ResourceLimitError},
 };
 #[cfg(feature = "msl")]
 use cubecl_cpp::shared::MslComputeKernel;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::DeviceProperties;
-use cubecl_runtime::compiler::CompilationError;
+use cubecl_server::compiler::CompilationError;
 use derive_more::derive::From;
+use thiserror::Error;
 
 #[cfg(feature = "spirv")]
 use crate::ParamsTransfer;
-use crate::{CompilerInfo, WgpuServer};
+use crate::{CompilerInfo, WgpuBackend, WgpuServer};
 
 use super::wgsl;
 
@@ -180,6 +182,19 @@ impl Compiler for AutoCompiler {
 }
 
 impl WgpuCompiler for AutoCompiler {
+    #[cfg(feature = "msl")]
+    fn validate_runtime(
+        backend: wgpu::Backend,
+        options: &WgpuCompilationOptions,
+        requested_backend: WgpuBackend,
+    ) -> Result<(), WgpuCompilerInitError> {
+        if requested_backend == WgpuBackend::Metal {
+            MslCompiler::validate_runtime(backend, options, requested_backend)?;
+        }
+
+        Ok(())
+    }
+
     fn init(backend: wgpu::Backend, options: &WgpuCompilationOptions) -> Self {
         let _ = options; // Unused without `spirv` feature
         match backend {
@@ -284,6 +299,29 @@ impl WgpuCompiler for WgslCompiler {
 
 #[cfg(feature = "msl")]
 impl WgpuCompiler for MslCompiler {
+    fn validate_runtime(
+        backend: wgpu::Backend,
+        options: &WgpuCompilationOptions,
+        _requested_backend: WgpuBackend,
+    ) -> Result<(), WgpuCompilerInitError> {
+        if backend != wgpu::Backend::Metal {
+            return Err(WgpuCompilerInitError::BackendMismatch {
+                compiler: "MslCompiler",
+                expected: wgpu::Backend::Metal,
+                actual: backend,
+            });
+        }
+
+        if !options.supports_msl_compiler {
+            return Err(WgpuCompilerInitError::Unavailable {
+                compiler: "MslCompiler",
+                backend,
+            });
+        }
+
+        Ok(())
+    }
+
     fn init(_backend: wgpu::Backend, _options: &WgpuCompilationOptions) -> Self {
         Self::default()
     }
@@ -373,15 +411,51 @@ fn check_shared_memory(
     Ok(())
 }
 
+/// An explicitly selected wgpu compiler cannot serve the selected graphics backend or device.
+#[non_exhaustive]
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum WgpuCompilerInitError {
+    /// The compiler only emits shaders for a different graphics backend.
+    #[error("`{compiler}` requires the {expected:?} wgpu backend, but {actual:?} was selected")]
+    BackendMismatch {
+        compiler: &'static str,
+        expected: wgpu::Backend,
+        actual: wgpu::Backend,
+    },
+    /// The selected device does not meet the compiler's requirements.
+    #[error(
+        "`{compiler}` was requested explicitly, but it is unavailable on the selected {backend:?} device; use `AutoCompiler` with an automatic device to allow WGSL fallback"
+    )]
+    Unavailable {
+        compiler: &'static str,
+        backend: wgpu::Backend,
+    },
+}
+
 /// Extension trait implemented by every compiler usable with the `wgpu` runtime.
 ///
 /// The base [`Compiler`] trait already exposes a `compile` method that turns a
 /// [`KernelDefinition`] into a backend representation. [`WgpuCompiler`] sits one level
-/// higher: it owns the wgpu-specific lifecycle around a [`CubeKernel`](cubecl_runtime::kernel::CubeKernel)
+/// higher: it owns the wgpu-specific lifecycle around a [`CubeKernel`](cubecl_server::kernel::CubeKernel)
 /// kernel — initializing the compiler for a given `wgpu::Backend`, compiling a kernel using
 /// the server's [`WgpuCompilationOptions`], validating the resulting IR against the device,
 /// and projecting the typed representation into the runtime-erased [`AutoRepresentation`].
 pub trait WgpuCompiler: Compiler {
+    /// Check that this compiler can serve the selected graphics backend and device.
+    ///
+    /// Explicit compilers should return an error instead of silently selecting another shader
+    /// language. `requested_backend` preserves the unresolved selection; [`WgpuBackend::Auto`]
+    /// allows automatic API selection. With `msl` enabled, [`AutoCompiler`] requires native MSL
+    /// for an explicit Metal request; otherwise it permits WGSL fallback. Explicit compilers apply
+    /// their own requirements.
+    fn validate_runtime(
+        _backend: wgpu::Backend,
+        _options: &WgpuCompilationOptions,
+        _requested_backend: WgpuBackend,
+    ) -> Result<(), WgpuCompilerInitError> {
+        Ok(())
+    }
+
     /// Build the compiler instance appropriate for the given `wgpu` backend.
     ///
     /// `options` is consulted to decide between alternative implementations (for example, to
@@ -420,4 +494,106 @@ pub trait WgpuCompiler: Compiler {
         &self,
         repr: Option<Self::Representation>,
     ) -> (CompilerInfo, Option<AutoRepresentation>);
+}
+
+#[cfg(all(test, feature = "msl"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auto_compiler_falls_back_to_wgsl_when_msl_is_unavailable() {
+        let options = WgpuCompilationOptions::default();
+        assert!(
+            AutoCompiler::validate_runtime(wgpu::Backend::Metal, &options, WgpuBackend::Auto)
+                .is_ok()
+        );
+        let compiler = AutoCompiler::init(wgpu::Backend::Metal, &options);
+
+        assert!(matches!(compiler, AutoCompiler::Wgsl(_)));
+    }
+
+    #[test]
+    fn explicit_msl_compiler_rejects_wgsl_fallback() {
+        for requested_backend in [WgpuBackend::Auto, WgpuBackend::Metal] {
+            let result = MslCompiler::validate_runtime(
+                wgpu::Backend::Metal,
+                &WgpuCompilationOptions::default(),
+                requested_backend,
+            );
+
+            assert_eq!(
+                result,
+                Err(WgpuCompilerInitError::Unavailable {
+                    compiler: "MslCompiler",
+                    backend: wgpu::Backend::Metal,
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_msl_compiler_rejects_non_metal_backend() {
+        let options = WgpuCompilationOptions {
+            supports_msl_compiler: true,
+            ..Default::default()
+        };
+        let result =
+            MslCompiler::validate_runtime(wgpu::Backend::Vulkan, &options, WgpuBackend::Auto);
+
+        assert_eq!(
+            result,
+            Err(WgpuCompilerInitError::BackendMismatch {
+                compiler: "MslCompiler",
+                expected: wgpu::Backend::Metal,
+                actual: wgpu::Backend::Vulkan,
+            })
+        );
+    }
+
+    #[test]
+    fn explicit_msl_compiler_accepts_supported_metal_device() {
+        let options = WgpuCompilationOptions {
+            supports_msl_compiler: true,
+            ..Default::default()
+        };
+
+        assert!(
+            MslCompiler::validate_runtime(wgpu::Backend::Metal, &options, WgpuBackend::Auto)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn explicit_wgsl_on_metal_does_not_require_native_msl() {
+        for supports_msl_compiler in [false, true] {
+            let options = WgpuCompilationOptions {
+                supports_msl_compiler,
+                ..Default::default()
+            };
+            assert!(
+                WgslCompiler::validate_runtime(wgpu::Backend::Metal, &options, WgpuBackend::Metal)
+                    .is_ok()
+            );
+        }
+    }
+
+    #[test]
+    fn auto_compiler_on_explicit_metal_requires_native_msl() {
+        let options = WgpuCompilationOptions::default();
+        assert_eq!(
+            AutoCompiler::validate_runtime(wgpu::Backend::Metal, &options, WgpuBackend::Metal),
+            Err(WgpuCompilerInitError::Unavailable {
+                compiler: "MslCompiler",
+                backend: wgpu::Backend::Metal,
+            })
+        );
+        let supported = WgpuCompilationOptions {
+            supports_msl_compiler: true,
+            ..options
+        };
+        assert!(
+            AutoCompiler::validate_runtime(wgpu::Backend::Metal, &supported, WgpuBackend::Metal)
+                .is_ok()
+        );
+    }
 }

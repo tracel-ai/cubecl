@@ -1,6 +1,6 @@
 use super::{ConstantValue, ExpandValue};
 use crate::{
-    AddressType, ContextExt, Scope, TypeHash, typed_vec_attr,
+    AddressType, ContextExt, Scope, typed_vec_attr,
     types::{scalar::*, spirv::ClampMode},
 };
 use alloc::vec::Vec;
@@ -10,6 +10,7 @@ use cubecl_common::{
     quant::scheme::{QuantValue, ScaleDtype},
     tf32, ue8m0,
 };
+use cubecl_macros_internal::TypeHash;
 use derive_more::{Display, From};
 use half::{bf16, f16};
 
@@ -458,7 +459,7 @@ pub enum AddressSpace {
     Local,
 }
 
-typed_vec_attr!(AddressSpace, "cube.address_spaces");
+typed_vec_attr!(AddressSpace, "cube.address_spaces", AddressSpaceVecAttr);
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, PartialOrd, Ord)]

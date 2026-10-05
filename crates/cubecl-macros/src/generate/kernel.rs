@@ -130,8 +130,16 @@ impl Launch {
             .comptime_params()
             .map(|param| &param.ty)
             .collect_type_params_cloned(&Purpose::Declare.into(), &declared_type_params);
-        let lifetimes: Vec<_> = declared_lifetimes.difference(&used_lifetimes).collect();
-        let type_params: Vec<_> = declared_type_params.difference(&used_type_params).collect();
+        let lifetimes: Vec<_> = generics
+            .lifetimes()
+            .map(|param| &param.lifetime)
+            .filter(|lifetime| !used_lifetimes.contains(*lifetime))
+            .collect();
+        let type_params: Vec<_> = generics
+            .type_params()
+            .map(|param| &param.ident)
+            .filter(|ident| !used_type_params.contains(*ident))
+            .collect();
 
         (!lifetimes.is_empty() || !type_params.is_empty()).then(
             || quote![__ty: ::core::marker::PhantomData<(#(&#lifetimes (),)* #(#type_params),*)>],
@@ -220,6 +228,7 @@ impl Launch {
 
     fn define_body(&self) -> TokenStream {
         let kernel_builder = prelude_type("KernelBuilder");
+        let kernel_metadata = prelude_type("KernelMetadata");
         let io_map = self.io_mappings();
         let mut mapping = HashMap::new();
         for param in self.func.sig.parameters.iter() {
@@ -258,7 +267,8 @@ impl Launch {
             .process_generic_names(&self.func.sig.generics);
 
         quote! {
-            let mut builder = #kernel_builder::new(self.settings.clone());
+            let __name = <Self as #kernel_metadata>::id(self).entrypoint_name(&self.settings.kernel_name);
+            let mut builder = #kernel_builder::new(self.settings.clone().kernel_name(__name));
             builder.runtime_properties(self.target_properties.as_ref().clone());
             builder.device_properties(&self.device_properties);
 

@@ -1,26 +1,19 @@
-//! The CPU entry layout: one pointer table for every resource the host owns.
-//!
-//! Buffers and shared memories collapse behind a single `%buffer_ptrs` indirection, so the JIT
-//! host calls every kernel through the one `extern "C"` signature in
-//! [`jit::engine`](super::jit::engine).
+//! CPU kernel arguments.
 
+use crate::{
+    cpu::{
+        entrypoint::InsertConstantEmulationPass, f16_evaluation::EvaluateF16Pass,
+        shared_memory::SharedMemories,
+    },
+    prelude::*,
+    shared::metadata::{load_table, rebuild_func_type, table_ty},
+};
 use core::cell::RefCell;
+use cubecl_runtime::config::compilation::F16Evaluation;
 use std::rc::Rc;
 
-use cubecl_core::ir::prelude::*;
-use pliron::basic_block::BasicBlock;
-use pliron::builtin::ops::FuncOp;
-
-use pliron::pass::{OpPass, Passes};
-
-use crate::cpu::entrypoint::InsertConstantEmulationPass;
-use crate::cpu::shared_memory::SharedMemories;
-use crate::shared::lowering::TargetLowering;
-use crate::shared::metadata::{EntryArgLayout, load_table, rebuild_func_type, table_ty};
-use crate::shared::shared_memory::SharedDeclarations;
-
 pub struct TableArgs {
-    /// Filled in with the shared memory the host must reserve, see [`SharedMemories`].
+    /// Shared memory required for a launch.
     shared_memories: Rc<RefCell<SharedMemories>>,
 }
 
@@ -78,23 +71,37 @@ impl EntryArgLayout for TableArgs {
     }
 }
 
-/// The CPU target's contribution to the pipeline.
-///
-/// A CPU has no launch grid, so the whole of it is emulated: the entry point becomes a loop
-/// nest over the cube, and the shared memories become slots in the pointer table above.
 pub struct CpuLowering {
     shared_memories: Rc<RefCell<SharedMemories>>,
+    f16_evaluation: F16Evaluation,
 }
 
 impl CpuLowering {
-    pub fn new(shared_memories: Rc<RefCell<SharedMemories>>) -> Self {
-        Self { shared_memories }
+    pub fn new(
+        shared_memories: Rc<RefCell<SharedMemories>>,
+        f16_evaluation: F16Evaluation,
+    ) -> Self {
+        Self {
+            shared_memories,
+            f16_evaluation,
+        }
     }
 }
 
 impl TargetLowering for CpuLowering {
     fn prologue(&self, passes: &mut OpPass<FuncOp, Passes>) {
         passes.add_pass(InsertConstantEmulationPass);
+    }
+
+    /// F16 evaluation follows FMA contraction.
+    fn epilogue(&self, passes: &mut OpPass<FuncOp, Passes>) {
+        match self.f16_evaluation {
+            F16Evaluation::PerOperation => {}
+            F16Evaluation::Chain => passes.add_pass(EvaluateF16Pass {
+                accumulators: false,
+            }),
+            F16Evaluation::Accumulators => passes.add_pass(EvaluateF16Pass { accumulators: true }),
+        }
     }
 
     fn arg_layout(&self) -> Box<dyn EntryArgLayout> {
@@ -106,8 +113,6 @@ impl TargetLowering for CpuLowering {
 mod tests {
     use super::*;
 
-    /// `LowerEntryAbiPass` stores the layout boxed, so this fails to compile if a later signature
-    /// change breaks the trait's object safety.
     #[test]
     fn table_args_is_a_boxed_layout() {
         let layout: Box<dyn EntryArgLayout> = Box::new(TableArgs::new(Rc::default()));

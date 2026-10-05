@@ -1,4 +1,4 @@
-use cubecl_core::ir::ElemType;
+use cubecl_core::ir::{ElemType, features::Features};
 use cubecl_runtime::{
     client::Client,
     runtime::Runtime,
@@ -35,7 +35,7 @@ pub fn device_throughput<R: Runtime>(
 ///
 /// Returns an empty curve on WASM.
 pub fn measure_memory_curve(client: &Client, access: MemoryAccess) -> MemoryCurve {
-    let points = {
+    let (points, probed) = {
         // Every point of a sweep asks for the same pool, so the sweep holds one.
         let _pooled = PooledProbes::enter(client);
 
@@ -44,7 +44,9 @@ pub fn measure_memory_curve(client: &Client, access: MemoryAccess) -> MemoryCurv
         })
     };
 
-    PooledProbes::cleanup_unless_held(client);
+    if probed {
+        PooledProbes::cleanup_unless_held(client);
+    }
 
     MemoryCurve::new(access, points)
 }
@@ -53,18 +55,24 @@ fn sweep(
     client: &Client,
     access: MemoryAccess,
     mode: impl Fn(u64) -> ThroughputMode,
-) -> alloc::vec::Vec<MemoryPoint> {
-    working_set_sweep(working_set_cap(client, access))
+) -> (alloc::vec::Vec<MemoryPoint>, bool) {
+    let mut probed = false;
+
+    let points = working_set_sweep(working_set_cap(client, access))
         .into_iter()
         .filter_map(|bytes| {
             let key = ThroughputKey { mode: mode(bytes) };
+            let (value, ran) = measure(client, key);
+            probed |= ran;
 
             Some(MemoryPoint {
                 bytes,
-                value: measure_peak_throughput(client, key).ok()?,
+                value: value.ok()?,
             })
         })
-        .collect()
+        .collect();
+
+    (points, probed)
 }
 
 /// The largest working set `access` can be probed at: the largest window one
@@ -77,33 +85,64 @@ fn working_set_cap(client: &Client, access: MemoryAccess) -> u64 {
 
 /// Computes the peak throughput for a given runtime and key.
 ///
-/// Returns [`Unsupported`](ThroughputError::Unsupported) on WASM, where the
-/// synchronous sampling loop can't wait for GPU work.
+/// Native only: a probe blocks on the device, which the browser can't do.
+/// There this reports [`Unsupported`](ThroughputError::Unsupported), so a
+/// roofline bound built from it has no peak and no time limit, and the tune
+/// runs without one rather than not at all.
 ///
 /// # Errors
 ///
 /// [`Unsupported`](ThroughputError::Unsupported) where the device implements
 /// no such operation, [`NoTiming`](ThroughputError::NoTiming) where it does
-/// and reported no elapsed time.
+/// and reported no elapsed time, [`Allocation`](ThroughputError::Allocation)
+/// where it has no room for the probe's buffers, [`Launch`](ThroughputError::Launch)
+/// where a memory probe's kernel did not run. None of them is cached, so a
+/// device that was full is measured the next time it is asked.
 pub fn measure_peak_throughput(
     client: &Client,
     key: ThroughputKey,
 ) -> Result<ThroughputValue, ThroughputError> {
-    if cfg!(target_family = "wasm") {
-        return Err(ThroughputError::Unsupported);
+    let (value, probed) = measure(client, key);
+
+    if probed {
+        PooledProbes::cleanup_unless_held(client);
     }
 
-    // A throughput probe is a measurement: inside a dry run its launches must
-    // still execute, or they would be timed anyway and cache a garbage peak in
-    // the device-level throughput store. The guard is read where the launch is
-    // issued, which for these is this thread.
-    let _measurement = cubecl_runtime::dry_run::RealRun::new();
-
-    let value = client.measure_throughput(key, || probe(client, key));
-
-    PooledProbes::cleanup_unless_held(client);
-
     value
+}
+
+/// The value for `key`, and whether a probe ran for it rather than the cache
+/// answering or the platform declining. Only a probe leaves pools with the
+/// allocator.
+fn measure(
+    client: &Client,
+    key: ThroughputKey,
+) -> (Result<ThroughputValue, ThroughputError>, bool) {
+    #[cfg(target_family = "wasm")]
+    {
+        let _ = (client, key);
+        (Err(ThroughputError::Unsupported), false)
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    {
+        // Errors are never cached, so a declined key would otherwise take
+        // the device on every call.
+        if declined(&client.properties().features, key) {
+            return (Err(ThroughputError::Unsupported), false);
+        }
+
+        let mut probed = false;
+        let value = client.measure_throughput(key, || {
+            // Read where the launch is issued, which here is the runner.
+            let _measurement = cubecl_runtime::dry_run::RealRun::new();
+
+            probed = true;
+            probe(client, key)
+        });
+
+        (value, probed)
+    }
 }
 
 /// Measures `key`, in the fastest shape its probe can be launched in.
@@ -112,27 +151,16 @@ fn probe(client: &Client, key: ThroughputKey) -> Result<ThroughputValue, Through
 
     match key.mode {
         ThroughputMode::ComputeDirect { dtype } => {
-            // A type the backend cannot lower panics rather than answering.
-            if !client.properties().features.supports_type(dtype) {
-                return Err(ThroughputError::Unsupported);
-            }
-
             ShapeSweep::new(compute_direct_shapes(client, dtype, launch_config))
-                .fastest(|(dtype, config)| compute_direct::build_kernel(client, dtype, config))
+                .fastest(|(dtype, config)| Ok(compute_direct::build_kernel(client, dtype, config)))
                 .map(|(value, _)| value)
         }
         ThroughputMode::ComputeCmma {
-            dtype,
             config: cmma_config,
-        } => {
-            if !CooperativeMatrix::implemented(client, dtype, cmma_config) {
-                return Err(ThroughputError::Unsupported);
-            }
-
-            ShapeSweep::new(alloc::vec![launch_config])
-                .fastest(|config| compute_cmma::build_kernel(client, key, cmma_config, config))
-                .map(|(value, _)| value)
-        }
+            ..
+        } => ShapeSweep::new(alloc::vec![launch_config])
+            .fastest(|config| Ok(compute_cmma::build_kernel(client, key, cmma_config, config)))
+            .map(|(value, _)| value),
         ThroughputMode::Memory(spec) => {
             let (value, fastest) = ShapeSweep::new(WorkerSweep::shapes(
                 client,
@@ -150,8 +178,20 @@ fn probe(client: &Client, key: ThroughputKey) -> Result<ThroughputValue, Through
             Ok(value)
         }
         ThroughputMode::Launch => ShapeSweep::new(alloc::vec![launch_config])
-            .fastest(|config| launch_overhead::build_kernel(client, key, config))
+            .fastest(|config| Ok(launch_overhead::build_kernel(client, key, config)))
             .map(|(value, _)| value),
+    }
+}
+
+/// Whether the device properties alone refuse `key`. A type the backend
+/// cannot lower panics rather than answering, so this runs before any probe.
+fn declined(features: &Features, key: ThroughputKey) -> bool {
+    match key.mode {
+        ThroughputMode::ComputeDirect { dtype } => !features.supports_type(dtype),
+        ThroughputMode::ComputeCmma { dtype, config } => {
+            !CooperativeMatrix::implemented(features, dtype, config)
+        }
+        ThroughputMode::Memory(_) | ThroughputMode::Launch => false,
     }
 }
 
@@ -255,4 +295,96 @@ pub fn measure_launch_overhead(client: &Client) -> core::time::Duration {
     measure_peak_throughput(client, launch_key)
         .map(|value| value.duration_per_op())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cubecl_core::ir::{
+        FloatKind,
+        features::{MmaConfig, TypeUsage},
+    };
+    use cubecl_runtime::throughput::{CmmaDims, ComputeCmmaConfig};
+
+    const F16: ElemType = ElemType::Float(FloatKind::F16);
+    const F32: ElemType = ElemType::Float(FloatKind::F32);
+
+    const DIMS: CmmaDims = CmmaDims {
+        m: 16,
+        n: 16,
+        k: 16,
+    };
+
+    fn cmma_key(dims: CmmaDims) -> ThroughputKey {
+        ThroughputKey {
+            mode: ThroughputMode::ComputeCmma {
+                dtype: F16,
+                config: ComputeCmmaConfig {
+                    accumulator_type: F32,
+                    cmma_dims: dims,
+                },
+            },
+        }
+    }
+
+    fn cmma_features(dims: CmmaDims) -> Features {
+        let mut features = Features::default();
+
+        features.matmul.cmma.insert(MmaConfig {
+            a_type: F16,
+            b_type: F16,
+            cd_type: F32,
+            m: dims.m as u32,
+            n: dims.n as u32,
+            k: dims.k as u32,
+        });
+
+        features
+    }
+
+    #[test]
+    fn a_type_the_device_cannot_lower_is_declined() {
+        let key = ThroughputKey {
+            mode: ThroughputMode::ComputeDirect { dtype: F16 },
+        };
+
+        assert!(declined(&Features::default(), key));
+
+        let mut features = Features::default();
+        features
+            .types
+            .elem
+            .insert(F16, TypeUsage::Arithmetic.into());
+
+        assert!(!declined(&features, key));
+    }
+
+    #[test]
+    fn a_cmma_shape_the_device_does_not_have_is_declined() {
+        let features = cmma_features(DIMS);
+
+        assert!(!declined(&features, cmma_key(DIMS)));
+        assert!(declined(&features, cmma_key(CmmaDims { k: 8, ..DIMS })));
+        assert!(declined(&Features::default(), cmma_key(DIMS)));
+    }
+
+    #[test]
+    fn memory_and_launch_are_left_to_the_probe() {
+        let features = Features::default();
+
+        for access in [MemoryAccess::Copy, MemoryAccess::Read, MemoryAccess::Write] {
+            let key = ThroughputKey {
+                mode: ThroughputMode::Memory(MemorySpec::new(access, 1024)),
+            };
+
+            assert!(!declined(&features, key));
+        }
+
+        assert!(!declined(
+            &features,
+            ThroughputKey {
+                mode: ThroughputMode::Launch
+            }
+        ));
+    }
 }

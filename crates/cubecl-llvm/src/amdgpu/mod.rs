@@ -1,4 +1,4 @@
-//! The AMDGPU (`amdgcn-amd-amdhsa`) target.
+//! AMDGPU target.
 
 pub mod abi;
 pub mod builtins;
@@ -8,8 +8,8 @@ pub mod intrinsic;
 pub mod lld;
 pub mod matrix;
 pub mod ocml;
+#[cfg(test)]
+mod offline_tests;
 pub mod plane;
-pub mod plane_reduce;
 pub mod printf;
-pub mod shared_memory;
 pub mod synchronization;

@@ -6,15 +6,18 @@ use pliron::{
 };
 
 use crate::{
-    CanMaterialize, ConstantValue, Pure,
+    CanMaterialize, Commutative, ConstantValue, PropagatesUniformity, Pure,
     attributes::{BoolAttr, FloatAttr, IndexAttr, IntAttrExt},
     dialect::{base::pure_binop, math::int_attr},
-    interfaces::{TriviallyUnrollable, TypedExt},
+    interfaces::{
+        Expression, ExpressionCanonicalize, ExpressionValue, TriviallyUnrollable, TypedExt,
+    },
     prelude::*,
     types::{VectorType, scalar::BoolType},
 };
 
 pure_binop!("cmp.s_min", SMinOp);
+Commutative!(SMinOp);
 const_eval!(SMinOp, {
     [IndexAttr, IntegerAttr(i8, i16, i32, i64)]: |lhs, rhs| lhs.min(rhs),
     // min(min_int, x) -> min_int
@@ -52,16 +55,13 @@ simplify!(SMinOp, {
 });
 
 pure_binop!("cmp.u_min", UMinOp);
+Commutative!(UMinOp);
 const_eval!(UMinOp, {
     [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs.min(rhs),
     // min(min_int, x) -> min_int
-    custom: |lhs, rhs| {
-        let const_val = lhs.or(rhs)?;
-        let ty = const_val.get_type(ctx);
-        match const_val.as_const_val(ctx) {
-            ConstantValue::UInt(0) => Some(int_attr(ctx, ty, 0)),
-            _ => None
-        }
+    custom: |lhs, rhs| match lhs.or(rhs)?.as_int(ctx)?.is_zero() {
+        true => Some(int_attr(ctx, self.result_type(ctx), 0)),
+        false => None,
     }
 });
 simplify!(UMinOp, {
@@ -89,6 +89,7 @@ simplify!(UMinOp, {
 });
 
 pure_binop!("cmp.f_min", FMinOp);
+Commutative!(FMinOp);
 const_eval!(FMinOp, { [FloatAttr(f16, bf16, f32, f64)]: |lhs, rhs| lhs.min(rhs) });
 simplify!(FMinOp, {
     // min(x, x) -> x
@@ -99,6 +100,7 @@ simplify!(FMinOp, {
 });
 
 pure_binop!("cmp.s_max", SMaxOp);
+Commutative!(SMaxOp);
 const_eval!(SMaxOp, {
     [IndexAttr, IntegerAttr(i8, i16, i32, i64)]: |lhs, rhs| lhs.max(rhs),
     // max(max_int, x) -> max_int
@@ -136,6 +138,7 @@ simplify!(SMaxOp, {
 });
 
 pure_binop!("cmp.u_max", UMaxOp);
+Commutative!(UMaxOp);
 const_eval!(UMaxOp, {
     [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs.max(rhs),
     // max(max_int, x) -> max_int
@@ -150,18 +153,14 @@ const_eval!(UMaxOp, {
 });
 simplify!(UMaxOp, {
     // max(min_int, x) -> x
-    |lhs, _| {
-        match lhs?.as_const_val(ctx) {
-            ConstantValue::UInt(0) => Some(self.rhs(ctx)),
-            _ => None,
-        }
+    |lhs, _| match lhs?.as_int(ctx)?.is_zero() {
+        true => Some(self.rhs(ctx)),
+        false => None,
     },
     // max(x, min_int) -> x
-    |_, rhs| {
-        match rhs?.as_const_val(ctx) {
-            ConstantValue::UInt(0) => Some(self.lhs(ctx)),
-            _ => None,
-        }
+    |_, rhs| match rhs?.as_int(ctx)?.is_zero() {
+        true => Some(self.lhs(ctx)),
+        false => None,
     },
     // max(x, x) -> x
     |_, _| match self.lhs(ctx) == self.rhs(ctx) {
@@ -171,6 +170,7 @@ simplify!(UMaxOp, {
 });
 
 pure_binop!("cmp.f_max", FMaxOp);
+Commutative!(FMaxOp);
 const_eval!(FMaxOp, {
     [FloatAttr(f16, bf16, f32, f64)]: |lhs, rhs| lhs.max(rhs),
 });
@@ -185,7 +185,7 @@ simplify!(FMaxOp, {
 #[cube_op(name = "cmp.s_clamp")]
 #[result_ty(same_as = input)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct SClampOp {
     pub input: Value,
     pub min: Value,
@@ -214,7 +214,7 @@ const_eval!(SClampOp, {
 #[cube_op(name = "cmp.u_clamp")]
 #[result_ty(same_as = input)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct UClampOp {
     pub input: Value,
     pub min: Value,
@@ -231,19 +231,16 @@ const_eval!(UClampOp, {
         }
     },
     // clamp(x, y, min_int) -> min_int
-    custom: |_, _, max| {
-        let ty = max?.get_type(ctx);
-        match max?.as_const_val(ctx) {
-            ConstantValue::UInt(0) => Some(int_attr(ctx, ty, 0)),
-            _ => None
-        }
+    custom: |_, _, max| match max?.as_int(ctx)?.is_zero() {
+        true => Some(int_attr(ctx, self.result_type(ctx), 0)),
+        false => None
     }
 });
 
 #[cube_op(name = "cmp.f_clamp")]
 #[result_ty(same_as = input)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct FClampOp {
     pub input: Value,
     pub min: Value,
@@ -253,12 +250,71 @@ const_eval!(FClampOp, {
     [FloatAttr(f16, bf16, f32, f64)]: |inp, min, max| inp.clamp(min, max),
 });
 
+/// Floating-point minimum that propagates NaN from either operand.
+/// Opposite-signed zeros may yield either sign; NaN payloads and signs are unspecified.
+#[cube_op(name = "cmp.f_min_nan")]
+#[result_ty(same_as = lhs)]
+#[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
+pub struct FMinNanOp {
+    pub lhs: Value,
+    pub rhs: Value,
+}
+const_eval!(FMinNanOp, {
+    [FloatAttr(f16, bf16, f32, f64)]: |lhs, rhs| {
+        if lhs.is_nan() { lhs }
+        else if rhs.is_nan() { rhs }
+        else { lhs.min(rhs) }
+    },
+});
+
+/// Floating-point maximum that propagates NaN from either operand.
+/// Opposite-signed zeros may yield either sign; NaN payloads and signs are unspecified.
+#[cube_op(name = "cmp.f_max_nan")]
+#[result_ty(same_as = lhs)]
+#[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
+pub struct FMaxNanOp {
+    pub lhs: Value,
+    pub rhs: Value,
+}
+const_eval!(FMaxNanOp, {
+    [FloatAttr(f16, bf16, f32, f64)]: |lhs, rhs| {
+        if lhs.is_nan() { lhs }
+        else if rhs.is_nan() { rhs }
+        else { lhs.max(rhs) }
+    },
+});
+
+/// Floating-point clamp that propagates NaN from any operand.
+///
+/// Applies the upper bound first, then the lower bound; reversed non-NaN bounds
+/// yield `min`. If the result is zero and the operands include zeros of opposite
+/// signs, either sign of zero may be returned. NaN payloads and signs are unspecified.
+#[cube_op(name = "cmp.f_clamp_nan")]
+#[result_ty(same_as = input)]
+#[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
+pub struct FClampNanOp {
+    pub input: Value,
+    pub min: Value,
+    pub max: Value,
+}
+const_eval!(FClampNanOp, {
+    [FloatAttr(f16, bf16, f32, f64)]: |inp, min, max| {
+        if inp.is_nan() { inp }
+        else if min.is_nan() { min }
+        else if max.is_nan() { max }
+        else { inp.min(max).max(min) }
+    },
+});
+
 macro_rules! cmp_binop {
     ($name: literal, $ty: ident) => {
         #[cubecl_macros_internal::cube_op(name = $name)]
         #[result_ty(from_inputs = cmp_result_ty)]
         #[$crate::prelude::op_interfaces(SameOperandsType, TriviallyUnrollable)]
-        #[op_traits(Pure, CanMaterialize)]
+        #[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
         pub struct $ty {
             pub lhs: Value,
             pub rhs: Value,
@@ -272,12 +328,9 @@ const_eval!(SLessThanOp, {
         (lhs < rhs).into()
     },
     // (x < x) -> false;
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), false)
-        } else {
-            None
-        }
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
+        false => None
     },
     // int < min_int -> false
     custom: |_, rhs| {
@@ -303,19 +356,14 @@ const_eval!(ULessThanOp, {
         (lhs < rhs).into()
     },
     // (x < x) -> false;
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), false)
-        } else {
-            None
-        }
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
+        false => None
     },
     // int < min_int -> false
-    custom: |_, rhs| {
-        match rhs?.as_const_val(ctx) {
-            ConstantValue::UInt(0) => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
-            _ => None
-        }
+    custom: |_, rhs| match rhs?.as_int(ctx)?.is_zero() {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
+        false => None
     },
     // max_int < int -> false
     custom: |lhs, _| {
@@ -334,18 +382,37 @@ const_eval!(FLessThanOp, {
     },
 });
 
+macro_rules! invert_cmp_expression {
+    ($ty: ty => $to: ty) => {
+        #[op_interface_impl]
+        impl ExpressionCanonicalize for $ty {
+            fn canonical_expression(
+                &self,
+                ctx: &Context,
+                mut operands: Vec<ExpressionValue>,
+            ) -> Expression {
+                operands.swap(0, 1);
+                Expression::new(
+                    self.result_type(ctx),
+                    <$to>::get_opid_static(),
+                    operands,
+                    Default::default(),
+                )
+            }
+        }
+    };
+}
+
 cmp_binop!("cmp.s_greater_than", SGreaterThanOp);
+invert_cmp_expression!(SGreaterThanOp => SLessThanOp);
 const_eval!(SGreaterThanOp, {
     [IndexAttr, IntegerAttr(i8, i16, i32, i64)]: |lhs, rhs| -> BoolAttr {
         (lhs > rhs).into()
     },
     // (x > x) -> false;
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), false)
-        } else {
-            None
-        }
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
+        false => None
     },
     // min_int > int -> false
     custom: |lhs, _| {
@@ -366,24 +433,20 @@ const_eval!(SGreaterThanOp, {
 });
 
 cmp_binop!("cmp.u_greater_than", UGreaterThanOp);
+invert_cmp_expression!(UGreaterThanOp => ULessThanOp);
 const_eval!(UGreaterThanOp, {
     [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| -> BoolAttr {
         (lhs > rhs).into()
     },
     // (x > x) -> false
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), false)
-        } else {
-            None
-        }
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
+        false => None
     },
     // min_int > int -> false
-    custom: |lhs, _| {
-        match lhs?.as_const_val(ctx) {
-            ConstantValue::UInt(0) => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
-            _ => None
-        }
+    custom: |lhs, _| match lhs?.as_int(ctx)?.is_zero() {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
+        false => None
     },
     // int > max_int -> false
     custom: |_, rhs| {
@@ -396,6 +459,7 @@ const_eval!(UGreaterThanOp, {
 });
 
 cmp_binop!("cmp.f_greater_than", FGreaterThanOp);
+invert_cmp_expression!(FGreaterThanOp => FLessThanOp);
 const_eval!(FGreaterThanOp, {
     [FloatAttr(f16, bf16, f32, f64)]: |lhs, rhs| -> BoolAttr {
         (lhs > rhs).into()
@@ -408,12 +472,9 @@ const_eval!(SLessThanOrEqualOp, {
         (lhs <= rhs).into()
     },
     // (x <= x) -> true
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), true)
-        } else {
-            None
-        }
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
+        false => None
     },
     // min_int <= int -> true
     custom: |lhs, _| {
@@ -439,19 +500,14 @@ const_eval!(ULessThanOrEqualOp, {
         (lhs <= rhs).into()
     },
     // (x <= x) -> true
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), true)
-        } else {
-            None
-        }
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
+        false => None
     },
     // min_int <= int -> true
-    custom: |lhs, _| {
-        match lhs?.as_const_val(ctx) {
-            ConstantValue::UInt(0) => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
-            _ => None
-        }
+    custom: |lhs, _| match lhs?.as_int(ctx)?.is_zero() {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
+        false => None
     },
     // int <= max_int -> true
     custom: |_, rhs| {
@@ -471,17 +527,15 @@ const_eval!(FLessThanOrEqualOp, {
 });
 
 cmp_binop!("cmp.s_greater_than_or_equal", SGreaterThanOrEqualOp);
+invert_cmp_expression!(SGreaterThanOrEqualOp => SLessThanOrEqualOp);
 const_eval!(SGreaterThanOrEqualOp, {
     [IndexAttr, IntegerAttr(i8, i16, i32, i64)]: |lhs, rhs| -> BoolAttr {
         (lhs >= rhs).into()
     },
     // (x >= x) -> true
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), true)
-        } else {
-            None
-        }
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
+        false => None
     },
     // int >= min_int -> true
     custom: |_, rhs| {
@@ -502,24 +556,20 @@ const_eval!(SGreaterThanOrEqualOp, {
 });
 
 cmp_binop!("cmp.u_greater_than_or_equal", UGreaterThanOrEqualOp);
+invert_cmp_expression!(UGreaterThanOrEqualOp => ULessThanOrEqualOp);
 const_eval!(UGreaterThanOrEqualOp, {
     [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| -> BoolAttr {
         (lhs >= rhs).into()
     },
     // (x >= x) -> true
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), true)
-        } else {
-            None
-        }
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
+        false => None
     },
     // int >= min_int -> true
-    custom: |_, rhs| {
-        match rhs?.as_const_val(ctx) {
-            ConstantValue::UInt(0) => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
-            _ => None
-        }
+    custom: |_, rhs| match rhs?.as_int(ctx)?.is_zero() {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
+        false => None
     },
     // max_int >= int -> true
     custom: |lhs, _| {
@@ -532,6 +582,7 @@ const_eval!(UGreaterThanOrEqualOp, {
 });
 
 cmp_binop!("cmp.f_greater_than_or_equal", FGreaterThanOrEqualOp);
+invert_cmp_expression!(FGreaterThanOrEqualOp => FLessThanOrEqualOp);
 const_eval!(FGreaterThanOrEqualOp, {
     [FloatAttr(f16, bf16, f32, f64)]: |lhs, rhs| -> BoolAttr {
         (lhs >= rhs).into()
@@ -539,21 +590,20 @@ const_eval!(FGreaterThanOrEqualOp, {
 });
 
 cmp_binop!("cmp.i_equal", IEqualOp);
+Commutative!(IEqualOp);
 const_eval!(IEqualOp, {
     [IndexAttr, IntegerAttr(i8, i16, i32, i64), IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| -> BoolAttr {
         (lhs == rhs).into()
     },
-    // (x == x) -> true; exclude float
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), true)
-        } else {
-            None
-        }
+    // (x == x) -> true
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
+        false => None
     }
 });
 
 cmp_binop!("cmp.f_equal", FEqualOp);
+Commutative!(FEqualOp);
 const_eval!(FEqualOp, {
     [FloatAttr(f16, bf16, f32, f64)]: |lhs, rhs| -> BoolAttr {
         (lhs == rhs).into()
@@ -561,34 +611,31 @@ const_eval!(FEqualOp, {
 });
 
 cmp_binop!("cmp.bool_equal", BoolEqualOp);
+Commutative!(BoolEqualOp);
 const_eval!(BoolEqualOp, {
     [BoolAttr]: |lhs, rhs| lhs == rhs,
-    // (x == x) -> true; exclude float
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), true)
-        } else {
-            None
-        }
+    // (x == x) -> true
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
+        false => None
     }
 });
 
 cmp_binop!("cmp.i_not_equal", INotEqualOp);
+Commutative!(INotEqualOp);
 const_eval!(INotEqualOp, {
     [IndexAttr, IntegerAttr(i8, i16, i32, i64), IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| -> BoolAttr {
         (lhs != rhs).into()
     },
-    // (x != x) == false; exclude float
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), false)
-        } else {
-            None
-        }
-    }
+    // (x != x) == false
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
+        false => None
+    },
 });
 
 cmp_binop!("cmp.f_not_equal", FNotEqualOp);
+Commutative!(FNotEqualOp);
 const_eval!(FNotEqualOp, {
     [FloatAttr(f16, bf16, f32, f64)]: |lhs, rhs| -> BoolAttr {
         (lhs != rhs).into()
@@ -596,15 +643,13 @@ const_eval!(FNotEqualOp, {
 });
 
 cmp_binop!("cmp.bool_not_equal", BoolNotEqualOp);
+Commutative!(BoolNotEqualOp);
 const_eval!(BoolNotEqualOp, {
     [BoolAttr]: |lhs, rhs| lhs != rhs,
-    // (x != x) == false; exclude float
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), false)
-        } else {
-            None
-        }
+    // (x != x) == false
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
+        false => None
     }
 });
 
@@ -657,5 +702,72 @@ fn max_uint(width: usize) -> u64 {
         u64::MAX
     } else {
         (1u64 << width) - 1
+    }
+}
+
+#[cfg(test)]
+mod clamp_nan_tests {
+    use super::*;
+    use crate::types::scalar::Float32Type;
+    use alloc::boxed::Box;
+    use pliron::{
+        attribute::AttrObj, builtin::ops::ConstantOp, opts::constants::ConstFoldInterface,
+    };
+
+    fn constants<const N: usize>(
+        ctx: &mut Context,
+        values: [f64; N],
+    ) -> ([Value; N], [Option<AttrObj>; N]) {
+        let ty = Float32Type::get(ctx).to_handle();
+        let attrs = values.map(|v| FloatAttr::from_f64(ctx, ty, v));
+        let operands = attrs
+            .each_ref()
+            .map(|attr| ConstantOp::new(ctx, Box::new(attr.clone())).get_result(ctx));
+        (operands, attrs.map(|attr| Some(Box::new(attr) as AttrObj)))
+    }
+
+    fn assert_folded(ctx: &Context, folded: &[Option<AttrObj>], expected: f64) {
+        let actual = folded[0]
+            .as_ref()
+            .unwrap()
+            .downcast_ref::<FloatAttr>()
+            .unwrap();
+        let actual = actual.float_type(ctx).value_to_f64(actual.val);
+        assert!(
+            actual == expected || (actual.is_nan() && expected.is_nan()),
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    #[test]
+    fn min_max_nan_constant_folding() {
+        let mut ctx = Context::default();
+        for (lhs, rhs, expected_min, expected_max) in [
+            (f64::NAN, 3.0, f64::NAN, f64::NAN),
+            (3.0, f64::NAN, f64::NAN, f64::NAN),
+            (f64::NAN, f64::NAN, f64::NAN, f64::NAN),
+            (-2.0, 3.0, -2.0, 3.0),
+        ] {
+            let ([lhs, rhs], attrs) = constants(&mut ctx, [lhs, rhs]);
+            let min = FMinNanOp::new(&mut ctx, lhs, rhs).check_fold(&ctx, &attrs);
+            let max = FMaxNanOp::new(&mut ctx, lhs, rhs).check_fold(&ctx, &attrs);
+            assert_folded(&ctx, &min, expected_min);
+            assert_folded(&ctx, &max, expected_max);
+        }
+    }
+
+    #[test]
+    fn clamp_nan_constant_folding() {
+        let mut ctx = Context::default();
+        for (input, min, max, expected) in [
+            (f64::NAN, 0.0, 1.0, f64::NAN),
+            (0.5, f64::NAN, 1.0, f64::NAN),
+            (0.5, 0.0, f64::NAN, f64::NAN),
+            (2.0, 0.0, 1.0, 1.0),
+        ] {
+            let ([input, min, max], attrs) = constants(&mut ctx, [input, min, max]);
+            let folded = FClampNanOp::new(&mut ctx, input, min, max).check_fold(&ctx, &attrs);
+            assert_folded(&ctx, &folded, expected);
+        }
     }
 }

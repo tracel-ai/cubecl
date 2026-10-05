@@ -813,6 +813,8 @@ test_unary_impl!(test_inverse_sqrt, F, Vector::inverse_sqrt, [
     }
 ]);
 
+// No zero vector: its normalization is `0 / 0`, and these kernels opt into fast math, under which
+// a compiler may assume no NaN arises (Metal folds it to 1).
 test_unary_impl!(
     test_normalize,
     F,
@@ -821,8 +823,8 @@ test_unary_impl!(
         {
             input_vectorization: 1,
             out_vectorization: 1,
-            input: as_type![F: -1., 0., 1., 5.],
-            expected: as_type![F: -1., f32::NAN, 1., 1.]
+            input: as_type![F: -1., -2.5, 1., 5.],
+            expected: as_type![F: -1., -1., 1., 1.]
         },
         {
             input_vectorization: 2,
@@ -835,18 +837,6 @@ test_unary_impl!(
             out_vectorization: 4,
             input: as_type![F: -1., 0., 1., 5.],
             expected: as_type![F: -0.192, 0.0, 0.192, 0.962]
-        },
-        {
-            input_vectorization: 4,
-            out_vectorization: 4,
-            input: as_type![F: 0., 0., 0., 0.],
-            expected: as_type![F: f32::NAN, f32::NAN, f32::NAN, f32::NAN]
-        },
-        {
-            input_vectorization: 2,
-            out_vectorization: 2,
-            input: as_type![F: 0., 0., 1., 0.],
-            expected: as_type![F: f32::NAN, f32::NAN, 1., 0.]
         }
     ]
 );

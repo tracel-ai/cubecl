@@ -1,19 +1,19 @@
-//! Lowering of the cubecl structured `scf` dialect to an unstructured LLVM CFG.
+//! Structured control flow lowering.
 
-use cubecl_core::ir::dialect::branch::{self, ConditionOp, IsExitTerminator};
-use cubecl_core::ir::dialect::cmp::{SLessThanOp, ULessThanOp};
-use cubecl_core::ir::dialect::general::CastOp;
-use cubecl_core::ir::dialect::math::IAddOp;
-use cubecl_core::ir::dialect::scf::{IfOp, RangeLoopOp, SwitchOp, WhileOp};
-use cubecl_core::ir::interfaces::ScalarType;
-use cubecl_core::ir::prelude::*;
-use cubecl_core::ir::{NamedRewrite, dialect::BlockPtrExt};
-use pliron::basic_block::BasicBlock;
-use pliron::builtin::attributes::IntegerAttr;
-use pliron::builtin::types::{IntegerType, Signedness};
-use pliron::irbuild::inserter::{BlockInsertionPoint, OpInsertionPoint};
+use crate::prelude::*;
+#[cfg(feature = "nvptx")]
+use crate::shared::loop_hints::LoopHint;
+#[cfg(feature = "nvptx")]
+use cubecl_core::ir::dialect::memory::{DeclareVariableOp, IndexOp};
+use cubecl_core::ir::dialect::{
+    BlockPtrExt,
+    branch::{self, ConditionOp, IsExitTerminator},
+    cmp::{SLessThanOp, ULessThanOp},
+    general::CastOp,
+    math::IAddOp,
+    scf::{ForOp, IfOp, SwitchOp, WhileOp},
+};
 use pliron::region::Region;
-use pliron_llvm::ops as llvm;
 
 #[op_interface]
 pub trait LowerCpuCF {
@@ -42,7 +42,6 @@ impl LowerCpuCF for IfOp {
         let then_term = terminator(ctx, then_block);
         let else_term = terminator(ctx, else_block);
 
-        // Split off the merge block so ops after the `if` continue there.
         let (pre, merge) = split_join_block(ctx, rewriter, op, "if_merge");
 
         rewriter.set_insertion_point_to_block_end(pre);
@@ -89,8 +88,6 @@ impl LowerCpuCF for WhileOp {
         let br_to_before = llvm::BrOp::new(ctx, before_block, init);
         rewriter.append_op(ctx, &br_to_before);
 
-        // The `before` region decides whether to run another iteration. The values it forwards go
-        // to the `after` block when the loop continues, and out of the loop when it doesn't.
         if let Some(condition) = before_term.as_op::<ConditionOp>(ctx) {
             let cond = condition.condition(ctx);
             let forwarded = condition.forward_values(ctx);
@@ -106,7 +103,6 @@ impl LowerCpuCF for WhileOp {
             );
         }
 
-        // Back-edge to the condition.
         branch_to_yielded(ctx, rewriter, after_term, before_block);
 
         rewriter.inline_region(ctx, before_region, BlockInsertionPoint::AfterBlock(pre));
@@ -123,7 +119,7 @@ impl LowerCpuCF for WhileOp {
 }
 
 #[op_interface_impl]
-impl LowerCpuCF for RangeLoopOp {
+impl LowerCpuCF for ForOp {
     fn rewrite(
         &self,
         ctx: &mut Context,
@@ -139,14 +135,15 @@ impl LowerCpuCF for RangeLoopOp {
         let body_region = self.loop_region(ctx);
         let body_term = terminator(ctx, body_block);
 
+        #[cfg(feature = "nvptx")]
+        let shape = LoopShape::new(ctx, op, start, end, step);
+
         let signed = type_cast::<dyn ScalarType>(&*end.get_type(ctx).deref(ctx))
             .map(|ty| ty.elem_type(ctx).is_signed_int())
             .unwrap_or(false);
 
         let (pre, exit) = split_join_block(ctx, rewriter, op, "for_exit");
 
-        // The header carries the induction variable followed by the loop carried values, in the
-        // same order as the body block arguments it feeds.
         let header_args = body_block
             .arguments(ctx)
             .into_iter()
@@ -178,7 +175,6 @@ impl LowerCpuCF for RangeLoopOp {
         );
         rewriter.append_op(ctx, &cond_br);
 
-        // The back-edge steps the induction variable and forwards the values yielded by the body.
         if !body_term.impls::<dyn IsExitTerminator>(ctx) {
             rewriter.set_insertion_point_before_operation(body_term);
             let next = IAddOp::new(ctx, self.iter_var(ctx), step);
@@ -187,6 +183,8 @@ impl LowerCpuCF for RangeLoopOp {
             back_args.extend(body_term.operands(ctx));
             let back_edge = llvm::BrOp::new(ctx, header, back_args);
             rewriter.append_op(ctx, &back_edge);
+            #[cfg(feature = "nvptx")]
+            shape.mark(ctx, back_edge.get_operation());
             rewriter.erase_operation(ctx, body_term);
         }
 
@@ -302,8 +300,6 @@ fn terminator(ctx: &Context, block: Ptr<BasicBlock>) -> Ptr<Operation> {
         .expect("structured region blocks must be terminated")
 }
 
-/// Split the block holding `op` so that everything following it becomes the block the lowered
-/// control flow joins back into. The join block takes the results of `op` as block arguments.
 fn split_join_block(
     ctx: &mut Context,
     rewriter: &mut DialectConversionRewriter,
@@ -326,8 +322,94 @@ fn split_join_block(
     (pre, join)
 }
 
-/// Replace a `branch.yield` terminator with a branch to `dest`, forwarding the yielded values as
-/// block arguments. Terminators that leave the function are kept as is, they lower on their own.
+/// What a loop's structure says about how it should be unrolled, which LLVM's cost model
+/// cannot see once the loop is lowered. Only NVPTX asks for a loop hint, so only a build with
+/// that target reads the shape.
+#[cfg(feature = "nvptx")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LoopShape {
+    /// A trip count known at compile time, and a body indexing a local array.
+    ConstantOverLocalArray,
+    Other,
+}
+
+#[cfg(feature = "nvptx")]
+impl LoopShape {
+    /// What this loop's target should be asked for, or `None` to leave it to LLVM's cost model.
+    ///
+    /// A loop of a constant trip count over a local array is worth unrolling completely on
+    /// NVPTX, as NVVM does: only then is every index a constant, and a local array indexed by
+    /// constants alone becomes registers instead of local memory. LLVM's NVPTX cost model stops
+    /// short of that for a loop of more than a handful of steps (a top-k accumulator's 64, say),
+    /// and the array it leaves in local memory costs several times the loop. AMDGPU's cost model
+    /// already raises its threshold for a loop that touches a private array, so it needs no hint.
+    fn hint(self, target: LlvmTarget) -> Option<LoopHint> {
+        match self {
+            LoopShape::ConstantOverLocalArray => match target {
+                LlvmTarget::Nvptx => Some(LoopHint::UnrollFull),
+                _ => None,
+            },
+            LoopShape::Other => None,
+        }
+    }
+
+    /// Gives the loop `latch` closes the hint its target wants.
+    fn mark(self, ctx: &Context, latch: Ptr<Operation>) {
+        if let Some(hint) = self.hint(ctx.target()) {
+            hint.attach(ctx, latch);
+        }
+    }
+
+    /// The bounds are checked first: they are read off their definitions, where the array
+    /// check walks the body.
+    fn new(ctx: &Context, op: Ptr<Operation>, start: Value, end: Value, step: Value) -> Self {
+        let constant = |value: Value| {
+            value
+                .defining_op()
+                .is_some_and(|def| Operation::get_op::<ConstantOp>(def, ctx).is_some())
+        };
+        if constant(start) && constant(end) && constant(step) && indexes_local_array(ctx, op) {
+            LoopShape::ConstantOverLocalArray
+        } else {
+            LoopShape::Other
+        }
+    }
+}
+
+/// Whether the body of `op` indexes a local array, stopping at the first index that does.
+#[cfg(feature = "nvptx")]
+fn indexes_local_array(ctx: &Context, op: Ptr<Operation>) -> bool {
+    use pliron::graph::walkers::{
+        IRNode, WALKCONFIG_PREORDER_FORWARD,
+        interruptible::{immutable::walk_op, walk_advance, walk_break},
+    };
+
+    walk_op(
+        ctx,
+        &mut (),
+        &WALKCONFIG_PREORDER_FORWARD,
+        op,
+        |ctx, _, node| {
+            let IRNode::Operation(op) = node else {
+                return walk_advance();
+            };
+            let local = op.as_op::<IndexOp>(ctx).is_some_and(|index| {
+                index
+                    .base(ctx)
+                    .defining_op()
+                    .and_then(|def| Operation::get_op::<DeclareVariableOp>(def, ctx))
+                    .is_some_and(|declare| declare.addr_space(ctx).0 == AddressSpace::Local)
+            });
+            if local {
+                walk_break(())
+            } else {
+                walk_advance()
+            }
+        },
+    )
+    .is_break()
+}
+
 fn branch_to_yielded(
     ctx: &mut Context,
     rewriter: &mut DialectConversionRewriter,
@@ -382,5 +464,32 @@ impl DialectConversion for CfToLlvmConversion {
         op_cast::<dyn LowerCpuCF>(&*op.dyn_op(ctx))
             .unwrap()
             .rewrite(ctx, rewriter, operands_info)
+    }
+}
+
+#[cfg(all(test, feature = "nvptx"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_nvptx_is_asked_to_unroll_a_constant_loop_over_a_local_array() {
+        let asked = |target| LoopShape::ConstantOverLocalArray.hint(target);
+        assert_eq!(asked(LlvmTarget::Nvptx), Some(LoopHint::UnrollFull));
+        // AMDGPU's own cost model already unrolls these, and the CPU has no such loop hint.
+        #[cfg(feature = "amdgpu")]
+        assert_eq!(asked(LlvmTarget::AmdGpu), None);
+        assert_eq!(asked(LlvmTarget::Cpu), None);
+    }
+
+    #[test]
+    fn any_other_loop_is_left_to_the_cost_model() {
+        for target in [
+            LlvmTarget::Nvptx,
+            #[cfg(feature = "amdgpu")]
+            LlvmTarget::AmdGpu,
+            LlvmTarget::Cpu,
+        ] {
+            assert_eq!(LoopShape::Other.hint(target), None, "{target:?}");
+        }
     }
 }

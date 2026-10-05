@@ -1,10 +1,12 @@
 use cubecl_core::{self as cubecl, frontend::polyfills::*, prelude::*};
 use cubecl_ir::{dialect::math, interfaces::TypedExt, prelude::*};
+use cubecl_opt::passes::uniformity::op_dyn_uniformity;
 use pliron_spirv::{
     attrs::PackedVectorFormatAttr, ext::gl, ops, spirv::PackedVectorFormat, types::StructType,
 };
 
 use crate::{
+    decorate_uniform,
     lower::{LowerOp, lower_binop, lower_unop},
     ops::{
         base::{binop_to_spirv_dialect, ternop_to_spirv_dialect, unop_to_spirv_dialect},
@@ -25,11 +27,29 @@ binop_to_spirv_dialect!(math::FMulOp => ops::FMulOp);
 binop_to_spirv_dialect!(math::SDivOp => ops::SDivOp);
 binop_to_spirv_dialect!(math::UDivOp => ops::UDivOp);
 binop_to_spirv_dialect!(math::FDivOp => ops::FDivOp);
-binop_to_spirv_dialect!(math::SRemOp => ops::SRemOp);
+lower_binop!(math::SRemOp, signed_remainder);
 binop_to_spirv_dialect!(math::URemOp => ops::UModOp);
 binop_to_spirv_dialect!(math::FRemOp => ops::FRemOp);
-binop_to_spirv_dialect!(math::SModFloorOp => ops::SModOp);
+lower_binop!(math::SModFloorOp, signed_mod_floor);
 binop_to_spirv_dialect!(math::FModFloorOp => ops::FModOp);
+
+// Vulkan only defines OpSRem/OpSMod for negative operands when maintenance8 is
+// enabled. Reconstruct the truncating remainder using integer arithmetic so
+// signed inputs work on devices without that feature too.
+#[cube]
+fn signed_remainder<I: Int, N: Size>(lhs: Vector<I, N>, rhs: Vector<I, N>) -> Vector<I, N> {
+    // Division by zero and MIN / -1 are outside the portable contract.
+    lhs - (lhs / rhs) * rhs
+}
+
+#[cube]
+fn signed_mod_floor<I: Int, N: Size>(lhs: Vector<I, N>, rhs: Vector<I, N>) -> Vector<I, N> {
+    let remainder = signed_remainder(lhs, rhs);
+    let zero = Vector::new(I::from_int(0));
+    let different_signs = (remainder ^ rhs).less_than(&zero);
+    let adjust = remainder.not_equal(&zero).vec_and(different_signs);
+    remainder + select_many(adjust, rhs, zero)
+}
 
 #[op_interface_impl]
 impl LowerOp for math::Dp4aOp {
@@ -113,13 +133,16 @@ impl ToSpirvDialectOp for math::SMulHiOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let op = self.get_operation();
+        let uniformity = op_dyn_uniformity(ctx, op);
         let lhs = self.lhs(ctx);
         let rhs = self.rhs(ctx);
         let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
         let out_st = StructType::get(ctx, vec![out_ty, out_ty], vec![], vec![], vec![]).into();
         let mul = ops::SMulExtendedOp::new(ctx, out_st, lhs, rhs);
+        decorate_uniform(ctx, mul.get_operation(), uniformity);
         rewriter.append_op(ctx, &mul);
         let new_op = ops::CompositeExtractOp::new(ctx, out_ty, mul.get_result(ctx), vec![1.into()]);
+        decorate_uniform(ctx, new_op.get_operation(), uniformity);
         rewriter.append_op(ctx, &new_op);
         rewriter.replace_operation(ctx, op, new_op.get_operation());
 
@@ -136,13 +159,16 @@ impl ToSpirvDialectOp for math::UMulHiOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let op = self.get_operation();
+        let uniformity = op_dyn_uniformity(ctx, op);
         let lhs = self.lhs(ctx);
         let rhs = self.rhs(ctx);
         let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
         let out_st = StructType::get(ctx, vec![out_ty, out_ty], vec![], vec![], vec![]).into();
         let mul = ops::UMulExtendedOp::new(ctx, out_st, lhs, rhs);
+        decorate_uniform(ctx, mul.get_operation(), uniformity);
         rewriter.append_op(ctx, &mul);
         let new_op = ops::CompositeExtractOp::new(ctx, out_ty, mul.get_result(ctx), vec![1.into()]);
+        decorate_uniform(ctx, new_op.get_operation(), uniformity);
         rewriter.append_op(ctx, &new_op);
         rewriter.replace_operation(ctx, op, new_op.get_operation());
 

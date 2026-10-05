@@ -111,7 +111,7 @@ pub fn rewrite_args(ctx: &mut Context, func: FuncOp) -> Vec<Visibility> {
             *io
         };
 
-        if !cfg!(exclusive_memory_only) {
+        if !cubecl_server::memory_management::EXCLUSIVE_MEMORY_ONLY {
             io = BufferIOAttr::ReadWrite;
         }
 

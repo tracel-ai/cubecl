@@ -10,7 +10,7 @@ use itertools::Itertools;
 use pliron::{
     attribute::AttrObj,
     basic_block::BasicBlock,
-    builtin::attributes::{IntegerAttr, VecAttr},
+    builtin::attributes::IntegerAttr,
     combine::{
         Parser, optional,
         parser::char::{self, spaces},
@@ -22,27 +22,34 @@ use pliron::{
     linked_list::ContainsLinkedList,
     location::Location,
     op::{OpBox, OpObj},
-    opts::{dce::SideEffects, mem2reg::AllocInfo},
+    opts::mem2reg::AllocInfo,
     parsable::{IntoParseResult, Parsable, ParseResult, StateStream},
     printable::Printable,
     region::Region,
     utils::table::{HMap, SmallMap},
+    value::Use,
 };
 
 use crate::{
-    attributes::{BoolAttr, ZeroAttr},
+    RecursiveMemoryEffects, RecursiveSideEffects, RecursivelySpeculatable,
+    attributes::{BoolAttr, IntegerVecAttr, ZeroAttr},
     dialect::{
         BlockPtrExt,
-        branch::{self, ConditionOp, YieldOp, block_side_effects},
+        branch::{self, ConditionOp, YieldOp},
     },
     interfaces::{
         CanonicalizeInterface,
         control_flow::{
             InvocationBounds, RegionBranchOpInterface, RegionPredecessor, RegionSuccessor,
         },
-        memory_slot::PromotableRegionOpInterface,
+        memory_slot::{
+            MemoryRegionPredecessor, MemorySSAContext, MemorySSARegionOpInterface, MemoryValue,
+            PromotableRegionOpInterface, RegionMemoryPhiInputs, RegionMemoryValue,
+        },
+        uniformity::{UniformRegionOpInterface, Uniformity},
     },
     prelude::*,
+    small_map,
     types::scalar::BoolType,
 };
 
@@ -52,6 +59,7 @@ use crate::{
     verifier = "succ"
 )]
 #[op_interfaces(NOpdsInterface<1>, NRegionsInterface<2>, SingleBlockRegionInterface, OperandNOfType<0, BoolType>)]
+#[op_traits(RecursiveMemoryEffects, RecursiveSideEffects, RecursivelySpeculatable)]
 pub struct IfOp;
 
 impl IfOp {
@@ -126,14 +134,6 @@ fn inline_block(
 }
 
 #[op_interface_impl]
-impl SideEffects for IfOp {
-    fn has_side_effects(&self, ctx: &Context) -> bool {
-        block_side_effects(ctx, self.then_block(ctx))
-            || block_side_effects(ctx, self.else_block(ctx))
-    }
-}
-
-#[op_interface_impl]
 impl BranchToSCFOp for branch::IfOp {
     fn to_scf(
         &self,
@@ -204,6 +204,52 @@ impl PromotableRegionOpInterface for IfOp {
 }
 
 #[op_interface_impl]
+impl MemorySSARegionOpInterface for IfOp {
+    fn setup_memory_ssa(
+        &self,
+        ctx: &Context,
+        _state: &mut MemorySSAContext,
+        reaching_def: MemoryValue,
+        _has_memory_defs: bool,
+        regions_to_process: &mut SmallMap<Ptr<Region>, MemoryValue, 2>,
+    ) {
+        regions_to_process.insert(self.then_region(ctx), reaching_def);
+        regions_to_process.insert(self.else_region(ctx), reaching_def);
+    }
+
+    fn finalize_memory_ssa(
+        &self,
+        ctx: &Context,
+        _state: &mut MemorySSAContext,
+        entry_reaching_def: MemoryValue,
+        has_memory_defs: bool,
+        _reaching_at_region_entry: &HMap<Ptr<Region>, MemoryValue>,
+        reaching_at_block_end: &HMap<Ptr<BasicBlock>, MemoryValue>,
+        _region_phis: &mut SmallMap<Ptr<Region>, RegionMemoryPhiInputs, 2>,
+    ) -> RegionMemoryValue {
+        if !has_memory_defs {
+            return RegionMemoryValue::Forward(entry_reaching_def);
+        }
+
+        let (then_pred, reaching_then) = block_mem_val(
+            self.then_block(ctx),
+            entry_reaching_def,
+            reaching_at_block_end,
+        );
+        let (else_pred, reaching_else) = block_mem_val(
+            self.else_block(ctx),
+            entry_reaching_def,
+            reaching_at_block_end,
+        );
+
+        RegionMemoryValue::RegionPhi(small_map! {
+            then_pred => reaching_then,
+            else_pred => reaching_else
+        })
+    }
+}
+
+#[op_interface_impl]
 impl RegionBranchOpInterface for IfOp {
     fn entry_successor_regions(
         &self,
@@ -261,6 +307,21 @@ impl RegionBranchOpInterface for IfOp {
     }
 }
 
+#[op_interface_impl]
+impl UniformRegionOpInterface for IfOp {
+    fn result_uniformity(&self, _ctx: &Context, operands: &[Uniformity]) -> Uniformity {
+        operands[0]
+    }
+
+    fn entry_successor_region_uniformity(
+        &self,
+        _ctx: &Context,
+        operands: &[Uniformity],
+    ) -> Vec<Uniformity> {
+        vec![operands[0], operands[0]]
+    }
+}
+
 impl IfOp {
     fn remove_unused_carried(&self, ctx: &mut Context) -> Result<()> {
         let results = self.get_operation().results(ctx);
@@ -315,10 +376,11 @@ impl CanonicalizeInterface for IfOp {
 #[pliron_op(
     name = "scf.switch",
     format,
-    attributes = (scf_switch_cases: VecAttr),
+    attributes = (scf_switch_cases: IntegerVecAttr),
     verifier = "succ"
 )]
 #[op_interfaces(NOpdsInterface<1>, SingleBlockRegionInterface)]
+#[op_traits(RecursiveMemoryEffects, RecursiveSideEffects, RecursivelySpeculatable)]
 pub struct SwitchOp;
 
 impl SwitchOp {
@@ -372,7 +434,7 @@ impl SwitchOp {
     pub fn cases(&self, ctx: &Context) -> Vec<(IntegerAttr, Ptr<BasicBlock>)> {
         let cases = self.get_attr_scf_switch_cases(ctx).unwrap().clone().0;
         let out = (0..cases.len()).map(|i| {
-            let value = cases[i].downcast_ref::<IntegerAttr>().unwrap().clone();
+            let value = cases[i].clone();
             let block = self.get_body(ctx, i + 1);
             (value, block)
         });
@@ -382,7 +444,7 @@ impl SwitchOp {
     pub fn cases_regions(&self, ctx: &Context) -> Vec<(IntegerAttr, Ptr<Region>)> {
         let cases = self.get_attr_scf_switch_cases(ctx).unwrap().clone().0;
         let out = (0..cases.len()).map(|i| {
-            let value = cases[i].downcast_ref::<IntegerAttr>().unwrap().clone();
+            let value = cases[i].clone();
             let block = self.get_operation().deref(ctx).get_region(i + 1);
             (value, block)
         });
@@ -390,12 +452,7 @@ impl SwitchOp {
     }
 
     pub fn cases_values(&self, ctx: &Context) -> Vec<IntegerAttr> {
-        self.get_attr_scf_switch_cases(ctx)
-            .unwrap()
-            .0
-            .iter()
-            .map(|it| it.downcast_ref::<IntegerAttr>().unwrap().clone())
-            .collect()
+        self.get_attr_scf_switch_cases(ctx).unwrap().0.clone()
     }
 
     pub fn get_case_destinations(&self, ctx: &Context) -> Vec<Ptr<BasicBlock>> {
@@ -405,8 +462,8 @@ impl SwitchOp {
             .collect()
     }
 
-    pub fn set_attr_cases(&self, ctx: &Context, cases: impl IntoIterator<Item = AttrObj>) {
-        self.set_attr_scf_switch_cases(ctx, VecAttr(cases.into_iter().collect()));
+    pub fn set_attr_cases(&self, ctx: &Context, cases: impl IntoIterator<Item = IntegerAttr>) {
+        self.set_attr_scf_switch_cases(ctx, IntegerVecAttr(cases.into_iter().collect()));
     }
 
     pub fn results(&self, ctx: &Context) -> Vec<Value> {
@@ -491,6 +548,55 @@ impl PromotableRegionOpInterface for SwitchOp {
 }
 
 #[op_interface_impl]
+impl MemorySSARegionOpInterface for SwitchOp {
+    fn setup_memory_ssa(
+        &self,
+        ctx: &Context,
+        _state: &mut MemorySSAContext,
+        reaching_def: MemoryValue,
+        _has_memory_defs: bool,
+        regions_to_process: &mut SmallMap<Ptr<Region>, MemoryValue, 2>,
+    ) {
+        regions_to_process.insert(self.default_region(ctx), reaching_def);
+        for case_region in self.case_regions(ctx) {
+            regions_to_process.insert(case_region, reaching_def);
+        }
+    }
+
+    fn finalize_memory_ssa(
+        &self,
+        ctx: &Context,
+        _state: &mut MemorySSAContext,
+        entry_reaching_def: MemoryValue,
+        has_memory_defs: bool,
+        _reaching_at_region_entry: &HMap<Ptr<Region>, MemoryValue>,
+        reaching_at_block_end: &HMap<Ptr<BasicBlock>, MemoryValue>,
+        _region_phis: &mut SmallMap<Ptr<Region>, RegionMemoryPhiInputs, 2>,
+    ) -> RegionMemoryValue {
+        if !has_memory_defs {
+            return RegionMemoryValue::Forward(entry_reaching_def);
+        }
+
+        let mut phi_inputs = SmallMap::new();
+
+        let (default_pred, reaching_default) = block_mem_val(
+            self.default_block(ctx),
+            entry_reaching_def,
+            reaching_at_block_end,
+        );
+        phi_inputs.insert(default_pred, reaching_default);
+
+        for case_block in self.case_blocks(ctx) {
+            let (case_pred, reaching_case) =
+                block_mem_val(case_block, entry_reaching_def, reaching_at_block_end);
+            phi_inputs.insert(case_pred, reaching_case);
+        }
+
+        RegionMemoryValue::RegionPhi(phi_inputs)
+    }
+}
+
+#[op_interface_impl]
 impl RegionBranchOpInterface for SwitchOp {
     fn entry_successor_regions(
         &self,
@@ -550,6 +656,22 @@ impl RegionBranchOpInterface for SwitchOp {
     }
 }
 
+#[op_interface_impl]
+impl UniformRegionOpInterface for SwitchOp {
+    fn result_uniformity(&self, _ctx: &Context, operands: &[Uniformity]) -> Uniformity {
+        operands[0]
+    }
+
+    fn entry_successor_region_uniformity(
+        &self,
+        ctx: &Context,
+        operands: &[Uniformity],
+    ) -> Vec<Uniformity> {
+        let num_regions = self.get_operation().deref(ctx).num_regions();
+        vec![operands[0]; num_regions]
+    }
+}
+
 impl SwitchOp {
     fn remove_unused_carried(&self, ctx: &mut Context) -> Result<()> {
         let results = self.get_operation().results(ctx);
@@ -604,14 +726,11 @@ impl CanonicalizeInterface for SwitchOp {
 }
 
 #[pliron_op(name = "scf.for", verifier = "succ")]
-#[op_interfaces(
-    OneRegionInterface,
-    SingleBlockRegionInterface,
-    OperandSegmentInterface
-)]
-pub struct RangeLoopOp;
+#[op_interfaces(OneRegionInterface, SingleBlockRegionInterface)]
+#[op_traits(RecursiveMemoryEffects, RecursiveSideEffects)]
+pub struct ForOp;
 
-impl RangeLoopOp {
+impl ForOp {
     pub fn new(
         ctx: &mut Context,
         results: Vec<TypeHandle>,
@@ -708,7 +827,14 @@ impl RangeLoopOp {
     }
 }
 
-impl Printable for RangeLoopOp {
+#[op_interface_impl]
+impl OperandSegmentInterface for ForOp {
+    fn expected_num_segments(&self, _: &Context) -> Option<usize> {
+        Some(2)
+    }
+}
+
+impl Printable for ForOp {
     fn fmt(
         &self,
         ctx: &Context,
@@ -732,14 +858,16 @@ impl Printable for RangeLoopOp {
 
         if !args.is_empty() {
             let args = args.iter().map(|it| it.disp(ctx)).join(", ");
-            write!(f, "iter_args({args})")?;
+            write!(f, "iter_args({args}) ")?;
         }
 
-        self.loop_region(ctx).fmt(ctx, state, f)
+        self.loop_region(ctx).fmt(ctx, state, f)?;
+
+        Ok(())
     }
 }
 
-impl Parsable for RangeLoopOp {
+impl Parsable for ForOp {
     type Arg = Vec<(Identifier, Location)>;
     type Parsed = OpObj;
 
@@ -748,7 +876,7 @@ impl Parsable for RangeLoopOp {
         results: Self::Arg,
     ) -> ParseResult<'a, Self::Parsed> {
         let cur_loc = state_stream.loc();
-        let iter_args = delimited_list_parser('(', ')', ',', ssa_opd_parser());
+        let iter_args = delimited_list_parser('(', ')', ',', ssa_opd_parser()).skip(spaces());
         let mut iter_args_parser =
             optional(spaced(char::string("iter_args").with(iter_args))).skip(spaces());
         let mut range_parser = (
@@ -787,7 +915,7 @@ impl Parsable for RangeLoopOp {
         process_parsed_ssa_defs(state_stream, &results, op)?;
 
         Region::parse(state_stream, op)?;
-        let op = RangeLoopOp { op };
+        let op = ForOp { op };
         op.set_operand_segment_sizes(state_stream.state.ctx, segments);
 
         Ok(OpBox::new(op)).into_parse_result()
@@ -803,8 +931,8 @@ impl BranchToSCFOp for branch::RangeLoopOp {
         _: &OperandsInfo,
     ) -> Result<()> {
         let opds = self.get_operation().operands(ctx);
-        let (operands, segments) = RangeLoopOp::compute_segment_sizes(vec![opds, vec![]]);
-        let info = RangeLoopOp::get_concrete_op_info();
+        let (operands, segments) = ForOp::compute_segment_sizes(vec![opds, vec![]]);
+        let info = ForOp::get_concrete_op_info();
         let op = Operation::new(ctx, info, vec![], operands, vec![], 0);
 
         let regions = self.get_operation().regions(ctx);
@@ -815,7 +943,7 @@ impl BranchToSCFOp for branch::RangeLoopOp {
         rewriter.append_operation(ctx, op);
         rewriter.replace_operation(ctx, self.get_operation(), op);
 
-        let op = RangeLoopOp { op };
+        let op = ForOp { op };
         op.set_operand_segment_sizes(ctx, segments);
 
         Ok(())
@@ -823,7 +951,7 @@ impl BranchToSCFOp for branch::RangeLoopOp {
 }
 
 #[op_interface_impl]
-impl PromotableRegionOpInterface for RangeLoopOp {
+impl PromotableRegionOpInterface for ForOp {
     fn is_region_promotable(&self, _: &Context, _: &AllocInfo, _: Ptr<Region>, _: bool) -> bool {
         true
     }
@@ -873,9 +1001,60 @@ impl PromotableRegionOpInterface for RangeLoopOp {
 }
 
 #[op_interface_impl]
-impl RegionBranchOpInterface for RangeLoopOp {
-    fn entry_successor_operands(&self, ctx: &Context, _successor: RegionSuccessor) -> Vec<Value> {
-        self.initial_carried_values(ctx)
+impl MemorySSARegionOpInterface for ForOp {
+    fn setup_memory_ssa(
+        &self,
+        ctx: &Context,
+        state: &mut MemorySSAContext,
+        reaching_def: MemoryValue,
+        has_memory_defs: bool,
+        regions_to_process: &mut SmallMap<Ptr<Region>, MemoryValue, 2>,
+    ) {
+        let body_region = self.loop_region(ctx);
+        if !has_memory_defs {
+            regions_to_process.insert(body_region, reaching_def);
+            return;
+        }
+
+        let new_arg = state.new_value_in_block(self.loop_body(ctx));
+        regions_to_process.insert(body_region, new_arg);
+    }
+
+    fn finalize_memory_ssa(
+        &self,
+        ctx: &Context,
+        _state: &mut MemorySSAContext,
+        entry_reaching_def: MemoryValue,
+        has_memory_defs: bool,
+        _reaching_at_region_entry: &HMap<Ptr<Region>, MemoryValue>,
+        reaching_at_block_end: &HMap<Ptr<BasicBlock>, MemoryValue>,
+        region_phis: &mut SmallMap<Ptr<Region>, RegionMemoryPhiInputs, 2>,
+    ) -> RegionMemoryValue {
+        let body_region = self.loop_region(ctx);
+        if !has_memory_defs {
+            return RegionMemoryValue::Forward(entry_reaching_def);
+        }
+
+        let (body_pred, reaching_body) = block_mem_val(
+            self.loop_body(ctx),
+            entry_reaching_def,
+            reaching_at_block_end,
+        );
+
+        let phi_inputs = small_map! {
+            MemoryRegionPredecessor::Parent => entry_reaching_def,
+            body_pred => reaching_body
+        };
+
+        region_phis.insert(body_region, phi_inputs.clone());
+        RegionMemoryValue::RegionPhi(phi_inputs)
+    }
+}
+
+#[op_interface_impl]
+impl RegionBranchOpInterface for ForOp {
+    fn entry_successor_operands(&self, ctx: &Context, _: RegionSuccessor) -> Vec<Use<Value>> {
+        operand_range_to_uses(ctx, self.get_operation(), self.segment_range(ctx, 1))
     }
 
     fn successor_regions(&self, ctx: &Context, _pred: RegionPredecessor) -> Vec<RegionSuccessor> {
@@ -892,7 +1071,23 @@ impl RegionBranchOpInterface for RangeLoopOp {
 }
 
 #[op_interface_impl]
-impl CanonicalizeInterface for RangeLoopOp {
+impl UniformRegionOpInterface for ForOp {
+    fn result_uniformity(&self, _ctx: &Context, operands: &[Uniformity]) -> Uniformity {
+        operands[0].min(operands[1]).min(operands[2])
+    }
+
+    fn entry_successor_region_uniformity(
+        &self,
+        _ctx: &Context,
+        operands: &[Uniformity],
+    ) -> Vec<Uniformity> {
+        let uniformity = operands[0].min(operands[1]).min(operands[2]);
+        vec![uniformity, uniformity]
+    }
+}
+
+#[op_interface_impl]
+impl CanonicalizeInterface for ForOp {
     fn canonicalize(&self, ctx: &mut Context, _rewriter: &mut MatchRewriter) -> Result<()> {
         let results = self.get_operation().results(ctx);
         let body_block = self.loop_body(ctx);
@@ -912,10 +1107,11 @@ impl CanonicalizeInterface for RangeLoopOp {
 
 #[pliron_op(
     name = "scf.while",
-    format = "operands(CharSpace(`,`)) ` : ` types(CharSpace(`,`)) region($0) ` do ` region($1)",
+    format = "operands(CharSpace(`,`)) ` : ` types(CharSpace(`,`)) ` ` region($0) ` do ` region($1)",
     verifier = "succ"
 )]
 #[op_interfaces(NRegionsInterface<2>, SingleBlockRegionInterface)]
+#[op_traits(RecursiveMemoryEffects, RecursiveSideEffects)]
 pub struct WhileOp;
 
 impl WhileOp {
@@ -1097,16 +1293,79 @@ impl PromotableRegionOpInterface for WhileOp {
 }
 
 #[op_interface_impl]
+impl MemorySSARegionOpInterface for WhileOp {
+    fn setup_memory_ssa(
+        &self,
+        ctx: &Context,
+        state: &mut MemorySSAContext,
+        reaching_def: MemoryValue,
+        has_memory_defs: bool,
+        regions_to_process: &mut SmallMap<Ptr<Region>, MemoryValue, 2>,
+    ) {
+        let before_region = self.before_region(ctx);
+        let after_region = self.after_region(ctx);
+        if !has_memory_defs {
+            regions_to_process.insert(before_region, reaching_def);
+            regions_to_process.insert(after_region, reaching_def);
+            return;
+        }
+
+        let new_arg = state.new_value_in_block(self.before_block(ctx));
+        regions_to_process.insert(before_region, new_arg);
+
+        let new_arg = state.new_value_in_block(self.after_block(ctx));
+        regions_to_process.insert(after_region, new_arg);
+    }
+
+    fn finalize_memory_ssa(
+        &self,
+        ctx: &Context,
+        _state: &mut MemorySSAContext,
+        entry_reaching_def: MemoryValue,
+        has_memory_defs: bool,
+        reaching_at_region_entry: &HMap<Ptr<Region>, MemoryValue>,
+        reaching_at_block_end: &HMap<Ptr<BasicBlock>, MemoryValue>,
+        region_phis: &mut SmallMap<Ptr<Region>, RegionMemoryPhiInputs, 2>,
+    ) -> RegionMemoryValue {
+        if !has_memory_defs {
+            return RegionMemoryValue::Forward(entry_reaching_def);
+        }
+
+        let before_region = self.before_region(ctx);
+        let after_region = self.after_region(ctx);
+
+        let arg = reaching_at_region_entry[&before_region];
+        let (before_pred, reaching_before) =
+            block_mem_val(self.before_block(ctx), arg, reaching_at_block_end);
+
+        let arg = reaching_at_region_entry[&after_region];
+        let (after_pred, reaching_after) =
+            block_mem_val(self.after_block(ctx), arg, reaching_at_block_end);
+
+        let inputs_before = small_map! {
+            MemoryRegionPredecessor::Parent => entry_reaching_def,
+            after_pred => reaching_after
+        };
+        let inputs_after = small_map!(before_pred => reaching_before);
+
+        region_phis.insert(before_region, inputs_before);
+        region_phis.insert(after_region, inputs_after);
+
+        RegionMemoryValue::Forward(reaching_before)
+    }
+}
+
+#[op_interface_impl]
 impl RegionBranchOpInterface for WhileOp {
-    fn entry_successor_operands(&self, ctx: &Context, _successor: RegionSuccessor) -> Vec<Value> {
-        self.initial_carried_values(ctx)
+    fn entry_successor_operands(&self, ctx: &Context, _: RegionSuccessor) -> Vec<Use<Value>> {
+        self.get_operation().deref(ctx).operands_as_uses().collect()
     }
 
     fn successor_regions(&self, ctx: &Context, pred: RegionPredecessor) -> Vec<RegionSuccessor> {
         match pred {
             RegionPredecessor::Parent => vec![self.before_region(ctx).into()],
             RegionPredecessor::Terminator(term) => {
-                let op = term.deref(ctx).get_operation();
+                let op = term.get_operation();
                 let parent = op.deref(ctx).get_parent_region(ctx).unwrap();
                 if parent == self.after_region(ctx) {
                     vec![self.before_region(ctx).into()]
@@ -1125,6 +1384,21 @@ impl RegionBranchOpInterface for WhileOp {
             RegionSuccessor::Region(_) => self.after_block(ctx).arguments(ctx),
             RegionSuccessor::AfterOp => self.results(ctx),
         }
+    }
+}
+
+#[op_interface_impl]
+impl UniformRegionOpInterface for WhileOp {
+    fn result_uniformity(&self, _ctx: &Context, _operands: &[Uniformity]) -> Uniformity {
+        Uniformity::Cube
+    }
+
+    fn entry_successor_region_uniformity(
+        &self,
+        _ctx: &Context,
+        _operands: &[Uniformity],
+    ) -> Vec<Uniformity> {
+        vec![Uniformity::Cube]
     }
 }
 
@@ -1236,4 +1510,14 @@ fn only_used_for_forward<T: Op>(
         return false;
     }
     uses[0].user_op() == term && uses[0].find_index(ctx) == idx
+}
+
+pub(crate) fn block_mem_val(
+    block: Ptr<BasicBlock>,
+    default_reaching_def: MemoryValue,
+    reaching_at_block_end: &HMap<Ptr<BasicBlock>, MemoryValue>,
+) -> (MemoryRegionPredecessor, MemoryValue) {
+    let block_reaching_def = reaching_at_block_end.get(&block).copied();
+    let block_reaching_def = block_reaching_def.unwrap_or(default_reaching_def);
+    (MemoryRegionPredecessor::Block(block), block_reaching_def)
 }

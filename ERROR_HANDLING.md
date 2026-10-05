@@ -34,10 +34,10 @@ a host copy — reads normally from then on, because it has a writer again.
 
 | | what it holds |
 |---|---|
-| [`Taint`](crates/cubecl-runtime/src/memory_management/taint.rs) | which byte ranges of one allocation are flagged, and by which failure |
-| [`ErrorGraph`](crates/cubecl-runtime/src/memory_management/error_graph.rs) | the errors themselves, refcounted by the allocations carrying them, plus the skip records that make a report a path |
-| [`Failures`](crates/cubecl-runtime/src/stream/failures.rs) | one store per device: the graph, and a pooled vector the scopes stage write sets in |
-| [`ExecuteScope`](crates/cubecl-runtime/src/stream/execute_scope.rs) | the only way a backend touches any of it |
+| [`Taint`](crates/cubecl-server/src/memory_management/taint.rs) | which byte ranges of one allocation are flagged, and by which failure |
+| [`ErrorGraph`](crates/cubecl-server/src/memory_management/error_graph.rs) | the errors themselves, refcounted by the allocations carrying them, plus the skip records that make a report a path |
+| [`Failures`](crates/cubecl-server/src/stream/failures.rs) | one store per device: the graph, and a pooled vector the scopes stage write sets in |
+| [`ExecuteScope`](crates/cubecl-server/src/stream/execute_scope.rs) | the only way a backend touches any of it |
 
 `Taint` holds ranges rather than a whole-allocation bit because the grain
 matters: a host write covering one row of a tensor must not clear the flag on
@@ -170,12 +170,47 @@ report-once, because clearing it is exactly how stale bytes would start
 reading clean again. Paths that hand back device data *without* awaiting a
 fence — `get_resource` returns a pointer — do not have this cover.
 
-**A stream survives the errors it reports.** Measured for allocation failure
-on gfx1151: the device serves the next request normally. **Not** measured for
-an illegal address, which on some hardware poisons the whole context; the
-experiment was skipped because provoking it means faulting the APU that drives
-the display. If that assumption is wrong, the honest state after such an error
-is every allocation on the device flagged, which nothing currently does.
+**A stream survives the errors it reports — unless the device is poisoned.**
+Measured for allocation failure on gfx1151: the device serves the next request
+normally. Measured for an illegal address on CUDA (sm_120): it does not. The
+fault poisons the whole context, and every later driver call — an event
+record, a copy, a module load — fails with the same status until the process
+exits. No bookkeeping here records that: the driver's own state is already the
+device-wide flag, and every sync point hears it from the first driver call it
+makes. What this layer owes is that each of those calls reports the poisoning
+instead of panicking, and says the device is poisoned:
+
+- a backend flags the driver statuses that poison the device
+  (`DriverError::poisoned`; for CUDA, `poisons_device` in `cubecl-cuda`'s
+  events module), and every error built from one becomes a `DevicePoisoned`
+  variant. The four error types each have one, because a poisoning fault can
+  surface from any call and the calls do not return the same error — but they
+  all carry the same payload;
+- `ServerError::is_device_poisoned` walks a report to its roots, the
+  counterpart of `is_refusal`: a refusal says drop the candidate, a poisoned
+  device says drop the device. A module load on a poisoned device is a
+  `CompilationError`, and it is
+  deliberately not a refusal — a rule `CompilationError::is_refusal` states,
+  where the variant it excludes is in scope. Both predicates delegate: each
+  error type answers for its own variants and calls its children's method for
+  theirs, rather than the top naming every nesting path. So a variant added to
+  one of them, or a new type nested inside it, cannot come out silently `false`;
+- a fence the driver refused to create holds the refusal and returns it from
+  its wait, rather than panicking on the server's thread.
+
+`crates/cubecl-cuda/tests/device_fault.rs` provokes one and checks all three.
+HIP flags the same statuses (`cubecl-hip`'s `status` module), and
+`crates/cubecl-hip/tests/device_fault.rs` checks them the same way.
+
+wgpu is the exception to "the driver is the flag". It bounds-checks every
+access, so a kernel cannot fault it; the device can only be lost outright,
+and wgpu says so once, through its device-lost callback — work submitted
+afterwards completes as if it ran. So `cubecl-wgpu` marks the device
+poisoned when that callback fires (`PoisonWatch`, one per device, shared by
+its streams) and every read and sync checks it. The same record keeps wgpu's panicking uncaptured-error handler
+from aborting the process once the device is gone: an unmap in a destructor
+errors then, and a panic there aborts. `crates/cubecl-wgpu/tests/device_poisoned.rs`
+loses the device with `Device::destroy` and checks both.
 
 **Some failures cannot be attributed.** A Metal command-buffer completion
 handler knows the staging temporaries and the event, never the outputs — so
@@ -189,10 +224,10 @@ coarse by necessity.
   cube count on the host, including that two workflows interleaved on one stream do
   not contaminate each other, that a read reports the root cause two hops down,
   and that a rewrite makes a stale buffer readable again.
-- `crates/cubecl-runtime/tests/taint_property.rs` — a randomised model check
+- `crates/cubecl-server/tests/taint_property.rs` — a randomised model check
   that a read returns bytes if and only if their last writer succeeded, plus
   the scope's own properties: a mid-launch panic leaves the set claimed, a
   partial host write releases only the bytes it covers, a skip mints no
   failure of its own.
-- `crates/cubecl-runtime/src/memory_management/error_graph.rs` — unit tests for
+- `crates/cubecl-server/src/memory_management/error_graph.rs` — unit tests for
   the refcount and the skip-path walk.

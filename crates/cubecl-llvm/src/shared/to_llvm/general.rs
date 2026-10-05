@@ -1,7 +1,4 @@
-use std::hash::{DefaultHasher, Hash, Hasher};
-
-use super::{constant::constant_op, prelude::*};
-use cubecl_core::ir::attributes::ZeroAttr;
+use crate::prelude::*;
 use cubecl_core::ir::dialect::{
     barrier::{
         ArriveAndExpectTxOp, ArriveAndWaitOp, ArriveOp, CommitCopyAsyncOp, ExpectTxOp, InitOp,
@@ -9,21 +6,13 @@ use cubecl_core::ir::dialect::{
     },
     general::{CastOp, CommentOp, CopyOp, FreeOp, PrintfOp, ReinterpretCastOp, SelectOp},
 };
-use pliron::{
-    builtin::{
-        attributes::BytesAttr,
-        op_interfaces::{CallOpCallable, SymbolOpInterface},
-        ops::ModuleOp,
-    },
-    identifier::Identifier,
-    symbol_table::SymbolTableCollection,
-};
 use pliron_llvm::{
-    attributes::LinkageAttr,
+    attributes::BytesAttr,
     function_call_utils::lookup_or_insert_function,
     ops::{FPExtOp, FPTruncOp},
     types::ArrayType,
 };
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 fn int_repr(ctx: &Context, ty: TypeHandle) -> Option<(u32, bool)> {
     let ty = ty.deref(ctx);
@@ -32,7 +21,7 @@ fn int_repr(ctx: &Context, ty: TypeHandle) -> Option<(u32, bool)> {
     } else if ty.is::<BoolType>() {
         Some((1, false))
     } else if ty.is::<IndexType>() {
-        Some((64, false))
+        Some((index_width(ctx), false))
     } else {
         None
     }
@@ -52,7 +41,7 @@ fn cast_int_to_int(
 
     let out_ty = cube_type_to_llvm(ctx, out_ty);
 
-    // Bool is `i1` by now; any non-zero integer is true, not its low bit.
+    // Any nonzero integer converts to true.
     if out_width == 1 && in_width > 1 {
         let zero = insert_zero(ctx, rewriter, input);
         let cmp = llvm::ICmpOp::new(ctx, ICmpPredicateAttr::NE, input, zero);
@@ -77,7 +66,6 @@ fn cast_int_to_int(
     Ok(())
 }
 
-/// A zero of `value`'s own type, vector or scalar, to compare it against.
 fn insert_zero(ctx: &mut Context, rewriter: &mut DialectConversionRewriter, value: Value) -> Value {
     let zero = constant_op(ctx, ZeroAttr::new(value.get_type(ctx)).into());
     rewriter.insert_op(ctx, &*zero.dyn_op(ctx));
@@ -94,7 +82,7 @@ fn cast_float_to_int(
     let input = cast_op.input(ctx);
     let old_op = cast_op.get_operation();
 
-    // Bool is any non-zero value, NaN included, not the truncated integer.
+    // Any nonzero float, including NaN, converts to true.
     if cast_op.result_type(ctx).scalar_ty(ctx).is_bool(ctx) {
         let zero = insert_zero(ctx, rewriter, input);
         let cmp = llvm::FCmpOp::new(ctx, FCmpPredicateAttr::UNE, input, zero);
@@ -129,7 +117,23 @@ fn cast_int_to_float(
         &llvm::UIToFPOp::new_with_nneg(ctx, input, res_ty, false)
     };
     rewriter.insert_op(ctx, op);
-    rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
+    let value = finish_float_cast(ctx, rewriter, cast_op, op.get_result(ctx));
+    rewriter.replace_operation_with_values(ctx, old_op, vec![value]);
+}
+
+fn finish_float_cast(
+    ctx: &mut Context,
+    rewriter: &mut DialectConversionRewriter,
+    cast_op: &CastOp,
+    value: Value,
+) -> Value {
+    #[cfg(feature = "nvptx")]
+    if ctx.target() == LlvmTarget::Nvptx && cast_op.result_type(ctx).scalar_ty(ctx).is_tfloat32(ctx)
+    {
+        return crate::nvptx::matrix::round_tf32(ctx, rewriter, value);
+    }
+    let _ = (ctx, rewriter, cast_op);
+    value
 }
 
 fn cast_float_to_float(
@@ -145,19 +149,19 @@ fn cast_float_to_float(
     let input_size = in_ty.size(ctx);
     let output_size = out_ty.size(ctx);
 
-    if input_size > output_size {
+    let value = if input_size > output_size {
         let op = FPTruncOp::new(ctx, input, res_ty);
         op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-        rewriter.insert_op(ctx, &op);
-        rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
+        insert(ctx, rewriter, &op)
     } else if input_size < output_size {
         let op = FPExtOp::new(ctx, input, res_ty);
         op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-        rewriter.insert_op(ctx, &op);
-        rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
+        insert(ctx, rewriter, &op)
     } else {
-        rewriter.replace_operation_with_values(ctx, old_op, vec![input]);
-    }
+        input
+    };
+    let value = finish_float_cast(ctx, rewriter, cast_op, value);
+    rewriter.replace_operation_with_values(ctx, old_op, vec![value]);
 }
 
 fn extract_elem_type(ctx: &Context, ty: TypeHandle) -> TypeHandle {
@@ -211,8 +215,6 @@ impl ToLLVMDialect for CastOp {
     }
 }
 
-/// A copy declares a new name for a value that keeps the same type, which SSA gives for free:
-/// every use of the result becomes a use of the copied value.
 #[op_interface_impl]
 impl ToLLVMDialect for CopyOp {
     fn rewrite(
@@ -227,8 +229,6 @@ impl ToLLVMDialect for CopyOp {
     }
 }
 
-/// LLVM pointers are opaque, so reinterpreting one is a change of type and nothing else. Any other
-/// value keeps its bit pattern across the two types, which is what a bitcast is.
 #[op_interface_impl]
 impl ToLLVMDialect for ReinterpretCastOp {
     fn rewrite(
@@ -277,12 +277,8 @@ impl ToLLVMDialect for SelectOp {
     }
 }
 
-/// The C library function a lowered [`PrintfOp`] calls. The JIT resolves it out of the host
-/// process, which is already linked against libc.
 const PRINTF: &str = "printf";
 
-/// Walk up from `op` to the [`ModuleOp`] it lives in, which is where the `printf` declaration
-/// and the format string globals go.
 fn parent_module(ctx: &Context, op: Ptr<Operation>) -> Option<ModuleOp> {
     let mut current = Some(op);
     while let Some(op) = current {
@@ -294,8 +290,6 @@ fn parent_module(ctx: &Context, op: Ptr<Operation>) -> Option<ModuleOp> {
     None
 }
 
-/// Get the module-level global holding `format_string`, creating it on first use. The name is
-/// derived from the contents, so kernels that print the same string share one global.
 fn lookup_or_insert_format_string(
     ctx: &mut Context,
     symbol_tables: &mut SymbolTableCollection,
@@ -313,7 +307,6 @@ fn lookup_or_insert_format_string(
         return Ok(name);
     }
 
-    // `printf` reads the format up to a NUL, so it has to be part of the initializer.
     let mut bytes = format_string.as_bytes().to_vec();
     bytes.push(0);
 
@@ -329,9 +322,7 @@ fn lookup_or_insert_format_string(
     Ok(name)
 }
 
-/// Apply the C default argument promotions to a value passed through `printf`'s ellipsis:
-/// floats narrower than `double` widen to `double`, integers narrower than `int` widen to
-/// `int`.
+/// Variadic C arguments require promotion to at least int or double.
 fn promote_vararg(
     ctx: &mut Context,
     rewriter: &mut DialectConversionRewriter,

@@ -11,10 +11,14 @@ use pliron::{
 };
 
 use crate::{
-    CanMaterialize, ConstantValue, NoMemoryEffect, NoSideEffects, Pure,
+    CanMaterialize, Commutative, ConstantValue, NoMemoryEffect, NoSideEffects,
+    PropagatesUniformity, Pure,
     attributes::{BoolAttr, FloatAttr, IndexAttr, IntAttrExt},
     dialect::{pure_binop, pure_unop},
-    interfaces::{TriviallyUnrollable, TypedExt},
+    interfaces::{
+        Expression, ExpressionCanonicalize, ExpressionValue, TriviallyUnrollable, TypedExt,
+        side_effects::{ConditionallySpeculatable, Speculatability},
+    },
     prelude::*,
     types::{VectorType, scalar::BoolType},
 };
@@ -199,7 +203,7 @@ const_eval!(FNegOp, {
 #[cube_op(name = "math.is_nan")]
 #[result_ty(from_inputs = pred_result_ty)]
 #[op_interfaces(TriviallyUnrollable)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct IsNanOp {
     pub input: Value,
 }
@@ -210,7 +214,7 @@ const_eval!(IsNanOp, {
 #[cube_op(name = "math.is_inf")]
 #[result_ty(from_inputs = pred_result_ty)]
 #[op_interfaces(TriviallyUnrollable)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct IsInfOp {
     pub input: Value,
 }
@@ -229,25 +233,23 @@ fn pred_result_ty(ctx: &Context, input: &Value) -> TypeHandle {
 }
 
 pure_binop!("math.i_add", IAddOp);
+Commutative!(IAddOp);
 const_eval!(IAddOp, {
     [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs.wrapping_add(rhs),
 });
 simplify!(IAddOp, {
-    |lhs, _| match lhs?.as_const_val(ctx) {
-        ConstantValue::Int(0) | ConstantValue::UInt(0) => {
-            Some(self.rhs(ctx))
-        }
-        _ => None?,
+    |lhs, _| match lhs?.as_int(ctx)?.is_zero() {
+        true => Some(self.rhs(ctx)),
+        _ => None,
     },
-    |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::Int(0) | ConstantValue::UInt(0) => {
-            Some(self.lhs(ctx))
-        }
-        _ => None?,
+    |_, rhs| match rhs?.as_int(ctx)?.is_zero() {
+        true => Some(self.lhs(ctx)),
+        _ => None,
     }
 });
 
 pure_binop!("math.f_add", FAddOp);
+Commutative!(FAddOp);
 const_eval!(FAddOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs + rhs
 });
@@ -263,61 +265,65 @@ simplify!(FAddOp, {
 });
 
 pure_binop!("math.saturating_s_add", SaturatingSAddOp);
+Commutative!(SaturatingSAddOp);
 const_eval!(SaturatingSAddOp, {
     [IntegerAttr(i8, i16, i32, i64)]: |lhs, rhs| lhs.saturating_add(rhs)
 });
 simplify!(SaturatingSAddOp, {
-    |lhs, _| match lhs?.as_const_val(ctx) {
-        ConstantValue::Int(0) => Some(self.rhs(ctx)),
-        _ => None?,
+    |lhs, _| match lhs?.as_int(ctx)?.is_zero() {
+        true => Some(self.rhs(ctx)),
+        false => None,
     },
-    |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::Int(0) => Some(self.lhs(ctx)),
-        _ => None?,
+    |_, rhs| match rhs?.as_int(ctx)?.is_zero() {
+        true => Some(self.lhs(ctx)),
+        false => None,
     }
 });
 
 pure_binop!("math.saturating_u_add", SaturatingUAddOp);
+Commutative!(SaturatingUAddOp);
 const_eval!(SaturatingUAddOp, {
     [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs.saturating_add(rhs)
 });
 simplify!(SaturatingUAddOp, {
-    |lhs, _| match lhs?.as_const_val(ctx) {
-        ConstantValue::UInt(0) => Some(self.rhs(ctx)),
-        _ => None?,
+    |lhs, _| match lhs?.as_int(ctx)?.is_zero() {
+        true => Some(self.rhs(ctx)),
+        false => None,
     },
-    |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::UInt(0) => Some(self.lhs(ctx)),
-        _ => None?,
+    |_, rhs| match rhs?.as_int(ctx)?.is_zero() {
+        true => Some(self.lhs(ctx)),
+        false => None,
     }
 });
 
 pure_binop!("math.i_sub", ISubOp);
 const_eval!(ISubOp, {
     [IndexAttr, IntegerAttr(i8, i16, i32, i64), IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs.wrapping_sub(rhs),
-    // x - x -> 0
+    // x - x -> 0. Only for one lane: `int_attr` carries no vectorization.
     custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            Some(int_attr(ctx, self.result_type(ctx), 0))
+        let result = self.get_result(ctx);
+        if self.lhs(ctx) == self.rhs(ctx) && result.vector_size(ctx) == 1 {
+            Some(int_attr(ctx, result.get_type(ctx), 0))
         } else {
             None
         }
     }
 });
 simplify!(ISubOp, {
-    |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::Int(0) | ConstantValue::UInt(0) => Some(self.lhs(ctx)),
-        _ => None?,
+    |_, rhs| match rhs?.as_int(ctx)?.is_zero() {
+        true => Some(self.lhs(ctx)),
+        false => None,
     }
 });
 
 pure_binop!("math.f_sub", FSubOp);
 const_eval!(FSubOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs - rhs,
-    // x - x -> 0
+    // x - x -> 0. Only for one lane: `float_attr` carries no vectorization.
     custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            Some(float_attr(ctx, self.result_type(ctx), 0.0))
+        let result = self.get_result(ctx);
+        if self.lhs(ctx) == self.rhs(ctx) && result.vector_size(ctx) == 1 {
+            Some(float_attr(ctx, result.get_type(ctx), 0.0))
         } else {
             None
         }
@@ -335,9 +341,9 @@ const_eval!(SaturatingSSubOp, {
     [IntegerAttr(i8, i16, i32, i64)]: |lhs, rhs| lhs.saturating_sub(rhs)
 });
 simplify!(SaturatingSSubOp, {
-    |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::Int(0) => Some(self.lhs(ctx)),
-        _ => None?,
+    |_, rhs| match rhs?.as_int(ctx)?.is_zero() {
+        true => Some(self.lhs(ctx)),
+        false => None,
     }
 });
 
@@ -346,22 +352,20 @@ const_eval!(SaturatingUSubOp, {
     [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs.saturating_sub(rhs)
 });
 simplify!(SaturatingUSubOp, {
-    |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::UInt(0) => Some(self.lhs(ctx)),
-        _ => None?,
+    |_, rhs| match rhs?.as_int(ctx)?.is_zero() {
+        true => Some(self.lhs(ctx)),
+        false => None,
     }
 });
 
 pure_binop!("math.i_mul", IMulOp);
+Commutative!(IMulOp);
 const_eval!(IMulOp, {
     [IndexAttr, IntegerAttr(i8, i16, i32, i64), IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs.wrapping_mul(rhs),
     // 0 * x -> 0; x * 0 -> 0
-    custom: |lhs, rhs| {
-        let const_val = lhs.or(rhs)?;
-        Some(match const_val.as_const_val(ctx) {
-            ConstantValue::Int(0) | ConstantValue::UInt(0) => int_attr(ctx, const_val.get_type(ctx), 0),
-            _ => None?
-        })
+    custom: |lhs, rhs| match lhs.or(rhs)?.as_int(ctx)?.is_zero() {
+        true => Some(int_attr(ctx, self.result_type(ctx), 0)),
+        false => None?
     }
 });
 simplify!(IMulOp, {
@@ -380,6 +384,7 @@ simplify!(IMulOp, {
 });
 
 pure_binop!("math.f_mul", FMulOp);
+Commutative!(FMulOp);
 const_eval!(FMulOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs * rhs,
     // 0 * x -> 0; x * 0 -> 0
@@ -405,7 +410,7 @@ simplify!(FMulOp, {
 #[cube_op(name = "math.s_div")]
 #[result_ty(same_as = lhs)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
-#[op_traits(CanMaterialize, NoSideEffects, NoMemoryEffect)] // Not pure because divide by zero
+#[op_traits(CanMaterialize, NoSideEffects, NoMemoryEffect, PropagatesUniformity)] // Not pure because divide by zero
 pub struct SDivOp {
     pub lhs: Value,
     pub rhs: Value,
@@ -413,11 +418,9 @@ pub struct SDivOp {
 const_eval!(SDivOp, {
     [IntegerAttr(i8, i16, i32, i64)]: |lhs, rhs| lhs.wrapping_div(rhs),
     // 0 / x -> 0
-    custom: |lhs, _| {
-        Some(match lhs?.as_const_val(ctx) {
-            ConstantValue::Int(0) => int_attr(ctx, lhs?.get_type(ctx), 0),
-            _ => None?
-        })
+    custom: |lhs, _| match lhs?.as_int(ctx)?.is_zero() {
+        true => Some(int_attr(ctx, self.result_type(ctx), 0)),
+        false => None
     },
     // x / x -> 1. Only for one lane: `int_attr` carries no vectorization either.
     custom: |_, _| {
@@ -436,10 +439,24 @@ simplify!(SDivOp, {
     }
 });
 
+#[op_interface_impl]
+impl ConditionallySpeculatable for SDivOp {
+    fn speculatability(&self, ctx: &Context) -> Speculatability {
+        let Some(const_val) = const_operand::<IntegerAttr>(ctx, self.get_operation(), 1) else {
+            return Speculatability::NotSpeculatable;
+        };
+        if const_val.value().is_zero() || const_val.value().to_i128() == -1 {
+            Speculatability::NotSpeculatable
+        } else {
+            Speculatability::Speculatable
+        }
+    }
+}
+
 #[cube_op(name = "math.u_div")]
 #[result_ty(same_as = lhs)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
-#[op_traits(CanMaterialize, NoSideEffects, NoMemoryEffect)] // Not pure because divide by zero
+#[op_traits(CanMaterialize, NoSideEffects, NoMemoryEffect, PropagatesUniformity)] // Not pure because divide by zero
 pub struct UDivOp {
     pub lhs: Value,
     pub rhs: Value,
@@ -447,11 +464,9 @@ pub struct UDivOp {
 const_eval!(UDivOp, {
     [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs.wrapping_div(rhs),
     // 0 / x -> 0
-    custom: |lhs, _| {
-        Some(match lhs?.as_const_val(ctx) {
-            ConstantValue::UInt(0) => int_attr(ctx, lhs?.get_type(ctx), 0),
-            _ => None?
-        })
+    custom: |lhs, _| match lhs?.as_int(ctx)?.is_zero() {
+        true => Some(int_attr(ctx, lhs?.get_type(ctx), 0)),
+        false => None
     },
     // x / x -> 1. Only for one lane: `int_attr` carries no vectorization either.
     custom: |_, _| {
@@ -469,6 +484,20 @@ simplify!(UDivOp, {
         _ => None?,
     }
 });
+
+#[op_interface_impl]
+impl ConditionallySpeculatable for UDivOp {
+    fn speculatability(&self, ctx: &Context) -> Speculatability {
+        let Some(const_val) = const_operand::<IntegerAttr>(ctx, self.get_operation(), 1) else {
+            return Speculatability::NotSpeculatable;
+        };
+        if const_val.value().is_zero() {
+            Speculatability::NotSpeculatable
+        } else {
+            Speculatability::Speculatable
+        }
+    }
+}
 
 pure_binop!("math.f_div", FDivOp);
 const_eval!(FDivOp, {
@@ -500,7 +529,7 @@ const_eval!(PowfOp, {
 
 #[cube_op(name = "math.powi")]
 #[result_ty(same_as = lhs)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct PowiOp {
     pub lhs: Value,
     pub rhs: Value,
@@ -509,11 +538,13 @@ pub struct PowiOp {
 // TODO const_eval
 
 pure_binop!("math.hypot", HypotOp);
+Commutative!(HypotOp);
 const_eval!(HypotOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs.hypot(rhs),
 });
 
 pure_binop!("math.rhypot", RhypotOp);
+Commutative!(RhypotOp);
 const_eval!(RhypotOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs.hypot(rhs).recip(),
 });
@@ -521,7 +552,7 @@ const_eval!(RhypotOp, {
 #[cube_op(name = "math.s_rem")]
 #[result_ty(same_as = lhs)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
-#[op_traits(CanMaterialize, NoSideEffects, NoMemoryEffect)] // Not pure because divide by zero
+#[op_traits(CanMaterialize, NoSideEffects, NoMemoryEffect, PropagatesUniformity)] // Not pure because divide by zero
 pub struct SRemOp {
     pub lhs: Value,
     pub rhs: Value,
@@ -529,18 +560,14 @@ pub struct SRemOp {
 const_eval!(SRemOp, {
     [IntegerAttr(i8, i16, i32, i64)]: |lhs, rhs| lhs % rhs,
     // 0 % x -> 0
-    custom: |lhs, _| {
-        Some(match lhs?.as_const_val(ctx) {
-            ConstantValue::Int(0) => int_attr(ctx, lhs?.get_type(ctx), 0),
-            _ => None?
-        })
+    custom: |lhs, _| match lhs?.as_const_val(ctx) {
+        ConstantValue::Int(0) => Some(int_attr(ctx, lhs?.get_type(ctx), 0)),
+        _ => None
     },
     // x % 1 -> 0
-    custom: |_, rhs| {
-        Some(match rhs?.as_const_val(ctx) {
-            ConstantValue::Int(1) => int_attr(ctx, rhs?.get_type(ctx), 0),
-            _ => None?
-        })
+    custom: |_, rhs| match rhs?.as_const_val(ctx) {
+        ConstantValue::Int(1) => Some(int_attr(ctx, rhs?.get_type(ctx), 0)),
+        _ => None
     }
 });
 simplify!(SRemOp, {
@@ -550,10 +577,24 @@ simplify!(SRemOp, {
     }
 });
 
+#[op_interface_impl]
+impl ConditionallySpeculatable for SRemOp {
+    fn speculatability(&self, ctx: &Context) -> Speculatability {
+        let Some(const_val) = const_operand::<IntegerAttr>(ctx, self.get_operation(), 1) else {
+            return Speculatability::NotSpeculatable;
+        };
+        if const_val.value().is_zero() || const_val.value().to_i128() == -1 {
+            Speculatability::NotSpeculatable
+        } else {
+            Speculatability::Speculatable
+        }
+    }
+}
+
 #[cube_op(name = "math.u_rem")]
 #[result_ty(same_as = lhs)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
-#[op_traits(CanMaterialize, NoSideEffects, NoMemoryEffect)] // Not pure because divide by zero
+#[op_traits(CanMaterialize, NoSideEffects, NoMemoryEffect, PropagatesUniformity)] // Not pure because divide by zero
 pub struct URemOp {
     pub lhs: Value,
     pub rhs: Value,
@@ -561,18 +602,14 @@ pub struct URemOp {
 const_eval!(URemOp, {
     [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs % rhs,
     // 0 % x -> 0
-    custom: |lhs, _| {
-        Some(match lhs?.as_const_val(ctx) {
-            ConstantValue::UInt(0) => int_attr(ctx, lhs?.get_type(ctx), 0),
-            _ => None?
-        })
+    custom: |lhs, _| match lhs?.as_const_val(ctx) {
+        ConstantValue::UInt(0) => Some(int_attr(ctx, lhs?.get_type(ctx), 0)),
+        _ => None
     },
     // x % 1 -> 0
-    custom: |_, rhs| {
-        Some(match rhs?.as_const_val(ctx) {
-            ConstantValue::UInt(1) => int_attr(ctx, rhs?.get_type(ctx), 0),
-            _ => None?
-        })
+    custom: |_, rhs| match rhs?.as_const_val(ctx) {
+        ConstantValue::UInt(1) => Some(int_attr(ctx, rhs?.get_type(ctx), 0)),
+        _ => None
     }
 });
 simplify!(URemOp, {
@@ -582,15 +619,27 @@ simplify!(URemOp, {
     }
 });
 
+#[op_interface_impl]
+impl ConditionallySpeculatable for URemOp {
+    fn speculatability(&self, ctx: &Context) -> Speculatability {
+        let Some(const_val) = const_operand::<IntegerAttr>(ctx, self.get_operation(), 1) else {
+            return Speculatability::NotSpeculatable;
+        };
+        if const_val.value().is_zero() {
+            Speculatability::NotSpeculatable
+        } else {
+            Speculatability::Speculatable
+        }
+    }
+}
+
 pure_binop!("math.f_rem", FRemOp);
 const_eval!(FRemOp, {
     [FloatAttr(f16, bf16, f32, f64)]: |lhs, rhs| lhs % rhs,
     // 0 % x -> 0
-    custom: |lhs, _| {
-        Some(match lhs?.float_as_f64(ctx) {
-            Some(0.0) => float_attr(ctx, lhs?.get_type(ctx), 0.0),
-            _ => None?
-        })
+    custom: |lhs, _| match lhs?.float_as_f64(ctx) {
+        Some(0.0) => Some(float_attr(ctx, lhs?.get_type(ctx), 0.0)),
+        _ => None
     },
 });
 simplify!(FRemOp, {
@@ -600,10 +649,12 @@ simplify!(FRemOp, {
     }
 });
 
+/// Signed floor modulo. A nonzero result has the same sign as the divisor.
+/// Division by zero and `MIN mod_floor -1` have no portable result or error guarantee.
 #[cube_op(name = "math.s_mod_floor")]
 #[result_ty(same_as = lhs)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
-#[op_traits(CanMaterialize, NoSideEffects, NoMemoryEffect)] // Not pure because divide by zero
+#[op_traits(CanMaterialize, NoSideEffects, NoMemoryEffect, PropagatesUniformity)] // Not pure because divide by zero
 pub struct SModFloorOp {
     pub lhs: Value,
     pub rhs: Value,
@@ -611,44 +662,50 @@ pub struct SModFloorOp {
 const_eval!(SModFloorOp, {
     IntegerAttr(i8, i16, i32, i64): |lhs, rhs| lhs.mod_floor(&rhs),
     // 0 % x -> 0
-    custom: |lhs, _| {
-        Some(match lhs?.as_const_val(ctx) {
-            ConstantValue::Int(0) => int_attr(ctx, lhs?.get_type(ctx), 0),
-            _ => None?
-        })
+    custom: |lhs, _| match lhs?.as_const_val(ctx) {
+        ConstantValue::Int(0) => Some(int_attr(ctx, lhs?.get_type(ctx), 0)),
+        _ => None?
     },
     // x % 1 -> 0
-    custom: |_, rhs| {
-        Some(match rhs?.as_const_val(ctx) {
-            ConstantValue::Int(1) => int_attr(ctx, rhs?.get_type(ctx), 0),
-            _ => None?
-        })
+    custom: |_, rhs| match rhs?.as_const_val(ctx) {
+        ConstantValue::Int(1) => Some(int_attr(ctx, rhs?.get_type(ctx), 0)),
+        _ => None?
     }
 });
+
+#[op_interface_impl]
+impl ConditionallySpeculatable for SModFloorOp {
+    fn speculatability(&self, ctx: &Context) -> Speculatability {
+        let Some(const_val) = const_operand::<IntegerAttr>(ctx, self.get_operation(), 1) else {
+            return Speculatability::NotSpeculatable;
+        };
+        if const_val.value().is_zero() {
+            Speculatability::NotSpeculatable
+        } else {
+            Speculatability::Speculatable
+        }
+    }
+}
 
 pure_binop!("math.f_mod_floor", FModFloorOp);
 const_eval!(FModFloorOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs - (lhs / rhs).floor() * rhs,
     // 0 % x -> 0
-    custom: |lhs, _| {
-        Some(match lhs?.float_as_f64(ctx) {
-            Some(0.0) => float_attr(ctx, lhs?.get_type(ctx), 0.0),
-            _ => None?
-        })
+    custom: |lhs, _| match lhs?.float_as_f64(ctx) {
+        Some(0.0) => Some(float_attr(ctx, lhs?.get_type(ctx), 0.0)),
+        _ => None?
     },
 });
 
 pure_binop!("math.s_mul_hi", SMulHiOp);
+Commutative!(SMulHiOp);
 const_eval!(SMulHiOp, {
     IntegerAttr(i64): |lhs, rhs| ((lhs as i128 * rhs as i128) >> 64) as i64,
     IntegerAttr(i32): |lhs, rhs| ((lhs as i64 * rhs as i64) >> 32) as i32,
     // 0 * x -> 0; x * 0 -> 0
-    custom: |lhs, rhs| {
-        let const_val = lhs.or(rhs)?;
-        Some(match const_val.as_const_val(ctx) {
-            ConstantValue::Int(0) => int_attr(ctx, const_val.get_type(ctx), 0),
-            _ => None?
-        })
+    custom: |lhs, rhs| match lhs.or(rhs)?.as_const_val(ctx) {
+        ConstantValue::Int(0) => Some(int_attr(ctx, self.result_type(ctx), 0)),
+        _ => None?
     }
 });
 simplify!(SMulHiOp, {
@@ -663,17 +720,15 @@ simplify!(SMulHiOp, {
 });
 
 pure_binop!("math.u_mul_hi", UMulHiOp);
+Commutative!(UMulHiOp);
 const_eval!(UMulHiOp, {
     IndexAttr: |lhs, rhs| ((lhs as u128 * rhs as u128) >> 64) as usize,
     IntegerAttr(u64): |lhs, rhs| ((lhs as u128 * rhs as u128) >> 64) as u64,
     IntegerAttr(u32): |lhs, rhs| ((lhs as u64 * rhs as u64) >> 32) as u32,
     // 0 * x -> 0; x * 0 -> 0
-    custom: |lhs, rhs| {
-        let const_val = lhs.or(rhs)?;
-        Some(match const_val.as_const_val(ctx) {
-            ConstantValue::UInt(0) => int_attr(ctx, const_val.get_type(ctx), 0),
-            _ => None?
-        })
+    custom: |lhs, rhs| match lhs.or(rhs)?.as_const_val(ctx) {
+        ConstantValue::UInt(0) => Some(int_attr(ctx, self.result_type(ctx), 0)),
+        _ => None?
     }
 });
 simplify!(UMulHiOp, {
@@ -709,7 +764,7 @@ pub(super) fn float_attr(ctx: &Context, ty: TypeHandle, val: f64) -> AttrObj {
 #[cube_op(name = "math.fma")]
 #[result_ty(same_as = a)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct FmaOp {
     pub a: Value,
     pub b: Value,
@@ -718,6 +773,25 @@ pub struct FmaOp {
 const_eval!(FmaOp, {
     FloatAttr(f16, bf16, f32, f64): |a, b, c| a * b + c,
 });
+
+#[op_interface_impl]
+impl ExpressionCanonicalize for FmaOp {
+    fn canonical_expression(
+        &self,
+        ctx: &Context,
+        mut operands: Vec<ExpressionValue>,
+    ) -> Expression {
+        if operands[0] > operands[1] {
+            operands.swap(0, 1)
+        }
+        Expression::new(
+            self.result_type(ctx),
+            Self::get_opid_static(),
+            operands,
+            Default::default(),
+        )
+    }
+}
 
 /// Dot product of four packed signed 8-bit integers, plus an `i32` accumulator.
 #[cube_op(name = "math.dp4a")]
@@ -732,6 +806,25 @@ pub struct Dp4aOp {
 const_eval!(Dp4aOp, {
     IntegerAttr(i32): |a, b, c| dp4a_const(a, b, c),
 });
+
+#[op_interface_impl]
+impl ExpressionCanonicalize for Dp4aOp {
+    fn canonical_expression(
+        &self,
+        ctx: &Context,
+        mut operands: Vec<ExpressionValue>,
+    ) -> Expression {
+        if operands[0] > operands[1] {
+            operands.swap(0, 1)
+        }
+        Expression::new(
+            self.result_type(ctx),
+            Self::get_opid_static(),
+            operands,
+            Default::default(),
+        )
+    }
+}
 
 fn dp4a_const(a: i32, b: i32, c: i32) -> i32 {
     let byte = |value: i32, shift: u32| ((value as u32 >> shift) as u8) as i8 as i32;

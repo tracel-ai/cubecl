@@ -1,10 +1,11 @@
-//! What the shared [`Command`](cubecl_runtime::command::Command) cannot do
+//! What the shared [`Command`](cubecl_server::command::Command) cannot do
 //! itself: HIP's four device calls, and where a HIP stream keeps the state
 //! they move in step with.
 
 use crate::compute::context::HipContext;
 use crate::compute::events::Fence;
 use crate::compute::gpu::GpuResource;
+use crate::compute::status::checked;
 use crate::compute::storage::cpu::PinnedMemoryStorage;
 use crate::compute::storage::gpu::GpuStorage;
 use crate::compute::stream::{HipStreamBackend, Stream};
@@ -12,15 +13,14 @@ use cubecl_common::bytes::Bytes;
 use cubecl_hip_sys::{
     hipMemcpyKind_hipMemcpyDeviceToHost, hipMemcpyKind_hipMemcpyHostToDevice, ihipStream_t,
 };
-use cubecl_runtime::command::{CopyLayout, DeviceStream, Driver};
-use cubecl_runtime::driver::checked;
-use cubecl_runtime::id::KernelId;
-use cubecl_runtime::memory_management::drop_queue::PendingDropQueue;
-use cubecl_runtime::memory_management::{ManagedMemoryBinding, MemoryManagement};
-use cubecl_runtime::metadata_cache::MetadataInfoCache;
-use cubecl_runtime::server::{Handle, IoError, LaunchError};
-use cubecl_runtime::storage::PinnedMemoryAllocController;
-use cubecl_runtime::stream::StreamCapture;
+use cubecl_server::command::{CopyLayout, DeviceStream, Driver};
+use cubecl_server::id::KernelId;
+use cubecl_server::memory_management::drop_queue::PendingDropQueue;
+use cubecl_server::memory_management::{ManagedMemoryBinding, MemoryManagement};
+use cubecl_server::metadata_cache::MetadataInfoCache;
+use cubecl_server::server::{Handle, IoError, LaunchError};
+use cubecl_server::storage::PinnedMemoryAllocController;
+use cubecl_server::stream::StreamCapture;
 
 impl DeviceStream for Stream {
     type Fence = Fence;
@@ -68,7 +68,7 @@ impl Driver for Hip {
 
     unsafe fn pinned_bytes(
         binding: ManagedMemoryBinding,
-        resource: <PinnedMemoryStorage as cubecl_runtime::storage::ComputeStorage>::Resource,
+        resource: <PinnedMemoryStorage as cubecl_server::storage::ComputeStorage>::Resource,
         size: usize,
     ) -> Bytes {
         let controller =
@@ -185,6 +185,20 @@ impl Driver for Hip {
             backtrace: cubecl_environment::backtrace::BackTrace::capture(),
         })?;
         Ok(())
+    }
+
+    unsafe fn copy_on_device(
+        source: &GpuResource,
+        target: &GpuResource,
+        queue: <Stream as DeviceStream>::Signal,
+    ) -> Result<(), IoError> {
+        debug_assert_eq!(source.size, target.size);
+        // SAFETY: the caller guarantees two live, same-sized, disjoint device
+        // allocations left alone until the stream is synchronized.
+        let status = unsafe {
+            cubecl_hip_sys::hipMemcpyDtoDAsync(target.ptr, source.ptr, source.size as usize, queue)
+        };
+        Ok(checked("hipMemcpyDtoDAsync", status)?)
     }
 
     fn launch(

@@ -183,7 +183,17 @@ impl LowerOp for PowiOp {
 
 lower_binop!(HypotOp, hypot);
 lower_binop!(RhypotOp, rhypot);
-lower_binop!(SModFloorOp, s_mod_floor);
+#[op_interface_impl]
+impl LowerOp for SModFloorOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ctx = scope.ctx();
+        vec![cubecl_core::frontend::polyfills::expand_signed_mod_floor(
+            scope,
+            self.lhs(ctx),
+            self.rhs(ctx),
+        )]
+    }
+}
 lower_binop!(FModFloorOp, f_mod_floor);
 
 lower_unop!(TanhOp, safe_tanh, |_, _| cfg!(target_os = "macos"));
@@ -251,12 +261,6 @@ fn abs_and_inf_bits<F: Float, N: Size>(x: Vector<F, N>) -> (Vector<UInt, N>, Vec
     let inf_bits = Vector::new(UInt::from_int(inf_bits));
     let abs_bits = bits & Vector::new(UInt::from_int(abs_mask));
     (abs_bits, inf_bits)
-}
-
-#[cube]
-fn s_mod_floor<I: Int, N: Size>(lhs: Vector<I, N>, rhs: Vector<I, N>) -> Vector<I, N> {
-    let floored = (Vector::<f32, N>::cast_from(lhs) / Vector::<f32, N>::cast_from(rhs)).floor();
-    lhs - rhs * Vector::cast_from(floored)
 }
 
 #[cube]

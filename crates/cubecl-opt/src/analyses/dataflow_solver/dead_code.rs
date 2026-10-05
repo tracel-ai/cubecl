@@ -8,7 +8,7 @@ use cubecl_ir::{
         ReturnLike,
         control_flow::{
             CallableOpInterface, RegionBranchOpInterface, RegionBranchTerminatorOpInterface,
-            RegionSuccessor,
+            RegionSuccessor, SymbolOpInterface,
         },
     },
     prelude::*,
@@ -21,17 +21,22 @@ use pliron::{
     basic_block::BasicBlock,
     dyn_clone,
     graph::{ControlFlowGraph, HasLabel},
+    indented_block,
     linked_list::ContainsLinkedList,
+    operation::OpDbg,
     opts::constants::BranchOpFoldInterface,
-    printable::Printable,
+    printable::{Printable, indented_nl},
     symbol_table::SymbolTableCollection,
     utils::table::{ISet, SmallSet},
 };
 use smallvec::SmallVec;
 
-use crate::analyses::dataflow_solver::{
-    AnalysisState, ChangeResult, DataflowAnalysis, ProgramPoint, SolverWorkItem,
-    sccp::{ConstantLattice, ConstantValue, SparseConstantPropagationAnalysis},
+use crate::analyses::{
+    dataflow_solver::{
+        AnalysisState, ChangeResult, DataflowAnalysis, ProgramPoint, SolverWorkItem,
+        sccp::{ConstantLattice, ConstantValue, SparseConstantPropagationAnalysis},
+    },
+    symbol_table::walk_symbol_tables,
 };
 
 use super::DataflowSolver;
@@ -126,6 +131,19 @@ impl Executable {
     }
 }
 
+pub fn is_block_live<A: 'static>(
+    solver: &DataflowSolver,
+    ctx: &Context,
+    point: ProgramPoint,
+) -> bool {
+    let Some(block) = point.block() else {
+        return true;
+    };
+    let executable = solver
+        .get_or_create_for::<A, Executable>(point, ProgramPoint::at_block_start(ctx, block).into());
+    executable.deref().is_live()
+}
+
 impl AnalysisState for Executable {
     type Anchor = ControlFlowAnchor;
 
@@ -184,26 +202,36 @@ impl Printable for PredecessorState {
     fn fmt(
         &self,
         ctx: &Context,
-        _state: &pliron::printable::State,
+        state: &pliron::printable::State,
         f: &mut core::fmt::Formatter<'_>,
     ) -> core::fmt::Result {
-        write!(
-            f,
-            "{}: PredecessorState(all_known: {}, known_predecessors: [{}], successor_inputs: {{{}}})",
-            self.anchor.disp(ctx),
-            self.all_known,
-            self.known_predecessors
-                .iter()
-                .map(|it| it.disp(ctx).to_string())
-                .join(", "),
-            self.successor_inputs
-                .iter()
-                .map(|(op, values)| {
-                    let values = values.iter().map(|it| it.disp(ctx).to_string()).join(", ");
-                    alloc::format!("{}: [{}]", op.disp(ctx), values)
-                })
-                .join(", ")
-        )
+        write!(f, "{}: PredecessorState(", self.anchor.disp(ctx))?;
+        indented_block!(state, {
+            write!(f, "{}", indented_nl(state))?;
+            write!(f, "all_known: {},", self.all_known)?;
+            write!(f, "{}", indented_nl(state))?;
+            write!(
+                f,
+                "known_predecessors: [{}],",
+                self.known_predecessors
+                    .iter()
+                    .map(|&op| OpDbg { op, ctx })
+                    .join(", "),
+            )?;
+            write!(f, "{}", indented_nl(state))?;
+            write!(
+                f,
+                "successor_inputs: {{{}}}",
+                self.successor_inputs
+                    .iter()
+                    .map(|(&op, values)| {
+                        let values = values.iter().map(|it| it.disp(ctx).to_string()).join(", ");
+                        alloc::format!("{}: [{}]", OpDbg { op, ctx }, values)
+                    })
+                    .join(", ")
+            )?;
+        });
+        write!(f, "{})", indented_nl(state))
     }
 }
 
@@ -290,11 +318,13 @@ impl DeadCodeAnalysis {
         root: Ptr<Operation>,
     ) {
         self.analysis_scope = Some(root);
-        visit_all_ops_with_interface::<dyn SymbolTableInterface, _>(
+        let all_uses_visible = root.deref(ctx).get_parent_block().is_none();
+        walk_symbol_tables(
             ctx,
             &mut (self, solver),
             root,
-            |ctx, (this, solver), symbol_table| {
+            all_uses_visible,
+            |ctx, (this, solver), symbol_table, all_uses_visible| {
                 this.symbol_table
                     .borrow_mut()
                     .get_symbol_table(ctx, dyn_clone::clone_box(symbol_table));
@@ -307,15 +337,16 @@ impl DeadCodeAnalysis {
                     let Some(_callable_region) = callable.callable_region(ctx) else {
                         continue;
                     };
-                    let Some(_symbol) = op_cast::<dyn SymbolOpInterface>(callable.dyn_op()) else {
+                    let Some(symbol) = op_cast::<dyn SymbolOpInterface>(callable.dyn_op()) else {
                         continue;
                     };
 
-                    // All symbols are currently considered public in Pliron. This should be more
-                    // fine-grained eventually, but since symbols are currently only resolved in
-                    // the symbol table's nested scope we don't need to exclude anything.
-                    // If symbols ever become globally visible then globally-visible symbols must
-                    // be considered as having unknown predecessors.
+                    if symbol.is_public(ctx) || (!all_uses_visible && symbol.is_nested(ctx)) {
+                        let state = solver.get_or_create_mut::<PredecessorState>(
+                            ProgramPoint::after_op(ctx, callable.get_operation()),
+                        );
+                        solver.update_state(ctx, &state, |it| it.set_has_unknown_predecessors());
+                    }
                     found_symbol_callable = true;
                 }
 
@@ -327,7 +358,7 @@ impl DeadCodeAnalysis {
                     .ops_with_interface::<dyn SymbolUserOpInterface>(ctx)
                     .flat_map(|user| {
                         let symbols = user.used_symbols(ctx);
-                        symbols.into_iter().map(move |sym| (user.clone(), sym))
+                        symbols.into_iter().map(move |sym| (user, sym))
                     });
                 for (user, used) in uses {
                     if op_impls::<dyn CallOpInterface>(user.dyn_op()) {
@@ -347,7 +378,7 @@ impl DeadCodeAnalysis {
 
     pub fn initialize_recursively(
         &self,
-        solver: &mut DataflowSolver,
+        solver: &DataflowSolver,
         ctx: &Context,
         op: Ptr<Operation>,
     ) -> Result<()> {
@@ -602,7 +633,7 @@ impl DataflowAnalysis for DeadCodeAnalysis {
 
     fn initialize(
         &mut self,
-        solver: &mut DataflowSolver,
+        solver: &DataflowSolver,
         ctx: &Context,
         root: Ptr<Operation>,
     ) -> Result<()> {

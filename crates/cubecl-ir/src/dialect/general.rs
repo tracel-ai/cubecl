@@ -13,13 +13,18 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    Builtin, CanMaterialize, ConstantValue, Pure,
+    Builtin, CanMaterialize, Commutative, ConstantValue, HasSideEffects, NoMemoryEffect,
+    PropagatesUniformity, Pure,
     attributes::{BoolAttr, IndexAttr},
     dialect::{
         math::{index_attr, int_attr},
         pure_binop, pure_unop,
     },
-    interfaces::{ScalarType, TriviallyUnrollable, TypedExt, aliasing::AliasingOp},
+    interfaces::{
+        ScalarType, TriviallyUnrollable, TypedExt,
+        aliasing::AliasingOp,
+        uniformity::{UniformOpInterface, Uniformity},
+    },
     prelude::*,
     types::scalar::IndexType,
 };
@@ -36,7 +41,7 @@ pub enum SymbolUserOpVerifyErr {
 
 #[cube_op(name = "cube.copy")]
 #[result_ty(same_as = value)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct CopyOp {
     pub value: Value,
 }
@@ -58,6 +63,7 @@ impl AliasingOp for CopyOp {
 pub struct PoisonOp {}
 
 pure_binop!("cube.bool_and", BoolAndOp);
+Commutative!(BoolAndOp);
 const_eval!(BoolAndOp, {
     BoolAttr: |lhs, rhs| lhs && rhs,
     // false && x -> false
@@ -90,6 +96,7 @@ simplify!(BoolAndOp, {
 });
 
 pure_binop!("cube.bool_or", BoolOrOp);
+Commutative!(BoolOrOp);
 const_eval!(BoolOrOp, {
     BoolAttr: |lhs, rhs| lhs || rhs,
     // true || x -> true
@@ -129,12 +136,17 @@ const_eval!(BoolNotOp, {
 #[cube_op(name = "cube.cast")]
 #[result_ty(argument)]
 #[op_interfaces(TriviallyUnrollable)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct CastOp {
     pub input: Value,
 }
 const_eval!(CastOp, {
     custom: |inp| {
+        // TF32 uses FP32 storage, but casts require backend-specific rounding.
+        // Keep the cast until lowering instead of folding it as an FP32 alias.
+        if self.result_type(ctx).scalar_ty(ctx).is_tfloat32(ctx) {
+            return None;
+        }
         let val = inp?.as_const_val(ctx);
         let out_ty = self.get_result(ctx).get_type(ctx).deref(ctx);
         let elem = type_cast::<dyn ScalarType>(&*out_ty)?.elem_type(ctx);
@@ -153,7 +165,7 @@ simplify!(CastOp, {
 
 #[cube_op(name = "cube.reinterpret_cast")]
 #[result_ty(argument)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct ReinterpretCastOp {
     pub input: Value,
 }
@@ -195,7 +207,7 @@ impl AliasingOp for ReinterpretCastOp {
 #[cube_op(name = "cube.select")]
 #[result_ty(same_as = true_value)]
 #[op_interfaces(TriviallyUnrollable)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct SelectOp {
     pub condition: Value,
     pub true_value: Value,
@@ -228,12 +240,61 @@ pub struct ReadBuiltinOp {
     pub builtin: BuiltinAttr,
 }
 
-#[cube_op(name = "cube.read_scalar")]
+#[op_interface_impl]
+impl UniformOpInterface for ReadBuiltinOp {
+    fn uniformity(&self, ctx: &Context, _operands: &[Uniformity]) -> Uniformity {
+        match self.builtin(ctx).0 {
+            Builtin::CubeDim
+            | Builtin::CubeDimX
+            | Builtin::CubeDimY
+            | Builtin::CubeDimZ
+            | Builtin::CubeClusterDim
+            | Builtin::CubeClusterDimX
+            | Builtin::CubeClusterDimY
+            | Builtin::CubeClusterDimZ
+            | Builtin::CubeCount
+            | Builtin::CubeCountX
+            | Builtin::CubeCountY
+            | Builtin::CubeCountZ
+            | Builtin::PlaneDim => Uniformity::Device,
+            Builtin::CubePosCluster
+            | Builtin::CubePosClusterX
+            | Builtin::CubePosClusterY
+            | Builtin::CubePosClusterZ
+            | Builtin::CubePos
+            | Builtin::CubePosX
+            | Builtin::CubePosY
+            | Builtin::CubePosZ => Uniformity::Cube,
+            Builtin::PlanePos => Uniformity::Plane,
+            Builtin::UnitPos
+            | Builtin::UnitPosX
+            | Builtin::UnitPosY
+            | Builtin::UnitPosZ
+            | Builtin::UnitPosPlane
+            | Builtin::AbsolutePos
+            | Builtin::AbsolutePosX
+            | Builtin::AbsolutePosY
+            | Builtin::AbsolutePosZ => Uniformity::None,
+        }
+    }
+}
+
+#[cube_op(
+    name = "cube.read_scalar",
+    format = "`<` attr($ty, $TypeAttr) `>[` attr($id, $IndexAttr) `] : ` type($0)"
+)]
 #[result_ty(from_inputs = |ctx, ty: &TypeAttr, _| ty.get_type(ctx))]
 #[op_traits(Pure, CanMaterialize)]
 pub struct ReadScalarOp {
     pub ty: TypeAttr,
     pub id: IndexAttr,
+}
+
+#[op_interface_impl]
+impl UniformOpInterface for ReadScalarOp {
+    fn uniformity(&self, _ctx: &Context, _operands: &[Uniformity]) -> Uniformity {
+        Uniformity::Device
+    }
 }
 
 #[cube_op(name = "cube.free")]
@@ -242,11 +303,21 @@ pub struct FreeOp {
     pub memory: Value,
 }
 
-#[cube_op(name = "cube.buffer_len")]
+#[cube_op(
+    name = "cube.buffer_len",
+    format = "`buffer_` attr($buffer_idx, $IndexAttr) `: ` type($0)"
+)]
 #[result_ty(fixed = IndexType::get(ctx).into())]
 #[op_traits(Pure, CanMaterialize)]
 pub struct BufferLenOp {
     pub buffer_idx: IndexAttr,
+}
+
+#[op_interface_impl]
+impl UniformOpInterface for BufferLenOp {
+    fn uniformity(&self, _ctx: &Context, _operands: &[Uniformity]) -> Uniformity {
+        Uniformity::Device
+    }
 }
 
 #[cube_op(name = "cube.shape")]
@@ -257,6 +328,13 @@ pub struct ShapeOp {
     pub buffer_idx: IndexAttr,
 }
 
+#[op_interface_impl]
+impl UniformOpInterface for ShapeOp {
+    fn uniformity(&self, _ctx: &Context, _operands: &[Uniformity]) -> Uniformity {
+        Uniformity::Device
+    }
+}
+
 #[cube_op(name = "cube.stride")]
 #[result_ty(fixed = IndexType::get(ctx).into())]
 #[op_traits(Pure, CanMaterialize)]
@@ -265,13 +343,22 @@ pub struct StrideOp {
     pub buffer_idx: IndexAttr,
 }
 
+#[op_interface_impl]
+impl UniformOpInterface for StrideOp {
+    fn uniformity(&self, _ctx: &Context, _operands: &[Uniformity]) -> Uniformity {
+        Uniformity::Device
+    }
+}
+
 #[cube_op(name = "cube.comment")]
 #[result_ty(none)]
+#[op_traits(NoMemoryEffect, HasSideEffects)]
 pub struct CommentOp {
     pub comment: StringAttr,
 }
 
 #[pliron_op(name = "cube.printf", format, attributes = (cube_printf_format_string: StringAttr), verifier = "succ")]
+#[op_traits(NoMemoryEffect, HasSideEffects)]
 pub struct PrintfOp;
 
 impl PrintfOp {

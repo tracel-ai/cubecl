@@ -1,24 +1,34 @@
+use core::fmt::{self, Debug};
+
 use crate::{
-    AddressSpace, ConstantValue, ElemType,
+    CanMaterialize, ConstantValue, ElemType,
     dialect::synchronization::SyncScope,
+    interfaces::memory_slot::MemoryValue,
     prelude::*,
     types::{AtomicType, PointerType, VectorType, scalar::*},
 };
+use alloc::string::ToString;
+use derive_new::new;
+use itertools::Itertools;
 use pliron::{
     alloc::vec::Vec,
     attribute::{AttrObj, AttributeDict},
     builtin::{attr_interfaces::TypedAttrInterface, ops::ConstantOp, types::IntegerType},
     context::Context,
     derive::{op_interface, type_interface},
-    opts::dce::SideEffects,
+    op::OpId,
+    printable::{self, Printable},
     r#type::{TypeHandle, type_cast},
+    utils::apint::APInt,
     value::Use,
 };
 
 pub mod aliasing;
 pub mod control_flow;
 pub mod memory_slot;
+pub mod side_effects;
 pub mod traits;
+pub mod uniformity;
 
 #[macro_export]
 macro_rules! verify_op_succ {
@@ -71,14 +81,6 @@ pub trait ReturnLike: IsTerminatorInterface + NResultsInterface<0> {
     verify_op_succ!();
 }
 
-#[macro_export]
-macro_rules! Pure {
-    ($ty: ty) => {
-        $crate::NoSideEffects!($ty);
-        $crate::NoMemoryEffect!($ty);
-    };
-}
-
 #[op_interface]
 pub trait TriviallyUnrollable: MaterializableOp {
     verify_op_succ!();
@@ -98,38 +100,10 @@ pub trait MaterializableOp {
     ) -> Ptr<Operation>;
 }
 
-#[macro_export]
-macro_rules! CanMaterialize {
-    ($ty: ty) => {
-        #[::pliron::derive::op_interface_impl]
-        impl $crate::interfaces::MaterializableOp for $ty {
-            fn materialize(
-                &self,
-                ctx: &mut pliron::context::Context,
-                result_ty: Vec<pliron::r#type::TypeHandle>,
-                operands: Vec<Value>,
-                attributes: pliron::attribute::AttributeDict,
-            ) -> pliron::context::Ptr<pliron::operation::Operation> {
-                use pliron::op::Op;
-                let op = pliron::operation::Operation::new(
-                    ctx,
-                    Self::get_concrete_op_info(),
-                    result_ty,
-                    operands,
-                    vec![],
-                    0,
-                );
-                op.deref_mut(ctx).attributes = attributes;
-                op
-            }
-        }
-    };
-}
-
 CanMaterialize!(ConstantOp);
 
 #[op_interface]
-pub trait Synchronizes: SideEffects {
+pub trait Synchronizes {
     verify_op_succ!();
 
     /// Synchronizes at least at this scope. Should be used for optimizations where smaller scopes
@@ -153,48 +127,9 @@ macro_rules! synchronizes {
                 $scope
             }
         }
-        #[pliron::derive::op_interface_impl]
-        impl pliron::opts::dce::SideEffects for $ty {
-            fn has_side_effects(&self, _ctx: &Context) -> bool {
-                true
-            }
-        }
     };
 }
 pub(crate) use synchronizes;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MemoryEffect {
-    Read(Value),
-    Write(Value),
-    ReadAllInSpace(AddressSpace),
-    WriteAllInSpace(AddressSpace),
-    ReadAll,
-    WriteAll,
-}
-
-#[op_interface]
-pub trait MemoryEffects {
-    verify_op_succ!();
-    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect>;
-}
-
-#[macro_export]
-macro_rules! NoMemoryEffect {
-    ($ty: ty) => {
-        #[::pliron::derive::op_interface_impl]
-        impl $crate::interfaces::MemoryEffects for $ty {
-            fn memory_effects(
-                &self,
-                _ctx: &pliron::context::Context,
-            ) -> $crate::alloc::vec::Vec<$crate::interfaces::MemoryEffect> {
-                $crate::alloc::vec![]
-            }
-        }
-    };
-}
-
-NoMemoryEffect!(ConstantOp);
 
 #[type_interface]
 pub trait AlignedType {
@@ -233,30 +168,6 @@ macro_rules! sized {
             #[allow(unused_variables)]
             fn size(&self, ctx: &::pliron::context::Context) -> usize {
                 $size
-            }
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! HasSideEffects {
-    ($ty: ty) => {
-        #[::pliron::derive::op_interface_impl]
-        impl pliron::opts::dce::SideEffects for $ty {
-            fn has_side_effects(&self, _ctx: &pliron::context::Context) -> bool {
-                true
-            }
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! NoSideEffects {
-    ($ty: ty) => {
-        #[::pliron::derive::op_interface_impl]
-        impl pliron::opts::dce::SideEffects for $ty {
-            fn has_side_effects(&self, _ctx: &pliron::context::Context) -> bool {
-                false
             }
         }
     };
@@ -356,10 +267,72 @@ pub trait CanonicalizeInterface {
     fn canonicalize(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()>;
 }
 
+#[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ExpressionValue(u64);
+
+impl Printable for ExpressionValue {
+    fn fmt(&self, _: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "e{}", self.0)
+    }
+}
+
+#[derive(new, Clone, PartialEq, Eq, Hash)]
+pub struct Expression {
+    pub result_type: TypeHandle,
+    #[new(default)]
+    pub result_idx: usize,
+    pub op_id: OpId,
+    pub operands: Vec<ExpressionValue>,
+    pub attributes: AttributeDict,
+    #[new(default)]
+    pub mem_value: Option<MemoryValue>,
+}
+
+impl Printable for Expression {
+    fn fmt(&self, ctx: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut opds = self.operands.iter().map(|it| it.disp(ctx).to_string());
+        write!(
+            f,
+            "result{} = {} ({}{}) {} : {}",
+            self.result_idx,
+            self.op_id,
+            opds.join(", "),
+            self.mem_value
+                .map(|it| alloc::format!(", {it}"))
+                .unwrap_or_default(),
+            self.attributes.disp(ctx),
+            self.result_type.disp(ctx)
+        )
+    }
+}
+
+impl Debug for Expression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Expression")
+            .field("result_type", &self.result_type)
+            .field("result_idx", &self.result_idx)
+            .field("op_id", &self.op_id.to_string())
+            .field("operands", &self.operands)
+            .field("attributes", &self.attributes)
+            .field("mem_value", &self.mem_value)
+            .finish()
+    }
+}
+
+#[op_interface]
+pub trait ExpressionCanonicalize: OneResultInterface {
+    verify_op_succ!();
+    fn canonical_expression(&self, ctx: &Context, operands: Vec<ExpressionValue>) -> Expression;
+}
+
 #[attr_interface]
 pub trait ConstantAttr: TypedAttrInterface {
     verify_attr_succ!();
     fn as_const_val(&self, ctx: &Context) -> ConstantValue;
+    fn as_int(&self, ctx: &Context) -> Option<APInt> {
+        let _ = ctx;
+        None
+    }
     fn float_as_f64(&self, _ctx: &Context) -> Option<f64> {
         None
     }

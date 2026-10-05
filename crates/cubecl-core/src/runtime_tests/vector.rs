@@ -113,6 +113,39 @@ pub fn test_vector_loop_unroll<R: Runtime, F: Float + CubeElement>(client: Clien
     }
 }
 
+/// `x - x` and `x ^ x` fold to a constant the optimizer has to build for the operation's own
+/// type, which is a vector here. The buffer starts non-zero because a fold that cannot build one
+/// leaves the kernel uncompiled and the output untouched, which reads as the zeros expected here.
+#[allow(clippy::eq_op, reason = "the equal operands are what the folds key on")]
+#[cube(launch_unchecked)]
+pub fn kernel_vector_self_operand_folds<F: Float, N: Size>(output: &mut [Vector<F, N>]) {
+    if UNIT_POS == 0 {
+        let float = output[0];
+        let int = Vector::<u32, N>::cast_from(float);
+        output[0] = (float - float) + Vector::<F, N>::cast_from((int - int) ^ (int ^ int));
+    }
+}
+
+pub fn test_vector_self_operand_folds<R: Runtime, F: Float + CubeElement>(client: Client) {
+    for vector_size in client.io_optimized_vector_sizes(size_of::<F>()) {
+        let handle = client.create_from_slice(F::as_bytes(&vec![F::new(9.0); vector_size]));
+        unsafe {
+            kernel_vector_self_operand_folds::launch_unchecked::<F>(
+                &client,
+                CubeCount::new_single(),
+                CubeDim::new_single(),
+                vector_size,
+                BufferArg::from_raw_parts(handle.clone(), 1),
+            )
+        }
+
+        let actual = client.read_one_unchecked(handle);
+        let actual = F::from_bytes(&actual);
+
+        assert_eq!(&actual[..vector_size], vec![F::new(0.0); vector_size]);
+    }
+}
+
 #[cube(launch_unchecked)]
 pub fn kernel_vector_conditional<F: Float, N: Size>(
     input: &[Vector<F, N>],
@@ -337,6 +370,15 @@ macro_rules! testgen_vector {
             cubecl_core::runtime_tests::vector::test_vector_index_assign::<TestRuntime, FloatType>(
                 client,
             );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_vector_self_operand_folds() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::vector::test_vector_self_operand_folds::<
+                TestRuntime,
+                FloatType,
+            >(client);
         }
 
         #[$crate::runtime_tests::test_log::test]

@@ -33,6 +33,7 @@ use cubecl_core::{
     post_processing::{
         bitwise::PromoteBitwisePass,
         checked_io::{CheckedIo, CheckedIoPass},
+        fp4::{LowerFp4Cast, LowerFp4CastPass},
         minifloat::{Fp8Container, LowerMinifloatCast, LowerMinifloatCastPass},
         saturating::LowerSaturatingArithmeticPass,
     },
@@ -250,6 +251,13 @@ where
             native_fp8,
             Fp8Container::Bytes,
         )));
+        // CUDA converts fp4 with cuda_fp4.h. Metal decodes it through `f16` pairs.
+        if T::target() == Target::Metal {
+            func_passes.add_pass(LowerFp4CastPass::new(LowerFp4Cast::new(
+                true,
+                Fp8Container::Bytes,
+            )));
+        }
 
         // Shared lowerings can create ops that need target-specific lowerings, but target-specific
         // lowerings should take priority. So we just run the target-specific lowerings twice.
@@ -257,6 +265,8 @@ where
         func_passes.add_pass(LowerOpsCppPass::<Shared>::default());
         func_passes.add_pass(LowerOpsCppPass::<T>::default());
 
+        // MSL has `addsat` and `subsat` for every integer width, so Metal keeps the saturating
+        // ops and prints them as builtins.
         if T::target() != Target::Metal {
             func_passes.add_pass(LowerSaturatingArithmeticPass::default());
         }
@@ -271,7 +281,7 @@ where
 
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(InstCombinePass::default());
-        func_passes.add_pass(SimpleCSEPass);
+        func_passes.add_pass(SimpleCSEPass::without_memory());
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(DCEPass);
         func_passes.add_pass(SROAPass);
@@ -281,7 +291,7 @@ where
 
         func_passes.add_pass(SROAPass);
         func_passes.add_pass(SCCPPass);
-        func_passes.add_pass(SimpleCSEPass);
+        func_passes.add_pass(SimpleCSEPass::with_memory());
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(DCEPass);
 

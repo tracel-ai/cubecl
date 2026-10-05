@@ -29,6 +29,8 @@ pub mod convert;
 pub mod dialect;
 pub mod interfaces;
 pub mod metadata;
+#[cfg(feature = "nvidia")]
+pub mod nvidia;
 pub mod rewrite;
 pub mod settings;
 pub mod types;
@@ -77,7 +79,7 @@ pub mod prelude {
         pass::*,
         result::Result,
         r#type::{Type, TypeHandle, Typed, TypedHandle, type_cast, type_impls},
-        value::Value,
+        value::{Use, Value},
     };
     pub type PassRewriter = pliron::irbuild::rewriter::IRRewriter<Recorder>;
 }
@@ -85,7 +87,4 @@ pub mod prelude {
 pub use crate::rewrite::NamedRewrite;
 pub use cubecl_macros_internal::{NamedRewrite, cube_op};
 
-pub mod pliron {
-    pub use pliron::derive::*;
-    pub use pliron::*;
-}
+pub use pliron;

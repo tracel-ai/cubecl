@@ -1,0 +1,438 @@
+use crate::memory_management::relocation::{
+    RelocatableStream, RelocatingStreams, RelocationNeed, RelocationReason,
+};
+use crate::{
+    config::streaming::StreamingLogLevel,
+    logging::ServerLogger,
+    memory_management::{ErrorGraph, FailureId},
+    server::{BufferBinding, ServerError},
+    stream::{FailureStore, Failures, StreamFactory, StreamMemory, StreamPool},
+};
+use alloc::{format, sync::Arc, vec, vec::Vec};
+use cubecl_environment::stream::StreamId;
+
+/// Defines a trait for a scheduler stream backend, specifying the types and behavior for task scheduling.
+pub trait SchedulerStreamBackend {
+    /// Type representing a task.
+    type Task: core::fmt::Debug;
+    /// Type representing a stream, which exposes the memory its kernels see
+    /// through [`StreamMemory`].
+    type Stream: core::fmt::Debug + StreamMemory;
+    /// Type for the stream factory, which creates streams of type `Self::Stream`.
+    type Factory: StreamFactory<Stream = Self::Stream>;
+
+    /// Enqueues a task onto a given stream for execution.
+    ///
+    /// `failures` is the device's failure store, handed down because running
+    /// a task reserves memory (staging, uniforms), and reserving is where a
+    /// pool sheds the failures its slices carry.
+    fn enqueue(task: Self::Task, stream: &mut Self::Stream, failures: &mut ErrorGraph);
+    /// Flush the inner stream queue to ensure ordering between different streams.
+    fn flush(stream: &mut Self::Stream, failures: &mut ErrorGraph);
+    /// Returns a mutable reference to the stream factory.
+    fn factory(&mut self) -> &mut Self::Factory;
+    /// Whether this stream currently requires its own tasks to execute on
+    /// itself — no interleaving of its tasks onto another stream, and no other
+    /// stream's tasks onto it. While any stream involved in an execution
+    /// requires isolation, the scheduler falls back to the sequential path.
+    /// A graph capture engages this for its whole prepare → record window.
+    /// Defaults to `false`.
+    fn requires_isolation(_stream: &Self::Stream) -> bool {
+        false
+    }
+}
+
+/// Represents a multi-stream scheduler that manages task execution across multiple streams.
+#[derive(Debug)]
+pub struct SchedulerMultiStream<B: SchedulerStreamBackend> {
+    /// Pool of streams managed by the scheduler.
+    pool: StreamPool<SchedulerPoolMarker<B>>,
+    /// Every failure the device is still holding, and the write scope's
+    /// scratch — see [`Failures`].
+    failures: Failures,
+    /// Strategy for scheduling tasks (e.g., Interleave or Sequential).
+    strategy: SchedulerStrategy,
+    /// Maximum number of tasks allowed per stream before execution is triggered.
+    max_tasks: usize,
+    /// Server logger.
+    pub logger: Arc<ServerLogger>,
+}
+
+/// Defines the scheduling strategy for task execution.
+#[derive(Debug)]
+pub enum SchedulerStrategy {
+    /// Tasks from different streams are interleaved during execution.
+    Interleave,
+    /// Tasks from each stream are executed sequentially.
+    Sequential,
+}
+
+/// Represents a single stream that holds tasks and a backend stream.
+#[derive(Debug)]
+pub struct Stream<B: SchedulerStreamBackend> {
+    /// List of tasks queued for execution in this stream.
+    tasks: Vec<B::Task>,
+    /// The backend stream used for task execution.
+    stream: B::Stream,
+}
+
+impl<B: SchedulerStreamBackend> Stream<B> {
+    /// Flushes all tasks from the stream, returning them and clearing the internal task list.
+    fn flush(&mut self) -> Vec<B::Task> {
+        let mut returned = Vec::with_capacity(self.tasks.capacity());
+        core::mem::swap(&mut returned, &mut self.tasks);
+        returned
+    }
+}
+
+#[derive(Debug)]
+/// The factory a [`SchedulerMultiStream`]'s pool is built from. Public only
+/// because it names the pool in [`FailureStore::Factory`]; it has no surface
+/// of its own.
+pub struct SchedulerPoolMarker<B: SchedulerStreamBackend> {
+    backend: B,
+}
+
+impl<B: SchedulerStreamBackend> StreamMemory for Stream<B> {
+    fn failure(&self, binding: &BufferBinding) -> Option<FailureId> {
+        self.stream.failure(binding)
+    }
+
+    fn taint(&mut self, binding: &BufferBinding, failure: FailureId, failures: &mut ErrorGraph) {
+        self.stream.taint(binding, failure, failures)
+    }
+
+    fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
+        self.stream.written(binding, failures)
+    }
+}
+
+impl<B: SchedulerStreamBackend> FailureStore for SchedulerMultiStream<B> {
+    type Factory = SchedulerPoolMarker<B>;
+
+    fn split(&mut self) -> (&mut StreamPool<Self::Factory>, &mut Failures) {
+        (&mut self.pool, &mut self.failures)
+    }
+
+    fn parts(&self) -> (&StreamPool<Self::Factory>, &Failures) {
+        (&self.pool, &self.failures)
+    }
+}
+
+impl<B: SchedulerStreamBackend> StreamFactory for SchedulerPoolMarker<B> {
+    // The type of stream produced by this factory.
+    type Stream = Stream<B>;
+
+    // Creates a new stream with an empty task list and a backend stream.
+    fn create(&mut self) -> Result<Self::Stream, ServerError> {
+        Ok(Stream {
+            tasks: Vec::new(),
+            // Uses the backend's factory to create a new stream.
+            stream: self.backend.factory().create()?,
+        })
+    }
+}
+
+/// Options for configuring a `SchedulerMultiStream`.
+#[derive(Debug)]
+pub struct SchedulerMultiStreamOptions {
+    /// Maximum number of streams allowed in the pool.
+    pub max_streams: u8,
+    /// Maximum number of tasks per stream before execution is triggered.
+    pub max_tasks: usize,
+    /// The scheduling strategy to use.
+    pub strategy: SchedulerStrategy,
+}
+
+/// A scheduler's streams, relocating one stream's memory: every stream's
+/// queued tasks run and are flushed first, since a queued task holds the
+/// addresses its buffers resolved to.
+pub struct SchedulerRelocation<'a, B: SchedulerStreamBackend> {
+    scheduler: &'a mut SchedulerMultiStream<B>,
+    stream_id: StreamId,
+}
+
+impl<B> RelocatingStreams for SchedulerRelocation<'_, B>
+where
+    B: SchedulerStreamBackend,
+    B::Stream: RelocatableStream,
+{
+    fn recording(&mut self) -> bool {
+        self.scheduler.stream(&self.stream_id).recording()
+    }
+
+    fn has_outdated(&mut self) -> bool {
+        self.scheduler.stream(&self.stream_id).has_outdated()
+    }
+
+    fn relocation_need(&mut self) -> RelocationNeed {
+        self.scheduler.stream(&self.stream_id).relocation_need()
+    }
+
+    fn bytes_allocated(&mut self) -> u64 {
+        self.scheduler
+            .streams()
+            .map(RelocatableStream::bytes_allocated)
+            .sum()
+    }
+
+    fn finish(&mut self) {
+        self.scheduler.flush_all();
+    }
+
+    fn relocate_memory(&mut self, reason: RelocationReason) {
+        let (stream, failures) = self.scheduler.stream_and_failures(&self.stream_id);
+        stream.relocate(reason, failures);
+    }
+
+    fn cleanup_memory(&mut self) {
+        let (stream, failures) = self.scheduler.stream_and_failures(&self.stream_id);
+        stream.cleanup_memory(failures);
+    }
+
+    fn device_has_outdated(&mut self) -> bool {
+        self.scheduler
+            .streams()
+            .any(RelocatableStream::has_outdated)
+    }
+
+    fn relocate_device_memory(&mut self, reason: RelocationReason) {
+        let stream_ids: Vec<_> = self.scheduler.stream_ids().collect();
+        for stream_id in stream_ids {
+            let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+            if stream.has_outdated() {
+                stream.relocate(reason, failures);
+            }
+        }
+    }
+}
+
+impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
+    /// Creates a new `SchedulerMultiStream` with the given backend and options.
+    pub fn new(
+        logger: Arc<ServerLogger>,
+        backend: B,
+        options: SchedulerMultiStreamOptions,
+    ) -> Self {
+        Self {
+            pool: StreamPool::new(SchedulerPoolMarker { backend }, options.max_streams, 0),
+            failures: Failures::new(logger.clone()),
+            max_tasks: options.max_tasks,
+            strategy: options.strategy,
+            logger,
+        }
+    }
+
+    /// Returns a mutable reference to the backend stream for a given stream ID.
+    pub fn stream(&mut self, stream_id: &StreamId) -> &mut B::Stream {
+        let stream = self.pool.get_mut(stream_id);
+        &mut stream.stream
+    }
+
+    /// The stream at `stream_id` and the device's failure store together, for
+    /// the paths that hand the store to the stream's memory manager — every
+    /// reserve, bind and cleanup, since those are where slices shed the
+    /// failures they carry.
+    pub fn stream_and_failures(
+        &mut self,
+        stream_id: &StreamId,
+    ) -> (&mut B::Stream, &mut ErrorGraph) {
+        let stream = self.pool.get_mut(stream_id);
+        (&mut stream.stream, self.failures.graph_mut())
+    }
+
+    /// Mutable access to the scheduling backend, e.g. to change the
+    /// configuration new streams are created with. Already-created streams are
+    /// unaffected.
+    pub fn backend_mut(&mut self) -> &mut B {
+        &mut self.pool.factory_mut().backend
+    }
+
+    /// Read-only iterator over initialized backend streams.
+    pub fn streams(&self) -> impl Iterator<Item = &B::Stream> {
+        self.pool.streams().map(|s| &s.stream)
+    }
+
+    /// Synthetic [`StreamId`]s, one per initialized stream (see [`StreamPool::stream_ids`]).
+    pub fn stream_ids(&self) -> impl Iterator<Item = StreamId> + '_ {
+        self.pool.stream_ids()
+    }
+
+    /// The streams, as relocating `stream_id`'s memory needs them.
+    pub fn relocating(&mut self, stream_id: StreamId) -> SchedulerRelocation<'_, B> {
+        SchedulerRelocation {
+            scheduler: self,
+            stream_id,
+        }
+    }
+
+    /// Run every stream's queued tasks, then flush each stream with the
+    /// backend: what a caller about to touch memory any stream may use waits
+    /// on first.
+    pub fn flush_all(&mut self) {
+        let stream_ids: Vec<_> = self.stream_ids().collect();
+        self.execute_streams(stream_ids);
+        let graph = self.failures.graph_mut();
+        for stream in self.pool.streams_mut() {
+            B::flush(&mut stream.stream, graph);
+        }
+    }
+
+    /// Registers a task for execution on a specific stream, ensuring stream alignment.
+    pub fn register(&mut self, stream_id: StreamId, task: B::Task, args_streams: &[StreamId]) {
+        // Align streams to ensure dependencies are handled correctly.
+        self.align_streams(stream_id, args_streams);
+
+        // Get the stream for the given stream ID and add the task to its queue.
+        let current = self.pool.get_mut(&stream_id);
+        current.tasks.push(task);
+
+        // If the task queue exceeds the maximum, execute the stream.
+        if current.tasks.len() >= self.max_tasks {
+            self.execute_streams(vec![stream_id]);
+        }
+    }
+
+    /// Aligns streams by flushing tasks from streams that conflict with the given bindings.
+    pub(crate) fn align_streams(&mut self, stream_id: StreamId, args_streams: &[StreamId]) {
+        let mut to_flush = Vec::new();
+        // Get the index of the target stream.
+        let index = self.pool.stream_index(&stream_id);
+
+        // Identify streams that need to be flushed due to conflicting bindings.
+        for arg_stream in args_streams {
+            let index_stream = self.pool.stream_index(arg_stream);
+            if index != index_stream {
+                to_flush.push(*arg_stream);
+
+                self.logger.log_streaming(
+                    |level| matches!(level, StreamingLogLevel::Full),
+                    || format!("Binding on {} is shared on {}", arg_stream, stream_id),
+                );
+            }
+        }
+
+        // If no streams need flushing, return early.
+        if to_flush.is_empty() {
+            return;
+        }
+
+        self.logger.log_streaming(
+            |level| !matches!(level, StreamingLogLevel::Disabled),
+            || {
+                format!(
+                    "Flushing streams {to_flush:?} before registering more tasks on {stream_id}"
+                )
+            },
+        );
+        // Execute the streams that need to be flushed.
+        self.execute_streams(to_flush);
+    }
+
+    /// Executes tasks from the specified streams based on the scheduling strategy.
+    pub fn execute_streams(&mut self, stream_ids: Vec<StreamId>) {
+        let mut indices = Vec::with_capacity(stream_ids.len());
+
+        // Collect unique stream indices to avoid redundant processing.
+        for id in stream_ids {
+            let index = self.pool.stream_index(&id);
+            if !indices.contains(&index) {
+                indices.push(index);
+            }
+        }
+
+        // Create schedules for each stream to be executed, noting on the way
+        // whether any of them refuses to have its tasks interleaved (see
+        // [`SchedulerStreamBackend::requires_isolation`]).
+        let mut schedules = Vec::new();
+        let mut isolation = false;
+        for index in indices {
+            let stream = unsafe { self.pool.get_mut_index(index) }; // Note: `unsafe` usage assumes valid index.
+            isolation |= B::requires_isolation(&stream.stream);
+            let tasks = stream.flush();
+            let num_tasks = tasks.len();
+
+            schedules.push(Schedule {
+                tasks: tasks.into_iter(),
+                num_tasks,
+                stream_index: index,
+            });
+        }
+
+        // If no schedules were created, return early.
+        if schedules.is_empty() {
+            return;
+        }
+
+        // Execute schedules based on the configured strategy. Interleaving is
+        // suspended while any involved stream requires isolation; the
+        // sequential path keeps every task on the stream that owns it.
+        match self.strategy {
+            SchedulerStrategy::Interleave if !isolation => {
+                self.execute_schedules_interleave(schedules)
+            }
+            _ => self.execute_schedules_sequence(schedules),
+        }
+    }
+
+    /// Executes schedules sequentially, processing each stream's tasks in order.
+    fn execute_schedules_sequence(&mut self, schedules: Vec<Schedule<B>>) {
+        for schedule in schedules {
+            let stream = unsafe { self.pool.get_mut_index(schedule.stream_index) }; // Note: `unsafe` usage assumes valid index.
+            for task in schedule.tasks {
+                // Enqueue each task on the stream.
+                B::enqueue(task, &mut stream.stream, self.failures.graph_mut());
+            }
+
+            // Makes sure the tasks are ordered on the compute queue.
+            B::flush(&mut stream.stream, self.failures.graph_mut());
+        }
+    }
+
+    //// Executes schedules in an interleaved manner, alternating tasks from different streams.
+    ///
+    /// We chose the first stream as the one executing the tasks, ensuring proper ordering by
+    /// flushing all other streams first and flushing the execution stream at the end.
+    /// This way, we ensure that most tasks are actually interleaved on the real compute queue
+    /// shared across all streams.
+    fn execute_schedules_interleave(&mut self, mut schedules: Vec<Schedule<B>>) {
+        // Makes sure the tasks are ordered on the compute queue.
+        for schedule in schedules.iter_mut().skip(1) {
+            let stream = unsafe { self.pool.get_mut_index(schedule.stream_index) };
+            B::flush(&mut stream.stream, self.failures.graph_mut());
+        }
+
+        let execution_index = schedules.first().expect("At least one stream").stream_index;
+        let stream = unsafe { self.pool.get_mut_index(execution_index) };
+
+        // Find the maximum number of tasks across all schedules.
+        let num_tasks_max = schedules
+            .iter()
+            .map(|s| s.num_tasks)
+            .max()
+            .expect("At least one schedule");
+
+        // Iterate through tasks, interleaving them across streams.
+        for _ in 0..num_tasks_max {
+            for schedule in schedules.iter_mut() {
+                // If there are tasks remaining in the schedule, enqueue the next one.
+                if let Some(task) = schedule.tasks.next() {
+                    B::enqueue(task, &mut stream.stream, self.failures.graph_mut());
+                }
+            }
+        }
+
+        // Making sure all tasks are registered to the queue.
+        B::flush(&mut stream.stream, self.failures.graph_mut());
+    }
+}
+
+// Represents a schedule for executing tasks on a specific stream.
+struct Schedule<B: SchedulerStreamBackend> {
+    // Iterator over the tasks to be executed.
+    tasks: alloc::vec::IntoIter<B::Task>,
+    // Number of tasks in the schedule.
+    num_tasks: usize,
+    // Index of the stream in the pool.
+    stream_index: usize,
+}

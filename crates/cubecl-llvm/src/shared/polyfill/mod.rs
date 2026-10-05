@@ -2,9 +2,7 @@ pub mod math;
 pub mod synchronization;
 pub mod transcendental;
 
-use cubecl_core::ir::{NamedRewrite, prelude::*};
-
-use cubecl_core::ir::{Scope, dialect::base::OperationPtrExt};
+use crate::prelude::*;
 
 #[op_interface]
 pub trait LowerOp {

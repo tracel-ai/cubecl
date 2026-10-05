@@ -5,9 +5,10 @@ use cubecl_core::{
 };
 use cubecl_environment::stream::StreamId;
 use cubecl_llvm::PlironEngine;
-use cubecl_runtime::{
+use cubecl_server::{
     logging::ServerLogger,
     memory_management::ErrorGraph,
+    server::ServerError,
     storage::{BytesResource, ManagedResource},
     stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
@@ -81,12 +82,12 @@ pub struct CpuStreamFactory {
 impl StreamFactory for CpuStreamFactory {
     type Stream = CpuStream;
 
-    fn create(&mut self) -> Self::Stream {
-        CpuStream::new(
+    fn create(&mut self) -> Result<Self::Stream, ServerError> {
+        Ok(CpuStream::new(
             self.memory_properties.clone(),
             self.memory_config.clone(),
             self.logger.clone(),
-        )
+        ))
     }
 }
 

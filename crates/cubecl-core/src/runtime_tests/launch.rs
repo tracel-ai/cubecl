@@ -26,6 +26,11 @@ pub fn kernel_with_comptime_tag(mut output: ComptimeTag) {
 }
 
 #[cube(launch)]
+pub fn kernel_with_comptime(#[comptime] factor: u32) {
+    let _ = factor;
+}
+
+#[cube(launch)]
 pub fn kernel_with_generics<F: Float>(output: &mut [F]) {
     if UNIT_POS == 0 {
         output[0] = F::new(5f32);
@@ -82,6 +87,14 @@ pub fn kernel_resource_errors(output: &mut [u32], #[comptime] shared_size: usize
     output[0] = shared[0];
 }
 
+/// A kernel whose expansion panics: the assertion runs while the kernel is defined, before
+/// anything is compiled or dispatched.
+#[cube(launch)]
+pub fn kernel_panicking_in_expansion(output: &mut [u32], #[comptime] refuse: bool) {
+    comptime!(assert!(!refuse, "this kernel refuses to expand"));
+    output[0] = 1;
+}
+
 pub fn test_kernel_with_comptime_tag<R: Runtime>(client: Client) {
     let handle = client.create_from_slice(f32::as_bytes(&[5.0]));
     let array_arg = unsafe { BufferArg::from_raw_parts(handle.clone(), 1) };
@@ -112,6 +125,45 @@ pub fn test_kernel_with_comptime_tag<R: Runtime>(client: Client) {
     let actual = f32::from_bytes(&actual);
 
     assert_eq!(actual[0], f32::new(1.0));
+}
+
+pub fn test_kernel_comptime_name_disambiguation<R: Runtime>(client: Client) {
+    let settings = KernelSettings::new(
+        *CubeDim::new_single(),
+        ExecutionMode::Checked,
+        AddressType::U32,
+    );
+
+    let k1 = kernel_with_comptime::KernelWithComptime::new(
+        settings.clone(),
+        client.properties_shared(),
+        client.target_properties_shared(),
+        1,
+    );
+    let k2 = kernel_with_comptime::KernelWithComptime::new(
+        settings,
+        client.properties_shared(),
+        client.target_properties_shared(),
+        2,
+    );
+
+    let def1 = k1.define();
+    let def2 = k2.define();
+
+    assert_ne!(
+        def1.settings.kernel_name, def2.settings.kernel_name,
+        "Kernels with distinct comptime arguments must have distinct kernel names"
+    );
+    assert!(
+        def1.settings
+            .kernel_name
+            .starts_with("kernel_with_comptime_")
+    );
+    assert!(
+        def2.settings
+            .kernel_name
+            .starts_with("kernel_with_comptime_")
+    );
 }
 
 pub fn test_kernel_with_generics<R: Runtime, F: Float + CubeElement>(client: Client) {
@@ -246,6 +298,37 @@ fn resource_error(client: &Client, out: Handle) -> ResourceLimitError {
         },
         other => panic!("should be an unwritten-bytes report, is {other:?}"),
     }
+}
+
+/// A launch whose kernel panicked while expanding never wrote its output, so the read fails on
+/// that panic instead of handing back the bytes the buffer held before, and fails as a defect,
+/// not as a refusal.
+///
+/// The launch runs on the device thread inside a task nobody waits on, so the panic cannot reach
+/// the caller there: the output's claim is what carries it.
+pub fn test_expansion_panic_fails_the_read<R: Runtime>(client: Client) {
+    let output = client.create_from_slice(u32::as_bytes(&[7]));
+
+    kernel_panicking_in_expansion::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(1),
+        unsafe { BufferArg::from_raw_parts(output.clone(), 1) },
+        true,
+    );
+
+    let err = client.read_one(output).expect_err(
+        "a kernel that panicked while expanding never wrote the buffer, so the read must fail",
+    );
+    let report = alloc::format!("{err:?}");
+    assert!(
+        report.contains("this kernel refuses to expand"),
+        "the read must fail on the expansion's panic, got: {report}"
+    );
+    assert!(
+        !err.is_refusal(),
+        "a panic is a defect a test harness must report, not a refusal it may skip: {report}"
+    );
 }
 
 pub fn test_shared_memory_error<R: Runtime>(client: Client) {
@@ -414,6 +497,14 @@ macro_rules! testgen_launch {
             );
         }
 
+        #[$crate::runtime_tests::test_log::test]
+        fn test_launch_with_comptime_name_disambiguation() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_kernel_comptime_name_disambiguation::<
+                TestRuntime,
+            >(client);
+        }
+
         #[ignore = "Seemingly flaky with CPU emulation"]
         #[$crate::runtime_tests::test_log::test]
         fn test_launch_with_max_shared() {
@@ -468,6 +559,14 @@ macro_rules! testgen_launch_untyped {
             cubecl_core::runtime_tests::launch::test_kernel_dynamic_addressing::<TestRuntime>(
                 client,
                 AddressType::U64,
+            );
+        }
+
+        #[test]
+        fn test_launch_expansion_panic_fails_the_read() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_expansion_panic_fails_the_read::<TestRuntime>(
+                client,
             );
         }
 

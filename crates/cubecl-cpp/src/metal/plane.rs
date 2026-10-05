@@ -9,7 +9,7 @@ use pliron::{
 
 use crate::{
     metal::metal_op_with_out,
-    shared::{lowering::LowerOp, unroll::unrolling},
+    shared::{convert::no_msl_bfloat, lowering::LowerOp, unroll::unrolling},
     target::Metal,
 };
 
@@ -18,30 +18,35 @@ metal_op_with_out!(BroadcastOp, |op, ctx| {
     let lane = op.lane(ctx).0;
     format!("simd_shuffle({val}, {lane});")
 });
+no_msl_bfloat!(BroadcastOp);
 
 metal_op_with_out!(ShuffleOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     let lane = op.lane(ctx).name(ctx);
     format!("simd_shuffle({val}, {lane});")
 });
+no_msl_bfloat!(ShuffleOp);
 
 metal_op_with_out!(ShuffleXorOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     let mask = op.mask(ctx).name(ctx);
     format!("simd_shuffle_xor({val}, {mask});")
 });
+no_msl_bfloat!(ShuffleXorOp);
 
 metal_op_with_out!(ShuffleUpOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     let delta = op.delta(ctx).name(ctx);
     format!("simd_shuffle_up({val}, {delta});")
 });
+no_msl_bfloat!(ShuffleUpOp);
 
 metal_op_with_out!(ShuffleDownOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     let delta = op.delta(ctx).name(ctx);
     format!("simd_shuffle_down({val}, {delta});")
 });
+no_msl_bfloat!(ShuffleDownOp);
 
 metal_op_with_out!(ElectOp, |_, _| { "simd_is_first()".into() });
 
@@ -100,6 +105,7 @@ metal_op_with_out!(FSumOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_sum({val})")
 });
+no_msl_bfloat!(FSumOp);
 
 unrolling!(IProdOp);
 metal_op_with_out!(IProdOp, |op, ctx| {
@@ -111,6 +117,7 @@ metal_op_with_out!(FProdOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_product({val})")
 });
+no_msl_bfloat!(FProdOp);
 
 unrolling!(SMinOp);
 metal_op_with_out!(SMinOp, |op, ctx| {
@@ -127,6 +134,7 @@ metal_op_with_out!(FMinOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_min({val})")
 });
+no_msl_bfloat!(FMinOp);
 
 unrolling!(SMaxOp);
 metal_op_with_out!(SMaxOp, |op, ctx| {
@@ -143,6 +151,7 @@ metal_op_with_out!(FMaxOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_max({val})")
 });
+no_msl_bfloat!(FMaxOp);
 
 unrolling!(InclusiveISumOp);
 metal_op_with_out!(InclusiveISumOp, |op, ctx| {
@@ -154,6 +163,7 @@ metal_op_with_out!(InclusiveFSumOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_prefix_inclusive_sum({val})")
 });
+no_msl_bfloat!(InclusiveFSumOp);
 
 unrolling!(InclusiveIProdOp);
 metal_op_with_out!(InclusiveIProdOp, |op, ctx| {
@@ -165,6 +175,7 @@ metal_op_with_out!(InclusiveFProdOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_prefix_inclusive_product({val})")
 });
+no_msl_bfloat!(InclusiveFProdOp);
 
 unrolling!(ExclusiveISumOp);
 metal_op_with_out!(ExclusiveISumOp, |op, ctx| {
@@ -176,6 +187,7 @@ metal_op_with_out!(ExclusiveFSumOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_prefix_exclusive_sum({val})")
 });
+no_msl_bfloat!(ExclusiveFSumOp);
 
 unrolling!(ExclusiveIProdOp);
 metal_op_with_out!(ExclusiveIProdOp, |op, ctx| {
@@ -187,3 +199,4 @@ metal_op_with_out!(ExclusiveFProdOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_prefix_exclusive_product({val})")
 });
+no_msl_bfloat!(ExclusiveFProdOp);

@@ -100,7 +100,10 @@ impl Metadata {
         &self.shape
     }
 
+    /// The shape, to rewrite in place. A storage-tiled tensor's dims are its tiling's fragments,
+    /// which a rewrite would leave stale, so it refuses like the dim-changing ops do.
     pub fn shape_mut(&mut self) -> &mut Shape {
+        self.assert_untiled("shape_mut");
         &mut self.shape
     }
 
@@ -108,7 +111,11 @@ impl Metadata {
         &self.strides
     }
 
+    /// The strides, to rewrite in place. Refuses on a storage-tiled tensor, as
+    /// [`shape_mut`](Self::shape_mut) does: its strides step its tiles, and a rewrite would
+    /// keep the tiling over strides that no longer do.
     pub fn strides_mut(&mut self) -> &mut Strides {
+        self.assert_untiled("strides_mut");
         &mut self.strides
     }
 

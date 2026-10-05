@@ -2,11 +2,14 @@
 pub use test_log;
 
 pub mod all_reduce;
+pub mod allocation_mode;
+pub mod arithmetic_chains;
 pub mod assign;
 pub mod atomic;
 pub mod barrier;
 pub mod binary;
 pub mod branch;
+pub mod capture_status;
 pub mod cluster;
 pub mod cmma;
 pub mod cmma2;
@@ -22,10 +25,12 @@ pub mod launch;
 pub mod metadata;
 pub mod minifloat;
 pub mod numeric;
+pub mod out_of_memory;
 pub mod plane;
 pub mod profiling;
 pub mod properties;
 pub mod read_lazy;
+pub mod relocation;
 pub mod saturating;
 pub mod sequence;
 pub mod short_circuit;
@@ -97,9 +102,11 @@ macro_rules! testgen_all {
 #[macro_export]
 macro_rules! testgen_float {
     () => {
+        cubecl_core::testgen_arithmetic_chains!();
         cubecl_core::testgen_assign!();
         cubecl_core::testgen_barrier!();
         cubecl_core::testgen_binary!();
+        cubecl_core::testgen_comparison_float!();
         cubecl_core::testgen_branch!();
         cubecl_core::testgen_different_rank!();
         cubecl_core::testgen_index!();
@@ -165,6 +172,8 @@ macro_rules! testgen_untyped {
 
         cubecl_core::testgen_short_circuit!();
         cubecl_core::testgen_stream_errors!();
+        cubecl_core::testgen_allocation_mode!();
+        cubecl_core::testgen_out_of_memory!();
     };
 }
 

@@ -1,11 +1,13 @@
 use cubecl_core::{self as cubecl, define_scalar, define_size, num_traits::One, prelude::*};
 use cubecl_ir::{dialect::vector, interfaces::TypedExt, prelude::*};
+use cubecl_opt::passes::uniformity::op_dyn_uniformity;
 use pliron_spirv::{
     ext::gl,
     ops::{self, CompositeConstructOp, CompositeExtractOp, CompositeInsertOp},
 };
 
 use crate::{
+    decorate_uniform,
     lower::lower_unop,
     ops::{
         base::{binop_to_spirv_dialect, unop_to_spirv_dialect},
@@ -23,9 +25,11 @@ impl ToSpirvDialectOp for vector::CompositeConstructOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let op = self.get_operation();
+        let uniformity = op_dyn_uniformity(ctx, op);
         let opds = op.operands(ctx);
         let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
         let new_op = CompositeConstructOp::new(ctx, out_ty, opds);
+        decorate_uniform(ctx, new_op.get_operation(), uniformity);
         rewriter.append_op(ctx, &new_op);
         rewriter.replace_operation(ctx, op, new_op.get_operation());
 
@@ -42,9 +46,11 @@ impl ToSpirvDialectOp for vector::VectorBroadcastOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let op = self.get_operation();
+        let uniformity = op_dyn_uniformity(ctx, op);
         let opds = vec![self.input(ctx); self.result_type(ctx).vector_size(ctx)];
         let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
         let new_op = CompositeConstructOp::new(ctx, out_ty, opds);
+        decorate_uniform(ctx, new_op.get_operation(), uniformity);
         rewriter.append_op(ctx, &new_op);
         rewriter.replace_operation(ctx, op, new_op.get_operation());
 
@@ -61,11 +67,13 @@ impl ToSpirvDialectOp for vector::CompositeInsertOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let op = self.get_operation();
+        let uniformity = op_dyn_uniformity(ctx, op);
         let composite = self.composite(ctx);
         let idx = self.index(ctx).0 as u32;
         let value = self.value(ctx);
         let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
         let new_op = CompositeInsertOp::new(ctx, out_ty, value, composite, vec![idx.into()]);
+        decorate_uniform(ctx, new_op.get_operation(), uniformity);
         rewriter.append_op(ctx, &new_op);
         rewriter.replace_operation(ctx, op, new_op.get_operation());
 
@@ -82,10 +90,12 @@ impl ToSpirvDialectOp for vector::CompositeExtractOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let op = self.get_operation();
+        let uniformity = op_dyn_uniformity(ctx, op);
         let composite = self.composite(ctx);
         let idx = self.index(ctx).0 as u32;
         let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
         let new_op = CompositeExtractOp::new(ctx, out_ty, composite, vec![idx.into()]);
+        decorate_uniform(ctx, new_op.get_operation(), uniformity);
         rewriter.append_op(ctx, &new_op);
         rewriter.replace_operation(ctx, op, new_op.get_operation());
 
@@ -102,11 +112,13 @@ impl ToSpirvDialectOp for vector::VectorInsertDynamicOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let op = self.get_operation();
+        let uniformity = op_dyn_uniformity(ctx, op);
         let vector = self.vector(ctx);
         let idx = self.index(ctx);
         let value = self.value(ctx);
         let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
         let new_op = ops::VectorInsertDynamicOp::new(ctx, out_ty, vector, value, idx);
+        decorate_uniform(ctx, new_op.get_operation(), uniformity);
         rewriter.append_op(ctx, &new_op);
         rewriter.replace_operation(ctx, op, new_op.get_operation());
 
@@ -123,10 +135,12 @@ impl ToSpirvDialectOp for vector::VectorExtractDynamicOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let op = self.get_operation();
+        let uniformity = op_dyn_uniformity(ctx, op);
         let vector = self.vector(ctx);
         let idx = self.index(ctx);
         let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
         let new_op = ops::VectorExtractDynamicOp::new(ctx, out_ty, vector, idx);
+        decorate_uniform(ctx, new_op.get_operation(), uniformity);
         rewriter.append_op(ctx, &new_op);
         rewriter.replace_operation(ctx, op, new_op.get_operation());
 

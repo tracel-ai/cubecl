@@ -1,8 +1,11 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_runtime::throughput::{KernelConfig, MemorySpec, ThroughputKey};
+use cubecl_runtime::throughput::{KernelConfig, MemorySpec, ThroughputError, ThroughputKey};
 
-use crate::throughput::{LaunchConfig, memory_probe::MemoryProbe};
+use crate::throughput::{
+    LaunchConfig,
+    memory_probe::{self, MemoryProbe},
+};
 
 /// Builds the write-only streaming kernel, moving `working_set` bytes per
 /// pass, all of them written.
@@ -21,15 +24,16 @@ pub fn build_kernel(
     key: ThroughputKey,
     config: LaunchConfig,
     spec: MemorySpec,
-) -> KernelConfig {
+) -> Result<KernelConfig, ThroughputError> {
     let client = client.clone();
     let dtype = key.dtype();
 
     let line_bytes = config.vector_size * dtype.size();
     let probe = MemoryProbe::new(&client, config, line_bytes, spec);
 
-    let out_handle = client.empty(probe.buffer_bytes);
+    let [out_handle] = memory_probe::reserve(&client, [probe.buffer_bytes])?;
 
+    let (verifier, written) = (client.clone(), out_handle.clone());
     let sample = Box::new(move |iterations: usize| {
         let start = cubecl_common::profile::Instant::now();
         unsafe {
@@ -45,18 +49,20 @@ pub fn build_kernel(
                 dtype,
             )
         };
+        // A failure is not this sync's to report: `verify` asked the output.
         let _ = cubecl_core::future::block_on(client.sync());
         start.elapsed()
     });
+    memory_probe::verify(&verifier, &sample, &written)?;
 
     // Writes only, no `2 *`. That factor is the whole difference from the copy.
     let ops_count = probe.window_lines * config.vector_size;
 
-    KernelConfig {
+    Ok(KernelConfig {
         sample,
         ops_count,
         min_iterations: probe.min_iterations(),
-    }
+    })
 }
 
 #[cube(launch_unchecked)]

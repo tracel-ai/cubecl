@@ -7,7 +7,7 @@ use derive_more::From;
 use derive_new::new;
 use pliron::{
     arg_err,
-    attribute::AttrObj,
+    attribute::{AttrObj, Attribute, boxed_attr_cast},
     builtin::{
         attributes::{TypeAttr, UnitAttr},
         ops::ConstantOp,
@@ -35,7 +35,7 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    AddressSpace, CanMaterialize, NoSideEffects, Pure,
+    AddressSpace, CanMaterialize, HasSideEffects, NoSideEffects, PropagatesUniformity, Pure,
     attributes::{IndexAttr, ZeroAttr},
     dialect::{general::PoisonOp, math::index_attr, ptr_value_ty},
     interfaces::{
@@ -46,6 +46,7 @@ use crate::{
             DestructurableTypeInterface, DestructurableValueSlot, LogicalResult,
             SafeMemorySlotAccessOpInterface, ValueSlot,
         },
+        uniformity::{UniformOpInterface, Uniformity},
     },
     prelude::*,
     try_cast_ty,
@@ -147,6 +148,7 @@ impl PromotableAllocationInterface for DeclareVariableOp {
             return arg_err!(self.loc(ctx), UnrelatedAllocInfo);
         }
         if let Some(initializer) = self.initializer(ctx).map(|it| it.clone()) {
+            let initializer = boxed_attr_cast(initializer).unwrap();
             let constant = ConstantOp::new(ctx, initializer);
             inserter.insert_op(ctx, &constant);
             Ok(constant.get_result(ctx))
@@ -243,6 +245,17 @@ impl DestructurableConstructorOpInterface for DeclareVariableOp {
     }
 }
 
+#[op_interface_impl]
+impl UniformOpInterface for DeclareVariableOp {
+    fn uniformity(&self, ctx: &Context, _operands: &[Uniformity]) -> Uniformity {
+        match self.addr_space(ctx).0 {
+            AddressSpace::Global(_) => Uniformity::Device,
+            AddressSpace::Shared => Uniformity::Cube,
+            AddressSpace::Local => Uniformity::None,
+        }
+    }
+}
+
 fn variable_ptr_ty(
     ctx: &Context,
     value_ty: &TypeAttr,
@@ -259,7 +272,7 @@ fn variable_ptr_ty(
 )]
 #[result_ty(from_inputs = |ctx, base, _| indexed_ptr_ty(ctx, base))]
 #[op_interfaces(OperandNOfType<0, PointerType>, OperandNOfType<1, IndexType>)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct IndexOp {
     pub base: Value,
     pub index: Value,
@@ -278,7 +291,7 @@ fn const_index(ctx: &Context, value: Value) -> Option<usize> {
     let def_op = value.defining_op()?;
     let const_def = def_op.as_op::<ConstantOp>(ctx)?;
     let attr = const_def.get_value(ctx);
-    let attr = attr.downcast_ref::<IndexAttr>()?;
+    let attr = (&*attr as &dyn Attribute).downcast_ref::<IndexAttr>()?;
     Some(attr.0)
 }
 
@@ -416,7 +429,7 @@ impl Debug for StoreOpError {
 #[cube_op(name = "memory.store", verifier = "custom")]
 #[result_ty(none)]
 #[op_interfaces(OperandNOfType<0, PointerType>, TriviallyUnrollable)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct StoreOp {
     #[operand(ptr_write)]
     pub ptr: Value,
@@ -484,7 +497,7 @@ impl SafeMemorySlotAccessOpInterface for StoreOp {
 #[cube_op(name = "memory.copy")]
 #[result_ty(none)]
 #[op_interfaces(OperandNOfType<0, PointerType>, SameOperandsType)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct CopyOp {
     #[operand(ptr_read)]
     pub source: Value,

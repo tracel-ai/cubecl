@@ -1,22 +1,15 @@
-//! Lowering of `printf` to the AMDGPU hostcall sequence.
-//!
-//! A device talks to the host rather than calling libc: a handle from `__ockl_printf_begin`, the
-//! format string, then the arguments widened to 64 bits. `cpp_shims/printf.cpp` reaches LLVM's own
-//! emitter for it.
+//! AMDGPU device printing.
 
-use llvm_sys::core::*;
-use llvm_sys::prelude::{LLVMModuleRef, LLVMValueRef};
+use llvm_sys::{
+    core::*,
+    prelude::{LLVMModuleRef, LLVMValueRef},
+};
 
 unsafe extern "C" {
-    /// See `cpp_shims/printf.cpp`. Consumes the call, which must not be used afterwards.
+    /// Consumes the call. The caller must not use it afterwards.
     fn cubecl_emit_amdgpu_printf(call: LLVMValueRef);
 }
 
-/// Rewrites every `printf` call in `module` into the hostcall sequence.
-///
-/// Returns whether anything was rewritten, i.e. whether OCKL has to be linked in behind it. A
-/// kernel that never prints asks for nothing.
-///
 /// # Safety
 /// `module` must be a live LLVM module.
 pub unsafe fn lower_printf_to_hostcall(module: LLVMModuleRef) -> bool {
@@ -26,7 +19,6 @@ pub unsafe fn lower_printf_to_hostcall(module: LLVMModuleRef) -> bool {
             return false;
         }
 
-        // Collected first: each rewrite erases a call out of the use list being walked.
         let mut calls = Vec::new();
         let mut use_ = LLVMGetFirstUse(printf);
         while !use_.is_null() {
@@ -42,7 +34,6 @@ pub unsafe fn lower_printf_to_hostcall(module: LLVMModuleRef) -> bool {
             cubecl_emit_amdgpu_printf(call);
         }
 
-        // The declaration is left with no uses; a GPU links no libc.
         if lowered && LLVMGetFirstUse(printf).is_null() {
             LLVMDeleteFunction(printf);
         }
@@ -55,7 +46,6 @@ mod tests {
     use super::*;
     use std::ffi::{CStr, CString};
 
-    /// Parses `ir` into a fresh context the caller must dispose.
     unsafe fn parse(ir: &str) -> (llvm_sys::prelude::LLVMContextRef, LLVMModuleRef) {
         unsafe {
             let ctx = LLVMContextCreate();
@@ -77,7 +67,6 @@ mod tests {
         }
     }
 
-    /// The module's textual form, for asserting on what the rewrite produced.
     unsafe fn print(module: LLVMModuleRef) -> String {
         unsafe {
             let c = LLVMPrintModuleToString(module);
@@ -97,8 +86,6 @@ define void @k(double %d) {
 }
 "#;
 
-    /// The call becomes the hostcall conversation, and the `printf` that a GPU has no answer
-    /// for is gone from the module entirely.
     #[test]
     fn printf_becomes_the_hostcall_sequence() {
         unsafe {
@@ -123,7 +110,6 @@ define void @k(double %d) {
         }
     }
 
-    /// A kernel that never prints neither runs the rewrite nor drags OCKL in behind it.
     #[test]
     fn a_module_without_printf_needs_nothing() {
         unsafe {
@@ -134,7 +120,6 @@ define void @k(double %d) {
         }
     }
 
-    /// A `printf` that is declared but never called is not a reason to link anything.
     #[test]
     fn a_declaration_without_a_call_needs_nothing() {
         unsafe {

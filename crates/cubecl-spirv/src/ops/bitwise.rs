@@ -7,6 +7,7 @@ use cubecl_ir::{
     interfaces::TypedExt,
     prelude::*,
 };
+use cubecl_opt::passes::uniformity::op_dyn_uniformity;
 use pliron::{
     builtin::{
         attributes::{IntegerAttr, VecAttr},
@@ -23,6 +24,7 @@ use pliron_spirv::{
 };
 
 use crate::{
+    decorate_uniform,
     lower::lower_unop,
     ops::{
         base::{binop_to_spirv_dialect, unop_to_spirv_dialect},
@@ -70,6 +72,7 @@ impl ToSpirvDialectOp for bitwise::ShiftRightOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let op = self.get_operation();
+        let uniformity = op_dyn_uniformity(ctx, op);
         let lhs = op.operand(ctx, 0);
         let rhs = op.operand(ctx, 1);
         let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
@@ -77,10 +80,12 @@ impl ToSpirvDialectOp for bitwise::ShiftRightOp {
             let new_op = ShiftRightArithmeticOp::new(ctx, out_ty, lhs, rhs);
             rewriter.append_op(ctx, &new_op);
             rewriter.replace_operation(ctx, op, new_op.get_operation());
+            decorate_uniform(ctx, new_op.get_operation(), uniformity);
         } else {
             let new_op = ShiftRightLogicalOp::new(ctx, out_ty, lhs, rhs);
             rewriter.append_op(ctx, &new_op);
             rewriter.replace_operation(ctx, op, new_op.get_operation());
+            decorate_uniform(ctx, new_op.get_operation(), uniformity);
         }
 
         Ok(())
@@ -97,17 +102,24 @@ impl ToSpirvDialectOp for bitwise::LeadingZerosBitsOp {
     ) -> Result<()> {
         let scope = Scope::from_context_and_inserter(ctx, rewriter);
         let op = self.get_operation();
+        let uniformity = op_dyn_uniformity(ctx, op);
         let inp = self.input(ctx);
         let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
 
         // Indices are zero based, so subtract 1 from u32 width
         let width = const_int_maybe_vec(&scope, 31, inp.get_type(ctx));
         let msb = if self.get_result(ctx).scalar_ty(ctx).is_signed_int(ctx) {
-            scope.register_with_result(&gl::FindSMsbOp::new(ctx, out_ty, inp))
+            let op = gl::FindSMsbOp::new(ctx, out_ty, inp);
+            decorate_uniform(ctx, op.get_operation(), uniformity);
+            scope.register_with_result(&op)
         } else {
-            scope.register_with_result(&gl::FindUMsbOp::new(ctx, out_ty, inp))
+            let op = gl::FindUMsbOp::new(ctx, out_ty, inp);
+            decorate_uniform(ctx, op.get_operation(), uniformity);
+            scope.register_with_result(&op)
         };
-        let value = scope.register_with_result(&ISubOp::new(ctx, out_ty, width, msb));
+        let sub = ISubOp::new(ctx, out_ty, width, msb);
+        decorate_uniform(ctx, sub.get_operation(), uniformity);
+        let value = scope.register_with_result(&sub);
         rewriter.replace_operation_with_values(ctx, op, vec![value]);
 
         Ok(())
@@ -124,13 +136,18 @@ impl ToSpirvDialectOp for bitwise::FindFirstSetOp {
     ) -> Result<()> {
         let scope = Scope::from_context_and_inserter(ctx, rewriter);
         let op = self.get_operation();
+        let uniformity = op_dyn_uniformity(ctx, op);
         let inp = self.input(ctx);
         let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
 
         let one = const_int_maybe_vec(&scope, 1, inp.get_type(ctx));
-        let lsb = scope.register_with_result(&gl::FindILsbOp::new(ctx, out_ty, inp));
+        let find_lsb = gl::FindILsbOp::new(ctx, out_ty, inp);
+        decorate_uniform(ctx, find_lsb.get_operation(), uniformity);
+        let lsb = scope.register_with_result(&find_lsb);
         // Normalize to CUDA/POSIX convention of 1 based index, with 0 meaning not found
-        let value = scope.register_with_result(&IAddOp::new(ctx, out_ty, lsb, one));
+        let add = IAddOp::new(ctx, out_ty, lsb, one);
+        decorate_uniform(ctx, add.get_operation(), uniformity);
+        let value = scope.register_with_result(&add);
         rewriter.replace_operation_with_values(ctx, op, vec![value]);
 
         Ok(())
@@ -147,12 +164,16 @@ impl ToSpirvDialectOp for bitwise::TrailingZerosBitsOp {
     ) -> Result<()> {
         let scope = Scope::from_context_and_inserter(ctx, rewriter);
         let op = self.get_operation();
+        let uniformity = op_dyn_uniformity(ctx, op);
         let inp = self.input(ctx);
         let out_ty = ty_to_spirv_dialect(ctx, self.result_type(ctx));
 
-        let lsb = scope.register_with_result(&gl::FindILsbOp::new(ctx, out_ty, inp));
+        let find_lsb = gl::FindILsbOp::new(ctx, out_ty, inp);
+        decorate_uniform(ctx, find_lsb.get_operation(), uniformity);
+        let lsb = scope.register_with_result(&find_lsb);
         scope.register_value_type::<(), N>(self.result_type(ctx));
         let value = trailing_zeros_adjust::expand(&scope, inp.into(), lsb.into()).value(&scope);
+        decorate_uniform(ctx, value.defining_op().unwrap(), uniformity);
         rewriter.replace_operation_with_values(ctx, op, vec![value]);
 
         Ok(())
