@@ -207,6 +207,11 @@ impl Pass for EnableFeaturesPass {
             }
         });
 
+        // Native Naga supports subgroup operations and builtins without an enable
+        // directive, but rejects `enable subgroups;`. Browser WebGPU requires it.
+        #[cfg(not(target_family = "wasm"))]
+        feats.remove("subgroups");
+
         let mut res = PassResult::default();
         if !feats.is_empty() {
             res.ir_changed = IRStatus::Changed;
