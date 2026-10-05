@@ -69,9 +69,9 @@ fn a_local_array_under_a_constant_loop_is_registers() {
     );
 }
 
-/// `bf16` lanes move as 16-bit integers and compute in `f32`, on CDNA and RDNA alike.
+/// CDNA2 and RDNA have no `bf16` arithmetic, so LLVM computes a `bf16` kernel in `f32` there.
 #[test]
-fn bf16_moves_as_bits_and_computes_in_f32() {
+fn bf16_computes_in_f32_without_a_bf16_alu() {
     for arch in ["gfx90a", "gfx1151"] {
         let asm = asm_of(bf16_math_kernel(), arch);
         assert!(asm.contains("v_sqrt_f32"), "the math runs in f32:\n{asm}");

@@ -252,157 +252,21 @@ pub(crate) fn vector_into_array(
     acc
 }
 
-/// Converts the lanes of a fragment between two float element types. `bf16` is carried as an
-/// `i16`, which `fpext` and `fptrunc` cannot read, so it converts on its bit pattern through
-/// `f32`. This is the arithmetic of the scalar `bf16_bits_to_f32` and `f32_to_bf16_bits` in
-/// cubecl-core, written again in LLVM operations because a fragment stays opaque until this
-/// lowering: the two must round alike.
+/// Converts the lanes of a fragment between two float element types.
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub(crate) fn convert_lanes(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
     value: Value,
-    from: TypeHandle,
     to: TypeHandle,
 ) -> Value {
-    use cubecl_core::ir::types::scalar::Float32Type;
-
-    if from == to {
-        return value;
-    }
-    let lanes = {
-        let ty = value.get_type(ctx);
-        let ty = ty.deref(ctx);
-        ty.downcast_ref::<LlvmVectorType>()
-            .expect("a fragment is held in a vector")
-            .num_elements()
-    };
-    let f32_ty: TypeHandle = Float32Type::get(ctx).into();
-    let (value, from) = if from.is_bfloat16(ctx) {
-        (bf16_lanes_to_f32(ctx, rw, value, lanes), f32_ty)
-    } else {
-        (value, from)
-    };
-    if to.is_bfloat16(ctx) {
-        let wide = resize_float_lanes(ctx, rw, value, from, f32_ty, lanes);
-        return f32_lanes_to_bf16(ctx, rw, wide, lanes);
-    }
-    resize_float_lanes(ctx, rw, value, from, to, lanes)
-}
-
-#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
-fn resize_float_lanes(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    value: Value,
-    from: TypeHandle,
-    to: TypeHandle,
-    lanes: u32,
-) -> Value {
-    let (from_bits, to_bits) = (from.size_bits(ctx), to.size_bits(ctx));
-    let to_ty = lanes_ty(ctx, cube_type_to_llvm(ctx, to), lanes);
-    if from_bits == to_bits {
-        debug_assert_eq!(
-            cube_type_to_llvm(ctx, from),
-            cube_type_to_llvm(ctx, to),
-            "a cast of the same width between two distinct LLVM types needs a conversion"
-        );
-        return value;
-    }
-    let op = if from_bits > to_bits {
-        let op = llvm::FPTruncOp::new(ctx, value, to_ty);
-        op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-        op.get_operation()
-    } else {
-        let op = llvm::FPExtOp::new(ctx, value, to_ty);
-        op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-        op.get_operation()
-    };
-    rw.insert_operation(ctx, op);
-    op.deref(ctx).get_result(0)
-}
-
-#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
-fn lanes_ty(ctx: &Context, elem: TypeHandle, lanes: u32) -> TypeHandle {
-    LlvmVectorType::get(ctx, elem, lanes, VectorTypeKind::Fixed).into()
-}
-
-/// `lanes` 32-bit words, the integer shape of `lanes` `f32`.
-#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
-fn words_ty(ctx: &Context, lanes: u32) -> TypeHandle {
-    lanes_ty(
-        ctx,
-        IntegerType::get(ctx, 32, Signedness::Signless).into(),
-        lanes,
-    )
-}
-
-#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
-fn word_splat(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    value: u32,
-    lanes: u32,
-) -> Value {
-    let words_ty = words_ty(ctx, lanes);
-    let scalar = insert_i32_const(ctx, rw, value as i32);
-    insert_splat(ctx, rw, words_ty, scalar, lanes as usize)
-}
-
-/// `bf16` is the top half of an `f32`, so widening is exact.
-#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
-fn bf16_lanes_to_f32(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    halves: Value,
-    lanes: u32,
-) -> Value {
-    use crate::shared::plane::{bitcast, shl};
-
-    let words_ty = words_ty(ctx, lanes);
-    let op = llvm::ZExtOp::new_with_nneg(ctx, halves, words_ty, false);
-    let words = insert(ctx, rw, &op);
-    let shift = word_splat(ctx, rw, 16, lanes);
-    let bits = shl(ctx, rw, words, shift);
-    let floats_ty = lanes_ty(ctx, FP32Type::get(ctx).into(), lanes);
-    bitcast(ctx, rw, bits, floats_ty)
-}
-
-/// Round to nearest even; a NaN stays a NaN, quieted, with its sign.
-#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
-fn f32_lanes_to_bf16(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    floats: Value,
-    lanes: u32,
-) -> Value {
-    use crate::shared::plane::{add, and, bitcast, icmp, lshr, or, select};
-
-    let words_ty = words_ty(ctx, lanes);
-    let bits = bitcast(ctx, rw, floats, words_ty);
-    let shift = word_splat(ctx, rw, 16, lanes);
-    let one = word_splat(ctx, rw, 1, lanes);
-    let below_half = word_splat(ctx, rw, 0x7FFF, lanes);
-    let magnitude_mask = word_splat(ctx, rw, u32::MAX >> 1, lanes);
-    let infinity = word_splat(ctx, rw, f32::INFINITY.to_bits(), lanes);
-    let quiet = word_splat(ctx, rw, 1 << 6, lanes);
-
-    let truncated = lshr(ctx, rw, bits, shift);
-    let lsb = and(ctx, rw, truncated, one);
-    let biased = add(ctx, rw, bits, below_half);
-    let biased = add(ctx, rw, biased, lsb);
-    let rounded = lshr(ctx, rw, biased, shift);
-
-    let magnitude = and(ctx, rw, bits, magnitude_mask);
-    let is_nan = icmp(ctx, rw, ICmpPredicateAttr::UGT, magnitude, infinity);
-    let quieted = or(ctx, rw, truncated, quiet);
-    let code = select(ctx, rw, is_nan, quieted, rounded);
-
-    let halves_ty = lanes_ty(
-        ctx,
-        IntegerType::get(ctx, 16, Signedness::Signless).into(),
-        lanes,
-    );
-    let op = llvm::TruncOp::new(ctx, code, halves_ty);
-    insert(ctx, rw, &op)
+    let lanes = value
+        .get_type(ctx)
+        .deref(ctx)
+        .downcast_ref::<LlvmVectorType>()
+        .expect("a fragment is held in a vector")
+        .num_elements();
+    let to = cube_type_to_llvm(ctx, to);
+    let to_ty = LlvmVectorType::get(ctx, to, lanes, VectorTypeKind::Fixed).into();
+    crate::shared::to_llvm::general::convert_float(ctx, rw, value, to_ty)
 }

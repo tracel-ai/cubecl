@@ -136,8 +136,8 @@ fn restrict_common(props: &mut DeviceProperties) {
     props.features.types.opaque.remove(&OpaqueType::TensorMap);
     props.features.types.opaque.remove(&OpaqueType::Barrier);
 
-    // `bf16` is carried as an `i16` and its arithmetic promoted to `f32` (see
-    // `PromoteBf16Pass`), which does not reach the atomics.
+    // `bf16` atomics have no test on any target this backend lowers for, so they are not
+    // offered until one checks the read-modify-write LLVM expands them into.
     props
         .features
         .types
@@ -193,8 +193,8 @@ mod tests {
         }
     }
 
-    /// `bf16` is lowered as an `i16` computed in `f32`, which covers its arithmetic but none of
-    /// its atomics.
+    /// `bf16` lowers as LLVM `bfloat`, arithmetic and conversions alike; its atomics are not
+    /// offered.
     #[test]
     fn bf16_is_offered_without_its_atomics() {
         let bf16 = ElemType::Float(FloatKind::BF16);

@@ -9,7 +9,7 @@ use pliron::{
     combine::{self, Parser, between, parser::char::spaces, token},
     common_traits::Named,
     identifier::Identifier,
-    indented_block, input_err,
+    input_err,
     irfmt::{
         self,
         parsers::{
@@ -378,11 +378,12 @@ impl Printable for SwitchOp {
         let cases = self.cases(ctx);
 
         write!(f, "{}[", indented_nl(state))?;
-        indented_block!(state, {
+        {
+            let _indent = state.indent();
             write!(f, "{}", indented_nl(state))?;
             list_with_sep(&cases, pliron::printable::ListSeparator::CharNewline(','))
                 .fmt(ctx, state, f)?;
-        });
+        }
         write!(f, "{}]", indented_nl(state))?;
 
         Ok(())

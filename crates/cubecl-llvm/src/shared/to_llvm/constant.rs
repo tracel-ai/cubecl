@@ -1,9 +1,9 @@
 use crate::prelude::*;
 use cubecl_core::ir::{
     attributes::{BoolAttr, FloatAttr},
-    types::{Fp8Format, scalar::BFloat16Type},
+    types::Fp8Format,
 };
-use half::f16;
+use half::{bf16, f16};
 use pliron::{
     attribute::boxed_attr_cast,
     utils::apfloat::{self, Float},
@@ -22,6 +22,9 @@ pub fn float_attr(ctx: &Context, ty: TypeHandle, value: f64) -> Option<AttrObj> 
     Some(if ty.is_float16(ctx) {
         let value = f16::from_f64(value);
         FPHalfAttr(apfloat::Half::from_bits(value.to_bits() as u128)).into()
+    } else if ty.is_bfloat16(ctx) {
+        let value = bf16::from_f64(value);
+        FPBFloatAttr(apfloat::BFloat::from_bits(value.to_bits() as u128)).into()
     } else if ty.is_float32(ctx) || ty.is_tfloat32(ctx) {
         FPSingleAttr::from(value as f32).into()
     } else if ty.is_float64(ctx) {
@@ -64,12 +67,9 @@ pub fn convert_attr(ctx: &mut Context, value: AttrObj) -> AttrObj {
     } else if let Some(index_attr) = value.downcast_ref::<IndexAttr>() {
         int_attr(ctx, index_width(ctx), index_attr.0 as i128).into()
     } else if let Some(float) = value.downcast_ref::<FloatAttr>() {
-        // FP8 and BF16 constants use their integer encoding.
+        // FP8 constants use their 8-bit encoding.
         if Fp8Format::of_type(ctx, float.ty).is_some() {
             return int_attr(ctx, 8, float.val.to_bits() as i128).into();
-        }
-        if float.ty.deref(ctx).is::<BFloat16Type>() {
-            return int_attr(ctx, 16, float.val.to_bits() as i128).into();
         }
         let val = float.float_type(ctx).value_to_f64(float.val);
         float_attr(ctx, float.ty, val).unwrap()

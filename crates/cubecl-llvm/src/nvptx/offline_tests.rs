@@ -38,18 +38,23 @@ fn plane_moves_are_native_shuffles() {
     );
 }
 
-/// `bf16` lanes move as 16-bit integers and compute in `f32`, on parts with and without native
-/// `bf16` arithmetic alike.
+/// `bf16` arithmetic runs on Ampere's packed `bf16x2` instructions and converts with one `cvt`;
+/// a part without them computes in `f32`.
 #[test]
-fn bf16_moves_as_bits_and_computes_in_f32() {
-    for arch in [60, 80] {
-        let ptx = ptx_of(bf16_math_kernel(), arch);
-        assert!(
-            ptx.contains("ld.global.nc.v4.b16"),
-            "the lanes load as bits:\n{ptx}"
-        );
-        assert!(ptx.contains("sqrt.rn.f32"), "the math runs in f32:\n{ptx}");
-    }
+fn bf16_is_native_where_the_part_has_it() {
+    let ampere = ptx_of(bf16_math_kernel(), 80);
+    assert!(
+        ampere.contains("fma.rn.bf16x2"),
+        "packed bf16 arithmetic:\n{ampere}"
+    );
+    assert!(
+        ampere.contains("cvt.rn.bf16.f32"),
+        "a native conversion:\n{ampere}"
+    );
+
+    let pascal = ptx_of(bf16_math_kernel(), 60);
+    assert!(!pascal.contains("bf16x2"), "{pascal}");
+    assert!(pascal.contains("fma.rn.f32"), "promoted to f32:\n{pascal}");
 }
 
 /// A `bf16` tile product is one tensor core instruction on Ampere, accumulating in `f32`, for

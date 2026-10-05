@@ -606,7 +606,7 @@ pub(crate) fn cast(
 
     let in_frag_ty = fragment_ty(ctx, &in_ty);
     let value = load_fragment(ctx, rw, input, in_frag_ty);
-    let result = convert_lanes(ctx, rw, value, in_ty.elem_ty, out_ty.elem_ty);
+    let result = convert_lanes(ctx, rw, value, out_ty.elem_ty);
     store_fragment(ctx, rw, output, result);
     rw.erase_operation(ctx, old_op);
     Ok(())
@@ -693,6 +693,8 @@ fn registers_of(
             let word = word_ty(ctx);
             let elem_bits = if elem.deref(ctx).is::<FP32Type>() {
                 32
+            } else if elem.deref(ctx).is::<BF16Type>() {
+                16
             } else {
                 elem.size_bits(ctx)
             };

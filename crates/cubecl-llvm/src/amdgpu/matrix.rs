@@ -4,6 +4,7 @@ use crate::{
     amdgpu::plane::lane_id,
     prelude::*,
     shared::matrix::{convert_lanes, registers_as_vector, registers_value},
+    shared::plane::bitcast,
 };
 use cubecl_core::ir::{
     amd::AmdWmma,
@@ -450,7 +451,6 @@ fn emit_wmma(
     rw: &mut DialectConversionRewriter,
     call: WmmaCall,
     (a_val, b_val, c_val): (Value, Value, Value),
-    ab_ty: TypeHandle,
     cd_ty: TypeHandle,
 ) -> Option<Value> {
     let WmmaCall {
@@ -461,6 +461,12 @@ fn emit_wmma(
     } = call;
     let generation = ctx.wmma();
     let (instruction_k, steps) = instruction_steps(generation, k)?;
+
+    let fragment_cd_ty = cd_ty;
+    let a_val = wmma_operand(ctx, rw, a_val);
+    let b_val = wmma_operand(ctx, rw, b_val);
+    let c_val = wmma_operand(ctx, rw, c_val);
+    let (ab_ty, cd_ty) = (a_val.get_type(ctx), c_val.get_type(ctx));
 
     let mut acc = c_val;
     for step in 0..steps {
@@ -493,7 +499,25 @@ fn emit_wmma(
         let op = llvm::CallIntrinsicOp::new(ctx, name.into(), fn_ty, args);
         acc = insert(ctx, rw, &op);
     }
-    Some(acc)
+    Some(bitcast(ctx, rw, acc, fragment_cd_ty))
+}
+
+/// A fragment as the WMMA intrinsics take it: the `bf16` forms declare their lanes as `i16`.
+fn wmma_operand(ctx: &mut Context, rw: &mut DialectConversionRewriter, fragment: Value) -> Value {
+    let ty = fragment.get_type(ctx);
+    let (elem, lanes) = {
+        let vector = ty.deref(ctx);
+        let vector = vector
+            .downcast_ref::<LlvmVectorType>()
+            .expect("a fragment is held in a vector");
+        (vector.elem_type(), vector.num_elements())
+    };
+    if !elem.deref(ctx).is::<BF16Type>() {
+        return fragment;
+    }
+    let halves = IntegerType::get(ctx, 16, Signedness::Signless).into();
+    let halves_ty = LlvmVectorType::get(ctx, halves, lanes, VectorTypeKind::Fixed).into();
+    bitcast(ctx, rw, fragment, halves_ty)
 }
 
 pub(crate) fn multiply_accumulate(
@@ -530,8 +554,7 @@ pub(crate) fn multiply_accumulate(
         cd,
         cd_is_half: is_half(ctx, c_ty.elem_ty),
     };
-    let Some(result) = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), ab_frag_ty, cd_frag_ty)
-    else {
+    let Some(result) = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), cd_frag_ty) else {
         return input_err!(op.loc(ctx), MatrixDepthUnsupported(k, instruction_k(ctx)));
     };
     store_fragment(ctx, rw, d, result);
@@ -582,7 +605,7 @@ pub(crate) fn cast(
         )
     };
 
-    let cast = convert_lanes(ctx, rw, dense, in_ty.elem_ty, out_ty.elem_ty);
+    let cast = convert_lanes(ctx, rw, dense, out_ty.elem_ty);
 
     let result = if out_step == 1 {
         cast
@@ -680,7 +703,7 @@ pub(crate) fn mma_manual(
         cd,
         cd_is_half: is_half(ctx, cd_elem),
     };
-    let Some(result) = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), ab_ty, cd_ty) else {
+    let Some(result) = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), cd_ty) else {
         return input_err!(
             op.loc(ctx),
             MatrixDepthUnsupported(shape.k, instruction_k(ctx))

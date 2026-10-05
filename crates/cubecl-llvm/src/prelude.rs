@@ -39,9 +39,9 @@ pub use pliron::{
     attribute::AttrObj,
     basic_block::BasicBlock,
     builtin::{
-        attributes::{FPDoubleAttr, FPHalfAttr, FPSingleAttr, IntegerAttr},
+        attributes::{FPBFloatAttr, FPDoubleAttr, FPHalfAttr, FPSingleAttr, IntegerAttr},
         ops::{ConstantOp, FuncOp, ModuleOp},
-        types::{FP16Type, FP32Type, FP64Type, FunctionType, IntegerType, Signedness},
+        types::{BF16Type, FP16Type, FP32Type, FP64Type, FunctionType, IntegerType, Signedness},
     },
     identifier::Identifier,
     input_err,
