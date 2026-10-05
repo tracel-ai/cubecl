@@ -40,6 +40,24 @@ impl PatienceTable {
         }
     }
 
+    /// How many samples the first pass takes of the candidate at `slot` before its time is
+    /// recorded: `min_samples` where a group with patience brought it in, one otherwise.
+    ///
+    /// Patience judges a member on its best first-pass time, and a single sample is noisy enough
+    /// to read as an improvement it is not, resetting the misses and stopping the group late.
+    /// Elimination waits for `min_samples` of every candidate anyway, so taking them in the first
+    /// pass adds no sample; it only takes them back to back rather than interleaved with the other
+    /// candidates' rounds.
+    pub(crate) fn first_pass_samples(&self, slot: usize, min_samples: usize) -> usize {
+        let tracked = self.groups[slot]
+            .iter()
+            .any(|group| self.trackers.contains_key(group));
+        match tracked {
+            true => min_samples.max(1),
+            false => 1,
+        }
+    }
+
     /// Whether the candidate at `slot` is skipped: every group that brought it in ran out of
     /// patience. One that a group without patience brought in, or that no group did, never is.
     pub(crate) fn skips(&self, slot: usize) -> bool {
@@ -169,6 +187,21 @@ mod tests {
                 .collect(),
             patience: patience.iter().copied().collect(),
         }
+    }
+
+    #[test]
+    fn a_patient_member_takes_the_minimum_samples_in_the_first_pass() {
+        let (patient, impatient) = (GroupId::new(0), GroupId::new(1));
+        let table = PatienceTable::new(&batch(
+            &[&[patient], &[impatient], &[], &[impatient, patient]],
+            &[(patient, patience(1, 1))],
+        ));
+
+        assert_eq!(table.first_pass_samples(0, 3), 3);
+        assert_eq!(table.first_pass_samples(1, 3), 1);
+        assert_eq!(table.first_pass_samples(2, 3), 1);
+        assert_eq!(table.first_pass_samples(3, 3), 3);
+        assert_eq!(table.first_pass_samples(0, 0), 1);
     }
 
     #[test]

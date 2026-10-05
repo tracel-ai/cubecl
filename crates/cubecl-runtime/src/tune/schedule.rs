@@ -120,9 +120,10 @@ impl Schedule<'_> {
 
         let mut short_circuit = None;
 
-        // First pass: one warmup and one sample each, resolved inline so a candidate that
-        // already hits the limit ends the batch before the remaining kernels are ever compiled.
-        // This is the one place where paying a device round trip per sample is worth it.
+        // First pass: one warmup and one sample each, or `min_samples` for a member of a group
+        // with patience ([`PatienceTable::first_pass_samples`]), resolved inline so a candidate
+        // that already hits the limit ends the batch before the remaining kernels are ever
+        // compiled. This is the one place where paying a device round trip per sample is worth it.
         for slot in 0..candidates.len() {
             if patience.skips(slot) {
                 candidates[slot].skip();
@@ -142,6 +143,16 @@ impl Schedule<'_> {
             if hit {
                 short_circuit = Some(candidates[slot].name.clone());
                 break;
+            }
+
+            let samples = patience.first_pass_samples(slot, min_samples);
+            while candidates[slot].live && candidates[slot].samples.len() < samples {
+                let launched = self.track_steps.then(Instant::now);
+                self.take_sample(operation, &inputs, client, &mut candidates[slot])
+                    .await;
+                if let Some(launched) = launched {
+                    candidates[slot].elapsed += launched.elapsed();
+                }
             }
 
             let candidate = &candidates[slot];

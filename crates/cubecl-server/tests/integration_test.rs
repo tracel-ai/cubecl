@@ -1138,8 +1138,11 @@ fn autotune_patience_measures_the_skipped_when_the_measured_fail() {
         min_measured: 1,
         max_misses: 0,
     };
-    // A warmup and a sample in the first pass, then it fails in the first round.
-    let candidates = vec![(FailsAfter(2), Ranked), (Add, Ranked)];
+    use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
+
+    // A warmup and the minimum samples in the first pass, then it fails in the first round.
+    let (min_samples, _) = CubeClRuntimeConfig::get().autotune.bench.samples();
+    let candidates = vec![(FailsAfter(1 + min_samples), Ranked), (Add, Ranked)];
 
     let (written, calls) = tune_ranked(&TUNER, patience, candidates);
 
