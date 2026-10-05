@@ -52,14 +52,15 @@ fn bf16_moves_as_bits_and_computes_in_f32() {
     }
 }
 
-/// A `bf16` tile product is one tensor core instruction on Ampere, accumulating in `f32`.
+/// A `bf16` tile product is one tensor core instruction on Ampere, accumulating in `f32`, for
+/// every tile WMMA has: the tiles that are not square size A and B apart.
 #[test]
 fn bf16_tiles_multiply_on_the_tensor_cores() {
-    let ptx = ptx_of(tile_product_kernel::<half::bf16, f32>(), 80);
-    assert!(
-        ptx.contains("wmma.mma.sync.aligned.row.col.m16n16k16.f32.bf16.bf16.f32"),
-        "{ptx}"
-    );
+    for (m, n, k) in [(16, 16, 16), (32, 8, 16), (8, 32, 16)] {
+        let ptx = ptx_of(tile_product_kernel::<half::bf16, f32>((m, n, k)), 80);
+        let mma = format!("wmma.mma.sync.aligned.row.col.m{m}n{n}k{k}.f32.bf16.bf16.f32");
+        assert!(ptx.contains(&mma), "{ptx}");
+    }
 }
 
 /// A loop of a constant trip count that indexes a local array is unrolled, so every index is a

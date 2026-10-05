@@ -84,11 +84,11 @@ fn bf16_moves_as_bits_and_computes_in_f32() {
 fn half_precision_tiles_multiply_on_the_matrix_cores() {
     use half::{bf16, f16};
     for arch in ["gfx1151", "gfx1201"] {
-        let asm = asm_of(tile_product_kernel::<bf16, f32>(), arch);
+        let asm = asm_of(tile_product_kernel::<bf16, f32>((16, 16, 16)), arch);
         assert!(asm.contains("v_wmma_f32_16x16x16_bf16"), "{arch}:\n{asm}");
-        let asm = asm_of(tile_product_kernel::<bf16, bf16>(), arch);
+        let asm = asm_of(tile_product_kernel::<bf16, bf16>((16, 16, 16)), arch);
         assert!(asm.contains("v_wmma_bf16_16x16x16_bf16"), "{arch}:\n{asm}");
-        let asm = asm_of(tile_product_kernel::<f16, f16>(), arch);
+        let asm = asm_of(tile_product_kernel::<f16, f16>((16, 16, 16)), arch);
         assert!(asm.contains("v_wmma_f16_16x16x16_f16"), "{arch}:\n{asm}");
     }
 }

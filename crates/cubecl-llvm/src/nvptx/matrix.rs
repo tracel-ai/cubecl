@@ -33,13 +33,15 @@ pub struct MatrixRelayoutUnsupported(MatrixIdent, MatrixIdent);
 #[derive(Debug, Error)]
 #[error(
     "casting a {ident} fragment of {from} to {to} needs a relayout the NVPTX lowering cannot do: \
-     an `f16` input fragment holds each element twice per lane and a `bf16` one once, so the two \
-     hold different elements; convert through memory instead"
+     the {from} fragment holds {from_elems} elements per lane and the {to} one {to_elems}, so \
+     the two hold different elements; convert through memory instead"
 )]
 pub struct MatrixElementLayoutUnsupported {
     ident: MatrixIdent,
     from: String,
+    from_elems: usize,
     to: String,
+    to_elems: usize,
 }
 
 #[derive(Debug, Error)]
@@ -322,6 +324,20 @@ fn call_void(ctx: &mut Context, rw: &mut DialectConversionRewriter, name: &str, 
     rw.insert_op(ctx, &call);
 }
 
+/// The registers a WMMA instruction takes for the fragment `matrix` points at.
+fn fragment_registers(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    matrix: Value,
+    ty: &MatrixType,
+    frag: Fragment,
+) -> Vec<Value> {
+    let frag_ty = fragment_ty(ctx, ty);
+    let reg_ty = register_ty(ctx, frag, ty.elem_ty);
+    let value = load_fragment(ctx, rw, matrix, frag_ty);
+    to_registers(ctx, rw, value, frag, reg_ty)
+}
+
 fn load_fragment(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
@@ -492,12 +508,17 @@ pub(crate) fn multiply_accumulate(
     let b_ty = matrix_of(ctx, operands_info, b);
     let c_ty = matrix_of(ctx, operands_info, c);
 
-    let (Some(ab_frag), Some(cd_frag)) = (fragment_of(ctx, &a_ty), fragment_of(ctx, &c_ty)) else {
-        let culprit = if fragment_of(ctx, &a_ty).is_none() {
-            a_ty.elem_ty
-        } else {
-            c_ty.elem_ty
-        };
+    // A and B are separate fragments: a `bf16` tile that is not square sizes them differently.
+    let (Some(a_frag), Some(b_frag), Some(cd_frag)) = (
+        fragment_of(ctx, &a_ty),
+        fragment_of(ctx, &b_ty),
+        fragment_of(ctx, &c_ty),
+    ) else {
+        let culprit = [&a_ty, &b_ty, &c_ty]
+            .into_iter()
+            .find(|ty| fragment_of(ctx, ty).is_none())
+            .expect("one of the three has no fragment")
+            .elem_ty;
         return input_err!(op.loc(ctx), unsupported_elem(ctx, culprit));
     };
     let Some(cd_name) = wmma_type(ctx, c_ty.elem_ty) else {
@@ -514,17 +535,12 @@ pub(crate) fn multiply_accumulate(
         return input_err!(op.loc(ctx), MatrixLayoutUnknown(culprit));
     };
 
-    let ab_frag_ty = fragment_ty(ctx, &a_ty);
     let cd_frag_ty = fragment_ty(ctx, &c_ty);
-    let ab_reg_ty = register_ty(ctx, ab_frag, a_ty.elem_ty);
     let cd_reg_ty = register_ty(ctx, cd_frag, c_ty.elem_ty);
 
-    let a_val = load_fragment(ctx, rw, a, ab_frag_ty);
-    let b_val = load_fragment(ctx, rw, b, ab_frag_ty);
+    let mut args = fragment_registers(ctx, rw, a, &a_ty, a_frag);
+    args.extend(fragment_registers(ctx, rw, b, &b_ty, b_frag));
     let c_val = load_fragment(ctx, rw, c, cd_frag_ty);
-
-    let mut args = to_registers(ctx, rw, a_val, ab_frag, ab_reg_ty);
-    args.extend(to_registers(ctx, rw, b_val, ab_frag, ab_reg_ty));
     args.extend(to_registers(ctx, rw, c_val, cd_frag, cd_reg_ty));
 
     let name = format!(
@@ -581,7 +597,9 @@ pub(crate) fn cast(
             MatrixElementLayoutUnsupported {
                 ident: in_ty.ident,
                 from: in_ty.elem_ty.disp(ctx).to_string(),
+                from_elems: in_frag.elems(),
                 to: out_ty.elem_ty.disp(ctx).to_string(),
+                to_elems: out_frag.elems(),
             }
         );
     }

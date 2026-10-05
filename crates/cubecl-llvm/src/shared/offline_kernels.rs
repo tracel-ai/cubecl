@@ -249,41 +249,51 @@ pub(crate) fn bf16_math_kernel() -> impl CubeKernel {
 
 /// One tile product of `I` operands accumulating in `A`.
 #[cube(launch)]
-fn tile_product<I: Float, A: Float>(lhs: &[I], rhs: &[I], out: &mut [A]) {
+fn tile_product<I: Float, A: Float>(
+    lhs: &[I],
+    rhs: &[I],
+    out: &mut [A],
+    #[comptime] m: usize,
+    #[comptime] n: usize,
+    #[comptime] k: usize,
+) {
     let a = cmma::Matrix::<I>::from_slice(
         cmma::MatrixIdent::A,
-        16usize,
-        16usize,
-        16usize,
+        m,
+        n,
+        k,
         cmma::MatrixLayout::RowMajor,
         lhs,
-        16,
+        k as u32,
     );
     let b = cmma::Matrix::<I>::from_slice(
         cmma::MatrixIdent::B,
-        16usize,
-        16usize,
-        16usize,
+        m,
+        n,
+        k,
         cmma::MatrixLayout::ColMajor,
         rhs,
-        16,
+        k as u32,
     );
     let c = cmma::Matrix::<A>::from_value(
         cmma::MatrixIdent::Accumulator,
-        16usize,
-        16usize,
-        16usize,
+        m,
+        n,
+        k,
         cmma::MatrixLayout::Undefined,
         A::from_int(0),
     );
     cmma::execute(&a, &b, &c, &c);
-    cmma::store(out, &c, 16, cmma::MatrixLayout::RowMajor);
+    cmma::store(out, &c, n as u32, cmma::MatrixLayout::RowMajor);
 }
 
+/// One `(m, n, k)` tile product of `I` operands accumulating in `A`.
 pub(crate) fn tile_product_kernel<
     I: Float + cubecl_core::CubeElement,
     A: Float + cubecl_core::CubeElement,
->() -> impl CubeKernel {
+>(
+    (m, n, k): (usize, usize, usize),
+) -> impl CubeKernel {
     let settings = KernelSettings::new(
         *CubeDim::new_1d(32),
         ExecutionMode::Unchecked,
@@ -294,9 +304,9 @@ pub(crate) fn tile_product_kernel<
         a_type: I::cube_type(),
         b_type: I::cube_type(),
         cd_type: A::cube_type(),
-        m: 16,
-        n: 16,
-        k: 16,
+        m: m as u32,
+        n: n as u32,
+        k: k as u32,
     });
     tile_product::TileProduct::<I, A>::new(
         settings,
@@ -305,5 +315,8 @@ pub(crate) fn tile_product_kernel<
         BufferCompilationArg { inplace: None },
         BufferCompilationArg { inplace: None },
         BufferCompilationArg { inplace: None },
+        m,
+        n,
+        k,
     )
 }

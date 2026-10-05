@@ -166,20 +166,22 @@ fn f64_to_f32_round_to_odd<N: Size>(value: Vector<f64, N>) -> Vector<f32, N> {
     Vector::<f32, N>::reinterpret(odd)
 }
 
-/// [`f64_to_f32_round_to_odd`] for an integer magnitude: its top 24 significant bits, with a
-/// sticky low bit for whatever was dropped below them.
+/// [`f64_to_f32_round_to_odd`] for an unsigned integer: its top 24 significant bits, with a
+/// sticky low bit for whatever was dropped below them. Generic over the width, so a 32-bit
+/// source does not pay for 64-bit arithmetic.
 #[cube]
-fn u64_to_f32_round_to_odd<N: Size>(magnitude: Vector<u64, N>) -> Vector<f32, N> {
-    let significant = Vector::new(u64::BITS) - Vector::leading_zeros(magnitude);
+fn unsigned_to_f32_round_to_odd<U: Int, N: Size>(magnitude: Vector<U, N>) -> Vector<f32, N> {
+    let bits = Vector::new(U::size_bits().comptime() as u32);
+    let significant = bits - Vector::leading_zeros(magnitude);
     let excess = select_many(
         significant.greater_than(&Vector::new(F32_SIGNIFICAND_BITS)),
         significant - Vector::new(F32_SIGNIFICAND_BITS),
         Vector::new(0u32),
     );
-    let shift = Vector::<u64, N>::cast_from(excess);
+    let shift = Vector::<U, N>::cast_from(excess);
     let kept = magnitude >> shift;
     let dropped = (kept << shift).not_equal(&magnitude);
-    let odd = kept | Vector::<u64, N>::cast_from(dropped);
+    let odd = kept | Vector::<U, N>::cast_from(dropped);
     // `odd` fits the significand and the scale is a power of two: neither step rounds.
     let scale = Vector::<f32, N>::reinterpret(
         (excess + Vector::new(F32_EXPONENT_BIAS)) << Vector::new(F32_MANTISSA_BITS),
@@ -187,14 +189,15 @@ fn u64_to_f32_round_to_odd<N: Size>(magnitude: Vector<u64, N>) -> Vector<f32, N>
     Vector::<f32, N>::cast_from(odd) * scale
 }
 
-/// [`u64_to_f32_round_to_odd`] on the magnitude, the sign put back after.
+/// [`unsigned_to_f32_round_to_odd`] on the magnitude, the sign put back after. `U` is the
+/// unsigned type of `S`'s width.
 #[cube]
-fn i64_to_f32_round_to_odd<N: Size>(value: Vector<i64, N>) -> Vector<f32, N> {
-    let negative = value.less_than(&Vector::new(0i64));
-    // `i64::MIN` negates to itself, whose bits are its magnitude.
+fn signed_to_f32_round_to_odd<S: Int, U: Int, N: Size>(value: Vector<S, N>) -> Vector<f32, N> {
+    let negative = value.less_than(&Vector::zero());
+    // The most negative value negates to itself, whose bits are its magnitude.
     let magnitude =
-        Vector::<u64, N>::reinterpret(select_many(negative, Vector::new(0i64) - value, value));
-    let rounded = u64_to_f32_round_to_odd::<N>(magnitude);
+        Vector::<U, N>::reinterpret(select_many(negative, Vector::zero() - value, value));
+    let rounded = unsigned_to_f32_round_to_odd::<U, N>(magnitude);
     select_many(negative, Vector::new(0.0f32) - rounded, rounded)
 }
 
@@ -299,20 +302,32 @@ fn encode(scope: &Scope, value: Value, result_ty: TypeHandle) -> Value {
 /// more significant bits than `f32` needs rounding to odd; any other converts exactly.
 fn to_f32_rounding_once(scope: &Scope, value: Value) -> Value {
     let scalar = value.scalar_ty(scope.ctx());
-    let wide_int = needs_rounding_to_odd(scope.ctx(), scalar) && !scalar.is_float64(scope.ctx());
-    let rounded = if scalar.is_float64(scope.ctx()) {
-        let value = cast_value(scope, value, Vector::<f64, N>::__expand_as_type(scope));
-        f64_to_f32_round_to_odd::expand::<N>(scope, value.into())
-    } else if wide_int && scalar.is_signed_int(scope.ctx()) {
-        let value = cast_value(scope, value, Vector::<i64, N>::__expand_as_type(scope));
-        i64_to_f32_round_to_odd::expand::<N>(scope, value.into())
-    } else if wide_int {
-        let value = cast_value(scope, value, Vector::<u64, N>::__expand_as_type(scope));
-        u64_to_f32_round_to_odd::expand::<N>(scope, value.into())
-    } else {
+    if !needs_rounding_to_odd(scope.ctx(), scalar) {
         return cast_value(scope, value, Vector::<f32, N>::__expand_as_type(scope));
-    };
-    rounded.read_value(scope)
+    }
+    let signed = scalar.is_signed_int(scope.ctx());
+    if scalar.is_float64(scope.ctx()) {
+        let value = cast_value(scope, value, Vector::<f64, N>::__expand_as_type(scope));
+        f64_to_f32_round_to_odd::expand::<N>(scope, value.into()).read_value(scope)
+    } else if scalar.size_bits(scope.ctx()) <= u32::BITS as usize {
+        int_to_f32_round_to_odd::<i32, u32>(scope, value, signed)
+    } else {
+        int_to_f32_round_to_odd::<i64, u64>(scope, value, signed)
+    }
+}
+
+/// [`signed_to_f32_round_to_odd`] or [`unsigned_to_f32_round_to_odd`] at the width of `S`/`U`.
+fn int_to_f32_round_to_odd<S: Int, U: Int>(scope: &Scope, value: Value, signed: bool) -> Value {
+    match signed {
+        true => {
+            let value = cast_value(scope, value, Vector::<S, N>::__expand_as_type(scope));
+            signed_to_f32_round_to_odd::expand::<S, U, N>(scope, value.into()).read_value(scope)
+        }
+        false => {
+            let value = cast_value(scope, value, Vector::<U, N>::__expand_as_type(scope));
+            unsigned_to_f32_round_to_odd::expand::<U, N>(scope, value.into()).read_value(scope)
+        }
+    }
 }
 
 /// Whether a `scalar` source carries more significant bits than `f32`, which would round twice on

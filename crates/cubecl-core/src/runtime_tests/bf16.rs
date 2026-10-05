@@ -200,6 +200,9 @@ pub fn encode_wide_sources<R: Runtime>(client: Client) {
             (-past_tie, 0xBF81),
             (1e300, 0x7F80),
             (f64::MIN_POSITIVE, 0),
+            (f64::INFINITY, 0x7F80),
+            (f64::NEG_INFINITY, 0xFF80),
+            (-0.0, 0x8000),
         ],
     );
     // 2^63 + 2^55 + 1.

@@ -327,6 +327,16 @@ fn lanes_ty(ctx: &Context, elem: TypeHandle, lanes: u32) -> TypeHandle {
     LlvmVectorType::get(ctx, elem, lanes, VectorTypeKind::Fixed).into()
 }
 
+/// `lanes` 32-bit words, the integer shape of `lanes` `f32`.
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+fn words_ty(ctx: &Context, lanes: u32) -> TypeHandle {
+    lanes_ty(
+        ctx,
+        IntegerType::get(ctx, 32, Signedness::Signless).into(),
+        lanes,
+    )
+}
+
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 fn word_splat(
     ctx: &mut Context,
@@ -334,11 +344,7 @@ fn word_splat(
     value: u32,
     lanes: u32,
 ) -> Value {
-    let words_ty = lanes_ty(
-        ctx,
-        IntegerType::get(ctx, 32, Signedness::Signless).into(),
-        lanes,
-    );
+    let words_ty = words_ty(ctx, lanes);
     let scalar = insert_i32_const(ctx, rw, value as i32);
     insert_splat(ctx, rw, words_ty, scalar, lanes as usize)
 }
@@ -353,11 +359,7 @@ fn bf16_lanes_to_f32(
 ) -> Value {
     use crate::shared::plane::{bitcast, shl};
 
-    let words_ty = lanes_ty(
-        ctx,
-        IntegerType::get(ctx, 32, Signedness::Signless).into(),
-        lanes,
-    );
+    let words_ty = words_ty(ctx, lanes);
     let op = llvm::ZExtOp::new_with_nneg(ctx, halves, words_ty, false);
     let words = insert(ctx, rw, &op);
     let shift = word_splat(ctx, rw, 16, lanes);
@@ -376,11 +378,7 @@ fn f32_lanes_to_bf16(
 ) -> Value {
     use crate::shared::plane::{add, and, bitcast, icmp, lshr, or, select};
 
-    let words_ty = lanes_ty(
-        ctx,
-        IntegerType::get(ctx, 32, Signedness::Signless).into(),
-        lanes,
-    );
+    let words_ty = words_ty(ctx, lanes);
     let bits = bitcast(ctx, rw, floats, words_ty);
     let shift = word_splat(ctx, rw, 16, lanes);
     let one = word_splat(ctx, rw, 1, lanes);
