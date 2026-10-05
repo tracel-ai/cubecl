@@ -32,6 +32,18 @@ pub struct MatrixRelayoutUnsupported(MatrixIdent, MatrixIdent);
 
 #[derive(Debug, Error)]
 #[error(
+    "casting a {ident} fragment of {from} to {to} needs a relayout the NVPTX lowering cannot do: \
+     an `f16` input fragment holds each element twice per lane and a `bf16` one once, so the two \
+     hold different elements; convert through memory instead"
+)]
+pub struct MatrixElementLayoutUnsupported {
+    ident: MatrixIdent,
+    from: String,
+    to: String,
+}
+
+#[derive(Debug, Error)]
+#[error(
     "the NVPTX backend lowers the cooperative matrix API through `wmma`, whose fragment layout \
      is opaque; `{0}` is part of the manual `mma.sync` API, which it does not implement"
 )]
@@ -563,12 +575,14 @@ pub(crate) fn cast(
         };
         return input_err!(op.loc(ctx), unsupported_elem(ctx, culprit));
     };
-    // An `f16` input fragment duplicates its elements where a `bf16` one does not, so the
-    // two hold different elements in each lane.
     if in_frag.elems() != out_frag.elems() {
         return input_err!(
             op.loc(ctx),
-            MatrixRelayoutUnsupported(in_ty.ident, out_ty.ident)
+            MatrixElementLayoutUnsupported {
+                ident: in_ty.ident,
+                from: in_ty.elem_ty.disp(ctx).to_string(),
+                to: out_ty.elem_ty.disp(ctx).to_string(),
+            }
         );
     }
 

@@ -144,9 +144,118 @@ pub fn encode<R: Runtime>(client: Client, lanes: VectorSize) {
         assert_eq!(
             actual.to_bits(),
             expected.to_bits(),
-            "{:#010x} narrows to {:#06x}",
+            "{:#010x} narrows to {:#06x}, got {:#06x}",
             value.to_bits(),
-            expected.to_bits()
+            expected.to_bits(),
+            actual.to_bits()
+        );
+    }
+}
+
+#[cube(launch_unchecked)]
+fn kernel_encode_from<S: Scalar>(input: &[S], out: &mut [bf16]) {
+    if ABSOLUTE_POS < input.len() {
+        out[ABSOLUTE_POS] = bf16::cast_from(input[ABSOLUTE_POS]);
+    }
+}
+
+/// Narrowing a source with more significant bits than `f32` rounds once. Each first value sits
+/// just past a `bf16` tie that rounding to `f32` first would land on exactly, then round to even
+/// the wrong way.
+///
+/// The expected codes are spelled out: `half::bf16::from_f64` goes through `f32` and rounds
+/// twice itself.
+pub fn encode_wide_sources<R: Runtime>(client: Client) {
+    if !supported(&client) {
+        println!("Unsupported, skipping");
+        return;
+    }
+
+    // 2^31 + 2^23 + 2^7: half a `bf16` ulp past 2^31, plus a bit `f32` cannot hold.
+    encode_from::<u32>(
+        &client,
+        &[
+            (0x8080_0080, 0x4F01),
+            (0x7FFF_FFFF, 0x4F00),
+            (1, 0x3F80),
+            (0, 0),
+        ],
+    );
+    // -(2^30 + 2^22 + 2^6).
+    encode_from::<i32>(
+        &client,
+        &[
+            (-0x4040_0040, 0xCE81),
+            (i32::MIN, 0xCF00),
+            (-3, 0xC040),
+            (0, 0),
+        ],
+    );
+    // 1 + 2^-8 + 2^-52.
+    let past_tie = f64::from_bits(0x3FF0_1000_0000_0001);
+    encode_from::<f64>(
+        &client,
+        &[
+            (past_tie, 0x3F81),
+            (-past_tie, 0xBF81),
+            (1e300, 0x7F80),
+            (f64::MIN_POSITIVE, 0),
+        ],
+    );
+    // 2^63 + 2^55 + 1.
+    encode_from::<u64>(
+        &client,
+        &[
+            ((1 << 63) + (1 << 55) + 1, 0x5F01),
+            (u64::MAX, 0x5F80),
+            (1 << 40, 0x5380),
+            (0, 0),
+        ],
+    );
+    // 2^62 + 2^54 + 1.
+    let past_tie = (1i64 << 62) + (1 << 54) + 1;
+    encode_from::<i64>(
+        &client,
+        &[
+            (past_tie, 0x5E81),
+            (-past_tie, 0xDE81),
+            (i64::MIN, 0xDF00),
+            (-1, 0xBF80),
+        ],
+    );
+}
+
+/// Narrows each value on the device and checks it against its expected `bf16` code.
+fn encode_from<S: Scalar + CubeElement>(client: &Client, cases: &[(S, u16)]) {
+    if !S::supported_uses(client).contains(TypeUsage::Conversion) {
+        println!("Unsupported, skipping");
+        return;
+    }
+    let values: Vec<S> = cases.iter().map(|(value, _)| *value).collect();
+    let input = client.create_from_slice(S::as_bytes(&values));
+    let out = client.empty(values.len() * size_of::<u16>());
+
+    unsafe {
+        kernel_encode_from::launch_unchecked::<S>(
+            client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(values.len() as u32),
+            BufferArg::from_raw_parts(input, values.len()),
+            BufferArg::from_raw_parts(out.clone(), values.len()),
+        )
+    };
+
+    let actual = client.read_one_unchecked(out);
+    let actual = u16::from_bytes(&actual);
+    assert_eq!(
+        actual.len(),
+        cases.len(),
+        "a failed launch reads back nothing"
+    );
+    for ((value, expected), actual) in cases.iter().zip(actual) {
+        assert_eq!(
+            actual, expected,
+            "{value:?} narrows to {expected:#06x}, got {actual:#06x}"
         );
     }
 }
@@ -167,6 +276,12 @@ macro_rules! testgen_bf16 {
                         lanes,
                     );
                 }
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn encode_wide_sources() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::bf16::encode_wide_sources::<TestRuntime>(client);
             }
 
             #[$crate::runtime_tests::test_log::test]

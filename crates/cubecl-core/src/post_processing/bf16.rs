@@ -3,10 +3,15 @@
 //! Such a backend stores and moves `bf16` lanes as `u16` bit patterns, which every operation that
 //! only moves bits (loads, stores, selects, shuffles, vector construction) handles unchanged. What
 //! remains is arithmetic: [`PromoteBf16`] rebuilds each float operation on `bf16` at `f32` and
-//! rounds its result back, so every operation rounds once as a native `bf16` instruction would.
+//! rounds its result back. For the basic operations (add, subtract, multiply, divide, square
+//! root) that is one rounding, as a native `bf16` instruction makes: `f32` carries more than twice
+//! `bf16`'s significand plus two bits, which makes the second rounding harmless. A fused or
+//! reducing operation (`fma`, a dot product, a vector or plane sum) instead keeps its intermediate
+//! results in `f32` and rounds once at the end: more accurate than rounding each step to `bf16`,
+//! and not bit-identical to a backend that does.
 //! [`LowerBf16Cast`] then lowers every conversion from or to `bf16` onto the bit patterns.
 
-use alloc::{string::ToString, vec, vec::Vec};
+use alloc::{vec, vec::Vec};
 use cubecl_ir::{
     NamedRewrite, Scope,
     dialect::{
@@ -19,13 +24,16 @@ use cubecl_ir::{
     try_cast_op,
     types::scalar::{BFloat16Type, Float32Type},
 };
-use pliron::r#type::TypeHandle;
+use pliron::{identifier::Identifier, r#type::TypeHandle};
 
 use crate::{self as cubecl, prelude::*};
 
 define_size!(N);
 
 const BF16_SHIFT: u32 = u32::BITS - u16::BITS;
+const F32_SIGNIFICAND_BITS: u32 = f32::MANTISSA_DIGITS;
+const F32_MANTISSA_BITS: u32 = f32::MANTISSA_DIGITS - 1;
+const F32_EXPONENT_BIAS: u32 = (f32::MAX_EXP - 1) as u32;
 const F32_MAGNITUDE_MASK: u32 = u32::MAX >> 1;
 const F32_INFINITY_BITS: u32 = f32::INFINITY.to_bits();
 /// The top mantissa bit of a `bf16`, which makes a NaN quiet.
@@ -95,13 +103,26 @@ impl MatchRewrite for PromoteBf16 {
 pub type LowerBf16CastPass = MatchRewritePass<LowerBf16Cast>;
 
 /// Lowers every cast from or to `bf16` onto its `u16` bit pattern, through `f32`.
+///
+/// A backend that converts `bf16` itself is still given the `f32` a source wider than `f32`
+/// rounds through: its native conversion from such a source rounds twice.
 #[derive(new, Clone, Copy, Debug, Default, NamedRewrite)]
-pub struct LowerBf16Cast;
+pub struct LowerBf16Cast {
+    /// The backend converts between `f32` and `bf16` natively: only casts to `bf16` from a source
+    /// wider than `f32` are rewritten, to that conversion from an `f32` rounded to odd.
+    native: bool,
+}
 
 impl MatchRewrite for LowerBf16Cast {
     fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
-        op.is_op::<CastOp>(ctx)
-            && (is_bf16(ctx, op.operand(ctx, 0)) || is_bf16(ctx, op.result(ctx)))
+        if !op.is_op::<CastOp>(ctx) {
+            return false;
+        }
+        let (input, result) = (op.operand(ctx, 0), op.result(ctx));
+        match self.native {
+            true => is_bf16(ctx, result) && needs_rounding_to_odd(ctx, input.scalar_ty(ctx)),
+            false => is_bf16(ctx, input) || is_bf16(ctx, result),
+        }
     }
 
     fn rewrite(
@@ -121,18 +142,60 @@ impl MatchRewrite for LowerBf16Cast {
         );
         scope.register_size::<N>(lanes);
 
-        // Bool and integer sources and targets go through the `f32` cast the backend lowers.
-        let mut value = input;
-        if is_bf16(scope.ctx(), input) {
-            value = decode(&scope, value);
-        }
-        let value = match is_bf16(scope.ctx(), result_ty) {
-            true => encode(&scope, value, result_ty),
-            false => cast_value(&scope, value, result_ty),
+        let value = match self.native {
+            true => cast_value(&scope, to_f32_rounding_once(&scope, input), result_ty),
+            false => convert(&scope, input, result_ty),
         };
         rewriter.replace_operation_with_values(ctx, op, vec![value]);
         Ok(())
     }
+}
+
+/// Narrows to `f32` by rounding to odd: an inexact result keeps its low bit set, so rounding it
+/// once more to `bf16` lands where rounding `value` straight to `bf16` would. Rounding to the
+/// nearest `f32` first would round twice.
+#[cube]
+fn f64_to_f32_round_to_odd<N: Size>(value: Vector<f64, N>) -> Vector<f32, N> {
+    let nearest = Vector::<f32, N>::cast_from(value);
+    let widened = Vector::<f64, N>::cast_from(nearest);
+    let bits = Vector::<u32, N>::reinterpret(nearest);
+    // The bits of an `f32` order as its magnitude does, so a step down is one ulp toward zero.
+    let rounded_away = widened.abs().greater_than(&value.abs());
+    let toward_zero = select_many(rounded_away, bits - Vector::new(1u32), bits);
+    let odd = select_many(widened.equal(&value), bits, toward_zero | Vector::new(1u32));
+    Vector::<f32, N>::reinterpret(odd)
+}
+
+/// [`f64_to_f32_round_to_odd`] for an integer magnitude: its top 24 significant bits, with a
+/// sticky low bit for whatever was dropped below them.
+#[cube]
+fn u64_to_f32_round_to_odd<N: Size>(magnitude: Vector<u64, N>) -> Vector<f32, N> {
+    let significant = Vector::new(u64::BITS) - Vector::leading_zeros(magnitude);
+    let excess = select_many(
+        significant.greater_than(&Vector::new(F32_SIGNIFICAND_BITS)),
+        significant - Vector::new(F32_SIGNIFICAND_BITS),
+        Vector::new(0u32),
+    );
+    let shift = Vector::<u64, N>::cast_from(excess);
+    let kept = magnitude >> shift;
+    let dropped = (kept << shift).not_equal(&magnitude);
+    let odd = kept | Vector::<u64, N>::cast_from(dropped);
+    // `odd` fits the significand and the scale is a power of two: neither step rounds.
+    let scale = Vector::<f32, N>::reinterpret(
+        (excess + Vector::new(F32_EXPONENT_BIAS)) << Vector::new(F32_MANTISSA_BITS),
+    );
+    Vector::<f32, N>::cast_from(odd) * scale
+}
+
+/// [`u64_to_f32_round_to_odd`] on the magnitude, the sign put back after.
+#[cube]
+fn i64_to_f32_round_to_odd<N: Size>(value: Vector<i64, N>) -> Vector<f32, N> {
+    let negative = value.less_than(&Vector::new(0i64));
+    // `i64::MIN` negates to itself, whose bits are its magnitude.
+    let magnitude =
+        Vector::<u64, N>::reinterpret(select_many(negative, Vector::new(0i64) - value, value));
+    let rounded = u64_to_f32_round_to_odd::<N>(magnitude);
+    select_many(negative, Vector::new(0.0f32) - rounded, rounded)
 }
 
 fn is_bf16(ctx: &Context, value: impl Typed) -> bool {
@@ -142,10 +205,9 @@ fn is_bf16(ctx: &Context, value: impl Typed) -> bool {
 }
 
 fn is_float_op(ctx: &Context, op: Ptr<Operation>) -> bool {
-    let opid = Operation::get_opid(op, ctx);
+    let dialect: Identifier = Operation::get_opid(op, ctx).dialect.into();
     // Every operation of these two dialects that accepts a float computes on it.
-    let dialect = opid.dialect.to_string();
-    if dialect == "math" || dialect == "cmp" {
+    if matches!(dialect.as_ref(), "math" | "cmp") {
         return true;
     }
     op.is_op::<vector::MagnitudeOp>(ctx)
@@ -227,8 +289,48 @@ fn decode(scope: &Scope, value: Value) -> Value {
 
 /// `N` lanes of any type the backend casts to `f32`, narrowed to `result_ty`'s `bf16`.
 fn encode(scope: &Scope, value: Value, result_ty: TypeHandle) -> Value {
-    let value = cast_value(scope, value, Vector::<f32, N>::__expand_as_type(scope));
+    let value = to_f32_rounding_once(scope, value);
     let bits = f32_to_bf16_bits::expand::<N>(scope, value.into()).read_value(scope);
     let halves = cast_value(scope, bits, Vector::<u16, N>::__expand_as_type(scope));
     reinterpret_value(scope, halves, result_ty)
+}
+
+/// `N` lanes as an `f32` that rounds to `bf16` as the lanes themselves would. Only a source with
+/// more significant bits than `f32` needs rounding to odd; any other converts exactly.
+fn to_f32_rounding_once(scope: &Scope, value: Value) -> Value {
+    let scalar = value.scalar_ty(scope.ctx());
+    let wide_int = needs_rounding_to_odd(scope.ctx(), scalar) && !scalar.is_float64(scope.ctx());
+    let rounded = if scalar.is_float64(scope.ctx()) {
+        let value = cast_value(scope, value, Vector::<f64, N>::__expand_as_type(scope));
+        f64_to_f32_round_to_odd::expand::<N>(scope, value.into())
+    } else if wide_int && scalar.is_signed_int(scope.ctx()) {
+        let value = cast_value(scope, value, Vector::<i64, N>::__expand_as_type(scope));
+        i64_to_f32_round_to_odd::expand::<N>(scope, value.into())
+    } else if wide_int {
+        let value = cast_value(scope, value, Vector::<u64, N>::__expand_as_type(scope));
+        u64_to_f32_round_to_odd::expand::<N>(scope, value.into())
+    } else {
+        return cast_value(scope, value, Vector::<f32, N>::__expand_as_type(scope));
+    };
+    rounded.read_value(scope)
+}
+
+/// Whether a `scalar` source carries more significant bits than `f32`, which would round twice on
+/// its way to `bf16` through a nearest `f32`.
+fn needs_rounding_to_odd(ctx: &Context, scalar: TypeHandle) -> bool {
+    let integer = scalar.is_int(ctx) || scalar.is_index(ctx);
+    scalar.is_float64(ctx) || integer && scalar.size_bits(ctx) > F32_SIGNIFICAND_BITS as usize
+}
+
+/// `N` lanes converted to `result_ty`, with `bf16` on either side, or both, carried as its bits.
+fn convert(scope: &Scope, input: Value, result_ty: TypeHandle) -> Value {
+    // Bool and integer sources and targets go through the `f32` cast the backend lowers.
+    let mut value = input;
+    if is_bf16(scope.ctx(), input) {
+        value = decode(scope, value);
+    }
+    match is_bf16(scope.ctx(), result_ty) {
+        true => encode(scope, value, result_ty),
+        false => cast_value(scope, value, result_ty),
+    }
 }

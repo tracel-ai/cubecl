@@ -31,6 +31,7 @@ use cubecl_core::{
         types::scalar::{Complex32Type, Complex64Type},
     },
     post_processing::{
+        bf16::{LowerBf16Cast, LowerBf16CastPass},
         bitwise::PromoteBitwisePass,
         checked_io::{CheckedIo, CheckedIoPass},
         fp4::{LowerFp4Cast, LowerFp4CastPass},
@@ -242,6 +243,9 @@ where
         )));
         func_passes.add_pass(AllocateSharedMemoryBlockPass);
 
+        // The targets convert between `f32` and `bf16` natively, but not from a wider source
+        // without rounding twice.
+        func_passes.add_pass(LowerBf16CastPass::new(LowerBf16Cast::new(true)));
         // CUDA converts fp8 with cuda_fp8.h, which carries its own software path below sm_89.
         let native_fp8 = match T::target() {
             Target::Cuda => EnumSet::all(),

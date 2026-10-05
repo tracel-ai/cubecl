@@ -23,41 +23,6 @@ use num_traits::NumCast;
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
-pub fn kernel_simple_f16_m16n16k16_gmem(lhs: &[f16], rhs: &[f16], out: &mut [f32]) {
-    let a = cmma::Matrix::<f16>::from_slice(
-        cmma::MatrixIdent::A,
-        16usize,
-        16usize,
-        16usize,
-        cmma::MatrixLayout::RowMajor,
-        lhs,
-        16,
-    );
-    let b = cmma::Matrix::<f16>::from_slice(
-        cmma::MatrixIdent::B,
-        16usize,
-        16usize,
-        16usize,
-        cmma::MatrixLayout::ColMajor,
-        rhs,
-        16,
-    );
-    let c = cmma::Matrix::<f32>::from_value(
-        cmma::MatrixIdent::Accumulator,
-        16usize,
-        16usize,
-        16usize,
-        cmma::MatrixLayout::Undefined,
-        0.0,
-    );
-
-    cmma::execute(&a, &b, &c, &c);
-
-    cmma::store(out, &c, 16, cmma::MatrixLayout::RowMajor);
-}
-
-#[cube(launch)]
-/// Executes Out = Lhs @ Rhs.T
 pub fn kernel_simple_1_vectorized<N: Size>(
     lhs: &[Vector<f16, N>],
     rhs: &[Vector<f16, N>],
@@ -555,40 +520,7 @@ pub fn test_accumulator_row_major<R: Runtime>(client: Client, cube_dimensions: C
 }
 
 pub fn test_simple_1<R: Runtime>(client: Client, cube_dimensions: CubeDim) {
-    if !client.features().matmul.cmma.contains(&MmaConfig {
-        a_type: ElemType::Float(FloatKind::F16),
-        b_type: ElemType::Float(FloatKind::F16),
-        cd_type: ElemType::Float(FloatKind::F32),
-        m: 16,
-        k: 16,
-        n: 16,
-    }) {
-        // We can't execute the test, skip.
-        return;
-    }
-
-    let lhs: Vec<f16> = (0..256).map(|i| f16::from_f32(i as f32)).collect();
-    let rhs: Vec<f16> = (0..256).map(|i| f16::from_f32((i % 8) as f32)).collect();
-
-    let lhs = client.create_from_slice(f16::as_bytes(&lhs));
-    let rhs = client.create_from_slice(f16::as_bytes(&rhs));
-    let out = client.empty(core::mem::size_of::<f32>() * 256);
-
-    unsafe {
-        kernel_simple_f16_m16n16k16_gmem::launch(
-            &client,
-            CubeCount::Static(1, 1, 1),
-            cube_dimensions,
-            BufferArg::from_raw_parts(lhs, 256),
-            BufferArg::from_raw_parts(rhs, 256),
-            BufferArg::from_raw_parts(out.clone(), 256),
-        )
-    };
-
-    let actual = client.read_one_unchecked(out);
-    let actual = f32::from_bytes(&actual);
-
-    assert_eq!(test_simple_1_expected(), actual);
+    test_simple_1_typed::<R, f16, f32>(client, cube_dimensions);
 }
 
 #[cube(launch)]
