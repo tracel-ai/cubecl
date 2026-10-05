@@ -1,7 +1,8 @@
 //! Real kernels compiled to PTX without a device, checked on the assembly.
 
 use crate::shared::offline_kernels::{
-    keep_largest_kernel, plane_moves_kernel, scale_kernel, strided_walk_kernel,
+    bf16_math_kernel, keep_largest_kernel, plane_moves_kernel, scale_kernel, strided_walk_kernel,
+    tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{PlironArtifact, PlironCompiler, PlironOptions, nvptx::ptx_version::PtxVersion};
@@ -34,6 +35,30 @@ fn plane_moves_are_native_shuffles() {
     assert!(
         ptx.contains("activemask.b32"),
         "the executing lanes as the mask:\n{ptx}"
+    );
+}
+
+/// `bf16` lanes move as 16-bit integers and compute in `f32`, on parts with and without native
+/// `bf16` arithmetic alike.
+#[test]
+fn bf16_moves_as_bits_and_computes_in_f32() {
+    for arch in [60, 80] {
+        let ptx = ptx_of(bf16_math_kernel(), arch);
+        assert!(
+            ptx.contains("ld.global.nc.v4.b16"),
+            "the lanes load as bits:\n{ptx}"
+        );
+        assert!(ptx.contains("sqrt.rn.f32"), "the math runs in f32:\n{ptx}");
+    }
+}
+
+/// A `bf16` tile product is one tensor core instruction on Ampere, accumulating in `f32`.
+#[test]
+fn bf16_tiles_multiply_on_the_tensor_cores() {
+    let ptx = ptx_of(tile_product_kernel::<half::bf16, f32>(), 80);
+    assert!(
+        ptx.contains("wmma.mma.sync.aligned.row.col.m16n16k16.f32.bf16.bf16.f32"),
+        "{ptx}"
     );
 }
 

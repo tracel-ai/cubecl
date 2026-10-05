@@ -1,6 +1,8 @@
 //! Real kernels compiled for AMDGPU without a device, checked on the assembly.
 
-use crate::shared::offline_kernels::{keep_largest_kernel, plane_moves_kernel, scale_kernel};
+use crate::shared::offline_kernels::{
+    bf16_math_kernel, keep_largest_kernel, plane_moves_kernel, scale_kernel, tile_product_kernel,
+};
 use crate::target::LlvmTarget;
 use crate::{
     PlironArtifact, PlironCompiler, PlironOptions,
@@ -65,6 +67,30 @@ fn a_local_array_under_a_constant_loop_is_registers() {
         !asm.contains("scratch_"),
         "the array is in scratch memory:\n{asm}"
     );
+}
+
+/// `bf16` lanes move as 16-bit integers and compute in `f32`, on CDNA and RDNA alike.
+#[test]
+fn bf16_moves_as_bits_and_computes_in_f32() {
+    for arch in ["gfx90a", "gfx1151"] {
+        let asm = asm_of(bf16_math_kernel(), arch);
+        assert!(asm.contains("v_sqrt_f32"), "the math runs in f32:\n{asm}");
+    }
+}
+
+/// A half-precision tile product is one WMMA instruction on RDNA3 and RDNA4, into an `f32` or
+/// a 16-bit accumulator.
+#[test]
+fn half_precision_tiles_multiply_on_the_matrix_cores() {
+    use half::{bf16, f16};
+    for arch in ["gfx1151", "gfx1201"] {
+        let asm = asm_of(tile_product_kernel::<bf16, f32>(), arch);
+        assert!(asm.contains("v_wmma_f32_16x16x16_bf16"), "{arch}:\n{asm}");
+        let asm = asm_of(tile_product_kernel::<bf16, bf16>(), arch);
+        assert!(asm.contains("v_wmma_bf16_16x16x16_bf16"), "{arch}:\n{asm}");
+        let asm = asm_of(tile_product_kernel::<f16, f16>(), arch);
+        assert!(asm.contains("v_wmma_f16_16x16x16_f16"), "{arch}:\n{asm}");
+    }
 }
 
 /// The assembly `kernel` compiles to for `arch`.

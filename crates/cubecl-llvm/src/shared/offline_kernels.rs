@@ -4,9 +4,11 @@
 use cubecl_core as cubecl;
 use cubecl_core::ir::{
     DeviceIdentity, HardwareProperties, MemoryDeviceProperties, features::Features,
+    features::MmaConfig,
 };
 use cubecl_core::prelude::*;
 use cubecl_runtime::kernel::CubeKernel;
+use half::bf16;
 use std::sync::Arc;
 
 pub(crate) fn device_properties(plane_dim: u32) -> Arc<DeviceProperties> {
@@ -212,6 +214,96 @@ pub(crate) fn tf32_round_constants_kernel() -> impl CubeKernel {
         settings,
         device_properties(32),
         Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+    )
+}
+
+/// `bf16` arithmetic, a comparison, a square root and a plane reduction, which the backend
+/// carries as `i16` and computes in `f32`.
+#[cube(launch)]
+fn bf16_math(input: &[Vector<bf16, Const<4>>], output: &mut [Vector<bf16, Const<4>>]) {
+    let value = input[UNIT_POS as usize];
+    let scaled = value * Vector::new(bf16::new(1.5f32)) + Vector::new(bf16::new(0.25f32));
+    let positive = select_many(
+        scaled.greater_than(&Vector::new(bf16::new(0.0f32))),
+        scaled,
+        scaled.abs().sqrt(),
+    );
+    output[UNIT_POS as usize] = plane_sum(positive);
+}
+
+pub(crate) fn bf16_math_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    bf16_math::Bf16Math::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
+/// One tile product of `I` operands accumulating in `A`.
+#[cube(launch)]
+fn tile_product<I: Float, A: Float>(lhs: &[I], rhs: &[I], out: &mut [A]) {
+    let a = cmma::Matrix::<I>::from_slice(
+        cmma::MatrixIdent::A,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::RowMajor,
+        lhs,
+        16,
+    );
+    let b = cmma::Matrix::<I>::from_slice(
+        cmma::MatrixIdent::B,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::ColMajor,
+        rhs,
+        16,
+    );
+    let c = cmma::Matrix::<A>::from_value(
+        cmma::MatrixIdent::Accumulator,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::Undefined,
+        A::from_int(0),
+    );
+    cmma::execute(&a, &b, &c, &c);
+    cmma::store(out, &c, 16, cmma::MatrixLayout::RowMajor);
+}
+
+pub(crate) fn tile_product_kernel<
+    I: Float + cubecl_core::CubeElement,
+    A: Float + cubecl_core::CubeElement,
+>() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    let mut props = (*device_properties(32)).clone();
+    props.features.matmul.cmma.insert(MmaConfig {
+        a_type: I::cube_type(),
+        b_type: I::cube_type(),
+        cd_type: A::cube_type(),
+        m: 16,
+        n: 16,
+        k: 16,
+    });
+    tile_product::TileProduct::<I, A>::new(
+        settings,
+        Arc::new(props),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
         BufferCompilationArg { inplace: None },
     )
 }

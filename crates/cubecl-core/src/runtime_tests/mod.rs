@@ -7,6 +7,7 @@ pub mod arithmetic_chains;
 pub mod assign;
 pub mod atomic;
 pub mod barrier;
+pub mod bf16;
 pub mod binary;
 pub mod branch;
 pub mod capture_status;
@@ -152,6 +153,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_cmma!();
         cubecl_core::testgen_cmma2!();
         cubecl_core::testgen_numeric!();
+        cubecl_core::testgen_bf16!();
         cubecl_core::testgen_file!();
         cubecl_core::testgen_read_lazy!();
         cubecl_core::testgen_metadata!();

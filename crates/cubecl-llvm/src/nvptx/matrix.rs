@@ -3,7 +3,10 @@
 use crate::{
     prelude::*,
     shared::{
-        matrix::{registers_array_ty, registers_as_vector, registers_value, vector_into_array},
+        matrix::{
+            convert_lanes, registers_array_ty, registers_as_vector, registers_value,
+            vector_into_array,
+        },
         plane::bitcast,
     },
 };
@@ -60,6 +63,16 @@ fn fragment_of(ctx: &Context, matrix: &MatrixType) -> Option<Fragment> {
             regs: 8,
             per_reg: 2,
         }),
+        // Unlike `f16`, a `bf16` fragment holds each element once, so its size follows the
+        // tile: two to an `i32`, `rows * k / 32` per lane.
+        MatrixIdent::A | MatrixIdent::B if elem.is_bfloat16(ctx) => {
+            let MatrixShape { m, n, k } = matrix.shape;
+            let rows = if matrix.ident == MatrixIdent::A { m } else { n };
+            Some(Fragment {
+                regs: rows * k / 64,
+                per_reg: 2,
+            })
+        }
         MatrixIdent::Accumulator if elem.is_float16(ctx) => Some(Fragment {
             regs: 4,
             per_reg: 2,
@@ -79,7 +92,7 @@ pub(crate) fn fragment_ty(ctx: &Context, matrix: &MatrixType) -> TypeHandle {
 }
 
 fn register_ty(ctx: &mut Context, frag: Fragment, elem: TypeHandle) -> TypeHandle {
-    if elem.is_tfloat32(ctx) {
+    if elem.is_tfloat32(ctx) || elem.is_bfloat16(ctx) {
         return word_ty(ctx);
     }
     let elem = cube_type_to_llvm(ctx, elem);
@@ -97,6 +110,8 @@ fn wmma_type(ctx: &Context, elem: TypeHandle) -> Option<&'static str> {
         Some("f32")
     } else if elem.is_float16(ctx) {
         Some("f16")
+    } else if elem.is_bfloat16(ctx) {
+        Some("bf16")
     } else {
         None
     }
@@ -204,12 +219,13 @@ fn to_registers(
                 let value = extract_lane(ctx, rw, fragment, r);
                 return bitcast(ctx, rw, value, reg_ty);
             }
-            let mut reg = poison(ctx, rw, reg_ty);
+            let lanes_ty = packed_ty(ctx, fragment.get_type(ctx), frag.per_reg);
+            let mut reg = poison(ctx, rw, lanes_ty);
             for lane in 0..frag.per_reg {
                 let element = extract_lane(ctx, rw, fragment, r * frag.per_reg + lane);
                 reg = insert_lane(ctx, rw, reg, element, lane);
             }
-            reg
+            bitcast(ctx, rw, reg, reg_ty)
         })
         .collect()
 }
@@ -233,12 +249,25 @@ fn from_registers(
             acc = insert_lane(ctx, rw, acc, reg, r);
             continue;
         }
+        let lanes_ty = packed_ty(ctx, frag_ty, frag.per_reg);
+        let reg = bitcast(ctx, rw, reg, lanes_ty);
         for lane in 0..frag.per_reg {
             let element = extract_lane(ctx, rw, reg, lane);
             acc = insert_lane(ctx, rw, acc, element, r * frag.per_reg + lane);
         }
     }
     acc
+}
+
+/// The `per_reg` elements of `frag_ty` one register holds, as a vector. A register of another
+/// type, such as the `i32` that carries two `bf16`, is a bitcast of it.
+fn packed_ty(ctx: &Context, frag_ty: TypeHandle, per_reg: usize) -> TypeHandle {
+    let elem = frag_ty
+        .deref(ctx)
+        .downcast_ref::<LlvmVectorType>()
+        .expect("a fragment is held in a vector")
+        .elem_type();
+    LlvmVectorType::get(ctx, elem, per_reg as u32, VectorTypeKind::Fixed).into()
 }
 
 fn call_returning_registers(
@@ -534,35 +563,18 @@ pub(crate) fn cast(
         };
         return input_err!(op.loc(ctx), unsupported_elem(ctx, culprit));
     };
-    debug_assert_eq!(
-        in_frag.elems(),
-        out_frag.elems(),
-        "a cast keeps the element count and changes only their width"
-    );
+    // An `f16` input fragment duplicates its elements where a `bf16` one does not, so the
+    // two hold different elements in each lane.
+    if in_frag.elems() != out_frag.elems() {
+        return input_err!(
+            op.loc(ctx),
+            MatrixRelayoutUnsupported(in_ty.ident, out_ty.ident)
+        );
+    }
 
     let in_frag_ty = fragment_ty(ctx, &in_ty);
-    let out_frag_ty = fragment_ty(ctx, &out_ty);
     let value = load_fragment(ctx, rw, input, in_frag_ty);
-
-    let in_bits = in_ty.elem_ty.size_bits(ctx);
-    let out_bits = out_ty.elem_ty.size_bits(ctx);
-    let result = if in_bits > out_bits {
-        let cast = llvm::FPTruncOp::new(ctx, value, out_frag_ty);
-        cast.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-        insert(ctx, rw, &cast)
-    } else if in_bits < out_bits {
-        let cast = llvm::FPExtOp::new(ctx, value, out_frag_ty);
-        cast.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-        insert(ctx, rw, &cast)
-    } else {
-        debug_assert_eq!(
-            cube_type_to_llvm(ctx, in_ty.elem_ty),
-            cube_type_to_llvm(ctx, out_ty.elem_ty),
-            "a cast of the same width between two distinct LLVM types needs a conversion"
-        );
-        value
-    };
-
+    let result = convert_lanes(ctx, rw, value, in_ty.elem_ty, out_ty.elem_ty);
     store_fragment(ctx, rw, output, result);
     rw.erase_operation(ctx, old_op);
     Ok(())
@@ -599,6 +611,8 @@ fn mma_type(ctx: &Context, elem: TypeHandle) -> Option<(&'static str, RegisterFo
         Some(("tf32", RegisterForm::Word))
     } else if elem.is_float16(ctx) {
         Some(("f16", RegisterForm::Packed(2)))
+    } else if elem.is_bfloat16(ctx) {
+        Some(("bf16", RegisterForm::Word))
     } else if elem.is_float32(ctx) {
         Some(("f32", RegisterForm::Scalar))
     } else if elem.is_int(ctx) && elem.size_bits(ctx) == 8 {
@@ -924,7 +938,7 @@ lowered_by_the_polyfill!(col_index, ColIndexOp);
 mod tests {
     use super::*;
     use cubecl_core::ir::types::MatrixScope;
-    use cubecl_core::ir::types::scalar::{Float16Type, Float32Type};
+    use cubecl_core::ir::types::scalar::{BFloat16Type, Float16Type, Float32Type};
 
     fn matrix(ident: MatrixIdent, elem_ty: TypeHandle) -> MatrixType {
         MatrixType {
@@ -976,6 +990,29 @@ mod tests {
             }
         );
         assert_eq!(acc16.elems(), acc32.elems());
+    }
+
+    /// `bf16` fragments hold each element once, two to an `i32`, so their register count
+    /// follows the tile as `IntrinsicsNVVM.td` declares it.
+    #[test]
+    fn bf16_fragments_follow_the_tile() {
+        let ctx = Context::default();
+        let bf16: TypeHandle = BFloat16Type::get(&ctx).into();
+        let regs = |ident, m, n| {
+            let mut matrix = matrix(ident, bf16);
+            matrix.shape = MatrixShape { m, n, k: 16 };
+            fragment_of(&ctx, &matrix).unwrap().regs
+        };
+        assert_eq!(regs(MatrixIdent::A, 16, 16), 4);
+        assert_eq!(regs(MatrixIdent::B, 16, 16), 4);
+        assert_eq!(regs(MatrixIdent::A, 32, 8), 8);
+        assert_eq!(regs(MatrixIdent::B, 32, 8), 2);
+        assert_eq!(regs(MatrixIdent::A, 8, 32), 2);
+        assert_eq!(regs(MatrixIdent::B, 8, 32), 8);
+        assert_eq!(
+            fragment_of(&ctx, &matrix(MatrixIdent::Accumulator, bf16)),
+            None
+        );
     }
 
     #[test]

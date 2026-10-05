@@ -3,7 +3,7 @@
 use crate::{
     amdgpu::plane::lane_id,
     prelude::*,
-    shared::matrix::{registers_as_vector, registers_value},
+    shared::matrix::{convert_lanes, registers_as_vector, registers_value},
 };
 use cubecl_core::ir::{
     amd::AmdWmma,
@@ -461,7 +461,6 @@ fn emit_wmma(
     } = call;
     let generation = ctx.wmma();
     let (instruction_k, steps) = instruction_steps(generation, k)?;
-    let pads_half = pads_half_accumulator(generation) && cd_is_half;
 
     let mut acc = c_val;
     for step in 0..steps {
@@ -482,8 +481,9 @@ fn emit_wmma(
 
         let mut args = vec![a_arg, b_arg, acc];
         let mut arg_tys = vec![arg_ty, arg_ty, cd_ty];
-        // RDNA3 selects a register half with `opsel`; RDNA4 uses packed accumulators.
-        if pads_half {
+        // Every 16-bit accumulator form takes `op_sel`: RDNA3 selects a register half with it,
+        // RDNA4 packs its accumulators and requires it to be 0.
+        if cd_is_half {
             let low_half = insert_bool_const(ctx, rw, false);
             arg_tys.push(low_half.get_type(ctx));
             args.push(low_half);
@@ -582,41 +582,7 @@ pub(crate) fn cast(
         )
     };
 
-    let in_bits = in_ty.elem_ty.size_bits(ctx);
-    let out_bits = out_ty.elem_ty.size_bits(ctx);
-    let dense_out_ty: TypeHandle = LlvmVectorType::get(
-        ctx,
-        cube_type_to_llvm(ctx, out_ty.elem_ty),
-        elems as u32,
-        VectorTypeKind::Fixed,
-    )
-    .into();
-    let cast = if in_bits > out_bits {
-        fptrunc(ctx, rw, dense, dense_out_ty)
-    } else if in_bits < out_bits {
-        fpext(ctx, rw, dense, dense_out_ty)
-    } else if in_ty.elem_ty == out_ty.elem_ty {
-        dense
-    } else if is_half(ctx, in_ty.elem_ty) && is_half(ctx, out_ty.elem_ty) {
-        // Conversions between f16 and bf16 require an f32 intermediate.
-        let wide_ty: TypeHandle = LlvmVectorType::get(
-            ctx,
-            FP32Type::get(ctx).into(),
-            elems as u32,
-            VectorTypeKind::Fixed,
-        )
-        .into();
-        let wide = fpext(ctx, rw, dense, wide_ty);
-        fptrunc(ctx, rw, wide, dense_out_ty)
-    } else {
-        debug_assert_eq!(
-            cube_type_to_llvm(ctx, in_ty.elem_ty),
-            cube_type_to_llvm(ctx, out_ty.elem_ty),
-            "a cast of the same width between two distinct LLVM types needs a conversion, \
-             and neither `fpext` nor `fptrunc` is one"
-        );
-        dense
-    };
+    let cast = convert_lanes(ctx, rw, dense, in_ty.elem_ty, out_ty.elem_ty);
 
     let result = if out_step == 1 {
         cast
@@ -634,28 +600,6 @@ pub(crate) fn cast(
 
     rw.erase_operation(ctx, old_op);
     Ok(())
-}
-
-fn fpext(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    value: Value,
-    ty: TypeHandle,
-) -> Value {
-    let op = llvm::FPExtOp::new(ctx, value, ty);
-    op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-    insert(ctx, rw, &op)
-}
-
-fn fptrunc(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    value: Value,
-    ty: TypeHandle,
-) -> Value {
-    let op = llvm::FPTruncOp::new(ctx, value, ty);
-    op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-    insert(ctx, rw, &op)
 }
 
 enum Axis {
