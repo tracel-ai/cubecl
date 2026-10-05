@@ -14,13 +14,10 @@ use cubecl_ir::{
         general::{CastOp, PrintfOp},
         plane, vector,
     },
-    interfaces::{MaterializableOp, TypedExt},
+    interfaces::{MaterializableOp, TypeExt, TypedExt},
     prelude::*,
     try_cast_op,
-    types::{
-        VectorType,
-        scalar::{BFloat16Type, Float32Type},
-    },
+    types::scalar::{BFloat16Type, Float32Type},
 };
 use pliron::r#type::TypeHandle;
 
@@ -56,24 +53,6 @@ pub fn f32_to_bf16_bits<N: Size>(value: Vector<f32, N>) -> Vector<u32, N> {
     select_many(is_nan, truncated | Vector::new(BF16_QUIET_BIT), rounded)
 }
 
-fn is_bf16(ctx: &Context, value: impl Typed) -> bool {
-    value
-        .try_get_scalar_ty(ctx)
-        .is_some_and(|scalar| scalar.deref(ctx).is::<BFloat16Type>())
-}
-
-/// The same shape with `f32` lanes in place of `bf16` ones.
-fn widen_ty(ctx: &mut Context, ty: TypeHandle) -> TypeHandle {
-    let f32_ty = Float32Type::get(ctx).to_handle();
-    match ty.deref(ctx).downcast_ref::<VectorType>() {
-        Some(vector) => {
-            let vectorization = vector.vectorization;
-            VectorType::get(ctx, f32_ty, vectorization).to_handle()
-        }
-        None => f32_ty,
-    }
-}
-
 pub type PromoteBf16Pass = MatchRewritePass<PromoteBf16>;
 
 /// Rebuilds float operations on `bf16` at `f32`, narrowing their `bf16` results back.
@@ -84,29 +63,6 @@ pub type PromoteBf16Pass = MatchRewritePass<PromoteBf16>;
 #[derive(new, Clone, Copy, Debug, Default, NamedRewrite)]
 pub struct PromoteBf16;
 
-impl PromoteBf16 {
-    fn is_float_op(ctx: &Context, op: Ptr<Operation>) -> bool {
-        let opid = Operation::get_opid(op, ctx);
-        // Every operation of these two dialects that accepts a float computes on it.
-        let dialect = opid.dialect.to_string();
-        if dialect == "math" || dialect == "cmp" {
-            return true;
-        }
-        op.is_op::<vector::MagnitudeOp>(ctx)
-            || op.is_op::<vector::NormalizeOp>(ctx)
-            || op.is_op::<vector::FSumOp>(ctx)
-            || op.is_op::<vector::FDotOp>(ctx)
-            || op.is_op::<plane::FSumOp>(ctx)
-            || op.is_op::<plane::InclusiveFSumOp>(ctx)
-            || op.is_op::<plane::ExclusiveFSumOp>(ctx)
-            || op.is_op::<plane::FProdOp>(ctx)
-            || op.is_op::<plane::InclusiveFProdOp>(ctx)
-            || op.is_op::<plane::ExclusiveFProdOp>(ctx)
-            || op.is_op::<plane::FMinOp>(ctx)
-            || op.is_op::<plane::FMaxOp>(ctx)
-    }
-}
-
 impl MatchRewrite for PromoteBf16 {
     fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
         let touches_bf16 = op
@@ -114,7 +70,7 @@ impl MatchRewrite for PromoteBf16 {
             .into_iter()
             .any(|value| is_bf16(ctx, value))
             || op.deref(ctx).results().any(|value| is_bf16(ctx, value));
-        touches_bf16 && (Self::is_float_op(ctx, op) || op.is_op::<PrintfOp>(ctx))
+        touches_bf16 && (is_float_op(ctx, op) || op.is_op::<PrintfOp>(ctx))
     }
 
     fn rewrite(
@@ -123,56 +79,14 @@ impl MatchRewrite for PromoteBf16 {
         rewriter: &mut MatchRewriter,
         op: Ptr<Operation>,
     ) -> Result<()> {
-        let operands = op.operands(ctx);
-        let results: Vec<Value> = op.deref(ctx).results().collect();
-        let attributes = op.deref(ctx).attributes.clone();
-
         let scope = Scope::from_context_and_inserter(ctx, rewriter);
-        let operands: Vec<Value> = operands
-            .into_iter()
-            .map(|value| match is_bf16(scope.ctx(), value) {
-                true => {
-                    let wide_ty = widen_ty(scope.ctx_mut(), value.get_type(scope.ctx()));
-                    cast_value(&scope, value, wide_ty)
-                }
-                false => value,
-            })
-            .collect();
-
-        // A `printf` has no result to narrow and is not rebuilt: its arguments are printed
-        // as the `f32` they widen to exactly.
+        let operands = widen_operands(&scope, op);
+        // A `printf` has no result to narrow and is not rebuilt.
         if op.is_op::<PrintfOp>(scope.ctx()) {
-            for (index, wide) in operands.into_iter().enumerate() {
-                if op.operand(scope.ctx(), index) != wide {
-                    Operation::replace_operand(op, scope.ctx(), index, wide);
-                }
-            }
+            print_widened(&scope, op, operands);
             return Ok(());
         }
-        let result_tys = results
-            .iter()
-            .map(|value| {
-                let ty = value.get_type(scope.ctx());
-                match is_bf16(scope.ctx(), *value) {
-                    true => widen_ty(scope.ctx_mut(), ty),
-                    false => ty,
-                }
-            })
-            .collect();
-
-        let dyn_op = op.dyn_op(scope.ctx());
-        let rematerialize = try_cast_op!(dyn_op, scope.ctx(), dyn MaterializableOp);
-        let wide_op = rematerialize.materialize(scope.ctx_mut(), result_tys, operands, attributes);
-        scope.inserter().append_operation(scope.ctx(), wide_op);
-
-        let narrowed = results
-            .iter()
-            .enumerate()
-            .map(|(index, narrow)| {
-                let wide = wide_op.deref(scope.ctx()).get_result(index);
-                cast_value(&scope, wide, narrow.get_type(scope.ctx()))
-            })
-            .collect();
+        let narrowed = compute_at_f32(&scope, op, operands);
         rewriter.replace_operation_with_values(ctx, op, narrowed);
         Ok(())
     }
@@ -210,21 +124,111 @@ impl MatchRewrite for LowerBf16Cast {
         // Bool and integer sources and targets go through the `f32` cast the backend lowers.
         let mut value = input;
         if is_bf16(scope.ctx(), input) {
-            let halves =
-                reinterpret_value(&scope, value, Vector::<u16, N>::__expand_as_type(&scope));
-            let bits = cast_value(&scope, halves, Vector::<u32, N>::__expand_as_type(&scope));
-            value = bf16_bits_to_f32::expand::<N>(&scope, bits.into()).read_value(&scope);
+            value = decode(&scope, value);
         }
         let value = match is_bf16(scope.ctx(), result_ty) {
-            true => {
-                let value = cast_value(&scope, value, Vector::<f32, N>::__expand_as_type(&scope));
-                let bits = f32_to_bf16_bits::expand::<N>(&scope, value.into()).read_value(&scope);
-                let halves = cast_value(&scope, bits, Vector::<u16, N>::__expand_as_type(&scope));
-                reinterpret_value(&scope, halves, result_ty)
-            }
+            true => encode(&scope, value, result_ty),
             false => cast_value(&scope, value, result_ty),
         };
         rewriter.replace_operation_with_values(ctx, op, vec![value]);
         Ok(())
     }
+}
+
+fn is_bf16(ctx: &Context, value: impl Typed) -> bool {
+    value
+        .try_get_scalar_ty(ctx)
+        .is_some_and(|scalar| scalar.deref(ctx).is::<BFloat16Type>())
+}
+
+fn is_float_op(ctx: &Context, op: Ptr<Operation>) -> bool {
+    let opid = Operation::get_opid(op, ctx);
+    // Every operation of these two dialects that accepts a float computes on it.
+    let dialect = opid.dialect.to_string();
+    if dialect == "math" || dialect == "cmp" {
+        return true;
+    }
+    op.is_op::<vector::MagnitudeOp>(ctx)
+        || op.is_op::<vector::NormalizeOp>(ctx)
+        || op.is_op::<vector::FSumOp>(ctx)
+        || op.is_op::<vector::FDotOp>(ctx)
+        || op.is_op::<plane::FSumOp>(ctx)
+        || op.is_op::<plane::InclusiveFSumOp>(ctx)
+        || op.is_op::<plane::ExclusiveFSumOp>(ctx)
+        || op.is_op::<plane::FProdOp>(ctx)
+        || op.is_op::<plane::InclusiveFProdOp>(ctx)
+        || op.is_op::<plane::ExclusiveFProdOp>(ctx)
+        || op.is_op::<plane::FMinOp>(ctx)
+        || op.is_op::<plane::FMaxOp>(ctx)
+}
+
+/// The operands of `op`, each `bf16` one cast to `f32`.
+fn widen_operands(scope: &Scope, op: Ptr<Operation>) -> Vec<Value> {
+    op.operands(scope.ctx())
+        .into_iter()
+        .map(|value| match is_bf16(scope.ctx(), value) {
+            true => cast_value(scope, value, f32_shaped(scope, value.get_type(scope.ctx()))),
+            false => value,
+        })
+        .collect()
+}
+
+/// Points `op` at its widened operands in place: `f32` prints every `bf16` exactly.
+fn print_widened(scope: &Scope, op: Ptr<Operation>, operands: Vec<Value>) {
+    for (index, wide) in operands.into_iter().enumerate() {
+        if op.operand(scope.ctx(), index) != wide {
+            Operation::replace_operand(op, scope.ctx(), index, wide);
+        }
+    }
+}
+
+/// Rebuilds `op` on its widened operands with `f32` in place of each `bf16` result, and returns
+/// the results narrowed back to the types `op` declared.
+fn compute_at_f32(scope: &Scope, op: Ptr<Operation>, operands: Vec<Value>) -> Vec<Value> {
+    let results: Vec<Value> = op.deref(scope.ctx()).results().collect();
+    let attributes = op.deref(scope.ctx()).attributes.clone();
+    let result_tys = results
+        .iter()
+        .map(|value| {
+            let ty = value.get_type(scope.ctx());
+            match is_bf16(scope.ctx(), *value) {
+                true => f32_shaped(scope, ty),
+                false => ty,
+            }
+        })
+        .collect();
+
+    let dyn_op = op.dyn_op(scope.ctx());
+    let rematerialize = try_cast_op!(dyn_op, scope.ctx(), dyn MaterializableOp);
+    let wide_op = rematerialize.materialize(scope.ctx_mut(), result_tys, operands, attributes);
+    scope.inserter().append_operation(scope.ctx(), wide_op);
+
+    results
+        .iter()
+        .enumerate()
+        .map(|(index, narrow)| {
+            let wide = wide_op.deref(scope.ctx()).get_result(index);
+            cast_value(scope, wide, narrow.get_type(scope.ctx()))
+        })
+        .collect()
+}
+
+fn f32_shaped(scope: &Scope, ty: TypeHandle) -> TypeHandle {
+    let f32_ty = Float32Type::get(scope.ctx()).to_handle();
+    ty.with_scalar(scope.ctx_mut(), f32_ty)
+}
+
+/// `N` lanes of `bf16` widened to `f32`.
+fn decode(scope: &Scope, value: Value) -> Value {
+    let halves = reinterpret_value(scope, value, Vector::<u16, N>::__expand_as_type(scope));
+    let bits = cast_value(scope, halves, Vector::<u32, N>::__expand_as_type(scope));
+    bf16_bits_to_f32::expand::<N>(scope, bits.into()).read_value(scope)
+}
+
+/// `N` lanes of any type the backend casts to `f32`, narrowed to `result_ty`'s `bf16`.
+fn encode(scope: &Scope, value: Value, result_ty: TypeHandle) -> Value {
+    let value = cast_value(scope, value, Vector::<f32, N>::__expand_as_type(scope));
+    let bits = f32_to_bf16_bits::expand::<N>(scope, value.into()).read_value(scope);
+    let halves = cast_value(scope, bits, Vector::<u16, N>::__expand_as_type(scope));
+    reinterpret_value(scope, halves, result_ty)
 }

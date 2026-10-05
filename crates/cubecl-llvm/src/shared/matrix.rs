@@ -254,7 +254,9 @@ pub(crate) fn vector_into_array(
 
 /// Converts the lanes of a fragment between two float element types. `bf16` is carried as an
 /// `i16`, which `fpext` and `fptrunc` cannot read, so it converts on its bit pattern through
-/// `f32`, rounding to nearest even as the scalar conversion does.
+/// `f32`. This is the arithmetic of the scalar `bf16_bits_to_f32` and `f32_to_bf16_bits` in
+/// cubecl-core, written again in LLVM operations because a fragment stays opaque until this
+/// lowering: the two must round alike.
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub(crate) fn convert_lanes(
     ctx: &mut Context,

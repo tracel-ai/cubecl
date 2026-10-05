@@ -69,7 +69,7 @@ fn fragment_of(ctx: &Context, matrix: &MatrixType) -> Option<Fragment> {
             let MatrixShape { m, n, k } = matrix.shape;
             let rows = if matrix.ident == MatrixIdent::A { m } else { n };
             Some(Fragment {
-                regs: rows * k / 64,
+                regs: rows * k / 32 / 2,
                 per_reg: 2,
             })
         }

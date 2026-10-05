@@ -557,6 +557,8 @@ impl<T: Typed> TypedExt for T {}
 
 pub trait TypeExt {
     fn as_ptr(&self, ctx: &Context) -> PointerType;
+    /// The same shape with `scalar` lanes: a vector keeps its width, a scalar becomes `scalar`.
+    fn with_scalar(&self, ctx: &mut Context, scalar: TypeHandle) -> TypeHandle;
 }
 
 impl TypeExt for TypeHandle {
@@ -564,6 +566,17 @@ impl TypeExt for TypeHandle {
         *TypedHandle::from_handle(*self, ctx)
             .expect("Should be pointer")
             .deref(ctx)
+    }
+
+    fn with_scalar(&self, ctx: &mut Context, scalar: TypeHandle) -> TypeHandle {
+        let vectorization = self
+            .deref(ctx)
+            .downcast_ref::<VectorType>()
+            .map(|vector| vector.vectorization);
+        match vectorization {
+            Some(vectorization) => VectorType::get(ctx, scalar, vectorization).to_handle(),
+            None => scalar,
+        }
     }
 }
 
