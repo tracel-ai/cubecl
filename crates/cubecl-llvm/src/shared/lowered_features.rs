@@ -50,12 +50,9 @@ fn is_half_or_single(ty: ElemType) -> bool {
 /// Keeps the matrix forms NVPTX has register shapes for.
 #[cfg(feature = "nvptx")]
 fn keep_nvptx_matrix_forms(props: &mut DeviceProperties) {
-    // Both matrix families are lowered: the cooperative one through `wmma`, the manual one
-    // through `mma.sync`. Each is narrowed to the element types its lowering has register
-    // shapes for -- `f16` operands throughout, plus the narrow integers on the manual side,
-    // which pass their registers as opaque words. `bf16` and `tf32` are in neither for the
-    // same reason `bf16` is dropped in `restrict_common`: the dialect this backend lowers
-    // through has no type for them, so there is nothing to put in a register.
+    // Both matrix families support f16 and TF32 operands. TF32 uses FP32 storage,
+    // rounded casts, and opaque i32 registers at the NVVM matrix call boundary.
+    // BF16 still has no lowering. Keep only the TF32 geometries NVVM implements.
     let byte = |ty: ElemType| {
         matches!(
             ty,
@@ -63,9 +60,17 @@ fn keep_nvptx_matrix_forms(props: &mut DeviceProperties) {
         )
     };
 
+    let tf32 = ElemType::Float(FloatKind::TF32);
+    let f32 = ElemType::Float(FloatKind::F32);
     let matmul = &mut props.features.matmul;
     matmul.cmma.retain(|config| {
-        config.a_type == HALF && config.b_type == HALF && is_half_or_single(config.cd_type)
+        let half =
+            config.a_type == HALF && config.b_type == HALF && is_half_or_single(config.cd_type);
+        let tf32 = config.a_type == tf32
+            && config.b_type == tf32
+            && config.cd_type == f32
+            && (config.m, config.n, config.k) == (16, 16, 8);
+        half || tf32
     });
     matmul.mma.retain(|config| {
         let floats = config.a_type == HALF
@@ -76,7 +81,13 @@ fn keep_nvptx_matrix_forms(props: &mut DeviceProperties) {
         let integers = byte(config.a_type)
             && byte(config.b_type)
             && config.cd_type == ElemType::Int(IntKind::I32);
-        floats || integers
+        let tf32 = config.a_type == tf32
+            && config.b_type == tf32
+            && config.cd_type == f32
+            && config.m == 16
+            && config.n == 8
+            && matches!(config.k, 4 | 8);
+        floats || integers || tf32
     });
     // The manual `mma.sync` family, `ldmatrix` and `stmatrix` are advertised as lowered;
     // `test_cmma_manual` checks them element by element.
@@ -201,5 +212,41 @@ mod tests {
         props.features.matmul.cmma.extend(forms);
         props.features.matmul.mma.extend(forms);
         props
+    }
+}
+
+#[cfg(all(test, feature = "nvptx"))]
+mod nvptx_tests {
+    use super::*;
+    use crate::shared::offline_kernels::device_properties;
+    use cubecl_core::ir::features::MmaConfig;
+
+    #[test]
+    fn tf32_keeps_only_supported_matrix_shapes() {
+        let mut props = (*device_properties(32)).clone();
+        let tf32 = ElemType::Float(FloatKind::TF32);
+        let f32 = ElemType::Float(FloatKind::F32);
+        let config = |m, n, k| MmaConfig {
+            a_type: tf32,
+            b_type: tf32,
+            cd_type: f32,
+            m,
+            n,
+            k,
+        };
+        let forms = [
+            config(16, 16, 8),
+            config(16, 8, 4),
+            config(16, 8, 8),
+            config(16, 8, 16),
+        ];
+        props.features.matmul.cmma.extend(forms);
+        props.features.matmul.mma.extend(forms);
+        restrict_features(&mut props, GpuTarget::Nvptx);
+        assert_eq!(props.features.matmul.cmma.len(), 1);
+        assert!(props.features.matmul.cmma.contains(&config(16, 16, 8)));
+        assert_eq!(props.features.matmul.mma.len(), 2);
+        assert!(props.features.matmul.mma.contains(&config(16, 8, 4)));
+        assert!(props.features.matmul.mma.contains(&config(16, 8, 8)));
     }
 }

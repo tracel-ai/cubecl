@@ -95,3 +95,26 @@ fn ptx_of(kernel: impl CubeKernel, arch: u32) -> String {
         .to_string_lossy()
         .into_owned()
 }
+
+#[test]
+fn tf32_vector_casts_round_each_lane() {
+    let ptx = ptx_of(crate::shared::offline_kernels::tf32_round_kernel(), 80);
+    assert_eq!(
+        ptx.matches("cvt.rna.tf32.f32").count(),
+        4,
+        "TF32 casts must round every lane:\n{ptx}"
+    );
+}
+
+#[test]
+fn tf32_constant_casts_preserve_rounding() {
+    let ptx = ptx_of(
+        crate::shared::offline_kernels::tf32_round_constants_kernel(),
+        80,
+    );
+    assert_eq!(
+        ptx.matches("cvt.rna.tf32.f32").count(),
+        4,
+        "constant float and integer casts must retain TF32 rounding through an FP32 round trip:\n{ptx}"
+    );
+}

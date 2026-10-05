@@ -163,3 +163,55 @@ pub(crate) fn strided_walk_kernel() -> impl CubeKernel {
         (),
     )
 }
+
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn tf32_round(input: &[Vector<f32, Const<4>>], output: &mut [Vector<f32, Const<4>>]) {
+    if ABSOLUTE_POS < input.len() {
+        let rounded = Vector::<tf32, Const<4>>::cast_from(input[ABSOLUTE_POS]);
+        output[ABSOLUTE_POS] = Vector::<f32, Const<4>>::cast_from(rounded);
+    }
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn tf32_round_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Checked,
+        AddressType::U32,
+    );
+    tf32_round::Tf32Round::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
+#[cfg(feature = "nvptx")]
+type Tf32 = tf32;
+
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn tf32_round_constants(output: &mut [f32]) {
+    output[0] = f32::cast_from(Tf32::cast_from(1.00048828125f32));
+    output[1] = f32::cast_from(Tf32::cast_from(-1.00048828125f32));
+    output[2] = f32::cast_from(Tf32::cast_from(2049i32));
+    output[3] = f32::cast_from(Tf32::cast_from(4098u32));
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn tf32_round_constants_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(1),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    tf32_round_constants::Tf32RoundConstants::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+    )
+}

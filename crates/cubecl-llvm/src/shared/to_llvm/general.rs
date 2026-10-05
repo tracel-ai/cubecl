@@ -117,7 +117,23 @@ fn cast_int_to_float(
         &llvm::UIToFPOp::new_with_nneg(ctx, input, res_ty, false)
     };
     rewriter.insert_op(ctx, op);
-    rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
+    let value = finish_float_cast(ctx, rewriter, cast_op, op.get_result(ctx));
+    rewriter.replace_operation_with_values(ctx, old_op, vec![value]);
+}
+
+fn finish_float_cast(
+    ctx: &mut Context,
+    rewriter: &mut DialectConversionRewriter,
+    cast_op: &CastOp,
+    value: Value,
+) -> Value {
+    #[cfg(feature = "nvptx")]
+    if ctx.target() == LlvmTarget::Nvptx && cast_op.result_type(ctx).scalar_ty(ctx).is_tfloat32(ctx)
+    {
+        return crate::nvptx::matrix::round_tf32(ctx, rewriter, value);
+    }
+    let _ = (ctx, rewriter, cast_op);
+    value
 }
 
 fn cast_float_to_float(
@@ -133,19 +149,19 @@ fn cast_float_to_float(
     let input_size = in_ty.size(ctx);
     let output_size = out_ty.size(ctx);
 
-    if input_size > output_size {
+    let value = if input_size > output_size {
         let op = FPTruncOp::new(ctx, input, res_ty);
         op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-        rewriter.insert_op(ctx, &op);
-        rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
+        insert(ctx, rewriter, &op)
     } else if input_size < output_size {
         let op = FPExtOp::new(ctx, input, res_ty);
         op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-        rewriter.insert_op(ctx, &op);
-        rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
+        insert(ctx, rewriter, &op)
     } else {
-        rewriter.replace_operation_with_values(ctx, old_op, vec![input]);
-    }
+        input
+    };
+    let value = finish_float_cast(ctx, rewriter, cast_op, value);
+    rewriter.replace_operation_with_values(ctx, old_op, vec![value]);
 }
 
 fn extract_elem_type(ctx: &Context, ty: TypeHandle) -> TypeHandle {
