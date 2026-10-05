@@ -1221,7 +1221,7 @@ pub enum IoError {
         /// The size of the allocation in bytes.
         size: u64,
         /// The captured backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
