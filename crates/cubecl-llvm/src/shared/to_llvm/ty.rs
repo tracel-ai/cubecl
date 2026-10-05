@@ -56,6 +56,12 @@ impl_cube_to_llvm_type!(FloatFlex32Type, self, ctx => FP32Type::get(ctx));
 impl_cube_to_llvm_type!(TFloat32Type, self, ctx => FP32Type::get(ctx));
 impl_cube_to_llvm_type!(Float16Type, self, ctx => FP16Type::get(ctx));
 // BF16 is carried as its bit pattern. `PromoteBf16Pass` leaves only operations that move bits.
+//
+// TODO: this is a workaround for pliron-llvm having no `bfloat` type. It costs every target its
+// native bf16: arithmetic is promoted to f32 even on sm_80+ and gfx950, and each conversion is a
+// software sequence rather than one `cvt`. Once pliron-llvm has `bfloat`, map BF16 to it, delete
+// `PromoteBf16Pass` and `LowerBf16Cast` from this backend's passes and the bit-level conversions
+// in `shared::matrix::convert_lanes`, and let LLVM legalize bf16 per target.
 impl_cube_to_llvm_type!(BFloat16Type, self, ctx => IntegerType::get(ctx, 16, Signedness::Signless));
 impl_cube_to_llvm_type!(Float8E4M3Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
 impl_cube_to_llvm_type!(Float8E5M2Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
