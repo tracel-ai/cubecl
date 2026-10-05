@@ -137,13 +137,10 @@ macro_rules! ReturnLike {
         impl $crate::interfaces::uniformity::UniformRegionTerminatorOpInterface for $ty {
             fn successor_region_uniformity(
                 &self,
-                ctx: &Context,
+                _: &Context,
                 _operands: &[$crate::interfaces::uniformity::Uniformity],
-            ) -> Vec<$crate::interfaces::uniformity::Uniformity> {
-                self.all_successor_regions(ctx)
-                    .iter()
-                    .map(|_| $crate::interfaces::uniformity::Uniformity::Cube)
-                    .collect()
+            ) -> $crate::interfaces::uniformity::Uniformity {
+                $crate::interfaces::uniformity::Uniformity::Cube
             }
         }
 

@@ -264,10 +264,6 @@ md-5 = "0.11"
 cc = "1.2"
 cfg_aliases = "0.2.2"
 
-[patch."https://github.com/pliron-org/pliron.git"]
-pliron = { path = "../pliron" }
-pliron-llvm = { path = "../pliron/pliron-llvm" }
-
 [profile.release]
 debug = true
 

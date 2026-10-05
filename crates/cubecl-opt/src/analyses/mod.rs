@@ -56,6 +56,18 @@ impl MaybeUninitBitset {
         }
     }
 
+    pub fn raw_intersection<Other>(&self, other: Other) -> Self
+    where
+        Other: BitSetInterface<Conf = <SparseBitSet as BitSetBase>::Conf>,
+    {
+        match self {
+            MaybeUninitBitset::Uninitialized => MaybeUninitBitset::Initialized(other.into()),
+            MaybeUninitBitset::Initialized(this) => {
+                MaybeUninitBitset::Initialized(this.intersection(other).into())
+            }
+        }
+    }
+
     pub fn intersect(&mut self, other: &Self) -> ChangeResult {
         self.set(self.intersection(other))
     }
@@ -97,5 +109,9 @@ impl MaybeUninitBitset {
             MaybeUninitBitset::Uninitialized => Box::new(iter::empty()),
             MaybeUninitBitset::Initialized(bit_set) => Box::new(bit_set.iter()),
         }
+    }
+
+    pub fn is_initialized(&self) -> bool {
+        matches!(self, MaybeUninitBitset::Initialized(_))
     }
 }
