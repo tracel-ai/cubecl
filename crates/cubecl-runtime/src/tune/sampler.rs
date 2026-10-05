@@ -28,7 +28,7 @@ impl SampleSet {
         }
 
         let improved = match (before, self.best()) {
-            (Some(before), Some(after)) => after < before.mul_f64(1.0 - CONVERGENCE_EPSILON),
+            (Some(before), Some(after)) => improves_on(after, before),
             _ => true,
         };
 
@@ -87,6 +87,11 @@ impl SampleSet {
             self.reliable().to_vec(),
         ))
     }
+}
+
+/// Whether `time` beats `leader` by enough to count as progress rather than noise.
+pub(crate) fn improves_on(time: Duration, leader: Duration) -> bool {
+    time < leader.mul_f64(1.0 - CONVERGENCE_EPSILON)
 }
 
 /// Total samples required before the warmup-biased first sample is discarded.

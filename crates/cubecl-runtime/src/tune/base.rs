@@ -106,11 +106,63 @@ impl<K, F: TuneInputs, Output: 'static, Id> Tunable<K, F, Output, Id> {
 /// Higher-priority groups are autotuned first; once any tunable in a group returns a
 /// valid result, no later groups are tried.
 pub struct TuneGroup<K> {
-    id: u32,
+    id: GroupId,
     name: Arc<String>,
     pub(crate) priority: PriorityFunc<K>,
-    /// Whether a member's priority orders the round rather than cutting it off.
-    ordered: bool,
+    order: GroupOrder,
+}
+
+/// Identifies a [`TuneGroup`]: two groups may share a name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct GroupId(pub(crate) u32);
+
+/// How a [`TuneGroup`]'s member priorities shape its batch.
+#[derive(Debug, Clone, Copy)]
+enum GroupOrder {
+    /// The highest level is the round, the levels under it are fallbacks.
+    Cutoff,
+    /// Every member is in one round, best first.
+    Ordered(OrderedSettings),
+}
+
+/// The settings of an [ordered](TuneGroup::ordered) group.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct OrderedSettings {
+    /// When to stop measuring the group's members. See [`Patience`].
+    pub patience: Option<Patience>,
+}
+
+impl OrderedSettings {
+    /// Stop measuring the group once its members stop beating its best one.
+    pub fn with_patience(mut self, patience: Patience) -> Self {
+        self.patience = Some(patience);
+        self
+    }
+}
+
+/// When to stop measuring an [ordered](TuneGroup::ordered) group: once at least
+/// [`min_measured`](Self::min_measured) of its members were measured and the last
+/// [`max_misses`](Self::max_misses) of them in a row missed, none faster than its best one so far
+/// by the margin the sampler counts as progress.
+///
+/// The group is benchmarked best first, so a run of members that cannot beat its leader says
+/// the rest of the order is unlikely to either, and they are never compiled. The members
+/// already measured still compete as usual, the ones left out are reported as skipped, and
+/// the rest of the batch is measured as if the group had ended there. A member that another
+/// group without patience, or not yet out of it, brought into the batch is still measured.
+///
+/// A member is judged on its first-pass sample, which follows a single warmup: a lucky one
+/// makes a leader the rest of the group struggles to beat. A member that fails is neither
+/// measured nor a miss: it says nothing about how the order is faring.
+///
+/// Adaptive scheduler only: the fixed-count pass, the only one on wasm, measures every member.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Patience {
+    /// Members measured before the group may stop.
+    pub min_measured: usize,
+    /// Members in a row that miss before the group stops. Zero stops it at
+    /// [`min_measured`](Self::min_measured), whatever they measured.
+    pub max_misses: usize,
 }
 
 impl<K> core::fmt::Debug for TuneGroup<K> {
@@ -128,7 +180,7 @@ impl<K> Clone for TuneGroup<K> {
             id: self.id,
             name: self.name.clone(),
             priority: self.priority.clone(),
-            ordered: self.ordered,
+            order: self.order,
         }
     }
 }
@@ -139,7 +191,7 @@ impl<K> TuneGroup<K> {
     /// A member's own priority ([`Tunable::group`]) is a cutoff: the highest level is the
     /// round, and the levels under it are fallbacks reached as each round fails.
     pub fn new(name: &str, f: impl Fn(&K) -> i8 + Send + Sync + 'static) -> Self {
-        Self::build(name, f, false)
+        Self::build(name, f, GroupOrder::Cutoff)
     }
 
     /// Create a group whose member priorities order one round rather than cut it off:
@@ -153,18 +205,76 @@ impl<K> TuneGroup<K> {
     ///
     /// The batch sits at the priority of its best member, so a cutoff group at the same
     /// group priority interleaves with it by priority.
-    pub fn ordered(name: &str, f: impl Fn(&K) -> i8 + Send + Sync + 'static) -> Self {
-        Self::build(name, f, true)
+    ///
+    /// [`OrderedSettings`] holds the group's settings, such as the [`Patience`] that stops
+    /// measuring it once its members stop beating its best one.
+    pub fn ordered(
+        name: &str,
+        f: impl Fn(&K) -> i8 + Send + Sync + 'static,
+        settings: OrderedSettings,
+    ) -> Self {
+        Self::build(name, f, GroupOrder::Ordered(settings))
     }
 
-    fn build(name: &str, f: impl Fn(&K) -> i8 + Send + Sync + 'static, ordered: bool) -> Self {
-        let id = GROUP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    fn build(name: &str, f: impl Fn(&K) -> i8 + Send + Sync + 'static, order: GroupOrder) -> Self {
+        let id = GroupId(GROUP_COUNTER.fetch_add(1, Ordering::Relaxed));
 
         Self {
             id,
             name: Arc::new(name.into()),
             priority: Arc::new(f),
-            ordered,
+            order,
+        }
+    }
+
+    fn is_ordered(&self) -> bool {
+        matches!(self.order, GroupOrder::Ordered(_))
+    }
+
+    fn patience(&self) -> Option<Patience> {
+        match self.order {
+            GroupOrder::Ordered(settings) => settings.patience,
+            GroupOrder::Cutoff => None,
+        }
+    }
+}
+
+/// One batch of the [`TunePlan`]: the [tunables](Tunable) to benchmark, in order, and the
+/// [`Patience`] of each group that brought one in.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Batch {
+    pub(crate) entries: Vec<BatchEntry>,
+    pub(crate) patience: HashMap<GroupId, Patience>,
+}
+
+/// One [tunable](Tunable) of a [`Batch`], with every group that brought it into the batch.
+/// An ungrouped tunable has none.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BatchEntry {
+    pub(crate) index: usize,
+    pub(crate) groups: Vec<GroupId>,
+}
+
+impl Batch {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// The tunable indices, in the order they are benchmarked.
+    pub(crate) fn indices(&self) -> Vec<usize> {
+        self.entries.iter().map(|entry| entry.index).collect()
+    }
+
+    fn ungrouped(indices: Vec<usize>) -> Self {
+        Self {
+            entries: indices
+                .into_iter()
+                .map(|index| BatchEntry {
+                    index,
+                    groups: Vec::new(),
+                })
+                .collect(),
+            patience: HashMap::new(),
         }
     }
 }
@@ -211,8 +321,9 @@ struct GroupPlan {
 #[derive(Debug, Clone)]
 struct Planned {
     index: usize,
-    group: u32,
+    group: GroupId,
     priority: i8,
+    patience: Option<Patience>,
 }
 
 #[derive(Debug)]
@@ -236,7 +347,7 @@ impl TunePlan {
         // an ordered group's level is its best member's priority, which is known only
         // once every member is priced.
         let mut priced = Vec::new();
-        let mut ordered_levels = HashMap::<u32, i8>::new();
+        let mut ordered_levels = HashMap::<GroupId, i8>::new();
         #[cfg(persistence)]
         let mut placements = vec![Vec::new(); tunables.len()];
 
@@ -252,12 +363,12 @@ impl TunePlan {
                 #[cfg(persistence)]
                 placements[index].push(Placement {
                     group: group.name.to_string(),
-                    ordered: group.ordered,
+                    ordered: group.is_ordered(),
                     group_priority,
                     priority,
                 });
 
-                if group.ordered && priority >= 0 {
+                if group.is_ordered() && priority >= 0 {
                     let level = ordered_levels.entry(group.id).or_insert(priority);
                     *level = (*level).max(priority);
                 }
@@ -281,7 +392,7 @@ impl TunePlan {
 
             // An ordered group is one batch at its best member's level, so a cutoff
             // group at the same group priority interleaves with it by priority.
-            let level = match group.ordered && priority >= 0 {
+            let level = match group.is_ordered() && priority >= 0 {
                 true => ordered_levels[&group.id],
                 false => priority,
             };
@@ -289,6 +400,7 @@ impl TunePlan {
                 index,
                 group: group.id,
                 priority,
+                patience: group.patience(),
             };
 
             if group_plan.priorities.contains(&level) {
@@ -322,7 +434,11 @@ impl TunePlan {
     #[cfg(persistence)]
     pub(crate) fn account(&self, names: &[&str]) -> Vec<super::record::PlannedCandidate> {
         let mut plan = self.clone();
-        let batches = core::iter::from_fn(|| Some(plan.next()).filter(|batch| !batch.is_empty()));
+        let batches = core::iter::from_fn(|| {
+            Some(plan.next())
+                .filter(|batch| !batch.is_empty())
+                .map(|batch| batch.indices())
+        });
         let mut account: Vec<_> = batches
             .enumerate()
             .flat_map(|(batch, indices)| indices.into_iter().map(move |index| (index, Some(batch))))
@@ -344,16 +460,16 @@ impl TunePlan {
     /// Get the next batch of [tunable](Tunable) index to be autotuned.
     ///
     /// Note that if the list is empty, it means no more autotuned entry can be executed.
-    pub(crate) fn next(&mut self) -> Vec<usize> {
+    pub(crate) fn next(&mut self) -> Batch {
         // A tunable in no group states no priority, so it trails the batch: the grouped
         // candidates decide what is compiled and benchmarked first.
         let ungrouped = core::mem::take(&mut self.no_groups);
-        let mut indices = Vec::new();
+        let mut batch = Batch::default();
         let priority = self.priorities.last();
 
         let priority = match priority {
             Some(val) => *val,
-            None => return ungrouped,
+            None => return Batch::ungrouped(ungrouped),
         };
 
         let (group_indices, cleanup) = self.group_plan_next(priority);
@@ -364,26 +480,38 @@ impl TunePlan {
         self.cleanup(cleanup);
 
         if priority >= 0 {
-            for index in group_indices {
-                if !self.returned.contains(&index) && !indices.contains(&index) {
-                    all_skip = false;
-                    indices.push(index);
+            for planned in group_indices {
+                if self.returned.contains(&planned.index) {
+                    continue;
+                }
+                all_skip = false;
+                if let Some(patience) = planned.patience {
+                    batch.patience.insert(planned.group, patience);
+                }
+                // A tunable brought in by several groups is benchmarked once, at its first
+                // place, and answers to each of them.
+                match batch.entries.iter_mut().find(|e| e.index == planned.index) {
+                    Some(entry) => entry.groups.push(planned.group),
+                    None => batch.entries.push(BatchEntry {
+                        index: planned.index,
+                        groups: vec![planned.group],
+                    }),
                 }
             }
         }
 
-        indices.extend(ungrouped);
+        batch.entries.extend(Batch::ungrouped(ungrouped).entries);
 
-        // The indices list is empty, but it doesn't mean we should stop
+        // The batch is empty, but it doesn't mean we should stop
         // autotuning, since some entries were skipped.
 
-        if indices.is_empty() && (skipped || all_skip) {
+        if batch.is_empty() && (skipped || all_skip) {
             self.next()
         } else {
-            for i in indices.iter() {
-                self.returned.push(*i);
+            for entry in batch.entries.iter() {
+                self.returned.push(entry.index);
             }
-            indices
+            batch
         }
     }
 
@@ -414,7 +542,7 @@ impl TunePlan {
         }
     }
 
-    fn group_plan_next(&mut self, priority: i8) -> (Vec<usize>, Cleanup) {
+    fn group_plan_next(&mut self, priority: i8) -> (Vec<Planned>, Cleanup) {
         let group_plan = self.groups.get_mut(&priority).expect("To be filled");
         let within_group_prio = group_plan.priorities.pop().unwrap();
         let mut next_indices = group_plan.indices.remove(&within_group_prio).unwrap();
@@ -455,10 +583,7 @@ impl TunePlan {
         }
 
         (
-            next_indices
-                .into_iter()
-                .map(|planned| planned.index)
-                .collect(),
+            next_indices,
             Cleanup {
                 groups: cleanup_groups,
                 tunables: cleanup_tunables,
@@ -508,9 +633,9 @@ mod tests {
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
 
         // tunable0 is in no group, so it trails the batch rather than leading it.
-        assert_eq!(plan.next(), vec![2, 0]);
-        assert_eq!(plan.next(), vec![1]);
-        assert_eq!(plan.next(), vec![3]);
+        assert_eq!(plan.next().indices(), vec![2, 0]);
+        assert_eq!(plan.next().indices(), vec![1]);
+        assert_eq!(plan.next().indices(), vec![3]);
         assert!(plan.next().is_empty());
     }
 
@@ -533,9 +658,9 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3, tunable4]);
 
-        assert_eq!(plan.next(), vec![2, 0]);
-        assert_eq!(plan.next(), vec![1]);
-        assert_eq!(plan.next(), vec![3, 4]);
+        assert_eq!(plan.next().indices(), vec![2, 0]);
+        assert_eq!(plan.next().indices(), vec![1]);
+        assert_eq!(plan.next().indices(), vec![3, 4]);
         assert!(plan.next().is_empty());
     }
 
@@ -556,9 +681,9 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
 
-        assert_eq!(plan.next(), vec![3, 0]);
-        assert_eq!(plan.next(), vec![1]);
-        assert_eq!(plan.next(), vec![2]);
+        assert_eq!(plan.next().indices(), vec![3, 0]);
+        assert_eq!(plan.next().indices(), vec![1]);
+        assert_eq!(plan.next().indices(), vec![2]);
         assert!(plan.next().is_empty());
     }
 
@@ -578,8 +703,8 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
 
-        assert_eq!(plan.next(), vec![2, 0]);
-        assert_eq!(plan.next(), vec![3]);
+        assert_eq!(plan.next().indices(), vec![2, 0]);
+        assert_eq!(plan.next().indices(), vec![3]);
         assert!(plan.next().is_empty());
     }
 
@@ -626,7 +751,7 @@ mod tests {
         assert!(account[1].groups.is_empty());
         // Accounting for the plan leaves it to run from its first batch.
         let mut plan = plan;
-        assert_eq!(plan.next(), vec![2, 0]);
+        assert_eq!(plan.next().indices(), vec![2, 0]);
     }
 
     #[test_log::test]
@@ -637,7 +762,7 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1]);
 
-        assert_eq!(plan.next(), vec![0, 1]);
+        assert_eq!(plan.next().indices(), vec![0, 1]);
         assert!(plan.next().is_empty());
     }
 
@@ -667,7 +792,7 @@ mod tests {
             if batch.is_empty() {
                 break;
             }
-            all_returned.extend(batch);
+            all_returned.extend(batch.indices());
         }
 
         // Highest group (prio 2) drains first from highest intra-priority down, then next group.
@@ -690,9 +815,9 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2]);
 
-        assert_eq!(plan.next(), vec![2]);
-        assert_eq!(plan.next(), vec![1]);
-        assert_eq!(plan.next(), vec![0]);
+        assert_eq!(plan.next().indices(), vec![2]);
+        assert_eq!(plan.next().indices(), vec![1]);
+        assert_eq!(plan.next().indices(), vec![0]);
         assert!(plan.next().is_empty());
     }
 
@@ -713,7 +838,7 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2]);
 
-        assert_eq!(plan.next(), vec![2]);
+        assert_eq!(plan.next().indices(), vec![2]);
         assert!(plan.next().is_empty());
     }
 
@@ -734,8 +859,8 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2]);
 
-        assert_eq!(plan.next(), vec![1, 0]);
-        assert_eq!(plan.next(), vec![2]);
+        assert_eq!(plan.next().indices(), vec![1, 0]);
+        assert_eq!(plan.next().indices(), vec![2]);
         assert!(plan.next().is_empty());
     }
 
@@ -761,7 +886,7 @@ mod tests {
             if batch.is_empty() {
                 break;
             }
-            all_returned.extend(batch);
+            all_returned.extend(batch.indices());
         }
 
         // tunable0 comes from group1 (higher priority). tunable1 is the sole member of group0
@@ -794,18 +919,19 @@ mod tests {
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1]);
 
         // First call: group_hi yields tunable0.
-        assert_eq!(plan.next(), vec![0]);
+        assert_eq!(plan.next().indices(), vec![0]);
         // Second call: group_lo's higher intra-priority batch is just tunable0 (already
         // returned). Without the fix this returns [] and the autotuner aborts. With the fix
         // the plan recurses and yields tunable1.
-        assert_eq!(plan.next(), vec![1]);
+        assert_eq!(plan.next().indices(), vec![1]);
         assert!(plan.next().is_empty());
     }
 
     #[test_log::test]
     fn test_plan_ordered_group_is_one_batch_best_first() {
         // Every member is in the round, best first, and a negative priority still skips.
-        let group = TuneGroup::<FakeAutotuneKey>::ordered("ordered", |_| 1);
+        let group =
+            TuneGroup::<FakeAutotuneKey>::ordered("ordered", |_| 1, OrderedSettings::default());
 
         let tunable0 =
             Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group, |_| 1);
@@ -821,15 +947,63 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3, tunable4]);
 
-        assert_eq!(plan.next(), vec![1, 3, 4, 0]);
+        assert_eq!(plan.next().indices(), vec![1, 3, 4, 0]);
         assert!(plan.next().is_empty());
+    }
+
+    #[test_log::test]
+    fn test_plan_batch_carries_every_group_of_an_entry() {
+        // Only the group with patience is measured under it, and a tunable two groups
+        // bring into the batch is benchmarked once and answers to both.
+        let patience = Patience {
+            min_measured: 10,
+            max_misses: 5,
+        };
+        let ordered = TuneGroup::<FakeAutotuneKey>::ordered(
+            "ordered",
+            |_| 1,
+            OrderedSettings::default().with_patience(patience),
+        );
+        let cutoff = TuneGroup::<FakeAutotuneKey>::new("cutoff", |_| 1);
+
+        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel);
+        let tunable1 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&ordered, |_| 2);
+        let tunable2 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&cutoff, |_| 2);
+        let tunable3 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&ordered, |_| 1);
+        let tunable4 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel)
+            .group(&cutoff, |_| 2)
+            .group(&ordered, |_| 1);
+
+        let key = FakeAutotuneKey;
+        let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3, tunable4]);
+        let batch = plan.next();
+        let entry = |index, groups: &[GroupId]| BatchEntry {
+            index,
+            groups: groups.to_vec(),
+        };
+
+        assert_eq!(
+            batch.entries,
+            vec![
+                entry(1, &[ordered.id]),
+                entry(2, &[cutoff.id]),
+                entry(4, &[cutoff.id, ordered.id]),
+                entry(3, &[ordered.id]),
+                entry(0, &[]),
+            ]
+        );
+        assert_eq!(batch.patience, HashMap::from_iter([(ordered.id, patience)]));
     }
 
     #[test_log::test]
     fn test_plan_ordered_group_keeps_the_group_cutoff() {
         // The order is within the group. A lower-priority group is still a fallback,
         // reached only once the ordered batch fails.
-        let first = TuneGroup::<FakeAutotuneKey>::ordered("first", |_| 2);
+        let first =
+            TuneGroup::<FakeAutotuneKey>::ordered("first", |_| 2, OrderedSettings::default());
         let fallback = TuneGroup::<FakeAutotuneKey>::new("fallback", |_| 1);
 
         let tunable0 =
@@ -842,8 +1016,8 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2]);
 
-        assert_eq!(plan.next(), vec![1, 0]);
-        assert_eq!(plan.next(), vec![2]);
+        assert_eq!(plan.next().indices(), vec![1, 0]);
+        assert_eq!(plan.next().indices(), vec![2]);
         assert!(plan.next().is_empty());
     }
 
@@ -852,7 +1026,8 @@ mod tests {
         // A tunable in no group must not preempt the ordered group's best candidate. The
         // batch stops at the first candidate under the bound, so whatever leads it is
         // what gets compiled.
-        let group = TuneGroup::<FakeAutotuneKey>::ordered("ordered", |_| 1);
+        let group =
+            TuneGroup::<FakeAutotuneKey>::ordered("ordered", |_| 1, OrderedSettings::default());
 
         let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel);
         let tunable1 =
@@ -863,7 +1038,7 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2]);
 
-        assert_eq!(plan.next(), vec![2, 1, 0]);
+        assert_eq!(plan.next().indices(), vec![2, 1, 0]);
         assert!(plan.next().is_empty());
     }
 
@@ -873,7 +1048,8 @@ mod tests {
         // member's priority, so the cutoff member under it is a fallback behind the batch
         // and cannot take a round of its own in front of it, where a short circuit would
         // skip the ordered group whole.
-        let ordered = TuneGroup::<FakeAutotuneKey>::ordered("ordered", |_| 1);
+        let ordered =
+            TuneGroup::<FakeAutotuneKey>::ordered("ordered", |_| 1, OrderedSettings::default());
         let cutoff = TuneGroup::<FakeAutotuneKey>::new("cutoff", |_| 1);
 
         let tunable0 =
@@ -886,8 +1062,8 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2]);
 
-        assert_eq!(plan.next(), vec![0, 1]);
-        assert_eq!(plan.next(), vec![2]);
+        assert_eq!(plan.next().indices(), vec![0, 1]);
+        assert_eq!(plan.next().indices(), vec![2]);
         assert!(plan.next().is_empty());
     }
 
@@ -896,7 +1072,8 @@ mod tests {
         // The interleaving cuts both ways. A cutoff member priced above the ordered
         // group's best keeps its round in front, and one priced level with it joins the
         // batch, ordered among the members by priority.
-        let ordered = TuneGroup::<FakeAutotuneKey>::ordered("ordered", |_| 1);
+        let ordered =
+            TuneGroup::<FakeAutotuneKey>::ordered("ordered", |_| 1, OrderedSettings::default());
         let cutoff = TuneGroup::<FakeAutotuneKey>::new("cutoff", |_| 1);
 
         let tunable0 =
@@ -911,8 +1088,8 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
 
-        assert_eq!(plan.next(), vec![2]);
-        assert_eq!(plan.next(), vec![0, 3, 1]);
+        assert_eq!(plan.next().indices(), vec![2]);
+        assert_eq!(plan.next().indices(), vec![0, 3, 1]);
         assert!(plan.next().is_empty());
     }
 
@@ -933,8 +1110,8 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1]);
 
-        assert_eq!(plan.next(), vec![0]);
-        assert_eq!(plan.next(), vec![1]);
+        assert_eq!(plan.next().indices(), vec![0]);
+        assert_eq!(plan.next().indices(), vec![1]);
         assert!(plan.next().is_empty());
     }
 

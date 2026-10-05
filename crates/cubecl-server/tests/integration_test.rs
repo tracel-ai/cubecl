@@ -985,6 +985,60 @@ fn fresh_tune_key_uid() -> String {
         .to_string()
 }
 
+/// An ordered group whose [`Patience`](cubecl_server::tune::Patience) runs out after its first
+/// member never benchmarks the rest of the group: the slow+wrong kernel ranked first wins
+/// unopposed. With room for both, the faster `add` is measured and wins. Outside the group,
+/// `add` is measured despite the group running out, and wins. The fixed-count pass measures
+/// every candidate, so there `add` always wins.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn autotune_patience_stops_measuring_the_group() {
+    use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_patience");
+
+    let slow = match CubeClRuntimeConfig::get().autotune.bench.adaptive {
+        true => vec![0, 1, 2],
+        false => vec![4, 5, 6],
+    };
+    let cases = [
+        (1, true, slow),
+        (2, true, vec![4, 5, 6]),
+        (1, false, vec![4, 5, 6]),
+    ];
+
+    for (min_measured, add_in_group, expected) in cases {
+        let client = test_client(&DummyDevice);
+
+        let lhs = client.create_from_slice(&[0, 1, 2]);
+        let rhs = client.create_from_slice(&[4, 4, 4]);
+        let out = client.empty(3);
+        let handles = vec![lhs, rhs, out.clone()];
+
+        let uid = fresh_tune_key_uid();
+        let name = format!("test-{min_measured}-{add_in_group}");
+        let test_set = TUNER.init(&name, move || {
+            let client = test_client(&DummyDevice);
+            let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+            dummy::addition_set_with_patience(
+                client,
+                shapes,
+                uid.clone(),
+                min_measured,
+                add_in_group,
+            )
+        });
+        TUNER.execute(&name, &client, test_set, handles);
+
+        assert_eq!(
+            client.read_one(out).unwrap().to_vec(),
+            expected,
+            "min_measured {min_measured}, add in group {add_in_group}"
+        );
+    }
+}
+
 /// A tunable that rejects its own configuration fails identically on every call, so the
 /// benchmark must stop at the first rejection rather than paying a profile round trip for
 /// every warmup and sample before reporting it.

@@ -450,7 +450,8 @@ impl<K: AutotuneKey> Tuner<K> {
                 );
             }
 
-            for index in tunable_indices {
+            // Every candidate is measured: a group's patience is the adaptive scheduler's alone.
+            for index in tunable_indices.indices() {
                 let op = job.autotunables[index];
 
                 let start_time = job

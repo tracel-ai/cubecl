@@ -8,7 +8,10 @@ use std::{
 
 use cubecl_server::{
     server::Handle,
-    tune::{AutotuneBound, Bounds, CloneInputGenerator, ResourceBound, Tunable, TunableSet},
+    tune::{
+        AutotuneBound, Bounds, CloneInputGenerator, OrderedSettings, Patience, ResourceBound,
+        Tunable, TunableSet, TuneGroup,
+    },
 };
 
 use crate::dummy::{
@@ -139,6 +142,52 @@ pub fn bounded_addition_set_slow_first(
             launch_overhead: Duration::ZERO,
         }
     }))
+}
+
+/// The addition set as an [ordered](TuneGroup::ordered) group, the slow+wrong kernel first,
+/// with a [`Patience`] that stops the group once `min_measured` of its members were measured,
+/// whatever they measured. Reading the slow kernel's output back proves the faster `add` was
+/// never benchmarked. With `add_in_group` false, `add` is in no group: it trails the batch
+/// and is measured despite the group running out. `uid` keeps the key out of the persistent
+/// cache.
+pub fn addition_set_with_patience(
+    client: DummyClient,
+    shapes: Vec<Vec<usize>>,
+    uid: String,
+    min_measured: usize,
+    add_in_group: bool,
+) -> TestSet {
+    let op_add_slow = OneKernelAutotuneOperation::new(
+        KernelTask::new(DummyElementwiseAdditionSlowWrong),
+        client.clone(),
+    );
+    let op_add =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+
+    let patience = Patience {
+        min_measured,
+        max_misses: 0,
+    };
+    let group = TuneGroup::ordered(
+        "ranked",
+        |_| 1,
+        OrderedSettings::default().with_patience(patience),
+    );
+
+    let add = Tunable::new("add", move |inputs| op_add.run(inputs));
+    let add = match add_in_group {
+        true => add.group(&group, |_| 1),
+        false => add,
+    };
+
+    TestSet::new(
+        move |_input: &Vec<Handle>| format!("add_patience-{uid}-{}", log_shape_input_key(&shapes)),
+        CloneInputGenerator,
+    )
+    .with(
+        Tunable::new("add_slow_wrong", move |inputs| op_add_slow.run(inputs)).group(&group, |_| 2),
+    )
+    .with(add)
 }
 
 pub fn log_shape_input_key(shapes: &[Vec<usize>]) -> String {
