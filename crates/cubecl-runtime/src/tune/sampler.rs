@@ -28,7 +28,7 @@ impl SampleSet {
         }
 
         let improved = match (before, self.best()) {
-            (Some(before), Some(after)) => after < before.mul_f64(1.0 - CONVERGENCE_EPSILON),
+            (Some(before), Some(after)) => TimeChange::of(after, before) == TimeChange::Improvement,
             _ => true,
         };
 
@@ -89,10 +89,35 @@ impl SampleSet {
     }
 }
 
+/// How a time compares to a baseline, once noise is set aside.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TimeChange {
+    /// Faster than the baseline by more than the [`IMPROVEMENT_THRESHOLD`].
+    Improvement,
+    /// Within the threshold of the baseline either way: indistinguishable from noise.
+    Neutral,
+    /// Slower than the baseline by more than the threshold.
+    Regression,
+}
+
+impl TimeChange {
+    /// How `time` compares to `baseline`.
+    pub(crate) fn of(time: Duration, baseline: Duration) -> Self {
+        if time < baseline.mul_f64(1.0 - IMPROVEMENT_THRESHOLD) {
+            Self::Improvement
+        } else if time > baseline.mul_f64(1.0 + IMPROVEMENT_THRESHOLD) {
+            Self::Regression
+        } else {
+            Self::Neutral
+        }
+    }
+}
+
 /// Total samples required before the warmup-biased first sample is discarded.
 const DISCARD_THRESHOLD: usize = 3;
-/// Relative improvement below which a new sample counts as no progress.
-const CONVERGENCE_EPSILON: f64 = 0.02;
+/// Relative change a time must exceed to count as an improvement or a regression rather than
+/// noise.
+const IMPROVEMENT_THRESHOLD: f64 = 0.02;
 /// Consecutive non-improving samples before a candidate is considered converged.
 const CONVERGENCE_ROUNDS: u8 = 2;
 

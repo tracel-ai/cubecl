@@ -440,9 +440,9 @@ impl<K: AutotuneKey> Tuner<K> {
         // batch failed to queue anything.
         let mut pending = Vec::<PendingBench>::new();
         loop {
-            let tunable_indices = job.plan.next();
+            let batch = job.plan.next();
 
-            if tunable_indices.is_empty() {
+            if batch.is_empty() {
                 let key = &job.key;
                 panic!(
                     "Can't execute the autotune plan for key: {key:?}\n - plan: {:?}\n - results: {:?}",
@@ -450,7 +450,8 @@ impl<K: AutotuneKey> Tuner<K> {
                 );
             }
 
-            for index in tunable_indices {
+            // Every candidate is measured: a group's patience is the adaptive scheduler's alone.
+            for index in batch.indices() {
                 let op = job.autotunables[index];
 
                 let start_time = job
