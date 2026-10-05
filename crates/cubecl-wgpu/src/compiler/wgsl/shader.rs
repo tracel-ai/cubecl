@@ -27,8 +27,10 @@ use pliron::{
     linked_list::ContainsLinkedList,
 };
 
+#[cfg(target_family = "wasm")]
+use crate::compiler::wgsl::builtin::BuiltIn;
 use crate::compiler::wgsl::{
-    builtin::{ATTR_BUILTIN, BuiltIn, BuiltInAttr},
+    builtin::{ATTR_BUILTIN, BuiltInAttr},
     to_wgsl::{OpExtWgsl, OpToWgsl, TypeExtWgsl, wgsl_op, wgsl_op_with_out},
     value::WgslValue,
 };
@@ -194,6 +196,9 @@ impl Pass for EnableFeaturesPass {
                 feats.insert(op.required_feature(ctx));
             },
         );
+        // Browser WebGPU requires a subgroup enable directive for builtins too.
+        // Native Naga supports subgroup use without the directive and rejects it.
+        #[cfg(target_family = "wasm")]
         visit_all_ops_of_type::<FuncOp, _>(ctx, &mut feats, op, |ctx, feats, op| {
             for i in 0..op.get_entry_block(ctx).arguments(ctx).len() {
                 if let Some(builtin) = op.get_arg_attr::<BuiltInAttr>(ctx, i, &ATTR_BUILTIN)
@@ -206,11 +211,6 @@ impl Pass for EnableFeaturesPass {
                 }
             }
         });
-
-        // Native Naga supports subgroup operations and builtins without an enable
-        // directive, but rejects `enable subgroups;`. Browser WebGPU requires it.
-        #[cfg(not(target_family = "wasm"))]
-        feats.remove("subgroups");
 
         let mut res = PassResult::default();
         if !feats.is_empty() {

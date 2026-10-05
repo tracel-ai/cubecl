@@ -1,8 +1,9 @@
 use cubecl_core::{self as cubecl, prelude::*};
 use cubecl_ir::{dialect::plane::*, interfaces::TypedExt, prelude::*};
 
+#[cfg(target_family = "wasm")]
+use crate::compiler::wgsl::RequiresFeatureOp;
 use crate::compiler::wgsl::{
-    RequiresFeatureOp,
     lower::LowerOp,
     to_wgsl::{wasm_inventory_root, wgsl_op_with_out},
 };
@@ -11,7 +12,8 @@ wasm_inventory_root!(AllOp);
 
 macro_rules! requires_subgroups {
     ($($ty:ty),* $(,)?) => {
-        $(#[op_interface_impl]
+        $(#[cfg(target_family = "wasm")]
+        #[op_interface_impl]
         impl RequiresFeatureOp for $ty {
             fn required_feature(&self, _ctx: &Context) -> String {
                 "subgroups".into()
