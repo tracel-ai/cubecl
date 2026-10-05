@@ -8,12 +8,12 @@ use cubecl_common::profile::{Instant, ProfileDuration, TimingMethod};
 use crate::client::Client;
 use crate::config::autotune::BenchConfig;
 use crate::tune::Evictor;
-use crate::tune::sampler::{SampleSet, improves_on};
+use crate::tune::patience::PatienceTable;
+use crate::tune::sampler::SampleSet;
 use crate::tune::{
-    AutotuneError, AutotuneOutcome, AutotuneOutput, AutotuneResult, Batch, GroupId, Patience,
-    TuneFn, TuneInputs, TunePlan,
+    AutotuneError, AutotuneOutcome, AutotuneOutput, AutotuneResult, Batch, TuneFn, TuneInputs,
+    TunePlan,
 };
-use cubecl_environment::collections::HashMap;
 
 /// The outcome of benchmarking one batch of the [`TunePlan`].
 #[derive(Debug)]
@@ -25,12 +25,16 @@ pub(crate) struct BatchOutcome {
     /// The index the round robin picked, when it produced one. See [`Schedule::outcome`] for why
     /// the caller must not re-derive it by comparing the results.
     pub(crate) decided: Option<usize>,
+    /// The candidates never measured: skipped by their groups' patience, or not reached
+    /// before a short circuit.
+    pub(crate) unmeasured: Vec<usize>,
 }
 
 /// Round robin benchmarking with early elimination.
 ///
 /// A first pass gives each candidate one warmup and one sample, resolved inline so a candidate
-/// that already reaches the time limit can end the batch before the rest are compiled. After
+/// that already reaches the time limit can end the batch before the rest are compiled, and a
+/// group whose members stop improving on its leader can skip the rest of them. After
 /// that, every live candidate gets one sample per round and the whole round is resolved at once:
 /// resolving per sample would serialize a device round trip per measurement, which for short
 /// kernels costs more than the samples it saves.
@@ -90,6 +94,7 @@ impl Schedule<'_> {
                 short_circuit: None,
                 any_success: false,
                 decided: None,
+                unmeasured: Vec::new(),
             },
         }
     }
@@ -106,25 +111,21 @@ impl Schedule<'_> {
     {
         let (min_samples, max_samples) = self.config.samples();
 
+        let mut patience = PatienceTable::new(&batch);
         let mut candidates: Vec<Candidate> = batch
             .entries
             .into_iter()
-            .map(|entry| Candidate {
-                groups: entry.groups,
-                ..Candidate::new(entry.index, autotunables[entry.index].name.to_string())
-            })
+            .map(|entry| Candidate::new(entry.index, autotunables[entry.index].name.to_string()))
             .collect();
 
         let mut short_circuit = None;
-        let mut streaks = StreakTable::new(batch.patience);
 
         // First pass: one warmup and one sample each, resolved inline so a candidate that
         // already hits the limit ends the batch before the remaining kernels are ever compiled.
         // This is the one place where paying a device round trip per sample is worth it.
         for slot in 0..candidates.len() {
-            // Left out of the rounds too, unmeasured, so it comes out as skipped.
-            if streaks.cuts(&candidates[slot].groups) {
-                candidates[slot].live = false;
+            if patience.skips(slot) {
+                candidates[slot].skip();
                 continue;
             }
 
@@ -143,8 +144,11 @@ impl Schedule<'_> {
                 break;
             }
 
-            if let Some(best) = candidates[slot].live_best() {
-                streaks.push(&candidates[slot].groups, best);
+            let candidate = &candidates[slot];
+            if candidate.live
+                && let Some(best) = candidate.samples.best()
+            {
+                patience.record(slot, best);
             }
         }
 
@@ -253,6 +257,7 @@ impl Schedule<'_> {
         let mut results = Vec::with_capacity(candidates.len());
         let mut any_success = false;
         let mut decided: Option<(usize, u64)> = None;
+        let mut unmeasured = Vec::new();
 
         for candidate in candidates {
             if self.track_steps {
@@ -261,6 +266,9 @@ impl Schedule<'_> {
 
             let index = candidate.index;
             let survived = candidate.live;
+            if candidate.samples.is_empty() && candidate.error.is_none() {
+                unmeasured.push(index);
+            }
             let result = candidate.into_result();
 
             if let Ok(outcome) = result.outcome.as_ref() {
@@ -281,6 +289,7 @@ impl Schedule<'_> {
             short_circuit,
             any_success,
             decided: decided.map(|(index, _)| index),
+            unmeasured,
         }
     }
 
@@ -427,9 +436,10 @@ impl Schedule<'_> {
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
         let mut steps = Vec::new();
+        let mut retry = None;
 
         loop {
-            let batch = plan.next();
+            let batch = retry.take().unwrap_or_else(|| plan.next());
 
             if batch.is_empty() {
                 // Every candidate failed. A candidate that *executed* but
@@ -482,6 +492,12 @@ impl Schedule<'_> {
                     decided: outcome.decided,
                 };
             }
+
+            // Every candidate measured failed, so the ones their groups' patience skipped never
+            // had their chance: measure them before the plan moves on.
+            if !outcome.unmeasured.is_empty() {
+                retry = Some(Batch::unconditional(outcome.unmeasured));
+            }
         }
     }
 }
@@ -494,77 +510,6 @@ pub(crate) struct PlanOutcome {
     pub(crate) decided: Option<usize>,
 }
 
-/// The [`Streak`] of every group with a [`Patience`] in a batch.
-#[derive(Debug)]
-struct StreakTable(HashMap<GroupId, Streak>);
-
-impl StreakTable {
-    fn new(patience: HashMap<GroupId, Patience>) -> Self {
-        Self(
-            patience
-                .into_iter()
-                .map(|(group, patience)| (group, Streak::new(patience)))
-                .collect(),
-        )
-    }
-
-    /// Count a measured candidate's best time against each of the groups that brought it in.
-    fn push(&mut self, groups: &[GroupId], best: Duration) {
-        for group in groups {
-            if let Some(streak) = self.0.get_mut(group) {
-                streak.push(best);
-            }
-        }
-    }
-
-    /// Whether every group that brought a candidate in ran out of patience. One that a group
-    /// without patience brought in, or that no group did, is never cut.
-    fn cuts(&self, groups: &[GroupId]) -> bool {
-        !groups.is_empty()
-            && groups
-                .iter()
-                .all(|group| self.0.get(group).is_some_and(Streak::exhausted))
-    }
-}
-
-/// How the first pass fares against a group's [`Patience`]: how many of its members were
-/// measured, and how many in a row missed its best one.
-#[derive(Debug)]
-struct Streak {
-    patience: Patience,
-    measured: usize,
-    misses: usize,
-    best: Option<Duration>,
-}
-
-impl Streak {
-    fn new(patience: Patience) -> Self {
-        Self {
-            patience,
-            measured: 0,
-            misses: 0,
-            best: None,
-        }
-    }
-
-    /// Count one measured member by its best time.
-    fn push(&mut self, best: Duration) {
-        self.measured += 1;
-
-        match self.best {
-            Some(leader) if !improves_on(best, leader) => self.misses += 1,
-            _ => self.misses = 0,
-        }
-        self.best = self
-            .best
-            .map_or(Some(best), |leader| Some(leader.min(best)));
-    }
-
-    fn exhausted(&self) -> bool {
-        self.measured >= self.patience.min_measured && self.misses >= self.patience.max_misses
-    }
-}
-
 /// Candidates kept alive no matter how far behind they are, so a batch never narrows to a
 /// single kernel that was never compared against anything.
 const MIN_SURVIVORS: usize = 2;
@@ -574,8 +519,6 @@ const MIN_SURVIVORS: usize = 2;
 struct Candidate {
     index: usize,
     name: String,
-    /// The groups that brought it into the batch, none when ungrouped.
-    groups: Vec<GroupId>,
     samples: SampleSet,
     method: Option<TimingMethod>,
     error: Option<AutotuneError>,
@@ -588,7 +531,6 @@ impl Candidate {
         Self {
             index,
             name,
-            groups: Vec::new(),
             samples: SampleSet::default(),
             method: None,
             error: None,
@@ -597,13 +539,14 @@ impl Candidate {
         }
     }
 
-    /// Its best time, while it is still in the running.
-    fn live_best(&self) -> Option<Duration> {
-        self.samples.best().filter(|_| self.live)
-    }
-
     fn fail(&mut self, error: AutotuneError) {
         self.error = Some(error);
+        self.live = false;
+    }
+
+    /// Leave it out of the batch before its first sample. With no samples and no error, it
+    /// comes out as [skipped](AutotuneError::Skip).
+    fn skip(&mut self) {
         self.live = false;
     }
 
@@ -658,87 +601,6 @@ mod tests {
             .filter(|c| c.live)
             .map(|c| c.index)
             .collect()
-    }
-
-    /// Feeds each candidate's best time in microseconds to a fresh [`Streak`], returning how
-    /// many were measured before patience ran out, if it did.
-    fn stops_after(patience: Patience, bests: &[u64]) -> Option<usize> {
-        let mut streak = Streak::new(patience);
-        bests
-            .iter()
-            .position(|best| {
-                streak.push(Duration::from_micros(*best));
-                streak.exhausted()
-            })
-            .map(|slot| slot + 1)
-    }
-
-    #[test]
-    fn patience_runs_out_after_the_misses_in_a_row() {
-        let patience = Patience {
-            min_measured: 2,
-            max_misses: 2,
-        };
-
-        assert_eq!(stops_after(patience, &[100, 120, 90, 95, 100, 80]), Some(5));
-    }
-
-    #[test]
-    fn patience_waits_for_the_minimum_measured() {
-        let patience = Patience {
-            min_measured: 5,
-            max_misses: 2,
-        };
-
-        assert_eq!(
-            stops_after(patience, &[100, 120, 130, 140, 150, 160]),
-            Some(5)
-        );
-    }
-
-    #[test]
-    fn beating_the_leader_within_the_noise_is_a_miss() {
-        let patience = Patience {
-            min_measured: 1,
-            max_misses: 2,
-        };
-
-        // 99 is within the margin of 100, so it misses, yet it leads from then on: 98 is
-        // within the margin of 99 and misses too.
-        assert_eq!(stops_after(patience, &[100, 99, 98]), Some(3));
-    }
-
-    #[test]
-    fn patience_holds_while_candidates_keep_improving() {
-        let patience = Patience {
-            min_measured: 1,
-            max_misses: 1,
-        };
-
-        assert_eq!(stops_after(patience, &[100, 90, 80, 70]), None);
-    }
-
-    #[test]
-    fn a_group_out_of_patience_cuts_only_what_it_alone_brought_in() {
-        let patience = Patience {
-            min_measured: 1,
-            max_misses: 1,
-        };
-        let (spent, patient, without) = (GroupId(0), GroupId(1), GroupId(2));
-        let mut streaks =
-            StreakTable::new(HashMap::from_iter([(spent, patience), (patient, patience)]));
-
-        // Interleaved: `spent` misses on its second member, `patient` keeps improving.
-        streaks.push(&[spent], Duration::from_micros(100));
-        streaks.push(&[patient], Duration::from_micros(100));
-        streaks.push(&[spent], Duration::from_micros(120));
-        streaks.push(&[patient], Duration::from_micros(80));
-
-        assert!(streaks.cuts(&[spent]));
-        assert!(!streaks.cuts(&[patient]));
-        assert!(!streaks.cuts(&[spent, patient]));
-        assert!(!streaks.cuts(&[spent, without]));
-        assert!(!streaks.cuts(&[]));
     }
 
     #[test]

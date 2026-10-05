@@ -144,50 +144,91 @@ pub fn bounded_addition_set_slow_first(
     }))
 }
 
-/// The addition set as an [ordered](TuneGroup::ordered) group, the slow+wrong kernel first,
-/// with a [`Patience`] that stops the group once `min_measured` of its members were measured,
-/// whatever they measured. Reading the slow kernel's output back proves the faster `add` was
-/// never benchmarked. With `add_in_group` false, `add` is in no group: it trails the batch
-/// and is measured despite the group running out. `uid` keeps the key out of the persistent
-/// cache.
-pub fn addition_set_with_patience(
+/// What a candidate of [`ranked_addition_set`] runs.
+#[derive(Clone, Copy)]
+pub enum RankedKernel {
+    /// The fast, correct addition: `out` reads `[4, 5, 6]`.
+    Add,
+    /// The slow addition that copies `lhs`: `out` reads `[0, 1, 2]`.
+    SlowWrong,
+    /// Rejects its configuration on every call.
+    Rejected,
+    /// The fast addition, failing from its call number `n` on.
+    FailsAfter(usize),
+}
+
+/// Where a candidate of [`ranked_addition_set`] sits.
+#[derive(Clone, Copy)]
+pub enum Membership {
+    /// In the ordered group, ranked by its place in the list.
+    Ranked,
+    /// In no group: it trails the batch.
+    Ungrouped,
+}
+
+/// One candidate of [`ranked_addition_set`], counting its calls in `calls`.
+#[derive(Clone)]
+pub struct RankedCandidate {
+    pub kernel: RankedKernel,
+    pub membership: Membership,
+    pub calls: Arc<AtomicUsize>,
+}
+
+/// An addition set whose [ranked](Membership::Ranked) candidates form one
+/// [ordered](TuneGroup::ordered) group with `patience`, best first in list order. `uid` keeps
+/// the key out of the persistent cache.
+pub fn ranked_addition_set(
     client: DummyClient,
     shapes: Vec<Vec<usize>>,
     uid: String,
-    min_measured: usize,
-    add_in_group: bool,
+    patience: Patience,
+    candidates: Vec<RankedCandidate>,
 ) -> TestSet {
-    let op_add_slow = OneKernelAutotuneOperation::new(
-        KernelTask::new(DummyElementwiseAdditionSlowWrong),
-        client.clone(),
-    );
-    let op_add =
-        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
-
-    let patience = Patience {
-        min_measured,
-        max_misses: 0,
-    };
     let group = TuneGroup::ordered(
         "ranked",
         |_| 1,
         OrderedSettings::default().with_patience(patience),
     );
+    let count = candidates.len();
 
-    let add = Tunable::new("add", move |inputs| op_add.run(inputs));
-    let add = match add_in_group {
-        true => add.group(&group, |_| 1),
-        false => add,
-    };
-
-    TestSet::new(
-        move |_input: &Vec<Handle>| format!("add_patience-{uid}-{}", log_shape_input_key(&shapes)),
+    let mut set = TestSet::new(
+        move |_input: &Vec<Handle>| format!("add_ranked-{uid}-{}", log_shape_input_key(&shapes)),
         CloneInputGenerator,
-    )
-    .with(
-        Tunable::new("add_slow_wrong", move |inputs| op_add_slow.run(inputs)).group(&group, |_| 2),
-    )
-    .with(add)
+    );
+
+    for (place, candidate) in candidates.into_iter().enumerate() {
+        let RankedCandidate {
+            kernel,
+            membership,
+            calls,
+        } = candidate;
+        let add = OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseAddition),
+            client.clone(),
+        );
+        let slow = OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseAdditionSlowWrong),
+            client.clone(),
+        );
+
+        let tunable = Tunable::new(&format!("ranked-{place}"), move |inputs| {
+            let call = calls.fetch_add(1, Ordering::Relaxed);
+            match kernel {
+                RankedKernel::Add => add.run(inputs),
+                RankedKernel::SlowWrong => slow.run(inputs),
+                RankedKernel::Rejected => Err("unsupported by this device".to_string()),
+                RankedKernel::FailsAfter(n) if call >= n => Err("failed late".to_string()),
+                RankedKernel::FailsAfter(_) => add.run(inputs),
+            }
+        });
+        let priority = (count - place) as i8;
+        set = set.with(match membership {
+            Membership::Ranked => tunable.group(&group, move |_| priority),
+            Membership::Ungrouped => tunable,
+        });
+    }
+
+    set
 }
 
 pub fn log_shape_input_key(shapes: &[Vec<usize>]) -> String {

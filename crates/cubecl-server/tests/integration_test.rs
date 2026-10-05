@@ -985,58 +985,166 @@ fn fresh_tune_key_uid() -> String {
         .to_string()
 }
 
-/// An ordered group whose [`Patience`](cubecl_server::tune::Patience) runs out after its first
-/// member never benchmarks the rest of the group: the slow+wrong kernel ranked first wins
-/// unopposed. With room for both, the faster `add` is measured and wins. Outside the group,
-/// `add` is measured despite the group running out, and wins. The fixed-count pass measures
-/// every candidate, so there `add` always wins.
+/// Benchmarks a [`dummy::ranked_addition_set`] of `candidates` under `patience`, returning what
+/// the winner wrote and each candidate's call count.
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+fn tune_ranked(
+    tuner: &'static LocalTuner<String, String>,
+    patience: cubecl_server::tune::Patience,
+    candidates: Vec<(dummy::RankedKernel, dummy::Membership)>,
+) -> (Vec<u8>, Vec<usize>) {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let client = test_client(&DummyDevice);
+
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = vec![lhs, rhs, out.clone()];
+
+    let calls: Vec<_> = candidates
+        .iter()
+        .map(|_| Arc::new(AtomicUsize::new(0)))
+        .collect();
+    let ranked = candidates
+        .into_iter()
+        .zip(calls.iter().cloned())
+        .map(|((kernel, membership), calls)| dummy::RankedCandidate {
+            kernel,
+            membership,
+            calls,
+        })
+        .collect::<Vec<_>>();
+
+    let uid = fresh_tune_key_uid();
+    let id = uid.clone();
+    let test_set = tuner.init(&id, move || {
+        let client = test_client(&DummyDevice);
+        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+        dummy::ranked_addition_set(client, shapes, uid.clone(), patience, ranked.clone())
+    });
+    tuner.execute(&id, &client, test_set, handles);
+
+    let written = client.read_one(out).unwrap().to_vec();
+    let calls = calls
+        .iter()
+        .map(|calls| calls.load(Ordering::Relaxed))
+        .collect();
+    (written, calls)
+}
+
+/// Whether this run tunes with the adaptive scheduler, the only one that applies patience.
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+fn adaptive() -> bool {
+    use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
+
+    CubeClRuntimeConfig::get().autotune.bench.adaptive
+}
+
+/// An ordered group whose patience runs out after its first member never benchmarks the rest
+/// of the group: the slow+wrong kernel ranked first wins unopposed. With room for both, the
+/// faster `add` is measured and wins. Outside the group, `add` is measured despite the group
+/// running out, and wins. The fixed-count pass measures every candidate, so there `add` always
+/// wins.
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::serial]
 fn autotune_patience_stops_measuring_the_group() {
-    use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
+    use cubecl_server::tune::Patience;
+    use dummy::{Membership::*, RankedKernel::*};
 
     static TUNER: LocalTuner<String, String> = local_tuner!("autotune_patience");
 
-    let slow = match CubeClRuntimeConfig::get().autotune.bench.adaptive {
+    let patience = |min_measured| Patience {
+        min_measured,
+        max_misses: 0,
+    };
+    let slow = match adaptive() {
         true => vec![0, 1, 2],
         false => vec![4, 5, 6],
     };
-    let cases = [
-        (1, true, slow),
-        (2, true, vec![4, 5, 6]),
-        (1, false, vec![4, 5, 6]),
+
+    let (written, calls) = tune_ranked(
+        &TUNER,
+        patience(1),
+        vec![(SlowWrong, Ranked), (Add, Ranked)],
+    );
+    assert_eq!(written, slow);
+    assert_eq!(calls[1] == 0, adaptive());
+
+    let (written, _) = tune_ranked(
+        &TUNER,
+        patience(2),
+        vec![(SlowWrong, Ranked), (Add, Ranked)],
+    );
+    assert_eq!(written, vec![4, 5, 6]);
+
+    let (written, _) = tune_ranked(
+        &TUNER,
+        patience(1),
+        vec![(SlowWrong, Ranked), (Add, Ungrouped)],
+    );
+    assert_eq!(written, vec![4, 5, 6]);
+}
+
+/// Misses are counted in a row and a member that fails is not one: with two misses allowed,
+/// the rejected member and the first slow one are not enough to stop the group, the second
+/// slow one is, and the last member is never benchmarked.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn autotune_patience_counts_misses_in_a_row_and_not_failures() {
+    use cubecl_server::tune::Patience;
+    use dummy::{Membership::*, RankedKernel::*};
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_patience_misses");
+
+    let patience = Patience {
+        min_measured: 1,
+        max_misses: 2,
+    };
+    let candidates = vec![
+        (Add, Ranked),
+        (Rejected, Ranked),
+        (SlowWrong, Ranked),
+        (SlowWrong, Ranked),
+        (Add, Ranked),
     ];
 
-    for (min_measured, add_in_group, expected) in cases {
-        let client = test_client(&DummyDevice);
+    let (written, calls) = tune_ranked(&TUNER, patience, candidates);
 
-        let lhs = client.create_from_slice(&[0, 1, 2]);
-        let rhs = client.create_from_slice(&[4, 4, 4]);
-        let out = client.empty(3);
-        let handles = vec![lhs, rhs, out.clone()];
+    assert_eq!(written, vec![4, 5, 6]);
+    assert!(
+        calls[3] > 0,
+        "the second slow member is measured: {calls:?}"
+    );
+    assert_eq!(calls[4] == 0, adaptive(), "the last member: {calls:?}");
+}
 
-        let uid = fresh_tune_key_uid();
-        let name = format!("test-{min_measured}-{add_in_group}");
-        let test_set = TUNER.init(&name, move || {
-            let client = test_client(&DummyDevice);
-            let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
-            dummy::addition_set_with_patience(
-                client,
-                shapes,
-                uid.clone(),
-                min_measured,
-                add_in_group,
-            )
-        });
-        TUNER.execute(&name, &client, test_set, handles);
+/// A member measured in the first pass that fails in a later round is disqualified. When it was
+/// the only one measured, the member its group's patience skipped is measured after all and
+/// wins, rather than the plan running out of candidates.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn autotune_patience_measures_the_skipped_when_the_measured_fail() {
+    use cubecl_server::tune::Patience;
+    use dummy::{Membership::*, RankedKernel::*};
 
-        assert_eq!(
-            client.read_one(out).unwrap().to_vec(),
-            expected,
-            "min_measured {min_measured}, add in group {add_in_group}"
-        );
-    }
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_patience_retry");
+
+    let patience = Patience {
+        min_measured: 1,
+        max_misses: 0,
+    };
+    // A warmup and a sample in the first pass, then it fails in the first round.
+    let candidates = vec![(FailsAfter(2), Ranked), (Add, Ranked)];
+
+    let (written, calls) = tune_ranked(&TUNER, patience, candidates);
+
+    assert_eq!(written, vec![4, 5, 6]);
+    assert!(calls[1] > 0, "the skipped member is measured: {calls:?}");
 }
 
 /// A tunable that rejects its own configuration fails identically on every call, so the

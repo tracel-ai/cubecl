@@ -114,7 +114,14 @@ pub struct TuneGroup<K> {
 
 /// Identifies a [`TuneGroup`]: two groups may share a name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct GroupId(pub(crate) u32);
+pub(crate) struct GroupId(u32);
+
+impl GroupId {
+    #[cfg(test)]
+    pub(crate) fn new(id: u32) -> Self {
+        Self(id)
+    }
+}
 
 /// How a [`TuneGroup`]'s member priorities shape its batch.
 #[derive(Debug, Clone, Copy)]
@@ -128,7 +135,7 @@ enum GroupOrder {
 /// The settings of an [ordered](TuneGroup::ordered) group.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct OrderedSettings {
-    /// When to stop measuring the group's members. See [`Patience`].
+    /// When to stop measuring the group's members. Without one, every member is measured.
     pub patience: Option<Patience>,
 }
 
@@ -142,23 +149,25 @@ impl OrderedSettings {
 
 /// When to stop measuring an [ordered](TuneGroup::ordered) group: once at least
 /// [`min_measured`](Self::min_measured) of its members were measured and the last
-/// [`max_misses`](Self::max_misses) of them in a row missed, none faster than its best one so far
-/// by the margin the sampler counts as progress.
+/// [`max_misses`](Self::max_misses) of them in a row missed, none faster than the group's
+/// leader by more than 2%. The leader is the first member measured, then each member that
+/// was faster than it by more than 2%.
 ///
 /// The group is benchmarked best first, so a run of members that cannot beat its leader says
 /// the rest of the order is unlikely to either, and they are never compiled. The members
-/// already measured still compete as usual, the ones left out are reported as skipped, and
-/// the rest of the batch is measured as if the group had ended there. A member that another
-/// group without patience, or not yet out of it, brought into the batch is still measured.
+/// already measured still compete as usual, the ones skipped are reported as such, and the
+/// rest of the batch is measured as if the group had ended there. A member is skipped only
+/// when every group that brought it into the batch ran out of patience. Should every member
+/// measured fail later on, the skipped ones are measured after all.
 ///
-/// A member is judged on its first-pass sample, which follows a single warmup: a lucky one
+/// A member is judged on its best first-pass time, which follows a single warmup: a lucky one
 /// makes a leader the rest of the group struggles to beat. A member that fails is neither
 /// measured nor a miss: it says nothing about how the order is faring.
 ///
 /// Adaptive scheduler only: the fixed-count pass, the only one on wasm, measures every member.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Patience {
-    /// Members measured before the group may stop.
+    /// Members measured before the group may stop. One member is always measured.
     pub min_measured: usize,
     /// Members in a row that miss before the group stops. Zero stops it at
     /// [`min_measured`](Self::min_measured), whatever they measured.
@@ -256,6 +265,15 @@ pub(crate) struct BatchEntry {
 }
 
 impl Batch {
+    /// A batch that measures every one of `indices`, no group's patience applying.
+    pub(crate) fn unconditional(indices: impl IntoIterator<Item = usize>) -> Self {
+        let mut batch = Self::default();
+        for index in indices {
+            batch.push_unconditional(index);
+        }
+        batch
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -265,17 +283,24 @@ impl Batch {
         self.entries.iter().map(|entry| entry.index).collect()
     }
 
-    fn ungrouped(indices: Vec<usize>) -> Self {
-        Self {
-            entries: indices
-                .into_iter()
-                .map(|index| BatchEntry {
-                    index,
-                    groups: Vec::new(),
-                })
-                .collect(),
-            patience: HashMap::new(),
+    /// Add a tunable through one of its groups. A tunable several groups bring in is
+    /// benchmarked once, at its first place, and answers to each of them.
+    fn push(&mut self, planned: &Planned) {
+        match self.entries.iter_mut().find(|e| e.index == planned.index) {
+            Some(entry) if entry.groups.contains(&planned.group) => {}
+            Some(entry) => entry.groups.push(planned.group),
+            None => self.entries.push(BatchEntry {
+                index: planned.index,
+                groups: vec![planned.group],
+            }),
         }
+    }
+
+    fn push_unconditional(&mut self, index: usize) {
+        self.entries.push(BatchEntry {
+            index,
+            groups: Vec::new(),
+        });
     }
 }
 
@@ -286,6 +311,8 @@ pub(crate) struct TunePlan {
     no_groups: Vec<usize>,
     groups: HashMap<i8, GroupPlan>,
     returned: Vec<usize>,
+    /// The [`Patience`] of every group that has one.
+    patience: HashMap<GroupId, Patience>,
     /// Each tunable's place in each of its groups, by tunable index, as the
     /// key priced it.
     #[cfg(persistence)]
@@ -323,7 +350,6 @@ struct Planned {
     index: usize,
     group: GroupId,
     priority: i8,
-    patience: Option<Patience>,
 }
 
 #[derive(Debug)]
@@ -348,6 +374,7 @@ impl TunePlan {
         // once every member is priced.
         let mut priced = Vec::new();
         let mut ordered_levels = HashMap::<GroupId, i8>::new();
+        let mut patience = HashMap::<GroupId, Patience>::new();
         #[cfg(persistence)]
         let mut placements = vec![Vec::new(); tunables.len()];
 
@@ -358,6 +385,9 @@ impl TunePlan {
             }
 
             for (group, within_group_priority_fn) in tunable.groups.iter() {
+                if let Some(group_patience) = group.patience() {
+                    patience.insert(group.id, group_patience);
+                }
                 let group_priority = (group.priority)(key);
                 let priority = within_group_priority_fn(key);
                 #[cfg(persistence)]
@@ -400,7 +430,6 @@ impl TunePlan {
                 index,
                 group: group.id,
                 priority,
-                patience: group.patience(),
             };
 
             if group_plan.priorities.contains(&level) {
@@ -422,6 +451,7 @@ impl TunePlan {
             no_groups,
             groups,
             returned: Vec::new(),
+            patience,
             #[cfg(persistence)]
             placements,
         }
@@ -457,19 +487,20 @@ impl TunePlan {
             .collect()
     }
 
-    /// Get the next batch of [tunable](Tunable) index to be autotuned.
-    ///
-    /// Note that if the list is empty, it means no more autotuned entry can be executed.
+    /// The next batch to benchmark. An empty one means the plan is exhausted.
     pub(crate) fn next(&mut self) -> Batch {
         // A tunable in no group states no priority, so it trails the batch: the grouped
         // candidates decide what is compiled and benchmarked first.
         let ungrouped = core::mem::take(&mut self.no_groups);
-        let mut batch = Batch::default();
         let priority = self.priorities.last();
 
         let priority = match priority {
             Some(val) => *val,
-            None => return Batch::ungrouped(ungrouped),
+            None => return Batch::unconditional(ungrouped),
+        };
+        let mut batch = Batch {
+            entries: Vec::new(),
+            patience: self.patience.clone(),
         };
 
         let (group_indices, cleanup) = self.group_plan_next(priority);
@@ -485,22 +516,13 @@ impl TunePlan {
                     continue;
                 }
                 all_skip = false;
-                if let Some(patience) = planned.patience {
-                    batch.patience.insert(planned.group, patience);
-                }
-                // A tunable brought in by several groups is benchmarked once, at its first
-                // place, and answers to each of them.
-                match batch.entries.iter_mut().find(|e| e.index == planned.index) {
-                    Some(entry) => entry.groups.push(planned.group),
-                    None => batch.entries.push(BatchEntry {
-                        index: planned.index,
-                        groups: vec![planned.group],
-                    }),
-                }
+                batch.push(&planned);
             }
         }
 
-        batch.entries.extend(Batch::ungrouped(ungrouped).entries);
+        for index in ungrouped {
+            batch.push_unconditional(index);
+        }
 
         // The batch is empty, but it doesn't mean we should stop
         // autotuning, since some entries were skipped.
@@ -953,8 +975,8 @@ mod tests {
 
     #[test_log::test]
     fn test_plan_batch_carries_every_group_of_an_entry() {
-        // Only the group with patience is measured under it, and a tunable two groups
-        // bring into the batch is benchmarked once and answers to both.
+        // The batch carries patience only for the group that has one, and a tunable two
+        // groups bring in is one entry naming both.
         let patience = Patience {
             min_measured: 10,
             max_misses: 5,
@@ -996,6 +1018,29 @@ mod tests {
             ]
         );
         assert_eq!(batch.patience, HashMap::from_iter([(ordered.id, patience)]));
+    }
+
+    #[test_log::test]
+    fn test_plan_entry_names_a_group_listed_twice_once() {
+        // A group listed twice on one tunable is still one group: naming it twice would
+        // count each of the tunable's times twice against its patience.
+        let ordered =
+            TuneGroup::<FakeAutotuneKey>::ordered("ordered", |_| 1, OrderedSettings::default());
+
+        let tunable = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel)
+            .group(&ordered, |_| 2)
+            .group(&ordered, |_| 1);
+
+        let key = FakeAutotuneKey;
+        let mut plan = TunePlan::new(&key, &[tunable]);
+
+        assert_eq!(
+            plan.next().entries,
+            vec![BatchEntry {
+                index: 0,
+                groups: vec![ordered.id],
+            }]
+        );
     }
 
     #[test_log::test]
