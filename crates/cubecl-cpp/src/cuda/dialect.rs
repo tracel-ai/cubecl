@@ -1,5 +1,8 @@
 use cubecl_core::ir::{
-    dialect::synchronization::{SyncAsyncProxyOp, SyncOp, SyncScope},
+    dialect::synchronization::{
+        AllowDependentKernelsToLaunchOp, SyncAsyncProxyOp, SyncOp, SyncScope,
+        WaitForPrerequisiteKernelsOp,
+    },
     prelude::*,
 };
 
@@ -78,6 +81,16 @@ cuda_op!(SyncOp, |op, ctx| {
 
 cuda_op!(SyncAsyncProxyOp, |_, _| {
     "cuda::device::experimental::fence_proxy_async_shared_cta();".into()
+});
+
+// The wait clobbers memory, as `cudaGridDependencySynchronize` does, so no load of what the
+// prerequisite kernels wrote is hoisted above it.
+cuda_op!(WaitForPrerequisiteKernelsOp, |_, _| {
+    "asm volatile(\"griddepcontrol.wait;\" ::: \"memory\");\n".into()
+});
+
+cuda_op!(AllowDependentKernelsToLaunchOp, |_, _| {
+    "asm volatile(\"griddepcontrol.launch_dependents;\");\n".into()
 });
 
 pub(crate) const COMPLEX_HELPERS: &str = r#"

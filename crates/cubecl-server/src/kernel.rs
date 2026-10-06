@@ -63,6 +63,9 @@ pub struct CompiledKernel<C: Compiler> {
     /// conservative direction, since over-claiming costs a spurious loud
     /// failure and under-claiming costs a silent clean read of garbage.
     pub io: Option<alloc::vec::Vec<BufferIOAttr>>,
+    /// Whether the kernel's settings ask for programmatic dependent launch, which a runtime
+    /// without the feature ignores.
+    pub programmatic_dependent_launch: bool,
     /// Extra debugging information about the compiled kernel.
     pub debug_info: Option<DebugInformation>,
 }
@@ -87,6 +90,7 @@ impl<C: Compiler> CompiledKernel<C> {
     ) -> Result<Self, CompilationError> {
         let entrypoint_name = definition.settings.kernel_name.clone();
         let cube_dim = definition.settings.cube_dim.into();
+        let programmatic_dependent_launch = definition.settings.programmatic_dependent_launch;
 
         // A hand-written kernel is already in the target language: there is no
         // IR to hand the compiler, so neither analysis it produces exists.
@@ -111,6 +115,7 @@ impl<C: Compiler> CompiledKernel<C> {
                 io: None,
                 repr: None,
                 cube_dim,
+                programmatic_dependent_launch,
                 debug_info: None,
             });
         }
@@ -124,6 +129,7 @@ impl<C: Compiler> CompiledKernel<C> {
             io: C::buffer_io(&lower_level_ir),
             repr: Some(lower_level_ir),
             cube_dim,
+            programmatic_dependent_launch,
             debug_info: None,
         })
     }

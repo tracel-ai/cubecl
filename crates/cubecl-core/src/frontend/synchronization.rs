@@ -2,7 +2,10 @@ use crate::{
     frontend::{NativeExpand, element::Atomic},
     ir::{
         Scope,
-        dialect::synchronization::{SyncAsyncProxyOp, SyncOp, SyncScope},
+        dialect::synchronization::{
+            AllowDependentKernelsToLaunchOp, SyncAsyncProxyOp, SyncOp, SyncScope,
+            WaitForPrerequisiteKernelsOp,
+        },
     },
     prelude::{CubePrimitive, Numeric},
     unexpanded,
@@ -84,6 +87,64 @@ pub mod sync_async_proxy_shared {
     pub fn expand(scope: &Scope) {
         scope.register(&SyncAsyncProxyOp::new(scope.ctx_mut()))
     }
+}
+
+/// Waits until the kernels this one depends on have completed and their writes are visible.
+///
+/// A kernel launched with `programmatic_dependent_launch` may start while the kernel ahead of it
+/// on the stream is still running, so what comes before this call overlaps that kernel: it must
+/// neither read memory that kernel writes nor write memory that kernel reads or writes. Every unit
+/// that touches such memory calls this first. Launched normally, the kernel ahead has already
+/// finished and this returns at once. On a runtime without the
+/// [`programmatic_dependent_launch`](cubecl_ir::features::Features::programmatic_dependent_launch)
+/// feature it compiles to nothing.
+/// PTX: `griddepcontrol.wait`
+pub fn wait_for_prerequisite_kernels() {
+    unexpanded!()
+}
+
+pub mod wait_for_prerequisite_kernels {
+    use super::*;
+
+    pub fn expand(scope: &Scope) {
+        if programmatic_dependent_launch_may_apply(scope) {
+            scope.register(&WaitForPrerequisiteKernelsOp::new(scope.ctx_mut()))
+        }
+    }
+}
+
+/// Lets the kernel launched after this one with `programmatic_dependent_launch` start once every
+/// cube of this kernel has called this or exited, instead of once this kernel has finished.
+///
+/// A scheduling hint and nothing more: the dependent kernel still waits for this one to complete
+/// in [`wait_for_prerequisite_kernels`], so writes made after this call reach it too. Calling it
+/// early frees the dependent kernel's launch and prologue to overlap this kernel's tail. On a
+/// runtime without the
+/// [`programmatic_dependent_launch`](cubecl_ir::features::Features::programmatic_dependent_launch)
+/// feature it compiles to nothing.
+/// PTX: `griddepcontrol.launch_dependents`
+pub fn allow_dependent_kernels_to_launch() {
+    unexpanded!()
+}
+
+pub mod allow_dependent_kernels_to_launch {
+    use super::*;
+
+    pub fn expand(scope: &Scope) {
+        if programmatic_dependent_launch_may_apply(scope) {
+            scope.register(&AllowDependentKernelsToLaunchOp::new(scope.ctx_mut()))
+        }
+    }
+}
+
+// Unknown device properties keep the operation: a kernel compiled without them may still be
+// launched early on a device that supports it, and without its wait it would read stale memory.
+fn programmatic_dependent_launch_may_apply(scope: &Scope) -> bool {
+    scope
+        .state()
+        .device_properties
+        .as_ref()
+        .is_none_or(|properties| properties.features.programmatic_dependent_launch)
 }
 
 /// Barrier, then load `reference` with the result marked workgroup-uniform —

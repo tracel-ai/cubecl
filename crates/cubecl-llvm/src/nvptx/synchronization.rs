@@ -49,3 +49,27 @@ pub fn lower_sync_storage(scope: &Scope) {
     barrier(scope, BARRIER_CTA, BARRIER_ID);
     fence(scope, AtomicOrderingAttr::AcqRel);
 }
+
+fn inline_ptx_without_operands(scope: &Scope, instruction: &str, constraints: &str) {
+    let void_ty = VoidType::get(scope.ctx_mut()).into();
+    let asm = llvm::InlineAsmOp::new(
+        scope.ctx_mut(),
+        void_ty,
+        vec![],
+        instruction,
+        constraints,
+        false,
+    );
+    scope.register(&asm);
+}
+
+/// `cudaGridDependencySynchronize`, memory clobber included, so no load of what the prerequisite
+/// kernels wrote is hoisted above it.
+pub fn lower_wait_for_prerequisite_kernels(scope: &Scope) {
+    inline_ptx_without_operands(scope, "griddepcontrol.wait;", "~{memory}");
+}
+
+/// `cudaTriggerProgrammaticLaunchCompletion`.
+pub fn lower_allow_dependent_kernels_to_launch(scope: &Scope) {
+    inline_ptx_without_operands(scope, "griddepcontrol.launch_dependents;", "");
+}

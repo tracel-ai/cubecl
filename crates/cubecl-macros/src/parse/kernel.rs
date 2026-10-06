@@ -31,6 +31,7 @@ pub(crate) struct KernelArgs {
     /// Generate expansion only, for expanding existing types
     pub expand_only: Flag,
     pub cluster_dim: Option<Expr>,
+    pub programmatic_dependent_launch: Flag,
     pub src_file: Option<LitStr>,
     /// Base traits for a split expand trait
     pub expand_base_traits: Option<String>,

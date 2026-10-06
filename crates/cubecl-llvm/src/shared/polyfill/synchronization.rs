@@ -1,7 +1,9 @@
 //! Target-specific synchronization.
 
 use crate::prelude::*;
-use cubecl_core::ir::dialect::synchronization::{SyncOp, SyncScope};
+use cubecl_core::ir::dialect::synchronization::{
+    AllowDependentKernelsToLaunchOp, SyncOp, SyncScope, WaitForPrerequisiteKernelsOp,
+};
 
 #[op_interface_impl]
 impl LowerOp for SyncOp {
@@ -38,6 +40,40 @@ impl LowerOp for SyncOp {
                 #[cfg(feature = "nvptx")]
                 LlvmTarget::Nvptx => crate::nvptx::synchronization::lower_sync_storage(scope),
             },
+        }
+        vec![]
+    }
+}
+
+// Only CUDA launches a kernel before the one ahead of it on the stream has finished, so on the
+// other targets there is never anything to wait for or to let start.
+#[op_interface_impl]
+impl LowerOp for WaitForPrerequisiteKernelsOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        match scope.ctx().target() {
+            LlvmTarget::Cpu => {}
+            #[cfg(feature = "amdgpu")]
+            LlvmTarget::AmdGpu => {}
+            #[cfg(feature = "nvptx")]
+            LlvmTarget::Nvptx => {
+                crate::nvptx::synchronization::lower_wait_for_prerequisite_kernels(scope)
+            }
+        }
+        vec![]
+    }
+}
+
+#[op_interface_impl]
+impl LowerOp for AllowDependentKernelsToLaunchOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        match scope.ctx().target() {
+            LlvmTarget::Cpu => {}
+            #[cfg(feature = "amdgpu")]
+            LlvmTarget::AmdGpu => {}
+            #[cfg(feature = "nvptx")]
+            LlvmTarget::Nvptx => {
+                crate::nvptx::synchronization::lower_allow_dependent_kernels_to_launch(scope)
+            }
         }
         vec![]
     }

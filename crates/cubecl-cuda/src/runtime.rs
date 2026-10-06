@@ -268,6 +268,7 @@ impl DeviceService for CudaServer {
             device_props.features.tma.insert(Tma::Base);
             device_props.register_opaque_type(OpaqueType::TensorMap);
             device_props.features.cube_cluster = true;
+            device_props.features.programmatic_dependent_launch = true;
             comp_opts.supports_features.clusters = true;
             comp_opts.supports_features.elect_sync = true;
             device_props

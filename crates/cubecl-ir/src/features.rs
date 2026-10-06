@@ -30,6 +30,11 @@ pub struct Features {
     /// synchronization is a cube barrier and nothing more, which is all WebGPU's memory model
     /// promises, so a kernel whose cubes hand each other data must ask before it runs.
     pub device_memory_scope: bool,
+    /// Whether a kernel may start before the kernel launched ahead of it on the same stream has
+    /// finished, waiting for that kernel's results where it needs them (CUDA's programmatic
+    /// dependent launch, SM 9.0+). Without it the waits and launch hints compile to nothing and
+    /// kernels run one after the other.
+    pub programmatic_dependent_launch: bool,
     /// Tensor Memory Accelerator supported features
     pub tma: EnumSet<Tma>,
     /// Whether vectors can be read from / stored to addresses not aligned

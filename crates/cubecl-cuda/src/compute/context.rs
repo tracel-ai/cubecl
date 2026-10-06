@@ -27,7 +27,10 @@ use cubecl_server::{
 };
 use cudarc::driver::DriverError;
 use cudarc::driver::sys::CUfunc_st;
-use cudarc::driver::sys::{CUctx_st, CUfunction_attribute, CUstream};
+use cudarc::driver::sys::{
+    CUctx_st, CUfunction, CUfunction_attribute, CUlaunchAttribute, CUlaunchAttributeID,
+    CUlaunchAttributeValue, CUlaunchConfig, CUstream, cuLaunchKernelEx,
+};
 use std::ffi::CString;
 use std::ffi::c_char;
 use std::str::FromStr;
@@ -74,6 +77,8 @@ pub struct CudaCompiledKernel {
     /// the answer existed, which the launch path reads as every buffer both
     /// read and written.
     io: Option<Arc<[BufferIOAttr]>>,
+    /// Requested by the kernel's settings and supported by the device.
+    launch_allowing_programmatic_stream_serialization: bool,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
@@ -85,6 +90,9 @@ pub struct PtxCacheEntry {
     /// field existed.
     #[serde(default)]
     io: Option<Vec<BufferIOAttr>>,
+    /// The kernel settings' request, which a cache hit has no other way to read.
+    #[serde(default)]
+    programmatic_dependent_launch: bool,
 }
 
 /// The namespace a backend's compiled artifacts live under.
@@ -168,14 +176,7 @@ impl CudaContext {
             if let Some(entry) = cache.remove(&key) {
                 log::trace!("Using PTX cache");
 
-                self.load_ptx(
-                    entry.ptx,
-                    kernel_id.clone(),
-                    entry.entrypoint_name,
-                    kernel_id.cube_dim.into(),
-                    entry.shared_mem_bytes,
-                    entry.io.map(Arc::from),
-                )?;
+                self.load_ptx(kernel_id.clone(), kernel_id.cube_dim.into(), entry)?;
                 return Ok(Ok(()));
             }
             Some(key)
@@ -279,35 +280,22 @@ impl CudaContext {
         }
         logger.log_compilation(&jitc_kernel);
 
-        let ptx = module.ptx.clone();
-        let shared_mem_bytes = module.shared_memory_size;
-        let io = jitc_kernel.io.take();
-        let entrypoint_name = jitc_kernel.entrypoint_name.clone();
+        let entry = PtxCacheEntry {
+            entrypoint_name: jitc_kernel.entrypoint_name,
+            shared_mem_bytes: module.shared_memory_size,
+            ptx: module.ptx.clone(),
+            io: jitc_kernel.io.take(),
+            programmatic_dependent_launch: jitc_kernel.programmatic_dependent_launch,
+        };
 
-        self.load_ptx(
-            ptx.clone(),
-            kernel_id.clone(),
-            jitc_kernel.entrypoint_name,
-            jitc_kernel.cube_dim,
-            shared_mem_bytes,
-            io.clone().map(Arc::from),
-        )?;
+        self.load_ptx(kernel_id.clone(), jitc_kernel.cube_dim, entry.clone())?;
 
         // Cached after the load, so PTX the driver rejects is not handed back on the next run.
         // `try_load_cached` hands back a key exactly when there is a cache to put it in. No
         // second-line entry: that cache is keyed on generated C++ source, which this backend
         // never produces.
         let stored = match self.ptx_cache.as_mut().zip(key) {
-            Some((cache, key)) => store_compiled(
-                cache,
-                key,
-                PtxCacheEntry {
-                    entrypoint_name,
-                    shared_mem_bytes,
-                    ptx,
-                    io,
-                },
-            ),
+            Some((cache, key)) => store_compiled(cache, key, entry),
             None => false,
         };
         recording.compiled(stored);
@@ -359,43 +347,32 @@ impl CudaContext {
         let ptx = self.compile_to_ptx(&jitc_kernel.source)?;
 
         let cube_dim = jitc_kernel.cube_dim;
-        let io = jitc_kernel.io.take();
-        // A precompiled kernel has no representation to read the size from: it declares its
-        // shared memory statically, so the launch reserves none.
-        let shared_mem_bytes = jitc_kernel
-            .repr
-            .as_ref()
-            .map(|repr| repr.shared_memory_size())
-            .unwrap_or(0);
+        let entry = PtxCacheEntry {
+            entrypoint_name: jitc_kernel.entrypoint_name,
+            // A precompiled kernel has no representation to read the size from: it declares its
+            // shared memory statically, so the launch reserves none.
+            shared_mem_bytes: jitc_kernel
+                .repr
+                .as_ref()
+                .map(|repr| repr.shared_memory_size())
+                .unwrap_or(0),
+            ptx,
+            io: jitc_kernel.io.take(),
+            programmatic_dependent_launch: jitc_kernel.programmatic_dependent_launch,
+        };
 
         let stored = match &mut self.ptx_cache {
             Some(cache) => {
                 let second_line_cache = self.second_line_ptx_cache.as_mut().unwrap();
                 let key = key.unwrap();
-                let stored = store_compiled(
-                    cache,
-                    key,
-                    PtxCacheEntry {
-                        entrypoint_name: jitc_kernel.entrypoint_name.clone(),
-                        shared_mem_bytes,
-                        ptx: ptx.clone(),
-                        io: io.clone(),
-                    },
-                );
+                let stored = store_compiled(cache, key, entry.clone());
                 store_compiled(second_line_cache, cpp_hash.unwrap(), key);
                 stored
             }
             None => false,
         };
 
-        self.load_ptx(
-            ptx,
-            kernel_id.clone(),
-            jitc_kernel.entrypoint_name,
-            cube_dim,
-            shared_mem_bytes,
-            io.map(Arc::from),
-        )?;
+        self.load_ptx(kernel_id.clone(), cube_dim, entry)?;
         recording.compiled(stored);
         Ok(())
     }
@@ -464,13 +441,17 @@ impl CudaContext {
 
     fn load_ptx(
         &mut self,
-        ptx: Vec<c_char>,
         kernel_id: KernelId,
-        entrypoint_name: String,
         cube_dim: CubeDim,
-        shared_mem_bytes: usize,
-        io: Option<Arc<[BufferIOAttr]>>,
+        entry: PtxCacheEntry,
     ) -> Result<(), CompilationError> {
+        let PtxCacheEntry {
+            entrypoint_name,
+            shared_mem_bytes,
+            ptx,
+            io,
+            programmatic_dependent_launch,
+        } = entry;
         dump_ptx(&kernel_id, &ptx);
 
         let func_name = CString::new(entrypoint_name).unwrap();
@@ -500,7 +481,9 @@ impl CudaContext {
                 cube_dim,
                 shared_mem_bytes,
                 func,
-                io,
+                io: io.map(Arc::from),
+                launch_allowing_programmatic_stream_serialization: programmatic_dependent_launch
+                    && self.properties.features.programmatic_dependent_launch,
             },
         );
 
@@ -537,17 +520,29 @@ impl CudaContext {
                 kernel.shared_mem_bytes as i32,
             )
             .map_err(|err| launch_failed("cuFuncSetAttribute", err))?;
-            cudarc::driver::result::launch_kernel(
-                kernel.func,
-                dispatch_count,
-                (cube_dim.x, cube_dim.y, cube_dim.z),
-                // Shared memory is collected into a single buffer, with each shared memory being
-                // an offset pointer
-                kernel.shared_mem_bytes as u32,
-                stream.sys,
-                resources,
-            )
-            .map_err(|err| launch_failed("cuLaunchKernel", err))?;
+            if kernel.launch_allowing_programmatic_stream_serialization {
+                launch_kernel_allowing_programmatic_stream_serialization(
+                    kernel.func,
+                    dispatch_count,
+                    (cube_dim.x, cube_dim.y, cube_dim.z),
+                    kernel.shared_mem_bytes as u32,
+                    stream.sys,
+                    resources,
+                )
+                .map_err(|err| launch_failed("cuLaunchKernelEx", err))?;
+            } else {
+                cudarc::driver::result::launch_kernel(
+                    kernel.func,
+                    dispatch_count,
+                    (cube_dim.x, cube_dim.y, cube_dim.z),
+                    // Shared memory is collected into a single buffer, with each shared memory being
+                    // an offset pointer
+                    kernel.shared_mem_bytes as u32,
+                    stream.sys,
+                    resources,
+                )
+                .map_err(|err| launch_failed("cuLaunchKernel", err))?;
+            }
         };
 
         Ok(())
@@ -569,6 +564,54 @@ impl CudaContext {
             Ok(())
         }
     }
+}
+
+/// `cuLaunchKernel` with the programmatic stream serialization attribute: the kernel may start
+/// before the kernel ahead of it on `stream` finishes, and waits for it in
+/// `griddepcontrol.wait`.
+///
+/// # Safety
+///
+/// As [`cudarc::driver::result::launch_kernel`].
+unsafe fn launch_kernel_allowing_programmatic_stream_serialization(
+    func: CUfunction,
+    grid_dim: (u32, u32, u32),
+    block_dim: (u32, u32, u32),
+    shared_mem_bytes: u32,
+    stream: CUstream,
+    kernel_params: &mut [*mut c_void],
+) -> Result<(), DriverError> {
+    // SAFETY: an all-zero union is a valid value of every one of its fields.
+    let mut value: CUlaunchAttributeValue = unsafe { std::mem::zeroed() };
+    value.programmaticStreamSerializationAllowed = 1;
+    let mut attribute = CUlaunchAttribute {
+        id: CUlaunchAttributeID::CU_LAUNCH_ATTRIBUTE_PROGRAMMATIC_STREAM_SERIALIZATION,
+        pad: [0; 4],
+        value,
+    };
+    let config = CUlaunchConfig {
+        gridDimX: grid_dim.0,
+        gridDimY: grid_dim.1,
+        gridDimZ: grid_dim.2,
+        blockDimX: block_dim.0,
+        blockDimY: block_dim.1,
+        blockDimZ: block_dim.2,
+        sharedMemBytes: shared_mem_bytes,
+        hStream: stream,
+        attrs: &mut attribute,
+        numAttrs: 1,
+    };
+    // SAFETY: `config` and the attribute it points to outlive the call; the caller vouches for
+    // `func`, `stream` and `kernel_params`.
+    unsafe {
+        cuLaunchKernelEx(
+            &config,
+            func,
+            kernel_params.as_mut_ptr(),
+            std::ptr::null_mut(),
+        )
+    }
+    .result()
 }
 
 /// Writes the PTX for `kernel_id` under the directory named by `CUBECL_CUDA_DUMP_PTX`, if that

@@ -421,6 +421,9 @@ impl Launch {
             if let Some(cluster_dim) = &self.args.cluster_dim {
                 settings.extend(quote![.cluster_dim(#cluster_dim.into())]);
             }
+            if self.args.programmatic_dependent_launch.is_present() {
+                settings.extend(quote![.programmatic_dependent_launch()]);
+            }
 
             quote! {
                 #[doc = #kernel_doc]
@@ -511,6 +514,9 @@ impl Launch {
         }
         if let Some(cluster_dim) = &self.args.cluster_dim {
             settings.extend(quote![.cluster_dim(#cluster_dim.into())]);
+        }
+        if self.args.programmatic_dependent_launch.is_present() {
+            settings.extend(quote![.programmatic_dependent_launch()]);
         }
 
         let generics = &self.kernel_generics;

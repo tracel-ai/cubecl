@@ -87,6 +87,12 @@ pub struct KernelSettings {
     pub debug_symbols: bool,
     /// CUDA Cluster dim, if any
     pub cluster_dim: Option<Dim3>,
+    /// Whether the kernel is launched so it may start before the kernel ahead of it on the same
+    /// stream finishes, where the runtime has the
+    /// [`programmatic_dependent_launch`](crate::features::Features::programmatic_dependent_launch)
+    /// feature. Such a kernel must wait for its prerequisite kernels before it touches memory
+    /// they read or write.
+    pub programmatic_dependent_launch: bool,
     /// Execution mode
     pub execution_mode: ExecutionMode,
 }
@@ -99,6 +105,7 @@ impl KernelSettings {
             kernel_name: String::new(),
             debug_symbols: false,
             cluster_dim: None,
+            programmatic_dependent_launch: false,
             execution_mode,
         }
     }
@@ -132,6 +139,12 @@ impl KernelSettings {
     /// Set cluster dim
     pub fn cluster_dim(mut self, cluster_dim: Dim3) -> Self {
         self.cluster_dim = Some(cluster_dim);
+        self
+    }
+
+    /// Launch with programmatic dependent launch
+    pub fn programmatic_dependent_launch(mut self) -> Self {
+        self.programmatic_dependent_launch = true;
         self
     }
 }
