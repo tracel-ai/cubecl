@@ -241,3 +241,78 @@ impl BlockScaleSelector {
         byte_is_valid && thread_is_valid
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The valid selectors are exactly PTX's table: any byte under `1X`, byte 0 or 2 under `2X`,
+    /// byte 0 under `4X`; thread 0 or 1 for A, 0 to 3 for B; none for the accumulator.
+    #[test]
+    fn block_scale_selectors_valid_exactly_where_the_ptx_table_says() {
+        let valid_bytes = [(1, &[0, 1, 2, 3][..]), (2, &[0, 2][..]), (4, &[0][..])];
+        let valid_threads = [
+            (MatrixIdent::A, &[0, 1][..]),
+            (MatrixIdent::B, &[0, 1, 2, 3][..]),
+            (MatrixIdent::Accumulator, &[][..]),
+        ];
+        for (scales_factor, bytes) in valid_bytes {
+            for (ident, threads) in valid_threads {
+                for byte_id in 0..5 {
+                    for thread_id in 0..5 {
+                        let selector = BlockScaleSelector { byte_id, thread_id };
+                        assert_eq!(
+                            selector.is_valid_for(ident, scales_factor),
+                            bytes.contains(&byte_id) && threads.contains(&thread_id),
+                            "{selector:?} for {ident:?} with {scales_factor} scales"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// The 16x16 loads take one or two matrices, two registers each, and must transpose; the
+    /// 8x16 loads take one, two or four, one register each, and cannot.
+    #[test]
+    fn ldmatrix_forms_admit_the_counts_and_transposition_ptx_allows() {
+        let sixteen_by_sixteen = [
+            LdMatrixForm::M16N16B8,
+            LdMatrixForm::M16N16B4x16P64,
+            LdMatrixForm::M16N16B6x16P32,
+        ];
+        for form in sixteen_by_sixteen {
+            assert_eq!(form.registers_per_matrix(), 2);
+            assert!(form.admits_matrix_count(1) && form.admits_matrix_count(2));
+            assert!(!form.admits_matrix_count(4) && !form.admits_matrix_count(3));
+            assert!(form.transposition().admits(true) && !form.transposition().admits(false));
+        }
+        for form in [LdMatrixForm::M8N16B4x16P64, LdMatrixForm::M8N16B6x16P32] {
+            assert_eq!(form.registers_per_matrix(), 1);
+            assert!(
+                [1, 2, 4]
+                    .iter()
+                    .all(|count| form.admits_matrix_count(*count))
+            );
+            assert!(!form.admits_matrix_count(3));
+            assert!(!form.transposition().admits(true) && form.transposition().admits(false));
+        }
+        let m8n8 = LdMatrixForm::M8N8B16;
+        assert_eq!(m8n8.registers_per_matrix(), 1);
+        assert!(
+            [1, 2, 4]
+                .iter()
+                .all(|count| m8n8.admits_matrix_count(*count))
+        );
+        assert!(m8n8.transposition().admits(true) && m8n8.transposition().admits(false));
+    }
+
+    /// `stmatrix` `m16n8 .b8` must transpose; `m8n8 .b16` may or may not.
+    #[test]
+    fn stmatrix_forms_admit_the_transposition_ptx_allows() {
+        let m16n8 = StMatrixForm::M16N8B8.transposition();
+        assert!(m16n8.admits(true) && !m16n8.admits(false));
+        let m8n8 = StMatrixForm::M8N8B16.transposition();
+        assert!(m8n8.admits(true) && m8n8.admits(false));
+    }
+}
