@@ -6,6 +6,7 @@ pub mod event;
 pub mod fp4;
 pub mod reinterpret_slice;
 pub mod round;
+pub mod swizzle;
 pub mod tensor;
 pub mod trigonometry;
 pub mod view;
@@ -21,6 +22,7 @@ macro_rules! testgen {
             cubecl_std::testgen_trigonometry!();
             cubecl_std::testgen_event!();
             cubecl_std::testgen_round!();
+            cubecl_std::testgen_swizzle!();
             cubecl_std::testgen_fp4!();
             cubecl_std::testgen_erased!();
         }
