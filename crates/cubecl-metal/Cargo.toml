@@ -22,15 +22,15 @@ std = [
 ]
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.4", default-features = false }
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.4", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.4", default-features = false }
-cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.4", default-features = false }
-cubecl-monitoring = { path = "../cubecl-monitoring", version = "=0.11.0-pre.4", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "0.11.0", default-features = false }
+cubecl-environment = { path = "../cubecl-environment", version = "0.11.0", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "0.11.0", default-features = false }
+cubecl-ir = { path = "../cubecl-ir", version = "0.11.0", default-features = false }
+cubecl-monitoring = { path = "../cubecl-monitoring", version = "0.11.0", default-features = false, features = [
     "io-accelerator",
 ] }
-cubecl-server = { path = "../cubecl-server", version = "=0.11.0-pre.4", default-features = false }
-cubecl-cpp = { path = "../cubecl-cpp", version = "=0.11.0-pre.4", features = ["metal"] }
+cubecl-server = { path = "../cubecl-server", version = "0.11.0", default-features = false }
+cubecl-cpp = { path = "../cubecl-cpp", version = "0.11.0", features = ["metal"] }
 
 # Utilities
 log = { workspace = true }
@@ -50,8 +50,8 @@ objc2-foundation = "0.3"
 block2 = "0.6"
 
 [dev-dependencies]
-cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.4", features = ["export_tests"] }
-cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.4", features = ["export_tests"] }
+cubecl-core = { path = "../cubecl-core", version = "0.11.0", features = ["export_tests"] }
+cubecl-std = { path = "../cubecl-std", version = "0.11.0", features = ["export_tests"] }
 test-log = { workspace = true, features = ["trace"] }
 paste = { workspace = true }
 

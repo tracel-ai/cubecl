@@ -43,7 +43,7 @@ io-accelerator = ["std", "dep:objc2-core-foundation", "dep:objc2-io-kit"]
 nvml = ["std", "dep:nvml-wrapper"]
 
 [dependencies]
-cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.4", default-features = false, features = [
+cubecl-ir = { path = "../cubecl-ir", version = "0.11.0", default-features = false, features = [
     "serde",
 ] }
 

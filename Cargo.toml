@@ -11,7 +11,7 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 rust-version = "1.95"
-version = "0.11.0-pre.4"
+version = "0.11.0"
 
 [workspace.lints.rust]
 warnings = "warn"
@@ -94,7 +94,7 @@ etcetera = "0.11.0"
 js-sys = "0.3"
 parking_lot = { version = "0.12.5", default-features = false }
 sanitize-filename = "0.6"
-turso = { version = "0.8.0-pre.8", default-features = false }
+turso = { version = "0.8.2", default-features = false }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4.45"
 wasm-bindgen-test = "0.3"
