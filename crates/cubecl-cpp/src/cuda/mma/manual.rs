@@ -115,23 +115,31 @@ pub fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMmaCombin
             // TODO: u4/i4/b1, there's no types for them yet
         ]);
     }
+    let fp8_types = [FloatKind::E4M3, FloatKind::E5M2];
+    let fp6_fp4_types = [FloatKind::E3M2, FloatKind::E2M3, FloatKind::E2M1];
     if arch.get_version() >= 89 {
-        let f8f6f4_types = [
-            FloatKind::E4M3,
-            FloatKind::E5M2,
-            FloatKind::E3M2,
-            FloatKind::E2M3,
-            FloatKind::E2M1,
-        ];
-        let combinations = f8f6f4_types.iter().cartesian_product(f8f6f4_types.iter());
-        result.extend(combinations.map(|(t1, t2)| MmaConfig {
-            a_type: ElemType::Float(*t1),
-            b_type: ElemType::Float(*t2),
-            cd_type: ElemType::Float(FloatKind::F32),
-            m: 16,
-            n: 8,
-            k: 32,
-        }));
+        let fp8_pairs = fp8_types.iter().cartesian_product(fp8_types.iter());
+        result.extend(
+            fp8_pairs.map(|(a_type, b_type)| {
+                minifloat_mma_m16n8k32_accumulating_in_f32(*a_type, *b_type)
+            }),
+        );
+    }
+    // sm_120f: ptxas refuses an FP6 or FP4 operand of `mma.sync` outside the sm_120 family,
+    // sm_100a included.
+    if arch.get_version() >= 120 && arch.get_version() < 130 {
+        let f8f6f4_types = fp8_types.iter().chain(fp6_fp4_types.iter());
+        let pairs_with_an_fp6_or_fp4_operand = f8f6f4_types
+            .clone()
+            .cartesian_product(f8f6f4_types)
+            .filter(|(a_type, b_type)| {
+                fp6_fp4_types.contains(a_type) || fp6_fp4_types.contains(b_type)
+            });
+        result.extend(
+            pairs_with_an_fp6_or_fp4_operand.map(|(a_type, b_type)| {
+                minifloat_mma_m16n8k32_accumulating_in_f32(*a_type, *b_type)
+            }),
+        );
     }
     // Turing, not Volta: ptxas refuses `.m16n8k8` below sm_75, and sm_70 has
     // `m8n8k4` alone.
@@ -148,6 +156,17 @@ pub fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMmaCombin
         });
     }
     result
+}
+
+fn minifloat_mma_m16n8k32_accumulating_in_f32(a_type: FloatKind, b_type: FloatKind) -> MmaConfig {
+    MmaConfig {
+        a_type: ElemType::Float(a_type),
+        b_type: ElemType::Float(b_type),
+        cd_type: ElemType::Float(FloatKind::F32),
+        m: 16,
+        n: 8,
+        k: 32,
+    }
 }
 
 pub fn supported_scaled_mma_combinations(
