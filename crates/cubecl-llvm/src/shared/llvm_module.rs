@@ -81,24 +81,48 @@ impl LlvmModule {
     /// Adds the string attribute `key=value` to each function that the module defines.
     #[cfg(cubecl_frame_pointers)]
     pub(crate) fn add_function_attribute(&self, key: &str, value: &str) {
-        use llvm_sys::{
-            LLVMAttributeFunctionIndex,
-            core::{
-                LLVMAddAttributeAtIndex, LLVMCreateStringAttribute, LLVMGetFirstFunction,
-                LLVMGetNextFunction, LLVMIsDeclaration,
-            },
-        };
-
-        // SAFETY: the attribute belongs to the context of the module, both strings are read for
-        // the lengths given, and the functions belong to the module.
+        // SAFETY: the attribute belongs to the context of the module, and both strings are read
+        // for the lengths given.
         unsafe {
-            let attribute = LLVMCreateStringAttribute(
+            self.add_to_defined_functions(llvm_sys::core::LLVMCreateStringAttribute(
                 self.ctx,
                 key.as_ptr().cast(),
                 u32::try_from(key.len()).expect("the attribute key fits in u32"),
                 value.as_ptr().cast(),
                 u32::try_from(value.len()).expect("the attribute value fits in u32"),
-            );
+            ));
+        }
+    }
+
+    /// Adds the enum attribute `name(value)` to each function that the module defines.
+    #[cfg(feature = "jitdump")]
+    pub(crate) fn add_function_enum_attribute(&self, name: &str, value: u64) {
+        use llvm_sys::core::{LLVMCreateEnumAttribute, LLVMGetEnumAttributeKindForName};
+
+        // SAFETY: the attribute belongs to the context of the module, and `name` is read for the
+        // length given.
+        unsafe {
+            let kind = LLVMGetEnumAttributeKindForName(name.as_ptr().cast(), name.len());
+            self.add_to_defined_functions(LLVMCreateEnumAttribute(self.ctx, kind, value));
+        }
+    }
+
+    /// Adds `attribute` to each function that the module defines.
+    ///
+    /// # Safety
+    /// `attribute` must belong to the context of the module.
+    #[cfg(any(cubecl_frame_pointers, feature = "jitdump"))]
+    unsafe fn add_to_defined_functions(&self, attribute: llvm_sys::prelude::LLVMAttributeRef) {
+        use llvm_sys::{
+            LLVMAttributeFunctionIndex,
+            core::{
+                LLVMAddAttributeAtIndex, LLVMGetFirstFunction, LLVMGetNextFunction,
+                LLVMIsDeclaration,
+            },
+        };
+
+        // SAFETY: the functions belong to the module, and the caller's contract.
+        unsafe {
             let mut func = LLVMGetFirstFunction(self.module);
             while !func.is_null() {
                 if LLVMIsDeclaration(func) == 0 {

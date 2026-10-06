@@ -63,15 +63,8 @@ impl PlironEngine {
         Self::compile_with_debug_info(ctx, module, kernel_name, requirements, io, DebugInfo::None)
     }
 
-    /// [`compile`](Self::compile), for a kernel that carries `debug_info`. With debug data, the JIT
-    /// registers the kernel with gdb, and the profiler symbol files that the environment asks for
-    /// are written.
-    ///
-    /// # Errors
-    /// The conversion error, when `module` does not convert to LLVM IR.
-    ///
-    /// # Panics
-    /// When LLVM rejects the IR or cannot compile it: the lowering has a bug.
+    /// [`compile`](Self::compile), for a kernel that carries `debug_info`. With debug data, the
+    /// profiler symbol files that the environment asks for are written.
     pub fn compile_with_debug_info(
         ctx: &Context,
         module: ModuleOp,
@@ -94,7 +87,13 @@ impl PlironEngine {
         };
         #[cfg(cubecl_frame_pointers)]
         llvm_module.add_function_attribute("frame-pointer", "all");
-
+        // The perf support plugin copies the `.eh_frame` of each kernel into the jitdump. Then
+        // `perf --call-graph dwarf` can unwind through the kernel. `2` is `uwtable(async)`, as rustc
+        // gives the host code.
+        #[cfg(feature = "jitdump")]
+        if symbols.jitdump {
+            llvm_module.add_function_enum_attribute("uwtable", 2);
+        }
         llvm_module
             .run_passes(PASS_PIPELINE, None)
             .unwrap_or_else(|err| panic!("LLVM optimization failed for '{kernel_name}': {err}"));

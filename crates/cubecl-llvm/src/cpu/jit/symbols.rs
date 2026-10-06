@@ -1,4 +1,4 @@
-//! Symbol files for the profilers, in the open format that `perf` and `samply` read.
+//! Symbol files for the profilers, in the open formats that `perf` and `samply` read.
 //!
 //! The files stay after the process stops, so a run-time switch must ask for them:
 //! `CUBECL_JIT_SYMBOLS`, or `DOTNET_PerfMapEnabled`, the .NET variable for the same files.
@@ -14,6 +14,8 @@ use std::{
 pub(crate) struct JitSymbols {
     /// `/tmp/perf-<pid>.map`: one line for each kernel.
     pub perf_map: bool,
+    /// `jit-<pid>.dump`: lines and inlined frames, for `perf inject --jit`.
+    pub jitdump: bool,
 }
 
 impl JitSymbols {
@@ -29,15 +31,20 @@ impl JitSymbols {
         })
     }
 
-    /// `cubecl` is `perf` or `perfmap`. Any other value asks for no file. `dotnet` has the .NET
-    /// meanings: `1` and `3` ask for the perf map.
+    /// `cubecl` is `perf` (both files), `perfmap` or `jitdump`. Any other value asks for no
+    /// file. `dotnet` has the .NET meanings: `1` both files, `2` the jitdump, `3` the perf map.
     fn parse(cubecl: Option<&str>, dotnet: Option<&str>) -> Self {
-        let perf_map = match (cubecl, dotnet) {
-            (Some(value), _) => matches!(value, "perf" | "perfmap"),
-            (None, Some(value)) => matches!(value, "1" | "3"),
-            (None, None) => false,
+        let value = match (cubecl, dotnet) {
+            (Some(value), _) => value,
+            (None, Some("1")) => "perf",
+            (None, Some("2")) => "jitdump",
+            (None, Some("3")) => "perfmap",
+            (None, _) => "",
         };
-        Self { perf_map }
+        Self {
+            perf_map: matches!(value, "perf" | "perfmap"),
+            jitdump: matches!(value, "perf" | "jitdump"),
+        }
     }
 }
 
@@ -86,23 +93,24 @@ mod tests {
     use super::*;
 
     /// `CUBECL_JIT_SYMBOLS` decides when it is set. Else `DOTNET_PerfMapEnabled` has its .NET
-    /// meanings.
+    /// meanings: `samply record --coreclr` sets `2` on Linux.
     #[test]
     fn the_variables_select_the_files() {
         let cases = [
-            (Some("perf"), Some("0"), true),
-            (Some("perfmap"), None, true),
-            (Some("none"), Some("1"), false),
-            (None, Some("1"), true),
-            (None, Some("2"), false),
-            (None, Some("3"), true),
-            (None, Some("0"), false),
-            (None, None, false),
+            (Some("perf"), Some("0"), true, true),
+            (Some("perfmap"), None, true, false),
+            (Some("jitdump"), None, false, true),
+            (Some("none"), Some("1"), false, false),
+            (None, Some("1"), true, true),
+            (None, Some("2"), false, true),
+            (None, Some("3"), true, false),
+            (None, Some("0"), false, false),
+            (None, None, false, false),
         ];
-        for (cubecl, dotnet, perf_map) in cases {
+        for (cubecl, dotnet, perf_map, jitdump) in cases {
             assert_eq!(
                 JitSymbols::parse(cubecl, dotnet),
-                JitSymbols { perf_map },
+                JitSymbols { perf_map, jitdump },
                 "{cubecl:?} {dotnet:?}"
             );
         }

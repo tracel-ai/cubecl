@@ -18,6 +18,11 @@ workspace = true
 [features]
 default = ["std", "cubecl-core/default", "cubecl-runtime/default"]
 
+# The perf support plugin of ORC, for `CUBECL_JIT_SYMBOLS=perf` or `jitdump`. It compiles a C++
+# shim, and it links JITLink's DWARF reader: the `gelu` example in release is 1.07 MB larger. LLVM
+# writes the jitdump on Linux only.
+jitdump = []
+
 pliron-dump = []
 std = ["cubecl-core/std", "cubecl-runtime/std"]
 
