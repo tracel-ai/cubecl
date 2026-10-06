@@ -4,6 +4,7 @@ use crate::{
     prelude::{Context, ModuleOp},
     shared::llvm_module::LlvmModule,
 };
+use cubecl_core::codegen::KernelDump;
 use cubecl_runtime::kernel::BufferIOAttr;
 use pliron_llvm::{
     llvm_sys::{
@@ -65,17 +66,12 @@ impl PlironEngine {
 
         let llvm_ctx = LLVMContext::default();
         let llvm_module = to_llvm_ir::convert_module(ctx, &llvm_ctx, module)?;
-        #[cfg(feature = "pliron-dump")]
-        if let Some(dir) = ir_dump_path(kernel_name) {
-            let _ = std::fs::write(dir.join("llvm.ll"), llvm_module.to_string());
-        }
+        let dump = KernelDump::new(kernel_name);
+        dump.write("llvm.ll", || llvm_module.to_string());
 
         let llvm_module = optimize(llvm_module, &llvm_ctx, kernel_name)
             .unwrap_or_else(|err| panic!("LLVM optimization failed for '{kernel_name}': {err}"));
-        #[cfg(feature = "pliron-dump")]
-        if let Some(dir) = ir_dump_path(kernel_name) {
-            let _ = std::fs::write(dir.join("llvm.opt.ll"), llvm_module.to_string());
-        }
+        dump.write("llvm.opt.ll", || llvm_module.to_string());
 
         let lljit = LLVMLLJIT::new_with_default_builder().expect("failed to create LLJIT");
         lljit
@@ -127,15 +123,6 @@ impl Display for PlironEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Pliron JIT engine")
     }
-}
-
-#[cfg(feature = "pliron-dump")]
-/// IR dump directory, enabled by `CUBECL_DEBUG_PLIRON`.
-pub(crate) fn ir_dump_path(kernel_name: &str) -> Option<std::path::PathBuf> {
-    let dir = std::env::var("CUBECL_DEBUG_PLIRON").ok()?;
-    let path = std::path::Path::new(&dir).join(kernel_name);
-    std::fs::create_dir_all(&path).ok()?;
-    Some(path)
 }
 
 /// Optimization pipeline for JIT compilation.

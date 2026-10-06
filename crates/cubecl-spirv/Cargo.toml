@@ -28,7 +28,6 @@ std = [
     "cubecl-core/std",
     "cubecl-runtime/std",
     "pliron/std",
-    "dep:sanitize-filename",
 ]
 
 tracing = [
@@ -53,7 +52,6 @@ half = { workspace = true }
 itertools = { workspace = true }
 paste = { workspace = true }
 pliron = { workspace = true }
-sanitize-filename = { workspace = true, optional = true }
 serde = { workspace = true }
 
 hashbrown = { workspace = true }

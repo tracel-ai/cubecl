@@ -17,8 +17,7 @@ use crate::{
     },
     prelude::{
         AnalysisManager, Context, ContextExt, CtxTarget, FuncOp, LlvmTarget, ModuleOp,
-        NestedOpsPass, Op, OpPass, Operation, PMConfig, Pass, Passes, Printable, Ptr,
-        TargetLowering,
+        NestedOpsPass, Op, OpPass, Operation, Pass, Passes, Printable, Ptr, TargetLowering,
     },
     shared::{
         branch::SCFToLlvmCf,
@@ -33,6 +32,7 @@ use core::cell::RefCell;
 use cubecl_core::ir::nvidia::SmArch;
 use cubecl_core::{
     Compiler,
+    codegen::KernelDump,
     ir::{amd::GfxArch, dialect::scf::BranchToSCFPass, metadata::Info, rewrite::SimplifyOpsPass},
     post_processing::{
         bitwise::PromoteBitwisePass,
@@ -56,8 +56,6 @@ use pliron::{
 };
 use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
 use std::rc::Rc;
-#[cfg(feature = "pliron-dump")]
-use std::{path::PathBuf, str::FromStr};
 
 #[derive(Clone, Debug, Default)]
 pub struct PlironCompiler {
@@ -381,7 +379,6 @@ struct KernelIr {
     module_op: Ptr<Operation>,
     entry_func: FuncOp,
     info: Info,
-    #[cfg_attr(not(feature = "pliron-dump"), allow(dead_code))]
     name: String,
 }
 
@@ -404,18 +401,8 @@ fn lower(
 ) -> Result<Vec<BufferIOAttr>, CompilationError> {
     let (module_op, entry_func) = (kernel.module_op, kernel.entry_func);
 
-    #[cfg(not(feature = "pliron-dump"))]
-    let ir_printing_dir = None;
-    #[cfg(feature = "pliron-dump")]
-    let ir_printing_dir = pliron_path(&kernel.name);
-    let config = PMConfig {
-        print_after_all: true,
-        ir_printing_dir,
-        ..Default::default()
-    };
-
     let mut analyses = AnalysisManager::default();
-    analyses.set_config(config);
+    analyses.set_config(KernelDump::new(&kernel.name).pass_config());
 
     let mut func_passes = OpPass::<FuncOp, Passes>::default();
     target.prologue(&mut func_passes);
@@ -483,17 +470,5 @@ fn generic(reason: String) -> CompilationError {
     CompilationError::Generic {
         reason,
         backtrace: BackTrace::capture(),
-    }
-}
-
-#[cfg(feature = "pliron-dump")]
-fn pliron_path(name: &str) -> Option<PathBuf> {
-    use std::fs;
-    if let Ok(dir) = std::env::var("CUBECL_DEBUG_PLIRON") {
-        let path = PathBuf::from_str(&dir).unwrap().join(name);
-        let _ = fs::create_dir_all(&path);
-        Some(path)
-    } else {
-        None
     }
 }

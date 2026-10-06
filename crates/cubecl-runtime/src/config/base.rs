@@ -170,6 +170,14 @@ impl RuntimeConfig for CubeClRuntimeConfig {
             }
         }
 
+        if let Ok(dir) = std::env::var("CUBECL_DEBUG_PLIRON") {
+            self.compilation.dump_dir = Some(dir.into());
+        }
+
+        if let Some(enabled) = env_bool("CUBECL_TIME_PASSES") {
+            self.compilation.time_passes = enabled;
+        }
+
         if let Some(enabled) = env_bool("CUBECL_THROUGHPUT_CACHE") {
             self.throughput.disable_cache = !enabled;
         }

@@ -62,5 +62,4 @@ log = { workspace = true }
 num-traits = { workspace = true }
 paste = { workspace = true }
 pliron = { workspace = true }
-sanitize-filename = { workspace = true }
 thiserror = { workspace = true }

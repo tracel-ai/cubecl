@@ -105,12 +105,21 @@ own and `chain` elsewhere.
 - `chain`: round where a value is stored or read by anything but arithmetic.
 - `accumulators`: also hold a private f16 variable in f32 where that removes converts.
 
+**Compiler dumps** (`dump_dir`): a directory where each compiled kernel gets a subdirectory with
+its IR after every compiler pass and its final source (C++, SPIR-V, LLVM IR, PTX or assembly).
+Use it to see what the compiler did to a kernel. Unset, nothing is written.
+
+**Pass timing** (`time_passes`): log how long each compiler pass takes, at the `info` level. Use
+it to find where kernel compilation time goes.
+
 **Example:**
 
 ```toml
 [compilation]
 logger = { level = "basic", file = "cubecl.log", append = true }
 f16_evaluation = "chain"
+dump_dir = "target/cubecl-dump"
+time_passes = true
 ```
 
 ### Streaming
@@ -201,6 +210,9 @@ CubeCL supports several environment variables to override configuration at runti
   - `"full"`/`"3"`
 - `CUBECL_CPU_F16_EVAL`: Sets `compilation.f16_evaluation`.
   - `"per-operation"`, `"chain"`, `"accumulators"`
+- `CUBECL_DEBUG_PLIRON`: Sets `compilation.dump_dir` to the given directory.
+- `CUBECL_TIME_PASSES`: Sets `compilation.time_passes`.
+  - `"1"`/`"true"`/`"on"`, `"0"`/`"false"`/`"off"`
 - `CUBECL_ENVIRONMENT`: Sets `environment.name`, the environment to activate.
 - `CUBECL_ENVIRONMENT_RECORDS`: Sets `environment.records.level`, how much the
   environment records of its own build.

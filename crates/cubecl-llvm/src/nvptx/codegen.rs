@@ -15,7 +15,10 @@ use crate::{
         math_library::redirect_intrinsics,
     },
 };
-use cubecl_core::ir::{nvidia::SmArch, settings::Dim3};
+use cubecl_core::{
+    codegen::KernelDump,
+    ir::{nvidia::SmArch, settings::Dim3},
+};
 use llvm_sys::target_machine::{LLVMCodeGenFileType, LLVMRelocMode};
 use pliron_llvm::{llvm_sys::core::LLVMContext, to_llvm_ir};
 use std::{ffi::CStr, sync::Once};
@@ -97,11 +100,9 @@ pub fn emit_ptx(
     let ir = module.print();
     let ptx = compile(module, arch, ptx_version)?;
 
-    #[cfg(feature = "pliron-dump")]
-    if let Some(dir) = crate::cpu::jit::engine::ir_dump_path(entrypoint) {
-        let _ = std::fs::write(dir.join("nvptx.ll"), &ir);
-        let _ = std::fs::write(dir.join("nvptx.ptx"), &ptx);
-    }
+    let dump = KernelDump::new(entrypoint);
+    dump.write("nvptx.ll", || &ir);
+    dump.write("nvptx.ptx", || &ptx);
 
     Ok(NvptxModule {
         ptx: as_c_chars(&ptx),

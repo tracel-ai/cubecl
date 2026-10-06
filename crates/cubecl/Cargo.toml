@@ -72,6 +72,7 @@ hip-cpp = ["cubecl-hip?/cpp"]
 hip-rocwmma = ["cubecl-hip?/rocwmma"]
 metal = ["wgpu-msl"]
 metal-native = ["cubecl-metal"]
+# No effect, kept for compatibility: compiler dumps are always built. Set `CUBECL_DEBUG_PLIRON`.
 pliron-dump = [
     "cubecl-cuda?/pliron-dump",
     "cubecl-hip?/pliron-dump",

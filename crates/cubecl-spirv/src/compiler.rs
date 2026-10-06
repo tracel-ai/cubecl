@@ -11,6 +11,7 @@ use crate::{
 };
 use cubecl_core::{
     Compiler, WgpuCompilationOptions,
+    codegen::KernelDump,
     ir::{
         ContextExt, attributes::FuncInterface, features::EnumSet, ident, metadata::Info,
         rewrite::SimplifyOpsPass,
@@ -62,7 +63,8 @@ use pliron::{
     op::{Op, op_cast},
     operation::{Operation, verify_operation},
     opts::{dce::DCEPass, simplify_cfg::SimplifyCFGPass},
-    pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
+    pass::{AnalysisManager, NestedOpsPass, OpPass, Pass, Passes},
+    printable::Printable,
 };
 use pliron_spirv::{
     PlironBuilder, ToSpirvOp,
@@ -114,8 +116,7 @@ impl Compiler for SpirvCompiler {
             });
         }
 
-        #[cfg(feature = "pliron-dump")]
-        let ir_printing_dir = kernel_dir_name(&value.settings.kernel_name);
+        let dump = KernelDump::new(&value.settings.kernel_name);
 
         let entry_func = value.body.state().entry_func;
         let module = value.body.state().module;
@@ -127,14 +128,8 @@ impl Compiler for SpirvCompiler {
             cube_dim: value.settings.cube_dim,
         });
 
-        let (module, bindings, io, shared_size) = self.compile_kernel(
-            &mut ctx,
-            module,
-            entry_func,
-            value.settings.clone(),
-            #[cfg(feature = "pliron-dump")]
-            ir_printing_dir,
-        )?;
+        let (module, bindings, io, shared_size) =
+            self.compile_kernel(&mut ctx, module, entry_func, value.settings.clone(), &dump)?;
 
         let info_visibility = Visibility::Read;
         let immediate_size = match params_storage_class(&ctx, bindings.len()) {
@@ -152,8 +147,13 @@ impl Compiler for SpirvCompiler {
             info_visibility,
         };
 
-        #[cfg(feature = "pliron-dump")]
-        dump_spirv(&kernel, &value.settings.kernel_name);
+        dump.write("module.spv", || {
+            let words = &kernel.assembled_module;
+            words
+                .iter()
+                .flat_map(|it| it.to_le_bytes())
+                .collect::<Vec<_>>()
+        });
 
         Ok(kernel)
     }
@@ -180,30 +180,18 @@ impl SpirvCompiler {
         module: ModuleOp,
         entry_func: FuncOp,
         settings: KernelSettings,
-        #[cfg(feature = "pliron-dump")] ir_printing_dir: Option<std::path::PathBuf>,
+        dump: &KernelDump,
     ) -> Result<(Module, Vec<Visibility>, Vec<BufferIOAttr>, usize), CompilationError> {
         let entry = entry_func.get_entry_block(ctx);
         let comp_opts = ctx.aux_ty::<WgpuCompilationOptions>();
         let module_op = module.get_operation();
 
-        #[cfg(feature = "pliron-dump")]
-        if let Some(print_dir) = &ir_printing_dir {
-            use pliron::printable::Printable;
-            let str = std::format!("{}", module_op.disp(ctx));
-            std::fs::write(print_dir.join("initial.plir"), &str).unwrap();
-        }
+        dump.write("initial.plir", || module_op.disp(ctx).to_string());
 
         verify_operation(module.get_operation(), ctx)?;
 
-        let config = PMConfig {
-            print_after_all: cfg!(feature = "pliron-dump"),
-            #[cfg(feature = "pliron-dump")]
-            ir_printing_dir,
-            ..Default::default()
-        };
-
         let mut analyses = AnalysisManager::default();
-        analyses.set_config(config);
+        analyses.set_config(dump.pass_config());
 
         let mut passes = OpPass::<ModuleOp, Passes>::default();
 
@@ -408,38 +396,5 @@ pub(crate) fn decorate_uniform(ctx: &Context, op: Ptr<Operation>, uniformity: Op
         }
     } else {
         op.set_attr(ctx, &DYNAMICALLY_UNIFORM_ATTR, uniformity);
-    }
-}
-
-#[cfg(feature = "pliron-dump")]
-pub fn kernel_dir_name(name: &str) -> Option<std::path::PathBuf> {
-    if let Ok(dir) = std::env::var("CUBECL_DEBUG_PLIRON") {
-        let path = sanitize_filename::sanitize_with_options(
-            name,
-            sanitize_filename::Options {
-                replacement: "_",
-                ..Default::default()
-            },
-        );
-        let dir = std::path::PathBuf::from(dir).join(&path);
-        std::fs::create_dir_all(&dir).unwrap();
-        Some(dir)
-    } else {
-        None
-    }
-}
-
-#[cfg(feature = "pliron-dump")]
-pub(crate) fn dump_spirv(repr: &SpirvKernel, name: &str) {
-    use std::fs;
-
-    if let Some(dir) = kernel_dir_name(name) {
-        let kernel = &repr.assembled_module;
-        let kernel = kernel
-            .iter()
-            .flat_map(|it| it.to_le_bytes())
-            .collect::<Vec<_>>();
-        let kernel_path = dir.join("module.spv");
-        fs::write(kernel_path, kernel).unwrap();
     }
 }

@@ -17,6 +17,14 @@ pub struct CompilationConfig {
     /// chooses by whether the host computes in f16 directly. Other runtimes ignore it.
     #[serde(default)]
     pub f16_evaluation: Option<F16Evaluation>,
+    /// Directory for compiler dumps. Each kernel writes its IR after every compiler pass, and
+    /// its final source, to a subdirectory named after the kernel. Set by `CUBECL_DEBUG_PLIRON`.
+    #[serde(default)]
+    #[cfg(feature = "std")]
+    pub dump_dir: Option<std::path::PathBuf>,
+    /// Log how long each compiler pass takes, at the `info` level. Set by `CUBECL_TIME_PASSES`.
+    #[serde(default)]
+    pub time_passes: bool,
 }
 
 /// How far an f32 intermediate is allowed to travel before it is rounded back to f16.

@@ -15,7 +15,10 @@ use crate::{
         math_library::redirect_intrinsics,
     },
 };
-use cubecl_core::ir::{amd::GfxArch, settings::Dim3};
+use cubecl_core::{
+    codegen::KernelDump,
+    ir::{amd::GfxArch, settings::Dim3},
+};
 use cubecl_environment::bytes::Bytes;
 use llvm_sys::{
     LLVMAtomicRMWBinOp,
@@ -86,14 +89,12 @@ pub fn emit_code_object(
     let module = LlvmModule::new(&converted.to_string())?;
     finalize(&module, entrypoint, arch, &entry)?;
     let ir = module.print();
-    let (object, asm) = compile(module, arch, Assembly::wanted())?;
+    let dump = KernelDump::new(entrypoint);
+    let (object, asm) = compile(module, arch, Assembly::wanted(&dump))?;
 
-    #[cfg(feature = "pliron-dump")]
-    if let Some(dir) = crate::cpu::jit::engine::ir_dump_path(entrypoint) {
-        let _ = std::fs::write(dir.join("amdgpu.ll"), &ir);
-        if let Some(asm) = &asm {
-            let _ = std::fs::write(dir.join("amdgpu.s"), asm);
-        }
+    dump.write("amdgpu.ll", || &ir);
+    if let Some(asm) = &asm {
+        dump.write("amdgpu.s", || asm);
     }
 
     let code_object = Bytes::from_bytes_vec(link_relocatable(&object, entrypoint)?);
@@ -116,9 +117,9 @@ pub(crate) enum Assembly {
 }
 
 impl Assembly {
-    /// `Keep` when `CUBECL_DEBUG_PLIRON` asks for the dumps.
-    fn wanted() -> Self {
-        if std::env::var_os("CUBECL_DEBUG_PLIRON").is_some() {
+    /// `Keep` when the kernel is dumped.
+    fn wanted(dump: &KernelDump) -> Self {
+        if dump.is_enabled() {
             Assembly::Keep
         } else {
             Assembly::Skip
