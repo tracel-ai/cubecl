@@ -24,7 +24,10 @@ pub mod scalar;
 pub mod spirv;
 
 pub use fp8::Fp8Format;
-pub use matrix::{MatrixIdent, MatrixLayout, MatrixScope, MatrixShape};
+pub use matrix::{
+    BlockScaleSelector, LdMatrixForm, MatrixIdent, MatrixLayout, MatrixMoveTransposition,
+    MatrixScope, MatrixShape, StMatrixForm,
+};
 
 #[pliron_type(
     name = "vector.vector",

@@ -15,7 +15,7 @@ use pliron::r#type::TypedHandle;
 use cubecl_core::prelude::polyfills::mma::{col_index, row_index};
 
 use crate::{
-    cuda::arch::CudaArchitecture,
+    cuda::arch::{CudaArchitecture, CudaToolkitVersion},
     shared::{
         Architecture, SupportedMmaCombinations, SupportedScaledMmaCombinations, lowering::LowerOp,
     },
@@ -152,6 +152,7 @@ pub fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMmaCombin
 
 pub fn supported_scaled_mma_combinations(
     arch: &CudaArchitecture,
+    toolkit: CudaToolkitVersion,
 ) -> SupportedScaledMmaCombinations {
     if !arch.tensor_cores {
         return vec![];
@@ -204,6 +205,20 @@ pub fn supported_scaled_mma_combinations(
                 scales_factor: 4,
             },
         ]);
+
+        // ptxas refuses `scale_vec::4X` with `ue8m0` scales below PTX ISA 9.1.
+        if toolkit >= CudaToolkitVersion::FIRST_WITH_PTX_ISA_9_1 {
+            result.push(ScaledMmaConfig {
+                a_type: ElemType::Float(FloatKind::E2M1x2),
+                b_type: ElemType::Float(FloatKind::E2M1x2),
+                cd_type: ElemType::Float(FloatKind::F32),
+                scales_type: ElemType::Float(FloatKind::UE8M0),
+                m: 16,
+                n: 8,
+                k: 64,
+                scales_factor: 4,
+            });
+        }
     }
     result
 }

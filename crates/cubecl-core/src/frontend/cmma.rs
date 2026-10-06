@@ -65,7 +65,10 @@ use cubecl_ir::{
     types,
 };
 
-pub use cubecl_ir::types::matrix::{MatrixIdent, MatrixLayout, MatrixShape, MatrixType};
+pub use cubecl_ir::types::matrix::{
+    BlockScaleSelector, LdMatrixForm, MatrixIdent, MatrixLayout, MatrixShape, MatrixType,
+    StMatrixForm,
+};
 use pliron::builtin::given_names::set_operation_result_name;
 use pliron::r#type::TypeHandle;
 
@@ -651,9 +654,46 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         #[comptime] transpose: bool,
     ) -> Array<Vector<E::Scalar, NO>> {
         intrinsic!(|scope| {
+            self.__expand_load_matrix_with_form_method(
+                scope,
+                row,
+                LdMatrixForm::M8N8B16,
+                num_matrices,
+                transpose,
+            )
+        })
+    }
+
+    /// Load one or more matrices of the given [form](LdMatrixForm) using intrinsic instructions.
+    /// CUDA only, and only with a form in the device's `ldmatrix_forms`.
+    /// The rows of the nth group of 8 rows are passed by the 8 lanes starting at `n * 8`, so a
+    /// 16x16 matrix takes its rows from 16 lanes. The slice determines the starting address of the
+    /// 16-byte row passed by this unit. Each matrix fills
+    /// [`registers_per_matrix`](LdMatrixForm::registers_per_matrix) 32-bit registers per unit, so
+    /// `Vector<E::Scalar, NO>` must be 32 bits wide.
+    ///
+    /// # Constraints:
+    /// Address must be aligned to 16 bytes
+    /// Address must be in shared memory
+    pub fn load_matrix_with_form<E: CubePrimitive, NO: Size>(
+        &self,
+        row: &[E],
+        #[comptime] form: LdMatrixForm,
+        #[comptime] num_matrices: usize,
+        #[comptime] transpose: bool,
+    ) -> Array<Vector<E::Scalar, NO>> {
+        intrinsic!(|scope| {
+            assert!(
+                form.admits_matrix_count(num_matrices),
+                "ldmatrix {form:?} cannot load {num_matrices} matrices at once"
+            );
+            assert!(
+                form.transposition().admits(transpose),
+                "ldmatrix {form:?} transposition is {:?}, but transpose is {transpose}",
+                form.transposition()
+            );
             let ptr = unsafe { *row.__expand_as_ptr_method(scope) }.value(scope);
-            let slice_vector_size = ptr.vector_size(scope.ctx());
-            let out = Array::__expand_new(scope, num_matrices);
+            let out = Array::__expand_new(scope, num_matrices * form.registers_per_matrix());
             let out_ptr = out.__extract_list(scope);
             scope.register(&LdMatrixOp::new(
                 scope.ctx_mut(),
@@ -661,6 +701,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 out_ptr,
                 num_matrices,
                 transpose,
+                form,
             ));
             out
         })
@@ -685,6 +726,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 fragment,
                 num_matrices,
                 transpose,
+                LdMatrixForm::M8N8B16,
             ));
         })
     }
@@ -709,7 +751,44 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     ) {
         intrinsic!(|scope| {
             let vector_size = self.__expand_vector_size_method(scope, ident);
+            self.__expand_store_matrix_with_form_method(
+                scope,
+                row,
+                registers,
+                StMatrixForm::M8N8B16,
+                num_matrices,
+                transpose,
+            )
+        })
+    }
 
+    /// Store one or more matrices of the given [form](StMatrixForm) using intrinsic instructions.
+    /// CUDA only, and only with a form in the device's `stmatrix_forms`.
+    /// The rows of the nth group of 8 rows are passed by the 8 lanes starting at `n * 8`. The slice
+    /// determines the starting address of the 16-byte row passed by this unit. Each matrix takes
+    /// one 32-bit register per unit.
+    ///
+    /// # Constraints:
+    /// Address must be aligned to 16 bytes
+    /// Address must be in shared memory
+    pub fn store_matrix_with_form<E: CubePrimitive, N: Size>(
+        &self,
+        row: &mut [E],
+        registers: &Array<Vector<E::Scalar, N>>,
+        #[comptime] form: StMatrixForm,
+        #[comptime] num_matrices: usize,
+        #[comptime] transpose: bool,
+    ) {
+        intrinsic!(|scope| {
+            assert!(
+                matches!(num_matrices, 1 | 2 | 4),
+                "stmatrix {form:?} cannot store {num_matrices} matrices at once"
+            );
+            assert!(
+                form.transposition().admits(transpose),
+                "stmatrix {form:?} transposition is {:?}, but transpose is {transpose}",
+                form.transposition()
+            );
             let registers = registers.read_value(scope);
             let destination = unsafe { *row.__expand_as_ptr_method(scope) }.value(scope);
 
@@ -719,6 +798,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 destination,
                 num_matrices,
                 transpose,
+                form,
             ));
         })
     }
@@ -805,6 +885,43 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         scales_b: Vector<S, NS>,
     ) -> Array<Vector<CD, NC>> {
         intrinsic!(|scope| {
+            self.__expand_execute_scaled_with_selectors_method(
+                scope,
+                registers_a,
+                registers_b,
+                registers_c,
+                scales_a,
+                scales_b,
+                BlockScaleSelector::default(),
+                BlockScaleSelector::default(),
+            )
+        })
+    }
+
+    /// Execute a low level block scaled `mma` operation with manually managed registers, reading
+    /// each scale from the byte and units of the quad its [selector](BlockScaleSelector) names.
+    /// Register layout and index mapping can be retrieved from the [`MmaDefinition`]
+    #[allow(unused, clippy::too_many_arguments)]
+    pub fn execute_scaled_with_selectors<S: Scalar, NA: Size, NB: Size, NC: Size, NS: Size>(
+        &self,
+        registers_a: &Array<Vector<A, NA>>,
+        registers_b: &Array<Vector<B, NB>>,
+        registers_c: &Array<Vector<CD, NC>>,
+        scales_a: Vector<S, NS>,
+        scales_b: Vector<S, NS>,
+        #[comptime] scale_a_selector: BlockScaleSelector,
+        #[comptime] scale_b_selector: BlockScaleSelector,
+    ) -> Array<Vector<CD, NC>> {
+        intrinsic!(|scope| {
+            let scales_factor = self.scales_factor.expect("Should have scales");
+            assert!(
+                scale_a_selector.is_valid_for(MatrixIdent::A, scales_factor),
+                "{scale_a_selector:?} selects no scale of A with {scales_factor} scales per row"
+            );
+            assert!(
+                scale_b_selector.is_valid_for(MatrixIdent::B, scales_factor),
+                "{scale_b_selector:?} selects no scale of B with {scales_factor} scales per column"
+            );
             let acc_elems = self
                 .clone()
                 .__expand_elems_per_lane_method(scope, MatrixIdent::Accumulator);
@@ -830,8 +947,10 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 registers_d,
                 scales_a,
                 scales_b,
-                self.scales_factor.expect("Should have scales"),
+                scales_factor,
                 self.shape,
+                scale_a_selector,
+                scale_b_selector,
             ));
 
             registers_d_arr
