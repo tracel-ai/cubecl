@@ -1415,6 +1415,7 @@ dependencies = [
  "half",
  "hashbrown 0.17.1",
  "itertools 0.15.0",
+ "log",
  "paste",
  "pliron",
  "pliron-spirv",
@@ -3766,7 +3767,7 @@ dependencies = [
 [[package]]
 name = "pliron-spirv"
 version = "0.15.0+sdk-1.4.357.0"
-source = "git+https://github.com/tracel-ai/tracel-rspirv.git?rev=77996f97565f9a980d10d8fae9a56a60cb149614#77996f97565f9a980d10d8fae9a56a60cb149614"
+source = "git+https://github.com/tracel-ai/tracel-rspirv.git?rev=7c597f04c8dca21ad619383ae5f33fa886b2c5d4#7c597f04c8dca21ad619383ae5f33fa886b2c5d4"
 dependencies = [
  "derive-new",
  "derive_more",
@@ -5199,7 +5200,7 @@ dependencies = [
 [[package]]
 name = "tracel-rspirv"
 version = "0.15.0+sdk-1.4.357.0"
-source = "git+https://github.com/tracel-ai/tracel-rspirv.git?rev=77996f97565f9a980d10d8fae9a56a60cb149614#77996f97565f9a980d10d8fae9a56a60cb149614"
+source = "git+https://github.com/tracel-ai/tracel-rspirv.git?rev=7c597f04c8dca21ad619383ae5f33fa886b2c5d4#7c597f04c8dca21ad619383ae5f33fa886b2c5d4"
 dependencies = [
  "bitflags 2.13.1",
  "pliron",

@@ -1,5 +1,8 @@
 use std::{ffi::CStr, ptr::null_mut};
 
+use cubecl_core::ir::settings::DebugInfo;
+use cubecl_server::config::compilation::effective_debug_info;
+
 use tracel_ash::vk::*;
 use wgpu::{Features, hal::vulkan};
 
@@ -35,6 +38,10 @@ pub struct ExtendedFeatures<'a> {
     pub maintenance_8: Option<PhysicalDeviceMaintenance8FeaturesKHR<'a>>,
     pub maintenance_9: Option<PhysicalDeviceMaintenance9FeaturesKHR<'a>>,
     pub long_vector: Option<PhysicalDeviceShaderLongVectorFeaturesEXT<'a>>,
+    /// `VK_KHR_shader_non_semantic_info` has no feature struct. `Some` when the device accepts
+    /// non-semantic instructions. It is not requested when `CUBECL_DEBUG_INFO=none` removes the
+    /// debug data of all kernels.
+    pub non_semantic_info: Option<()>,
 
     // Nvidia
     pub nv_atomic_float_vector: Option<PhysicalDeviceShaderAtomicFloat16VectorFeaturesNV<'a>>,
@@ -123,6 +130,17 @@ impl<'a> ExtendedFeatures<'a> {
             KHR_UNIFORM_BUFFER_STANDARD_LAYOUT_NAME; API_VERSION_1_2 => uniform_standard_layout,
             KHR_SHADER_INTEGER_DOT_PRODUCT_NAME; API_VERSION_1_3 => shader_integer_dot_product,
         );
+
+        // The device is set up before any kernel is known, so ask whether a kernel that asks for
+        // the most debug data gets some. A release build has none by default, but a kernel can
+        // still ask for it with `debug_info` or `debug_symbols`.
+        if effective_debug_info(DebugInfo::Full) != DebugInfo::None {
+            fill_core!(
+                self,
+                phys_caps,
+                KHR_SHADER_NON_SEMANTIC_INFO_NAME; API_VERSION_1_3 => non_semantic_info,
+            );
+        }
 
         fill_opt!(self,
             phys_caps,

@@ -415,6 +415,7 @@ fn register_features(
     comp_options.vulkan.supports_dp4a = extended_feat
         .shader_integer_dot_product
         .is_some_and(|it| it.shader_integer_dot_product == TRUE);
+    comp_options.vulkan.supports_non_semantic_info = extended_feat.non_semantic_info.is_some();
 
     props.features.plane.insert(Plane::Sync);
     // SPIR-V spells the device scope on the barrier itself: `OpControlBarrier` with a

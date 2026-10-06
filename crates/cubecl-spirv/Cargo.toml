@@ -50,6 +50,7 @@ cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.4", defaul
 ] }
 half = { workspace = true }
 itertools = { workspace = true }
+log = { workspace = true }
 paste = { workspace = true }
 pliron = { workspace = true }
 serde = { workspace = true }
@@ -61,3 +62,8 @@ rspirv = { workspace = true, features = ["serialize", "deserialize"] }
 
 # Optimizer
 cubecl-opt = { path = "../cubecl-opt", version = "=0.11.0-pre.4" }
+
+[dev-dependencies]
+cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.4", features = [
+    "export_tests",
+] }

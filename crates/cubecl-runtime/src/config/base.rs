@@ -182,6 +182,10 @@ impl RuntimeConfig for CubeClRuntimeConfig {
             self.compilation.debug_info = Some(level);
         }
 
+        if let Some(format) = env_variant("CUBECL_SPIRV_DEBUG_FORMAT") {
+            self.compilation.spirv_debug_format = format;
+        }
+
         if let Ok(dir) = std::env::var("CUBECL_SOURCE_CACHE") {
             self.compilation.source_cache = Some(dir.into());
         }

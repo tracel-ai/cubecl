@@ -70,6 +70,9 @@ pub struct CompilationConfig {
     /// ask for. It can only lower that level. Set by `CUBECL_DEBUG_INFO`.
     #[serde(default)]
     pub debug_info: Option<DebugInfo>,
+    /// The format of the debug data in SPIR-V kernels. Set by `CUBECL_SPIRV_DEBUG_FORMAT`.
+    #[serde(default)]
+    pub spirv_debug_format: SpirvDebugFormat,
     /// A directory for the source text of kernels with full debug data. When no directory on this
     /// computer has the source files of a kernel, cubecl writes the texts into this directory, and
     /// the debug data points to them. `None` writes no files. Set by `CUBECL_SOURCE_CACHE`.
@@ -125,6 +128,22 @@ impl core::fmt::Display for F16Evaluation {
             Self::Accumulators => "accumulators",
         })
     }
+}
+
+/// The format of the debug data in SPIR-V kernels. A kernel without debug data ignores it.
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum SpirvDebugFormat {
+    /// `NonSemantic` when the device supports it, else `OpLine`.
+    #[default]
+    #[serde(rename = "auto")]
+    Auto,
+    /// Core `OpLine`: the line of the innermost `#[cube]` function only. All devices support it.
+    #[serde(rename = "op-line")]
+    OpLine,
+    /// `NonSemantic.Shader.DebugInfo.100`: each inlined `#[cube]` function is a separate frame.
+    /// A device without support gets `OpLine`.
+    #[serde(rename = "non-semantic")]
+    NonSemantic,
 }
 
 /// Bounds checks options.

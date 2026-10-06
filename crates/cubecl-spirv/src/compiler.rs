@@ -33,8 +33,8 @@ use cubecl_ir::{
     attributes::{ATTR_BUFFER_IO, BufferIOAttr, EntrypointInterface},
     dialect::{scf::BranchToSCFPass, ssa_matrix::MatrixToSSAPass},
     prelude::{OperationPtrExt, SingleBlockRegionInterface, SymbolOpInterface},
-    rewrite::{CanonicalizePass, visit_all_ops_of_type_mut},
-    settings::{Dim3, KernelSettings},
+    rewrite::{CanonicalizePass, InheritLocationPass, visit_all_ops_of_type_mut},
+    settings::{DebugInfo, Dim3, KernelSettings},
 };
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
@@ -67,7 +67,7 @@ use pliron::{
     printable::Printable,
 };
 use pliron_spirv::{
-    PlironBuilder, ToSpirvOp,
+    ToSpirvOp,
     attrs::VerCapExtAttr,
     decorations::{DecoratableOp, set_decoration_uniform, set_decoration_uniform_id},
     ops::{EntryPointOp, ExecutionModeOp, SpirvModuleOp},
@@ -292,6 +292,10 @@ impl SpirvCompiler {
 
         passes.add_pass(ConvertArgsPass);
         passes.add_pass(NestedOpsPass::new(func_passes));
+        // Some passes insert ops without a location. They get the location of the op before them.
+        if settings.debug_info != DebugInfo::None {
+            passes.add_pass(InheritLocationPass);
+        }
 
         // The conversion pass reports ops it must not compile (e.g.
         // cube.poison) as errors, not bugs; surface them as a compilation
@@ -310,7 +314,7 @@ impl SpirvCompiler {
         // Try to figure this out later.
         // verify_operation(module_op, ctx).expect("Failed to verify after passes");
 
-        let mut builder = PlironBuilder::default();
+        let mut builder = crate::debug_info::builder(ctx, settings.debug_info);
         spirv_module.to_spirv(ctx, &mut builder)?;
         let module = builder.module();
 
