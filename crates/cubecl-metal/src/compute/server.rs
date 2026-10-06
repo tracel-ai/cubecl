@@ -364,6 +364,11 @@ impl Server for MetalServer {
         // failure in it leaves nothing stale, and tainting its buffers would
         // fail unrelated reads of memory the run deliberately left alone.
         let kernel_id = kernel.id();
+        // A precompiled launch only queues its kernel, touching nothing else.
+        if launch_mode == LaunchMode::Precompile {
+            self.context.queue(kernel);
+            return;
+        }
         let compiled = self.context.load(&*kernel, &self.utilities.logger);
         let compiled = match compiled {
             Ok(compiled) => compiled,

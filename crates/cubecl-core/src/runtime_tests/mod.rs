@@ -28,6 +28,7 @@ pub mod minifloat;
 pub mod numeric;
 pub mod out_of_memory;
 pub mod plane;
+pub mod precompile;
 pub mod profiling;
 pub mod properties;
 pub mod read_lazy;
@@ -176,6 +177,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_stream_errors!();
         cubecl_core::testgen_allocation_mode!();
         cubecl_core::testgen_out_of_memory!();
+        cubecl_core::testgen_precompile!();
     };
 }
 

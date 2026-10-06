@@ -40,4 +40,10 @@ impl MetalContext {
     ) -> Result<CompiledKernel, LaunchError> {
         self.kernels.load(kernel, (), logger).cloned()
     }
+
+    /// Queues `kernel` to be compiled with others, by the next pipeline
+    /// loaded for a launch.
+    pub fn queue(&mut self, kernel: Box<dyn CubeKernel>) {
+        self.kernels.enqueue(kernel, ());
+    }
 }

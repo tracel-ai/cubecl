@@ -427,6 +427,12 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         // A dry run stages none either way. It was never going to write, so a
         // failure in it leaves nothing stale, and tainting its buffers would
         // fail unrelated reads of memory the run deliberately left alone.
+        // A precompiled launch only queues its kernel, touching nothing else.
+        if launch_mode == LaunchMode::Precompile {
+            self.pipelines
+                .enqueue(kernel, MetadataLayout::of(&args.info));
+            return;
+        }
         let kernel_id = kernel.id();
         let loaded = self.pipelines.load(
             &*kernel,

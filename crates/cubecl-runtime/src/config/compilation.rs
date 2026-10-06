@@ -17,6 +17,27 @@ pub struct CompilationConfig {
     /// chooses by whether the host computes in f16 directly. Other runtimes ignore it.
     #[serde(default)]
     pub f16_evaluation: Option<F16Evaluation>,
+    /// How many threads a server compiles a queue of kernels on — see
+    /// [`LaunchMode::Precompile`](crate::dry_run::LaunchMode::Precompile). The
+    /// queue itself is as long as what was queued; each thread takes the next
+    /// kernel as it finishes one. `None` uses every core the process may run
+    /// on; a smaller number caps the memory a batch of compilations holds at
+    /// once.
+    #[serde(default)]
+    pub parallelism: Option<usize>,
+}
+
+impl CompilationConfig {
+    /// How many threads compile at once: the configured count, or every core
+    /// the process may run on. Never zero, and one without threads.
+    pub fn parallelism(&self) -> usize {
+        #[cfg(feature = "std")]
+        let available = std::thread::available_parallelism().map_or(1, |cores| cores.get());
+        #[cfg(not(feature = "std"))]
+        let available = 1;
+
+        self.parallelism.unwrap_or(available).max(1)
+    }
 }
 
 /// How far an f32 intermediate is allowed to travel before it is rounded back to f16.

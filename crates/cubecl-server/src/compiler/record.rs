@@ -25,8 +25,10 @@ pub struct CompilationRecord {
     pub ir: Option<alloc::string::String>,
     /// How the artifact was obtained.
     pub outcome: CompilationOutcome,
-    /// What obtaining it took, from where the trip started to the artifact
-    /// loaded on the device.
+    /// The work obtaining it took: its own lowering, finalizing and loading.
+    /// A kernel compiled beside others counts none of the time it waited for
+    /// them, so the durations of a batch add up to the work done, not to the
+    /// time the batch took.
     pub duration: core::time::Duration,
     /// The source the backend compiled, at [`RecordLevel::Full`].
     pub source: Option<alloc::string::String>,
@@ -64,6 +66,8 @@ pub struct CompilationRecording {
 #[derive(Debug)]
 struct OpenRecording {
     span: Span,
+    /// The work done so far, as [`CompilationRecording::worked`] reports it.
+    work: core::time::Duration,
     kernel: &'static str,
     key: KernelCacheKey,
     ir: Option<alloc::string::String>,
@@ -75,6 +79,7 @@ impl CompilationRecording {
     pub fn new(kernel_id: &KernelId) -> Self {
         let open = Span::new().map(|span| OpenRecording {
             span,
+            work: core::time::Duration::ZERO,
             kernel: kernel_id.type_name(),
             key: KernelCacheKey::new(kernel_id, build_id_hash()),
             ir: None,
@@ -97,6 +102,14 @@ impl CompilationRecording {
     pub fn source(&mut self, source: &str) {
         if let Some(open) = self.open.as_mut().filter(|_| keeps_code()) {
             open.source = Some(source.into());
+        }
+    }
+
+    /// The trip did `duration` more of its work: what the record's
+    /// [`duration`](CompilationRecord::duration) adds up.
+    pub fn worked(&mut self, duration: core::time::Duration) {
+        if let Some(open) = self.open.as_mut() {
+            open.work += duration;
         }
     }
 
@@ -123,9 +136,12 @@ impl CompilationRecording {
         let Some(open) = self.open else {
             return;
         };
-        let Some(duration) = open.span.elapsed() else {
+        // The span still says whether the session the trip started in is
+        // the one recording: a record for a session that is gone is dropped.
+        if open.span.elapsed().is_none() {
             return;
-        };
+        }
+        let duration = open.work;
         let record = CompilationRecord {
             kernel: open.kernel.into(),
             key: open.key,

@@ -65,6 +65,12 @@ impl HipContext {
         self.kernels.load(kernel, (), logger).map(|_| ())
     }
 
+    /// Queues `kernel` to be compiled with others, by the next kernel
+    /// loaded for a launch.
+    pub fn queue_kernel(&mut self, kernel: Box<dyn CubeKernel>) {
+        self.kernels.enqueue(kernel, ());
+    }
+
     /// What the compiled kernel does with each buffer binding, by buffer
     /// position — `None` when the kernel is not loaded or predates the
     /// answer, which the launch path reads as every buffer both read and

@@ -385,6 +385,11 @@ impl Server for CpuServer {
                     },
                 );
         let alignment = BufferAlignment(alignment);
+        // A precompiled launch only queues its kernel, touching nothing else.
+        if launch_mode == LaunchMode::Precompile {
+            self.kernels.enqueue(kernel, alignment);
+            return;
+        }
         let cache_key = ArtifactId {
             kernel: kernel.id(),
             variant: alignment,

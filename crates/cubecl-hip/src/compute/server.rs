@@ -146,6 +146,11 @@ impl Server for HipServer {
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) {
+        // A precompiled launch only queues its kernel, touching nothing else.
+        if launch_mode == LaunchMode::Precompile {
+            self.ctx.queue_kernel(kernel);
+            return;
+        }
         let kernel_id = kernel.id();
         if self.compile_failed(kernel, &bindings, stream_id, launch_mode) {
             return;
