@@ -39,9 +39,11 @@ The programming model is low-level by design, so that a single kernel can reach 
 
 A `#[cube]` function is written in regular Rust, not in a separate shader language.
 That means it is type-checked, borrow-checked, composable, and testable, and you do not have to context-switch into another language or build shader sources by string concatenation at runtime.
-Traits, structs, and enums all work inside kernels: a `#[cube]` trait lets one kernel skeleton take different operations, `#[derive(CubeType)]` turns a struct or an enum into a kernel type, and a `match` on a comptime enum leaves a single arm in the compiled kernel.
+A `#[cube]` trait lets one kernel skeleton take different operations.
+`#[derive(CubeType)]` turns a struct or an enum into a kernel type.
+A `match` on a comptime enum leaves a single arm in the compiled kernel.
 Generics are specialized per type, so `F: Float` costs nothing at runtime.
-Many mistakes surface as Rust compile errors, and the CPU runtime lets `cargo test` run your kernels on your development machine, no GPU needed.
+Many mistakes surface as Rust compile errors, and the CPU runtime lets `cargo test` run your kernels on your development machine without a GPU.
 
 Performance is not given up in exchange.
 Comptime specializes kernels at compile time, autotune searches the configuration space at first run, and kernels can take tensor core paths on hardware that has them.
@@ -64,7 +66,7 @@ Each level is defined by how its members work together, and each runtime maps it
 There is no hypercube builtin. A kernel uses `CUBE_POS` and `CUBE_COUNT` to split one job over several cubes, which combine their results in global memory.
 
 On CPU, parallelism comes from the cube's units, spread over the cores, and cubes run as a loop.
-On GPU, it's the other way round.
+On GPU, parallelism comes from the number of cubes.
 
 <details>
 <summary>Topology equivalence with CUDA, WebGPU, and Metal 👇</summary>
