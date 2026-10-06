@@ -186,6 +186,30 @@ pub(crate) fn relay_kernel(wait: Wait) -> impl CubeKernel {
     )
 }
 
+/// Scales `input` into `output` and counts the units into `tally`, dropping what the count was:
+/// an accumulation no cube waits on.
+#[cube(launch)]
+fn tally(input: &[f32], output: &mut [f32], tally: &[Atomic<u32>]) {
+    output[ABSOLUTE_POS] = input[ABSOLUTE_POS] * 2.0;
+    tally[0].fetch_add(1u32);
+}
+
+pub(crate) fn tally_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    tally::Tally::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 /// Walks a column in steps of 32 rows, one row per unit: how a matmul reads its weight along
 /// the reduced axis. A cube starts at its position split by a runtime count, so the start of
 /// every address holds a division by a value only known at launch.

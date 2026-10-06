@@ -2,7 +2,7 @@
 
 use crate::shared::offline_kernels::{
     Wait, bf16_math_kernel, keep_largest_kernel, plane_moves_kernel, relay_kernel, scale_kernel,
-    strided_walk_kernel, tile_product_kernel,
+    strided_walk_kernel, tally_kernel, tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{PlironArtifact, PlironCompiler, PlironOptions, nvptx::ptx_version::PtxVersion};
@@ -92,7 +92,6 @@ fn a_strided_walk_advances_its_address() {
     );
 }
 
-/// The instructions from the first label to the branch that jumps back to it.
 /// A cube that waits on a counter reads what the cube before it wrote within the launch: the
 /// carry some cube writes is loaded coherently, and the weights no cube writes through the
 /// non-coherent cache.
@@ -108,6 +107,15 @@ fn a_relay_loads_what_its_cubes_write_coherently() {
     }
 }
 
+/// An `atomic_add` whose result is dropped observes no other cube, so the input beside it still
+/// loads through the non-coherent cache.
+#[test]
+fn a_dropped_atomic_add_keeps_the_non_coherent_load() {
+    let ptx = ptx_of(tally_kernel(), 70);
+    assert!(ptx.contains("ld.global.nc"), "the input:\n{ptx}");
+}
+
+/// The instructions from the first label to the branch that jumps back to it.
 fn loop_body(ptx: &str) -> Option<String> {
     let lines: Vec<&str> = ptx.lines().collect();
     for (start, line) in lines.iter().enumerate() {

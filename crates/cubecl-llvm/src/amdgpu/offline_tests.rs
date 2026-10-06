@@ -2,7 +2,7 @@
 
 use crate::shared::offline_kernels::{
     Wait, bf16_math_kernel, keep_largest_kernel, plane_moves_kernel, relay_kernel, scale_kernel,
-    tile_product_kernel,
+    tally_kernel, tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{
@@ -114,6 +114,18 @@ fn a_relay_promises_nothing_about_what_its_cubes_write() {
     }
 }
 
+/// An `atomic_add` whose result is dropped observes no other cube, so the buffers beside it keep
+/// their promises.
+#[test]
+fn a_dropped_atomic_add_keeps_the_promises() {
+    let params = entry_params(tally_kernel(), "gfx1151");
+    assert!(
+        params[0].contains("noalias") && params[0].contains("readonly"),
+        "the input:\n{params:#?}"
+    );
+    assert!(params[1].contains("noalias"), "the output:\n{params:#?}");
+}
+
 #[test]
 fn a_kernel_without_atomics_keeps_its_promises() {
     let params = entry_params(scale_kernel(AddressType::U32), "gfx1151");
@@ -145,7 +157,7 @@ fn entry_params(kernel: impl CubeKernel, arch: &str) -> Vec<String> {
     let open = signature.find('(').unwrap();
     let close = signature.rfind(')').unwrap();
     signature[open + 1..close]
-        .split(", ptr")
+        .split(',')
         .map(str::to_string)
         .collect()
 }

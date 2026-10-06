@@ -59,9 +59,10 @@ pub(crate) fn annotate_buffer_params(
     }
 }
 
-/// The global buffers a kernel's atomics read: a load, a read-modify-write or a compare-exchange,
-/// each of which observes what another cube stored. An atomic store alone observes nothing, and
-/// a shared or local atomic only what its own cube stored.
+/// The global buffers a kernel's atomics read: a load, a read-modify-write or a compare-exchange
+/// whose value is used, each of which observes what another cube stored. An atomic store, or an
+/// `atomic_add` whose result is dropped, observes nothing, and a shared or local atomic only what
+/// its own cube stored.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub enum AtomicReads {
     /// No atomic reads global memory: no cube reads what another wrote within the launch.
@@ -87,6 +88,10 @@ impl AtomicReads {
                 let IRNode::Operation(op) = node else {
                     return;
                 };
+                // A value nobody reads cannot hand a turn on.
+                if !op.deref(ctx).results().any(|result| result.is_used(ctx)) {
+                    return;
+                }
                 let op = op.dyn_op(ctx);
                 if op.get_opid().dialect != AtomicLoadOp::get_opid_static().dialect {
                     return;
@@ -140,15 +145,15 @@ impl Promise {
     /// read `atomic_reads`. A buffer with no recorded mode is taken as read and written.
     fn of_buffer(io: Option<BufferIOAttr>, binding: usize, atomic_reads: &AtomicReads) -> Self {
         let io = io.unwrap_or(BufferIOAttr::ReadWrite);
-        let read_only = io == BufferIOAttr::ReadOnly;
-        match atomic_reads {
-            AtomicReads::None if read_only => Self::DistinctReadOnly,
-            AtomicReads::None => Self::Distinct,
-            AtomicReads::Unattributed => Self::Nothing,
-            AtomicReads::Bindings(read) if read.contains(&binding) => Self::Nothing,
-            AtomicReads::Bindings(_) if io.is_writable() => Self::Nothing,
-            AtomicReads::Bindings(_) if read_only => Self::DistinctReadOnly,
-            AtomicReads::Bindings(_) => Self::Distinct,
+        let shared = match atomic_reads {
+            AtomicReads::None => false,
+            AtomicReads::Bindings(read) => read.contains(&binding) || io.is_writable(),
+            AtomicReads::Unattributed => true,
+        };
+        match io {
+            _ if shared => Self::Nothing,
+            BufferIOAttr::ReadOnly => Self::DistinctReadOnly,
+            _ => Self::Distinct,
         }
     }
 }
