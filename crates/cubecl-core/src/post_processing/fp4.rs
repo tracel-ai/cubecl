@@ -158,7 +158,7 @@ fn cleared<N: Size>(above: Vector<bool, N>) -> Vector<u32, N> {
 
 /// What a code placed as an `f16` near the bottom of its range ([`f16_pair_bits`]) is short of
 /// its value by: `2^14`, the gap between an `e2m1` exponent of zero and an `f16` one.
-const F16_LIFT: f32 = 16384.0;
+pub const E2M1_F16_LIFT: f32 = 16384.0;
 
 /// The `f16` pair two codes name, from a word holding one code in its low nibble and the other
 /// sixteen bits up.
@@ -176,11 +176,22 @@ fn f16_pair_bits(codes: u32) -> u32 {
 
 /// Decode the eight codes of each word of `words`, lowest nibble first, to `f16`.
 ///
-/// A word's codes `j` and `j + 4` sit sixteen bits apart, so a word is four pairs and four
-/// [`f16_pair_bits`]; the pairs land on their lanes by compile-time inserts. One multiply for
-/// every lane lifts them to their values, exactly, the factor being a power of two.
+/// One multiply for every lane lifts the placed values ([`e2m1_words_to_f16_placed`]) to their
+/// values, exactly, the factor being a power of two.
 #[cube]
 pub fn e2m1_words_to_f16<W: Size, V: Size>(words: Vector<u32, W>) -> Vector<f16, V> {
+    e2m1_words_to_f16_placed::<W, V>(words) * Vector::new(f16::new(E2M1_F16_LIFT))
+}
+
+/// The eight codes of each word of `words`, lowest nibble first, placed as `f16` each
+/// [`E2M1_F16_LIFT`] short of its value, exactly: what a caller that multiplies the values by a
+/// factor anyway, a block scale, takes, folding the lift into that factor rather than paying a
+/// multiply a value.
+///
+/// A word's codes `j` and `j + 4` sit sixteen bits apart, so a word is four pairs and four
+/// [`f16_pair_bits`]; the pairs land on their lanes by compile-time inserts.
+#[cube]
+pub fn e2m1_words_to_f16_placed<W: Size, V: Size>(words: Vector<u32, W>) -> Vector<f16, V> {
     let mut values = Vector::<f16, V>::empty();
     #[unroll]
     for w in 0..W::value() {
@@ -193,7 +204,7 @@ pub fn e2m1_words_to_f16<W: Size, V: Size>(words: Vector<u32, W>) -> Vector<f16,
             values.insert(8 * w + j + 4, pair.extract(1usize));
         }
     }
-    values * Vector::new(f16::new(F16_LIFT))
+    values
 }
 
 /// [`e2m1_words_to_f16`] for bytes that do not fill a word, one `e2m1x2` per lane of `bytes`:
@@ -209,7 +220,7 @@ pub fn e2m1_bytes_to_f16<B: Size, V: Size>(bytes: Vector<u32, B>) -> Vector<f16,
         values.insert(2 * b, pair.extract(0usize));
         values.insert(2 * b + 1, pair.extract(1usize));
     }
-    values * Vector::new(f16::new(F16_LIFT))
+    values * Vector::new(f16::new(E2M1_F16_LIFT))
 }
 
 /// The codes of the `e2m1x2` bytes in `bytes`, one a lane, low nibble first: what the `f32`
