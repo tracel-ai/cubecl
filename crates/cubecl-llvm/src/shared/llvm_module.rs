@@ -28,7 +28,7 @@ use llvm_sys::{
         LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy,
         LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMDisposeModule, LLVMPrintModuleToString,
     },
-    error::{LLVMDisposeErrorMessage, LLVMGetErrorMessage},
+    error::{LLVMDisposeErrorMessage, LLVMErrorRef, LLVMGetErrorMessage},
     ir_reader::LLVMParseIRInContext2,
     prelude::{LLVMContextRef, LLVMModuleRef},
     target_machine::{LLVMDisposeTargetMachine, LLVMTargetMachineRef},
@@ -165,14 +165,14 @@ impl LlvmModule {
             let options = LLVMCreatePassBuilderOptions();
             let error = LLVMRunPasses(self.module, pipeline.as_ptr(), tm, options);
             LLVMDisposePassBuilderOptions(options);
-            if error.is_null() {
-                return Ok(());
-            }
-            let c_msg = LLVMGetErrorMessage(error);
-            let message = CStr::from_ptr(c_msg).to_string_lossy().into_owned();
-            LLVMDisposeErrorMessage(c_msg);
-            Err(message)
+            error_message(error)
         }
+    }
+
+    /// The context and the module, which the caller now owns.
+    pub(crate) fn into_raw(self) -> (LLVMContextRef, LLVMModuleRef) {
+        let this = std::mem::ManuallyDrop::new(self);
+        (this.ctx, this.module)
     }
 
     pub(crate) fn print(&self) -> String {
@@ -506,6 +506,20 @@ impl Drop for TargetMachine {
     fn drop(&mut self) {
         // SAFETY: the target machine is owned by `self`.
         unsafe { LLVMDisposeTargetMachine(self.0) }
+    }
+}
+
+/// `Ok` for a null `error`, else its message. The error is consumed.
+pub(crate) fn error_message(error: LLVMErrorRef) -> Result<(), String> {
+    if error.is_null() {
+        return Ok(());
+    }
+    // SAFETY: a non-null error is live and ours to consume, and so is its message.
+    unsafe {
+        let c_msg = LLVMGetErrorMessage(error);
+        let message = CStr::from_ptr(c_msg).to_string_lossy().into_owned();
+        LLVMDisposeErrorMessage(c_msg);
+        Err(message)
     }
 }
 

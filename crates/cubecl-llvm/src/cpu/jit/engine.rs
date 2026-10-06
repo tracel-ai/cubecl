@@ -1,4 +1,4 @@
-use super::data::PlironData;
+use super::{data::PlironData, lljit::Jit};
 use crate::{
     cpu::shared_memory::SharedMemories,
     prelude::{Context, ModuleOp},
@@ -9,11 +9,7 @@ use crate::{
 };
 use cubecl_core::{codegen::KernelDump, ir::settings::DebugInfo};
 use cubecl_runtime::kernel::BufferIOAttr;
-use pliron_llvm::llvm_sys::{
-    core::{LLVMContext, LLVMMemoryBuffer, LLVMModule},
-    lljit::LLVMLLJIT,
-    target::initialize_native,
-};
+use pliron_llvm::llvm_sys::{core::LLVMContext, target::initialize_native};
 use std::{
     ffi::{CStr, c_void},
     fmt::Display,
@@ -40,7 +36,7 @@ struct JitKernel {
     requirements: KernelRequirements,
     /// Buffer access modes in binding order.
     io: Vec<BufferIOAttr>,
-    _lljit: LLVMLLJIT,
+    _jit: Jit,
 }
 
 /// SAFETY: Compiled code is immutable and its JIT owns the context.
@@ -63,7 +59,8 @@ impl PlironEngine {
         Self::compile_with_debug_info(ctx, module, kernel_name, requirements, io, DebugInfo::None)
     }
 
-    /// [`compile`](Self::compile), for a kernel that carries `debug_info`.
+    /// [`compile`](Self::compile), for a kernel that carries `debug_info`. With debug data, the JIT
+    /// registers the kernel with gdb.
     ///
     /// # Errors
     /// The conversion error, when `module` does not convert to LLVM IR.
@@ -86,17 +83,16 @@ impl PlironEngine {
         let dump = KernelDump::new(kernel_name);
         dump.write("llvm.ll", || llvm_module.print());
 
-        let llvm_ctx = LLVMContext::default();
-        let llvm_module = optimize(&llvm_module, &llvm_ctx, kernel_name)
+        llvm_module
+            .run_passes(PASS_PIPELINE, None)
             .unwrap_or_else(|err| panic!("LLVM optimization failed for '{kernel_name}': {err}"));
-        dump.write("llvm.opt.ll", || llvm_module.to_string());
+        dump.write("llvm.opt.ll", || llvm_module.print());
 
-        let lljit = LLVMLLJIT::new_with_default_builder().expect("failed to create LLJIT");
-        lljit
-            .add_module(llvm_ctx, llvm_module)
+        let jit = Jit::new(debug_info != DebugInfo::None).expect("failed to create LLJIT");
+        jit.add_module(llvm_module)
             .expect("failed to add module to JIT");
-        let addr = lljit
-            .lookup_symbol(kernel_name)
+        let addr = jit
+            .lookup(kernel_name)
             .unwrap_or_else(|err| panic!("kernel symbol '{kernel_name}' not found: {err}"));
         // SAFETY: The generated entry point matches `KernelFn`.
         let func: KernelFn = unsafe { std::mem::transmute::<u64, KernelFn>(addr) };
@@ -105,7 +101,7 @@ impl PlironEngine {
             func,
             requirements,
             io,
-            _lljit: lljit,
+            _jit: jit,
         })))
     }
 
@@ -160,16 +156,3 @@ pub(crate) fn to_llvm_module(
 
 /// Optimization pipeline for JIT compilation.
 const PASS_PIPELINE: &CStr = c"default<O3>";
-
-/// Runs [`PASS_PIPELINE`] on `module`, and parses the result into `llvm_ctx` for the JIT.
-fn optimize(
-    module: &LlvmModule,
-    llvm_ctx: &LLVMContext,
-    kernel_name: &str,
-) -> Result<LLVMModule, String> {
-    module.run_passes(PASS_PIPELINE, None)?;
-    LLVMModule::from_ir_in_memory_buffer(
-        llvm_ctx,
-        LLVMMemoryBuffer::from_str(&module.print(), kernel_name),
-    )
-}
