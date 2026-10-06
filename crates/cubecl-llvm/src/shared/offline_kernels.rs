@@ -219,7 +219,7 @@ pub(crate) fn tf32_round_constants_kernel() -> impl CubeKernel {
 }
 
 /// `bf16` arithmetic, a comparison, a square root and a plane reduction, which the backend
-/// carries as `i16` and computes in `f32`.
+/// lowers as native `bfloat`.
 #[cube(launch)]
 fn bf16_math(input: &[Vector<bf16, Const<4>>], output: &mut [Vector<bf16, Const<4>>]) {
     let value = input[UNIT_POS as usize];

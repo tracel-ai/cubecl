@@ -53,8 +53,8 @@ fn is_half_or_single(ty: ElemType) -> bool {
 #[cfg(feature = "nvptx")]
 fn keep_nvptx_matrix_forms(props: &mut DeviceProperties) {
     // Both matrix families support f16, bf16 and TF32 operands. TF32 uses FP32 storage,
-    // rounded casts, and opaque i32 registers at the NVVM matrix call boundary; bf16 packs its
-    // `i16` lanes two to an i32 register and accumulates in f32. Keep only the TF32 geometries
+    // rounded casts, and opaque i32 registers at the NVVM matrix call boundary; bf16 packs two
+    // `bfloat` lanes to an i32 register and accumulates in f32. Keep only the TF32 geometries
     // NVVM implements.
     let byte = |ty: ElemType| {
         matches!(
