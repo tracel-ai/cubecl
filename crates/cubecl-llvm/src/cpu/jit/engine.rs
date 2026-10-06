@@ -92,6 +92,8 @@ impl PlironEngine {
             DebugInfo::None => JitSymbols::default(),
             _ => JitSymbols::from_env(),
         };
+        #[cfg(cubecl_frame_pointers)]
+        llvm_module.add_function_attribute("frame-pointer", "all");
 
         llvm_module
             .run_passes(PASS_PIPELINE, None)

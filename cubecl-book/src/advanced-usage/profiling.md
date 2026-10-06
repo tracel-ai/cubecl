@@ -71,10 +71,12 @@ the same file: `1` and `3` give the perf map.
 A kernel without debug data writes no symbols.
 
 `cargo flamegraph` uses the perf map. It names each kernel, but it gives no source lines in the
-kernel:
+kernel. `perf` cannot unwind JIT code with DWARF, so record with frame pointers (see
+[Frame Pointers](#frame-pointers)):
 
 ```sh
-CUBECL_JIT_SYMBOLS=perf cargo flamegraph --profile profiling
+RUSTFLAGS="-C force-frame-pointers=yes" CUBECL_JIT_SYMBOLS=perf \
+    cargo flamegraph --profile profiling -c "record -F 997 --call-graph fp -g"
 ```
 
 `samply` reads the perf map too:
@@ -82,6 +84,11 @@ CUBECL_JIT_SYMBOLS=perf cargo flamegraph --profile profiling
 ```sh
 CUBECL_JIT_SYMBOLS=perf samply record ./target/profiling/app
 ```
+
+## Frame Pointers
+
+`perf --call-graph fp` walks the stack with frame pointers. Build with
+`RUSTFLAGS="-C force-frame-pointers=yes"`. Then the JIT kernels keep frame pointers too.
 
 ## Debuggers
 

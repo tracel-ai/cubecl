@@ -78,6 +78,37 @@ impl LlvmModule {
         self.module
     }
 
+    /// Adds the string attribute `key=value` to each function that the module defines.
+    #[cfg(cubecl_frame_pointers)]
+    pub(crate) fn add_function_attribute(&self, key: &str, value: &str) {
+        use llvm_sys::{
+            LLVMAttributeFunctionIndex,
+            core::{
+                LLVMAddAttributeAtIndex, LLVMCreateStringAttribute, LLVMGetFirstFunction,
+                LLVMGetNextFunction, LLVMIsDeclaration,
+            },
+        };
+
+        // SAFETY: the attribute belongs to the context of the module, both strings are read for
+        // the lengths given, and the functions belong to the module.
+        unsafe {
+            let attribute = LLVMCreateStringAttribute(
+                self.ctx,
+                key.as_ptr().cast(),
+                u32::try_from(key.len()).expect("the attribute key fits in u32"),
+                value.as_ptr().cast(),
+                u32::try_from(value.len()).expect("the attribute value fits in u32"),
+            );
+            let mut func = LLVMGetFirstFunction(self.module);
+            while !func.is_null() {
+                if LLVMIsDeclaration(func) == 0 {
+                    LLVMAddAttributeAtIndex(func, LLVMAttributeFunctionIndex, attribute);
+                }
+                func = LLVMGetNextFunction(func);
+            }
+        }
+    }
+
     /// # Errors
     /// The message of LLVM's verifier, when the module is not valid.
     #[cfg(any(test, debug_assertions))]

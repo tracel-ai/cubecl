@@ -34,5 +34,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracel_llvm_bundler::llvm_sys::link()?;
 
+    // JIT code keeps frame pointers when the host code does, so `perf --call-graph fp` can walk
+    // through kernel frames.
+    println!("cargo::rustc-check-cfg=cfg(cubecl_frame_pointers)");
+    println!("cargo::rerun-if-env-changed=CARGO_ENCODED_RUSTFLAGS");
+    if forces_frame_pointers(&std::env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_default()) {
+        println!("cargo:rustc-cfg=cubecl_frame_pointers");
+    }
+
     Ok(())
 }
+
+include!("build/frame_pointers.rs");
