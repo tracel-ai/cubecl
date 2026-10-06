@@ -122,15 +122,6 @@ pub struct CompilationCache<K, V> {
 }
 
 impl<K: Eq + Hash, V> CompilationCache<K, V> {
-    /// An empty cache in front of `store`, bound to the active environment
-    /// exactly when that store exists.
-    pub fn mirroring<SK: StoreKey, SV: StoreValue>(store: &Option<Store<SK, SV>>) -> Self {
-        match store {
-            Some(_) => Self::bound(),
-            None => Self::unbound(),
-        }
-    }
-
     /// An empty cache bound to the active environment, for a backend whose
     /// artifacts persist in a store that a switch replaces.
     pub fn bound() -> Self {

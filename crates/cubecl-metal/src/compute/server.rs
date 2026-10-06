@@ -67,7 +67,11 @@ impl MetalServer {
         let mut compilation_options = cubecl_cpp::shared::CompilationOptions::default();
         // Metal honors per-op fast math via the `fast::` namespace (MSL 3+).
         compilation_options.supports_features.fast_math = true;
-        let context = MetalContext::new(device.clone(), compilation_options);
+        let context = MetalContext::new(
+            device.clone(),
+            (*utilities.properties).clone(),
+            compilation_options,
+        );
 
         let backend = MetalStreamBackend::new(device, mem_props, mem_config, logger.clone());
 
@@ -360,16 +364,7 @@ impl Server for MetalServer {
         // failure in it leaves nothing stale, and tainting its buffers would
         // fail unrelated reads of memory the run deliberately left alone.
         let kernel_id = kernel.id();
-        let compiled = (|| {
-            cubecl_server::validation::validate_cube_dim(&self.utilities.properties, &kernel_id)?;
-            cubecl_server::validation::validate_units(&self.utilities.properties, &kernel_id)?;
-            self.context.compile_kernel(
-                &kernel_id,
-                kernel,
-                self.utilities.properties.hardware.max_shared_memory_size,
-                self.utilities.logger.clone(),
-            )
-        })();
+        let compiled = self.context.load(&*kernel, &self.utilities.logger);
         let compiled = match compiled {
             Ok(compiled) => compiled,
             Err(err) => {
