@@ -1,12 +1,10 @@
 use cubecl_llvm::PlironOptions;
+use cubecl_server::compiler::{ArtifactId, KernelLoader};
 use cubecl_server::memory_management::relocation::RelocatingStreams;
 
-use crate::{
-    CpuCompiler,
-    compute::{
-        cpu_kernel::CpuKernel,
-        schedule::{BindingsResource, ScheduleTask, ScheduledCpuBackend},
-    },
+use crate::compute::{
+    kernel_compiler::{BufferAlignment, CpuKernelCompiler},
+    schedule::{BindingsResource, ScheduleTask, ScheduledCpuBackend},
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::server::ServerStorage;
@@ -25,22 +23,21 @@ use cubecl_environment::stream::StreamId;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
     dry_run::LaunchMode,
-    id::KernelId,
-    kernel::{CompiledKernel, CubeKernel},
+    kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode},
     storage::{BytesStorage, ComputeStorage, ManagedResource},
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
     stream::{ExecuteScope, FailureStore, WriteScoped, failed_writing},
 };
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct CpuServer {
     scheduler: SchedulerMultiStream<ScheduledCpuBackend>,
     utilities: Arc<ServerUtilities>,
-    compilation_cache: HashMap<(KernelId, u32), CpuKernel>,
-    compilation_options: PlironOptions,
+    /// The kernels compiled so far, and how to compile another.
+    kernels: KernelLoader<CpuKernelCompiler>,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
 }
@@ -84,11 +81,12 @@ impl CpuServer {
         Self {
             scheduler,
             utilities,
-            compilation_cache: HashMap::new(),
-            compilation_options: PlironOptions {
-                f16_evaluation,
-                ..Default::default()
-            },
+            kernels: KernelLoader::new(CpuKernelCompiler {
+                options: PlironOptions {
+                    f16_evaluation,
+                    ..Default::default()
+                },
+            }),
             streams_pool: Vec::new(),
         }
     }
@@ -124,7 +122,7 @@ impl CpuServer {
 
     fn prepare_task(
         &mut self,
-        kernel_id: (KernelId, u32),
+        kernel_id: ArtifactId<BufferAlignment>,
         count: CubeCount,
         bindings: BindingsResource,
         stream_id: StreamId,
@@ -151,50 +149,16 @@ impl CpuServer {
         self.prepare_task_inner(kernel_id, cube_count, bindings, stream_id)
     }
 
-    /// Compile and cache `kernel` without scheduling anything — everything a
-    /// skipped launch owes the caches, touching no buffer.
-    fn compile_only(
-        &mut self,
-        kernel: &dyn CubeKernel,
-        alignment: u32,
-    ) -> Result<(), CompilationError> {
-        let kernel_id = (kernel.id(), alignment);
-        if self.compilation_cache.contains_key(&kernel_id) {
-            return Ok(());
-        }
-        let definition = cubecl_core::define_kernel(kernel)?;
-        let options = PlironOptions {
-            cpu_buffer_alignment: Some(alignment),
-            ..self.compilation_options.clone()
-        };
-        let compiled =
-            CompiledKernel::compile(kernel, definition, &mut CpuCompiler::default(), &options)?;
-        // The executable artifact here is the JIT engine the compiler built,
-        // not the text. A precompiled kernel brings text and no engine.
-        if compiled.repr.is_none() {
-            return Err(CompilationError::Generic {
-                reason: format!(
-                    "the CPU runtime cannot load the precompiled kernel `{}`: it runs compiled IR, not source text",
-                    kernel.name()
-                ),
-                backtrace: BackTrace::capture(),
-            });
-        }
-        self.compilation_cache
-            .insert(kernel_id, CpuKernel::new(compiled));
-        Ok(())
-    }
-
     fn prepare_task_inner(
         &mut self,
-        kernel_id: (KernelId, u32),
+        kernel_id: ArtifactId<BufferAlignment>,
         cube_count: [u32; 3],
         bindings: BindingsResource,
         stream_id: StreamId,
     ) -> Result<ScheduleTask, CompilationError> {
         let kernel = self
-            .compilation_cache
-            .get_mut(&kernel_id)
+            .kernels
+            .get(&kernel_id)
             .expect("compiled before the write scope was entered");
 
         let cube_dim = kernel.mlir.cube_dim;
@@ -203,7 +167,7 @@ impl CpuServer {
             .mlir
             .repr
             .clone()
-            .expect("compile_only refuses a kernel without a representation")
+            .expect("the compiler refuses a kernel without a representation")
             .expect_jit();
 
         let task = ScheduleTask::Execute {
@@ -420,10 +384,16 @@ impl Server for CpuServer {
                         _ => align,
                     },
                 );
-        let kernel_id = kernel.id();
-        let cache_key = (kernel_id.clone(), alignment);
-        if let Err(err) = self.compile_only(kernel.as_ref(), alignment) {
-            let error = ServerError::Launch(LaunchError::CompilationError(err));
+        let alignment = BufferAlignment(alignment);
+        let cache_key = ArtifactId {
+            kernel: kernel.id(),
+            variant: alignment,
+        };
+        if let Err(err) = self
+            .kernels
+            .load(kernel.as_ref(), alignment, &self.scheduler.logger)
+        {
+            let error = ServerError::Launch(err);
             self.scheduler.stream(&stream_id).profile_failure(&error);
             if !launch_mode.is_skipped() {
                 let mut written = self.write_set();
@@ -437,7 +407,7 @@ impl Server for CpuServer {
         }
 
         let io = self
-            .compilation_cache
+            .kernels
             .get(&cache_key)
             .and_then(|kernel| kernel.mlir.io.clone());
 
@@ -458,7 +428,7 @@ impl Server for CpuServer {
         };
         ExecuteScope::launching(
             self,
-            kernel_id.clone(),
+            cache_key.kernel.clone(),
             stream_id,
             bindings.buffers_read(io.as_deref()).chain(count_read),
             written,

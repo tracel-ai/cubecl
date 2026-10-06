@@ -11,10 +11,8 @@ pub struct CpuKernel {
 }
 
 impl CpuKernel {
-    pub fn new(kernel: CompiledKernel<PlironCompiler>) -> Self {
-        Self {
-            mlir: Arc::new(kernel),
-        }
+    pub fn new(kernel: Arc<CompiledKernel<PlironCompiler>>) -> Self {
+        Self { mlir: kernel }
     }
 }
 
