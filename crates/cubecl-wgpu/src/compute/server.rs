@@ -148,6 +148,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         let max_streams = config.streaming.max_streams;
 
         let compiler = WgpuArtifactCompiler {
+            device,
             properties: (*utilities.properties).clone(),
             options: compilation_options,
             backend,
@@ -155,7 +156,6 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         };
         let pipelines = WgpuPipelines::new(
             compiler,
-            device,
             #[cfg(feature = "spirv")]
             compilation_store(
                 "vulkan",
