@@ -30,6 +30,7 @@
 //! deriving it: by the time a launch reaches a server thread, the context that
 //! produced it is gone.
 
+use core::marker::PhantomData;
 use cubecl_environment::sync::{AtomicUsize, Ordering};
 
 /// What a server should do with a launch.
@@ -223,6 +224,9 @@ impl Drop for DryRun {
 #[derive(Debug)]
 pub struct RealRun {
     outer: Option<LaunchMode>,
+    /// Keeps the guard on the thread whose mode it set: dropped on another,
+    /// it would restore that thread's mode and leave its own set forever.
+    on_thread: PhantomData<*const ()>,
 }
 
 impl RealRun {
@@ -231,6 +235,7 @@ impl RealRun {
     pub fn new() -> Self {
         Self {
             outer: scope::enter(LaunchMode::Execute),
+            on_thread: PhantomData,
         }
     }
 }
@@ -254,6 +259,9 @@ impl Drop for RealRun {
 #[derive(Debug)]
 pub struct Precompile {
     outer: Option<LaunchMode>,
+    /// Keeps the guard on the thread whose mode it set: dropped on another,
+    /// it would restore that thread's mode and leave its own set forever.
+    on_thread: PhantomData<*const ()>,
 }
 
 impl Precompile {
@@ -262,6 +270,7 @@ impl Precompile {
     pub fn new() -> Self {
         Self {
             outer: scope::enter(LaunchMode::Precompile),
+            on_thread: PhantomData,
         }
     }
 }
