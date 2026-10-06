@@ -126,6 +126,90 @@ pub(crate) fn keep_largest_kernel(k: usize) -> impl CubeKernel {
     )
 }
 
+/// How a cube waits for its turn on a relay's counter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum Wait {
+    /// Spins on an atomic load, as cubek's `Relay::take` does.
+    Load,
+    /// Spins on a compare-exchange that writes back what it reads.
+    CompareExchange,
+}
+
+/// One turn of a relay between cubes: wait until `turns` names this cube, add the `weights`
+/// into the `carry` the turn before left, and hand the turn on. The shape of a hypercube
+/// routine, whose cubes take turns at the same rows within a launch.
+#[cube(launch)]
+fn relay(
+    turns: &[Atomic<u32>],
+    carry: &mut [f32],
+    weights: &[f32],
+    out: &mut [f32],
+    #[comptime] wait: Wait,
+) {
+    let turn = CUBE_POS as u32;
+    if UNIT_POS_PLANE == 0 {
+        loop {
+            if comptime!(wait == Wait::Load) {
+                if turns[0].load() == turn {
+                    break;
+                }
+            } else if turns[0].compare_exchange_weak(turn, turn) == turn {
+                break;
+            }
+        }
+    }
+    sync_storage();
+    let sum = carry[0] + weights[0];
+    out[ABSOLUTE_POS] = sum;
+    sync_storage();
+    if UNIT_POS_PLANE == 0 {
+        carry[0] = sum;
+        turns[0].store(turn + 1);
+    }
+}
+
+pub(crate) fn relay_kernel(wait: Wait) -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    relay::Relay::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        wait,
+    )
+}
+
+/// Scales `input` into `output` and counts the units into `tally`, dropping what the count was:
+/// an accumulation no cube waits on.
+#[cube(launch)]
+fn tally(input: &[f32], output: &mut [f32], tally: &[Atomic<u32>]) {
+    output[ABSOLUTE_POS] = input[ABSOLUTE_POS] * 2.0;
+    tally[0].fetch_add(1u32);
+}
+
+pub(crate) fn tally_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    tally::Tally::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 /// Walks a column in steps of 32 rows, one row per unit: how a matmul reads its weight along
 /// the reduced axis. A cube starts at its position split by a runtime count, so the start of
 /// every address holds a division by a value only known at launch.

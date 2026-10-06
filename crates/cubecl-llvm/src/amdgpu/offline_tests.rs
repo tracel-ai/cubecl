@@ -1,11 +1,12 @@
 //! Real kernels compiled for AMDGPU without a device, checked on the assembly.
 
 use crate::shared::offline_kernels::{
-    bf16_math_kernel, keep_largest_kernel, plane_moves_kernel, scale_kernel, tile_product_kernel,
+    Wait, bf16_math_kernel, keep_largest_kernel, plane_moves_kernel, relay_kernel, scale_kernel,
+    tally_kernel, tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{
-    PlironArtifact, PlironCompiler, PlironOptions,
+    AmdGpuModule, PlironArtifact, PlironCompiler, PlironOptions,
     amdgpu::codegen::{Assembly, compile_to_object},
 };
 use cubecl_core::Compiler;
@@ -93,9 +94,76 @@ fn half_precision_tiles_multiply_on_the_matrix_cores() {
     }
 }
 
+/// A cube that waits on a counter reads what the cube before it wrote within the launch: the
+/// buffers some cube writes are promised nothing, or a read after the handoff could be a scalar
+/// load from a cache the acquire leaves stale. The weights no cube writes keep both promises.
+#[test]
+fn a_relay_promises_nothing_about_what_its_cubes_write() {
+    for wait in [Wait::Load, Wait::CompareExchange] {
+        let params = entry_params(relay_kernel(wait), "gfx1151");
+        for (binding, name) in [(0, "turns"), (1, "carry"), (3, "out")] {
+            assert!(
+                !params[binding].contains("noalias"),
+                "{wait:?}: some cube writes `{name}` within the launch:\n{params:#?}"
+            );
+        }
+        assert!(
+            params[2].contains("noalias") && params[2].contains("readonly"),
+            "{wait:?}: no cube writes the weights:\n{params:#?}"
+        );
+    }
+}
+
+/// An `atomic_add` whose result is dropped observes no other cube, so the buffers beside it keep
+/// their promises.
+#[test]
+fn a_dropped_atomic_add_keeps_the_promises() {
+    let params = entry_params(tally_kernel(), "gfx1151");
+    assert!(
+        params[0].contains("noalias") && params[0].contains("readonly"),
+        "the input:\n{params:#?}"
+    );
+    assert!(params[1].contains("noalias"), "the output:\n{params:#?}");
+}
+
+#[test]
+fn a_kernel_without_atomics_keeps_its_promises() {
+    let params = entry_params(scale_kernel(AddressType::U32), "gfx1151");
+    assert!(
+        params[0].contains("noalias") && params[0].contains("readonly"),
+        "the input:\n{params:#?}"
+    );
+    assert!(params[1].contains("noalias"), "the output:\n{params:#?}");
+}
+
 /// The assembly `kernel` compiles to for `arch`.
 fn asm_of(kernel: impl CubeKernel, arch: &str) -> String {
     let arch = GfxArch::parse(arch);
+    let module = module_of(kernel, &arch);
+    compile_to_object(&module.ir, &arch, Assembly::Keep)
+        .unwrap()
+        .1
+        .unwrap()
+}
+
+/// The attributes on each parameter of the entry point `kernel` finalizes to for `arch`.
+fn entry_params(kernel: impl CubeKernel, arch: &str) -> Vec<String> {
+    let module = module_of(kernel, &GfxArch::parse(arch));
+    let signature = module
+        .ir
+        .lines()
+        .find(|line| line.starts_with("define"))
+        .expect("the module defines its entry point");
+    let open = signature.find('(').unwrap();
+    let close = signature.rfind(')').unwrap();
+    signature[open + 1..close]
+        .split(',')
+        .map(str::to_string)
+        .collect()
+}
+
+/// The module the pliron compiler produces for `kernel` on `arch`.
+fn module_of(kernel: impl CubeKernel, arch: &GfxArch) -> AmdGpuModule {
     let mut compiler = PlironCompiler {
         target: LlvmTarget::AmdGpu,
     };
@@ -107,8 +175,5 @@ fn asm_of(kernel: impl CubeKernel, arch: &str) -> String {
     else {
         unreachable!("the AMDGPU target produces a code object");
     };
-    compile_to_object(&module.ir, &arch, Assembly::Keep)
-        .unwrap()
-        .1
-        .unwrap()
+    module
 }
