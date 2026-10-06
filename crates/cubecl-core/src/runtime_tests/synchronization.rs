@@ -544,6 +544,132 @@ pub fn test_sync_storage_over_a_stale_copy<R: Runtime>(client: Client) {
     assert_eq!(u32::from_bytes(&actual), &expected);
 }
 
+#[cube(launch)]
+fn kernel_test_lets_dependents_launch_then_writes_late(
+    buffer: &mut [u32],
+    spin_sink: &mut [u32],
+    generation: u32,
+    spin_iterations: u32,
+) {
+    allow_dependent_kernels_to_launch();
+    let mut accumulator = generation;
+    for i in 0..spin_iterations {
+        accumulator = accumulator * 1664525u32 + 1013904223u32 + i;
+    }
+    spin_sink[ABSOLUTE_POS] = accumulator;
+    buffer[ABSOLUTE_POS] = generation;
+}
+
+#[cube(launch, programmatic_dependent_launch)]
+fn kernel_test_waits_for_prerequisite_kernels_then_copies(buffer: &[u32], output: &mut [u32]) {
+    wait_for_prerequisite_kernels();
+    output[ABSOLUTE_POS] = buffer[ABSOLUTE_POS];
+}
+
+/// A kernel launched early sees every write of the kernel ahead of it once it has waited, even
+/// writes made after that kernel let it launch.
+pub fn test_wait_for_prerequisite_kernels_sees_writes_made_after_letting_dependents_launch<
+    R: Runtime,
+>(
+    client: Client,
+) {
+    if !client.properties().features.programmatic_dependent_launch {
+        std::println!("programmatic dependent launch not supported - skipped");
+        return;
+    }
+
+    let units = core::cmp::min(256, client.properties().hardware.max_units_per_cube);
+    let cubes = 4u32;
+    let elements = (units * cubes) as usize;
+    let spin_iterations_outlasting_the_dependent_launch = 200_000u32;
+    let repetitions = 100u32;
+
+    let buffer = client.create_from_slice(u32::as_bytes(&vec![0u32; elements]));
+    let spin_sink = client.empty(elements * core::mem::size_of::<u32>());
+    let output = client.empty(elements * core::mem::size_of::<u32>());
+
+    for repetition in 0..repetitions {
+        let generation = repetition + 1;
+        kernel_test_lets_dependents_launch_then_writes_late::launch(
+            &client,
+            CubeCount::Static(cubes, 1, 1),
+            CubeDim::new_1d(units),
+            unsafe { BufferArg::from_raw_parts(buffer.clone(), elements) },
+            unsafe { BufferArg::from_raw_parts(spin_sink.clone(), elements) },
+            generation,
+            spin_iterations_outlasting_the_dependent_launch,
+        );
+        kernel_test_waits_for_prerequisite_kernels_then_copies::launch(
+            &client,
+            CubeCount::Static(cubes, 1, 1),
+            CubeDim::new_1d(units),
+            unsafe { BufferArg::from_raw_parts(buffer.clone(), elements) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), elements) },
+        );
+
+        let actual = client.read_one_unchecked(output.clone());
+        let stale = u32::from_bytes(&actual)
+            .iter()
+            .filter(|value| **value != generation)
+            .count();
+        assert_eq!(
+            stale, 0,
+            "repetition {repetition}: {stale} elements read before the kernel ahead wrote them"
+        );
+    }
+}
+
+#[cube(launch)]
+fn kernel_test_doubles_plus_one_between_dependency_controls(input: &[u32], output: &mut [u32]) {
+    wait_for_prerequisite_kernels();
+    if ABSOLUTE_POS < output.len() {
+        output[ABSOLUTE_POS] = input[ABSOLUTE_POS] * 2 + 1;
+    }
+    allow_dependent_kernels_to_launch();
+}
+
+#[cube(launch)]
+fn kernel_test_doubles_plus_one(input: &[u32], output: &mut [u32]) {
+    if ABSOLUTE_POS < output.len() {
+        output[ABSOLUTE_POS] = input[ABSOLUTE_POS] * 2 + 1;
+    }
+}
+
+/// Waiting for prerequisite kernels and letting dependents launch change nothing a kernel
+/// computes, on every runtime.
+pub fn test_dependency_controls_leave_a_kernels_output_unchanged<R: Runtime>(client: Client) {
+    let units = core::cmp::min(64, client.properties().hardware.max_units_per_cube);
+    let elements = units as usize;
+    let values: Vec<u32> = (0..units).collect();
+    let input = client.create_from_slice(u32::as_bytes(&values));
+    let with_controls = client.empty(elements * core::mem::size_of::<u32>());
+    let without_controls = client.empty(elements * core::mem::size_of::<u32>());
+
+    kernel_test_doubles_plus_one_between_dependency_controls::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(units),
+        unsafe { BufferArg::from_raw_parts(input.clone(), elements) },
+        unsafe { BufferArg::from_raw_parts(with_controls.clone(), elements) },
+    );
+    kernel_test_doubles_plus_one::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(units),
+        unsafe { BufferArg::from_raw_parts(input, elements) },
+        unsafe { BufferArg::from_raw_parts(without_controls.clone(), elements) },
+    );
+
+    let with_controls = client.read_one_unchecked(with_controls);
+    let without_controls = client.read_one_unchecked(without_controls);
+    let expected: Vec<u32> = values.iter().map(|value| value * 2 + 1).collect();
+    assert_eq!(u32::from_bytes(&without_controls), &expected);
+    assert_eq!(
+        u32::from_bytes(&with_controls),
+        u32::from_bytes(&without_controls)
+    );
+}
+
 #[macro_export]
 macro_rules! testgen_sync_plane {
     () => {
@@ -629,6 +755,22 @@ macro_rules! testgen_sync_plane {
         fn test_workgroup_uniform_load_vec() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::synchronization::test_workgroup_uniform_load_vec::<
+                TestRuntime,
+            >(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_wait_for_prerequisite_kernels_sees_writes_made_after_letting_dependents_launch() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::synchronization::test_wait_for_prerequisite_kernels_sees_writes_made_after_letting_dependents_launch::<
+                TestRuntime,
+            >(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_dependency_controls_leave_a_kernels_output_unchanged() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::synchronization::test_dependency_controls_leave_a_kernels_output_unchanged::<
                 TestRuntime,
             >(client);
         }

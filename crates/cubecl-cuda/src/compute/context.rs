@@ -657,7 +657,7 @@ fn launch_failed(op: &'static str, err: cudarc::driver::DriverError) -> LaunchEr
 
 #[cfg(test)]
 mod tests {
-    use super::cache_namespace;
+    use super::{PtxCacheEntry, cache_namespace};
     use crate::compiler::CudaBackend;
     use cubecl_llvm::nvptx::ptx_version::PtxVersion;
 
@@ -677,5 +677,32 @@ mod tests {
             cache_namespace("ptx_sm86", CudaBackend::Llvm, PtxVersion::for_driver(12080)),
             cache_namespace("ptx_sm86", CudaBackend::Llvm, PtxVersion::for_driver(12090)),
         );
+    }
+
+    /// An entry cached before the request existed still launches normally.
+    #[test]
+    fn a_cache_entry_persisted_without_the_request_launches_normally() {
+        #[derive(serde::Serialize)]
+        struct PtxCacheEntryBeforeTheRequest {
+            entrypoint_name: String,
+            shared_mem_bytes: usize,
+            ptx: Vec<std::ffi::c_char>,
+            io: Option<Vec<cubecl_server::kernel::BufferIOAttr>>,
+        }
+
+        let mut persisted = Vec::new();
+        ciborium::ser::into_writer(
+            &PtxCacheEntryBeforeTheRequest {
+                entrypoint_name: "kernel".to_string(),
+                shared_mem_bytes: 0,
+                ptx: vec![0],
+                io: None,
+            },
+            &mut persisted,
+        )
+        .unwrap();
+
+        let entry: PtxCacheEntry = ciborium::de::from_reader(persisted.as_slice()).unwrap();
+        assert!(!entry.programmatic_dependent_launch);
     }
 }

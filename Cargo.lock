@@ -1067,6 +1067,7 @@ name = "cubecl-cuda"
 version = "0.11.0"
 dependencies = [
  "bytemuck",
+ "ciborium",
  "cubecl-common",
  "cubecl-core",
  "cubecl-cpp",
