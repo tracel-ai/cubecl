@@ -206,6 +206,20 @@ impl CpuServer {
             .expect("compile_only refuses a kernel without a representation")
             .expect_jit();
 
+        #[cfg(feature = "nothreading")]
+        if mlir_engine.requirements().needs_parallelism {
+            return Err(CompilationError::Generic {
+                reason: format!(
+                    "kernel `{}` requires cube barriers, which the `nothreading` feature does not support",
+                    kernel
+                        .mlir
+                        .debug_name
+                        .unwrap_or(&kernel.mlir.entrypoint_name),
+                ),
+                backtrace: BackTrace::capture(),
+            });
+        }
+
         let task = ScheduleTask::Execute {
             stream_id,
             pliron_engine: mlir_engine,
@@ -213,7 +227,6 @@ impl CpuServer {
             cube_dim,
             cube_count,
         };
-
         Ok(task)
     }
 
