@@ -15,7 +15,7 @@ default = ["wgpu"]
 wgpu = ["cubecl/wgpu"]
 
 [dependencies]
-cubecl = { path = "../../crates/cubecl", version = "=0.11.0-pre.4" }
+cubecl = { path = "../../crates/cubecl", version = "0.11.0" }
 half = { workspace = true }
 
 sum_things = { path = "../sum_things" }
