@@ -7,14 +7,18 @@
 //! provoked them, which is what makes producing a shippable environment
 //! affordable.
 //!
-//! The launches autotune issues are the exception: they *are* the measurement,
-//! so [`RealRun`] opts them back into executing.
+//! Under a [`DryRunScope::Profile`] dry run, the launches autotune issues are
+//! the exception: they *are* the measurement, so [`RealRun`] opts them back
+//! into executing. A [`DryRunScope::Compile`] dry run measures nothing: every
+//! launch, autotune's included, only queues its kernel, so a pass under it
+//! gathers every kernel the workload and its tuning reach and a later
+//! `Profile` pass finds them compiled and only measures.
 //!
-//! [`Precompile`] is the other way round, and works with or without a dry run:
-//! the launches it covers only queue their kernels, and the server compiles
-//! the whole queue at once, on its compiling threads, when it next loads a
-//! kernel for a launch. Autotune opens one over the batch of candidates it is
-//! about to measure.
+//! [`Precompile`] does on one thread what a `Compile` dry run does on all of
+//! them, with or without a dry run: the launches it covers only queue their
+//! kernels, and the server compiles the whole queue at once, on its compiling
+//! threads, when it next loads a kernel for a launch. Autotune opens one over
+//! the batch of candidates it is about to measure.
 //!
 //! **Buffers are left as they were**, so anything read back during a dry run is
 //! meaningless. It only suits a pass driven by the *shapes* it produces, which
@@ -56,37 +60,82 @@ impl LaunchMode {
 
 /// What to do with a launch issued on this thread, right now: what the
 /// innermost [`RealRun`] or [`Precompile`] open on it says, and otherwise
-/// whether a [`DryRun`] is open.
+/// what the open [`DryRun`], if any, does with a launch.
 pub fn launch_mode() -> LaunchMode {
     if let Some(mode) = scope::mode() {
         return mode;
     }
 
-    match dry_run() {
-        true => LaunchMode::Skip,
-        false => LaunchMode::Execute,
+    match dry_run_scope() {
+        Some(DryRunScope::Compile) => LaunchMode::Precompile,
+        Some(DryRunScope::Profile) => LaunchMode::Skip,
+        None => LaunchMode::Execute,
     }
 }
 
-/// How many dry runs are open in this process.
+/// What a [`DryRun`] does with the work it drops.
 ///
-/// A depth rather than a flag so overlapping guards compose: a swap-and-restore
-/// would let one thread's guard end a dry run another thread is still inside,
-/// and leave the process dry-running forever once that one dropped in turn.
-static DRY_RUN: AtomicUsize = AtomicUsize::new(0);
+/// Each scope is a level, the number [`OPEN`] holds in its low bits while a
+/// dry run of it is open; zero is none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(usize)]
+pub enum DryRunScope {
+    /// Only compile: every launch queues its kernel, and a tune queues its
+    /// candidates' kernels without measuring them or deciding anything, so a
+    /// later [`Profile`](Self::Profile) pass tunes every key it reaches,
+    /// with its kernels already compiled.
+    Compile = 1,
+    /// Compile every kernel the workload launches, and tune what it tunes by
+    /// measuring the candidates for real.
+    Profile = 2,
+}
 
-/// Whether launches are currently compiled and dropped rather than run.
+impl DryRunScope {
+    /// The scope at `level`, or `None` at level zero, outside any dry run.
+    fn at(level: usize) -> Option<Self> {
+        match level {
+            1 => Some(Self::Compile),
+            2 => Some(Self::Profile),
+            _ => None,
+        }
+    }
+}
+
+/// The dry run open in this process: its scope's level in the low
+/// [`LEVEL_BITS`], and above them how many guards hold it open.
+///
+/// A count, so overlapping guards compose: a swap-and-restore would let one
+/// thread's guard end a dry run another thread is still inside, and leave the
+/// process dry-running forever once that one dropped in turn. One word, so the
+/// scope and its count change together, and a second scope cannot open beside
+/// the first.
+static OPEN: AtomicUsize = AtomicUsize::new(0);
+/// The bits of [`OPEN`] that hold the scope's level.
+const LEVEL_BITS: u32 = 2;
+/// Masks [`OPEN`] down to the scope's level.
+const LEVEL_MASK: usize = (1 << LEVEL_BITS) - 1;
+/// One guard, in [`OPEN`]'s count.
+const GUARD: usize = 1 << LEVEL_BITS;
+
+/// Whether a dry run of either scope is open.
 pub fn dry_run() -> bool {
-    DRY_RUN.load(Ordering::Relaxed) > 0
+    dry_run_scope().is_some()
+}
+
+/// The scope of the dry run open in this process, if one is.
+pub fn dry_run_scope() -> Option<DryRunScope> {
+    DryRunScope::at(OPEN.load(Ordering::Relaxed) & LEVEL_MASK)
 }
 
 /// Makes every launch a dry run for as long as it lives, on every thread and
 /// every device.
 ///
-/// Overlapping guards compose, so a pass that opens one while another is still
-/// open leaves the mode on until the last of them drops.
+/// Overlapping guards of one scope compose, so a pass that opens one while
+/// another is still open leaves the mode on until the last of them drops. One
+/// scope is open at a time: a dry run is process-wide, and inside a `Compile`
+/// one there is nothing measured for a `Profile` one to read.
 ///
-/// The flag is read on the thread issuing a launch, with relaxed ordering, so a
+/// The open scope is read on the thread issuing a launch, with relaxed ordering, so a
 /// launch another thread had already begun issuing may still execute. What is
 /// guaranteed is the launches issued by the thread that opened the guard, and
 /// every launch issued after other threads observe it.
@@ -99,26 +148,59 @@ pub fn dry_run() -> bool {
 ///
 /// ```no_run
 /// # fn warm_up() {}
-/// let _dry_run = cubecl_runtime::dry_run::DryRun::new();
+/// use cubecl_runtime::dry_run::{DryRun, DryRunScope};
+///
+/// // Gather every kernel the warm-up reaches, and compile them together...
+/// let compile = DryRun::new(DryRunScope::Compile);
+/// warm_up();
+/// drop(compile);
+///
+/// // ...then tune with them compiled: this pass only measures.
+/// let _profile = DryRun::new(DryRunScope::Profile);
 /// warm_up();
 /// ```
 #[derive(Debug)]
 pub struct DryRun {
-    _private: (),
+    scope: DryRunScope,
 }
 
 impl DryRun {
-    /// Opens a dry run until the guard drops.
-    #[allow(clippy::new_without_default, reason = "a guard is not a value")]
-    pub fn new() -> Self {
-        DRY_RUN.fetch_add(1, Ordering::Relaxed);
-        Self { _private: () }
+    /// Opens a dry run of `scope` until the guard drops.
+    ///
+    /// # Panics
+    ///
+    /// If a dry run of the other scope is open.
+    pub fn new(scope: DryRunScope) -> Self {
+        let level = scope as usize;
+        let opened = OPEN.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |open| {
+            match open & LEVEL_MASK {
+                0 => Some(GUARD | level),
+                open_level if open_level == level => Some(open + GUARD),
+                _ => None,
+            }
+        });
+        if let Err(open) = opened {
+            panic!(
+                "a {scope:?} dry run cannot open while a {:?} one is",
+                DryRunScope::at(open & LEVEL_MASK).expect("open, since the update refused")
+            );
+        }
+        Self { scope }
+    }
+
+    /// The scope this guard opened.
+    pub fn scope(&self) -> DryRunScope {
+        self.scope
     }
 }
 
 impl Drop for DryRun {
     fn drop(&mut self) {
-        DRY_RUN.fetch_sub(1, Ordering::Relaxed);
+        // The last guard out closes the dry run, its level with it.
+        let _ = OPEN.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |open| {
+            let open = open - GUARD;
+            Some(if open < GUARD { 0 } else { open })
+        });
     }
 }
 
@@ -279,6 +361,51 @@ mod tests {
         assert_eq!(launch_mode(), LaunchMode::Execute);
     }
 
+    /// A compile-only dry run queues every launch, and a measurement's
+    /// `RealRun` inside it still executes.
+    #[test]
+    #[serial_test::serial]
+    fn a_compile_dry_run_queues_launches() {
+        let _compile = DryRun::new(DryRunScope::Compile);
+        assert_eq!(dry_run_scope(), Some(DryRunScope::Compile));
+        assert_eq!(launch_mode(), LaunchMode::Precompile);
+        let _real_run = RealRun::new();
+        assert_eq!(launch_mode(), LaunchMode::Execute);
+    }
+
+    /// One scope is open at a time: a dry run of the other scope refuses to
+    /// open beside it.
+    #[test]
+    #[serial_test::serial]
+    #[should_panic(expected = "a Compile dry run cannot open while a Profile one is")]
+    fn scopes_do_not_overlap() {
+        let _profile = DryRun::new(DryRunScope::Profile);
+        let _compile = DryRun::new(DryRunScope::Compile);
+    }
+
+    /// A refused open leaves the open scope as it was: still open, and closed
+    /// by its own guard's drop.
+    #[test]
+    #[serial_test::serial]
+    fn a_refused_open_leaves_the_open_scope() {
+        let profile = DryRun::new(DryRunScope::Profile);
+        let refused = std::panic::catch_unwind(|| DryRun::new(DryRunScope::Compile));
+        assert!(refused.is_err());
+        assert_eq!(dry_run_scope(), Some(DryRunScope::Profile));
+        drop(profile);
+        assert_eq!(dry_run_scope(), None);
+    }
+
+    /// The last guard of a scope closes it, so the other scope opens next.
+    #[test]
+    #[serial_test::serial]
+    fn a_closed_scope_makes_way_for_the_other() {
+        drop(DryRun::new(DryRunScope::Compile));
+        assert_eq!(dry_run_scope(), None);
+        let _profile = DryRun::new(DryRunScope::Profile);
+        assert_eq!(launch_mode(), LaunchMode::Skip);
+    }
+
     /// Precompiling needs no dry run: autotune at run time compiles its
     /// candidates as much as a build's does.
     #[test]
@@ -305,7 +432,7 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn a_dry_run_spares_the_measurements() {
-        let _dry_run = DryRun::new();
+        let _dry_run = DryRun::new(DryRunScope::Profile);
 
         assert_eq!(launch_mode(), LaunchMode::Skip);
         {
@@ -323,9 +450,9 @@ mod tests {
     fn dry_runs_nest() {
         assert!(!dry_run());
         {
-            let _outer = DryRun::new();
+            let _outer = DryRun::new(DryRunScope::Profile);
             {
-                let _inner = DryRun::new();
+                let _inner = DryRun::new(DryRunScope::Profile);
                 assert!(dry_run());
             }
             assert!(dry_run(), "the outer guard is still in force");

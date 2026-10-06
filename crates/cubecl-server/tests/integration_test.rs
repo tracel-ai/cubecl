@@ -1378,7 +1378,7 @@ fn autotune_stops_sampling_an_eliminated_candidate() {
 #[cfg(feature = "std")]
 #[serial_test::serial]
 fn a_dry_run_drops_an_ordinary_launch() {
-    use cubecl_server::dry_run::DryRun;
+    use cubecl_server::dry_run::{DryRun, DryRunScope};
 
     let client = test_client(&DummyDevice);
     let lhs = client.create_from_slice(&[0, 1, 2]);
@@ -1398,7 +1398,7 @@ fn a_dry_run_drops_an_ordinary_launch() {
     };
 
     {
-        let _dry_run = DryRun::new();
+        let _dry_run = DryRun::new(DryRunScope::Profile);
         add(&out);
 
         assert_eq!(
@@ -1426,7 +1426,7 @@ fn a_dry_run_drops_an_ordinary_launch() {
 #[cfg(feature = "std")]
 #[serial_test::serial]
 fn a_dry_run_still_autotunes() {
-    use cubecl_server::dry_run::DryRun;
+    use cubecl_server::dry_run::{DryRun, DryRunScope};
 
     static TUNER: LocalTuner<String, String> = local_tuner!("a_dry_run_still_autotunes");
 
@@ -1441,7 +1441,7 @@ fn a_dry_run_still_autotunes() {
     let out = client.empty(3);
 
     {
-        let _dry_run = DryRun::new();
+        let _dry_run = DryRun::new(DryRunScope::Profile);
         TUNER.execute(
             &"test".to_string(),
             &client,
@@ -1466,6 +1466,70 @@ fn a_dry_run_still_autotunes() {
     );
 }
 
+/// A compile-only dry run measures nothing and decides nothing: no sample is
+/// taken, so the eviction that runs before each never does; it precompiles a
+/// key once however often it reaches it; and the key is tuned for real by the
+/// first execution outside it.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn a_compile_dry_run_leaves_the_tune_to_the_next_pass() {
+    use cubecl_server::dry_run::{DryRun, DryRunScope};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("compile_dry_run");
+
+    let client = test_client(&DummyDevice);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let evictions = Arc::new(AtomicUsize::new(0));
+    let misdirected = Arc::new(AtomicUsize::new(0));
+    let uid = fresh_tune_key_uid();
+    let test_set = {
+        let (calls, evictions, misdirected) =
+            (calls.clone(), evictions.clone(), misdirected.clone());
+        TUNER.init(&"test".to_string(), move || {
+            let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+            dummy::addition_set_with_eviction(
+                test_client(&DummyDevice),
+                shapes,
+                uid.clone(),
+                calls.clone(),
+                evictions.clone(),
+                misdirected.clone(),
+            )
+        })
+    };
+
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = || vec![lhs.clone(), rhs.clone(), out.clone()];
+
+    {
+        let _dry_run = DryRun::new(DryRunScope::Compile);
+        TUNER.execute(&"test".to_string(), &client, test_set.clone(), handles());
+        let precompiled = calls.load(Ordering::Relaxed);
+        assert!(
+            precompiled > 0,
+            "the candidates ran, to queue their kernels"
+        );
+
+        // A walk reaches the same key at every layer: once precompiled, the key only runs the
+        // candidate that launches.
+        TUNER.execute(&"test".to_string(), &client, test_set.clone(), handles());
+        assert_eq!(calls.load(Ordering::Relaxed), precompiled + 1);
+    }
+    assert_eq!(evictions.load(Ordering::Relaxed), 0, "nothing was measured");
+
+    TUNER.execute(&"test".to_string(), &client, test_set, handles());
+    assert!(
+        evictions.load(Ordering::Relaxed) > 0,
+        "the key was left untuned, so this execution tuned it"
+    );
+    assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
+}
+
 /// The other half of what a dry run leaves alone: memory. A reservation no
 /// executed launch, read or write ever touches gets no device backing — the
 /// skipped launch resolves nothing — and backing is installed on demand the
@@ -1477,11 +1541,11 @@ fn a_dry_run_still_autotunes() {
 #[cfg(not(exclusive_memory_only))]
 #[serial_test::serial]
 fn a_dry_run_reserves_without_mapping() {
-    use cubecl_server::dry_run::DryRun;
+    use cubecl_server::dry_run::{DryRun, DryRunScope};
     use cubecl_server::memory_management::MemoryPoolReport;
 
     let client = test_client(&DummyDevice);
-    let dry_run = DryRun::new();
+    let dry_run = DryRun::new(DryRunScope::Profile);
 
     // Big enough to land in a large-page pool of its own: the parallel tests
     // in this binary allocate a few bytes at a time, so nothing else touches

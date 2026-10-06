@@ -247,6 +247,15 @@ impl<K: AutotuneKey> Tuner<K> {
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
+        // A key a compile-only dry run already precompiled answers at once: a walk reaches the
+        // same key at every layer, and a miss would hydrate the persistent cache and checksum
+        // the set again each time for a tune that will not run.
+        let compiling =
+            crate::dry_run::dry_run_scope() == Some(crate::dry_run::DryRunScope::Compile);
+        if compiling && self.cache.lock().is_precompiled(key) {
+            return TuneCacheResult::Precompiled;
+        }
+
         {
             let mut cache = self.cache.lock();
             #[cfg(persistence)]
@@ -277,7 +286,9 @@ impl<K: AutotuneKey> Tuner<K> {
             };
 
             match cur {
-                TuneCacheResult::Hit { .. } | TuneCacheResult::Pending => return cur,
+                TuneCacheResult::Hit { .. }
+                | TuneCacheResult::Pending
+                | TuneCacheResult::Precompiled => return cur,
                 TuneCacheResult::Miss | TuneCacheResult::Unchecked => {
                     cache.mark_pending(key.clone())
                 }
@@ -305,6 +316,14 @@ impl<K: AutotuneKey> Tuner<K> {
         if results.len() == 1 {
             self.cache.lock().cache_insert(key.clone(), 0);
             return TuneCacheResult::Hit { fastest_index: 0 };
+        }
+
+        // A compile-only dry run gathers the candidates' kernels and measures
+        // nothing; the key stays untuned for the pass that profiles it.
+        if compiling {
+            self.precompile_plan(key, inputs, tunables, &autotunables);
+            self.cache.lock().mark_precompiled(key.clone());
+            return TuneCacheResult::Precompiled;
         }
 
         // After the fast path: a key with one candidate is answered, not
@@ -371,6 +390,40 @@ impl<K: AutotuneKey> Tuner<K> {
         }
 
         self.tune_fixed_samples(job, client)
+    }
+
+    /// Runs the candidates the plan would measure once each, on the inputs a tune generates,
+    /// so their launches queue their kernels under a compile-only dry run. The key is left
+    /// untuned.
+    ///
+    /// The plan is walked batch by batch and stops after the first batch in which a candidate
+    /// serves the problem, as a tune stops at the first batch with a measured candidate: a
+    /// candidate that declines returns its error without launching anything.
+    fn precompile_plan<'a, F: TuneInputs, Out: AutotuneOutput, Id>(
+        &self,
+        key: &K,
+        inputs: &F::At<'a>,
+        tunables: &TunableSet<K, F, Out, Id>,
+        autotunables: &[&TuneFn<F, Out>],
+    ) where
+        <F as TuneInputs>::At<'a>: Clone + Send,
+    {
+        let test_inputs = tunables.generate_inputs(key, inputs);
+        let mut plan = tunables.plan(key);
+        loop {
+            let batch = plan.next();
+            if batch.is_empty() {
+                break;
+            }
+            // Every candidate of the batch runs, so every one of them queues its kernels.
+            let mut served = false;
+            for index in batch.indices() {
+                served |= autotunables[index].execute(test_inputs.clone()).is_ok();
+            }
+            if served {
+                break;
+            }
+        }
     }
 
     /// Round robin the candidates, eliminating them as the evidence allows. Native only: the
