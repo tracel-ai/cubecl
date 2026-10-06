@@ -2,17 +2,17 @@ use super::data::PlironData;
 use crate::{
     cpu::shared_memory::SharedMemories,
     prelude::{Context, ModuleOp},
-    shared::llvm_module::LlvmModule,
-};
-use cubecl_core::codegen::KernelDump;
-use cubecl_runtime::kernel::BufferIOAttr;
-use pliron_llvm::{
-    llvm_sys::{
-        core::{LLVMContext, LLVMMemoryBuffer, LLVMModule},
-        lljit::LLVMLLJIT,
-        target::initialize_native,
+    shared::{
+        debug_info::{check_debug_info, convert_module},
+        llvm_module::LlvmModule,
     },
-    to_llvm_ir,
+};
+use cubecl_core::{codegen::KernelDump, ir::settings::DebugInfo};
+use cubecl_runtime::kernel::BufferIOAttr;
+use pliron_llvm::llvm_sys::{
+    core::{LLVMContext, LLVMMemoryBuffer, LLVMModule},
+    lljit::LLVMLLJIT,
+    target::initialize_native,
 };
 use std::{
     ffi::{CStr, c_void},
@@ -60,16 +60,34 @@ impl PlironEngine {
         requirements: KernelRequirements,
         io: Vec<BufferIOAttr>,
     ) -> pliron::result::Result<Self> {
+        Self::compile_with_debug_info(ctx, module, kernel_name, requirements, io, DebugInfo::None)
+    }
+
+    /// [`compile`](Self::compile), for a kernel that carries `debug_info`.
+    ///
+    /// # Errors
+    /// The conversion error, when `module` does not convert to LLVM IR.
+    ///
+    /// # Panics
+    /// When LLVM rejects the IR or cannot compile it: the lowering has a bug.
+    pub fn compile_with_debug_info(
+        ctx: &Context,
+        module: ModuleOp,
+        kernel_name: &str,
+        requirements: KernelRequirements,
+        io: Vec<BufferIOAttr>,
+        debug_info: DebugInfo,
+    ) -> pliron::result::Result<Self> {
         INIT_NATIVE.call_once(|| {
             initialize_native().expect("failed to initialize native target");
         });
 
-        let llvm_ctx = LLVMContext::default();
-        let llvm_module = to_llvm_ir::convert_module(ctx, &llvm_ctx, module)?;
+        let llvm_module = to_llvm_module(ctx, module, kernel_name, debug_info)?;
         let dump = KernelDump::new(kernel_name);
-        dump.write("llvm.ll", || llvm_module.to_string());
+        dump.write("llvm.ll", || llvm_module.print());
 
-        let llvm_module = optimize(llvm_module, &llvm_ctx, kernel_name)
+        let llvm_ctx = LLVMContext::default();
+        let llvm_module = optimize(&llvm_module, &llvm_ctx, kernel_name)
             .unwrap_or_else(|err| panic!("LLVM optimization failed for '{kernel_name}': {err}"));
         dump.write("llvm.opt.ll", || llvm_module.to_string());
 
@@ -125,24 +143,33 @@ impl Display for PlironEngine {
     }
 }
 
+/// Converts `module` to an LLVM module, with the DWARF of `debug_info`.
+pub(crate) fn to_llvm_module(
+    ctx: &Context,
+    module: ModuleOp,
+    kernel_name: &str,
+    debug_info: DebugInfo,
+) -> pliron::result::Result<LlvmModule> {
+    let llvm_ctx = LLVMContext::default();
+    let llvm_module = convert_module(ctx, &llvm_ctx, module, debug_info, true)?;
+    let llvm_module = LlvmModule::new(&llvm_module.to_string())
+        .unwrap_or_else(|err| panic!("LLVM IR does not parse for '{kernel_name}': {err}"));
+    check_debug_info(&llvm_module, kernel_name, debug_info);
+    Ok(llvm_module)
+}
+
 /// Optimization pipeline for JIT compilation.
 const PASS_PIPELINE: &CStr = c"default<O3>";
 
+/// Runs [`PASS_PIPELINE`] on `module`, and parses the result into `llvm_ctx` for the JIT.
 fn optimize(
-    module: LLVMModule,
+    module: &LlvmModule,
     llvm_ctx: &LLVMContext,
     kernel_name: &str,
 ) -> Result<LLVMModule, String> {
-    let optimized = run_pipeline(&module.to_string())?;
-    drop(module);
+    module.run_passes(PASS_PIPELINE, None)?;
     LLVMModule::from_ir_in_memory_buffer(
         llvm_ctx,
-        LLVMMemoryBuffer::from_str(&optimized, kernel_name),
+        LLVMMemoryBuffer::from_str(&module.print(), kernel_name),
     )
-}
-
-fn run_pipeline(ir: &str) -> Result<String, String> {
-    let module = LlvmModule::new(ir)?;
-    module.run_passes(PASS_PIPELINE, None)?;
-    Ok(module.print())
 }

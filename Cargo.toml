@@ -237,3 +237,9 @@ cfg_aliases = "0.2.2"
 
 [profile.dev.build-override]
 opt-level = 3
+
+# `pliron-llvm` debug data is not merged into `pliron` yet. The `llvm-debug-info` branch has it on
+# top of `pliron` `master`. The patch also gives `pliron-spirv` the same `pliron`.
+[patch."https://github.com/pliron-org/pliron.git"]
+pliron = { git = "https://github.com/skewballfox/pliron", rev = "bb5544bd4494617081a8e287b17fac0a4950dbe6" }
+pliron-llvm = { git = "https://github.com/skewballfox/pliron", rev = "bb5544bd4494617081a8e287b17fac0a4950dbe6" }

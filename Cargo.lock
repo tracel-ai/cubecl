@@ -3712,13 +3712,13 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 [[package]]
 name = "pliron"
 version = "0.18.0"
-source = "git+https://github.com/pliron-org/pliron.git?rev=81155d96b8797d149de1d88219c431a68a75ef33#81155d96b8797d149de1d88219c431a68a75ef33"
+source = "git+https://github.com/skewballfox/pliron?rev=bb5544bd4494617081a8e287b17fac0a4950dbe6#bb5544bd4494617081a8e287b17fac0a4950dbe6"
 dependencies = [
  "awint",
  "combine",
  "downcast-rs",
  "dyn-clone",
- "hashbrown 0.17.1",
+ "hashbrown 0.15.5",
  "hi_sparse_bitset",
  "indexmap",
  "inventory",
@@ -3739,7 +3739,7 @@ dependencies = [
 [[package]]
 name = "pliron-derive"
 version = "0.18.0"
-source = "git+https://github.com/pliron-org/pliron.git?rev=81155d96b8797d149de1d88219c431a68a75ef33#81155d96b8797d149de1d88219c431a68a75ef33"
+source = "git+https://github.com/skewballfox/pliron?rev=bb5544bd4494617081a8e287b17fac0a4950dbe6#bb5544bd4494617081a8e287b17fac0a4950dbe6"
 dependencies = [
  "combine",
  "convert_case 0.11.0",
@@ -3753,7 +3753,7 @@ dependencies = [
 [[package]]
 name = "pliron-llvm"
 version = "0.18.0"
-source = "git+https://github.com/pliron-org/pliron.git?rev=81155d96b8797d149de1d88219c431a68a75ef33#81155d96b8797d149de1d88219c431a68a75ef33"
+source = "git+https://github.com/skewballfox/pliron?rev=bb5544bd4494617081a8e287b17fac0a4950dbe6#bb5544bd4494617081a8e287b17fac0a4950dbe6"
 dependencies = [
  "bitflags 2.13.1",
  "llvm-sys",

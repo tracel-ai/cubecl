@@ -1,44 +1,16 @@
 //! Real kernels for the offline tests of both GPU targets: compiled from `#[cube]` without a
 //! device, so a test can assert on the instructions a lowering produces.
+#![cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
 
 use cubecl_core as cubecl;
-use cubecl_core::ir::{
-    DeviceIdentity, HardwareProperties, MemoryDeviceProperties, features::Features,
-};
+use cubecl_core::ir::settings::DebugInfo;
 use cubecl_core::prelude::*;
+use cubecl_core::runtime_tests::offline::{self, offline_device_properties};
 use cubecl_runtime::kernel::CubeKernel;
 use std::sync::Arc;
 
 pub(crate) fn device_properties(plane_dim: u32) -> Arc<DeviceProperties> {
-    let hardware = HardwareProperties {
-        load_width: 128,
-        vector_register_count: None,
-        plane_size_min: plane_dim,
-        plane_size_max: plane_dim,
-        max_bindings: 32,
-        max_shared_memory_size: 65536,
-        max_cube_count: (u32::MAX, u16::MAX as u32, u16::MAX as u32),
-        max_units_per_cube: 1024,
-        max_cube_dim: (1024, 1024, 1024),
-        num_streaming_multiprocessors: None,
-        num_tensor_cores: None,
-        min_tensor_cores_dim: None,
-        num_cpu_cores: None,
-        last_level_cache_size: None,
-        max_vector_size: VectorSize::MAX,
-        cube_mma_reserved_shared_memory: 0,
-    };
-    Arc::new(DeviceProperties::new(
-        Features::default(),
-        MemoryDeviceProperties::new(u64::MAX, 256),
-        hardware,
-        cubecl_core::profile::TimingMethod::Device,
-        DeviceIdentity {
-            name: "offline".to_string(),
-            fingerprint: "offline".to_string(),
-            physical: None,
-        },
-    ))
+    Arc::new(offline_device_properties(plane_dim))
 }
 
 #[cube(launch)]
@@ -214,4 +186,14 @@ pub(crate) fn tf32_round_constants_kernel() -> impl CubeKernel {
         Arc::new(TargetProperties::default()),
         BufferCompilationArg { inplace: None },
     )
+}
+
+/// `nested_calls` of `cubecl-core` at `level`: two inlined `#[cube]` functions.
+pub(crate) fn nested_calls_kernel(level: DebugInfo) -> impl CubeKernel {
+    offline::nested_calls_kernel(device_properties(32), level)
+}
+
+/// `nested_calls_with_source` of `cubecl-core`: full debug data with the text of its file.
+pub(crate) fn nested_calls_with_source_kernel() -> impl CubeKernel {
+    offline::nested_calls_with_source_kernel(device_properties(32))
 }

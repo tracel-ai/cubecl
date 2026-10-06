@@ -632,13 +632,14 @@ impl Printable for MemorySSA {
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result {
         f.write_str("MemorySSA {")?;
-        state.push_indent();
-        for region in self.root.deref(ctx).regions() {
-            for block in region.deref(ctx).iter(ctx) {
-                print_block(ctx, state, &self.nodes, block, f)?;
+        {
+            let _indent = state.indent();
+            for region in self.root.deref(ctx).regions() {
+                for block in region.deref(ctx).iter(ctx) {
+                    print_block(ctx, state, &self.nodes, block, f)?;
+                }
             }
         }
-        state.pop_indent();
         f.write_str("\n}")
     }
 }
@@ -657,13 +658,12 @@ fn print_block(
 
     fmt_indented_newline(state, f)?;
     write!(f, "{}:", block.label(ctx))?;
-    state.push_indent();
-
-    for op in block.deref(ctx).iter(ctx) {
-        print_op(ctx, state, nodes, op, f)?;
+    {
+        let _indent = state.indent();
+        for op in block.deref(ctx).iter(ctx) {
+            print_op(ctx, state, nodes, op, f)?;
+        }
     }
-
-    state.pop_indent();
     writeln!(f)
 }
 
@@ -682,13 +682,12 @@ fn print_op(
     fmt_indented_newline(state, f)?;
     write!(f, "{};", OpDbg { op, ctx }.to_string().trim())?;
     if op.deref(ctx).num_regions() > 0 {
-        state.push_indent();
+        let _indent = state.indent();
         for region in op.deref(ctx).regions() {
             for block in region.deref(ctx).iter(ctx) {
                 print_block(ctx, state, nodes, block, f)?;
             }
         }
-        state.pop_indent();
     }
     Ok(())
 }

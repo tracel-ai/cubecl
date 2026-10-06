@@ -1,12 +1,14 @@
 //! Real kernels compiled to PTX without a device, checked on the assembly.
 
 use crate::shared::offline_kernels::{
-    keep_largest_kernel, plane_moves_kernel, scale_kernel, strided_walk_kernel,
+    keep_largest_kernel, nested_calls_kernel, nested_calls_with_source_kernel, plane_moves_kernel,
+    scale_kernel, strided_walk_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{PlironArtifact, PlironCompiler, PlironOptions, nvptx::ptx_version::PtxVersion};
 use cubecl_core::Compiler;
-use cubecl_core::ir::{AddressType, nvidia::SmArch};
+use cubecl_core::ir::{AddressType, nvidia::SmArch, settings::DebugInfo};
+use cubecl_core::runtime_tests::offline::SOURCE_PATH;
 use cubecl_runtime::kernel::CubeKernel;
 use std::ffi::CStr;
 
@@ -71,6 +73,90 @@ fn loop_body(ptx: &str) -> Option<String> {
         let back_edge = format!("bra \t{label};");
         if let Some(end) = lines[start..].iter().position(|l| l.contains(&back_edge)) {
             return Some(lines[start..=start + end].join("\n"));
+        }
+    }
+    None
+}
+
+/// With debug data, the PTX has the `.file` and `.loc` directives, but its `.target` has no
+/// `debug`: with `debug`, the driver compiles the kernel for a debugger, which changes the
+/// optimization. `ptxas` rejects a `.file` directive with a source text, so full debug data gives
+/// NVPTX no text.
+#[test]
+fn debug_data_is_line_directives_only() {
+    for ptx in [
+        ptx_of(nested_calls_kernel(DebugInfo::LineTables), 60),
+        ptx_of(nested_calls_with_source_kernel(), 60),
+    ] {
+        assert!(ptx.contains(".loc"), "no line table:\n{ptx}");
+        let target = ptx
+            .lines()
+            .find(|line| line.starts_with(".target"))
+            .unwrap_or_else(|| panic!("no `.target`:\n{ptx}"));
+        assert!(!target.contains("debug"), "{target}");
+        assert!(
+            ptx.lines()
+                .filter(|line| line.trim_start().starts_with(".file"))
+                .all(|line| !line.contains(" source ")),
+            "{ptx}"
+        );
+    }
+}
+
+/// `ptxas` cannot take the source text, so the `.file` directive gives the absolute path of the
+/// file on this computer: Nsight Compute and `cuda-gdb` then find it from any directory.
+#[test]
+fn the_file_directive_is_the_absolute_path() {
+    let ptx = ptx_of(nested_calls_kernel(DebugInfo::LineTables), 60);
+    let path = ptx
+        .lines()
+        .find_map(|line| line.trim_start().strip_prefix(".file\t1 \""))
+        .and_then(|rest| rest.split_once('"'))
+        .map_or_else(|| panic!("no `.file 1`:\n{ptx}"), |(path, _)| path);
+    assert!(path.ends_with(SOURCE_PATH), "{path}");
+    assert!(std::path::Path::new(path).is_absolute(), "{path}");
+    assert!(std::path::Path::new(path).is_file(), "{path}");
+}
+
+/// Each inlined `#[cube]` function is a `.loc` with `inlined_at` and the name of the function.
+/// `ptxas` copies the name to the cubin, and Nsight Compute shows it in the inline frames.
+#[test]
+fn inlined_functions_are_named_inline_frames() {
+    let ptx = ptx_of(nested_calls_kernel(DebugInfo::LineTables), 60);
+    let labels: Vec<&str> = ptx
+        .lines()
+        .filter_map(|line| line.split_once("function_name ")?.1.split_once(','))
+        .map(|(label, _)| label)
+        .collect();
+    assert!(!labels.is_empty(), "no inline frame:\n{ptx}");
+    for name in ["doubled", "square_third"] {
+        let label = ptx_string_label(&ptx, name).unwrap_or_else(|| panic!("no `{name}`:\n{ptx}"));
+        assert!(
+            labels.contains(&label.as_str()),
+            "`{name}` is not a frame:\n{ptx}"
+        );
+    }
+}
+
+/// The label of the `.debug_str` string `text` in `ptx`. NVPTX writes each string as one
+/// `.b8` line for each byte, after its label.
+fn ptx_string_label(ptx: &str, text: &str) -> Option<String> {
+    let mut lines = ptx.lines().peekable();
+    while let Some(line) = lines.next() {
+        let Some(label) = line.strip_suffix(':') else {
+            continue;
+        };
+        let mut bytes = Vec::new();
+        while let Some(byte) = lines
+            .peek()
+            .and_then(|line| line.trim_start().strip_prefix(".b8 "))
+            .and_then(|rest| rest.split_whitespace().next()?.parse::<u8>().ok())
+        {
+            bytes.push(byte);
+            lines.next();
+        }
+        if bytes.last() == Some(&0) && bytes[..bytes.len() - 1] == *text.as_bytes() {
+            return Some(label.to_string());
         }
     }
     None

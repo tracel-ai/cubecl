@@ -10,6 +10,7 @@ use crate::{
     shared::{
         NvptxModule,
         buffer_params::annotate_buffer_params,
+        debug_info::{check_debug_info, convert_module},
         llvm_module::{EntryFunction, LlvmModule, TargetMachine, TargetSpec},
         llvm_options::set_llvm_option,
         math_library::redirect_intrinsics,
@@ -17,11 +18,14 @@ use crate::{
 };
 use cubecl_core::{
     codegen::KernelDump,
-    ir::{nvidia::SmArch, settings::Dim3},
+    ir::{
+        nvidia::SmArch,
+        settings::{DebugInfo, Dim3},
+    },
 };
 use llvm_sys::target_machine::{LLVMCodeGenFileType, LLVMRelocMode};
-use pliron_llvm::{llvm_sys::core::LLVMContext, to_llvm_ir};
-use std::{ffi::CStr, sync::Once};
+use pliron_llvm::llvm_sys::core::LLVMContext;
+use std::{ffi::CStr, fmt::Write, sync::Once};
 
 const TRIPLE: &CStr = c"nvptx64-nvidia-cuda";
 
@@ -90,12 +94,15 @@ pub fn emit_ptx(
     arch: &SmArch,
     ptx_version: Option<PtxVersion>,
     entry: NvptxEntry,
+    debug_info: DebugInfo,
 ) -> Result<NvptxModule, String> {
     let llvm_ctx = LLVMContext::default();
     let converted =
-        to_llvm_ir::convert_module(ctx, &llvm_ctx, module).map_err(|err| err.to_string())?;
+        convert_module(ctx, &llvm_ctx, module, debug_info, false).map_err(|err| err.to_string())?;
 
-    let module = LlvmModule::new(&converted.to_string())?;
+    let ir = name_inlined_functions(directives_only(converted.to_string(), debug_info));
+    let module = LlvmModule::new(&ir)?;
+    check_debug_info(&module, entrypoint, debug_info);
     finalize(&module, entrypoint, arch, &entry)?;
     let ir = module.print();
     let ptx = compile(module, arch, ptx_version)?;
@@ -111,6 +118,49 @@ pub fn emit_ptx(
         shared_memory_size: entry.shared_memory_size,
         io: entry.io,
     })
+}
+
+/// `ir` with the debug data of each compile unit as `DebugDirectivesOnly`: only the `.file` and
+/// `.loc` directives, as `nvcc -lineinfo` gives. With line tables or full debug data, NVPTX writes
+/// `.target <sm>, debug`, and the driver then compiles the kernel for a debugger, which changes the
+/// optimization. The LLVM C API cannot create this kind, so the IR text is changed.
+fn directives_only(ir: String, level: DebugInfo) -> String {
+    let kind = match level {
+        DebugInfo::None => return ir,
+        DebugInfo::LineTables => "emissionKind: LineTablesOnly",
+        DebugInfo::Full => "emissionKind: FullDebug",
+    };
+    ir.replace(kind, "emissionKind: DebugDirectivesOnly")
+}
+
+/// `ir` with a linkage name on each `DISubprogram` that has none: the inlined `#[cube]`
+/// functions. NVPTX gives each `.loc` with `inlined_at` the linkage name of its function as
+/// `function_name`, and `ptxas` copies it to the cubin. Without a linkage name, the name is
+/// empty, and the inline frames in Nsight Compute have no name. The linkage name is the name,
+/// because an inlined function has no symbol.
+fn name_inlined_functions(ir: String) -> String {
+    const NAME: &str = "DISubprogram(name: \"";
+    if !ir.contains(NAME) {
+        return ir;
+    }
+    let mut named = String::with_capacity(ir.len());
+    for line in ir.split_inclusive('\n') {
+        // The end of `name: "<name>"`, and the name.
+        let name = line.find(NAME).and_then(|start| {
+            let start = start + NAME.len();
+            let len = line[start..].find('"')?;
+            Some((start + len + 1, &line[start..start + len]))
+        });
+        match name {
+            Some((end, name)) if !line.contains("linkageName:") => {
+                named.push_str(&line[..end]);
+                let _ = write!(named, ", linkageName: \"{name}\"");
+                named.push_str(&line[end..]);
+            }
+            _ => named.push_str(line),
+        }
+    }
+    named
 }
 
 /// Stamps the target and the entry point's calling convention and attributes on `module`.

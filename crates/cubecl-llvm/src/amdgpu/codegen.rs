@@ -11,20 +11,24 @@ use crate::{
     shared::{
         AmdGpuModule,
         buffer_params::annotate_buffer_params,
+        debug_info::{check_debug_info, convert_module},
         llvm_module::{EntryFunction, LlvmModule, TargetMachine, TargetSpec},
         math_library::redirect_intrinsics,
     },
 };
 use cubecl_core::{
     codegen::KernelDump,
-    ir::{amd::GfxArch, settings::Dim3},
+    ir::{
+        amd::GfxArch,
+        settings::{DebugInfo, Dim3},
+    },
 };
 use cubecl_environment::bytes::Bytes;
 use llvm_sys::{
     LLVMAtomicRMWBinOp,
     target_machine::{LLVMCodeGenFileType, LLVMRelocMode},
 };
-use pliron_llvm::{attributes::set_data_layout, llvm_sys::core::LLVMContext, to_llvm_ir};
+use pliron_llvm::{attributes::set_data_layout, llvm_sys::core::LLVMContext};
 use std::{
     ffi::{CStr, CString},
     sync::Once,
@@ -79,14 +83,16 @@ pub fn emit_code_object(
     entrypoint: &str,
     arch: &GfxArch,
     entry: AmdGpuEntry,
+    debug_info: DebugInfo,
 ) -> Result<AmdGpuModule, String> {
     let llvm_ctx = LLVMContext::default();
 
     set_data_layout(ctx, module, DATA_LAYOUT.to_string());
     let converted =
-        to_llvm_ir::convert_module(ctx, &llvm_ctx, module).map_err(|err| err.to_string())?;
+        convert_module(ctx, &llvm_ctx, module, debug_info, true).map_err(|err| err.to_string())?;
 
     let module = LlvmModule::new(&converted.to_string())?;
+    check_debug_info(&module, entrypoint, debug_info);
     finalize(&module, entrypoint, arch, &entry)?;
     let ir = module.print();
     let dump = KernelDump::new(entrypoint);

@@ -1,6 +1,8 @@
 //! Real kernels compiled for AMDGPU without a device, checked on the assembly.
 
-use crate::shared::offline_kernels::{keep_largest_kernel, plane_moves_kernel, scale_kernel};
+use crate::shared::offline_kernels::{
+    keep_largest_kernel, nested_calls_with_source_kernel, plane_moves_kernel, scale_kernel,
+};
 use crate::target::LlvmTarget;
 use crate::{
     PlironArtifact, PlironCompiler, PlironOptions,
@@ -8,6 +10,7 @@ use crate::{
 };
 use cubecl_core::Compiler;
 use cubecl_core::ir::{AddressType, amd::GfxArch};
+use cubecl_core::runtime_tests::offline::SOURCE_PATH;
 use cubecl_runtime::kernel::CubeKernel;
 
 #[test]
@@ -65,6 +68,18 @@ fn a_local_array_under_a_constant_loop_is_registers() {
         !asm.contains("scratch_"),
         "the array is in scratch memory:\n{asm}"
     );
+}
+
+/// Full debug data embeds the kernel source, with its MD5, in the DWARF 5 line table.
+#[test]
+fn full_debug_info_embeds_the_source_text() {
+    let asm = asm_of(nested_calls_with_source_kernel(), "gfx1201");
+    let file = asm
+        .lines()
+        .find(|line| line.contains(SOURCE_PATH) && line.contains(" source "))
+        .unwrap_or_else(|| panic!("no `.file` with a source text:\n{asm}"));
+    assert!(file.contains(" md5 0x"), "{file}");
+    assert!(file.contains("fn nested_calls_with_source"), "{file}");
 }
 
 /// The assembly `kernel` compiles to for `arch`.

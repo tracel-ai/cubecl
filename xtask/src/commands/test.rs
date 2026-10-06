@@ -40,6 +40,15 @@ pub(crate) fn handle_command(
             None,
             "std with exclusive_memory_only",
         )?;
+        // cubecl-llvm with its GPU targets. Only the excluded runtimes turn them on, and their
+        // offline tests need no device.
+        build_helpers::custom_crates_tests(
+            vec!["cubecl-llvm"],
+            vec!["--features", "nvptx,amdgpu", "--lib"],
+            None,
+            None,
+            "GPU targets",
+        )?;
     }
     Ok(())
 }
