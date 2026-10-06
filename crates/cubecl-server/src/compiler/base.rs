@@ -124,22 +124,27 @@ pub struct CompilationCache<K, V> {
 impl<K: Eq + Hash, V> CompilationCache<K, V> {
     /// An empty cache in front of `store`, bound to the active environment
     /// exactly when that store exists.
-    ///
-    /// Unbound otherwise: with nothing persisted, a switch changes nothing
-    /// about what the cache holds, so resetting it would only buy a redundant
-    /// compilation — the same reason the autotune cache survives a switch when
-    /// its persistent cache is off.
     pub fn mirroring<SK: StoreKey, SV: StoreValue>(store: &Option<Store<SK, SV>>) -> Self {
+        match store {
+            Some(_) => Self::bound(),
+            None => Self::unbound(),
+        }
+    }
+
+    /// An empty cache bound to the active environment, for a backend whose
+    /// artifacts persist in a store that a switch replaces.
+    pub fn bound() -> Self {
         Self {
             entries: HashMap::new(),
-            generation: store
-                .is_some()
-                .then(cubecl_environment::environment::generation),
+            generation: Some(cubecl_environment::environment::generation()),
         }
     }
 
     /// An empty cache that no environment switch ever resets, for a backend
-    /// with no persistent store to mirror.
+    /// with no persistent store to mirror: with nothing persisted, a switch
+    /// changes nothing about what the cache holds, so resetting it would only
+    /// buy a redundant compilation — the same reason the autotune cache
+    /// survives a switch when its persistent cache is off.
     pub fn unbound() -> Self {
         Self {
             entries: HashMap::new(),

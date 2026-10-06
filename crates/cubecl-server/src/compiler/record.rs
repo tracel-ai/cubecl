@@ -107,7 +107,7 @@ impl CompilationRecording {
     }
 
     /// The artifact was compiled. `stored` is whether the store took it, as
-    /// [`store_compiled`] answers: a compile the store did not take, or with
+    /// [`store_compiled`](super::store_compiled) answers: a compile the store did not take, or with
     /// no store to take it, changed nothing.
     pub fn compiled(self, stored: bool) {
         self.close(CompilationOutcome::Compiled, effect(stored));
