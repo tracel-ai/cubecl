@@ -152,7 +152,7 @@ impl Server for HipServer {
             return;
         }
         let kernel_id = kernel.id();
-        if self.compile_failed(kernel, &bindings, stream_id, launch_mode) {
+        if self.compile_failed(kernel, kernel_id.clone(), &bindings, stream_id, launch_mode) {
             return;
         }
         // A dry run stops right here, after compilation and before anything
@@ -468,11 +468,15 @@ impl HipServer {
     fn compile_failed(
         &mut self,
         kernel: Box<dyn CubeKernel>,
+        kernel_id: KernelId,
         bindings: &KernelArguments,
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) -> bool {
-        let Err(err) = self.ctx.load_kernel(&*kernel, &self.streams.logger) else {
+        let Err(err) = self
+            .ctx
+            .load_kernel(&*kernel, kernel_id, &self.streams.logger)
+        else {
             return false;
         };
         if !launch_mode.is_skipped() {

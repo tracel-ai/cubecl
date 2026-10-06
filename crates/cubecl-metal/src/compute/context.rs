@@ -3,8 +3,9 @@
 use crate::compute::artifact::MetalArtifactCompiler;
 use crate::compute::pipelines::{CompiledKernel, MetalPipelines};
 use cubecl_core::ir::DeviceProperties;
+use cubecl_core::prelude::KernelId;
 use cubecl_core::server::LaunchError;
-use cubecl_server::compiler::KernelLoader;
+use cubecl_server::compiler::{ArtifactId, KernelLoader};
 use cubecl_server::kernel::CubeKernel;
 use cubecl_server::logging::ServerLogger;
 use objc2::rc::Retained;
@@ -33,13 +34,19 @@ impl MetalContext {
         }
     }
 
-    /// The pipeline for `kernel`, compiling it first when no store holds it.
+    /// The pipeline for `kernel`, whose id is `kernel_id`, compiling it first
+    /// when no store holds it.
     pub fn load(
         &mut self,
         kernel: &dyn CubeKernel,
+        kernel_id: KernelId,
         logger: &ServerLogger,
     ) -> Result<CompiledKernel, LaunchError> {
-        self.kernels.load(kernel, (), logger).cloned()
+        let id = ArtifactId {
+            kernel: kernel_id,
+            variant: (),
+        };
+        self.kernels.load(kernel, id, logger).cloned()
     }
 
     /// Queues `kernel` to be compiled with others, by the next pipeline

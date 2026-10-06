@@ -30,9 +30,9 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_server::compiler::KernelLoader;
 #[cfg(feature = "spirv")]
 use cubecl_server::compiler::compilation_store;
+use cubecl_server::compiler::{ArtifactId, KernelLoader};
 use cubecl_server::memory_management::{
     ManagedMemoryHandle, SharedMemoryBindings, StreamMemoryReport,
     relocation::{RelocatingStreams, RelocationReason},
@@ -434,11 +434,11 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             return;
         }
         let kernel_id = kernel.id();
-        let loaded = self.pipelines.load(
-            &*kernel,
-            MetadataLayout::of(&args.info),
-            &self.scheduler.logger,
-        );
+        let id = ArtifactId {
+            kernel: kernel_id.clone(),
+            variant: MetadataLayout::of(&args.info),
+        };
+        let loaded = self.pipelines.load(&*kernel, id, &self.scheduler.logger);
         let (pipeline, compiler_info, io) = match loaded {
             Ok(entry) => entry.clone(),
             Err(err) => {

@@ -369,7 +369,9 @@ impl Server for MetalServer {
             self.context.queue(kernel);
             return;
         }
-        let compiled = self.context.load(&*kernel, &self.utilities.logger);
+        let compiled = self
+            .context
+            .load(&*kernel, kernel_id.clone(), &self.utilities.logger);
         let compiled = match compiled {
             Ok(compiled) => compiled,
             Err(err) => {

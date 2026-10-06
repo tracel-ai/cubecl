@@ -35,6 +35,9 @@ pub struct KernelLoader<T: CompilationTarget> {
     loaded: CompilationCache<ArtifactId<VariantOf<T>>, T::Loaded>,
     /// The kernels queued and not compiled yet, each once.
     queue: Vec<Queued<VariantOf<T>>>,
+    /// The ids of [`queue`](Self::queue)'s kernels, so queuing one more costs
+    /// a lookup rather than a scan.
+    queued: HashSet<ArtifactId<VariantOf<T>>>,
     /// Why each queued kernel that failed to compile failed, until its own
     /// launch reports it: the launch is where the failure has outputs to
     /// carry, and compiling the kernel again there would only fail again.
@@ -59,6 +62,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
             target,
             loaded,
             queue: Vec::new(),
+            queued: HashSet::new(),
             failed: HashMap::new(),
             parallelism,
         }
@@ -74,9 +78,12 @@ impl<T: CompilationTarget> KernelLoader<T> {
         self.loaded.get(id)
     }
 
-    /// The kernel loaded for `kernel` under `variant`, loading it first if it
-    /// is not. A kernel is about to execute, so every queued kernel is
-    /// compiled first — together with this one when it needs compiling.
+    /// The kernel loaded for `kernel`, under `id`, loading it first if it is
+    /// not. A kernel is about to execute, so every queued kernel is compiled
+    /// first — together with this one when it needs compiling.
+    ///
+    /// `id` is `kernel`'s, with what the launch adds to it: the launch already
+    /// built the kernel's id, and building it again on every launch costs.
     ///
     /// # Errors
     ///
@@ -86,16 +93,13 @@ impl<T: CompilationTarget> KernelLoader<T> {
     pub fn load(
         &mut self,
         kernel: &dyn CubeKernel,
-        variant: VariantOf<T>,
+        id: ArtifactId<VariantOf<T>>,
         logger: &ServerLogger,
     ) -> Result<&T::Loaded, LaunchError> {
-        let id = ArtifactId {
-            kernel: kernel.id(),
-            variant,
-        };
         let missing = !self.loaded.contains(&id) && !self.failed.contains_key(&id);
         if missing || !self.queue.is_empty() {
             let queue = core::mem::take(&mut self.queue);
+            self.queued.clear();
             let mut requests: Vec<Request<'_, VariantOf<T>>> = queue
                 .iter()
                 .filter(|queued| queued.id != id)
@@ -130,13 +134,11 @@ impl<T: CompilationTarget> KernelLoader<T> {
             kernel: kernel.id(),
             variant,
         };
-        if self.loaded.contains(&id)
-            || self.failed.contains_key(&id)
-            || self.queue.iter().any(|queued| queued.id == id)
-        {
+        if self.loaded.contains(&id) || self.failed.contains_key(&id) || self.queued.contains(&id) {
             return;
         }
 
+        self.queued.insert(id.clone());
         self.queue.push(Queued { id, kernel });
     }
 
@@ -486,7 +488,7 @@ mod tests {
             "queuing compiles nothing"
         );
 
-        assert_eq!(*loader.load(&Numbered(3), (), &logger).unwrap(), 3);
+        assert_eq!(*loader.load(&Numbered(3), id(3), &logger).unwrap(), 3);
         assert_eq!(
             loader.target.compiler.lowered(),
             4,
@@ -507,7 +509,7 @@ mod tests {
             loader.enqueue(Box::new(Numbered(number)), ());
         }
         assert_eq!(loader.target.compiler.lowered(), 0, "the queue waits");
-        loader.load(&Numbered(5), (), &logger).unwrap();
+        loader.load(&Numbered(5), id(5), &logger).unwrap();
         assert_eq!(
             loader.target.compiler.lowered(),
             6,
@@ -521,9 +523,9 @@ mod tests {
         let mut loader = loader(8);
         let logger = ServerLogger::default();
         loader.enqueue(Box::new(Numbered(0)), ());
-        loader.load(&Numbered(0), (), &logger).unwrap();
+        loader.load(&Numbered(0), id(0), &logger).unwrap();
         loader.enqueue(Box::new(Numbered(0)), ());
-        loader.load(&Numbered(0), (), &logger).unwrap();
+        loader.load(&Numbered(0), id(0), &logger).unwrap();
         assert_eq!(loader.target.compiler.lowered(), 1);
     }
 
@@ -538,19 +540,19 @@ mod tests {
         for number in 0..3 {
             loader.enqueue(Box::new(Numbered(number)), ());
         }
-        loader.load(&Numbered(3), (), &logger).unwrap();
+        loader.load(&Numbered(3), id(3), &logger).unwrap();
         assert_eq!(loader.get(&id(0)), Some(&0));
         assert_eq!(loader.get(&id(1)), None);
         assert_eq!(loader.get(&id(2)), Some(&2));
         assert_eq!(loader.target.compiler.lowered(), 4);
 
-        assert!(loader.load(&Numbered(1), (), &logger).is_err());
+        assert!(loader.load(&Numbered(1), id(1), &logger).is_err());
         assert_eq!(
             loader.target.compiler.lowered(),
             4,
             "reported, not compiled again"
         );
-        assert!(loader.load(&Numbered(1), (), &logger).is_err());
+        assert!(loader.load(&Numbered(1), id(1), &logger).is_err());
         assert_eq!(
             loader.target.compiler.lowered(),
             5,
@@ -564,9 +566,9 @@ mod tests {
     fn a_loaded_kernel_still_compiles_the_queue() {
         let mut loader = loader(8);
         let logger = ServerLogger::default();
-        loader.load(&Numbered(0), (), &logger).unwrap();
+        loader.load(&Numbered(0), id(0), &logger).unwrap();
         loader.enqueue(Box::new(Numbered(1)), ());
-        loader.load(&Numbered(0), (), &logger).unwrap();
+        loader.load(&Numbered(0), id(0), &logger).unwrap();
         assert_eq!(loader.get(&id(1)), Some(&1));
     }
 
@@ -580,7 +582,7 @@ mod tests {
         for number in 0..4 {
             loader.enqueue(Box::new(Numbered(number)), ());
         }
-        loader.load(&Numbered(4), (), &logger).unwrap();
+        loader.load(&Numbered(4), id(4), &logger).unwrap();
         assert_eq!(loader.target.compiler.finalized.load(Ordering::Relaxed), 1);
         for number in 0..5 {
             assert!(loader.get(&id(number)).is_some());
@@ -596,7 +598,7 @@ mod tests {
         for number in 0..8 {
             loader.enqueue(Box::new(Numbered(number)), ());
         }
-        loader.load(&Numbered(8), (), &logger).unwrap();
+        loader.load(&Numbered(8), id(8), &logger).unwrap();
         let threads = loader.target.compiler.threads.lock().unwrap().len();
         assert!(threads > 1, "lowered on {threads} thread");
     }

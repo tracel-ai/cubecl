@@ -394,9 +394,9 @@ impl Server for CpuServer {
             kernel: kernel.id(),
             variant: alignment,
         };
-        if let Err(err) = self
-            .kernels
-            .load(kernel.as_ref(), alignment, &self.scheduler.logger)
+        if let Err(err) =
+            self.kernels
+                .load(kernel.as_ref(), cache_key.clone(), &self.scheduler.logger)
         {
             let error = ServerError::Launch(err);
             self.scheduler.stream(&stream_id).profile_failure(&error);

@@ -55,14 +55,20 @@ impl HipContext {
         }
     }
 
-    /// Loads `kernel` on the device, compiling it first when no store holds
-    /// it. A kernel already loaded costs a map lookup.
+    /// Loads `kernel`, whose id is `kernel_id`, on the device, compiling it
+    /// first when no store holds it. A kernel already loaded costs a map
+    /// lookup.
     pub fn load_kernel(
         &mut self,
         kernel: &dyn CubeKernel,
+        kernel_id: KernelId,
         logger: &ServerLogger,
     ) -> Result<(), LaunchError> {
-        self.kernels.load(kernel, (), logger).map(|_| ())
+        let id = ArtifactId {
+            kernel: kernel_id,
+            variant: (),
+        };
+        self.kernels.load(kernel, id, logger).map(|_| ())
     }
 
     /// Queues `kernel` to be compiled with others, by the next kernel
