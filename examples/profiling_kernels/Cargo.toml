@@ -1,0 +1,20 @@
+[package]
+authors = []
+name = "profiling_kernels"
+publish = false
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[features]
+# An example with no runtime linked has nothing to run on, so the
+# portable one is the default. `--no-default-features --features cuda`
+# (or hip, cpu, metal-native) picks another.
+default = ["wgpu"]
+wgpu = ["cubecl/wgpu"]
+cuda = ["cubecl/cuda"]
+hip = ["cubecl/hip"]
+cpu = ["cubecl/cpu"]
+
+[dependencies]
+cubecl = { path = "../../crates/cubecl", version = "=0.11.0-pre.4" }
