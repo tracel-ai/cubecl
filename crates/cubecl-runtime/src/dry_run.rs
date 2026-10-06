@@ -11,8 +11,9 @@
 //! the exception: they *are* the measurement, so [`RealRun`] opts them back
 //! into executing. A [`DryRunScope::Compile`] dry run measures nothing: every
 //! launch, autotune's included, only queues its kernel, so a pass under it
-//! gathers every kernel the workload and its tuning reach and a later
-//! `Profile` pass finds them compiled and only measures.
+//! gathers every kernel the workload and its tuning reach. It compiles none of
+//! them: the first launch of a later `Profile` pass compiles the whole queue
+//! in one batch, and that pass's tunes only measure.
 //!
 //! [`Precompile`] does on one thread what a `Compile` dry run does on all of
 //! them, with or without a dry run: the launches it covers only queue their
@@ -80,10 +81,12 @@ pub fn launch_mode() -> LaunchMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(usize)]
 pub enum DryRunScope {
-    /// Only compile: every launch queues its kernel, and a tune queues its
-    /// candidates' kernels without measuring them or deciding anything, so a
-    /// later [`Profile`](Self::Profile) pass tunes every key it reaches,
-    /// with its kernels already compiled.
+    /// Gather kernels to compile: every launch queues its kernel, and a tune
+    /// queues its candidates' kernels without measuring them or deciding
+    /// anything. Nothing compiles under it; the queue compiles, in one batch,
+    /// when a later launch loads a kernel — the first of a
+    /// [`Profile`](Self::Profile) pass, which then tunes every key it reaches
+    /// with its kernels compiled.
     Compile = 1,
     /// Compile every kernel the workload launches, and tune what it tunes by
     /// measuring the candidates for real.

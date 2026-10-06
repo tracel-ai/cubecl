@@ -21,8 +21,8 @@ pub struct CompilationConfig {
     /// [`LaunchMode::Precompile`](crate::dry_run::LaunchMode::Precompile). The
     /// queue itself is as long as what was queued; each thread takes the next
     /// kernel as it finishes one. `None` uses every core the process may run
-    /// on; a smaller number caps the memory a batch of compilations holds at
-    /// once.
+    /// on; a smaller number leaves cores to other work. It does not bound
+    /// memory: a batch holds every queued kernel's artifacts until it ends.
     #[serde(default)]
     pub parallelism: Option<usize>,
 }

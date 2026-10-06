@@ -119,7 +119,12 @@ impl<T: CompilationTarget> KernelLoader<T> {
         if let Some(err) = self.failed.remove(&id) {
             return Err(err);
         }
-        Ok(self.loaded.get(&id).expect("loaded right above"))
+        // An environment switch during the batch drops every kernel loaded
+        // before it, this one too when it was: it loads again.
+        if !self.loaded.contains(&id) {
+            return self.load(kernel, id, logger);
+        }
+        Ok(self.loaded.get(&id).expect("checked right above"))
     }
 
     /// Queues `kernel` under `variant`, to be compiled with the others when the
@@ -317,9 +322,11 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
     }
 
     /// Takes an artifact another kernel finalized from the same source, if
-    /// the store holds one; or, when an earlier kernel of this batch is about
-    /// to finalize that source, waits for it. `finalizing` is the sources
-    /// the batch finalizes so far.
+    /// the store holds one; or, when an earlier kernel of this batch already
+    /// took that source or is about to finalize it, waits to take it from the
+    /// store once that kernel is stored. `finalizing` is the sources the batch
+    /// takes or finalizes so far. Without a store there is nothing to take or
+    /// wait for, and every kernel finalizes its own.
     fn reuse(&mut self, target: &mut T, finalizing: &mut HashSet<String>) {
         let Step::Lowered {
             source: Some(source),
@@ -328,14 +335,11 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
         else {
             return;
         };
+        if !target.persists() {
+            return;
+        }
 
-        if let Some(artifact) = target.stored_for_source(source) {
-            self.step = Step::Ready {
-                artifact,
-                source: Some(source.clone()),
-                outcome: CompilationOutcome::Rekeyed,
-            };
-        } else if !finalizing.insert(source.clone()) {
+        if finalizing.contains(source) {
             let Step::Lowered {
                 lowered,
                 source: Some(source),
@@ -344,6 +348,16 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
                 unreachable!("matched right above");
             };
             self.step = Step::Waiting { lowered, source };
+            return;
+        }
+
+        finalizing.insert(source.clone());
+        if let Some(artifact) = target.stored_for_source(source) {
+            self.step = Step::Ready {
+                artifact,
+                source: Some(source.clone()),
+                outcome: CompilationOutcome::Rekeyed,
+            };
         }
     }
 
@@ -589,6 +603,42 @@ mod tests {
         }
     }
 
+    /// A source the store already holds serves every kernel of a batch that
+    /// lowers to it: none of them finalizes it again.
+    #[test]
+    fn a_stored_source_serves_the_whole_batch() {
+        let mut loader = loader(8);
+        loader.target.compiler.shared_source = true;
+        loader.target.by_source.insert("shared".into(), 99);
+        let logger = ServerLogger::default();
+        for number in 0..2 {
+            loader.enqueue(Box::new(Numbered(number)), ());
+        }
+        loader.load(&Numbered(2), id(2), &logger).unwrap();
+        assert_eq!(loader.target.compiler.finalized.load(Ordering::Relaxed), 0);
+        for number in 0..3 {
+            assert_eq!(loader.get(&id(number)), Some(&99));
+        }
+    }
+
+    /// Without a store there is no artifact to wait for: every kernel
+    /// finalizes its own, on the compiling threads.
+    #[test]
+    fn without_a_store_each_kernel_finalizes_its_own() {
+        let mut loader = KernelLoader::new(Fake {
+            storeless: true,
+            ..Fake::default()
+        });
+        loader.parallelism = 8;
+        loader.target.compiler.shared_source = true;
+        let logger = ServerLogger::default();
+        for number in 0..3 {
+            loader.enqueue(Box::new(Numbered(number)), ());
+        }
+        loader.load(&Numbered(3), id(3), &logger).unwrap();
+        assert_eq!(loader.target.compiler.finalized.load(Ordering::Relaxed), 4);
+    }
+
     /// A queue is lowered on several threads at once.
     #[test]
     fn a_queue_compiles_on_several_threads() {
@@ -643,6 +693,8 @@ mod tests {
     struct Fake {
         compiler: FakeCompiler,
         by_source: alloc::collections::BTreeMap<String, u32>,
+        /// Whether it keeps nothing between runs, by source or otherwise.
+        storeless: bool,
     }
 
     #[derive(Debug, Default)]
@@ -723,7 +775,7 @@ mod tests {
         }
 
         fn persists(&self) -> bool {
-            false
+            !self.storeless
         }
 
         fn stored(&mut self, _id: &ArtifactId<()>) -> Option<u32> {
