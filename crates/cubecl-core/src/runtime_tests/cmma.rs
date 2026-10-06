@@ -12,7 +12,7 @@ use cubecl::{
 };
 
 use alloc::{vec, vec::Vec};
-use cubecl_common::{e2m1, e2m1x2, ue8m0};
+use cubecl_common::{e2m1, e2m1x2, e4m3, ue8m0};
 use cubecl_ir::{
     OpaqueType,
     features::{MmaConfig, ScaledMmaConfig},
@@ -1677,14 +1677,41 @@ pub fn test_cmma_scaled<
     assert_equals_approx::<f32>(&client, out, &expected, 0.03);
 }
 
-pub fn test_cmma_scaled_fp4<R: Runtime>(
+/// A block scale a scaled matrix instruction reads, as the fp4 test builds and checks one.
+pub trait BlockScale: CubeElement + Scalar {
+    /// The `n`th of a run of distinct positive scales.
+    fn nth(n: usize) -> Self;
+    fn to_f32(self) -> f32;
+}
+
+impl BlockScale for ue8m0 {
+    fn nth(n: usize) -> Self {
+        ue8m0::from_bits(120 + (n % 16) as u8)
+    }
+
+    fn to_f32(self) -> f32 {
+        ue8m0::to_f32(self)
+    }
+}
+
+/// The scale of NVFP4, read unsigned by the instruction: kept positive so the reference agrees.
+impl BlockScale for e4m3 {
+    fn nth(n: usize) -> Self {
+        e4m3::from_bits(0x30 + (n % 32) as u8)
+    }
+
+    fn to_f32(self) -> f32 {
+        e4m3::to_f32(self)
+    }
+}
+
+pub fn test_cmma_scaled_fp4<R: Runtime, S: BlockScale>(
     client: Client,
     cube_dimensions: CubeDim,
     (m, n, k): (usize, usize, usize),
     scales_factor: usize,
 ) {
     type AB = e2m1x2;
-    type S = ue8m0;
 
     let ab_elem = AB::cube_type();
     let ab_vector_size = 32 / ab_elem.size_bits();
@@ -1720,7 +1747,7 @@ pub fn test_cmma_scaled_fp4<R: Runtime>(
     //println!("lhs: {lhs_data:?}");
     let lhs = e2m1x2::from_f32_slice(&lhs_data);
     let lhs_scales_data: Vec<S> = (0..m)
-        .flat_map(|i| (0..scales_factor).map(move |j| S::from_bits((i * 2 + j + 120) as u8)))
+        .flat_map(|i| (0..scales_factor).map(move |j| S::nth(i * 2 + j)))
         .collect();
 
     // RHS: matrix where each element = (row_index * 3) + column_index, col-major
@@ -1729,7 +1756,7 @@ pub fn test_cmma_scaled_fp4<R: Runtime>(
         .collect();
     let rhs = e2m1x2::from_f32_slice(&rhs_data);
     let rhs_scales_data: Vec<S> = (0..n)
-        .flat_map(|j| (0..scales_factor).map(move |i| S::from_bits((i * 3 + j + 120) as u8)))
+        .flat_map(|j| (0..scales_factor).map(move |i| S::nth(i * 3 + j)))
         .collect();
 
     let out = vec![0.0; m * n];
@@ -2017,10 +2044,15 @@ macro_rules! testgen_cmma {
         fn test_cmma_scaled_fp4() {
             use cubecl_common::*;
 
-            fn test(m: usize, n: usize, k: usize, factor: usize) {
+            fn test<S: cubecl_core::runtime_tests::cmma::BlockScale>(
+                m: usize,
+                n: usize,
+                k: usize,
+                factor: usize,
+            ) {
                 let client = TestRuntime::client(&Default::default());
                 let cube_dimensions = cube_dim::<TestRuntime>(&client);
-                cubecl_core::runtime_tests::cmma::test_cmma_scaled_fp4::<TestRuntime>(
+                cubecl_core::runtime_tests::cmma::test_cmma_scaled_fp4::<TestRuntime, S>(
                     client,
                     cube_dimensions,
                     (m, n, k),
@@ -2028,8 +2060,10 @@ macro_rules! testgen_cmma {
                 )
             }
 
-            // FP4 needs more design for transferring properly as packed values
-            test(16, 8, 64, 2);
+            // MXFP4: a power-of-two scale every 32 values.
+            test::<ue8m0>(16, 8, 64, 2);
+            // NVFP4: an `e4m3` scale every 16 values.
+            test::<e4m3>(16, 8, 64, 4);
         }
 
         fn cube_dim<R: Runtime>(client: &Client) -> CubeDim {
