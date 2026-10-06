@@ -3658,14 +3658,15 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "pliron"
-version = "0.18.0"
-source = "git+https://github.com/nathanielsimard/pliron.git?rev=1cdbb385036613e3a7850be0c059a07c2367e8ab#1cdbb385036613e3a7850be0c059a07c2367e8ab"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d59d619aada2eb8f68bacac30cfa373f4e247c7667cdac69370f5eaf0b87178"
 dependencies = [
  "awint",
  "combine",
  "downcast-rs",
  "dyn-clone",
- "hashbrown 0.15.5",
+ "hashbrown 0.17.1",
  "hi_sparse_bitset",
  "indexmap",
  "inventory",
@@ -3685,8 +3686,9 @@ dependencies = [
 
 [[package]]
 name = "pliron-derive"
-version = "0.18.0"
-source = "git+https://github.com/nathanielsimard/pliron.git?rev=1cdbb385036613e3a7850be0c059a07c2367e8ab#1cdbb385036613e3a7850be0c059a07c2367e8ab"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4e9d7f08f5162e44988420d46a12bd9aa776a9c5a0bee5d1555741060c87a73"
 dependencies = [
  "combine",
  "convert_case 0.11.0",
@@ -3699,8 +3701,9 @@ dependencies = [
 
 [[package]]
 name = "pliron-llvm"
-version = "0.18.0"
-source = "git+https://github.com/nathanielsimard/pliron.git?rev=1cdbb385036613e3a7850be0c059a07c2367e8ab#1cdbb385036613e3a7850be0c059a07c2367e8ab"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b04f59dc2ac2198d67f24775a5d5b37f7d4da1feedc893cd43f2cb7d8ff1d9a"
 dependencies = [
  "bitflags 2.13.1",
  "llvm-sys",

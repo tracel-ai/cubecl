@@ -177,16 +177,16 @@ windows-sys = "0.61"
 hi_sparse_bitset = "0.9"
 
 # Crates.io
-# pliron = { version = "0.18", default-features = false }
-# pliron-llvm = { version = "0.18", default-features = false }
+pliron = { version = "0.19", default-features = false }
+pliron-llvm = { version = "0.19", default-features = false }
 
 # Path
 # pliron = { path = "../pliron", default-features = false }
 # pliron-llvm = { path = "../pliron/pliron-llvm", default-features = false }
 
 # Git
-pliron = { git = "https://github.com/nathanielsimard/pliron.git", rev = "1cdbb385036613e3a7850be0c059a07c2367e8ab", default-features = false }
-pliron-llvm = { git = "https://github.com/nathanielsimard/pliron.git", rev = "1cdbb385036613e3a7850be0c059a07c2367e8ab", default-features = false }
+# pliron = { git = "https://github.com/pliron-org/pliron.git", rev = "6ff5b3c8a6d5553b8cbee19d58f3c039f10e5a97", default-features = false }
+# pliron-llvm = { git = "https://github.com/pliron-org/pliron.git", rev = "6ff5b3c8a6d5553b8cbee19d58f3c039f10e5a97", default-features = false }
 
 # These features stop llvm-sys from resolving LLVM itself; cubecl-llvm's build.rs
 # links the bundled toolchain instead.
@@ -238,5 +238,5 @@ opt-level = 3
 
 # pliron-spirv pins upstream pliron; point it at the same pliron as the rest of the workspace.
 [patch."https://github.com/pliron-org/pliron.git"]
-pliron = { git = "https://github.com/nathanielsimard/pliron.git", rev = "1cdbb385036613e3a7850be0c059a07c2367e8ab" }
-pliron-derive = { git = "https://github.com/nathanielsimard/pliron.git", rev = "1cdbb385036613e3a7850be0c059a07c2367e8ab" }
+pliron = { version = "0.19" }
+pliron-derive = { version = "0.19" }
