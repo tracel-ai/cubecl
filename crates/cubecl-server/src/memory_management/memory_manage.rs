@@ -1,7 +1,7 @@
 use super::{
-    DEDICATED_POOL_POS, ManagedMemoryBinding, ManagedMemoryDescriptor, ManagedMemoryHandle,
-    MemoryAllocationMode, MemoryConfiguration, MemoryLocation, MemoryPoolsReport,
-    PERSISTENT_POOL_POS, PageGuard,
+    DEDICATED_POOL_POS, EXCLUSIVE_MEMORY_ONLY, ManagedMemoryBinding, ManagedMemoryDescriptor,
+    ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode, MemoryConfiguration,
+    MemoryLocation, MemoryPoolsReport, MemoryUsage, PERSISTENT_POOL_POS, PageGuard,
     memory_pool::{DirectPool, MemoryPool, PageMapping, PersistentPool},
 };
 use crate::{
@@ -20,16 +20,28 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::ops::Range;
+#[cfg(any(multi_threading, test))]
+use cubecl_common::device::ServiceId;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::sync::Arc;
+use cubecl_environment::collections::{HashMap, HashSet};
+#[cfg(any(multi_threading, test))]
+use cubecl_environment::stream::StreamId;
+use cubecl_environment::sync::{Arc, Mutex};
 use cubecl_ir::MemoryDeviceProperties;
+#[cfg(any(multi_threading, test))]
+use cubecl_runtime::server::Handle;
 
-/// Which pool a slice's location routes to: the two fixed sentinels, or a
+const INFO_PAGE_SIZE: u64 = 2 * 1024 * 1024;
+const INFO_MAX_SLICE_SIZE: u64 = 2048;
+const INFO_POOL_POS: u8 = DEDICATED_POOL_POS - 1;
+
+/// Which pool a slice's location routes to: the fixed sentinels, or a
 /// dynamic pool by index.
 #[derive(Clone, Copy)]
 enum PoolPosition {
     Persistent,
     Dedicated,
+    Metadata,
     Dynamic(u8),
 }
 
@@ -38,6 +50,7 @@ impl PoolPosition {
         match pool {
             PERSISTENT_POOL_POS => PoolPosition::Persistent,
             DEDICATED_POOL_POS => PoolPosition::Dedicated,
+            INFO_POOL_POS => PoolPosition::Metadata,
             index => PoolPosition::Dynamic(index),
         }
     }
@@ -75,6 +88,152 @@ pub enum Cleanup {
     Explicit,
 }
 
+struct CachedInfoPool {
+    pool: DirectPool,
+    active: Option<(ManagedMemoryHandle, u64)>,
+    slots: Arc<Mutex<CachedInfoSlots>>,
+    page_size: u64,
+    slot_size: u64,
+    #[cfg(any(multi_threading, test))]
+    alignment: u64,
+}
+
+#[derive(Default)]
+struct CachedInfoSlots {
+    free: Vec<(ManagedMemoryHandle, u64)>,
+    usage: MemoryUsage,
+    largest_alloc: u64,
+}
+
+#[cfg(any(multi_threading, test))]
+pub(crate) struct CachedInfoReservation {
+    memory: ManagedMemoryHandle,
+    offset: u64,
+    page_size: u64,
+    slot_size: u64,
+    reusable: bool,
+    slots: Arc<Mutex<CachedInfoSlots>>,
+}
+
+#[cfg(any(multi_threading, test))]
+impl CachedInfoReservation {
+    pub(crate) fn into_handle(self, service: ServiceId, stream: StreamId, size: u64) -> Handle {
+        let Self {
+            memory,
+            offset,
+            page_size,
+            slot_size,
+            reusable,
+            slots,
+        } = self;
+        {
+            let mut state = slots.lock();
+            state.usage.number_allocs += 1;
+            state.usage.bytes_in_use += size;
+            state.usage.bytes_padding += slot_size - size;
+            state.largest_alloc = state.largest_alloc.max(size);
+        }
+        let returned = reusable.then(|| memory.clone());
+        let memory = memory.with_release(move || {
+            let mut state = slots.lock();
+            state.usage.number_allocs -= 1;
+            state.usage.bytes_in_use -= size;
+            state.usage.bytes_padding -= slot_size - size;
+            if let Some(returned) = returned {
+                state.free.push((returned, offset));
+            }
+        });
+        Handle::from_memory(memory, service, stream, page_size)
+            .offset_start(offset)
+            .offset_end(page_size - offset - size)
+    }
+}
+
+impl CachedInfoPool {
+    fn report(&self) -> super::MemoryPoolReport {
+        let mut report = self.pool.report();
+        let slots = self.slots.lock();
+        report.usage.number_allocs = slots.usage.number_allocs;
+        report.usage.bytes_in_use = slots.usage.bytes_in_use;
+        report.usage.bytes_padding = slots.usage.bytes_padding;
+        report.largest_alloc = slots.largest_alloc;
+        report
+    }
+
+    fn cleanup<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        cursor: u64,
+        cleanup: Cleanup,
+        failures: &mut ErrorGraph,
+    ) {
+        if cleanup == Cleanup::Explicit {
+            let active = self
+                .active
+                .as_ref()
+                .map(|(parent, next)| (parent.descriptor().id, next / self.slot_size));
+            let slots_per_page = self.page_size / self.slot_size;
+            let mut slots = self.slots.lock();
+            let mut counts = HashMap::<ManagedMemoryId, u64>::new();
+            for (parent, _) in slots.free.iter() {
+                *counts.entry(parent.descriptor().id).or_default() += 1;
+            }
+            let empty: HashSet<_> = counts
+                .into_iter()
+                .filter_map(|(id, count)| {
+                    let allocated = active
+                        .filter(|(active_id, _)| *active_id == id)
+                        .map_or(slots_per_page, |(_, slots)| slots);
+                    (count == allocated).then_some(id)
+                })
+                .collect();
+            slots
+                .free
+                .retain(|(parent, _)| !empty.contains(&parent.descriptor().id));
+            if active.is_some_and(|(id, _)| empty.contains(&id)) {
+                self.active = None;
+            }
+        }
+        self.pool.cleanup(storage, cursor, cleanup, failures);
+    }
+
+    #[cfg(any(multi_threading, test))]
+    fn reserve<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        cursor: u64,
+        failures: &mut ErrorGraph,
+    ) -> Result<(ManagedMemoryHandle, u64, bool), IoError> {
+        if let Some((parent, offset)) = self.slots.lock().free.pop() {
+            return Ok((parent, offset, false));
+        }
+        let mut new_page = false;
+        if self
+            .active
+            .as_ref()
+            .is_none_or(|(_, next)| next + self.slot_size > self.page_size)
+        {
+            self.active = None;
+            let reserved = match self.pool.try_reserve(self.page_size, failures) {
+                Some(handle) => handle,
+                None => {
+                    self.pool
+                        .alloc(storage, self.page_size, PageMapping::current(), failures)?
+                }
+            };
+            let parent = ManagedMemoryHandle::new();
+            self.pool.bind(reserved, parent.clone(), cursor, failures)?;
+            self.active = Some((parent, 0));
+            new_page = true;
+        }
+
+        let (parent, next) = self.active.as_mut().expect("metadata page was reserved");
+        let offset = *next;
+        *next += self.slot_size;
+        Ok((parent.clone(), offset, new_page))
+    }
+}
+
 /// Reserves and keeps track of chunks of memory in the storage, and slices upon these chunks.
 pub struct MemoryManagement<Storage> {
     name: String,
@@ -83,6 +242,7 @@ pub struct MemoryManagement<Storage> {
     /// device allocation, returned to the driver on the tick after it is freed.
     dedicated: DirectPool,
     pools: DynamicMemory,
+    info_pool: Option<CachedInfoPool>,
     storage: Storage,
     alloc_reserve_count: u64,
     mode: MemoryAllocationMode,
@@ -102,6 +262,7 @@ pub struct MemoryManagementOptions {
     name: String,
     /// The [`MemoryAllocationOption`] used by this instance.
     memory: MemoryAllocationOption,
+    cached_info_pool: bool,
 }
 
 impl MemoryManagementOptions {
@@ -110,12 +271,19 @@ impl MemoryManagementOptions {
         Self {
             name: name.into(),
             memory: MemoryAllocationOption::FromConfig,
+            cached_info_pool: false,
         }
     }
 
     /// Forces the [`MemoryAllocationMode`] during execution to always be the provided one.
     pub fn mode(mut self, mode: MemoryAllocationMode) -> Self {
         self.memory = MemoryAllocationOption::Provided(mode);
+        self
+    }
+
+    /// Keep retained launch metadata outside the configured tensor pools.
+    pub fn cached_info_pool(mut self) -> Self {
+        self.cached_info_pool = true;
         self
     }
 }
@@ -140,6 +308,37 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         options: MemoryManagementOptions,
     ) -> Self {
         let pools = DynamicMemory::new(properties, config, logger.clone(), options.name.clone());
+        let page_size = INFO_PAGE_SIZE.next_multiple_of(properties.alignment);
+        let info_pool = if options.cached_info_pool
+            && !EXCLUSIVE_MEMORY_ONLY
+            && page_size <= properties.max_page_size
+        {
+            logger.log_memory(
+                |level| !matches!(level, MemoryLogLevel::Disabled),
+                || {
+                    format!(
+                        "[{}] Using cached-info pool: {} pages",
+                        options.name,
+                        BytesFormat::new(page_size)
+                    )
+                },
+            );
+            Some(CachedInfoPool {
+                pool: DirectPool::new(
+                    properties.alignment,
+                    INFO_POOL_POS,
+                    Some(INFO_PAGE_SIZE * 8),
+                ),
+                active: None,
+                slots: Arc::new(Mutex::new(CachedInfoSlots::default())),
+                page_size,
+                slot_size: INFO_MAX_SLICE_SIZE.next_multiple_of(properties.alignment),
+                #[cfg(any(multi_threading, test))]
+                alignment: properties.alignment,
+            })
+        } else {
+            None
+        };
 
         let config = CubeClRuntimeConfig::get().memory.persistent_memory.clone();
 
@@ -164,6 +363,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             // A watermark of zero: every free slice goes back on the next tick.
             dedicated: DirectPool::new(properties.alignment, DEDICATED_POOL_POS, Some(0)),
             pools,
+            info_pool,
             storage,
             alloc_reserve_count: 0,
             mode,
@@ -233,6 +433,14 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         if self.dedicated.reclaim(&mut self.storage, failures) {
             self.storage.flush();
         }
+        if let Some(pool) = self.info_pool.as_mut() {
+            pool.cleanup(
+                &mut self.storage,
+                self.alloc_reserve_count,
+                cleanup,
+                failures,
+            );
+        }
 
         self.pools.cleanup(
             &mut self.storage,
@@ -277,6 +485,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         match PoolPosition::new(location.pool) {
             PoolPosition::Persistent => Ok(&self.persistent),
             PoolPosition::Dedicated => Ok(&self.dedicated),
+            PoolPosition::Metadata => self
+                .info_pool
+                .as_ref()
+                .map(|pool| &pool.pool as &dyn MemoryPool)
+                .ok_or_else(|| PoolPosition::missing(INFO_POOL_POS)),
             PoolPosition::Dynamic(index) => self
                 .pools
                 .pool(index)
@@ -289,6 +502,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         match PoolPosition::new(location.pool) {
             PoolPosition::Persistent => Ok(&mut self.persistent),
             PoolPosition::Dedicated => Ok(&mut self.dedicated),
+            PoolPosition::Metadata => self
+                .info_pool
+                .as_mut()
+                .map(|pool| &mut pool.pool as &mut dyn MemoryPool)
+                .ok_or_else(|| PoolPosition::missing(INFO_POOL_POS)),
             PoolPosition::Dynamic(index) => self
                 .pools
                 .pool_mut(index)
@@ -357,6 +575,10 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         match PoolPosition::new(location.pool) {
             PoolPosition::Persistent => self.persistent.materialize(&mut self.storage, binding),
             PoolPosition::Dedicated => self.dedicated.materialize(&mut self.storage, binding),
+            PoolPosition::Metadata => match self.info_pool.as_mut() {
+                Some(pool) => pool.pool.materialize(&mut self.storage, binding),
+                None => Ok(()),
+            },
             PoolPosition::Dynamic(_) => self.pools.materialize(&mut self.storage, binding),
         }
     }
@@ -542,6 +764,83 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         }
     }
 
+    /// Reserve metadata outside the configured pools when available.
+    /// Capture windows use the persistent pool.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the selected pool reports when it cannot allocate the buffer.
+    #[cfg(any(multi_threading, test))]
+    pub(crate) fn reserve_info(
+        &mut self,
+        size: u64,
+        cursor: u64,
+        failures: &mut ErrorGraph,
+    ) -> Result<Option<CachedInfoReservation>, IoError> {
+        if self.info_pool.is_none() {
+            return Ok(None);
+        }
+        if matches!(self.mode, MemoryAllocationMode::Persistent) {
+            return Ok(None);
+        }
+
+        self.alloc_reserve_count += 1;
+        self.cleanup(Cleanup::Periodic, failures);
+        let pool = self.info_pool.as_mut().expect("metadata pool is enabled");
+        let (handle, offset, page_size, slot_size, reusable, new_page) = if size
+            <= INFO_MAX_SLICE_SIZE
+        {
+            let (handle, offset, new_page) = pool.reserve(&mut self.storage, cursor, failures)?;
+            (
+                handle,
+                offset,
+                pool.page_size,
+                pool.slot_size,
+                true,
+                new_page,
+            )
+        } else {
+            let (reserved, new_page) = match pool.pool.try_reserve(size, failures) {
+                Some(handle) => (handle, false),
+                None => (
+                    pool.pool
+                        .alloc(&mut self.storage, size, PageMapping::current(), failures)?,
+                    true,
+                ),
+            };
+            let handle = ManagedMemoryHandle::new();
+            pool.pool.bind(reserved, handle.clone(), cursor, failures)?;
+            (
+                handle,
+                0,
+                size,
+                size.next_multiple_of(pool.alignment),
+                false,
+                new_page,
+            )
+        };
+        let slots = pool.slots.clone();
+        if new_page {
+            self.logger.log_memory(
+                |level| !matches!(level, MemoryLogLevel::Disabled),
+                || {
+                    format!(
+                        "[{}] Allocated cached-info page, current usage: \n{}",
+                        self.name, self
+                    )
+                },
+            );
+        }
+        Ok(Some(CachedInfoReservation {
+            memory: handle,
+            offset,
+            page_size,
+            slot_size,
+            reusable,
+            slots,
+        }))
+    }
+
     /// Fetch the storage used by the memory manager.
     ///
     /// # Notes
@@ -564,6 +863,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             dynamic: self.pools.report(),
             persistent: self.persistent.report(),
             dedicated: self.dedicated.report(),
+            metadata: self.info_pool.as_ref().map(CachedInfoPool::report),
         }
     }
 
@@ -663,6 +963,16 @@ impl<Storage: ComputeStorage> core::fmt::Display for MemoryManagement<Storage> {
         f.write_str("\n## Dynamic\n\n")?;
 
         f.write_fmt(format_args!("{}", self.pools))?;
+        if let Some(pool) = self.info_pool.as_ref() {
+            let report = pool.report();
+            f.write_fmt(format_args!(
+                "\n## Metadata\n\n - Small-buffer page size: {}\n - Small-buffer slot size: {}\n - Pages: {}\n{}\n",
+                BytesFormat::new(pool.page_size),
+                BytesFormat::new(pool.slot_size),
+                report.pages,
+                report.usage
+            ))?;
+        }
         let memory_usage = self.memory_report().usage();
         f.write_fmt(format_args!("\n## Summary\n\n{memory_usage}"))?;
 
@@ -699,7 +1009,71 @@ mod tests {
         MemoryManagementOptions {
             name: "test".into(),
             memory: MemoryAllocationOption::FromConfig,
+            cached_info_pool: false,
         }
+    }
+
+    #[test_log::test]
+    #[cfg(not(exclusive_memory_only))]
+    fn cached_info_uses_separate_memory_and_releases_it() {
+        let mut memory = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::Adaptive,
+            Arc::new(ServerLogger::default()),
+            options().cached_info_pool(),
+        );
+        let mut failures = ErrorGraph::default();
+        let service = ServiceId::of::<()>(cubecl_common::device::DeviceId::new(0, 0));
+        let stream = StreamId { value: 0 };
+        let small = memory
+            .reserve_info(64, 0, &mut failures)
+            .unwrap()
+            .unwrap()
+            .into_handle(service, stream, 64);
+        let large = memory
+            .reserve_info(INFO_MAX_SLICE_SIZE + 1, 0, &mut failures)
+            .unwrap()
+            .unwrap()
+            .into_handle(service, stream, INFO_MAX_SLICE_SIZE + 1);
+        let tensor = memory
+            .reserve(64, PageUpdate::Allow, &mut failures)
+            .unwrap();
+
+        let report = memory.memory_report();
+        let metadata = report.metadata.unwrap();
+        assert_eq!(metadata.usage.number_allocs, 2);
+        assert!(metadata.largest_alloc > INFO_MAX_SLICE_SIZE);
+        assert_ne!(
+            small.memory.descriptor().location().pool,
+            tensor.descriptor().location().pool
+        );
+        assert_ne!(
+            large.memory.descriptor().location().pool,
+            tensor.descriptor().location().pool
+        );
+        assert_eq!(
+            report
+                .dynamic
+                .iter()
+                .map(|pool| pool.usage.number_allocs)
+                .sum::<u64>(),
+            1
+        );
+
+        drop(small);
+        drop(large);
+        drop(tensor);
+        memory.cleanup(Cleanup::Explicit, &mut failures);
+        assert_eq!(
+            memory
+                .memory_report()
+                .metadata
+                .unwrap()
+                .usage
+                .bytes_reserved,
+            0
+        );
     }
 
     /// The adaptive preset's small pool is for metadata: an allocation close
