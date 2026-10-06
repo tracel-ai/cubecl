@@ -14,7 +14,7 @@ use crate::compute::stream::Stream;
 use crate::install::{cccl_include_path, include_path};
 use cubecl_core::{
     hash::{StableHash, StableHasher},
-    ir::DeviceProperties,
+    ir::{DeviceProperties, settings::DebugInfo},
     prelude::*,
     server::ResourceLimitError,
 };
@@ -474,17 +474,20 @@ impl CudaContext {
         dump_ptx(&kernel_id, &ptx);
 
         let func_name = CString::new(entrypoint_name).unwrap();
+        let line_info = kernel_id.debug_info != DebugInfo::None;
         // SAFETY: `ptx` is a valid null-terminated PTX binary from NVRTC. `func_name` is a
         // null-terminated `CString` matching the kernel entry point in the compiled module.
         let func = unsafe {
-            let module = cudarc::driver::result::module::load_data(ptx.as_ptr() as *const _)
-                .map_err(|err| match poisons_device(err.0) {
-                    true => driver_error("cuModuleLoadData", err).into(),
-                    false => CompilationError::Generic {
+            let module = load_module(ptx.as_ptr().cast(), line_info).map_err(|err| {
+                if poisons_device(err.0) {
+                    driver_error(load_module_op(line_info), err).into()
+                } else {
+                    CompilationError::Generic {
                         reason: format!("Unable to load the PTX: {err}"),
                         backtrace: BackTrace::capture(),
-                    },
-                })?;
+                    }
+                }
+            })?;
 
             cudarc::driver::result::module::get_function(module, func_name).map_err(|err| {
                 CompilationError::Generic {
@@ -568,6 +571,49 @@ impl CudaContext {
         } else {
             Ok(())
         }
+    }
+}
+
+/// Loads the module of `ptx`. With `line_info`, the driver keeps the `.loc` lines of the PTX in the
+/// code, for Nsight Compute and CUPTI (`CU_JIT_GENERATE_LINE_INFO`). The optimization level does
+/// not change.
+///
+/// # Safety
+/// `ptx` must be a valid null-terminated PTX image.
+unsafe fn load_module(
+    ptx: *const c_void,
+    line_info: bool,
+) -> Result<cudarc::driver::sys::CUmodule, cudarc::driver::DriverError> {
+    use cudarc::driver::sys;
+
+    if !line_info {
+        // SAFETY: the caller's contract.
+        return unsafe { cudarc::driver::result::module::load_data(ptx) };
+    }
+    let mut module = std::mem::MaybeUninit::uninit();
+    let mut options = [sys::CUjit_option::CU_JIT_GENERATE_LINE_INFO];
+    // The value of a flag option is the integer itself, in the place of a pointer.
+    let mut values = [std::ptr::without_provenance_mut::<c_void>(1)];
+    // SAFETY: the caller's contract, and the two arrays have one element each, as the count says.
+    unsafe {
+        sys::cuModuleLoadDataEx(
+            module.as_mut_ptr(),
+            ptx,
+            1,
+            options.as_mut_ptr(),
+            values.as_mut_ptr(),
+        )
+        .result()?;
+        Ok(module.assume_init())
+    }
+}
+
+/// The driver call that [`load_module`] makes, to name it in an error.
+fn load_module_op(line_info: bool) -> &'static str {
+    if line_info {
+        "cuModuleLoadDataEx"
+    } else {
+        "cuModuleLoadData"
     }
 }
 
