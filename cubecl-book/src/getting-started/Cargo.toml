@@ -7,7 +7,7 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
-cubecl = { version = "0.11.0", path = "../../../crates/cubecl", features = ["wgpu"] }
+cubecl = { workspace = true, default-features = true, features = ["wgpu"] }
 
 [lints]
 workspace = true

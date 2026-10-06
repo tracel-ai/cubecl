@@ -17,4 +17,4 @@ cuda = ["cubecl/cuda"]
 rocm = ["cubecl/rocm"]
 
 [dependencies]
-cubecl = { path = "../../crates/cubecl", version = "0.11.0" }
+cubecl = { workspace = true, default-features = true }
