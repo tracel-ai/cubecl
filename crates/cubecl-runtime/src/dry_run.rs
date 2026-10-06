@@ -10,6 +10,12 @@
 //! The launches autotune issues are the exception: they *are* the measurement,
 //! so [`RealRun`] opts them back into executing.
 //!
+//! [`Precompile`] is the other way round, and works with or without a dry run:
+//! the launches it covers only queue their kernels, and the server compiles
+//! the whole queue at once, on its compiling threads, when it next loads a
+//! kernel for a launch. Autotune opens one over the batch of candidates it is
+//! about to measure.
+//!
 //! **Buffers are left as they were**, so anything read back during a dry run is
 //! meaningless. It only suits a pass driven by the *shapes* it produces, which
 //! is what keys the caches, and never one that branches on a computed value.
@@ -32,22 +38,34 @@ pub enum LaunchMode {
     /// short of dispatching — expand, compile, validate, populate its caches —
     /// or the pass buys nothing.
     Skip,
+    /// Queue the kernel to be compiled with others, and drop the launch.
+    ///
+    /// A server honoring this compiles the queue when it next loads a kernel
+    /// for a launch, and only then: flushing or syncing compiles nothing, so
+    /// a pass that only queues gathers everything it reaches into one batch.
+    /// A kernel that fails to compile there reports it when it is launched.
+    Precompile,
 }
 
 impl LaunchMode {
     /// Whether the launch should be dropped rather than run.
     pub fn is_skipped(self) -> bool {
-        matches!(self, LaunchMode::Skip)
+        matches!(self, LaunchMode::Skip | LaunchMode::Precompile)
     }
 }
 
-/// What to do with a launch issued on this thread, right now.
+/// What to do with a launch issued on this thread, right now: what the
+/// innermost [`RealRun`] or [`Precompile`] open on it says, and otherwise
+/// whether a [`DryRun`] is open.
 pub fn launch_mode() -> LaunchMode {
-    if !dry_run() || real_run::depth() > 0 {
-        return LaunchMode::Execute;
+    if let Some(mode) = scope::mode() {
+        return mode;
     }
 
-    LaunchMode::Skip
+    match dry_run() {
+        true => LaunchMode::Skip,
+        false => LaunchMode::Execute,
+    }
 }
 
 /// How many dry runs are open in this process.
@@ -119,57 +137,97 @@ impl Drop for DryRun {
 /// launches it covers, not around the call that submits it.
 #[derive(Debug)]
 pub struct RealRun {
-    _private: (),
+    outer: Option<LaunchMode>,
 }
 
 impl RealRun {
     /// Opts this thread back into executing until the guard drops.
     #[allow(clippy::new_without_default, reason = "a guard is not a value")]
     pub fn new() -> Self {
-        real_run::enter();
-        Self { _private: () }
+        Self {
+            outer: scope::enter(LaunchMode::Execute),
+        }
     }
 }
 
 impl Drop for RealRun {
     fn drop(&mut self) {
-        real_run::exit();
+        scope::exit(self.outer);
     }
 }
 
+/// Makes the launches issued on this thread only queue their kernels for
+/// compilation, for as long as it lives — see [`LaunchMode::Precompile`].
+///
+/// Autotune holds one while it runs the batch of candidates it will measure,
+/// so that the first of them to execute compiles all of them at once. A nested
+/// [`RealRun`] still executes, which is what lets a candidate that dispatches
+/// through another tuner have that one measure for real.
+///
+/// Thread-local, like [`RealRun`], and for the same reason it has to live on
+/// the thread issuing the launches.
+#[derive(Debug)]
+pub struct Precompile {
+    outer: Option<LaunchMode>,
+}
+
+impl Precompile {
+    /// Makes this thread's launches queue their kernels until the guard drops.
+    #[allow(clippy::new_without_default, reason = "a guard is not a value")]
+    pub fn new() -> Self {
+        Self {
+            outer: scope::enter(LaunchMode::Precompile),
+        }
+    }
+}
+
+impl Drop for Precompile {
+    fn drop(&mut self) {
+        scope::exit(self.outer);
+    }
+}
+
+/// The mode the innermost guard open on this thread sets.
+///
+/// Each guard keeps the mode it replaced and restores it when it drops, so
+/// guards nest in either order and the innermost decides — a swap that is
+/// safe here, unlike for [`DryRun`], because nothing outside the thread can
+/// see it and guards on one thread drop in reverse order.
 #[cfg(feature = "std")]
-mod real_run {
+mod scope {
+    use super::LaunchMode;
     use core::cell::Cell;
 
     std::thread_local! {
-        /// How many [`RealRun`](super::RealRun) guards are open on this thread.
-        /// A depth rather than a flag: a tunable may itself dispatch through
-        /// another tuner, and the inner one finishing must not un-mark the
-        /// outer.
-        static DEPTH: Cell<usize> = const { Cell::new(0) };
+        static MODE: Cell<Option<LaunchMode>> = const { Cell::new(None) };
     }
 
-    pub(super) fn depth() -> usize {
-        DEPTH.with(|depth| depth.get())
+    pub(super) fn mode() -> Option<LaunchMode> {
+        MODE.with(|mode| mode.get())
     }
 
-    pub(super) fn enter() {
-        DEPTH.with(|depth| depth.set(depth.get() + 1));
+    pub(super) fn enter(mode: LaunchMode) -> Option<LaunchMode> {
+        MODE.with(|current| current.replace(Some(mode)))
     }
 
-    pub(super) fn exit() {
-        DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+    pub(super) fn exit(outer: Option<LaunchMode>) {
+        MODE.with(|current| current.set(outer));
     }
 }
 
 #[cfg(not(feature = "std"))]
-mod real_run {
-    // No threads to be local to; this keeps the call sites uniform.
-    pub(super) fn depth() -> usize {
-        0
+mod scope {
+    // No threads to be local to: no guard changes anything, so every launch
+    // follows the dry run. This keeps the call sites uniform.
+    use super::LaunchMode;
+
+    pub(super) fn mode() -> Option<LaunchMode> {
+        None
     }
-    pub(super) fn enter() {}
-    pub(super) fn exit() {}
+    pub(super) fn enter(_mode: LaunchMode) -> Option<LaunchMode> {
+        None
+    }
+    pub(super) fn exit(_outer: Option<LaunchMode>) {}
 }
 
 #[cfg(test)]
@@ -184,15 +242,52 @@ mod tests {
     /// rest of its own measurement dropped.
     #[test]
     fn real_run_nests() {
-        assert_eq!(real_run::depth(), 0);
+        assert_eq!(scope::mode(), None);
         let outer = RealRun::new();
         {
             let _inner = RealRun::new();
-            assert_eq!(real_run::depth(), 2);
+            assert_eq!(scope::mode(), Some(LaunchMode::Execute));
         }
-        assert_eq!(real_run::depth(), 1, "the outer guard is still open");
+        assert_eq!(
+            scope::mode(),
+            Some(LaunchMode::Execute),
+            "the outer guard is still open"
+        );
         drop(outer);
-        assert_eq!(real_run::depth(), 0);
+        assert_eq!(scope::mode(), None);
+    }
+
+    /// The innermost guard decides: autotune precompiles inside its own
+    /// measurement, and a candidate's nested tuner measures inside that.
+    #[test]
+    #[serial_test::serial]
+    fn the_innermost_guard_decides() {
+        let _real_run = RealRun::new();
+        {
+            let _precompile = Precompile::new();
+            assert_eq!(launch_mode(), LaunchMode::Precompile);
+            {
+                let _nested = RealRun::new();
+                assert_eq!(
+                    launch_mode(),
+                    LaunchMode::Execute,
+                    "a nested tuner measures"
+                );
+            }
+            assert_eq!(launch_mode(), LaunchMode::Precompile);
+        }
+        assert_eq!(launch_mode(), LaunchMode::Execute);
+    }
+
+    /// Precompiling needs no dry run: autotune at run time compiles its
+    /// candidates as much as a build's does.
+    #[test]
+    #[serial_test::serial]
+    fn precompile_works_outside_a_dry_run() {
+        assert!(!dry_run());
+        let _precompile = Precompile::new();
+        assert_eq!(launch_mode(), LaunchMode::Precompile);
+        assert!(launch_mode().is_skipped());
     }
 
     /// Nothing is skipped outside a dry run, whatever the depth.
