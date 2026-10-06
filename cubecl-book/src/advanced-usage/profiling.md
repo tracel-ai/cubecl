@@ -1,11 +1,12 @@
 # Profiling Kernels
 
-CubeCL gives kernel debug data to the usual debuggers and profilers. It uses only open formats:
-DWARF, the GDB JIT interface, `#line` directives and SPIR-V debug data. CubeCL adds no profiler of
-its own.
+CubeCL gives kernel debug data to the usual debuggers and profilers: gdb, lldb, `perf`, `samply`
+and `cargo flamegraph`. It uses only open formats: DWARF, the GDB JIT interface, the perf map,
+`#line` directives and SPIR-V debug data. CubeCL adds no profiler of its own.
 
-The `cpu` runtime gives kernel source lines to gdb and lldb (see [Debuggers](#debuggers)). The
-`cuda` runtime gives them to the NVIDIA tools (see [CUDA](#cuda)).
+The `cpu` runtime gives kernel source lines to gdb and lldb (see [Debuggers](#debuggers)), and
+kernel names to `perf` and `samply`. The `cuda` runtime gives source lines to the NVIDIA tools
+(see [CUDA](#cuda)).
 
 ## Enable Debug Data
 
@@ -22,7 +23,7 @@ Then each kernel has line tables. Line tables do not change the machine code. Th
 compile time.
 
 In gdb, each inlined `#[cube]` function is a frame of its own, so a backtrace shows the call chain
-inside a kernel.
+inside a kernel. `perf` and `samply` show a kernel as one frame.
 
 If you override the profile for one package, put the same override on `cubecl-runtime`. CubeCL
 reads the `debug` value of `cubecl-runtime`.
@@ -56,6 +57,31 @@ CUBECL_SOURCE_CACHE=~/.cache/cubecl/sources ./app
 CubeCL writes the files only when it does not find the source tree, and only for kernels that have
 the source text. Each set of files goes into a subdirectory with a name from the MD5 of the files.
 CubeCL does not remove the files. A kernel with line tables only keeps the relative path.
+
+## Profiler Symbol Files
+
+A profiler finds JIT code only through symbol files. These files stay after the process stops, so
+you must ask for them at run time: `CUBECL_JIT_SYMBOLS=perf` (or `perfmap`) writes the **perf
+map** (`/tmp/perf-<pid>.map`). It gives the name and the address range of each kernel.
+`perf report`, `perf script` and `samply` read it with no extra step.
+
+If `CUBECL_JIT_SYMBOLS` is not set, CubeCL reads `DOTNET_PerfMapEnabled`, the .NET variable for
+the same file: `1` and `3` give the perf map.
+
+A kernel without debug data writes no symbols.
+
+`cargo flamegraph` uses the perf map. It names each kernel, but it gives no source lines in the
+kernel:
+
+```sh
+CUBECL_JIT_SYMBOLS=perf cargo flamegraph --profile profiling
+```
+
+`samply` reads the perf map too:
+
+```sh
+CUBECL_JIT_SYMBOLS=perf samply record ./target/profiling/app
+```
 
 ## Debuggers
 

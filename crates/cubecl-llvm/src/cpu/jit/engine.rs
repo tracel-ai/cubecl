@@ -1,4 +1,8 @@
-use super::{data::PlironData, lljit::Jit};
+use super::{
+    data::PlironData,
+    lljit::Jit,
+    symbols::{JitSymbols, write_perf_map},
+};
 use crate::{
     cpu::shared_memory::SharedMemories,
     prelude::{Context, ModuleOp},
@@ -60,7 +64,8 @@ impl PlironEngine {
     }
 
     /// [`compile`](Self::compile), for a kernel that carries `debug_info`. With debug data, the JIT
-    /// registers the kernel with gdb.
+    /// registers the kernel with gdb, and the profiler symbol files that the environment asks for
+    /// are written.
     ///
     /// # Errors
     /// The conversion error, when `module` does not convert to LLVM IR.
@@ -83,17 +88,25 @@ impl PlironEngine {
         let dump = KernelDump::new(kernel_name);
         dump.write("llvm.ll", || llvm_module.print());
 
+        let symbols = match debug_info {
+            DebugInfo::None => JitSymbols::default(),
+            _ => JitSymbols::from_env(),
+        };
+
         llvm_module
             .run_passes(PASS_PIPELINE, None)
             .unwrap_or_else(|err| panic!("LLVM optimization failed for '{kernel_name}': {err}"));
         dump.write("llvm.opt.ll", || llvm_module.print());
 
-        let jit = Jit::new(debug_info != DebugInfo::None).expect("failed to create LLJIT");
+        let jit = Jit::new(symbols, debug_info != DebugInfo::None).expect("failed to create LLJIT");
         jit.add_module(llvm_module)
             .expect("failed to add module to JIT");
         let addr = jit
             .lookup(kernel_name)
             .unwrap_or_else(|err| panic!("kernel symbol '{kernel_name}' not found: {err}"));
+        if let Some(size) = jit.symbol_size(kernel_name) {
+            write_perf_map(addr, size, kernel_name);
+        }
         // SAFETY: The generated entry point matches `KernelFn`.
         let func: KernelFn = unsafe { std::mem::transmute::<u64, KernelFn>(addr) };
 

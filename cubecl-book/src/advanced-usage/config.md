@@ -239,6 +239,9 @@ CubeCL supports several environment variables to override configuration at runti
   - `"auto"`, `"op-line"`, `"non-semantic"`
 - `CUBECL_TIME_PASSES`: Sets `compilation.time_passes`.
   - `"1"`/`"true"`/`"on"`, `"0"`/`"false"`/`"off"`
+- `CUBECL_JIT_SYMBOLS`: The profiler symbol files of the `cpu` runtime (see
+  [Profiling Kernels](./profiling.md)).
+  - `"perf"`, `"perfmap"`
 - `CUBECL_SOURCE_ROOT`: The directory that the relative paths of the kernel source files start
   from (see [Profiling Kernels](./profiling.md#source-files)). CubeCL searches it first, then the
   working directory and its parents.
