@@ -967,8 +967,10 @@ fn init_fields<'a>(
 
 fn with_span(context: &Context, span: Span, tokens: TokenStream) -> TokenStream {
     if context.debug_symbols {
+        let debug_span = frontend_type("debug_span_expand");
+        // The guard restores the outer position after the operands' own spans.
         quote_spanned! {span=>
-            // scope.update_span(line!(), column!());
+            let __cube_span = #debug_span(scope, line!(), column!());
             #tokens
         }
     } else {

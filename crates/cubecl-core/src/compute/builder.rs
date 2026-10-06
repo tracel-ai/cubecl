@@ -83,6 +83,9 @@ impl KernelBuilder {
         for warning in self.scope.pop_warnings() {
             log::warn!("[{}] {warning}", self.settings.kernel_name);
         }
+        if let Some(debug) = self.scope.debug_state() {
+            debug.finish();
+        }
         let info = self.create_info();
         KernelIntegrator::new(KernelExpansion {
             scope: self.scope,

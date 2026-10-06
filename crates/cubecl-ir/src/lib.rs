@@ -26,6 +26,7 @@ pub mod apfloat;
 pub mod arena;
 pub mod attributes;
 pub mod convert;
+pub mod debug;
 pub mod dialect;
 pub mod interfaces;
 pub mod metadata;
