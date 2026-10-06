@@ -185,8 +185,8 @@ pub fn e2m1_words_to_f16<W: Size, V: Size>(words: Vector<u32, W>) -> Vector<f16,
 
 /// The eight codes of each word of `words`, lowest nibble first, placed as `f16` each
 /// [`E2M1_F16_LIFT`] short of its value, exactly: what a caller that multiplies the values by a
-/// factor anyway, a block scale, takes, folding the lift into that factor rather than paying a
-/// multiply a value.
+/// factor anyway, a block scale, takes, multiplying the lift into that factor once rather than
+/// paying a multiply a value.
 ///
 /// A word's codes `j` and `j + 4` sit sixteen bits apart, so a word is four pairs and four
 /// [`f16_pair_bits`]; the pairs land on their lanes by compile-time inserts.

@@ -58,7 +58,7 @@ pub struct Types {
     pub atomic: BTreeMap<Type, EnumSet<AtomicUsage>>,
     /// Types whose [`Conversion`](TypeUsage::Conversion) the compiler emulates in software, from
     /// their bits, rather than with an instruction of the device. A kernel that decodes such a
-    /// type from its bits itself pays no more than the conversion would, and may fold what the
+    /// type from its bits itself pays no more than the conversion would, and may move what the
     /// emulation spends into work it already does.
     pub emulated_conversion: BTreeSet<ElemType>,
 }
