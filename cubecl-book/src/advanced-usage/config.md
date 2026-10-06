@@ -109,6 +109,15 @@ own and `chain` elsewhere.
 its IR after every compiler pass and its final source (C++, SPIR-V, LLVM IR, PTX or assembly).
 Use it to see what the compiler did to a kernel. Unset, nothing is written.
 
+**Debug info** (`debug_info`): the most source-level debug data a kernel may carry. Kernels carry
+line tables when the cargo profile sets `debug` (`dev` does by default), and full debug data when
+`#[cube(debug_symbols)]` is set. This key can only lower that level, for example to measure
+compilation time without debug data.
+
+- `none`: no debug data.
+- `line-tables`: source lines, with each inlined `#[cube]` function as its own frame.
+- `full`: line tables and the embedded source text.
+
 **Pass timing** (`time_passes`): log how long each compiler pass takes, at the `info` level. Use
 it to find where kernel compilation time goes.
 
@@ -211,6 +220,8 @@ CubeCL supports several environment variables to override configuration at runti
 - `CUBECL_CPU_F16_EVAL`: Sets `compilation.f16_evaluation`.
   - `"per-operation"`, `"chain"`, `"accumulators"`
 - `CUBECL_DEBUG_PLIRON`: Sets `compilation.dump_dir` to the given directory.
+- `CUBECL_DEBUG_INFO`: Sets `compilation.debug_info`.
+  - `"none"`, `"line-tables"`, `"full"`
 - `CUBECL_TIME_PASSES`: Sets `compilation.time_passes`.
   - `"1"`/`"true"`/`"on"`, `"0"`/`"false"`/`"off"`
 - `CUBECL_ENVIRONMENT`: Sets `environment.name`, the environment to activate.

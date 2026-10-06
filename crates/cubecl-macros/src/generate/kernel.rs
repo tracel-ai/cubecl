@@ -464,6 +464,7 @@ impl Launch {
                             .address_type(address_type)
                             .cube_dim(self.settings.cube_dim.clone())
                             .mode(self.settings.execution_mode)
+                            .debug_info(self.settings.debug_info)
                             .info(#info_ty_name #info_generics {
                                 #(#info_names: self.#info_names.clone(),)*
                                 #phantom_data_init

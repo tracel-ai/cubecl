@@ -1,4 +1,45 @@
 use super::logger::{LogLevel, LoggerConfig};
+use cubecl_ir::settings::DebugInfo;
+
+/// The debug data the cargo profile asks for: [`LineTables`](DebugInfo::LineTables) when the
+/// profile sets `debug`, as `dev` does by default, else [`None`](DebugInfo::None).
+pub const PROFILE_DEBUG_INFO: DebugInfo = if cfg!(cubecl_debug_info) {
+    DebugInfo::LineTables
+} else {
+    DebugInfo::None
+};
+
+/// The debug data of a kernel that asks for `requested`, with the global configuration: the same
+/// level as [`CompilationConfig::resolve_debug_info`]. It reads the configuration once, so a kernel
+/// id can call it at each launch.
+pub fn effective_debug_info(requested: DebugInfo) -> DebugInfo {
+    use super::{CubeClRuntimeConfig, RuntimeConfig};
+    use core::sync::atomic::{AtomicU8, Ordering};
+
+    const UNREAD: u8 = u8::MAX;
+    const NO_LIMIT: u8 = u8::MAX - 1;
+    static LIMIT: AtomicU8 = AtomicU8::new(UNREAD);
+
+    let mut limit = LIMIT.load(Ordering::Relaxed);
+    if limit == UNREAD {
+        limit = CubeClRuntimeConfig::get()
+            .compilation
+            .debug_info
+            .map_or(NO_LIMIT, |level| level as u8);
+        LIMIT.store(limit, Ordering::Relaxed);
+    }
+    // Decode with the casts that encoded the level, so the order of the variants does not matter.
+    let limit = [DebugInfo::None, DebugInfo::LineTables, DebugInfo::Full]
+        .into_iter()
+        .find(|level| *level as u8 == limit);
+    resolve_debug_info(requested, limit)
+}
+
+/// At least [`PROFILE_DEBUG_INFO`], at most `limit`.
+fn resolve_debug_info(requested: DebugInfo, limit: Option<DebugInfo>) -> DebugInfo {
+    let level = requested.max(PROFILE_DEBUG_INFO);
+    limit.map_or(level, |limit| level.min(limit))
+}
 
 /// Configuration for compilation settings in `CubeCL`.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -25,6 +66,19 @@ pub struct CompilationConfig {
     /// Log how long each compiler pass takes, at the `info` level. Set by `CUBECL_TIME_PASSES`.
     #[serde(default)]
     pub time_passes: bool,
+    /// The most debug data a kernel may carry. `None` keeps what the cargo profile and the kernel
+    /// ask for. It can only lower that level. Set by `CUBECL_DEBUG_INFO`.
+    #[serde(default)]
+    pub debug_info: Option<DebugInfo>,
+}
+
+impl CompilationConfig {
+    /// The debug data of a kernel that asks for `requested`: at least [`PROFILE_DEBUG_INFO`], at
+    /// most [`debug_info`](Self::debug_info).
+    #[must_use]
+    pub fn resolve_debug_info(&self, requested: DebugInfo) -> DebugInfo {
+        resolve_debug_info(requested, self.debug_info)
+    }
 }
 
 /// How far an f32 intermediate is allowed to travel before it is rounded back to f16.
@@ -101,3 +155,39 @@ pub enum CompilationLogLevel {
 }
 
 impl LogLevel for CompilationLogLevel {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_info_follows_the_profile_and_the_kernel() {
+        let config = CompilationConfig::default();
+        assert_eq!(
+            config.resolve_debug_info(DebugInfo::None),
+            PROFILE_DEBUG_INFO
+        );
+        assert_eq!(config.resolve_debug_info(DebugInfo::Full), DebugInfo::Full);
+    }
+
+    #[test]
+    fn debug_info_limit_only_lowers() {
+        let config = CompilationConfig {
+            debug_info: Some(DebugInfo::LineTables),
+            ..Default::default()
+        };
+        assert_eq!(
+            config.resolve_debug_info(DebugInfo::Full),
+            DebugInfo::LineTables
+        );
+
+        let config = CompilationConfig {
+            debug_info: Some(DebugInfo::Full),
+            ..Default::default()
+        };
+        assert_eq!(
+            config.resolve_debug_info(DebugInfo::None),
+            PROFILE_DEBUG_INFO
+        );
+    }
+}
