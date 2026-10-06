@@ -61,7 +61,7 @@ Each level is defined by how its members work together, and each runtime maps it
 | **Cube**      | shared memory, `sync_cube` | block                     | workgroup          | threadgroup         | the cores side by side               |
 | **Hypercube** | global memory              | several blocks            | several workgroups | several threadgroups | a loop each core runs over the cubes |
 
-The hypercube is a pattern, not a builtin: several cubes split one job through `CUBE_POS` and `CUBE_COUNT`, and combine their results in global memory.
+There is no hypercube builtin. A kernel uses `CUBE_POS` and `CUBE_COUNT` to split one job over several cubes, which combine their results in global memory.
 
 On CPU, parallelism comes from the cube's units, spread over the cores, and cubes run as a loop.
 On GPU, it's the other way round.
@@ -169,7 +169,7 @@ Instead, it rewrites the function into a new Rust function that is semantically 
 ```
 
 CubeCL's IR and compiler passes are written in Rust with [pliron](https://github.com/pliron-org/pliron).
-For the LLVM targets, the build fetches a prebuilt LLVM, so you don't install it yourself.
+For the LLVM targets, the build fetches a prebuilt LLVM, so you don't need to install it yourself.
 
 A few useful properties fall out of this design.
 Comptime is essentially Rust running at expansion time, so `comptime!` blocks are ordinary Rust whose results are baked into the IR as constants.
