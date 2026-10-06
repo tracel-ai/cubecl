@@ -6,15 +6,12 @@
 
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 use llvm_sys::{
-    LLVMAtomicOrdering, LLVMAttributeFunctionIndex, LLVMTypeKind,
+    LLVMAttributeFunctionIndex, LLVMTypeKind,
     core::{
         LLVMAddAttributeAtIndex, LLVMCountParams, LLVMCreateEnumAttribute,
         LLVMCreateStringAttribute, LLVMGetBufferSize, LLVMGetBufferStart,
-        LLVMGetEnumAttributeKindForName, LLVMGetFirstBasicBlock, LLVMGetFirstInstruction,
-        LLVMGetNamedFunction, LLVMGetNextBasicBlock, LLVMGetNextInstruction, LLVMGetOperand,
-        LLVMGetOrdering, LLVMGetParam, LLVMGetTypeKind, LLVMIsAArgument, LLVMIsACastInst,
-        LLVMIsAConstantExpr, LLVMIsAGetElementPtrInst, LLVMIsALoadInst, LLVMSetFunctionCallConv,
-        LLVMSetTarget, LLVMTypeOf,
+        LLVMGetEnumAttributeKindForName, LLVMGetNamedFunction, LLVMGetParam, LLVMGetTypeKind,
+        LLVMSetFunctionCallConv, LLVMSetTarget, LLVMTypeOf,
     },
     prelude::LLVMValueRef,
     target::{LLVMDisposeTargetData, LLVMSetModuleDataLayout},
@@ -39,7 +36,9 @@ use llvm_sys::{
 };
 use std::ffi::CStr;
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
-use std::{ffi::CString, marker::PhantomData};
+use std::ffi::CString;
+#[cfg(feature = "amdgpu")]
+use std::marker::PhantomData;
 
 /// An LLVM module parsed from textual IR into a context of its own.
 pub(crate) struct LlvmModule {
@@ -313,31 +312,14 @@ impl<'m> EntryFunction<'m> {
         }
     }
 
-    /// The parameter `pointer` addresses, followed back through address arithmetic and casts,
-    /// or `None` where it passes through anything else: a phi, a select, a load.
-    pub(crate) fn param_under(&self, pointer: LLVMValueRef) -> Option<Param> {
-        let mut value = pointer;
-        // SAFETY: every value walked is live, an operand of a live instruction or expression.
-        unsafe {
-            loop {
-                if !LLVMIsAArgument(value).is_null() {
-                    return (0..self.param_count())
-                        .find(|&index| LLVMGetParam(self.func, index) == value)
-                        .map(Param);
-                }
-                let through = !LLVMIsAGetElementPtrInst(value).is_null()
-                    || !LLVMIsACastInst(value).is_null()
-                    || !LLVMIsAConstantExpr(value).is_null();
-                if !through {
-                    return None;
-                }
-                value = LLVMGetOperand(value, 0);
-            }
-        }
-    }
-
     /// The function's instructions, block by block.
+    #[cfg(feature = "amdgpu")]
     pub(crate) fn instructions(&self) -> impl Iterator<Item = Instruction<'m>> + use<'m> {
+        use llvm_sys::core::{
+            LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetNextBasicBlock,
+            LLVMGetNextInstruction,
+        };
+
         // SAFETY: the function, its blocks and their instructions are live for the module's
         // lifetime, and the walk only reads the links between them.
         let mut block = unsafe { LLVMGetFirstBasicBlock(self.func) };
@@ -368,31 +350,15 @@ impl<'m> EntryFunction<'m> {
 }
 
 /// An instruction of an [`EntryFunction`].
-#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+#[cfg(feature = "amdgpu")]
 pub(crate) struct Instruction<'m> {
     inst: LLVMValueRef,
     module: PhantomData<&'m LlvmModule>,
 }
 
-#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+#[cfg(feature = "amdgpu")]
 impl Instruction<'_> {
-    pub(crate) fn is_atomic_load(&self) -> bool {
-        // SAFETY: the instruction is live.
-        unsafe {
-            !LLVMIsALoadInst(self.inst).is_null()
-                && LLVMGetOrdering(self.inst) != LLVMAtomicOrdering::LLVMAtomicOrderingNotAtomic
-        }
-    }
-
-    /// The pointer an atomic load reads, or `None` for any other instruction.
-    pub(crate) fn atomically_loaded(&self) -> Option<LLVMValueRef> {
-        // SAFETY: the instruction is live, and a load's first operand is its pointer.
-        self.is_atomic_load()
-            .then(|| unsafe { LLVMGetOperand(self.inst, 0) })
-    }
-
     /// The operation of an `atomicrmw`, or `None` for any other instruction.
-    #[cfg(feature = "amdgpu")]
     pub(crate) fn atomic_rmw_op(&self) -> Option<llvm_sys::LLVMAtomicRMWBinOp> {
         use llvm_sys::core::{LLVMGetAtomicRMWBinOp, LLVMIsAAtomicRMWInst};
 

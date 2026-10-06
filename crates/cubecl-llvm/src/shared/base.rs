@@ -7,7 +7,9 @@ use crate::nvptx::{
     ptx_version::PtxVersion,
 };
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
-use crate::shared::{plane::CtxPlaneDim, shared_memory::CtxSharedMemory};
+use crate::shared::{
+    buffer_params::AtomicReads, plane::CtxPlaneDim, shared_memory::CtxSharedMemory,
+};
 use crate::{
     cpu::{
         abi::CpuLowering,
@@ -266,7 +268,7 @@ impl PlironCompiler {
         let shared_memories = Rc::new(RefCell::new(SharedMemories::default()));
 
         let lowering = CpuLowering::new(shared_memories.clone(), options.f16_evaluation);
-        let io = lower(&mut ctx, &ir, &lowering)?;
+        let Lowered { io, .. } = lower(&mut ctx, &ir, &lowering)?;
 
         let requirements = KernelRequirements {
             needs_parallelism,
@@ -300,7 +302,7 @@ impl PlironCompiler {
         ctx.set_plane_dim(plane_dim);
         ctx.set_wmma(arch.wmma());
 
-        let io = lower(&mut ctx, &ir, &AmdGpuLowering { plane_dim })?;
+        let Lowered { io, atomic_reads } = lower(&mut ctx, &ir, &AmdGpuLowering { plane_dim })?;
 
         let shared_memory_size = ctx.shared_memory_size();
 
@@ -313,6 +315,7 @@ impl PlironCompiler {
                 cube_dim: kernel.settings.cube_dim,
                 shared_memory_size,
                 io,
+                atomic_reads,
             },
         )
         .map_err(|err| {
@@ -342,7 +345,7 @@ impl PlironCompiler {
         let plane_dim = arch.plane_dim();
         ctx.set_plane_dim(plane_dim);
 
-        let io = lower(&mut ctx, &ir, &NvptxLowering { plane_dim })?;
+        let Lowered { io, atomic_reads } = lower(&mut ctx, &ir, &NvptxLowering { plane_dim })?;
 
         let shared_memory_size = ctx.shared_memory_size();
 
@@ -365,6 +368,7 @@ impl PlironCompiler {
                 cube_dim: kernel.settings.cube_dim,
                 shared_memory_size,
                 io,
+                atomic_reads,
                 metadata,
             },
         )
@@ -398,11 +402,20 @@ impl KernelIr {
     }
 }
 
+/// What a lowering read off the cube dialect before it was gone.
+struct Lowered {
+    /// Buffer access modes in binding order.
+    io: Vec<BufferIOAttr>,
+    /// The global buffers the kernel's atomics read.
+    #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+    atomic_reads: AtomicReads,
+}
+
 fn lower(
     ctx: &mut Context,
     kernel: &KernelIr,
     target: &dyn TargetLowering,
-) -> Result<Vec<BufferIOAttr>, CompilationError> {
+) -> Result<Lowered, CompilationError> {
     let (module_op, entry_func) = (kernel.module_op, kernel.entry_func);
 
     #[cfg(not(feature = "pliron-dump"))]
@@ -454,6 +467,8 @@ fn lower(
     run(&mut passes, module_op, ctx, &mut analyses)?;
 
     let io = cubecl_core::ir::attributes::buffer_io_by_position(ctx, entry_func);
+    #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+    let atomic_reads = AtomicReads::of(ctx, module_op);
 
     let mut passes = OpPass::<ModuleOp, Passes>::default();
     passes.add_pass(NestedOpsPass::new(lowering_passes));
@@ -467,7 +482,11 @@ fn lower(
         ))
     })?;
 
-    Ok(io)
+    Ok(Lowered {
+        io,
+        #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+        atomic_reads,
+    })
 }
 
 fn run(

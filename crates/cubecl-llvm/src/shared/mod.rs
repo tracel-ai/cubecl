@@ -4,7 +4,7 @@ mod base;
 pub(crate) mod bitcode;
 pub mod branch;
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
-pub(crate) mod buffer_params;
+pub mod buffer_params;
 pub(crate) mod builtin_values;
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub mod builtins;

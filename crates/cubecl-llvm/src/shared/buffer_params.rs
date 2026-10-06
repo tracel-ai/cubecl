@@ -1,8 +1,17 @@
 //! Aliasing and access attributes on a GPU kernel's buffer parameters.
 
 use crate::{
-    prelude::BufferIOAttr,
-    shared::llvm_module::{EntryFunction, Param},
+    prelude::{AddressSpace, BufferIOAttr, Context, CubePointerType, Op, Operation, Ptr},
+    shared::llvm_module::EntryFunction,
+};
+use cubecl_core::ir::{
+    dialect::{atomic::AtomicLoadOp, base::OperationPtrExt},
+    interfaces::side_effects::{MemoryEffect, MemoryEffectsOp},
+};
+use pliron::{
+    graph::walkers::{IRNode, WALKCONFIG_PREORDER_FORWARD, uninterruptible::immutable::walk_op},
+    op::op_cast,
+    r#type::Typed,
 };
 
 /// Marks the buffer parameters `noalias`, and the read-only ones `readonly`, from the recorded
@@ -11,25 +20,24 @@ use crate::{
 /// across a store, and a read-only pointer is what lets NVPTX load through the non-coherent cache
 /// and AMDGPU prove a uniform load is not clobbered and make it a scalar load.
 ///
-/// A kernel that loads an atomic reads what another cube wrote within the launch, a turn handed
-/// on through a counter ([`AtomicReads`]). A buffer it writes may then be written by another cube
-/// between its own accesses, and one it loads atomically by someone, so neither is promised
-/// anything: with the attributes, AMDGPU makes a read after the acquire a scalar load, served
-/// from a cache the acquire does not invalidate. The buffers it only reads, which no cube writes,
-/// keep both.
+/// A kernel whose atomics read global memory reads what another cube wrote within the launch, a
+/// turn handed on through a counter ([`AtomicReads`]). A buffer it writes may then be written by
+/// another cube between its own accesses, and one an atomic reads by someone, so neither is
+/// promised anything: with the attributes, AMDGPU makes a read after the acquire a scalar load,
+/// served from a cache the acquire does not invalidate. The buffers it only reads, which no cube
+/// writes, keep both.
 ///
 /// `entry`'s parameters are the buffers in binding order followed by `metadata_params`
 /// metadata parameters. An LLVM without one of the two attributes gets the other alone.
 pub(crate) fn annotate_buffer_params(
     entry: &EntryFunction<'_>,
     io: &[BufferIOAttr],
+    atomic_reads: &AtomicReads,
     metadata_params: u32,
 ) {
-    let atomic_reads = AtomicReads::of(entry);
-
     let (buffers, metadata) = entry.split_params(metadata_params);
     let buffers = buffers.enumerate().map(|(binding, param)| {
-        let promise = Promise::of_buffer(io.get(binding).copied(), param, &atomic_reads);
+        let promise = Promise::of_buffer(io.get(binding).copied(), binding, atomic_reads);
         (param, promise)
     });
     let metadata = metadata.map(|param| (param, Promise::DistinctReadOnly));
@@ -51,33 +59,67 @@ pub(crate) fn annotate_buffer_params(
     }
 }
 
-/// The buffers a kernel's atomic loads read.
-#[derive(Debug, PartialEq)]
-enum AtomicReads {
-    /// It loads no atomic: no cube reads what another wrote within the launch.
+/// The global buffers a kernel's atomics read: a load, a read-modify-write or a compare-exchange,
+/// each of which observes what another cube stored. An atomic store alone observes nothing, and
+/// a shared or local atomic only what its own cube stored.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub enum AtomicReads {
+    /// No atomic reads global memory: no cube reads what another wrote within the launch.
+    #[default]
     None,
-    /// Each atomic load's pointer traced back to its parameter.
-    Traced(Vec<Param>),
-    /// Some atomic load's pointer passes through what the trace does not follow, so any
-    /// buffer may be one of them.
-    Untraced,
+    /// The bindings the atomics read, each named by its pointer's address space.
+    Bindings(Vec<usize>),
+    /// Some atomic reads through a value that is not a pointer, so any buffer may be one.
+    Unattributed,
 }
 
 impl AtomicReads {
-    fn of(entry: &EntryFunction<'_>) -> Self {
-        let mut traced = Vec::new();
-        for pointer in entry
-            .instructions()
-            .filter_map(|inst| inst.atomically_loaded())
-        {
-            match entry.param_under(pointer) {
-                Some(param) => traced.push(param),
-                None => return Self::Untraced,
+    /// Read off the cube dialect under `root`, before it is lowered, while every pointer's type
+    /// still names the binding it addresses.
+    pub(crate) fn of(ctx: &Context, root: Ptr<Operation>) -> Self {
+        let mut reads = Self::None;
+        walk_op(
+            ctx,
+            &mut reads,
+            &WALKCONFIG_PREORDER_FORWARD,
+            root,
+            |ctx, reads, node| {
+                let IRNode::Operation(op) = node else {
+                    return;
+                };
+                let op = op.dyn_op(ctx);
+                if op.get_opid().dialect != AtomicLoadOp::get_opid_static().dialect {
+                    return;
+                }
+                let Some(effects) = op_cast::<dyn MemoryEffectsOp>(op.as_ref()) else {
+                    return;
+                };
+                for effect in effects.memory_effects(ctx) {
+                    if let MemoryEffect::Read(ptr) = effect {
+                        reads.add(ptr.get_type(ctx).deref(ctx).downcast_ref());
+                    }
+                }
+            },
+        );
+        reads
+    }
+
+    fn add(&mut self, pointer: Option<&CubePointerType>) {
+        let binding = match pointer {
+            Some(CubePointerType {
+                address_space: AddressSpace::Global(binding),
+                ..
+            }) => *binding,
+            Some(_) => return,
+            None => {
+                *self = Self::Unattributed;
+                return;
             }
-        }
-        match traced.is_empty() {
-            true => Self::None,
-            false => Self::Traced(traced),
+        };
+        match self {
+            Self::None => *self = Self::Bindings(vec![binding]),
+            Self::Bindings(bindings) if !bindings.contains(&binding) => bindings.push(binding),
+            Self::Bindings(_) | Self::Unattributed => {}
         }
     }
 }
@@ -94,19 +136,19 @@ enum Promise {
 }
 
 impl Promise {
-    /// The promise for a buffer of access mode `io` at `param`, in a kernel whose atomic loads
+    /// The promise for the buffer of access mode `io` at `binding`, in a kernel whose atomics
     /// read `atomic_reads`. A buffer with no recorded mode is taken as read and written.
-    fn of_buffer(io: Option<BufferIOAttr>, param: Param, atomic_reads: &AtomicReads) -> Self {
+    fn of_buffer(io: Option<BufferIOAttr>, binding: usize, atomic_reads: &AtomicReads) -> Self {
         let io = io.unwrap_or(BufferIOAttr::ReadWrite);
         let read_only = io == BufferIOAttr::ReadOnly;
         match atomic_reads {
             AtomicReads::None if read_only => Self::DistinctReadOnly,
             AtomicReads::None => Self::Distinct,
-            AtomicReads::Traced(loaded) if loaded.contains(&param) => Self::Nothing,
-            AtomicReads::Traced(_) | AtomicReads::Untraced if io.is_writable() => Self::Nothing,
-            AtomicReads::Traced(_) if read_only => Self::DistinctReadOnly,
-            // An untraced load may read it, so it keeps only what the load leaves true.
-            AtomicReads::Traced(_) | AtomicReads::Untraced => Self::Distinct,
+            AtomicReads::Unattributed => Self::Nothing,
+            AtomicReads::Bindings(read) if read.contains(&binding) => Self::Nothing,
+            AtomicReads::Bindings(_) if io.is_writable() => Self::Nothing,
+            AtomicReads::Bindings(_) if read_only => Self::DistinctReadOnly,
+            AtomicReads::Bindings(_) => Self::Distinct,
         }
     }
 }

@@ -10,7 +10,7 @@ use crate::{
     prelude::{BufferIOAttr, Context, ModuleOp},
     shared::{
         AmdGpuModule,
-        buffer_params::annotate_buffer_params,
+        buffer_params::{AtomicReads, annotate_buffer_params},
         llvm_module::{EntryFunction, LlvmModule, TargetMachine, TargetSpec},
         math_library::redirect_intrinsics,
     },
@@ -68,6 +68,8 @@ pub struct AmdGpuEntry {
     pub shared_memory_size: usize,
     /// Buffer access modes in binding order.
     pub io: Vec<BufferIOAttr>,
+    /// The global buffers the kernel's atomics read.
+    pub atomic_reads: AtomicReads,
 }
 
 pub fn emit_code_object(
@@ -155,7 +157,7 @@ fn finalize(
     entry_fn.set_calling_convention(AMDGPU_KERNEL_CC);
     entry_fn.add_attributes(&attributes);
     require_work_group_size(&entry_fn, cube_dim);
-    annotate_buffer_params(&entry_fn, &entry.io, METADATA_PARAMS);
+    annotate_buffer_params(&entry_fn, &entry.io, &entry.atomic_reads, METADATA_PARAMS);
     mark_atomics_device_local(&entry_fn);
     module.add_module_flag("amdhsa_code_object_version", CODE_OBJECT_VERSION);
     Ok(())
@@ -284,8 +286,15 @@ entry:
   ret void
 }
 "#;
-        let finalized =
-            finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), Dim3::new_1d(64), &[]).unwrap();
+        let finalized = finalize_ir(
+            ir,
+            "k",
+            &GfxArch::parse("gfx1201"),
+            Dim3::new_1d(64),
+            &[],
+            AtomicReads::None,
+        )
+        .unwrap();
         assert!(
             finalized.contains(r#"target triple = "amdgcn-amd-amdhsa""#),
             "{finalized}"
@@ -320,8 +329,15 @@ entry:
   ret void
 }
 "#;
-        let finalized =
-            finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), Dim3::new_1d(64), &[]).unwrap();
+        let finalized = finalize_ir(
+            ir,
+            "k",
+            &GfxArch::parse("gfx1201"),
+            Dim3::new_1d(64),
+            &[],
+            AtomicReads::None,
+        )
+        .unwrap();
         let (object, asm) =
             compile_to_object(&finalized, &GfxArch::parse("gfx1201"), Assembly::Keep).unwrap();
         assert_eq!(&object[..4], b"\x7fELF");
@@ -366,7 +382,8 @@ entry:
 }}
 "#
             );
-            let finalized = finalize_ir(&ir, "k", &arch, Dim3::new_1d(32), &[]).unwrap();
+            let finalized =
+                finalize_ir(&ir, "k", &arch, Dim3::new_1d(32), &[], AtomicReads::None).unwrap();
             let (object, asm) = compile_to_object(&finalized, &arch, Assembly::Keep).unwrap();
             assert_eq!(&object[..4], b"\x7fELF");
 
@@ -401,8 +418,15 @@ exit:
 }
 "#;
         let arch = GfxArch::parse("gfx1201");
-        let finalized =
-            finalize_ir(ir, "k", &arch, Dim3::new_1d(64), &[BufferIOAttr::WriteOnly]).unwrap();
+        let finalized = finalize_ir(
+            ir,
+            "k",
+            &arch,
+            Dim3::new_1d(64),
+            &[BufferIOAttr::WriteOnly],
+            AtomicReads::None,
+        )
+        .unwrap();
         assert!(finalized.contains("noalias"), "{finalized}");
         assert!(
             finalized.contains("readonly"),
@@ -451,7 +475,9 @@ taken:
             BufferIOAttr::ReadOnly,
             BufferIOAttr::WriteOnly,
         ];
-        let finalized = finalize_ir(ir, "k", &arch, Dim3::new_1d(64), &io).unwrap();
+        // The atomic load of `turns`, read off the cube dialect.
+        let reads = AtomicReads::Bindings(vec![0]);
+        let finalized = finalize_ir(ir, "k", &arch, Dim3::new_1d(64), &io, reads).unwrap();
         let signature = finalized
             .lines()
             .find(|line| line.starts_with("define"))
@@ -489,7 +515,8 @@ entry:
         // RDNA3 and CDNA2 are the parts that fall back to a CAS loop without the metadata.
         for name in ["gfx1100", "gfx90a", "gfx1201", "gfx942"] {
             let arch = GfxArch::parse(name);
-            let finalized = finalize_ir(ir, "k", &arch, Dim3::new_1d(64), &[]).unwrap();
+            let finalized =
+                finalize_ir(ir, "k", &arch, Dim3::new_1d(64), &[], AtomicReads::None).unwrap();
             let (_, asm) = compile_to_object(&finalized, &arch, Assembly::Keep).unwrap();
             let asm = asm.unwrap();
             assert!(asm.contains("global_atomic_add_f32"), "{name}:\n{asm}");
@@ -506,8 +533,15 @@ entry:
   ret void
 }
 "#;
-        let finalized =
-            finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), Dim3::new_1d(64), &[]).unwrap();
+        let finalized = finalize_ir(
+            ir,
+            "k",
+            &GfxArch::parse("gfx1201"),
+            Dim3::new_1d(64),
+            &[],
+            AtomicReads::None,
+        )
+        .unwrap();
         let (object, asm) =
             compile_to_object(&finalized, &GfxArch::parse("gfx1201"), Assembly::Keep).unwrap();
         assert_eq!(&object[..4], b"\x7fELF");
@@ -548,12 +582,14 @@ entry:
         arch: &GfxArch,
         cube_dim: Dim3,
         io: &[BufferIOAttr],
+        atomic_reads: AtomicReads,
     ) -> Result<String, String> {
         let module = LlvmModule::new(ir)?;
         let entry = AmdGpuEntry {
             cube_dim,
             shared_memory_size: 0,
             io: io.to_vec(),
+            atomic_reads,
         };
         finalize(&module, entrypoint, arch, &entry)?;
         Ok(module.print())
