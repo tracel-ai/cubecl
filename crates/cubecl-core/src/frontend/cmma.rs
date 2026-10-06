@@ -202,7 +202,10 @@ impl<C: CubeType, S: MatrixScope> IntoMut for MatrixExpand<C, S> {
 
 impl<C: CubeType, S: MatrixScope> CubeDebug for MatrixExpand<C, S> {
     fn set_debug_name(&self, scope: &Scope, name: &'static str) {
-        let op = self.elem.defining_op().unwrap();
+        // A block argument has no defining op and keeps its own name.
+        let Some(op) = self.elem.defining_op() else {
+            return;
+        };
         set_operation_result_name(scope.ctx(), op, 0, Some(ident(name)));
     }
 }

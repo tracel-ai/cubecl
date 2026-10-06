@@ -815,7 +815,10 @@ impl<T: NativeAssign + NativeCubeType + CanReadValue> IntoMut for NativeExpand<T
 
 impl<T: ?Sized> CubeDebug for NativeExpand<T> {
     fn set_debug_name(&self, scope: &Scope, name: &'static str) {
-        let op = self.value(scope).defining_op().unwrap();
+        // A block argument, such as a loop index, has no defining op and keeps its own name.
+        let Some(op) = self.value(scope).defining_op() else {
+            return;
+        };
         set_operation_result_name(scope.ctx(), op, 0, Some(ident(name)));
     }
 }
