@@ -30,6 +30,7 @@ use pliron::{
     irbuild::listener::InsertionListener,
     location::{Located, Location, Source},
     operation::Operation,
+    std_deps::path::PathBuf,
 };
 
 use crate::ContextExt;
@@ -185,4 +186,27 @@ impl InsertionListener for LocationListener {
     }
 
     fn notify_block_inserted(&mut self, _ctx: &Context, _block: Ptr<BasicBlock>) {}
+}
+
+/// The source line of an op: the file and the line of the innermost frame of `loc`. A target that
+/// cannot show inlined frames, such as a `#line` directive, uses it. `None` for an unknown
+/// location, or for a position in memory.
+pub fn leaf_line<'c>(ctx: &'c Context, loc: &Location) -> Option<(&'c PathBuf, u32)> {
+    match loc {
+        Location::CallSite { callee, .. } => leaf_line(ctx, callee),
+        Location::Named { child_loc, .. } => leaf_line(ctx, child_loc),
+        Location::SrcPos {
+            src: Source::File(key),
+            pos,
+        } => Some((
+            pliron::uniqued_any::get(ctx, *key),
+            u32::try_from(pos.line).unwrap_or(0),
+        )),
+        Location::Fused { locations, .. } => locations.iter().find_map(|loc| leaf_line(ctx, loc)),
+        Location::SrcPos {
+            src: Source::InMemory,
+            ..
+        }
+        | Location::Unknown => None,
+    }
 }

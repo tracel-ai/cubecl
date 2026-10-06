@@ -12,7 +12,12 @@ use crate::compute::events::EventProfiler;
 use crate::compute::status::checked;
 use crate::compute::stream::Stream;
 use cubecl_core::hash::StableHasher;
-use cubecl_core::{hash::StableHash, ir::DeviceProperties, prelude::*, server::ResourceLimitError};
+use cubecl_core::{
+    hash::StableHash,
+    ir::{DeviceProperties, settings::DebugInfo},
+    prelude::*,
+    server::ResourceLimitError,
+};
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::persistence::Store;
@@ -335,7 +340,8 @@ impl HipContext {
             None
         };
 
-        let code = compile_to_binary(&jitc_kernel.source)?;
+        let line_tables = kernel_id.debug_info != DebugInfo::None;
+        let code = compile_to_binary(&jitc_kernel.source, line_tables)?;
 
         let io = jitc_kernel.io.take();
         // A precompiled kernel has no representation to read the size from:
@@ -528,13 +534,15 @@ impl Drop for RtcProgram {
     }
 }
 
-/// Compile `source` to a device binary with HIP RTC.
+/// Compile `source` to a device binary with HIP RTC. With `line_tables`, the binary has the line
+/// tables of the `#line` directives in `source`, for rocprofiler. It does not change the
+/// optimization level.
 ///
 /// # Errors
 ///
 /// [`CompilationError::Generic`] carrying the compiler's own log, and the
 /// source that produced it, so a kernel the driver refuses says why.
-fn compile_to_binary(source: &str) -> Result<Vec<i8>, CompilationError> {
+fn compile_to_binary(source: &str, line_tables: bool) -> Result<Vec<i8>, CompilationError> {
     let source = CString::new(source).map_err(|err| CompilationError::Generic {
         reason: format!("The generated source is not a valid C string: {err}"),
         backtrace: BackTrace::capture(),
@@ -568,11 +576,15 @@ fn compile_to_binary(source: &str) -> Result<Vec<i8>, CompilationError> {
     // needed for rocWMMA extension to compile
     let cpp_std_option = c"--std=c++17";
     let optimization_level = c"-O3";
-    let mut options = [
+    let mut all_options = [
         cpp_std_option.as_ptr(),
         include_option.as_ptr(),
         optimization_level.as_ptr(),
+        c"-gline-tables-only".as_ptr(),
     ];
+    // The last option is the line tables.
+    let count = all_options.len() - usize::from(!line_tables);
+    let options = &mut all_options[..count];
 
     // SAFETY: `program.0` is the handle created above, and `options` holds
     // null-terminated pointers that outlive the call.
