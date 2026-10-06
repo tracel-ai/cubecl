@@ -322,10 +322,12 @@ impl DeviceService for CudaServer {
 
         if arch_version >= 100 {
             device_props.features.tma.insert(Tma::Im2colWide);
-            // Breaks swizzle so disable for now and fix in a PR specifically for this
-            // if CUDA_VERSION >= 12090 {
-            //     device_props.hardware.load_width = 256;
-            // }
+            // A 256-bit load or store reaches global memory only, and a vector wider than a
+            // 16-byte swizzle atom cannot be read out of a swizzled stage. So only global IO
+            // widens: the load width, which bounds a shared-memory access, stays at 128.
+            if CUDA_VERSION >= 12090 {
+                device_props.io_width_override = Some(256);
+            }
         }
 
         // NOTE: FP6/FP4 is explicitly not marked as forward compatible, but is compatible within a

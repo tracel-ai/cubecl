@@ -28,7 +28,8 @@ use cubecl_common::profile::TimingMethod;
 /// be assumed.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HardwareProperties {
-    /// The widest single load instruction, in bits.
+    /// The widest single load instruction every memory space accepts, in bits, so the widest
+    /// shared-memory access. Global IO may be sized wider, by [`DeviceProperties::io_width`].
     pub load_width: u32,
     /// How many `load_width`-bit vector registers a kernel may keep live, or `None` where the
     /// runtime states no budget, as a GPU does.
@@ -398,7 +399,8 @@ pub struct DeviceProperties {
     pub timing_method: TimingMethod,
     /// Who the device is, and what its kernels are keyed to.
     pub identity: DeviceIdentity,
-    /// Bits IO is sized to in place of the load width, where a backend measured wider as faster.
+    /// Bits IO is sized to in place of the load width, where a backend measured wider as faster
+    /// or the device accesses global memory wider than shared memory.
     pub io_width_override: Option<u32>,
 }
 
@@ -432,7 +434,7 @@ impl DeviceProperties {
         }
     }
 
-    /// The widest vector, in bits, that reads and writes are sized to.
+    /// The widest vector, in bits, that reads and writes of global memory are sized to.
     pub fn io_width(&self) -> u32 {
         self.io_width_override.unwrap_or(self.hardware.load_width)
     }
