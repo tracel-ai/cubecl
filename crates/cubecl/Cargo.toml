@@ -94,7 +94,7 @@ cubecl-core = { workspace = true }
 cubecl-environment = { workspace = true }
 cubecl-ir = { workspace = true }
 cubecl-runtime = { workspace = true }
-cubecl-std = { workspace = true, optional = true }
+cubecl-std = { workspace = true, default-features = true, optional = true }
 half = { workspace = true }
 
 cubecl-cpu = { workspace = true, optional = true }

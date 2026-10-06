@@ -40,7 +40,7 @@ cubecl-ir = { workspace = true, features = [
     "serde",
 ] }
 cubecl-runtime = { workspace = true }
-cubecl-zspace = { workspace = true }
+cubecl-zspace = { workspace = true, default-features = true }
 
 bitflags = { workspace = true }
 bytemuck = { workspace = true }

@@ -34,7 +34,7 @@ cubecl-common = { workspace = true, features = [
     "hash",
 ] }
 cubecl-environment = { workspace = true }
-cubecl-macros-internal = { workspace = true }
+cubecl-macros-internal = { workspace = true, default-features = true }
 
 pliron = { workspace = true }
 pliron-spirv = { workspace = true, optional = true }

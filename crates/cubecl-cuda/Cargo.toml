@@ -78,7 +78,7 @@ serde = { workspace = true }
 cubecl-core = { workspace = true, default-features = true, features = [
     "export_tests",
 ] }
-cubecl-std = { workspace = true, features = [
+cubecl-std = { workspace = true, default-features = true, features = [
     "export_tests",
 ] }
 paste = { workspace = true }

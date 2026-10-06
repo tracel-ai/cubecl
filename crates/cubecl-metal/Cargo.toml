@@ -51,7 +51,7 @@ block2 = "0.6"
 
 [dev-dependencies]
 cubecl-core = { workspace = true, default-features = true, features = ["export_tests"] }
-cubecl-std = { workspace = true, features = ["export_tests"] }
+cubecl-std = { workspace = true, default-features = true, features = ["export_tests"] }
 test-log = { workspace = true, features = ["trace"] }
 paste = { workspace = true }
 
