@@ -1132,7 +1132,10 @@ impl Client {
         // the time it reaches the server thread, that context is gone.
         let launch_mode = crate::dry_run::launch_mode();
 
-        let level = self.utilities.logger.profile_level();
+        // A launch the dry run drops runs nothing to time, and a backend timing windows by the
+        // timestamps its passes write reports a window around one as never measured.
+        let timed = !launch_mode.is_skipped();
+        let level = self.utilities.logger.profile_level().filter(|_| timed);
 
         // Before the submit, on the issuing thread: this is the last point at
         // which the caller's own context still exists, and attributing a
@@ -1147,7 +1150,7 @@ impl Client {
         // measurement, and making one depend on the other's configuration
         // would mean a caller could not time launches without also logging
         // them somewhere it did not choose.
-        let observed_timing = crate::logging::timing_wanted();
+        let observed_timing = timed && crate::logging::timing_wanted();
 
         match level {
             None | Some(ProfileLevel::ExecutionOnly) if !observed_timing => {
