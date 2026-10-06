@@ -70,6 +70,12 @@ pub struct CompilationConfig {
     /// ask for. It can only lower that level. Set by `CUBECL_DEBUG_INFO`.
     #[serde(default)]
     pub debug_info: Option<DebugInfo>,
+    /// A directory for the source text of kernels with full debug data. When no directory on this
+    /// computer has the source files of a kernel, cubecl writes the texts into this directory, and
+    /// the debug data points to them. `None` writes no files. Set by `CUBECL_SOURCE_CACHE`.
+    #[serde(default)]
+    #[cfg(feature = "std")]
+    pub source_cache: Option<std::path::PathBuf>,
 }
 
 impl CompilationConfig {

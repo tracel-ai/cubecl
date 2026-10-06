@@ -229,6 +229,8 @@ wgpu-hal = "^30.0.0"
 
 renderdoc = "0.12"
 
+md-5 = "0.11"
+
 # Build deps
 cc = "1.2"
 cfg_aliases = "0.2.2"

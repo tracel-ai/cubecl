@@ -31,7 +31,13 @@ default = [
 ]
 exclusive-memory-only = []
 profile-tracy = ["dep:tracy-client"]
-std = ["cubecl-common/std", "cubecl-environment/std", "toml", "thiserror/std"]
+std = [
+    "cubecl-common/std",
+    "cubecl-environment/std",
+    "toml",
+    "thiserror/std",
+    "dep:md-5",
+]
 tokio = ["cubecl-environment/tokio"]
 
 tracing = ["dep:tracing", "cubecl-common/tracing", "cubecl-ir/tracing"]
@@ -65,6 +71,8 @@ pliron = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 smallvec = { workspace = true }
 toml = { workspace = true, optional = true }
+# The MD5 of the kernel source texts, for the source directory of the debug data.
+md-5 = { workspace = true, optional = true }
 
 foldhash = { workspace = true }
 buildid = { workspace = true }
