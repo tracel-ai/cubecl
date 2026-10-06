@@ -1,17 +1,20 @@
 use alloc::{vec, vec::Vec};
 use core::hash::Hash;
-use cubecl_environment::collections::HashMap;
+use pliron::utils::table::SmallMap;
+
+/// Most scopes stay under this many entries and are scanned inline; larger ones hash.
+const INLINE_ENTRIES: usize = 8;
 
 /// Scoped map for optimizations: a key resolves in the innermost scope that holds it.
 #[derive(Debug)]
 pub struct ScopedMap<K, V> {
-    scopes: Vec<HashMap<K, V>>,
+    scopes: Vec<SmallMap<K, V, INLINE_ENTRIES>>,
 }
 
 impl<K, V> ScopedMap<K, V> {
     pub fn new() -> Self {
         Self {
-            scopes: vec![HashMap::default()],
+            scopes: vec![SmallMap::default()],
         }
     }
 }
@@ -33,7 +36,7 @@ impl<K: Hash + Eq, V> ScopedMap<K, V> {
     }
 
     pub fn push_scope(&mut self) {
-        self.scopes.push(HashMap::default());
+        self.scopes.push(SmallMap::default());
     }
 
     pub fn pop_scope(&mut self) {
