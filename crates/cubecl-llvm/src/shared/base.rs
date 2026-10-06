@@ -35,6 +35,7 @@ use cubecl_core::{
     Compiler,
     ir::{amd::GfxArch, dialect::scf::BranchToSCFPass, metadata::Info, rewrite::SimplifyOpsPass},
     post_processing::{
+        bf16::LowerWideBf16CastPass,
         bitwise::PromoteBitwisePass,
         minifloat::{LowerMinifloatCastPass, LowerMinifloatComparePass},
     },
@@ -425,6 +426,8 @@ fn lower(
     func_passes.add_pass(SimplifyOpsPass::default());
     func_passes.add_pass(PromoteBitwisePass);
     func_passes.add_pass(InstCombinePass::default());
+    // LLVM converts between `f32` and `bfloat`; a wider source would round twice through `f32`.
+    func_passes.add_pass(LowerWideBf16CastPass::default());
     func_passes.add_pass(LowerMinifloatCastPass::default());
     func_passes.add_pass(LowerMinifloatComparePass::default());
     func_passes.add_pass(LowerComplexOpPass::default());
