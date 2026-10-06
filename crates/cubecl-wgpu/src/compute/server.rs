@@ -1,13 +1,13 @@
 use cubecl_core::server::{DeviceCaptures, ServerStorage};
 use cubecl_server::kernel::BufferIOAttr;
-use cubecl_server::kernel::DebugInformation;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use super::graph::WgpuGraph;
 use super::storage::{WgpuResource, WgpuStorage};
 use crate::WgpuCompiler;
-use crate::backend::ModuleSource;
+use crate::compute::artifact::WgpuArtifactCompiler;
+use crate::compute::pipelines::{MetadataLayout, WgpuPipelines};
 use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
 use alloc::sync::Arc;
 use cubecl_common::pool::LeasePool;
@@ -21,26 +21,23 @@ use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
     prelude::*,
     server::{
-        CopyDescriptor, IoError, KernelArguments, LaunchError, ProfileError, ProfilingToken,
+        CopyDescriptor, IoError, KernelArguments, ProfileError, ProfilingToken,
         ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Strides, strides},
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
-#[cfg(feature = "spirv")]
-use cubecl_environment::persistence::Store;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_server::compiler::CompilationRecording;
+use cubecl_server::compiler::KernelLoader;
 #[cfg(feature = "spirv")]
-use cubecl_server::compiler::{KernelCacheKey, compilation_store, store_compiled};
+use cubecl_server::compiler::compilation_store;
 use cubecl_server::memory_management::{
     ManagedMemoryHandle, SharedMemoryBindings, StreamMemoryReport,
     relocation::{RelocatingStreams, RelocationReason},
 };
 use cubecl_server::{
-    compiler::CompilationCache,
     config::{CubeClRuntimeConfig, RuntimeConfig},
     dry_run::LaunchMode,
     id::GraphId,
@@ -51,7 +48,6 @@ use cubecl_server::{
     storage::ManagedResource,
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
     stream::{ExecuteScope, FailureStore, StreamCapture, WriteScoped, failed_writing},
-    validation::{validate_cube_dim, validate_units},
 };
 use wgpu::ComputePipeline;
 
@@ -83,19 +79,11 @@ pub enum CompilerInfo {
 /// Wgpu compute server.
 #[derive(Debug)]
 pub struct WgpuServer<C: WgpuCompiler> {
-    pub(crate) device: wgpu::Device,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
-    /// The pipelines built so far, in front of the SPIR-V store when there is
-    /// one.
-    pipelines: CompilationCache<KernelId, PipelineEntry>,
+    /// The pipelines built so far, and how to build another.
+    pipelines: KernelLoader<WgpuPipelines<C>>,
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
-    #[cfg(feature = "spirv")]
-    pub(crate) spirv_cache: Option<Store<(u64, KernelCacheKey), cubecl_spirv::SpirvCacheEntry>>,
-    #[cfg(feature = "spirv")]
-    pub(crate) build_id: cubecl_common::hash::StableHash,
-    pub compilation_options: WgpuCompilationOptions,
-    pub(crate) backend: wgpu::Backend,
     pub(crate) utilities: Arc<ServerUtilities>,
     /// Reusable buffers for the cross-stream input bindings of each launch.
     shared_bindings_pool: LeasePool<SharedMemoryBindings>,
@@ -159,24 +147,27 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
 
-        #[cfg(feature = "spirv")]
-        let spirv_cache = compilation_store(
-            "vulkan",
-            format!("spirv_{}_{}", adapter_info.vendor, adapter_info.device),
+        let compiler = WgpuArtifactCompiler {
+            properties: (*utilities.properties).clone(),
+            options: compilation_options,
+            backend,
+            _compiler: PhantomData,
+        };
+        let pipelines = WgpuPipelines::new(
+            compiler,
+            device,
+            #[cfg(feature = "spirv")]
+            compilation_store(
+                "vulkan",
+                format!("spirv_{}_{}", adapter_info.vendor, adapter_info.device),
+            ),
+            #[cfg(feature = "spirv")]
+            utilities.properties_hash,
         );
 
-        // WGSL is compiled by the driver on every run, so without the SPIR-V
-        // store there is nothing persisted for a switch to invalidate.
-        #[cfg(feature = "spirv")]
-        let pipelines = CompilationCache::mirroring(&spirv_cache);
-        #[cfg(not(feature = "spirv"))]
-        let pipelines = CompilationCache::unbound();
-
         Self {
-            compilation_options,
             streams_pool: Vec::new(),
-            device,
-            pipelines,
+            pipelines: KernelLoader::new(pipelines),
             scheduler: SchedulerMultiStream::new(
                 utilities.logger.clone(),
                 backend_scheduler,
@@ -186,11 +177,6 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                     strategy: SchedulerStrategy::Interleave,
                 },
             ),
-            #[cfg(feature = "spirv")]
-            spirv_cache,
-            #[cfg(feature = "spirv")]
-            build_id: cubecl_server::compiler::build_id_hash(),
-            backend,
             utilities: Arc::new(utilities),
             shared_bindings_pool: LeasePool::with_capacity(tasks_max * max_streams as usize),
             graphs: HashMap::new(),
@@ -229,110 +215,6 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             info: bindings.info,
             compiler_info,
         })
-    }
-
-    fn pipeline(
-        &mut self,
-        kernel: Box<dyn CubeKernel>,
-        bindings: &KernelArguments,
-    ) -> Result<PipelineEntry, LaunchError> {
-        let kernel_id = kernel.id();
-        let mode = kernel_id.mode;
-
-        if let Some(pipeline) = self.pipelines.get(&kernel_id) {
-            return Ok(pipeline.clone());
-        }
-
-        let mut recording = CompilationRecording::new(&kernel_id);
-        let cached = self.load_cached_pipeline(&kernel_id, bindings, mode)?;
-
-        if let Some(Ok(pipeline)) = cached {
-            self.pipelines.insert(kernel_id, pipeline.clone());
-            recording.loaded();
-            return Ok(pipeline);
-        }
-
-        validate_cube_dim(&self.utilities.properties, &kernel_id)?;
-        validate_units(&self.utilities.properties, &kernel_id)?;
-
-        let definition = cubecl_core::define_kernel(&*kernel)?;
-        recording.defined(&definition);
-
-        let mut compiler = C::init(self.backend, &self.compilation_options);
-        let mut compiled = compiler.compile_kernel(self, kernel, definition)?;
-
-        if self.scheduler.logger.compilation_source_activated() {
-            compiled.debug_info = Some(DebugInformation::new(
-                compiler.lang_tag(),
-                kernel_id.clone(),
-            ));
-        }
-        self.scheduler.logger.log_compilation(&compiled);
-
-        compiler.validate_ir(&compiled.repr, &self.utilities.properties)?;
-        // The compiled kernel's per-buffer answer, before the repr is
-        // consumed: what the write scope stages from.
-        let io = compiled.io.take().map(Arc::from);
-        let (compiler_info, auto_repr) = compiler.normalize_repr(compiled.repr);
-        let repr = auto_repr.as_ref().map(|r| r.as_ref());
-
-        // /!\ Do not delete the following commented code.
-        // This is useful while working on the metal compiler.
-        // Also the errors are printed nicely which is not the case when this is the runtime
-        // that does it.
-        // {
-        //     // Write shader in metal file then compile it for error
-        //     std::fs::write("shader.metal", &compiled.source).expect("should write to file");
-        //     let status = std::process::Command::new("xcrun")
-        //         .args(vec![
-        //             "-sdk",
-        //             "macosx",
-        //             "metal",
-        //             "-o",
-        //             "shader.ir",
-        //             "-c",
-        //             "shader.metal",
-        //             "-w",
-        //         ])
-        //         .status()
-        //         .expect("should launch the command");
-        //     if !status.success() {
-        //         println!("SOURCE:\n{}", compiled.source);
-        //         std::process::exit(status.code().unwrap());
-        //     }
-        // }
-
-        let module = self.create_module(
-            &compiled.entrypoint_name,
-            kernel_id.cube_dim.into(),
-            ModuleSource::resolve(repr, compiler.lang_tag(), &compiled.source)?,
-            mode,
-        )?;
-        let pipeline = self.create_pipeline(&compiled.entrypoint_name, repr, module, bindings)?;
-        self.pipelines.insert(
-            kernel_id.clone(),
-            (pipeline.clone(), compiler_info, io.clone()),
-        );
-
-        recording.source(&compiled.source);
-
-        // Only a SPIR-V kernel is stored: any other build changes nothing.
-        let stored = false;
-        #[cfg(feature = "spirv")]
-        let stored = match (cached, auto_repr) {
-            (Some(Err(key)), Some(crate::AutoRepresentation::SpirV(kernel))) => {
-                let cache = self.spirv_cache.as_mut().unwrap();
-                store_compiled(
-                    cache,
-                    key,
-                    cubecl_spirv::SpirvCacheEntry::new(compiled.entrypoint_name, kernel),
-                )
-            }
-            _ => stored,
-        };
-        recording.compiled(stored);
-
-        Ok((pipeline, compiler_info, io))
     }
 }
 
@@ -546,8 +428,13 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         // failure in it leaves nothing stale, and tainting its buffers would
         // fail unrelated reads of memory the run deliberately left alone.
         let kernel_id = kernel.id();
-        let (pipeline, compiler_info, io) = match self.pipeline(kernel, &args) {
-            Ok(val) => val,
+        let loaded = self.pipelines.load(
+            &*kernel,
+            MetadataLayout::of(&args.info),
+            &self.scheduler.logger,
+        );
+        let (pipeline, compiler_info, io) = match loaded {
+            Ok(entry) => entry.clone(),
             Err(err) => {
                 let error = ServerError::Launch(err);
                 self.scheduler.stream(&stream_id).profile_failure(&error);
