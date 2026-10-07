@@ -15,6 +15,7 @@ pub mod cluster;
 pub mod cmma;
 pub mod cmma2;
 pub mod comparison;
+pub mod compile;
 pub mod complex;
 pub mod const_match;
 pub mod debug;
@@ -176,6 +177,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_stream_errors!();
         cubecl_core::testgen_allocation_mode!();
         cubecl_core::testgen_out_of_memory!();
+        cubecl_core::testgen_compile!();
     };
 }
 

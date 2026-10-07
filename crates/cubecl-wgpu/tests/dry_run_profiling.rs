@@ -6,7 +6,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_server::config::{CubeClRuntimeConfig, RuntimeConfig, profiling::ProfilingLogLevel};
-use cubecl_server::dry_run::DryRun;
+use cubecl_server::dry_run::{DryRun, DryRunScope};
 use cubecl_server::runtime::Runtime;
 use cubecl_wgpu::WgpuRuntime;
 
@@ -26,7 +26,7 @@ fn a_dry_run_launches_under_the_profiling_logger() {
     let client = <WgpuRuntime>::client(&Default::default());
     let out = client.empty(core::mem::size_of::<u32>());
 
-    let dry_run = DryRun::new();
+    let dry_run = DryRun::new(DryRunScope::Profile);
     fill::launch(
         &client,
         CubeCount::new_single(),
