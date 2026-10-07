@@ -508,6 +508,13 @@ impl DeviceProperties {
         *self.features.types.elem.entry(ty.into()).or_default() |= uses.into();
     }
 
+    /// Register `ty`'s conversion as emulated in software ([`Types::emulated_conversion`]).
+    ///
+    /// [`Types::emulated_conversion`]: crate::Types::emulated_conversion
+    pub fn register_emulated_conversion(&mut self, ty: impl Into<ElemType>) {
+        self.features.types.emulated_conversion.insert(ty.into());
+    }
+
     /// Register complex capability families for an element type.
     pub fn register_complex_usage(
         &mut self,

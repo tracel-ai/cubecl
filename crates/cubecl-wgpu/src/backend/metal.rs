@@ -274,6 +274,7 @@ fn register_types(props: &mut DeviceProperties) {
             ElemType::Float(ty),
             TypeUsage::Conversion | TypeUsage::Buffer,
         );
+        props.register_emulated_conversion(ElemType::Float(ty));
     }
 
     // MSL's 64-bit atomics exist only on Apple9 and later and only as min and max, so u64
