@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 
 use cubecl_common::profile::Instant;
 use cubecl_environment::collections::{HashMap, HashSet};
-use cubecl_runtime::dry_run::{DryRunCounter, counted};
+use cubecl_runtime::execution::{DryRunCounter, counted};
 
 use super::{
     ArtifactCompiler, ArtifactId, BatchOutcome, CompilationBatchRecording, CompilationOutcome,
@@ -797,7 +797,7 @@ mod tests {
     #[test]
     #[serial_test::serial(records)]
     fn a_batch_settles_every_kernel_to_the_dry_run_that_requested_it() {
-        use cubecl_runtime::dry_run::{DryRun, DryRunScope, Progress};
+        use cubecl_runtime::execution::{DryRun, DryRunScope, Progress};
 
         let mut loader = loader(2);
         let logger = ServerLogger::default();

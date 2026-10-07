@@ -9,7 +9,7 @@ use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOption
 use serde::{Deserialize, Serialize};
 
 use super::{AutotuneError, AutotuneKey, AutotuneOutcome};
-use crate::dry_run::DryRunCounter;
+use crate::execution::DryRunCounter;
 use alloc::string::String;
 use cubecl_environment::collections::HashMap;
 
@@ -24,7 +24,9 @@ pub(crate) enum CacheEntry {
     /// a miss to anything that tunes, and done to the next compile-only dry run. Never
     /// persisted. `owed_to` is the dry run that requested the key's tune when it gathered it,
     /// where the tune settles once measured; `None` when none did.
-    Compiled { owed_to: Option<DryRunCounter> },
+    Compiled {
+        owed_to: Option<DryRunCounter>,
+    },
 }
 
 #[derive(Debug)]
@@ -150,7 +152,7 @@ pub enum TuneCacheResult {
     /// Callers that see this fall through to running the operation rather than blocking on
     /// the in-flight job.
     Pending,
-    /// A compile-only [dry run](crate::dry_run::DryRunScope::Compile) queued the kernels of the
+    /// A compile-only [dry run](crate::execution::DryRunScope::Compile) queued the kernels of the
     /// key's candidates, and measured and decided nothing. Callers run the first candidate that
     /// serves the problem, which only queues its kernels too.
     Compiled,

@@ -5,7 +5,7 @@
 use crate::{self as cubecl};
 use alloc::vec::Vec;
 use cubecl::prelude::*;
-use cubecl_runtime::dry_run::CompileOnly;
+use cubecl_runtime::execution::CompileOnly;
 use cubecl_runtime::runtime::Runtime;
 use cubecl_runtime::server::Handle;
 

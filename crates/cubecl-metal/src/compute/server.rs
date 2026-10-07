@@ -22,7 +22,7 @@ use cubecl_server::compiler::ArtifactId;
 use cubecl_server::memory_management::Cleanup;
 use cubecl_server::memory_management::PageUpdate;
 use cubecl_server::{
-    dry_run::LaunchMode,
+    execution::LaunchMode,
     kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{

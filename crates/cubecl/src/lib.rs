@@ -67,17 +67,17 @@ pub use cubecl_environment::records;
 /// running the workload itself.
 ///
 /// This is what makes producing a [`bundle`] affordable: inside a
-/// [`DryRun`](dry_run::DryRun) every launch is compiled, cached and tuned
+/// [`DryRun`](execution::DryRun) every launch is compiled, cached and tuned
 /// without also being executed. Buffers are left as they were, so it only suits
 /// a pass driven by the *shapes* it produces.
 ///
 /// ```no_run
 /// # fn warm_up() {}
-/// let dry_run = cubecl::dry_run::DryRun::new();
-/// let _pass = dry_run.pass(cubecl::dry_run::DryRunScope::Profile);
+/// let dry_run = cubecl::execution::DryRun::new();
+/// let _pass = dry_run.pass(cubecl::execution::DryRunScope::Profile);
 /// warm_up();
 /// ```
-pub use cubecl_runtime::dry_run;
+pub use cubecl_runtime::execution;
 
 /// The kernels a workload launches, collected while it replays: what an
 /// environment shipped for it has to keep.

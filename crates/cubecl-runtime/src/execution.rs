@@ -39,10 +39,10 @@
 use core::marker::PhantomData;
 use cubecl_environment::sync::{Arc, AtomicUsize, Mutex, Ordering};
 
-mod observation;
+mod statistics;
 
-use observation::Observed;
-pub use observation::{Counter, DryRunCounter, DryRunObservation, DryRunObserver, Progress};
+use statistics::Observed;
+pub use statistics::{Counter, DryRunCounter, DryRunObservation, DryRunObserver, Progress};
 
 /// What a server should do with a launch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,7 +174,7 @@ pub struct DryRunId(usize);
 ///
 /// ```no_run
 /// # fn warm_up() {}
-/// use cubecl_runtime::dry_run::{DryRun, DryRunScope};
+/// use cubecl_runtime::execution::{DryRun, DryRunScope};
 ///
 /// let dry_run = DryRun::new();
 ///

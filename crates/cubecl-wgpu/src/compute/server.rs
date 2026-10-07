@@ -39,7 +39,7 @@ use cubecl_server::memory_management::{
 };
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
-    dry_run::LaunchMode,
+    execution::LaunchMode,
     id::GraphId,
     kernel::CubeKernel,
     logging::ServerLogger,

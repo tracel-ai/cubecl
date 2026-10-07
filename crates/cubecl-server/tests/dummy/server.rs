@@ -209,7 +209,7 @@ impl<M: Marker> Server for DummyServer<M> {
         _count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
-        launch_mode: cubecl_server::dry_run::LaunchMode,
+        launch_mode: cubecl_server::execution::LaunchMode,
     ) {
         let kernel = (&*kernel as &dyn core::any::Any)
             .downcast_ref::<KernelTask>()

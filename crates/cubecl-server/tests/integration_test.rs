@@ -1359,7 +1359,7 @@ fn autotune_stops_sampling_an_eliminated_candidate() {
 #[cfg(feature = "std")]
 #[serial_test::serial]
 fn a_dry_run_drops_an_ordinary_launch() {
-    use cubecl_server::dry_run::{DryRun, DryRunScope};
+    use cubecl_server::execution::{DryRun, DryRunScope};
 
     let client = test_client(&DummyDevice);
     let lhs = client.create_from_slice(&[0, 1, 2]);
@@ -1407,7 +1407,7 @@ fn a_dry_run_drops_an_ordinary_launch() {
 #[cfg(feature = "std")]
 #[serial_test::serial]
 fn a_dry_run_still_autotunes() {
-    use cubecl_server::dry_run::{DryRun, DryRunScope};
+    use cubecl_server::execution::{DryRun, DryRunScope};
 
     static TUNER: LocalTuner<String, String> = local_tuner!("a_dry_run_still_autotunes");
 
@@ -1455,7 +1455,7 @@ fn a_dry_run_still_autotunes() {
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::serial]
 fn a_compile_dry_run_leaves_the_tune_to_the_next_pass() {
-    use cubecl_server::dry_run::{DryRun, DryRunScope};
+    use cubecl_server::execution::{DryRun, DryRunScope};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -1536,7 +1536,7 @@ fn a_compile_dry_run_leaves_the_tune_to_the_next_pass() {
 #[cfg(not(exclusive_memory_only))]
 #[serial_test::serial]
 fn a_dry_run_reserves_without_mapping() {
-    use cubecl_server::dry_run::{DryRun, DryRunScope};
+    use cubecl_server::execution::{DryRun, DryRunScope};
     use cubecl_server::memory_management::MemoryPoolReport;
 
     let client = test_client(&DummyDevice);

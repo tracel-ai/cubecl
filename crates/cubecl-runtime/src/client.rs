@@ -1130,7 +1130,7 @@ impl Client {
         // Decided here, on the issuing thread, because that is the only place
         // that still knows whether this launch is an autotune measurement — by
         // the time it reaches the server thread, that context is gone.
-        let launch_mode = crate::dry_run::launch_mode();
+        let launch_mode = crate::execution::launch_mode();
 
         // A launch the dry run drops runs nothing to time, and a backend timing windows by the
         // timestamps its passes write reports a window around one as never measured.

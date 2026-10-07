@@ -17,7 +17,7 @@ use crate::client::Client;
 use crate::config::Logger;
 #[cfg(persistence)]
 use crate::config::autotune::AutotuneLogLevel;
-use crate::dry_run::DryRunCounter;
+use crate::execution::DryRunCounter;
 use crate::server::LaunchError;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
 use cubecl_environment::config::RuntimeConfig;
@@ -253,7 +253,7 @@ impl<K: AutotuneKey> Tuner<K> {
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
         let compiling =
-            crate::dry_run::dry_run_scope() == Some(crate::dry_run::DryRunScope::Compile);
+            crate::execution::dry_run_scope() == Some(crate::execution::DryRunScope::Compile);
         // The dry run the tune is owed to, if one requested it when it gathered the key.
         let owed_to;
 
@@ -674,7 +674,7 @@ async fn resolve_bench(bench: PendingBench) -> AutotuneResult {
 /// Await every profile sample, pick the fastest tunable, commit to the cache.
 /// Request a tune of the dry run open now, if one is: where it settles once measured.
 fn request_tune() -> Option<DryRunCounter> {
-    crate::dry_run::counted().inspect(|counter| counter.tunes().request(1))
+    crate::execution::counted().inspect(|counter| counter.tunes().request(1))
 }
 
 /// Whether this thread runs a key's candidates to gather their kernels: a key reached there is

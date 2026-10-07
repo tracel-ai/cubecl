@@ -25,7 +25,7 @@ use cubecl_server::command::{CollectiveDriver, Collectives, DeviceStream, Refuse
 use cubecl_server::compiler::ArtifactId;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
-    dry_run::LaunchMode,
+    execution::LaunchMode,
     id::GraphId,
     kernel::CubeKernel,
     logging::ServerLogger,

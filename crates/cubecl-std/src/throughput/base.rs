@@ -135,7 +135,7 @@ fn measure(
         let mut probed = false;
         let value = client.measure_throughput(key, || {
             // Read where the launch is issued, which here is the runner.
-            let _measurement = cubecl_runtime::dry_run::RealRun::new();
+            let _measurement = cubecl_runtime::execution::RealRun::new();
 
             probed = true;
             probe(client, key)

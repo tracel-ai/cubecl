@@ -23,7 +23,7 @@ use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
-    dry_run::LaunchMode,
+    execution::LaunchMode,
     kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode},

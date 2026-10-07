@@ -4,7 +4,7 @@ use crate::{
     client::Client,
     compiler::CompilationError,
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::BoundsCheckMode},
-    dry_run::LaunchMode,
+    execution::LaunchMode,
     id::GraphId,
     kernel::CubeKernel,
     logging::ServerLogger,
@@ -1284,7 +1284,7 @@ pub enum IoError {
         backtrace: BackTrace,
     },
 
-    /// An allocation carved lazily under a [`DryRun`](crate::dry_run::DryRun)
+    /// An allocation carved lazily under a [`DryRun`](crate::execution::DryRun)
     /// could not be given real device backing when it was finally resolved.
     ///
     /// Distinct from the same failure at reservation time, and the distinction

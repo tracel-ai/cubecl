@@ -72,7 +72,7 @@ impl Schedule<'_> {
     {
         let fallback = batch.indices();
         let run = || {
-            let _real_run = crate::dry_run::RealRun::new();
+            let _real_run = crate::execution::RealRun::new();
 
             cubecl_environment::future::block_on(self.drive(batch, autotunables, inputs, client))
         };

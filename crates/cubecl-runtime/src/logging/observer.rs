@@ -55,11 +55,11 @@
 //! duration through [`timed`].
 //!
 //! Issued is not the same as executed. Under a
-//! [`DryRun`](crate::dry_run::DryRun) every launch is still compiled and still
+//! [`DryRun`](crate::execution::DryRun) every launch is still compiled and still
 //! reported here, and is then dropped instead of reaching the device; a
 //! duration measured over one is the compile and the submit, with no kernel
 //! under it. An observer that cares about the difference checks
-//! [`dry_run`](crate::dry_run::dry_run).
+//! [`dry_run`](crate::execution::dry_run).
 //!
 //! A replayed [`Graph`](crate::client::Graph) is the other direction: its
 //! kernels were observed once, when the capture window recorded them, and a

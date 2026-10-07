@@ -110,7 +110,7 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
     // `tune_benchmark`: the guard is thread-local, and `exclusive` runs this
     // body on the device thread, which is where the launches below are issued
     // from.
-    let _real_run = crate::dry_run::RealRun::new();
+    let _real_run = crate::execution::RealRun::new();
 
     warmup(operation, inputs.clone(), client.clone())?;
 

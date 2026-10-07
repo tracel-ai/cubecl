@@ -6,7 +6,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_server::config::{CubeClRuntimeConfig, RuntimeConfig, profiling::ProfilingLogLevel};
-use cubecl_server::dry_run::{DryRun, DryRunScope};
+use cubecl_server::execution::{DryRun, DryRunScope};
 use cubecl_server::runtime::Runtime;
 use cubecl_wgpu::WgpuRuntime;
 

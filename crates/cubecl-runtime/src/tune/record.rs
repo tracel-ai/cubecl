@@ -113,7 +113,7 @@ impl<K: AutotuneKey> TuneRecording<K> {
                 key: key.clone(),
                 checksum: checksum.into(),
             },
-            dry_run: crate::dry_run::dry_run(),
+            dry_run: crate::execution::dry_run(),
             plan: Vec::new(),
         });
         Self { open }
