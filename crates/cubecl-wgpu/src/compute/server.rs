@@ -39,7 +39,7 @@ use cubecl_server::memory_management::{
 };
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
-    execution::LaunchMode,
+    execution::LaunchAction,
     id::GraphId,
     kernel::CubeKernel,
     logging::ServerLogger,
@@ -415,7 +415,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         count: CubeCount,
         args: KernelArguments,
         stream_id: StreamId,
-        launch_mode: LaunchMode,
+        launch_action: LaunchAction,
     ) {
         // Compilation comes first — memoized, so a launch after the first
         // pays a map lookup — because the write scope stages what the
@@ -426,12 +426,12 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         // refuse every later launch that shares them, an autotune sweep
         // above all.
         //
-        // A dry run stages none either way. It was never going to write, so a
+        // A dropped launch stages none either way. It was never going to write, so a
         // failure in it leaves nothing stale, and tainting its buffers would
         // fail unrelated reads of memory the run deliberately left alone.
         // A compile-only launch only queues its kernel, touching nothing else.
         let layout = MetadataLayout::from(&args.info);
-        if launch_mode == LaunchMode::CompileOnly {
+        if launch_action == LaunchAction::Queue {
             self.pipelines.enqueue(kernel, layout);
             return;
         }
@@ -449,7 +449,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             Err(err) => {
                 let error = ServerError::Launch(err);
                 self.scheduler.stream(&stream_id).profile_failure(&error);
-                if !launch_mode.is_skipped() {
+                if !launch_action.drops_launch() {
                     let mut written = self.write_set();
                     written.extend(args.buffers_written(None).cloned());
                     failed_writing(self, stream_id, written, error);
@@ -457,7 +457,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 return;
             }
         };
-        if launch_mode.is_skipped() {
+        if launch_action.drops_launch() {
             return;
         }
         let kernel_id = id.kernel;

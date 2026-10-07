@@ -17,7 +17,7 @@ use crate::client::Client;
 use crate::config::Logger;
 #[cfg(persistence)]
 use crate::config::autotune::AutotuneLogLevel;
-use crate::execution::DryRunCounter;
+use crate::execution::{ExecutionPolicy, StatisticsRecorder};
 use crate::server::LaunchError;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
 use cubecl_environment::config::RuntimeConfig;
@@ -152,7 +152,7 @@ struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
     #[cfg(persistence)]
     recording: crate::tune::record::TuneRecording<K>,
     /// Where the tune settles once its pick is committed.
-    counter: Option<DryRunCounter>,
+    recorder: Option<StatisticsRecorder>,
 }
 
 impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
@@ -171,7 +171,7 @@ impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
             bounds: self.bounds,
             #[cfg(persistence)]
             recording: self.recording,
-            counter: self.counter,
+            recorder: self.recorder,
         }
     }
 }
@@ -194,7 +194,7 @@ struct TuneRequest<K: AutotuneKey> {
     bounds: Option<crate::tune::Bounds>,
     #[cfg(persistence)]
     recording: crate::tune::record::TuneRecording<K>,
-    counter: Option<DryRunCounter>,
+    recorder: Option<StatisticsRecorder>,
 }
 
 #[allow(clippy::new_without_default)]
@@ -252,16 +252,15 @@ impl<K: AutotuneKey> Tuner<K> {
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
-        let compiling =
-            crate::execution::dry_run_scope() == Some(crate::execution::DryRunScope::Compile);
-        // The dry run the tune is owed to, if one requested it when it gathered the key.
-        let owed_to;
+        let compiling = crate::execution::policy() == ExecutionPolicy::CompileOnly;
+        // Where the key's tune was registered, if the override that gathered it registered it.
+        let registered_with;
 
         {
             let mut cache = self.cache.lock();
             #[cfg(persistence)]
             cache.reset_if_environment_switched();
-            // A key a compile-only dry run already queued the candidates of answers at once,
+            // A key a `CompileOnly` override already queued the candidates of answers at once,
             // once a switched environment has dropped the ones it queued for the old one: a
             // walk reaches the same key at every layer, and a miss would hydrate the persistent
             // cache and checksum the set again each time for a tune that will not run.
@@ -298,7 +297,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 | TuneCacheResult::Pending
                 | TuneCacheResult::Compiled => return cur,
                 TuneCacheResult::Miss | TuneCacheResult::Unchecked => {
-                    owed_to = cache.mark_pending(key.clone());
+                    registered_with = cache.mark_pending(key.clone());
                 }
             }
             // Scope the guard: the rest of this function re-locks `self.cache` (fast
@@ -315,26 +314,28 @@ impl<K: AutotuneKey> Tuner<K> {
             return TuneCacheResult::Hit { fastest_index: 0 };
         }
 
-        // A compile-only dry run queues the candidates' kernels and measures nothing; the key
+        // A `CompileOnly` override queues the candidates' kernels and measures nothing; the key
         // stays untuned for the pass that profiles it. Marked before the candidates run, so
         // one that panics leaves the key to that pass rather than pending for good.
         //
-        // Its tune is requested of the open dry run only when no other key's candidates reached
+        // Its tune is registered with the open override only when no other key's candidates reached
         // it: the pass that profiles stops a plan at its first close-enough candidate, and may
-        // never run the one that reaches a key gathered inside it. Such a key is requested if
+        // never run the one that reaches a key gathered inside it. Such a key is registered if
         // it is ever measured, as an ungathered one is.
         if compiling {
-            let owed_to = match gathering::inside_candidates() {
+            let registered_with = match gathering::inside_candidates() {
                 true => None,
-                false => request_tune(),
+                false => register_tune(),
             };
-            self.cache.lock().mark_compiled(key.clone(), owed_to);
+            self.cache
+                .lock()
+                .mark_compiled(key.clone(), registered_with);
             let _inside = gathering::Candidates::enter();
             self.compile_plan(key, inputs, tunables, &autotunables);
             return TuneCacheResult::Compiled;
         }
-        // Sure to measure now: a tune no dry run is owed is requested of the one open.
-        let counter = owed_to.or_else(request_tune);
+        // Sure to measure now: a tune registered nowhere yet registers with the override open.
+        let recorder = registered_with.or_else(register_tune);
 
         let results: Vec<AutotuneResult> = autotunables
             .iter()
@@ -361,7 +362,7 @@ impl<K: AutotuneKey> Tuner<K> {
         }
 
         let test_inputs = tunables.generate_inputs(key, inputs);
-        // Kernels a compile-only dry run queued compile here, together, before anything is
+        // Kernels a `CompileOnly` override queued compile here, together, before anything is
         // timed: left to the next launch, they would all compile inside the first candidate's
         // warmup, and its measurement would carry every candidate's compilation.
         client.compile_queued();
@@ -404,7 +405,7 @@ impl<K: AutotuneKey> Tuner<K> {
             log_context,
             #[cfg(persistence)]
             recording,
-            counter,
+            recorder,
         };
 
         #[cfg(not(target_family = "wasm"))]
@@ -420,7 +421,7 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 
     /// Runs the candidates the plan would measure once each, on the inputs a tune generates,
-    /// so their launches queue their kernels under a compile-only dry run. The key is left
+    /// so their launches queue their kernels under a `CompileOnly` override. The key is left
     /// untuned.
     ///
     /// The plan is walked batch by batch and stops after the first batch in which a candidate
@@ -672,15 +673,16 @@ async fn resolve_bench(bench: PendingBench) -> AutotuneResult {
 }
 
 /// Await every profile sample, pick the fastest tunable, commit to the cache.
-/// Request a tune of the dry run open now, if one is: where it settles once measured.
-fn request_tune() -> Option<DryRunCounter> {
-    crate::execution::counted().inspect(|counter| counter.tunes().request(1))
+/// Register a tune with the collector of the override open now, if one is: where it settles
+/// once its pick commits.
+fn register_tune() -> Option<StatisticsRecorder> {
+    crate::execution::recorder().inspect(|recorder| recorder.autotune().register())
 }
 
 /// Whether this thread runs a key's candidates to gather their kernels: a key reached there is
 /// gathered by another key's candidates.
 mod gathering {
-    /// Held while a key's candidates run under a compile-only dry run.
+    /// Held while a key's candidates run under a `CompileOnly` override.
     pub(super) struct Candidates {
         _private: (),
     }
@@ -763,7 +765,7 @@ async fn process_request<K: AutotuneKey>(
         bounds,
         #[cfg(persistence)]
         recording,
-        counter,
+        recorder,
     } = request;
 
     // Resolved concurrently, and each benchmark timed individually rather than timing the loop:
@@ -796,7 +798,6 @@ async fn process_request<K: AutotuneKey>(
     // Read before the sort, which reorders `results` out of tunable order. A
     // decided candidate whose own outcome is an error is one `Schedule::run_plan`
     // picked with nothing measured — the tune executed but could not be timed.
-    #[cfg(persistence)]
     let unmeasured = decided.is_some_and(|index| results[index].outcome.is_err());
 
     results.sort_by(|a, b| {
@@ -834,9 +835,12 @@ async fn process_request<K: AutotuneKey>(
         // In-memory regardless: without it this key re-tunes on every call, and
         // a tune that measured nothing would keep failing the same way.
         cache.lock().cache_insert(key.clone(), fastest_index);
-        // To the dry run the tune was requested in, open or not now.
-        if let Some(counter) = counter {
-            counter.tunes().settle(1);
+        // Where the tune was registered, whether or not that override is still open.
+        if let Some(recorder) = recorder {
+            match unmeasured {
+                true => recorder.autotune().failed(),
+                false => recorder.autotune().measured(),
+            }
         }
 
         // Not on disk, though. An unmeasured decision is a guess made to keep

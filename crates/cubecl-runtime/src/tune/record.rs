@@ -33,8 +33,8 @@ pub struct TuneRecord<K> {
     pub short_circuit: Option<String>,
     /// From the cache miss to the answer committed.
     pub wall: Duration,
-    /// Whether the tune ran inside a dry run, where launches compile but do
-    /// not execute.
+    /// Whether the tune ran under an override that drops launches, where
+    /// they compile but do not execute.
     pub dry_run: bool,
     /// Whether the table took the answer. One that measured nothing, or that
     /// was tuned with the cache disabled, answers this process alone: the
@@ -113,7 +113,7 @@ impl<K: AutotuneKey> TuneRecording<K> {
                 key: key.clone(),
                 checksum: checksum.into(),
             },
-            dry_run: crate::execution::dry_run(),
+            dry_run: crate::execution::policy().drops_launches(),
             plan: Vec::new(),
         });
         Self { open }

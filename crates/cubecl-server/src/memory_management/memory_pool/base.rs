@@ -29,7 +29,7 @@ pub enum PageMapping {
     /// behind it and the page's device footprint is zero.
     ///
     /// For the one case where the allocation may never be used: under a
-    /// [`DryRun`](crate::execution::DryRun) the workload's launches are compiled
+    /// [policy](crate::execution::ExecutionPolicy) that drops launches the workload's launches are compiled
     /// and dropped, so most reservations are never resolved and never need to
     /// exist. That is what lets a workload far larger than the device replay
     /// its allocation stream — the pools still measure it, and only what
@@ -40,10 +40,10 @@ pub enum PageMapping {
 
 impl PageMapping {
     /// The mapping allocations made on this thread, right now, should get:
-    /// [`Lazy`](Self::Lazy) under a [`DryRun`](crate::execution::DryRun),
-    /// [`Eager`](Self::Eager) everywhere else.
+    /// [`Lazy`](Self::Lazy) under a [policy](crate::execution::ExecutionPolicy)
+    /// that drops launches, [`Eager`](Self::Eager) otherwise.
     pub fn current() -> Self {
-        match crate::execution::dry_run() {
+        match crate::execution::policy().drops_launches() {
             true => PageMapping::Lazy,
             false => PageMapping::Eager,
         }

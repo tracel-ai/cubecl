@@ -240,7 +240,7 @@ impl Client {
         }
     }
 
-    fn stream_id(&self) -> StreamId {
+    pub(crate) fn stream_id(&self) -> StreamId {
         match self.stream_id {
             Some(val) => val,
             None => StreamId::current(),
@@ -1127,14 +1127,13 @@ impl Client {
 
         crate::launched::note(|| kernel.id());
 
-        // Decided here, on the issuing thread, because that is the only place
-        // that still knows whether this launch is an autotune measurement — by
-        // the time it reaches the server thread, that context is gone.
-        let launch_mode = crate::execution::launch_mode();
+        // Decided here, where the launch is issued, from the stream it goes
+        // out on: the server receives the verdict, not what decided it.
+        let launch_action = crate::execution::launch_action(stream_id);
 
-        // A launch the dry run drops runs nothing to time, and a backend timing windows by the
+        // A dropped launch runs nothing to time, and a backend timing windows by the
         // timestamps its passes write reports a window around one as never measured.
-        let timed = !launch_mode.is_skipped();
+        let timed = !launch_action.drops_launch();
         let level = self.utilities.logger.profile_level().filter(|_| timed);
 
         // Before the submit, on the issuing thread: this is the last point at
@@ -1162,7 +1161,7 @@ impl Client {
                         None
                     };
 
-                    unsafe { state.launch(kernel, count, bindings, stream_id, launch_mode) };
+                    unsafe { state.launch(kernel, count, bindings, stream_id, launch_action) };
 
                     if let Some(info) = execution_info {
                         utilities.logger.register_execution(info);
@@ -1193,7 +1192,7 @@ impl Client {
                             .expect("filled right above, emptied only here");
                         context
                             .submit_blocking(move |state| unsafe {
-                                state.launch(kernel, count, bindings, stream_id, launch_mode)
+                                state.launch(kernel, count, bindings, stream_id, launch_action)
                             })
                             .unwrap_or_resume()
                     },
@@ -1223,7 +1222,7 @@ impl Client {
                                             count,
                                             bindings,
                                             stream_id,
-                                            launch_mode,
+                                            launch_action,
                                         )
                                     };
                                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
@@ -1334,7 +1333,7 @@ impl Client {
     /// [`Server::compile_queued`]), before the work submitted after it.
     ///
     /// Every measurement starts with it — a tune, a throughput probe — so a
-    /// queue a compile-only dry run left is not timed as part of the first
+    /// queue a `CompileOnly` override left is not timed as part of the first
     /// launch measured.
     pub fn compile_queued(&self) {
         self.device.submit(move |server| server.compile_queued());

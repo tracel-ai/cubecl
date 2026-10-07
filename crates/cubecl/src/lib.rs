@@ -63,18 +63,21 @@ pub use cubecl_environment::environment;
 /// the records its tunes and compilations leave.
 pub use cubecl_environment::records;
 
-/// Running a workload for the compilation and tuning it provokes, without
-/// running the workload itself.
+/// What the process does with the work it is asked to run, and what that
+/// work triggered.
 ///
-/// This is what makes producing a [`bundle`] affordable: inside a
-/// [`DryRun`](execution::DryRun) every launch is compiled, cached and tuned
-/// without also being executed. Buffers are left as they were, so it only suits
-/// a pass driven by the *shapes* it produces.
+/// This is what makes producing a [`bundle`] affordable: under an
+/// [`ExecutionOverride`](execution::ExecutionOverride) of a policy that drops
+/// launches, every launch is compiled, cached and tuned without also being
+/// executed. Buffers are left as they were, so it only suits a pass driven by
+/// the *shapes* it produces.
 ///
 /// ```no_run
 /// # fn warm_up() {}
-/// let dry_run = cubecl::execution::DryRun::new();
-/// let _pass = dry_run.pass(cubecl::execution::DryRunScope::Profile);
+/// use cubecl::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
+///
+/// let collector = StatisticsCollector::new();
+/// let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
 /// warm_up();
 /// ```
 pub use cubecl_runtime::execution;

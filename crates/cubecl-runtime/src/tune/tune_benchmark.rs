@@ -101,16 +101,17 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
     client: Client,
     mut evictor: Option<&mut Evictor<'_>>,
 ) -> Result<Vec<ProfileDuration>, AutotuneError> {
-    // These launches are the measurement, so they run even inside a dry run:
-    // that mode exists to skip the *workload*, not the tuning it is there to
-    // provoke. The guard covers the warm-up too, since a candidate measured
-    // without one is measured on its slowest run.
+    // These launches are the measurement, so their stream executes whatever
+    // the policy drops: it exists to skip the *workload*, not the tuning it is
+    // there to provoke. The guard covers the warm-up too, since a candidate
+    // measured without one is measured on its slowest run.
     //
-    // It has to live here rather than around the `exclusive` call in
-    // `tune_benchmark`: the guard is thread-local, and `exclusive` runs this
-    // body on the device thread, which is where the launches below are issued
-    // from.
-    let _real_run = crate::execution::RealRun::new();
+    // It lives here rather than around the `exclusive` call in
+    // `tune_benchmark`: `exclusive` runs this body on the device thread, and a
+    // client that follows the thread's stream resolves it where the launches
+    // below are issued from.
+    let _measuring =
+        crate::execution::StreamModeOverride::new(crate::execution::StreamMode::Execute, &client);
 
     warmup(operation, inputs.clone(), client.clone())?;
 

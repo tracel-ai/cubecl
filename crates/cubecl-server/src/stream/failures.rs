@@ -212,7 +212,7 @@ pub trait FailureStore {
     /// this failure, so a read of one of its buffers fails loudly instead of
     /// returning bytes nothing wrote.
     ///
-    /// An empty write set — a dry run, a launch writing nothing — claims
+    /// An empty write set — a dropped launch, a launch writing nothing — claims
     /// nothing and mints nothing.
     fn enter_write(&mut self, written: &[BufferBinding]) -> Option<FailureId> {
         if written.is_empty() {

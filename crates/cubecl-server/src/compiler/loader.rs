@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 
 use cubecl_common::profile::Instant;
 use cubecl_environment::collections::{HashMap, HashSet};
-use cubecl_runtime::execution::{DryRunCounter, counted};
+use cubecl_runtime::execution::{CompilationRecorder, StatisticsRecorder, recorder};
 
 use super::{
     ArtifactCompiler, ArtifactId, BatchOutcome, CompilationBatchRecording, CompilationOutcome,
@@ -116,7 +116,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
             let asked = missing.then(|| Request {
                 id: id.clone(),
                 kernel,
-                counter: None,
+                recorder: None,
             });
             self.compile_queue(asked, logger);
 
@@ -154,12 +154,12 @@ impl<T: CompilationTarget> KernelLoader<T> {
             .filter(|queued| asked.as_ref().is_none_or(|asked| queued.id != asked.id))
             .map(Queued::request)
             .collect();
-        // Asked for and queued, it counts where it was queued; asked for
-        // alone, it counts to the dry run open now.
+        // Asked for and queued, it counts where it was registered when it was
+        // queued; asked for alone, it registers with the override open now.
         let asked = asked.map(|mut asked| {
-            asked.counter = match queue.iter().find(|queued| queued.id == asked.id) {
-                Some(queued) => queued.counter.clone(),
-                None => counted().inspect(|counter| counter.kernels().request(1)),
+            asked.recorder = match queue.iter().find(|queued| queued.id == asked.id) {
+                Some(queued) => queued.recorder.clone(),
+                None => register_kernel(),
             };
             asked
         });
@@ -186,8 +186,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
             return;
         }
         self.failed.remove(&id);
-        let counter = counted().inspect(|counter| counter.kernels().request(1));
-        self.queue.push(id, kernel, counter);
+        self.queue.push(id, kernel, register_kernel());
     }
 
     /// Keeps a loaded kernel, or the reason it failed.
@@ -218,12 +217,10 @@ impl<T: CompilationTarget> KernelLoader<T> {
         for job in jobs.iter_mut() {
             job.look_up(&mut self.target);
         }
-        // Each kernel is settled as the batch finishes with it, so a dry
-        // run's count moves while the batch runs: those the store held now,
-        // those compiled as each thread finishes one.
-        for job in jobs.iter_mut().filter(|job| !job.is_missing()) {
-            job.settle();
-        }
+        // Each kernel settles as the batch finishes with it, so a
+        // collector's count moves while the batch runs: those the store held
+        // now, those compiled as each thread finishes one.
+        jobs.iter_mut().for_each(Job::settle);
 
         let compiler = self.target.compiler();
         let mut missing: Vec<&mut Job<'_, T>> =
@@ -248,9 +245,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
             if job.is_lowered() && !(reuses && job.has_source()) {
                 job.finalize(compiler);
             }
-            if !job.is_lowered() {
-                job.settle();
-            }
+            job.settle();
         });
 
         let mut finalizing = HashSet::new();
@@ -270,11 +265,10 @@ impl<T: CompilationTarget> KernelLoader<T> {
             })
             .collect();
         let compiler = self.target.compiler();
-        // Those the store took by their source, and those waiting on another
-        // kernel of the batch with the same source, are settled with it.
-        for job in jobs.iter_mut().filter(|job| !job.is_lowered()) {
-            job.settle();
-        }
+        // Those the store took by their source settle now; those waiting on
+        // another kernel of the batch with the same source settle once it is
+        // done, as they are loaded.
+        jobs.iter_mut().for_each(Job::settle);
         let mut lowered: Vec<&mut Job<'_, T>> =
             jobs.iter_mut().filter(|job| job.is_lowered()).collect();
         for_each_at_once(&mut lowered, self.parallelism, |job| {
@@ -437,13 +431,13 @@ impl<V: Clone + Eq + core::hash::Hash> KernelQueue<V> {
         &mut self,
         id: ArtifactId<V>,
         kernel: Box<dyn CubeKernel>,
-        counter: Option<DryRunCounter>,
+        recorder: Option<StatisticsRecorder>,
     ) {
         self.ids.insert(id.clone());
         self.kernels.push(Queued {
             id,
             kernel,
-            counter,
+            recorder,
         });
     }
 
@@ -458,8 +452,8 @@ impl<V: Clone + Eq + core::hash::Hash> KernelQueue<V> {
 struct Queued<V> {
     id: ArtifactId<V>,
     kernel: Box<dyn CubeKernel>,
-    /// The dry run it was queued under, which it is settled to.
-    counter: Option<DryRunCounter>,
+    /// Where it was registered when it was queued, which it settles to.
+    recorder: Option<StatisticsRecorder>,
 }
 
 impl<V: Clone> Queued<V> {
@@ -467,7 +461,7 @@ impl<V: Clone> Queued<V> {
         Request {
             id: self.id.clone(),
             kernel: &*self.kernel,
-            counter: self.counter.clone(),
+            recorder: self.recorder.clone(),
         }
     }
 }
@@ -476,8 +470,8 @@ impl<V: Clone> Queued<V> {
 struct Request<'k, V> {
     id: ArtifactId<V>,
     kernel: &'k dyn CubeKernel,
-    /// The dry run it counts to, if one requested it.
-    counter: Option<DryRunCounter>,
+    /// Where it was registered, if an override was open to register it.
+    recorder: Option<StatisticsRecorder>,
 }
 
 /// One kernel on its way through [`KernelLoader::compile`].
@@ -486,8 +480,8 @@ struct Job<'k, T: CompilationTarget> {
     kernel: &'k dyn CubeKernel,
     recording: CompilationRecording,
     step: Step<T>,
-    /// The dry run it is still to be settled to: taken when it is.
-    counter: Option<DryRunCounter>,
+    /// Where it is still to settle: taken when it does.
+    recorder: Option<StatisticsRecorder>,
 }
 
 /// How far a [`Job`] got.
@@ -522,15 +516,28 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
             id: request.id,
             kernel: request.kernel,
             step: Step::Missing,
-            counter: request.counter,
+            recorder: request.recorder,
         }
     }
 
-    /// The batch is done with it: settled to the dry run that requested it,
-    /// once however often it is called.
+    /// Settle it where it was registered, once it is done — compiled, read
+    /// from the store, or failed — and once however often it is called: a
+    /// job still on its way settles nothing yet.
     fn settle(&mut self) {
-        if let Some(counter) = self.counter.take() {
-            counter.kernels().settle(1);
+        let settle: fn(&CompilationRecorder) = match &self.step {
+            Step::Ready {
+                outcome: CompilationOutcome::Compiled,
+                ..
+            } => CompilationRecorder::compiled,
+            Step::Ready {
+                outcome: CompilationOutcome::Loaded | CompilationOutcome::Rekeyed,
+                ..
+            } => CompilationRecorder::loaded,
+            Step::Failed(_) => CompilationRecorder::failed,
+            Step::Missing | Step::Lowered { .. } | Step::Waiting { .. } => return,
+        };
+        if let Some(recorder) = self.recorder.take() {
+            settle(recorder.compilation());
         }
     }
 
@@ -643,10 +650,6 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
     /// batch has stored it, and finalizes its own only when there is no store
     /// to take it from.
     fn load(mut self, target: &mut T) -> JobOutcome<T> {
-        // Settled as each step of the batch finished with it, so the count
-        // moved while the batch ran; every job ends here, so none is left
-        // unsettled whatever step a batch grows.
-        self.settle();
         if let Step::Waiting { .. } = self.step {
             let Step::Waiting { lowered, source } =
                 core::mem::replace(&mut self.step, Step::Missing)
@@ -668,6 +671,9 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
                 self.finalize(target.compiler());
             }
         }
+        // Every job ends here, so none is left unsettled whatever step a
+        // batch grows: a waiting one settles now, its source done.
+        self.settle();
 
         let mut stored = false;
         let result = match self.step {
@@ -701,6 +707,12 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
             stored,
         }
     }
+}
+
+/// Register a kernel with the collector of the override open now, if one is:
+/// where it settles once its batch has it.
+fn register_kernel() -> Option<StatisticsRecorder> {
+    recorder().inspect(|recorder| recorder.compilation().register())
 }
 
 /// Runs `work` on every job, on up to `parallelism` threads at once, each
@@ -790,51 +802,44 @@ mod tests {
         }
     }
 
-    /// A dry run's kernel count requests each kernel as it is queued under
-    /// one of its passes, or as a launch asks for it unqueued, and settles
-    /// every one of them once the batch has it — in a later pass too. A
-    /// kernel queued outside a dry run counts nowhere.
+    /// A collector registers each kernel as it is queued under one of its
+    /// overrides, or as a launch asks for it unqueued, and every one of them
+    /// settles once the batch has it — under a later override too. A kernel
+    /// queued with no override open counts nowhere.
     #[test]
     #[serial_test::serial(records)]
-    fn a_batch_settles_every_kernel_to_the_dry_run_that_requested_it() {
-        use cubecl_runtime::execution::{DryRun, DryRunScope, Progress};
+    fn a_batch_settles_every_kernel_to_the_collector_that_registered_it() {
+        use cubecl_runtime::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
 
         let mut loader = loader(2);
         let logger = ServerLogger::default();
         loader.enqueue(Box::new(Numbered(9)), ());
-        let build = DryRun::new();
-        let compile = build.pass(DryRunScope::Compile);
+        let collector = StatisticsCollector::new();
+        let compile = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
         for number in 0..5 {
             loader.enqueue(Box::new(Numbered(number)), ());
         }
-        // Queued twice, requested once.
+        // Queued twice, registered once.
         loader.enqueue(Box::new(Numbered(0)), ());
         drop(compile);
-        assert_eq!(
-            build.observe().kernels,
-            Progress {
-                requested: 5,
-                settled: 0
-            }
-        );
+        let queued = collector.statistics().compilation;
+        assert_eq!((queued.registered, queued.settled()), (5, 0));
 
-        let _profile = build.pass(DryRunScope::Profile);
+        let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
         loader.load(&Numbered(5), &id(5), &logger).unwrap();
-        let batch = build.observe().kernels;
+        let batch = collector.statistics().compilation;
         assert_eq!(
-            batch,
-            Progress {
-                requested: 6,
-                settled: 6
-            },
-            "the kernel queued outside the dry run counts nowhere"
+            (batch.registered, batch.settled(), batch.failed),
+            (6, 6, 0),
+            "the kernel queued with no override open counts nowhere"
         );
+        assert_eq!(batch.compiled + batch.loaded, 6);
 
         loader.load(&Numbered(5), &id(5), &logger).unwrap();
         assert_eq!(
-            build.observe().kernels,
+            collector.statistics().compilation,
             batch,
-            "a loaded kernel is not requested again"
+            "a loaded kernel is not registered again"
         );
     }
 

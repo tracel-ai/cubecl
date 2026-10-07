@@ -5,7 +5,7 @@
 use crate::{self as cubecl};
 use alloc::vec::Vec;
 use cubecl::prelude::*;
-use cubecl_runtime::execution::CompileOnly;
+use cubecl_runtime::execution::{StreamMode, StreamModeOverride};
 use cubecl_runtime::runtime::Runtime;
 use cubecl_runtime::server::Handle;
 
@@ -28,7 +28,7 @@ pub fn test_compiled_kernels_run<R: Runtime>(client: Client) {
         .collect();
 
     {
-        let _compile_only = CompileOnly::new();
+        let _compile_only = StreamModeOverride::new(StreamMode::Compile, &client);
         for (number, out) in outputs.iter().enumerate() {
             launch_numbered(&client, out, number as u32);
         }

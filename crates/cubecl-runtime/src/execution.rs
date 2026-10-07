@@ -1,52 +1,108 @@
-//! Running a workload for the compilation and tuning it provokes, without
-//! running the workload itself.
+//! What the process does with the work it is asked to run, and what that
+//! work triggered.
 //!
-//! Under a [`DryRun`]'s [pass](DryRun::pass) every launch is dropped instead
-//! of reaching the device, and its kernel is still compiled — at once under a
-//! `Profile` pass, queued to compile with the others under a `Compile` one. A
-//! warm-up then pays for compilation and tuning without also paying for the
-//! work that provoked them, which is what makes producing a shippable
-//! environment affordable.
+//! Two levels decide what a launch does. The [`ExecutionPolicy`] is the whole
+//! process's, on every device: it is where the state it governs lives — each
+//! server's compile queue, the tune cache keyed by tune key, measurements
+//! any other work on a device would skew, pages shared across streams. A
+//! stream only knows whether its launches run, its [`StreamMode`]: the policy
+//! sets every stream's default, and a measurement — autotune's candidates, a
+//! throughput probe — switches the stream it measures on to
+//! [`StreamMode::Execute`] while it measures. The stream never knows why.
 //!
-//! A [`DryRun`] is the one place a caller reaches all of this through: it
-//! opens its passes, and [observes](DryRun::observe) the kernels and tunes
-//! they provoke, counted to it under its [`DryRunId`] by the code doing the
-//! work, on every device it reaches.
+//! Under [`ExecutionPolicy::CompileOnly`] every launch and every tune's
+//! candidates only queue their kernels, so a pass gathers everything a
+//! workload and its tuning reach; nothing compiles until a later launch loads
+//! a kernel — the first of a [`CompileAndAutotune`](ExecutionPolicy::CompileAndAutotune)
+//! pass, or the first tune before it measures — which compiles the whole
+//! queue in one batch. Under `CompileAndAutotune` every launch compiles its
+//! kernel and is dropped, and the tunes measure. A workload then pays for
+//! compilation and tuning without paying for the work that provoked them,
+//! which is what makes producing a shippable environment affordable.
 //!
-//! Under a [`DryRunScope::Profile`] dry run, the launches autotune issues are
-//! the exception: they *are* the measurement, so [`RealRun`] opts them back
-//! into executing. A [`DryRunScope::Compile`] dry run measures nothing: every
-//! launch, autotune's included, only queues its kernel, so a pass under it
-//! gathers every kernel the workload and its tuning reach. It compiles none of
-//! them: the first launch of a later `Profile` pass, or the first tune before
-//! it measures anything, compiles the whole queue in one batch, and that
-//! pass's tunes only measure.
+//! An [`ExecutionOverride`] counts what it triggers into a
+//! [`StatisticsCollector`], which a [`StatisticsReader`] reads from any
+//! thread: the kernels obtained and the tunes measured, counted to it by the
+//! code doing the work, on every device.
 //!
-//! [`CompileOnly`] does on one thread what a `Compile` dry run does on all of
-//! them, with or without a dry run: the launches it covers only queue their
-//! kernels, and the server compiles the whole queue at once, on its compiling
-//! threads, when it next loads a kernel for a launch.
+//! **Buffers are left as they were** under either policy that drops
+//! launches, so anything read back is meaningless. It only suits a pass
+//! driven by the *shapes* it produces, which is what keys the caches, and
+//! never one that branches on a computed value.
 //!
-//! **Buffers are left as they were**, so anything read back during a dry run is
-//! meaningless. It only suits a pass driven by the *shapes* it produces, which
-//! is what keys the caches, and never one that branches on a computed value.
-//!
-//! The decision is made here, once, on the thread that issues the launch.
-//! Servers receive the verdict as a [`LaunchMode`] argument rather than
-//! deriving it: by the time a launch reaches a server thread, the context that
-//! produced it is gone.
+//! The verdict is resolved where the launch is issued, on the stream it goes
+//! out on, and handed to the server as a [`LaunchAction`].
 
-use core::marker::PhantomData;
-use cubecl_environment::sync::{Arc, AtomicUsize, Mutex, Ordering};
+use crate::client::Client;
+use alloc::vec::Vec;
+use cubecl_environment::stream::StreamId;
+use cubecl_environment::sync::{AtomicUsize, Mutex, Ordering};
 
 mod statistics;
 
-use statistics::Observed;
-pub use statistics::{Counter, DryRunCounter, DryRunObservation, DryRunObserver, Progress};
+pub use statistics::{
+    AutotuneRecorder, AutotuneStatistics, CompilationRecorder, CompilationStatistics,
+    ExecutionStatistics, StatisticsCollector, StatisticsReader, StatisticsRecorder,
+};
 
-/// What a server should do with a launch.
+/// What the process does with the work it is asked to run.
+///
+/// Each policy is a level, the number the process's open override holds in
+/// its low bits; zero is none, which executes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LaunchMode {
+#[repr(usize)]
+pub enum ExecutionPolicy {
+    /// Launches run. What the process does when no override is open.
+    Execute = 3,
+    /// Launches and tune candidates queue their kernels and are dropped. The
+    /// queue compiles in one batch, at the next launch that loads a kernel. A
+    /// tune measures and decides nothing.
+    CompileOnly = 1,
+    /// Launches compile their kernels and are dropped. A tune measures its
+    /// candidates for real.
+    CompileAndAutotune = 2,
+}
+
+impl ExecutionPolicy {
+    /// The policy at `level`: none open executes.
+    fn at(level: usize) -> Self {
+        match level {
+            1 => Self::CompileOnly,
+            2 => Self::CompileAndAutotune,
+            _ => Self::Execute,
+        }
+    }
+
+    /// The mode a stream has under it, unless a [`StreamModeOverride`] says
+    /// otherwise.
+    fn stream_default(self) -> StreamMode {
+        match self {
+            Self::Execute => StreamMode::Execute,
+            Self::CompileOnly | Self::CompileAndAutotune => StreamMode::Compile,
+        }
+    }
+
+    /// Whether launches on a stream it sets are dropped.
+    pub fn drops_launches(self) -> bool {
+        self.stream_default() == StreamMode::Compile
+    }
+}
+
+/// Whether a stream's launches run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamMode {
+    /// They run.
+    Execute,
+    /// Their kernels compile — now under
+    /// [`CompileAndAutotune`](ExecutionPolicy::CompileAndAutotune), queued for
+    /// a batch otherwise — and they are dropped.
+    Compile,
+}
+
+/// What a server does with one launch: the verdict its stream's mode and the
+/// process's policy resolve to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LaunchAction {
     /// Compile if needed, then run it. The normal case.
     Execute,
     /// Compile if needed, cache the artifact, and drop the launch.
@@ -54,255 +110,150 @@ pub enum LaunchMode {
     /// A server honoring this must still do everything a first launch does
     /// short of dispatching — expand, compile, validate, populate its caches —
     /// or the pass buys nothing.
-    Skip,
+    Compile,
     /// Queue the kernel to be compiled with others, and drop the launch.
     ///
     /// A server honoring this compiles the queue when it next loads a kernel
     /// for a launch, and only then: flushing or syncing compiles nothing, so
     /// a pass that only queues gathers everything it reaches into one batch.
     /// A kernel that fails to compile there reports it when it is launched.
-    CompileOnly,
+    Queue,
 }
 
-impl LaunchMode {
-    /// Whether the launch should be dropped rather than run.
-    pub fn is_skipped(self) -> bool {
-        matches!(self, LaunchMode::Skip | LaunchMode::CompileOnly)
+impl LaunchAction {
+    /// Whether the launch is dropped rather than run.
+    pub fn drops_launch(self) -> bool {
+        matches!(self, Self::Compile | Self::Queue)
     }
 }
 
-/// What to do with a launch issued on this thread, right now: what the
-/// innermost [`RealRun`] or [`CompileOnly`] open on it says, and otherwise
-/// what the open [`DryRun`], if any, does with a launch.
-pub fn launch_mode() -> LaunchMode {
-    if let Some(mode) = scope::mode() {
-        return mode;
-    }
-
-    match dry_run_scope() {
-        Some(DryRunScope::Compile) => LaunchMode::CompileOnly,
-        Some(DryRunScope::Profile) => LaunchMode::Skip,
-        None => LaunchMode::Execute,
-    }
-}
-
-/// What a [`DryRun`] does with the work it drops.
-///
-/// Each scope is a level, the number the process's open dry run holds in its
-/// low bits while a dry run of it is open; zero is none.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(usize)]
-pub enum DryRunScope {
-    /// Gather kernels to compile: every launch queues its kernel, and a tune
-    /// queues its candidates' kernels without measuring them or deciding
-    /// anything. Nothing compiles under it; the queue compiles, in one batch,
-    /// when a later launch loads a kernel — the first of a
-    /// [`Profile`](Self::Profile) pass, which then tunes every key it reaches
-    /// with its kernels compiled.
-    Compile = 1,
-    /// Compile every kernel the workload launches, and tune what it tunes by
-    /// measuring the candidates for real.
-    Profile = 2,
-}
-
-impl DryRunScope {
-    /// The scope at `level`, or `None` at level zero, outside any dry run.
-    fn at(level: usize) -> Option<Self> {
-        match level {
-            1 => Some(Self::Compile),
-            2 => Some(Self::Profile),
-            _ => None,
+/// What a launch issued on `stream` does now.
+pub fn launch_action(stream: StreamId) -> LaunchAction {
+    let policy = policy();
+    let mode = stream_mode(stream).unwrap_or(policy.stream_default());
+    match (mode, policy) {
+        (StreamMode::Execute, _) => LaunchAction::Execute,
+        // A stream dropping its launches while the process executes queues
+        // them: they compile with the next launch that loads a kernel.
+        (StreamMode::Compile, ExecutionPolicy::CompileOnly | ExecutionPolicy::Execute) => {
+            LaunchAction::Queue
         }
+        (StreamMode::Compile, ExecutionPolicy::CompileAndAutotune) => LaunchAction::Compile,
     }
 }
 
-/// The pass open in this process: its scope's level in the low
-/// [`LEVEL_BITS`], and above them how many [`DryRunPass`] guards hold it
-/// open. Written only under [`ACTIVE`]'s lock, and read without it on every
-/// launch.
+/// The open override: its policy's level in the low [`LEVEL_BITS`], and
+/// above them how many guards hold it open. Written only under [`ACTIVE`]'s
+/// lock, and read without it on every launch.
 static OPEN: AtomicUsize = AtomicUsize::new(0);
-/// The bits of [`OPEN`] that hold the scope's level.
+/// The bits of [`OPEN`] that hold the policy's level.
 const LEVEL_BITS: u32 = 2;
-/// Masks [`OPEN`] down to the scope's level.
+/// Masks [`OPEN`] down to the policy's level.
 const LEVEL_MASK: usize = (1 << LEVEL_BITS) - 1;
 /// One guard, in [`OPEN`]'s count.
 const GUARD: usize = 1 << LEVEL_BITS;
 
-/// The dry run whose pass is open, while one is: what the work it provokes is
-/// counted to.
-static ACTIVE: Mutex<Option<Arc<Observed>>> = Mutex::new(None);
+/// Where the open override counts, while one is.
+static ACTIVE: Mutex<Option<StatisticsRecorder>> = Mutex::new(None);
 
-/// The id the next [`DryRun`] takes.
-static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
-
-/// Whether a dry run's pass is open, in either scope.
-pub fn dry_run() -> bool {
-    dry_run_scope().is_some()
+/// The process's policy now.
+pub fn policy() -> ExecutionPolicy {
+    ExecutionPolicy::at(OPEN.load(Ordering::Relaxed) & LEVEL_MASK)
 }
 
-/// The scope of the pass open in this process, if one is.
-pub fn dry_run_scope() -> Option<DryRunScope> {
-    DryRunScope::at(OPEN.load(Ordering::Relaxed) & LEVEL_MASK)
-}
-
-/// Where the work the open pass provokes is counted, or `None` outside one.
+/// Where the work the open override triggers is counted, or `None` when
+/// none is open.
 ///
-/// For the code doing that work — the kernel loader queuing and compiling,
-/// autotune gathering and measuring — not for a caller, which reads its own
-/// [`DryRun::observe`].
-pub fn counted() -> Option<DryRunCounter> {
-    if !dry_run() {
+/// For the code doing that work — the kernel loader registering and
+/// compiling, autotune gathering and measuring — not for a caller, which
+/// reads its own [`StatisticsCollector`].
+pub fn recorder() -> Option<StatisticsRecorder> {
+    if OPEN.load(Ordering::Relaxed) == 0 {
         return None;
     }
-    ACTIVE.lock().as_ref().map(Observed::counter)
+    ACTIVE.lock().clone()
 }
 
-/// Identifies one [`DryRun`] in the process: the dry run an open pass
-/// belongs to, and so the one the work under it is counted to. Minted by
-/// [`DryRun::new`] alone.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct DryRunId(usize);
-
-/// One dry run: a workload run for the compilation and tuning it provokes,
-/// over as many passes, and on as many devices, as it takes.
+/// Applies a policy to the whole process while it lives, counting what it
+/// triggers into a collector, on every thread and every device.
 ///
-/// It drops nothing on its own. Each [`pass`](Self::pass) opens a scope —
-/// gather and compile, or profile — for as long as its guard lives, and the
-/// work the launches under it provoke is counted to this dry run, which
-/// [`observe`](Self::observe) reads. A build that compiles everything and
-/// then tunes with it compiled is one dry run with two passes:
+/// A build that compiles everything and then tunes with it compiled opens
+/// two, one after the other, with one collector:
 ///
 /// ```no_run
 /// # fn warm_up() {}
-/// use cubecl_runtime::execution::{DryRun, DryRunScope};
+/// use cubecl_runtime::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
 ///
-/// let dry_run = DryRun::new();
+/// let collector = StatisticsCollector::new();
 ///
 /// // Gather every kernel the warm-up reaches, and compile them together...
-/// let compile = dry_run.pass(DryRunScope::Compile);
+/// let compile = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
 /// warm_up();
 /// drop(compile);
 ///
-/// // ...then tune with them compiled: this pass only measures.
-/// let _profile = dry_run.pass(DryRunScope::Profile);
+/// // ...then tune with them compiled.
+/// let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
 /// warm_up();
 ///
-/// let observed = dry_run.observe();
-/// assert_eq!(observed.kernels.pending(), 0);
+/// let statistics = collector.statistics();
+/// assert_eq!(statistics.compilation.settled(), statistics.compilation.registered);
 /// ```
 ///
-/// There is deliberately no configuration file or environment variable for
-/// it. A pass left open by accident turns the rest of the process into
-/// launches that quietly do nothing and read back uninitialized memory, so
-/// its lifetime belongs to a scope in the code that wants it, not to an
-/// ambient default nothing in the process can see.
+/// Overlapping overrides of one policy and one collector compose, so one
+/// opened while another is still open leaves the policy until the last of
+/// them drops. One policy and one collector at a time: the policy is
+/// process-wide, and the work under it counts to one collector.
 ///
-/// It is not `Clone`: whoever holds it opens its passes. A reader on another
-/// thread holds an [`observer`](Self::observer) instead.
+/// The policy is read where a launch is issued, with relaxed ordering, so a
+/// launch another thread had already begun issuing may still execute. What
+/// is guaranteed is the launches issued by the thread that opened it, and
+/// every launch issued after other threads observe it.
+///
+/// There is deliberately no configuration file or environment variable for
+/// it. An override left open by accident turns the rest of the process into
+/// launches that quietly do nothing and read back uninitialized memory, so
+/// its lifetime belongs to a scope in the code that wants it.
 #[derive(Debug)]
-pub struct DryRun {
-    observed: Arc<Observed>,
+pub struct ExecutionOverride {
+    _private: (),
 }
 
-impl DryRun {
-    /// A dry run with no pass open yet, under an id of its own.
-    pub fn new() -> Self {
-        let id = DryRunId(NEXT_ID.fetch_add(1, Ordering::Relaxed));
-        Self {
-            observed: Observed::new(id),
-        }
-    }
-
-    /// Its id.
-    pub fn id(&self) -> DryRunId {
-        self.observed.id()
-    }
-
-    /// What reads it from another thread, opening nothing.
-    pub fn observer(&self) -> DryRunObserver {
-        self.observed.observer()
-    }
-
-    /// Make every launch a dry run of `scope` for as long as the guard
-    /// lives, on every thread and every device, counting what they provoke
-    /// to this dry run.
-    ///
-    /// Overlapping passes of one scope compose, so a pass opened while
-    /// another is still open leaves the scope open until the last of them
-    /// drops. One scope is open at a time — a pass is process-wide, and
-    /// inside a `Compile` one there is nothing measured for a `Profile` one
-    /// to read — and one dry run: the work under an open pass counts to one
-    /// dry run.
-    ///
-    /// The open scope is read on the thread issuing a launch, with relaxed
-    /// ordering, so a launch another thread had already begun issuing may
-    /// still execute. What is guaranteed is the launches issued by the
-    /// thread that opened the pass, and every launch issued after other
-    /// threads observe it.
-    ///
+impl ExecutionOverride {
     /// # Panics
     ///
-    /// If a pass of the other scope, or of another dry run, is open.
-    pub fn pass(&self, scope: DryRunScope) -> DryRunPass {
-        let level = scope as usize;
+    /// If an override of another policy, or of another collector, is open.
+    pub fn new(policy: ExecutionPolicy, collector: &StatisticsCollector) -> Self {
+        let level = policy as usize;
         let mut active = ACTIVE.lock();
         let open = OPEN.load(Ordering::Relaxed);
-        match (open & LEVEL_MASK, active.as_ref()) {
-            (0, _) => {
-                *active = Some(self.observed.clone());
-                OPEN.store(GUARD | level, Ordering::Relaxed);
+        let open_level = open & LEVEL_MASK;
+        if open_level == 0 {
+            *active = Some(collector.recorder());
+            OPEN.store(GUARD | level, Ordering::Relaxed);
+            return Self { _private: () };
+        }
+        let same_collector = active
+            .as_ref()
+            .is_some_and(|recorder| recorder.counts_into(collector));
+        let open_policy = ExecutionPolicy::at(open_level);
+        drop(active);
+        match (open_level == level, same_collector) {
+            (true, true) => {
+                OPEN.fetch_add(GUARD, Ordering::Relaxed);
+                Self { _private: () }
             }
-            (open_level, Some(owner)) if open_level == level && owner.id() == self.id() => {
-                OPEN.store(open + GUARD, Ordering::Relaxed);
-            }
-            (open_level, owner) => {
-                let open_scope = DryRunScope::at(open_level).expect("open, matched above");
-                let another = owner.is_some_and(|owner| owner.id() != self.id());
-                drop(active);
-                match another {
-                    true => panic!(
-                        "a pass of dry run {:?} cannot open while one of another is",
-                        self.id()
-                    ),
-                    false => {
-                        panic!("a {scope:?} pass cannot open while a {open_scope:?} one is")
-                    }
-                }
+            (_, false) => panic!("an override cannot open while one of another collector is"),
+            (false, true) => {
+                panic!("a {policy:?} override cannot open while a {open_policy:?} one is")
             }
         }
-        DryRunPass { scope }
-    }
-
-    /// What it has provoked so far, over every pass and device.
-    pub fn observe(&self) -> DryRunObservation {
-        self.observed.observe()
     }
 }
 
-impl Default for DryRun {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// A [`DryRun`]'s pass while it is open: every launch is a dry run of its
-/// scope until it drops.
-#[derive(Debug)]
-pub struct DryRunPass {
-    scope: DryRunScope,
-}
-
-impl DryRunPass {
-    /// The scope it opened.
-    pub fn scope(&self) -> DryRunScope {
-        self.scope
-    }
-}
-
-impl Drop for DryRunPass {
+impl Drop for ExecutionOverride {
     fn drop(&mut self) {
-        // The last guard out closes the pass, its level and its dry run with
-        // it.
+        // The last guard out closes the override, its policy and its
+        // collector with it.
         let mut active = ACTIVE.lock();
         let open = OPEN.load(Ordering::Relaxed) - GUARD;
         if open < GUARD {
@@ -314,126 +265,69 @@ impl Drop for DryRunPass {
     }
 }
 
-/// Makes the launches issued on this thread execute for real even inside a
-/// [`DryRun`], for as long as it lives.
+/// Sets the mode of one client's stream while it lives, restored on drop:
+/// what a measurement opens, so its launches run whatever the policy drops.
 ///
-/// Autotune holds one: its launches are the measurement a dry run exists to
-/// provoke, not the workload it exists to skip. Held across warm-up and samples
-/// alike, since a candidate that was never warmed is a candidate measured on
-/// its first, slowest run.
-///
-/// Thread-local, and the thread that matters is the one issuing the launches,
-/// which is not always the one that asked for them: a task handed to
-/// [`Client::exclusive`](crate::client::Client::exclusive) runs on
-/// the device thread. The guard has to live inside that task, alongside the
-/// launches it covers, not around the call that submits it.
+/// Keyed on the stream the client's launches go out on — a client bound to
+/// a stream of its own does not follow the thread's — so it holds wherever
+/// those launches are issued from, a task resumed on another thread
+/// included. Overrides of one stream nest, the newest deciding, and may
+/// drop in any order.
 #[derive(Debug)]
-pub struct RealRun {
-    /// Held for its drop, which restores the mode it replaced.
-    _guard: ModeGuard,
+pub struct StreamModeOverride {
+    id: usize,
 }
 
-impl RealRun {
-    /// Opts this thread back into executing until the guard drops.
-    #[allow(clippy::new_without_default, reason = "a guard is not a value")]
-    pub fn new() -> Self {
-        Self {
-            _guard: ModeGuard::new(LaunchMode::Execute),
-        }
+/// One live [`StreamModeOverride`].
+#[derive(Debug)]
+struct StreamModeEntry {
+    id: usize,
+    stream: StreamId,
+    mode: StreamMode,
+}
+
+/// How many [`StreamModeOverride`]s are live: a launch looks them up only
+/// when some are.
+static LIVE_STREAM_MODES: AtomicUsize = AtomicUsize::new(0);
+/// The live overrides, oldest first.
+static STREAM_MODES: Mutex<Vec<StreamModeEntry>> = Mutex::new(Vec::new());
+/// The id the next override takes.
+static NEXT_STREAM_MODE: AtomicUsize = AtomicUsize::new(0);
+
+impl StreamModeOverride {
+    /// Put `client`'s stream in `mode` until the guard drops.
+    pub fn new(mode: StreamMode, client: &Client) -> Self {
+        Self::on(mode, client.stream_id())
+    }
+
+    fn on(mode: StreamMode, stream: StreamId) -> Self {
+        let id = NEXT_STREAM_MODE.fetch_add(1, Ordering::Relaxed);
+        let mut modes = STREAM_MODES.lock();
+        modes.push(StreamModeEntry { id, stream, mode });
+        LIVE_STREAM_MODES.store(modes.len(), Ordering::Release);
+        Self { id }
     }
 }
 
-/// Makes the launches issued on this thread only queue their kernels for
-/// compilation, for as long as it lives — see [`LaunchMode::CompileOnly`].
-///
-/// A nested [`RealRun`] still executes, which is what lets a candidate that
-/// dispatches through another tuner have that one measure for real.
-///
-/// Thread-local, like [`RealRun`], and for the same reason it has to live on
-/// the thread issuing the launches.
-#[derive(Debug)]
-pub struct CompileOnly {
-    /// Held for its drop, which restores the mode it replaced.
-    _guard: ModeGuard,
-}
-
-impl CompileOnly {
-    /// Makes this thread's launches queue their kernels until the guard drops.
-    #[allow(clippy::new_without_default, reason = "a guard is not a value")]
-    pub fn new() -> Self {
-        Self {
-            _guard: ModeGuard::new(LaunchMode::CompileOnly),
-        }
-    }
-}
-
-/// Sets this thread's launch mode for as long as it lives, and restores the
-/// one it replaced when it drops: what [`RealRun`] and [`CompileOnly`] are,
-/// each with its mode.
-#[derive(Debug)]
-struct ModeGuard {
-    outer: Option<LaunchMode>,
-    /// Keeps the guard on the thread whose mode it set: dropped on another,
-    /// it would restore that thread's mode and leave its own set forever.
-    on_thread: PhantomData<*const ()>,
-}
-
-impl ModeGuard {
-    fn new(mode: LaunchMode) -> Self {
-        Self {
-            outer: scope::enter(mode),
-            on_thread: PhantomData,
-        }
-    }
-}
-
-impl Drop for ModeGuard {
+impl Drop for StreamModeOverride {
     fn drop(&mut self) {
-        scope::exit(self.outer);
+        let mut modes = STREAM_MODES.lock();
+        modes.retain(|entry| entry.id != self.id);
+        LIVE_STREAM_MODES.store(modes.len(), Ordering::Release);
     }
 }
 
-/// The mode the innermost guard open on this thread sets.
-///
-/// Each guard keeps the mode it replaced and restores it when it drops, so
-/// guards nest in either order and the innermost decides — a swap that is
-/// safe here, unlike for [`DryRun`], because nothing outside the thread can
-/// see it and guards on one thread drop in reverse order.
-#[cfg(feature = "std")]
-mod scope {
-    use super::LaunchMode;
-    use core::cell::Cell;
-
-    std::thread_local! {
-        static MODE: Cell<Option<LaunchMode>> = const { Cell::new(None) };
+/// The mode the newest live override sets for `stream`, if one does.
+fn stream_mode(stream: StreamId) -> Option<StreamMode> {
+    if LIVE_STREAM_MODES.load(Ordering::Acquire) == 0 {
+        return None;
     }
-
-    pub(super) fn mode() -> Option<LaunchMode> {
-        MODE.with(|mode| mode.get())
-    }
-
-    pub(super) fn enter(mode: LaunchMode) -> Option<LaunchMode> {
-        MODE.with(|current| current.replace(Some(mode)))
-    }
-
-    pub(super) fn exit(outer: Option<LaunchMode>) {
-        MODE.with(|current| current.set(outer));
-    }
-}
-
-#[cfg(not(feature = "std"))]
-mod scope {
-    // No threads to be local to: no guard changes anything, so every launch
-    // follows the dry run. This keeps the call sites uniform.
-    use super::LaunchMode;
-
-    pub(super) fn mode() -> Option<LaunchMode> {
-        None
-    }
-    pub(super) fn enter(_mode: LaunchMode) -> Option<LaunchMode> {
-        None
-    }
-    pub(super) fn exit(_outer: Option<LaunchMode>) {}
+    STREAM_MODES
+        .lock()
+        .iter()
+        .rev()
+        .find(|entry| entry.stream == stream)
+        .map(|entry| entry.mode)
 }
 
 #[cfg(test)]
@@ -443,199 +337,164 @@ mod tests {
     // bring in itself.
     use alloc::vec;
 
-    /// The guard nests: an inner measurement ending must not cancel the outer
-    /// one, or a tunable that dispatches through another tuner would have the
-    /// rest of its own measurement dropped.
+    fn stream(value: u64) -> StreamId {
+        StreamId { value }
+    }
+
+    /// The verdict is a table of a stream's mode and the policy.
     #[test]
-    fn real_run_nests() {
-        assert_eq!(scope::mode(), None);
-        let outer = RealRun::new();
+    #[serial_test::serial]
+    fn a_launch_follows_its_stream_and_the_policy() {
+        let collector = StatisticsCollector::new();
+        assert_eq!(launch_action(stream(7)), LaunchAction::Execute);
         {
-            let _inner = RealRun::new();
-            assert_eq!(scope::mode(), Some(LaunchMode::Execute));
+            let _compile = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
+            assert_eq!(launch_action(stream(7)), LaunchAction::Queue);
         }
-        assert_eq!(
-            scope::mode(),
-            Some(LaunchMode::Execute),
-            "the outer guard is still open"
-        );
-        drop(outer);
-        assert_eq!(scope::mode(), None);
-    }
-
-    /// The innermost guard decides: a compile-only guard inside a measurement queues,
-    /// and a nested tuner measures inside that.
-    #[test]
-    #[serial_test::serial]
-    fn the_innermost_guard_decides() {
-        let _real_run = RealRun::new();
         {
-            let _compile_only = CompileOnly::new();
-            assert_eq!(launch_mode(), LaunchMode::CompileOnly);
-            {
-                let _nested = RealRun::new();
-                assert_eq!(
-                    launch_mode(),
-                    LaunchMode::Execute,
-                    "a nested tuner measures"
-                );
-            }
-            assert_eq!(launch_mode(), LaunchMode::CompileOnly);
+            let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
+            assert_eq!(launch_action(stream(7)), LaunchAction::Compile);
         }
-        assert_eq!(launch_mode(), LaunchMode::Execute);
+        let _execute = ExecutionOverride::new(ExecutionPolicy::Execute, &collector);
+        assert_eq!(launch_action(stream(7)), LaunchAction::Execute);
     }
 
-    /// A compile-only dry run queues every launch, and a measurement's
-    /// `RealRun` inside it still executes.
+    /// One policy is open at a time: an override of another refuses to open
+    /// beside it.
     #[test]
     #[serial_test::serial]
-    fn a_compile_dry_run_queues_launches() {
-        let _compile = DryRun::new().pass(DryRunScope::Compile);
-        assert_eq!(dry_run_scope(), Some(DryRunScope::Compile));
-        assert_eq!(launch_mode(), LaunchMode::CompileOnly);
-        let _real_run = RealRun::new();
-        assert_eq!(launch_mode(), LaunchMode::Execute);
+    #[should_panic(
+        expected = "a CompileOnly override cannot open while a CompileAndAutotune one is"
+    )]
+    fn policies_do_not_overlap() {
+        let collector = StatisticsCollector::new();
+        let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
+        let _compile = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
     }
 
-    /// One scope is open at a time: a dry run of the other scope refuses to
-    /// open beside it.
+    /// The work under an override counts to one collector: another's
+    /// refuses to open beside it, whatever its policy.
     #[test]
     #[serial_test::serial]
-    #[should_panic(expected = "a Compile pass cannot open while a Profile one is")]
-    fn scopes_do_not_overlap() {
-        let dry_run = DryRun::new();
-        let _profile = dry_run.pass(DryRunScope::Profile);
-        let _compile = dry_run.pass(DryRunScope::Compile);
+    #[should_panic(expected = "cannot open while one of another collector is")]
+    fn two_collectors_do_not_overlap() {
+        let (first, second) = (StatisticsCollector::new(), StatisticsCollector::new());
+        let _first = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &first);
+        let _second = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &second);
     }
 
-    /// A refused open leaves the open scope as it was: still open, and closed
-    /// by its own guard's drop.
+    /// A refused open leaves the open override as it was.
     #[test]
     #[serial_test::serial]
-    fn a_refused_open_leaves_the_open_scope() {
-        let dry_run = DryRun::new();
-        let profile = dry_run.pass(DryRunScope::Profile);
-        let refused = std::panic::catch_unwind(|| dry_run.pass(DryRunScope::Compile));
+    fn a_refused_open_leaves_the_open_policy() {
+        let collector = StatisticsCollector::new();
+        let tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
+        let refused = std::panic::catch_unwind(|| {
+            ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector)
+        });
         assert!(refused.is_err());
-        assert_eq!(dry_run_scope(), Some(DryRunScope::Profile));
-        drop(profile);
-        assert_eq!(dry_run_scope(), None);
+        assert_eq!(policy(), ExecutionPolicy::CompileAndAutotune);
+        drop(tune);
+        assert_eq!(policy(), ExecutionPolicy::Execute);
     }
 
-    /// The last guard of a scope closes it, so the other scope opens next.
+    /// Overlapping overrides of one policy and collector compose: the last
+    /// out closes it.
     #[test]
     #[serial_test::serial]
-    fn a_closed_scope_makes_way_for_the_other() {
-        let dry_run = DryRun::new();
-        drop(dry_run.pass(DryRunScope::Compile));
-        assert_eq!(dry_run_scope(), None);
-        let _profile = dry_run.pass(DryRunScope::Profile);
-        assert_eq!(launch_mode(), LaunchMode::Skip);
-    }
-
-    /// Compiling only needs no dry run: the guard queues on its own.
-    #[test]
-    #[serial_test::serial]
-    fn compile_only_works_outside_a_dry_run() {
-        assert!(!dry_run());
-        let _compile_only = CompileOnly::new();
-        assert_eq!(launch_mode(), LaunchMode::CompileOnly);
-        assert!(launch_mode().is_skipped());
-    }
-
-    /// Nothing is skipped outside a dry run, whatever the depth.
-    #[test]
-    #[serial_test::serial]
-    fn launches_execute_by_default() {
-        assert_eq!(launch_mode(), LaunchMode::Execute);
-        let _real_run = RealRun::new();
-        assert_eq!(launch_mode(), LaunchMode::Execute);
-    }
-
-    /// The whole contract in one place: in a dry run every launch is dropped
-    /// *except* the ones a measurement issues, which are the tuning the mode
-    /// exists to keep.
-    #[test]
-    #[serial_test::serial]
-    fn a_dry_run_spares_the_measurements() {
-        let _dry_run = DryRun::new().pass(DryRunScope::Profile);
-
-        assert_eq!(launch_mode(), LaunchMode::Skip);
+    fn overrides_nest() {
+        let collector = StatisticsCollector::new();
         {
-            let _real_run = RealRun::new();
-            assert_eq!(launch_mode(), LaunchMode::Execute, "a measurement runs");
-        }
-        assert_eq!(launch_mode(), LaunchMode::Skip);
-    }
-
-    /// Overlapping guards compose, so neither an inner guard ending nor an
-    /// outer one can leave the process in the wrong mode. This is what a
-    /// swap-and-restore got wrong across threads.
-    #[test]
-    #[serial_test::serial]
-    fn dry_runs_nest() {
-        assert!(!dry_run());
-        let build = DryRun::new();
-        {
-            let _outer = build.pass(DryRunScope::Profile);
+            let _outer = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
             {
-                let _inner = build.pass(DryRunScope::Profile);
-                assert!(dry_run());
+                let _inner = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
             }
-            assert!(dry_run(), "the outer guard is still in force");
+            assert_eq!(
+                policy(),
+                ExecutionPolicy::CompileOnly,
+                "the outer is in force"
+            );
         }
-        assert!(!dry_run(), "and the process is back to executing");
+        assert_eq!(policy(), ExecutionPolicy::Execute);
+        assert!(recorder().is_none());
     }
 
-    /// A pass counts to its own dry run: one dry run's pass refuses to open
-    /// beside another's, whatever their scopes.
+    /// What an override triggers counts to its collector, over every
+    /// override of it, and a recorder handed out under one keeps counting
+    /// there after it closes; a reader reads the same counts.
     #[test]
     #[serial_test::serial]
-    #[should_panic(expected = "cannot open while one of another is")]
-    fn two_dry_runs_do_not_overlap() {
-        let (first, second) = (DryRun::new(), DryRun::new());
-        let _first = first.pass(DryRunScope::Profile);
-        let _second = second.pass(DryRunScope::Profile);
-    }
+    fn work_counts_to_the_collector_of_the_open_override() {
+        assert!(recorder().is_none(), "nothing counts outside an override");
+        let collector = StatisticsCollector::new();
+        let reader = collector.reader();
 
-    /// What the open pass provokes counts to its dry run, over every pass of
-    /// it, and nothing counts outside one; a counter handed out under a pass
-    /// keeps counting to its dry run after the pass closes.
-    #[test]
-    #[serial_test::serial]
-    fn work_counts_to_the_dry_run_whose_pass_is_open() {
-        assert!(counted().is_none(), "nothing counts outside a pass");
-        let build = DryRun::new();
-
-        let compile = build.pass(DryRunScope::Compile);
-        let counter = counted().expect("a pass is open");
-        assert_eq!(counter.id(), build.id());
-        counter.kernels().request(3);
-        counter.tunes().request(2);
+        let compile = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
+        let queued = recorder().expect("an override is open");
+        (0..3).for_each(|_| queued.compilation().register());
+        queued.autotune().register();
         drop(compile);
-        assert!(counted().is_none());
 
-        // A kernel queued in the compile pass settles in the profile one.
-        counter.kernels().settle(3);
-        let _profile = build.pass(DryRunScope::Profile);
-        counted().expect("a pass is open").tunes().settle(1);
+        // Kernels queued in one override compile in the next.
+        let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
+        queued.compilation().compiled();
+        queued.compilation().loaded();
+        queued.compilation().failed();
+        recorder()
+            .expect("an override is open")
+            .autotune()
+            .measured();
 
-        let observed = build.observe();
+        let statistics = collector.statistics();
         assert_eq!(
-            observed.kernels,
-            Progress {
-                requested: 3,
-                settled: 3
+            statistics.compilation,
+            CompilationStatistics {
+                registered: 3,
+                compiled: 1,
+                loaded: 1,
+                failed: 1,
             }
         );
-        assert_eq!(observed.tunes.pending(), 1);
-        let observer = build.observer();
-        assert_eq!(observer.id(), build.id());
+        assert_eq!(statistics.compilation.settled(), 3);
         assert_eq!(
-            observer.observe(),
-            observed,
-            "an observer reads the same counts"
+            statistics.autotune.settled(),
+            statistics.autotune.registered
         );
-        assert_eq!(DryRun::new().observe(), DryRunObservation::default());
+        assert_eq!(reader.statistics(), statistics);
+        assert_eq!(
+            StatisticsCollector::new().statistics(),
+            ExecutionStatistics::default()
+        );
+    }
+
+    /// A stream's mode overrides the policy's default for that stream alone,
+    /// the newest override deciding, and overrides drop in any order.
+    #[test]
+    #[serial_test::serial]
+    fn a_stream_mode_holds_for_its_stream() {
+        let collector = StatisticsCollector::new();
+        let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
+        let measuring = StreamModeOverride::on(StreamMode::Execute, stream(1));
+        assert_eq!(launch_action(stream(1)), LaunchAction::Execute);
+        assert_eq!(
+            launch_action(stream(2)),
+            LaunchAction::Compile,
+            "another stream"
+        );
+
+        let nested = StreamModeOverride::on(StreamMode::Compile, stream(1));
+        assert_eq!(
+            launch_action(stream(1)),
+            LaunchAction::Compile,
+            "the newest decides"
+        );
+        drop(measuring);
+        assert_eq!(launch_action(stream(1)), LaunchAction::Compile);
+        drop(nested);
+        assert_eq!(
+            launch_action(stream(1)),
+            LaunchAction::Compile,
+            "the policy's again"
+        );
     }
 }

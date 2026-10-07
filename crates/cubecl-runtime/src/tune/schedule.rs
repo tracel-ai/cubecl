@@ -72,7 +72,10 @@ impl Schedule<'_> {
     {
         let fallback = batch.indices();
         let run = || {
-            let _real_run = crate::execution::RealRun::new();
+            let _measuring = crate::execution::StreamModeOverride::new(
+                crate::execution::StreamMode::Execute,
+                client,
+            );
 
             cubecl_environment::future::block_on(self.drive(batch, autotunables, inputs, client))
         };

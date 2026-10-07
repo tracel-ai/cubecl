@@ -23,7 +23,7 @@ use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
-    execution::LaunchMode,
+    execution::LaunchAction,
     kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode},
@@ -341,7 +341,7 @@ impl Server for CpuServer {
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
-        launch_mode: LaunchMode,
+        launch_action: LaunchAction,
     ) {
         // Compilation comes first — memoized, so a launch after the first
         // pays a map lookup — because the write scope stages what the
@@ -352,18 +352,18 @@ impl Server for CpuServer {
         // refuse every later launch that shares them, an autotune sweep
         // above all.
         //
-        // A dry run stages none either way. It was never going to write, so a
+        // A dropped launch stages none either way. It was never going to write, so a
         // failure in it leaves nothing stale, and tainting its buffers would
         // fail unrelated reads of memory the run deliberately left alone. It
         // stops right after compilation, before anything that touches a
         // buffer: resolving resources or reading a dynamic cube count would
-        // materialize memory a dry run exists to leave unmapped. It registers
+        // materialize memory dropping a launch exists to leave unmapped. It registers
         // no stream dependency either, which is correct rather than an
         // oversight — nothing is scheduled, so there is no work for a later
         // stream to order against.
         // Storage bases and pool offsets are 64-byte aligned. A view can weaken that
         // guarantee, so cache a separate specialization for its common alignment.
-        // Inspect only descriptors: dry runs must not materialize any buffer.
+        // Inspect only descriptors: dropped launches must not materialize any buffer.
         let alignment =
             bindings
                 .resources
@@ -380,7 +380,7 @@ impl Server for CpuServer {
                 );
         let alignment = BufferAlignment(alignment);
         // A compile-only launch only queues its kernel, touching nothing else.
-        if launch_mode == LaunchMode::CompileOnly {
+        if launch_action == LaunchAction::Queue {
             self.kernels.enqueue(kernel, alignment);
             return;
         }
@@ -396,7 +396,7 @@ impl Server for CpuServer {
             Err(err) => {
                 let error = ServerError::Launch(err);
                 self.scheduler.stream(&stream_id).profile_failure(&error);
-                if !launch_mode.is_skipped() {
+                if !launch_action.drops_launch() {
                     let mut written = self.write_set();
                     written.extend(bindings.buffers_written(None).cloned());
                     failed_writing(self, stream_id, written, error);
@@ -404,7 +404,7 @@ impl Server for CpuServer {
                 return;
             }
         };
-        if launch_mode.is_skipped() {
+        if launch_action.drops_launch() {
             return;
         }
 

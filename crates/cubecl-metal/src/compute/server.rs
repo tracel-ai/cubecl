@@ -22,7 +22,7 @@ use cubecl_server::compiler::ArtifactId;
 use cubecl_server::memory_management::Cleanup;
 use cubecl_server::memory_management::PageUpdate;
 use cubecl_server::{
-    execution::LaunchMode,
+    execution::LaunchAction,
     kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{
@@ -348,7 +348,7 @@ impl Server for MetalServer {
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
-        launch_mode: LaunchMode,
+        launch_action: LaunchAction,
     ) {
         use objc2_metal::{MTLBuffer, MTLComputeCommandEncoder, MTLDevice, MTLResourceOptions};
 
@@ -361,11 +361,11 @@ impl Server for MetalServer {
         // refuse every later launch that shares them, an autotune sweep
         // above all.
         //
-        // A dry run stages none either way. It was never going to write, so a
+        // A dropped launch stages none either way. It was never going to write, so a
         // failure in it leaves nothing stale, and tainting its buffers would
         // fail unrelated reads of memory the run deliberately left alone.
         // A compile-only launch only queues its kernel, touching nothing else.
-        if launch_mode == LaunchMode::CompileOnly {
+        if launch_action == LaunchAction::Queue {
             self.context.queue(kernel);
             return;
         }
@@ -377,7 +377,7 @@ impl Server for MetalServer {
         let compiled = match compiled {
             Ok(compiled) => compiled,
             Err(err) => {
-                if !launch_mode.is_skipped() {
+                if !launch_action.drops_launch() {
                     let mut written = self.write_set();
                     written.extend(bindings.buffers_written(None).cloned());
                     failed_writing(self, stream_id, written, ServerError::Launch(err));
@@ -387,7 +387,7 @@ impl Server for MetalServer {
                 return;
             }
         };
-        if launch_mode.is_skipped() {
+        if launch_action.drops_launch() {
             return;
         }
         let kernel_id = id.kernel;

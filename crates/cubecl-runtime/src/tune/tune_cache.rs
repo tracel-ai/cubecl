@@ -9,7 +9,7 @@ use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOption
 use serde::{Deserialize, Serialize};
 
 use super::{AutotuneError, AutotuneKey, AutotuneOutcome};
-use crate::execution::DryRunCounter;
+use crate::execution::StatisticsRecorder;
 use alloc::string::String;
 use cubecl_environment::collections::HashMap;
 
@@ -20,12 +20,12 @@ pub(crate) enum CacheEntry {
         fastest_index: usize,
     },
     Pending,
-    /// A compile-only dry run queued the kernels of the key's candidates and decided nothing:
-    /// a miss to anything that tunes, and done to the next compile-only dry run. Never
-    /// persisted. `owed_to` is the dry run that requested the key's tune when it gathered it,
-    /// where the tune settles once measured; `None` when none did.
+    /// A `CompileOnly` override queued the kernels of the key's candidates and decided nothing:
+    /// a miss to anything that tunes, and done to the next `CompileOnly` override. Never
+    /// persisted. `registered_with` is where the override that gathered the key registered its
+    /// tune, and where the tune settles once its pick commits; `None` when it registered none.
     Compiled {
-        owed_to: Option<DryRunCounter>,
+        registered_with: Option<StatisticsRecorder>,
     },
 }
 
@@ -152,7 +152,7 @@ pub enum TuneCacheResult {
     /// Callers that see this fall through to running the operation rather than blocking on
     /// the in-flight job.
     Pending,
-    /// A compile-only [dry run](crate::execution::DryRunScope::Compile) queued the kernels of the
+    /// A [`CompileOnly`](crate::execution::ExecutionPolicy::CompileOnly) override queued the kernels of the
     /// key's candidates, and measured and decided nothing. Callers run the first candidate that
     /// serves the problem, which only queues its kernels too.
     Compiled,
@@ -288,24 +288,24 @@ impl<K: AutotuneKey> TuneCache<K> {
 
     /// Mark a key as being tuned. Used by [`Tuner::check_tune`] under the cache mutex so that
     /// concurrent callers see [`TuneCacheResult::Pending`] instead of starting a second job
-    /// for the same key. Returns the dry run the key's tune is owed to, if a compile-only dry
-    /// run gathering it requested it.
-    pub(crate) fn mark_pending(&mut self, key: K) -> Option<DryRunCounter> {
+    /// for the same key. Returns where the key's tune was registered, if the override that
+    /// gathered it registered it.
+    pub(crate) fn mark_pending(&mut self, key: K) -> Option<StatisticsRecorder> {
         match self.in_memory_cache.insert(key, CacheEntry::Pending) {
-            Some(CacheEntry::Compiled { owed_to }) => owed_to,
+            Some(CacheEntry::Compiled { registered_with }) => registered_with,
             _ => None,
         }
     }
 
-    /// Mark a key whose candidates' kernels a compile-only dry run queued, in place of the tune
-    /// it was [marked](Self::mark_pending) for: nothing was decided. `owed_to` is the dry run
-    /// that requested its tune, if one did.
-    pub(crate) fn mark_compiled(&mut self, key: K, owed_to: Option<DryRunCounter>) {
+    /// Mark a key whose candidates' kernels a `CompileOnly` override queued, in place of the tune
+    /// it was [marked](Self::mark_pending) for: nothing was decided. `registered_with` is where
+    /// its tune was registered, if it was.
+    pub(crate) fn mark_compiled(&mut self, key: K, registered_with: Option<StatisticsRecorder>) {
         self.in_memory_cache
-            .insert(key, CacheEntry::Compiled { owed_to });
+            .insert(key, CacheEntry::Compiled { registered_with });
     }
 
-    /// Whether a compile-only dry run already queued the kernels of `key`'s candidates.
+    /// Whether a `CompileOnly` override already queued the kernels of `key`'s candidates.
     pub(crate) fn is_compiled(&self, key: &K) -> bool {
         matches!(
             self.in_memory_cache.get(key),

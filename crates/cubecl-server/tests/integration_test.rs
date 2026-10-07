@@ -40,7 +40,7 @@ fn empty_allocates_memory() {
     assert_eq!(empty_resource.len(), 4);
 }
 
-// Dry runs are process-wide, so a test asserting that a launch really ran must
+// Execution overrides are process-wide, so a test asserting that a launch really ran must
 // not overlap one. `parallel` still runs alongside the other parallel tests; it
 
 /// A handle stamped for `service`, never allocated: what a caller holding a
@@ -240,7 +240,7 @@ fn execute_elementwise_addition() {
 /// must cost the observer its timing and nothing else: the kernel still runs,
 /// [`launched`](cubecl_server::logging::LaunchObserver::launched) still
 /// arrives, and `timed` is skipped. `serial` because the observer slot, the
-/// refusal toggle, and dry runs are all process-wide.
+/// refusal toggle, and execution overrides are all process-wide.
 #[test_log::test]
 #[serial_test::serial]
 fn a_refused_profile_degrades_to_an_untimed_launch() {
@@ -1349,7 +1349,7 @@ fn autotune_stops_sampling_an_eliminated_candidate() {
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 
-/// A dry run drops an ordinary launch: the server still compiles the kernel,
+/// An override that drops launches drops an ordinary launch: the server still compiles the kernel,
 /// exactly as it would otherwise, and then never runs it.
 ///
 /// This is the mode's whole promise and its whole hazard in one assertion — a
@@ -1358,8 +1358,8 @@ fn autotune_stops_sampling_an_eliminated_candidate() {
 #[test_log::test]
 #[cfg(feature = "std")]
 #[serial_test::serial]
-fn a_dry_run_drops_an_ordinary_launch() {
-    use cubecl_server::execution::{DryRun, DryRunScope};
+fn an_override_drops_an_ordinary_launch() {
+    use cubecl_server::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
 
     let client = test_client(&DummyDevice);
     let lhs = client.create_from_slice(&[0, 1, 2]);
@@ -1379,7 +1379,10 @@ fn a_dry_run_drops_an_ordinary_launch() {
     };
 
     {
-        let _dry_run = DryRun::new().pass(DryRunScope::Profile);
+        let _override = ExecutionOverride::new(
+            ExecutionPolicy::CompileAndAutotune,
+            &StatisticsCollector::new(),
+        );
         add(&out);
 
         assert_eq!(
@@ -1399,17 +1402,17 @@ fn a_dry_run_drops_an_ordinary_launch() {
 /// The exception that makes the mode worth having: autotune still executes,
 /// because its launches *are* the measurement.
 ///
-/// Tuning happens inside the dry run; the winner is then executed outside it. A
+/// Tuning happens under the override; the winner is then executed outside it. A
 /// tuner whose candidates had all been skipped would have nothing to tell them
 /// apart, and the slow kernel — which writes `[0, 1, 2]` — would win as often
 /// as not.
 #[test_log::test]
 #[cfg(feature = "std")]
 #[serial_test::serial]
-fn a_dry_run_still_autotunes() {
-    use cubecl_server::execution::{DryRun, DryRunScope};
+fn an_override_still_autotunes() {
+    use cubecl_server::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
 
-    static TUNER: LocalTuner<String, String> = local_tuner!("a_dry_run_still_autotunes");
+    static TUNER: LocalTuner<String, String> = local_tuner!("an_override_still_autotunes");
 
     let client = test_client(&DummyDevice);
     let test_set = TUNER.init(&"test".to_string(), || {
@@ -1422,7 +1425,10 @@ fn a_dry_run_still_autotunes() {
     let out = client.empty(3);
 
     {
-        let _dry_run = DryRun::new().pass(DryRunScope::Profile);
+        let _override = ExecutionOverride::new(
+            ExecutionPolicy::CompileAndAutotune,
+            &StatisticsCollector::new(),
+        );
         TUNER.execute(
             &"test".to_string(),
             &client,
@@ -1443,23 +1449,23 @@ fn a_dry_run_still_autotunes() {
     assert_eq!(
         client.read_one(out).unwrap().to_vec(),
         Vec::from([4, 5, 6]),
-        "the candidates were measured inside the dry run, so the fast one won"
+        "the candidates were measured under the override, so the fast one won"
     );
 }
 
-/// A compile-only dry run measures nothing and decides nothing: no sample is
+/// A `CompileOnly` override measures nothing and decides nothing: no sample is
 /// taken, so the eviction that runs before each never does; it queues a key's
 /// candidates once however often it reaches it; and the key is tuned for real
 /// by the first execution outside it.
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::serial]
-fn a_compile_dry_run_leaves_the_tune_to_the_next_pass() {
-    use cubecl_server::execution::{DryRun, DryRunScope};
+fn a_compile_only_override_leaves_the_tune_to_the_next_pass() {
+    use cubecl_server::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    static TUNER: LocalTuner<String, String> = local_tuner!("compile_dry_run");
+    static TUNER: LocalTuner<String, String> = local_tuner!("compile_only_override");
 
     let client = test_client(&DummyDevice);
     let calls = Arc::new(AtomicUsize::new(0));
@@ -1487,9 +1493,9 @@ fn a_compile_dry_run_leaves_the_tune_to_the_next_pass() {
     let out = client.empty(3);
     let handles = || vec![lhs.clone(), rhs.clone(), out.clone()];
 
-    let build = DryRun::new();
+    let collector = StatisticsCollector::new();
     {
-        let _compile = build.pass(DryRunScope::Compile);
+        let _compile = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
         TUNER.execute(&"test".to_string(), &client, test_set.clone(), handles());
         let compiled = calls.load(Ordering::Relaxed);
         assert!(compiled > 0, "the candidates ran, to queue their kernels");
@@ -1500,32 +1506,115 @@ fn a_compile_dry_run_leaves_the_tune_to_the_next_pass() {
         assert_eq!(calls.load(Ordering::Relaxed), compiled + 1);
     }
     assert_eq!(evictions.load(Ordering::Relaxed), 0, "nothing was measured");
-    let gathered = build.observe().tunes;
+    let gathered = collector.statistics().autotune;
     assert_eq!(
-        (gathered.requested, gathered.settled),
+        (gathered.registered, gathered.settled()),
         (1, 0),
         "gathered once"
     );
 
-    // Measured with no pass open, the tune still settles to the dry run that
-    // gathered it.
-    let observer = build.observer();
-    drop(build);
+    // Measured with no override open, the tune still settles to the
+    // collector that gathered it.
+    let reader = collector.reader();
+    drop(collector);
     TUNER.execute(&"test".to_string(), &client, test_set, handles());
     assert!(
         evictions.load(Ordering::Relaxed) > 0,
         "the key was left untuned, so this execution tuned it"
     );
-    let measured = observer.observe().tunes;
+    let measured = reader.statistics().autotune;
     assert_eq!(
-        (measured.requested, measured.settled),
+        (measured.registered, measured.measured),
         (1, 1),
         "the tune gathered is the one measured, counted where it was gathered"
     );
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 
-/// The other half of what a dry run leaves alone: memory. A reservation no
+/// A key a `CompileOnly` pass reaches inside another key's candidates is not
+/// registered: the pass that tunes may never run the candidate that reaches
+/// it. Once both passes are done, every tune registered has settled.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn a_key_reached_inside_another_registers_only_once_tuned() {
+    use cubecl_server::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
+    use cubecl_server::tune::{CloneInputGenerator, Tunable};
+
+    static OUTER: LocalTuner<String, String> = local_tuner!("nested_outer");
+    static INNER: LocalTuner<String, String> = local_tuner!("nested_inner");
+
+    let client = test_client(&DummyDevice);
+    let inner_calls = Arc::new(AtomicUsize::new(0));
+    let uid = fresh_tune_key_uid();
+    let inner_set = {
+        let (uid, inner_calls) = (uid.clone(), inner_calls.clone());
+        INNER.init(&"inner".to_string(), move || {
+            dummy::addition_set_with_rejected_candidate(
+                test_client(&DummyDevice),
+                vec![vec![1, 3], vec![1, 3], vec![1, 3]],
+                uid.clone(),
+                inner_calls.clone(),
+            )
+        })
+    };
+    let outer_set = OUTER.init(&"outer".to_string(), move || {
+        let op_add = OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseAddition),
+            test_client(&DummyDevice),
+        );
+        let (inner_client, inner_set) = (test_client(&DummyDevice), inner_set.clone());
+        let uid = uid.clone();
+        TunableSet::<String, Vec<Handle>, ()>::new(
+            move |_input: &Vec<Handle>| format!("nested-{uid}"),
+            CloneInputGenerator,
+        )
+        .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
+        .with(Tunable::new("through_inner", move |inputs: Vec<Handle>| {
+            INNER.execute(
+                &"inner".to_string(),
+                &inner_client,
+                inner_set.clone(),
+                inputs,
+            );
+            Ok::<(), String>(())
+        }))
+    });
+
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = || vec![lhs.clone(), rhs.clone(), out.clone()];
+
+    let collector = StatisticsCollector::new();
+    {
+        let _compile = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
+        OUTER.execute(&"outer".to_string(), &client, outer_set.clone(), handles());
+    }
+    assert!(
+        inner_calls.load(Ordering::Relaxed) > 0,
+        "the outer key's candidates reached the inner key"
+    );
+    assert_eq!(
+        collector.statistics().autotune.registered,
+        1,
+        "only the outer key is registered"
+    );
+
+    {
+        let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
+        OUTER.execute(&"outer".to_string(), &client, outer_set, handles());
+    }
+    let tuned = collector.statistics().autotune;
+    assert!(tuned.registered >= 1);
+    assert_eq!(
+        tuned.settled(),
+        tuned.registered,
+        "every tune registered has settled"
+    );
+}
+
+/// The other half of what dropping launches leaves alone: memory. A reservation no
 /// executed launch, read or write ever touches gets no device backing — the
 /// skipped launch resolves nothing — and backing is installed on demand the
 /// first time the buffer is actually dereferenced.
@@ -1535,12 +1624,15 @@ fn a_compile_dry_run_leaves_the_tune_to_the_next_pass() {
 // sub-slicing falls back to are always mapped at reservation.
 #[cfg(not(exclusive_memory_only))]
 #[serial_test::serial]
-fn a_dry_run_reserves_without_mapping() {
-    use cubecl_server::execution::{DryRun, DryRunScope};
+fn an_override_reserves_without_mapping() {
+    use cubecl_server::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
     use cubecl_server::memory_management::MemoryPoolReport;
 
     let client = test_client(&DummyDevice);
-    let dry_run = DryRun::new().pass(DryRunScope::Profile);
+    let execution = ExecutionOverride::new(
+        ExecutionPolicy::CompileAndAutotune,
+        &StatisticsCollector::new(),
+    );
 
     // Big enough to land in a large-page pool of its own: the parallel tests
     // in this binary allocate a few bytes at a time, so nothing else touches
@@ -1560,7 +1652,7 @@ fn a_dry_run_reserves_without_mapping() {
             .clone()
     }
 
-    // A workload-sized buffer, launched against only inside the dry run: the
+    // A workload-sized buffer, launched against only under the override: the
     // launch is compiled and dropped before resolving any resource.
     let out = client.empty(SIZE as usize);
     client.launch(
@@ -1591,7 +1683,7 @@ fn a_dry_run_reserves_without_mapping() {
         "resolution installed the backing: {report:?}"
     );
 
-    drop(dry_run);
+    drop(execution);
 }
 
 /// A tunable set is built from the device it will run on — a closure captures
