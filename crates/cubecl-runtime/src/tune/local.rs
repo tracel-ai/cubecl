@@ -230,7 +230,7 @@ where
             // queued by a compile-only dry run: run the first operation that serves the problem,
             // which in a dry run only queues its kernels.
             TuneCacheResult::Pending | TuneCacheResult::Compiled => {
-                let mut failures = Vec::with_capacity(operations.len());
+                let mut failures = Vec::new();
                 for i in 0..operations.len() {
                     match operations.fastest(i).execute(inputs.clone()) {
                         Ok(output) => return output,
