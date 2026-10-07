@@ -215,7 +215,7 @@ pub fn recorder() -> Option<StatisticsRecorder> {
 /// its lifetime belongs to a scope in the code that wants it.
 #[derive(Debug)]
 pub struct ExecutionOverride {
-    _private: (),
+    policy: ExecutionPolicy,
 }
 
 impl ExecutionOverride {
@@ -230,7 +230,7 @@ impl ExecutionOverride {
         if open_level == 0 {
             *active = Some(collector.recorder());
             OPEN.store(GUARD | level, Ordering::Relaxed);
-            return Self { _private: () };
+            return Self { policy };
         }
         let same_collector = active
             .as_ref()
@@ -240,13 +240,18 @@ impl ExecutionOverride {
         match (open_level == level, same_collector) {
             (true, true) => {
                 OPEN.fetch_add(GUARD, Ordering::Relaxed);
-                Self { _private: () }
+                Self { policy }
             }
             (_, false) => panic!("an override cannot open while one of another collector is"),
             (false, true) => {
                 panic!("a {policy:?} override cannot open while a {open_policy:?} one is")
             }
         }
+    }
+
+    /// The policy it applies.
+    pub fn policy(&self) -> ExecutionPolicy {
+        self.policy
     }
 }
 
