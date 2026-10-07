@@ -8,7 +8,7 @@ use crate::{
 use core::hash::Hash;
 use darling::{FromMeta, ast::NestedMeta, util::Flag};
 use proc_macro2::{Span, TokenStream};
-use quote::{ToTokens, format_ident, quote};
+use quote::{ToTokens, quote};
 use std::{collections::BTreeMap, iter};
 use syn::{
     AssocType, Attribute, ConstParam, Expr, GenericArgument, Generics, Ident, ItemFn, LitStr, Path,
@@ -69,7 +69,6 @@ impl KernelArgs {
 #[derive(Clone)]
 pub struct GenericArg {
     pub expand_ty: syn::Path,
-    pub marker_ty: syn::Ident,
     pub kind: DefineKind,
 }
 
@@ -231,6 +230,7 @@ impl GenericAnalysis {
         let mut map = BTreeMap::new();
         let elem_expand = prelude_type("DynamicScalar");
         let size_expand = prelude_type("DynamicSize");
+        let slot = prelude_type("GenericSlot");
 
         for type_param in generics.type_params() {
             if type_param.bounds.len() > 1 {
@@ -242,7 +242,18 @@ impl GenericAnalysis {
             {
                 let name = bound.to_string();
                 let ident = type_param.ident.clone();
-                let marker_ty = format_ident!("_{ident}");
+                // Keyed by the parameter's *name*, not by the kernel: the tag
+                // only has to separate `E` from `EA` within one kernel, and
+                // making it per-kernel forked every downstream instantiation.
+                let hash = {
+                    let mut h: u64 = 0xcbf29ce484222325;
+                    for b in ident.to_string().as_bytes() {
+                        h ^= *b as u64;
+                        h = h.wrapping_mul(0x100000001b3);
+                    }
+                    proc_macro2::Literal::u64_unsuffixed(h)
+                };
+                let marker_ty: syn::Path = parse_quote!(#slot<#hash>);
 
                 match name.as_str() {
                     "Float" | "Int" | "Numeric" | "CubePrimitive" | "Complex" => {
@@ -251,7 +262,6 @@ impl GenericAnalysis {
                                 ident.clone(),
                                 GenericArg {
                                     expand_ty: parse_quote!(#ident),
-                                    marker_ty,
                                     kind: DefineKind::Type,
                                 },
                             );
@@ -260,7 +270,6 @@ impl GenericAnalysis {
                                 ident,
                                 GenericArg {
                                     expand_ty: parse_quote!(#elem_expand<#marker_ty>),
-                                    marker_ty,
                                     kind: DefineKind::Type,
                                 },
                             );
@@ -272,7 +281,6 @@ impl GenericAnalysis {
                                 ident.clone(),
                                 GenericArg {
                                     expand_ty: parse_quote!(#ident),
-                                    marker_ty,
                                     kind: DefineKind::Size,
                                 },
                             );
@@ -281,7 +289,6 @@ impl GenericAnalysis {
                                 type_param.ident.clone(),
                                 GenericArg {
                                     expand_ty: parse_quote!(#size_expand<#marker_ty>),
-                                    marker_ty,
                                     kind: DefineKind::Size,
                                 },
                             );
