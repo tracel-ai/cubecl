@@ -68,6 +68,92 @@ pub fn test_all_reduce_sync_collective<R: Runtime>() {
     }
 }
 
+/// One thread queues `all_reduce` calls over two devices device by device, as a gradient sync
+/// does, while two other threads transfer between the same devices, one each way.
+pub fn test_all_reduce_beside_transfers<R: Runtime>() {
+    const ROUNDS: usize = 20;
+    const HANDLES: usize = 8;
+    const SIZE: usize = 64;
+    let f32_type = cubecl_ir::ElemType::Float(cubecl_ir::FloatKind::F32);
+
+    let device_ids = R::enumerate_devices(0);
+    if device_ids.len() < 2 {
+        return;
+    }
+    let device_ids = device_ids[..2].to_vec();
+    let devices: Vec<R::Device> = device_ids
+        .iter()
+        .map(|id| R::Device::from_id(*id))
+        .collect();
+    if !R::client(&devices[0]).has_device_transport() {
+        return;
+    }
+
+    std::thread::scope(|scope| {
+        for thread in 0..2 {
+            let (source, destination) = match thread {
+                0 => (&devices[0], &devices[1]),
+                _ => (&devices[1], &devices[0]),
+            };
+            scope.spawn(move || {
+                let mut source = R::client(source);
+                let destination = R::client(destination);
+
+                for round in 0..ROUNDS {
+                    let expected = [(thread * ROUNDS + round) as f32; SIZE];
+                    let input = source.create_from_slice(f32::as_bytes(&expected));
+                    let output = source.to_client(input, &destination, f32_type);
+                    let actual = destination.read_one_unchecked(output);
+                    assert_eq!(f32::from_bytes(&actual), expected);
+                }
+            });
+        }
+
+        let (devices, device_ids) = (&devices, &device_ids);
+        scope.spawn(move || {
+            let mut clients: Vec<_> = devices.iter().map(R::client).collect();
+
+            for round in 0..ROUNDS {
+                let handles: Vec<Vec<_>> = clients
+                    .iter()
+                    .enumerate()
+                    .map(|(rank, client)| {
+                        (0..HANDLES)
+                            .map(|_| {
+                                let values = [(rank + round) as f32; SIZE];
+                                client.create_from_slice(f32::as_bytes(&values))
+                            })
+                            .collect()
+                    })
+                    .collect();
+
+                for (client, handles) in clients.iter_mut().zip(&handles) {
+                    for handle in handles {
+                        client.all_reduce(
+                            handle.clone(),
+                            handle.clone(),
+                            f32_type,
+                            device_ids.clone(),
+                            cubecl_runtime::server::ReduceOperation::Sum,
+                        );
+                    }
+                }
+                for client in &clients {
+                    client.sync_collective();
+                }
+
+                let expected = [(2 * round + 1) as f32; SIZE];
+                for (client, handles) in clients.iter().zip(handles) {
+                    for handle in handles {
+                        let actual = client.read_one(handle).unwrap();
+                        assert_eq!(f32::from_bytes(&actual), expected);
+                    }
+                }
+            }
+        });
+    });
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_all_reduce {
@@ -77,6 +163,12 @@ macro_rules! testgen_all_reduce {
         #[$crate::runtime_tests::test_log::test]
         fn test_all_reduce_sync_collective() {
             cubecl_core::runtime_tests::all_reduce::test_all_reduce_sync_collective::<TestRuntime>(
+            );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_all_reduce_beside_transfers() {
+            cubecl_core::runtime_tests::all_reduce::test_all_reduce_beside_transfers::<TestRuntime>(
             );
         }
     };
