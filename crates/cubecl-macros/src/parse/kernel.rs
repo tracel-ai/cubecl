@@ -424,6 +424,7 @@ impl KernelFn {
                 let stmt = Statement::Expression {
                     expression: Box::new(expression),
                     terminated: false,
+                    span: None,
                 };
                 mappings.push(stmt);
             }

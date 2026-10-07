@@ -26,7 +26,7 @@ pub fn name_debug_var(name: &str, var: &TokenStream) -> TokenStream {
 impl Statement {
     pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
         match self {
-            Statement::Local { variable, init } => {
+            Statement::Local { variable, init, .. } => {
                 let name = &variable.name;
                 let is_mut = variable.is_mut_owned || init.as_deref().is_some_and(is_mut_owned);
                 let mutable = variable.is_mut_owned.then(|| quote![mut]);
@@ -118,6 +118,7 @@ impl Statement {
             Statement::Expression {
                 expression,
                 terminated,
+                ..
             } => {
                 let terminator = terminated.then(|| Token![;](Span::call_site()));
                 if let Some(as_const) = expression.as_const(context) {

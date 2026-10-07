@@ -1,4 +1,4 @@
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::{Literal, Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
 use syn::{
     GenericArgument, Ident, Member, Pat, PatIdent, PatPath, PatStruct, PatTupleStruct, Path,
@@ -25,6 +25,36 @@ fn into_expand(tokens: TokenStream) -> TokenStream {
 
 impl Expression {
     pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
+        if self.sets_own_debug_pos() {
+            return self.to_tokens_inner(context);
+        }
+        // Branches, loops and closures run their code in another order than it is generated, or
+        // more than once. A position that their code sets is not known after them.
+        let (pos, count) = (context.debug_pos, context.debug_pos_count);
+        context.debug_pos = None;
+        let tokens = self.to_tokens_inner(context);
+        context.debug_pos = if context.debug_pos_count == count {
+            pos
+        } else {
+            None
+        };
+        tokens
+    }
+
+    /// Whether the expression emits an op that gets the expression's own debug position.
+    fn sets_own_debug_pos(&self) -> bool {
+        match self {
+            Expression::Unary { operator, .. } => !matches!(operator, Operator::Deref),
+            Expression::Binary { .. }
+            | Expression::Index { .. }
+            | Expression::IndexMut { .. }
+            | Expression::FunctionCall { .. }
+            | Expression::MethodCall { .. } => true,
+            _ => false,
+        }
+    }
+
+    fn to_tokens_inner(&self, context: &mut Context) -> TokenStream {
         match self {
             // `||` and `&&` short-circuit via if/else over the left operand.
             // Pure operands fall through to the eager binary path below.
@@ -37,8 +67,13 @@ impl Expression {
             } if !left.is_always_pure() || !right.is_always_pure() => {
                 let path = frontend_path();
                 let native = frontend_type("NativeExpand");
-                let left = into_expand(left.to_tokens(context));
+                let mut operands = Operands::new(context);
+                let left = operands.track(context, |context| into_expand(left.to_tokens(context)));
+                // The right operand runs in a branch, after the op.
+                context.debug_pos = None;
                 let right = into_expand(right.to_tokens(context));
+                operands.unknown_after = true;
+                let left = then_position(left, operands.position(context, *span));
                 let (then_block, else_block) = match op {
                     // `a || b`  =>  if a { true } else { b }
                     Operator::Or => (quote![#native::from_lit(scope, true)], right),
@@ -46,12 +81,10 @@ impl Expression {
                     Operator::And => (right, quote![#native::from_lit(scope, false)]),
                     _ => unreachable!(),
                 };
-                let body = quote! {
+                quote! {{
                     #path::branch::if_else_expr_expand(scope, #left, |scope| #then_block)
                         .or_else(scope, |scope| #else_block)
-                };
-                let expand = with_span(context, *span, body);
-                quote! {{#expand}}
+                }}
             }
             Expression::Binary {
                 left,
@@ -61,22 +94,18 @@ impl Expression {
                 ..
             } if operator.is_assign() => {
                 let op = format_ident!("__expand_{}_method", operator.op_name());
-                let left = into_expand(left.to_tokens(context));
-                let right = into_expand(right.to_tokens(context));
+                let mut operands = Operands::new(context);
+                let left = operands.track(context, |context| into_expand(left.to_tokens(context)));
+                let right =
+                    operands.track(context, |context| into_expand(right.to_tokens(context)));
                 let rhs = match operator.is_cmp() {
                     true => quote![&#right],
                     false => quote![#right],
                 };
-                let expand = with_span(
-                    context,
-                    *span,
-                    quote! {{
-                        #left.#op(scope, _value)
-                    }},
-                );
+                let value = then_position(quote![_value], operands.position(context, *span));
                 quote! {{
                     let _value = #rhs;
-                    #expand
+                    #left.#op(scope, #value)
                 }}
             }
             Expression::Binary {
@@ -87,20 +116,18 @@ impl Expression {
                 ..
             } => {
                 let op = format_ident!("__expand_{}_method", operator.op_name());
-                let left = into_expand(left.to_tokens(context));
-                let right = into_expand(right.to_tokens(context));
+                let mut operands = Operands::new(context);
+                let left = operands.track(context, |context| into_expand(left.to_tokens(context)));
+                let right =
+                    operands.track(context, |context| into_expand(right.to_tokens(context)));
+                let right = then_position(right, operands.position(context, *span));
                 let rhs = match operator.is_cmp() {
                     true => quote![&#right],
                     false => quote![#right],
                 };
-                let expand = with_span(
-                    context,
-                    *span,
-                    quote![
-                        #left.#op(scope, #rhs)
-                    ],
-                );
-                quote! {{#expand}}
+                quote! {{
+                    #left.#op(scope, #rhs)
+                }}
             }
             Expression::Unary {
                 input,
@@ -126,12 +153,13 @@ impl Expression {
                 span,
                 ..
             } => {
-                let input = input.to_tokens(context);
+                let mut operands = Operands::new(context);
+                let input = operands.track(context, |context| input.to_tokens(context));
                 let op = format_ident!("__expand_{}_method", operator.op_name());
-                let expand = with_span(context, *span, quote![#input.#op(scope)]);
+                let args = args_with_position(&[], Vec::new(), operands.position(context, *span));
                 quote! {
                     {
-                        #expand
+                        #input.#op(#args)
                     }
                 }
             }
@@ -177,24 +205,24 @@ impl Expression {
                 }
             }
             Expression::Index { expr, index, span } => {
-                let expr = expr.to_tokens(context);
-                let index = into_expand(index.to_tokens(context));
-                let expand = with_span(
-                    context,
-                    *span,
-                    quote![#expr.__expand_index_method(scope, #index)],
-                );
-                quote! {{#expand}}
+                let mut operands = Operands::new(context);
+                let expr = operands.track(context, |context| expr.to_tokens(context));
+                let index =
+                    operands.track(context, |context| into_expand(index.to_tokens(context)));
+                let index = then_position(index, operands.position(context, *span));
+                quote! {{
+                    #expr.__expand_index_method(scope, #index)
+                }}
             }
             Expression::IndexMut { expr, index, span } => {
-                let expr = expr.to_tokens(context);
-                let index = into_expand(index.to_tokens(context));
-                let expand = with_span(
-                    context,
-                    *span,
-                    quote![#expr.__expand_index_mut_method(scope, #index)],
-                );
-                quote! {{#expand}}
+                let mut operands = Operands::new(context);
+                let expr = operands.track(context, |context| expr.to_tokens(context));
+                let index =
+                    operands.track(context, |context| into_expand(index.to_tokens(context)));
+                let index = then_position(index, operands.position(context, *span));
+                quote! {{
+                    #expr.__expand_index_mut_method(scope, #index)
+                }}
             }
             Expression::FunctionCall {
                 func,
@@ -203,16 +231,12 @@ impl Expression {
                 span,
                 ..
             } => {
-                let args = map_args(args, context);
-                let (generics, path) = split_generics(func, context);
-
-                let call = with_debug_call(
-                    context,
-                    *span,
-                    quote_spanned![*span=>#path::expand #generics(scope, #(#args),*)],
-                );
-
-                quote_spanned! {*span=>{#call}}
+                let mut operands = Operands::new(context);
+                let arg_tokens = operands.track_args(context, args);
+                let (generics, path) =
+                    operands.track(context, |context| split_generics(func, context));
+                let args = args_with_position(args, arg_tokens, operands.position(context, *span));
+                quote_spanned! {*span=>{#path::expand #generics(#args)}}
             }
             Expression::CompilerIntrinsic { func, args } => {
                 let args = map_args(args, context);
@@ -238,12 +262,12 @@ impl Expression {
                     quote![#ty_path]
                 };
 
-                let args = map_args(args, context);
+                let mut operands = Operands::new(context);
+                let arg_tokens = operands.track_args(context, args);
                 let mut name = func.clone();
                 name.ident = format_ident!("__expand_{}", name.ident);
-                let call =
-                    with_debug_call(context, *span, quote![#ty_path::#name(scope, #(#args),*)]);
-                quote_spanned! {*span=>{#call}}
+                let args = args_with_position(args, arg_tokens, operands.position(context, *span));
+                quote_spanned! {*span=>{#ty_path::#name(#args)}}
             }
             Expression::MethodCall {
                 receiver,
@@ -254,16 +278,15 @@ impl Expression {
                 ..
             } => {
                 let method = format_ident!("__expand_{method}_method");
-                let args = map_args(args, context);
-                let receiver = receiver
-                    .as_const(context)
-                    .unwrap_or_else(|| receiver.to_tokens(context));
-                let call = with_debug_call(
-                    context,
-                    *span,
-                    quote![#receiver.#method #generics(scope, #(#args),*)],
-                );
-                quote_spanned! {*span=>{#call}}
+                let mut operands = Operands::new(context);
+                let arg_tokens = operands.track_args(context, args);
+                let receiver = operands.track(context, |context| {
+                    receiver
+                        .as_const(context)
+                        .unwrap_or_else(|| receiver.to_tokens(context))
+                });
+                let args = args_with_position(args, arg_tokens, operands.position(context, *span));
+                quote_spanned! {*span=>{#receiver.#method #generics(#args)}}
             }
             Expression::Break => {
                 let path = frontend_path();
@@ -864,18 +887,21 @@ fn append_expand_to_enum_name(path: &mut Path) {
 
 impl Block {
     pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
-        let inner: Vec<_> = self.inner.iter().map(|it| it.to_tokens(context)).collect();
+        // A block is the body of a branch, a loop or a closure: its start position is not known.
+        context.debug_pos = None;
+        let inner = self.statements_to_tokens(context);
         let ret = if let Some(ret) = self.ret.as_ref() {
+            let position = debug_position(context, self.ret_span);
             let as_const = ret.as_const(context);
-            if let Some(as_const) = as_const {
+            let ret = if let Some(as_const) = as_const {
                 quote![#as_const]
             } else {
                 ret.to_tokens(context)
-            }
+            };
+            quote![#position #ret]
         } else {
             quote![()]
         };
-
         quote! {
             {
                 #(#inner)*
@@ -885,23 +911,38 @@ impl Block {
     }
 
     pub fn to_tokens_runtime_return(&self, context: &mut Context) -> TokenStream {
-        let inner: Vec<_> = self.inner.iter().map(|it| it.to_tokens(context)).collect();
+        // A block is the body of a branch, a loop or a closure: its start position is not known.
+        context.debug_pos = None;
+        let inner = self.statements_to_tokens(context);
         let ret = if let Some(ret) = self.ret.as_ref() {
-            if let Expression::PanickingMacro { .. } = &**ret {
+            let position = debug_position(context, self.ret_span);
+            let ret = if let Expression::PanickingMacro { .. } = &**ret {
                 ret.to_tokens(context)
             } else {
                 into_expand(ret.to_tokens(context))
-            }
+            };
+            quote![#position #ret]
         } else {
             quote![()]
         };
-
         quote! {
             {
                 #(#inner)*
                 #ret
             }
         }
+    }
+
+    /// The tokens of each statement, each after the debug position of its statement.
+    fn statements_to_tokens(&self, context: &mut Context) -> Vec<TokenStream> {
+        self.inner
+            .iter()
+            .map(|statement| {
+                let position = debug_position(context, statement.span());
+                let tokens = statement.to_tokens(context);
+                quote![#position #tokens]
+            })
+            .collect()
     }
 }
 
@@ -919,19 +960,18 @@ fn split_generics(path: &Expression, context: &mut Context) -> (PathArguments, T
 }
 
 fn map_args(args: &[Expression], context: &mut Context) -> Vec<TokenStream> {
-    args.iter()
-        .map(|value| {
-            let is_closure = is_closure(value);
-            let tokens = value
-                .as_const(context)
-                .unwrap_or_else(|| value.to_tokens(context));
-            if is_closure {
-                tokens
-            } else {
-                quote_spanned![tokens.span()=> (#tokens).into()]
-            }
-        })
-        .collect()
+    args.iter().map(|value| map_arg(value, context)).collect()
+}
+
+fn map_arg(value: &Expression, context: &mut Context) -> TokenStream {
+    let tokens = value
+        .as_const(context)
+        .unwrap_or_else(|| value.to_tokens(context));
+    if is_closure(value) {
+        tokens
+    } else {
+        quote_spanned![tokens.span()=> (#tokens).into()]
+    }
 }
 
 fn is_closure(expr: &Expression) -> bool {
@@ -965,27 +1005,132 @@ fn init_fields<'a>(
     })
 }
 
-fn with_span(context: &Context, span: Span, tokens: TokenStream) -> TokenStream {
-    if context.debug_symbols {
-        let debug_span = frontend_type("debug_span_expand");
-        // The guard restores the outer position after the operands' own spans.
-        quote_spanned! {span=>
-            let __cube_span = #debug_span(scope, line!(), column!());
-            #tokens
-        }
+/// The line and column of `span`, or `None` outside of a procedural macro.
+fn span_pos(span: Span) -> Option<(usize, usize)> {
+    proc_macro::is_available().then(|| {
+        let span = span.unwrap();
+        (span.line(), span.column())
+    })
+}
+
+/// A call that moves the debug position to `span`. `None` when debug symbols are off, or when
+/// the generated code is already at that position.
+fn debug_pos_call(context: &mut Context, span: Span) -> Option<TokenStream> {
+    if !context.debug_symbols {
+        return None;
+    }
+    let pos = span_pos(span);
+    if pos.is_some() && pos == context.debug_pos {
+        return None;
+    }
+    context.debug_pos = pos;
+    context.debug_pos_count += 1;
+    let debug_pos = frontend_type("debug_pos_expand");
+    // `scope` keeps the span of the macro: tokens of a `macro_rules!` body have another hygiene.
+    let scope = quote![scope];
+    let call = if let Some((line, column)) = pos {
+        let line = Literal::usize_unsuffixed(line);
+        let column = Literal::usize_unsuffixed(column);
+        quote![#debug_pos(#scope, #line, #column)]
     } else {
+        quote_spanned! {span=> #debug_pos(#scope, line!(), column!())}
+    };
+    Some(call)
+}
+
+/// Moves the debug position to the statement at `span`. Ops that no expression of the statement
+/// emits, for example the copy of a `let mut`, get this position.
+fn debug_position(context: &mut Context, span: Option<Span>) -> TokenStream {
+    span.and_then(|span| debug_pos_call(context, span))
+        .map(|call| quote![#call;])
+        .unwrap_or_default()
+}
+
+/// The debug position of the operands of one expression.
+///
+/// The expression's op gets its position after the operands run, so ops of an operand never
+/// leave their position on it, and no position must be restored. The call goes in the last
+/// argument that runs before the op. The macro generates the operands in another order than
+/// they run, so the position after them is known only when at most one operand sets one.
+struct Operands {
+    start: Option<(usize, usize)>,
+    changed: usize,
+    last: Option<(usize, usize)>,
+    /// An operand, for example a closure, can set positions after the op.
+    unknown_after: bool,
+}
+
+impl Operands {
+    fn new(context: &Context) -> Self {
+        Self {
+            start: context.debug_pos,
+            changed: 0,
+            last: None,
+            unknown_after: false,
+        }
+    }
+
+    /// Generates one operand. It can run before or after the other operands, so it starts at a
+    /// known position only while no other operand sets one.
+    fn track<T>(&mut self, context: &mut Context, operand: impl FnOnce(&mut Context) -> T) -> T {
+        context.debug_pos = if self.changed == 0 { self.start } else { None };
+        let (pos, count) = (context.debug_pos, context.debug_pos_count);
+        let tokens = operand(context);
+        if context.debug_pos_count != count || context.debug_pos != pos {
+            self.changed += 1;
+            self.last = context.debug_pos;
+            self.unknown_after |= context.debug_pos.is_none();
+        }
         tokens
+    }
+
+    /// Generates the arguments of a call. A closure runs inside the call, after the op's position.
+    fn track_args(&mut self, context: &mut Context, args: &[Expression]) -> Vec<TokenStream> {
+        args.iter()
+            .map(|arg| self.track(context, |context| map_arg(arg, context)))
+            .collect()
+    }
+
+    /// The call that moves the debug position to `span` after the operands, if one is needed.
+    fn position(self, context: &mut Context, span: Span) -> Option<TokenStream> {
+        context.debug_pos = match self.changed {
+            0 => self.start,
+            1 => self.last,
+            _ => None,
+        };
+        let call = debug_pos_call(context, span);
+        if self.unknown_after {
+            context.debug_pos = None;
+        }
+        call
     }
 }
 
-fn with_debug_call(context: &Context, span: Span, tokens: TokenStream) -> TokenStream {
-    if context.debug_symbols {
-        let debug_call = frontend_type("debug_call_expand");
-        quote_spanned! {span=>
-            #debug_call(scope, line!(), column!(), |scope| #tokens)
-        }
+/// `arg`, an argument that runs last before the op, with the `position` call after it.
+fn then_position(arg: TokenStream, position: Option<TokenStream>) -> TokenStream {
+    match position {
+        // A tuple keeps the temporaries of `arg` until the end of the statement.
+        Some(position) => quote![(#arg, #position).0],
+        None => arg,
+    }
+}
+
+/// The arguments of a call, `scope` first, with `position` after the last one that is not a
+/// closure. Creating a closure emits no op, and a closure in a `let` would lose its signature.
+fn args_with_position(
+    args: &[Expression],
+    mut tokens: Vec<TokenStream>,
+    position: Option<TokenStream>,
+) -> TokenStream {
+    let scope = quote![scope];
+    let Some(position) = position else {
+        return quote![#scope, #(#tokens),*];
+    };
+    if let Some(last) = args.iter().rposition(|arg| !is_closure(arg)) {
+        tokens[last] = then_position(tokens[last].clone(), Some(position));
+        quote![#scope, #(#tokens),*]
     } else {
-        tokens
+        quote![{ #position; #scope }, #(#tokens),*]
     }
 }
 

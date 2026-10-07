@@ -1,7 +1,7 @@
 use quote::{format_ident, quote};
 use syn::{
     Expr, ExprArray, Ident, LitStr, Local, Macro, Pat, PatMacro, Stmt, Type, TypeReference,
-    parse_quote, parse2,
+    parse_quote, parse2, spanned::Spanned,
 };
 
 use crate::{
@@ -13,6 +13,7 @@ use crate::{
 
 impl Statement {
     pub fn from_stmt(stmt: Stmt, context: &mut Context) -> syn::Result<Self> {
+        let span = Some(stmt.span());
         let statement = match stmt {
             Stmt::Local(mut local) => {
                 if let Some((name, kind, init)) = parse_define_macro(&local) {
@@ -50,7 +51,11 @@ impl Statement {
 
                     let variable =
                         context.push_variable(ident, ty, is_const && !is_mut, !is_ref && is_mut);
-                    Self::Local { variable, init }
+                    Self::Local {
+                        variable,
+                        init,
+                        span,
+                    }
                 }
             }
             Stmt::Expr(expr, semi) => {
@@ -58,6 +63,7 @@ impl Statement {
                 Statement::Expression {
                     terminated: semi.is_some() || !expression.needs_terminator(),
                     expression,
+                    span,
                 }
             }
             Stmt::Item(item) => Statement::Verbatim {
@@ -68,6 +74,7 @@ impl Statement {
                 Statement::Expression {
                     expression: Box::new(expression),
                     terminated: val.semi_token.is_some(),
+                    span,
                 }
             }
         };

@@ -1,34 +1,23 @@
 use alloc::{string::String, vec::Vec};
 use cubecl_ir::{
     dialect::general::PrintfOp,
-    pliron::{combine::stream::position::SourcePosition, location::Source, value::Value},
+    pliron::{location::Source, value::Value},
 };
 
 use crate::ir::Scope;
 
 use super::CubeDebug;
 
-/// Moves the current `#[cube]` function to `line` and `column` until the returned guard drops.
-pub fn debug_span_expand(scope: &Scope, line: u32, column: u32) -> DebugSpan<'_> {
-    let previous = scope
-        .debug_state()
-        .and_then(|debug| debug.set_pos(line, column));
-    DebugSpan { scope, previous }
-}
+// The macro calls these functions with plain values: a guard or a closure for each expression
+// adds unwind paths and instances to every expand function, which multiplies the compile memory
+// of crates with many generic `#[cube]` functions.
 
-/// Restores the position that [`debug_span_expand`] replaced.
-pub struct DebugSpan<'a> {
-    scope: &'a Scope,
-    previous: Option<SourcePosition>,
-}
-
-impl Drop for DebugSpan<'_> {
-    fn drop(&mut self) {
-        if let Some(previous) = self.previous
-            && let Some(debug) = self.scope.debug_state()
-        {
-            debug.restore_pos(previous);
-        }
+/// Moves the current `#[cube]` function to `line` and `column`. The macro calls it after the
+/// operands of an expression, before the expression emits its op, so no position needs to be
+/// restored.
+pub fn debug_pos_expand(scope: &Scope, line: u32, column: u32) {
+    if let Some(debug) = scope.debug_state() {
+        debug.set_pos(line, column);
     }
 }
 
@@ -39,7 +28,7 @@ pub fn debug_call_expand<C>(
     column: u32,
     call: impl FnOnce(&Scope) -> C,
 ) -> C {
-    let _span = debug_span_expand(scope, line, column);
+    debug_pos_expand(scope, line, column);
     call(scope)
 }
 
@@ -184,6 +173,34 @@ mod tests {
         x + double(x)
     }
 
+    const TWO_SUMS_LINE: u32 = line!() + 3;
+    #[cube]
+    fn two_sums(x: u32) -> u32 {
+        (x + 1) * (x + 2)
+    }
+
+    /// The line of the statement, and the line of the call that continues it.
+    const SPLIT_LINES: [u32; 2] = [line!() + 4, line!() + 5];
+    #[cube]
+    #[rustfmt::skip]
+    fn split_double(x: u32) -> u32 {
+        x
+            + double(x)
+    }
+
+    /// A `#[cube]` function from a `macro_rules!` body: the operator comes from the invocation,
+    /// so its tokens have another hygiene than the code of the macro.
+    macro_rules! unary_cube_fn {
+        ($name:ident, $op:tt) => {
+            #[cube]
+            fn $name(x: u32) -> u32 {
+                $op(x + 1)
+            }
+        };
+    }
+
+    unary_cube_fn!(not_after_one, !);
+
     #[cube(no_debug_symbols)]
     fn plain_double(x: u32) -> u32 {
         x + x
@@ -314,8 +331,7 @@ mod tests {
         }
     }
 
-    /// The span of a call moves the frame to the call, and gives the frame back its position
-    /// when the call returns: the addition after `double(x)` is at the start of `x + double(x)`.
+    /// The addition after `double(x)` is at the start of `x + double(x)`, not at the call.
     #[test]
     fn an_op_after_a_call_gets_the_position_of_its_expression() {
         let locations = locations(DebugInfo::LineTables, |scope, x| {
@@ -325,6 +341,58 @@ mod tests {
         let (name, line, column) = locations.last().and_then(frame).expect("the addition");
         assert_eq!((name, line), ("add_double", call_line));
         assert!(column < call_column, "{column} {call_column}");
+    }
+
+    /// Each op on one line gets the column of its own expression: `x + 1`, `x + 2`, and the
+    /// product, which starts first.
+    #[test]
+    fn ops_on_one_line_get_the_column_of_their_expression() {
+        let locations = locations(DebugInfo::LineTables, |scope, x| {
+            two_sums::expand(scope, x);
+        });
+        let mut columns = locations
+            .iter()
+            .filter_map(frame)
+            .filter(|(_, line, _)| *line == TWO_SUMS_LINE)
+            .map(|(.., column)| column)
+            .collect::<Vec<_>>();
+        let (.., product) = locations.last().and_then(frame).expect("the product");
+        columns.sort_unstable();
+        columns.dedup();
+        assert_eq!(columns.len(), 3, "{locations:?}");
+        assert_eq!(product, columns[0], "{locations:?}");
+    }
+
+    /// A call on another line than its statement records that line as its call site. The op
+    /// after the call gets the line of the statement back.
+    #[test]
+    fn a_call_on_a_continuation_line_keeps_its_line() {
+        let locations = locations(DebugInfo::LineTables, |scope, x| {
+            split_double::expand(scope, x);
+        });
+        let call_sites = call_sites(&locations);
+        assert!(!call_sites.is_empty(), "{locations:?}");
+        for (_, (outer, line, _)) in call_sites {
+            assert_eq!((outer, line), ("split_double", SPLIT_LINES[1]));
+        }
+        let (name, line, _) = locations.last().and_then(frame).expect("the addition");
+        assert_eq!((name, line), ("split_double", SPLIT_LINES[0]));
+    }
+
+    /// The debug code that the macro adds must resolve `scope` also for tokens from a
+    /// `macro_rules!` invocation.
+    #[test]
+    fn a_function_from_macro_rules_gets_locations() {
+        let locations = locations(DebugInfo::LineTables, |scope, x| {
+            not_after_one::expand(scope, x);
+        });
+        assert!(
+            locations
+                .iter()
+                .filter_map(frame)
+                .any(|(name, ..)| name == "not_after_one"),
+            "{locations:?}"
+        );
     }
 
     /// A function with `no_debug_symbols` opens no frame. Its ops get the location of the call.

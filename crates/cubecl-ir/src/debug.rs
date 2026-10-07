@@ -89,16 +89,10 @@ impl DebugState {
         self.frames.pop();
     }
 
-    /// Moves the innermost frame to `line` and `column`, and returns its previous position.
-    pub fn set_pos(&mut self, line: u32, column: u32) -> Option<SourcePosition> {
-        let frame = self.frames.last_mut()?;
-        Some(core::mem::replace(&mut frame.pos, position(line, column)))
-    }
-
-    /// Moves the innermost frame back to `pos`, a value that [`set_pos`](Self::set_pos) returned.
-    pub fn restore_pos(&mut self, pos: SourcePosition) {
+    /// Moves the innermost frame to `line` and `column`.
+    pub fn set_pos(&mut self, line: u32, column: u32) {
         if let Some(frame) = self.frames.last_mut() {
-            frame.pos = pos;
+            frame.pos = position(line, column);
         }
     }
 
