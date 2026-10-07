@@ -26,14 +26,14 @@ use cubecl_common::{
     device_handle::{CallResultExt, DeviceHandle},
     profile::ProfileDuration,
 };
-use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::future::DynFut;
+use cubecl_environment::{backtrace::BackTrace, future::DynFut, stream::StreamId, sync::Mutex};
 use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, VectorSize, features::Features};
 use cubecl_zspace::Shape;
 
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
-use cubecl_environment::stream::StreamId;
+
+static TRANSFER_ORDER: Mutex<()> = Mutex::new(());
 
 /// The `Client` is the entry point to require tasks from the `Server`.
 /// It should be obtained for a specific device via the Compute struct.
@@ -1053,6 +1053,9 @@ impl Client {
         );
         let handle_cloned = handle.clone();
 
+        // NCCL pairs sends and recvs in the order each device queues them.
+        let _order = TRANSFER_ORDER.lock();
+
         let device_ids = vec![device_id_src, device_id_dst];
         self.ensure_init_collective(device_ids.clone());
         dst_server.ensure_init_collective(device_ids);
@@ -1132,7 +1135,10 @@ impl Client {
         // the time it reaches the server thread, that context is gone.
         let launch_mode = crate::dry_run::launch_mode();
 
-        let level = self.utilities.logger.profile_level();
+        // A launch the dry run drops runs nothing to time, and a backend timing windows by the
+        // timestamps its passes write reports a window around one as never measured.
+        let timed = !launch_mode.is_skipped();
+        let level = self.utilities.logger.profile_level().filter(|_| timed);
 
         // Before the submit, on the issuing thread: this is the last point at
         // which the caller's own context still exists, and attributing a
@@ -1147,7 +1153,7 @@ impl Client {
         // measurement, and making one depend on the other's configuration
         // would mean a caller could not time launches without also logging
         // them somewhere it did not choose.
-        let observed_timing = crate::logging::timing_wanted();
+        let observed_timing = timed && crate::logging::timing_wanted();
 
         match level {
             None | Some(ProfileLevel::ExecutionOnly) if !observed_timing => {
@@ -1325,6 +1331,16 @@ impl Client {
         self.device
             .submit_blocking(move |server| server.flush(stream_id))
             .unwrap_or_resume()
+    }
+
+    /// Compile every kernel queued for compilation (see
+    /// [`Server::compile_queued`]), before the work submitted after it.
+    ///
+    /// Every measurement starts with it — a tune, a throughput probe — so a
+    /// queue a compile-only dry run left is not timed as part of the first
+    /// launch measured.
+    pub fn compile_queued(&self) {
+        self.device.submit(move |server| server.compile_queued());
     }
 
     /// Prepare this client's stream for a graph capture (see
@@ -1809,6 +1825,9 @@ impl Client {
             return Ok(value);
         }
 
+        // Kernels queued for compilation compile now, together, rather than in the probe's
+        // first launch, inside the time it measures.
+        self.compile_queued();
         // Asked again inside: another thread may have answered while this one queued.
         self.exclusive(move || throughputs.measure(key, probe))
             .unwrap_or(Err(ThroughputError::Launch))

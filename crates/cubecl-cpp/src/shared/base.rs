@@ -32,6 +32,7 @@ use cubecl_core::{
         types::scalar::{Complex32Type, Complex64Type},
     },
     post_processing::{
+        bf16::LowerWideBf16CastPass,
         bitwise::PromoteBitwisePass,
         checked_io::{CheckedIo, CheckedIoPass},
         fp4::{LowerFp4Cast, LowerFp4CastPass},
@@ -240,6 +241,11 @@ where
         )));
         func_passes.add_pass(AllocateSharedMemoryBlockPass);
 
+        // The targets convert between `f32` and `bf16` natively, but HIP rounds twice from a
+        // source wider than `f32`. CUDA's scalar constructors (`__int2bfloat16_rn`,
+        // `__double2bfloat16`) round once, but its vector casts are unverified on hardware, so
+        // CUDA keeps the pass too: it only adds work to the rare cast from a wide source.
+        func_passes.add_pass(LowerWideBf16CastPass::default());
         // CUDA converts fp8 with cuda_fp8.h, which carries its own software path below sm_89.
         let native_fp8 = match T::target() {
             Target::Cuda => EnumSet::all(),

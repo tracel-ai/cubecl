@@ -79,6 +79,14 @@ pub struct CompilationConfig {
     #[serde(default)]
     #[cfg(feature = "std")]
     pub source_cache: Option<std::path::PathBuf>,
+    /// How many threads a server compiles a queue of kernels on — see
+    /// [`LaunchMode::CompileOnly`](crate::dry_run::LaunchMode::CompileOnly). The
+    /// queue itself is as long as what was queued; each thread takes the next
+    /// kernel as it finishes one. `None` uses every core the process may run
+    /// on; a smaller number leaves cores to other work. It does not bound
+    /// memory: a batch holds every queued kernel's artifacts until it ends.
+    #[serde(default)]
+    pub parallelism: Option<usize>,
 }
 
 impl CompilationConfig {
@@ -87,6 +95,20 @@ impl CompilationConfig {
     #[must_use]
     pub fn resolve_debug_info(&self, requested: DebugInfo) -> DebugInfo {
         resolve_debug_info(requested, self.debug_info)
+    }
+
+    /// How many threads compile at once: the configured count, or every core
+    /// the process may run on. Never zero, and one without threads — on wasm
+    /// too, whatever is configured, since it cannot spawn them.
+    pub fn parallelism(&self) -> usize {
+        #[cfg(all(feature = "std", not(target_family = "wasm")))]
+        let threads = self
+            .parallelism
+            .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |cores| cores.get()));
+        #[cfg(any(not(feature = "std"), target_family = "wasm"))]
+        let threads = 1;
+
+        threads.max(1)
     }
 }
 

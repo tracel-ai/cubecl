@@ -660,6 +660,7 @@ fn print_block(
     write!(f, "{}:", block.label(ctx))?;
     {
         let _indent = state.indent();
+
         for op in block.deref(ctx).iter(ctx) {
             print_op(ctx, state, nodes, op, f)?;
         }
@@ -682,10 +683,12 @@ fn print_op(
     fmt_indented_newline(state, f)?;
     write!(f, "{};", OpDbg { op, ctx }.to_string().trim())?;
     if op.deref(ctx).num_regions() > 0 {
-        let _indent = state.indent();
-        for region in op.deref(ctx).regions() {
-            for block in region.deref(ctx).iter(ctx) {
-                print_block(ctx, state, nodes, block, f)?;
+        {
+            let _indent = state.indent();
+            for region in op.deref(ctx).regions() {
+                for block in region.deref(ctx).iter(ctx) {
+                    print_block(ctx, state, nodes, block, f)?;
+                }
             }
         }
     }

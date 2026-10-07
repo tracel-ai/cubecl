@@ -39,13 +39,13 @@ tracing = [
 
 [dependencies]
 bitflags = { workspace = true }
-cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.4", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.4" }
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.4", default-features = false }
-cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.4", default-features = false, features = [
+cubecl-common = { workspace = true }
+cubecl-core = { workspace = true, default-features = true }
+cubecl-environment = { workspace = true }
+cubecl-ir = { workspace = true, features = [
     "spirv",
 ] }
-cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.4", default-features = false, features = [
+cubecl-runtime = { workspace = true, features = [
     "channel-mutex",
 ] }
 half = { workspace = true }
@@ -61,9 +61,9 @@ pliron-spirv = { workspace = true }
 rspirv = { workspace = true, features = ["serialize", "deserialize"] }
 
 # Optimizer
-cubecl-opt = { path = "../cubecl-opt", version = "=0.11.0-pre.4" }
+cubecl-opt = { workspace = true, default-features = true }
 
 [dev-dependencies]
-cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.4", features = [
+cubecl-core = { workspace = true, default-features = true, features = [
     "export_tests",
 ] }

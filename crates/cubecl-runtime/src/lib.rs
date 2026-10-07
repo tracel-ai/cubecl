@@ -70,8 +70,6 @@ pub mod tma;
 
 /// Compiler trait and related types
 pub mod compiler;
-/// Running a workload for the compilation and tuning it provokes, without
-/// running the workload itself.
 pub mod dry_run;
 pub mod launched;
 /// The payload every error type carries when the device is poisoned.

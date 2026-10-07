@@ -18,6 +18,7 @@ use cubecl_core::{
 };
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
+use cubecl_server::compiler::ArtifactId;
 use cubecl_server::memory_management::Cleanup;
 use cubecl_server::memory_management::PageUpdate;
 use cubecl_server::{
@@ -67,7 +68,11 @@ impl MetalServer {
         let mut compilation_options = cubecl_cpp::shared::CompilationOptions::default();
         // Metal honors per-op fast math via the `fast::` namespace (MSL 3+).
         compilation_options.supports_features.fast_math = true;
-        let context = MetalContext::new(device.clone(), compilation_options);
+        let context = MetalContext::new(
+            device.clone(),
+            (*utilities.properties).clone(),
+            compilation_options,
+        );
 
         let backend = MetalStreamBackend::new(device, mem_props, mem_config, logger.clone());
 
@@ -359,17 +364,16 @@ impl Server for MetalServer {
         // A dry run stages none either way. It was never going to write, so a
         // failure in it leaves nothing stale, and tainting its buffers would
         // fail unrelated reads of memory the run deliberately left alone.
-        let kernel_id = kernel.id();
-        let compiled = (|| {
-            cubecl_server::validation::validate_cube_dim(&self.utilities.properties, &kernel_id)?;
-            cubecl_server::validation::validate_units(&self.utilities.properties, &kernel_id)?;
-            self.context.compile_kernel(
-                &kernel_id,
-                kernel,
-                self.utilities.properties.hardware.max_shared_memory_size,
-                self.utilities.logger.clone(),
-            )
-        })();
+        // A compile-only launch only queues its kernel, touching nothing else.
+        if launch_mode == LaunchMode::CompileOnly {
+            self.context.queue(kernel);
+            return;
+        }
+        let id = ArtifactId {
+            kernel: kernel.id(),
+            variant: (),
+        };
+        let compiled = self.context.load(&*kernel, &id, &self.utilities.logger);
         let compiled = match compiled {
             Ok(compiled) => compiled,
             Err(err) => {
@@ -386,6 +390,7 @@ impl Server for MetalServer {
         if launch_mode.is_skipped() {
             return;
         }
+        let kernel_id = id.kernel;
         let io = compiled.io.clone();
 
         // The scope claims what the launch writes until the body proves the
@@ -595,6 +600,10 @@ impl Server for MetalServer {
         _stream_id: StreamId,
     ) -> Result<(), ServerError> {
         self.streams.ensure_written(handles.iter())
+    }
+
+    fn compile_queued(&mut self) {
+        self.context.compile_queued(&self.utilities.logger);
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {

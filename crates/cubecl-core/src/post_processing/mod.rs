@@ -1,3 +1,4 @@
+pub mod bf16;
 pub mod bitwise;
 pub mod checked_io;
 pub mod fp4;

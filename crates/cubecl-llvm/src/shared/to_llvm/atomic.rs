@@ -127,7 +127,15 @@ impl ToLLVMDialect for AtomicCompareExchangeWeakOp {
         let sync_scope = device_scope(ctx);
         let op = llvm::AtomicCmpxchgOp::new(ctx, ptr, cmp, new_val, before, after, sync_scope);
         rewriter.insert_op(ctx, &op);
-        rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![op.get_result(ctx)]);
+        // `cmpxchg` yields the value it read beside whether it swapped; the cube op is the value.
+        let previous = llvm::ExtractValueOp::new(ctx, op.get_result(ctx), vec![0])
+            .expect("a cmpxchg result holds the value it read first");
+        rewriter.insert_op(ctx, &previous);
+        rewriter.replace_operation_with_values(
+            ctx,
+            self.get_operation(),
+            vec![previous.get_result(ctx)],
+        );
         Ok(())
     }
 }

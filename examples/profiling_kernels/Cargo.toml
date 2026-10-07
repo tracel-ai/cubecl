@@ -17,4 +17,4 @@ hip = ["cubecl/hip"]
 cpu = ["cubecl/cpu"]
 
 [dependencies]
-cubecl = { path = "../../crates/cubecl", version = "=0.11.0-pre.4" }
+cubecl = { workspace = true, default-features = true }
