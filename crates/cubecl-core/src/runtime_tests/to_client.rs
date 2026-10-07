@@ -41,8 +41,8 @@ pub fn test_to_client<R: Runtime>() {
     }
 }
 
-/// Several threads transfer between the same two devices at once, each sending values no other
-/// thread sends, so receiving another thread's values means two transfers were paired out of order.
+/// Threads transfer between two devices at once, half in each direction, each sending values no
+/// other thread sends, so receiving another's means two transfers were paired out of order.
 pub fn test_to_client_concurrent<R: Runtime>() {
     const THREADS: usize = 4;
     const ROUNDS: usize = 50;
@@ -56,22 +56,25 @@ pub fn test_to_client_concurrent<R: Runtime>() {
 
     std::thread::scope(|scope| {
         for thread in 0..THREADS {
-            let (device_0, device_1) = (&device_0, &device_1);
+            let (source, destination) = match thread % 2 {
+                0 => (&device_0, &device_1),
+                _ => (&device_1, &device_0),
+            };
             scope.spawn(move || {
-                let mut client_0 = R::client(device_0);
-                let client_1 = R::client(device_1);
+                let mut source = R::client(source);
+                let destination = R::client(destination);
 
                 for round in 0..ROUNDS {
                     let expected = [(thread * ROUNDS + round) as f32; 64];
-                    let input = client_0.create_from_slice(f32::as_bytes(&expected));
+                    let input = source.create_from_slice(f32::as_bytes(&expected));
 
-                    let output = client_0.to_client(
+                    let output = source.to_client(
                         input,
-                        &client_1,
+                        &destination,
                         cubecl_ir::ElemType::Float(cubecl_ir::FloatKind::F32),
                     );
 
-                    let actual = client_1.read_one_unchecked(output);
+                    let actual = destination.read_one_unchecked(output);
                     assert_eq!(
                         f32::from_bytes(&actual),
                         expected,

@@ -26,19 +26,13 @@ use cubecl_common::{
     device_handle::{CallResultExt, DeviceHandle},
     profile::ProfileDuration,
 };
-use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::future::DynFut;
-use cubecl_environment::sync::Mutex;
+use cubecl_environment::{backtrace::BackTrace, future::DynFut, stream::StreamId, sync::Mutex};
 use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, VectorSize, features::Features};
 use cubecl_zspace::Shape;
 
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
 
-use cubecl_environment::stream::StreamId;
-
-/// Held while both halves of a device-to-device transfer are queued, see
-/// [`Client::to_client_tensor`].
 static TRANSFER_ORDER: Mutex<()> = Mutex::new(());
 
 /// The `Client` is the entry point to require tasks from the `Server`.
@@ -1059,8 +1053,7 @@ impl Client {
         );
         let handle_cloned = handle.clone();
 
-        // NCCL pairs sends and recvs in the order each device runs them, so both halves of a
-        // transfer are queued under one lock or two concurrent transfers can swap their data.
+        // NCCL pairs sends and recvs in the order each device queues them.
         let _order = TRANSFER_ORDER.lock();
 
         let device_ids = vec![device_id_src, device_id_dst];
