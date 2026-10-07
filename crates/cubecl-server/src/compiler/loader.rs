@@ -158,8 +158,8 @@ impl<T: CompilationTarget> KernelLoader<T> {
             .map(Queued::request)
             .collect();
         requests.extend(asked);
-        for compiled in self.compile(requests, logger) {
-            self.keep(compiled);
+        for outcome in self.compile(requests, logger) {
+            self.keep(outcome);
         }
     }
 
@@ -183,12 +183,12 @@ impl<T: CompilationTarget> KernelLoader<T> {
         self.queue.push(id, kernel);
     }
 
-    /// Keeps a compiled kernel, or the reason it failed.
-    fn keep(&mut self, compiled: Compiled<T>) {
-        match compiled.result {
-            Ok(loaded) => self.loaded.insert(compiled.id, loaded),
+    /// Keeps a loaded kernel, or the reason it failed.
+    fn keep(&mut self, outcome: JobOutcome<T>) {
+        match outcome.result {
+            Ok(loaded) => self.loaded.insert(outcome.id, loaded),
             Err(err) => {
-                self.failed.insert(compiled.id, err);
+                self.failed.insert(outcome.id, err);
             }
         }
     }
@@ -203,7 +203,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
         &mut self,
         requests: Vec<Request<'_, VariantOf<T>>>,
         logger: &ServerLogger,
-    ) -> Vec<Compiled<T>> {
+    ) -> Vec<JobOutcome<T>> {
         let batch = CompilationBatchRecording::new();
         let mut jobs: Vec<Job<'_, T>> = requests.into_iter().map(Job::new).collect();
         let jobs_len = jobs.len();
@@ -276,16 +276,16 @@ impl<T: CompilationTarget> KernelLoader<T> {
             }
         }
 
-        let compiled: Vec<Compiled<T>> = jobs
+        let outcomes: Vec<JobOutcome<T>> = jobs
             .into_iter()
             .map(|job| job.load(&mut self.target))
             .collect();
         batch.close(BatchOutcome {
             kernels: jobs_len,
             threads,
-            stored: compiled.iter().any(|compiled| compiled.stored),
+            stored: outcomes.iter().any(|outcome| outcome.stored),
         });
-        compiled
+        outcomes
     }
 }
 
@@ -301,8 +301,8 @@ impl<T: CompilationTarget + core::fmt::Debug> core::fmt::Debug for KernelLoader<
     }
 }
 
-/// A kernel compiled and loaded, or why it was not.
-struct Compiled<T: CompilationTarget> {
+/// How a [`Job`] ended: its kernel loaded, or why it was not.
+struct JobOutcome<T: CompilationTarget> {
     id: ArtifactId<VariantOf<T>>,
     result: Result<T::Loaded, LaunchError>,
     /// Whether the compilation store took its artifact.
@@ -592,7 +592,7 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
     /// A waiting job takes what the kernel it waited for stored, now that the
     /// batch has stored it, and finalizes its own only when there is no store
     /// to take it from.
-    fn load(mut self, target: &mut T) -> Compiled<T> {
+    fn load(mut self, target: &mut T) -> JobOutcome<T> {
         if let Step::Waiting { .. } = self.step {
             let Step::Waiting { lowered, source } =
                 core::mem::replace(&mut self.step, Step::Missing)
@@ -641,7 +641,7 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
                 unreachable!("every job is lowered, then finalized or reused, or failed")
             }
         };
-        Compiled {
+        JobOutcome {
             id: self.id,
             result,
             stored,
