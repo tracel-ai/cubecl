@@ -3,7 +3,8 @@
 use crate::{
     amdgpu::plane::lane_id,
     prelude::*,
-    shared::matrix::{registers_as_vector, registers_value},
+    shared::matrix::{convert_lanes, registers_as_vector, registers_value},
+    shared::plane::bitcast,
 };
 use cubecl_core::ir::{
     amd::AmdWmma,
@@ -450,7 +451,6 @@ fn emit_wmma(
     rw: &mut DialectConversionRewriter,
     call: WmmaCall,
     (a_val, b_val, c_val): (Value, Value, Value),
-    ab_ty: TypeHandle,
     cd_ty: TypeHandle,
 ) -> Option<Value> {
     let WmmaCall {
@@ -461,7 +461,12 @@ fn emit_wmma(
     } = call;
     let generation = ctx.wmma();
     let (instruction_k, steps) = instruction_steps(generation, k)?;
-    let pads_half = pads_half_accumulator(generation) && cd_is_half;
+
+    let fragment_cd_ty = cd_ty;
+    let a_val = wmma_operand(ctx, rw, a_val);
+    let b_val = wmma_operand(ctx, rw, b_val);
+    let c_val = wmma_operand(ctx, rw, c_val);
+    let (ab_ty, cd_ty) = (a_val.get_type(ctx), c_val.get_type(ctx));
 
     let mut acc = c_val;
     for step in 0..steps {
@@ -482,8 +487,9 @@ fn emit_wmma(
 
         let mut args = vec![a_arg, b_arg, acc];
         let mut arg_tys = vec![arg_ty, arg_ty, cd_ty];
-        // RDNA3 selects a register half with `opsel`; RDNA4 uses packed accumulators.
-        if pads_half {
+        // Every 16-bit accumulator form takes `op_sel`: RDNA3 selects a register half with it,
+        // RDNA4 packs its accumulators and requires it to be 0.
+        if cd_is_half {
             let low_half = insert_bool_const(ctx, rw, false);
             arg_tys.push(low_half.get_type(ctx));
             args.push(low_half);
@@ -493,7 +499,25 @@ fn emit_wmma(
         let op = llvm::CallIntrinsicOp::new(ctx, name.into(), fn_ty, args);
         acc = insert(ctx, rw, &op);
     }
-    Some(acc)
+    Some(bitcast(ctx, rw, acc, fragment_cd_ty))
+}
+
+/// A fragment as the WMMA intrinsics take it: the `bf16` forms declare their lanes as `i16`.
+fn wmma_operand(ctx: &mut Context, rw: &mut DialectConversionRewriter, fragment: Value) -> Value {
+    let ty = fragment.get_type(ctx);
+    let (elem, lanes) = {
+        let vector = ty.deref(ctx);
+        let vector = vector
+            .downcast_ref::<LlvmVectorType>()
+            .expect("a fragment is held in a vector");
+        (vector.elem_type(), vector.num_elements())
+    };
+    if !elem.deref(ctx).is::<BF16Type>() {
+        return fragment;
+    }
+    let halves = IntegerType::get(ctx, 16, Signedness::Signless).into();
+    let halves_ty = LlvmVectorType::get(ctx, halves, lanes, VectorTypeKind::Fixed).into();
+    bitcast(ctx, rw, fragment, halves_ty)
 }
 
 pub(crate) fn multiply_accumulate(
@@ -530,8 +554,7 @@ pub(crate) fn multiply_accumulate(
         cd,
         cd_is_half: is_half(ctx, c_ty.elem_ty),
     };
-    let Some(result) = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), ab_frag_ty, cd_frag_ty)
-    else {
+    let Some(result) = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), cd_frag_ty) else {
         return input_err!(op.loc(ctx), MatrixDepthUnsupported(k, instruction_k(ctx)));
     };
     store_fragment(ctx, rw, d, result);
@@ -582,41 +605,7 @@ pub(crate) fn cast(
         )
     };
 
-    let in_bits = in_ty.elem_ty.size_bits(ctx);
-    let out_bits = out_ty.elem_ty.size_bits(ctx);
-    let dense_out_ty: TypeHandle = LlvmVectorType::get(
-        ctx,
-        cube_type_to_llvm(ctx, out_ty.elem_ty),
-        elems as u32,
-        VectorTypeKind::Fixed,
-    )
-    .into();
-    let cast = if in_bits > out_bits {
-        fptrunc(ctx, rw, dense, dense_out_ty)
-    } else if in_bits < out_bits {
-        fpext(ctx, rw, dense, dense_out_ty)
-    } else if in_ty.elem_ty == out_ty.elem_ty {
-        dense
-    } else if is_half(ctx, in_ty.elem_ty) && is_half(ctx, out_ty.elem_ty) {
-        // Conversions between f16 and bf16 require an f32 intermediate.
-        let wide_ty: TypeHandle = LlvmVectorType::get(
-            ctx,
-            FP32Type::get(ctx).into(),
-            elems as u32,
-            VectorTypeKind::Fixed,
-        )
-        .into();
-        let wide = fpext(ctx, rw, dense, wide_ty);
-        fptrunc(ctx, rw, wide, dense_out_ty)
-    } else {
-        debug_assert_eq!(
-            cube_type_to_llvm(ctx, in_ty.elem_ty),
-            cube_type_to_llvm(ctx, out_ty.elem_ty),
-            "a cast of the same width between two distinct LLVM types needs a conversion, \
-             and neither `fpext` nor `fptrunc` is one"
-        );
-        dense
-    };
+    let cast = convert_lanes(ctx, rw, dense, out_ty.elem_ty);
 
     let result = if out_step == 1 {
         cast
@@ -634,28 +623,6 @@ pub(crate) fn cast(
 
     rw.erase_operation(ctx, old_op);
     Ok(())
-}
-
-fn fpext(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    value: Value,
-    ty: TypeHandle,
-) -> Value {
-    let op = llvm::FPExtOp::new(ctx, value, ty);
-    op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-    insert(ctx, rw, &op)
-}
-
-fn fptrunc(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    value: Value,
-    ty: TypeHandle,
-) -> Value {
-    let op = llvm::FPTruncOp::new(ctx, value, ty);
-    op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-    insert(ctx, rw, &op)
 }
 
 enum Axis {
@@ -736,7 +703,7 @@ pub(crate) fn mma_manual(
         cd,
         cd_is_half: is_half(ctx, cd_elem),
     };
-    let Some(result) = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), ab_ty, cd_ty) else {
+    let Some(result) = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), cd_ty) else {
         return input_err!(
             op.loc(ctx),
             MatrixDepthUnsupported(shape.k, instruction_k(ctx))

@@ -985,6 +985,168 @@ fn fresh_tune_key_uid() -> String {
         .to_string()
 }
 
+/// Benchmarks a [`dummy::ranked_addition_set`] of `candidates` under `patience`, returning what
+/// the winner wrote and each candidate's call count.
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+fn tune_ranked(
+    tuner: &'static LocalTuner<String, String>,
+    patience: cubecl_server::tune::Patience,
+    candidates: Vec<(dummy::RankedKernel, dummy::Membership)>,
+) -> (Vec<u8>, Vec<usize>) {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let client = test_client(&DummyDevice);
+
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = vec![lhs, rhs, out.clone()];
+
+    let calls: Vec<_> = candidates
+        .iter()
+        .map(|_| Arc::new(AtomicUsize::new(0)))
+        .collect();
+    let ranked = candidates
+        .into_iter()
+        .zip(calls.iter().cloned())
+        .map(|((kernel, membership), calls)| dummy::RankedCandidate {
+            kernel,
+            membership,
+            calls,
+        })
+        .collect::<Vec<_>>();
+
+    let uid = fresh_tune_key_uid();
+    let id = uid.clone();
+    let test_set = tuner.init(&id, move || {
+        let client = test_client(&DummyDevice);
+        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+        dummy::ranked_addition_set(client, shapes, uid.clone(), patience, ranked.clone())
+    });
+    tuner.execute(&id, &client, test_set, handles);
+
+    let written = client.read_one(out).unwrap().to_vec();
+    let calls = calls
+        .iter()
+        .map(|calls| calls.load(Ordering::Relaxed))
+        .collect();
+    (written, calls)
+}
+
+/// Whether this run tunes with the adaptive scheduler, the only one that applies patience.
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+fn adaptive() -> bool {
+    use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
+
+    CubeClRuntimeConfig::get().autotune.bench.adaptive
+}
+
+/// An ordered group whose patience runs out after its first member never benchmarks the rest
+/// of the group: the slow+wrong kernel ranked first wins unopposed. With room for both, the
+/// faster `add` is measured and wins. Outside the group, `add` is measured despite the group
+/// running out, and wins. The fixed-count pass measures every candidate, so there `add` always
+/// wins.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn autotune_patience_stops_measuring_the_group() {
+    use cubecl_server::tune::Patience;
+    use dummy::{Membership::*, RankedKernel::*};
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_patience");
+
+    let patience = |min_measured| Patience {
+        min_measured,
+        max_misses: 0,
+    };
+    let slow = match adaptive() {
+        true => vec![0, 1, 2],
+        false => vec![4, 5, 6],
+    };
+
+    let (written, calls) = tune_ranked(
+        &TUNER,
+        patience(1),
+        vec![(SlowWrong, Ranked), (Add, Ranked)],
+    );
+    assert_eq!(written, slow);
+    assert_eq!(calls[1] == 0, adaptive());
+
+    let (written, _) = tune_ranked(
+        &TUNER,
+        patience(2),
+        vec![(SlowWrong, Ranked), (Add, Ranked)],
+    );
+    assert_eq!(written, vec![4, 5, 6]);
+
+    let (written, _) = tune_ranked(
+        &TUNER,
+        patience(1),
+        vec![(SlowWrong, Ranked), (Add, Ungrouped)],
+    );
+    assert_eq!(written, vec![4, 5, 6]);
+}
+
+/// Misses are counted in a row and a member that fails is not one: with two misses allowed,
+/// the rejected member and the first slow one are not enough to stop the group, the second
+/// slow one is, and the last member is never benchmarked.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn autotune_patience_counts_misses_in_a_row_and_not_failures() {
+    use cubecl_server::tune::Patience;
+    use dummy::{Membership::*, RankedKernel::*};
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_patience_misses");
+
+    let patience = Patience {
+        min_measured: 1,
+        max_misses: 2,
+    };
+    let candidates = vec![
+        (Add, Ranked),
+        (Rejected, Ranked),
+        (SlowWrong, Ranked),
+        (SlowWrong, Ranked),
+        (Add, Ranked),
+    ];
+
+    let (written, calls) = tune_ranked(&TUNER, patience, candidates);
+
+    assert_eq!(written, vec![4, 5, 6]);
+    assert!(
+        calls[3] > 0,
+        "the second slow member is measured: {calls:?}"
+    );
+    assert_eq!(calls[4] == 0, adaptive(), "the last member: {calls:?}");
+}
+
+/// A member measured in the first pass that fails in a later round is disqualified. When it was
+/// the only one measured, the member its group's patience skipped is measured after all and
+/// wins, rather than the plan running out of candidates.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn autotune_patience_measures_the_skipped_when_the_measured_fail() {
+    use cubecl_server::tune::Patience;
+    use dummy::{Membership::*, RankedKernel::*};
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_patience_retry");
+
+    let patience = Patience {
+        min_measured: 1,
+        max_misses: 0,
+    };
+    // A warmup and a sample in the first pass, then it fails in the first round.
+    let candidates = vec![(FailsAfter(2), Ranked), (Add, Ranked)];
+
+    let (written, calls) = tune_ranked(&TUNER, patience, candidates);
+
+    assert_eq!(written, vec![4, 5, 6]);
+    assert!(calls[1] > 0, "the skipped member is measured: {calls:?}");
+}
+
 /// A tunable that rejects its own configuration fails identically on every call, so the
 /// benchmark must stop at the first rejection rather than paying a profile round trip for
 /// every warmup and sample before reporting it.
@@ -1197,7 +1359,7 @@ fn autotune_stops_sampling_an_eliminated_candidate() {
 #[cfg(feature = "std")]
 #[serial_test::serial]
 fn a_dry_run_drops_an_ordinary_launch() {
-    use cubecl_server::dry_run::DryRun;
+    use cubecl_server::dry_run::{DryRun, DryRunScope};
 
     let client = test_client(&DummyDevice);
     let lhs = client.create_from_slice(&[0, 1, 2]);
@@ -1217,7 +1379,7 @@ fn a_dry_run_drops_an_ordinary_launch() {
     };
 
     {
-        let _dry_run = DryRun::new();
+        let _dry_run = DryRun::new(DryRunScope::Profile);
         add(&out);
 
         assert_eq!(
@@ -1245,7 +1407,7 @@ fn a_dry_run_drops_an_ordinary_launch() {
 #[cfg(feature = "std")]
 #[serial_test::serial]
 fn a_dry_run_still_autotunes() {
-    use cubecl_server::dry_run::DryRun;
+    use cubecl_server::dry_run::{DryRun, DryRunScope};
 
     static TUNER: LocalTuner<String, String> = local_tuner!("a_dry_run_still_autotunes");
 
@@ -1260,7 +1422,7 @@ fn a_dry_run_still_autotunes() {
     let out = client.empty(3);
 
     {
-        let _dry_run = DryRun::new();
+        let _dry_run = DryRun::new(DryRunScope::Profile);
         TUNER.execute(
             &"test".to_string(),
             &client,
@@ -1285,6 +1447,67 @@ fn a_dry_run_still_autotunes() {
     );
 }
 
+/// A compile-only dry run measures nothing and decides nothing: no sample is
+/// taken, so the eviction that runs before each never does; it queues a key's
+/// candidates once however often it reaches it; and the key is tuned for real
+/// by the first execution outside it.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn a_compile_dry_run_leaves_the_tune_to_the_next_pass() {
+    use cubecl_server::dry_run::{DryRun, DryRunScope};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("compile_dry_run");
+
+    let client = test_client(&DummyDevice);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let evictions = Arc::new(AtomicUsize::new(0));
+    let misdirected = Arc::new(AtomicUsize::new(0));
+    let uid = fresh_tune_key_uid();
+    let test_set = {
+        let (calls, evictions, misdirected) =
+            (calls.clone(), evictions.clone(), misdirected.clone());
+        TUNER.init(&"test".to_string(), move || {
+            let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+            dummy::addition_set_with_eviction(
+                test_client(&DummyDevice),
+                shapes,
+                uid.clone(),
+                calls.clone(),
+                evictions.clone(),
+                misdirected.clone(),
+            )
+        })
+    };
+
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = || vec![lhs.clone(), rhs.clone(), out.clone()];
+
+    {
+        let _dry_run = DryRun::new(DryRunScope::Compile);
+        TUNER.execute(&"test".to_string(), &client, test_set.clone(), handles());
+        let compiled = calls.load(Ordering::Relaxed);
+        assert!(compiled > 0, "the candidates ran, to queue their kernels");
+
+        // A walk reaches the same key at every layer: once queued, the key only runs the
+        // candidate that launches.
+        TUNER.execute(&"test".to_string(), &client, test_set.clone(), handles());
+        assert_eq!(calls.load(Ordering::Relaxed), compiled + 1);
+    }
+    assert_eq!(evictions.load(Ordering::Relaxed), 0, "nothing was measured");
+
+    TUNER.execute(&"test".to_string(), &client, test_set, handles());
+    assert!(
+        evictions.load(Ordering::Relaxed) > 0,
+        "the key was left untuned, so this execution tuned it"
+    );
+    assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
+}
+
 /// The other half of what a dry run leaves alone: memory. A reservation no
 /// executed launch, read or write ever touches gets no device backing — the
 /// skipped launch resolves nothing — and backing is installed on demand the
@@ -1296,11 +1519,11 @@ fn a_dry_run_still_autotunes() {
 #[cfg(not(exclusive_memory_only))]
 #[serial_test::serial]
 fn a_dry_run_reserves_without_mapping() {
-    use cubecl_server::dry_run::DryRun;
+    use cubecl_server::dry_run::{DryRun, DryRunScope};
     use cubecl_server::memory_management::MemoryPoolReport;
 
     let client = test_client(&DummyDevice);
-    let dry_run = DryRun::new();
+    let dry_run = DryRun::new(DryRunScope::Profile);
 
     // Big enough to land in a large-page pool of its own: the parallel tests
     // in this binary allocate a few bytes at a time, so nothing else touches
@@ -1440,9 +1663,9 @@ fn a_compilation_is_recorded_with_its_outcome() {
 
     let id = KernelId::new::<Recorded>().info(3u32);
     let stored = true;
-    CompilationRecording::new(&id).compiled(stored);
-    CompilationRecording::new(&id).loaded();
-    CompilationRecording::new(&id).rekeyed(stored);
+    CompilationRecording::new(&id).close(CompilationOutcome::Compiled, stored);
+    CompilationRecording::new(&id).close(CompilationOutcome::Loaded, false);
+    CompilationRecording::new(&id).close(CompilationOutcome::Rekeyed, stored);
 
     let database = Database::open_active().unwrap();
     let trips = Records::new(&database).read::<CompilationRecord>();
@@ -1482,7 +1705,10 @@ fn a_compilation_keeps_its_code_only_when_records_are_full() {
         recording_at(level);
         let mut recording = CompilationRecording::new(&id);
         recording.source("source");
-        recording.compiled(stored);
+        recording.close(
+            cubecl_server::compiler::CompilationOutcome::Compiled,
+            stored,
+        );
     }
     recording_at(RecordLevel::Basic);
 
@@ -1504,7 +1730,9 @@ fn a_compilation_keeps_its_code_only_when_records_are_full() {
 fn a_compile_nothing_stored_leaves_no_session() {
     use cubecl_environment::persistence::{Database, Namespace, Store, StoreOptions};
     use cubecl_environment::records::{RecordLevel, Records};
-    use cubecl_server::compiler::{CompilationRecord, CompilationRecording, store_compiled};
+    use cubecl_server::compiler::{
+        CompilationOutcome, CompilationRecord, CompilationRecording, store_compiled,
+    };
     use cubecl_server::id::KernelId;
 
     struct Unstored;
@@ -1519,7 +1747,7 @@ fn a_compile_nothing_stored_leaves_no_session() {
 
     let id = KernelId::new::<Unstored>();
     let stored = false;
-    CompilationRecording::new(&id).compiled(stored);
+    CompilationRecording::new(&id).close(CompilationOutcome::Compiled, stored);
 
     let database = Database::open_active().unwrap();
     let records = Records::new(&database);
@@ -1554,7 +1782,10 @@ fn a_memory_snapshot_is_recorded_under_its_label() {
     struct Stored;
     let id = cubecl_server::id::KernelId::new::<Stored>();
     let stored = true;
-    cubecl_server::compiler::CompilationRecording::new(&id).compiled(stored);
+    cubecl_server::compiler::CompilationRecording::new(&id).close(
+        cubecl_server::compiler::CompilationOutcome::Compiled,
+        stored,
+    );
 
     let snapshots = Records::new(&database).read::<MemoryRecord>();
     assert_eq!(snapshots.len(), 1);

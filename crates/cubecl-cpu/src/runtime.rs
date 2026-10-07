@@ -49,6 +49,7 @@ fn register_supported_types(props: &mut DeviceProperties) {
         ElemType::Int(IntKind::I32),
         ElemType::Int(IntKind::I64),
         ElemType::Float(FloatKind::F16),
+        ElemType::Float(FloatKind::BF16),
         ElemType::Float(FloatKind::F32),
         ElemType::Float(FloatKind::F64),
         ElemType::Bool,

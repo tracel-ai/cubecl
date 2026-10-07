@@ -8,6 +8,7 @@
 
 use alloc::string::{String, ToString};
 use core::fmt::{self, Formatter};
+use core::hash::{Hash, Hasher};
 use itertools::Itertools;
 
 use cubecl_ir::{
@@ -39,6 +40,17 @@ struct ExpressionKey {
     attributes: AttributeDict,
     result_types: Vec<TypeHandle>,
     mem_value: Option<MemoryValue>,
+}
+
+// `AttributeDict` has no `Hash`: keys differing only in attributes share a bucket and the
+// equality tells them apart.
+impl Hash for ExpressionKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.op_id.hash(state);
+        self.operands.hash(state);
+        self.result_types.hash(state);
+        self.mem_value.hash(state);
+    }
 }
 
 impl ExpressionKey {

@@ -21,7 +21,6 @@ use pliron::{
     basic_block::BasicBlock,
     dyn_clone,
     graph::{ControlFlowGraph, HasLabel},
-    indented_block,
     linked_list::ContainsLinkedList,
     operation::OpDbg,
     opts::constants::BranchOpFoldInterface,
@@ -206,7 +205,8 @@ impl Printable for PredecessorState {
         f: &mut core::fmt::Formatter<'_>,
     ) -> core::fmt::Result {
         write!(f, "{}: PredecessorState(", self.anchor.disp(ctx))?;
-        indented_block!(state, {
+        {
+            let _indent = state.indent();
             write!(f, "{}", indented_nl(state))?;
             write!(f, "all_known: {},", self.all_known)?;
             write!(f, "{}", indented_nl(state))?;
@@ -230,7 +230,7 @@ impl Printable for PredecessorState {
                     })
                     .join(", ")
             )?;
-        });
+        }
         write!(f, "{})", indented_nl(state))
     }
 }

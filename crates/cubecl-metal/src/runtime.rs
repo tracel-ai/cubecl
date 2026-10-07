@@ -95,7 +95,7 @@ impl DeviceService for MetalServer {
         // Metal is the one backend where the display name *is* the fingerprint:
         // the MSL is emitted from device-derived compilation options, so the
         // device's own name is what keeps sources built for another GPU out.
-        // `MetalContext` builds the same `msl_{name}` namespace from the same
+        // `MetalPipelines` builds the same `msl_{name}` namespace from the same
         // string.
         let device_name = metal_device.name().to_string();
 

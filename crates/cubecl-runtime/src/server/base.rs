@@ -710,6 +710,15 @@ pub trait Server:
     /// unwritten, and surfaces on any read, sync or check of them.
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
+    /// Compiles every kernel a [`LaunchMode::CompileOnly`] launch queued, now
+    /// rather than inside the next launch, so a measurement that follows
+    /// times its own kernels only.
+    ///
+    /// A kernel that fails to compile reports it when it is launched, as if
+    /// its launch had compiled it. A no-op by default, for a server that
+    /// queues nothing.
+    fn compile_queued(&mut self) {}
+
     /// Prepare `stream_id` for an upcoming graph capture. Call this
     /// **before** the warmup run: the capture window allocates nothing, so it
     /// reuses what the warmup run left in the pools, and every page the
@@ -1221,7 +1230,7 @@ pub enum IoError {
         /// The size of the allocation in bytes.
         size: u64,
         /// The captured backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 

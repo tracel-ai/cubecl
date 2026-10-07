@@ -9,7 +9,7 @@ use crate::{
     prelude::{BufferIOAttr, Context, ModuleOp},
     shared::{
         NvptxModule,
-        buffer_params::annotate_buffer_params,
+        buffer_params::{AtomicReads, annotate_buffer_params},
         llvm_module::{EntryFunction, LlvmModule, TargetMachine, TargetSpec},
         llvm_options::set_llvm_option,
         math_library::redirect_intrinsics,
@@ -76,6 +76,8 @@ pub struct NvptxEntry {
     pub shared_memory_size: usize,
     /// Buffer access modes in binding order.
     pub io: Vec<BufferIOAttr>,
+    /// The global buffers the kernel's atomics read.
+    pub atomic_reads: AtomicReads,
     /// Metadata parameter layout.
     pub metadata: MetadataParams,
 }
@@ -134,7 +136,12 @@ fn finalize(
     let entry_fn = module.entry_point(entrypoint)?;
     entry_fn.set_calling_convention(PTX_KERNEL_CC);
     entry_fn.add_attributes(&attributes);
-    annotate_buffer_params(&entry_fn, &entry.io, entry.metadata.count());
+    annotate_buffer_params(
+        &entry_fn,
+        &entry.io,
+        &entry.atomic_reads,
+        entry.metadata.count(),
+    );
     if let MetadataParams::GridConstant { bytes, .. } = entry.metadata {
         mark_info_param_byval(&entry_fn, bytes);
     }

@@ -43,3 +43,22 @@ pub fn validate_units(
         Ok(())
     }
 }
+
+/// Validate the shared memory a compiled kernel asks for fits within the
+/// hardware limits. `requested` is `None` for a kernel with nothing to read
+/// it from — precompiled text declares its shared memory statically.
+pub fn validate_shared_memory(
+    properties: &DeviceProperties,
+    requested: Option<usize>,
+) -> Result<(), LaunchError> {
+    let max = properties.hardware.max_shared_memory_size;
+    match requested {
+        Some(requested) if requested > max => Err(ResourceLimitError::SharedMemory {
+            requested,
+            max,
+            backtrace: BackTrace::capture(),
+        }
+        .into()),
+        _ => Ok(()),
+    }
+}

@@ -251,3 +251,22 @@ pub(crate) fn vector_into_array(
     }
     acc
 }
+
+/// Converts the lanes of a fragment between two float element types.
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+pub(crate) fn convert_lanes(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    value: Value,
+    to: TypeHandle,
+) -> Value {
+    let lanes = value
+        .get_type(ctx)
+        .deref(ctx)
+        .downcast_ref::<LlvmVectorType>()
+        .expect("a fragment is held in a vector")
+        .num_elements();
+    let to = cube_type_to_llvm(ctx, to);
+    let to_ty = LlvmVectorType::get(ctx, to, lanes, VectorTypeKind::Fixed).into();
+    crate::shared::to_llvm::general::convert_float(ctx, rw, value, to_ty)
+}

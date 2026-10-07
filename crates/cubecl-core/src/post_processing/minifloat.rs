@@ -30,6 +30,13 @@ const FP8_MAGNITUDE_MASK: u32 = FP8_SIGN_BIT - 1;
 const SIGN_SHIFT: u32 = u32::BITS - u8::BITS;
 
 /// Bits above the low byte are ignored.
+///
+/// A code's magnitude, its exponent and mantissa together, is already an `f32`'s exponent and
+/// mantissa in order, so a normal code is one shift and one add of the bias difference on the
+/// exponent field, rather than the two fields taken apart and put back. A zero exponent leaves
+/// the magnitude as the mantissa alone, a whole number of the format's smallest step, which is
+/// the one place the layouts disagree and the one select the values owe. The sign rides as its
+/// bit. Every code decodes exactly, and only through `u32` and `f32`.
 #[cube]
 pub fn fp8_bits_to_f32<N: Size>(
     bits: Vector<u32, N>,
@@ -37,39 +44,48 @@ pub fn fp8_bits_to_f32<N: Size>(
 ) -> Vector<f32, N> {
     let mantissa_bits = comptime![format.mantissa_bits()];
     let exponent_mask = comptime![(1u32 << format.exponent_bits()) - 1];
-    let mantissa_mask = comptime![(1u32 << mantissa_bits) - 1];
-    let rebias = comptime![F32_EXPONENT_BIAS - format.bias()];
+    let rebias = comptime![(F32_EXPONENT_BIAS - format.bias()) << F32_MANTISSA_BITS];
     let mantissa_shift = comptime![F32_MANTISSA_BITS - mantissa_bits];
     let subnormal_step = comptime![format.subnormal_step()];
+    // The first magnitude with a non-zero exponent, and the first with an all-ones one.
+    let smallest_normal = comptime![1u32 << mantissa_bits];
+    let special = comptime![exponent_mask << mantissa_bits];
 
     let sign = (bits & Vector::new(FP8_SIGN_BIT)) << Vector::new(SIGN_SHIFT);
-    let exponent = (bits >> Vector::new(mantissa_bits)) & Vector::new(exponent_mask);
-    let mantissa = bits & Vector::new(mantissa_mask);
+    let magnitude = bits & Vector::new(FP8_MAGNITUDE_MASK);
 
-    let normal = sign
-        | ((exponent + Vector::new(rebias)) << Vector::new(F32_MANTISSA_BITS))
-        | (mantissa << Vector::new(mantissa_shift));
-    let subnormal = sign
-        | Vector::<u32, N>::reinterpret(
-            Vector::<f32, N>::cast_from(mantissa) * Vector::new(subnormal_step),
-        );
-    let value = select_many(exponent.equal(&Vector::new(0u32)), subnormal, normal);
+    // The add cannot carry out of the exponent field: the largest exponent, rebiased, still
+    // fits it.
+    let normal = (magnitude << Vector::new(mantissa_shift)) + Vector::new(rebias);
+    let subnormal = Vector::<u32, N>::reinterpret(
+        Vector::<f32, N>::cast_from(magnitude) * Vector::new(subnormal_step),
+    );
+    let value = select_many(
+        magnitude.less_than(&Vector::new(smallest_normal)),
+        subnormal,
+        normal,
+    );
 
-    let nan = sign | Vector::new(F32_NAN_BITS);
     let result = if comptime![format.has_infinity()] {
-        let inf = sign | Vector::new(F32_INFINITY_BITS);
-        let special = select_many(mantissa.equal(&Vector::new(0u32)), inf, nan);
-        select_many(exponent.equal(&Vector::new(exponent_mask)), special, value)
+        let specials = select_many(
+            magnitude.equal(&Vector::new(special)),
+            Vector::new(F32_INFINITY_BITS),
+            Vector::new(F32_NAN_BITS),
+        );
+        select_many(
+            magnitude.greater_equal(&Vector::new(special)),
+            specials,
+            value,
+        )
     } else {
-        let magnitude = bits & Vector::new(FP8_MAGNITUDE_MASK);
         select_many(
             magnitude.equal(&Vector::new(FP8_MAGNITUDE_MASK)),
-            nan,
+            Vector::new(F32_NAN_BITS),
             value,
         )
     };
 
-    Vector::<f32, N>::reinterpret(result)
+    Vector::<f32, N>::reinterpret(result | sign)
 }
 
 /// Round to nearest even; overflow and infinities saturate to the largest finite value, as the host
