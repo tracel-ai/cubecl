@@ -1,12 +1,17 @@
 //! Running a workload for the compilation and tuning it provokes, without
 //! running the workload itself.
 //!
-//! Under a [`DryRun`] every launch is dropped instead of reaching the device,
-//! and its kernel is still compiled — at once under a `Profile` dry run,
-//! queued to compile with the others under a `Compile` one. A warm-up pass
-//! then pays for compilation and tuning without also paying for the work that
-//! provoked them, which is what makes producing a shippable environment
-//! affordable.
+//! Under a [`DryRun`]'s [pass](DryRun::pass) every launch is dropped instead
+//! of reaching the device, and its kernel is still compiled — at once under a
+//! `Profile` pass, queued to compile with the others under a `Compile` one. A
+//! warm-up then pays for compilation and tuning without also paying for the
+//! work that provoked them, which is what makes producing a shippable
+//! environment affordable.
+//!
+//! A [`DryRun`] is the one place a caller reaches all of this through: it
+//! opens its passes, and [observes](DryRun::observe) the kernels and tunes
+//! they provoke, counted to it under its [`DryRunId`] by the code doing the
+//! work, on every device it reaches.
 //!
 //! Under a [`DryRunScope::Profile`] dry run, the launches autotune issues are
 //! the exception: they *are* the measurement, so [`RealRun`] opts them back
@@ -32,7 +37,12 @@
 //! produced it is gone.
 
 use core::marker::PhantomData;
-use cubecl_environment::sync::{AtomicUsize, Ordering};
+use cubecl_environment::sync::{Arc, AtomicUsize, Mutex, Ordering};
+
+mod observation;
+
+use observation::Observed;
+pub use observation::{Counter, DryRunCounter, DryRunObservation, Progress};
 
 /// What a server should do with a launch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,14 +116,10 @@ impl DryRunScope {
     }
 }
 
-/// The dry run open in this process: its scope's level in the low
-/// [`LEVEL_BITS`], and above them how many guards hold it open.
-///
-/// A count, so overlapping guards compose: a swap-and-restore would let one
-/// thread's guard end a dry run another thread is still inside, and leave the
-/// process dry-running forever once that one dropped in turn. One word, so the
-/// scope and its count change together, and a second scope cannot open beside
-/// the first.
+/// The pass open in this process: its scope's level in the low
+/// [`LEVEL_BITS`], and above them how many [`DryRunPass`] guards hold it
+/// open. Written only under [`ACTIVE`]'s lock, and read without it on every
+/// launch.
 static OPEN: AtomicUsize = AtomicUsize::new(0);
 /// The bits of [`OPEN`] that hold the scope's level.
 const LEVEL_BITS: u32 = 2;
@@ -122,98 +128,178 @@ const LEVEL_MASK: usize = (1 << LEVEL_BITS) - 1;
 /// One guard, in [`OPEN`]'s count.
 const GUARD: usize = 1 << LEVEL_BITS;
 
-/// Whether a dry run of either scope is open.
+/// The dry run whose pass is open, while one is: what the work it provokes is
+/// counted to.
+static ACTIVE: Mutex<Option<Arc<Observed>>> = Mutex::new(None);
+
+/// The id the next [`DryRun`] takes.
+static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
+
+/// Whether a dry run's pass is open, in either scope.
 pub fn dry_run() -> bool {
     dry_run_scope().is_some()
 }
 
-/// The scope of the dry run open in this process, if one is.
+/// The scope of the pass open in this process, if one is.
 pub fn dry_run_scope() -> Option<DryRunScope> {
     DryRunScope::at(OPEN.load(Ordering::Relaxed) & LEVEL_MASK)
 }
 
-/// Makes every launch a dry run for as long as it lives, on every thread and
-/// every device.
+/// Where the work the open pass provokes is counted, or `None` outside one.
 ///
-/// Overlapping guards of one scope compose, so a pass that opens one while
-/// another is still open leaves the mode on until the last of them drops. One
-/// scope is open at a time: a dry run is process-wide, and inside a `Compile`
-/// one there is nothing measured for a `Profile` one to read.
+/// For the code doing that work — the kernel loader queuing and compiling,
+/// autotune gathering and measuring — not for a caller, which reads its own
+/// [`DryRun::observe`].
+pub fn counted() -> Option<DryRunCounter> {
+    if !dry_run() {
+        return None;
+    }
+    ACTIVE.lock().as_ref().map(|observed| DryRunCounter {
+        observed: observed.clone(),
+    })
+}
+
+/// Identifies one [`DryRun`] in the process: what its work is counted under.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct DryRunId(pub usize);
+
+/// One dry run: a workload run for the compilation and tuning it provokes,
+/// over as many passes, and on as many devices, as it takes.
 ///
-/// The open scope is read on the thread issuing a launch, with relaxed ordering, so a
-/// launch another thread had already begun issuing may still execute. What is
-/// guaranteed is the launches issued by the thread that opened the guard, and
-/// every launch issued after other threads observe it.
-///
-/// This is the only way in: there is deliberately no configuration file or
-/// environment variable for it. A dry run left on by accident turns the rest of
-/// the process into launches that quietly do nothing and read back
-/// uninitialized memory, so its lifetime belongs to a scope in the code that
-/// wants it, not to an ambient default nothing in the process can see.
+/// It drops nothing on its own. Each [`pass`](Self::pass) opens a scope —
+/// gather and compile, or profile — for as long as its guard lives, and the
+/// work the launches under it provoke is counted to this dry run, which
+/// [`observe`](Self::observe) reads. A build that compiles everything and
+/// then tunes with it compiled is one dry run with two passes:
 ///
 /// ```no_run
 /// # fn warm_up() {}
 /// use cubecl_runtime::dry_run::{DryRun, DryRunScope};
 ///
+/// let dry_run = DryRun::new();
+///
 /// // Gather every kernel the warm-up reaches, and compile them together...
-/// let compile = DryRun::new(DryRunScope::Compile);
+/// let compile = dry_run.pass(DryRunScope::Compile);
 /// warm_up();
 /// drop(compile);
 ///
 /// // ...then tune with them compiled: this pass only measures.
-/// let _profile = DryRun::new(DryRunScope::Profile);
+/// let _profile = dry_run.pass(DryRunScope::Profile);
 /// warm_up();
+///
+/// let observed = dry_run.observe();
+/// assert_eq!(observed.kernels.pending(), 0);
 /// ```
+///
+/// There is deliberately no configuration file or environment variable for
+/// it. A pass left open by accident turns the rest of the process into
+/// launches that quietly do nothing and read back uninitialized memory, so
+/// its lifetime belongs to a scope in the code that wants it, not to an
+/// ambient default nothing in the process can see.
 #[derive(Debug)]
 pub struct DryRun {
-    scope: DryRunScope,
+    observed: Arc<Observed>,
 }
 
 impl DryRun {
-    /// Opens a dry run of `scope` until the guard drops.
+    /// A dry run with no pass open yet, under an id of its own.
+    #[allow(clippy::new_without_default, reason = "each one takes a new id")]
+    pub fn new() -> Self {
+        let id = DryRunId(NEXT_ID.fetch_add(1, Ordering::Relaxed));
+        Self {
+            observed: Arc::new(Observed::new(id)),
+        }
+    }
+
+    /// Its id.
+    pub fn id(&self) -> DryRunId {
+        self.observed.id
+    }
+
+    /// Make every launch a dry run of `scope` for as long as the guard
+    /// lives, on every thread and every device, counting what they provoke
+    /// to this dry run.
+    ///
+    /// Overlapping passes of one scope compose, so a pass opened while
+    /// another is still open leaves the scope open until the last of them
+    /// drops. One scope is open at a time — a pass is process-wide, and
+    /// inside a `Compile` one there is nothing measured for a `Profile` one
+    /// to read — and one dry run: the work under an open pass counts to one
+    /// dry run.
+    ///
+    /// The open scope is read on the thread issuing a launch, with relaxed
+    /// ordering, so a launch another thread had already begun issuing may
+    /// still execute. What is guaranteed is the launches issued by the
+    /// thread that opened the pass, and every launch issued after other
+    /// threads observe it.
     ///
     /// # Panics
     ///
-    /// If a dry run of the other scope is open.
-    pub fn new(scope: DryRunScope) -> Self {
+    /// If a pass of the other scope, or of another dry run, is open.
+    pub fn pass(&self, scope: DryRunScope) -> DryRunPass {
         let level = scope as usize;
-        #[allow(
-            deprecated,
-            reason = "portable_atomic lacks try_update on targets without native atomics"
-        )]
-        let opened = OPEN.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |open| {
-            match open & LEVEL_MASK {
-                0 => Some(GUARD | level),
-                open_level if open_level == level => Some(open + GUARD),
-                _ => None,
+        let mut active = ACTIVE.lock();
+        let open = OPEN.load(Ordering::Relaxed);
+        match (open & LEVEL_MASK, active.as_ref()) {
+            (0, _) => {
+                *active = Some(self.observed.clone());
+                OPEN.store(GUARD | level, Ordering::Relaxed);
             }
-        });
-        if let Err(open) = opened {
-            panic!(
-                "a {scope:?} dry run cannot open while a {:?} one is",
-                DryRunScope::at(open & LEVEL_MASK).expect("open, since the update refused")
-            );
+            (open_level, Some(owner))
+                if open_level == level && Arc::ptr_eq(owner, &self.observed) =>
+            {
+                OPEN.store(open + GUARD, Ordering::Relaxed);
+            }
+            (open_level, owner) => {
+                let open_scope = DryRunScope::at(open_level).expect("open, matched above");
+                let another = owner.is_some_and(|owner| !Arc::ptr_eq(owner, &self.observed));
+                drop(active);
+                match another {
+                    true => panic!(
+                        "a pass of dry run {:?} cannot open while one of another is",
+                        self.id()
+                    ),
+                    false => {
+                        panic!("a {scope:?} pass cannot open while a {open_scope:?} one is")
+                    }
+                }
+            }
         }
-        Self { scope }
+        DryRunPass { scope }
     }
 
-    /// The scope this guard opened.
+    /// What it has provoked so far, over every pass and device.
+    pub fn observe(&self) -> DryRunObservation {
+        self.observed.observe()
+    }
+}
+
+/// A [`DryRun`]'s pass while it is open: every launch is a dry run of its
+/// scope until it drops.
+#[derive(Debug)]
+pub struct DryRunPass {
+    scope: DryRunScope,
+}
+
+impl DryRunPass {
+    /// The scope it opened.
     pub fn scope(&self) -> DryRunScope {
         self.scope
     }
 }
 
-impl Drop for DryRun {
+impl Drop for DryRunPass {
     fn drop(&mut self) {
-        // The last guard out closes the dry run, its level with it.
-        #[allow(
-            deprecated,
-            reason = "portable_atomic lacks try_update on targets without native atomics"
-        )]
-        let _ = OPEN.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |open| {
-            let open = open - GUARD;
-            Some(if open < GUARD { 0 } else { open })
-        });
+        // The last guard out closes the pass, its level and its dry run with
+        // it.
+        let mut active = ACTIVE.lock();
+        let open = OPEN.load(Ordering::Relaxed) - GUARD;
+        if open < GUARD {
+            OPEN.store(0, Ordering::Relaxed);
+            *active = None;
+        } else {
+            OPEN.store(open, Ordering::Relaxed);
+        }
     }
 }
 
@@ -393,7 +479,7 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn a_compile_dry_run_queues_launches() {
-        let _compile = DryRun::new(DryRunScope::Compile);
+        let _compile = DryRun::new().pass(DryRunScope::Compile);
         assert_eq!(dry_run_scope(), Some(DryRunScope::Compile));
         assert_eq!(launch_mode(), LaunchMode::CompileOnly);
         let _real_run = RealRun::new();
@@ -404,10 +490,11 @@ mod tests {
     /// open beside it.
     #[test]
     #[serial_test::serial]
-    #[should_panic(expected = "a Compile dry run cannot open while a Profile one is")]
+    #[should_panic(expected = "a Compile pass cannot open while a Profile one is")]
     fn scopes_do_not_overlap() {
-        let _profile = DryRun::new(DryRunScope::Profile);
-        let _compile = DryRun::new(DryRunScope::Compile);
+        let dry_run = DryRun::new();
+        let _profile = dry_run.pass(DryRunScope::Profile);
+        let _compile = dry_run.pass(DryRunScope::Compile);
     }
 
     /// A refused open leaves the open scope as it was: still open, and closed
@@ -415,8 +502,9 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn a_refused_open_leaves_the_open_scope() {
-        let profile = DryRun::new(DryRunScope::Profile);
-        let refused = std::panic::catch_unwind(|| DryRun::new(DryRunScope::Compile));
+        let dry_run = DryRun::new();
+        let profile = dry_run.pass(DryRunScope::Profile);
+        let refused = std::panic::catch_unwind(|| dry_run.pass(DryRunScope::Compile));
         assert!(refused.is_err());
         assert_eq!(dry_run_scope(), Some(DryRunScope::Profile));
         drop(profile);
@@ -427,9 +515,10 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn a_closed_scope_makes_way_for_the_other() {
-        drop(DryRun::new(DryRunScope::Compile));
+        let dry_run = DryRun::new();
+        drop(dry_run.pass(DryRunScope::Compile));
         assert_eq!(dry_run_scope(), None);
-        let _profile = DryRun::new(DryRunScope::Profile);
+        let _profile = dry_run.pass(DryRunScope::Profile);
         assert_eq!(launch_mode(), LaunchMode::Skip);
     }
 
@@ -458,7 +547,7 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn a_dry_run_spares_the_measurements() {
-        let _dry_run = DryRun::new(DryRunScope::Profile);
+        let _dry_run = DryRun::new().pass(DryRunScope::Profile);
 
         assert_eq!(launch_mode(), LaunchMode::Skip);
         {
@@ -475,14 +564,60 @@ mod tests {
     #[serial_test::serial]
     fn dry_runs_nest() {
         assert!(!dry_run());
+        let build = DryRun::new();
         {
-            let _outer = DryRun::new(DryRunScope::Profile);
+            let _outer = build.pass(DryRunScope::Profile);
             {
-                let _inner = DryRun::new(DryRunScope::Profile);
+                let _inner = build.pass(DryRunScope::Profile);
                 assert!(dry_run());
             }
             assert!(dry_run(), "the outer guard is still in force");
         }
         assert!(!dry_run(), "and the process is back to executing");
+    }
+
+    /// A pass counts to its own dry run: one dry run's pass refuses to open
+    /// beside another's, whatever their scopes.
+    #[test]
+    #[serial_test::serial]
+    #[should_panic(expected = "cannot open while one of another is")]
+    fn two_dry_runs_do_not_overlap() {
+        let (first, second) = (DryRun::new(), DryRun::new());
+        let _first = first.pass(DryRunScope::Profile);
+        let _second = second.pass(DryRunScope::Profile);
+    }
+
+    /// What the open pass provokes counts to its dry run, over every pass of
+    /// it, and nothing counts outside one; a counter handed out under a pass
+    /// keeps counting to its dry run after the pass closes.
+    #[test]
+    #[serial_test::serial]
+    fn work_counts_to_the_dry_run_whose_pass_is_open() {
+        assert!(counted().is_none(), "nothing counts outside a pass");
+        let build = DryRun::new();
+
+        let compile = build.pass(DryRunScope::Compile);
+        let counter = counted().expect("a pass is open");
+        assert_eq!(counter.id(), build.id());
+        counter.kernels().request(3);
+        counter.tunes().request(2);
+        drop(compile);
+        assert!(counted().is_none());
+
+        // A kernel queued in the compile pass settles in the profile one.
+        counter.kernels().settle(3);
+        let _profile = build.pass(DryRunScope::Profile);
+        counted().expect("a pass is open").tunes().settle(1);
+
+        let observed = build.observe();
+        assert_eq!(
+            observed.kernels,
+            Progress {
+                requested: 3,
+                settled: 3
+            }
+        );
+        assert_eq!(observed.tunes.pending(), 1);
+        assert_eq!(DryRun::new().observe(), DryRunObservation::default());
     }
 }

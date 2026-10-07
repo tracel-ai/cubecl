@@ -249,6 +249,9 @@ impl<K: AutotuneKey> Tuner<K> {
     {
         let compiling =
             crate::dry_run::dry_run_scope() == Some(crate::dry_run::DryRunScope::Compile);
+        // Whether a compile-only dry run gathered the key: its tune was
+        // requested then, and is not requested again when it is measured.
+        let gathered;
 
         {
             let mut cache = self.cache.lock();
@@ -291,6 +294,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 | TuneCacheResult::Pending
                 | TuneCacheResult::Compiled => return cur,
                 TuneCacheResult::Miss | TuneCacheResult::Unchecked => {
+                    gathered = cache.is_compiled(key);
                     cache.mark_pending(key.clone())
                 }
             }
@@ -313,8 +317,14 @@ impl<K: AutotuneKey> Tuner<K> {
         // one that panics leaves the key to that pass rather than pending for good.
         if compiling {
             self.cache.lock().mark_compiled(key.clone());
+            if let Some(counter) = crate::dry_run::counted() {
+                counter.tunes().request(1);
+            }
             self.compile_plan(key, inputs, tunables, &autotunables);
             return TuneCacheResult::Compiled;
+        }
+        if !gathered && let Some(counter) = crate::dry_run::counted() {
+            counter.tunes().request(1);
         }
 
         let results: Vec<AutotuneResult> = autotunables
@@ -741,6 +751,9 @@ async fn process_request<K: AutotuneKey>(
         // In-memory regardless: without it this key re-tunes on every call, and
         // a tune that measured nothing would keep failing the same way.
         cache.lock().cache_insert(key.clone(), fastest_index);
+        if let Some(counter) = crate::dry_run::counted() {
+            counter.tunes().settle(1);
+        }
 
         // Not on disk, though. An unmeasured decision is a guess made to keep
         // the device thread alive, and the failures that produce one — a

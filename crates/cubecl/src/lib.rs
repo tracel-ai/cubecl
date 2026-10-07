@@ -73,7 +73,8 @@ pub use cubecl_environment::records;
 ///
 /// ```no_run
 /// # fn warm_up() {}
-/// let _dry_run = cubecl::dry_run::DryRun::new(cubecl::dry_run::DryRunScope::Profile);
+/// let dry_run = cubecl::dry_run::DryRun::new();
+/// let _pass = dry_run.pass(cubecl::dry_run::DryRunScope::Profile);
 /// warm_up();
 /// ```
 pub use cubecl_runtime::dry_run;

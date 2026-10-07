@@ -26,7 +26,7 @@ fn a_dry_run_launches_under_the_profiling_logger() {
     let client = <WgpuRuntime>::client(&Default::default());
     let out = client.empty(core::mem::size_of::<u32>());
 
-    let dry_run = DryRun::new(DryRunScope::Profile);
+    let dry_run = DryRun::new().pass(DryRunScope::Profile);
     fill::launch(
         &client,
         CubeCount::new_single(),

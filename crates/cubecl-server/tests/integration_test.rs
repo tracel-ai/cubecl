@@ -1379,7 +1379,7 @@ fn a_dry_run_drops_an_ordinary_launch() {
     };
 
     {
-        let _dry_run = DryRun::new(DryRunScope::Profile);
+        let _dry_run = DryRun::new().pass(DryRunScope::Profile);
         add(&out);
 
         assert_eq!(
@@ -1422,7 +1422,7 @@ fn a_dry_run_still_autotunes() {
     let out = client.empty(3);
 
     {
-        let _dry_run = DryRun::new(DryRunScope::Profile);
+        let _dry_run = DryRun::new().pass(DryRunScope::Profile);
         TUNER.execute(
             &"test".to_string(),
             &client,
@@ -1487,8 +1487,9 @@ fn a_compile_dry_run_leaves_the_tune_to_the_next_pass() {
     let out = client.empty(3);
     let handles = || vec![lhs.clone(), rhs.clone(), out.clone()];
 
+    let build = DryRun::new();
     {
-        let _dry_run = DryRun::new(DryRunScope::Compile);
+        let _compile = build.pass(DryRunScope::Compile);
         TUNER.execute(&"test".to_string(), &client, test_set.clone(), handles());
         let compiled = calls.load(Ordering::Relaxed);
         assert!(compiled > 0, "the candidates ran, to queue their kernels");
@@ -1499,12 +1500,29 @@ fn a_compile_dry_run_leaves_the_tune_to_the_next_pass() {
         assert_eq!(calls.load(Ordering::Relaxed), compiled + 1);
     }
     assert_eq!(evictions.load(Ordering::Relaxed), 0, "nothing was measured");
+    let gathered = build.observe().tunes;
+    assert_eq!(
+        (gathered.requested, gathered.settled),
+        (1, 0),
+        "gathered once"
+    );
 
-    TUNER.execute(&"test".to_string(), &client, test_set, handles());
+    {
+        let _profile = build.pass(DryRunScope::Profile);
+        TUNER.execute(&"test".to_string(), &client, test_set.clone(), handles());
+    }
     assert!(
         evictions.load(Ordering::Relaxed) > 0,
-        "the key was left untuned, so this execution tuned it"
+        "the key was left untuned, so the profiling pass tuned it"
     );
+    let measured = build.observe().tunes;
+    assert_eq!(
+        (measured.requested, measured.settled),
+        (1, 1),
+        "the tune gathered is the one measured"
+    );
+
+    TUNER.execute(&"test".to_string(), &client, test_set, handles());
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 
@@ -1523,7 +1541,7 @@ fn a_dry_run_reserves_without_mapping() {
     use cubecl_server::memory_management::MemoryPoolReport;
 
     let client = test_client(&DummyDevice);
-    let dry_run = DryRun::new(DryRunScope::Profile);
+    let dry_run = DryRun::new().pass(DryRunScope::Profile);
 
     // Big enough to land in a large-page pool of its own: the parallel tests
     // in this binary allocate a few bytes at a time, so nothing else touches

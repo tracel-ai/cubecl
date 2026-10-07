@@ -6,6 +6,7 @@ use alloc::vec::Vec;
 
 use cubecl_common::profile::Instant;
 use cubecl_environment::collections::{HashMap, HashSet};
+use cubecl_runtime::dry_run::{DryRunCounter, counted};
 
 use super::{
     ArtifactCompiler, ArtifactId, BatchOutcome, CompilationBatchRecording, CompilationOutcome,
@@ -115,6 +116,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
             let asked = missing.then(|| Request {
                 id: id.clone(),
                 kernel,
+                counter: None,
             });
             self.compile_queue(asked, logger);
 
@@ -152,6 +154,15 @@ impl<T: CompilationTarget> KernelLoader<T> {
             .filter(|queued| asked.as_ref().is_none_or(|asked| queued.id != asked.id))
             .map(Queued::request)
             .collect();
+        // Asked for and queued, it counts where it was queued; asked for
+        // alone, it counts to the dry run open now.
+        let asked = asked.map(|mut asked| {
+            asked.counter = match queue.iter().find(|queued| queued.id == asked.id) {
+                Some(queued) => queued.counter.clone(),
+                None => counted().inspect(|counter| counter.kernels().request(1)),
+            };
+            asked
+        });
         requests.extend(asked);
         for outcome in self.compile(requests, logger) {
             self.keep(outcome);
@@ -175,7 +186,8 @@ impl<T: CompilationTarget> KernelLoader<T> {
             return;
         }
         self.failed.remove(&id);
-        self.queue.push(id, kernel);
+        let counter = counted().inspect(|counter| counter.kernels().request(1));
+        self.queue.push(id, kernel, counter);
     }
 
     /// Keeps a loaded kernel, or the reason it failed.
@@ -206,6 +218,12 @@ impl<T: CompilationTarget> KernelLoader<T> {
         for job in jobs.iter_mut() {
             job.look_up(&mut self.target);
         }
+        // Each kernel is settled as the batch finishes with it, so a dry
+        // run's count moves while the batch runs: those the store held now,
+        // those compiled as each thread finishes one.
+        for job in jobs.iter_mut().filter(|job| !job.is_missing()) {
+            job.settle();
+        }
 
         let compiler = self.target.compiler();
         let mut missing: Vec<&mut Job<'_, T>> =
@@ -230,6 +248,9 @@ impl<T: CompilationTarget> KernelLoader<T> {
             if job.is_lowered() && !(reuses && job.has_source()) {
                 job.finalize(compiler);
             }
+            if !job.is_lowered() {
+                job.settle();
+            }
         });
 
         let mut finalizing = HashSet::new();
@@ -249,9 +270,17 @@ impl<T: CompilationTarget> KernelLoader<T> {
             })
             .collect();
         let compiler = self.target.compiler();
+        // Those the store took by their source, and those waiting on another
+        // kernel of the batch with the same source, are settled with it.
+        for job in jobs.iter_mut().filter(|job| !job.is_lowered()) {
+            job.settle();
+        }
         let mut lowered: Vec<&mut Job<'_, T>> =
             jobs.iter_mut().filter(|job| job.is_lowered()).collect();
-        for_each_at_once(&mut lowered, self.parallelism, |job| job.finalize(compiler));
+        for_each_at_once(&mut lowered, self.parallelism, |job| {
+            job.finalize(compiler);
+            job.settle();
+        });
 
         // A kernel waiting on a source that failed to finalize fails the same
         // way, rather than finalizing it again, one after another, on this
@@ -404,9 +433,18 @@ impl<V: Clone + Eq + core::hash::Hash> KernelQueue<V> {
     }
 
     /// Queues `kernel` under `id`, which is not queued yet.
-    fn push(&mut self, id: ArtifactId<V>, kernel: Box<dyn CubeKernel>) {
+    fn push(
+        &mut self,
+        id: ArtifactId<V>,
+        kernel: Box<dyn CubeKernel>,
+        counter: Option<DryRunCounter>,
+    ) {
         self.ids.insert(id.clone());
-        self.kernels.push(Queued { id, kernel });
+        self.kernels.push(Queued {
+            id,
+            kernel,
+            counter,
+        });
     }
 
     /// Every queued kernel, leaving the queue empty.
@@ -420,6 +458,8 @@ impl<V: Clone + Eq + core::hash::Hash> KernelQueue<V> {
 struct Queued<V> {
     id: ArtifactId<V>,
     kernel: Box<dyn CubeKernel>,
+    /// The dry run it was queued under, which it is settled to.
+    counter: Option<DryRunCounter>,
 }
 
 impl<V: Clone> Queued<V> {
@@ -427,6 +467,7 @@ impl<V: Clone> Queued<V> {
         Request {
             id: self.id.clone(),
             kernel: &*self.kernel,
+            counter: self.counter.clone(),
         }
     }
 }
@@ -435,6 +476,8 @@ impl<V: Clone> Queued<V> {
 struct Request<'k, V> {
     id: ArtifactId<V>,
     kernel: &'k dyn CubeKernel,
+    /// The dry run it counts to, if one requested it.
+    counter: Option<DryRunCounter>,
 }
 
 /// One kernel on its way through [`KernelLoader::compile`].
@@ -443,6 +486,8 @@ struct Job<'k, T: CompilationTarget> {
     kernel: &'k dyn CubeKernel,
     recording: CompilationRecording,
     step: Step<T>,
+    /// The dry run it is still to be settled to: taken when it is.
+    counter: Option<DryRunCounter>,
 }
 
 /// How far a [`Job`] got.
@@ -477,6 +522,15 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
             id: request.id,
             kernel: request.kernel,
             step: Step::Missing,
+            counter: request.counter,
+        }
+    }
+
+    /// The batch is done with it: settled to the dry run that requested it,
+    /// once however often it is called.
+    fn settle(&mut self) {
+        if let Some(counter) = self.counter.take() {
+            counter.kernels().settle(1);
         }
     }
 
@@ -730,6 +784,54 @@ mod tests {
         for number in 0..3 {
             assert_eq!(loader.get(&id(number)), Some(&number));
         }
+    }
+
+    /// A dry run's kernel count requests each kernel as it is queued under
+    /// one of its passes, or as a launch asks for it unqueued, and settles
+    /// every one of them once the batch has it — in a later pass too. A
+    /// kernel queued outside a dry run counts nowhere.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_batch_settles_every_kernel_to_the_dry_run_that_requested_it() {
+        use cubecl_runtime::dry_run::{DryRun, DryRunScope, Progress};
+
+        let mut loader = loader(2);
+        let logger = ServerLogger::default();
+        loader.enqueue(Box::new(Numbered(9)), ());
+        let build = DryRun::new();
+        let compile = build.pass(DryRunScope::Compile);
+        for number in 0..5 {
+            loader.enqueue(Box::new(Numbered(number)), ());
+        }
+        // Queued twice, requested once.
+        loader.enqueue(Box::new(Numbered(0)), ());
+        drop(compile);
+        assert_eq!(
+            build.observe().kernels,
+            Progress {
+                requested: 5,
+                settled: 0
+            }
+        );
+
+        let _profile = build.pass(DryRunScope::Profile);
+        loader.load(&Numbered(5), &id(5), &logger).unwrap();
+        let batch = build.observe().kernels;
+        assert_eq!(
+            batch,
+            Progress {
+                requested: 6,
+                settled: 6
+            },
+            "the kernel queued outside the dry run counts nowhere"
+        );
+
+        loader.load(&Numbered(5), &id(5), &logger).unwrap();
+        assert_eq!(
+            build.observe().kernels,
+            batch,
+            "a loaded kernel is not requested again"
+        );
     }
 
     /// Asked to, the queue compiles without a launch, and the launch that
