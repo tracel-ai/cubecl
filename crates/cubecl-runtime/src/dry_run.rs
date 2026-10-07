@@ -196,7 +196,10 @@ pub struct DryRunId(pub usize);
 /// launches that quietly do nothing and read back uninitialized memory, so
 /// its lifetime belongs to a scope in the code that wants it, not to an
 /// ambient default nothing in the process can see.
-#[derive(Debug)]
+///
+/// A clone is the same dry run — its passes, its id, its counts — which is
+/// how a reader on another thread observes one while it runs.
+#[derive(Debug, Clone)]
 pub struct DryRun {
     observed: Arc<Observed>,
 }
