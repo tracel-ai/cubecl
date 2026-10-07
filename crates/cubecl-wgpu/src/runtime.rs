@@ -223,9 +223,10 @@ fn backend_candidates(backend: WgpuBackend) -> alloc::vec::Vec<wgpu::Backend> {
     }
 }
 
-/// Held while an instance is created, and for the whole life of a probe's instance: the Vulkan
-/// loader crashes when instances come and go on several threads at once.
-static INSTANCES: Mutex<()> = Mutex::new(());
+/// The instance each backend's devices come up on, kept so a device going away never destroys
+/// one. Locked whenever an instance is created or dropped: the Vulkan loader crashes when
+/// instances come and go on several threads at once.
+static INSTANCES: Mutex<Vec<(wgpu::Backend, wgpu::Instance)>> = Mutex::new(Vec::new());
 
 /// The adapters `backend` has on this machine, asked through an instance limited to it.
 #[cfg(not(target_family = "wasm"))]
@@ -876,14 +877,7 @@ async fn request_adapter(
     #[cfg(feature = "vulkan-validate")]
     let instance_flags = InstanceFlags::advanced_debugging();
     log::debug!("{instance_flags:?}");
-    let instance = {
-        let _instances = INSTANCES.lock();
-        wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: backend.into(),
-            flags: instance_flags,
-            ..wgpu::InstanceDescriptor::new_without_display_handle()
-        })
-    };
+    let instance = device_instance(backend, instance_flags);
 
     let adapter = match device.kind {
         #[cfg(not(target_family = "wasm"))]
@@ -944,6 +938,21 @@ async fn request_adapter(
     })?;
 
     Ok((instance, adapter))
+}
+
+/// The instance devices on `backend` come up on, created with the first device's `flags`.
+fn device_instance(backend: wgpu::Backend, flags: InstanceFlags) -> wgpu::Instance {
+    let mut instances = INSTANCES.lock();
+    if let Some((_, instance)) = instances.iter().find(|(api, _)| *api == backend) {
+        return instance.clone();
+    }
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: backend.into(),
+        flags,
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    instances.push((backend, instance.clone()));
+    instance
 }
 
 async fn request_adapter_with_preference(
