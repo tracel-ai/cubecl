@@ -59,6 +59,11 @@ pub struct Types {
     /// These may not be supported everywhere - in practice, f32 vectors are only supported in global
     /// memory.
     pub atomic: BTreeMap<Type, EnumSet<AtomicUsage>>,
+    /// Types whose [`Conversion`](TypeUsage::Conversion) the compiler emulates in software, from
+    /// their bits, rather than with an instruction of the device. A kernel that decodes such a
+    /// type from its bits itself pays no more than the conversion would, and may move what the
+    /// emulation spends into work it already does.
+    pub emulated_conversion: BTreeSet<ElemType>,
 }
 
 /// Matrix multiplication-related features
@@ -248,6 +253,11 @@ pub enum Tma {
 }
 
 impl Features {
+    /// Whether converting `ty` is emulated in software ([`Types::emulated_conversion`]).
+    pub fn conversion_is_emulated(&self, ty: ElemType) -> bool {
+        self.types.emulated_conversion.contains(&ty)
+    }
+
     /// Get the usages for a type
     pub fn type_usage(&self, ty: ElemType) -> EnumSet<TypeUsage> {
         self.types
