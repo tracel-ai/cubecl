@@ -108,7 +108,7 @@ impl PoisonWatch {
         queue: &wgpu::Queue,
         submission: Option<wgpu::SubmissionIndex>,
     ) -> Result<(), ServerError> {
-        let poll_slice = || {
+        let poll_slice = |submission: &Option<wgpu::SubmissionIndex>| {
             device.poll(wgpu::PollType::Wait {
                 submission_index: submission.clone(),
                 timeout: Some(WAIT_SLICE),
@@ -116,16 +116,19 @@ impl PoisonWatch {
         };
 
         self.check()?;
-        let mut polled = poll_slice();
+        let mut submission = submission;
+        let mut polled = poll_slice(&submission);
         let mut stalled = Duration::ZERO;
         while let Err(wgpu::PollError::Timeout) = polled {
             self.check()?;
+            // Pinned on the first slice, so the wait never chases what other streams submit later.
+            submission.get_or_insert_with(|| queue.submit(core::iter::empty()));
             stalled += WAIT_SLICE;
             if stalled >= PROBE_AFTER {
                 queue.submit(core::iter::empty());
                 stalled = Duration::ZERO;
             }
-            polled = poll_slice();
+            polled = poll_slice(&submission);
         }
 
         match polled {

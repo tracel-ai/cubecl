@@ -248,16 +248,11 @@ fn create_map_buffer(device: &wgpu::Device, count: u32) -> wgpu::Buffer {
 
 // Measure a timestamp to align the CPU & GPU timelines.
 #[cfg(feature = "profile-tracy")]
-fn get_cur_timestamp(queue: &wgpu::Queue, device: &wgpu::Device) -> u64 {
+fn get_cur_timestamp(queue: &wgpu::Queue, device: &wgpu::Device, poison: &PoisonWatch) -> u64 {
     // Make sure no work is outstanding.
 
     use wgpu::BufferAddress;
-    device
-        .poll(wgpu::PollType::Wait {
-            submission_index: None, // Wait for most recent
-            timeout: None,
-        })
-        .unwrap();
+    poison.wait_unless_lost(device, queue, None).unwrap();
 
     // Resolve a timestamp for the query set.
     let query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
@@ -298,14 +293,11 @@ fn get_cur_timestamp(queue: &wgpu::Queue, device: &wgpu::Device) -> u64 {
 
     let commands = [timestamp_encoder.finish(), copy_encoder.finish()];
 
-    queue.submit(commands);
+    let submission = queue.submit(commands);
     map_buffer.slice(..).map_async(wgpu::MapMode::Read, |_| ());
 
-    device
-        .poll(wgpu::PollType::Wait {
-            submission_index: None, // Wait for most recent
-            timeout: None,
-        })
+    poison
+        .wait_unless_lost(device, queue, Some(submission))
         .unwrap();
 
     let view = map_buffer.slice(..).get_mapped_range().unwrap();
@@ -319,11 +311,12 @@ impl QueryProfiler {
     pub fn new(
         queue: &wgpu::Queue,
         #[allow(unused)] device: &wgpu::Device,
+        #[allow(unused)] poison: &PoisonWatch,
         budget: Arc<TimestampQuerySetBudget>,
         sampling: TimestampSampling,
     ) -> Self {
         #[cfg(feature = "profile-tracy")]
-        let sync_timestamps = get_cur_timestamp(queue, device);
+        let sync_timestamps = get_cur_timestamp(queue, device, poison);
 
         #[cfg(not(feature = "profile-tracy"))]
         let sync_timestamps = 0;

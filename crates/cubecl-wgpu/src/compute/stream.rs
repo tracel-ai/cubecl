@@ -505,6 +505,7 @@ impl WgpuStream {
             true => Timings::Device(Box::new(QueryProfiler::new(
                 &self.queue,
                 &self.device,
+                &self.poison,
                 budget.clone(),
                 *sampling,
             ))),
@@ -528,12 +529,15 @@ impl WgpuStream {
                 self.flush(stream_id)?;
                 // Waits like system timing's sync, for the reason `drains_before_window` gives:
                 // work still running when the window's first pass starts is timed as its own.
-                if let Err(err) = self
+                match self
                     .poison
                     .wait_unless_lost(&self.device, &self.queue, None)
-                    && !self.poison.is_poisoned()
                 {
-                    log::warn!("waiting for the work ahead of a profiled window: {err}");
+                    Ok(()) => {}
+                    Err(err) if self.poison.is_poisoned() => return Err(err),
+                    Err(err) => {
+                        log::warn!("waiting for the work ahead of a profiled window: {err}");
+                    }
                 }
             }
             Timings::Device(_) | Timings::Unclaimed { .. } => self.flush(stream_id)?,
