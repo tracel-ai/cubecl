@@ -82,12 +82,10 @@ impl CpuServer {
         Self {
             scheduler,
             utilities,
-            kernels: KernelLoader::new(CpuKernelCompiler {
-                options: PlironOptions {
-                    f16_evaluation,
-                    ..Default::default()
-                },
-            }),
+            kernels: KernelLoader::new(CpuKernelCompiler::new(PlironOptions {
+                f16_evaluation,
+                ..Default::default()
+            })),
             streams_pool: Vec::new(),
         }
     }

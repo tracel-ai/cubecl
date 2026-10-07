@@ -63,6 +63,7 @@ pub struct MslCacheEntry {
 }
 
 /// MSL, and the pipeline finalizing built from it.
+#[derive(Debug)]
 pub struct MetalArtifact {
     /// What the store keeps.
     pub entry: MslCacheEntry,

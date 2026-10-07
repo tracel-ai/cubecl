@@ -118,7 +118,7 @@ impl ArtifactCompiler for HipArtifactCompiler {
             // from: it declares its shared memory statically, so the launch
             // reserves none.
             (HipBackend::Cpp, repr) => (
-                compile_to_binary(&lowered.source)?,
+                compile_to_binary(&lowered.source, &self.options.target)?,
                 repr.as_ref()
                     .map(|repr| repr.shared_memory_size())
                     .unwrap_or(0),
@@ -179,7 +179,7 @@ impl Drop for RtcProgram {
 ///
 /// [`CompilationError::Generic`] carrying the compiler's own log, and the
 /// source that produced it, so a kernel the driver refuses says why.
-fn compile_to_binary(source: &str) -> Result<Vec<i8>, CompilationError> {
+fn compile_to_binary(source: &str, target: &str) -> Result<Vec<i8>, CompilationError> {
     let source = CString::new(source).map_err(|err| CompilationError::Generic {
         reason: format!("The generated source is not a valid C string: {err}"),
         backtrace: BackTrace::capture(),
@@ -213,11 +213,22 @@ fn compile_to_binary(source: &str) -> Result<Vec<i8>, CompilationError> {
     // needed for rocWMMA extension to compile
     let cpp_std_option = c"--std=c++17";
     let optimization_level = c"-O3";
-    let mut options = [
+    let target_option = CString::new(format!("--offload-arch={target}")).map_err(|err| {
+        CompilationError::Generic {
+            reason: format!("The HIP target is not a valid C string: {err}"),
+            backtrace: BackTrace::capture(),
+        }
+    })?;
+    let mut options = vec![
         cpp_std_option.as_ptr(),
         include_option.as_ptr(),
         optimization_level.as_ptr(),
     ];
+    // Options built by hand, with no device probed, name no target: HIP RTC
+    // then compiles for the calling thread's current device.
+    if !target.is_empty() {
+        options.push(target_option.as_ptr());
+    }
 
     // SAFETY: `program.0` is the handle created above, and `options` holds
     // null-terminated pointers that outlive the call.

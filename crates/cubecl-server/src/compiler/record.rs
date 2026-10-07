@@ -6,9 +6,11 @@ use cubecl_environment::records::{Record, RecordEffect, RecordLevel, Span};
 use super::{KernelCacheKey, build_id_hash};
 
 /// One kernel's trip through a backend's compilation path, as the environment
-/// records it: compiled fresh, or loaded from the compilation store.
+/// records it: compiled fresh, loaded from the compilation store, or rekeyed
+/// from an artifact the store held for the same source.
 ///
-/// A hit in a server's in-memory cache is not a trip and is not recorded:
+/// A kernel the [`KernelLoader`](super::KernelLoader) already holds is not a
+/// trip and is not recorded:
 /// nothing here runs per launch. Neither is a trip that fails: the launch
 /// error carries that account, and the environment holds nothing of it.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -122,9 +124,10 @@ impl CompilationBatchRecording {
     }
 }
 
-/// A compilation being recorded: a backend opens one where its compilation
-/// path starts — past its in-memory cache — tells it what the trip goes
-/// through, and closes it with how the artifact was obtained. Every call is a
+/// A compilation being recorded: the [`KernelLoader`](super::KernelLoader)
+/// opens one for each kernel it does not hold, the backend tells it what the
+/// trip goes through as it lowers the kernel, and the loader closes it with how
+/// the artifact was obtained. Every call is a
 /// no-op when the environment records nothing, and one dropped unclosed, by a
 /// trip that failed, records nothing.
 #[derive(Debug)]

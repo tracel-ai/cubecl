@@ -28,7 +28,13 @@ pub struct BufferAlignment(pub u32);
 /// store, and loading a JIT engine is handing it over.
 #[derive(Debug)]
 pub(crate) struct CpuKernelCompiler {
-    pub options: PlironOptions,
+    options: PlironOptions,
+}
+
+impl CpuKernelCompiler {
+    pub(crate) fn new(options: PlironOptions) -> Self {
+        Self { options }
+    }
 }
 
 impl ArtifactCompiler for CpuKernelCompiler {

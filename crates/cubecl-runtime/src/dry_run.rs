@@ -1,8 +1,9 @@
 //! Running a workload for the compilation and tuning it provokes, without
 //! running the workload itself.
 //!
-//! Under a [`DryRun`] every launch is still expanded, compiled, validated and
-//! cached, and is then dropped instead of reaching the device. A warm-up pass
+//! Under a [`DryRun`] every launch is dropped instead of reaching the device,
+//! and its kernel is still compiled — at once under a `Profile` dry run,
+//! queued to compile with the others under a `Compile` one. A warm-up pass
 //! then pays for compilation and tuning without also paying for the work that
 //! provoked them, which is what makes producing a shippable environment
 //! affordable.

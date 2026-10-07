@@ -171,10 +171,12 @@ impl<A: StoreValue> ArtifactStore<A> {
         let by_kernel = self.by_kernel.as_mut()?;
         let by_source = self.by_source.as_mut()?;
         let hash = StableHasher::hash_one(&source);
-        let key = *by_source.get(&hash)?;
+        // `get_mut`, not `get`: a lazy store reads through to its storage
+        // only there, and the compilation stores are lazy.
+        let key = *by_source.get_mut(&hash)?;
 
         let artifact = if key.build_id == self.build_id {
-            by_kernel.get(&key)?.clone()
+            by_kernel.get_mut(&key)?.clone()
         } else {
             by_source.purge_key(&hash);
             by_kernel.purge_key(&key)?
@@ -201,19 +203,32 @@ impl<A: StoreValue> ArtifactStore<A> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, compilation_cache))]
 mod tests {
     use super::*;
-    use cubecl_environment::persistence::StoreOptions;
+    // `serial_test`'s macro expands to `vec!`, which a `no_std` crate has to
+    // bring in itself.
+    use alloc::vec;
 
     struct First;
     struct Second;
     struct Third;
 
-    fn store() -> ArtifactStore<u32> {
+    /// Stores as [`compilation_store`] opens them: lazy, over storage in an
+    /// environment rooted at `root`, which only holds what it is written.
+    fn store(root: &std::path::Path) -> ArtifactStore<u32> {
+        fn lazy<K: StoreKey, V: StoreValue>(namespace: &str) -> Store<K, V> {
+            Store::new(
+                StoreOptions::new()
+                    .storage(Namespace::new(namespace))
+                    .cache(CacheOption::Lazy),
+            )
+        }
+
+        cubecl_environment::environment::set_root(root);
         ArtifactStore {
-            by_kernel: Some(Store::new(StoreOptions::new())),
-            by_source: Some(Store::new(StoreOptions::new())),
+            by_kernel: Some(lazy("kernels")),
+            by_source: Some(lazy("sources")),
             build_id: build_id_hash(),
         }
     }
@@ -221,8 +236,10 @@ mod tests {
     /// Kernels of one build that expand to one source each keep the artifact:
     /// taking it for one leaves it to the others.
     #[test]
+    #[serial_test::serial(records)]
     fn kernels_sharing_a_source_each_keep_it() {
-        let mut store = store();
+        let root = tempfile::tempdir().unwrap();
+        let mut store = store(root.path());
         let kernels = [
             KernelId::new::<First>(),
             KernelId::new::<Second>(),
@@ -241,8 +258,10 @@ mod tests {
     /// A kernel of an earlier build gives its artifact up: nothing asks for
     /// its key again.
     #[test]
+    #[serial_test::serial(records)]
     fn an_earlier_build_is_moved() {
-        let mut store = store();
+        let root = tempfile::tempdir().unwrap();
+        let mut store = store(root.path());
         let current = store.build_id;
         let kernel = KernelId::new::<First>();
         store.build_id = StableHasher::hash_one(&"an earlier build");

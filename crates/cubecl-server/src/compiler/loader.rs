@@ -64,11 +64,6 @@ impl<T: CompilationTarget> KernelLoader<T> {
         }
     }
 
-    /// The backend this loader compiles through.
-    pub fn target(&self) -> &T {
-        &self.target
-    }
-
     /// The kernel loaded for `id`, if it is.
     #[cfg(test)]
     fn get(&mut self, id: &ArtifactId<VariantOf<T>>) -> Option<&T::Loaded> {
@@ -309,15 +304,16 @@ struct JobOutcome<T: CompilationTarget> {
     stored: bool,
 }
 
-/// A server's in-memory compilation cache: the compiled artifacts it memoizes
-/// — pipelines, loaded modules — in front of a persistent [`compilation_store`].
+/// The kernels a [`KernelLoader`] holds loaded — pipelines, modules — in front
+/// of the compilation store its target persists to.
 ///
 /// Entries are dropped when the environment switches, because the map is bound
 /// to an environment exactly as the store it mirrors is. One served after a
 /// switch would describe the environment that is gone, and, worse, would never
 /// be written to the new environment's store, so a bundle exported from that
 /// environment would silently be missing that kernel. This is the same contract
-/// [`Store`] applies to itself, for the state a store cannot see — see
+/// a [`Store`](cubecl_environment::persistence::Store) applies to itself, for
+/// the state a store cannot see — see
 /// [`cubecl_environment::environment::generation`].
 ///
 /// Every accessor resets before it answers, so the loader has nothing to
@@ -344,19 +340,19 @@ impl<K: Eq + core::hash::Hash, V> CompilationCache<K, V> {
         }
     }
 
-    /// The artifact compiled for `key`, if it is still valid.
+    /// The kernel loaded for `key`, if it is still valid.
     fn get(&mut self, key: &K) -> Option<&V> {
         self.reset_if_switched();
         self.entries.get(key)
     }
 
-    /// Whether an artifact for `key` is cached and still valid.
+    /// Whether a kernel is loaded for `key` and still valid.
     fn contains(&mut self, key: &K) -> bool {
         self.reset_if_switched();
         self.entries.contains_key(key)
     }
 
-    /// Records a freshly compiled artifact.
+    /// Keeps a freshly loaded kernel.
     fn insert(&mut self, key: K, value: V) {
         self.reset_if_switched();
         self.entries.insert(key, value);

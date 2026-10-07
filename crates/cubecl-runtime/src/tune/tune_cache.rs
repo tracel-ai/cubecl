@@ -289,13 +289,13 @@ impl<K: AutotuneKey> TuneCache<K> {
         self.in_memory_cache.insert(key, CacheEntry::Pending);
     }
 
-    /// Mark a key as compiled by a compile-only dry run, in place of the tune it was
-    /// [marked](Self::mark_pending) for: nothing was decided.
+    /// Mark a key whose candidates' kernels a compile-only dry run queued, in place of the tune
+    /// it was [marked](Self::mark_pending) for: nothing was decided.
     pub(crate) fn mark_compiled(&mut self, key: K) {
         self.in_memory_cache.insert(key, CacheEntry::Compiled);
     }
 
-    /// Whether a compile-only dry run already compiled `key`.
+    /// Whether a compile-only dry run already queued the kernels of `key`'s candidates.
     pub(crate) fn is_compiled(&self, key: &K) -> bool {
         matches!(self.in_memory_cache.get(key), Some(CacheEntry::Compiled))
     }

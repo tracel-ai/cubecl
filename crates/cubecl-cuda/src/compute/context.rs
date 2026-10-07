@@ -6,7 +6,7 @@ use crate::compute::stream::Stream;
 use cubecl_core::{ir::DeviceProperties, prelude::*};
 use cubecl_cpp::cuda::arch::CudaArchitecture;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_server::compiler::{ArtifactId, CompilationTarget, KernelLoader};
+use cubecl_server::compiler::{ArtifactId, KernelLoader};
 use cubecl_server::kernel::CubeKernel;
 use cubecl_server::logging::ServerLogger;
 use cudarc::driver::DriverError;
@@ -21,6 +21,8 @@ pub(crate) struct CudaContext {
     pub comm_stream: CUstream,
     /// The modules loaded on the device, and how to load another.
     kernels: KernelLoader<CudaModules>,
+    /// The options kernels are compiled with.
+    compilation_options: CudaCompilationOptions,
     pub profiler: EventProfiler,
 }
 
@@ -43,12 +45,13 @@ impl CudaContext {
         backend: CudaBackend,
         comm_stream: CUstream,
     ) -> Self {
-        let compiler = CudaArtifactCompiler::new(properties, compilation_options, arch);
+        let compiler = CudaArtifactCompiler::new(properties, compilation_options.clone(), arch);
 
         Self {
             context,
             comm_stream,
             kernels: KernelLoader::new(CudaModules::new(compiler, backend)),
+            compilation_options,
             profiler: EventProfiler::default(),
         }
     }
@@ -56,7 +59,7 @@ impl CudaContext {
     /// The options kernels are compiled with, which the launch path reads
     /// to pass arguments the way the compiled code expects them.
     pub fn compilation_options(&self) -> &CudaCompilationOptions {
-        self.kernels.target().compiler().options()
+        &self.compilation_options
     }
 
     /// Switches the current CUDA context to this context.

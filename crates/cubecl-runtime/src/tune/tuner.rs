@@ -247,26 +247,20 @@ impl<K: AutotuneKey> Tuner<K> {
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
-        // A key a compile-only dry run already compiled answers at once: a walk reaches the
-        // same key at every layer, and a miss would hydrate the persistent cache and checksum
-        // the set again each time for a tune that will not run.
-        // The environment's reset comes first: a key compiled for the environment switched
-        // from has its candidates to queue again, if this one has not tuned it already.
         let compiling =
             crate::dry_run::dry_run_scope() == Some(crate::dry_run::DryRunScope::Compile);
-        if compiling {
-            let mut cache = self.cache.lock();
-            #[cfg(persistence)]
-            cache.reset_if_environment_switched();
-            if cache.is_compiled(key) {
-                return TuneCacheResult::Compiled;
-            }
-        }
 
         {
             let mut cache = self.cache.lock();
             #[cfg(persistence)]
             cache.reset_if_environment_switched();
+            // A key a compile-only dry run already queued the candidates of answers at once,
+            // once a switched environment has dropped the ones it queued for the old one: a
+            // walk reaches the same key at every layer, and a miss would hydrate the persistent
+            // cache and checksum the set again each time for a tune that will not run.
+            if compiling && cache.is_compiled(key) {
+                return TuneCacheResult::Compiled;
+            }
             let cur = cache.fastest(key);
 
             // Browser hydration is asynchronous, so persistent entries may
@@ -307,6 +301,22 @@ impl<K: AutotuneKey> Tuner<K> {
         log::info!("Tuning {key}");
 
         let autotunables = tunables.autotunables().collect::<Vec<_>>();
+
+        // Fast path: single tunable, no benchmarking needed.
+        if autotunables.len() == 1 {
+            self.cache.lock().cache_insert(key.clone(), 0);
+            return TuneCacheResult::Hit { fastest_index: 0 };
+        }
+
+        // A compile-only dry run queues the candidates' kernels and measures nothing; the key
+        // stays untuned for the pass that profiles it. Marked before the candidates run, so
+        // one that panics leaves the key to that pass rather than pending for good.
+        if compiling {
+            self.cache.lock().mark_compiled(key.clone());
+            self.compile_plan(key, inputs, tunables, &autotunables);
+            return TuneCacheResult::Compiled;
+        }
+
         let results: Vec<AutotuneResult> = autotunables
             .iter()
             .map(|a| {
@@ -318,20 +328,6 @@ impl<K: AutotuneKey> Tuner<K> {
 
         #[cfg(persistence)]
         let checksum = tunables.compute_checksum();
-
-        // Fast path: single tunable, no benchmarking needed.
-        if results.len() == 1 {
-            self.cache.lock().cache_insert(key.clone(), 0);
-            return TuneCacheResult::Hit { fastest_index: 0 };
-        }
-
-        // A compile-only dry run gathers the candidates' kernels and measures
-        // nothing; the key stays untuned for the pass that profiles it.
-        if compiling {
-            self.compile_plan(key, inputs, tunables, &autotunables);
-            self.cache.lock().mark_compiled(key.clone());
-            return TuneCacheResult::Compiled;
-        }
 
         // After the fast path: a key with one candidate is answered, not
         // tuned, and leaves nothing to record.

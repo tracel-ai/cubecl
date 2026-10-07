@@ -1448,9 +1448,9 @@ fn a_dry_run_still_autotunes() {
 }
 
 /// A compile-only dry run measures nothing and decides nothing: no sample is
-/// taken, so the eviction that runs before each never does; it compiles a
-/// key once however often it reaches it; and the key is tuned for real by the
-/// first execution outside it.
+/// taken, so the eviction that runs before each never does; it queues a key's
+/// candidates once however often it reaches it; and the key is tuned for real
+/// by the first execution outside it.
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::serial]
@@ -1493,7 +1493,7 @@ fn a_compile_dry_run_leaves_the_tune_to_the_next_pass() {
         let compiled = calls.load(Ordering::Relaxed);
         assert!(compiled > 0, "the candidates ran, to queue their kernels");
 
-        // A walk reaches the same key at every layer: once compiled, the key only runs the
+        // A walk reaches the same key at every layer: once queued, the key only runs the
         // candidate that launches.
         TUNER.execute(&"test".to_string(), &client, test_set.clone(), handles());
         assert_eq!(calls.load(Ordering::Relaxed), compiled + 1);
