@@ -232,7 +232,7 @@ impl GenericAnalysis {
         let size_expand = prelude_type("DynamicSize");
         let slot = prelude_type("GenericSlot");
 
-        for type_param in generics.type_params() {
+        for (position, type_param) in generics.type_params().enumerate() {
             if type_param.bounds.len() > 1 {
                 continue;
             }
@@ -242,18 +242,10 @@ impl GenericAnalysis {
             {
                 let name = bound.to_string();
                 let ident = type_param.ident.clone();
-                // Keyed by the parameter's *name*, not by the kernel: the tag
-                // only has to separate `E` from `EA` within one kernel, and
-                // making it per-kernel forked every downstream instantiation.
-                let hash = {
-                    let mut h: u64 = 0xcbf29ce484222325;
-                    for b in ident.to_string().as_bytes() {
-                        h ^= *b as u64;
-                        h = h.wrapping_mul(0x100000001b3);
-                    }
-                    proc_macro2::Literal::u64_unsuffixed(h)
-                };
-                let marker_ty: syn::Path = parse_quote!(#slot<#hash>);
+                // Keyed by position, not by kernel, so the same slot in two
+                // kernels is the same type and shares instantiations.
+                let position = proc_macro2::Literal::usize_unsuffixed(position);
+                let marker_ty: syn::Path = parse_quote!(#slot<#position>);
 
                 match name.as_str() {
                     "Float" | "Int" | "Numeric" | "CubePrimitive" | "Complex" => {

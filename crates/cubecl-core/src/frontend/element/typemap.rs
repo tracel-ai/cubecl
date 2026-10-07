@@ -30,15 +30,11 @@ use crate::{
 
 use super::*;
 
-/// The type-level tag that keeps one kernel's element parameters apart.
+/// Type-level tag for a launch kernel's dynamic generic.
 ///
-/// `N` is a hash of the parameter's name, so `E` and `EA` in the same kernel
-/// stay distinct types — that is the whole job of the tag — while `E` in two
-/// *different* kernels becomes the same type. It used to be a fresh unit
-/// struct minted inside each kernel's module, which made every kernel's `E` a
-/// nominally distinct type and so re-monomorphised every library function
-/// reached with it, once per kernel, for identical machine code.
-pub struct GenericSlot<const N: u64>;
+/// `N` is the generic's position in the kernel signature, which keeps generics
+/// within one kernel distinct while letting kernels share the same types.
+pub struct GenericSlot<const N: usize>;
 
 /// A fake element type that can be configured to map to any other element type.
 #[repr(transparent)]
