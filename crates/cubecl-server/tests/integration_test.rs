@@ -399,6 +399,31 @@ fn the_fastest_tunable_hands_back_its_identity() {
     );
 }
 
+#[test_log::test]
+#[cfg(feature = "std")]
+#[serial_test::serial]
+fn a_tune_on_a_lost_device_settles_nothing() {
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("a_tune_on_a_lost_device_settles_nothing");
+    #[cfg(persistence)]
+    let root = tempfile::tempdir().unwrap();
+    #[cfg(persistence)]
+    rooted_at(root.path());
+
+    let client = test_client(&DummyDevice);
+    let id = "test".to_string();
+    let set = TUNER.init(&id, identified_addition_initializer(Default::default()));
+    let (handles, key) = addition_inputs(&client, &set);
+    let out = handles[2].clone();
+
+    POISONED.store(true, Ordering::Relaxed);
+    TUNER.execute(&id, &client, set.clone(), handles);
+    POISONED.store(false, Ordering::Relaxed);
+
+    assert_eq!(TUNER.fastest_identity(&id, &set, &key), None);
+    assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
+}
+
 /// A result belongs to the environment it was tuned under, and one only on disk has no fastest
 /// identity until an `execute` validates it: after a switch away the result is unreachable, and
 /// after the switch back it is found again once an `execute` has read it back — with no second
