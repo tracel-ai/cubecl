@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use darling::usage::{CollectLifetimes as _, CollectTypeParams as _, GenericsExt as _, Purpose};
 use inflections::case::to_snake_case;
-use proc_macro2::TokenStream;
+use proc_macro2::{Literal, TokenStream};
 use quote::{ToTokens, format_ident, quote, quote_spanned};
 use syn::{Ident, TypeParamBound, parse_quote};
 
@@ -66,9 +66,21 @@ impl KernelFn {
                 quote![""]
             };
 
+            // The file, line and column of the span, as for the expressions in the body. In a
+            // `macro_rules!` body, `file!()` and `line!()` give the invocation site instead.
+            let position = if proc_macro::is_available() {
+                let span = self.span.unwrap();
+                let (file, line, column) = (span.file(), span.line(), span.column());
+                let (line, column) = (
+                    Literal::usize_unsuffixed(line),
+                    Literal::usize_unsuffixed(column),
+                );
+                quote![#file, #source_text, #line, #column]
+            } else {
+                quote_spanned! {self.span=> file!(), #source_text, line!(), column!()}
+            };
             let debug_source = quote_spanned! {self.span=>
-                let __cube_frame =
-                    #debug_source(scope, #name, file!(), #source_text, line!(), column!());
+                let __cube_frame = #debug_source(scope, #name, #position);
             };
             let debug_params = sig
                 .runtime_params()

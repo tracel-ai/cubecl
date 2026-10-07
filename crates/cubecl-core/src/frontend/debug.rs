@@ -47,10 +47,7 @@ pub fn debug_source_expand<'a>(
     };
     let path = file.replace('\\', "/");
     debug.add_source(&path, source_text);
-    let file = Source::new_from_file(scope.ctx_mut(), path);
-    if let Some(debug) = scope.debug_state() {
-        debug.enter_fn(name, file, line, column);
-    }
+    debug.enter_fn(name, Source::new_from_file(scope.ctx(), path), line, column);
     DebugFrame { scope: Some(scope) }
 }
 
