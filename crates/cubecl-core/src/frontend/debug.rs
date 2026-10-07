@@ -116,14 +116,16 @@ mod tests {
     }
 
     /// The loop index is a block argument and has no defining op. Debug symbols name the
-    /// parameter `x` of `add_one`, so the name must leave such a value as it is.
+    /// parameter `x` of `add_one`, so the name goes on the argument of the loop body.
     #[test]
-    fn a_block_argument_keeps_its_name() {
+    fn a_block_argument_takes_its_name() {
         let scope = Scope::root(
             KernelSettings::new(Dim3::new_single(), ExecutionMode::Checked, AddressType::U32)
                 .debug_symbols(),
         );
         let n = NativeExpand::<u32>::from_lit(&scope, 4);
         sum_indices::expand(&scope, n);
+        let ir = alloc::format!("{scope}");
+        assert!(ir.contains("(x_v"), "{ir}");
     }
 }
