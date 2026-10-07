@@ -1332,6 +1332,10 @@ impl Client {
 
     /// Compile every kernel queued for compilation (see
     /// [`Server::compile_queued`]), before the work submitted after it.
+    ///
+    /// Every measurement starts with it — a tune, a throughput probe — so a
+    /// queue a compile-only dry run left is not timed as part of the first
+    /// launch measured.
     pub fn compile_queued(&self) {
         self.device.submit(move |server| server.compile_queued());
     }
@@ -1818,6 +1822,9 @@ impl Client {
             return Ok(value);
         }
 
+        // Kernels queued for compilation compile now, together, rather than in the probe's
+        // first launch, inside the time it measures.
+        self.compile_queued();
         // Asked again inside: another thread may have answered while this one queued.
         self.exclusive(move || throughputs.measure(key, probe))
             .unwrap_or(Err(ThroughputError::Launch))

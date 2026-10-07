@@ -3,6 +3,7 @@ use cubecl_server::compiler::{ArtifactId, KernelLoader};
 use cubecl_server::memory_management::relocation::RelocatingStreams;
 
 use crate::compute::{
+    cpu_kernel::CpuKernel,
     kernel_compiler::{BufferAlignment, CpuKernelCompiler},
     schedule::{BindingsResource, ScheduleTask, ScheduledCpuBackend},
 };
@@ -122,7 +123,7 @@ impl CpuServer {
 
     fn prepare_task(
         &mut self,
-        kernel_id: ArtifactId<BufferAlignment>,
+        kernel: &CpuKernel,
         count: CubeCount,
         bindings: BindingsResource,
         stream_id: StreamId,
@@ -146,21 +147,16 @@ impl CpuServer {
             }
         };
 
-        self.prepare_task_inner(kernel_id, cube_count, bindings, stream_id)
+        self.prepare_task_inner(kernel, cube_count, bindings, stream_id)
     }
 
     fn prepare_task_inner(
         &mut self,
-        kernel_id: ArtifactId<BufferAlignment>,
+        kernel: &CpuKernel,
         cube_count: [u32; 3],
         bindings: BindingsResource,
         stream_id: StreamId,
     ) -> Result<ScheduleTask, CompilationError> {
-        let kernel = self
-            .kernels
-            .get(&kernel_id)
-            .expect("compiled before the write scope was entered");
-
         let cube_dim = kernel.mlir.cube_dim;
 
         let mlir_engine = kernel
@@ -414,7 +410,7 @@ impl Server for CpuServer {
             return;
         }
 
-        let io = loaded.mlir.io.clone();
+        let io = loaded.mlir.io.as_deref();
 
         // The scope claims what the launch writes until the body proves the
         // work enqueued, so a failure — or a panic — anywhere in it leaves a
@@ -422,7 +418,7 @@ impl Server for CpuServer {
         // bytes nothing wrote. An input that already carries a failure skips
         // the launch instead, and the scope settles that too.
         let mut written = self.write_set();
-        written.extend(bindings.buffers_written(io.as_deref()).cloned());
+        written.extend(bindings.buffers_written(io).cloned());
         // A dynamic count travels outside `resources`, so `buffers_read`
         // never names it — yet the dispatch reads it as its grid dimensions,
         // which is exactly the garbage-as-cube-count read the skip exists to
@@ -433,9 +429,9 @@ impl Server for CpuServer {
         };
         ExecuteScope::launching(
             self,
-            cache_key.kernel.clone(),
+            cache_key.kernel,
             stream_id,
-            bindings.buffers_read(io.as_deref()).chain(count_read),
+            bindings.buffers_read(io).chain(count_read),
             written,
         )
         .execute(|server| {
@@ -452,7 +448,7 @@ impl Server for CpuServer {
                 .for_each(|b| server.streams_pool.push(b.stream));
             let bindings = server.prepare_bindings(bindings);
             let task = server
-                .prepare_task(cache_key, count, bindings, stream_id)
+                .prepare_task(&loaded, count, bindings, stream_id)
                 .map_err(|err| ServerError::Launch(LaunchError::CompilationError(err)))?;
 
             server

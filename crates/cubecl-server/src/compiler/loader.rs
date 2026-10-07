@@ -234,8 +234,16 @@ impl<T: CompilationTarget> KernelLoader<T> {
                 threads,
             );
         }
+        let reuses = self.target.persists();
         for_each_at_once(&mut missing, self.parallelism, |job| {
-            job.lower(compiler, logger)
+            job.lower(compiler, logger);
+            // With no artifact to reuse it by, a kernel finalizes on the thread
+            // that lowered it, without waiting for the rest of the batch to
+            // lower: the batch lasts about as long as its slowest kernel, not
+            // its slowest lowering plus its slowest finalizing.
+            if job.is_lowered() && !(reuses && job.has_source()) {
+                job.finalize(compiler);
+            }
         });
 
         let mut finalizing = HashSet::new();
@@ -243,10 +251,39 @@ impl<T: CompilationTarget> KernelLoader<T> {
             job.reuse(&mut self.target, &mut finalizing);
         }
 
+        let leading: Vec<(usize, String)> = jobs
+            .iter()
+            .enumerate()
+            .filter_map(|(index, job)| match &job.step {
+                Step::Lowered {
+                    source: Some(source),
+                    ..
+                } => Some((index, source.clone())),
+                _ => None,
+            })
+            .collect();
         let compiler = self.target.compiler();
         let mut lowered: Vec<&mut Job<'_, T>> =
             jobs.iter_mut().filter(|job| job.is_lowered()).collect();
         for_each_at_once(&mut lowered, self.parallelism, |job| job.finalize(compiler));
+
+        // A kernel waiting on a source that failed to finalize fails the same
+        // way, rather than finalizing it again, one after another, on this
+        // thread.
+        let failed: HashMap<String, LaunchError> = leading
+            .into_iter()
+            .filter_map(|(index, source)| match &jobs[index].step {
+                Step::Failed(err) => Some((source, err.clone())),
+                _ => None,
+            })
+            .collect();
+        for job in jobs.iter_mut() {
+            if let Step::Waiting { source, .. } = &job.step
+                && let Some(err) = failed.get(source)
+            {
+                job.step = Step::Failed(err.clone());
+            }
+        }
 
         let compiled: Vec<Compiled<T>> = jobs
             .into_iter()
@@ -351,6 +388,17 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
 
     fn is_lowered(&self) -> bool {
         matches!(self.step, Step::Lowered { .. })
+    }
+
+    /// Whether it lowered to text an artifact can be reused by.
+    fn has_source(&self) -> bool {
+        matches!(
+            self.step,
+            Step::Lowered {
+                source: Some(_),
+                ..
+            }
+        )
     }
 
     /// Takes what the store holds for the kernel, if it holds anything.
@@ -784,6 +832,43 @@ mod tests {
         );
     }
 
+    /// Kernels waiting on a source that fails to finalize fail with it: the
+    /// source is finalized once, not once per kernel.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_failed_source_is_finalized_once() {
+        let mut loader = loader(8);
+        loader.target.compiler.shared_source = true;
+        loader.target.compiler.refusing = true;
+        let logger = ServerLogger::default();
+        for number in 0..3 {
+            loader.enqueue(Box::new(Numbered(number)), ());
+        }
+        assert!(loader.load(&Numbered(3), &id(3), &logger).is_err());
+        assert_eq!(loader.target.compiler.finalized.load(Ordering::Relaxed), 1);
+        for number in 0..3 {
+            assert_eq!(loader.get(&id(number)), None);
+        }
+    }
+
+    /// A kernel with no source to reuse an artifact by finalizes on the
+    /// thread that lowered it, without waiting for the batch.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_kernel_without_a_source_finalizes_where_it_lowered() {
+        let mut loader = loader(4);
+        loader.target.compiler.slow = true;
+        let logger = ServerLogger::default();
+        for number in 0..3 {
+            loader.enqueue(Box::new(Numbered(number)), ());
+        }
+        loader.load(&Numbered(3), &id(3), &logger).unwrap();
+        let lowered = loader.target.compiler.lowered_on.lock().unwrap().clone();
+        let finalized = loader.target.compiler.finalized_on.lock().unwrap().clone();
+        assert_eq!(lowered.len(), 4);
+        assert_eq!(lowered, finalized);
+    }
+
     /// A kernel about to execute compiles the queue even when it is loaded
     /// itself: the queue promises to be compiled by then.
     #[test]
@@ -927,6 +1012,12 @@ mod tests {
         /// Whether every kernel lowers to the same source.
         shared_source: bool,
         finalized: AtomicUsize,
+        /// Whether finalizing fails.
+        refusing: bool,
+        /// The thread each kernel lowered on, by number.
+        lowered_on: Mutex<alloc::collections::BTreeMap<u32, String>>,
+        /// The thread each kernel finalized on, by number.
+        finalized_on: Mutex<alloc::collections::BTreeMap<u32, String>>,
     }
 
     impl FakeCompiler {
@@ -960,6 +1051,10 @@ mod tests {
                 .find(|number| Numbered(*number).id() == id.kernel)
                 .expect("a numbered kernel");
             assert_eq!(kernel.id(), id.kernel);
+            self.lowered_on
+                .lock()
+                .unwrap()
+                .insert(number, alloc::format!("{:?}", std::thread::current().id()));
             if self.panicking == Some(number) {
                 panic!("kernel {number} panicked");
             }
@@ -982,7 +1077,17 @@ mod tests {
             lowered: (u32, Option<String>),
         ) -> Result<u32, LaunchError> {
             self.finalized.fetch_add(1, Ordering::Relaxed);
-            Ok(lowered.0)
+            self.finalized_on.lock().unwrap().insert(
+                lowered.0,
+                alloc::format!("{:?}", std::thread::current().id()),
+            );
+            match self.refusing {
+                true => Err(LaunchError::Unknown {
+                    reason: "refused".into(),
+                    backtrace: BackTrace::capture(),
+                }),
+                false => Ok(lowered.0),
+            }
         }
     }
 

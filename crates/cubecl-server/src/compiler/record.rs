@@ -30,6 +30,11 @@ pub struct CompilationRecord {
     /// counts none of the time it waited for them, so the work of a batch adds
     /// up to more than the time it took when it ran on several threads: that
     /// time is its [`CompilationBatchRecord::wall`].
+    ///
+    /// Recorded as `duration` before kernels compiled in batches, when every
+    /// kernel compiled alone and its work was the time it took: those records
+    /// still read, with the meaning they had.
+    #[serde(alias = "duration")]
     pub work: core::time::Duration,
     /// The source the backend compiled, at [`RecordLevel::Full`].
     pub source: Option<alloc::string::String>,
@@ -44,8 +49,9 @@ pub enum CompilationOutcome {
     /// Read from the compilation store and loaded on the device.
     Loaded,
     /// Expanded to a source the store already held an artifact for, under
-    /// another key: the artifact was moved under this one and loaded, and the
-    /// backend's compiler never ran.
+    /// another key: the artifact was kept under this one too — moved, when
+    /// the other key is of an earlier build — and loaded, and the backend's
+    /// compiler never ran.
     Rekeyed,
 }
 

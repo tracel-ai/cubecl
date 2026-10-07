@@ -250,10 +250,17 @@ impl<K: AutotuneKey> Tuner<K> {
         // A key a compile-only dry run already precompiled answers at once: a walk reaches the
         // same key at every layer, and a miss would hydrate the persistent cache and checksum
         // the set again each time for a tune that will not run.
+        // The environment's reset comes first: a key precompiled for the environment switched
+        // from has its candidates to queue again, if this one has not tuned it already.
         let compiling =
             crate::dry_run::dry_run_scope() == Some(crate::dry_run::DryRunScope::Compile);
-        if compiling && self.cache.lock().is_precompiled(key) {
-            return TuneCacheResult::Precompiled;
+        if compiling {
+            let mut cache = self.cache.lock();
+            #[cfg(persistence)]
+            cache.reset_if_environment_switched();
+            if cache.is_precompiled(key) {
+                return TuneCacheResult::Precompiled;
+            }
         }
 
         {

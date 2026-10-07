@@ -64,16 +64,26 @@ impl<A: StoreValue> ArtifactStore<A> {
         Some(artifact)
     }
 
-    /// Takes the artifact another kernel finalized from `source` out of the
-    /// store, deleting it under that kernel: [`keep`](Self::keep) puts it back
-    /// under the kernel asking.
+    /// The artifact another kernel finalized from `source`, for
+    /// [`keep`](Self::keep) to put under the kernel asking.
+    ///
+    /// A kernel of this build keeps its own entry: it is as live as the one
+    /// asking, and two kernel ids of one build that expand to one source —
+    /// several of them in one batch — each keep theirs. One of an earlier
+    /// build is moved, deleted under its key: nothing will ask for that key
+    /// again.
     pub fn take_by_source(&mut self, source: &str) -> Option<A> {
         let by_kernel = self.by_kernel.as_mut()?;
-        let key = self
-            .by_source
-            .as_mut()?
-            .purge_key(&StableHasher::hash_one(&source))?;
-        let artifact = by_kernel.purge_key(&key)?;
+        let by_source = self.by_source.as_mut()?;
+        let hash = StableHasher::hash_one(&source);
+        let key = *by_source.get(&hash)?;
+
+        let artifact = if key.build_id == self.build_id {
+            by_kernel.get(&key)?.clone()
+        } else {
+            by_source.purge_key(&hash);
+            by_kernel.purge_key(&key)?
+        };
         log::trace!("Using the compilation store, by source");
         Some(artifact)
     }
@@ -93,5 +103,59 @@ impl<A: StoreValue> ArtifactStore<A> {
             store_compiled(by_source, StableHasher::hash_one(&source), key);
         }
         stored
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cubecl_environment::persistence::StoreOptions;
+
+    struct First;
+    struct Second;
+    struct Third;
+
+    fn store() -> ArtifactStore<u32> {
+        ArtifactStore {
+            by_kernel: Some(Store::new(StoreOptions::new())),
+            by_source: Some(Store::new(StoreOptions::new())),
+            build_id: build_id_hash(),
+        }
+    }
+
+    /// Kernels of one build that expand to one source each keep the artifact:
+    /// taking it for one leaves it to the others.
+    #[test]
+    fn kernels_sharing_a_source_each_keep_it() {
+        let mut store = store();
+        let kernels = [
+            KernelId::new::<First>(),
+            KernelId::new::<Second>(),
+            KernelId::new::<Third>(),
+        ];
+        store.keep(&kernels[0], 7, Some("shared"));
+        for kernel in &kernels[1..] {
+            let artifact = store.take_by_source("shared").expect("kept by source");
+            store.keep(kernel, artifact, Some("shared"));
+        }
+        for kernel in &kernels {
+            assert_eq!(store.take(kernel), Some(7));
+        }
+    }
+
+    /// A kernel of an earlier build gives its artifact up: nothing asks for
+    /// its key again.
+    #[test]
+    fn an_earlier_build_is_moved() {
+        let mut store = store();
+        let current = store.build_id;
+        let kernel = KernelId::new::<First>();
+        store.build_id = StableHasher::hash_one(&"an earlier build");
+        store.keep(&kernel, 7, Some("shared"));
+
+        store.build_id = current;
+        assert_eq!(store.take_by_source("shared"), Some(7));
+        store.build_id = StableHasher::hash_one(&"an earlier build");
+        assert_eq!(store.take(&kernel), None, "moved out");
     }
 }
