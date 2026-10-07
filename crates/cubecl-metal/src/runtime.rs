@@ -4,7 +4,8 @@ use cubecl_core::{
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         AddressType, DeviceIdentity, DeviceProperties, ElemType, FloatKind, HardwareProperties,
-        IntKind, MemoryDeviceProperties, PhysicalDevice, TargetProperties, Type, UIntKind,
+        IntKind, MemoryDeviceProperties, PhysicalDevice, RegistryEntryId, TargetProperties, Type,
+        UIntKind,
         features::{AtomicUsage, Plane, TypeUsage},
     },
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
@@ -13,6 +14,7 @@ use cubecl_cpp::{
     metal::{arch::MetalArchitecture, supported_cmma_combinations_metal},
     shared::register_wmma_features,
 };
+use cubecl_monitoring::{DeviceUtilization, UtilizationUnavailable, gpu_utilization::CardCounters};
 use cubecl_server::allocator::ContiguousMemoryLayoutPolicy;
 use cubecl_server::runtime::Runtime;
 use objc2::runtime::ProtocolObject;
@@ -69,6 +71,7 @@ impl DeviceService for MetalServer {
 
         let hardware_props = HardwareProperties {
             load_width: 128,
+            vector_register_count: None,
             plane_size_min: 32,
             plane_size_max: 32,
             // Metal allows 31 buffer bindings; one is reserved for the per-kernel info buffer.
@@ -92,9 +95,12 @@ impl DeviceService for MetalServer {
         // Metal is the one backend where the display name *is* the fingerprint:
         // the MSL is emitted from device-derived compilation options, so the
         // device's own name is what keeps sources built for another GPU out.
-        // `MetalContext` builds the same `msl_{name}` namespace from the same
+        // `MetalPipelines` builds the same `msl_{name}` namespace from the same
         // string.
         let device_name = metal_device.name().to_string();
+
+        let mut physical = PhysicalDevice::default();
+        physical.registry_entry_id = Some(RegistryEntryId::new(metal_device.registryID()));
 
         let mut device_props = DeviceProperties::new(
             Default::default(),
@@ -104,7 +110,7 @@ impl DeviceService for MetalServer {
             DeviceIdentity {
                 fingerprint: format!("msl_{device_name}"),
                 name: device_name,
-                physical: Some(PhysicalDevice::default()),
+                physical: Some(physical),
             },
         );
 
@@ -112,14 +118,16 @@ impl DeviceService for MetalServer {
 
         let logger = std::sync::Arc::new(cubecl_server::logging::ServerLogger::default());
         let allocator = ContiguousMemoryLayoutPolicy::new(mem_props.alignment as usize);
-        let utilities = std::sync::Arc::new(cubecl_core::server::ServerUtilities::new(
+        // No graph capture on this backend: nothing updates the captures.
+        let (utilities, _captures) = cubecl_core::server::ServerUtilities::init(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "metal",
             device_props.clone(),
             MetalRuntime::target_properties(),
             logger,
             allocator,
-        ));
+        );
+        let utilities = std::sync::Arc::new(utilities);
 
         let mem_config = cubecl_core::MemoryConfiguration::default();
 
@@ -174,6 +182,10 @@ impl Runtime for MetalRuntime {
                 .collect(),
             _ => Vec::new(),
         }
+    }
+
+    fn utilization(device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
+        CardCounters::read(Self::client(device).properties().identity.physical.as_ref())
     }
 }
 

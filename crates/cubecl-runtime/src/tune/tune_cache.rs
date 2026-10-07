@@ -19,6 +19,10 @@ pub(crate) enum CacheEntry {
         fastest_index: usize,
     },
     Pending,
+    /// A compile-only dry run queued the kernels of the key's candidates and decided nothing:
+    /// a miss to anything that tunes, and done to the next compile-only dry run. Never
+    /// persisted.
+    Compiled,
 }
 
 #[derive(Debug)]
@@ -144,6 +148,10 @@ pub enum TuneCacheResult {
     /// Callers that see this fall through to running the operation rather than blocking on
     /// the in-flight job.
     Pending,
+    /// A compile-only [dry run](crate::dry_run::DryRunScope::Compile) queued the kernels of the
+    /// key's candidates, and measured and decided nothing. Callers run the first candidate that
+    /// serves the problem, which only queues its kernels too.
+    Compiled,
     /// No operation is found yet.
     Miss,
 }
@@ -207,16 +215,14 @@ impl<K: AutotuneKey> TuneCache<K> {
             return TuneCacheResult::Miss;
         };
 
-        let CacheEntry::Done {
-            checksum,
-            fastest_index,
-        } = val
-        else {
-            // Pending: clone the receiver so the caller can subscribe to the in-flight tune.
-            let CacheEntry::Pending = val else {
-                unreachable!()
-            };
-            return TuneCacheResult::Pending;
+        let (checksum, fastest_index) = match val {
+            CacheEntry::Done {
+                checksum,
+                fastest_index,
+            } => (checksum, fastest_index),
+            CacheEntry::Pending => return TuneCacheResult::Pending,
+            // Nothing was decided: a tune of the key is still owed.
+            CacheEntry::Compiled => return TuneCacheResult::Miss,
         };
 
         if cfg!(persistence) {
@@ -258,11 +264,40 @@ impl<K: AutotuneKey> TuneCache<K> {
         self.fastest(key)
     }
 
+    /// The index settled for `key`, reading only: `None` for anything but a verified result, and
+    /// for every key once the environment has switched away from the one this cache was built
+    /// under — the reset that switch owes is left to the next lookup that tunes.
+    pub(crate) fn settled(&self, key: &K) -> Option<usize> {
+        #[cfg(persistence)]
+        if self.environment_switched() {
+            return None;
+        }
+
+        match self.fastest(key) {
+            TuneCacheResult::Hit { fastest_index } => Some(fastest_index),
+            TuneCacheResult::Unchecked
+            | TuneCacheResult::Pending
+            | TuneCacheResult::Compiled
+            | TuneCacheResult::Miss => None,
+        }
+    }
+
     /// Mark a key as being tuned. Used by [`Tuner::check_tune`] under the cache mutex so that
     /// concurrent callers see [`TuneCacheResult::Pending`] instead of starting a second job
     /// for the same key.
     pub(crate) fn mark_pending(&mut self, key: K) {
         self.in_memory_cache.insert(key, CacheEntry::Pending);
+    }
+
+    /// Mark a key whose candidates' kernels a compile-only dry run queued, in place of the tune
+    /// it was [marked](Self::mark_pending) for: nothing was decided.
+    pub(crate) fn mark_compiled(&mut self, key: K) {
+        self.in_memory_cache.insert(key, CacheEntry::Compiled);
+    }
+
+    /// Whether a compile-only dry run already queued the kernels of `key`'s candidates.
+    pub(crate) fn is_compiled(&self, key: &K) -> bool {
+        matches!(self.in_memory_cache.get(key), Some(CacheEntry::Compiled))
     }
 
     pub(crate) fn cache_insert(&mut self, key: K, fastest_index: usize) {
@@ -286,21 +321,22 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// still records a hardware-valid result, so the whole cost of the race
     /// is one duplicate tune per switch.
     pub(crate) fn reset_if_environment_switched(&mut self) {
-        // Persistence disabled means the tuning state is process-local and
-        // unbound, like a store without a storage: it survives switches.
-        if self.persistent_cache.is_none() {
-            return;
-        }
-
-        let generation = cubecl_environment::environment::generation();
-        if generation == self.generation {
+        if !self.environment_switched() {
             return;
         }
 
         log::debug!("Environment switched, resetting the autotune cache");
-        self.generation = generation;
+        self.generation = cubecl_environment::environment::generation();
         self.in_memory_cache.clear();
         self.hydrated = false;
+    }
+
+    /// Whether the environment switched since this cache was built. Never with persistence
+    /// disabled: the tuning state is then process-local and unbound, like a store without a
+    /// storage, and survives switches.
+    fn environment_switched(&self) -> bool {
+        self.persistent_cache.is_some()
+            && cubecl_environment::environment::generation() != self.generation
     }
 
     /// Ingest everything the persistent store holds into the in-memory cache,

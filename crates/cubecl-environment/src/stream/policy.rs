@@ -69,6 +69,10 @@ pub fn policy() -> StreamPolicy {
 /// wins over configuration.
 #[doc(hidden)]
 pub fn set_policy_from_config(policy: StreamPolicy) {
+    #[allow(
+        deprecated,
+        reason = "portable_atomic lacks try_update on targets without native atomics"
+    )]
     let _ = POLICY.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
         if current & SET_BY_USER != 0 {
             None

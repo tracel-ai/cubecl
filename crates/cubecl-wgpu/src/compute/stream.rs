@@ -2,9 +2,10 @@ use super::{
     graph::{GraphRecording, ReplayDispatch, ReplayTask, WgpuGraph},
     mem_manager::{self, AuxiliaryMemory},
     poll::WgpuPoll,
-    timings::{QueryProfiler, TimestampAvailability, TimestampQuerySetBudget},
+    timings::{QueryProfiler, TimestampQuerySetBudget, TimestampSampling},
 };
 use crate::compute::copies::WgpuCopies;
+use crate::compute::device_poison::PoisonWatch;
 use crate::{
     WgpuResource, WgpuStorage,
     controller::WgpuAllocController,
@@ -19,7 +20,7 @@ use cubecl_common::{
 };
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
-    server::{BufferBinding, IoError, ProfileError, ProfilingToken, ServerError},
+    server::{BufferBinding, DeviceCaptures, IoError, ProfileError, ProfilingToken, ServerError},
     zspace::Shape,
 };
 use cubecl_environment::backtrace::BackTrace;
@@ -36,7 +37,7 @@ use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ErrorGraph, FailureId, ManagedMemoryHandle, SharedMemoryBindings},
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{DeviceRecording, StreamCapture, StreamMemory},
+    stream::{StreamCapture, StreamMemory},
     timestamp_profiler::TimestampProfiler,
 };
 #[cfg(renderdoc)]
@@ -56,7 +57,7 @@ enum Timings {
     /// stream that never profiles must not hold one another stream then cannot get.
     Unclaimed {
         budget: Arc<TimestampQuerySetBudget>,
-        availability: TimestampAvailability,
+        sampling: TimestampSampling,
     },
     // Boxed: `QueryProfiler` is much larger than `TimestampProfiler`
     // (clippy::large_enum_variant).
@@ -84,6 +85,8 @@ pub struct WgpuStream {
     /// The memories the stream keeps for its own reads and launches.
     pub auxiliary: AuxiliaryMemory,
     pub device: wgpu::Device,
+    /// Whether the device is poisoned, shared with every other stream on the device.
+    poison: PoisonWatch,
     compute_pass: Option<wgpu::ComputePass<'static>>,
     timings: Timings,
     tasks_count: usize,
@@ -136,7 +139,7 @@ impl StreamMemory for WgpuStream {
 
 impl RelocatableStream for WgpuStream {
     fn recording(&self) -> bool {
-        self.capturing.any_recording()
+        self.capturing.device().any_recording()
     }
 
     fn has_outdated(&self) -> bool {
@@ -178,16 +181,17 @@ impl WgpuStream {
         memory_config: MemoryConfiguration,
         timing_method: TimingMethod,
         timing_budget: Arc<TimestampQuerySetBudget>,
-        timestamp_availability: TimestampAvailability,
+        timestamp_sampling: TimestampSampling,
         tasks_max: usize,
         logger: Arc<ServerLogger>,
         use_vulkan_compiler: bool,
-        recording: DeviceRecording,
+        captures: &DeviceCaptures,
+        poison: PoisonWatch,
     ) -> Self {
         let timings = match timing_method {
             TimingMethod::Device => Timings::Unclaimed {
                 budget: timing_budget,
-                availability: timestamp_availability,
+                sampling: timestamp_sampling,
             },
             TimingMethod::System => Timings::system(),
         };
@@ -223,6 +227,7 @@ impl WgpuStream {
                 })
             },
             device,
+            poison,
             queue,
             tasks_count: 0,
             tasks_max,
@@ -235,7 +240,7 @@ impl WgpuStream {
             // entry pins a whole page (512 × 32 KiB ≈ 16 MiB worst case) —
             // unlike CUDA/HIP where an entry is a small dynamic-pool slice.
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::new(512, 2048)),
-            capturing: StreamCapture::new(recording),
+            capturing: StreamCapture::new(captures),
             recording: GraphRecording::default(),
         }
     }
@@ -415,6 +420,11 @@ impl WgpuStream {
         if let Err(err) = self.flush(stream_id) {
             return Box::pin(async move { Err(err) });
         }
+        // A poisoned device completes the copy as if it ran.
+        // Return the poisoning instead.
+        if let Err(err) = self.poison.check() {
+            return Box::pin(async move { Err(err) });
+        }
 
         for entry in staging_info.iter() {
             if let Some((staging, _binding, _size)) = entry {
@@ -435,14 +445,28 @@ impl WgpuStream {
         }
 
         let poll = self.poll.start_polling();
+        let poison = self.poison.clone();
 
         Box::pin(async move {
             for receiver in callbacks.iter().flatten() {
-                receiver
-                    .recv()
-                    .await
-                    .expect("Unable to receive buffer slice result.")
-                    .expect("Failed to map buffer");
+                let mapped = receiver.recv().await;
+                // The device can be poisoned while the copy is in flight.
+                poison.check()?;
+                match mapped {
+                    Ok(Ok(())) => {}
+                    Ok(Err(err)) => {
+                        return Err(ServerError::Generic {
+                            reason: format!("the staging buffer could not be mapped: {err}"),
+                            backtrace: BackTrace::capture(),
+                        });
+                    }
+                    Err(_) => {
+                        return Err(ServerError::Generic {
+                            reason: "the staging buffer's map never completed".into(),
+                            backtrace: BackTrace::capture(),
+                        });
+                    }
+                }
             }
 
             // Can stop polling now.
@@ -472,11 +496,7 @@ impl WgpuStream {
     /// A stream claims a budget slot at its first window (lock-free); if none is free, it falls
     /// back to the system timer so the device never exceeds the hardware limit.
     fn claim_timings(&mut self) {
-        let Timings::Unclaimed {
-            budget,
-            availability,
-        } = &self.timings
-        else {
+        let Timings::Unclaimed { budget, sampling } = &self.timings else {
             return;
         };
         self.timings = match budget.try_acquire() {
@@ -484,7 +504,7 @@ impl WgpuStream {
                 &self.queue,
                 &self.device,
                 budget.clone(),
-                *availability,
+                *sampling,
             ))),
             false => Timings::system(),
         };
@@ -500,10 +520,17 @@ impl WgpuStream {
 
     pub fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
         self.claim_timings();
-        if matches!(self.timings, Timings::System(_)) {
-            cubecl_environment::future::block_on(self.sync(stream_id))?;
-        } else {
-            self.flush(stream_id)?;
+        match &self.timings {
+            Timings::System(_) => cubecl_environment::future::block_on(self.sync(stream_id))?,
+            Timings::Device(query) if query.sampling().drains_before_window() => {
+                self.flush(stream_id)?;
+                // Waits like system timing's sync, for the reason `drains_before_window` gives:
+                // work still running when the window's first pass starts is timed as its own.
+                if let Err(err) = self.device.poll(wgpu::PollType::wait_indefinitely()) {
+                    log::warn!("waiting for the work ahead of a profiled window: {err}");
+                }
+            }
+            Timings::Device(_) | Timings::Unclaimed { .. } => self.flush(stream_id)?,
         }
 
         match &mut self.timings {
@@ -581,7 +608,7 @@ impl WgpuStream {
                 match result {
                     Ok(_) => {
                         let map_buffer = readback.map(|readback| {
-                            if timing.availability() == TimestampAvailability::OnCompletion {
+                            if timing.sampling().resolves_after_completion() {
                                 // Blocks like system timing's sync at a window's end. Resolving
                                 // later without waiting is not an option: the window's query
                                 // sets return to the pool here, and a pass that reuses one
@@ -637,6 +664,7 @@ impl WgpuStream {
         let queue = self.queue.clone();
         let error_future = error_scope.pop();
         let poll = self.poll.start_polling();
+        let poison = self.poison.clone();
 
         Box::pin(async move {
             let (sender, receiver) = cubecl_environment::future::channel::bounded::<()>(1);
@@ -646,6 +674,8 @@ impl WgpuStream {
                 core::mem::drop(poll);
             });
             let _ = receiver.recv().await;
+
+            poison.check()?;
 
             if let Some(error) = error_future.await {
                 return Err(ServerError::Generic {

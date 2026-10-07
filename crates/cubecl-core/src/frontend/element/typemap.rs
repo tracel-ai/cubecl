@@ -12,8 +12,8 @@
 
 #![allow(clippy::multiple_bound_locations)]
 
+use core::marker::PhantomData;
 use core::{cmp::Ordering, ops::*};
-use core::{f32, marker::PhantomData};
 
 use bytemuck::Zeroable;
 use cubecl_ir::{ConstantValue, interfaces::TypedExt};

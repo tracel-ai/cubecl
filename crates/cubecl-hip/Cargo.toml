@@ -48,22 +48,26 @@ tracing = [
 log = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
 
-cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.4", features = [
+cubecl-common = { workspace = true, default-features = true, features = [
     "std",
     "hash",
 ] }
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.4", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.4", default-features = false, features = [
+cubecl-environment = { workspace = true }
+cubecl-core = { workspace = true, features = [
     "amd",
 ] }
-cubecl-cpp = { path = "../cubecl-cpp", version = "=0.11.0-pre.4", default-features = false, features = [
+cubecl-cpp = { workspace = true, features = [
 ] }
 cubecl-hip-sys = { version = "7.14.6085001" }
-cubecl-llvm = { path = "../cubecl-llvm", version = "=0.11.0-pre.4", default-features = false, features = [
+cubecl-llvm = { workspace = true, features = [
     "std",
     "amdgpu",
 ] }
-cubecl-server = { path = "../cubecl-server", version = "=0.11.0-pre.4", default-features = false }
+cubecl-monitoring = { workspace = true, features = [
+    "amdgpu-busy-percent",
+    "gpu-engine-counters",
+] }
+cubecl-server = { workspace = true }
 
 bytemuck = { workspace = true }
 
@@ -73,10 +77,10 @@ paste = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
-cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.4", features = [
+cubecl-core = { workspace = true, default-features = true, features = [
     "export_tests",
 ] }
-cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.4", features = [
+cubecl-std = { workspace = true, default-features = true, features = [
     "export_tests",
 ] }
 test-log = { workspace = true, features = ["trace"] }

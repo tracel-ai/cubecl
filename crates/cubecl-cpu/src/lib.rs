@@ -5,6 +5,7 @@ extern crate alloc;
 mod tests {
     pub type TestRuntime = crate::CpuRuntime;
 
+    pub use half::bf16;
     pub use half::f16;
 
     use cubecl_core as cubecl;
@@ -13,9 +14,9 @@ mod tests {
     use cubecl_environment::stream::StreamId;
     use cubecl_server::config::CubeClRuntimeConfig;
 
-    cubecl_core::testgen_all!(f32: [f16, f32, f64], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
+    cubecl_core::testgen_all!(f32: [f16, bf16, f32, f64], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
     cubecl_std::testgen!();
-    cubecl_std::testgen_tensor_identity!([f16, f32, u32]);
+    cubecl_std::testgen_tensor_identity!([f16, bf16, f32, u32]);
     cubecl_std::testgen_tensor_into_contiguous!();
     cubecl_std::testgen_quantized_view!(f32);
     cubecl_core::testgen_complex_validation!();
@@ -467,6 +468,7 @@ mod tests {
 pub mod compute;
 pub mod device;
 pub mod frontend;
+mod processor_times;
 pub mod runtime;
 
 pub use device::CpuDevice;

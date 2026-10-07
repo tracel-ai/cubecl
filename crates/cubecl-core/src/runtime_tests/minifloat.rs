@@ -685,6 +685,59 @@ pub fn test_scale<R: Runtime>(client: Client, vector_size: VectorSize) {
 /// whose codec is software on every backend but CUDA. [`test_scale`] pins four values through a `ue8m0` buffer; these run the
 /// domain, and they travel in `u32` words like the other fp8 tests so a backend with no 8-bit
 /// buffer still reaches them.
+/// `e2m1x2` decodes every byte to the two values the host type names, bit for bit, at every
+/// vector width: a width under a word decodes byte by byte, a whole word four codes apart.
+pub mod fp4_e2m1x2 {
+    use super::*;
+    use cubecl_common::e2m1;
+
+    #[cube(launch_unchecked)]
+    fn kernel_decode<N2: Size, N: Size>(input: &[Vector<e2m1x2, N2>], out: &mut [Vector<f32, N>]) {
+        if ABSOLUTE_POS < input.len() {
+            out[ABSOLUTE_POS] = Vector::cast_from(input[ABSOLUTE_POS]);
+        }
+    }
+
+    pub fn decode_exhaustive<R: Runtime>(client: Client, bytes_per_vector: VectorSize) {
+        let uses = e2m1x2::supported_uses(&client);
+        if !uses.contains(TypeUsage::Conversion) || !uses.contains(TypeUsage::Buffer) {
+            println!("Unsupported, skipping");
+            return;
+        }
+
+        let bytes: Vec<u8> = (0..=u8::MAX).collect();
+        let input = client.create_from_slice(&bytes);
+        let out = client.empty(2 * bytes.len() * size_of::<f32>());
+        let vectors = bytes.len() / bytes_per_vector;
+
+        unsafe {
+            kernel_decode::launch_unchecked(
+                &client,
+                CubeCount::Static(vectors.div_ceil(32) as u32, 1, 1),
+                CubeDim::new_1d(32),
+                bytes_per_vector,
+                2 * bytes_per_vector,
+                BufferArg::from_raw_parts(input, bytes.len()),
+                BufferArg::from_raw_parts(out.clone(), 2 * bytes.len()),
+            )
+        };
+
+        let actual = client.read_one_unchecked(out);
+        let actual = f32::from_bytes(&actual);
+        assert_eq!(
+            actual.len(),
+            2 * bytes.len(),
+            "a failed launch reads back nothing"
+        );
+        for (&byte, pair) in bytes.iter().zip(actual.chunks(2)) {
+            let low = e2m1::from_bits(byte & 0xF).to_f32();
+            let high = e2m1::from_bits(byte >> 4).to_f32();
+            assert_same_float(pair[0], low, "e2m1x2 low", byte as u32);
+            assert_same_float(pair[1], high, "e2m1x2 high", byte as u32);
+        }
+    }
+}
+
 pub mod fp8_ue8m0 {
     use super::*;
 
@@ -962,6 +1015,17 @@ macro_rules! testgen_minifloat {
                 client.clone(),
                 4,
             );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn fp4_decode_exhaustive() {
+            let client = TestRuntime::client(&Default::default());
+            for bytes_per_vector in [1, 2, 4, 8] {
+                cubecl_core::runtime_tests::minifloat::fp4_e2m1x2::decode_exhaustive::<TestRuntime>(
+                    client.clone(),
+                    bytes_per_vector,
+                );
+            }
         }
 
         #[$crate::runtime_tests::test_log::test]

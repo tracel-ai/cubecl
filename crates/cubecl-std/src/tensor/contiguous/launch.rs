@@ -38,8 +38,11 @@ pub fn copy_into(client: &Client, input: TensorBinding, output: TensorBinding, d
     // It's normally faster on all devices, but since it doesn't parallelize on an axis, it
     // might be worst on GPU. Should tune at some point.
     let is_cpu = client.properties().hardware.num_cpu_cores.is_some();
-    let same_rank = input.strides.len() == output.strides.len();
-    if input.strides[rank - 1] != 1 && is_cpu && same_rank {
+    // The perpendicular kernel reads the input at the output's coordinates, so it only
+    // expresses a change of layout. A reshape keeping the rank would otherwise reach it and
+    // index the input out of bounds.
+    let same_shape = input.shape == output.shape;
+    if input.strides[rank - 1] != 1 && is_cpu && same_shape {
         launch_copy_perpendicular_ref(client, input, output, dtype);
     } else {
         copy_gpu_ref(client, input, output, dtype);

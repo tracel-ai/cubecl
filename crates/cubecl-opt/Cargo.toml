@@ -23,10 +23,10 @@ tracing = ["cubecl-common/tracing", "cubecl-ir/tracing", "cubecl-core/tracing"]
 
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.4", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.4", default-features = false }
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.4", default-features = false }
-cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.4", default-features = false }
+cubecl-common = { workspace = true }
+cubecl-core = { workspace = true }
+cubecl-environment = { workspace = true }
+cubecl-ir = { workspace = true }
 
 pliron = { workspace = true }
 
@@ -35,6 +35,7 @@ derive_more = { workspace = true }
 downcast-rs = { workspace = true }
 foldhash = { workspace = true }
 hashbrown = { workspace = true }
+hi_sparse_bitset = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 smallvec = { workspace = true }

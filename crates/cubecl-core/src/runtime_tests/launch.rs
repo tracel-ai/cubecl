@@ -87,6 +87,14 @@ pub fn kernel_resource_errors(output: &mut [u32], #[comptime] shared_size: usize
     output[0] = shared[0];
 }
 
+/// A kernel whose expansion panics: the assertion runs while the kernel is defined, before
+/// anything is compiled or dispatched.
+#[cube(launch)]
+pub fn kernel_panicking_in_expansion(output: &mut [u32], #[comptime] refuse: bool) {
+    comptime!(assert!(!refuse, "this kernel refuses to expand"));
+    output[0] = 1;
+}
+
 pub fn test_kernel_with_comptime_tag<R: Runtime>(client: Client) {
     let handle = client.create_from_slice(f32::as_bytes(&[5.0]));
     let array_arg = unsafe { BufferArg::from_raw_parts(handle.clone(), 1) };
@@ -290,6 +298,37 @@ fn resource_error(client: &Client, out: Handle) -> ResourceLimitError {
         },
         other => panic!("should be an unwritten-bytes report, is {other:?}"),
     }
+}
+
+/// A launch whose kernel panicked while expanding never wrote its output, so the read fails on
+/// that panic instead of handing back the bytes the buffer held before, and fails as a defect,
+/// not as a refusal.
+///
+/// The launch runs on the device thread inside a task nobody waits on, so the panic cannot reach
+/// the caller there: the output's claim is what carries it.
+pub fn test_expansion_panic_fails_the_read<R: Runtime>(client: Client) {
+    let output = client.create_from_slice(u32::as_bytes(&[7]));
+
+    kernel_panicking_in_expansion::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(1),
+        unsafe { BufferArg::from_raw_parts(output.clone(), 1) },
+        true,
+    );
+
+    let err = client.read_one(output).expect_err(
+        "a kernel that panicked while expanding never wrote the buffer, so the read must fail",
+    );
+    let report = alloc::format!("{err:?}");
+    assert!(
+        report.contains("this kernel refuses to expand"),
+        "the read must fail on the expansion's panic, got: {report}"
+    );
+    assert!(
+        !err.is_refusal(),
+        "a panic is a defect a test harness must report, not a refusal it may skip: {report}"
+    );
 }
 
 pub fn test_shared_memory_error<R: Runtime>(client: Client) {
@@ -520,6 +559,14 @@ macro_rules! testgen_launch_untyped {
             cubecl_core::runtime_tests::launch::test_kernel_dynamic_addressing::<TestRuntime>(
                 client,
                 AddressType::U64,
+            );
+        }
+
+        #[test]
+        fn test_launch_expansion_panic_fails_the_read() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_expansion_panic_fails_the_read::<TestRuntime>(
+                client,
             );
         }
 

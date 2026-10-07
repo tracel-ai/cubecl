@@ -5,7 +5,7 @@ use pliron::{
 };
 
 use crate::{
-    CanMaterialize, NoMemoryEffect,
+    CanMaterialize, NoMemoryEffect, NoSideEffects,
     attributes::IndexAttr,
     dialect::{ptr_value_ty, synchronization::SyncScope},
     interfaces::{
@@ -18,7 +18,7 @@ use crate::{
 
 #[cube_op(name = "plane.elect")]
 #[result_ty(fixed = BoolType::get(ctx).into())]
-#[op_traits(CanMaterialize, NoMemoryEffect)]
+#[op_traits(CanMaterialize, NoMemoryEffect, NoSideEffects)]
 pub struct ElectOp {}
 synchronizes!(ElectOp, SyncScope::Plane);
 
@@ -34,7 +34,7 @@ macro_rules! unary_plane_op {
         #[cube_op(name = $name)]
         #[result_ty(same_as = input)]
         #[op_interfaces(TriviallyUnrollable)]
-        #[op_traits(CanMaterialize, NoMemoryEffect)]
+        #[op_traits(CanMaterialize, NoMemoryEffect, NoSideEffects)]
         pub struct $ty {
             pub input: Value,
         }
@@ -54,7 +54,7 @@ macro_rules! nonuniform_unary_plane_op {
         #[cube_op(name = $name)]
         #[result_ty(same_as = input)]
         #[op_interfaces(TriviallyUnrollable)]
-        #[op_traits(CanMaterialize, NoMemoryEffect)]
+        #[op_traits(CanMaterialize, NoMemoryEffect, NoSideEffects)]
         pub struct $ty {
             pub input: Value,
         }
@@ -93,7 +93,7 @@ unary_plane_op!("plane.f_max", FMaxOp);
 #[cube_op(name = "plane.ballot")]
 #[result_ty(fixed = ballot_ty(ctx))]
 #[op_interfaces(TriviallyUnrollable)]
-#[op_traits(CanMaterialize, NoMemoryEffect)]
+#[op_traits(CanMaterialize, NoMemoryEffect, NoSideEffects)]
 pub struct BallotOp {
     pub input: Value,
 }
@@ -114,7 +114,7 @@ fn ballot_ty(ctx: &Context) -> TypeHandle {
 #[cube_op(name = "plane.broadcast")]
 #[result_ty(same_as = input)]
 #[op_interfaces(TriviallyUnrollable)]
-#[op_traits(CanMaterialize, NoMemoryEffect)]
+#[op_traits(CanMaterialize, NoMemoryEffect, NoSideEffects)]
 pub struct BroadcastOp {
     pub input: Value,
     pub lane: IndexAttr,
@@ -131,7 +131,7 @@ impl UniformOpInterface for BroadcastOp {
 #[cube_op(name = "plane.shuffle")]
 #[result_ty(same_as = input)]
 #[op_interfaces(TriviallyUnrollable)]
-#[op_traits(CanMaterialize, NoMemoryEffect)]
+#[op_traits(CanMaterialize, NoMemoryEffect, NoSideEffects)]
 pub struct ShuffleOp {
     pub input: Value,
     pub lane: Value,
@@ -148,7 +148,7 @@ impl UniformOpInterface for ShuffleOp {
 #[cube_op(name = "plane.shuffle_xor")]
 #[result_ty(same_as = input)]
 #[op_interfaces(TriviallyUnrollable)]
-#[op_traits(CanMaterialize, NoMemoryEffect)]
+#[op_traits(CanMaterialize, NoMemoryEffect, NoSideEffects)]
 pub struct ShuffleXorOp {
     pub input: Value,
     pub mask: Value,
@@ -165,7 +165,7 @@ impl UniformOpInterface for ShuffleXorOp {
 #[cube_op(name = "plane.shuffle_up")]
 #[result_ty(same_as = input)]
 #[op_interfaces(TriviallyUnrollable)]
-#[op_traits(CanMaterialize, NoMemoryEffect)]
+#[op_traits(CanMaterialize, NoMemoryEffect, NoSideEffects)]
 pub struct ShuffleUpOp {
     pub input: Value,
     pub delta: Value,
@@ -182,7 +182,7 @@ impl UniformOpInterface for ShuffleUpOp {
 #[cube_op(name = "plane.shuffle_down")]
 #[result_ty(same_as = input)]
 #[op_interfaces(TriviallyUnrollable)]
-#[op_traits(CanMaterialize, NoMemoryEffect)]
+#[op_traits(CanMaterialize, NoMemoryEffect, NoSideEffects)]
 pub struct ShuffleDownOp {
     pub input: Value,
     pub delta: Value,
@@ -199,7 +199,7 @@ impl UniformOpInterface for ShuffleDownOp {
 #[cube_op(name = "plane.uniform_load")]
 #[result_ty(from_inputs = ptr_value_ty)]
 #[op_interfaces(TriviallyUnrollable)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, NoSideEffects)]
 pub struct UniformLoadOp {
     #[operand(ptr_read)]
     pub ptr: Value,
@@ -216,7 +216,7 @@ impl UniformOpInterface for UniformLoadOp {
 #[cube_op(name = "plane.atomic_uniform_load")]
 #[result_ty(from_inputs = ptr_value_ty)]
 #[op_interfaces(TriviallyUnrollable)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, NoSideEffects)]
 pub struct AtomicUniformLoadOp {
     #[operand(ptr_read)]
     pub ptr: Value,

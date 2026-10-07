@@ -1,8 +1,8 @@
+use crate::compute::pipelines::MetadataLayout;
 use cubecl_core::{
     WgpuCompilationOptions,
     ir::{AddressType, UIntKind},
     prelude::Visibility,
-    server::KernelArguments,
 };
 use cubecl_cpp::{
     metal::{arch::MetalArchitecture, supported_cmma_combinations_metal},
@@ -17,7 +17,7 @@ use wgpu::{
     hal::{self, Adapter, metal},
 };
 
-pub fn bindings(repr: &MslComputeKernel, args: &KernelArguments) -> (Vec<Visibility>, usize) {
+pub fn bindings(repr: &MslComputeKernel, metadata: MetadataLayout) -> (Vec<Visibility>, usize) {
     let buffers = repr.buffers.iter().map(|it| {
         // When slices are shared, it needs to be read-write if ANY of the slices is read-write,
         // and since we can't be sure, we'll assume everything is read-write.
@@ -27,21 +27,36 @@ pub fn bindings(repr: &MslComputeKernel, args: &KernelArguments) -> (Vec<Visibil
             Visibility::ReadWrite
         }
     });
-    let uniform = args.info.dynamic_metadata_offset >= args.info.data.len();
-    let info_vis = (!args.info.data.is_empty()).then_some(match uniform {
-        true => Visibility::Uniform,
-        false => Visibility::Read,
-    });
+    let info_vis = match metadata {
+        MetadataLayout::Absent => None,
+        MetadataLayout::Static => Some(Visibility::Uniform),
+        MetadataLayout::Dynamic => Some(Visibility::Read),
+    };
     (buffers.chain(info_vis).collect(), 0)
 }
 
+/// Request a native Metal device, panicking if device creation fails.
 pub async fn request_metal_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
+    try_request_metal_device(adapter)
+        .await
+        .expect("Unable to request Metal device")
+}
+
+/// Request a native Metal device, returning device creation failures.
+/// Returns an error if the adapter does not use Metal.
+pub async fn try_request_metal_device(
+    adapter: &wgpu::Adapter,
+) -> Result<(wgpu::Device, wgpu::Queue), crate::WgpuInitError> {
     let limits = adapter.limits();
     let features = adapter
         .features()
         .difference(Features::MAPPABLE_PRIMARY_BUFFERS);
     unsafe {
-        let hal_adapter = adapter.as_hal::<hal::api::Metal>().unwrap();
+        let hal_adapter = adapter.as_hal::<hal::api::Metal>().ok_or_else(|| {
+            crate::WgpuInitError::InvalidConfiguration {
+                message: "requesting a native Metal device requires a Metal adapter".into(),
+            }
+        })?;
         request_device(adapter, &hal_adapter, features, limits)
     }
 }
@@ -51,7 +66,7 @@ fn request_device(
     adapter: &metal::Adapter,
     features: Features,
     limits: Limits,
-) -> (wgpu::Device, wgpu::Queue) {
+) -> Result<(wgpu::Device, wgpu::Queue), crate::WgpuInitError> {
     // The default is MemoryHints::Performance, which tries to do some bigger
     // block allocations. However, we already batch allocations, so we
     // can use MemoryHints::MemoryUsage to lower memory usage.
@@ -59,7 +74,9 @@ fn request_device(
     let device = unsafe {
         adapter
             .open(features, &limits, &memory_hints)
-            .expect("should create metal HAL device")
+            .map_err(|err| crate::WgpuInitError::RequestDevice {
+                message: err.to_string(),
+            })?
     };
 
     let descriptor = DeviceDescriptor {
@@ -75,7 +92,9 @@ fn request_device(
     unsafe {
         wgpu_adapter
             .create_device_from_hal(device, &descriptor)
-            .expect("Failed to create wgpu device")
+            .map_err(|err| crate::WgpuInitError::RequestDevice {
+                message: err.to_string(),
+            })
     }
 }
 
@@ -243,13 +262,19 @@ fn register_types(props: &mut DeviceProperties) {
         props.register_type_usage(ty, TypeUsage::all());
     }
 
-    // MSL has no fp8 type: the emitter stores these as `uint8_t` and converts in software,
+    // MSL has no fp8 or fp4 type: the emitter stores these as `uint8_t` and converts in software,
     // which is enough to hold them in buffers and cast them, not to compute in them.
-    for ty in [FloatKind::E4M3, FloatKind::E5M2, FloatKind::UE8M0] {
+    for ty in [
+        FloatKind::E4M3,
+        FloatKind::E5M2,
+        FloatKind::UE8M0,
+        FloatKind::E2M1x2,
+    ] {
         props.register_type_usage(
             ElemType::Float(ty),
             TypeUsage::Conversion | TypeUsage::Buffer,
         );
+        props.register_emulated_conversion(ElemType::Float(ty));
     }
 
     // MSL's 64-bit atomics exist only on Apple9 and later and only as min and max, so u64

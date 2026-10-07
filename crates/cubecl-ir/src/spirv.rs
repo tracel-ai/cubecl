@@ -3,8 +3,9 @@ use alloc::{vec, vec::Vec};
 use crate::{
     NoMemoryEffect, PropagatesUniformity,
     interfaces::{
-        AlignedType, MaybeVectorizedType, MemoryEffect, MemoryEffects, ScalarizableType, TypedExt,
+        AlignedType, MaybeVectorizedType, ScalarizableType, TypedExt,
         memory_slot::PromotableRegionOpInterface,
+        side_effects::{MemoryEffect, MemoryEffectsOp},
         uniformity::{UniformOpInterface, Uniformity},
     },
     scalar,
@@ -34,7 +35,7 @@ NoMemoryEffect!(AccessChainOp);
 PropagatesUniformity!(AccessChainOp);
 
 #[op_interface_impl]
-impl MemoryEffects for LoadOp {
+impl MemoryEffectsOp for LoadOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         let ptr = self.get_operand_pointer(ctx);
         let Ok(ptr_ty) = TypedHandle::<PointerType>::from_handle(ptr.get_type(ctx), ctx) else {

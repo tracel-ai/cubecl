@@ -221,6 +221,13 @@ impl<K: AutotuneKey> Tuner<K> {
         cache.fastest(key)
     }
 
+    /// The index settled for `key`, reading only: never starts a round, never waits on one, never
+    /// validates a persisted result, and never resets the cache after an environment switch — it
+    /// reports nothing settled there instead, until the next [`check_tune`](Self::check_tune).
+    pub(crate) fn settled(&self, key: &K) -> Option<usize> {
+        self.cache.lock().settled(key)
+    }
+
     /// Fetch the logger instance.
     pub fn logger(&self) -> Arc<Mutex<Logger>> {
         self.logger.clone()
@@ -228,11 +235,11 @@ impl<K: AutotuneKey> Tuner<K> {
 
     /// Check the cache, validate checksums if needed, and kick off a tuning job if the
     /// key is a miss. Returns the resolved cache state.
-    pub fn check_tune<'a, F: TuneInputs, Out: AutotuneOutput>(
+    pub fn check_tune<'a, F: TuneInputs, Out: AutotuneOutput, Id>(
         &self,
         key: &K,
         inputs: &F::At<'a>,
-        tunables: &TunableSet<K, F, Out>,
+        tunables: &TunableSet<K, F, Out, Id>,
         #[cfg_attr(not(persistence), allow(unused))] checksum: impl FnOnce() -> String + Send + Sync,
         client: &Client,
         mut log_context: Option<crate::tune::AutotuneLogContext>,
@@ -240,10 +247,20 @@ impl<K: AutotuneKey> Tuner<K> {
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
+        let compiling =
+            crate::dry_run::dry_run_scope() == Some(crate::dry_run::DryRunScope::Compile);
+
         {
             let mut cache = self.cache.lock();
             #[cfg(persistence)]
             cache.reset_if_environment_switched();
+            // A key a compile-only dry run already queued the candidates of answers at once,
+            // once a switched environment has dropped the ones it queued for the old one: a
+            // walk reaches the same key at every layer, and a miss would hydrate the persistent
+            // cache and checksum the set again each time for a tune that will not run.
+            if compiling && cache.is_compiled(key) {
+                return TuneCacheResult::Compiled;
+            }
             let cur = cache.fastest(key);
 
             // Browser hydration is asynchronous, so persistent entries may
@@ -270,7 +287,9 @@ impl<K: AutotuneKey> Tuner<K> {
             };
 
             match cur {
-                TuneCacheResult::Hit { .. } | TuneCacheResult::Pending => return cur,
+                TuneCacheResult::Hit { .. }
+                | TuneCacheResult::Pending
+                | TuneCacheResult::Compiled => return cur,
                 TuneCacheResult::Miss | TuneCacheResult::Unchecked => {
                     cache.mark_pending(key.clone())
                 }
@@ -282,6 +301,22 @@ impl<K: AutotuneKey> Tuner<K> {
         log::info!("Tuning {key}");
 
         let autotunables = tunables.autotunables().collect::<Vec<_>>();
+
+        // Fast path: single tunable, no benchmarking needed.
+        if autotunables.len() == 1 {
+            self.cache.lock().cache_insert(key.clone(), 0);
+            return TuneCacheResult::Hit { fastest_index: 0 };
+        }
+
+        // A compile-only dry run queues the candidates' kernels and measures nothing; the key
+        // stays untuned for the pass that profiles it. Marked before the candidates run, so
+        // one that panics leaves the key to that pass rather than pending for good.
+        if compiling {
+            self.cache.lock().mark_compiled(key.clone());
+            self.compile_plan(key, inputs, tunables, &autotunables);
+            return TuneCacheResult::Compiled;
+        }
+
         let results: Vec<AutotuneResult> = autotunables
             .iter()
             .map(|a| {
@@ -293,12 +328,6 @@ impl<K: AutotuneKey> Tuner<K> {
 
         #[cfg(persistence)]
         let checksum = tunables.compute_checksum();
-
-        // Fast path: single tunable, no benchmarking needed.
-        if results.len() == 1 {
-            self.cache.lock().cache_insert(key.clone(), 0);
-            return TuneCacheResult::Hit { fastest_index: 0 };
-        }
 
         // After the fast path: a key with one candidate is answered, not
         // tuned, and leaves nothing to record.
@@ -313,6 +342,10 @@ impl<K: AutotuneKey> Tuner<K> {
         }
 
         let test_inputs = tunables.generate_inputs(key, inputs);
+        // Kernels a compile-only dry run queued compile here, together, before anything is
+        // timed: left to the next launch, they would all compile inside the first candidate's
+        // warmup, and its measurement would carry every candidate's compilation.
+        client.compile_queued();
         let plan = tunables.plan(key);
         #[cfg(persistence)]
         if recording.is_open() {
@@ -364,6 +397,40 @@ impl<K: AutotuneKey> Tuner<K> {
         }
 
         self.tune_fixed_samples(job, client)
+    }
+
+    /// Runs the candidates the plan would measure once each, on the inputs a tune generates,
+    /// so their launches queue their kernels under a compile-only dry run. The key is left
+    /// untuned.
+    ///
+    /// The plan is walked batch by batch and stops after the first batch in which a candidate
+    /// serves the problem, as a tune stops at the first batch with a measured candidate: a
+    /// candidate that declines returns its error without launching anything.
+    fn compile_plan<'a, F: TuneInputs, Out: AutotuneOutput, Id>(
+        &self,
+        key: &K,
+        inputs: &F::At<'a>,
+        tunables: &TunableSet<K, F, Out, Id>,
+        autotunables: &[&TuneFn<F, Out>],
+    ) where
+        <F as TuneInputs>::At<'a>: Clone + Send,
+    {
+        let test_inputs = tunables.generate_inputs(key, inputs);
+        let mut plan = tunables.plan(key);
+        loop {
+            let batch = plan.next();
+            if batch.is_empty() {
+                break;
+            }
+            // Every candidate of the batch runs, so every one of them queues its kernels.
+            let mut served = false;
+            for index in batch.indices() {
+                served |= autotunables[index].execute(test_inputs.clone()).is_ok();
+            }
+            if served {
+                break;
+            }
+        }
     }
 
     /// Round robin the candidates, eliminating them as the evidence allows. Native only: the
@@ -433,9 +500,9 @@ impl<K: AutotuneKey> Tuner<K> {
         // batch failed to queue anything.
         let mut pending = Vec::<PendingBench>::new();
         loop {
-            let tunable_indices = job.plan.next();
+            let batch = job.plan.next();
 
-            if tunable_indices.is_empty() {
+            if batch.is_empty() {
                 let key = &job.key;
                 panic!(
                     "Can't execute the autotune plan for key: {key:?}\n - plan: {:?}\n - results: {:?}",
@@ -443,7 +510,8 @@ impl<K: AutotuneKey> Tuner<K> {
                 );
             }
 
-            for index in tunable_indices {
+            // Every candidate is measured: a group's patience is the adaptive scheduler's alone.
+            for index in batch.indices() {
                 let op = job.autotunables[index];
 
                 let start_time = job

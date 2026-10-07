@@ -37,7 +37,9 @@ mod operation;
 // What a tune leaves in the environment beside its answer.
 #[cfg(persistence)]
 mod record;
-// Both are the adaptive strategy, which only the native driver can run.
+// The adaptive strategy, which only the native driver can run.
+#[cfg(not(target_family = "wasm"))]
+mod patience;
 #[cfg(not(target_family = "wasm"))]
 mod sampler;
 #[cfg(not(target_family = "wasm"))]

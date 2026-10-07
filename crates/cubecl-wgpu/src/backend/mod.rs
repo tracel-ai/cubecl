@@ -1,5 +1,5 @@
 mod base;
-mod wgsl;
+pub(crate) mod wgsl;
 
 #[cfg(feature = "spirv")]
 pub mod vulkan;
@@ -9,5 +9,8 @@ pub mod metal;
 
 #[cfg(windows)]
 pub mod dx12;
+
+#[cfg(target_vendor = "apple")]
+pub mod metal_card;
 
 pub use base::*;

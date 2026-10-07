@@ -117,7 +117,23 @@ fn cast_int_to_float(
         &llvm::UIToFPOp::new_with_nneg(ctx, input, res_ty, false)
     };
     rewriter.insert_op(ctx, op);
-    rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
+    let value = finish_float_cast(ctx, rewriter, cast_op, op.get_result(ctx));
+    rewriter.replace_operation_with_values(ctx, old_op, vec![value]);
+}
+
+fn finish_float_cast(
+    ctx: &mut Context,
+    rewriter: &mut DialectConversionRewriter,
+    cast_op: &CastOp,
+    value: Value,
+) -> Value {
+    #[cfg(feature = "nvptx")]
+    if ctx.target() == LlvmTarget::Nvptx && cast_op.result_type(ctx).scalar_ty(ctx).is_tfloat32(ctx)
+    {
+        return crate::nvptx::matrix::round_tf32(ctx, rewriter, value);
+    }
+    let _ = (ctx, rewriter, cast_op);
+    value
 }
 
 fn cast_float_to_float(
@@ -130,22 +146,14 @@ fn cast_float_to_float(
     let res_ty = cube_type_to_llvm(ctx, cast_op.result_type(ctx));
     let input = cast_op.input(ctx);
     let old_op = cast_op.get_operation();
-    let input_size = in_ty.size(ctx);
-    let output_size = out_ty.size(ctx);
-
-    if input_size > output_size {
-        let op = FPTruncOp::new(ctx, input, res_ty);
-        op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-        rewriter.insert_op(ctx, &op);
-        rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
-    } else if input_size < output_size {
-        let op = FPExtOp::new(ctx, input, res_ty);
-        op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-        rewriter.insert_op(ctx, &op);
-        rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
+    // TF32 shares `f32`'s LLVM type: its rounding is `finish_float_cast`'s.
+    let value = if cube_type_to_llvm(ctx, in_ty) != cube_type_to_llvm(ctx, out_ty) {
+        convert_float(ctx, rewriter, input, res_ty)
     } else {
-        rewriter.replace_operation_with_values(ctx, old_op, vec![input]);
-    }
+        input
+    };
+    let value = finish_float_cast(ctx, rewriter, cast_op, value);
+    rewriter.replace_operation_with_values(ctx, old_op, vec![value]);
 }
 
 fn extract_elem_type(ctx: &Context, ty: TypeHandle) -> TypeHandle {
@@ -418,3 +426,64 @@ erase_op!(ExpectTxOp);
 erase_op!(WaitOp);
 erase_op!(WaitParityOp);
 erase_op!(ArriveAndWaitOp);
+
+/// `value`'s float lanes converted to the float lanes of `ty`, rounding to nearest even. `f16`
+/// and `bf16` share a width and no instruction converts between them, so they go through the
+/// `f32` that holds both exactly.
+pub(crate) fn convert_float(
+    ctx: &mut Context,
+    rewriter: &mut DialectConversionRewriter,
+    value: Value,
+    ty: TypeHandle,
+) -> Value {
+    let from = value.get_type(ctx);
+    let (from_bits, to_bits) = (float_bits(ctx, from), float_bits(ctx, ty));
+    if from == ty {
+        return value;
+    }
+    if from_bits == to_bits {
+        let wide_ty = with_float_lanes(ctx, ty, FP32Type::get(ctx).into());
+        let wide = convert_float(ctx, rewriter, value, wide_ty);
+        return convert_float(ctx, rewriter, wide, ty);
+    }
+    let op = match from_bits < to_bits {
+        true => {
+            let op = FPExtOp::new(ctx, value, ty);
+            op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
+            op.get_operation()
+        }
+        false => {
+            let op = FPTruncOp::new(ctx, value, ty);
+            op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
+            op.get_operation()
+        }
+    };
+    rewriter.insert_operation(ctx, op);
+    op.deref(ctx).get_result(0)
+}
+
+/// The width of an LLVM float type's lanes.
+fn float_bits(ctx: &Context, ty: TypeHandle) -> u32 {
+    let elem = ty
+        .deref(ctx)
+        .downcast_ref::<LlvmVectorType>()
+        .map_or(ty, |vector| vector.elem_type());
+    let elem = elem.deref(ctx);
+    if elem.is::<FP16Type>() || elem.is::<BF16Type>() {
+        16
+    } else if elem.is::<FP32Type>() {
+        32
+    } else {
+        64
+    }
+}
+
+/// `ty`'s shape with `scalar` lanes.
+fn with_float_lanes(ctx: &Context, ty: TypeHandle, scalar: TypeHandle) -> TypeHandle {
+    match ty.deref(ctx).downcast_ref::<LlvmVectorType>() {
+        Some(vector) => {
+            LlvmVectorType::get(ctx, scalar, vector.num_elements(), VectorTypeKind::Fixed).into()
+        }
+        None => scalar,
+    }
+}

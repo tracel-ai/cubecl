@@ -9,6 +9,8 @@ use cubecl_common::{
     device::{Device, DeviceService},
     profile::TimingMethod,
 };
+#[cfg(windows)]
+use cubecl_core::ir::AdapterLuid;
 use cubecl_core::{
     MemoryConfiguration,
     cmma::MatrixLayout,
@@ -38,6 +40,7 @@ use cubecl_cpp::{
 };
 use cubecl_hip_sys::{hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
 use cubecl_llvm::shared::lowered_features::{GpuTarget, restrict_features};
+use cubecl_monitoring::{DeviceUtilization, UtilizationUnavailable, gpu_utilization::CardCounters};
 use cubecl_server::{
     allocator::PitchedMemoryLayoutPolicy, driver::checked, logging::ServerLogger, runtime::Runtime,
 };
@@ -123,6 +126,7 @@ impl DeviceService for HipServer {
 
         let topology = HardwareProperties {
             load_width: 128,
+            vector_register_count: None,
             plane_size_min: probe.warp_size,
             plane_size_max: probe.warp_size,
             max_bindings: crate::device::AMD_MAX_BINDINGS,
@@ -146,12 +150,12 @@ impl DeviceService for HipServer {
             cube_mma_reserved_shared_memory: 0,
         };
 
-        // The full `gcnArchName`, target-feature suffix included: HIP RTC gets
-        // no `--offload-arch`, so the code object it emits carries this exact
-        // string and a loader rejects it on a device that differs by so much as
-        // `xnack`. Built once here and handed to both the identity and the
-        // compilation cache, so the two can never disagree about what a kernel
-        // was built for.
+        // The full `gcnArchName`, target-feature suffix included: HIP RTC
+        // compiles for it as its `--offload-arch`, so the code object it emits
+        // carries this exact string and a loader rejects it on a device that
+        // differs by so much as `xnack`. Built once here and handed to both the
+        // identity and the compilation cache, so the two can never disagree
+        // about what a kernel was built for.
         let fingerprint = format!("hip-kernel_{}", probe.arch_name);
 
         let mut device_props = DeviceProperties::new(
@@ -203,11 +207,12 @@ impl DeviceService for HipServer {
                 amd_wmma: gfx.wmma(),
             },
             arch: Some(gfx),
+            target: probe.arch_name.clone(),
         };
         let hip_ctx = HipContext::new(comp_opts, device_props.clone(), fingerprint, backend);
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
-        let utilities = ServerUtilities::new(
+        let (utilities, captures) = ServerUtilities::init(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "hip",
             device_props,
@@ -224,6 +229,7 @@ impl DeviceService for HipServer {
             probe.alignment,
             probe.integrated,
             utilities,
+            captures,
         )
     }
 
@@ -291,6 +297,10 @@ impl Runtime for HipRuntime {
             .map(|i| DeviceId::new(0, i as u16))
             .collect()
     }
+
+    fn utilization(device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
+        CardCounters::read(Self::client(device).properties().identity.physical.as_ref())
+    }
 }
 
 /// What the driver says about one AMD device.
@@ -301,9 +311,10 @@ impl Runtime for HipRuntime {
 /// `init` — [`CStr::from_ptr`] hands out whatever lifetime is asked of it, so
 /// nothing would say so.
 struct DeviceProbe {
-    /// The full `gcnArchName`, target-feature suffix included. HIP RTC gets no
-    /// `--offload-arch`, so the code object it emits carries this exact string
-    /// and a loader rejects it on a device that differs by so much as `xnack`.
+    /// The full `gcnArchName`, target-feature suffix included. HIP RTC compiles
+    /// for it as its `--offload-arch`, so the code object it emits carries this
+    /// exact string and a loader rejects it on a device that differs by so much
+    /// as `xnack`.
     arch_name: String,
     /// The marketing name, lossily decoded: a driver returning something that
     /// is not UTF-8 must not take the runtime down over a display string.
@@ -380,6 +391,12 @@ impl DeviceProbe {
             .and_then(|()| CStr::from_bytes_until_nul(&bus_id).ok())
             .and_then(|id| id.to_str().ok()?.parse().ok());
         physical.vendor = Some(PciVendor::Amd);
+        #[cfg(windows)]
+        {
+            let luid = props.luid.map(|byte| byte as u8);
+            // A zeroed LUID names no adapter.
+            physical.luid = (luid != [0; 8]).then(|| AdapterLuid::new(luid));
+        }
 
         Self {
             arch_name,

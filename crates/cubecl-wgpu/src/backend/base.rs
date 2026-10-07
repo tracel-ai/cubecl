@@ -1,19 +1,9 @@
 use super::wgsl;
-use crate::{AutoRepresentationRef, WgpuCompiler, WgpuServer};
-use cubecl_core::{
-    CubeDim, ExecutionMode, WgpuCompilationOptions, prelude::Visibility, server::KernelArguments,
-};
+use crate::AutoRepresentationRef;
+use cubecl_core::WgpuCompilationOptions;
 use cubecl_ir::{DeviceProperties, PhysicalDevice};
-use cubecl_server::{
-    compiler::{CompilationError, KernelCacheKey},
-    id::KernelId,
-};
-use std::{borrow::Cow, sync::Arc};
-use wgpu::{
-    Adapter, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
-    ComputePipeline, Device, PipelineLayoutDescriptor, Queue, ShaderModule, ShaderModuleDescriptor,
-    ShaderStages,
-};
+use cubecl_server::compiler::CompilationError;
+use wgpu::{Adapter, Device, Queue};
 
 #[cfg(feature = "spirv")]
 use super::vulkan;
@@ -23,6 +13,9 @@ use super::metal;
 
 #[cfg(windows)]
 use super::dx12;
+
+#[cfg(target_vendor = "apple")]
+use super::metal_card;
 
 /// What a shader module is built from: the compiler's representation and the
 /// source text, reconciled.
@@ -83,333 +76,53 @@ impl<'a> ModuleSource<'a> {
     }
 }
 
-impl<C: WgpuCompiler> WgpuServer<C> {
-    /// Loads a cached kernel if present and creates the pipeline for it.
-    /// Returns `None` if the cache isn't enabled, `Some(Ok(pipeline))` if a cache entry was found,
-    /// and `Some(Err(cache_key))` if the cache is enabled but doesn't contain this kernel.
-    #[allow(
-        clippy::type_complexity,
-        reason = "required because of error propagation"
-    )]
-    #[allow(unused_variables)]
-    pub fn load_cached_pipeline(
-        &mut self,
-        kernel_id: &KernelId,
-        bindings: &KernelArguments,
-        mode: ExecutionMode,
-    ) -> Result<
-        Option<Result<crate::compute::PipelineEntry, (u64, KernelCacheKey)>>,
-        CompilationError,
-    > {
-        #[cfg(not(feature = "spirv"))]
-        let res = Ok(None);
-        #[cfg(feature = "spirv")]
-        let res = if let Some(cache) = self.spirv_cache.as_mut() {
-            let key = (
-                self.utilities.properties_hash,
-                KernelCacheKey::new(kernel_id, self.build_id),
-            );
-            if let Some(entry) = cache.remove(&key) {
-                use crate::ParamsTransfer;
-
-                log::trace!("Using SPIR-V cache");
-
-                let params_transfer = match entry.kernel.immediate_size {
-                    Some(_) => ParamsTransfer::Immediate,
-                    None => ParamsTransfer::Uniform,
-                };
-                let repr = AutoRepresentationRef::SpirV(&entry.kernel);
-                let module = self.create_module(
-                    &entry.entrypoint_name,
-                    kernel_id.cube_dim.into(),
-                    ModuleSource::SpirV(&entry.kernel),
-                    mode,
-                )?;
-                let pipeline =
-                    self.create_pipeline(&entry.entrypoint_name, Some(repr), module, bindings)?;
-                let io = entry.kernel.io.clone().map(std::sync::Arc::from);
-                Ok(Some(Ok((
-                    pipeline,
-                    crate::compute::CompilerInfo::Vulkan { params_transfer },
-                    io,
-                ))))
-            } else {
-                Ok(Some(Err(key)))
-            }
-        } else {
-            Ok(None)
-        };
-
-        res
+/// Request a device, returning device creation failures.
+pub async fn try_request_device(
+    adapter: &Adapter,
+) -> Result<(Device, Queue), crate::WgpuInitError> {
+    if let Some(result) = request_vulkan_device(adapter).await? {
+        return Ok(result);
     }
-
-    pub fn create_module(
-        &self,
-        entrypoint_name: &str,
-        cube_dim: CubeDim,
-        source: ModuleSource<'_>,
-        mode: ExecutionMode,
-    ) -> Result<ShaderModule, CompilationError> {
-        match source {
-            #[cfg(feature = "spirv")]
-            ModuleSource::SpirV(repr) => self
-                .validated(|| unsafe {
-                    self.device.create_shader_module_passthrough(
-                        wgpu::ShaderModuleDescriptorPassthrough {
-                            label: Some(entrypoint_name),
-                            spirv: Some(Cow::Borrowed(&repr.assembled_module)),
-                            entry_points: Cow::Borrowed(&[wgpu::PassthroughShaderEntryPoint {
-                                name: entrypoint_name.into(),
-                                workgroup_size: cube_dim.into(),
-                            }]),
-                            ..Default::default()
-                        },
-                    )
-                })
-                .map_err(|err| refused("SPIR-V module", entrypoint_name, err)),
-            #[cfg(all(feature = "msl", target_os = "macos"))]
-            ModuleSource::Msl(source) => self
-                .validated(|| unsafe {
-                    self.device.create_shader_module_passthrough(
-                        wgpu::ShaderModuleDescriptorPassthrough {
-                            label: Some(entrypoint_name),
-                            msl: Some(Cow::Borrowed(source)),
-                            entry_points: Cow::Borrowed(&[wgpu::PassthroughShaderEntryPoint {
-                                name: entrypoint_name.into(),
-                                workgroup_size: cube_dim.into(),
-                            }]),
-                            ..Default::default()
-                        },
-                    )
-                })
-                .map_err(|err| refused("MSL module", entrypoint_name, err)),
-            ModuleSource::Wgsl(source) => {
-                let _ = cube_dim;
-                let checks = wgpu::ShaderRuntimeChecks {
-                    // Cube does not need wgpu bounds checks - OOB behaviour is instead
-                    // checked by cube (if enabled).
-                    // This is because the WebGPU specification only makes loose guarantees that Cube can't rely on.
-                    bounds_checks: false,
-                    // Loop bounds are only checked in checked mode.
-                    force_loop_bounding: mode == ExecutionMode::Checked,
-                    ..wgpu::ShaderRuntimeChecks::unchecked()
-                };
-
-                log::trace!("[cubecl-wgpu] compiling WGSL module `{entrypoint_name}`\n{source}");
-
-                let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
-
-                // SAFETY: Cube guarantees OOB safety when launching in checked mode. Launching in unchecked mode
-                // is only available through the use of unsafe code.
-                let module = unsafe {
-                    self.device.create_shader_module_trusted(
-                        ShaderModuleDescriptor {
-                            label: Some(entrypoint_name),
-                            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
-                        },
-                        checks,
-                    )
-                };
-
-                // `pop()` detaches from the LIFO stack immediately; only the
-                // result is async. Safe to interleave with other push/pops.
-                let err_future = error_scope.pop();
-
-                #[cfg(not(target_family = "wasm"))]
-                if let Some(err) = cubecl_environment::future::block_on(err_future) {
-                    log::error!(
-                        "[cubecl-wgpu] WGSL compilation failed for kernel `{entrypoint_name}`:\n{err}\n--- shader source ({} bytes) ---\n{source}\n--- end shader ---",
-                        source.len()
-                    );
-                    return Err(CompilationError::Generic {
-                        reason: format!(
-                            "WGSL compilation failed for kernel `{entrypoint_name}`: {err}"
-                        ),
-                        backtrace: cubecl_environment::backtrace::BackTrace::capture(),
-                    });
-                }
-
-                // On wasm we can't block; spawn a task that awaits the pop
-                // future and logs.
-                #[cfg(target_family = "wasm")]
-                {
-                    let entrypoint_name = entrypoint_name.to_string();
-                    let source = source.to_string();
-                    wasm_bindgen_futures::spawn_local(async move {
-                        if let Some(err) = err_future.await {
-                            log::error!(
-                                "[cubecl-wgpu] WGSL compilation failed for kernel `{entrypoint_name}`:\n{err}\n--- shader source ({} bytes) ---\n{source}\n--- end shader ---",
-                                source.len()
-                            );
-                        }
-                    });
-                }
-
-                Ok(module)
-            }
-        }
+    if let Some(result) = request_metal_device(adapter).await? {
+        return Ok(result);
     }
-
-    #[allow(unused_variables)]
-    pub fn create_pipeline(
-        &self,
-        entrypoint_name: &str,
-        repr: Option<AutoRepresentationRef<'_>>,
-        module: ShaderModule,
-        bindings: &KernelArguments,
-    ) -> Result<Arc<ComputePipeline>, CompilationError> {
-        let bindings_info = match repr {
-            Some(AutoRepresentationRef::Wgsl(repr)) => Some(wgsl::bindings(repr, bindings)),
-            #[cfg(all(feature = "msl", target_os = "macos"))]
-            Some(AutoRepresentationRef::Msl(repr)) => Some(metal::bindings(repr, bindings)),
-            #[cfg(feature = "spirv")]
-            Some(AutoRepresentationRef::SpirV(repr)) => Some(vulkan::bindings(repr, bindings)),
-            _ => None,
-        };
-
-        let create = || {
-            let layout = bindings_info.map(|(bindings, immediate_size)| {
-                if !bindings.is_empty() {
-                    let bindings = bindings
-                        .into_iter()
-                        .map(|visibility| match visibility {
-                            Visibility::Uniform => BufferBindingType::Uniform,
-                            Visibility::Read => BufferBindingType::Storage { read_only: true },
-                            Visibility::ReadWrite => {
-                                BufferBindingType::Storage { read_only: false }
-                            }
-                        })
-                        .enumerate()
-                        .map(|(i, ty)| BindGroupLayoutEntry {
-                            binding: i as u32,
-                            visibility: ShaderStages::COMPUTE,
-                            ty: BindingType::Buffer {
-                                ty,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        })
-                        .collect::<Vec<_>>();
-                    let layout = self
-                        .device
-                        .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                            label: None,
-                            entries: &bindings,
-                        });
-                    self.device
-                        .create_pipeline_layout(&PipelineLayoutDescriptor {
-                            label: None,
-                            bind_group_layouts: &[Some(&layout)],
-                            immediate_size: immediate_size as u32,
-                        })
-                } else {
-                    self.device
-                        .create_pipeline_layout(&PipelineLayoutDescriptor {
-                            label: None,
-                            bind_group_layouts: &[],
-                            immediate_size: immediate_size as u32,
-                        })
-                }
-            });
-
-            let pipeline = self
-                .device
-                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: Some(entrypoint_name),
-                    layout: layout.as_ref(),
-                    module: &module,
-                    entry_point: Some(entrypoint_name),
-                    compilation_options: wgpu::PipelineCompilationOptions {
-                        zero_initialize_workgroup_memory: false,
-                        ..Default::default()
-                    },
-                    cache: None,
-                });
-            Arc::new(pipeline)
-        };
-        self.validated(create)
-            .map_err(|err| refused("pipeline", entrypoint_name, err))
-    }
-
-    /// Creates a device object under validation and internal error scopes, and returns what the
-    /// device reported against it.
-    ///
-    /// wgpu reports a creation it refuses as an uncaptured device error, which panics the thread
-    /// polling the device and leaves a read of the launch's outputs returning whatever they held.
-    /// The scopes make the refusal the launch's error, which the outputs then carry. Blocks until
-    /// the device has validated the creation; on wasm, which cannot block, the creation is
-    /// unchecked.
-    fn validated<T>(&self, create: impl FnOnce() -> T) -> Result<T, wgpu::Error> {
-        #[cfg(target_family = "wasm")]
-        return Ok(create());
-
-        #[cfg(not(target_family = "wasm"))]
-        {
-            // A passthrough module the backend fails to compile is reported as internal, a
-            // layout past the device's limits as validation. Both are refusals.
-            let validation = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
-            let internal = self.device.push_error_scope(wgpu::ErrorFilter::Internal);
-            let created = create();
-            let internal = internal.pop();
-            let validation = validation.pop();
-            let refusal =
-                cubecl_environment::future::block_on(async { internal.await.or(validation.await) });
-            match refusal {
-                Some(err) => Err(err),
-                None => Ok(created),
-            }
-        }
-    }
-}
-
-/// The error a launch returns when the device refuses to create one of its objects.
-fn refused(object: &str, entrypoint_name: &str, err: wgpu::Error) -> CompilationError {
-    log::error!(
-        "[cubecl-wgpu] the device refused the {object} of kernel `{entrypoint_name}`: {err}"
-    );
-    CompilationError::Generic {
-        reason: format!("the device refused the {object} of kernel `{entrypoint_name}`: {err}"),
-        backtrace: cubecl_environment::backtrace::BackTrace::capture(),
-    }
-}
-
-pub async fn request_device(adapter: &Adapter) -> (Device, Queue) {
-    if let Some(result) = request_vulkan_device(adapter).await {
-        return result;
-    }
-    if let Some(result) = request_metal_device(adapter).await {
-        return result;
-    }
-    wgsl::request_device(adapter).await
+    wgsl::try_request_device(adapter).await
 }
 
 #[cfg(feature = "spirv")]
-async fn request_vulkan_device(adapter: &Adapter) -> Option<(Device, Queue)> {
+async fn request_vulkan_device(
+    adapter: &Adapter,
+) -> Result<Option<(Device, Queue)>, crate::WgpuInitError> {
     if is_vulkan(adapter) {
-        vulkan::request_vulkan_device(adapter).await
+        vulkan::try_request_vulkan_device(adapter).await
     } else {
-        None
+        Ok(None)
     }
 }
 
 #[cfg(not(feature = "spirv"))]
-async fn request_vulkan_device(_adapter: &Adapter) -> Option<(Device, Queue)> {
-    None
+async fn request_vulkan_device(
+    _adapter: &Adapter,
+) -> Result<Option<(Device, Queue)>, crate::WgpuInitError> {
+    Ok(None)
 }
 
 #[cfg(all(feature = "msl", target_os = "macos"))]
-async fn request_metal_device(adapter: &Adapter) -> Option<(Device, Queue)> {
+async fn request_metal_device(
+    adapter: &Adapter,
+) -> Result<Option<(Device, Queue)>, crate::WgpuInitError> {
     if is_metal(adapter) {
-        Some(metal::request_metal_device(adapter).await)
+        metal::try_request_metal_device(adapter).await.map(Some)
     } else {
-        None
+        Ok(None)
     }
 }
 
 #[cfg(not(all(feature = "msl", target_os = "macos")))]
-async fn request_metal_device(_adapter: &Adapter) -> Option<(Device, Queue)> {
-    None
+async fn request_metal_device(
+    _adapter: &Adapter,
+) -> Result<Option<(Device, Queue)>, crate::WgpuInitError> {
+    Ok(None)
 }
 
 pub fn register_features(
@@ -471,7 +184,10 @@ pub fn register_metal_features(
 }
 
 /// The card behind `adapter`, `None` for a software adapter, which is no card at all.
-#[cfg_attr(not(any(feature = "spirv", windows)), expect(unused_variables))]
+#[cfg_attr(
+    not(any(feature = "spirv", windows, target_vendor = "apple")),
+    expect(unused_variables)
+)]
 pub fn physical_device(adapter: &Adapter, info: &wgpu::AdapterInfo) -> Option<PhysicalDevice> {
     if info.device_type == wgpu::DeviceType::Cpu {
         return None;
@@ -490,6 +206,8 @@ pub fn physical_device(adapter: &Adapter, info: &wgpu::AdapterInfo) -> Option<Ph
     }
     #[cfg(windows)]
     dx12::describe_card(adapter, &mut physical);
+    #[cfg(target_vendor = "apple")]
+    metal_card::describe_card(adapter, &mut physical);
     Some(physical)
 }
 

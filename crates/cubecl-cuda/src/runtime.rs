@@ -37,6 +37,7 @@ use cubecl_cpp::{
 };
 use cubecl_llvm::nvptx::ptx_version::PtxVersion;
 use cubecl_llvm::shared::lowered_features::{GpuTarget, restrict_features};
+use cubecl_monitoring::{DeviceUtilization, UtilizationUnavailable, gpu_utilization::CardCounters};
 use cubecl_server::{
     allocator::PitchedMemoryLayoutPolicy,
     config::{CubeClRuntimeConfig, RuntimeConfig},
@@ -176,6 +177,7 @@ impl DeviceService for CudaServer {
 
             HardwareProperties {
                 load_width: 128,
+                vector_register_count: None,
                 plane_size_min: warp_size,
                 plane_size_max: warp_size,
                 max_bindings: crate::device::CUDA_MAX_BINDINGS,
@@ -222,7 +224,6 @@ impl DeviceService for CudaServer {
                 ComplexUsage::Core | ComplexUsage::Compare | ComplexUsage::Math,
             );
         }
-        device_props.register_type_usage(ElemType::Float(FloatKind::TF32), TypeUsage::Conversion);
         if arch_version >= 60 {
             device_props.register_atomic_type_usage(
                 Type::atomic(ElemType::Float(FloatKind::F64)),
@@ -258,6 +259,8 @@ impl DeviceService for CudaServer {
         }
 
         if arch_version >= 80 {
+            device_props
+                .register_type_usage(ElemType::Float(FloatKind::TF32), TypeUsage::Conversion);
             device_props.features.copy_async = true;
         }
 
@@ -383,7 +386,8 @@ impl DeviceService for CudaServer {
         // The context is current (set above), so the stream lands on it.
         let comm_stream = crate::compute::stream::create_cuda_stream(
             CubeClRuntimeConfig::get().streaming.priority,
-        );
+        )
+        .expect("Can create the communication stream.");
         let cuda_ctx = CudaContext::new(
             comp_opts,
             device_props.clone(),
@@ -394,7 +398,7 @@ impl DeviceService for CudaServer {
         );
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
-        let mut utilities = ServerUtilities::new(
+        let (mut utilities, captures) = ServerUtilities::init(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "cuda",
             device_props,
@@ -412,6 +416,7 @@ impl DeviceService for CudaServer {
             mem_alignment,
             device_id,
             utilities,
+            captures,
         )
     }
 
@@ -472,6 +477,10 @@ impl Runtime for CudaRuntime {
                 index_id: i as u16,
             })
             .collect()
+    }
+
+    fn utilization(device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
+        CardCounters::read(Self::client(device).properties().identity.physical.as_ref())
     }
 }
 

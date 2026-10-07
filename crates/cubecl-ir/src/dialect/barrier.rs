@@ -12,7 +12,7 @@ use crate::{
 
 #[cube_op(name = "barrier.init")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct InitOp {
     // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
     #[operand(ptr_read, ptr_write)]
@@ -22,7 +22,7 @@ pub struct InitOp {
 
 #[cube_op(name = "barrier.memcpy_async")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct MemCopyAsyncOp {
     // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
     #[operand(ptr_read, ptr_write)]
@@ -37,7 +37,7 @@ pub struct MemCopyAsyncOp {
 
 #[cube_op(name = "barrier.memcpy_async_tx")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct MemCopyAsyncTxOp {
     // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
     #[operand(ptr_read, ptr_write)]
@@ -51,7 +51,7 @@ pub struct MemCopyAsyncTxOp {
 
 #[cube_op(name = "barrier.copy_async")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct CopyAsyncOp {
     #[operand(ptr_read)]
     pub source: Value,
@@ -64,7 +64,7 @@ pub struct CopyAsyncOp {
 
 #[cube_op(name = "barrier.arrive")]
 #[result_ty(from_inputs = token_ty)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct ArriveOp {
     // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
     #[operand(ptr_read, ptr_write)]
@@ -73,7 +73,7 @@ pub struct ArriveOp {
 
 #[cube_op(name = "barrier.arrive_and_expect_tx")]
 #[result_ty(from_inputs = |ctx, bar, _, _| token_ty(ctx, bar))]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct ArriveAndExpectTxOp {
     // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
     #[operand(ptr_read, ptr_write)]
@@ -91,7 +91,7 @@ fn token_ty(ctx: &Context, barrier: &Value) -> TypeHandle {
 
 #[cube_op(name = "barrier.commit_copy_async")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct CommitCopyAsyncOp {
     // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
     #[operand(ptr_read, ptr_write)]
@@ -100,7 +100,7 @@ pub struct CommitCopyAsyncOp {
 
 #[cube_op(name = "barrier.expect_tx")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct ExpectTxOp {
     // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
     #[operand(ptr_read, ptr_write)]

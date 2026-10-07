@@ -3,7 +3,10 @@
 use crate::{
     prelude::*,
     shared::{
-        matrix::{registers_array_ty, registers_as_vector, registers_value, vector_into_array},
+        matrix::{
+            convert_lanes, registers_array_ty, registers_as_vector, registers_value,
+            vector_into_array,
+        },
         plane::bitcast,
     },
 };
@@ -26,6 +29,20 @@ pub struct MatrixElemUnsupported(String);
      fragment's layout is opaque, so the only way between two of them is through memory"
 )]
 pub struct MatrixRelayoutUnsupported(MatrixIdent, MatrixIdent);
+
+#[derive(Debug, Error)]
+#[error(
+    "casting a {ident} fragment of {from} to {to} needs a relayout the NVPTX lowering cannot do: \
+     the {from} fragment holds {from_elems} elements per lane and the {to} one {to_elems}, so \
+     the two hold different elements; convert through memory instead"
+)]
+pub struct MatrixElementLayoutUnsupported {
+    ident: MatrixIdent,
+    from: String,
+    from_elems: usize,
+    to: String,
+    to_elems: usize,
+}
 
 #[derive(Debug, Error)]
 #[error(
@@ -52,10 +69,24 @@ impl Fragment {
 fn fragment_of(ctx: &Context, matrix: &MatrixType) -> Option<Fragment> {
     let elem = matrix.elem_ty;
     match matrix.ident {
+        MatrixIdent::A | MatrixIdent::B if elem.is_tfloat32(ctx) => Some(Fragment {
+            regs: 4,
+            per_reg: 1,
+        }),
         MatrixIdent::A | MatrixIdent::B if elem.is_float16(ctx) => Some(Fragment {
             regs: 8,
             per_reg: 2,
         }),
+        // Unlike `f16`, a `bf16` fragment holds each element once, so its size follows the
+        // tile: two to an `i32`, `rows * k / 32` per lane.
+        MatrixIdent::A | MatrixIdent::B if elem.is_bfloat16(ctx) => {
+            let MatrixShape { m, n, k } = matrix.shape;
+            let rows = if matrix.ident == MatrixIdent::A { m } else { n };
+            Some(Fragment {
+                regs: rows * k / 32 / 2,
+                per_reg: 2,
+            })
+        }
         MatrixIdent::Accumulator if elem.is_float16(ctx) => Some(Fragment {
             regs: 4,
             per_reg: 2,
@@ -75,6 +106,10 @@ pub(crate) fn fragment_ty(ctx: &Context, matrix: &MatrixType) -> TypeHandle {
 }
 
 fn register_ty(ctx: &mut Context, frag: Fragment, elem: TypeHandle) -> TypeHandle {
+    if elem.is_tfloat32(ctx) || elem.is_bfloat16(ctx) {
+        return word_ty(ctx);
+    }
+    let elem = cube_type_to_llvm(ctx, elem);
     if frag.per_reg == 1 {
         elem
     } else {
@@ -83,12 +118,44 @@ fn register_ty(ctx: &mut Context, frag: Fragment, elem: TypeHandle) -> TypeHandl
 }
 
 fn wmma_type(ctx: &Context, elem: TypeHandle) -> Option<&'static str> {
-    if elem.is_float32(ctx) {
+    if elem.is_tfloat32(ctx) {
+        Some("tf32")
+    } else if elem.is_float32(ctx) {
         Some("f32")
     } else if elem.is_float16(ctx) {
         Some("f16")
+    } else if elem.is_bfloat16(ctx) {
+        Some("bf16")
     } else {
         None
+    }
+}
+
+/// Round FP32 storage to TF32 using the same ties-away rounding as CUDA `__float_to_tf32`.
+/// NVVM returns the encoding in an i32 register; keep FP32 storage outside matrix calls.
+pub(crate) fn round_tf32(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    value: Value,
+) -> Value {
+    let ty = value.get_type(ctx);
+    let lanes = ty
+        .deref(ctx)
+        .downcast_ref::<LlvmVectorType>()
+        .map(|ty| ty.num_elements());
+    if let Some(lanes) = lanes {
+        let mut rounded = poison(ctx, rw, ty);
+        for lane in 0..lanes as usize {
+            let scalar = extract_lane(ctx, rw, value, lane);
+            let scalar = round_tf32(ctx, rw, scalar);
+            rounded = insert_lane(ctx, rw, rounded, scalar, lane);
+        }
+        rounded
+    } else {
+        let word = word_ty(ctx);
+        let op = call_op(ctx, "llvm.nvvm.f2tf32.rna", word, vec![value]);
+        let bits = insert(ctx, rw, &op);
+        bitcast(ctx, rw, bits, ty)
     }
 }
 
@@ -163,14 +230,16 @@ fn to_registers(
     (0..frag.regs)
         .map(|r| {
             if frag.per_reg == 1 {
-                return extract_lane(ctx, rw, fragment, r);
+                let value = extract_lane(ctx, rw, fragment, r);
+                return bitcast(ctx, rw, value, reg_ty);
             }
-            let mut reg = poison(ctx, rw, reg_ty);
+            let lanes_ty = packed_ty(ctx, fragment.get_type(ctx), frag.per_reg);
+            let mut reg = poison(ctx, rw, lanes_ty);
             for lane in 0..frag.per_reg {
                 let element = extract_lane(ctx, rw, fragment, r * frag.per_reg + lane);
                 reg = insert_lane(ctx, rw, reg, element, lane);
             }
-            reg
+            bitcast(ctx, rw, reg, reg_ty)
         })
         .collect()
 }
@@ -185,15 +254,34 @@ fn from_registers(
     let mut acc = poison(ctx, rw, frag_ty);
     for (r, &reg) in regs.iter().enumerate() {
         if frag.per_reg == 1 {
+            let elem_ty = frag_ty
+                .deref(ctx)
+                .downcast_ref::<LlvmVectorType>()
+                .unwrap()
+                .elem_type();
+            let reg = bitcast(ctx, rw, reg, elem_ty);
             acc = insert_lane(ctx, rw, acc, reg, r);
             continue;
         }
+        let lanes_ty = packed_ty(ctx, frag_ty, frag.per_reg);
+        let reg = bitcast(ctx, rw, reg, lanes_ty);
         for lane in 0..frag.per_reg {
             let element = extract_lane(ctx, rw, reg, lane);
             acc = insert_lane(ctx, rw, acc, element, r * frag.per_reg + lane);
         }
     }
     acc
+}
+
+/// The `per_reg` elements of `frag_ty` one register holds, as a vector. A register of another
+/// type, such as the `i32` that carries two `bf16`, is a bitcast of it.
+fn packed_ty(ctx: &Context, frag_ty: TypeHandle, per_reg: usize) -> TypeHandle {
+    let elem = frag_ty
+        .deref(ctx)
+        .downcast_ref::<LlvmVectorType>()
+        .expect("a fragment is held in a vector")
+        .elem_type();
+    LlvmVectorType::get(ctx, elem, per_reg as u32, VectorTypeKind::Fixed).into()
 }
 
 fn call_returning_registers(
@@ -234,6 +322,20 @@ fn call_void(ctx: &mut Context, rw: &mut DialectConversionRewriter, name: &str, 
     let fn_ty = FuncType::get(ctx, void_ty, arg_tys, false);
     let call = llvm::CallIntrinsicOp::new(ctx, name.into(), fn_ty, args);
     rw.insert_op(ctx, &call);
+}
+
+/// The registers a WMMA instruction takes for the fragment `matrix` points at.
+fn fragment_registers(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    matrix: Value,
+    ty: &MatrixType,
+    frag: Fragment,
+) -> Vec<Value> {
+    let frag_ty = fragment_ty(ctx, ty);
+    let reg_ty = register_ty(ctx, frag, ty.elem_ty);
+    let value = load_fragment(ctx, rw, matrix, frag_ty);
+    to_registers(ctx, rw, value, frag, reg_ty)
 }
 
 fn load_fragment(
@@ -325,8 +427,7 @@ pub(crate) fn load(
     };
 
     let frag_ty = fragment_ty(ctx, &ty);
-    let elem = cube_type_to_llvm(ctx, ty.elem_ty);
-    let reg_ty = register_ty(ctx, frag, elem);
+    let reg_ty = register_ty(ctx, frag, ty.elem_ty);
     let stride = stride_as_i32(ctx, rw, stride);
 
     // WMMA memory instructions require the source address space for specialization.
@@ -373,8 +474,7 @@ pub(crate) fn store(
     };
 
     let frag_ty = fragment_ty(ctx, &ty);
-    let elem = cube_type_to_llvm(ctx, ty.elem_ty);
-    let reg_ty = register_ty(ctx, frag, elem);
+    let reg_ty = register_ty(ctx, frag, ty.elem_ty);
     let stride = stride_as_i32(ctx, rw, stride);
 
     let value = load_fragment(ctx, rw, matrix, frag_ty);
@@ -408,12 +508,17 @@ pub(crate) fn multiply_accumulate(
     let b_ty = matrix_of(ctx, operands_info, b);
     let c_ty = matrix_of(ctx, operands_info, c);
 
-    let (Some(ab_frag), Some(cd_frag)) = (fragment_of(ctx, &a_ty), fragment_of(ctx, &c_ty)) else {
-        let culprit = if fragment_of(ctx, &a_ty).is_none() {
-            a_ty.elem_ty
-        } else {
-            c_ty.elem_ty
-        };
+    // A and B are separate fragments: a `bf16` tile that is not square sizes them differently.
+    let (Some(a_frag), Some(b_frag), Some(cd_frag)) = (
+        fragment_of(ctx, &a_ty),
+        fragment_of(ctx, &b_ty),
+        fragment_of(ctx, &c_ty),
+    ) else {
+        let culprit = [&a_ty, &b_ty, &c_ty]
+            .into_iter()
+            .find(|ty| fragment_of(ctx, ty).is_none())
+            .expect("one of the three has no fragment")
+            .elem_ty;
         return input_err!(op.loc(ctx), unsupported_elem(ctx, culprit));
     };
     let Some(cd_name) = wmma_type(ctx, c_ty.elem_ty) else {
@@ -430,24 +535,22 @@ pub(crate) fn multiply_accumulate(
         return input_err!(op.loc(ctx), MatrixLayoutUnknown(culprit));
     };
 
-    let ab_frag_ty = fragment_ty(ctx, &a_ty);
     let cd_frag_ty = fragment_ty(ctx, &c_ty);
-    let ab_elem = cube_type_to_llvm(ctx, a_ty.elem_ty);
-    let cd_elem = cube_type_to_llvm(ctx, c_ty.elem_ty);
-    let ab_reg_ty = register_ty(ctx, ab_frag, ab_elem);
-    let cd_reg_ty = register_ty(ctx, cd_frag, cd_elem);
+    let cd_reg_ty = register_ty(ctx, cd_frag, c_ty.elem_ty);
 
-    let a_val = load_fragment(ctx, rw, a, ab_frag_ty);
-    let b_val = load_fragment(ctx, rw, b, ab_frag_ty);
+    let mut args = fragment_registers(ctx, rw, a, &a_ty, a_frag);
+    args.extend(fragment_registers(ctx, rw, b, &b_ty, b_frag));
     let c_val = load_fragment(ctx, rw, c, cd_frag_ty);
-
-    let mut args = to_registers(ctx, rw, a_val, ab_frag, ab_reg_ty);
-    args.extend(to_registers(ctx, rw, b_val, ab_frag, ab_reg_ty));
     args.extend(to_registers(ctx, rw, c_val, cd_frag, cd_reg_ty));
 
     let name = format!(
-        "llvm.nvvm.wmma.{}.mma.{a_layout}.{b_layout}.{cd_name}.{cd_name}",
+        "llvm.nvvm.wmma.{}.mma.{a_layout}.{b_layout}.{}",
         geometry(a_ty.shape),
+        mma_signature(
+            wmma_type(ctx, a_ty.elem_ty).unwrap(),
+            wmma_type(ctx, b_ty.elem_ty).unwrap(),
+            cd_name
+        ),
     );
     let regs = call_returning_registers(ctx, rw, &name, vec![cd_reg_ty; cd_frag.regs], args);
 
@@ -488,35 +591,22 @@ pub(crate) fn cast(
         };
         return input_err!(op.loc(ctx), unsupported_elem(ctx, culprit));
     };
-    debug_assert_eq!(
-        in_frag.elems(),
-        out_frag.elems(),
-        "a cast keeps the element count and changes only their width"
-    );
+    if in_frag.elems() != out_frag.elems() {
+        return input_err!(
+            op.loc(ctx),
+            MatrixElementLayoutUnsupported {
+                ident: in_ty.ident,
+                from: in_ty.elem_ty.disp(ctx).to_string(),
+                from_elems: in_frag.elems(),
+                to: out_ty.elem_ty.disp(ctx).to_string(),
+                to_elems: out_frag.elems(),
+            }
+        );
+    }
 
     let in_frag_ty = fragment_ty(ctx, &in_ty);
-    let out_frag_ty = fragment_ty(ctx, &out_ty);
     let value = load_fragment(ctx, rw, input, in_frag_ty);
-
-    let in_bits = in_ty.elem_ty.size_bits(ctx);
-    let out_bits = out_ty.elem_ty.size_bits(ctx);
-    let result = if in_bits > out_bits {
-        let cast = llvm::FPTruncOp::new(ctx, value, out_frag_ty);
-        cast.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-        insert(ctx, rw, &cast)
-    } else if in_bits < out_bits {
-        let cast = llvm::FPExtOp::new(ctx, value, out_frag_ty);
-        cast.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-        insert(ctx, rw, &cast)
-    } else {
-        debug_assert_eq!(
-            cube_type_to_llvm(ctx, in_ty.elem_ty),
-            cube_type_to_llvm(ctx, out_ty.elem_ty),
-            "a cast of the same width between two distinct LLVM types needs a conversion"
-        );
-        value
-    };
-
+    let result = convert_lanes(ctx, rw, value, out_ty.elem_ty);
     store_fragment(ctx, rw, output, result);
     rw.erase_operation(ctx, old_op);
     Ok(())
@@ -549,8 +639,12 @@ enum RegisterForm {
 }
 
 fn mma_type(ctx: &Context, elem: TypeHandle) -> Option<(&'static str, RegisterForm)> {
-    if elem.is_float16(ctx) {
+    if elem.is_tfloat32(ctx) {
+        Some(("tf32", RegisterForm::Word))
+    } else if elem.is_float16(ctx) {
         Some(("f16", RegisterForm::Packed(2)))
+    } else if elem.is_bfloat16(ctx) {
+        Some(("bf16", RegisterForm::Word))
     } else if elem.is_float32(ctx) {
         Some(("f32", RegisterForm::Scalar))
     } else if elem.is_int(ctx) && elem.size_bits(ctx) == 8 {
@@ -597,7 +691,14 @@ fn registers_of(
         }
         RegisterForm::Word => {
             let word = word_ty(ctx);
-            let bits = elems * elem.size_bits(ctx);
+            let elem_bits = if elem.deref(ctx).is::<FP32Type>() {
+                32
+            } else if elem.deref(ctx).is::<BF16Type>() {
+                16
+            } else {
+                elem.size_bits(ctx)
+            };
+            let bits = elems * elem_bits;
             let words = bits / 32;
             let words_ty =
                 LlvmVectorType::get(ctx, word, words as u32, VectorTypeKind::Fixed).into();
@@ -871,7 +972,7 @@ lowered_by_the_polyfill!(col_index, ColIndexOp);
 mod tests {
     use super::*;
     use cubecl_core::ir::types::MatrixScope;
-    use cubecl_core::ir::types::scalar::{Float16Type, Float32Type};
+    use cubecl_core::ir::types::scalar::{BFloat16Type, Float16Type, Float32Type};
 
     fn matrix(ident: MatrixIdent, elem_ty: TypeHandle) -> MatrixType {
         MatrixType {
@@ -923,6 +1024,29 @@ mod tests {
             }
         );
         assert_eq!(acc16.elems(), acc32.elems());
+    }
+
+    /// `bf16` fragments hold each element once, two to an `i32`, so their register count
+    /// follows the tile as `IntrinsicsNVVM.td` declares it.
+    #[test]
+    fn bf16_fragments_follow_the_tile() {
+        let ctx = Context::default();
+        let bf16: TypeHandle = BFloat16Type::get(&ctx).into();
+        let regs = |ident, m, n| {
+            let mut matrix = matrix(ident, bf16);
+            matrix.shape = MatrixShape { m, n, k: 16 };
+            fragment_of(&ctx, &matrix).unwrap().regs
+        };
+        assert_eq!(regs(MatrixIdent::A, 16, 16), 4);
+        assert_eq!(regs(MatrixIdent::B, 16, 16), 4);
+        assert_eq!(regs(MatrixIdent::A, 32, 8), 8);
+        assert_eq!(regs(MatrixIdent::B, 32, 8), 2);
+        assert_eq!(regs(MatrixIdent::A, 8, 32), 2);
+        assert_eq!(regs(MatrixIdent::B, 8, 32), 8);
+        assert_eq!(
+            fragment_of(&ctx, &matrix(MatrixIdent::Accumulator, bf16)),
+            None
+        );
     }
 
     #[test]

@@ -285,22 +285,22 @@ impl CubeOp {
             .filter(|arg| arg.flags.ptr_read.is_present())
             .map(|arg| {
                 let ident = &arg.ident;
-                quote![crate::interfaces::MemoryEffect::Read(self.#ident(ctx))]
+                quote![crate::interfaces::side_effects::MemoryEffect::Read(self.#ident(ctx))]
             });
         let ptr_writes = args
             .iter()
             .filter(|arg| arg.flags.ptr_write.is_present())
             .map(|arg| {
                 let ident = &arg.ident;
-                quote![crate::interfaces::MemoryEffect::Write(self.#ident(ctx))]
+                quote![crate::interfaces::side_effects::MemoryEffect::Write(self.#ident(ctx))]
             });
         let memory_effects = ptr_reads.chain(ptr_writes).collect::<Vec<_>>();
 
         if !memory_effects.is_empty() {
             interfaces.push(quote! {
                 #[::pliron::derive::op_interface_impl]
-                impl #impl_generics crate::interfaces::MemoryEffects for #ty_name #type_generics #where_clause {
-                    fn memory_effects(&self, ctx: &Context) -> ::alloc::vec::Vec<crate::interfaces::MemoryEffect> {
+                impl #impl_generics crate::interfaces::side_effects::MemoryEffectsOp for #ty_name #type_generics #where_clause {
+                    fn memory_effects(&self, ctx: &Context) -> ::alloc::vec::Vec<crate::interfaces::side_effects::MemoryEffect> {
                         ::alloc::vec![#(#memory_effects),*]
                     }
                 }

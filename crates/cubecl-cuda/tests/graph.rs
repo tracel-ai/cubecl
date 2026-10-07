@@ -3,6 +3,7 @@
 use cubecl_common::bytes::Bytes;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::runtime_tests::capture_status;
 use cubecl_core::server::Handle;
 use cubecl_cuda::CudaRuntime;
 use cubecl_server::runtime::Runtime;
@@ -359,4 +360,18 @@ fn cuda_graph_many_launches_dynamic_metadata() {
         f32::from_bytes(&client.read_one(b.clone()).unwrap()),
         &exp_b[..]
     );
+}
+
+/// See [`capture_status::a_capture_is_seen_by_every_client_of_its_stream`].
+#[test]
+fn cuda_graph_capture_is_seen_by_every_client_of_its_stream() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    capture_status::a_capture_is_seen_by_every_client_of_its_stream::<CudaRuntime>();
+}
+
+/// See [`capture_status::a_prepared_capture_ends_at_stop_capture`].
+#[test]
+fn cuda_graph_prepared_capture_ends_at_stop_capture() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    capture_status::a_prepared_capture_ends_at_stop_capture::<CudaRuntime>();
 }

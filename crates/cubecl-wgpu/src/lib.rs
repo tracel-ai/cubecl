@@ -15,6 +15,8 @@ pub use compute::*;
 pub use device::*;
 pub use graphics::*;
 pub use runtime::*;
+/// The exact wgpu version used by this runtime, for sharing resources with applications.
+pub use wgpu;
 
 #[cfg(feature = "spirv")]
 pub use backend::vulkan;

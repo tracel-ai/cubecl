@@ -1,4 +1,4 @@
-use cubecl_core::{Compiler, prelude::Visibility, server::KernelArguments};
+use cubecl_core::{Compiler, prelude::Visibility};
 use cubecl_core::{
     WgpuCompilationOptions,
     ir::{ElemType, UIntKind},
@@ -7,10 +7,11 @@ use cubecl_ir::{DeviceProperties, Type};
 use wgpu::Features;
 
 use crate::WgslCompiler;
+use crate::compute::pipelines::MetadataLayout;
 
 pub fn bindings(
     repr: &<WgslCompiler as Compiler>::Representation,
-    args: &KernelArguments,
+    metadata: MetadataLayout,
 ) -> (Vec<Visibility>, usize) {
     let mut bindings = repr
         .buffers
@@ -25,13 +26,16 @@ pub fn bindings(
             }
         })
         .collect::<Vec<_>>();
-    if !args.info.data.is_empty() {
+    if metadata != MetadataLayout::Absent {
         bindings.push(Visibility::Read);
     }
     (bindings, 0)
 }
 
-pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
+/// Request a WGSL device, returning device creation failures.
+pub async fn try_request_device(
+    adapter: &wgpu::Adapter,
+) -> Result<(wgpu::Device, wgpu::Queue), crate::WgpuInitError> {
     let limits = adapter.limits();
     adapter
         .request_device(&wgpu::DeviceDescriptor {
@@ -49,14 +53,9 @@ pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Que
             experimental_features: unsafe { wgpu::ExperimentalFeatures::enabled() },
         })
         .await
-        .map_err(|err| {
-            format!(
-                "Unable to request the device with the adapter {:?}, err {:?}",
-                adapter.get_info(),
-                err
-            )
+        .map_err(|err| crate::WgpuInitError::RequestDevice {
+            message: err.to_string(),
         })
-        .unwrap()
 }
 
 pub fn register_wgsl_features(

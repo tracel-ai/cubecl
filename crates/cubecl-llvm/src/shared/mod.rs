@@ -29,3 +29,5 @@ pub mod shared_memory;
 pub mod to_llvm;
 
 pub use base::*;
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+pub use buffer_params::AtomicReads;

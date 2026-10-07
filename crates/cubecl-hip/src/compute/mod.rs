@@ -1,9 +1,12 @@
 mod server;
 
+pub(crate) mod artifact;
 pub(crate) mod capture;
 pub(crate) mod context;
 pub(crate) mod driver;
 pub(crate) mod events;
+pub(crate) mod modules;
+pub(crate) mod status;
 pub(crate) mod storage;
 pub(crate) mod stream;
 

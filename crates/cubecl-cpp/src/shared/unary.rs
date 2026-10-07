@@ -19,7 +19,6 @@ use cubecl_core::{
     },
     prelude::*,
 };
-use half::bf16;
 use num_traits::{One, Zero};
 
 use crate::{
@@ -308,11 +307,6 @@ fn trailing_zeros<T: Int, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {
 }
 
 #[cube]
-fn cast_f16_bf16<T: Scalar, N: Size>(input: Vector<T, N>) -> Vector<bf16, N> {
-    Vector::<bf16, N>::cast_from(Vector::<f32, N>::cast_from(input))
-}
-
-#[cube]
 fn count_ones<T: Scalar, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {
     Vector::<u32, N>::cast_from(Vector::<u32, N>::cast_from(input).count_ones())
 }
@@ -328,11 +322,26 @@ lower_unop!(TrailingZerosBitsOp, trailing_zeros, |_, ctx| {
     matches!(ctx.target(), Target::Cuda | Target::Hip)
 });
 lower_unop!(ErfOp, erf, |_, ctx| ctx.target() == Target::Metal);
-lower_unop!(CastOp, cast_f16_bf16, |op, ctx| {
-    op.input(ctx).is_float16(ctx)
-        && op.get_result(ctx).is_bfloat16(ctx)
-        && matches!(ctx.target(), Target::Cuda | Target::Hip)
-});
+/// CUDA has no conversion between `f16` and `bf16` and HIP's is ambiguous: both directions go
+/// through the `f32` that holds either exactly.
+#[op_interface_impl]
+impl LowerOp<Shared> for CastOp {
+    fn should_lower(&self, ctx: &Context) -> bool {
+        let (input, output) = (self.input(ctx), self.get_result(ctx));
+        let halves = (is_f16(ctx, input) && is_bf16(ctx, output))
+            || (is_bf16(ctx, input) && is_f16(ctx, output));
+        halves && matches!(ctx.target(), Target::Cuda | Target::Hip)
+    }
+
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        define_size!(N);
+        let input = self.input(scope.ctx());
+        let output_ty = self.get_result(scope.ctx()).get_type(scope.ctx());
+        scope.register_size::<N>(input.vector_size(scope.ctx()));
+        let wide = cast_value(scope, input, Vector::<f32, N>::__expand_as_type(scope));
+        vec![cast_value(scope, wide, output_ty)]
+    }
+}
 
 // `isnan` / `isinf` are defined for cuda/hip/metal with same prefixes for half/bf16 on cuda/hip
 

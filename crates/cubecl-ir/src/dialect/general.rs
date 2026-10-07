@@ -13,7 +13,8 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    Builtin, CanMaterialize, ConstantValue, NoMemoryEffect, PropagatesUniformity, Pure,
+    Builtin, CanMaterialize, Commutative, ConstantValue, HasSideEffects, NoMemoryEffect,
+    PropagatesUniformity, Pure,
     attributes::{BoolAttr, IndexAttr},
     dialect::{
         math::{index_attr, int_attr},
@@ -62,6 +63,7 @@ impl AliasingOp for CopyOp {
 pub struct PoisonOp {}
 
 pure_binop!("cube.bool_and", BoolAndOp);
+Commutative!(BoolAndOp);
 const_eval!(BoolAndOp, {
     BoolAttr: |lhs, rhs| lhs && rhs,
     // false && x -> false
@@ -94,6 +96,7 @@ simplify!(BoolAndOp, {
 });
 
 pure_binop!("cube.bool_or", BoolOrOp);
+Commutative!(BoolOrOp);
 const_eval!(BoolOrOp, {
     BoolAttr: |lhs, rhs| lhs || rhs,
     // true || x -> true
@@ -139,6 +142,11 @@ pub struct CastOp {
 }
 const_eval!(CastOp, {
     custom: |inp| {
+        // TF32 uses FP32 storage, but casts require backend-specific rounding.
+        // Keep the cast until lowering instead of folding it as an FP32 alias.
+        if self.result_type(ctx).scalar_ty(ctx).is_tfloat32(ctx) {
+            return None;
+        }
         let val = inp?.as_const_val(ctx);
         let out_ty = self.get_result(ctx).get_type(ctx).deref(ctx);
         let elem = type_cast::<dyn ScalarType>(&*out_ty)?.elem_type(ctx);
@@ -344,13 +352,13 @@ impl UniformOpInterface for StrideOp {
 
 #[cube_op(name = "cube.comment")]
 #[result_ty(none)]
-#[op_traits(NoMemoryEffect)]
+#[op_traits(NoMemoryEffect, HasSideEffects)]
 pub struct CommentOp {
     pub comment: StringAttr,
 }
 
 #[pliron_op(name = "cube.printf", format, attributes = (cube_printf_format_string: StringAttr), verifier = "succ")]
-#[op_traits(NoMemoryEffect)]
+#[op_traits(NoMemoryEffect, HasSideEffects)]
 pub struct PrintfOp;
 
 impl PrintfOp {

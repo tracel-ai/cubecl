@@ -13,9 +13,9 @@
 use super::stream_copies::StreamCopies;
 use super::{CopyLayout, DeviceResource, DeviceStream, Driver, Staging};
 use crate::id::KernelId;
-use crate::memory_management::Cleanup;
 use crate::memory_management::drop_queue::Fence;
 use crate::memory_management::relocation::{RelocatingStreams, RelocationNeed, RelocationReason};
+use crate::memory_management::{Cleanup, release_or_leak};
 use crate::memory_management::{
     ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, PageGuard, PageUpdate,
     StreamMemoryReport,
@@ -230,20 +230,24 @@ impl<'a, D: Driver> Command<'a, D> {
 
     /// Give `memory` `size` bytes of device memory on the current stream.
     ///
-    /// Fatal rather than reported: `initialize_memory` has no error channel,
-    /// and an allocation that never got its storage cannot be handed back as
-    /// a taint either — nothing has a binding to it yet.
-    pub fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64) {
+    /// # Errors
+    ///
+    /// Returns an [`IoError`] when the memory cannot be reserved or bound, e.g. when the device
+    /// is out of memory. The caller records it on `memory`, which has no binding to carry it.
+    pub fn initialize_memory(
+        &mut self,
+        memory: ManagedMemoryHandle,
+        size: u64,
+    ) -> Result<(), IoError> {
         let reserved = match self.reserve(size) {
             Ok(reserved) => reserved,
             // The recording already failed on it, and `stop_capture` reports
             // that: the handle stays unbound, and whatever uses it belongs to
             // a recording that will not seal.
-            Err(IoError::PageUpdateForbidden { .. }) => return,
-            Err(err) => panic!("failed to reserve {size} bytes of device memory: {err}"),
+            Err(IoError::PageUpdateForbidden { .. }) => return Ok(()),
+            Err(err) => return Err(err),
         };
         self.bind(reserved, memory)
-            .unwrap_or_else(|err| panic!("failed to bind {size} bytes of device memory: {err}"));
     }
 
     /// The current stream's cursor.
@@ -339,12 +343,15 @@ impl<'a, D: Driver> Command<'a, D> {
         let fence = D::Stream::fence(self.streams.current().signal());
 
         async move {
-            let synced = fence.wait();
+            if let Err(err) = fence.wait() {
+                // Both the device sources and host destinations may still be in use.
+                release_or_leak((held, result), &err);
+                return Err(err);
+            }
             // The bindings kept the source allocations alive across the copies;
             // the fence above is what says they are done being read.
             core::mem::drop(held);
 
-            synced?;
             result.map_err(Into::into)
         }
     }
@@ -364,8 +371,10 @@ impl<'a, D: Driver> Command<'a, D> {
                     // them. The fence `read_async` records to cover exactly
                     // this does not exist yet on the error path, so record
                     // one here and wait it out before the partial set drops.
-                    if !result.is_empty() {
-                        D::Stream::fence(self.streams.current().signal()).sync();
+                    if !result.is_empty()
+                        && !D::Stream::fence(self.streams.current().signal()).sync()
+                    {
+                        core::mem::forget(result);
                     }
                     return Err(err);
                 }
@@ -549,12 +558,13 @@ impl<'a, D: Driver> Command<'a, D> {
     /// path, so keeping it would lose the claim and duplicate the report.
     pub fn kernel(
         &mut self,
-        kernel: KernelId,
+        id: &KernelId,
+        kernel: &D::Loaded,
         count: (u32, u32, u32),
         args: &mut D::LaunchArgs,
     ) -> Result<(), LaunchError> {
         let stream = self.streams.current();
-        let result = D::launch(self.ctx, stream, kernel, count, args);
+        let result = D::launch(self.ctx, stream, id, kernel, count, args);
 
         // A fenced flush during capture would abort it; defer until the capture
         // ends, when the deferred staging buffers are reclaimed.
@@ -569,7 +579,7 @@ impl<'a, D: Driver> Command<'a, D> {
 
 impl<D: Driver> RelocatingStreams for Command<'_, D> {
     fn recording(&mut self) -> bool {
-        self.streams.current().capturing().any_recording()
+        self.streams.current().capturing().device().any_recording()
     }
 
     fn has_outdated(&mut self) -> bool {
