@@ -1,5 +1,3 @@
-use core::cmp::Ordering;
-
 use alloc::{collections::VecDeque, vec::Vec};
 use cubecl_ir::{
     dialect::RegionPtrExt,
@@ -47,6 +45,10 @@ struct AllocPromotionInfo {
     merge_points: ISet<Ptr<BasicBlock>>,
     user_to_blocking_uses: RegionBlockingUsesMap,
     regions_to_promote: IMap<Ptr<Region>, RegionPromotionInfo>,
+    /// The operations promotion acts on, by block: the allocation's blocking
+    /// users and the operations whose regions it is promoted through. Every
+    /// other operation passes the reaching definition along untouched.
+    ops_to_visit: HMap<Ptr<BasicBlock>, Vec<Ptr<Operation>>>,
 }
 
 #[derive(new)]
@@ -221,11 +223,69 @@ impl AllocPromotionAnalyzer<'_> {
             return None;
         }
 
+        let users = info
+            .user_to_blocking_uses
+            .values()
+            .flat_map(|users| users.keys().copied());
+        // A set, because an operation with several promoted regions is reached
+        // once per region.
+        let region_ops: ISet<_> = info
+            .regions_to_promote
+            .keys()
+            .map(|region| region.deref(ctx).get_parent_op())
+            .collect();
+        for op in users.chain(region_ops.iter().copied()) {
+            let block = op.deref(ctx).get_parent_block().unwrap();
+            info.ops_to_visit.entry(block).or_default().push(op);
+        }
+
         Some(info)
     }
 }
 
 type BlockIndexCache = HMap<Ptr<BasicBlock>, HMap<Ptr<BasicBlock>, usize>>;
+
+/// Each block's operations numbered in program order, so that two operations of
+/// one block compare without walking the list between them: an unrolled kernel
+/// orders thousands of loads and stores within one block, and a walk per
+/// comparison is quadratic in its length.
+///
+/// A block is numbered when first asked about and renumbered when asked about
+/// an operation it has not numbered. Promotion only inserts and erases
+/// operations, never reorders them, and erased operations' `Ptr`s are never
+/// reused, so numbers handed out earlier keep their relative order.
+#[derive(Default)]
+struct OpOrderCache(HMap<Ptr<BasicBlock>, HMap<Ptr<Operation>, usize>>);
+
+impl OpOrderCache {
+    /// The program-order position of each of `ops` within its block.
+    fn positions(&mut self, ctx: &Context, ops: &[Ptr<Operation>]) -> Vec<usize> {
+        // Renumber first, read after: a renumbering between two reads would
+        // compare an old number against a new one.
+        for &op in ops {
+            let block = op.deref(ctx).get_parent_block().unwrap();
+            if !self
+                .0
+                .get(&block)
+                .is_some_and(|order| order.contains_key(&op))
+            {
+                let order = block
+                    .deref(ctx)
+                    .iter(ctx)
+                    .enumerate()
+                    .map(|(position, op)| (op, position))
+                    .collect();
+                self.0.insert(block, order);
+            }
+        }
+        ops.iter()
+            .map(|op| {
+                let block = op.deref(ctx).get_parent_block().unwrap();
+                self.0[&block][op]
+            })
+            .collect()
+    }
+}
 
 struct AllocPromoter<'a> {
     alloc: AllocInfo,
@@ -246,6 +306,7 @@ struct AllocPromoter<'a> {
     visited_blocks: HSet<Ptr<BasicBlock>>,
 
     block_index_cache: &'a mut BlockIndexCache,
+    op_order: &'a mut OpOrderCache,
 }
 
 impl<'a> AllocPromoter<'a> {
@@ -255,6 +316,7 @@ impl<'a> AllocPromoter<'a> {
         dom_info: &'a mut DomInfo,
         info: AllocPromotionInfo,
         block_index_cache: &'a mut BlockIndexCache,
+        op_order: &'a mut OpOrderCache,
     ) -> Self {
         Self {
             alloc,
@@ -267,8 +329,26 @@ impl<'a> AllocPromoter<'a> {
             dom_info,
             info,
             block_index_cache,
+            op_order,
             visited_blocks: Default::default(),
         }
+    }
+
+    /// The operations of `block` promotion acts on, in program order.
+    fn ops_to_visit(&mut self, ctx: &Context, block: Ptr<BasicBlock>) -> Vec<Ptr<Operation>> {
+        let Some(ops) = self.info.ops_to_visit.remove(&block) else {
+            return Vec::new();
+        };
+        // Grouped by block before promotion started, which holds because no
+        // promotion hook moves an operation to another block.
+        debug_assert!(
+            ops.iter()
+                .all(|op| op.deref(ctx).get_parent_block() == Some(block))
+        );
+        let positions = self.op_order.positions(ctx, &ops);
+        let mut ordered: Vec<_> = positions.into_iter().zip(ops).collect();
+        ordered.sort_unstable_by_key(|&(position, _)| position);
+        ordered.into_iter().map(|(_, op)| op).collect()
     }
 
     fn get_or_create_default_value(&mut self, ctx: &mut Context) -> Result<Value> {
@@ -296,8 +376,7 @@ impl<'a> AllocPromoter<'a> {
         }
         self.visited_blocks.insert(block);
 
-        let block_ops: Vec<_> = block.deref(ctx).iter(ctx).collect();
-        for op in block_ops {
+        for op in self.ops_to_visit(ctx, block) {
             if let Some(promotable) = TraitOp::<dyn PromotableOpInterface>::try_from_op(op, ctx) {
                 let parent_region = op.deref(ctx).get_parent_region(ctx).unwrap();
                 let region_blocking_uses = self.info.user_to_blocking_uses.entry(parent_region);
@@ -425,6 +504,7 @@ impl<'a> AllocPromoter<'a> {
             region,
             self.dom_info,
             self.block_index_cache,
+            self.op_order,
         );
 
         for to_promote in users_to_remove_uses.into_iter().rev() {
@@ -570,16 +650,18 @@ fn get_or_create_block_indices<'a>(
 }
 
 /// Sorts `ops` according to dominance. Relies on the topological order of basic
-/// blocks to get a deterministic ordering. Uses `block_index_cache` to avoid the
-/// potentially expensive recomputation of a block index map.
+/// blocks to get a deterministic ordering, and on program order within a block,
+/// where it is dominance. Uses `block_index_cache` and `op_order` to avoid the
+/// potentially expensive recomputation of either.
 /// This function assumes no blocks are ever deleted or entry block changed
 /// during the lifetime of the block index cache.
 fn dominance_sort(
     ctx: &Context,
-    ops: &mut [Ptr<Operation>],
+    ops: &mut Vec<Ptr<Operation>>,
     region: Ptr<Region>,
     dom_info: &mut DomInfo,
     block_index_cache: &mut BlockIndexCache,
+    op_order: &mut OpOrderCache,
 ) {
     if region.is_empty(ctx) {
         return;
@@ -588,17 +670,17 @@ fn dominance_sort(
     let entry = region.deref(ctx).get_entry_block().unwrap();
     let topo_block_indices = get_or_create_block_indices(ctx, dom_info, block_index_cache, entry);
 
-    ops.sort_by(|lhs, rhs| {
-        let lhs_block_index = topo_block_indices[&lhs.deref(ctx).get_parent_block().unwrap()];
-        let rhs_block_index = topo_block_indices[&rhs.deref(ctx).get_parent_block().unwrap()];
-        match lhs_block_index.cmp(&rhs_block_index) {
-            ord @ (Ordering::Less | Ordering::Greater) => ord,
-            Ordering::Equal => match dom_info.op_strictly_dominates_op(ctx, *lhs, *rhs) {
-                true => Ordering::Less,
-                false => Ordering::Greater,
-            },
-        }
-    });
+    let positions = op_order.positions(ctx, ops);
+    let mut keyed: Vec<_> = ops
+        .iter()
+        .zip(positions)
+        .map(|(&op, position)| {
+            let block = op.deref(ctx).get_parent_block().unwrap();
+            ((topo_block_indices[&block], position), op)
+        })
+        .collect();
+    keyed.sort_unstable_by_key(|&(key, _)| key);
+    *ops = keyed.into_iter().map(|(_, op)| op).collect();
 }
 
 fn get_blocks_sorted_by_dominance(
@@ -632,6 +714,7 @@ fn try_promote_allocs(
     // a valid operation modification order. The block index maps are computed
     // lazily and cached to avoid expensive recomputation.
     let mut block_index_cache = BlockIndexCache::default();
+    let mut op_order = OpOrderCache::default();
 
     let mut worklist = allocators;
 
@@ -650,8 +733,14 @@ fn try_promote_allocs(
                 else {
                     continue;
                 };
-                let mut promoter =
-                    AllocPromoter::new(alloc, &allocator, dom_info, info, &mut block_index_cache);
+                let mut promoter = AllocPromoter::new(
+                    alloc,
+                    &allocator,
+                    dom_info,
+                    info,
+                    &mut block_index_cache,
+                    &mut op_order,
+                );
                 promoter.promote_alloc(ctx)?;
                 changed_allocator = true;
                 break;
