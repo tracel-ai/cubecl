@@ -7,6 +7,8 @@ use cubecl_common::profile::{Duration, Instant, ProfileDuration, ProfileTicks};
 use cubecl_core::server::{ProfileError, ProfilingToken};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
+
+use crate::compute::device_poison::PoisonWatch;
 use wgpu::{QUERY_SIZE, QuerySet, QuerySetDescriptor, QueryType};
 
 type QuerySetId = u64;
@@ -481,6 +483,7 @@ impl QueryProfiler {
         &self,
         map_buffer: Option<wgpu::Buffer>,
         poll_signal: Arc<()>,
+        poison: &PoisonWatch,
     ) -> Result<ProfileDuration, ProfileError> {
         if let Some(map_buffer) = map_buffer {
             let period = self.queue_period;
@@ -494,6 +497,7 @@ impl QueryProfiler {
             // drive. A map that never completes still releases it: dropping the
             // buffer aborts the map and calls this back.
             let (sender, rec) = cubecl_environment::future::channel::bounded(1);
+            poison.wake_on_loss(sender.clone());
             map_buffer
                 .slice(..)
                 .map_async(wgpu::MapMode::Read, move |v| {
@@ -504,10 +508,11 @@ impl QueryProfiler {
                 });
 
             Ok(ProfileDuration::new_device_time_maybe(async move {
-                rec.recv()
-                    .await
-                    .expect("Unable to receive buffer slice result.")
-                    .expect("Failed to map buffer");
+                // A device lost while the map was pending closes the channel instead, and a map
+                // that failed read nothing back: neither is a measurement.
+                let Ok(Ok(())) = rec.recv().await else {
+                    return None;
+                };
 
                 let binding = map_buffer.slice(..).get_mapped_range().unwrap();
                 let data: &[u64] = bytemuck::try_cast_slice(&binding).unwrap();
