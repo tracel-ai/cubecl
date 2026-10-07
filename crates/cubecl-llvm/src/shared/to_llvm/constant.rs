@@ -3,7 +3,7 @@ use cubecl_core::ir::{
     attributes::{BoolAttr, FloatAttr},
     types::Fp8Format,
 };
-use half::f16;
+use half::{bf16, f16};
 use pliron::{
     attribute::boxed_attr_cast,
     utils::apfloat::{self, Float},
@@ -22,7 +22,10 @@ pub fn float_attr(ctx: &Context, ty: TypeHandle, value: f64) -> Option<AttrObj> 
     Some(if ty.is_float16(ctx) {
         let value = f16::from_f64(value);
         FPHalfAttr(apfloat::Half::from_bits(value.to_bits() as u128)).into()
-    } else if ty.is_float32(ctx) {
+    } else if ty.is_bfloat16(ctx) {
+        let value = bf16::from_f64(value);
+        FPBFloatAttr(apfloat::BFloat::from_bits(value.to_bits() as u128)).into()
+    } else if ty.is_float32(ctx) || ty.is_tfloat32(ctx) {
         FPSingleAttr::from(value as f32).into()
     } else if ty.is_float64(ctx) {
         FPDoubleAttr::from(value).into()

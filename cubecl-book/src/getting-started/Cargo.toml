@@ -1,0 +1,13 @@
+[package]
+name = "cubecl-example"
+edition.workspace = true
+license.workspace = true
+readme.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+cubecl = { workspace = true, default-features = true, features = ["wgpu"] }
+
+[lints]
+workspace = true

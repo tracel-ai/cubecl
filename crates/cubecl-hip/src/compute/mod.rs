@@ -1,9 +1,12 @@
 mod server;
 
+pub(crate) mod artifact;
 pub(crate) mod capture;
 pub(crate) mod context;
 pub(crate) mod driver;
 pub(crate) mod events;
+pub(crate) mod modules;
+pub(crate) mod status;
 pub(crate) mod storage;
 pub(crate) mod stream;
 
@@ -18,4 +21,4 @@ pub(crate) type Command<'a> = cubecl_server::command::Command<'a, driver::Hip>;
 pub(crate) type Captures = cubecl_server::command::Captures<driver::Hip>;
 
 /// A capture window on one stream, driven by [`driver::Hip`].
-pub(crate) type Window<'a> = cubecl_server::command::Window<'a, driver::Hip>;
+pub(crate) type Window<'c, 'a> = cubecl_server::command::Window<'c, 'a, driver::Hip>;

@@ -1,7 +1,7 @@
 //! CUDA math library support.
 
 use crate::shared::{
-    bitcode::link_bitcode,
+    bitcode::{link_bitcode, read_library},
     math_library::{FloatWidth, MathLibrary},
 };
 use llvm_sys::prelude::LLVMModuleRef;
@@ -20,10 +20,12 @@ impl MathLibrary for Libdevice {
         NO_LIBCALL.contains(&base)
     }
 
-    /// Libdevice supports f32 and f64; f16 calls use f32.
+    /// Libdevice supports f32 and f64; f16 and bf16 calls use f32.
     fn symbol(&self, base: &str, width: FloatWidth) -> Option<(String, FloatWidth)> {
         match width {
-            FloatWidth::F16 | FloatWidth::F32 => Some((format!("__nv_{base}f"), FloatWidth::F32)),
+            FloatWidth::F16 | FloatWidth::BF16 | FloatWidth::F32 => {
+                Some((format!("__nv_{base}f"), FloatWidth::F32))
+            }
             FloatWidth::F64 => Some((format!("__nv_{base}"), FloatWidth::F64)),
         }
     }
@@ -59,9 +61,8 @@ pub unsafe fn link_libdevice(module: LLVMModuleRef) -> Result<(), String> {
          to a toolkit containing nvvm/libdevice/libdevice.10.bc."
             .to_string()
     })?;
-    let bitcode =
-        std::fs::read(&path).map_err(|err| format!("reading {}: {err}", path.display()))?;
+    let bitcode = read_library(&path)?;
     // SAFETY: the caller keeps `module` live.
-    unsafe { link_bitcode(module, &bitcode) }
+    unsafe { link_bitcode(module, bitcode) }
         .map_err(|message| format!("{}: {message}", path.display()))
 }

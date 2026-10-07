@@ -1,6 +1,6 @@
 use super::{ManagedMemoryBinding, ManagedMemoryDescriptor, ManagedMemoryHandle};
 use crate::{
-    memory_management::{ErrorGraph, MemoryUsage, Taint},
+    memory_management::{Cleanup, ErrorGraph, MemoryLocation, MemoryUsage, PageGuard, Taint},
     server::IoError,
     storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization},
 };
@@ -68,6 +68,10 @@ impl PageMapping {
 }
 
 /// Declares how memory is allocated in a reusable pool.
+///
+/// The methods that take a storage are for callers holding the pool's own
+/// type; the rest can be reached through `dyn MemoryPool`, which is how a
+/// location is resolved to whichever pool it names.
 pub trait MemoryPool {
     /// Whether the memory pool accepts the given size.
     fn accept(&self, size: u64) -> bool;
@@ -136,7 +140,27 @@ pub trait MemoryPool {
         size: u64,
         mapping: PageMapping,
         failures: &mut ErrorGraph,
-    ) -> Result<ManagedMemoryHandle, IoError>;
+    ) -> Result<ManagedMemoryHandle, IoError>
+    where
+        Self: Sized;
+
+    /// Reserve `size` bytes in the room the pool holds, and allocate a page
+    /// for them when it holds none.
+    fn reserve<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        size: u64,
+        mapping: PageMapping,
+        failures: &mut ErrorGraph,
+    ) -> Result<ManagedMemoryHandle, IoError>
+    where
+        Self: Sized,
+    {
+        match self.try_reserve(size, failures) {
+            Some(handle) => Ok(handle),
+            None => self.alloc(storage, size, mapping, failures),
+        }
+    }
 
     /// Ensure the allocation behind `binding` has real device backing,
     /// installing it now if the allocation was made [`PageMapping::Lazy`].
@@ -148,21 +172,29 @@ pub trait MemoryPool {
         &mut self,
         _storage: &mut Storage,
         _binding: &ManagedMemoryBinding,
-    ) -> Result<(), IoError> {
+    ) -> Result<(), IoError>
+    where
+        Self: Sized,
+    {
         Ok(())
     }
 
     /// Computes the [`MemoryUsage`] for this pool.
     fn get_memory_usage(&self) -> MemoryUsage;
 
+    /// Keep the page `location` names as it is for as long as the guard lives
+    /// (see [`PageGuard`]). `None` when the pool holds no such page.
+    fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard>;
+
     /// Cleanup the memory pool, maybe freeing some memory using the [`ComputeStorage`].
     fn cleanup<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
         alloc_nr: u64,
-        explicit: bool,
+        cleanup: Cleanup,
         failures: &mut ErrorGraph,
-    );
+    ) where
+        Self: Sized;
 }
 
 #[derive(Debug)]
@@ -207,6 +239,27 @@ impl Slice {
     pub(crate) fn bind(&mut self, handle: ManagedMemoryHandle, failures: &mut ErrorGraph) {
         self.tainted.clear(failures);
         self.handle = handle;
+    }
+
+    /// Give this slice's allocation to `target`, which was reserved to
+    /// receive it and already holds a copy of its bytes: the handle, its
+    /// cursor and its taint move, the handle's location is rewritten to the
+    /// target's so every owner resolves there from now on, and this slice is
+    /// left free. Whatever the target's last allocation left tainted is
+    /// released first, as [`bind`](Self::bind) would.
+    pub(crate) fn hand_over(&mut self, target: &mut Slice, failures: &mut ErrorGraph) {
+        target.tainted.clear(failures);
+        let location = target.handle.descriptor().location();
+        let source_location = self.handle.descriptor().location();
+
+        let freed = ManagedMemoryHandle::new();
+        freed.descriptor().update_location(source_location);
+        let allocation = core::mem::replace(&mut self.handle, freed);
+        allocation.descriptor().update_location(location);
+
+        target.handle = allocation;
+        target.cursor = self.cursor;
+        target.tainted = core::mem::take(&mut self.tainted);
     }
 
     /// If the slice is free to be reused.

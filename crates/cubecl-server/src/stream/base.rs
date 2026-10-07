@@ -31,7 +31,12 @@ pub trait StreamFactory {
     /// The type of stream produced by this factory.
     type Stream;
     /// Creates a new stream instance.
-    fn create(&mut self) -> Self::Stream;
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ServerError`] when the backend cannot create a stream, e.g. on a device that
+    /// is poisoned.
+    fn create(&mut self) -> Result<Self::Stream, ServerError>;
 }
 
 /// The memory a stream's kernels see, for the taint bookkeeping.
@@ -91,6 +96,11 @@ impl<F: StreamFactory> StreamPool<F> {
         self.streams.iter().flatten()
     }
 
+    /// [`streams`](Self::streams), mutably.
+    pub fn streams_mut(&mut self) -> impl Iterator<Item = &mut F::Stream> {
+        self.streams.iter_mut().flatten()
+    }
+
     /// Synthetic [`StreamId`]s, one per initialized regular pool slot.
     ///
     /// Each id round-trips through [`Self::get_mut`] to the same slot it
@@ -119,26 +129,70 @@ impl<F: StreamFactory> StreamPool<F> {
 
     /// Retrieves a mutable reference to a stream at the specified index, initializing it if needed.
     ///
+    /// # Panics
+    ///
+    /// When a required stream creation fails.
+    ///
     /// # Safety
     ///
     /// * Caller must ensure the index is valid (less than `max_streams + num_special`).
     /// * Lifetimes still follow the Rust rules.
     pub unsafe fn get_mut_index(&mut self, index: usize) -> &mut F::Stream {
+        unsafe { self.get_or_create_index(index) }
+            .unwrap_or_else(|err| panic!("a stream could not be created: {err}"))
+    }
+
+    /// The stream for `stream_id`, created if it does not exist yet.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ServerError`] when a required stream creation fails.
+    pub fn get_or_create(&mut self, stream_id: &StreamId) -> Result<&mut F::Stream, ServerError> {
+        let index = self.stream_index(stream_id);
+        // SAFETY: `stream_index` keeps the index within the regular streams.
+        unsafe { self.get_or_create_index(index) }
+    }
+
+    /// The special stream at `index`, created if it does not exist yet.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`get_or_create`](Self::get_or_create).
+    ///
+    /// # Safety
+    ///
+    /// * Caller must ensure the index corresponds to a valid special stream.
+    pub unsafe fn get_or_create_special(
+        &mut self,
+        index: u8,
+    ) -> Result<&mut F::Stream, ServerError> {
+        unsafe { self.get_or_create_index(self.max_streams + index as usize) }
+    }
+
+    /// The stream at `index`, created if it does not exist yet.
+    ///
+    /// # Safety
+    ///
+    /// * Caller must ensure the index is valid (less than `max_streams + num_special`).
+    pub(crate) unsafe fn get_or_create_index(
+        &mut self,
+        index: usize,
+    ) -> Result<&mut F::Stream, ServerError> {
         unsafe {
             // Access the stream entry without bounds checking for performance.
             let entry = self.streams.get_unchecked_mut(index);
             match entry {
                 // If the stream exists, return it.
-                Some(val) => val,
+                Some(val) => Ok(val),
                 // If the stream is None, create a new one using the factory.
                 None => {
-                    let stream = self.factory.create();
+                    let stream = self.factory.create()?;
                     // Store the new stream in the vector.
                     *entry = Some(stream);
 
                     // Re-access the entry, which is now guaranteed to be Some.
                     match entry {
-                        Some(val) => val,
+                        Some(val) => Ok(val),
                         // Unreachable because we just set it to Some.
                         None => unreachable!(),
                     }

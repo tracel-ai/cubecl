@@ -15,7 +15,9 @@ use pliron::{
     basic_block::BasicBlock,
     graph::HasLabel,
     linked_list::{ContainsLinkedList, LinkedList},
+    operation::OpDbg,
     printable::Printable,
+    value::DefiningEntity,
     verify_err_noloc,
 };
 
@@ -24,8 +26,12 @@ pub use solver::*;
 
 pub mod control_flow_uniformity;
 pub mod dead_code;
+pub mod dense;
+pub mod pre;
 pub mod sccp;
 pub mod sparse;
+pub mod value_dependents;
+pub mod value_numbering;
 pub mod value_uniformity;
 
 pub type SmallPtrVec<T> = SmallVec<[T; 8]>;
@@ -47,6 +53,8 @@ impl BitOrAssign for ChangeResult {
 /// Nested module to ensure none of the unsafe abstractions leave this scope.
 mod solver {
     use core::cell::{Ref, RefMut};
+
+    use pliron::{printable::indented_nl, utils::table::IMap};
 
     use super::*;
 
@@ -112,10 +120,12 @@ mod solver {
     type StateEntry = Rc<RefCell<dyn PrintableState>>;
 
     pub struct DataflowSolver {
-        child_analyses: HashMap<TypeId, Box<dyn DataflowAnalysis>>,
+        child_analyses: IMap<TypeId, Box<dyn DataflowAnalysis>>,
         worklist: RefCell<VecDeque<SolverWorkItem>>,
         anchor_hash: FixedState,
         analysis_states: RefCell<AnalysisStates>,
+        /// Non-solver analyses
+        analysis_cache: RefCell<AnalysisManager>,
         config: SolverConfig,
     }
 
@@ -126,6 +136,7 @@ mod solver {
                 worklist: Default::default(),
                 anchor_hash: Default::default(),
                 analysis_states: Default::default(),
+                analysis_cache: RefCell::new(AnalysisManager::default()),
                 config,
             }
         }
@@ -196,6 +207,18 @@ mod solver {
                 _ty: PhantomData,
             })
         }
+
+        pub fn states_of_type<T: AnalysisState>(&self) -> Vec<ReadRef<'_, T>> {
+            let states = self.analysis_states.borrow();
+            states
+                .values()
+                .flat_map(|it| it.get(&TypeId::of::<T>()))
+                .map(|state| ReadRef {
+                    value: state.clone(),
+                    _ty: PhantomData,
+                })
+                .collect()
+        }
     }
 
     impl DataflowSolver {
@@ -220,6 +243,15 @@ mod solver {
         }
 
         pub fn initialize_and_run(&mut self, ctx: &Context, root: Ptr<Operation>) -> Result<()> {
+            self.initialize_filtered_and_run(ctx, root, |_| true)
+        }
+
+        pub fn initialize_filtered_and_run(
+            &mut self,
+            ctx: &Context,
+            root: Ptr<Operation>,
+            should_initialize: impl Fn(&dyn DataflowAnalysis) -> bool,
+        ) -> Result<()> {
             let is_interprocedural = self.config.is_interprocedural;
             if is_interprocedural && !root.impls::<dyn SymbolTableInterface>(ctx) {
                 self.config.is_interprocedural = false;
@@ -230,6 +262,9 @@ mod solver {
 
             // Initialize equivalent lattice anchors.
             for analysis in child_analyses.values() {
+                if !should_initialize(&**analysis) {
+                    continue;
+                }
                 analysis.initialize_equivalent_lattice_anchor(self, ctx, root);
             }
 
@@ -257,6 +292,10 @@ mod solver {
 
             self.config.is_interprocedural = is_interprocedural;
             Ok(())
+        }
+
+        pub fn analyses(&self) -> RefMut<'_, AnalysisManager> {
+            self.analysis_cache.borrow_mut()
         }
 
         pub fn enqueue(&self, work_item: SolverWorkItem) {
@@ -290,21 +329,27 @@ mod solver {
         fn fmt(
             &self,
             ctx: &Context,
-            _state: &pliron::printable::State,
+            state: &pliron::printable::State,
             f: &mut core::fmt::Formatter<'_>,
         ) -> core::fmt::Result {
-            writeln!(f, "DataflowSolver {{")?;
-            let states = self.analysis_states.borrow();
-            let mut entries = states
-                .values()
-                .flat_map(|states| states.iter())
-                .collect::<Vec<_>>();
-            entries.sort_by_key(|it| it.0);
+            state.set_indent_width(4);
+            write!(f, "DataflowSolver {{")?;
+            {
+                let _indent = state.indent();
+                let states = self.analysis_states.borrow();
+                let mut entries = states
+                    .values()
+                    .flat_map(|states| states.iter())
+                    .collect::<Vec<_>>();
+                entries.sort_by_key(|it| it.0);
 
-            for (_, state) in entries {
-                writeln!(f, "    {},", state.borrow().disp(ctx))?;
+                for (_, entry) in entries {
+                    write!(f, "{}", indented_nl(state))?;
+                    entry.borrow().fmt(ctx, state, f)?;
+                }
             }
-            writeln!(f, "}}")
+
+            writeln!(f, "{}}}", indented_nl(state))
         }
     }
 }
@@ -324,7 +369,9 @@ impl Printable for ProgramPoint {
         f: &mut core::fmt::Formatter<'_>,
     ) -> core::fmt::Result {
         match self {
-            ProgramPoint::Operation(op) => write!(f, "ProgramPoint::Operation({})", op.disp(ctx)),
+            ProgramPoint::Operation(op) => {
+                write!(f, "ProgramPoint::Operation({})", OpDbg { op: *op, ctx })
+            }
             ProgramPoint::BeforeOpInBlock(block, _) if self.is_block_start(ctx) => {
                 write!(f, "ProgramPoint::StartOfBlock({})", block.label(ctx))
             }
@@ -333,7 +380,7 @@ impl Printable for ProgramPoint {
                     f,
                     "ProgramPoint::BeforeOpInBlock({}, {})",
                     block.label(ctx),
-                    op.disp(ctx)
+                    OpDbg { op: *op, ctx }
                 )
             }
             ProgramPoint::EndOfBlock(block) => {
@@ -374,6 +421,13 @@ impl ProgramPoint {
 
     pub fn at_block_end(_ctx: &Context, block: Ptr<BasicBlock>) -> ProgramPoint {
         ProgramPoint::EndOfBlock(block)
+    }
+
+    pub fn after_value(ctx: &Context, value: Value) -> ProgramPoint {
+        match value.defining_entity() {
+            DefiningEntity::Op(op) => ProgramPoint::after_op(ctx, op),
+            DefiningEntity::Block(block) => ProgramPoint::at_block_start(ctx, block),
+        }
     }
 
     pub fn next_op(&self, _ctx: &Context) -> Option<Ptr<Operation>> {
@@ -437,7 +491,7 @@ pub trait DataflowAnalysis: Downcast {
     #[allow(clippy::result_unit_err)]
     fn initialize(
         &mut self,
-        solver: &mut DataflowSolver,
+        solver: &DataflowSolver,
         ctx: &Context,
         root: Ptr<Operation>,
     ) -> Result<()>;
@@ -447,7 +501,7 @@ pub trait DataflowAnalysis: Downcast {
 
     fn initialize_equivalent_lattice_anchor(
         &self,
-        solver: &mut DataflowSolver,
+        solver: &DataflowSolver,
         ctx: &Context,
         root: Ptr<Operation>,
     ) {

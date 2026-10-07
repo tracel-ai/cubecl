@@ -5,7 +5,10 @@ use cubecl_core::{
     ir::{
         AddressType, Scope,
         dialect::{InlineAsmOp, InputSpecsAttr, MemoryClobbers, MemoryClobbersAttr},
-        interfaces::{MemoryEffect, MemoryEffects, TypedExt},
+        interfaces::{
+            TypedExt,
+            side_effects::{MemoryEffect, MemoryEffectsOp},
+        },
         prelude::*,
         types::VectorType,
     },
@@ -128,7 +131,7 @@ impl SideEffects for InlinePtxOp {
 }
 
 #[op_interface_impl]
-impl MemoryEffects for InlinePtxOp {
+impl MemoryEffectsOp for InlinePtxOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         match &self
             .get_attr_cuda_inline_ptx_memory_clobbers(ctx)

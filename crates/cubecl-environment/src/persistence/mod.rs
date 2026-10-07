@@ -30,7 +30,7 @@ pub use store::*;
 pub(crate) mod turso;
 
 #[cfg(any(native_cache, browser_cache))]
-pub use turso::Database;
+pub use turso::{Access, Database, TursoStorage};
 
 #[cfg(browser_cache)]
 mod turso_browser;

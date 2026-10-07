@@ -186,6 +186,50 @@ test_binary_impl!(
 );
 
 test_binary_impl!(
+    test_max,
+    F,
+    <Vector<F, In> as FloatOps>::max,
+    [
+        {
+            input_vectorization: 1,
+            out_vectorization: 1,
+            lhs: as_type![F: 1., -3., 2.5, -0.5],
+            rhs: as_type![F: -1., 2., 2.5, -0.25],
+            expected: as_type![F: 1., 2., 2.5, -0.25]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 4,
+            lhs: as_type![F: 1., -3., 2.5, -0.5],
+            rhs: as_type![F: -1., 2., 2.5, -0.25],
+            expected: as_type![F: 1., 2., 2.5, -0.25]
+        }
+    ]
+);
+
+test_binary_impl!(
+    test_min,
+    F,
+    <Vector<F, In> as FloatOps>::min,
+    [
+        {
+            input_vectorization: 1,
+            out_vectorization: 1,
+            lhs: as_type![F: 1., -3., 2.5, -0.5],
+            rhs: as_type![F: -1., 2., 2.5, -0.25],
+            expected: as_type![F: -1., -3., 2.5, -0.5]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 4,
+            lhs: as_type![F: 1., -3., 2.5, -0.5],
+            rhs: as_type![F: -1., 2., 2.5, -0.25],
+            expected: as_type![F: -1., -3., 2.5, -0.5]
+        }
+    ]
+);
+
+test_binary_impl!(
     test_atan2,
     F,
     Vector::atan2,
@@ -339,6 +383,64 @@ test_powi_impl!(
         }
     ]
 );
+
+#[cube(launch_unchecked)]
+fn signed_remainder_kernel<I: Int, N: Size>(
+    lhs: &[Vector<I, N>],
+    rhs: &[Vector<I, N>],
+    remainder: &mut [Vector<I, N>],
+    modulo: &mut [Vector<I, N>],
+) {
+    if ABSOLUTE_POS < lhs.len() {
+        remainder[ABSOLUTE_POS] = lhs[ABSOLUTE_POS] % rhs[ABSOLUTE_POS];
+        modulo[ABSOLUTE_POS] = Vector::mod_floor(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
+    }
+}
+
+/// Signed remainder and floor modulo retain integer precision and their distinct sign rules.
+pub fn test_signed_remainder<R: Runtime>(client: Client) {
+    macro_rules! check {
+        ($ty:ty) => {{
+            use cubecl_ir::features::TypeUsage;
+            let uses = <$ty>::supported_uses(&client);
+            if uses.contains(TypeUsage::Arithmetic) && uses.contains(TypeUsage::Buffer) {
+                // MIN / -1 and division by zero have no portable result.
+                let cases: [($ty, $ty, $ty, $ty); 8] = [
+                    (-7, 3, -1, 2),
+                    (7, -3, 1, -2),
+                    (-7, -3, -1, -1),
+                    (7, 3, 1, 1),
+                    (6, -3, 0, 0),
+                    (<$ty>::MIN, 3, -2, 1),
+                    (<$ty>::MAX - 1, <$ty>::MAX, <$ty>::MAX - 1, <$ty>::MAX - 1),
+                    (<$ty>::MIN + 1, -1, 0, 0),
+                ];
+                for vector_size in [1, 4] {
+                    let [lhs, rhs] = [cases.map(|c| c.0), cases.map(|c| c.1)]
+                        .map(|values| client.create_from_slice(<$ty>::as_bytes(&values)));
+                    let remainder = client.empty(cases.len() * core::mem::size_of::<$ty>());
+                    let modulo = client.empty(cases.len() * core::mem::size_of::<$ty>());
+                    unsafe {
+                        signed_remainder_kernel::launch_unchecked::<$ty>(
+                            &client,
+                            CubeCount::Static(1, 1, 1),
+                            CubeDim::new_1d(32),
+                            vector_size,
+                            BufferArg::from_raw_parts(lhs, cases.len()),
+                            BufferArg::from_raw_parts(rhs, cases.len()),
+                            BufferArg::from_raw_parts(remainder.clone(), cases.len()),
+                            BufferArg::from_raw_parts(modulo.clone(), cases.len()),
+                        );
+                    }
+                    assert_equals_exact::<$ty>(&client, remainder, &cases.map(|c| c.2));
+                    assert_equals_exact::<$ty>(&client, modulo, &cases.map(|c| c.3));
+                }
+            }
+        }};
+    }
+    check!(i32);
+    check!(i64);
+}
 
 #[cube(launch_unchecked)]
 fn test_powi_int_kernel<I: Int + Powi<i32>, N: Size>(
@@ -756,6 +858,8 @@ macro_rules! testgen_binary {
             add_test!(test_hypot);
             add_test!(test_rhypot);
             add_test!(test_powi);
+            add_test!(test_max);
+            add_test!(test_min);
             add_test!(test_atan2);
             add_test!(test_fma);
             add_test!(test_fma_from_sub);
@@ -820,6 +924,7 @@ macro_rules! testgen_binary_untyped {
             add_test!(test_mulhi);
             add_test!(test_dp4a);
             add_test!(test_powi_int);
+            add_test!(test_signed_remainder);
             add_test!(test_self_div);
         }
     };

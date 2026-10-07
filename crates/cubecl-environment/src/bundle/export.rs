@@ -214,54 +214,13 @@ fn export_sqlite(
 
     // A shipped bundle is read from wherever it was installed, which is often
     // a read-only directory, and the engine never checkpoints on close: a
-    // file copied without its `-wal` is a file missing every row.
-    if !database::checkpoint(&connection).map_err(storage_error)? {
-        return Err(BundleError::Storage(
-            "the bundle's WAL checkpoint did not complete".to_string(),
-        ));
-    }
-
-    // Dropped before the header is rewritten: a live connection writes the
-    // header back out as it closes, and would undo it.
-    drop(connection);
+    // file copied without its `-wal` is a file missing every row. The
+    // connection is the last holder of the database once `target` is gone,
+    // so closing it closes the file before its header is rewritten.
     drop(target);
-    finalize_for_shipping(out)?;
+    database::make_standalone(connection, out).map_err(BundleError::Storage)?;
 
     Ok(exported)
-}
-
-/// The two header bytes that say which journal mode wrote the file, and the
-/// legacy value: a rollback journal, which is what a reader expects of a file
-/// with no `-wal` beside it.
-const JOURNAL_MODE_BYTES: core::ops::Range<u64> = 18..20;
-const LEGACY_JOURNAL: [u8; 2] = [1, 1];
-
-/// Marks a checkpointed bundle as a rollback-journal file, so that a reader
-/// which cannot write beside it can still open it.
-///
-/// Turso is WAL-only: `PRAGMA journal_mode = DELETE` reports success and
-/// changes nothing, so the file the export just checkpointed still carries a
-/// WAL header. `SQLite` takes that header at its word and insists on building
-/// the `-shm` that WAL recovery needs — in a directory it may not write, the
-/// open fails with "attempt to write a readonly database", which is exactly
-/// where a shipped bundle lives.
-///
-/// After [`database::checkpoint`] has folded and truncated the WAL, the file
-/// holds a complete database and no WAL frames, so these two bytes are the
-/// only thing distinguishing it from one a rollback-journal writer produced.
-/// Both engines read the result: Turso ignores the field and opens its own
-/// WAL as usual, and `SQLite` stops asking for a sidecar.
-///
-/// Call it on a checkpointed file with no connection open to it.
-fn finalize_for_shipping(out: &Path) -> Result<(), BundleError> {
-    use std::io::{Seek, SeekFrom, Write};
-
-    let mut file = std::fs::OpenOptions::new().write(true).open(out)?;
-    file.seek(SeekFrom::Start(JOURNAL_MODE_BYTES.start))?;
-    file.write_all(&LEGACY_JOURNAL)?;
-    file.sync_all()?;
-
-    Ok(())
 }
 
 fn export_flat(

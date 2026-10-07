@@ -7,7 +7,8 @@
 //! that account, written to [`cubecl_environment::records`] once per tune.
 
 use crate::tune::{
-    AutotuneKey, AutotuneLogContext, AutotuneLogEvent, PersistentCacheKey, TuneCache,
+    AutotuneKey, AutotuneLogContext, AutotuneLogEvent, PersistentCacheKey, Placement, TuneCache,
+    TunePlan,
 };
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -39,6 +40,28 @@ pub struct TuneRecord<K> {
     /// was tuned with the cache disabled, answers this process alone: the
     /// table holds another answer to the key, or none.
     pub stored: bool,
+    /// Every candidate in the order the plan releases them, whether or not
+    /// it ran: the priorities that decided the order, read when the tune
+    /// began. Empty in a record written before plans were kept.
+    #[serde(default)]
+    pub plan: Vec<PlannedCandidate>,
+}
+
+/// One candidate's place in the plan of a tune.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlannedCandidate {
+    /// The candidate's name.
+    pub name: String,
+    /// Its index in the tunable set, the one the table's winner names.
+    pub index: usize,
+    /// The batch the plan releases it in, counting from 0. A tune stops
+    /// after the first batch with a valid result, so later batches only run
+    /// when every earlier one failed. `None` when each of its groups gave it
+    /// a negative priority for this key.
+    pub batch: Option<usize>,
+    /// Its place in each group it belongs to; empty for a candidate in no
+    /// group, which trails every batch.
+    pub groups: Vec<Placement>,
 }
 
 /// One candidate's run within a tune.
@@ -69,6 +92,7 @@ struct OpenRecording<K> {
     table: String,
     entry: PersistentCacheKey<K>,
     dry_run: bool,
+    plan: Vec<PlannedCandidate>,
 }
 
 /// What [`TuneRecording::finish`] needs to know of the answer.
@@ -90,6 +114,7 @@ impl<K: AutotuneKey> TuneRecording<K> {
                 checksum: checksum.into(),
             },
             dry_run: crate::dry_run::dry_run(),
+            plan: Vec::new(),
         });
         Self { open }
     }
@@ -98,6 +123,13 @@ impl<K: AutotuneKey> TuneRecording<K> {
     /// record's trials are the ones the log context collects.
     pub(crate) fn is_open(&self) -> bool {
         self.open.is_some()
+    }
+
+    /// Keep the plan the tune runs, its candidates named by `names`.
+    pub(crate) fn plan(&mut self, plan: &TunePlan, names: &[&str]) {
+        if let Some(open) = &mut self.open {
+            open.plan = plan.account(names);
+        }
     }
 
     /// Write the record of the tune that just answered.
@@ -129,6 +161,7 @@ impl<K: AutotuneKey> TuneRecording<K> {
             wall,
             dry_run: open.dry_run,
             stored: answer.stored,
+            plan: open.plan,
         };
         // A stored winner is the environment changing; an answer kept in
         // memory is not.

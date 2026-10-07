@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use cubecl_core::ir::dialect::{
     bitwise::*,
-    cmp::{FMaxOp, FMinOp, SMaxOp, SMinOp, UMaxOp, UMinOp},
+    cmp::{FMaxNanOp, FMaxOp, FMinNanOp, FMinOp, SMaxOp, SMinOp, UMaxOp, UMinOp},
     general::{BoolAndOp, BoolNotOp, BoolOrOp},
     math::*,
 };
@@ -127,7 +127,8 @@ macro_rules! lower_count_bits_intrinsic {
                 }
                 let intrinsic_type = FuncType::get(ctx, elem_ty, params, false);
 
-                let op = llvm::CallIntrinsicOp::new(ctx, $llvm_op.into(), intrinsic_type, args);
+                let name = format!("{}.{}", $llvm_op, llvm_mangled_ty(ctx, elem_ty));
+                let op = llvm::CallIntrinsicOp::new(ctx, name.into(), intrinsic_type, args);
                 rewriter.insert_op(ctx, &op);
 
                 let count = op.get_result(ctx);
@@ -244,7 +245,7 @@ lower_int_bin_with_overflow_arith!(IMulOp => llvm::MulOp);
 lower_int_bin_with_overflow_arith!(ISubOp => llvm::SubOp);
 
 macro_rules! lower_int_bin_arith {
-    ($cube_op:ty => $llvm_op:ty) => {
+    ($cube_op:ty => $llvm_op:ty $(, $rhs:expr)?) => {
         #[op_interface_impl]
         impl ToLLVMDialect for $cube_op {
             fn rewrite(
@@ -255,6 +256,7 @@ macro_rules! lower_int_bin_arith {
             ) -> Result<()> {
                 let lhs = self.lhs(ctx);
                 let rhs = self.rhs(ctx);
+                $(let rhs = $rhs(ctx, rewriter, rhs);)?
                 let op = <$llvm_op>::new(ctx, lhs, rhs);
                 rewriter.insert_op(ctx, &op);
                 rewriter.replace_operation_with_values(
@@ -268,14 +270,36 @@ macro_rules! lower_int_bin_arith {
     };
 }
 
+/// A divisor SCEV cannot prove non-zero keeps LSR from reducing any address derived from it.
+fn insert_umax_one(
+    ctx: &mut Context,
+    rewriter: &mut DialectConversionRewriter,
+    value: Value,
+) -> Value {
+    let value_ty = value.get_type(ctx);
+    let width = int_elem_width(ctx, value_ty);
+    let lanes = value_ty
+        .deref(ctx)
+        .downcast_ref::<LlvmVectorType>()
+        .map(|vector| vector.num_elements() as usize);
+    let mut one = insert_int_const(ctx, rewriter, width, 1);
+    if let Some(lanes) = lanes {
+        one = insert_splat(ctx, rewriter, value_ty, one, lanes);
+    }
+
+    let name = format!("llvm.umax.{}", llvm_mangled_ty(ctx, value_ty));
+    let op = call_op(ctx, &name, value_ty, vec![value, one]);
+    insert(ctx, rewriter, &op)
+}
+
 lower_int_bin_arith!(BoolAndOp => llvm::AndOp);
 lower_int_bin_arith!(BoolOrOp => llvm::OrOp);
 
 lower_int_bin_arith!(BitwiseAndOp => llvm::AndOp);
 lower_int_bin_arith!(BitwiseOrOp => llvm::OrOp);
 lower_int_bin_arith!(BitwiseXorOp => llvm::XorOp);
-lower_int_bin_arith!(UDivOp => llvm::UDivOp);
-lower_int_bin_arith!(URemOp => llvm::URemOp);
+lower_int_bin_arith!(UDivOp => llvm::UDivOp, insert_umax_one);
+lower_int_bin_arith!(URemOp => llvm::URemOp, insert_umax_one);
 lower_int_bin_arith!(SDivOp => llvm::SDivOp);
 lower_int_bin_arith!(SRemOp => llvm::SRemOp);
 
@@ -418,12 +442,15 @@ macro_rules! lower_binary_intrinsic_arith {
 
 lower_binary_intrinsic_arith!(ArcTan2Op => "llvm.atan2");
 lower_binary_intrinsic_arith!(PowfOp => "llvm.pow");
-lower_binary_intrinsic_arith!(FMinOp => "llvm.minimum");
+// `minnum`/`maxnum` ignore a NaN operand, as `fminf`/`fmaxf` in the C++ backends and Rust's
+// `f32::min` do. `minimum`/`maximum` propagate it instead, and have no single instruction
+// before sm_80 or gfx12, so every max-reduce and ReLU would pay for a NaN test and a select.
+lower_binary_intrinsic_arith!(FMinOp => "llvm.minnum");
 lower_binary_intrinsic_arith!(UMinOp => "llvm.umin");
 lower_binary_intrinsic_arith!(SMinOp => "llvm.smin");
 lower_binary_intrinsic_arith!(UMaxOp => "llvm.umax");
 lower_binary_intrinsic_arith!(SMaxOp => "llvm.smax");
-lower_binary_intrinsic_arith!(FMaxOp => "llvm.maximum");
+lower_binary_intrinsic_arith!(FMaxOp => "llvm.maxnum");
 lower_binary_intrinsic_arith!(SaturatingSAddOp => "llvm.sadd.sat");
 lower_binary_intrinsic_arith!(SaturatingUAddOp => "llvm.uadd.sat");
 lower_binary_intrinsic_arith!(SaturatingSSubOp => "llvm.ssub.sat");
@@ -493,3 +520,6 @@ impl ToLLVMDialect for FmaOp {
         Ok(())
     }
 }
+
+lower_binary_intrinsic_arith!(FMinNanOp => "llvm.minimum");
+lower_binary_intrinsic_arith!(FMaxNanOp => "llvm.maximum");

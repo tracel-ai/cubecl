@@ -8,10 +8,10 @@ use ash::vk::{
     SharingMode,
 };
 use cubecl_core::{
-    MemoryConfiguration, WgpuCompilationOptions,
+    WgpuCompilationOptions,
     ir::{AddressType, ElemType, FloatKind, IntKind, UIntKind},
     prelude::{CubeKernel, KernelDefinition, Visibility},
-    server::{IoError, KernelArguments},
+    server::IoError,
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::{AdapterLuid, DeviceProperties, Type, features::*};
@@ -36,26 +36,41 @@ use wgpu::{
     },
 };
 
-use crate::{HostPtr, WgpuCompiler, WgpuMemory, WgpuServer};
+use crate::{HostPtr, WgpuCompiler, WgpuMemory};
 
 mod features;
 
 pub type VkSpirvCompiler = SpirvCompiler;
 
-pub fn bindings(repr: &SpirvKernel, _bindings: &KernelArguments) -> (Vec<Visibility>, usize) {
+pub fn bindings(repr: &SpirvKernel) -> (Vec<Visibility>, usize) {
     match repr.immediate_size {
         Some(immediate_size) => (vec![], immediate_size),
         None => (vec![Visibility::Uniform], 0),
     }
 }
 
+/// Request a native Vulkan device, panicking if device creation fails.
 pub async fn request_vulkan_device(adapter: &wgpu::Adapter) -> Option<(wgpu::Device, wgpu::Queue)> {
+    try_request_vulkan_device(adapter)
+        .await
+        .expect("Unable to request Vulkan device")
+}
+
+/// Request a native Vulkan device, or return `None` when native compilation is unsupported.
+/// Returns an error if the adapter does not use Vulkan.
+pub async fn try_request_vulkan_device(
+    adapter: &wgpu::Adapter,
+) -> Result<Option<(wgpu::Device, wgpu::Queue)>, crate::WgpuInitError> {
     let limits = adapter.limits();
     let features = adapter
         .features()
         .difference(Features::MAPPABLE_PRIMARY_BUFFERS);
     unsafe {
-        let hal_adapter = adapter.as_hal::<hal::api::Vulkan>().unwrap();
+        let hal_adapter = adapter.as_hal::<hal::api::Vulkan>().ok_or_else(|| {
+            crate::WgpuInitError::InvalidConfiguration {
+                message: "requesting a native Vulkan device requires a Vulkan adapter".into(),
+            }
+        })?;
         request_device(adapter, &hal_adapter, features, limits)
     }
 }
@@ -64,12 +79,11 @@ pub fn register_vulkan_features(
     adapter: &wgpu::Adapter,
     props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
-    memory_config: &MemoryConfiguration,
 ) -> bool {
     let features = adapter.features();
     unsafe {
         if let Some(adapter) = adapter.as_hal::<hal::api::Vulkan>() {
-            register_features(&adapter, props, features, comp_options, memory_config)
+            register_features(&adapter, props, features, comp_options)
         } else {
             false
         }
@@ -82,7 +96,7 @@ fn request_device(
     adapter: &vulkan::Adapter,
     features: Features,
     mut limits: Limits,
-) -> Option<(wgpu::Device, wgpu::Queue)> {
+) -> Result<Option<(wgpu::Device, wgpu::Queue)>, crate::WgpuInitError> {
     let ash = adapter.shared_instance();
 
     // Can't even query for required features without `PhysicalDeviceFeatures2`
@@ -91,13 +105,13 @@ fn request_device(
             .extensions()
             .contains(&KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_NAME)
     {
-        return None;
+        return Ok(None);
     }
 
     let mut extended_feat = ExtendedFeatures::from_adapter(ash.raw_instance(), adapter, features);
 
     if !extended_feat.has_required_features() {
-        return None;
+        return Ok(None);
     }
 
     let extensions = adapter.required_device_extensions(features);
@@ -145,7 +159,9 @@ fn request_device(
     let vk_device = unsafe {
         ash.raw_instance()
             .create_device(adapter.raw_physical_device(), &info, None)
-            .expect("Failed to create Vulkan device")
+            .map_err(|err| crate::WgpuInitError::RequestDevice {
+                message: err.to_string(),
+            })?
     };
 
     // The default is MemoryHints::Performance, which tries to do some bigger
@@ -164,7 +180,9 @@ fn request_device(
                 family_info.queue_family_index,
                 0,
             )
-            .expect("Failed to create HAL device")
+            .map_err(|err| crate::WgpuInitError::RequestDevice {
+                message: err.to_string(),
+            })?
     };
 
     let descriptor = DeviceDescriptor {
@@ -178,11 +196,13 @@ fn request_device(
     };
 
     unsafe {
-        Some(
+        Ok(Some(
             wgpu_adapter
                 .create_device_from_hal(device, &descriptor)
-                .expect("Failed to create wgpu device"),
-        )
+                .map_err(|err| crate::WgpuInitError::RequestDevice {
+                    message: err.to_string(),
+                })?,
+        ))
     }
 }
 
@@ -350,7 +370,6 @@ fn register_features(
     props: &mut DeviceProperties,
     features: Features,
     comp_options: &mut WgpuCompilationOptions,
-    memory_config: &MemoryConfiguration,
 ) -> bool {
     let ash = adapter.shared_instance();
     let heaps = device_local_heaps(ash, adapter.raw_physical_device());
@@ -460,10 +479,7 @@ fn register_features(
         && index_64.shader64_bit_indexing == TRUE
         && let Some(heap) = heaps.first()
     {
-        props.memory.max_page_size = match memory_config.is_sub_slices() {
-            true => heap.size / 4,
-            false => heap.size,
-        };
+        props.memory.max_page_size = heap.size;
     }
 
     if extended_feat.cooperative_matrix.is_some() {
@@ -818,16 +834,15 @@ fn convert_type(vk_ty: ComponentTypeKHR) -> Option<ElemType> {
 /// Check robustness and compile.
 pub(crate) fn compile<C>(
     dyn_comp: &mut C,
-    server: &mut WgpuServer<C>,
-    kernel: Box<dyn CubeKernel>,
+    kernel: &dyn CubeKernel,
     definition: KernelDefinition,
+    options: &WgpuCompilationOptions,
 ) -> Result<CompiledKernel<C>, CompilationError>
 where
     C: WgpuCompiler<CompilationOptions = WgpuCompilationOptions>,
 {
     log::debug!("Compiling {}", kernel.name());
-    let compiled =
-        CompiledKernel::compile(&*kernel, definition, dyn_comp, &server.compilation_options)?;
+    let compiled = CompiledKernel::compile(kernel, definition, dyn_comp, options)?;
     // SPIR-V reaches the device as an assembled module, never as text, so a
     // precompiled kernel has nothing this path can load.
     if compiled.repr.is_none() {

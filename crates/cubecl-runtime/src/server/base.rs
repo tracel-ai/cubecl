@@ -1,4 +1,4 @@
-use super::Handle;
+use super::{CaptureStatus, DeviceCaptures, Handle};
 use crate::kernel::BufferIOAttr;
 use crate::{
     client::Client,
@@ -9,9 +9,9 @@ use crate::{
     kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{
-        InstallMemoryPoolsError, ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode,
-        MemoryConfiguration, MemoryReport, MemoryUsage,
+        ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode, StreamMemoryReport,
     },
+    poison::DevicePoison,
     server::{BufferBinding, KernelResource},
     storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
@@ -144,6 +144,9 @@ pub struct ServerUtilities {
     pub check_mode: BoundsCheckMode,
     /// A set containing the ids for which the inter-device communication has already been initialized.
     pub initialized_comms: RwLock<HashSet<CommunicationId>>,
+    /// The graph captures under way on the device, read-only: the streams update them through
+    /// the [`DeviceCaptures`] [`init`](Self::init) returns alongside.
+    pub captures: CaptureStatus,
 }
 
 /// Defines how the memory layout is determined.
@@ -171,20 +174,25 @@ impl core::fmt::Debug for ServerUtilities {
 }
 
 impl ServerUtilities {
-    /// Creates a new server utilities.
-    pub fn new(
+    /// Creates the utilities of a device, with the [captures](DeviceCaptures) its streams
+    /// update.
+    ///
+    /// The utilities are shared with every client and only read the captures; the server hands
+    /// the returned writer to the streams it creates, and to nothing else.
+    pub fn init(
         service: ServiceId,
         name: &'static str,
         properties: DeviceProperties,
         target_properties: TargetProperties,
         logger: Arc<ServerLogger>,
         allocator: impl MemoryLayoutPolicy,
-    ) -> Self {
+    ) -> (Self, DeviceCaptures) {
+        let captures = DeviceCaptures::default();
         // Start a tracy client if needed.
         #[cfg(feature = "profile-tracy")]
         let client = tracy_client::Client::start();
 
-        Self {
+        let utilities = Self {
             service,
             name,
             properties_hash: properties.checksum(),
@@ -209,7 +217,10 @@ impl ServerUtilities {
             server_comm_enabled: false,
             check_mode: CubeClRuntimeConfig::get().compilation.check_mode,
             initialized_comms: RwLock::new(HashSet::default()),
-        }
+            captures: captures.status(),
+        };
+
+        (utilities, captures)
     }
 }
 
@@ -236,6 +247,11 @@ pub enum LaunchError {
     /// Too many resources were requested
     #[error("Too many resources were requested during launch\n{0}")]
     TooManyResources(#[from] ResourceLimitError),
+
+    /// The device is poisoned: a kernel faulted in a way the driver makes
+    /// sticky (an illegal address, a trap, a hardware fault, etc.)
+    #[error("The device was poisoned during launch\nCaused by:\n  {0}")]
+    DevicePoisoned(#[from] DevicePoison),
 
     /// Unknown launch error.
     #[error(
@@ -293,6 +309,26 @@ pub enum ResourceLimitError {
         #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
+}
+
+impl LaunchError {
+    /// Whether the device that emitted the error is poisoned.
+    pub fn is_device_poisoned(&self) -> bool {
+        match self {
+            Self::DevicePoisoned(_) => true,
+            Self::CompilationError(error) => error.is_device_poisoned(),
+            _ => false,
+        }
+    }
+
+    /// Whether this is the kernel being refused before it ran.
+    pub fn is_refusal(&self) -> bool {
+        match self {
+            Self::CompilationError(error) => error.is_refusal(),
+            Self::TooManyResources(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl core::fmt::Debug for LaunchError {
@@ -402,6 +438,11 @@ pub enum ServerError {
         backtrace: BackTrace,
     },
 
+    /// The device is poisoned: a kernel faulted in a way the driver makes
+    /// sticky (an illegal address, a trap, a hardware fault, etc.)
+    #[error("The device is poisoned\nCaused by:\n  {0}")]
+    DevicePoisoned(#[from] DevicePoison),
+
     /// A launch error happened
     #[error("A launch error happened\nCaused by:\n  {0}")]
     Launch(#[from] LaunchError),
@@ -497,8 +538,9 @@ impl ServerError {
     ///
     /// The distinction a test harness or an autotuner needs: a kernel a
     /// backend cannot build at this configuration is a candidate to drop or a
-    /// case to skip, while a fault, an out-of-memory or an IO failure is a
-    /// defect that has to be reported. Answering it by reading the message is
+    /// case to skip, while a fault, an out-of-memory, an IO failure or a
+    /// kernel that panicked while expanding is a defect that has to be
+    /// reported. Answering it by reading the message is
     /// how a harness ends up accepting the second as the first.
     ///
     /// Walks [`Several`](Self::Several) and [`Unwritten`](Self::Unwritten) to
@@ -508,13 +550,32 @@ impl ServerError {
     /// refusals is still a real failure, and an empty group refuses nothing.
     pub fn is_refusal(&self) -> bool {
         match self {
-            Self::Launch(LaunchError::CompilationError(_) | LaunchError::TooManyResources(_)) => {
-                true
-            }
+            Self::Launch(error) => error.is_refusal(),
             Self::Unwritten { root, .. } => root.is_refusal(),
             Self::Several { errors, .. } => {
                 !errors.is_empty() && errors.iter().all(Self::is_refusal)
             }
+            _ => false,
+        }
+    }
+
+    /// Whether the device that emitted the error is poisoned.
+    ///
+    /// The other half of [`is_refusal`](Self::is_refusal): a refusal says
+    /// "drop this candidate", a poisoned device says "drop the device". Anything
+    /// else — an out-of-memory, a failed copy, a skipped launch — leaves the
+    /// device usable, and redoing the work may well succeed.
+    ///
+    /// Walks [`Several`](Self::Several) and [`Unwritten`](Self::Unwritten) to
+    /// the roots, and answers yes when *any* root poisoned the device: one poisoned
+    /// device among other failures still means nothing on it can be trusted.
+    pub fn is_device_poisoned(&self) -> bool {
+        match self {
+            Self::DevicePoisoned(_) => true,
+            Self::Launch(error) => error.is_device_poisoned(),
+            Self::Io(error) => error.is_device_poisoned(),
+            Self::Unwritten { root, .. } => root.is_device_poisoned(),
+            Self::Several { errors, .. } => errors.iter().any(Self::is_device_poisoned),
             _ => false,
         }
     }
@@ -545,7 +606,18 @@ pub trait Server:
     core::any::Any + Send + core::fmt::Debug + ServerCommunication + device::DeviceService + 'static
 {
     /// Initializes [memory](ManagedMemoryHandle) on the given [stream](StreamId) with the given size.
-    fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId);
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ServerError`] when the memory could not be initialized, e.g. because the stream
+    /// cannot be created on a poisoned device. The memory then carries the error: the next
+    /// sync point reading that memory reports it.
+    fn initialize_memory(
+        &mut self,
+        memory: ManagedMemoryHandle,
+        size: u64,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError>;
 
     /// Reserves N [Bytes] of the provided sizes to be used as staging to load data.
     fn staging(
@@ -638,25 +710,24 @@ pub trait Server:
     /// unwritten, and surfaces on any read, sync or check of them.
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
-    /// Prepare `stream_id` for an upcoming graph capture: route allocations
-    /// into a stable pool and snapshot it, so every buffer allocated between
-    /// here and [`end_capture`](Server::end_capture) can be pinned for
-    /// the graph's lifetime. Call this **before** the warmup run so the capture
-    /// window reuses the slices warmup left in the pool rather than allocating
-    /// its own — which a hardware-graph backend cannot do at all (a device
-    /// malloc inside the capture is illegal there), and which on any backend
-    /// would grow the memory a graph pins beyond what it replays against.
+    /// Compiles every kernel a [`LaunchMode::CompileOnly`] launch queued, now
+    /// rather than inside the next launch, so a measurement that follows
+    /// times its own kernels only.
     ///
-    /// Prefer having kernels already **autotuned before** this call: any
-    /// transient benchmark buffers autotune allocates while the window is armed
-    /// are forced into the persistent pool and pinned to the graph, so a graph
-    /// captured over a cold autotune cache retains more device memory than it
-    /// replays against. Warm the autotune cache first, then `graph_prepare` and
-    /// warm up only to populate the pool.
+    /// A kernel that fails to compile reports it when it is launched, as if
+    /// its launch had compiled it. A no-op by default, for a server that
+    /// queues nothing.
+    fn compile_queued(&mut self) {}
+
+    /// Prepare `stream_id` for an upcoming graph capture. Call this
+    /// **before** the warmup run: the capture window allocates nothing, so it
+    /// reuses what the warmup run left in the pools, and every page the
+    /// recording touches is guarded for the graph's lifetime.
     ///
-    /// A no-op by default (harmless on backends without graph support); a
-    /// backend with graph support enables its persistent pool + capture
-    /// recording.
+    /// Prefer having kernels already **autotuned before** this call, so the
+    /// warmup run allocates what the recorded run asks for and nothing else.
+    ///
+    /// A no-op by default (harmless on backends without graph support).
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let _ = stream_id;
         Ok(())
@@ -721,14 +792,13 @@ pub trait Server:
         let _ = (graph, stream_id);
     }
 
-    /// Memory usage of the given stream.
-    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage;
-
     /// Structured per-pool report of the given stream's **main GPU** memory:
     /// each pool's shape, usage, and high-water marks, in allocation-routing
     /// order. The read side of a measured memory plan — see
     /// `MemoryManagement::memory_report` in `cubecl-server`.
-    fn memory_report(&mut self, stream_id: StreamId) -> MemoryReport;
+    ///
+    /// `None` when the stream was never created.
+    fn memory_report(&mut self, stream_id: StreamId) -> Option<StreamMemoryReport>;
 
     /// Stream ids the client should iterate to aggregate across the device.
     ///
@@ -740,37 +810,12 @@ pub trait Server:
     }
 
     /// Ask the server to release memory that it can release.
-    fn memory_cleanup(&mut self, stream_id: StreamId);
-
-    /// Install a new dynamic-pool layout for the device's **main GPU** memory.
-    ///
-    /// The calling stream's pools are rebuilt in place (see
-    /// `MemoryManagement::install_pools` in `cubecl-server`
-    /// — a rebuild only happens when nothing is live in them), and the layout
-    /// becomes the one every stream created afterwards is built with. Pool
-    /// layouts are a purely programmatic, runtime setting — there is no
-    /// config-file pathway — so callers size them per workload (e.g. per model,
-    /// just before loading it).
     ///
     /// # Errors
     ///
-    /// [`PoolsInUse`](InstallMemoryPoolsError::PoolsInUse) when the calling
-    /// stream kept its old layout because something was still live in its
-    /// pools — e.g. a garbage-collection task that has not released its
-    /// cross-stream pins yet, which can lag behind an explicit
-    /// [`memory_cleanup`](Self::memory_cleanup). The layout still applies to
-    /// streams created afterwards; retry to rebuild the calling stream too.
-    ///
-    /// [`Unsupported`](InstallMemoryPoolsError::Unsupported) from servers
-    /// without configurable pools, which is the default implementation.
-    fn install_memory_pools(
-        &mut self,
-        config: MemoryConfiguration,
-        stream_id: StreamId,
-    ) -> Result<(), InstallMemoryPoolsError> {
-        let _ = (config, stream_id);
-        Err(InstallMemoryPoolsError::Unsupported)
-    }
+    /// Refused while a stream records a graph: releasing memory waits on the
+    /// device, and a wait on a stream that records aborts its capture.
+    fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
     /// Enable collecting timestamps.
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError>;
@@ -1171,23 +1216,36 @@ pub enum IoError {
         backtrace: BackTrace,
     },
 
-    /// A memory pool with a fixed capacity cap is exhausted.
+    /// No room for the allocation in the pages the memory holds, and the
+    /// reservation was not allowed to add one.
     ///
-    /// Unlike [`IoError::BufferTooBig`] (the allocation can *never* fit), this
-    /// means the working set exceeded the configured budget. Server execution
-    /// paths treat it as fatal — the budget is a hard contract, so failing
-    /// early beats silently growing — but callers that manage their own
-    /// working set may free pool memory and retry.
+    /// A stream recording a graph reserves this way: an allocation would
+    /// become part of the recording, and a hardware graph holding one cannot
+    /// be relaunched. The warmup before a capture is what leaves the pools
+    /// holding what the recorded run asks for.
     #[error(
-        "memory pool capacity exceeded: failed to reserve {size} bytes, pool is capped at {capacity} bytes ({in_use} bytes in use)\n{backtrace}"
+        "No room for {size} bytes in the memory held, and no page may be added (a graph capture is recording: warm up with the same workload first)\n{backtrace}"
     )]
-    PoolCapacityExceeded {
-        /// The size of the failed reservation in bytes.
+    PageUpdateForbidden {
+        /// The size of the allocation in bytes.
         size: u64,
-        /// The configured pool capacity in bytes (whole pages).
-        capacity: u64,
-        /// Bytes currently in use in the pool.
-        in_use: u64,
+        /// The captured backtrace.
+        #[cfg_attr(serializable, serde(skip))]
+        backtrace: BackTrace,
+    },
+
+    /// An allocation needs pages of a new size, and the memory already holds
+    /// as many page sizes as it keeps track of.
+    ///
+    /// Every size a workload grew through keeps a pool until what lives on it
+    /// is freed or relocated. A cleanup relocates what it can, so reclaiming
+    /// and retrying is a reasonable response.
+    #[error(
+        "Can't allocate {size} bytes: every page size the memory tracks still holds live allocations\n{backtrace}"
+    )]
+    PageSizesExhausted {
+        /// The size of the allocation in bytes.
+        size: u64,
         /// The captured backtrace.
         #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
@@ -1248,6 +1306,11 @@ pub enum IoError {
         backtrace: BackTrace,
     },
 
+    /// The device is poisoned: a kernel faulted in a way the driver makes
+    /// sticky (an illegal address, a trap, a hardware fault, etc.)
+    #[error("The device is poisoned: {0}")]
+    DevicePoisoned(#[from] DevicePoison),
+
     /// Unknown error happened during execution
     #[error("Unknown error happened during execution: {description}\n{backtrace}")]
     Unknown {
@@ -1268,6 +1331,15 @@ pub enum IoError {
 }
 
 impl IoError {
+    /// Whether the device that emitted the error is poisoned.
+    pub fn is_device_poisoned(&self) -> bool {
+        match self {
+            Self::DevicePoisoned(_) => true,
+            Self::StorageMappingFailed { source, .. } => source.is_device_poisoned(),
+            _ => false,
+        }
+    }
+
     /// Whether reclaiming memory could still make this allocation succeed.
     ///
     /// Out of memory *right now* is not out of memory for good: pool pages
@@ -1278,9 +1350,13 @@ impl IoError {
     /// and a second attempt.
     ///
     /// A buffer larger than any page the device can hold is the exception. It
-    /// never fits, so reclaiming would only spend the time.
+    /// never fits, so reclaiming would only spend the time. So is an
+    /// allocation while a graph records, where nothing may be released.
     pub fn may_succeed_after_reclaim(&self) -> bool {
-        !matches!(self, IoError::BufferTooBig { .. })
+        !matches!(
+            self,
+            IoError::BufferTooBig { .. } | IoError::PageUpdateForbidden { .. }
+        )
     }
 }
 
@@ -1805,6 +1881,68 @@ mod tests {
         assert!(core::ptr::eq(read[1], args.buffers().nth(2).unwrap()));
     }
 
+    /// A poisoned device is the one failure a caller must not retry.
+    ///
+    /// Loading the next kernel is the case that matters most: it arrives as a
+    /// compilation error, and read as a refusal it would have an autotuner
+    /// quietly drop the candidate and try the next one on a dead device.
+    #[test_log::test]
+    fn poisoned_device_read_through_every_path() {
+        use crate::server::{IoError, LaunchError};
+
+        let poison = || DevicePoison {
+            reason: String::from("cuEventSynchronize failed with status 700"),
+            backtrace: Default::default(),
+        };
+        let poisoned = [
+            ServerError::DevicePoisoned(poison()),
+            ServerError::Launch(LaunchError::DevicePoisoned(poison())),
+            ServerError::Launch(LaunchError::CompilationError(
+                CompilationError::DevicePoisoned(poison()),
+            )),
+            ServerError::Io(IoError::DevicePoisoned(poison())),
+            ServerError::Io(IoError::StorageMappingFailed {
+                size: 1 << 20,
+                source: alloc::boxed::Box::new(IoError::DevicePoisoned(poison())),
+                backtrace: Default::default(),
+            }),
+        ];
+        let refused =
+            ServerError::Launch(LaunchError::CompilationError(CompilationError::Generic {
+                reason: "no such intrinsic on this target".into(),
+                backtrace: Default::default(),
+            }));
+        let transient = ServerError::Generic {
+            reason: "the copy failed".into(),
+            backtrace: Default::default(),
+        };
+
+        for error in &poisoned {
+            assert!(error.is_device_poisoned(), "{error}");
+            assert!(
+                !error.is_refusal(),
+                "a poisoned device is not a refusal: {error}"
+            );
+        }
+        assert!(!refused.is_device_poisoned());
+        assert!(!transient.is_device_poisoned());
+
+        let unwritten = ServerError::Unwritten {
+            failure: 1,
+            claimed: 1,
+            chain: Vec::new(),
+            root: alloc::boxed::Box::new(poisoned[1].clone()),
+            backtrace: Default::default(),
+        };
+        assert!(unwritten.is_device_poisoned());
+        let group = ServerError::Several {
+            errors: vec![refused, unwritten],
+            backtrace: Default::default(),
+        };
+        assert!(group.is_device_poisoned());
+        assert!(!group.is_refusal());
+    }
+
     /// A refusal is the kernel being turned down, and nothing else is.
     ///
     /// The direction that matters is the false positive: a harness that takes
@@ -1831,9 +1969,21 @@ mod tests {
             backtrace: Default::default(),
         };
 
+        let panicked = ServerError::Launch(LaunchError::CompilationError(
+            CompilationError::ExpansionPanicked {
+                kernel: "kernel".into(),
+                message: "an assertion failed".into(),
+                backtrace: Default::default(),
+            },
+        ));
+
         assert!(refused.is_refusal());
         assert!(over_budget.is_refusal());
         assert!(!fault.is_refusal(), "a fault is not a refusal");
+        assert!(
+            !panicked.is_refusal(),
+            "a kernel that panicked while expanding is a defect, not a refusal"
+        );
 
         // A read reports the failure that stopped the buffer's writer, so the
         // question has to reach through the report to the root.
@@ -1846,6 +1996,7 @@ mod tests {
         };
         assert!(unwritten(&refused).is_refusal());
         assert!(!unwritten(&fault).is_refusal());
+        assert!(!unwritten(&panicked).is_refusal());
 
         let group = |errors: Vec<ServerError>| ServerError::Several {
             errors,

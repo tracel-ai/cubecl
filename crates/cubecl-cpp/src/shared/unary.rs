@@ -19,14 +19,13 @@ use cubecl_core::{
     },
     prelude::*,
 };
-use half::bf16;
 use num_traits::{One, Zero};
 
 use crate::{
     cuda::packed_ops::{PackableOp, packable},
     shared::{
         CppValue, OpToCPP,
-        convert::{no_half, promotes_int},
+        convert::{no_half, no_msl_bfloat, promotes_int},
         lowering::LowerOp,
         shared_op, shared_op_with_out,
         ty::{TypeExtCPP, TypedExtCPP},
@@ -69,12 +68,12 @@ macro_rules! function {
     };
 }
 
-function!(LogOp, "log", packable);
+function!(LogOp, "log", packable, no_msl_bfloat);
 // function!(FastLog, "__logf", no_half);
-function!(SinOp, "sin", packable);
-function!(CosOp, "cos", packable);
+function!(SinOp, "sin", packable, no_msl_bfloat);
+function!(CosOp, "cos", packable, no_msl_bfloat);
 function!(TanOp, "tan", no_half);
-function!(TanhOp, "tanh", packable);
+function!(TanhOp, "tanh", packable, no_msl_bfloat);
 function!(SinhOp, "sinh", no_half);
 function!(CoshOp, "cosh", no_half);
 function!(ArcCosOp, "acos", no_half);
@@ -85,17 +84,17 @@ function!(ArcCoshOp, "acosh", no_half);
 function!(ArcTanhOp, "atanh", no_half);
 // function!(FastSinOp, "__sinf", false);
 // function!(FastCosOp, "__cosf", false);
-function!(SqrtOp, "sqrt", packable);
-function!(RsqrtOp, "rsqrt", packable);
+function!(SqrtOp, "sqrt", packable, no_msl_bfloat);
+function!(RsqrtOp, "rsqrt", packable, no_msl_bfloat);
 // function!(FastSqrt, "__fsqrt_rn", false);
 // function!(FastInverseSqrt, "__frsqrt_rn", false);
-function!(ExpOp, "exp", packable);
+function!(ExpOp, "exp", packable, no_msl_bfloat);
 // function!(FastExp, "__expf", false);
 function!(Expm1Op, "expm1", no_half);
-function!(CeilOp, "ceil", packable);
-function!(TruncOp, "trunc", packable);
-function!(FloorOp, "floor", packable);
-function!(RoundOp, "rint", packable);
+function!(CeilOp, "ceil", packable, no_msl_bfloat);
+function!(TruncOp, "trunc", packable, no_msl_bfloat);
+function!(FloorOp, "floor", packable, no_msl_bfloat);
+function!(RoundOp, "rint", packable, no_msl_bfloat);
 // function!(FastRecip, "__frcp_rn", false);
 // function!(FastTanhOp, "__tanhf", false);
 
@@ -308,11 +307,6 @@ fn trailing_zeros<T: Int, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {
 }
 
 #[cube]
-fn cast_f16_bf16<T: Scalar, N: Size>(input: Vector<T, N>) -> Vector<bf16, N> {
-    Vector::<bf16, N>::cast_from(Vector::<f32, N>::cast_from(input))
-}
-
-#[cube]
 fn count_ones<T: Scalar, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {
     Vector::<u32, N>::cast_from(Vector::<u32, N>::cast_from(input).count_ones())
 }
@@ -328,11 +322,26 @@ lower_unop!(TrailingZerosBitsOp, trailing_zeros, |_, ctx| {
     matches!(ctx.target(), Target::Cuda | Target::Hip)
 });
 lower_unop!(ErfOp, erf, |_, ctx| ctx.target() == Target::Metal);
-lower_unop!(CastOp, cast_f16_bf16, |op, ctx| {
-    op.input(ctx).is_float16(ctx)
-        && op.get_result(ctx).is_bfloat16(ctx)
-        && matches!(ctx.target(), Target::Cuda | Target::Hip)
-});
+/// CUDA has no conversion between `f16` and `bf16` and HIP's is ambiguous: both directions go
+/// through the `f32` that holds either exactly.
+#[op_interface_impl]
+impl LowerOp<Shared> for CastOp {
+    fn should_lower(&self, ctx: &Context) -> bool {
+        let (input, output) = (self.input(ctx), self.get_result(ctx));
+        let halves = (is_f16(ctx, input) && is_bf16(ctx, output))
+            || (is_bf16(ctx, input) && is_f16(ctx, output));
+        halves && matches!(ctx.target(), Target::Cuda | Target::Hip)
+    }
+
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        define_size!(N);
+        let input = self.input(scope.ctx());
+        let output_ty = self.get_result(scope.ctx()).get_type(scope.ctx());
+        scope.register_size::<N>(input.vector_size(scope.ctx()));
+        let wide = cast_value(scope, input, Vector::<f32, N>::__expand_as_type(scope));
+        vec![cast_value(scope, wide, output_ty)]
+    }
+}
 
 // `isnan` / `isinf` are defined for cuda/hip/metal with same prefixes for half/bf16 on cuda/hip
 

@@ -16,7 +16,7 @@ pub trait OperationPtrExt: Sized {
     fn impls<T: ?Sized + OpInterfaceMarker + 'static>(self, ctx: &Context) -> bool {
         op_impls::<T>(&*self.dyn_op(ctx))
     }
-
+    fn cast<T: ?Sized + OpInterfaceMarker + 'static>(self, ctx: &Context) -> Option<TraitOp<T>>;
     fn as_op<T: Op>(self, ctx: &Context) -> Option<T>;
     fn dyn_op(self, ctx: &Context) -> OpObj;
     fn operand(self, ctx: &Context, idx: usize) -> Value;
@@ -38,6 +38,7 @@ pub trait OperationPtrExt: Sized {
 
 pub trait BlockPtrExt: Sized {
     fn arguments(self, ctx: &Context) -> Vec<Value>;
+    fn is_empty(&self, ctx: &Context) -> bool;
     fn is_entry_block(&self, ctx: &Context) -> bool;
     fn ops_with_interface<T: OpInterfaceMarker + ?Sized + 'static>(
         &self,
@@ -50,12 +51,19 @@ pub trait RegionPtrExt: Sized {
     fn is_empty(&self, ctx: &Context) -> bool;
 }
 
+pub trait OperationExt {
+    fn immediately_nested_ops(&self, ctx: &Context) -> impl Iterator<Item = Ptr<Operation>>;
+}
+
 impl OperationPtrExt for Ptr<Operation> {
     fn as_op<T: Op>(self, ctx: &Context) -> Option<T> {
         Operation::get_op(self, ctx)
     }
     fn dyn_op(self, ctx: &Context) -> OpObj {
         Operation::get_op_dyn(self, ctx)
+    }
+    fn cast<T: ?Sized + OpInterfaceMarker + 'static>(self, ctx: &Context) -> Option<TraitOp<T>> {
+        TraitOp::try_from_op(self, ctx)
     }
     fn operand(self, ctx: &Context, idx: usize) -> Value {
         Operation::get_operand(&self.deref(ctx), idx)
@@ -121,9 +129,21 @@ impl OperationPtrExt for Ptr<Operation> {
     }
 }
 
+impl OperationExt for Operation {
+    fn immediately_nested_ops(&self, ctx: &Context) -> impl Iterator<Item = Ptr<Operation>> {
+        self.regions()
+            .flat_map(|region| region.deref(ctx).iter(ctx))
+            .flat_map(|block| block.deref(ctx).iter(ctx))
+    }
+}
+
 impl BlockPtrExt for Ptr<BasicBlock> {
     fn arguments(self, ctx: &Context) -> Vec<Value> {
         self.deref(ctx).arguments().collect()
+    }
+
+    fn is_empty(&self, ctx: &Context) -> bool {
+        self.deref(ctx).iter(ctx).count() == 0
     }
 
     fn is_entry_block(&self, ctx: &Context) -> bool {

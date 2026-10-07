@@ -10,6 +10,7 @@ use cubecl_ir::{
     metadata::Info,
     settings::{Dim3, ExecutionMode, KernelSettings},
 };
+use cubecl_server::memory_management::{Cleanup, PageUpdate};
 use cubecl_server::server::ServerStorage;
 use cubecl_server::{
     allocator::ContiguousMemoryLayoutPolicy,
@@ -17,7 +18,7 @@ use cubecl_server::{
     kernel::{CubeKernel, KernelMetadata},
     logging::ServerLogger,
     memory_management::{
-        Claim, ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryUsage,
+        Claim, ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement,
     },
     server::{
         BufferBinding, CopyDescriptor, CubeCount, Handle, KernelArguments, KernelResource,
@@ -125,14 +126,20 @@ impl<M: Marker> Server for DummyServer<M> {
         self.utilities.clone()
     }
 
-    fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, _stream_id: StreamId) {
+    fn initialize_memory(
+        &mut self,
+        memory: ManagedMemoryHandle,
+        size: u64,
+        _stream_id: StreamId,
+    ) -> Result<(), ServerError> {
         let reserved = self
             .memory_management
-            .reserve(size, &mut self.failures)
+            .reserve(size, PageUpdate::Allow, &mut self.failures)
             .unwrap();
         self.memory_management
             .bind(reserved, memory.clone(), 0, &mut self.failures)
             .unwrap();
+        Ok(())
     }
 
     fn read(
@@ -301,19 +308,21 @@ impl<M: Marker> Server for DummyServer<M> {
         self.ensure_written(handles.iter())
     }
 
-    fn memory_usage(&mut self, _stream_id: StreamId) -> MemoryUsage {
-        self.memory_management.memory_usage()
-    }
-
     fn memory_report(
         &mut self,
-        _stream_id: StreamId,
-    ) -> cubecl_server::memory_management::MemoryReport {
-        self.memory_management.memory_report()
+        stream_id: StreamId,
+    ) -> Option<cubecl_server::memory_management::StreamMemoryReport> {
+        Some(cubecl_server::memory_management::StreamMemoryReport {
+            stream: stream_id,
+            pools: self.memory_management.memory_report(),
+            auxiliary: Vec::new(),
+        })
     }
 
-    fn memory_cleanup(&mut self, _stream_id: StreamId) {
-        self.memory_management.cleanup(true, &mut self.failures);
+    fn memory_cleanup(&mut self, _stream_id: StreamId) -> Result<(), ServerError> {
+        self.memory_management
+            .cleanup(Cleanup::Explicit, &mut self.failures);
+        Ok(())
     }
 
     fn start_profile(&mut self, _stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
@@ -350,6 +359,7 @@ impl<M: Marker> DummyServer<M> {
     ) -> Self {
         let hardware = HardwareProperties {
             load_width: 128,
+            vector_register_count: None,
             plane_size_min: 32,
             plane_size_max: 32,
             max_bindings: 32,
@@ -380,14 +390,16 @@ impl<M: Marker> DummyServer<M> {
         );
         let logger = Arc::new(ServerLogger::default());
 
-        let utilities = Arc::new(ServerUtilities::new(
+        // No graph capture on this backend: nothing updates the captures.
+        let (utilities, _captures) = ServerUtilities::init(
             service,
             "dummy",
             props,
             TargetProperties::default(),
             logger,
             ContiguousMemoryLayoutPolicy::new(4),
-        ));
+        );
+        let utilities = Arc::new(utilities);
 
         Self {
             _marker: core::marker::PhantomData,
@@ -442,7 +454,8 @@ impl<M: Marker> DummyServer<M> {
         let strides: Strides = [1].into();
         let shape: Shape = [data.len()].into();
 
-        self.initialize_memory(handle.memory.clone(), handle.size(), stream_id);
+        self.initialize_memory(handle.memory.clone(), handle.size(), stream_id)
+            .expect("the dummy server always allocates");
         self.write(
             vec![(
                 CopyDescriptor::new(handle.binding(), shape, strides, 1),

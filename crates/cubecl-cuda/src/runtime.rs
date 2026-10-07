@@ -15,8 +15,8 @@ use cubecl_core::{
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         ComplexKind, ContiguousElements, DeviceIdentity, DeviceProperties, ElemType, FloatKind,
-        HardwareProperties, IntKind, MemoryDeviceProperties, MmaProperties, OpaqueType, PciVendor,
-        PhysicalDevice, TargetProperties, Type, UIntKind, VectorSize,
+        HardwareProperties, MemoryDeviceProperties, MmaProperties, OpaqueType, PciVendor,
+        PhysicalDevice, TargetProperties, Type, VectorSize,
         features::{AtomicUsage, ComplexUsage, Plane, Tma, TypeUsage},
         nvidia::SmArch,
     },
@@ -36,8 +36,13 @@ use cubecl_cpp::{
     },
 };
 use cubecl_llvm::nvptx::ptx_version::PtxVersion;
+use cubecl_llvm::shared::lowered_features::{GpuTarget, restrict_features};
+use cubecl_monitoring::{DeviceUtilization, UtilizationUnavailable, gpu_utilization::CardCounters};
 use cubecl_server::{
-    allocator::PitchedMemoryLayoutPolicy, logging::ServerLogger, runtime::Runtime,
+    allocator::PitchedMemoryLayoutPolicy,
+    config::{CubeClRuntimeConfig, RuntimeConfig},
+    logging::ServerLogger,
+    runtime::Runtime,
 };
 #[cfg(windows)]
 use cudarc::driver::sys::cuDeviceGetLuid;
@@ -172,6 +177,7 @@ impl DeviceService for CudaServer {
 
             HardwareProperties {
                 load_width: 128,
+                vector_register_count: None,
                 plane_size_min: warp_size,
                 plane_size_max: warp_size,
                 max_bindings: crate::device::CUDA_MAX_BINDINGS,
@@ -218,7 +224,6 @@ impl DeviceService for CudaServer {
                 ComplexUsage::Core | ComplexUsage::Compare | ComplexUsage::Math,
             );
         }
-        device_props.register_type_usage(ElemType::Float(FloatKind::TF32), TypeUsage::Conversion);
         if arch_version >= 60 {
             device_props.register_atomic_type_usage(
                 Type::atomic(ElemType::Float(FloatKind::F64)),
@@ -254,6 +259,8 @@ impl DeviceService for CudaServer {
         }
 
         if arch_version >= 80 {
+            device_props
+                .register_type_usage(ElemType::Float(FloatKind::TF32), TypeUsage::Conversion);
             device_props.features.copy_async = true;
         }
 
@@ -368,7 +375,7 @@ impl DeviceService for CudaServer {
         // compile rather than a slower one.
         let backend = CudaBackend::default();
         if backend == CudaBackend::Llvm {
-            restrict_to_llvm_backend(&mut device_props);
+            restrict_features(&mut device_props, GpuTarget::Nvptx);
         }
 
         let comp_opts = CudaCompilationOptions {
@@ -376,10 +383,22 @@ impl DeviceService for CudaServer {
             arch: Some(SmArch::new(arch_version, arch.tensor_cores)),
             ptx_version: PtxVersion::for_driver(driver_version),
         };
-        let cuda_ctx = CudaContext::new(comp_opts, device_props.clone(), ctx, arch, backend);
+        // The context is current (set above), so the stream lands on it.
+        let comm_stream = crate::compute::stream::create_cuda_stream(
+            CubeClRuntimeConfig::get().streaming.priority,
+        )
+        .expect("Can create the communication stream.");
+        let cuda_ctx = CudaContext::new(
+            comp_opts,
+            device_props.clone(),
+            ctx,
+            arch,
+            backend,
+            comm_stream,
+        );
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
-        let mut utilities = ServerUtilities::new(
+        let (mut utilities, captures) = ServerUtilities::init(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "cuda",
             device_props,
@@ -397,119 +416,13 @@ impl DeviceService for CudaServer {
             mem_alignment,
             device_id,
             utilities,
+            captures,
         )
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {
         self.utilities() as ServerUtilitiesHandle
     }
-}
-
-/// Narrows what the device advertises to what the LLVM backend actually lowers.
-///
-/// The properties above are the C++ backend's, which has had every generation of NVIDIA's
-/// hardware features added to it as they shipped. The LLVM backend is at the point of running
-/// ordinary kernels: arithmetic, memory, shared memory, the plane operations and the two
-/// barriers. Everything it does not lower is taken away here rather than left to fail at
-/// compile time, because a consumer picks its algorithm off these properties — cubek's matmul
-/// selectors ask for `mma` before they ask anything else — and an advertisement that cannot be
-/// honoured is a launch that fails rather than one that falls back.
-///
-/// Each of these comes back as its lowering lands; see the matrix and TMA work in
-/// `cubecl-llvm`'s `nvptx` module.
-fn restrict_to_llvm_backend(props: &mut DeviceProperties) {
-    // Both matrix families are lowered: the cooperative one through `wmma`, the manual one
-    // through `mma.sync`. Each is narrowed to the element types its lowering has register
-    // shapes for -- `f16` operands throughout, plus the narrow integers on the manual side,
-    // which pass their registers as opaque words. `bf16` and `tf32` are in neither for the
-    // same reason `bf16` is dropped below: the dialect this backend lowers through has no type
-    // for them, so there is nothing to put in a register.
-    let half = ElemType::Float(FloatKind::F16);
-    let byte = |ty: ElemType| {
-        matches!(
-            ty,
-            ElemType::Int(IntKind::I8) | ElemType::UInt(UIntKind::U8)
-        )
-    };
-
-    let matmul = &mut props.features.matmul;
-    matmul.cmma.retain(|config| {
-        config.a_type == half
-            && config.b_type == half
-            && matches!(
-                config.cd_type,
-                ElemType::Float(FloatKind::F16) | ElemType::Float(FloatKind::F32)
-            )
-    });
-    matmul.mma.retain(|config| {
-        let floats = config.a_type == half
-            && config.b_type == half
-            && config.cd_type == ElemType::Float(FloatKind::F32);
-        // The four signed/unsigned pairings are four instructions over the same registers, so
-        // the operands are taken independently.
-        let integers = byte(config.a_type)
-            && byte(config.b_type)
-            && config.cd_type == ElemType::Int(IntKind::I32);
-        floats || integers
-    });
-    // The manual `mma.sync` family, `ldmatrix` and `stmatrix` are advertised: the lowering is
-    // correct, which `test_cmma_manual` checks element by element and cubek's
-    // `multi_level::basic::plane_accelerated::*_mma` matmuls now agree with.
-    //
-    // Those matmuls did come out wrong here for a while, and it is worth saying why they were
-    // not this backend's fault: they published an accumulator tile to shared memory and read it
-    // back across the plane with no barrier, which works on a backend whose optimizer takes the
-    // code at its word and does not survive one that does not. The barrier belongs in the
-    // kernel and is now there.
-
-    // Still on the manual side and still unimplemented: the cube-level API, and the scaled
-    // instructions with their `block_scale` operands.
-    matmul.cube_mma = Default::default();
-    matmul.scaled_mma = Default::default();
-    matmul.cmma_tensor_addressing = false;
-    if matmul.cmma.is_empty() && matmul.mma.is_empty() {
-        props.hardware.num_tensor_cores = None;
-        props.hardware.min_tensor_cores_dim = None;
-    }
-
-    // No TMA, no clusters, no async copy, and no `mbarrier` behind them.
-    props.features.tma = Default::default();
-    props.features.cube_cluster = false;
-    props.features.copy_async = false;
-    props.features.types.opaque.remove(&OpaqueType::TensorMap);
-    props.features.types.opaque.remove(&OpaqueType::Barrier);
-
-    // The shuffles go through `shfl.sync` with a full member mask, which requires the plane to
-    // be converged. The C++ backend advertises this because its own plane lowering handles a
-    // partial mask; until this one does, a diverged plane operation would be undefined rather
-    // than merely slow.
-    props.features.plane.remove(Plane::NonUniformControlFlow);
-
-    // `bf16` has no type in the LLVM dialect this backend lowers through -- pliron has
-    // `builtin.fp16`, `fp32` and `fp64` and nothing between -- so a `bf16` kernel compiles to
-    // something that quietly computes zeros. Until it is either given a type or carried as an
-    // `i16` the way the minifloats are, it must not be offered.
-    let bf16 = ElemType::Float(FloatKind::BF16);
-    props.features.types.elem.remove(&bf16);
-    props
-        .features
-        .types
-        .atomic
-        .retain(|ty, _| ty.elem_type() != bf16);
-
-    // Complex arithmetic is lowered by the C++ backends, not by this one.
-    props.features.types.complex.clear();
-    for kind in [ComplexKind::C32, ComplexKind::C64] {
-        props.features.types.elem.remove(&ElemType::Complex(kind));
-    }
-
-    // Vectorized float atomics: the shared atomic lowering handles the scalar widths, and a
-    // vector `atomicrmw` is not one instruction on this target.
-    props
-        .features
-        .types
-        .atomic
-        .retain(|ty, _| ty.vector_size() == 1);
 }
 
 fn tensor_cores_per_sm(arch: &CudaArchitecture) -> Option<u32> {
@@ -564,6 +477,10 @@ impl Runtime for CudaRuntime {
                 index_id: i as u16,
             })
             .collect()
+    }
+
+    fn utilization(device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
+        CardCounters::read(Self::client(device).properties().identity.physical.as_ref())
     }
 }
 

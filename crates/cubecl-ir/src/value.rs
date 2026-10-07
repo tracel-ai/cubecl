@@ -375,7 +375,7 @@ impl ConstantValue {
                 FloatKind::E5M2 => e5m2::from_f64(real.as_f64()).to_f64(),
                 FloatKind::UE8M0 => ue8m0::from_f64(real.as_f64()).to_f64(),
                 FloatKind::F16 => half::f16::from_f64(real.as_f64()).to_f64(),
-                FloatKind::BF16 => half::bf16::from_f64(real.as_f64()).to_f64(),
+                FloatKind::BF16 => bf16_rounded_once(real).to_f64(),
                 FloatKind::Flex32 | FloatKind::TF32 | FloatKind::F32 => real.as_f64() as f32 as f64,
                 FloatKind::F64 => real.as_f64(),
             }
@@ -446,6 +446,48 @@ impl From<&ExpandValue> for ExpandValue {
     }
 }
 
+/// The `bf16` nearest `value`, rounded once as a device conversion rounds it.
+/// `half::bf16::from_f64` goes through the nearest `f32` and so rounds twice; rounding to odd at
+/// `f32` instead leaves the last rounding exact. This is the host twin of the conversion
+/// `cubecl_core::post_processing::bf16` lowers on the device, so a folded constant and the same
+/// cast at runtime agree.
+fn bf16_rounded_once(value: ConstantValue) -> half::bf16 {
+    let odd = match value {
+        ConstantValue::Int(value) => {
+            let magnitude = u64_to_f32_round_to_odd(value.unsigned_abs());
+            if value < 0 { -magnitude } else { magnitude }
+        }
+        ConstantValue::UInt(value) => u64_to_f32_round_to_odd(value),
+        value => f64_to_f32_round_to_odd(value.as_f64()),
+    };
+    half::bf16::from_f32(odd)
+}
+
+/// The nearest `f32`, or when inexact the one beside it toward zero with its low bit set.
+fn f64_to_f32_round_to_odd(value: f64) -> f32 {
+    let nearest = value as f32;
+    if nearest as f64 == value || value.is_nan() {
+        return nearest;
+    }
+    let bits = nearest.to_bits();
+    let toward_zero = match (nearest as f64).abs() > value.abs() {
+        true => bits - 1,
+        false => bits,
+    };
+    f32::from_bits(toward_zero | 1)
+}
+
+/// [`f64_to_f32_round_to_odd`] for an integer magnitude: its top 24 significant bits, with a
+/// sticky low bit for whatever was dropped below them.
+fn u64_to_f32_round_to_odd(magnitude: u64) -> f32 {
+    let significant = u64::BITS - magnitude.leading_zeros();
+    let excess = significant.saturating_sub(f32::MANTISSA_DIGITS);
+    let kept = magnitude >> excess;
+    let odd = kept | u64::from(kept << excess != magnitude);
+    let scale = f32::from_bits((excess + (f32::MAX_EXP - 1) as u32) << (f32::MANTISSA_DIGITS - 1));
+    odd as f32 * scale
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -464,5 +506,29 @@ mod tests {
             ConstantValue::Complex(0.0, 0.0).cast_to(ElemType::Bool),
             ConstantValue::Bool(false)
         );
+    }
+
+    /// A folded cast to `bf16` rounds once, as the device does: each value sits just past a
+    /// `bf16` tie that rounding to `f32` first would land on, then round to even the wrong way.
+    #[test]
+    fn bf16_constants_round_once() {
+        let bf16 = |value: ConstantValue| match value.cast_to(FloatKind::BF16) {
+            ConstantValue::Float(value) => half::bf16::from_f64(value).to_bits(),
+            other => panic!("a bf16 constant is a float, got {other:?}"),
+        };
+        // 2^31 + 2^23 + 2^7, and its negation shifted down one.
+        assert_eq!(bf16(ConstantValue::UInt(0x8080_0080)), 0x4F01);
+        assert_eq!(bf16(ConstantValue::Int(-0x4040_0040)), 0xCE81);
+        // 1 + 2^-8 + 2^-52.
+        assert_eq!(
+            bf16(ConstantValue::Float(f64::from_bits(0x3FF0_1000_0000_0001))),
+            0x3F81
+        );
+        // 2^63 + 2^55 + 1, past what `f64` holds exactly.
+        assert_eq!(bf16(ConstantValue::UInt((1 << 63) + (1 << 55) + 1)), 0x5F01);
+        assert_eq!(bf16(ConstantValue::Int(i64::MIN)), 0xDF00);
+        assert_eq!(bf16(ConstantValue::Float(f64::INFINITY)), 0x7F80);
+        assert_eq!(bf16(ConstantValue::Float(-0.0)), 0x8000);
+        assert!(half::bf16::from_bits(bf16(ConstantValue::Float(f64::NAN))).is_nan());
     }
 }

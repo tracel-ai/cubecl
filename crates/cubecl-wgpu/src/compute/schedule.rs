@@ -1,10 +1,12 @@
+use crate::compute::device_poison::PoisonWatch;
 use crate::{
-    CompilerInfo, ParamsTransfer, WgpuResource, stream::WgpuStream,
-    timings::TimestampQuerySetBudget,
+    CompilerInfo, ParamsTransfer, WgpuResource,
+    stream::WgpuStream,
+    timings::{TimestampQuerySetBudget, TimestampSampling},
 };
 use alloc::sync::Arc;
 use cubecl_common::{bytes::Bytes, pool::LeaseHandle, profile::TimingMethod};
-use cubecl_core::server::BufferBinding;
+use cubecl_core::server::{BufferBinding, DeviceCaptures, ServerError};
 use cubecl_core::{CubeCount, MemoryConfiguration, server::MetadataBindingInfo, zspace::SmallVec};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_server::{
@@ -87,52 +89,38 @@ pub struct WgpuStreamFactory {
     timing_method: TimingMethod,
     /// Per-device budget of live timestamp query sets, shared by every stream it creates.
     timing_budget: Arc<TimestampQuerySetBudget>,
+    timestamp_sampling: TimestampSampling,
     tasks_max: usize,
     logger: Arc<ServerLogger>,
     count: u64,
     use_vulkan_compiler: bool,
-    /// Programmatic main-GPU pool layout (see
-    /// [`Server::install_memory_pools`](cubecl_server::server::Server::install_memory_pools)):
-    /// streams created after it is set build their main pool from it instead
-    /// of the runtime default. Auxiliary pools are unaffected.
-    gpu_pools_override: Option<MemoryConfiguration>,
-}
-
-impl WgpuStreamFactory {
-    /// The layout streams build their main pool with, and the properties to
-    /// resolve it against.
-    pub(crate) fn gpu_pools(&self) -> (MemoryConfiguration, MemoryDeviceProperties) {
-        let config = self
-            .gpu_pools_override
-            .clone()
-            .unwrap_or_else(|| self.memory_config.clone());
-        (config, self.memory_properties.clone())
-    }
-
-    /// Set the main-GPU pool layout for streams created from now on.
-    pub(crate) fn set_gpu_pools(&mut self, config: MemoryConfiguration) {
-        self.gpu_pools_override = Some(config);
-    }
+    /// The device's captures, which every stream this creates takes its capture state from.
+    captures: DeviceCaptures,
+    /// Whether the device is poisoned, shared by every stream the factory creates.
+    poison: PoisonWatch,
 }
 
 impl StreamFactory for WgpuStreamFactory {
     type Stream = WgpuStream;
 
-    fn create(&mut self) -> Self::Stream {
+    fn create(&mut self) -> Result<Self::Stream, ServerError> {
         self.count += 1;
 
-        let (gpu_config, _) = self.gpu_pools();
-        WgpuStream::new(
+        let gpu_config = self.memory_config.clone();
+        Ok(WgpuStream::new(
             self.device.clone(),
             self.queue.clone(),
             self.memory_properties.clone(),
             gpu_config,
             self.timing_method,
             self.timing_budget.clone(),
+            self.timestamp_sampling,
             self.tasks_max,
             self.logger.clone(),
             self.use_vulkan_compiler,
-        )
+            &self.captures,
+            self.poison.clone(),
+        ))
     }
 }
 
@@ -149,12 +137,15 @@ impl ScheduledWgpuBackend {
         tasks_max: usize,
         logger: Arc<ServerLogger>,
         use_vulkan_compiler: bool,
+        captures: DeviceCaptures,
     ) -> Self {
         // One budget per device. Only Metal caps counter sample buffers; others go unbounded.
         let timing_budget = Arc::new(match backend {
             wgpu::Backend::Metal => TimestampQuerySetBudget::metal(),
             _ => TimestampQuerySetBudget::unbounded(),
         });
+
+        let poison = PoisonWatch::watch(&device);
 
         Self {
             factory: WgpuStreamFactory {
@@ -164,11 +155,13 @@ impl ScheduledWgpuBackend {
                 memory_config,
                 timing_method,
                 timing_budget,
+                timestamp_sampling: TimestampSampling::new(backend),
                 tasks_max,
                 logger,
                 count: 0,
                 use_vulkan_compiler,
-                gpu_pools_override: None,
+                captures,
+                poison,
             },
         }
     }
@@ -223,8 +216,8 @@ impl SchedulerStreamBackend for ScheduledWgpuBackend {
         stream.enqueue_task(task, failures);
     }
 
-    fn flush(stream: &mut Self::Stream, failures: &mut ErrorGraph) {
-        stream.submit(failures);
+    fn flush(stream: &mut Self::Stream, _failures: &mut ErrorGraph) {
+        stream.submit();
     }
 
     fn factory(&mut self) -> &mut Self::Factory {

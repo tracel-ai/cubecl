@@ -30,7 +30,11 @@ impl PooledProbes {
     }
 
     pub(super) fn cleanup_unless_held(client: &Client) {
-        Self::cleanup_unless_held_by(client.service_id(), || client.memory_cleanup());
+        // A cleanup refused because a stream records a graph leaves the memory
+        // for the next one; the sweep needs nothing from it.
+        Self::cleanup_unless_held_by(client.service_id(), || {
+            let _ = client.memory_cleanup();
+        });
     }
 
     /// `release` runs with the lock dropped: it blocks on the device thread,

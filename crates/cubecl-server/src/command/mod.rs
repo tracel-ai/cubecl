@@ -5,6 +5,7 @@ mod base;
 mod capture;
 mod collective;
 mod staging;
+mod stream_copies;
 
 pub use backend::*;
 pub use base::*;

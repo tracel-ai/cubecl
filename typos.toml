@@ -21,3 +21,8 @@ cpy = "cpy"         # Shorthand for "copy" (CUDA_MEMCPY2D_st locals).
 ue4m3 = "ue4m3"
 ue8m0 = "ue8m0"
 ue8m0x2 = "ue8m0x2"
+
+[files]
+extend-exclude = [
+    "crates/cubecl-opt/tests", # Many false positives because of abbreviated names
+]

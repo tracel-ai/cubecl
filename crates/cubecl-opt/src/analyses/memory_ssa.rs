@@ -1,4 +1,4 @@
-use core::fmt;
+use core::{cell::RefMut, fmt};
 
 use alloc::{
     collections::VecDeque,
@@ -9,11 +9,12 @@ use cubecl_environment::collections::HashMap;
 use cubecl_ir::{
     dialect::RegionPtrExt,
     interfaces::{
-        MemoryEffect, MemoryEffects,
+        control_flow::CallableOpInterface,
         memory_slot::{
             MemorySSAContext, MemorySSARegionOpInterface, MemoryValue, RegionMemoryPhiInputs,
             RegionMemoryValue,
         },
+        side_effects::{MemoryEffect, MemoryEffectsOp},
     },
     prelude::*,
 };
@@ -112,7 +113,7 @@ impl MemoryOpAnalyzer<'_> {
                 let region = op.deref(ctx).get_parent_region(ctx).unwrap();
                 if op.deref(ctx).num_regions() > 0 {
                     // Region ops are processed separately
-                } else if let Some(mem_effects) = op_cast::<dyn MemoryEffects>(&*op.dyn_op(ctx)) {
+                } else if let Some(mem_effects) = op_cast::<dyn MemoryEffectsOp>(&*op.dyn_op(ctx)) {
                     let effects = mem_effects.memory_effects(ctx);
                     if effects.is_empty() {
                         return;
@@ -210,18 +211,18 @@ impl MemoryOpAnalyzer<'_> {
 #[derive(Clone, Copy)]
 pub enum NodeMemoryEffects {
     Opaque,
-    Op(TraitOpPtr<dyn MemoryEffects>),
+    Op(TraitOp<dyn MemoryEffectsOp>),
 }
 
 impl NodeMemoryEffects {
     fn from_op(ctx: &Context, op: Ptr<Operation>) -> NodeMemoryEffects {
-        NodeMemoryEffects::Op(TraitOpPtr::try_from_op(op, ctx).unwrap())
+        NodeMemoryEffects::Op(TraitOp::try_from_op(op, ctx).unwrap())
     }
 
     pub fn effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         match self {
             NodeMemoryEffects::Opaque => vec![MemoryEffect::Opaque],
-            NodeMemoryEffects::Op(trait_op_ptr) => trait_op_ptr.deref(ctx).memory_effects(ctx),
+            NodeMemoryEffects::Op(trait_op_ptr) => trait_op_ptr.memory_effects(ctx),
         }
     }
 }
@@ -599,6 +600,28 @@ impl MemorySSA {
             analysis_stack: AliasAnalysisStack::default(),
         }
     }
+
+    pub fn get_for_nearest_root<'a>(
+        ctx: &Context,
+        analyses: &'a mut AnalysisManager,
+        op: Ptr<Operation>,
+    ) -> Result<RefMut<'a, Self>> {
+        let root = find_memory_ssa_root(ctx, op).expect("Not contained in a callable");
+        analyses.get_analysis_mut(root, ctx)
+    }
+}
+
+/// Given an `op`, finds the corresponding `MemorySSA` root. `MemorySSA` is an intra-prodcedural
+/// analysis, so we look for the nearest [`CallableOpInterface`]
+pub fn find_memory_ssa_root(ctx: &Context, op: Ptr<Operation>) -> Option<Ptr<Operation>> {
+    let mut cur = op;
+    loop {
+        if cur.impls::<dyn CallableOpInterface>(ctx) {
+            return Some(cur);
+        }
+        let parent_op = cur.deref(ctx).get_parent_op(ctx)?;
+        cur = parent_op;
+    }
 }
 
 impl Printable for MemorySSA {
@@ -609,13 +632,14 @@ impl Printable for MemorySSA {
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result {
         f.write_str("MemorySSA {")?;
-        state.push_indent();
-        for region in self.root.deref(ctx).regions() {
-            for block in region.deref(ctx).iter(ctx) {
-                print_block(ctx, state, &self.nodes, block, f)?;
+        {
+            let _indent = state.indent();
+            for region in self.root.deref(ctx).regions() {
+                for block in region.deref(ctx).iter(ctx) {
+                    print_block(ctx, state, &self.nodes, block, f)?;
+                }
             }
         }
-        state.pop_indent();
         f.write_str("\n}")
     }
 }
@@ -634,13 +658,13 @@ fn print_block(
 
     fmt_indented_newline(state, f)?;
     write!(f, "{}:", block.label(ctx))?;
-    state.push_indent();
+    {
+        let _indent = state.indent();
 
-    for op in block.deref(ctx).iter(ctx) {
-        print_op(ctx, state, nodes, op, f)?;
+        for op in block.deref(ctx).iter(ctx) {
+            print_op(ctx, state, nodes, op, f)?;
+        }
     }
-
-    state.pop_indent();
     writeln!(f)
 }
 
@@ -659,13 +683,14 @@ fn print_op(
     fmt_indented_newline(state, f)?;
     write!(f, "{};", OpDbg { op, ctx }.to_string().trim())?;
     if op.deref(ctx).num_regions() > 0 {
-        state.push_indent();
-        for region in op.deref(ctx).regions() {
-            for block in region.deref(ctx).iter(ctx) {
-                print_block(ctx, state, nodes, block, f)?;
+        {
+            let _indent = state.indent();
+            for region in op.deref(ctx).regions() {
+                for block in region.deref(ctx).iter(ctx) {
+                    print_block(ctx, state, nodes, block, f)?;
+                }
             }
         }
-        state.pop_indent();
     }
     Ok(())
 }
@@ -742,6 +767,24 @@ impl MemorySSA {
         new_use.is_optimized = true;
         self.nodes.insert(DefiningEntity::Op(op), new_use.into());
         Some(clobbering_access)
+    }
+
+    pub fn op_memory_def(&mut self, op: Ptr<Operation>) -> Option<MemoryValue> {
+        self.memory_def(DefiningEntity::Op(op))
+    }
+
+    pub fn block_memory_def(&mut self, block: Ptr<BasicBlock>) -> Option<MemoryValue> {
+        self.memory_def(DefiningEntity::Block(block))
+    }
+
+    pub fn memory_def(&mut self, defining: DefiningEntity) -> Option<MemoryValue> {
+        let node = self.nodes.get(&defining)?;
+        match node {
+            MemorySSANode::Def(def) => Some(def.result),
+            MemorySSANode::Use(_) => None,
+            MemorySSANode::Phi(phi) => Some(phi.result),
+            MemorySSANode::RegionPhi(phi) => Some(phi.result),
+        }
     }
 }
 

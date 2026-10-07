@@ -22,7 +22,7 @@ use pliron::{
 };
 
 use crate::{
-    CanMaterialize,
+    CanMaterialize, HasSideEffects, NoMemoryEffect, NoSideEffects, Pure,
     dialect::{
         general::SymbolUserOpVerifyErr,
         matrix::{self, MatrixLayoutAttr, parse_closure, print_closure},
@@ -38,7 +38,7 @@ use crate::{
 /// coordination between threads.
 #[cube_op(name = "ssa_matrix.fill")]
 #[result_ty(argument)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, Pure)]
 pub struct FillOp {
     pub value: Value,
 }
@@ -64,7 +64,7 @@ impl MatrixToSSAOp for matrix::FillOp {
 
 #[cube_op(name = "ssa_matrix.load")]
 #[result_ty(argument)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, NoSideEffects)]
 pub struct LoadOp {
     #[operand(ptr_read)]
     pub source: Value,
@@ -96,7 +96,7 @@ impl MatrixToSSAOp for matrix::LoadOp {
 
 #[cube_op(name = "ssa_matrix.store")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct StoreOp {
     pub matrix: Value,
     #[operand(ptr_write)]
@@ -128,7 +128,7 @@ impl MatrixToSSAOp for matrix::StoreOp {
 
 #[cube_op(name = "ssa_matrix.multiply_accumulate")]
 #[result_ty(argument)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, NoMemoryEffect, NoSideEffects)]
 pub struct MultiplyAccumulateOp {
     pub mat_a: Value,
     pub mat_b: Value,
@@ -162,7 +162,7 @@ impl MatrixToSSAOp for matrix::MultiplyAccumulateOp {
 /// coordination between threads.
 #[cube_op(name = "ssa_matrix.cast")]
 #[result_ty(argument)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, NoMemoryEffect, NoSideEffects)]
 pub struct CastOp {
     pub input: Value,
 }
@@ -195,7 +195,7 @@ impl MatrixToSSAOp for matrix::CastOp {
     verifier = "succ"
 )]
 #[op_interfaces(OneResultInterface)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, NoMemoryEffect, NoSideEffects)]
 pub struct ElementwiseOp;
 
 impl ElementwiseOp {

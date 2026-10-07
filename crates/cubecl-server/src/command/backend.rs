@@ -10,7 +10,7 @@ use crate::id::KernelId;
 use crate::memory_management::drop_queue::{Fence, PendingDropQueue};
 use crate::memory_management::{ManagedMemoryBinding, MemoryManagement};
 use crate::metadata_cache::MetadataInfoCache;
-use crate::server::{Handle, IoError, LaunchError};
+use crate::server::{Handle, IoError, LaunchError, ServerError};
 use crate::storage::ComputeStorage;
 use crate::stream::{EventStreamBackend, StreamCapture};
 use cubecl_common::bytes::Bytes;
@@ -112,9 +112,9 @@ impl<'a> CopyLayout<'a> {
 
 /// The device calls a [`Command`](super::Command) cannot make itself.
 ///
-/// Four, because everything else a command does — deciding what to stage, when
-/// to reclaim, whether a layout needs a 2D copy, when the drop queue may be
-/// flushed — is the same whichever driver is underneath.
+/// Only these, because everything else a command does — deciding what to
+/// stage, when to reclaim, whether a layout needs a 2D copy, when the drop
+/// queue may be flushed — is the same whichever driver is underneath.
 pub trait Driver: Sized {
     /// The multi-stream backend whose streams this driver drives.
     type Backend: EventStreamBackend<Stream = Self::Stream>;
@@ -131,6 +131,11 @@ pub trait Driver: Sized {
     ///
     /// [`launch`]: Self::launch
     type LaunchArgs: ?Sized;
+    /// A kernel loaded on the device, as the server's
+    /// [`KernelLoader`](crate::compiler::KernelLoader) hands it out: launching
+    /// it takes no lookup, so nothing that empties the loader in between —
+    /// an environment switch — can leave a launch without its kernel.
+    type Loaded;
 
     /// Hand out `size` bytes of the pinned host allocation `binding` names,
     /// released back to the pool when the [`Bytes`] drop.
@@ -181,7 +186,41 @@ pub trait Driver: Sized {
         stream: &Self::Stream,
     ) -> Result<(), IoError>;
 
-    /// Enqueue an already-compiled kernel on `stream`.
+    /// Enqueue a copy of `source`'s bytes into `target` on `stream`, both
+    /// device memory of the same size — how a live allocation is relocated
+    /// off an outdated page.
+    ///
+    /// # Safety
+    ///
+    /// Both resources are live device allocations of the same size that do
+    /// not overlap, and nothing reads `target` or writes `source` until the
+    /// caller synchronizes `stream`.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to copy.
+    unsafe fn copy_on_device(
+        source: &DeviceResource<Self>,
+        target: &DeviceResource<Self>,
+        queue: <Self::Stream as DeviceStream>::Signal,
+    ) -> Result<(), IoError>;
+
+    /// Wait for device work enqueued outside the command's streams — CUDA's
+    /// collectives, on a stream of their own that the compute streams only
+    /// wait on at a collective sync — before a relocation moves the
+    /// allocations that work may still read or write.
+    ///
+    /// Nothing by default: a backend whose every device operation runs on its
+    /// command streams has nothing else to wait on.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to synchronize.
+    fn wait_outside_streams(_ctx: &mut Self::Context) -> Result<(), ServerError> {
+        Ok(())
+    }
+
+    /// Enqueue `kernel`, already compiled and loaded under `id`, on `stream`.
     ///
     /// Always a compiled kernel: the server compiles before entering its write
     /// scope, and a skipped launch stops there, before any resource is
@@ -193,7 +232,8 @@ pub trait Driver: Sized {
     fn launch(
         ctx: &mut Self::Context,
         stream: &mut Self::Stream,
-        kernel: KernelId,
+        id: &KernelId,
+        kernel: &Self::Loaded,
         count: (u32, u32, u32),
         args: &mut Self::LaunchArgs,
     ) -> Result<(), LaunchError>;

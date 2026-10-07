@@ -1,25 +1,34 @@
 use crate::prelude::*;
-#[cfg(feature = "nvptx")]
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 use cubecl_core::ir::AddressType;
 use cubecl_core::ir::types::{
     ArrayType, AtomicType,
     scalar::{
-        Float8E4M3Type, Float8E5M2Type, Float8E8M0Type, Float16Type, Float32Type, Float64Type,
-        FloatFlex32Type,
+        BFloat16Type, Float8E4M3Type, Float8E5M2Type, Float8E8M0Type, Float16Type, Float32Type,
+        Float64Type, FloatFlex32Type, TFloat32Type,
     },
 };
 
-/// Index width in bits. CPU and AMDGPU use 64 bits; NVPTX follows the address type.
+/// Index width in bits. The GPU targets follow the address type: a kernel whose buffers fit in
+/// 32-bit addressing does its index arithmetic in 32 bits, which on AMDGPU is one vector or
+/// scalar ALU instruction where 64 bits takes two or more, and on NVPTX half the registers. The
+/// CPU uses 64 bits.
 pub fn index_width(ctx: &Context) -> u32 {
     match ctx.target() {
-        #[cfg(feature = "nvptx")]
-        LlvmTarget::Nvptx => match ctx.address_type() {
-            AddressType::U32 => 32,
-            AddressType::U64 => 64,
-        },
-        #[cfg(feature = "amdgpu")]
-        LlvmTarget::AmdGpu => 64,
         LlvmTarget::Cpu => 64,
+        #[cfg(feature = "nvptx")]
+        LlvmTarget::Nvptx => address_width(ctx),
+        #[cfg(feature = "amdgpu")]
+        LlvmTarget::AmdGpu => address_width(ctx),
+    }
+}
+
+/// The width a kernel's addresses are computed in.
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+fn address_width(ctx: &Context) -> u32 {
+    match ctx.address_type() {
+        AddressType::U32 => 32,
+        AddressType::U64 => 64,
     }
 }
 
@@ -43,7 +52,11 @@ impl_cube_to_llvm_type!(IndexType, self, ctx => IntegerType::get(ctx, index_widt
 impl_cube_to_llvm_type!(Float64Type, self, ctx => FP64Type::get(ctx));
 impl_cube_to_llvm_type!(Float32Type, self, ctx => FP32Type::get(ctx));
 impl_cube_to_llvm_type!(FloatFlex32Type, self, ctx => FP32Type::get(ctx));
+// TF32 keeps its FP32 storage. Casts round the mantissa; matrix instructions take its bits.
+impl_cube_to_llvm_type!(TFloat32Type, self, ctx => FP32Type::get(ctx));
 impl_cube_to_llvm_type!(Float16Type, self, ctx => FP16Type::get(ctx));
+// LLVM legalizes `bfloat` per target: native where the hardware has it, through `f32` elsewhere.
+impl_cube_to_llvm_type!(BFloat16Type, self, ctx => BF16Type::get(ctx));
 impl_cube_to_llvm_type!(Float8E4M3Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
 impl_cube_to_llvm_type!(Float8E5M2Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
 impl_cube_to_llvm_type!(Float8E8M0Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
@@ -83,12 +96,13 @@ pub fn scalar_alignment(ctx: &Context, ty: TypeHandle) -> u32 {
     .unwrap_or(ty);
 
     let scalar = scalar.deref(ctx);
-    let scalar = type_cast::<dyn AlignedType>(&*scalar);
-    if scalar.is_none() {
-        println!("{}", ty.disp(ctx));
-    }
-    scalar
-        .expect("load/store value type must implement AlignedType")
+    type_cast::<dyn AlignedType>(&*scalar)
+        .unwrap_or_else(|| {
+            panic!(
+                "load/store value type must implement AlignedType, `{}` does not",
+                ty.disp(ctx)
+            )
+        })
         .align(ctx) as u32
 }
 
@@ -111,6 +125,7 @@ macro_rules! impl_llvm_type_to_mangled_overload {
 
 impl_llvm_type_to_mangled_overload!(IntegerType, self, _ctx => format!("i{}", self.width()));
 impl_llvm_type_to_mangled_overload!(FP16Type, self, _ctx => "f16".to_string());
+impl_llvm_type_to_mangled_overload!(BF16Type, self, _ctx => "bf16".to_string());
 impl_llvm_type_to_mangled_overload!(FP32Type, self, _ctx => "f32".to_string());
 impl_llvm_type_to_mangled_overload!(FP64Type, self, _ctx => "f64".to_string());
 impl_llvm_type_to_mangled_overload!(LlvmPointerType, self, _ctx => format!("p{}", self.address_space()));

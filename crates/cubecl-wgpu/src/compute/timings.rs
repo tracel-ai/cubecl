@@ -80,6 +80,47 @@ impl TimestampQuerySetBudget {
     }
 }
 
+/// Where a backend samples a compute pass's timestamps, which decides both when they can be
+/// resolved and what a window opened on the pass can hold besides its own work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimestampSampling {
+    /// As commands of the stream. Vulkan writes a pass's begin at the bottom of the pipe, once
+    /// every command recorded before it has completed.
+    InCommandStream,
+    /// At the stage boundaries of the pass's encoder (Metal).
+    AtStageBoundaries,
+}
+
+impl TimestampSampling {
+    pub fn new(backend: wgpu::Backend) -> Self {
+        match backend {
+            wgpu::Backend::Metal => Self::AtStageBoundaries,
+            _ => Self::InCommandStream,
+        }
+    }
+
+    /// Whether a resolve has to wait for the command buffer holding the pass to complete, rather
+    /// than only follow it in submission order.
+    ///
+    /// Metal writes the samples when the encoder retires: a resolve that runs earlier, even from
+    /// a later command buffer, reads zeros.
+    pub fn resolves_after_completion(self) -> bool {
+        self == Self::AtStageBoundaries
+    }
+
+    /// Whether the queue has to be drained before a window opens, so the window times its own
+    /// work and nothing submitted before it.
+    ///
+    /// Metal samples a pass's begin when its encoder starts, and orders an encoder after earlier
+    /// work only through a buffer the two share. A pass that shares none starts beside whatever
+    /// is still running, so the window holds that work's tail, and its contention for the
+    /// device: a sample queued behind a read past the caches, which shares nothing with it by
+    /// design, was timed at three times its own duration.
+    pub fn drains_before_window(self) -> bool {
+        self == Self::AtStageBoundaries
+    }
+}
+
 /// Per-profiler allocation of timestamp query sets, backed by a shared device budget.
 ///
 /// Allocates a fresh query set (one more live counter sample buffer) per profile while it can
@@ -158,9 +199,18 @@ pub struct QueryProfiler {
     counter_token: u64,
     counter_query_set: u64,
     cleanups: Vec<QuerySetId>,
+    sampling: TimestampSampling,
     queue_period: f64,
     epoch_tick: u64,
     epoch_instant: Instant,
+}
+
+/// The commands that resolve a window's timestamps into a mappable buffer, submitted after the
+/// command buffer holding the window's passes.
+#[derive(Debug)]
+pub struct TimestampReadback {
+    pub commands: wgpu::CommandBuffer,
+    pub map_buffer: wgpu::Buffer,
 }
 
 #[derive(Debug)]
@@ -268,6 +318,7 @@ impl QueryProfiler {
         queue: &wgpu::Queue,
         #[allow(unused)] device: &wgpu::Device,
         budget: Arc<TimestampQuerySetBudget>,
+        sampling: TimestampSampling,
     ) -> Self {
         #[cfg(feature = "profile-tracy")]
         let sync_timestamps = get_cur_timestamp(queue, device);
@@ -282,6 +333,7 @@ impl QueryProfiler {
 
         Self {
             cleanups: Vec::new(),
+            sampling,
             counter_query_set: 0,
             counter_token: 0,
             query_sets: HashMap::new(),
@@ -343,13 +395,23 @@ impl QueryProfiler {
         }
     }
 
+    /// Where this profiler's timestamps are sampled, which says when the readback
+    /// [`stop_profile_setup`](Self::stop_profile_setup) returns may run, and what has to be
+    /// drained before a window opens.
+    pub fn sampling(&self) -> TimestampSampling {
+        self.sampling
+    }
+
     /// Stop the profiling on a device.
+    ///
+    /// Returns the readback of the window's timestamps, which the caller submits after the
+    /// command buffer holding the window's passes, once [`sampling`](Self::sampling)
+    /// allows.
     pub fn stop_profile_setup(
         &mut self,
         token: ProfilingToken,
         device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-    ) -> Result<Option<wgpu::Buffer>, ProfileError> {
+    ) -> Result<Option<TimestampReadback>, ProfileError> {
         let timestamps =
             self.timestamps
                 .remove(&token)
@@ -401,11 +463,18 @@ impl QueryProfiler {
         let size = QUERY_SIZE as u64;
         let start_slot = PROFILE_START_INDEX..PROFILE_START_INDEX + 1;
         let end_slot = PROFILE_END_INDEX..PROFILE_END_INDEX + 1;
-        encoder.resolve_query_set(&query_set_start.query_set, start_slot, &resolve_start, 0);
-        encoder.resolve_query_set(&query_set_end.query_set, end_slot, &resolve_end, 0);
-        encoder.copy_buffer_to_buffer(&resolve_start, 0, &map_buffer, 0, size);
-        encoder.copy_buffer_to_buffer(&resolve_end, 0, &map_buffer, size, size);
-        Ok(Some(map_buffer))
+        let mut readback = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("CubeCL profile readback"),
+        });
+        readback.resolve_query_set(&query_set_start.query_set, start_slot, &resolve_start, 0);
+        readback.resolve_query_set(&query_set_end.query_set, end_slot, &resolve_end, 0);
+        readback.copy_buffer_to_buffer(&resolve_start, 0, &map_buffer, 0, size);
+        readback.copy_buffer_to_buffer(&resolve_end, 0, &map_buffer, size, size);
+
+        Ok(Some(TimestampReadback {
+            commands: readback.finish(),
+            map_buffer,
+        }))
     }
 
     pub fn stop_profile(

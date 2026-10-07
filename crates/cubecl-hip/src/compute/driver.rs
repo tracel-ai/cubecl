@@ -5,6 +5,8 @@
 use crate::compute::context::HipContext;
 use crate::compute::events::Fence;
 use crate::compute::gpu::GpuResource;
+use crate::compute::modules::HipCompiledKernel;
+use crate::compute::status::checked;
 use crate::compute::storage::cpu::PinnedMemoryStorage;
 use crate::compute::storage::gpu::GpuStorage;
 use crate::compute::stream::{HipStreamBackend, Stream};
@@ -13,7 +15,6 @@ use cubecl_hip_sys::{
     hipMemcpyKind_hipMemcpyDeviceToHost, hipMemcpyKind_hipMemcpyHostToDevice, ihipStream_t,
 };
 use cubecl_server::command::{CopyLayout, DeviceStream, Driver};
-use cubecl_server::driver::checked;
 use cubecl_server::id::KernelId;
 use cubecl_server::memory_management::drop_queue::PendingDropQueue;
 use cubecl_server::memory_management::{ManagedMemoryBinding, MemoryManagement};
@@ -65,6 +66,7 @@ impl Driver for Hip {
     type Stream = Stream;
     type Context = HipContext;
     type LaunchArgs = [GpuResource];
+    type Loaded = HipCompiledKernel;
 
     unsafe fn pinned_bytes(
         binding: ManagedMemoryBinding,
@@ -187,13 +189,28 @@ impl Driver for Hip {
         Ok(())
     }
 
+    unsafe fn copy_on_device(
+        source: &GpuResource,
+        target: &GpuResource,
+        queue: <Stream as DeviceStream>::Signal,
+    ) -> Result<(), IoError> {
+        debug_assert_eq!(source.size, target.size);
+        // SAFETY: the caller guarantees two live, same-sized, disjoint device
+        // allocations left alone until the stream is synchronized.
+        let status = unsafe {
+            cubecl_hip_sys::hipMemcpyDtoDAsync(target.ptr, source.ptr, source.size as usize, queue)
+        };
+        Ok(checked("hipMemcpyDtoDAsync", status)?)
+    }
+
     fn launch(
         ctx: &mut HipContext,
         stream: &mut Stream,
-        kernel: KernelId,
+        id: &KernelId,
+        kernel: &HipCompiledKernel,
         count: (u32, u32, u32),
         args: &mut [GpuResource],
     ) -> Result<(), LaunchError> {
-        ctx.execute_task(stream, kernel, count, args)
+        ctx.execute_task(stream, id, kernel, count, args)
     }
 }

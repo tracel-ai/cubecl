@@ -1,13 +1,13 @@
-use cubecl_core::server::ServerStorage;
+use cubecl_core::server::{DeviceCaptures, ServerStorage};
 use cubecl_server::kernel::BufferIOAttr;
-use cubecl_server::kernel::DebugInformation;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use super::graph::WgpuGraph;
 use super::storage::{WgpuResource, WgpuStorage};
 use crate::WgpuCompiler;
-use crate::backend::ModuleSource;
+use crate::compute::artifact::WgpuArtifactCompiler;
+use crate::compute::pipelines::{MetadataLayout, WgpuPipelines};
 use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
 use alloc::sync::Arc;
 use cubecl_common::pool::LeasePool;
@@ -21,25 +21,23 @@ use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
     prelude::*,
     server::{
-        CopyDescriptor, IoError, KernelArguments, LaunchError, ProfileError, ProfilingToken,
+        CopyDescriptor, IoError, KernelArguments, ProfileError, ProfilingToken,
         ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Strides, strides},
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
-#[cfg(feature = "spirv")]
-use cubecl_environment::persistence::Store;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_server::compiler::CompilationRecording;
 #[cfg(feature = "spirv")]
-use cubecl_server::compiler::{KernelCacheKey, compilation_store, store_compiled};
+use cubecl_server::compiler::compilation_store;
+use cubecl_server::compiler::{ArtifactId, KernelLoader};
 use cubecl_server::memory_management::{
-    InstallMemoryPoolsError, ManagedMemoryHandle, MemoryReport, MemoryUsage, SharedMemoryBindings,
+    ManagedMemoryHandle, SharedMemoryBindings, StreamMemoryReport,
+    relocation::{RelocatingStreams, RelocationReason},
 };
 use cubecl_server::{
-    compiler::CompilationCache,
     config::{CubeClRuntimeConfig, RuntimeConfig},
     dry_run::LaunchMode,
     id::GraphId,
@@ -48,12 +46,8 @@ use cubecl_server::{
     memory_management::MemoryAllocationMode,
     server::Server,
     storage::ManagedResource,
-    stream::scheduler::{
-        SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy,
-        SchedulerStreamBackend,
-    },
+    stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
     stream::{ExecuteScope, FailureStore, StreamCapture, WriteScoped, failed_writing},
-    validation::{validate_cube_dim, validate_units},
 };
 use wgpu::ComputePipeline;
 
@@ -63,17 +57,20 @@ pub enum ParamsTransfer {
     Uniform,
 }
 
-/// Compiler kind and info used when compiling a specific kernel. Used to determine parameter passing strategies.
-/// What a launch needs from a compiled kernel: the pipeline, the parameter
-/// strategy, and the per-buffer IO the taint bookkeeping stages from. The IO
-/// rides in the cache because on a hit nothing else of the compilation
-/// survives.
-pub type PipelineEntry = (
-    Arc<ComputePipeline>,
-    CompilerInfo,
-    Option<Arc<[BufferIOAttr]>>,
-);
+/// What a launch needs from a compiled kernel, loaded on the device.
+#[derive(Debug, Clone)]
+pub struct WgpuCompiledKernel {
+    /// The pipeline the launch dispatches.
+    pub pipeline: Arc<ComputePipeline>,
+    /// How the launch passes the kernel's parameters.
+    pub compiler_info: CompilerInfo,
+    /// What the kernel does with each buffer binding, which the taint
+    /// bookkeeping stages from. It rides here because on a cache hit nothing
+    /// else of the compilation survives.
+    pub io: Option<Arc<[BufferIOAttr]>>,
+}
 
+/// Compiler kind and info used when compiling a specific kernel. Used to determine parameter passing strategies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompilerInfo {
     Vulkan { params_transfer: ParamsTransfer },
@@ -85,19 +82,11 @@ pub enum CompilerInfo {
 /// Wgpu compute server.
 #[derive(Debug)]
 pub struct WgpuServer<C: WgpuCompiler> {
-    pub(crate) device: wgpu::Device,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
-    /// The pipelines built so far, in front of the SPIR-V store when there is
-    /// one.
-    pipelines: CompilationCache<KernelId, PipelineEntry>,
+    /// The pipelines built so far, and how to build another.
+    pipelines: KernelLoader<WgpuPipelines<C>>,
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
-    #[cfg(feature = "spirv")]
-    pub(crate) spirv_cache: Option<Store<(u64, KernelCacheKey), cubecl_spirv::SpirvCacheEntry>>,
-    #[cfg(feature = "spirv")]
-    pub(crate) build_id: cubecl_common::hash::StableHash,
-    pub compilation_options: WgpuCompilationOptions,
-    pub(crate) backend: wgpu::Backend,
     pub(crate) utilities: Arc<ServerUtilities>,
     /// Reusable buffers for the cross-stream input bindings of each launch.
     shared_bindings_pool: LeasePool<SharedMemoryBindings>,
@@ -141,6 +130,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         backend: wgpu::Backend,
         timing_method: TimingMethod,
         utilities: ServerUtilities,
+        captures: DeviceCaptures,
     ) -> Self {
         #[cfg(feature = "spirv")]
         let adapter_info = device.adapter_info();
@@ -154,29 +144,32 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             tasks_max,
             utilities.logger.clone(),
             compilation_options.supports_vulkan_compiler,
+            captures,
         );
 
         let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
 
-        #[cfg(feature = "spirv")]
-        let spirv_cache = compilation_store(
-            "vulkan",
-            format!("spirv_{}_{}", adapter_info.vendor, adapter_info.device),
+        let compiler = WgpuArtifactCompiler::new(
+            device,
+            (*utilities.properties).clone(),
+            compilation_options,
+            backend,
+        );
+        let pipelines = WgpuPipelines::new(
+            compiler,
+            #[cfg(feature = "spirv")]
+            compilation_store(
+                "vulkan",
+                format!("spirv_{}_{}", adapter_info.vendor, adapter_info.device),
+            ),
+            #[cfg(feature = "spirv")]
+            utilities.properties_hash,
         );
 
-        // WGSL is compiled by the driver on every run, so without the SPIR-V
-        // store there is nothing persisted for a switch to invalidate.
-        #[cfg(feature = "spirv")]
-        let pipelines = CompilationCache::mirroring(&spirv_cache);
-        #[cfg(not(feature = "spirv"))]
-        let pipelines = CompilationCache::unbound();
-
         Self {
-            compilation_options,
             streams_pool: Vec::new(),
-            device,
-            pipelines,
+            pipelines: KernelLoader::new(pipelines),
             scheduler: SchedulerMultiStream::new(
                 utilities.logger.clone(),
                 backend_scheduler,
@@ -186,11 +179,6 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                     strategy: SchedulerStrategy::Interleave,
                 },
             ),
-            #[cfg(feature = "spirv")]
-            spirv_cache,
-            #[cfg(feature = "spirv")]
-            build_id: cubecl_server::compiler::build_id_hash(),
-            backend,
             utilities: Arc::new(utilities),
             shared_bindings_pool: LeasePool::with_capacity(tasks_max * max_streams as usize),
             graphs: HashMap::new(),
@@ -200,6 +188,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
     fn prepare_bindings(
         &mut self,
+        stream_id: StreamId,
         bindings: KernelArguments,
         compiler_info: CompilerInfo,
     ) -> Result<BindingsResource, IoError> {
@@ -210,8 +199,13 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         for resource in bindings.resources.into_iter() {
             match resource {
                 KernelResource::Buffer(b) => {
+                    // A recording guards the pages it was given once it seals.
+                    self.scheduler
+                        .stream(&stream_id)
+                        .capturing
+                        .touch(b.stream, b.memory.descriptor().location());
                     let stream = self.scheduler.stream(&b.stream);
-                    let resource = stream.mem_manage.get_resource(b)?;
+                    let resource = stream.resource(b)?;
                     resources.push(resource);
                 }
                 KernelResource::TensorMap(_) => panic!("Tensor map not supported in wgpu"),
@@ -223,110 +217,6 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             info: bindings.info,
             compiler_info,
         })
-    }
-
-    fn pipeline(
-        &mut self,
-        kernel: Box<dyn CubeKernel>,
-        bindings: &KernelArguments,
-    ) -> Result<PipelineEntry, LaunchError> {
-        let kernel_id = kernel.id();
-        let mode = kernel_id.mode;
-
-        if let Some(pipeline) = self.pipelines.get(&kernel_id) {
-            return Ok(pipeline.clone());
-        }
-
-        let mut recording = CompilationRecording::new(&kernel_id);
-        let cached = self.load_cached_pipeline(&kernel_id, bindings, mode)?;
-
-        if let Some(Ok(pipeline)) = cached {
-            self.pipelines.insert(kernel_id, pipeline.clone());
-            recording.loaded();
-            return Ok(pipeline);
-        }
-
-        validate_cube_dim(&self.utilities.properties, &kernel_id)?;
-        validate_units(&self.utilities.properties, &kernel_id)?;
-
-        let definition = kernel.define();
-        recording.defined(&definition);
-
-        let mut compiler = C::init(self.backend, &self.compilation_options);
-        let mut compiled = compiler.compile_kernel(self, kernel, definition)?;
-
-        if self.scheduler.logger.compilation_source_activated() {
-            compiled.debug_info = Some(DebugInformation::new(
-                compiler.lang_tag(),
-                kernel_id.clone(),
-            ));
-        }
-        self.scheduler.logger.log_compilation(&compiled);
-
-        compiler.validate_ir(&compiled.repr, &self.utilities.properties)?;
-        // The compiled kernel's per-buffer answer, before the repr is
-        // consumed: what the write scope stages from.
-        let io = compiled.io.take().map(Arc::from);
-        let (compiler_info, auto_repr) = compiler.normalize_repr(compiled.repr);
-        let repr = auto_repr.as_ref().map(|r| r.as_ref());
-
-        // /!\ Do not delete the following commented code.
-        // This is useful while working on the metal compiler.
-        // Also the errors are printed nicely which is not the case when this is the runtime
-        // that does it.
-        // {
-        //     // Write shader in metal file then compile it for error
-        //     std::fs::write("shader.metal", &compiled.source).expect("should write to file");
-        //     let status = std::process::Command::new("xcrun")
-        //         .args(vec![
-        //             "-sdk",
-        //             "macosx",
-        //             "metal",
-        //             "-o",
-        //             "shader.ir",
-        //             "-c",
-        //             "shader.metal",
-        //             "-w",
-        //         ])
-        //         .status()
-        //         .expect("should launch the command");
-        //     if !status.success() {
-        //         println!("SOURCE:\n{}", compiled.source);
-        //         std::process::exit(status.code().unwrap());
-        //     }
-        // }
-
-        let module = self.create_module(
-            &compiled.entrypoint_name,
-            kernel_id.cube_dim.into(),
-            ModuleSource::resolve(repr, compiler.lang_tag(), &compiled.source)?,
-            mode,
-        )?;
-        let pipeline = self.create_pipeline(&compiled.entrypoint_name, repr, module, bindings);
-        self.pipelines.insert(
-            kernel_id.clone(),
-            (pipeline.clone(), compiler_info, io.clone()),
-        );
-
-        recording.source(&compiled.source);
-
-        // Only a SPIR-V kernel is stored: any other build changes nothing.
-        let stored = false;
-        #[cfg(feature = "spirv")]
-        let stored = match (cached, auto_repr) {
-            (Some(Err(key)), Some(crate::AutoRepresentation::SpirV(kernel))) => {
-                let cache = self.spirv_cache.as_mut().unwrap();
-                store_compiled(
-                    cache,
-                    key,
-                    cubecl_spirv::SpirvCacheEntry::new(compiled.entrypoint_name, kernel),
-                )
-            }
-            _ => stored,
-        };
-        recording.compiled(stored);
-
-        Ok((pipeline, compiler_info, io))
     }
 }
 
@@ -351,12 +241,38 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         .into())
     }
 
-    fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
+    fn initialize_memory(
+        &mut self,
+        memory: ManagedMemoryHandle,
+        size: u64,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        let mut relocating = self.scheduler.relocating(stream_id);
+        relocating.relocate_when_wanted();
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        let reserved = stream
-            .empty(size, failures)
-            .unwrap_or_else(|err| panic!("failed to reserve {size} bytes of device memory: {err}"));
-        stream.mem_manage.bind(reserved, memory, failures);
+        let update = stream.capturing.page_update();
+        let reserved = match stream.memory.reserve(size, update, failures) {
+            Ok(reserved) => reserved,
+            // The recording now misses whatever this memory was for, and
+            // `end_capture` reports that: the handle stays unbound, and
+            // whatever uses it belongs to a recording that will not seal.
+            Err(err @ IoError::PageUpdateForbidden { .. }) => {
+                stream.capturing.fail(err.into());
+                return Ok(());
+            }
+            Err(err) => {
+                // Nothing to allocate: the buffer carries the error instead.
+                let err = ServerError::from(err);
+                failures.fail_unallocated(&memory, err.clone());
+                return Err(err);
+            }
+        };
+        if let Err(err) = stream.memory.bind(reserved, memory.clone(), 0, failures) {
+            let err = ServerError::from(err);
+            failures.fail_unallocated(&memory, err.clone());
+            return Err(err);
+        }
+        Ok(())
     }
 
     fn read(
@@ -399,7 +315,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 streams.push(desc.handle.stream);
             }
             let stream = self.scheduler.stream(&desc.handle.stream);
-            let resource = match stream.mem_manage.get_resource(desc.handle) {
+            let resource = match stream.resource(desc.handle) {
                 Ok(val) => val,
                 Err(err) => return Box::pin(async move { Err(err.into()) }),
             };
@@ -408,8 +324,8 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
 
         self.scheduler.execute_streams(streams);
 
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        stream.read_resources(resources, stream_id, failures)
+        let stream = self.scheduler.stream(&stream_id);
+        stream.read_resources(resources, stream_id)
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
@@ -472,10 +388,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 let owner = desc.handle.stream;
                 let handle = desc.handle.clone();
                 let stream = server.scheduler.stream(&owner);
-                let resource = stream
-                    .mem_manage
-                    .get_resource(desc.handle)
-                    .map_err(ServerError::Io)?;
+                let resource = stream.resource(desc.handle).map_err(ServerError::Io)?;
                 let task = ScheduleTask::Write {
                     data,
                     buffer: resource,
@@ -516,9 +429,23 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         // A dry run stages none either way. It was never going to write, so a
         // failure in it leaves nothing stale, and tainting its buffers would
         // fail unrelated reads of memory the run deliberately left alone.
-        let kernel_id = kernel.id();
-        let (pipeline, compiler_info, io) = match self.pipeline(kernel, &args) {
-            Ok(val) => val,
+        // A compile-only launch only queues its kernel, touching nothing else.
+        let layout = MetadataLayout::from(&args.info);
+        if launch_mode == LaunchMode::CompileOnly {
+            self.pipelines.enqueue(kernel, layout);
+            return;
+        }
+        let id = ArtifactId {
+            kernel: kernel.id(),
+            variant: layout,
+        };
+        let loaded = self.pipelines.load(&*kernel, &id, &self.scheduler.logger);
+        let WgpuCompiledKernel {
+            pipeline,
+            compiler_info,
+            io,
+        } = match loaded {
+            Ok(entry) => entry,
             Err(err) => {
                 let error = ServerError::Launch(err);
                 self.scheduler.stream(&stream_id).profile_failure(&error);
@@ -533,6 +460,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         if launch_mode.is_skipped() {
             return;
         }
+        let kernel_id = id.kernel;
 
         // Skip, do not taint: a launch whose input cannot be trusted does not
         // run. Running it is not merely wasted device time — a buffer holding
@@ -587,7 +515,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             });
 
             let resources = server
-                .prepare_bindings(args, compiler_info)
+                .prepare_bindings(stream_id, args, compiler_info)
                 .map_err(ServerError::Io)?;
 
             let task = ScheduleTask::Execute {
@@ -604,12 +532,16 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         });
     }
 
+    fn compile_queued(&mut self) {
+        self.pipelines.compile_queued(&self.scheduler.logger);
+    }
+
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
 
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+        let stream = self.scheduler.stream(&stream_id);
 
-        stream.flush(stream_id, failures)
+        stream.flush(stream_id)
     }
 
     /// Returns the total time of GPU work this sync completes.
@@ -631,9 +563,9 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             return Box::pin(async move { Err(err) });
         }
         self.scheduler.execute_streams(vec![stream_id]);
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+        let stream = self.scheduler.stream(&stream_id);
 
-        stream.sync(stream_id, failures)
+        stream.sync(stream_id)
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
@@ -643,8 +575,8 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             .stream(&stream_id)
             .reject_while_recording("start_profile")?;
         self.scheduler.execute_streams(vec![stream_id]);
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        stream.start_profile(stream_id, failures)
+        let stream = self.scheduler.stream(&stream_id);
+        stream.start_profile(stream_id)
     }
 
     fn end_profile(
@@ -653,9 +585,9 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
         self.scheduler.execute_streams(vec![stream_id]);
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+        let stream = self.scheduler.stream(&stream_id);
 
-        stream.end_profile(token, stream_id, failures)
+        stream.end_profile(token, stream_id)
     }
 
     fn abandon_profile(&mut self, stream_id: StreamId, token: ProfilingToken) {
@@ -665,58 +597,38 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         self.scheduler.stream(&stream_id).abandon_profile(token);
     }
 
-    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
+    fn memory_report(&mut self, stream_id: StreamId) -> Option<StreamMemoryReport> {
         self.scheduler.execute_streams(vec![stream_id]);
-        self.scheduler.stream(&stream_id).mem_manage.memory_usage()
-    }
-
-    fn memory_report(&mut self, stream_id: StreamId) -> MemoryReport {
-        self.scheduler.execute_streams(vec![stream_id]);
-        self.scheduler.stream(&stream_id).mem_manage.memory_report()
+        let stream = self.scheduler.stream(&stream_id);
+        Some(StreamMemoryReport {
+            stream: stream_id,
+            pools: stream.memory.memory_report(),
+            auxiliary: stream.auxiliary.report(),
+        })
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {
         self.scheduler.stream_ids().collect()
     }
 
-    fn memory_cleanup(&mut self, stream_id: StreamId) {
+    fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
+        self.scheduler
+            .relocating(stream_id)
+            .refuse_while_recording()?;
         let stream = self.scheduler.stream(&stream_id);
         // The info cache's buffers are live slices in the uniforms pool; an
         // explicit cleanup exists to leave the pools empty, so every entry not
         // pinned by a live graph goes too (entries are recreated on their next
         // miss).
         stream.info_cache.clear_unpinned();
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        stream.mem_manage.memory_cleanup(true, failures);
+        self.scheduler.relocating(stream_id).reclaim()
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        stream.mem_manage.mode(mode);
-    }
-
-    fn install_memory_pools(
-        &mut self,
-        config: MemoryConfiguration,
-        stream_id: StreamId,
-    ) -> Result<(), InstallMemoryPoolsError> {
-        // Streams created from now on build their main pool with the new
-        // layout; memory is per stream, so already-created streams keep theirs.
-        self.scheduler
-            .backend_mut()
-            .factory()
-            .set_gpu_pools(config.clone());
-        let (_, props) = self.scheduler.backend_mut().factory().gpu_pools();
-
-        // The calling stream's pools are rebuilt in place, keeping the old
-        // layout when something is still live in them.
-        self.scheduler.execute_streams(vec![stream_id]);
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        stream
-            .mem_manage
-            .install_memory_pools(config, &props, failures)
+        stream.memory.mode(mode);
     }
 
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
@@ -725,15 +637,16 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
 
+        // The non-`NoCapture` state isolates this stream in the scheduler
+        // (see `requires_isolation`) until the capture ends.
         stream.capturing.prepare(stream_id)?;
 
-        // Route every allocation from here until `end_capture` into the
-        // persistent pools and track the touched slices: warmup populates the
-        // pools with the capture run's full working set, the recorded run
-        // reuses those slices, and everything it touches is pinned to the
-        // graph at `end_capture`. The non-`NoCapture` state also isolates this
-        // stream in the scheduler (see `requires_isolation`).
-        stream.mem_manage.capture_begin();
+        // The pages the recording touches are guarded for the graph's life,
+        // and a guarded page is never relocated: empty every stream's outdated
+        // pools now, since the recording may touch memory any stream owns.
+        self.scheduler
+            .relocating(stream_id)
+            .relocate_device(RelocationReason::Capture);
         Ok(())
     }
 
@@ -748,20 +661,15 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         // Submit the warmup work and surface its failure now, so a warmup
         // failure is reported here — where the diagnostic points at the cause
         // — instead of dooming `end_capture` later.
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        if let Err(err) = stream.flush(stream_id, failures) {
-            // The capture never opened: disarm retention and return to
-            // `NoCapture`, so a failed `start_capture` leaves the stream fully
-            // usable and re-capturable.
-            stream.mem_manage.capture_end();
+        let stream = self.scheduler.stream(&stream_id);
+        if let Err(err) = stream.flush(stream_id) {
+            // The capture never opened: return to `NoCapture`, so a failed
+            // `start_capture` leaves the stream fully usable and
+            // re-capturable.
             stream.info_cache.capture_discard();
             stream.capturing.abort();
             return Err(err);
         }
-
-        // Warmup is over: release the slices it retained so the recorded run
-        // reuses them instead of growing the pools further.
-        stream.mem_manage.capture_priming_end();
         Ok(())
     }
 
@@ -779,15 +687,13 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         let outcome = match stream.capturing.end(stream_id) {
             Ok(outcome) => outcome,
             Err(err) => {
-                // A capture prepared but never opened still armed persistent
-                // routing and priming retention, and a `graph_prepare` retry
-                // is refused while the state holds. Closing is the only call
-                // the caller has left — a warmup that failed never reaches
-                // `start_capture` — so a close from `Prepare` disarms, the
-                // same unwinding `begin_capture` does when the warmup flush
-                // fails, instead of leaving the stream armed forever.
+                // A capture prepared but never opened still holds the stream,
+                // and a `graph_prepare` retry is refused while it does.
+                // Closing is the only call the caller has left — a warmup that
+                // failed never reaches `start_capture` — so a close from
+                // `Prepare` unwinds it, as `begin_capture` does when the
+                // warmup flush fails, instead of leaving it held forever.
                 if stream.capturing.is_active() {
-                    stream.mem_manage.capture_end();
                     stream.info_cache.capture_discard();
                     stream.capturing.abort();
                 }
@@ -799,7 +705,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         // for it on a failed replay; one that does not is answered for here,
         // since those launches never ran and now never will.
         let written = stream.capturing.take_recorded();
-        let mut retained = stream.mem_manage.capture_end();
+        let touched = stream.capturing.take_touched();
 
         // A failure raised during the window — a rejected write, a failed or
         // skipped launch — means the recording is missing an operation:
@@ -830,12 +736,23 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         // Seal the info-cache entries this capture pinned under the graph's
         // id, so `graph_destroy` can release them later.
         stream.info_cache.capture_commit(id);
-        retained.extend(recording.uniform_pins);
+        // Guard every page the recording touched, on whichever stream owns
+        // it, so nothing on them moves or is reused for the graph's lifetime.
+        let guards = touched
+            .iter()
+            .filter_map(|page| {
+                self.scheduler
+                    .stream(&page.stream)
+                    .memory
+                    .guard(page.location)
+            })
+            .collect();
         self.graphs.insert(
             id,
             WgpuGraph {
                 tasks: recording.tasks,
-                _retained: retained,
+                _guards: guards,
+                _uniforms: recording.uniform_pins,
                 _shared: recording.shared,
                 written,
             },
@@ -877,8 +794,8 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                     .graphs
                     .get(&graph)
                     .expect("checked above; nothing in the scope removes graphs");
-                let (stream, failures) = server.scheduler.stream_and_failures(&stream_id);
-                stream.replay_graph(wgpu_graph, failures);
+                let stream = server.scheduler.stream(&stream_id);
+                stream.replay_graph(wgpu_graph);
                 Ok(())
             })
             .into_result()
@@ -890,7 +807,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         let Some(wgpu_graph) = self.graphs.remove(&graph) else {
             return;
         };
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+        let stream = self.scheduler.stream(&stream_id);
         // Submit any replay still sitting in the encoder before the pins drop:
         // a `queue.write_buffer` onto a reclaimed slice runs at the *next*
         // submit, ahead of everything already in the encoder, so it would reach
@@ -899,7 +816,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         // not — the uniform uploads in `create_uniform`/`info_uniform`. Once the
         // replay is submitted, queue ordering makes releasing the slices safe
         // with no host sync, unlike CUDA.
-        stream.submit(failures);
+        stream.submit();
         // Release the info-cache entries this graph pinned; entries no other
         // live graph still pins are dropped, freeing their buffers.
         stream.info_cache.graph_release(graph);
@@ -934,9 +851,10 @@ impl<C: WgpuCompiler> ServerStorage for WgpuServer<C> {
         }
         self.scheduler.execute_streams(streams);
         let stream = self.scheduler.stream(&binding.stream);
-        let memory = binding.memory.clone();
-        let resource = stream.mem_manage.get_resource(binding)?;
-
-        Ok(ManagedResource::new(memory, resource))
+        Ok(stream.memory.managed_resource(
+            binding.memory,
+            binding.offset_start,
+            binding.offset_end,
+        )?)
     }
 }

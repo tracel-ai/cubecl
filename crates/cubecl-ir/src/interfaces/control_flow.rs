@@ -1,4 +1,4 @@
-use core::fmt;
+use core::{fmt, ops::Range};
 
 use crate::{dialect::RegionPtrExt, prelude::*};
 use derive_more::From;
@@ -9,12 +9,15 @@ use pliron::{
     linked_list::ContainsLinkedList,
     printable::{self, Printable},
     region::Region,
+    utils::table::IMap,
+    value::Use,
 };
+use smallvec::SmallVec;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RegionPredecessor {
     Parent,
-    Terminator(TraitOpPtr<dyn RegionBranchTerminatorOpInterface>),
+    Terminator(TraitOp<dyn RegionBranchTerminatorOpInterface>),
 }
 
 impl Printable for RegionPredecessor {
@@ -22,7 +25,7 @@ impl Printable for RegionPredecessor {
         match self {
             RegionPredecessor::Parent => f.write_str("Parent"),
             RegionPredecessor::Terminator(op) => {
-                let block = op.operation().deref(ctx).get_parent_block().unwrap();
+                let block = op.get_operation().deref(ctx).get_parent_block().unwrap();
                 write!(f, "{}", block.label(ctx))
             }
         }
@@ -128,6 +131,12 @@ pub trait SymbolOpInterface: pliron::builtin::op_interfaces::SymbolOpInterface {
     }
 }
 
+#[op_interface]
+pub trait CallOpInterface: pliron::builtin::op_interfaces::CallOpInterface {
+    verify_op_succ!();
+    fn args_range(&self, ctx: &Context) -> Range<usize>;
+}
+
 /// This interface provides information for region-holding operations that
 /// exhibit branching behavior between held regions. It models the control flow
 /// edges between regions (and between the op and its regions), as well as the
@@ -200,7 +209,11 @@ pub trait RegionBranchOpInterface {
     /// `scf.for` op, regardless of the value of `successor`. I.e., this op always
     /// forwards the same operands, regardless of whether the loop has 0 or more
     /// iterations.
-    fn entry_successor_operands(&self, ctx: &Context, successor: RegionSuccessor) -> Vec<Value> {
+    fn entry_successor_operands(
+        &self,
+        ctx: &Context,
+        successor: RegionSuccessor,
+    ) -> Vec<Use<Value>> {
         let _ = (ctx, successor);
         vec![]
     }
@@ -259,7 +272,7 @@ pub trait RegionBranchOpInterface {
             let Some(term) = block.deref(ctx).get_terminator(ctx) else {
                 continue;
             };
-            if let Some(terminator) = TraitOpPtr::try_from_op(term, ctx) {
+            if let Some(terminator) = TraitOp::try_from_op(term, ctx) {
                 res.extend(self.successor_regions(ctx, RegionPredecessor::Terminator(terminator)));
             }
         }
@@ -293,7 +306,7 @@ pub trait RegionBranchOpInterface {
         ctx: &Context,
         successor: RegionSuccessor,
         index: usize,
-    ) -> Vec<Value> {
+    ) -> Vec<Use<Value>> {
         let mut predecessor_values = vec![];
         let predecessors = self.predecessors(ctx, successor);
         for predecessor in predecessors {
@@ -302,8 +315,7 @@ pub trait RegionBranchOpInterface {
                     predecessor_values.push(self.entry_successor_operands(ctx, successor)[index]);
                 }
                 RegionPredecessor::Terminator(term) => {
-                    predecessor_values
-                        .push(term.deref(ctx).successor_operands(ctx, successor)[index]);
+                    predecessor_values.push(term.successor_operands(ctx, successor)[index]);
                 }
             }
         }
@@ -342,6 +354,8 @@ pub trait RegionBranchOpInterface {
     }
 }
 
+type RegionBranchSuccessorMapping = IMap<Use<Value>, SmallVec<[Value; 4]>>;
+
 impl dyn RegionBranchOpInterface {
     /// Return the successor operands from the source branch point to the
     /// destination region successor.
@@ -354,10 +368,10 @@ impl dyn RegionBranchOpInterface {
         ctx: &Context,
         src: RegionPredecessor,
         dest: RegionSuccessor,
-    ) -> Vec<Value> {
+    ) -> Vec<Use<Value>> {
         match src {
             RegionPredecessor::Parent => self.entry_successor_operands(ctx, dest),
-            RegionPredecessor::Terminator(term) => term.deref(ctx).successor_operands(ctx, dest),
+            RegionPredecessor::Terminator(term) => term.successor_operands(ctx, dest),
         }
     }
 
@@ -386,6 +400,28 @@ impl dyn RegionBranchOpInterface {
     pub fn all_region_predecessors(&self, ctx: &Context) -> Vec<RegionPredecessor> {
         all_region_predecessors(self.get_operation(), ctx)
     }
+
+    pub fn successor_operand_input_mapping(
+        &self,
+        ctx: &Context,
+        src: RegionPredecessor,
+    ) -> RegionBranchSuccessorMapping {
+        let successors = self.successor_regions(ctx, src);
+        let mut mapping = RegionBranchSuccessorMapping::default();
+        for dst in successors {
+            let operands = self.successor_operands(ctx, src, dst);
+            let inputs = self.successor_inputs(ctx, dst);
+            assert_eq!(
+                operands.len(),
+                inputs.len(),
+                "expected the same number of operands and inputs"
+            );
+            for (operand, input) in operands.into_iter().zip(inputs) {
+                mapping.entry(operand).or_default().push(input);
+            }
+        }
+        mapping
+    }
 }
 
 pub fn all_region_predecessors(op: Ptr<Operation>, ctx: &Context) -> Vec<RegionPredecessor> {
@@ -394,7 +430,7 @@ pub fn all_region_predecessors(op: Ptr<Operation>, ctx: &Context) -> Vec<RegionP
         for block in region.deref(ctx).iter(ctx) {
             if let Some(term) = block.deref(ctx).get_terminator(ctx)
                 && let Some(term) =
-                    TraitOpPtr::<dyn RegionBranchTerminatorOpInterface>::try_from_op(term, ctx)
+                    TraitOp::<dyn RegionBranchTerminatorOpInterface>::try_from_op(term, ctx)
             {
                 predecessors.push(RegionPredecessor::Terminator(term));
             }
@@ -419,7 +455,7 @@ pub trait RegionBranchTerminatorOpInterface {
 
     /// Returns a range of operands that are semantically "returned" by passing
     /// them to the region successor.
-    fn successor_operands(&self, ctx: &Context, successor: RegionSuccessor) -> Vec<Value>;
+    fn successor_operands(&self, ctx: &Context, successor: RegionSuccessor) -> Vec<Use<Value>>;
 
     /// Returns all potential region successors that are branched to after this
     /// terminator based on the given constant operands.
@@ -435,7 +471,7 @@ pub trait RegionBranchTerminatorOpInterface {
         operands: &[Option<AttrObj>],
     ) -> Vec<RegionSuccessor> {
         let _ = operands;
-        let op = TraitOpPtr::try_from_op(self.get_operation(), ctx).unwrap();
+        let op = TraitOp::try_from_op(self.get_operation(), ctx).unwrap();
         let parent = self.get_operation().deref(ctx).get_parent_op(ctx).unwrap();
         let parent = parent.dyn_op(ctx);
         op_cast::<dyn RegionBranchOpInterface>(&*parent)

@@ -1,13 +1,9 @@
 use crate::{
-    config::memory::MemoryPoolsConfig,
     config::{TypeNameFormatLevel, type_name_format},
     id::{GraphId, KernelId},
     kernel::CubeKernel,
     logging::ProfileLevel,
-    memory_management::{
-        InstallMemoryPoolsError, MemoryAllocationMode, MemoryConfiguration, MemoryReport,
-        MemoryUsage,
-    },
+    memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
         BufferBinding, Collective, CommunicationId, CopyDescriptor, CubeCount, Handle,
         KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
@@ -207,16 +203,23 @@ impl Client {
 
     /// Create a new client with a new server.
     pub fn init<S: ServerStorage>(device_id: DeviceId, server: S) -> Self {
-        let utilities = Server::utilities(&server);
-        let context = DeviceHandle::<S>::insert(device_id, server)
+        Self::try_init(device_id, server)
             .expect("Can't create a new client on an already registered server")
-            .seen_as(as_server::<S>);
+    }
 
-        Self {
+    /// Register a server, returning an error if its device is already registered.
+    pub fn try_init<S: ServerStorage>(
+        device_id: DeviceId,
+        server: S,
+    ) -> Result<Self, cubecl_common::device_handle::ServiceCreationError> {
+        let utilities = Server::utilities(&server);
+        let context = DeviceHandle::<S>::insert(device_id, server)?.seen_as(as_server::<S>);
+
+        Ok(Self {
             device: context,
             utilities,
             stream_id: None,
-        }
+        })
     }
 
     /// Load the client for the given device, starting a server of type `S`
@@ -323,11 +326,12 @@ impl Client {
 
     /// Given bindings, returns owned resources as bytes.
     ///
-    /// # Remarks
+    /// # Errors
     ///
-    /// Panics if the read operation fails.
-    pub fn read(&self, handles: Vec<Handle>) -> Vec<Bytes> {
-        cubecl_environment::future::reader::read_sync(self.read_async(handles)).expect("TODO")
+    /// Returns a [`ServerError`] if the read operation fails, or if a an error occurred on the
+    /// compute server leading to the read.
+    pub fn read(&self, handles: Vec<Handle>) -> Result<Vec<Bytes>, ServerError> {
+        cubecl_environment::future::reader::read_sync(self.read_async(handles))
     }
 
     /// Given a binding, returns owned resource as bytes.
@@ -356,19 +360,19 @@ impl Client {
 
     /// Given bindings, returns owned resources as bytes.
     ///
-    /// # Remarks
-    ///
-    /// Panics if the read operation fails.
-    ///
     /// The tensor must be in the same layout as created by the runtime, or more strict.
     /// Contiguous tensors are always fine, strided tensors are only ok if the stride is similar to
     /// the one created by the runtime (i.e. padded on only the last dimension). A way to check
     /// stride compatibility on the runtime will be added in the future.
     ///
     /// Also see [`Client::create_tensor`].
-    pub fn read_tensor(&self, descriptors: Vec<CopyDescriptor>) -> Vec<Bytes> {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ServerError`] if the read operation fails, or if a an error occurred on the
+    /// compute server leading to the read.
+    pub fn read_tensor(&self, descriptors: Vec<CopyDescriptor>) -> Result<Vec<Bytes>, ServerError> {
         cubecl_environment::future::reader::read_sync(self.read_tensor_async(descriptors))
-            .expect("TODO")
     }
 
     /// Given a binding, returns owned resource as bytes.
@@ -389,7 +393,9 @@ impl Client {
     /// Panics if the read operation fails.
     /// See [`Client::read_tensor`]
     pub fn read_one_unchecked_tensor(&self, descriptor: CopyDescriptor) -> Bytes {
-        self.read_tensor(vec![descriptor]).remove(0)
+        self.read_tensor(vec![descriptor])
+            .expect("the read failed, use `read_one_tensor_async` to handle the error")
+            .remove(0)
     }
 
     /// Reads the device resource described by `descriptor` lazily.
@@ -414,12 +420,27 @@ impl Client {
     ///
     /// On native targets the returned future is immediately ready and yields a lazy [`Bytes`]
     /// whose device-to-host copy is deferred to first access (see [`read_lazy`](Self::read_lazy)).
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ServerError`] if a an error occurred on the compute server leading to the read.
+    /// A device fault is not detected here: the copy is deferred, so it surfaces as an error on
+    /// first access to the returned [`Bytes`].
     #[cfg(not(target_family = "wasm"))]
     pub fn read_lazy_async(
         &self,
         descriptor: CopyDescriptor,
     ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
         if let Err(err) = self.local(&descriptor.handle) {
+            return core::future::ready(Err(err));
+        }
+        let binding = descriptor.handle.clone();
+        let stream_id = self.stream_id();
+        let checked = self
+            .device
+            .submit_blocking(move |server| server.check(vec![binding], stream_id))
+            .unwrap_or_resume();
+        if let Err(err) = checked {
             return core::future::ready(Err(err));
         }
         let len = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
@@ -498,8 +519,11 @@ impl Client {
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         self.device.submit(move |server| {
-            server.initialize_memory(memory, size, stream_id);
-            server.write(descriptors, stream_id);
+            // Cannot write on memory that wasn't initialized. The error is attached to the
+            // buffer and is reported at the next sync point.
+            if server.initialize_memory(memory, size, stream_id).is_ok() {
+                server.write(descriptors, stream_id);
+            }
         });
 
         layouts
@@ -535,8 +559,11 @@ impl Client {
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         self.device.submit(move |server| {
-            server.initialize_memory(memory, size, stream_id);
-            server.write(descriptors, stream_id);
+            // Cannot write on memory that wasn't initialized. The error is attached to the
+            // buffer and is reported at the next sync point.
+            if server.initialize_memory(memory, size, stream_id).is_ok() {
+                server.write(descriptors, stream_id);
+            }
         });
 
         layouts
@@ -598,13 +625,45 @@ impl Client {
         input: Input,
         task: F,
     ) -> Re {
+        self.allocation_window(MemoryAllocationMode::Persistent, input, task)
+    }
+
+    /// Run `task` with every allocation it makes given its own device
+    /// allocation outside every pool, returned to the driver once freed, then
+    /// restore the previous mode.
+    ///
+    /// For buffers that exist for one measurement and nothing after it: they
+    /// stay out of the pools' reservations and out of the statistics an
+    /// adaptive pool sizes its pages from.
+    pub fn memory_dedicated_allocation<
+        'a,
+        Re: Send,
+        Input: Send,
+        F: FnOnce(Input) -> Re + Send + 'a,
+    >(
+        &'a self,
+        input: Input,
+        task: F,
+    ) -> Re {
+        self.allocation_window(MemoryAllocationMode::Dedicated, input, task)
+    }
+
+    /// Open a window of `mode` on the current stream around `task`, and close
+    /// it after. Private because `Auto` is what closes a window: the public
+    /// entry points each name a mode that opens one.
+    fn allocation_window<'a, Re: Send, Input: Send, F: FnOnce(Input) -> Re + Send + 'a>(
+        &'a self,
+        mode: MemoryAllocationMode,
+        input: Input,
+        task: F,
+    ) -> Re {
         let stream_id = StreamId::current();
 
         self.device.submit(move |server| {
-            server.allocation_mode(MemoryAllocationMode::Persistent, stream_id);
+            server.allocation_mode(mode, stream_id);
         });
 
-        // All tasks created on the same stream will have persistent memory.
+        // All tasks created on the same stream allocate in this mode.
         let output = task(input);
 
         self.device.submit(move |server| {
@@ -750,7 +809,8 @@ impl Client {
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         self.device.submit(move |server| {
-            server.initialize_memory(memory, size, stream_id);
+            // The error is attached to the buffer and is reported at the next sync point.
+            let _ = server.initialize_memory(memory, size, stream_id);
         });
 
         layouts
@@ -1072,7 +1132,10 @@ impl Client {
         // the time it reaches the server thread, that context is gone.
         let launch_mode = crate::dry_run::launch_mode();
 
-        let level = self.utilities.logger.profile_level();
+        // A launch the dry run drops runs nothing to time, and a backend timing windows by the
+        // timestamps its passes write reports a window around one as never measured.
+        let timed = !launch_mode.is_skipped();
+        let level = self.utilities.logger.profile_level().filter(|_| timed);
 
         // Before the submit, on the issuing thread: this is the last point at
         // which the caller's own context still exists, and attributing a
@@ -1087,7 +1150,7 @@ impl Client {
         // measurement, and making one depend on the other's configuration
         // would mean a caller could not time launches without also logging
         // them somewhere it did not choose.
-        let observed_timing = crate::logging::timing_wanted();
+        let observed_timing = timed && crate::logging::timing_wanted();
 
         match level {
             None | Some(ProfileLevel::ExecutionOnly) if !observed_timing => {
@@ -1267,9 +1330,18 @@ impl Client {
             .unwrap_or_resume()
     }
 
+    /// Compile every kernel queued for compilation (see
+    /// [`Server::compile_queued`]), before the work submitted after it.
+    ///
+    /// Every measurement starts with it — a tune, a throughput probe — so a
+    /// queue a compile-only dry run left is not timed as part of the first
+    /// launch measured.
+    pub fn compile_queued(&self) {
+        self.device.submit(move |server| server.compile_queued());
+    }
+
     /// Prepare this client's stream for a graph capture (see
-    /// [`Server::graph_prepare`]) — enable the persistent pool + capture
-    /// recording. Call this **before** the warmup run, then
+    /// [`Server::graph_prepare`]). Call this **before** the warmup run, then
     /// [`start_capture`](Self::start_capture) around the run to record.
     pub fn graph_prepare(&self) -> Result<(), ServerError> {
         let stream_id = self.stream_id();
@@ -1288,9 +1360,9 @@ impl Client {
     /// refused, and so is writing to a handle — a recorded graph cannot carry a
     /// host copy, so feed fresh inputs by writing *between* replays instead. A
     /// refused write is reported late, by failing `stop_capture`, rather than
-    /// handing back a graph that silently skips it. Fresh allocation inside the
-    /// window is fatal on a hardware-graph backend and merely wasteful on a
-    /// software-graph one, which is what the warmup run exists to avoid.
+    /// handing back a graph that silently skips it. Nothing is allocated inside
+    /// the window: a request the pools cannot serve from what the warmup run
+    /// left fails the capture, which is what the warmup run exists to avoid.
     ///
     /// Returns an error on backends without graph support.
     pub fn start_capture(&self) -> Result<(), ServerError> {
@@ -1298,6 +1370,23 @@ impl Client {
         self.device
             .submit_blocking(move |server| server.begin_capture(stream_id))
             .unwrap_or_resume()
+    }
+
+    /// Whether this client's stream is capturing a graph: from
+    /// [`graph_prepare`](Self::graph_prepare), through the warmup run and the recorded one, until
+    /// the capture ends. It ends with [`stop_capture`](Self::stop_capture), whether the window
+    /// opened or the capture was only prepared, and also when another logical stream sharing
+    /// the same backend stream stops it, or when opening the window fails once
+    /// [`start_capture`](Self::start_capture) is accepted. A `start_capture` refused up front,
+    /// e.g. while a capture already records, leaves the capture as it was. Always `false` on a
+    /// backend without graph support.
+    ///
+    /// Answered without reaching the device thread, so code whose buffer decisions have to
+    /// match between the warmup and the recording can ask before every launch.
+    pub fn is_capturing(&self) -> bool {
+        let captures = &self.utilities.captures;
+        // The stream id costs more than the check, and no capture under way answers already.
+        captures.any_active() && captures.is_capturing(self.stream_id())
     }
 
     /// Stop recording and return the captured graph, ready to
@@ -1411,53 +1500,41 @@ impl Client {
         self.utilities.target_properties.clone()
     }
 
-    /// Total memory usage across all streams on this client's device.
+    /// Everything the memory of `scope` holds, stream by stream: each pool's
+    /// shape, usage and high-water marks. [`MemoryReport::usage`] sums them.
     ///
-    /// The closure iterates the server's `stream_ids()` and folds each
-    /// per-stream `memory_usage(id)` with `MemoryUsage::combine`, so the
-    /// result is correct regardless of which thread queries it.
-    pub fn memory_usage(&self) -> MemoryUsage {
+    /// Pools are per stream: a plan measured for a workload reads
+    /// [`CurrentStream`](MemoryScope::CurrentStream), the stream that runs it,
+    /// and a caller asking how much the device holds reads
+    /// [`Device`](MemoryScope::Device).
+    pub fn memory_report(&self, scope: MemoryScope) -> MemoryReport {
+        let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| {
-                server
-                    .stream_ids()
-                    .into_iter()
-                    .fold(MemoryUsage::default(), |acc, id| {
-                        acc.combine(server.memory_usage(id))
-                    })
+                let streams = match scope {
+                    MemoryScope::Device => server.stream_ids(),
+                    MemoryScope::CurrentStream => Vec::from([stream_id]),
+                };
+                MemoryReport {
+                    streams: streams
+                        .into_iter()
+                        .filter_map(|id| server.memory_report(id))
+                        .collect(),
+                }
             })
             .unwrap_or_resume()
     }
 
-    /// Structured per-pool report of the **calling stream's** main GPU memory:
-    /// each pool's shape, usage, and high-water marks, in allocation-routing
-    /// order.
-    ///
-    /// The read side of a measured memory plan — install a layout with
-    /// [`install_memory_pools`](Self::install_memory_pools), measure under a
-    /// [`DryRun`](crate::dry_run::DryRun), cap at the observed peaks; the full
-    /// cycle is on [`MemoryReport`].
-    ///
-    /// Unlike [`memory_usage`](Self::memory_usage), which aggregates across
-    /// streams, this reads one stream: pools are per stream, and a plan is
-    /// measured and installed on the stream that runs the workload.
-    pub fn memory_report(&self) -> MemoryReport {
-        let stream_id = self.stream_id();
-        self.device
-            .submit_blocking(move |server| server.memory_report(stream_id))
-            .unwrap_or_resume()
-    }
-
-    /// Write a snapshot of the calling stream's [memory
-    /// report](Self::memory_report) to the environment's records, under
-    /// `label`. Nothing is read when the environment records nothing.
+    /// Write a snapshot of the device's [memory report](Self::memory_report),
+    /// every stream of it, to the environment's records under `label`.
+    /// Nothing is read when the environment records nothing.
     pub fn record_memory(&self, label: &str) {
         if !cubecl_environment::records::enabled() {
             return;
         }
         let record = crate::memory_management::MemoryRecord {
             label: label.into(),
-            report: self.memory_report(),
+            report: self.memory_report(MemoryScope::Device),
         };
         cubecl_environment::records::write(
             cubecl_environment::records::RecordEffect::Observed,
@@ -1480,66 +1557,19 @@ impl Client {
     ///
     /// Nb: Results will vary on what the memory allocator deems beneficial,
     /// so it's not guaranteed any memory is freed.
-    pub fn memory_cleanup(&self) {
-        self.device.submit(move |server| {
-            for id in server.stream_ids() {
-                server.memory_cleanup(id);
-            }
-        });
-    }
-
-    /// Install a new dynamic-pool layout for the device's main GPU memory.
-    ///
-    /// This replaces the pools themselves, not just a setting they read. It
-    /// lands in two places:
-    ///
-    /// - **The calling stream's pools are rebuilt in place**, discarding the
-    ///   old ones — which is why it only happens when nothing is live in them,
-    ///   and why the high-water marks in
-    ///   [`memory_report`](Self::memory_report) start over.
-    /// - **The layout becomes the one every stream created afterwards is
-    ///   built with.** Other streams that already exist keep theirs; memory is
-    ///   per stream, and rebuilding a stream this call is not synchronized
-    ///   with would swap pools under its live slices.
-    ///
-    /// Pool layouts are a purely programmatic, runtime setting — there is no
-    /// config-file pathway — sized per workload (e.g. per model, just before
-    /// loading it), so install at a quiescent point such as right after
-    /// unloading a model. Auxiliary pools (pinned CPU, staging, uniforms) and
-    /// the persistent pool are never affected.
     ///
     /// # Errors
     ///
-    /// [`PoolsInUse`](InstallMemoryPoolsError::PoolsInUse) when the current
-    /// stream kept its old layout because something was still live in its
-    /// pools — e.g. a garbage-collection task that has not released its
-    /// cross-stream pins yet, which can lag behind an explicit
-    /// [`memory_cleanup`](Self::memory_cleanup). Nothing is disturbed, the
-    /// layout still applies to streams created afterwards, and retrying after
-    /// the remaining work drains rebuilds the current stream too.
-    ///
-    /// [`Unsupported`](InstallMemoryPoolsError::Unsupported) from a runtime
-    /// with no configurable pools, where retrying will never succeed.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the layout is invalid (empty list, too many pools, zero page
-    /// size, slice larger than page, cap smaller than page, unavailable
-    /// preset) — that is a bad layout literal rather than a runtime condition,
-    /// and an explicit layout that cannot be honored must not be silently
-    /// replaced.
-    pub fn install_memory_pools(
-        &self,
-        pools: &MemoryPoolsConfig,
-    ) -> Result<(), InstallMemoryPoolsError> {
-        let config =
-            match MemoryConfiguration::default().resolve(Some(pools), &self.properties().memory) {
-                Ok(config) => config,
-                Err(err) => panic!("Invalid memory pools configuration: {err}"),
-            };
-        let stream_id = self.stream_id();
+    /// Refused while a stream records a graph: releasing memory waits on the
+    /// device, and a wait on a stream that records aborts its capture.
+    pub fn memory_cleanup(&self) -> Result<(), ServerError> {
         self.device
-            .submit_blocking(move |server| server.install_memory_pools(config, stream_id))
+            .submit_blocking(move |server| {
+                server
+                    .stream_ids()
+                    .into_iter()
+                    .try_for_each(|id| server.memory_cleanup(id))
+            })
             .unwrap_or_resume()
     }
 
@@ -1749,8 +1779,14 @@ impl Client {
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         dst_server.device.submit(move |server| {
-            server.initialize_memory(memory, size, stream_id_dst);
-            server.write(vec![(desc_descriptor, data.remove(0))], stream_id_dst)
+            // Cannot write on memory that wasn't initialized. The error is attached to the
+            // buffer and is reported at the next sync point.
+            if server
+                .initialize_memory(memory, size, stream_id_dst)
+                .is_ok()
+            {
+                server.write(vec![(desc_descriptor, data.remove(0))], stream_id_dst)
+            }
         });
 
         alloc
@@ -1761,15 +1797,7 @@ impl Client {
         &self,
         size: usize,
     ) -> impl Iterator<Item = VectorSize> + Clone {
-        let load_width = self.properties().hardware.load_width as usize;
-        let size_bits = size * 8;
-        let max = load_width / size_bits;
-        let max = usize::min(self.properties().hardware.max_vector_size, max);
-
-        // If the max is 8, we want to test 1, 2, 4, 8 which is log2(8) + 1.
-        let num_candidates = max.trailing_zeros() + 1;
-
-        (0..num_candidates).map(|i| 2usize.pow(i)).rev()
+        self.properties().io_optimized_vector_sizes(size)
     }
 
     /// Calculates the maximum throughput of the device given the given config (like tensor core with certain sizes and dtypes, or just arithmetic by dtype)
@@ -1794,6 +1822,9 @@ impl Client {
             return Ok(value);
         }
 
+        // Kernels queued for compilation compile now, together, rather than in the probe's
+        // first launch, inside the time it measures.
+        self.compile_queued();
         // Asked again inside: another thread may have answered while this one queued.
         self.exclusive(move || throughputs.measure(key, probe))
             .unwrap_or(Err(ThroughputError::Launch))
