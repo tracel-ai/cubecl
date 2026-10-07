@@ -40,14 +40,9 @@ impl WgpuCopies {
     }
 
     /// Wait for the device, up to `submission` when one is named.
-    #[cfg(not(target_family = "wasm"))]
     fn wait(&self, submission: Option<wgpu::SubmissionIndex>) -> Result<(), ServerError> {
-        self.poison.wait(&self.device, &self.queue, submission)
-    }
-
-    #[cfg(target_family = "wasm")]
-    fn wait(&self, _submission: Option<wgpu::SubmissionIndex>) -> Result<(), ServerError> {
-        self.poison.check()
+        self.poison
+            .wait_unless_lost(&self.device, &self.queue, submission)
     }
 }
 

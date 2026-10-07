@@ -21,7 +21,7 @@ mod _impl {
                     // Check whether the WgpuPoll, this thread, and something else is holding
                     // a handle. A lost device has nothing left to complete.
                     if std::sync::Arc::strong_count(&thread_check) > 2 && !poison.is_poisoned() {
-                        if let Err(e) = poison.wait(&device, &queue, None)
+                        if let Err(e) = poison.wait_unless_lost(&device, &queue, None)
                             && !poison.is_poisoned()
                         {
                             log::warn!("wgpu: waiting on the device failed during sync. ({e})")

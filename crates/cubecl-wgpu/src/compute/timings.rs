@@ -7,9 +7,9 @@ use cubecl_common::profile::{Duration, Instant, ProfileDuration, ProfileTicks};
 use cubecl_core::server::{ProfileError, ProfilingToken};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
+use wgpu::{QUERY_SIZE, QuerySet, QuerySetDescriptor, QueryType};
 
 use crate::compute::device_poison::PoisonWatch;
-use wgpu::{QUERY_SIZE, QuerySet, QuerySetDescriptor, QueryType};
 
 type QuerySetId = u64;
 
@@ -497,7 +497,7 @@ impl QueryProfiler {
             // drive. A map that never completes still releases it: dropping the
             // buffer aborts the map and calls this back.
             let (sender, rec) = cubecl_environment::future::channel::bounded(1);
-            poison.wake_on_loss(sender.clone());
+            poison.wake_on_loss(&sender);
             map_buffer
                 .slice(..)
                 .map_async(wgpu::MapMode::Read, move |v| {
@@ -508,11 +508,15 @@ impl QueryProfiler {
                 });
 
             Ok(ProfileDuration::new_device_time_maybe(async move {
-                // A device lost while the map was pending closes the channel instead, and a map
-                // that failed read nothing back: neither is a measurement.
-                let Ok(Ok(())) = rec.recv().await else {
-                    return None;
-                };
+                match rec.recv().await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(err)) => {
+                        log::warn!("wgpu: a profile's timestamps could not be mapped ({err})");
+                        return None;
+                    }
+                    // Closed by a device loss, which the device-lost callback has logged.
+                    Err(_) => return None,
+                }
 
                 let binding = map_buffer.slice(..).get_mapped_range().unwrap();
                 let data: &[u64] = bytemuck::try_cast_slice(&binding).unwrap();

@@ -430,7 +430,7 @@ impl WgpuStream {
         for entry in staging_info.iter() {
             if let Some((staging, _binding, _size)) = entry {
                 let (sender, receiver) = cubecl_environment::future::channel::bounded(1);
-                self.poison.wake_on_loss(sender.clone());
+                self.poison.wake_on_loss(&sender);
                 staging
                     .buffer
                     .slice(..)
@@ -528,7 +528,11 @@ impl WgpuStream {
                 self.flush(stream_id)?;
                 // Waits like system timing's sync, for the reason `drains_before_window` gives:
                 // work still running when the window's first pass starts is timed as its own.
-                if let Err(err) = self.poison.wait(&self.device, &self.queue, None) {
+                if let Err(err) = self
+                    .poison
+                    .wait_unless_lost(&self.device, &self.queue, None)
+                    && !self.poison.is_poisoned()
+                {
                     log::warn!("waiting for the work ahead of a profiled window: {err}");
                 }
             }
@@ -615,7 +619,10 @@ impl WgpuStream {
                                 // later without waiting is not an option: the window's query
                                 // sets return to the pool here, and a pass that reuses one
                                 // before the resolve runs would overwrite the window's ends.
-                                if let Err(err) = self.poison.wait(&self.device, &self.queue, None)
+                                if let Err(err) =
+                                    self.poison
+                                        .wait_unless_lost(&self.device, &self.queue, None)
+                                    && !self.poison.is_poisoned()
                                 {
                                     log::warn!("waiting for a profiled window to complete: {err}");
                                 }
@@ -669,7 +676,7 @@ impl WgpuStream {
 
         Box::pin(async move {
             let (sender, receiver) = cubecl_environment::future::channel::bounded::<()>(1);
-            poison.wake_on_loss(sender.clone());
+            poison.wake_on_loss(&sender);
             queue.on_submitted_work_done(move || {
                 // Signal that we're done.
                 let _ = sender.try_send(());
@@ -828,7 +835,11 @@ impl WgpuStream {
 
             // Wait for the GPU to finish processing these writes before continuing.
             #[cfg(not(target_family = "wasm"))]
-            if let Err(e) = self.poison.wait(&self.device, &self.queue, Some(index)) {
+            if let Err(e) = self
+                .poison
+                .wait_unless_lost(&self.device, &self.queue, Some(index))
+                && !self.poison.is_poisoned()
+            {
                 log::warn!("wgpu: write flush poll failed ({e})");
             }
 
@@ -1202,10 +1213,10 @@ mod __submission_load {
 
                     if *tasks_count_submitted >= MAX_TOTAL_TASKS {
                         core::mem::swap(last_index, &mut index);
-                        if let Err(e) = poison.wait(device, queue, Some(index)) {
-                            log::warn!(
-                                "wgpu: requested wait timed out before the submission was completed during sync. ({e})"
-                            )
+                        if let Err(e) = poison.wait_unless_lost(device, queue, Some(index))
+                            && !poison.is_poisoned()
+                        {
+                            log::warn!("wgpu: waiting on a throttled submission failed ({e})")
                         }
                         *tasks_count_submitted = 0;
                     }

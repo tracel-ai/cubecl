@@ -10,19 +10,23 @@
 //! stream on the device, and every sync point checks it
 
 use core::fmt::Debug;
+#[cfg(not(target_family = "wasm"))]
 use core::time::Duration;
+#[cfg(not(target_family = "wasm"))]
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::future::channel::Sender;
+use cubecl_environment::future::channel::{Sender, WeakSender};
 use cubecl_server::driver::DevicePoison;
 use cubecl_server::server::ServerError;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 
 /// How long one wait on the device blocks before it looks again.
+#[cfg(not(target_family = "wasm"))]
 const WAIT_SLICE: Duration = Duration::from_secs(1);
 
 /// How long a wait goes without progress before it probes the device with an empty submission.
 /// A driver that kills a hung context can leave its fences unsignaled for good, and report the
 /// loss only to the next submission.
+#[cfg(not(target_family = "wasm"))]
 const PROBE_AFTER: Duration = Duration::from_secs(5);
 
 /// Holds whether a wgpu device is poisoned. Shared by every stream on the device.
@@ -48,8 +52,8 @@ impl PoisonWatch {
 
         let lost = poison.clone();
         device.set_device_lost_callback(move |kind, message| {
-            log::error!("the wgpu device was lost ({kind:?}): {message}");
             lost.poison(format!("{kind:?}: {message}"));
+            log::error!("the wgpu device was lost ({kind:?}): {message}");
         });
 
         let watched = poison.clone();
@@ -80,19 +84,25 @@ impl PoisonWatch {
     /// Closes `sender` once the device is lost, or now if it already is, so whatever awaits its
     /// receiver wakes to find the device poisoned. wgpu completes the maps and work-done
     /// callbacks of a lost device only once its queue empties, which a hung one never does.
-    pub fn wake_on_loss<T: Send + 'static>(&self, sender: Sender<T>) {
+    pub fn wake_on_loss<T: Send + 'static>(&self, sender: &Sender<T>) {
         let mut waiters = self.waiters();
         if self.is_poisoned() {
             sender.close();
             return;
         }
-        waiters.retain(|waiter| !waiter.is_closed());
-        waiters.push(Box::new(sender));
+        // Pruned only when full, and the reserve keeps the next prune at least as far away.
+        if waiters.len() == waiters.capacity() {
+            waiters.retain(|waiter| waiter.is_pending());
+            let pending = waiters.len();
+            waiters.reserve(pending);
+        }
+        waiters.push(Box::new(sender.downgrade()));
     }
 
     /// Waits until `submission` completes, or everything submitted when `None`, and fails once
     /// the device is lost instead of waiting on work that will never complete.
-    pub fn wait(
+    #[cfg(not(target_family = "wasm"))]
+    pub fn wait_unless_lost(
         &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -106,7 +116,7 @@ impl PoisonWatch {
                 timeout: Some(WAIT_SLICE),
             });
             match polled {
-                Ok(_) => return Ok(()),
+                Ok(_) => return self.check(),
                 Err(wgpu::PollError::Timeout) => {
                     stalled += WAIT_SLICE;
                     if stalled >= PROBE_AFTER {
@@ -124,6 +134,17 @@ impl PoisonWatch {
         }
     }
 
+    /// The browser drives the device, so there is nothing to block on.
+    #[cfg(target_family = "wasm")]
+    pub fn wait_unless_lost(
+        &self,
+        _device: &wgpu::Device,
+        _queue: &wgpu::Queue,
+        _submission: Option<wgpu::SubmissionIndex>,
+    ) -> Result<(), ServerError> {
+        self.check()
+    }
+
     fn poison(&self, reason: String) {
         let _ = self.shared.reason.set(reason);
         for waiter in self.waiters().drain(..) {
@@ -139,20 +160,22 @@ impl PoisonWatch {
     }
 }
 
-/// A channel a pending wait listens on.
+/// A channel a pending wait listens on. Held weakly, so a callback dropped unrun still closes it.
 trait Waiter: Send + Debug {
-    /// Whether the wait is over, so there is nothing left to wake.
-    fn is_closed(&self) -> bool;
+    /// Whether anything can still send on it, so there is a wait left to wake.
+    fn is_pending(&self) -> bool;
     fn close(&self);
 }
 
-impl<T: Send> Waiter for Sender<T> {
-    fn is_closed(&self) -> bool {
-        Sender::is_closed(self)
+impl<T: Send> Waiter for WeakSender<T> {
+    fn is_pending(&self) -> bool {
+        self.upgrade().is_some()
     }
 
     fn close(&self) {
-        Sender::close(self);
+        if let Some(sender) = self.upgrade() {
+            sender.close();
+        }
     }
 }
 
@@ -165,7 +188,7 @@ mod tests {
     fn a_wait_pending_when_the_device_is_lost_wakes_poisoned() {
         let watch = PoisonWatch::default();
         let (sender, receiver) = bounded::<()>(1);
-        watch.wake_on_loss(sender);
+        watch.wake_on_loss(&sender);
 
         watch.poison("lost".into());
 
@@ -179,8 +202,20 @@ mod tests {
         watch.poison("lost".into());
         let (sender, receiver) = bounded::<()>(1);
 
-        watch.wake_on_loss(sender);
+        watch.wake_on_loss(&sender);
 
         assert!(block_on(receiver.recv()).is_err());
+    }
+
+    #[test]
+    fn a_sender_dropped_unsent_still_closes_its_channel() {
+        let watch = PoisonWatch::default();
+        let (sender, receiver) = bounded::<()>(1);
+        watch.wake_on_loss(&sender);
+
+        drop(sender);
+
+        assert!(block_on(receiver.recv()).is_err());
+        assert!(watch.check().is_ok());
     }
 }
