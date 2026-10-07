@@ -62,7 +62,7 @@ pub mod install {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "linux", target_os = "windows")))]
 #[allow(unexpected_cfgs)]
 mod tests {
     pub type TestRuntime = crate::CudaRuntime;
