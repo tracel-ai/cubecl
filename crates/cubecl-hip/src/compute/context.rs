@@ -10,15 +10,14 @@ use super::storage::gpu::GpuResource;
 use crate::compiler::{HipBackend, HipCompilationOptions};
 use crate::compute::artifact::HipArtifactCompiler;
 use crate::compute::events::EventProfiler;
-use crate::compute::modules::HipModules;
+use crate::compute::modules::{HipCompiledKernel, HipModules};
 use crate::compute::status::checked;
 use crate::compute::stream::Stream;
 use cubecl_core::{ir::DeviceProperties, prelude::*};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_server::compiler::{ArtifactId, KernelLoader};
-use cubecl_server::kernel::{BufferIOAttr, CubeKernel};
+use cubecl_server::kernel::CubeKernel;
 use cubecl_server::logging::ServerLogger;
-use std::sync::Arc;
 
 #[derive(Debug)]
 pub(crate) struct HipContext {
@@ -55,20 +54,20 @@ impl HipContext {
         }
     }
 
-    /// Loads `kernel`, whose id is `kernel_id`, on the device, compiling it
-    /// first when no store holds it. A kernel already loaded costs a map
-    /// lookup.
+    /// Loads `kernel`, whose id is `id`, on the device, compiling it first
+    /// when no store holds it. A kernel already loaded costs a map lookup.
     pub fn load_kernel(
         &mut self,
         kernel: &dyn CubeKernel,
-        kernel_id: KernelId,
+        id: &ArtifactId<()>,
         logger: &ServerLogger,
-    ) -> Result<(), LaunchError> {
-        let id = ArtifactId {
-            kernel: kernel_id,
-            variant: (),
-        };
-        self.kernels.load(kernel, id, logger).map(|_| ())
+    ) -> Result<HipCompiledKernel, LaunchError> {
+        self.kernels.load(kernel, id, logger)
+    }
+
+    /// Compiles every queued kernel now, rather than inside the next launch.
+    pub fn compile_queued(&mut self, logger: &ServerLogger) {
+        self.kernels.compile_queued(logger);
     }
 
     /// Queues `kernel` to be compiled with others, by the next kernel
@@ -77,24 +76,12 @@ impl HipContext {
         self.kernels.enqueue(kernel, ());
     }
 
-    /// What the compiled kernel does with each buffer binding, by buffer
-    /// position — `None` when the kernel is not loaded or predates the
-    /// answer, which the launch path reads as every buffer both read and
-    /// written.
-    pub fn kernel_io(&mut self, kernel_id: &KernelId) -> Option<Arc<[BufferIOAttr]>> {
-        self.kernels
-            .get(&ArtifactId {
-                kernel: kernel_id.clone(),
-                variant: (),
-            })
-            .and_then(|kernel| kernel.io.clone())
-    }
-
     /// Executes a task on the given stream.
     pub fn execute_task(
         &mut self,
         stream: &mut Stream,
-        kernel_id: KernelId,
+        kernel_id: &KernelId,
+        kernel: &HipCompiledKernel,
         dispatch_count: (u32, u32, u32),
         resources: &[GpuResource],
     ) -> Result<(), LaunchError> {
@@ -103,13 +90,6 @@ impl HipContext {
             .map(|memory| memory.binding)
             .collect::<Vec<_>>();
 
-        let kernel = self
-            .kernels
-            .get(&ArtifactId {
-                kernel: kernel_id.clone(),
-                variant: (),
-            })
-            .expect("loaded before the launch was enqueued");
         let cube_dim = kernel.cube_dim;
 
         // SAFETY: `kernel.func` is a valid function handle from a loaded module.

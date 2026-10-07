@@ -22,7 +22,7 @@ pub(crate) struct HipModules {
 }
 
 /// A loaded HIP module and what launching its kernel needs.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HipCompiledKernel {
     /// The module `func` belongs to. Never unloaded: see
     /// [`HipContext::new`](super::context::HipContext::new).

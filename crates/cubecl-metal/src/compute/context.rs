@@ -34,19 +34,20 @@ impl MetalContext {
         }
     }
 
-    /// The pipeline for `kernel`, whose id is `kernel_id`, compiling it first
-    /// when no store holds it.
+    /// The pipeline for `kernel`, whose id is `id`, compiling it first when
+    /// no store holds it.
     pub fn load(
         &mut self,
         kernel: &dyn CubeKernel,
-        kernel_id: KernelId,
+        id: &ArtifactId<()>,
         logger: &ServerLogger,
     ) -> Result<CompiledKernel, LaunchError> {
-        let id = ArtifactId {
-            kernel: kernel_id,
-            variant: (),
-        };
-        self.kernels.load(kernel, id, logger).cloned()
+        self.kernels.load(kernel, id, logger)
+    }
+
+    /// Compiles every queued kernel now, rather than inside the next launch.
+    pub fn compile_queued(&mut self, logger: &ServerLogger) {
+        self.kernels.compile_queued(logger);
     }
 
     /// Queues `kernel` to be compiled with others, by the next pipeline

@@ -4,7 +4,6 @@ use alloc::vec::Vec;
 use core::time::Duration;
 
 use cubecl_common::profile::{Instant, ProfileDuration, TimingMethod};
-use cubecl_environment::config::RuntimeConfig;
 
 use crate::client::Client;
 use crate::config::autotune::BenchConfig;
@@ -33,10 +32,9 @@ pub(crate) struct BatchOutcome {
 
 /// Round robin benchmarking with early elimination.
 ///
-/// Every candidate's kernels are compiled first, together (see [`Schedule::precompile`]). A first
-/// pass then gives each candidate one warmup and one sample, resolved inline so a candidate that
-/// already reaches the time limit ends the batch before the rest are measured, and a group whose
-/// members stop improving on its leader can skip the rest of them. After
+/// A first pass gives each candidate one warmup and one sample, resolved inline so a candidate
+/// that already reaches the time limit can end the batch before the rest are compiled, and a
+/// group whose members stop improving on its leader can skip the rest of them. After
 /// that, every live candidate gets one sample per round and the whole round is resolved at once:
 /// resolving per sample would serialize a device round trip per measurement, which for short
 /// kernels costs more than the samples it saves.
@@ -122,14 +120,9 @@ impl Schedule<'_> {
 
         let mut short_circuit = None;
 
-        // The whole batch is precompiled first, so its kernels compile in one phase that
-        // lasts about as long as the slowest of them: a short circuit, or a group's patience,
-        // then saves measurements, not compilations.
-        Self::precompile(&candidates, autotunables, &inputs);
-
         // First pass: one warmup and one sample each, resolved inline so a candidate that
-        // already hits the limit ends the batch before the remaining ones are measured. This
-        // is the one place where paying a device round trip per sample is worth it.
+        // already hits the limit ends the batch before the remaining kernels are ever compiled.
+        // This is the one place where paying a device round trip per sample is worth it.
         for slot in 0..candidates.len() {
             if patience.skips(slot) {
                 candidates[slot].skip();
@@ -249,35 +242,6 @@ impl Schedule<'_> {
         }
 
         self.outcome(candidates, short_circuit)
-    }
-
-    /// Runs each of `candidates` once under a [`Precompile`](crate::dry_run::Precompile), so
-    /// their kernels compile together, on every core, when the first of them executes — rather
-    /// than one after another, each in its own warmup.
-    ///
-    /// The outputs and errors are dropped: nothing ran, and a candidate whose kernel fails to
-    /// compile here is disqualified when it is measured. A lone candidate has nothing to compile
-    /// beside, and neither has anything on a server that compiles on one thread: both are left
-    /// to their warmups. Without threads there is no guard to make the runs precompile, so they
-    /// would execute: there is no pass at all.
-    fn precompile<'a, F: TuneInputs, Out: AutotuneOutput>(
-        candidates: &[Candidate],
-        autotunables: &[&TuneFn<F, Out>],
-        inputs: &<F as TuneInputs>::At<'a>,
-    ) where
-        <F as TuneInputs>::At<'a>: Clone,
-    {
-        let threads = crate::config::CubeClRuntimeConfig::get()
-            .compilation
-            .parallelism();
-        if !cfg!(feature = "std") || candidates.len() < 2 || threads < 2 {
-            return;
-        }
-
-        let _precompile = crate::dry_run::Precompile::new();
-        for candidate in candidates {
-            let _ = autotunables[candidate.index].execute(inputs.clone());
-        }
     }
 
     /// Fold the finished candidates into the batch outcome, naming the winner.

@@ -889,9 +889,8 @@ fn autotune_evicts_before_every_measured_sample() {
     // The winner ran on the reference inputs once the tune was over.
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 
-    // The launches that were not measured samples: the precompiling runs, the warm-ups, and
-    // the winner's real run.
-    let unmeasured = candidates * (precompile_runs(candidates) + warmups) + 1;
+    // The launches that were not measured samples: the warm-ups, and the winner's real run.
+    let unmeasured = candidates * warmups + 1;
     let calls = calls.load(Ordering::Relaxed);
     let evictions = evictions.load(Ordering::Relaxed);
     let misdirected = misdirected.load(Ordering::Relaxed);
@@ -973,19 +972,6 @@ fn exclusive_stays_recoverable_on_task_panic() {
     }
 }
 
-/// How many times the scheduler runs each of `candidates` before measuring it, to compile all
-/// their kernels at once: once when the adaptive scheduler batches more than one of them on more
-/// than one thread, and never otherwise.
-#[cfg(feature = "std")]
-fn precompile_runs(candidates: usize) -> usize {
-    use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
-
-    let config = CubeClRuntimeConfig::get();
-    let batched =
-        config.autotune.bench.adaptive && config.compilation.parallelism() >= 2 && candidates >= 2;
-    usize::from(batched)
-}
-
 /// A tune key component that is new on every run.
 ///
 /// The persistent autotune cache outlives the process, so a key has to be unique for the
@@ -1057,8 +1043,7 @@ fn adaptive() -> bool {
 }
 
 /// An ordered group whose patience runs out after its first member never benchmarks the rest
-/// of the group — their only run is the one that precompiles the batch — so the slow+wrong
-/// kernel ranked first wins unopposed. With room for both, the
+/// of the group: the slow+wrong kernel ranked first wins unopposed. With room for both, the
 /// faster `add` is measured and wins. Outside the group, `add` is measured despite the group
 /// running out, and wins. The fixed-count pass measures every candidate, so there `add` always
 /// wins.
@@ -1086,7 +1071,7 @@ fn autotune_patience_stops_measuring_the_group() {
         vec![(SlowWrong, Ranked), (Add, Ranked)],
     );
     assert_eq!(written, slow);
-    assert_eq!(calls[1] == precompile_runs(2), adaptive());
+    assert_eq!(calls[1] == 0, adaptive());
 
     let (written, _) = tune_ranked(
         &TUNER,
@@ -1105,7 +1090,7 @@ fn autotune_patience_stops_measuring_the_group() {
 
 /// Misses are counted in a row and a member that fails is not one: with two misses allowed,
 /// the rejected member and the first slow one are not enough to stop the group, the second
-/// slow one is, and the last member is never benchmarked: only precompiled.
+/// slow one is, and the last member is never benchmarked.
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::serial]
@@ -1134,11 +1119,7 @@ fn autotune_patience_counts_misses_in_a_row_and_not_failures() {
         calls[3] > 0,
         "the second slow member is measured: {calls:?}"
     );
-    assert_eq!(
-        calls[4] == precompile_runs(5),
-        adaptive(),
-        "the last member: {calls:?}"
-    );
+    assert_eq!(calls[4] == 0, adaptive(), "the last member: {calls:?}");
 }
 
 /// A member measured in the first pass that fails in a later round is disqualified. When it was
@@ -1197,9 +1178,9 @@ fn autotune_stops_sampling_a_rejected_candidate() {
     });
     TUNER.execute(&"test".to_string(), &client, test_set, handles);
 
-    // The rejected candidate is dropped after its first measured failure, and the surviving
-    // `add` kernel still wins the tuning.
-    assert_eq!(calls.load(Ordering::Relaxed), 1 + precompile_runs(2));
+    // The rejected candidate is dropped after its first failure, and the surviving `add`
+    // kernel still wins the tuning.
+    assert_eq!(calls.load(Ordering::Relaxed), 1);
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 

@@ -6,6 +6,7 @@ use cubecl_server::kernel::CompiledKernel;
 use cubecl_llvm::PlironCompiler;
 
 /// A compiled cpu kernel.
+#[derive(Clone)]
 pub struct CpuKernel {
     pub(crate) mlir: Arc<CompiledKernel<PlironCompiler>>,
 }

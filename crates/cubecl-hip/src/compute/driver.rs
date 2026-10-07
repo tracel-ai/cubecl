@@ -5,6 +5,7 @@
 use crate::compute::context::HipContext;
 use crate::compute::events::Fence;
 use crate::compute::gpu::GpuResource;
+use crate::compute::modules::HipCompiledKernel;
 use crate::compute::status::checked;
 use crate::compute::storage::cpu::PinnedMemoryStorage;
 use crate::compute::storage::gpu::GpuStorage;
@@ -65,6 +66,7 @@ impl Driver for Hip {
     type Stream = Stream;
     type Context = HipContext;
     type LaunchArgs = [GpuResource];
+    type Kernel = HipCompiledKernel;
 
     unsafe fn pinned_bytes(
         binding: ManagedMemoryBinding,
@@ -204,10 +206,11 @@ impl Driver for Hip {
     fn launch(
         ctx: &mut HipContext,
         stream: &mut Stream,
-        kernel: KernelId,
+        id: &KernelId,
+        kernel: &HipCompiledKernel,
         count: (u32, u32, u32),
         args: &mut [GpuResource],
     ) -> Result<(), LaunchError> {
-        ctx.execute_task(stream, kernel, count, args)
+        ctx.execute_task(stream, id, kernel, count, args)
     }
 }

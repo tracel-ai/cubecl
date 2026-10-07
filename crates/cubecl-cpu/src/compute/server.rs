@@ -394,27 +394,27 @@ impl Server for CpuServer {
             kernel: kernel.id(),
             variant: alignment,
         };
-        if let Err(err) =
-            self.kernels
-                .load(kernel.as_ref(), cache_key.clone(), &self.scheduler.logger)
+        let loaded = match self
+            .kernels
+            .load(kernel.as_ref(), &cache_key, &self.scheduler.logger)
         {
-            let error = ServerError::Launch(err);
-            self.scheduler.stream(&stream_id).profile_failure(&error);
-            if !launch_mode.is_skipped() {
-                let mut written = self.write_set();
-                written.extend(bindings.buffers_written(None).cloned());
-                failed_writing(self, stream_id, written, error);
+            Ok(loaded) => loaded,
+            Err(err) => {
+                let error = ServerError::Launch(err);
+                self.scheduler.stream(&stream_id).profile_failure(&error);
+                if !launch_mode.is_skipped() {
+                    let mut written = self.write_set();
+                    written.extend(bindings.buffers_written(None).cloned());
+                    failed_writing(self, stream_id, written, error);
+                }
+                return;
             }
-            return;
-        }
+        };
         if launch_mode.is_skipped() {
             return;
         }
 
-        let io = self
-            .kernels
-            .get(&cache_key)
-            .and_then(|kernel| kernel.mlir.io.clone());
+        let io = loaded.mlir.io.clone();
 
         // The scope claims what the launch writes until the body proves the
         // work enqueued, so a failure — or a panic — anywhere in it leaves a
@@ -468,6 +468,10 @@ impl Server for CpuServer {
         _stream_id: StreamId,
     ) -> Result<(), ServerError> {
         self.scheduler.ensure_written(handles.iter())
+    }
+
+    fn compile_queued(&mut self) {
+        self.kernels.compile_queued(&self.scheduler.logger);
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {

@@ -1330,6 +1330,12 @@ impl Client {
             .unwrap_or_resume()
     }
 
+    /// Compile every kernel queued for compilation (see
+    /// [`Server::compile_queued`]), before the work submitted after it.
+    pub fn compile_queued(&self) {
+        self.device.submit(move |server| server.compile_queued());
+    }
+
     /// Prepare this client's stream for a graph capture (see
     /// [`Server::graph_prepare`]). Call this **before** the warmup run, then
     /// [`start_capture`](Self::start_capture) around the run to record.

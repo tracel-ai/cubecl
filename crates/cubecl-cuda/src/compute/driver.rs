@@ -4,6 +4,7 @@
 
 use crate::compute::context::CudaContext;
 use crate::compute::events::{Fence, driver_error, poisons_device};
+use crate::compute::modules::CudaCompiledKernel;
 use crate::compute::storage::cpu::PinnedMemoryStorage;
 use crate::compute::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::stream::{CudaStreamBackend, Stream};
@@ -65,6 +66,7 @@ impl Driver for Cuda {
     /// The driver takes an array of pointers to the arguments, so a tensor-map
     /// descriptor sits in it beside a buffer's device pointer.
     type LaunchArgs = [*mut c_void];
+    type Kernel = CudaCompiledKernel;
 
     unsafe fn pinned_bytes(
         binding: ManagedMemoryBinding,
@@ -207,7 +209,8 @@ impl Driver for Cuda {
     fn launch(
         ctx: &mut CudaContext,
         stream: &mut Stream,
-        kernel: KernelId,
+        _id: &KernelId,
+        kernel: &CudaCompiledKernel,
         count: (u32, u32, u32),
         args: &mut [*mut c_void],
     ) -> Result<(), LaunchError> {

@@ -339,6 +339,10 @@ impl<K: AutotuneKey> Tuner<K> {
         }
 
         let test_inputs = tunables.generate_inputs(key, inputs);
+        // Kernels a compile-only dry run queued compile here, together, before anything is
+        // timed: left to the next launch, they would all compile inside the first candidate's
+        // warmup, and its measurement would carry every candidate's compilation.
+        client.compile_queued();
         let plan = tunables.plan(key);
         #[cfg(persistence)]
         if recording.is_open() {

@@ -131,6 +131,11 @@ pub trait Driver: Sized {
     ///
     /// [`launch`]: Self::launch
     type LaunchArgs: ?Sized;
+    /// A kernel loaded on the device, as the server's
+    /// [`KernelLoader`](crate::compiler::KernelLoader) hands it out: launching
+    /// it takes no lookup, so nothing that empties the loader in between —
+    /// an environment switch — can leave a launch without its kernel.
+    type Kernel;
 
     /// Hand out `size` bytes of the pinned host allocation `binding` names,
     /// released back to the pool when the [`Bytes`] drop.
@@ -215,7 +220,7 @@ pub trait Driver: Sized {
         Ok(())
     }
 
-    /// Enqueue an already-compiled kernel on `stream`.
+    /// Enqueue `kernel`, already compiled and loaded under `id`, on `stream`.
     ///
     /// Always a compiled kernel: the server compiles before entering its write
     /// scope, and a skipped launch stops there, before any resource is
@@ -227,7 +232,8 @@ pub trait Driver: Sized {
     fn launch(
         ctx: &mut Self::Context,
         stream: &mut Self::Stream,
-        kernel: KernelId,
+        id: &KernelId,
+        kernel: &Self::Kernel,
         count: (u32, u32, u32),
         args: &mut Self::LaunchArgs,
     ) -> Result<(), LaunchError>;

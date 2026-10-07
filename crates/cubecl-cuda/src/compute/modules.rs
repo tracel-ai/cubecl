@@ -25,7 +25,7 @@ pub(crate) struct CudaModules {
 }
 
 /// A loaded CUDA function and what launching it needs.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CudaCompiledKernel {
     pub cube_dim: CubeDim,
     pub shared_mem_bytes: usize,

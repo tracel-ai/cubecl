@@ -91,8 +91,9 @@ pub type ArtifactOf<T> = <<T as CompilationTarget>::Compiler as ArtifactCompiler
 pub trait CompilationTarget {
     /// The half that may run on any thread.
     type Compiler: ArtifactCompiler;
-    /// What a launch dispatches.
-    type Loaded;
+    /// What a launch dispatches. Cloned on every launch, so it should be
+    /// handles and shared pointers.
+    type Loaded: Clone;
 
     /// The half that may run on any thread.
     fn compiler(&self) -> &Self::Compiler;

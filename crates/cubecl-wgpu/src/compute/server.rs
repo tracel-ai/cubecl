@@ -433,14 +433,13 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 .enqueue(kernel, MetadataLayout::of(&args.info));
             return;
         }
-        let kernel_id = kernel.id();
         let id = ArtifactId {
-            kernel: kernel_id.clone(),
+            kernel: kernel.id(),
             variant: MetadataLayout::of(&args.info),
         };
-        let loaded = self.pipelines.load(&*kernel, id, &self.scheduler.logger);
+        let loaded = self.pipelines.load(&*kernel, &id, &self.scheduler.logger);
         let (pipeline, compiler_info, io) = match loaded {
-            Ok(entry) => entry.clone(),
+            Ok(entry) => entry,
             Err(err) => {
                 let error = ServerError::Launch(err);
                 self.scheduler.stream(&stream_id).profile_failure(&error);
@@ -455,6 +454,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         if launch_mode.is_skipped() {
             return;
         }
+        let kernel_id = id.kernel;
 
         // Skip, do not taint: a launch whose input cannot be trusted does not
         // run. Running it is not merely wasted device time — a buffer holding
@@ -524,6 +524,10 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 .register(stream_id, task, &server.streams_pool);
             Ok(())
         });
+    }
+
+    fn compile_queued(&mut self) {
+        self.pipelines.compile_queued(&self.scheduler.logger);
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {

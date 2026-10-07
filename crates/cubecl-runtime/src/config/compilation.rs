@@ -29,14 +29,17 @@ pub struct CompilationConfig {
 
 impl CompilationConfig {
     /// How many threads compile at once: the configured count, or every core
-    /// the process may run on. Never zero, and one without threads.
+    /// the process may run on. Never zero, and one without threads — on wasm
+    /// too, whatever is configured, since it cannot spawn them.
     pub fn parallelism(&self) -> usize {
-        #[cfg(feature = "std")]
-        let available = std::thread::available_parallelism().map_or(1, |cores| cores.get());
-        #[cfg(not(feature = "std"))]
-        let available = 1;
+        #[cfg(all(feature = "std", not(target_family = "wasm")))]
+        let threads = self
+            .parallelism
+            .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |cores| cores.get()));
+        #[cfg(any(not(feature = "std"), target_family = "wasm"))]
+        let threads = 1;
 
-        self.parallelism.unwrap_or(available).max(1)
+        threads.max(1)
     }
 }
 

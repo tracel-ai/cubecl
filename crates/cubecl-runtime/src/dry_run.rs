@@ -12,14 +12,14 @@
 //! into executing. A [`DryRunScope::Compile`] dry run measures nothing: every
 //! launch, autotune's included, only queues its kernel, so a pass under it
 //! gathers every kernel the workload and its tuning reach. It compiles none of
-//! them: the first launch of a later `Profile` pass compiles the whole queue
-//! in one batch, and that pass's tunes only measure.
+//! them: the first launch of a later `Profile` pass, or the first tune before
+//! it measures anything, compiles the whole queue in one batch, and that
+//! pass's tunes only measure.
 //!
 //! [`Precompile`] does on one thread what a `Compile` dry run does on all of
 //! them, with or without a dry run: the launches it covers only queue their
 //! kernels, and the server compiles the whole queue at once, on its compiling
-//! threads, when it next loads a kernel for a launch. Autotune opens one over
-//! the batch of candidates it is about to measure.
+//! threads, when it next loads a kernel for a launch.
 //!
 //! **Buffers are left as they were**, so anything read back during a dry run is
 //! meaningless. It only suits a pass driven by the *shapes* it produces, which
@@ -176,6 +176,10 @@ impl DryRun {
     /// If a dry run of the other scope is open.
     pub fn new(scope: DryRunScope) -> Self {
         let level = scope as usize;
+        #[allow(
+            deprecated,
+            reason = "portable_atomic lacks try_update on targets without native atomics"
+        )]
         let opened = OPEN.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |open| {
             match open & LEVEL_MASK {
                 0 => Some(GUARD | level),
@@ -201,6 +205,10 @@ impl DryRun {
 impl Drop for DryRun {
     fn drop(&mut self) {
         // The last guard out closes the dry run, its level with it.
+        #[allow(
+            deprecated,
+            reason = "portable_atomic lacks try_update on targets without native atomics"
+        )]
         let _ = OPEN.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |open| {
             let open = open - GUARD;
             Some(if open < GUARD { 0 } else { open })
@@ -249,10 +257,8 @@ impl Drop for RealRun {
 /// Makes the launches issued on this thread only queue their kernels for
 /// compilation, for as long as it lives — see [`LaunchMode::Precompile`].
 ///
-/// Autotune holds one while it runs the batch of candidates it will measure,
-/// so that the first of them to execute compiles all of them at once. A nested
-/// [`RealRun`] still executes, which is what lets a candidate that dispatches
-/// through another tuner have that one measure for real.
+/// A nested [`RealRun`] still executes, which is what lets a candidate that
+/// dispatches through another tuner have that one measure for real.
 ///
 /// Thread-local, like [`RealRun`], and for the same reason it has to live on
 /// the thread issuing the launches.
@@ -351,8 +357,8 @@ mod tests {
         assert_eq!(scope::mode(), None);
     }
 
-    /// The innermost guard decides: autotune precompiles inside its own
-    /// measurement, and a candidate's nested tuner measures inside that.
+    /// The innermost guard decides: a precompile inside a measurement queues,
+    /// and a nested tuner measures inside that.
     #[test]
     #[serial_test::serial]
     fn the_innermost_guard_decides() {
@@ -418,8 +424,7 @@ mod tests {
         assert_eq!(launch_mode(), LaunchMode::Skip);
     }
 
-    /// Precompiling needs no dry run: autotune at run time compiles its
-    /// candidates as much as a build's does.
+    /// Precompiling needs no dry run: the guard queues on its own.
     #[test]
     #[serial_test::serial]
     fn precompile_works_outside_a_dry_run() {

@@ -18,6 +18,7 @@ use cubecl_core::{
 };
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
+use cubecl_server::compiler::ArtifactId;
 use cubecl_server::memory_management::Cleanup;
 use cubecl_server::memory_management::PageUpdate;
 use cubecl_server::{
@@ -363,15 +364,16 @@ impl Server for MetalServer {
         // A dry run stages none either way. It was never going to write, so a
         // failure in it leaves nothing stale, and tainting its buffers would
         // fail unrelated reads of memory the run deliberately left alone.
-        let kernel_id = kernel.id();
         // A precompiled launch only queues its kernel, touching nothing else.
         if launch_mode == LaunchMode::Precompile {
             self.context.queue(kernel);
             return;
         }
-        let compiled = self
-            .context
-            .load(&*kernel, kernel_id.clone(), &self.utilities.logger);
+        let id = ArtifactId {
+            kernel: kernel.id(),
+            variant: (),
+        };
+        let compiled = self.context.load(&*kernel, &id, &self.utilities.logger);
         let compiled = match compiled {
             Ok(compiled) => compiled,
             Err(err) => {
@@ -388,6 +390,7 @@ impl Server for MetalServer {
         if launch_mode.is_skipped() {
             return;
         }
+        let kernel_id = id.kernel;
         let io = compiled.io.clone();
 
         // The scope claims what the launch writes until the body proves the
@@ -597,6 +600,10 @@ impl Server for MetalServer {
         _stream_id: StreamId,
     ) -> Result<(), ServerError> {
         self.streams.ensure_written(handles.iter())
+    }
+
+    fn compile_queued(&mut self) {
+        self.context.compile_queued(&self.utilities.logger);
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {

@@ -8,8 +8,8 @@ use cubecl_common::profile::Instant;
 use cubecl_environment::collections::{HashMap, HashSet};
 
 use super::{
-    ArtifactCompiler, ArtifactId, CompilationCache, CompilationOutcome, CompilationRecording,
-    CompilationTarget, VariantOf,
+    ArtifactCompiler, ArtifactId, CompilationBatchRecording, CompilationCache, CompilationOutcome,
+    CompilationRecording, CompilationTarget, VariantOf,
 };
 use crate::config::RuntimeConfig;
 use crate::kernel::CubeKernel;
@@ -38,9 +38,12 @@ pub struct KernelLoader<T: CompilationTarget> {
     /// The ids of [`queue`](Self::queue)'s kernels, so queuing one more costs
     /// a lookup rather than a scan.
     queued: HashSet<ArtifactId<VariantOf<T>>>,
-    /// Why each queued kernel that failed to compile failed, until its own
-    /// launch reports it: the launch is where the failure has outputs to
-    /// carry, and compiling the kernel again there would only fail again.
+    /// Why each queued kernel of the latest batch that failed to compile
+    /// failed, until its own launch reports it: the launch is where the
+    /// failure has outputs to carry, and compiling the kernel again there
+    /// would only fail again. The next batch drops what is left, so a kernel
+    /// whose launch never came compiles again rather than keeping a stale
+    /// error: what the launch is spared is one compile, not every later one.
     failed: HashMap<ArtifactId<VariantOf<T>>, LaunchError>,
     /// How many threads compile at once.
     parallelism: usize,
@@ -83,7 +86,9 @@ impl<T: CompilationTarget> KernelLoader<T> {
     /// first — together with this one when it needs compiling.
     ///
     /// `id` is `kernel`'s, with what the launch adds to it: the launch already
-    /// built the kernel's id, and building it again on every launch costs.
+    /// built the kernel's id, and building it again on every launch costs. A
+    /// kernel already loaded, with nothing queued, costs one lookup and a
+    /// clone of what was loaded; `id` is only cloned to compile.
     ///
     /// # Errors
     ///
@@ -93,43 +98,82 @@ impl<T: CompilationTarget> KernelLoader<T> {
     pub fn load(
         &mut self,
         kernel: &dyn CubeKernel,
-        id: ArtifactId<VariantOf<T>>,
+        id: &ArtifactId<VariantOf<T>>,
         logger: &ServerLogger,
-    ) -> Result<&T::Loaded, LaunchError> {
-        let missing = !self.loaded.contains(&id) && !self.failed.contains_key(&id);
-        if missing || !self.queue.is_empty() {
-            let queue = core::mem::take(&mut self.queue);
-            self.queued.clear();
-            let mut requests: Vec<Request<'_, VariantOf<T>>> = queue
-                .iter()
-                .filter(|queued| queued.id != id)
-                .map(Queued::request)
-                .collect();
-            if missing {
-                requests.push(Request {
-                    id: id.clone(),
-                    kernel,
-                });
-            }
-            for compiled in self.compile(requests, logger) {
-                self.keep(compiled);
-            }
+    ) -> Result<T::Loaded, LaunchError> {
+        if self.queue.is_empty()
+            && let Some(loaded) = self.loaded.get(id)
+        {
+            return Ok(loaded.clone());
         }
+        self.load_missing(kernel, id, logger)
+    }
 
-        if let Some(err) = self.failed.remove(&id) {
-            return Err(err);
+    /// [`load`](Self::load) past its one lookup: the kernel is not loaded, or
+    /// the queue has to compile first.
+    #[cold]
+    fn load_missing(
+        &mut self,
+        kernel: &dyn CubeKernel,
+        id: &ArtifactId<VariantOf<T>>,
+        logger: &ServerLogger,
+    ) -> Result<T::Loaded, LaunchError> {
+        loop {
+            // A failure is reported as it stands only when nothing else is
+            // queued: a batch drops it, and the kernel compiles in that batch.
+            let reported = self.failed.contains_key(id) && self.queue.is_empty();
+            let missing = !self.loaded.contains(id) && !reported;
+            let asked = missing.then(|| Request {
+                id: id.clone(),
+                kernel,
+            });
+            self.compile_queue(asked, logger);
+
+            if let Some(err) = self.failed.remove(id) {
+                return Err(err);
+            }
+            // An environment switch during the batch drops every kernel loaded
+            // before it, this one too when it was: it loads again, from the
+            // store of the environment switched to.
+            if let Some(loaded) = self.loaded.get(id) {
+                return Ok(loaded.clone());
+            }
         }
-        // An environment switch during the batch drops every kernel loaded
-        // before it, this one too when it was: it loads again.
-        if !self.loaded.contains(&id) {
-            return self.load(kernel, id, logger);
+    }
+
+    /// Compiles every queued kernel now, rather than inside the next
+    /// [`load`](Self::load), so the launch that follows pays for its own
+    /// kernel only. A queued kernel that fails reports it when it is launched.
+    pub fn compile_queued(&mut self, logger: &ServerLogger) {
+        self.compile_queue(None, logger);
+    }
+
+    /// Compiles the queue and `asked` together, keeping each kernel or why it
+    /// failed.
+    fn compile_queue(&mut self, asked: Option<Request<'_, VariantOf<T>>>, logger: &ServerLogger) {
+        if self.queue.is_empty() && asked.is_none() {
+            return;
         }
-        Ok(self.loaded.get(&id).expect("checked right above"))
+        let queue = core::mem::take(&mut self.queue);
+        self.queued.clear();
+        // A failure an earlier batch left unreported is dropped: its kernel
+        // compiles again when it is launched or queued.
+        self.failed.clear();
+        let mut requests: Vec<Request<'_, VariantOf<T>>> = queue
+            .iter()
+            .filter(|queued| asked.as_ref().is_none_or(|asked| queued.id != asked.id))
+            .map(Queued::request)
+            .collect();
+        requests.extend(asked);
+        for compiled in self.compile(requests, logger) {
+            self.keep(compiled);
+        }
     }
 
     /// Queues `kernel` under `variant`, to be compiled with the others when the
     /// next kernel is [loaded](Self::load) for a launch, and only then. One
-    /// already loaded, queued, or failed and not yet reported is left alone.
+    /// already loaded or queued is left alone; one that failed is tried again,
+    /// its failure dropped.
     ///
     /// The queue does not compile on its own when it grows: one phase over
     /// everything queued lasts about as long as its slowest kernel, where
@@ -139,9 +183,10 @@ impl<T: CompilationTarget> KernelLoader<T> {
             kernel: kernel.id(),
             variant,
         };
-        if self.loaded.contains(&id) || self.failed.contains_key(&id) || self.queued.contains(&id) {
+        if self.loaded.contains(&id) || self.queued.contains(&id) {
             return;
         }
+        self.failed.remove(&id);
 
         self.queued.insert(id.clone());
         self.queue.push(Queued { id, kernel });
@@ -168,6 +213,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
         requests: Vec<Request<'_, VariantOf<T>>>,
         logger: &ServerLogger,
     ) -> Vec<Compiled<T>> {
+        let batch = CompilationBatchRecording::new();
         let mut jobs: Vec<Job<'_, T>> = requests.into_iter().map(Job::new).collect();
         let jobs_len = jobs.len();
 
@@ -178,13 +224,14 @@ impl<T: CompilationTarget> KernelLoader<T> {
         let compiler = self.target.compiler();
         let mut missing: Vec<&mut Job<'_, T>> =
             jobs.iter_mut().filter(|job| job.is_missing()).collect();
+        let threads = self.parallelism.min(missing.len()).max(1);
         if missing.len() > 1 {
             log::info!(
                 target: "cubecl::compilation",
                 "Compiling {} kernels together ({} asked, the rest read from the store) on {} threads",
                 missing.len(),
                 jobs_len,
-                self.parallelism.min(missing.len()),
+                threads,
             );
         }
         for_each_at_once(&mut missing, self.parallelism, |job| {
@@ -201,9 +248,16 @@ impl<T: CompilationTarget> KernelLoader<T> {
             jobs.iter_mut().filter(|job| job.is_lowered()).collect();
         for_each_at_once(&mut lowered, self.parallelism, |job| job.finalize(compiler));
 
-        jobs.into_iter()
+        let compiled: Vec<Compiled<T>> = jobs
+            .into_iter()
             .map(|job| job.load(&mut self.target))
-            .collect()
+            .collect();
+        batch.close(
+            jobs_len,
+            threads,
+            compiled.iter().any(|compiled| compiled.stored),
+        );
+        compiled
     }
 }
 
@@ -223,6 +277,8 @@ impl<T: CompilationTarget + core::fmt::Debug> core::fmt::Debug for KernelLoader<
 struct Compiled<T: CompilationTarget> {
     id: ArtifactId<VariantOf<T>>,
     result: Result<T::Loaded, LaunchError>,
+    /// Whether the compilation store took its artifact.
+    stored: bool,
 }
 
 /// A kernel queued for compilation.
@@ -409,39 +465,42 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
             }
         }
 
-        let result =
-            match self.step {
-                Step::Ready {
-                    artifact,
-                    source,
-                    outcome,
-                } => {
-                    let started = Instant::now();
-                    match target.load(&self.id, &artifact) {
-                        Ok(loaded) => {
-                            self.recording.worked(started.elapsed());
-                            match outcome {
-                                CompilationOutcome::Loaded => self.recording.loaded(),
-                                CompilationOutcome::Compiled => self
-                                    .recording
-                                    .compiled(target.store(&self.id, artifact, source.as_deref())),
-                                CompilationOutcome::Rekeyed => self
-                                    .recording
-                                    .rekeyed(target.store(&self.id, artifact, source.as_deref())),
+        let mut stored = false;
+        let result = match self.step {
+            Step::Ready {
+                artifact,
+                source,
+                outcome,
+            } => {
+                let started = Instant::now();
+                match target.load(&self.id, &artifact) {
+                    Ok(loaded) => {
+                        self.recording.worked(started.elapsed());
+                        match outcome {
+                            CompilationOutcome::Loaded => self.recording.loaded(),
+                            CompilationOutcome::Compiled => {
+                                stored = target.store(&self.id, artifact, source.as_deref());
+                                self.recording.compiled(stored);
                             }
-                            Ok(loaded)
+                            CompilationOutcome::Rekeyed => {
+                                stored = target.store(&self.id, artifact, source.as_deref());
+                                self.recording.rekeyed(stored);
+                            }
                         }
-                        Err(err) => Err(err.into()),
+                        Ok(loaded)
                     }
+                    Err(err) => Err(err.into()),
                 }
-                Step::Failed(err) => Err(err),
-                Step::Missing | Step::Lowered { .. } | Step::Waiting { .. } => {
-                    unreachable!("every job is lowered, then finalized or reused, or failed")
-                }
-            };
+            }
+            Step::Failed(err) => Err(err),
+            Step::Missing | Step::Lowered { .. } | Step::Waiting { .. } => {
+                unreachable!("every job is lowered, then finalized or reused, or failed")
+            }
+        };
         Compiled {
             id: self.id,
             result,
+            stored,
         }
     }
 }
@@ -451,24 +510,38 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
 /// magnitude in how long they take to compile, so a fixed split would leave
 /// threads idle behind the slowest share.
 fn for_each_at_once<J: Send>(jobs: &mut [J], parallelism: usize, work: impl Fn(&mut J) + Sync) {
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "std", not(target_family = "wasm")))]
     if jobs.len() > 1 && parallelism > 1 {
         use core::sync::atomic::{AtomicUsize, Ordering};
 
         let slots: Vec<std::sync::Mutex<&mut J>> =
             jobs.iter_mut().map(std::sync::Mutex::new).collect();
         let next = AtomicUsize::new(0);
-        std::thread::scope(|scope| {
-            for _ in 0..parallelism.min(slots.len()) {
-                scope.spawn(|| {
-                    while let Some(slot) = slots.get(next.fetch_add(1, Ordering::Relaxed)) {
-                        // Each slot is taken by exactly one thread, so the lock
-                        // never waits; it only proves that to the compiler.
-                        work(&mut slot.lock().unwrap_or_else(|err| err.into_inner()));
-                    }
-                });
-            }
+        let panic = std::thread::scope(|scope| {
+            let workers: Vec<_> = (0..parallelism.min(slots.len()))
+                .map(|_| {
+                    scope.spawn(|| {
+                        while let Some(slot) = slots.get(next.fetch_add(1, Ordering::Relaxed)) {
+                            // Each slot is taken by exactly one thread, so the
+                            // lock never waits; it only proves that to the
+                            // compiler.
+                            work(&mut slot.lock().unwrap_or_else(|err| err.into_inner()));
+                        }
+                    })
+                })
+                .collect();
+            // Every worker is joined, so the scope itself never panics: left
+            // to it, a worker's panic comes out as "a scoped thread panicked",
+            // its message gone.
+            workers
+                .into_iter()
+                .fold(None, |first, worker| first.or(worker.join().err()))
         });
+        // The first panic goes on with its own payload, as it would have
+        // on one thread.
+        if let Some(payload) = panic {
+            std::panic::resume_unwind(payload);
+        }
         return;
     }
 
@@ -476,6 +549,8 @@ fn for_each_at_once<J: Send>(jobs: &mut [J], parallelism: usize, work: impl Fn(&
     jobs.iter_mut().for_each(work);
 }
 
+/// Every test is serial: one that records reads the session every other one
+/// would write its compilations to.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -483,6 +558,9 @@ mod tests {
     use crate::id::KernelId;
     use crate::kernel::{KernelDefinition, KernelMetadata};
     use alloc::collections::BTreeSet;
+    // `serial_test`'s macro expands to `vec!`, which a `no_std` crate has to
+    // bring in itself.
+    use alloc::vec;
     use core::sync::atomic::{AtomicUsize, Ordering};
     use cubecl_environment::backtrace::BackTrace;
     use std::sync::Mutex;
@@ -490,6 +568,7 @@ mod tests {
     /// Nothing compiles before something asks: queuing is free, and a load
     /// compiles the queue with the kernel it asked for.
     #[test]
+    #[serial_test::serial(records)]
     fn a_load_compiles_the_queue() {
         let mut loader = loader(8);
         let logger = ServerLogger::default();
@@ -502,7 +581,7 @@ mod tests {
             "queuing compiles nothing"
         );
 
-        assert_eq!(*loader.load(&Numbered(3), id(3), &logger).unwrap(), 3);
+        assert_eq!(loader.load(&Numbered(3), &id(3), &logger).unwrap(), 3);
         assert_eq!(
             loader.target.compiler.lowered(),
             4,
@@ -513,9 +592,30 @@ mod tests {
         }
     }
 
+    /// Asked to, the queue compiles without a launch, and the launch that
+    /// follows pays a lookup.
+    #[test]
+    #[serial_test::serial(records)]
+    fn the_queue_compiles_when_asked() {
+        let mut loader = loader(8);
+        let logger = ServerLogger::default();
+        for number in 0..3 {
+            loader.enqueue(Box::new(Numbered(number)), ());
+        }
+        loader.compile_queued(&logger);
+        assert_eq!(loader.target.compiler.lowered(), 3);
+        assert_eq!(loader.load(&Numbered(0), &id(0), &logger).unwrap(), 0);
+        assert_eq!(
+            loader.target.compiler.lowered(),
+            3,
+            "nothing left to compile"
+        );
+    }
+
     /// A queue longer than the threads compiling it waits for its launch, and
     /// then compiles whole.
     #[test]
+    #[serial_test::serial(records)]
     fn a_long_queue_compiles_in_one_phase() {
         let mut loader = loader(2);
         let logger = ServerLogger::default();
@@ -523,7 +623,7 @@ mod tests {
             loader.enqueue(Box::new(Numbered(number)), ());
         }
         assert_eq!(loader.target.compiler.lowered(), 0, "the queue waits");
-        loader.load(&Numbered(5), id(5), &logger).unwrap();
+        loader.load(&Numbered(5), &id(5), &logger).unwrap();
         assert_eq!(
             loader.target.compiler.lowered(),
             6,
@@ -533,13 +633,14 @@ mod tests {
 
     /// A kernel queued twice, or queued once loaded, compiles once.
     #[test]
+    #[serial_test::serial(records)]
     fn a_kernel_compiles_once() {
         let mut loader = loader(8);
         let logger = ServerLogger::default();
         loader.enqueue(Box::new(Numbered(0)), ());
-        loader.load(&Numbered(0), id(0), &logger).unwrap();
+        loader.load(&Numbered(0), &id(0), &logger).unwrap();
         loader.enqueue(Box::new(Numbered(0)), ());
-        loader.load(&Numbered(0), id(0), &logger).unwrap();
+        loader.load(&Numbered(0), &id(0), &logger).unwrap();
         assert_eq!(loader.target.compiler.lowered(), 1);
     }
 
@@ -547,6 +648,7 @@ mod tests {
     /// launch reports the failure without compiling it again; the launch after
     /// that tries again.
     #[test]
+    #[serial_test::serial(records)]
     fn a_failure_is_reported_by_its_own_launch() {
         let mut loader = loader(8);
         loader.target.compiler.failing = Some(1);
@@ -554,19 +656,19 @@ mod tests {
         for number in 0..3 {
             loader.enqueue(Box::new(Numbered(number)), ());
         }
-        loader.load(&Numbered(3), id(3), &logger).unwrap();
+        loader.load(&Numbered(3), &id(3), &logger).unwrap();
         assert_eq!(loader.get(&id(0)), Some(&0));
         assert_eq!(loader.get(&id(1)), None);
         assert_eq!(loader.get(&id(2)), Some(&2));
         assert_eq!(loader.target.compiler.lowered(), 4);
 
-        assert!(loader.load(&Numbered(1), id(1), &logger).is_err());
+        assert!(loader.load(&Numbered(1), &id(1), &logger).is_err());
         assert_eq!(
             loader.target.compiler.lowered(),
             4,
             "reported, not compiled again"
         );
-        assert!(loader.load(&Numbered(1), id(1), &logger).is_err());
+        assert!(loader.load(&Numbered(1), &id(1), &logger).is_err());
         assert_eq!(
             loader.target.compiler.lowered(),
             5,
@@ -574,21 +676,131 @@ mod tests {
         );
     }
 
+    /// A failure the next batch finds unreported is dropped, not kept: the
+    /// kernel's launch compiles it again.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_stale_failure_compiles_again() {
+        let mut loader = loader(8);
+        loader.target.compiler.failing = Some(1);
+        let logger = ServerLogger::default();
+        loader.enqueue(Box::new(Numbered(1)), ());
+        loader.load(&Numbered(0), &id(0), &logger).unwrap();
+        loader.enqueue(Box::new(Numbered(2)), ());
+        loader.load(&Numbered(0), &id(0), &logger).unwrap();
+        assert_eq!(loader.target.compiler.lowered(), 3);
+
+        loader.target.compiler.failing = None;
+        assert_eq!(loader.load(&Numbered(1), &id(1), &logger).unwrap(), 1);
+        assert_eq!(loader.target.compiler.lowered(), 4, "compiled again");
+    }
+
+    /// A kernel queued again after it failed is tried again.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_failure_queued_again_is_retried() {
+        let mut loader = loader(8);
+        loader.target.compiler.failing = Some(1);
+        let logger = ServerLogger::default();
+        loader.enqueue(Box::new(Numbered(1)), ());
+        loader.load(&Numbered(0), &id(0), &logger).unwrap();
+        assert_eq!(loader.get(&id(1)), None);
+
+        loader.target.compiler.failing = None;
+        loader.enqueue(Box::new(Numbered(1)), ());
+        loader.compile_queued(&logger);
+        assert_eq!(loader.get(&id(1)), Some(&1));
+    }
+
+    /// A kernel that panics on a compiling thread panics the load with its
+    /// own message, as it would on one thread.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_panic_keeps_its_message() {
+        let mut loader = loader(4);
+        loader.target.compiler.panicking = Some(2);
+        let logger = ServerLogger::default();
+        for number in 0..4 {
+            loader.enqueue(Box::new(Numbered(number)), ());
+        }
+        let panic = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
+            let _ = loader.load(&Numbered(4), &id(4), &logger);
+        }))
+        .expect_err("the load panics");
+        let message = panic
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| panic.downcast_ref::<&str>().copied());
+        assert_eq!(message, Some("kernel 2 panicked"));
+    }
+
+    /// A batch is recorded once, with the wall time its kernels' work, spread
+    /// over its threads, actually took.
+    #[test]
+    #[cfg(persistence)]
+    #[serial_test::serial(records)]
+    fn a_batch_is_recorded_beside_its_kernels() {
+        use crate::compiler::{CompilationBatchRecord, CompilationRecord};
+        use crate::config::RuntimeConfig;
+        use cubecl_environment::persistence::Database;
+        use cubecl_environment::records::{self, RecordLevel, Records, RecordsConfig};
+
+        let root = tempfile::tempdir().unwrap();
+        let _ = crate::config::CubeClRuntimeConfig::get();
+        cubecl_environment::environment::set_root(root.path());
+        records::configure(RecordsConfig {
+            level: RecordLevel::Basic,
+            ..Default::default()
+        });
+
+        let mut loader = loader(4);
+        loader.target.compiler.slow = true;
+        // A source the store takes: a session that changes nothing keeps
+        // nothing it observed.
+        loader.target.compiler.shared_source = true;
+        let logger = ServerLogger::default();
+        for number in 0..3 {
+            loader.enqueue(Box::new(Numbered(number)), ());
+        }
+        loader.load(&Numbered(3), &id(3), &logger).unwrap();
+
+        let database = Database::open_active().unwrap();
+        let records = Records::new(&database);
+        let batches = records.read::<CompilationBatchRecord>();
+        let kernels = records.read::<CompilationRecord>();
+        assert_eq!(batches.len(), 1);
+        assert_eq!(kernels.len(), 4);
+        records::configure(RecordsConfig {
+            level: RecordLevel::Off,
+            ..Default::default()
+        });
+        let batch = &batches[0].record;
+        assert_eq!((batch.kernels, batch.threads), (4, 4));
+        let work: core::time::Duration = kernels.iter().map(|kernel| kernel.record.work).sum();
+        assert!(
+            batch.wall < work,
+            "four threads: {:?} of wall for {work:?} of work",
+            batch.wall
+        );
+    }
+
     /// A kernel about to execute compiles the queue even when it is loaded
     /// itself: the queue promises to be compiled by then.
     #[test]
+    #[serial_test::serial(records)]
     fn a_loaded_kernel_still_compiles_the_queue() {
         let mut loader = loader(8);
         let logger = ServerLogger::default();
-        loader.load(&Numbered(0), id(0), &logger).unwrap();
+        loader.load(&Numbered(0), &id(0), &logger).unwrap();
         loader.enqueue(Box::new(Numbered(1)), ());
-        loader.load(&Numbered(0), id(0), &logger).unwrap();
+        loader.load(&Numbered(0), &id(0), &logger).unwrap();
         assert_eq!(loader.get(&id(1)), Some(&1));
     }
 
     /// Kernels of one batch that lower to the same source finalize it once:
     /// the others take the artifact the first one stored.
     #[test]
+    #[serial_test::serial(records)]
     fn one_source_finalizes_once() {
         let mut loader = loader(8);
         loader.target.compiler.shared_source = true;
@@ -596,7 +808,7 @@ mod tests {
         for number in 0..4 {
             loader.enqueue(Box::new(Numbered(number)), ());
         }
-        loader.load(&Numbered(4), id(4), &logger).unwrap();
+        loader.load(&Numbered(4), &id(4), &logger).unwrap();
         assert_eq!(loader.target.compiler.finalized.load(Ordering::Relaxed), 1);
         for number in 0..5 {
             assert!(loader.get(&id(number)).is_some());
@@ -606,6 +818,7 @@ mod tests {
     /// A source the store already holds serves every kernel of a batch that
     /// lowers to it: none of them finalizes it again.
     #[test]
+    #[serial_test::serial(records)]
     fn a_stored_source_serves_the_whole_batch() {
         let mut loader = loader(8);
         loader.target.compiler.shared_source = true;
@@ -614,7 +827,7 @@ mod tests {
         for number in 0..2 {
             loader.enqueue(Box::new(Numbered(number)), ());
         }
-        loader.load(&Numbered(2), id(2), &logger).unwrap();
+        loader.load(&Numbered(2), &id(2), &logger).unwrap();
         assert_eq!(loader.target.compiler.finalized.load(Ordering::Relaxed), 0);
         for number in 0..3 {
             assert_eq!(loader.get(&id(number)), Some(&99));
@@ -624,6 +837,7 @@ mod tests {
     /// Without a store there is no artifact to wait for: every kernel
     /// finalizes its own, on the compiling threads.
     #[test]
+    #[serial_test::serial(records)]
     fn without_a_store_each_kernel_finalizes_its_own() {
         let mut loader = KernelLoader::new(Fake {
             storeless: true,
@@ -635,12 +849,13 @@ mod tests {
         for number in 0..3 {
             loader.enqueue(Box::new(Numbered(number)), ());
         }
-        loader.load(&Numbered(3), id(3), &logger).unwrap();
+        loader.load(&Numbered(3), &id(3), &logger).unwrap();
         assert_eq!(loader.target.compiler.finalized.load(Ordering::Relaxed), 4);
     }
 
     /// A queue is lowered on several threads at once.
     #[test]
+    #[serial_test::serial(records)]
     fn a_queue_compiles_on_several_threads() {
         let mut loader = loader(4);
         loader.target.compiler.slow = true;
@@ -648,7 +863,7 @@ mod tests {
         for number in 0..8 {
             loader.enqueue(Box::new(Numbered(number)), ());
         }
-        loader.load(&Numbered(8), id(8), &logger).unwrap();
+        loader.load(&Numbered(8), &id(8), &logger).unwrap();
         let threads = loader.target.compiler.threads.lock().unwrap().len();
         assert!(threads > 1, "lowered on {threads} thread");
     }
@@ -702,6 +917,8 @@ mod tests {
         lowered: AtomicUsize,
         /// The number of the kernel that fails to lower.
         failing: Option<u32>,
+        /// The number of the kernel whose lowering panics.
+        panicking: Option<u32>,
         /// Whether lowering takes long enough for other threads to pick up
         /// the rest of the queue.
         slow: bool,
@@ -743,6 +960,9 @@ mod tests {
                 .find(|number| Numbered(*number).id() == id.kernel)
                 .expect("a numbered kernel");
             assert_eq!(kernel.id(), id.kernel);
+            if self.panicking == Some(number) {
+                panic!("kernel {number} panicked");
+            }
             match self.failing == Some(number) {
                 true => Err(LaunchError::Unknown {
                     reason: "refused".into(),

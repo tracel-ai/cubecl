@@ -25,11 +25,12 @@ pub struct CompilationRecord {
     pub ir: Option<alloc::string::String>,
     /// How the artifact was obtained.
     pub outcome: CompilationOutcome,
-    /// The work obtaining it took: its own lowering, finalizing and loading.
-    /// A kernel compiled beside others counts none of the time it waited for
-    /// them, so the durations of a batch add up to the work done, not to the
-    /// time the batch took.
-    pub duration: core::time::Duration,
+    /// The work obtaining it took: its own lowering, finalizing and loading,
+    /// which is what it would have cost alone. A kernel compiled beside others
+    /// counts none of the time it waited for them, so the work of a batch adds
+    /// up to more than the time it took when it ran on several threads: that
+    /// time is its [`CompilationBatchRecord::wall`].
+    pub work: core::time::Duration,
     /// The source the backend compiled, at [`RecordLevel::Full`].
     pub source: Option<alloc::string::String>,
 }
@@ -50,6 +51,60 @@ pub enum CompilationOutcome {
 
 impl Record for CompilationRecord {
     const KIND: &'static str = "compilation";
+}
+
+/// One batch of kernels a server obtained together — compiled, or read from
+/// the compilation store, and loaded — as the environment records it. A
+/// kernel a launch compiles alone is a batch of one.
+///
+/// Each kernel the batch obtained has its [`CompilationRecord`], stamped when
+/// the batch started, as this one is. What the batch cost the process is its
+/// [`wall`](Self::wall): adding up its kernels' [`work`](CompilationRecord::work)
+/// counts every thread's time as if they ran one after another.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CompilationBatchRecord {
+    /// How many kernels the batch was asked for, failures included.
+    pub kernels: u32,
+    /// How many threads compiled at once: one when at most one kernel had to
+    /// be compiled, the rest read from the store.
+    pub threads: u32,
+    /// The time from the batch's start to its last kernel loaded.
+    pub wall: core::time::Duration,
+}
+
+impl Record for CompilationBatchRecord {
+    const KIND: &'static str = "compilation_batch";
+}
+
+/// A batch being recorded: opened where a server starts obtaining kernels,
+/// closed when it has them. A no-op when the environment records nothing.
+#[derive(Debug)]
+pub(crate) struct CompilationBatchRecording {
+    span: Option<Span>,
+}
+
+impl CompilationBatchRecording {
+    pub(crate) fn new() -> Self {
+        Self { span: Span::new() }
+    }
+
+    /// The batch obtained what it was asked for. `changed` is whether the
+    /// store took any of its kernels, as their records say.
+    pub(crate) fn close(self, kernels: usize, threads: usize, changed: bool) {
+        let Some(span) = self.span else {
+            return;
+        };
+        // A batch for a session that is gone is dropped, as its kernels are.
+        let Some(wall) = span.elapsed() else {
+            return;
+        };
+        let record = CompilationBatchRecord {
+            kernels: kernels.try_into().unwrap_or(u32::MAX),
+            threads: threads.try_into().unwrap_or(u32::MAX),
+            wall,
+        };
+        span.close(effect(changed), &record);
+    }
 }
 
 /// A compilation being recorded: a backend opens one where its compilation
@@ -106,7 +161,7 @@ impl CompilationRecording {
     }
 
     /// The trip did `duration` more of its work: what the record's
-    /// [`duration`](CompilationRecord::duration) adds up.
+    /// [`work`](CompilationRecord::work) adds up.
     pub fn worked(&mut self, duration: core::time::Duration) {
         if let Some(open) = self.open.as_mut() {
             open.work += duration;
@@ -141,13 +196,12 @@ impl CompilationRecording {
         if open.span.elapsed().is_none() {
             return;
         }
-        let duration = open.work;
         let record = CompilationRecord {
             kernel: open.kernel.into(),
             key: open.key,
             ir: open.ir,
             outcome,
-            duration,
+            work: open.work,
             source: open.source,
         };
         open.span.close(effect, &record);
