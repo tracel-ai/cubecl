@@ -3,7 +3,7 @@ use cubecl_server::compiler::{ArtifactId, KernelLoader};
 use cubecl_server::memory_management::relocation::RelocatingStreams;
 
 use crate::compute::{
-    cpu_kernel::CpuKernel,
+    cpu_kernel::CpuCompiledKernel,
     kernel_compiler::{BufferAlignment, CpuKernelCompiler},
     schedule::{BindingsResource, ScheduleTask, ScheduledCpuBackend},
 };
@@ -123,7 +123,7 @@ impl CpuServer {
 
     fn prepare_task(
         &mut self,
-        kernel: &CpuKernel,
+        kernel: &CpuCompiledKernel,
         count: CubeCount,
         bindings: BindingsResource,
         stream_id: StreamId,
@@ -152,7 +152,7 @@ impl CpuServer {
 
     fn prepare_task_inner(
         &mut self,
-        kernel: &CpuKernel,
+        kernel: &CpuCompiledKernel,
         cube_count: [u32; 3],
         bindings: BindingsResource,
         stream_id: StreamId,
@@ -381,8 +381,8 @@ impl Server for CpuServer {
                     },
                 );
         let alignment = BufferAlignment(alignment);
-        // A precompiled launch only queues its kernel, touching nothing else.
-        if launch_mode == LaunchMode::Precompile {
+        // A compile-only launch only queues its kernel, touching nothing else.
+        if launch_mode == LaunchMode::CompileOnly {
             self.kernels.enqueue(kernel, alignment);
             return;
         }

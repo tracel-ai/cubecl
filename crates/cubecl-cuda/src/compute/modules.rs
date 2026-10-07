@@ -2,7 +2,7 @@
 //! stores, and the modules loaded from what they hold.
 
 use crate::compiler::CudaBackend;
-use crate::compute::artifact::{CudaArtifactCompiler, PtxCacheEntry};
+use crate::compute::artifact::{CudaArtifact, CudaArtifactCompiler};
 use crate::compute::events::{driver_error, poisons_device};
 use cubecl_core::prelude::*;
 use cubecl_environment::backtrace::BackTrace;
@@ -23,7 +23,7 @@ pub(crate) struct CudaModules {
     /// PTX kept by kernel and by C++ source, so a kernel expanding to text
     /// already compiled skips NVRTC. The LLVM backend emits PTX directly, so
     /// there is no source to keep it by.
-    ptx_store: ArtifactStore<PtxCacheEntry>,
+    ptx_store: ArtifactStore<CudaArtifact>,
 }
 
 /// A loaded CUDA function and what launching it needs.
@@ -74,18 +74,18 @@ impl CompilationTarget for CudaModules {
         self.ptx_store.persists()
     }
 
-    fn stored(&mut self, id: &ArtifactId<()>) -> Option<PtxCacheEntry> {
+    fn stored(&mut self, id: &ArtifactId<()>) -> Option<CudaArtifact> {
         self.ptx_store.take(&id.kernel)
     }
 
-    fn stored_for_source(&mut self, source: &str) -> Option<PtxCacheEntry> {
+    fn stored_for_source(&mut self, source: &str) -> Option<CudaArtifact> {
         self.ptx_store.take_by_source(source)
     }
 
     fn load(
         &mut self,
         id: &ArtifactId<()>,
-        artifact: &PtxCacheEntry,
+        artifact: &CudaArtifact,
     ) -> Result<CudaCompiledKernel, CompilationError> {
         dump_ptx(&id.kernel, &artifact.ptx);
 
@@ -119,12 +119,7 @@ impl CompilationTarget for CudaModules {
         })
     }
 
-    fn store(
-        &mut self,
-        id: &ArtifactId<()>,
-        artifact: PtxCacheEntry,
-        source: Option<&str>,
-    ) -> bool {
+    fn store(&mut self, id: &ArtifactId<()>, artifact: CudaArtifact, source: Option<&str>) -> bool {
         self.ptx_store.keep(&id.kernel, artifact, source)
     }
 }

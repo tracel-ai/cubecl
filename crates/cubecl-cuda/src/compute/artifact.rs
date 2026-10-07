@@ -52,7 +52,7 @@ impl CudaArtifactCompiler {
 /// PTX ready for `cuModuleLoadData`, with what launching it needs: what the
 /// compilation store keeps for a kernel.
 #[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
-pub struct PtxCacheEntry {
+pub struct CudaArtifact {
     pub entrypoint_name: String,
     pub shared_mem_bytes: usize,
     pub ptx: Vec<std::ffi::c_char>,
@@ -65,7 +65,7 @@ pub struct PtxCacheEntry {
 impl ArtifactCompiler for CudaArtifactCompiler {
     type Variant = ();
     type Lowered = CompiledKernel<CudaCompiler>;
-    type Artifact = PtxCacheEntry;
+    type Artifact = CudaArtifact;
 
     fn lower(
         &self,
@@ -153,7 +153,7 @@ impl ArtifactCompiler for CudaArtifactCompiler {
             }
         };
 
-        Ok(PtxCacheEntry {
+        Ok(CudaArtifact {
             entrypoint_name: lowered.entrypoint_name,
             shared_mem_bytes,
             ptx,

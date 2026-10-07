@@ -36,7 +36,7 @@ impl HipArtifactCompiler {
 /// A code object ready for `hipModuleLoadData`, with what launching it needs:
 /// what the compilation store keeps for a kernel.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
-pub struct CompilationCacheEntry {
+pub struct HipArtifact {
     pub entrypoint_name: String,
     pub shared_mem_bytes: usize,
     pub binary: Vec<i8>,
@@ -49,7 +49,7 @@ pub struct CompilationCacheEntry {
 impl ArtifactCompiler for HipArtifactCompiler {
     type Variant = ();
     type Lowered = CompiledKernel<HipCompiler>;
-    type Artifact = CompilationCacheEntry;
+    type Artifact = HipArtifact;
 
     fn lower(
         &self,
@@ -133,7 +133,7 @@ impl ArtifactCompiler for HipArtifactCompiler {
             }
         };
 
-        Ok(CompilationCacheEntry {
+        Ok(HipArtifact {
             entrypoint_name: lowered.entrypoint_name,
             shared_mem_bytes,
             binary,

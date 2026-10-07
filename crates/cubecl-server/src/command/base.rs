@@ -559,7 +559,7 @@ impl<'a, D: Driver> Command<'a, D> {
     pub fn kernel(
         &mut self,
         id: &KernelId,
-        kernel: &D::Kernel,
+        kernel: &D::Loaded,
         count: (u32, u32, u32),
         args: &mut D::LaunchArgs,
     ) -> Result<(), LaunchError> {

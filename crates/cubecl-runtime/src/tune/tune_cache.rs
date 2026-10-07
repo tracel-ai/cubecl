@@ -22,7 +22,7 @@ pub(crate) enum CacheEntry {
     /// A compile-only dry run queued the kernels of the key's candidates and decided nothing:
     /// a miss to anything that tunes, and done to the next compile-only dry run. Never
     /// persisted.
-    Precompiled,
+    Compiled,
 }
 
 #[derive(Debug)]
@@ -151,7 +151,7 @@ pub enum TuneCacheResult {
     /// A compile-only [dry run](crate::dry_run::DryRunScope::Compile) queued the kernels of the
     /// key's candidates, and measured and decided nothing. Callers run the first candidate that
     /// serves the problem, which only queues its kernels too.
-    Precompiled,
+    Compiled,
     /// No operation is found yet.
     Miss,
 }
@@ -222,7 +222,7 @@ impl<K: AutotuneKey> TuneCache<K> {
             } => (checksum, fastest_index),
             CacheEntry::Pending => return TuneCacheResult::Pending,
             // Nothing was decided: a tune of the key is still owed.
-            CacheEntry::Precompiled => return TuneCacheResult::Miss,
+            CacheEntry::Compiled => return TuneCacheResult::Miss,
         };
 
         if cfg!(persistence) {
@@ -277,7 +277,7 @@ impl<K: AutotuneKey> TuneCache<K> {
             TuneCacheResult::Hit { fastest_index } => Some(fastest_index),
             TuneCacheResult::Unchecked
             | TuneCacheResult::Pending
-            | TuneCacheResult::Precompiled
+            | TuneCacheResult::Compiled
             | TuneCacheResult::Miss => None,
         }
     }
@@ -289,15 +289,15 @@ impl<K: AutotuneKey> TuneCache<K> {
         self.in_memory_cache.insert(key, CacheEntry::Pending);
     }
 
-    /// Mark a key as precompiled by a compile-only dry run, in place of the tune it was
+    /// Mark a key as compiled by a compile-only dry run, in place of the tune it was
     /// [marked](Self::mark_pending) for: nothing was decided.
-    pub(crate) fn mark_precompiled(&mut self, key: K) {
-        self.in_memory_cache.insert(key, CacheEntry::Precompiled);
+    pub(crate) fn mark_compiled(&mut self, key: K) {
+        self.in_memory_cache.insert(key, CacheEntry::Compiled);
     }
 
-    /// Whether a compile-only dry run already precompiled `key`.
-    pub(crate) fn is_precompiled(&self, key: &K) -> bool {
-        matches!(self.in_memory_cache.get(key), Some(CacheEntry::Precompiled))
+    /// Whether a compile-only dry run already compiled `key`.
+    pub(crate) fn is_compiled(&self, key: &K) -> bool {
+        matches!(self.in_memory_cache.get(key), Some(CacheEntry::Compiled))
     }
 
     pub(crate) fn cache_insert(&mut self, key: K, fastest_index: usize) {

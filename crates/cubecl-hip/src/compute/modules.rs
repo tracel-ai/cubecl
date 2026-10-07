@@ -2,7 +2,7 @@
 //! compilation stores, and the modules loaded from what they hold.
 
 use crate::compiler::HipBackend;
-use crate::compute::artifact::{CompilationCacheEntry, HipArtifactCompiler};
+use crate::compute::artifact::{HipArtifact, HipArtifactCompiler};
 use crate::compute::status::checked;
 use cubecl_core::prelude::*;
 use cubecl_server::compiler::{
@@ -20,7 +20,7 @@ pub(crate) struct HipModules {
     /// Code objects kept by kernel and by C++ source, so a kernel expanding
     /// to text already compiled skips HIP RTC. The LLVM backend emits a code
     /// object directly, so there is no source to keep it by.
-    store: ArtifactStore<CompilationCacheEntry>,
+    store: ArtifactStore<HipArtifact>,
 }
 
 /// A loaded HIP module and what launching its kernel needs.
@@ -82,18 +82,18 @@ impl CompilationTarget for HipModules {
         self.store.persists()
     }
 
-    fn stored(&mut self, id: &ArtifactId<()>) -> Option<CompilationCacheEntry> {
+    fn stored(&mut self, id: &ArtifactId<()>) -> Option<HipArtifact> {
         self.store.take(&id.kernel)
     }
 
-    fn stored_for_source(&mut self, source: &str) -> Option<CompilationCacheEntry> {
+    fn stored_for_source(&mut self, source: &str) -> Option<HipArtifact> {
         self.store.take_by_source(source)
     }
 
     fn load(
         &mut self,
         id: &ArtifactId<()>,
-        artifact: &CompilationCacheEntry,
+        artifact: &HipArtifact,
     ) -> Result<HipCompiledKernel, CompilationError> {
         let func_name = CString::new(artifact.entrypoint_name.clone()).unwrap();
 
@@ -125,12 +125,7 @@ impl CompilationTarget for HipModules {
         })
     }
 
-    fn store(
-        &mut self,
-        id: &ArtifactId<()>,
-        artifact: CompilationCacheEntry,
-        source: Option<&str>,
-    ) -> bool {
+    fn store(&mut self, id: &ArtifactId<()>, artifact: HipArtifact, source: Option<&str>) -> bool {
         self.store.keep(&id.kernel, artifact, source)
     }
 }

@@ -66,7 +66,7 @@ impl Driver for Cuda {
     /// The driver takes an array of pointers to the arguments, so a tensor-map
     /// descriptor sits in it beside a buffer's device pointer.
     type LaunchArgs = [*mut c_void];
-    type Kernel = CudaCompiledKernel;
+    type Loaded = CudaCompiledKernel;
 
     unsafe fn pinned_bytes(
         binding: ManagedMemoryBinding,

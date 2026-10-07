@@ -188,8 +188,8 @@ impl Server for CudaServer {
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) {
-        // A precompiled launch only queues its kernel, touching nothing else.
-        if launch_mode == LaunchMode::Precompile {
+        // A compile-only launch only queues its kernel, touching nothing else.
+        if launch_mode == LaunchMode::CompileOnly {
             self.ctx.queue_kernel(kernel);
             return;
         }

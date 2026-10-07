@@ -247,10 +247,10 @@ impl<K: AutotuneKey> Tuner<K> {
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
-        // A key a compile-only dry run already precompiled answers at once: a walk reaches the
+        // A key a compile-only dry run already compiled answers at once: a walk reaches the
         // same key at every layer, and a miss would hydrate the persistent cache and checksum
         // the set again each time for a tune that will not run.
-        // The environment's reset comes first: a key precompiled for the environment switched
+        // The environment's reset comes first: a key compiled for the environment switched
         // from has its candidates to queue again, if this one has not tuned it already.
         let compiling =
             crate::dry_run::dry_run_scope() == Some(crate::dry_run::DryRunScope::Compile);
@@ -258,8 +258,8 @@ impl<K: AutotuneKey> Tuner<K> {
             let mut cache = self.cache.lock();
             #[cfg(persistence)]
             cache.reset_if_environment_switched();
-            if cache.is_precompiled(key) {
-                return TuneCacheResult::Precompiled;
+            if cache.is_compiled(key) {
+                return TuneCacheResult::Compiled;
             }
         }
 
@@ -295,7 +295,7 @@ impl<K: AutotuneKey> Tuner<K> {
             match cur {
                 TuneCacheResult::Hit { .. }
                 | TuneCacheResult::Pending
-                | TuneCacheResult::Precompiled => return cur,
+                | TuneCacheResult::Compiled => return cur,
                 TuneCacheResult::Miss | TuneCacheResult::Unchecked => {
                     cache.mark_pending(key.clone())
                 }
@@ -328,9 +328,9 @@ impl<K: AutotuneKey> Tuner<K> {
         // A compile-only dry run gathers the candidates' kernels and measures
         // nothing; the key stays untuned for the pass that profiles it.
         if compiling {
-            self.precompile_plan(key, inputs, tunables, &autotunables);
-            self.cache.lock().mark_precompiled(key.clone());
-            return TuneCacheResult::Precompiled;
+            self.compile_plan(key, inputs, tunables, &autotunables);
+            self.cache.lock().mark_compiled(key.clone());
+            return TuneCacheResult::Compiled;
         }
 
         // After the fast path: a key with one candidate is answered, not
@@ -410,7 +410,7 @@ impl<K: AutotuneKey> Tuner<K> {
     /// The plan is walked batch by batch and stops after the first batch in which a candidate
     /// serves the problem, as a tune stops at the first batch with a measured candidate: a
     /// candidate that declines returns its error without launching anything.
-    fn precompile_plan<'a, F: TuneInputs, Out: AutotuneOutput, Id>(
+    fn compile_plan<'a, F: TuneInputs, Out: AutotuneOutput, Id>(
         &self,
         key: &K,
         inputs: &F::At<'a>,

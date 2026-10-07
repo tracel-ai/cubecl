@@ -11,7 +11,7 @@ use objc2_metal::{MTLComputePipelineState, MTLDevice};
 
 /// A compute pipeline and what launching it needs.
 #[derive(Debug, Clone)]
-pub struct CompiledKernel {
+pub struct MetalCompiledKernel {
     pub(crate) pipeline: Retained<ProtocolObject<dyn MTLComputePipelineState>>,
     pub(crate) cube_dim: CubeDim,
     /// What the kernel does with each buffer binding, by buffer position --
@@ -49,7 +49,7 @@ impl MetalPipelines {
 
 impl CompilationTarget for MetalPipelines {
     type Compiler = MetalArtifactCompiler;
-    type Loaded = CompiledKernel;
+    type Loaded = MetalCompiledKernel;
 
     fn compiler(&self) -> &MetalArtifactCompiler {
         &self.compiler
@@ -73,7 +73,7 @@ impl CompilationTarget for MetalPipelines {
         &mut self,
         _id: &ArtifactId<()>,
         artifact: &MetalArtifact,
-    ) -> Result<CompiledKernel, CompilationError> {
+    ) -> Result<MetalCompiledKernel, CompilationError> {
         match &artifact.pipeline {
             Some(pipeline) => Ok(pipeline.clone()),
             None => self.compiler.build(&artifact.entry),

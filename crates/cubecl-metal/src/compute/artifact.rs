@@ -2,7 +2,7 @@
 //! MSL, and the library and pipeline the device builds from it.
 
 use crate::MetalCompiler;
-use crate::compute::pipelines::CompiledKernel as MetalKernel;
+use crate::compute::pipelines::MetalCompiledKernel;
 use cubecl_core::{ir::DeviceProperties, prelude::*};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_server::compiler::CompilationError;
@@ -56,7 +56,7 @@ pub struct MslCacheEntry {
     pub entrypoint_name: String,
     pub cube_dim: (u32, u32, u32),
     pub source: String,
-    /// See [`CompiledKernel::io`](super::pipelines::CompiledKernel::io);
+    /// See [`MetalCompiledKernel::io`];
     /// defaulted for entries persisted before the field existed.
     #[serde(default)]
     pub io: Option<Vec<BufferIOAttr>>,
@@ -67,7 +67,7 @@ pub struct MetalArtifact {
     /// What the store keeps.
     pub entry: MslCacheEntry,
     /// `None` for MSL read from the store, which is built when it is loaded.
-    pub pipeline: Option<MetalKernel>,
+    pub pipeline: Option<MetalCompiledKernel>,
 }
 
 impl ArtifactCompiler for MetalArtifactCompiler {
@@ -136,10 +136,10 @@ impl ArtifactCompiler for MetalArtifactCompiler {
 
 impl MetalArtifactCompiler {
     /// Has the device build `entry`'s library and pipeline.
-    pub fn build(&self, entry: &MslCacheEntry) -> Result<MetalKernel, CompilationError> {
+    pub fn build(&self, entry: &MslCacheEntry) -> Result<MetalCompiledKernel, CompilationError> {
         let cube_dim = entry.cube_dim.into();
         let pipeline = self.create_pipeline(&entry.source, &entry.entrypoint_name, cube_dim)?;
-        Ok(MetalKernel {
+        Ok(MetalCompiledKernel {
             pipeline,
             cube_dim,
             io: entry.io.clone().map(std::sync::Arc::from),

@@ -13,7 +13,7 @@ use cubecl_server::kernel::{CompiledKernel, CubeKernel};
 use cubecl_server::logging::ServerLogger;
 
 use crate::CpuCompiler;
-use crate::compute::cpu_kernel::CpuKernel;
+use crate::compute::cpu_kernel::CpuCompiledKernel;
 
 /// The alignment, in bytes, every buffer of a launch is known to start on.
 ///
@@ -76,7 +76,7 @@ impl ArtifactCompiler for CpuKernelCompiler {
 
 impl CompilationTarget for CpuKernelCompiler {
     type Compiler = Self;
-    type Loaded = CpuKernel;
+    type Loaded = CpuCompiledKernel;
 
     fn compiler(&self) -> &Self {
         self
@@ -97,8 +97,8 @@ impl CompilationTarget for CpuKernelCompiler {
         &mut self,
         _id: &ArtifactId<BufferAlignment>,
         artifact: &<Self as ArtifactCompiler>::Artifact,
-    ) -> Result<CpuKernel, CompilationError> {
-        Ok(CpuKernel::new(artifact.clone()))
+    ) -> Result<CpuCompiledKernel, CompilationError> {
+        Ok(CpuCompiledKernel::new(artifact.clone()))
     }
 
     fn store(

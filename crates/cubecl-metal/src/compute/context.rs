@@ -1,7 +1,7 @@
 //! The device's compiled pipelines, behind the one type the server holds.
 
 use crate::compute::artifact::MetalArtifactCompiler;
-use crate::compute::pipelines::{CompiledKernel, MetalPipelines};
+use crate::compute::pipelines::{MetalCompiledKernel, MetalPipelines};
 use cubecl_core::ir::DeviceProperties;
 use cubecl_core::prelude::KernelId;
 use cubecl_core::server::LaunchError;
@@ -37,7 +37,7 @@ impl MetalContext {
         kernel: &dyn CubeKernel,
         id: &ArtifactId<()>,
         logger: &ServerLogger,
-    ) -> Result<CompiledKernel, LaunchError> {
+    ) -> Result<MetalCompiledKernel, LaunchError> {
         self.kernels.load(kernel, id, logger)
     }
 

@@ -1448,7 +1448,7 @@ fn a_dry_run_still_autotunes() {
 }
 
 /// A compile-only dry run measures nothing and decides nothing: no sample is
-/// taken, so the eviction that runs before each never does; it precompiles a
+/// taken, so the eviction that runs before each never does; it compiles a
 /// key once however often it reaches it; and the key is tuned for real by the
 /// first execution outside it.
 #[test_log::test]
@@ -1490,16 +1490,13 @@ fn a_compile_dry_run_leaves_the_tune_to_the_next_pass() {
     {
         let _dry_run = DryRun::new(DryRunScope::Compile);
         TUNER.execute(&"test".to_string(), &client, test_set.clone(), handles());
-        let precompiled = calls.load(Ordering::Relaxed);
-        assert!(
-            precompiled > 0,
-            "the candidates ran, to queue their kernels"
-        );
+        let compiled = calls.load(Ordering::Relaxed);
+        assert!(compiled > 0, "the candidates ran, to queue their kernels");
 
-        // A walk reaches the same key at every layer: once precompiled, the key only runs the
+        // A walk reaches the same key at every layer: once compiled, the key only runs the
         // candidate that launches.
         TUNER.execute(&"test".to_string(), &client, test_set.clone(), handles());
-        assert_eq!(calls.load(Ordering::Relaxed), precompiled + 1);
+        assert_eq!(calls.load(Ordering::Relaxed), compiled + 1);
     }
     assert_eq!(evictions.load(Ordering::Relaxed), 0, "nothing was measured");
 

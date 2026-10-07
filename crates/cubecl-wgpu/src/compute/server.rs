@@ -57,17 +57,20 @@ pub enum ParamsTransfer {
     Uniform,
 }
 
-/// Compiler kind and info used when compiling a specific kernel. Used to determine parameter passing strategies.
-/// What a launch needs from a compiled kernel: the pipeline, the parameter
-/// strategy, and the per-buffer IO the taint bookkeeping stages from. The IO
-/// rides in the cache because on a hit nothing else of the compilation
-/// survives.
-pub type PipelineEntry = (
-    Arc<ComputePipeline>,
-    CompilerInfo,
-    Option<Arc<[BufferIOAttr]>>,
-);
+/// What a launch needs from a compiled kernel, loaded on the device.
+#[derive(Debug, Clone)]
+pub struct WgpuCompiledKernel {
+    /// The pipeline the launch dispatches.
+    pub pipeline: Arc<ComputePipeline>,
+    /// How the launch passes the kernel's parameters.
+    pub compiler_info: CompilerInfo,
+    /// What the kernel does with each buffer binding, which the taint
+    /// bookkeeping stages from. It rides here because on a cache hit nothing
+    /// else of the compilation survives.
+    pub io: Option<Arc<[BufferIOAttr]>>,
+}
 
+/// Compiler kind and info used when compiling a specific kernel. Used to determine parameter passing strategies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompilerInfo {
     Vulkan { params_transfer: ParamsTransfer },
@@ -426,9 +429,9 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         // A dry run stages none either way. It was never going to write, so a
         // failure in it leaves nothing stale, and tainting its buffers would
         // fail unrelated reads of memory the run deliberately left alone.
-        // A precompiled launch only queues its kernel, touching nothing else.
+        // A compile-only launch only queues its kernel, touching nothing else.
         let layout = MetadataLayout::from(&args.info);
-        if launch_mode == LaunchMode::Precompile {
+        if launch_mode == LaunchMode::CompileOnly {
             self.pipelines.enqueue(kernel, layout);
             return;
         }
@@ -437,7 +440,11 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             variant: layout,
         };
         let loaded = self.pipelines.load(&*kernel, &id, &self.scheduler.logger);
-        let (pipeline, compiler_info, io) = match loaded {
+        let WgpuCompiledKernel {
+            pipeline,
+            compiler_info,
+            io,
+        } = match loaded {
             Ok(entry) => entry,
             Err(err) => {
                 let error = ServerError::Launch(err);

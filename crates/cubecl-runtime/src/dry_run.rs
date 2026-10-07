@@ -16,7 +16,7 @@
 //! it measures anything, compiles the whole queue in one batch, and that
 //! pass's tunes only measure.
 //!
-//! [`Precompile`] does on one thread what a `Compile` dry run does on all of
+//! [`CompileOnly`] does on one thread what a `Compile` dry run does on all of
 //! them, with or without a dry run: the launches it covers only queue their
 //! kernels, and the server compiles the whole queue at once, on its compiling
 //! threads, when it next loads a kernel for a launch.
@@ -50,18 +50,18 @@ pub enum LaunchMode {
     /// for a launch, and only then: flushing or syncing compiles nothing, so
     /// a pass that only queues gathers everything it reaches into one batch.
     /// A kernel that fails to compile there reports it when it is launched.
-    Precompile,
+    CompileOnly,
 }
 
 impl LaunchMode {
     /// Whether the launch should be dropped rather than run.
     pub fn is_skipped(self) -> bool {
-        matches!(self, LaunchMode::Skip | LaunchMode::Precompile)
+        matches!(self, LaunchMode::Skip | LaunchMode::CompileOnly)
     }
 }
 
 /// What to do with a launch issued on this thread, right now: what the
-/// innermost [`RealRun`] or [`Precompile`] open on it says, and otherwise
+/// innermost [`RealRun`] or [`CompileOnly`] open on it says, and otherwise
 /// what the open [`DryRun`], if any, does with a launch.
 pub fn launch_mode() -> LaunchMode {
     if let Some(mode) = scope::mode() {
@@ -69,7 +69,7 @@ pub fn launch_mode() -> LaunchMode {
     }
 
     match dry_run_scope() {
-        Some(DryRunScope::Compile) => LaunchMode::Precompile,
+        Some(DryRunScope::Compile) => LaunchMode::CompileOnly,
         Some(DryRunScope::Profile) => LaunchMode::Skip,
         None => LaunchMode::Execute,
     }
@@ -231,10 +231,8 @@ impl Drop for DryRun {
 /// launches it covers, not around the call that submits it.
 #[derive(Debug)]
 pub struct RealRun {
-    outer: Option<LaunchMode>,
-    /// Keeps the guard on the thread whose mode it set: dropped on another,
-    /// it would restore that thread's mode and leave its own set forever.
-    on_thread: PhantomData<*const ()>,
+    /// Held for its drop, which restores the mode it replaced.
+    _guard: ModeGuard,
 }
 
 impl RealRun {
@@ -242,20 +240,13 @@ impl RealRun {
     #[allow(clippy::new_without_default, reason = "a guard is not a value")]
     pub fn new() -> Self {
         Self {
-            outer: scope::enter(LaunchMode::Execute),
-            on_thread: PhantomData,
+            _guard: ModeGuard::new(LaunchMode::Execute),
         }
     }
 }
 
-impl Drop for RealRun {
-    fn drop(&mut self) {
-        scope::exit(self.outer);
-    }
-}
-
 /// Makes the launches issued on this thread only queue their kernels for
-/// compilation, for as long as it lives — see [`LaunchMode::Precompile`].
+/// compilation, for as long as it lives — see [`LaunchMode::CompileOnly`].
 ///
 /// A nested [`RealRun`] still executes, which is what lets a candidate that
 /// dispatches through another tuner have that one measure for real.
@@ -263,25 +254,42 @@ impl Drop for RealRun {
 /// Thread-local, like [`RealRun`], and for the same reason it has to live on
 /// the thread issuing the launches.
 #[derive(Debug)]
-pub struct Precompile {
+pub struct CompileOnly {
+    /// Held for its drop, which restores the mode it replaced.
+    _guard: ModeGuard,
+}
+
+impl CompileOnly {
+    /// Makes this thread's launches queue their kernels until the guard drops.
+    #[allow(clippy::new_without_default, reason = "a guard is not a value")]
+    pub fn new() -> Self {
+        Self {
+            _guard: ModeGuard::new(LaunchMode::CompileOnly),
+        }
+    }
+}
+
+/// Sets this thread's launch mode for as long as it lives, and restores the
+/// one it replaced when it drops: what [`RealRun`] and [`CompileOnly`] are,
+/// each with its mode.
+#[derive(Debug)]
+struct ModeGuard {
     outer: Option<LaunchMode>,
     /// Keeps the guard on the thread whose mode it set: dropped on another,
     /// it would restore that thread's mode and leave its own set forever.
     on_thread: PhantomData<*const ()>,
 }
 
-impl Precompile {
-    /// Makes this thread's launches queue their kernels until the guard drops.
-    #[allow(clippy::new_without_default, reason = "a guard is not a value")]
-    pub fn new() -> Self {
+impl ModeGuard {
+    fn new(mode: LaunchMode) -> Self {
         Self {
-            outer: scope::enter(LaunchMode::Precompile),
+            outer: scope::enter(mode),
             on_thread: PhantomData,
         }
     }
 }
 
-impl Drop for Precompile {
+impl Drop for ModeGuard {
     fn drop(&mut self) {
         scope::exit(self.outer);
     }
@@ -357,15 +365,15 @@ mod tests {
         assert_eq!(scope::mode(), None);
     }
 
-    /// The innermost guard decides: a precompile inside a measurement queues,
+    /// The innermost guard decides: a compile-only guard inside a measurement queues,
     /// and a nested tuner measures inside that.
     #[test]
     #[serial_test::serial]
     fn the_innermost_guard_decides() {
         let _real_run = RealRun::new();
         {
-            let _precompile = Precompile::new();
-            assert_eq!(launch_mode(), LaunchMode::Precompile);
+            let _compile_only = CompileOnly::new();
+            assert_eq!(launch_mode(), LaunchMode::CompileOnly);
             {
                 let _nested = RealRun::new();
                 assert_eq!(
@@ -374,7 +382,7 @@ mod tests {
                     "a nested tuner measures"
                 );
             }
-            assert_eq!(launch_mode(), LaunchMode::Precompile);
+            assert_eq!(launch_mode(), LaunchMode::CompileOnly);
         }
         assert_eq!(launch_mode(), LaunchMode::Execute);
     }
@@ -386,7 +394,7 @@ mod tests {
     fn a_compile_dry_run_queues_launches() {
         let _compile = DryRun::new(DryRunScope::Compile);
         assert_eq!(dry_run_scope(), Some(DryRunScope::Compile));
-        assert_eq!(launch_mode(), LaunchMode::Precompile);
+        assert_eq!(launch_mode(), LaunchMode::CompileOnly);
         let _real_run = RealRun::new();
         assert_eq!(launch_mode(), LaunchMode::Execute);
     }
@@ -424,13 +432,13 @@ mod tests {
         assert_eq!(launch_mode(), LaunchMode::Skip);
     }
 
-    /// Precompiling needs no dry run: the guard queues on its own.
+    /// Compiling only needs no dry run: the guard queues on its own.
     #[test]
     #[serial_test::serial]
-    fn precompile_works_outside_a_dry_run() {
+    fn compile_only_works_outside_a_dry_run() {
         assert!(!dry_run());
-        let _precompile = Precompile::new();
-        assert_eq!(launch_mode(), LaunchMode::Precompile);
+        let _compile_only = CompileOnly::new();
+        assert_eq!(launch_mode(), LaunchMode::CompileOnly);
         assert!(launch_mode().is_skipped());
     }
 

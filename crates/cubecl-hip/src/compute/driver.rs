@@ -66,7 +66,7 @@ impl Driver for Hip {
     type Stream = Stream;
     type Context = HipContext;
     type LaunchArgs = [GpuResource];
-    type Kernel = HipCompiledKernel;
+    type Loaded = HipCompiledKernel;
 
     unsafe fn pinned_bytes(
         binding: ManagedMemoryBinding,

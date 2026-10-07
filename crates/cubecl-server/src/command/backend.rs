@@ -135,7 +135,7 @@ pub trait Driver: Sized {
     /// [`KernelLoader`](crate::compiler::KernelLoader) hands it out: launching
     /// it takes no lookup, so nothing that empties the loader in between —
     /// an environment switch — can leave a launch without its kernel.
-    type Kernel;
+    type Loaded;
 
     /// Hand out `size` bytes of the pinned host allocation `binding` names,
     /// released back to the pool when the [`Bytes`] drop.
@@ -233,7 +233,7 @@ pub trait Driver: Sized {
         ctx: &mut Self::Context,
         stream: &mut Self::Stream,
         id: &KernelId,
-        kernel: &Self::Kernel,
+        kernel: &Self::Loaded,
         count: (u32, u32, u32),
         args: &mut Self::LaunchArgs,
     ) -> Result<(), LaunchError>;

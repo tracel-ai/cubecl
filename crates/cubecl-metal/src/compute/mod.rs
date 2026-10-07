@@ -6,6 +6,6 @@ pub mod server;
 pub mod stream;
 
 pub use context::MetalContext;
-pub use pipelines::CompiledKernel;
+pub use pipelines::MetalCompiledKernel;
 pub use server::MetalServer;
 pub use stream::{MetalEvent, MetalStream, MetalStreamBackend};

@@ -364,8 +364,8 @@ impl Server for MetalServer {
         // A dry run stages none either way. It was never going to write, so a
         // failure in it leaves nothing stale, and tainting its buffers would
         // fail unrelated reads of memory the run deliberately left alone.
-        // A precompiled launch only queues its kernel, touching nothing else.
-        if launch_mode == LaunchMode::Precompile {
+        // A compile-only launch only queues its kernel, touching nothing else.
+        if launch_mode == LaunchMode::CompileOnly {
             self.context.queue(kernel);
             return;
         }

@@ -1,11 +1,11 @@
-//! Kernels a precompiled launch queues: they compile together when the queue
+//! Kernels a compile-only launch queues: they compile together when the queue
 //! does, on as many threads as the server compiles on, and then run like any
 //! other kernel. The launches that queued them do not run.
 
 use crate::{self as cubecl};
 use alloc::vec::Vec;
 use cubecl::prelude::*;
-use cubecl_runtime::dry_run::Precompile;
+use cubecl_runtime::dry_run::CompileOnly;
 use cubecl_runtime::runtime::Runtime;
 use cubecl_runtime::server::Handle;
 
@@ -22,13 +22,13 @@ pub fn kernel_numbered(out: &mut [u32], #[comptime] number: u32) {
 /// several threads does.
 const KERNELS: u32 = 12;
 
-pub fn test_precompiled_kernels_run<R: Runtime>(client: Client) {
+pub fn test_compiled_kernels_run<R: Runtime>(client: Client) {
     let outputs: Vec<_> = (0..KERNELS)
         .map(|_| client.create_from_slice(u32::as_bytes(&[0])))
         .collect();
 
     {
-        let _precompile = Precompile::new();
+        let _compile_only = CompileOnly::new();
         for (number, out) in outputs.iter().enumerate() {
             launch_numbered(&client, out, number as u32);
         }
@@ -38,7 +38,7 @@ pub fn test_precompiled_kernels_run<R: Runtime>(client: Client) {
 
     for out in &outputs {
         let actual = client.read_one(out.clone()).unwrap();
-        assert_eq!(u32::from_bytes(&actual), &[0], "a precompiled launch ran");
+        assert_eq!(u32::from_bytes(&actual), &[0], "a compile-only launch ran");
     }
 
     for (number, out) in outputs.iter().enumerate() {
@@ -62,14 +62,12 @@ fn launch_numbered(client: &Client, out: &Handle, number: u32) {
 
 #[allow(missing_docs)]
 #[macro_export]
-macro_rules! testgen_precompile {
+macro_rules! testgen_compile {
     () => {
         #[test]
-        fn test_precompiled_kernels_run() {
+        fn test_compiled_kernels_run() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::precompile::test_precompiled_kernels_run::<TestRuntime>(
-                client,
-            );
+            cubecl_core::runtime_tests::compile::test_compiled_kernels_run::<TestRuntime>(client);
         }
     };
 }

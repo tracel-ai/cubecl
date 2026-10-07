@@ -6,7 +6,9 @@ use core::marker::PhantomData;
 use std::borrow::Cow;
 
 use crate::backend::{ModuleSource, wgsl};
-use crate::{AutoRepresentation, AutoRepresentationRef, CompilerInfo, PipelineEntry, WgpuCompiler};
+use crate::{
+    AutoRepresentation, AutoRepresentationRef, CompilerInfo, WgpuCompiledKernel, WgpuCompiler,
+};
 use cubecl_core::{ExecutionMode, WgpuCompilationOptions, prelude::*};
 use cubecl_server::compiler::CompilationError;
 use wgpu::{
@@ -72,7 +74,7 @@ pub struct WgpuArtifact {
     pub io: Option<Arc<[BufferIOAttr]>>,
     /// The pipeline finalizing built from it; `None` for one read from the
     /// store, which is built when it is loaded.
-    pub pipeline: Option<PipelineEntry>,
+    pub pipeline: Option<WgpuCompiledKernel>,
 }
 
 impl<C: WgpuCompiler> ArtifactCompiler for WgpuArtifactCompiler<C> {
@@ -142,7 +144,7 @@ impl<C> WgpuArtifactCompiler<C> {
         &self,
         id: &ArtifactId<MetadataLayout>,
         artifact: &WgpuArtifact,
-    ) -> Result<PipelineEntry, CompilationError> {
+    ) -> Result<WgpuCompiledKernel, CompilationError> {
         let repr = artifact.repr.as_ref().map(|repr| repr.as_ref());
         let module = self.create_module(
             &artifact.entrypoint_name,
@@ -151,7 +153,11 @@ impl<C> WgpuArtifactCompiler<C> {
             id.kernel.mode,
         )?;
         let pipeline = self.create_pipeline(&artifact.entrypoint_name, repr, module, id.variant)?;
-        Ok((pipeline, artifact.compiler_info, artifact.io.clone()))
+        Ok(WgpuCompiledKernel {
+            pipeline,
+            compiler_info: artifact.compiler_info,
+            io: artifact.io.clone(),
+        })
     }
 
     fn create_module(

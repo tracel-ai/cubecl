@@ -4,7 +4,7 @@
 #[cfg(feature = "spirv")]
 use alloc::sync::Arc;
 
-use crate::{PipelineEntry, WgpuCompiler};
+use crate::{WgpuCompiledKernel, WgpuCompiler};
 use cubecl_core::server::MetadataBindingInfo;
 #[cfg(feature = "spirv")]
 use cubecl_environment::persistence::Store;
@@ -79,7 +79,7 @@ impl<C> WgpuPipelines<C> {
 
 impl<C: WgpuCompiler> CompilationTarget for WgpuPipelines<C> {
     type Compiler = WgpuArtifactCompiler<C>;
-    type Loaded = PipelineEntry;
+    type Loaded = WgpuCompiledKernel;
 
     fn compiler(&self) -> &WgpuArtifactCompiler<C> {
         &self.compiler
@@ -133,7 +133,7 @@ impl<C: WgpuCompiler> CompilationTarget for WgpuPipelines<C> {
         &mut self,
         id: &ArtifactId<MetadataLayout>,
         artifact: &WgpuArtifact,
-    ) -> Result<PipelineEntry, CompilationError> {
+    ) -> Result<WgpuCompiledKernel, CompilationError> {
         match &artifact.pipeline {
             Some(pipeline) => Ok(pipeline.clone()),
             None => self.compiler.build(id, artifact),
