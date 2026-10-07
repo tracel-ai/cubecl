@@ -25,9 +25,28 @@ use objc2_metal::{
 /// and the pipeline states it creates are thread-safe.
 #[derive(Debug)]
 pub(crate) struct MetalArtifactCompiler {
-    pub device: Retained<ProtocolObject<dyn MTLDevice>>,
-    pub properties: DeviceProperties,
-    pub options: cubecl_cpp::shared::CompilationOptions,
+    device: Retained<ProtocolObject<dyn MTLDevice>>,
+    properties: DeviceProperties,
+    options: cubecl_cpp::shared::CompilationOptions,
+}
+
+impl MetalArtifactCompiler {
+    pub(crate) fn new(
+        device: Retained<ProtocolObject<dyn MTLDevice>>,
+        properties: DeviceProperties,
+        options: cubecl_cpp::shared::CompilationOptions,
+    ) -> Self {
+        Self {
+            device,
+            properties,
+            options,
+        }
+    }
+
+    /// The device kernels are compiled and loaded for.
+    pub(crate) fn device(&self) -> &ProtocolObject<dyn MTLDevice> {
+        &self.device
+    }
 }
 
 /// MSL ready for the driver to build a library from, with what launching it

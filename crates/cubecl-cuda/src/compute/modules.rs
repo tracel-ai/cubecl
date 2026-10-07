@@ -7,7 +7,9 @@ use crate::compute::events::{driver_error, poisons_device};
 use cubecl_core::prelude::*;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_llvm::nvptx::ptx_version::PtxVersion;
-use cubecl_server::compiler::{ArtifactId, ArtifactStore, CompilationError, CompilationTarget};
+use cubecl_server::compiler::{
+    ArtifactId, ArtifactStore, CompilationError, CompilationTarget, StoreNames,
+};
 use cubecl_server::kernel::BufferIOAttr;
 use cudarc::driver::sys::CUfunc_st;
 use std::ffi::{CStr, CString, c_char};
@@ -42,13 +44,19 @@ impl CudaModules {
     /// `backend` is which one compiles here; see [`cache_namespace`].
     pub fn new(compiler: CudaArtifactCompiler, backend: CudaBackend) -> Self {
         let fingerprint = cache_namespace(
-            &format!("ptx_sm{}", compiler.arch.version),
+            &format!("ptx_sm{}", compiler.arch().version),
             backend,
-            compiler.options.ptx_version,
+            compiler.options().ptx_version,
         );
 
         Self {
-            ptx_store: ArtifactStore::with_sources("cuda", "cuda-second-line", fingerprint),
+            ptx_store: ArtifactStore::with_sources(
+                StoreNames {
+                    kernels: "cuda",
+                    sources: "cuda-second-line",
+                },
+                fingerprint,
+            ),
             compiler,
         }
     }

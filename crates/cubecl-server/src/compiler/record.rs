@@ -31,9 +31,8 @@ pub struct CompilationRecord {
     /// up to more than the time it took when it ran on several threads: that
     /// time is its [`CompilationBatchRecord::wall`].
     ///
-    /// Recorded as `duration` before kernels compiled in batches, when every
-    /// kernel compiled alone and its work was the time it took: those records
-    /// still read, with the meaning they had.
+    /// Also read from `duration`, the name older records carry: each of those
+    /// kernels compiled alone, so the time it took is its work.
     #[serde(alias = "duration")]
     pub work: core::time::Duration,
     /// The source the backend compiled, at [`RecordLevel::Full`].
@@ -82,6 +81,17 @@ impl Record for CompilationBatchRecord {
     const KIND: &'static str = "compilation_batch";
 }
 
+/// How a batch went, for its [`CompilationBatchRecording`] to record.
+#[derive(Debug)]
+pub(crate) struct BatchOutcome {
+    /// How many kernels it was asked for, failures included.
+    pub(crate) kernels: usize,
+    /// How many threads compiled at once.
+    pub(crate) threads: usize,
+    /// Whether the store took any of its kernels, as their records say.
+    pub(crate) stored: bool,
+}
+
 /// A batch being recorded: opened where a server starts obtaining kernels,
 /// closed when it has them. A no-op when the environment records nothing.
 #[derive(Debug)]
@@ -94,9 +104,8 @@ impl CompilationBatchRecording {
         Self { span: Span::new() }
     }
 
-    /// The batch obtained what it was asked for. `changed` is whether the
-    /// store took any of its kernels, as their records say.
-    pub(crate) fn close(self, kernels: usize, threads: usize, changed: bool) {
+    /// The batch obtained what it was asked for.
+    pub(crate) fn close(self, batch: BatchOutcome) {
         let Some(span) = self.span else {
             return;
         };
@@ -105,11 +114,11 @@ impl CompilationBatchRecording {
             return;
         };
         let record = CompilationBatchRecord {
-            kernels: kernels.try_into().unwrap_or(u32::MAX),
-            threads: threads.try_into().unwrap_or(u32::MAX),
+            kernels: batch.kernels.try_into().unwrap_or(u32::MAX),
+            threads: batch.threads.try_into().unwrap_or(u32::MAX),
             wall,
         };
-        span.close(effect(changed), &record);
+        span.close(effect(batch.stored), &record);
     }
 }
 
@@ -174,26 +183,11 @@ impl CompilationRecording {
         }
     }
 
-    /// The artifact came from the compilation store: the environment did not
-    /// change.
-    pub fn loaded(self) {
-        self.close(CompilationOutcome::Loaded, RecordEffect::Observed);
-    }
-
-    /// The artifact was compiled. `stored` is whether the store took it, as
-    /// [`store_compiled`](super::store_compiled) answers: a compile the store did not take, or with
-    /// no store to take it, changed nothing.
-    pub fn compiled(self, stored: bool) {
-        self.close(CompilationOutcome::Compiled, effect(stored));
-    }
-
-    /// The artifact was already stored under another key, and moved under
-    /// this one. `stored` is whether the store took it there.
-    pub fn rekeyed(self, stored: bool) {
-        self.close(CompilationOutcome::Rekeyed, effect(stored));
-    }
-
-    fn close(self, outcome: CompilationOutcome, effect: RecordEffect) {
+    /// The trip obtained its artifact by `outcome`. `stored` is whether the
+    /// store took it, as [`store_compiled`](super::store_compiled) answers:
+    /// a trip whose artifact the store did not take — read from it, or with
+    /// no store to take it — changed nothing.
+    pub fn close(self, outcome: CompilationOutcome, stored: bool) {
         let Some(open) = self.open else {
             return;
         };
@@ -210,7 +204,7 @@ impl CompilationRecording {
             work: open.work,
             source: open.source,
         };
-        open.span.close(effect, &record);
+        open.span.close(effect(stored), &record);
     }
 }
 

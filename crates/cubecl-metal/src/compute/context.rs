@@ -24,11 +24,7 @@ impl MetalContext {
         properties: DeviceProperties,
         compilation_options: cubecl_cpp::shared::CompilationOptions,
     ) -> Self {
-        let compiler = MetalArtifactCompiler {
-            device,
-            properties,
-            options: compilation_options,
-        };
+        let compiler = MetalArtifactCompiler::new(device, properties, compilation_options);
         Self {
             kernels: KernelLoader::new(MetalPipelines::new(compiler)),
         }

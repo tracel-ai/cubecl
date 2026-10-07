@@ -8,7 +8,7 @@ use cubecl_common::profile::Instant;
 use cubecl_environment::collections::{HashMap, HashSet};
 
 use super::{
-    ArtifactCompiler, ArtifactId, CompilationBatchRecording, CompilationCache, CompilationOutcome,
+    ArtifactCompiler, ArtifactId, BatchOutcome, CompilationBatchRecording, CompilationOutcome,
     CompilationRecording, CompilationTarget, VariantOf,
 };
 use crate::config::RuntimeConfig;
@@ -33,11 +33,8 @@ use crate::server::LaunchError;
 pub struct KernelLoader<T: CompilationTarget> {
     target: T,
     loaded: CompilationCache<ArtifactId<VariantOf<T>>, T::Loaded>,
-    /// The kernels queued and not compiled yet, each once.
-    queue: Vec<Queued<VariantOf<T>>>,
-    /// The ids of [`queue`](Self::queue)'s kernels, so queuing one more costs
-    /// a lookup rather than a scan.
-    queued: HashSet<ArtifactId<VariantOf<T>>>,
+    /// The kernels queued and not compiled yet.
+    queue: KernelQueue<VariantOf<T>>,
     /// Why each queued kernel of the latest batch that failed to compile
     /// failed, until its own launch reports it: the launch is where the
     /// failure has outputs to carry, and compiling the kernel again there
@@ -53,10 +50,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
     /// A loader holding nothing yet, bound to the active environment exactly
     /// when `target` [persists](CompilationTarget::persists) what it compiles.
     pub fn new(target: T) -> Self {
-        let loaded = match target.persists() {
-            true => CompilationCache::bound(),
-            false => CompilationCache::unbound(),
-        };
+        let loaded = CompilationCache::new(target.persists());
         let parallelism = crate::config::CubeClRuntimeConfig::get()
             .compilation
             .parallelism();
@@ -64,8 +58,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
         Self {
             target,
             loaded,
-            queue: Vec::new(),
-            queued: HashSet::new(),
+            queue: KernelQueue::new(),
             failed: HashMap::new(),
             parallelism,
         }
@@ -77,7 +70,8 @@ impl<T: CompilationTarget> KernelLoader<T> {
     }
 
     /// The kernel loaded for `id`, if it is.
-    pub fn get(&mut self, id: &ArtifactId<VariantOf<T>>) -> Option<&T::Loaded> {
+    #[cfg(test)]
+    fn get(&mut self, id: &ArtifactId<VariantOf<T>>) -> Option<&T::Loaded> {
         self.loaded.get(id)
     }
 
@@ -154,8 +148,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
         if self.queue.is_empty() && asked.is_none() {
             return;
         }
-        let queue = core::mem::take(&mut self.queue);
-        self.queued.clear();
+        let queue = self.queue.take();
         // A failure an earlier batch left unreported is dropped: its kernel
         // compiles again when it is launched or queued.
         self.failed.clear();
@@ -183,13 +176,11 @@ impl<T: CompilationTarget> KernelLoader<T> {
             kernel: kernel.id(),
             variant,
         };
-        if self.loaded.contains(&id) || self.queued.contains(&id) {
+        if self.loaded.contains(&id) || self.queue.contains(&id) {
             return;
         }
         self.failed.remove(&id);
-
-        self.queued.insert(id.clone());
-        self.queue.push(Queued { id, kernel });
+        self.queue.push(id, kernel);
     }
 
     /// Keeps a compiled kernel, or the reason it failed.
@@ -289,11 +280,11 @@ impl<T: CompilationTarget> KernelLoader<T> {
             .into_iter()
             .map(|job| job.load(&mut self.target))
             .collect();
-        batch.close(
-            jobs_len,
+        batch.close(BatchOutcome {
+            kernels: jobs_len,
             threads,
-            compiled.iter().any(|compiled| compiled.stored),
-        );
+            stored: compiled.iter().any(|compiled| compiled.stored),
+        });
         compiled
     }
 }
@@ -316,6 +307,117 @@ struct Compiled<T: CompilationTarget> {
     result: Result<T::Loaded, LaunchError>,
     /// Whether the compilation store took its artifact.
     stored: bool,
+}
+
+/// A server's in-memory compilation cache: the compiled artifacts it memoizes
+/// — pipelines, loaded modules — in front of a persistent [`compilation_store`].
+///
+/// Entries are dropped when the environment switches, because the map is bound
+/// to an environment exactly as the store it mirrors is. One served after a
+/// switch would describe the environment that is gone, and, worse, would never
+/// be written to the new environment's store, so a bundle exported from that
+/// environment would silently be missing that kernel. This is the same contract
+/// [`Store`] applies to itself, for the state a store cannot see — see
+/// [`cubecl_environment::environment::generation`].
+///
+/// Every accessor resets before it answers, so the loader has nothing to
+/// remember beyond using this in place of a plain map.
+#[derive(Debug)]
+struct CompilationCache<K, V> {
+    entries: HashMap<K, V>,
+    /// The generation the entries were built under, or `None` when the cache
+    /// mirrors no store and so is unbound.
+    generation: Option<u32>,
+}
+
+impl<K: Eq + core::hash::Hash, V> CompilationCache<K, V> {
+    /// An empty cache, bound to the active environment when `bound`: when
+    /// its artifacts persist in a store that a switch replaces. One with no
+    /// persistent store to mirror is never reset — with nothing persisted, a
+    /// switch changes nothing about what it holds, so resetting it would only
+    /// buy a redundant compilation, the same reason the autotune cache
+    /// survives a switch when its persistent cache is off.
+    fn new(bound: bool) -> Self {
+        Self {
+            entries: HashMap::new(),
+            generation: bound.then(cubecl_environment::environment::generation),
+        }
+    }
+
+    /// The artifact compiled for `key`, if it is still valid.
+    fn get(&mut self, key: &K) -> Option<&V> {
+        self.reset_if_switched();
+        self.entries.get(key)
+    }
+
+    /// Whether an artifact for `key` is cached and still valid.
+    fn contains(&mut self, key: &K) -> bool {
+        self.reset_if_switched();
+        self.entries.contains_key(key)
+    }
+
+    /// Records a freshly compiled artifact.
+    fn insert(&mut self, key: K, value: V) {
+        self.reset_if_switched();
+        self.entries.insert(key, value);
+    }
+
+    /// Drops every entry when the environment switched since the last access,
+    /// adopting the new generation so one switch costs one reset.
+    fn reset_if_switched(&mut self) {
+        let Some(generation) = self.generation else {
+            return;
+        };
+
+        let current = cubecl_environment::environment::generation();
+        if current == generation {
+            return;
+        }
+
+        log::debug!("Environment switched, dropping the in-memory compilation cache");
+        self.generation = Some(current);
+        self.entries.clear();
+    }
+}
+
+/// The kernels queued for compilation and not compiled yet, each once.
+struct KernelQueue<V> {
+    kernels: Vec<Queued<V>>,
+    /// Their ids, so queuing one more costs a lookup rather than a scan.
+    ids: HashSet<ArtifactId<V>>,
+}
+
+impl<V: Clone + Eq + core::hash::Hash> KernelQueue<V> {
+    fn new() -> Self {
+        Self {
+            kernels: Vec::new(),
+            ids: HashSet::new(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.kernels.is_empty()
+    }
+
+    fn len(&self) -> usize {
+        self.kernels.len()
+    }
+
+    fn contains(&self, id: &ArtifactId<V>) -> bool {
+        self.ids.contains(id)
+    }
+
+    /// Queues `kernel` under `id`, which is not queued yet.
+    fn push(&mut self, id: ArtifactId<V>, kernel: Box<dyn CubeKernel>) {
+        self.ids.insert(id.clone());
+        self.kernels.push(Queued { id, kernel });
+    }
+
+    /// Every queued kernel, leaving the queue empty.
+    fn take(&mut self) -> Vec<Queued<V>> {
+        self.ids.clear();
+        core::mem::take(&mut self.kernels)
+    }
 }
 
 /// A kernel queued for compilation.
@@ -524,17 +626,11 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
                 match target.load(&self.id, &artifact) {
                     Ok(loaded) => {
                         self.recording.worked(started.elapsed());
-                        match outcome {
-                            CompilationOutcome::Loaded => self.recording.loaded(),
-                            CompilationOutcome::Compiled => {
-                                stored = target.store(&self.id, artifact, source.as_deref());
-                                self.recording.compiled(stored);
-                            }
-                            CompilationOutcome::Rekeyed => {
-                                stored = target.store(&self.id, artifact, source.as_deref());
-                                self.recording.rekeyed(stored);
-                            }
+                        // What the store gave is in it already.
+                        if outcome != CompilationOutcome::Loaded {
+                            stored = target.store(&self.id, artifact, source.as_deref());
                         }
+                        self.recording.close(outcome, stored);
                         Ok(loaded)
                     }
                     Err(err) => Err(err.into()),

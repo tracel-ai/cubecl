@@ -44,10 +44,7 @@ impl HipContext {
         fingerprint: String,
         backend: HipBackend,
     ) -> Self {
-        let compiler = HipArtifactCompiler {
-            properties,
-            options: compilation_options,
-        };
+        let compiler = HipArtifactCompiler::new(properties, compilation_options);
         Self {
             kernels: KernelLoader::new(HipModules::new(compiler, fingerprint, backend)),
             profiler: EventProfiler::default(),

@@ -28,9 +28,9 @@ pub enum MetadataLayout {
     Dynamic,
 }
 
-impl MetadataLayout {
-    /// The layout `info` is bound with.
-    pub fn of(info: &MetadataBindingInfo) -> Self {
+/// The layout `info` is bound with.
+impl From<&MetadataBindingInfo> for MetadataLayout {
+    fn from(info: &MetadataBindingInfo) -> Self {
         if info.data.is_empty() {
             Self::Absent
         } else if info.dynamic_metadata_offset >= info.data.len() {

@@ -20,8 +20,17 @@ use std::ffi::{CStr, CString};
 /// selected: C++ through HIP RTC, or LLVM straight to a linked code object.
 #[derive(Debug)]
 pub(crate) struct HipArtifactCompiler {
-    pub properties: DeviceProperties,
-    pub options: HipCompilationOptions,
+    properties: DeviceProperties,
+    options: HipCompilationOptions,
+}
+
+impl HipArtifactCompiler {
+    pub(crate) fn new(properties: DeviceProperties, options: HipCompilationOptions) -> Self {
+        Self {
+            properties,
+            options,
+        }
+    }
 }
 
 /// A code object ready for `hipModuleLoadData`, with what launching it needs:

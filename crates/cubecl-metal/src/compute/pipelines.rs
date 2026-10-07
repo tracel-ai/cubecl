@@ -38,7 +38,7 @@ impl MetalPipelines {
         // validated against the device's shared-memory limit, so the device
         // name is what keeps a bundle shipped across machines from serving
         // sources built for another GPU.
-        let device_key = compiler.device.name().to_string();
+        let device_key = compiler.device().name().to_string();
 
         Self {
             compiler,

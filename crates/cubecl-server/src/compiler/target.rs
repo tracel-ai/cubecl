@@ -99,9 +99,8 @@ pub trait CompilationTarget {
     fn compiler(&self) -> &Self::Compiler;
 
     /// Whether artifacts are kept between runs, which is what binds the
-    /// loaded kernels to the active environment: see [`CompilationCache`].
-    ///
-    /// [`CompilationCache`]: super::CompilationCache
+    /// loaded kernels to the active environment: a switch replaces the store
+    /// they mirror, so the [`KernelLoader`](super::KernelLoader) drops them.
     fn persists(&self) -> bool;
 
     /// Takes the artifact the compilation store holds for `id` out of it, to

@@ -20,9 +20,33 @@ use std::str::FromStr;
 /// selected: C++ through NVRTC, or LLVM straight to PTX.
 #[derive(Debug)]
 pub(crate) struct CudaArtifactCompiler {
-    pub properties: DeviceProperties,
-    pub options: CudaCompilationOptions,
-    pub arch: CudaArchitecture,
+    properties: DeviceProperties,
+    options: CudaCompilationOptions,
+    arch: CudaArchitecture,
+}
+
+impl CudaArtifactCompiler {
+    pub(crate) fn new(
+        properties: DeviceProperties,
+        options: CudaCompilationOptions,
+        arch: CudaArchitecture,
+    ) -> Self {
+        Self {
+            properties,
+            options,
+            arch,
+        }
+    }
+
+    /// The options kernels are compiled with.
+    pub(crate) fn options(&self) -> &CudaCompilationOptions {
+        &self.options
+    }
+
+    /// The architecture kernels are compiled for.
+    pub(crate) fn arch(&self) -> &CudaArchitecture {
+        &self.arch
+    }
 }
 
 /// PTX ready for `cuModuleLoadData`, with what launching it needs: what the

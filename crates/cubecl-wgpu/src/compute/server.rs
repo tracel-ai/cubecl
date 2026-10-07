@@ -147,13 +147,12 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
 
-        let compiler = WgpuArtifactCompiler {
+        let compiler = WgpuArtifactCompiler::new(
             device,
-            properties: (*utilities.properties).clone(),
-            options: compilation_options,
+            (*utilities.properties).clone(),
+            compilation_options,
             backend,
-            _compiler: PhantomData,
-        };
+        );
         let pipelines = WgpuPipelines::new(
             compiler,
             #[cfg(feature = "spirv")]
@@ -428,14 +427,14 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         // failure in it leaves nothing stale, and tainting its buffers would
         // fail unrelated reads of memory the run deliberately left alone.
         // A precompiled launch only queues its kernel, touching nothing else.
+        let layout = MetadataLayout::from(&args.info);
         if launch_mode == LaunchMode::Precompile {
-            self.pipelines
-                .enqueue(kernel, MetadataLayout::of(&args.info));
+            self.pipelines.enqueue(kernel, layout);
             return;
         }
         let id = ArtifactId {
             kernel: kernel.id(),
-            variant: MetadataLayout::of(&args.info),
+            variant: layout,
         };
         let loaded = self.pipelines.load(&*kernel, &id, &self.scheduler.logger);
         let (pipeline, compiler_info, io) = match loaded {

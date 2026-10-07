@@ -386,13 +386,13 @@ impl Server for CpuServer {
             self.kernels.enqueue(kernel, alignment);
             return;
         }
-        let cache_key = ArtifactId {
+        let id = ArtifactId {
             kernel: kernel.id(),
             variant: alignment,
         };
         let loaded = match self
             .kernels
-            .load(kernel.as_ref(), &cache_key, &self.scheduler.logger)
+            .load(kernel.as_ref(), &id, &self.scheduler.logger)
         {
             Ok(loaded) => loaded,
             Err(err) => {
@@ -429,7 +429,7 @@ impl Server for CpuServer {
         };
         ExecuteScope::launching(
             self,
-            cache_key.kernel,
+            id.kernel,
             stream_id,
             bindings.buffers_read(io).chain(count_read),
             written,

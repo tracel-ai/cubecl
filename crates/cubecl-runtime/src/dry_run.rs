@@ -77,8 +77,8 @@ pub fn launch_mode() -> LaunchMode {
 
 /// What a [`DryRun`] does with the work it drops.
 ///
-/// Each scope is a level, the number [`OPEN`] holds in its low bits while a
-/// dry run of it is open; zero is none.
+/// Each scope is a level, the number the process's open dry run holds in its
+/// low bits while a dry run of it is open; zero is none.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(usize)]
 pub enum DryRunScope {

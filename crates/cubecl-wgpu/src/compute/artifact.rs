@@ -35,11 +35,28 @@ use super::pipelines::MetadataLayout;
 /// creation's refusal from are per thread.
 #[derive(Debug)]
 pub(crate) struct WgpuArtifactCompiler<C> {
-    pub device: wgpu::Device,
-    pub properties: DeviceProperties,
-    pub options: WgpuCompilationOptions,
-    pub backend: wgpu::Backend,
-    pub _compiler: PhantomData<fn() -> C>,
+    device: wgpu::Device,
+    properties: DeviceProperties,
+    options: WgpuCompilationOptions,
+    backend: wgpu::Backend,
+    _compiler: PhantomData<fn() -> C>,
+}
+
+impl<C> WgpuArtifactCompiler<C> {
+    pub(crate) fn new(
+        device: wgpu::Device,
+        properties: DeviceProperties,
+        options: WgpuCompilationOptions,
+        backend: wgpu::Backend,
+    ) -> Self {
+        Self {
+            device,
+            properties,
+            options,
+            backend,
+            _compiler: PhantomData,
+        }
+    }
 }
 
 /// A compiled shader and what building and launching its pipeline needs.

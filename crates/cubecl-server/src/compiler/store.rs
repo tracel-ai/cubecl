@@ -2,9 +2,108 @@
 
 use crate::id::KernelId;
 use cubecl_common::hash::{StableHash, StableHasher};
-use cubecl_environment::persistence::{Store, StoreValue};
+#[cfg(compilation_cache)]
+use cubecl_environment::persistence::{CacheOption, Namespace, StoreOptions};
+use cubecl_environment::persistence::{Store, StoreKey, StoreValue};
 
-use super::{KernelCacheKey, build_id_hash, compilation_store, store_compiled};
+/// Platform-specific build identifier, changes on rebuild
+pub type BuildId = Option<&'static [u8]>;
+
+/// Pre-hashed build ID
+pub fn build_id_hash() -> StableHash {
+    StableHasher::hash_one(&buildid::build_id())
+}
+
+/// A store for `backend`'s compiled artifacts, or `None` when compilation
+/// caching is disabled or the target has nowhere durable to put them.
+///
+/// `fingerprint` names what the artifacts were built for — an architecture, a
+/// device — and becomes part of the namespace. Compiled code is not portable
+/// across those, so this is what keeps a bundle shipped between machines from
+/// serving the wrong binary. It needs no sanitizing: a namespace is a database
+/// column, never a path.
+pub fn compilation_store<K: StoreKey, V: StoreValue>(
+    backend: &'static str,
+    fingerprint: impl AsRef<str>,
+) -> Option<Store<K, V>> {
+    #[cfg(compilation_cache)]
+    {
+        use crate::config::RuntimeConfig;
+
+        if !crate::config::CubeClRuntimeConfig::get().compilation.cache {
+            return None;
+        }
+
+        Some(Store::new(
+            StoreOptions::new()
+                .storage(Namespace::scoped(backend, fingerprint))
+                .cache(CacheOption::Lazy),
+        ))
+    }
+
+    // No file system to persist to; the caller keeps its in-memory map.
+    #[cfg(not(compilation_cache))]
+    {
+        let _ = (backend, fingerprint);
+        None
+    }
+}
+
+/// Stores a freshly compiled artifact, logging rather than failing, and says
+/// whether the store took it.
+///
+/// A refused write is routine, not exceptional: another process sharing the
+/// environment may have written the key first, or the backing store may have
+/// declined it. The artifact was just compiled either way, so the whole cost
+/// is compiling it again next run.
+pub fn store_compiled<K: StoreKey, V: StoreValue>(
+    store: &mut Store<K, V>,
+    key: K,
+    value: V,
+) -> bool {
+    match store.insert(key, value) {
+        Ok(()) => true,
+        Err(err) => {
+            log::warn!("Unable to cache the compiled kernel: {}", err.reason());
+            false
+        }
+    }
+}
+
+/// Key for an entry in the persistent compilation cache.
+///
+/// The [id](KernelId) alone doesn't describe what a kernel does: it covers the kernel type, its
+/// comptime arguments and its launch settings, but nothing of the body. Pairing it with a hash of
+/// the expanded IR is what lets a cached artifact be invalidated when the code behind it changes.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+pub struct KernelCacheKey {
+    /// Hash of the [kernel id](KernelId).
+    pub id: StableHash,
+    /// Hash of the [build id](buildid::build_id).
+    pub build_id: StableHash,
+}
+
+impl KernelCacheKey {
+    /// Create a key from a kernel id and the current build ID.
+    pub fn new(id: &KernelId, build_id: StableHash) -> Self {
+        Self {
+            id: id.stable_hash(),
+            build_id,
+        }
+    }
+}
+
+/// What an [`ArtifactStore`] kept by kernel and by source names its two maps,
+/// as [`compilation_store`] takes a backend's name.
+#[derive(Debug, Clone, Copy)]
+pub struct StoreNames {
+    /// The map from kernel to artifact.
+    pub kernels: &'static str,
+    /// The map from source to the kernel that first finalized it.
+    pub sources: &'static str,
+}
 
 /// The compiled artifacts of one backend and device, kept by kernel and, for a
 /// backend that opts in, by the source each was finalized from — see
@@ -31,17 +130,13 @@ impl<A: StoreValue> ArtifactStore<A> {
         }
     }
 
-    /// The artifacts `backend` compiled for `fingerprint`, kept by kernel and
-    /// by source; the second map lives under `source_backend`.
-    pub fn with_sources(
-        backend: &'static str,
-        source_backend: &'static str,
-        fingerprint: impl AsRef<str>,
-    ) -> Self {
-        let by_kernel = compilation_store(backend, fingerprint.as_ref());
+    /// The artifacts compiled for `fingerprint`, kept by kernel and by
+    /// source, each map under its name in `names`.
+    pub fn with_sources(names: StoreNames, fingerprint: impl AsRef<str>) -> Self {
+        let by_kernel = compilation_store(names.kernels, fingerprint.as_ref());
         let by_source = by_kernel
             .is_some()
-            .then(|| compilation_store(source_backend, fingerprint))
+            .then(|| compilation_store(names.sources, fingerprint))
             .flatten();
         Self {
             by_kernel,

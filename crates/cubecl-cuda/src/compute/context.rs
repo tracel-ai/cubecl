@@ -43,11 +43,7 @@ impl CudaContext {
         backend: CudaBackend,
         comm_stream: CUstream,
     ) -> Self {
-        let compiler = CudaArtifactCompiler {
-            properties,
-            options: compilation_options,
-            arch,
-        };
+        let compiler = CudaArtifactCompiler::new(properties, compilation_options, arch);
 
         Self {
             context,
@@ -60,7 +56,7 @@ impl CudaContext {
     /// The options kernels are compiled with, which the launch path reads
     /// to pass arguments the way the compiled code expects them.
     pub fn compilation_options(&self) -> &CudaCompilationOptions {
-        &self.kernels.target().compiler().options
+        self.kernels.target().compiler().options()
     }
 
     /// Switches the current CUDA context to this context.

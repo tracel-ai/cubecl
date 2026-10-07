@@ -1666,9 +1666,9 @@ fn a_compilation_is_recorded_with_its_outcome() {
 
     let id = KernelId::new::<Recorded>().info(3u32);
     let stored = true;
-    CompilationRecording::new(&id).compiled(stored);
-    CompilationRecording::new(&id).loaded();
-    CompilationRecording::new(&id).rekeyed(stored);
+    CompilationRecording::new(&id).close(CompilationOutcome::Compiled, stored);
+    CompilationRecording::new(&id).close(CompilationOutcome::Loaded, false);
+    CompilationRecording::new(&id).close(CompilationOutcome::Rekeyed, stored);
 
     let database = Database::open_active().unwrap();
     let trips = Records::new(&database).read::<CompilationRecord>();
@@ -1708,7 +1708,10 @@ fn a_compilation_keeps_its_code_only_when_records_are_full() {
         recording_at(level);
         let mut recording = CompilationRecording::new(&id);
         recording.source("source");
-        recording.compiled(stored);
+        recording.close(
+            cubecl_server::compiler::CompilationOutcome::Compiled,
+            stored,
+        );
     }
     recording_at(RecordLevel::Basic);
 
@@ -1730,7 +1733,9 @@ fn a_compilation_keeps_its_code_only_when_records_are_full() {
 fn a_compile_nothing_stored_leaves_no_session() {
     use cubecl_environment::persistence::{Database, Namespace, Store, StoreOptions};
     use cubecl_environment::records::{RecordLevel, Records};
-    use cubecl_server::compiler::{CompilationRecord, CompilationRecording, store_compiled};
+    use cubecl_server::compiler::{
+        CompilationOutcome, CompilationRecord, CompilationRecording, store_compiled,
+    };
     use cubecl_server::id::KernelId;
 
     struct Unstored;
@@ -1745,7 +1750,7 @@ fn a_compile_nothing_stored_leaves_no_session() {
 
     let id = KernelId::new::<Unstored>();
     let stored = false;
-    CompilationRecording::new(&id).compiled(stored);
+    CompilationRecording::new(&id).close(CompilationOutcome::Compiled, stored);
 
     let database = Database::open_active().unwrap();
     let records = Records::new(&database);
@@ -1780,7 +1785,10 @@ fn a_memory_snapshot_is_recorded_under_its_label() {
     struct Stored;
     let id = cubecl_server::id::KernelId::new::<Stored>();
     let stored = true;
-    cubecl_server::compiler::CompilationRecording::new(&id).compiled(stored);
+    cubecl_server::compiler::CompilationRecording::new(&id).close(
+        cubecl_server::compiler::CompilationOutcome::Compiled,
+        stored,
+    );
 
     let snapshots = Records::new(&database).read::<MemoryRecord>();
     assert_eq!(snapshots.len(), 1);
