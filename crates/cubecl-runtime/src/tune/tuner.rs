@@ -254,8 +254,8 @@ impl<K: AutotuneKey> Tuner<K> {
     {
         let compiling =
             crate::dry_run::dry_run_scope() == Some(crate::dry_run::DryRunScope::Compile);
-        // Where the tune is counted, if it measures.
-        let start;
+        // The dry run the tune is owed to, if one requested it when it gathered the key.
+        let owed_to;
 
         {
             let mut cache = self.cache.lock();
@@ -298,7 +298,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 | TuneCacheResult::Pending
                 | TuneCacheResult::Compiled => return cur,
                 TuneCacheResult::Miss | TuneCacheResult::Unchecked => {
-                    start = cache.mark_pending(key.clone());
+                    owed_to = cache.mark_pending(key.clone());
                 }
             }
             // Scope the guard: the rest of this function re-locks `self.cache` (fast
@@ -318,12 +318,23 @@ impl<K: AutotuneKey> Tuner<K> {
         // A compile-only dry run queues the candidates' kernels and measures nothing; the key
         // stays untuned for the pass that profiles it. Marked before the candidates run, so
         // one that panics leaves the key to that pass rather than pending for good.
+        //
+        // Its tune is requested of the open dry run only when no other key's candidates reached
+        // it: the pass that profiles stops a plan at its first close-enough candidate, and may
+        // never run the one that reaches a key gathered inside it. Such a key is requested if
+        // it is ever measured, as an ungathered one is.
         if compiling {
-            self.cache.lock().mark_compiled(key.clone());
+            let owed_to = match gathering::inside_candidates() {
+                true => None,
+                false => request_tune(),
+            };
+            self.cache.lock().mark_compiled(key.clone(), owed_to);
+            let _inside = gathering::Candidates::enter();
             self.compile_plan(key, inputs, tunables, &autotunables);
             return TuneCacheResult::Compiled;
         }
-        let counter = start.counter();
+        // Sure to measure now: a tune no dry run is owed is requested of the one open.
+        let counter = owed_to.or_else(request_tune);
 
         let results: Vec<AutotuneResult> = autotunables
             .iter()
@@ -661,6 +672,78 @@ async fn resolve_bench(bench: PendingBench) -> AutotuneResult {
 }
 
 /// Await every profile sample, pick the fastest tunable, commit to the cache.
+/// Request a tune of the dry run open now, if one is: where it settles once measured.
+fn request_tune() -> Option<DryRunCounter> {
+    crate::dry_run::counted().inspect(|counter| counter.tunes().request(1))
+}
+
+/// Whether this thread runs a key's candidates to gather their kernels: a key reached there is
+/// gathered by another key's candidates.
+mod gathering {
+    /// Held while a key's candidates run under a compile-only dry run.
+    pub(super) struct Candidates {
+        _private: (),
+    }
+
+    #[cfg(feature = "std")]
+    std::thread_local! {
+        static DEPTH: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    }
+
+    // No threads to be local to: one depth for the process.
+    #[cfg(not(feature = "std"))]
+    static DEPTH: cubecl_environment::sync::AtomicUsize =
+        cubecl_environment::sync::AtomicUsize::new(0);
+
+    impl Candidates {
+        pub(super) fn enter() -> Self {
+            deepen();
+            Self { _private: () }
+        }
+    }
+
+    impl Drop for Candidates {
+        fn drop(&mut self) {
+            surface();
+        }
+    }
+
+    /// Whether another key's candidates are running on this thread.
+    pub(super) fn inside_candidates() -> bool {
+        depth() > 0
+    }
+
+    #[cfg(feature = "std")]
+    fn depth() -> usize {
+        DEPTH.with(core::cell::Cell::get)
+    }
+
+    #[cfg(feature = "std")]
+    fn deepen() {
+        DEPTH.with(|depth| depth.set(depth.get() + 1));
+    }
+
+    #[cfg(feature = "std")]
+    fn surface() {
+        DEPTH.with(|depth| depth.set(depth.get() - 1));
+    }
+
+    #[cfg(not(feature = "std"))]
+    fn depth() -> usize {
+        DEPTH.load(cubecl_environment::sync::Ordering::Relaxed)
+    }
+
+    #[cfg(not(feature = "std"))]
+    fn deepen() {
+        DEPTH.fetch_add(1, cubecl_environment::sync::Ordering::Relaxed);
+    }
+
+    #[cfg(not(feature = "std"))]
+    fn surface() {
+        DEPTH.fetch_sub(1, cubecl_environment::sync::Ordering::Relaxed);
+    }
+}
+
 async fn process_request<K: AutotuneKey>(
     request: TuneRequest<K>,
     cache: &Mutex<TuneCache<K>>,
