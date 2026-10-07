@@ -52,7 +52,7 @@ impl Progress {
 /// one is settled to it when its batch compiles.
 #[derive(Debug, Clone)]
 pub struct DryRunCounter {
-    pub(super) observed: Arc<Observed>,
+    observed: Arc<Observed>,
 }
 
 impl DryRunCounter {
@@ -72,21 +72,57 @@ impl DryRunCounter {
     }
 }
 
-/// One dry run's counts, shared by its facade and every counter handed out
-/// for it.
+/// Reads what one dry run has provoked, from any thread, and nothing else:
+/// what a caller showing a dry run's progress holds, where only the dry
+/// run's owner opens its passes.
+#[derive(Debug, Clone)]
+pub struct DryRunObserver {
+    observed: Arc<Observed>,
+}
+
+impl DryRunObserver {
+    /// The dry run it reads.
+    pub fn id(&self) -> DryRunId {
+        self.observed.id
+    }
+
+    /// What the dry run has provoked so far, over every pass and device.
+    pub fn observe(&self) -> DryRunObservation {
+        self.observed.observe()
+    }
+}
+
+/// One dry run's counts, shared by the dry run, its observers and every
+/// counter handed out for it.
 #[derive(Debug)]
 pub(super) struct Observed {
-    pub(super) id: DryRunId,
+    id: DryRunId,
     kernels: Counter,
     tunes: Counter,
 }
 
 impl Observed {
-    pub(super) fn new(id: DryRunId) -> Self {
-        Self {
+    pub(super) fn new(id: DryRunId) -> Arc<Self> {
+        Arc::new(Self {
             id,
             kernels: Counter::new(),
             tunes: Counter::new(),
+        })
+    }
+
+    pub(super) fn id(&self) -> DryRunId {
+        self.id
+    }
+
+    pub(super) fn counter(self: &Arc<Self>) -> DryRunCounter {
+        DryRunCounter {
+            observed: self.clone(),
+        }
+    }
+
+    pub(super) fn observer(self: &Arc<Self>) -> DryRunObserver {
+        DryRunObserver {
+            observed: self.clone(),
         }
     }
 

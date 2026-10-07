@@ -643,6 +643,10 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
     /// batch has stored it, and finalizes its own only when there is no store
     /// to take it from.
     fn load(mut self, target: &mut T) -> JobOutcome<T> {
+        // Settled as each step of the batch finished with it, so the count
+        // moved while the batch ran; every job ends here, so none is left
+        // unsettled whatever step a batch grows.
+        self.settle();
         if let Step::Waiting { .. } = self.step {
             let Step::Waiting { lowered, source } =
                 core::mem::replace(&mut self.step, Step::Missing)

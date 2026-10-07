@@ -9,6 +9,7 @@ use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOption
 use serde::{Deserialize, Serialize};
 
 use super::{AutotuneError, AutotuneKey, AutotuneOutcome};
+use crate::dry_run::{DryRunCounter, counted};
 use alloc::string::String;
 use cubecl_environment::collections::HashMap;
 
@@ -21,8 +22,28 @@ pub(crate) enum CacheEntry {
     Pending,
     /// A compile-only dry run queued the kernels of the key's candidates and decided nothing:
     /// a miss to anything that tunes, and done to the next compile-only dry run. Never
-    /// persisted.
-    Compiled,
+    /// persisted. `gathered_by` is where that dry run counts the tune it is owed.
+    Compiled {
+        gathered_by: Option<DryRunCounter>,
+    },
+}
+
+/// Where a tune about to be measured is counted: to the dry run that gathered its key, or, for
+/// a key no compile-only dry run gathered, to the one open now — requested as it starts.
+pub(crate) enum TuneStart {
+    Gathered(Option<DryRunCounter>),
+    Ungathered,
+}
+
+impl TuneStart {
+    /// The counter the tune settles into once its pick is committed; an ungathered tune is
+    /// requested here, so call it once the tune is sure to measure.
+    pub(crate) fn counter(self) -> Option<DryRunCounter> {
+        match self {
+            Self::Gathered(gathered_by) => gathered_by,
+            Self::Ungathered => counted().inspect(|counter| counter.tunes().request(1)),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -222,7 +243,7 @@ impl<K: AutotuneKey> TuneCache<K> {
             } => (checksum, fastest_index),
             CacheEntry::Pending => return TuneCacheResult::Pending,
             // Nothing was decided: a tune of the key is still owed.
-            CacheEntry::Compiled => return TuneCacheResult::Miss,
+            CacheEntry::Compiled { .. } => return TuneCacheResult::Miss,
         };
 
         if cfg!(persistence) {
@@ -285,19 +306,31 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// Mark a key as being tuned. Used by [`Tuner::check_tune`] under the cache mutex so that
     /// concurrent callers see [`TuneCacheResult::Pending`] instead of starting a second job
     /// for the same key.
-    pub(crate) fn mark_pending(&mut self, key: K) {
-        self.in_memory_cache.insert(key, CacheEntry::Pending);
+    /// Returns where the tune is counted: what a compile-only dry run left in the entry it
+    /// replaces, if it gathered the key.
+    pub(crate) fn mark_pending(&mut self, key: K) -> TuneStart {
+        match self.in_memory_cache.insert(key, CacheEntry::Pending) {
+            Some(CacheEntry::Compiled { gathered_by }) => TuneStart::Gathered(gathered_by),
+            _ => TuneStart::Ungathered,
+        }
     }
 
     /// Mark a key whose candidates' kernels a compile-only dry run queued, in place of the tune
     /// it was [marked](Self::mark_pending) for: nothing was decided.
+    /// The dry run open now gathers the key's tune: it is requested there, and settled there
+    /// when it is measured.
     pub(crate) fn mark_compiled(&mut self, key: K) {
-        self.in_memory_cache.insert(key, CacheEntry::Compiled);
+        let gathered_by = counted().inspect(|counter| counter.tunes().request(1));
+        self.in_memory_cache
+            .insert(key, CacheEntry::Compiled { gathered_by });
     }
 
     /// Whether a compile-only dry run already queued the kernels of `key`'s candidates.
     pub(crate) fn is_compiled(&self, key: &K) -> bool {
-        matches!(self.in_memory_cache.get(key), Some(CacheEntry::Compiled))
+        matches!(
+            self.in_memory_cache.get(key),
+            Some(CacheEntry::Compiled { .. })
+        )
     }
 
     pub(crate) fn cache_insert(&mut self, key: K, fastest_index: usize) {

@@ -42,7 +42,7 @@ use cubecl_environment::sync::{Arc, AtomicUsize, Mutex, Ordering};
 mod observation;
 
 use observation::Observed;
-pub use observation::{Counter, DryRunCounter, DryRunObservation, Progress};
+pub use observation::{Counter, DryRunCounter, DryRunObservation, DryRunObserver, Progress};
 
 /// What a server should do with a launch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -154,14 +154,14 @@ pub fn counted() -> Option<DryRunCounter> {
     if !dry_run() {
         return None;
     }
-    ACTIVE.lock().as_ref().map(|observed| DryRunCounter {
-        observed: observed.clone(),
-    })
+    ACTIVE.lock().as_ref().map(Observed::counter)
 }
 
-/// Identifies one [`DryRun`] in the process: what its work is counted under.
+/// Identifies one [`DryRun`] in the process: the dry run an open pass
+/// belongs to, and so the one the work under it is counted to. Minted by
+/// [`DryRun::new`] alone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct DryRunId(pub usize);
+pub struct DryRunId(usize);
 
 /// One dry run: a workload run for the compilation and tuning it provokes,
 /// over as many passes, and on as many devices, as it takes.
@@ -197,26 +197,30 @@ pub struct DryRunId(pub usize);
 /// its lifetime belongs to a scope in the code that wants it, not to an
 /// ambient default nothing in the process can see.
 ///
-/// A clone is the same dry run — its passes, its id, its counts — which is
-/// how a reader on another thread observes one while it runs.
-#[derive(Debug, Clone)]
+/// It is not `Clone`: whoever holds it opens its passes. A reader on another
+/// thread holds an [`observer`](Self::observer) instead.
+#[derive(Debug)]
 pub struct DryRun {
     observed: Arc<Observed>,
 }
 
 impl DryRun {
     /// A dry run with no pass open yet, under an id of its own.
-    #[allow(clippy::new_without_default, reason = "each one takes a new id")]
     pub fn new() -> Self {
         let id = DryRunId(NEXT_ID.fetch_add(1, Ordering::Relaxed));
         Self {
-            observed: Arc::new(Observed::new(id)),
+            observed: Observed::new(id),
         }
     }
 
     /// Its id.
     pub fn id(&self) -> DryRunId {
-        self.observed.id
+        self.observed.id()
+    }
+
+    /// What reads it from another thread, opening nothing.
+    pub fn observer(&self) -> DryRunObserver {
+        self.observed.observer()
     }
 
     /// Make every launch a dry run of `scope` for as long as the guard
@@ -248,14 +252,12 @@ impl DryRun {
                 *active = Some(self.observed.clone());
                 OPEN.store(GUARD | level, Ordering::Relaxed);
             }
-            (open_level, Some(owner))
-                if open_level == level && Arc::ptr_eq(owner, &self.observed) =>
-            {
+            (open_level, Some(owner)) if open_level == level && owner.id() == self.id() => {
                 OPEN.store(open + GUARD, Ordering::Relaxed);
             }
             (open_level, owner) => {
                 let open_scope = DryRunScope::at(open_level).expect("open, matched above");
-                let another = owner.is_some_and(|owner| !Arc::ptr_eq(owner, &self.observed));
+                let another = owner.is_some_and(|owner| owner.id() != self.id());
                 drop(active);
                 match another {
                     true => panic!(
@@ -274,6 +276,12 @@ impl DryRun {
     /// What it has provoked so far, over every pass and device.
     pub fn observe(&self) -> DryRunObservation {
         self.observed.observe()
+    }
+}
+
+impl Default for DryRun {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -621,6 +629,13 @@ mod tests {
             }
         );
         assert_eq!(observed.tunes.pending(), 1);
+        let observer = build.observer();
+        assert_eq!(observer.id(), build.id());
+        assert_eq!(
+            observer.observe(),
+            observed,
+            "an observer reads the same counts"
+        );
         assert_eq!(DryRun::new().observe(), DryRunObservation::default());
     }
 }

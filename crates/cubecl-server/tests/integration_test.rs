@@ -1507,22 +1507,21 @@ fn a_compile_dry_run_leaves_the_tune_to_the_next_pass() {
         "gathered once"
     );
 
-    {
-        let _profile = build.pass(DryRunScope::Profile);
-        TUNER.execute(&"test".to_string(), &client, test_set.clone(), handles());
-    }
+    // Measured with no pass open, the tune still settles to the dry run that
+    // gathered it.
+    let observer = build.observer();
+    drop(build);
+    TUNER.execute(&"test".to_string(), &client, test_set, handles());
     assert!(
         evictions.load(Ordering::Relaxed) > 0,
-        "the key was left untuned, so the profiling pass tuned it"
+        "the key was left untuned, so this execution tuned it"
     );
-    let measured = build.observe().tunes;
+    let measured = observer.observe().tunes;
     assert_eq!(
         (measured.requested, measured.settled),
         (1, 1),
-        "the tune gathered is the one measured"
+        "the tune gathered is the one measured, counted where it was gathered"
     );
-
-    TUNER.execute(&"test".to_string(), &client, test_set, handles());
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 

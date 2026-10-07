@@ -17,6 +17,7 @@ use crate::client::Client;
 use crate::config::Logger;
 #[cfg(persistence)]
 use crate::config::autotune::AutotuneLogLevel;
+use crate::dry_run::DryRunCounter;
 use crate::server::LaunchError;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
 use cubecl_environment::config::RuntimeConfig;
@@ -150,6 +151,8 @@ struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
     log_context: Option<crate::tune::AutotuneLogContext>,
     #[cfg(persistence)]
     recording: crate::tune::record::TuneRecording<K>,
+    /// Where the tune settles once its pick is committed.
+    counter: Option<DryRunCounter>,
 }
 
 impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
@@ -168,6 +171,7 @@ impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
             bounds: self.bounds,
             #[cfg(persistence)]
             recording: self.recording,
+            counter: self.counter,
         }
     }
 }
@@ -190,6 +194,7 @@ struct TuneRequest<K: AutotuneKey> {
     bounds: Option<crate::tune::Bounds>,
     #[cfg(persistence)]
     recording: crate::tune::record::TuneRecording<K>,
+    counter: Option<DryRunCounter>,
 }
 
 #[allow(clippy::new_without_default)]
@@ -249,9 +254,8 @@ impl<K: AutotuneKey> Tuner<K> {
     {
         let compiling =
             crate::dry_run::dry_run_scope() == Some(crate::dry_run::DryRunScope::Compile);
-        // Whether a compile-only dry run gathered the key: its tune was
-        // requested then, and is not requested again when it is measured.
-        let gathered;
+        // Where the tune is counted, if it measures.
+        let start;
 
         {
             let mut cache = self.cache.lock();
@@ -294,8 +298,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 | TuneCacheResult::Pending
                 | TuneCacheResult::Compiled => return cur,
                 TuneCacheResult::Miss | TuneCacheResult::Unchecked => {
-                    gathered = cache.is_compiled(key);
-                    cache.mark_pending(key.clone())
+                    start = cache.mark_pending(key.clone());
                 }
             }
             // Scope the guard: the rest of this function re-locks `self.cache` (fast
@@ -317,15 +320,10 @@ impl<K: AutotuneKey> Tuner<K> {
         // one that panics leaves the key to that pass rather than pending for good.
         if compiling {
             self.cache.lock().mark_compiled(key.clone());
-            if let Some(counter) = crate::dry_run::counted() {
-                counter.tunes().request(1);
-            }
             self.compile_plan(key, inputs, tunables, &autotunables);
             return TuneCacheResult::Compiled;
         }
-        if !gathered && let Some(counter) = crate::dry_run::counted() {
-            counter.tunes().request(1);
-        }
+        let counter = start.counter();
 
         let results: Vec<AutotuneResult> = autotunables
             .iter()
@@ -395,6 +393,7 @@ impl<K: AutotuneKey> Tuner<K> {
             log_context,
             #[cfg(persistence)]
             recording,
+            counter,
         };
 
         #[cfg(not(target_family = "wasm"))]
@@ -681,6 +680,7 @@ async fn process_request<K: AutotuneKey>(
         bounds,
         #[cfg(persistence)]
         recording,
+        counter,
     } = request;
 
     // Resolved concurrently, and each benchmark timed individually rather than timing the loop:
@@ -751,7 +751,8 @@ async fn process_request<K: AutotuneKey>(
         // In-memory regardless: without it this key re-tunes on every call, and
         // a tune that measured nothing would keep failing the same way.
         cache.lock().cache_insert(key.clone(), fastest_index);
-        if let Some(counter) = crate::dry_run::counted() {
+        // To the dry run the tune was requested in, open or not now.
+        if let Some(counter) = counter {
             counter.tunes().settle(1);
         }
 
