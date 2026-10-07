@@ -108,29 +108,32 @@ impl PoisonWatch {
         queue: &wgpu::Queue,
         submission: Option<wgpu::SubmissionIndex>,
     ) -> Result<(), ServerError> {
-        let mut stalled = Duration::ZERO;
-        loop {
-            self.check()?;
-            let polled = device.poll(wgpu::PollType::Wait {
+        let poll_slice = || {
+            device.poll(wgpu::PollType::Wait {
                 submission_index: submission.clone(),
                 timeout: Some(WAIT_SLICE),
-            });
-            match polled {
-                Ok(_) => return self.check(),
-                Err(wgpu::PollError::Timeout) => {
-                    stalled += WAIT_SLICE;
-                    if stalled >= PROBE_AFTER {
-                        queue.submit(core::iter::empty());
-                        stalled = Duration::ZERO;
-                    }
-                }
-                Err(err) => {
-                    return Err(ServerError::Generic {
-                        reason: format!("wgpu: waiting on the device failed ({err})"),
-                        backtrace: BackTrace::capture(),
-                    });
-                }
+            })
+        };
+
+        self.check()?;
+        let mut polled = poll_slice();
+        let mut stalled = Duration::ZERO;
+        while let Err(wgpu::PollError::Timeout) = polled {
+            self.check()?;
+            stalled += WAIT_SLICE;
+            if stalled >= PROBE_AFTER {
+                queue.submit(core::iter::empty());
+                stalled = Duration::ZERO;
             }
+            polled = poll_slice();
+        }
+
+        match polled {
+            Ok(_) => self.check(),
+            Err(err) => Err(ServerError::Generic {
+                reason: format!("wgpu: waiting on the device failed ({err})"),
+                backtrace: BackTrace::capture(),
+            }),
         }
     }
 
