@@ -1986,6 +1986,8 @@ macro_rules! testgen_cmma {
             test::<tf32, tf32, f32>(16, 8, 8);
             test::<f16, f16, f32>(16, 8, 16);
             test::<bf16, bf16, f32>(16, 8, 16);
+            test::<f16, f16, f32>(16, 8, 8);
+            test::<bf16, bf16, f32>(16, 8, 8);
             test::<e5m2, e5m2, f32>(16, 8, 32);
             test::<e4m3, e4m3, f32>(16, 8, 32);
             test::<e5m2, e4m3, f32>(16, 8, 32);

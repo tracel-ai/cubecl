@@ -133,14 +133,24 @@ pub fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMmaCombin
             k: 32,
         }));
     }
-    // Turing, not Volta: ptxas refuses `.m16n8k8` below sm_75, and sm_70 has
-    // `m8n8k4` alone.
-    //
-    // Warning: this likely does not follow the same layout pattern as those after 80
-    if arch.get_version() >= 75 && arch.get_version() < 80 {
+    // Turing on, not Volta: ptxas refuses `.m16n8k8` below sm_75, and sm_70 has
+    // `m8n8k4` alone. The `k = 8` shape lays its `A` fragment out cell for cell as an `m16n8`
+    // accumulator, so a product's output contracts again without leaving registers: it is kept
+    // beside the `k = 16` one wherever both exist.
+    if arch.get_version() >= 75 {
         result.push(MmaConfig {
             a_type: ElemType::Float(FloatKind::F16),
             b_type: ElemType::Float(FloatKind::F16),
+            cd_type: ElemType::Float(FloatKind::F32),
+            m: 16,
+            n: 8,
+            k: 8,
+        });
+    }
+    if arch.get_version() >= 80 {
+        result.push(MmaConfig {
+            a_type: ElemType::Float(FloatKind::BF16),
+            b_type: ElemType::Float(FloatKind::BF16),
             cd_type: ElemType::Float(FloatKind::F32),
             m: 16,
             n: 8,
@@ -265,5 +275,13 @@ mod tests {
     #[test]
     fn ampere_is_offered_more_than_turing() {
         assert!(shapes(80).len() > shapes(75).len());
+    }
+
+    /// The `k = 8` shape stays offered past Turing: its `A` fragment is an `m16n8`
+    /// accumulator's layout, what a product contracting its own output reads.
+    #[test]
+    fn ampere_keeps_the_half_depth_shape() {
+        assert!(shapes(80).contains(&(16, 8, 8)));
+        assert!(shapes(120).contains(&(16, 8, 8)));
     }
 }
