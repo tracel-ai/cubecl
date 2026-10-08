@@ -1,8 +1,8 @@
 use crate::prelude::*;
 use alloc::vec::Vec;
 use core::time::Duration;
-use cubecl_common::device::Device;
-use cubecl_runtime::runtime::Runtime;
+use cubecl_common::device::{Device, DeviceId};
+use cubecl_runtime::{client::Client, runtime::Runtime};
 use std::sync::{
     Mutex, PoisonError,
     mpsc::{self, RecvTimeoutError},
@@ -14,6 +14,8 @@ static COLLECTIVES: Mutex<()> = Mutex::new(());
 
 /// Devices whose communicators were queued in different orders hang rather than fail.
 const TIME_LIMIT: Duration = Duration::from_secs(60);
+
+const F32: cubecl_ir::ElemType = cubecl_ir::ElemType::Float(cubecl_ir::FloatKind::F32);
 
 pub fn test_all_reduce_sync_collective<R: Runtime>() {
     let _collectives = COLLECTIVES.lock().unwrap_or_else(PoisonError::into_inner);
@@ -33,6 +35,14 @@ pub fn test_all_reduce_beside_transfers<R: Runtime>() {
 pub fn test_all_reduce_first_use_many_parts<R: Runtime>() {
     let _collectives = COLLECTIVES.lock().unwrap_or_else(PoisonError::into_inner);
     finish_within_limit(first_use_many_parts::<R>);
+}
+
+/// Tensor parallel groups over devices 0 and 1 and over 2 and 3, a thread per device, keep their
+/// `all_reduce` calls and the pipeline transfers between the groups in one order, whichever comes
+/// first on a rank, and so does a data parallel `all_reduce` over all four.
+pub fn test_all_reduce_tensor_and_pipeline<R: Runtime>() {
+    let _collectives = COLLECTIVES.lock().unwrap_or_else(PoisonError::into_inner);
+    finish_within_limit(tensor_and_pipeline::<R>);
 }
 
 fn finish_within_limit(test: fn()) {
@@ -166,6 +176,81 @@ fn first_use_many_parts<R: Runtime>() {
     }
 }
 
+fn tensor_and_pipeline<R: Runtime>() {
+    const ROUNDS: usize = 20;
+
+    let device_ids = R::enumerate_devices(0);
+    if device_ids.len() < 4 {
+        return;
+    }
+    let device_ids = device_ids[..4].to_vec();
+    let devices: Vec<R::Device> = device_ids
+        .iter()
+        .map(|id| R::Device::from_id(*id))
+        .collect();
+    if !R::client(&devices[0]).has_device_transport() {
+        return;
+    }
+
+    std::thread::scope(|scope| {
+        for rank in 0..4 {
+            let (devices, device_ids) = (&devices, &device_ids);
+            scope.spawn(move || {
+                let mut client = R::client(&devices[rank]);
+                let next_stage = R::client(&devices[(rank + 2) % 4]);
+                let stage = rank / 2 * 2..rank / 2 * 2 + 2;
+
+                for round in 0..ROUNDS {
+                    let value = |rank: usize| (rank + round) as f32;
+                    let transfer = |client: &mut Client| {
+                        let sent = [(100 * rank + round) as f32; 64];
+                        let input = client.create_from_slice(f32::as_bytes(&sent));
+                        let output = client.to_client(input, &next_stage, F32);
+                        let received = next_stage.read_one_unchecked(output);
+                        assert_eq!(
+                            f32::from_bytes(&received),
+                            sent,
+                            "rank {rank} round {round}"
+                        );
+                    };
+                    // The two ranks of a stage take these in opposite orders, so a rank often
+                    // transfers while its partner's part is already queued.
+                    if (rank + round) % 2 == 0 {
+                        transfer(&mut client);
+                    }
+                    let tensor_parallel: f32 = stage.clone().map(value).sum();
+                    reduce(
+                        &mut client,
+                        &device_ids[stage.clone()],
+                        value(rank),
+                        tensor_parallel,
+                    );
+                    if (rank + round) % 2 == 1 {
+                        transfer(&mut client);
+                    }
+                    let data_parallel: f32 = (0..4).map(value).sum();
+                    reduce(&mut client, device_ids, value(rank), data_parallel);
+                }
+            });
+        }
+    });
+}
+
+/// Reduces `value` from `client`'s device over `group`, and checks it sums to `expected`.
+fn reduce(client: &mut Client, group: &[DeviceId], value: f32, expected: f32) {
+    let handle = client.create_from_slice(f32::as_bytes(&[value; 64]));
+    client.all_reduce(
+        handle.clone(),
+        handle.clone(),
+        F32,
+        group.to_vec(),
+        cubecl_runtime::server::ReduceOperation::Sum,
+    );
+    client.sync_collective();
+    let actual = client.read_one(handle).unwrap();
+    assert_eq!(f32::from_bytes(&actual), [expected; 64]);
+}
+
 fn beside_transfers<R: Runtime>() {
     const ROUNDS: usize = 20;
     const HANDLES: usize = 8;
@@ -265,6 +350,13 @@ macro_rules! testgen_all_reduce {
         #[$crate::runtime_tests::test_log::test]
         fn test_all_reduce_first_use_many_parts() {
             cubecl_core::runtime_tests::all_reduce::test_all_reduce_first_use_many_parts::<
+                TestRuntime,
+            >();
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_all_reduce_tensor_and_pipeline() {
+            cubecl_core::runtime_tests::all_reduce::test_all_reduce_tensor_and_pipeline::<
                 TestRuntime,
             >();
         }
