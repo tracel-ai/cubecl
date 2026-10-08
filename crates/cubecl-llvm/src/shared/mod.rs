@@ -8,6 +8,7 @@ pub(crate) mod buffer_params;
 pub(crate) mod builtin_values;
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub mod builtins;
+pub(crate) mod debug_info;
 pub mod intrinsic;
 pub(crate) mod llvm_module;
 #[cfg(feature = "nvptx")]
@@ -20,7 +21,7 @@ pub mod lowering;
 pub mod math_library;
 pub mod matrix;
 pub mod metadata;
-#[cfg(all(test, any(feature = "amdgpu", feature = "nvptx")))]
+#[cfg(test)]
 pub(crate) mod offline_kernels;
 pub mod plane;
 pub mod plane_reduce;

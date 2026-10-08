@@ -26,10 +26,7 @@ use pliron::{
     context::{AuxDataIndex, Context},
     dict_key,
     identifier::Identifier,
-    irbuild::{
-        inserter::{IRInserter, Inserter},
-        listener::DummyListener,
-    },
+    irbuild::inserter::{IRInserter, Inserter},
     op::Op,
     operation::Operation,
     printable::Printable,
@@ -46,6 +43,7 @@ use crate::{
         ATTR_BUFFER_BINDING, ATTR_KEY_ARG_ATTRS, ATTR_TENSOR_MAP_BINDING, BoolAttr,
         BufferBindingAttr, EntrypointAbiAttr, EntrypointInterface, FuncInterface, IndexAttr,
     },
+    debug::{DebugState, LocationListener},
     dialect::{
         OperationPtrExt,
         branch::{IfOp, ReturnOp, YieldOp},
@@ -54,14 +52,14 @@ use crate::{
     },
     interfaces::{ScalarType, TypedExt},
     read_value,
-    settings::KernelSettings,
+    settings::{DebugInfo, KernelSettings},
     types::{PointerType, RuntimeArrayType, cuda::TensorMapType, scalar::BoolType},
 };
 
 pub type Types = HashMap<TypeId, ElemType>;
 pub type Sizes = HashMap<TypeId, usize>;
 
-pub type OpInserter = IRInserter<DummyListener>;
+pub type OpInserter = IRInserter<LocationListener>;
 
 /// SAFETY: This should be fine for parsing the AST, hopefully. There's just no good way to
 /// have both owned and borrowed contexts in scopes.
@@ -191,7 +189,9 @@ fn ty_key<T: 'static>(ctx: &Context) -> Option<AuxDataIndex> {
 
 pub trait ContextExt {
     fn aux_ty<T: Send + 'static>(&self) -> &T;
+    fn try_aux_ty<T: Send + 'static>(&self) -> Option<&T>;
     fn aux_ty_mut<T: Send + 'static>(&mut self) -> &mut T;
+    fn try_aux_ty_mut<T: Send + 'static>(&mut self) -> Option<&mut T>;
     fn set_aux_ty<T: Send + 'static>(&mut self, value: T);
     fn set_address_type(&mut self, addr: AddressType);
     fn address_type(&self) -> AddressType;
@@ -200,18 +200,25 @@ pub trait ContextExt {
 impl ContextExt for Context {
     #[track_caller]
     fn aux_ty<T: Send + 'static>(&self) -> &T {
-        let key = ty_key::<T>(self)
+        self.try_aux_ty()
             .ok_or_else(|| format!("Key for {} should exist", type_name::<T>()))
-            .unwrap();
-        self.aux_data[key].downcast_ref().unwrap()
+            .unwrap()
+    }
+
+    fn try_aux_ty<T: Send + 'static>(&self) -> Option<&T> {
+        self.aux_data[ty_key::<T>(self)?].downcast_ref()
     }
 
     #[track_caller]
     fn aux_ty_mut<T: Send + 'static>(&mut self) -> &mut T {
-        let key = ty_key::<T>(self)
+        self.try_aux_ty_mut()
             .ok_or_else(|| format!("Key for {} should exist", type_name::<T>()))
-            .unwrap();
-        self.aux_data[key].downcast_mut().unwrap()
+            .unwrap()
+    }
+
+    fn try_aux_ty_mut<T: Send + 'static>(&mut self) -> Option<&mut T> {
+        let key = ty_key::<T>(self)?;
+        self.aux_data[key].downcast_mut()
     }
 
     fn set_aux_ty<T: Send + 'static>(&mut self, value: T) {
@@ -342,6 +349,7 @@ fn new_context(settings: KernelSettings) -> Rc<UnsafeCell<Context>> {
     settings.address_type.register(&mut state);
 
     ctx.set_aux_ty(state);
+    ctx.set_aux_ty(DebugState::new(settings.debug_info != DebugInfo::None));
     Rc::new(UnsafeCell::new(ctx))
 }
 
@@ -413,6 +421,13 @@ impl Scope {
     #[track_caller]
     pub fn state_mut(&self) -> &mut GlobalState {
         self.ctx_mut().aux_ty_mut()
+    }
+
+    /// The source location state, or `None` when this kernel records no locations.
+    pub fn debug_state(&self) -> Option<&mut DebugState> {
+        self.ctx_mut()
+            .try_aux_ty_mut::<DebugState>()
+            .filter(|debug| debug.is_enabled())
     }
 
     fn ident_id(&self) -> usize {

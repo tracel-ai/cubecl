@@ -205,6 +205,8 @@ pub struct MatchArm {
 pub struct Block {
     pub inner: Vec<Statement>,
     pub ret: Option<Box<Expression>>,
+    /// The source span of `ret`, for its debug location.
+    pub ret_span: Option<Span>,
 }
 
 impl Expression {

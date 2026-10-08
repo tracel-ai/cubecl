@@ -105,12 +105,43 @@ own and `chain` elsewhere.
 - `chain`: round where a value is stored or read by anything but arithmetic.
 - `accumulators`: also hold a private f16 variable in f32 where that removes converts.
 
+**Compiler dumps** (`dump_dir`): a directory where each compiled kernel gets a subdirectory with
+its IR after every compiler pass and its final source (C++, SPIR-V, LLVM IR, PTX or assembly).
+Use it to see what the compiler did to a kernel. Unset, nothing is written.
+
+**Debug info** (`debug_info`): the most source-level debug data a kernel may carry. Kernels carry
+line tables when the cargo profile sets `debug` (`dev` does by default), and full debug data when
+`#[cube(debug_symbols)]` is set. This key can only lower that level, for example to measure
+compilation time without debug data.
+
+- `none`: no debug data.
+- `line-tables`: source lines, with each inlined `#[cube]` function as its own frame.
+- `full`: line tables and the embedded source text.
+
+**SPIR-V debug format** (`spirv_debug_format`, Vulkan only): the format of the debug data in a
+SPIR-V kernel. A kernel without debug data ignores it.
+
+- `auto` (default): `non-semantic` when the device supports it, else `op-line`.
+- `op-line`: core `OpLine`. It gives the line of the innermost `#[cube]` function only.
+- `non-semantic`: `NonSemantic.Shader.DebugInfo.100`. Each inlined `#[cube]` function is a
+  separate frame. A device without support gets `op-line`.
+
+**Source cache** (`source_cache`): a directory for the source files of kernels with `full` debug
+data. When CubeCL does not find the source tree of a kernel, it writes the source text into this
+directory, and the debug data points to it (see
+[Profiling Kernels](./profiling.md#source-files)). Unset, nothing is written.
+
+**Pass timing** (`time_passes`): log how long each compiler pass takes, at the `info` level. Use
+it to find where kernel compilation time goes.
+
 **Example:**
 
 ```toml
 [compilation]
 logger = { level = "basic", file = "cubecl.log", append = true }
 f16_evaluation = "chain"
+dump_dir = "target/cubecl-dump"
+time_passes = true
 ```
 
 ### Streaming
@@ -201,6 +232,20 @@ CubeCL supports several environment variables to override configuration at runti
   - `"full"`/`"3"`
 - `CUBECL_CPU_F16_EVAL`: Sets `compilation.f16_evaluation`.
   - `"per-operation"`, `"chain"`, `"accumulators"`
+- `CUBECL_DEBUG_PLIRON`: Sets `compilation.dump_dir` to the given directory.
+- `CUBECL_DEBUG_INFO`: Sets `compilation.debug_info`.
+  - `"none"`, `"line-tables"`, `"full"`
+- `CUBECL_SPIRV_DEBUG_FORMAT`: Sets `compilation.spirv_debug_format`.
+  - `"auto"`, `"op-line"`, `"non-semantic"`
+- `CUBECL_TIME_PASSES`: Sets `compilation.time_passes`.
+  - `"1"`/`"true"`/`"on"`, `"0"`/`"false"`/`"off"`
+- `CUBECL_JIT_SYMBOLS`: The profiler symbol files of the `cpu` runtime (see
+  [Profiling Kernels](./profiling.md)).
+  - `"perf"`, `"perfmap"`, `"jitdump"`
+- `CUBECL_SOURCE_ROOT`: The directory that the relative paths of the kernel source files start
+  from (see [Profiling Kernels](./profiling.md#source-files)). CubeCL searches it first, then the
+  working directory and its parents.
+- `CUBECL_SOURCE_CACHE`: Sets `compilation.source_cache` to the given directory.
 - `CUBECL_ENVIRONMENT`: Sets `environment.name`, the environment to activate.
 - `CUBECL_ENVIRONMENT_RECORDS`: Sets `environment.records.level`, how much the
   environment records of its own build.

@@ -78,11 +78,9 @@ lowering change can be checked on the instructions it produces on a machine with
 cargo test -p cubecl-llvm --features nvptx,amdgpu
 ```
 
-### The `pliron-dump` feature
+### Timing the passes
 
-```bash
-cargo test -p cubecl-cpu --features cubecl-llvm/pliron-dump
-```
+Set `CUBECL_TIME_PASSES=1` to log how long each pass takes, at the `info` level.
 
-The feature is re-exported as `cubecl-cpu/pliron-dump`, `cubecl-hip/pliron-dump`,
-`cubecl-cuda/pliron-dump` and `cubecl/pliron-dump` for crates that depend on those instead.
+The dumps and the timing need no rebuild. The `pliron-dump` feature has no effect and is kept only
+for compatibility.

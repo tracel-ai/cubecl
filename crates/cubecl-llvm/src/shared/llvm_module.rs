@@ -26,7 +26,7 @@ use llvm_sys::{
         LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy,
         LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMDisposeModule, LLVMPrintModuleToString,
     },
-    error::{LLVMDisposeErrorMessage, LLVMGetErrorMessage},
+    error::{LLVMDisposeErrorMessage, LLVMErrorRef, LLVMGetErrorMessage},
     ir_reader::LLVMParseIRInContext2,
     prelude::{LLVMContextRef, LLVMModuleRef},
     target_machine::{LLVMDisposeTargetMachine, LLVMTargetMachineRef},
@@ -76,6 +76,80 @@ impl LlvmModule {
     #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
     pub(crate) fn raw(&self) -> LLVMModuleRef {
         self.module
+    }
+
+    /// Adds the string attribute `key=value` to each function that the module defines.
+    #[cfg(cubecl_frame_pointers)]
+    pub(crate) fn add_function_attribute(&self, key: &str, value: &str) {
+        // SAFETY: the attribute belongs to the context of the module, and both strings are read
+        // for the lengths given.
+        unsafe {
+            self.add_to_defined_functions(llvm_sys::core::LLVMCreateStringAttribute(
+                self.ctx,
+                key.as_ptr().cast(),
+                u32::try_from(key.len()).expect("the attribute key fits in u32"),
+                value.as_ptr().cast(),
+                u32::try_from(value.len()).expect("the attribute value fits in u32"),
+            ));
+        }
+    }
+
+    /// Adds the enum attribute `name(value)` to each function that the module defines.
+    #[cfg(feature = "jitdump")]
+    pub(crate) fn add_function_enum_attribute(&self, name: &str, value: u64) {
+        use llvm_sys::core::{LLVMCreateEnumAttribute, LLVMGetEnumAttributeKindForName};
+
+        // SAFETY: the attribute belongs to the context of the module, and `name` is read for the
+        // length given.
+        unsafe {
+            let kind = LLVMGetEnumAttributeKindForName(name.as_ptr().cast(), name.len());
+            self.add_to_defined_functions(LLVMCreateEnumAttribute(self.ctx, kind, value));
+        }
+    }
+
+    /// Adds `attribute` to each function that the module defines.
+    ///
+    /// # Safety
+    /// `attribute` must belong to the context of the module.
+    #[cfg(any(cubecl_frame_pointers, feature = "jitdump"))]
+    unsafe fn add_to_defined_functions(&self, attribute: llvm_sys::prelude::LLVMAttributeRef) {
+        use llvm_sys::{
+            LLVMAttributeFunctionIndex,
+            core::{
+                LLVMAddAttributeAtIndex, LLVMGetFirstFunction, LLVMGetNextFunction,
+                LLVMIsDeclaration,
+            },
+        };
+
+        // SAFETY: the functions belong to the module, and the caller's contract.
+        unsafe {
+            let mut func = LLVMGetFirstFunction(self.module);
+            while !func.is_null() {
+                if LLVMIsDeclaration(func) == 0 {
+                    LLVMAddAttributeAtIndex(func, LLVMAttributeFunctionIndex, attribute);
+                }
+                func = LLVMGetNextFunction(func);
+            }
+        }
+    }
+
+    /// # Errors
+    /// The message of LLVM's verifier, when the module is not valid.
+    #[cfg(any(test, debug_assertions))]
+    pub(crate) fn verify(&self) -> Result<(), String> {
+        use llvm_sys::analysis::{LLVMVerifierFailureAction, LLVMVerifyModule};
+
+        let mut message = std::ptr::null_mut();
+        // SAFETY: the module is live, and the message is ours to free.
+        unsafe {
+            let failed = LLVMVerifyModule(
+                self.module,
+                LLVMVerifierFailureAction::LLVMReturnStatusAction,
+                &raw mut message,
+            ) != 0;
+            let message = take_message(message);
+            if failed { Err(message) } else { Ok(()) }
+        }
     }
 
     #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
@@ -146,14 +220,14 @@ impl LlvmModule {
             let options = LLVMCreatePassBuilderOptions();
             let error = LLVMRunPasses(self.module, pipeline.as_ptr(), tm, options);
             LLVMDisposePassBuilderOptions(options);
-            if error.is_null() {
-                return Ok(());
-            }
-            let c_msg = LLVMGetErrorMessage(error);
-            let message = CStr::from_ptr(c_msg).to_string_lossy().into_owned();
-            LLVMDisposeErrorMessage(c_msg);
-            Err(message)
+            error_message(error)
         }
+    }
+
+    /// The context and the module, which the caller now owns.
+    pub(crate) fn into_raw(self) -> (LLVMContextRef, LLVMModuleRef) {
+        let this = std::mem::ManuallyDrop::new(self);
+        (this.ctx, this.module)
     }
 
     pub(crate) fn print(&self) -> String {
@@ -484,6 +558,20 @@ impl Drop for TargetMachine {
     fn drop(&mut self) {
         // SAFETY: the target machine is owned by `self`.
         unsafe { LLVMDisposeTargetMachine(self.0) }
+    }
+}
+
+/// `Ok` for a null `error`, else its message. The error is consumed.
+pub(crate) fn error_message(error: LLVMErrorRef) -> Result<(), String> {
+    if error.is_null() {
+        return Ok(());
+    }
+    // SAFETY: a non-null error is live and ours to consume, and so is its message.
+    unsafe {
+        let c_msg = LLVMGetErrorMessage(error);
+        let message = CStr::from_ptr(c_msg).to_string_lossy().into_owned();
+        LLVMDisposeErrorMessage(c_msg);
+        Err(message)
     }
 }
 

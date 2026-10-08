@@ -2,11 +2,12 @@ use std::collections::HashMap;
 
 use darling::usage::{CollectLifetimes as _, CollectTypeParams as _, GenericsExt as _, Purpose};
 use inflections::case::to_snake_case;
-use proc_macro2::TokenStream;
+use proc_macro2::{Literal, TokenStream};
 use quote::{ToTokens, format_ident, quote, quote_spanned};
 use syn::{Ident, TypeParamBound, parse_quote};
 
 use crate::{
+    generate::statement::name_debug_var,
     parse::{
         kernel::{
             DefinedGeneric, ExecutionMode, KernelBody, KernelFn, Launch, anon_lifetime_to_static,
@@ -28,6 +29,17 @@ impl ToTokens for ExecutionMode {
 }
 
 impl KernelFn {
+    /// The file name of the function's source, for `include_str!`.
+    fn source_file(&self) -> Option<String> {
+        let src_file = self.args.src_file.as_ref().map(syn::LitStr::value);
+        src_file.or_else(|| {
+            let span: proc_macro::Span = self.span.unwrap();
+            let source_path = span.local_file();
+            let source_file = source_path.as_ref().and_then(|path| path.file_name());
+            source_file.map(|file| file.to_string_lossy().into())
+        })
+    }
+
     pub fn to_tokens_mut(&mut self) -> TokenStream {
         let attrs = &self.attrs;
         let vis = &self.vis;
@@ -44,32 +56,36 @@ impl KernelFn {
         };
         let name = &self.full_name;
 
-        let cfg_debug = cfg!(debug_symbols) && !self.args.no_debug_symbols.is_present();
-        let (debug_source, debug_params) = if cfg_debug || self.args.debug_symbols.is_present() {
+        let (debug_source, debug_params) = if self.context.debug_symbols {
             let debug_source = frontend_type("debug_source_expand");
-            let cube_debug = frontend_type("CubeDebug");
-            let src_file = self.args.src_file.as_ref().map(|file| file.value());
-            let src_file = src_file.or_else(|| {
-                let span: proc_macro::Span = self.span.unwrap();
-                let source_path = span.local_file();
-                let source_file = source_path.as_ref().and_then(|path| path.file_name());
-                source_file.map(|file| file.to_string_lossy().into())
-            });
-            let source_text = match src_file {
-                Some(file) => quote![include_str!(#file)],
-                None => quote![""],
+            // Only full debug data embeds the source, so other builds don't carry every file.
+            let full = self.args.forces_full_debug_info();
+            let source_text = if let Some(file) = full.then(|| self.source_file()).flatten() {
+                quote![include_str!(#file)]
+            } else {
+                quote![""]
             };
 
+            // The file, line and column of the span, as for the expressions in the body. In a
+            // `macro_rules!` body, `file!()` and `line!()` give the invocation site instead.
+            let position = if proc_macro::is_available() {
+                let span = self.span.unwrap();
+                let (file, line, column) = (span.file(), span.line(), span.column());
+                let (line, column) = (
+                    Literal::usize_unsuffixed(line),
+                    Literal::usize_unsuffixed(column),
+                );
+                quote![#file, #source_text, #line, #column]
+            } else {
+                quote_spanned! {self.span=> file!(), #source_text, line!(), column!()}
+            };
             let debug_source = quote_spanned! {self.span=>
-                #debug_source(scope, #name, file!(), #source_text, line!(), column!())
+                let __cube_frame = #debug_source(scope, #name, #position);
             };
             let debug_params = sig
                 .runtime_params()
                 .map(|it| &it.name)
-                .map(|name| {
-                    let name_str = name.to_string();
-                    quote! [#cube_debug::set_debug_name(&#name, scope, #name_str);]
-                })
+                .map(|name| name_debug_var(&name.to_string(), &quote![#name]))
                 .collect();
             (debug_source, debug_params)
         } else {
@@ -94,7 +110,7 @@ impl KernelFn {
             #[allow(unused_mut)]
             #(#attrs)*
             #vis #sig {
-                #debug_source;
+                #debug_source
                 #(#debug_params)*
                 #imports;
                 #registers
@@ -414,8 +430,7 @@ impl Launch {
 
             let kernel_source_name = self.kernel_entrypoint_name();
             let mut settings = quote![settings.kernel_name(#kernel_source_name)];
-            let cfg_debug = cfg!(debug_symbols) && !self.args.no_debug_symbols.is_present();
-            if cfg_debug || self.args.debug_symbols.is_present() {
+            if self.args.forces_full_debug_info() {
                 settings.extend(quote![.debug_symbols()]);
             }
             if let Some(cluster_dim) = &self.args.cluster_dim {
@@ -464,6 +479,7 @@ impl Launch {
                             .address_type(address_type)
                             .cube_dim(self.settings.cube_dim.clone())
                             .mode(self.settings.execution_mode)
+                            .debug_info(self.settings.debug_info)
                             .info(#info_ty_name #info_generics {
                                 #(#info_names: self.#info_names.clone(),)*
                                 #phantom_data_init
@@ -505,8 +521,7 @@ impl Launch {
 
         let kernel_source_name = self.kernel_entrypoint_name();
         let mut settings = quote![settings.kernel_name(#kernel_source_name)];
-        let cfg_debug = cfg!(debug_symbols) && !self.args.no_debug_symbols.is_present();
-        if cfg_debug || self.args.debug_symbols.is_present() {
+        if self.args.forces_full_debug_info() {
             settings.extend(quote![.debug_symbols()]);
         }
         if let Some(cluster_dim) = &self.args.cluster_dim {

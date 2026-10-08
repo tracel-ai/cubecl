@@ -21,13 +21,14 @@ use cubecl_runtime::kernel::BufferIOAttr;
 use super::ComputeKernel;
 use core::marker::PhantomData;
 use cubecl_core::{
+    codegen::KernelDump,
     ir::{
         AddressType, ContextExt, DeviceProperties, ElemType, FloatKind, IntKind, Type, UIntKind,
         features::{AtomicUsage, EnumSet, TypeUsage},
         interfaces::TypedExt,
         metadata::Info,
-        rewrite::{SimplifyOpsPass, visit_all_values},
-        settings::Dim3,
+        rewrite::{InheritLocationPass, SimplifyOpsPass, visit_all_values},
+        settings::{DebugInfo, Dim3},
         types::scalar::{Complex32Type, Complex64Type},
     },
     post_processing::{
@@ -54,7 +55,7 @@ use pliron::{
     op::Op,
     operation::verify_operation,
     opts::{dce::DCEPass, mem2reg::Mem2RegPass},
-    pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
+    pass::{AnalysisManager, NestedOpsPass, OpPass, Pass, Passes},
 };
 use std::fmt::Debug;
 
@@ -185,6 +186,12 @@ where
             info: kernel.info,
         };
 
+        let line_directives = kernel.settings.debug_info != DebugInfo::None;
+        if line_directives {
+            ctx.set_aux_ty(super::branch::LineDirectives {
+                directory: source_directory(&ctx, kernel.settings.debug_info),
+            });
+        }
         ctx.set_aux_ty(compilation_options);
         ctx.set_aux_ty(state);
         ctx.set_aux_ty(T::target());
@@ -219,18 +226,9 @@ where
                 .insert_before(&ctx, entry_func.get_operation());
         }
 
-        #[cfg(feature = "pliron-dump")]
-        let dump_dir = kernel_dir_name(&kernel.settings.kernel_name);
-
-        let config = PMConfig {
-            #[cfg(feature = "pliron-dump")]
-            ir_printing_dir: dump_dir.clone(),
-            print_after_all: cfg!(feature = "pliron-dump"),
-            ..Default::default()
-        };
-
+        let dump = KernelDump::new(&kernel.settings.kernel_name);
         let mut analyses = AnalysisManager::default();
-        analyses.set_config(config);
+        analyses.set_config(dump.pass_config());
 
         let mut passes = OpPass::<ModuleOp, Passes>::default();
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
@@ -308,6 +306,11 @@ where
         passes.add_pass(AnnotateGlobalVisibilityPass);
         passes.add_pass(DeclareVectorTypesPass);
         passes.add_pass(CollectIncludesPass::<T>::default());
+        // Some passes insert ops without a location. They get the location of the op before them,
+        // so each line of the source has a `#line`.
+        if line_directives {
+            passes.add_pass(InheritLocationPass);
+        }
 
         passes.run(module_op, &mut ctx, &mut analyses)?;
 
@@ -354,22 +357,29 @@ where
             source,
         };
 
-        #[cfg(feature = "pliron-dump")]
-        dump_cpp(&compute_kernel, dump_dir);
+        dump.write("module.cpp", || {
+            let source = compute_kernel.to_string();
+            crate::formatter::format_cpp(&source).unwrap_or(source)
+        });
 
         Ok(compute_kernel)
     }
 }
 
-#[cfg(feature = "pliron-dump")]
-fn dump_cpp(kernel: &ComputeKernel, dir: Option<std::path::PathBuf>) {
-    let Some(dir) = dir else {
-        return;
-    };
+/// The directory that has the relative source files of the kernel in `ctx` on this computer, if
+/// one does. At [`DebugInfo::Full`], the file must have the compiled text.
+#[cfg(feature = "std")]
+fn source_directory(ctx: &Context, level: DebugInfo) -> Option<std::path::PathBuf> {
+    use cubecl_core::ir::debug::DebugState;
+    use cubecl_runtime::debug_source::{kernel_source_root, source_md5s};
+    let debug = ctx.try_aux_ty::<DebugState>()?;
+    kernel_source_root(debug, &source_md5s(debug, level)).map(Into::into)
+}
 
-    let source = kernel.to_string();
-    let source = crate::formatter::format_cpp(&source).unwrap_or(source);
-    std::fs::write(dir.join("module.cpp"), source).unwrap();
+/// Without `std`, the search cannot read the files, and the directives keep the relative paths.
+#[cfg(not(feature = "std"))]
+fn source_directory(_ctx: &Context, _level: DebugInfo) -> Option<pliron::std_deps::path::PathBuf> {
+    None
 }
 
 pub fn register_supported_types(props: &mut DeviceProperties) {
@@ -421,23 +431,5 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
             _ => AtomicUsage::Add | AtomicUsage::LoadStore | AtomicUsage::Exchange,
         };
         props.register_atomic_type_usage(Type::atomic(ty), usage);
-    }
-}
-
-#[cfg(feature = "pliron-dump")]
-pub fn kernel_dir_name(name: &str) -> Option<std::path::PathBuf> {
-    if let Ok(dir) = std::env::var("CUBECL_DEBUG_PLIRON") {
-        let path = sanitize_filename::sanitize_with_options(
-            name,
-            sanitize_filename::Options {
-                replacement: "_",
-                ..Default::default()
-            },
-        );
-        let dir = std::path::PathBuf::from(dir).join(&path);
-        std::fs::create_dir_all(&dir).unwrap();
-        Some(dir)
-    } else {
-        None
     }
 }

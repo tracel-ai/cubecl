@@ -28,7 +28,6 @@ std = [
     "cubecl-core/std",
     "cubecl-runtime/std",
     "pliron/std",
-    "dep:sanitize-filename",
 ]
 
 tracing = [
@@ -51,9 +50,9 @@ cubecl-runtime = { workspace = true, features = [
 ] }
 half = { workspace = true }
 itertools = { workspace = true }
+log = { workspace = true }
 paste = { workspace = true }
 pliron = { workspace = true }
-sanitize-filename = { workspace = true, optional = true }
 serde = { workspace = true }
 
 hashbrown = { workspace = true }
@@ -63,3 +62,8 @@ rspirv = { workspace = true, features = ["serialize", "deserialize"] }
 
 # Optimizer
 cubecl-opt = { workspace = true, default-features = true }
+
+[dev-dependencies]
+cubecl-core = { workspace = true, default-features = true, features = [
+    "export_tests",
+] }

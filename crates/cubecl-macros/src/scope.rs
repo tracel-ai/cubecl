@@ -54,6 +54,11 @@ pub struct Context {
     mut_scope_idx: usize,
     pub debug_symbols: bool,
     pub is_intrinsic: bool,
+    /// The debug position (line and column) that the generated code has set at this point, in the
+    /// order it runs. `None` when it is not known, for example after a branch or a closure.
+    pub debug_pos: Option<(usize, usize)>,
+    /// The number of debug positions the generated code sets so far.
+    pub debug_pos_count: usize,
 }
 
 impl Context {
@@ -79,6 +84,8 @@ impl Context {
             mut_scope_idx: 0,
             debug_symbols,
             is_intrinsic,
+            debug_pos: None,
+            debug_pos_count: 0,
         }
     }
 

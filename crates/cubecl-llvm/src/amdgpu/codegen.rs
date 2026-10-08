@@ -11,17 +11,24 @@ use crate::{
     shared::{
         AmdGpuModule,
         buffer_params::{AtomicReads, annotate_buffer_params},
+        debug_info::{check_debug_info, convert_module},
         llvm_module::{EntryFunction, LlvmModule, TargetMachine, TargetSpec},
         math_library::redirect_intrinsics,
     },
 };
-use cubecl_core::ir::{amd::GfxArch, settings::Dim3};
+use cubecl_core::{
+    codegen::KernelDump,
+    ir::{
+        amd::GfxArch,
+        settings::{DebugInfo, Dim3},
+    },
+};
 use cubecl_environment::bytes::Bytes;
 use llvm_sys::{
     LLVMAtomicRMWBinOp,
     target_machine::{LLVMCodeGenFileType, LLVMRelocMode},
 };
-use pliron_llvm::{attributes::set_data_layout, llvm_sys::core::LLVMContext, to_llvm_ir};
+use pliron_llvm::{attributes::set_data_layout, llvm_sys::core::LLVMContext};
 use std::{
     ffi::{CStr, CString},
     sync::Once,
@@ -78,24 +85,24 @@ pub fn emit_code_object(
     entrypoint: &str,
     arch: &GfxArch,
     entry: AmdGpuEntry,
+    debug_info: DebugInfo,
 ) -> Result<AmdGpuModule, String> {
     let llvm_ctx = LLVMContext::default();
 
     set_data_layout(ctx, module, DATA_LAYOUT.to_string());
     let converted =
-        to_llvm_ir::convert_module(ctx, &llvm_ctx, module).map_err(|err| err.to_string())?;
+        convert_module(ctx, &llvm_ctx, module, debug_info, true).map_err(|err| err.to_string())?;
 
     let module = LlvmModule::new(&converted.to_string())?;
+    check_debug_info(&module, entrypoint, debug_info);
     finalize(&module, entrypoint, arch, &entry)?;
     let ir = module.print();
-    let (object, asm) = compile(module, arch, Assembly::wanted())?;
+    let dump = KernelDump::new(entrypoint);
+    let (object, asm) = compile(module, arch, Assembly::wanted(&dump))?;
 
-    #[cfg(feature = "pliron-dump")]
-    if let Some(dir) = crate::cpu::jit::engine::ir_dump_path(entrypoint) {
-        let _ = std::fs::write(dir.join("amdgpu.ll"), &ir);
-        if let Some(asm) = &asm {
-            let _ = std::fs::write(dir.join("amdgpu.s"), asm);
-        }
+    dump.write("amdgpu.ll", || &ir);
+    if let Some(asm) = &asm {
+        dump.write("amdgpu.s", || asm);
     }
 
     let code_object = Bytes::from_bytes_vec(link_relocatable(&object, entrypoint)?);
@@ -118,9 +125,9 @@ pub(crate) enum Assembly {
 }
 
 impl Assembly {
-    /// `Keep` when `CUBECL_DEBUG_PLIRON` asks for the dumps.
-    fn wanted() -> Self {
-        if std::env::var_os("CUBECL_DEBUG_PLIRON").is_some() {
+    /// `Keep` when the kernel is dumped.
+    fn wanted(dump: &KernelDump) -> Self {
+        if dump.is_enabled() {
             Assembly::Keep
         } else {
             Assembly::Skip
@@ -140,7 +147,10 @@ fn finalize(
     entry: &AmdGpuEntry,
 ) -> Result<(), String> {
     let cube_dim = entry.cube_dim;
-    let flat_work_group_size = format!("1,{}", cube_dim.num_elems());
+    // `reqd_work_group_size` fixes the size, and LLVM's verifier requires the flat range to be
+    // exactly its product.
+    let units = cube_dim.num_elems();
+    let flat_work_group_size = format!("{units},{units}");
     let mut attributes = vec![
         ("target-cpu", arch.name()),
         ("amdgpu-flat-work-group-size", &flat_work_group_size),
@@ -306,6 +316,11 @@ entry:
         );
         assert!(
             finalized.contains("amdhsa_code_object_version"),
+            "{finalized}"
+        );
+        // `reqd_work_group_size` fixes the size, so the flat range is exactly its product.
+        assert!(
+            finalized.contains(r#""amdgpu-flat-work-group-size"="64,64""#),
             "{finalized}"
         );
     }

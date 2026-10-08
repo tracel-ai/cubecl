@@ -27,6 +27,7 @@ pub mod launch;
 pub mod metadata;
 pub mod minifloat;
 pub mod numeric;
+pub mod offline;
 pub mod out_of_memory;
 pub mod plane;
 pub mod profiling;

@@ -14,7 +14,7 @@ use cubecl_ir::{
     types::PointerType,
 };
 use half::{bf16, f16};
-use pliron::{builtin::given_names::set_operation_result_name, r#type::TypeHandle};
+use pliron::r#type::TypeHandle;
 use variadics_please::{all_tuples, all_tuples_enumerated};
 
 /// Types used in a cube function must implement this trait
@@ -815,8 +815,7 @@ impl<T: NativeAssign + NativeCubeType + CanReadValue> IntoMut for NativeExpand<T
 
 impl<T: ?Sized> CubeDebug for NativeExpand<T> {
     fn set_debug_name(&self, scope: &Scope, name: &'static str) {
-        let op = self.value(scope).defining_op().unwrap();
-        set_operation_result_name(scope.ctx(), op, 0, Some(ident(name)));
+        self.value(scope).set_name(scope.ctx(), Some(ident(name)));
     }
 }
 

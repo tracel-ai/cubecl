@@ -7,6 +7,7 @@ use cubecl_server::kernel::BufferIOAttr;
 
 use cubecl_core::{
     WgpuCompilationOptions,
+    codegen::KernelDump,
     post_processing::{
         checked_io::{CheckedIo, CheckedIoPass},
         minifloat::{
@@ -25,8 +26,9 @@ use cubecl_ir::{
         builtin::ops::{FuncOp, ModuleOp},
         operation::verify_operation,
         opts::{dce::DCEPass, mem2reg::Mem2RegPass},
+        printable::Printable,
     },
-    prelude::{AnalysisManager, NestedOpsPass, Op, OpPass, PMConfig, Pass, Passes},
+    prelude::{AnalysisManager, NestedOpsPass, Op, OpPass, Pass, Passes},
     rewrite::SimplifyOpsPass,
     settings::Dim3,
 };
@@ -101,8 +103,7 @@ impl WgslCompiler {
             });
         }
 
-        #[cfg(feature = "pliron-dump")]
-        let ir_printing_dir = kernel_dir_name(&value.settings.kernel_name);
+        let dump = KernelDump::new(&value.settings.kernel_name);
 
         let module = value.body.state().module;
         let entry_func = value.body.state().entry_func;
@@ -114,25 +115,13 @@ impl WgslCompiler {
         });
         ctx.set_aux_ty(*compilation_options);
 
-        #[cfg(feature = "pliron-dump")]
-        if let Some(print_dir) = &ir_printing_dir {
-            use pliron::printable::Printable;
-            let str = std::format!("{}", module_op.disp(&ctx));
-            std::fs::write(print_dir.join("initial.plir"), &str).unwrap();
-        }
+        dump.write("initial.plir", || module_op.disp(&ctx).to_string());
 
         verify_operation(module_op, &ctx)?;
         types::check_fp8_lanes(&ctx, module_op)?;
 
-        let config = PMConfig {
-            #[cfg(feature = "pliron-dump")]
-            ir_printing_dir,
-            print_after_all: cfg!(feature = "pliron-dump"),
-            ..Default::default()
-        };
-
         let mut analyses = AnalysisManager::default();
-        analyses.set_config(config);
+        analyses.set_config(dump.pass_config());
 
         let mut passes = OpPass::<ModuleOp, Passes>::default();
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
@@ -195,23 +184,5 @@ impl WgslCompiler {
             shared_memory_size,
             ctx,
         })
-    }
-}
-
-#[cfg(feature = "pliron-dump")]
-pub fn kernel_dir_name(name: &str) -> Option<std::path::PathBuf> {
-    if let Ok(dir) = std::env::var("CUBECL_DEBUG_PLIRON") {
-        let path = sanitize_filename::sanitize_with_options(
-            name,
-            sanitize_filename::Options {
-                replacement: "_",
-                ..Default::default()
-            },
-        );
-        let dir = std::path::PathBuf::from(dir).join(&path);
-        std::fs::create_dir_all(&dir).unwrap();
-        Some(dir)
-    } else {
-        None
     }
 }

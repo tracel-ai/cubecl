@@ -209,10 +209,12 @@ pub fn numeric_match(mat: ExprMatch, context: &mut Context) -> Option<Expression
         match expr {
             Expr::Block(block) => Block::from_block(block.block, context).ok(),
             expr => {
+                let ret_span = Some(expr.span());
                 let expr = Expression::from_expr(expr, context).ok()?;
                 Some(Block {
                     ret: Some(Box::new(expr)),
                     inner: vec![],
+                    ret_span,
                 })
             }
         }
@@ -260,21 +262,22 @@ impl Block {
             .map(|stmt| Statement::from_stmt(stmt, context))
             .collect::<Result<Vec<_>, _>>()?;
         // Pop implicit return if it exists so we can assign it as the block output
-        let ret = match statements.pop() {
+        let (ret, ret_span) = match statements.pop() {
             Some(Statement::Expression {
                 expression,
                 terminated: false,
-                ..
-            }) => Some(expression),
+                span,
+            }) => (Some(expression), span),
             Some(stmt) => {
                 statements.push(stmt);
-                None
+                (None, None)
             }
-            _ => None,
+            _ => (None, None),
         };
         Ok(Self {
             inner: statements,
             ret,
+            ret_span,
         })
     }
 }

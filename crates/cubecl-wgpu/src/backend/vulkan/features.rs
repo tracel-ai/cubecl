@@ -35,6 +35,9 @@ pub struct ExtendedFeatures<'a> {
     pub maintenance_8: Option<PhysicalDeviceMaintenance8FeaturesKHR<'a>>,
     pub maintenance_9: Option<PhysicalDeviceMaintenance9FeaturesKHR<'a>>,
     pub long_vector: Option<PhysicalDeviceShaderLongVectorFeaturesEXT<'a>>,
+    /// `VK_KHR_shader_non_semantic_info` has no feature struct. `Some` when the device accepts
+    /// non-semantic instructions.
+    pub non_semantic_info: Option<()>,
 
     // Nvidia
     pub nv_atomic_float_vector: Option<PhysicalDeviceShaderAtomicFloat16VectorFeaturesNV<'a>>,
@@ -122,6 +125,14 @@ impl<'a> ExtendedFeatures<'a> {
             KHR_SHADER_SUBGROUP_EXTENDED_TYPES_NAME; API_VERSION_1_2 => subgroup_extended,
             KHR_UNIFORM_BUFFER_STANDARD_LAYOUT_NAME; API_VERSION_1_2 => uniform_standard_layout,
             KHR_SHADER_INTEGER_DOT_PRODUCT_NAME; API_VERSION_1_3 => shader_integer_dot_product,
+        );
+
+        // Debug data in a kernel needs it. Enabling it costs nothing: it only lets the driver accept
+        // `NonSemantic` instructions.
+        fill_core!(
+            self,
+            phys_caps,
+            KHR_SHADER_NON_SEMANTIC_INFO_NAME; API_VERSION_1_3 => non_semantic_info,
         );
 
         fill_opt!(self,
