@@ -34,8 +34,8 @@ const SAMPLE_PATIENCE: usize = 12;
 const TARGET_DURATION: Duration = Duration::from_millis(20);
 
 /// The most iterations one launch of a probe carries: far below `u32::MAX`,
-/// since a probe's kernel takes the count as an address-sized scalar, which a
-/// launch over small buffers registers as 32 bits.
+/// since a probe's kernel takes the count as a `usize`, which its default
+/// 32-bit address type registers as a u32.
 const MAX_ITERATIONS: usize = 1 << 24;
 
 /// Samples a ranking pass keeps the fastest of. A count and not a wall clock:
