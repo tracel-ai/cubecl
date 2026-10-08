@@ -403,6 +403,8 @@ fn the_fastest_tunable_hands_back_its_identity() {
 #[cfg(feature = "std")]
 #[serial_test::serial]
 fn a_tune_on_a_lost_device_settles_nothing() {
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+
     static TUNER: LocalTuner<String, String> =
         local_tuner!("a_tune_on_a_lost_device_settles_nothing");
     #[cfg(persistence)]
@@ -416,12 +418,22 @@ fn a_tune_on_a_lost_device_settles_nothing() {
     let (handles, key) = addition_inputs(&client, &set);
     let out = handles[2].clone();
 
+    // Counted under `Execute`, which runs every launch as it would without.
+    let collector = StatisticsCollector::new();
+    let counted = ProcessModeOverride::new(ProcessMode::Execute, &collector);
     POISONED.store(true, Ordering::Relaxed);
     TUNER.execute(&id, &client, set.clone(), handles);
     POISONED.store(false, Ordering::Relaxed);
+    core::mem::drop(counted);
 
     assert_eq!(TUNER.fastest_identity(&id, &set, &key), None);
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
+    let autotune = collector.statistics().autotune;
+    assert_eq!(
+        (autotune.registered, autotune.abandoned),
+        (1, 1),
+        "the stopped tune is abandoned, not left registered"
+    );
 }
 
 /// A result belongs to the environment it was tuned under, and one only on disk has no fastest
@@ -1691,10 +1703,14 @@ fn a_key_reached_inside_another_registers_only_once_tuned() {
         OUTER.execute(&"outer".to_string(), &client, outer_set, handles());
         core::mem::drop(tune);
     }
-    // The inner key registers only if measuring the outer one reached it.
-    let inner_tuned = inner_calls.load(Ordering::Relaxed) > gathered_calls;
+    // Measuring the outer key runs every candidate, the one reaching the
+    // inner key included: the inner key registers as it is measured.
+    assert!(
+        inner_calls.load(Ordering::Relaxed) > gathered_calls,
+        "measuring the outer key reached the inner one"
+    );
     let tuned = collector.statistics().autotune;
-    assert_eq!(tuned.registered, 1 + usize::from(inner_tuned));
+    assert_eq!(tuned.registered, 2);
     assert_eq!(
         (tuned.measured, tuned.failed),
         (tuned.registered, 0),
