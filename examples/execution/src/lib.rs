@@ -1,6 +1,8 @@
 //! What the process does with the work it is asked to run, shown on a small
-//! autotuned workload: a vector scaled by two factors at three sizes, each
-//! launch picking between a scalar and a vectorized kernel by measuring them.
+//! autotuned workload: a vector scaled by six factors at three sizes, each
+//! launch picking among twelve kernels — three vector sizes by four amounts
+//! of work per unit — by measuring them. Seventy-two kernels in all, which a
+//! build compiles together, on every core.
 //!
 //! - **A direct run**, for comparison: the workload executes from a cold
 //!   start, compiling and tuning as it reaches each kernel and key, then once
@@ -38,23 +40,34 @@ use cubecl::{
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-/// Every element of `input` times `factor`, into `output`.
+/// Every element of `input` times `factor`, into `output`, each unit
+/// scaling `vectors_per_unit` vectors in a row.
 #[cube(launch_unchecked)]
 fn scale<F: Float, N: Size>(
     input: &[Vector<F, N>],
     output: &mut [Vector<F, N>],
     #[comptime] factor: u32,
+    #[comptime] vectors_per_unit: usize,
 ) {
-    if ABSOLUTE_POS < input.len() {
-        output[ABSOLUTE_POS] = input[ABSOLUTE_POS] * Vector::new(F::new(comptime!(factor as f32)));
+    let first = ABSOLUTE_POS * vectors_per_unit;
+    #[unroll]
+    for offset in 0..vectors_per_unit {
+        let index = first + offset;
+        if index < input.len() {
+            output[index] = input[index] * Vector::new(F::new(comptime!(factor as f32)));
+        }
     }
 }
 
 /// The direct run's factors: each is a kernel of its own, since it is known
 /// at compile time.
-const DIRECT_FACTORS: [u32; 2] = [2, 3];
+const DIRECT_FACTORS: [u32; 6] = [2, 3, 4, 5, 6, 7];
 /// The build's factors: as many as the direct run's, and none of them.
-const BUILD_FACTORS: [u32; 2] = [5, 7];
+const BUILD_FACTORS: [u32; 6] = [8, 9, 10, 11, 12, 13];
+/// The vector sizes autotune picks among.
+const VECTOR_SIZES: [usize; 3] = [1, 2, 4];
+/// The amounts of work per unit autotune picks among, in vectors.
+const VECTORS_PER_UNIT: [usize; 4] = [1, 2, 4, 8];
 /// The workload's sizes: each is an autotune key of its own.
 const LENGTHS: [usize; 3] = [1 << 12, 1 << 16, 1 << 20];
 /// How many elements one unit scales per launch row.
@@ -83,19 +96,41 @@ pub fn run(device: &Device) {
 
     cubecl::environment::activate("build");
     let build = StatisticsCollector::new();
-    let mut passes = Vec::new();
-    let built = watching(build.reader(), || {
-        for mode in [ProcessMode::CompileOnly, ProcessMode::CompileAndAutotune] {
-            let pass = ProcessModeOverride::new(mode, &build);
-            // Drained under the override, which `timed` does: a launch
-            // issued after it closes runs for real.
-            passes.push((mode, timed(&client, || workload(&client, BUILD_FACTORS))));
-            core::mem::drop(pass);
-        }
+    let mut gathering = Duration::ZERO;
+    let mut tuning_started = Instant::now();
+    let mut tuning = Duration::ZERO;
+    let watched = watching(build.reader(), || {
+        // Drained under each override, which `timed` does: a launch issued
+        // after it closes runs for real.
+        let gather = ProcessModeOverride::new(ProcessMode::CompileOnly, &build);
+        gathering = timed(&client, || workload(&client, BUILD_FACTORS));
+        core::mem::drop(gather);
+
+        let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &build);
+        tuning_started = Instant::now();
+        tuning = timed(&client, || workload(&client, BUILD_FACTORS));
+        core::mem::drop(tune);
     });
-    for (mode, took) in &passes {
-        println!("{mode:?} pass: {}", Millis(*took));
-    }
+    let built = watched.statistics;
+    println!(
+        "CompileOnly pass: {}, gathering {} kernels and {} tunes",
+        Millis(gathering),
+        built.compilation.registered,
+        built.autotune.registered
+    );
+    // The gathered kernels compile in one batch, at the pass's first launch;
+    // the tunes measure once they have.
+    let compiling = watched.compiled_at.map_or(Duration::ZERO, |at| {
+        at.saturating_duration_since(tuning_started)
+    });
+    println!(
+        "CompileAndAutotune pass: {}: compiling {} kernels together in {}, then measuring {} tunes in {}",
+        Millis(tuning),
+        built.compilation.settled(),
+        Millis(compiling),
+        built.autotune.settled(),
+        Millis(tuning.saturating_sub(compiling))
+    );
     println!("Built: {}", Summary(built));
 
     let warm = StatisticsCollector::new();
@@ -107,7 +142,7 @@ pub fn run(device: &Device) {
         Millis(executed),
         Summary(warm.statistics())
     );
-    let building: Duration = passes.iter().map(|(_, took)| *took).sum();
+    let building = gathering + tuning;
     println!(
         "Build and run: {}, against {} run directly",
         Millis(building + executed),
@@ -127,7 +162,7 @@ fn timed(client: &Client, work: impl FnOnce()) -> Duration {
 }
 
 /// The workload: every factor at every length, each launch autotuned.
-fn workload(client: &Client, factors: [u32; 2]) {
+fn workload(client: &Client, factors: [u32; 6]) {
     for factor in factors {
         let tuned = format!("scale-x{factor}");
         let set = TUNER.init(&tuned, {
@@ -142,11 +177,10 @@ fn workload(client: &Client, factors: [u32; 2]) {
     }
 }
 
-/// The candidates autotune picks between for one `factor`: one element per
-/// unit, or four.
+/// The candidates autotune picks among for one `factor`: every vector size
+/// at every amount of work per unit.
 fn scale_candidates(client: &Client, factor: u32) -> TunableSet<String, Vec<Handle>, ()> {
-    let (scalar, vectorized) = (client.clone(), client.clone());
-    TunableSet::new(
+    let mut set = TunableSet::new(
         move |inputs: &Vec<Handle>| {
             format!(
                 "scale-x{factor}-{}",
@@ -154,58 +188,91 @@ fn scale_candidates(client: &Client, factor: u32) -> TunableSet<String, Vec<Hand
             )
         },
         CloneInputGenerator,
-    )
-    .with(Tunable::new("scalar", move |inputs: Vec<Handle>| {
-        launch_scale(&scalar, &inputs, VectorSize(1), factor);
-        Ok::<(), String>(())
-    }))
-    .with(Tunable::new("vectorized", move |inputs: Vec<Handle>| {
-        launch_scale(&vectorized, &inputs, VectorSize(4), factor);
-        Ok::<(), String>(())
-    }))
+    );
+    for vector_size in VECTOR_SIZES {
+        for vectors_per_unit in VECTORS_PER_UNIT {
+            let shape = ScaleShape {
+                vector_size,
+                vectors_per_unit,
+            };
+            let client = client.clone();
+            let name = format!("vector-{vector_size}-per-unit-{vectors_per_unit}");
+            set = set.with(Tunable::new(&name, move |inputs: Vec<Handle>| {
+                launch_scale(&client, &inputs, shape, factor);
+                Ok::<(), String>(())
+            }));
+        }
+    }
+    set
 }
 
-/// How many elements a [`scale`] unit reads at once.
+/// How a [`scale`] launch splits its work: how many elements a unit reads at
+/// once, and how many such vectors it scales.
 #[derive(Clone, Copy)]
-struct VectorSize(usize);
+struct ScaleShape {
+    vector_size: usize,
+    vectors_per_unit: usize,
+}
 
 /// Launch [`scale`] over `inputs`, an input and an output of one length.
-fn launch_scale(client: &Client, inputs: &[Handle], vector: VectorSize, factor: u32) {
+fn launch_scale(client: &Client, inputs: &[Handle], shape: ScaleShape, factor: u32) {
     let length = inputs[0].size() as usize / size_of::<f32>();
-    let rows = (length / vector.0).div_ceil(UNITS as usize) as u32;
+    let units = (length / shape.vector_size).div_ceil(shape.vectors_per_unit);
+    let rows = units.div_ceil(UNITS as usize) as u32;
     unsafe {
         scale::launch_unchecked::<f32>(
             client,
             CubeCount::Static(rows, 1, 1),
             CubeDim::new_1d(UNITS),
-            vector.0,
+            shape.vector_size,
             BufferArg::from_raw_parts(inputs[0].clone(), length),
             BufferArg::from_raw_parts(inputs[1].clone(), length),
             factor,
+            shape.vectors_per_unit,
         )
     };
 }
 
+/// What [`watching`] saw: the counts as the build left them, and when its
+/// gathered kernels had all compiled, if they did.
+struct Watched {
+    statistics: ExecutionStatistics,
+    compiled_at: Option<Instant>,
+}
+
 /// Run `build` while another thread prints `reader`'s counts as they move,
-/// and return them as they ended.
-fn watching(reader: StatisticsReader, build: impl FnOnce()) -> ExecutionStatistics {
+/// and notes when every kernel registered has settled.
+fn watching(reader: StatisticsReader, build: impl FnOnce()) -> Watched {
     let done = AtomicBool::new(false);
-    std::thread::scope(|scope| {
-        scope.spawn(|| {
+    let compiled_at = std::thread::scope(|scope| {
+        let watcher = scope.spawn(|| {
             let mut shown = ExecutionStatistics::default();
+            let mut compiled_at = None;
             while !done.load(Ordering::Acquire) {
                 let now = reader.statistics();
+                let compilation = now.compilation;
+                if compiled_at.is_none()
+                    && compilation.registered > 0
+                    && compilation.settled() == compilation.registered
+                {
+                    compiled_at = Some(Instant::now());
+                }
                 if now != shown {
                     println!("  building: {}", Summary(now));
                     shown = now;
                 }
-                std::thread::sleep(Duration::from_millis(20));
+                std::thread::sleep(Duration::from_millis(1));
             }
+            compiled_at
         });
         build();
         done.store(true, Ordering::Release);
+        watcher.join().expect("the watcher only prints")
     });
-    reader.statistics()
+    Watched {
+        statistics: reader.statistics(),
+        compiled_at,
+    }
 }
 
 /// Under [`ProcessMode::CompileAndAutotune`] a launch compiles and is
@@ -221,21 +288,20 @@ fn measurement_beside_discarded_work(client: &Client) {
         f32::from_bytes(&bytes)[0]
     };
 
+    let shape = ScaleShape {
+        vector_size: 4,
+        vectors_per_unit: 1,
+    };
     let collector = StatisticsCollector::new();
     let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
     let discarded = output();
-    launch_scale(
-        client,
-        &[input.clone(), discarded.clone()],
-        VectorSize(4),
-        2,
-    );
+    launch_scale(client, &[input.clone(), discarded.clone()], shape, 2);
     println!("Discarded launch: output[0] = {}", first(&discarded));
 
     let executed = output();
     {
         let measuring = StreamModeOverride::new(StreamMode::Execute, client);
-        launch_scale(client, &[input, executed.clone()], VectorSize(4), 2);
+        launch_scale(client, &[input, executed.clone()], shape, 2);
         core::mem::drop(measuring);
     }
     println!("Measured launch:  output[0] = {}", first(&executed));
