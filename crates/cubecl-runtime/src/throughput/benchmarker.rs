@@ -33,6 +33,11 @@ const SAMPLE_PATIENCE: usize = 12;
 /// of the fixed cost of a launch than the rest.
 const TARGET_DURATION: Duration = Duration::from_millis(20);
 
+/// The most iterations one launch of a probe carries: far below `u32::MAX`,
+/// since a probe's kernel takes the count as an address-sized scalar, which is
+/// 32 bits on most GPUs.
+const MAX_ITERATIONS: usize = 1 << 24;
+
 /// Samples a ranking pass keeps the fastest of. A count and not a wall clock:
 /// under a budget a short pass draws more, and the fastest of more is faster.
 const RANK_SAMPLES: usize = 3;
@@ -178,8 +183,9 @@ impl ThroughputBenchmarker {
         }
     }
 
-    /// The count that would have taken [`TARGET_DURATION`]. A timer reading zero
-    /// says nothing to scale by, so the count stands.
+    /// The count that would have taken [`TARGET_DURATION`], up to
+    /// [`MAX_ITERATIONS`]. A timer reading zero says nothing to scale by, so the
+    /// count stands.
     fn retarget(iterations: usize, took: Duration) -> usize {
         let took = took.as_secs_f64();
 
@@ -190,7 +196,7 @@ impl ThroughputBenchmarker {
         let scaled = iterations as f64 * (TARGET_DURATION.as_secs_f64() / took);
 
         if scaled.is_finite() {
-            (scaled as usize).max(1)
+            (scaled as usize).clamp(1, MAX_ITERATIONS)
         } else {
             iterations
         }
@@ -211,7 +217,6 @@ impl ThroughputBenchmarker {
         sample: impl Fn(usize) -> Duration,
     ) -> usize {
         const MAX_WARMUP: usize = 50;
-        const MAX_ITERATIONS: usize = 1 << 24;
         // A timer reading zero says nothing about the pass, so doubling against
         // it converges on nothing and stops early. An iteration is a real launch
         // for the probe that measures launches, which pays for every one.
@@ -519,6 +524,22 @@ mod tests {
 
         assert_eq!(ranked.value.duration, Duration::from_nanos(1));
         assert!(ranked.iterations >= needed);
+    }
+
+    /// A launch that returns without running reads as a few microseconds
+    /// whatever its count, and scaling a warmed count against that asks for
+    /// one no kernel's 32-bit iteration count can hold.
+    #[test]
+    fn ranking_a_shape_that_reads_as_instant_stays_under_the_ceiling() {
+        let config = KernelConfig {
+            sample: Box::new(|_| Duration::from_micros(20)),
+            ops_count: 1,
+            min_iterations: 1,
+        };
+
+        let ranked = ThroughputBenchmarker::rank(&config, MAX_ITERATIONS);
+
+        assert_eq!(ranked.iterations, MAX_ITERATIONS);
     }
 
     /// A working timer still drives the count to the duration target.

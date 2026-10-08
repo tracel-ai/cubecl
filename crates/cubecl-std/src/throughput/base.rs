@@ -1,4 +1,7 @@
-use cubecl_core::ir::{ElemType, features::Features};
+use cubecl_core::ir::{
+    ElemType,
+    features::{Features, TypeUsage},
+};
 use cubecl_runtime::{
     client::Client,
     runtime::Runtime,
@@ -158,14 +161,14 @@ fn probe(client: &Client, key: ThroughputKey) -> Result<ThroughputValue, Through
     match key.mode {
         ThroughputMode::ComputeDirect { dtype } => {
             ShapeSweep::new(compute_direct_shapes(client, dtype, launch_config))
-                .fastest(|(dtype, config)| Ok(compute_direct::build_kernel(client, dtype, config)))
+                .fastest(|(dtype, config)| compute_direct::build_kernel(client, dtype, config))
                 .map(|(value, _)| value)
         }
         ThroughputMode::ComputeCmma {
             config: cmma_config,
             ..
         } => ShapeSweep::new(alloc::vec![launch_config])
-            .fastest(|config| Ok(compute_cmma::build_kernel(client, key, cmma_config, config)))
+            .fastest(|config| compute_cmma::build_kernel(client, key, cmma_config, config))
             .map(|(value, _)| value),
         ThroughputMode::Memory(spec) => {
             let (value, fastest) = ShapeSweep::new(WorkerSweep::shapes(
@@ -193,7 +196,9 @@ fn probe(client: &Client, key: ThroughputKey) -> Result<ThroughputValue, Through
 /// cannot lower panics rather than answering, so this runs before any probe.
 fn declined(features: &Features, key: ThroughputKey) -> bool {
     match key.mode {
-        ThroughputMode::ComputeDirect { dtype } => !features.supports_type(dtype),
+        ThroughputMode::ComputeDirect { dtype } => {
+            !features.type_usage(dtype).contains(TypeUsage::Arithmetic)
+        }
         ThroughputMode::ComputeCmma { dtype, config } => {
             !CooperativeMatrix::implemented(features, dtype, config)
         }
@@ -306,10 +311,7 @@ pub fn measure_launch_overhead(client: &Client) -> core::time::Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cubecl_core::ir::{
-        FloatKind,
-        features::{MmaConfig, TypeUsage},
-    };
+    use cubecl_core::ir::{FloatKind, features::MmaConfig};
     use cubecl_runtime::throughput::{CmmaDims, ComputeCmmaConfig};
 
     const F16: ElemType = ElemType::Float(FloatKind::F16);
@@ -363,6 +365,23 @@ mod tests {
             .insert(F16, TypeUsage::Arithmetic.into());
 
         assert!(!declined(&features, key));
+    }
+
+    /// A type a device can only convert and store, as CUDA has fp8, passes a
+    /// check for any support at all, then fails to compile the probe's fma.
+    #[test]
+    fn a_type_the_device_only_stores_is_declined() {
+        let key = ThroughputKey {
+            mode: ThroughputMode::ComputeDirect { dtype: F16 },
+        };
+
+        let mut features = Features::default();
+        features
+            .types
+            .elem
+            .insert(F16, TypeUsage::Conversion | TypeUsage::Buffer);
+
+        assert!(declined(&features, key));
     }
 
     #[test]
