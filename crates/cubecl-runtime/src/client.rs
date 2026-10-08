@@ -1010,14 +1010,13 @@ impl Client {
         self.expect_local(&src);
         self.expect_local(&dst);
 
-        let rank = self.device.device_id();
-        COLLECTIVE_ORDER.all_reduce(rank, device_ids, |device_ids| {
+        COLLECTIVE_ORDER.all_reduce(self.device.device_id(), device_ids, |device_ids| {
             self.ensure_init_collective(device_ids.clone());
 
             self.device.submit(move |server| {
                 // The report lives on the buffers: a refused or failed reduce has
                 // tainted the destination, so the read that consumes it fails on
-                // the root cause. The log is the eager half of that report — an
+                // the root cause. The log is the eager half of that report: an
                 // unwrap here would only be reduced to a warn by the channel's
                 // catch_unwind, with the taint doing the real work either way.
                 if let Err(err) = server.all_reduce(src, dst, dtype, stream_id, op, device_ids) {
@@ -1062,9 +1061,9 @@ impl Client {
             self.device.submit(move |server_src| {
                 // A refused send has no local buffer to answer for, so the log is
                 // the whole local report. The peer's posted recv is left waiting
-                // on its communication stream — the recv cannot be recalled from
+                // on its communication stream: the recv cannot be recalled from
                 // here, and cross-device failure propagation needs a design pass
-                // of its own — so the wedge is named loudly rather than hidden
+                // of its own, so the wedge is named loudly rather than hidden
                 // behind a swallowed unwrap.
                 if let Err(err) =
                     server_src.send(src_descriptor, dtype, stream_id_src, device_id_dst)
@@ -1074,6 +1073,7 @@ impl Client {
                     );
                 }
             });
+            // A send waits on its device thread for the matching recv, so both halves flush at once.
             self.device.flush_queue();
         };
         let receive = || {
@@ -1093,10 +1093,6 @@ impl Client {
             });
             dst_server.device.flush_queue();
         };
-
-        // `ServerCommunication::send` and`ServerCommunication::recv` are blocking: they each wait for the corresponding recv/send
-        // call to be made. We flush the operations right away so that the neither server ends up in a deadlock.
-        // The actual data transfer is still executed asynchronously on the communication stream.
         COLLECTIVE_ORDER.transfer(device_id_src, device_id_dst, send, receive);
 
         handle
