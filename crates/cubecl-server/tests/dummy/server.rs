@@ -222,7 +222,7 @@ impl<M: Marker> Server for DummyServer<M> {
         _count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
-        launch_action: cubecl_server::execution::LaunchAction,
+        launch_mode: cubecl_server::execution::LaunchMode,
     ) {
         let kernel = (&*kernel as &dyn core::any::Any)
             .downcast_ref::<KernelTask>()
@@ -237,7 +237,7 @@ impl<M: Marker> Server for DummyServer<M> {
                 // readable for whatever launches next on them.
                 let error = ServerError::from(cubecl_server::server::LaunchError::from(err));
                 self.timestamps.failure(&error);
-                if !launch_action.drops_launch() {
+                if !launch_mode.drops_launch() {
                     let written: Vec<_> = bindings.buffers_written(None).cloned().collect();
                     self.taint(error, written.iter());
                 }
@@ -248,7 +248,7 @@ impl<M: Marker> Server for DummyServer<M> {
         // Compiled above, exactly as a real server does — and, exactly as a
         // real server does, a skipped launch stops before anything touches a
         // buffer, so a dropped launch's lazily-carved allocations stay unmapped.
-        if launch_action.drops_launch() {
+        if launch_mode.drops_launch() {
             return;
         }
 

@@ -4,7 +4,7 @@ use crate::{
     client::Client,
     compiler::CompilationError,
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::BoundsCheckMode},
-    execution::LaunchAction,
+    execution::LaunchMode,
     id::GraphId,
     kernel::CubeKernel,
     logging::ServerLogger,
@@ -683,8 +683,8 @@ pub trait Server:
     /// Kernels have mutable access to every resource they are given
     /// and are responsible of determining which should be read or written.
     ///
-    /// `launch_action` says whether the kernel actually runs. On
-    /// [`LaunchAction::Compile`] the server must still do everything a first launch
+    /// `launch_mode` says whether the kernel actually runs. On
+    /// [`LaunchMode::Compile`] the server must still do everything a first launch
     /// does short of dispatching — expand, compile, validate, fill its caches —
     /// and then drop the launch; skipping the compilation instead would defeat
     /// the whole point of an [override](crate::execution::ExecutionOverride) that
@@ -699,7 +699,7 @@ pub trait Server:
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
-        launch_action: LaunchAction,
+        launch_mode: LaunchMode,
     );
 
     /// Flush all outstanding tasks in the server.
@@ -711,7 +711,7 @@ pub trait Server:
     /// unwritten, and surfaces on any read, sync or check of them.
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
-    /// Compiles every kernel a [`LaunchAction::Queue`] launch queued, now
+    /// Compiles every kernel a [`LaunchMode::Queue`] launch queued, now
     /// rather than inside the next launch, so a measurement that follows
     /// times its own kernels only.
     ///

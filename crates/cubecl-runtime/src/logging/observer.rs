@@ -55,7 +55,7 @@
 //! duration through [`timed`].
 //!
 //! Issued is not the same as executed. A launch whose
-//! [action](crate::execution::LaunchAction) drops it is still compiled and
+//! [mode](crate::execution::LaunchMode) drops it is still compiled and
 //! still reported here, and is then dropped instead of reaching the device; a
 //! duration measured over one is the compile and the submit, with no kernel
 //! under it. Which launches are dropped is decided per stream, where they are

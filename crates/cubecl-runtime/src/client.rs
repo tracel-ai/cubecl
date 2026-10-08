@@ -1142,11 +1142,11 @@ impl Client {
 
         // Decided here, where the launch is issued, from the stream it goes
         // out on: the server receives the verdict, not what decided it.
-        let launch_action = crate::execution::LaunchAction::new(self.service_stream());
+        let launch_mode = crate::execution::LaunchMode::new(self.service_stream());
 
         // A dropped launch runs nothing to time, and a backend timing windows by the
         // timestamps its passes write reports a window around one as never measured.
-        let timed = !launch_action.drops_launch();
+        let timed = !launch_mode.drops_launch();
         let level = self.utilities.logger.profile_level().filter(|_| timed);
 
         // Before the submit, on the issuing thread: this is the last point at
@@ -1174,7 +1174,7 @@ impl Client {
                         None
                     };
 
-                    unsafe { state.launch(kernel, count, bindings, stream_id, launch_action) };
+                    unsafe { state.launch(kernel, count, bindings, stream_id, launch_mode) };
 
                     if let Some(info) = execution_info {
                         utilities.logger.register_execution(info);
@@ -1205,7 +1205,7 @@ impl Client {
                             .expect("filled right above, emptied only here");
                         context
                             .submit_blocking(move |state| unsafe {
-                                state.launch(kernel, count, bindings, stream_id, launch_action)
+                                state.launch(kernel, count, bindings, stream_id, launch_mode)
                             })
                             .unwrap_or_resume()
                     },
@@ -1235,7 +1235,7 @@ impl Client {
                                             count,
                                             bindings,
                                             stream_id,
-                                            launch_action,
+                                            launch_mode,
                                         )
                                     };
                                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {

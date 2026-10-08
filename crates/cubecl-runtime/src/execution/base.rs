@@ -3,7 +3,7 @@ use super::{ExecutionPolicy, ServiceStream, StreamMode};
 /// What a server does with one launch: the verdict its stream's mode and the
 /// process's policy resolve to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LaunchAction {
+pub enum LaunchMode {
     /// Compile if needed, then run it. The normal case.
     Execute,
     /// Compile if needed, cache the artifact, and drop the launch.
@@ -21,7 +21,7 @@ pub enum LaunchAction {
     Queue,
 }
 
-impl LaunchAction {
+impl LaunchMode {
     /// What a launch issued on `stream` does now.
     pub(crate) fn new(stream: ServiceStream) -> Self {
         let policy = ExecutionPolicy::current();
@@ -75,24 +75,24 @@ mod tests {
             service: device(0),
             stream: stream(7),
         };
-        let action = || LaunchAction::new(seventh);
-        assert_eq!(action(), LaunchAction::Execute);
+        let mode = || LaunchMode::new(seventh);
+        assert_eq!(mode(), LaunchMode::Execute);
         {
             let _compile = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
-            assert_eq!(action(), LaunchAction::Queue);
+            assert_eq!(mode(), LaunchMode::Queue);
         }
         {
             let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
-            assert_eq!(action(), LaunchAction::Compile);
+            assert_eq!(mode(), LaunchMode::Compile);
         }
         {
             // A stream discarding its launches while the process executes
             // queues them.
             let _queuing = StreamModeOverride::of_stream(StreamMode::Discard, seventh);
-            assert_eq!(action(), LaunchAction::Queue);
+            assert_eq!(mode(), LaunchMode::Queue);
         }
         let _execute = ExecutionOverride::new(ExecutionPolicy::Execute, &collector);
-        assert_eq!(action(), LaunchAction::Execute);
+        assert_eq!(mode(), LaunchMode::Execute);
     }
 
     /// A stream's mode overrides the policy's default for that stream of
@@ -117,22 +117,22 @@ mod tests {
         };
 
         let measuring = StreamModeOverride::of_stream(StreamMode::Execute, measured);
-        assert_eq!(LaunchAction::new(measured), LaunchAction::Execute);
-        assert_eq!(LaunchAction::new(other_stream), LaunchAction::Compile);
-        assert_eq!(LaunchAction::new(other_device), LaunchAction::Compile);
+        assert_eq!(LaunchMode::new(measured), LaunchMode::Execute);
+        assert_eq!(LaunchMode::new(other_stream), LaunchMode::Compile);
+        assert_eq!(LaunchMode::new(other_device), LaunchMode::Compile);
 
         let nested = StreamModeOverride::of_stream(StreamMode::Discard, measured);
         assert_eq!(
-            LaunchAction::new(measured),
-            LaunchAction::Compile,
+            LaunchMode::new(measured),
+            LaunchMode::Compile,
             "the newest decides"
         );
         drop(measuring);
-        assert_eq!(LaunchAction::new(measured), LaunchAction::Compile);
+        assert_eq!(LaunchMode::new(measured), LaunchMode::Compile);
         drop(nested);
         assert_eq!(
-            LaunchAction::new(measured),
-            LaunchAction::Compile,
+            LaunchMode::new(measured),
+            LaunchMode::Compile,
             "the policy's again"
         );
     }

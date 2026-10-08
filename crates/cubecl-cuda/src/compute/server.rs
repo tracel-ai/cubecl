@@ -25,7 +25,7 @@ use cubecl_server::command::{CollectiveDriver, Collectives, DeviceStream, Refuse
 use cubecl_server::compiler::ArtifactId;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
-    execution::LaunchAction,
+    execution::LaunchMode,
     id::GraphId,
     kernel::CubeKernel,
     logging::ServerLogger,
@@ -186,9 +186,9 @@ impl Server for CudaServer {
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
-        launch_action: LaunchAction,
+        launch_mode: LaunchMode,
     ) {
-        if launch_action == LaunchAction::Queue {
+        if launch_mode == LaunchMode::Queue {
             self.ctx.queue_kernel(kernel);
             return;
         }
@@ -196,15 +196,14 @@ impl Server for CudaServer {
             kernel: kernel.id(),
             variant: (),
         };
-        let Some(loaded) = self.load_or_fail(kernel, &id, &bindings, stream_id, launch_action)
-        else {
+        let Some(loaded) = self.load_or_fail(kernel, &id, &bindings, stream_id, launch_mode) else {
             return;
         };
         // A dropped launch stops right here, after compilation and before anything
         // that touches a buffer: resolving resources, building tensor maps,
         // uploading metadata or reading a dynamic cube count would materialize
         // memory the run exists to leave unmapped.
-        if launch_action.drops_launch() {
+        if launch_mode.drops_launch() {
             return;
         }
         let kernel_id = id.kernel;
@@ -661,13 +660,13 @@ impl CudaServer {
         id: &ArtifactId<()>,
         bindings: &KernelArguments,
         stream_id: StreamId,
-        launch_action: LaunchAction,
+        launch_mode: LaunchMode,
     ) -> Option<CudaCompiledKernel> {
         let err = match self.ctx.load_kernel(&*kernel, id, &self.streams.logger) {
             Ok(loaded) => return Some(loaded),
             Err(err) => err,
         };
-        if !launch_action.drops_launch() {
+        if !launch_mode.drops_launch() {
             // No compiled answer exists for a kernel that never compiled, so
             // the caller's declared IO decides what the failure claims: only
             // the outputs, never the buffers the kernel was only going to

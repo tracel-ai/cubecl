@@ -18,7 +18,7 @@ pub struct CompilationConfig {
     #[serde(default)]
     pub f16_evaluation: Option<F16Evaluation>,
     /// How many threads a server compiles a queue of kernels on — see
-    /// [`LaunchAction::Queue`](crate::execution::LaunchAction::Queue). The
+    /// [`LaunchMode::Queue`](crate::execution::LaunchMode::Queue). The
     /// queue itself is as long as what was queued; each thread takes the next
     /// kernel as it finishes one. `None` uses every core the process may run
     /// on; a smaller number leaves cores to other work. It does not bound

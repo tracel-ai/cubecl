@@ -31,14 +31,14 @@
 //! never one that branches on a computed value.
 //!
 //! The verdict is resolved where the launch is issued, on the stream it goes
-//! out on, and handed to the server as a [`LaunchAction`].
+//! out on, and handed to the server as a [`LaunchMode`].
 
 mod base;
 mod policy;
 mod statistics;
 mod stream_mode;
 
-pub use base::LaunchAction;
+pub use base::LaunchMode;
 pub use policy::{ExecutionOverride, ExecutionPolicy};
 pub use statistics::{
     AutotuneStatistics, CompilationStatistics, ExecutionStatistics, KernelLoad, KernelOutcome,

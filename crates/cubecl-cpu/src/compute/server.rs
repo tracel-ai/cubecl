@@ -23,7 +23,7 @@ use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
-    execution::LaunchAction,
+    execution::LaunchMode,
     kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode},
@@ -341,7 +341,7 @@ impl Server for CpuServer {
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
-        launch_action: LaunchAction,
+        launch_mode: LaunchMode,
     ) {
         // Compilation comes first — memoized, so a launch after the first
         // pays a map lookup — because the write scope stages what the
@@ -379,7 +379,7 @@ impl Server for CpuServer {
                     },
                 );
         let alignment = BufferAlignment(alignment);
-        if launch_action == LaunchAction::Queue {
+        if launch_mode == LaunchMode::Queue {
             self.kernels.enqueue(kernel, alignment);
             return;
         }
@@ -395,7 +395,7 @@ impl Server for CpuServer {
             Err(err) => {
                 let error = ServerError::Launch(err);
                 self.scheduler.stream(&stream_id).profile_failure(&error);
-                if !launch_action.drops_launch() {
+                if !launch_mode.drops_launch() {
                     let mut written = self.write_set();
                     written.extend(bindings.buffers_written(None).cloned());
                     failed_writing(self, stream_id, written, error);
@@ -403,7 +403,7 @@ impl Server for CpuServer {
                 return;
             }
         };
-        if launch_action.drops_launch() {
+        if launch_mode.drops_launch() {
             return;
         }
 
