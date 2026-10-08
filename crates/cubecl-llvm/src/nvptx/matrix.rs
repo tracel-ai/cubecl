@@ -296,18 +296,31 @@ fn call_returning_registers(
     args: Vec<Value>,
 ) -> Vec<Value> {
     let count = reg_tys.len();
-    // A single return register uses a scalar type; multiple registers use a struct.
-    let result_ty: TypeHandle = if count == 1 {
-        reg_tys[0]
-    } else {
-        StructType::get_unnamed(ctx, (reg_tys, StructLayout::Unpacked)).into()
-    };
-
+    let result_ty = registers_result_ty(ctx, reg_tys);
     let arg_tys = args.iter().map(|arg| arg.get_type(ctx)).collect();
     let fn_ty = FuncType::get(ctx, result_ty, arg_tys, false);
     let call = llvm::CallIntrinsicOp::new(ctx, name.into(), fn_ty, args);
     let result = insert(ctx, rw, &call);
+    unpack_registers(ctx, rw, result, count)
+}
 
+/// The type an instruction returning `reg_tys` returns: the register itself when there is one,
+/// a struct of them otherwise.
+pub(super) fn registers_result_ty(ctx: &mut Context, reg_tys: Vec<TypeHandle>) -> TypeHandle {
+    if reg_tys.len() == 1 {
+        reg_tys[0]
+    } else {
+        StructType::get_unnamed(ctx, (reg_tys, StructLayout::Unpacked)).into()
+    }
+}
+
+/// The `count` registers in a value of [`registers_result_ty`].
+pub(super) fn unpack_registers(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    result: Value,
+    count: usize,
+) -> Vec<Value> {
     if count == 1 {
         return vec![result];
     }
@@ -318,6 +331,36 @@ fn call_returning_registers(
             insert(ctx, rw, &op)
         })
         .collect()
+}
+
+/// Lanes of a vector of registers.
+pub(super) fn vector_lanes(ctx: &Context, ty: TypeHandle) -> usize {
+    ty.deref(ctx)
+        .downcast_ref::<LlvmVectorType>()
+        .expect("registers are held in a vector")
+        .num_elements() as usize
+}
+
+/// Bits of a vector of registers.
+pub(super) fn vector_bits(ctx: &Context, ty: TypeHandle) -> usize {
+    let elem = ty
+        .deref(ctx)
+        .downcast_ref::<LlvmVectorType>()
+        .expect("registers are held in a vector")
+        .elem_type();
+    let elem = elem.deref(ctx);
+    let bits = if let Some(int) = elem.downcast_ref::<IntegerType>() {
+        int.width() as usize
+    } else if elem.is::<FP64Type>() {
+        64
+    } else if elem.is::<FP32Type>() {
+        32
+    } else if elem.is::<FP16Type>() || elem.is::<BF16Type>() {
+        16
+    } else {
+        unreachable!("registers hold integers or floats")
+    };
+    vector_lanes(ctx, ty) * bits
 }
 
 pub(super) fn call_void(
@@ -638,7 +681,7 @@ fn fragment_name(ident: MatrixIdent) -> &'static str {
 
 /// Register packing for manual matrix operations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RegisterForm {
+pub(super) enum RegisterForm {
     /// Several elements per register.
     Packed(usize),
     /// One element per register.
@@ -670,7 +713,7 @@ pub(super) fn word_ty(ctx: &mut Context) -> TypeHandle {
     IntegerType::get(ctx, 32, Signedness::Signless).into()
 }
 
-fn registers_of(
+pub(super) fn registers_of(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
     vector: Value,
@@ -700,15 +743,7 @@ fn registers_of(
         }
         RegisterForm::Word => {
             let word = word_ty(ctx);
-            let elem_bits = if elem.deref(ctx).is::<FP32Type>() {
-                32
-            } else if elem.deref(ctx).is::<BF16Type>() {
-                16
-            } else {
-                elem.size_bits(ctx)
-            };
-            let bits = elems * elem_bits;
-            let words = bits / 32;
+            let words = vector_bits(ctx, vector.get_type(ctx)) / 32;
             let words_ty =
                 LlvmVectorType::get(ctx, word, words as u32, VectorTypeKind::Fixed).into();
             let as_words = bitcast(ctx, rw, vector, words_ty);
@@ -719,7 +754,7 @@ fn registers_of(
     }
 }
 
-fn registers_into(
+pub(super) fn registers_into(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
     regs: &[Value],

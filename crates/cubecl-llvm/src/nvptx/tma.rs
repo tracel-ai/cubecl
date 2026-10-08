@@ -30,10 +30,6 @@ const SHARED_CLUSTER_ADDRESS_SPACE: u32 = 7;
 #[error("a TMA {0} is an integer, not {1}")]
 pub struct TmaOperandType(&'static str, String);
 
-fn int_ty(ctx: &mut Context, width: u32) -> TypeHandle {
-    IntegerType::get(ctx, width, Signedness::Signless).into()
-}
-
 /// `value`, an integer, sign extended or truncated to `width` bits. Coordinates may be negative.
 fn to_width(
     ctx: &mut Context,
@@ -43,23 +39,13 @@ fn to_width(
     what: &'static str,
     loc: Location,
 ) -> Result<Value> {
-    let from = value
-        .get_type(ctx)
-        .deref(ctx)
-        .downcast_ref::<IntegerType>()
-        .map(|int| int.width());
-    let Some(from) = from else {
-        let ty = value.get_type(ctx).disp(ctx).to_string();
-        return input_err!(loc, TmaOperandType(what, ty));
-    };
-    let ty = int_ty(ctx, width);
-    let op: Ptr<Operation> = match from.cmp(&width) {
-        core::cmp::Ordering::Equal => return Ok(value),
-        core::cmp::Ordering::Greater => llvm::TruncOp::new(ctx, value, ty).get_operation(),
-        core::cmp::Ordering::Less => llvm::SExtOp::new(ctx, value, ty).get_operation(),
-    };
-    rw.insert_operation(ctx, op);
-    Ok(op.deref(ctx).get_result(0))
+    match resize_int(ctx, rw, value, width, true) {
+        Some(value) => Ok(value),
+        None => {
+            let ty = value.get_type(ctx).disp(ctx).to_string();
+            input_err!(loc, TmaOperandType(what, ty))
+        }
+    }
 }
 
 /// The cube's coordinates are outermost first; PTX takes the innermost first.

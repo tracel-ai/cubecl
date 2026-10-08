@@ -10,7 +10,7 @@
 //! typical step looks like:
 //!
 //! ```rust, ignore
-//! let def = WgmmaDefinition::<f16, f16, f32>::new(64usize, 128usize, 16usize);
+//! let def = WgmmaDefinition::<f16, f16, f32>::new(128usize);
 //! let acc_len = def.elems_per_unit(MatrixIdent::Accumulator);
 //! let size!(N) = 2usize;
 //! let mut acc = Array::<Vector<f32, N>>::new(comptime![acc_len / 2]);
@@ -55,10 +55,16 @@ use alloc::format;
 
 /// Units in a warpgroup.
 pub const WARPGROUP_SIZE: u32 = 128;
+/// Rows every warpgroup MMA computes.
+pub const WARPGROUP_M: usize = 64;
+/// Bytes of K every warpgroup MMA reads per row.
+const K_BYTES: usize = 32;
 
 /// Builds the matrix descriptor of a shared memory tile, which a warpgroup MMA reads `A` or `B`
 /// through. `tile` starts at the first element of the tile, and must be in shared memory and
-/// aligned to 16 bytes, or to the swizzle's span when there is one.
+/// aligned to [`Swizzle::alignment`]: 16 bytes without swizzle, and a full repeat of the
+/// pattern with one, 1024 bytes for [`Swizzle::B128`]. A swizzled tile that starts anywhere else
+/// is read with its rows permuted wrong, silently.
 ///
 /// The offsets are in bytes and must be multiples of 16. Without swizzle the tile is made of
 /// 8x16-byte core matrices: `leading_byte_offset` steps between core matrices along K and
@@ -216,26 +222,23 @@ impl<A: CubeType, B: CubeType, CD: CubeType> CubeDebug for WgmmaDefinitionExpand
 
 #[cube]
 impl<A: Scalar, B: Scalar, CD: Scalar> WgmmaDefinition<A, B, CD> {
-    /// Defines a `m x n x k` warpgroup MMA. `m` is always 64 and `k` is set by the operand
-    /// types: 16 for `f16` and `bf16`, 8 for `tf32`, 32 for the 8-bit types. `n` is a multiple
-    /// of 8 up to 256, or of 16 for the integer types.
-    pub fn new(#[comptime] m: usize, #[comptime] n: usize, #[comptime] k: usize) -> Self {
+    /// Defines a `64 x n x k` warpgroup MMA. Every warpgroup MMA computes 64 rows and reads 32
+    /// bytes of K, so `k` follows `A`: 16 for `f16` and `bf16`, 8 for `tf32`, 32 for the 8-bit
+    /// types. `n` is a multiple of 8 up to 256, or of 16 for the integer types.
+    pub fn new(#[comptime] n: usize) -> Self {
         intrinsic!(|scope| {
+            let (a, b, cd) = (
+                A::elem_type(scope),
+                B::elem_type(scope),
+                CD::elem_type(scope),
+            );
+            let m = WARPGROUP_M;
+            let k = K_BYTES / a.size();
             if let Some(props) = scope.state().device_properties.clone() {
-                let (a, b, cd) = (
-                    A::elem_type(scope),
-                    B::elem_type(scope),
-                    CD::elem_type(scope),
-                );
                 let wgmma = &props.features.matmul.wgmma;
-                let supported = wgmma.iter().any(|cfg| {
-                    cfg.a_type == a
-                        && cfg.b_type == b
-                        && cfg.cd_type == cd
-                        && cfg.m as usize == m
-                        && cfg.k as usize == k
-                        && cfg.supports_n(n as u32)
-                });
+                let supported = wgmma
+                    .iter()
+                    .any(|cfg| cfg.matches(a, b, cd, m as u32, n as u32, k as u32));
                 if !supported {
                     scope.push_error(format!(
                         "the device doesn't support a {m}x{n}x{k} warpgroup MMA of {a:?} x \
@@ -251,6 +254,12 @@ impl<A: Scalar, B: Scalar, CD: Scalar> WgmmaDefinition<A, B, CD> {
                 _cd: PhantomData,
             }
         })
+    }
+
+    /// The `m x n x k` shape of the MMA.
+    #[allow(unused)]
+    pub fn shape(&self) -> comptime_type!(MatrixShape) {
+        intrinsic!(|_| self.shape)
     }
 
     /// Elements each unit of the warpgroup holds: the `A` fragment for

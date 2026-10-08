@@ -202,7 +202,7 @@ pub struct MmaManualScaledOp {
 synchronizes!(MmaManualScaledOp, SyncScope::Plane);
 
 /// The swizzle a warpgroup MMA matrix descriptor declares for the tile it points at, named for
-/// the span of bytes the pattern repeats over.
+/// the width of the rows it permutes. The pattern repeats every 8 rows.
 #[pliron_attr(name = "matrix.wgmma_swizzle", format, verifier = "succ")]
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, PartialOrd, Ord)]
 pub enum WgmmaSwizzle {
@@ -214,6 +214,18 @@ pub enum WgmmaSwizzle {
 }
 
 impl WgmmaSwizzle {
+    /// The alignment, in bytes, a tile with this swizzle must start at. A swizzled tile starts a
+    /// repeat of its pattern, 8 rows of the swizzle's width, because the descriptor leaves the
+    /// base offset that would shift the pattern at zero.
+    pub fn alignment(&self) -> usize {
+        match self {
+            WgmmaSwizzle::None => 16,
+            WgmmaSwizzle::B32 => 256,
+            WgmmaSwizzle::B64 => 512,
+            WgmmaSwizzle::B128 => 1024,
+        }
+    }
+
     /// The value of the descriptor's two-bit swizzle field.
     pub fn descriptor_bits(&self) -> u64 {
         match self {
@@ -223,6 +235,24 @@ impl WgmmaSwizzle {
             WgmmaSwizzle::B32 => 3,
         }
     }
+}
+
+/// A warpgroup operation is `.sync.aligned` over four planes. No scope names a warpgroup, so it
+/// declares the conservative end of each bound: at least a plane, so no pass takes it for a
+/// cube barrier, and at most a cube, so no pass sinks it into control flow that only a plane
+/// agrees on.
+macro_rules! warpgroup_synchronizes {
+    ($ty: ty) => {
+        #[op_interface_impl]
+        impl crate::interfaces::Synchronizes for $ty {
+            fn minimum_scope(&self, _ctx: &Context) -> SyncScope {
+                SyncScope::Plane
+            }
+            fn maximum_scope(&self, _ctx: &Context) -> SyncScope {
+                SyncScope::Cube
+            }
+        }
+    };
 }
 
 /// Builds the 64-bit matrix descriptor a warpgroup MMA reads a shared memory tile through.
@@ -243,14 +273,14 @@ pub struct WgmmaDescriptorOp {
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct WgmmaFenceOp {}
-synchronizes!(WgmmaFenceOp, SyncScope::Plane);
+warpgroup_synchronizes!(WgmmaFenceOp);
 
 /// Commits every warpgroup MMA issued and not yet committed into one group.
 #[cube_op(name = "matrix.wgmma_commit_group")]
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct WgmmaCommitGroupOp {}
-synchronizes!(WgmmaCommitGroupOp, SyncScope::Plane);
+warpgroup_synchronizes!(WgmmaCommitGroupOp);
 
 /// Waits until at most `max_pending` committed groups of warpgroup MMAs are still running.
 #[cube_op(name = "matrix.wgmma_wait_group")]
@@ -259,7 +289,7 @@ synchronizes!(WgmmaCommitGroupOp, SyncScope::Plane);
 pub struct WgmmaWaitGroupOp {
     pub max_pending: IndexAttr,
 }
-synchronizes!(WgmmaWaitGroupOp, SyncScope::Plane);
+warpgroup_synchronizes!(WgmmaWaitGroupOp);
 
 /// Pins the registers of an array in place: no access to them moves across it. An MMA in flight
 /// owns its accumulator until the wait that retires it, so the compiler must neither read the
@@ -294,7 +324,7 @@ pub struct WgmmaOp {
     pub a_layout: MatrixLayoutAttr,
     pub b_layout: MatrixLayoutAttr,
 }
-synchronizes!(WgmmaOp, SyncScope::Plane);
+warpgroup_synchronizes!(WgmmaOp);
 
 #[op_interface_impl]
 impl MemoryEffectsOp for WgmmaOp {

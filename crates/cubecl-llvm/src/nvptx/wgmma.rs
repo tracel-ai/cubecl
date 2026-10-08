@@ -4,14 +4,12 @@
 //! `wgmma.mma_async` itself, so the MMA is inline PTX, as MLIR's NVVM dialect emits it.
 
 use super::matrix::{
-    as_shared, call_void, extract_lane, insert_lane, poison, store_fragment, word_ty,
+    RegisterForm, as_shared, call_void, registers_into, registers_of, registers_result_ty,
+    store_fragment, unpack_registers, vector_bits, vector_lanes,
 };
 use crate::{
     prelude::*,
-    shared::{
-        matrix::{registers_array_ty, registers_as_vector, registers_value, vector_into_array},
-        plane::bitcast,
-    },
+    shared::matrix::{registers_array_ty, registers_as_vector, registers_value, vector_into_array},
 };
 use cubecl_core::ir::{
     ElemType, FloatKind, IntKind, UIntKind,
@@ -23,10 +21,8 @@ use cubecl_core::ir::{
     types::{MatrixLayout, MatrixShape},
 };
 use pliron::r#type::type_cast;
-use pliron_llvm::{
-    llvm_attrs::{LlvmAttrValue, LlvmAttributesAttr},
-    types::{StructLayout, StructType},
-};
+use pliron_llvm::llvm_attrs::{LlvmAttrValue, LlvmAttributesAttr};
+use std::sync::LazyLock;
 
 const FENCE: &str = "llvm.nvvm.wgmma.fence.sync.aligned";
 const COMMIT_GROUP: &str = "llvm.nvvm.wgmma.commit_group.sync.aligned";
@@ -76,7 +72,12 @@ pub struct WgmmaRegisterCount {
 pub struct WgmmaDescriptorType(String);
 
 /// The warpgroup MMA forms Hopper (`sm_90a`) has.
-pub fn wgmma_configs() -> Vec<WgmmaConfig> {
+pub fn wgmma_configs() -> &'static [WgmmaConfig] {
+    static CONFIGS: LazyLock<Vec<WgmmaConfig>> = LazyLock::new(hopper_configs);
+    &CONFIGS
+}
+
+fn hopper_configs() -> Vec<WgmmaConfig> {
     let f16 = ElemType::Float(FloatKind::F16);
     let bf16 = ElemType::Float(FloatKind::BF16);
     let tf32 = ElemType::Float(FloatKind::TF32);
@@ -151,108 +152,32 @@ fn is_integer(elem: ElemType) -> bool {
     matches!(elem, ElemType::Int(_) | ElemType::UInt(_))
 }
 
-/// Registers as an inline assembly operand takes them, with the constraint for each.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum AsmRegisters {
-    /// One `f32` per register.
-    F32,
-    /// The elements packed into 32-bit words.
-    Words,
-}
-
-impl AsmRegisters {
-    fn of(elem: ElemType) -> Self {
-        match elem {
-            ElemType::Float(FloatKind::F32) => AsmRegisters::F32,
-            _ => AsmRegisters::Words,
-        }
-    }
-
-    fn constraint(self) -> &'static str {
-        match self {
-            AsmRegisters::F32 => "f",
-            AsmRegisters::Words => "r",
-        }
-    }
-}
-
-/// Splits a vector of registers into the scalars an inline assembly operand list takes.
-fn split_registers(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    vector: Value,
-    form: AsmRegisters,
-) -> Vec<Value> {
-    let lanes = vector_lanes(ctx, vector.get_type(ctx));
-    let vector = match form {
-        AsmRegisters::F32 => vector,
-        AsmRegisters::Words => {
-            let words = vector_bits(ctx, vector.get_type(ctx)) / 32;
-            let word = word_ty(ctx);
-            let words_ty = LlvmVectorType::get(ctx, word, words as u32, VectorTypeKind::Fixed);
-            bitcast(ctx, rw, vector, words_ty.into())
-        }
-    };
-    let count = vector_lanes(ctx, vector.get_type(ctx));
-    debug_assert!(form == AsmRegisters::Words || count == lanes);
-    (0..count)
-        .map(|i| extract_lane(ctx, rw, vector, i))
-        .collect()
-}
-
-/// The inverse of [`split_registers`].
-fn join_registers(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    regs: &[Value],
-    vector_ty: TypeHandle,
-) -> Value {
-    let reg_ty = regs[0].get_type(ctx);
-    let regs_ty = LlvmVectorType::get(ctx, reg_ty, regs.len() as u32, VectorTypeKind::Fixed);
-    let mut acc = poison(ctx, rw, regs_ty.into());
-    for (i, &reg) in regs.iter().enumerate() {
-        acc = insert_lane(ctx, rw, acc, reg, i);
-    }
-    bitcast(ctx, rw, acc, vector_ty)
-}
-
-fn vector_lanes(ctx: &Context, ty: TypeHandle) -> usize {
-    ty.deref(ctx)
-        .downcast_ref::<LlvmVectorType>()
-        .expect("registers are held in a vector")
-        .num_elements() as usize
-}
-
-fn vector_bits(ctx: &Context, ty: TypeHandle) -> usize {
-    let elem = ty
-        .deref(ctx)
-        .downcast_ref::<LlvmVectorType>()
-        .expect("registers are held in a vector")
-        .elem_type();
-    let elem = elem.deref(ctx);
-    let bits = if let Some(int) = elem.downcast_ref::<IntegerType>() {
-        int.width() as usize
-    } else if elem.is::<FP64Type>() {
-        64
-    } else if elem.is::<FP32Type>() {
-        32
-    } else if elem.is::<FP16Type>() || elem.is::<BF16Type>() {
-        16
+/// How an inline assembly operand list takes registers of `elem`: one per 32-bit element, or
+/// the elements packed into 32-bit words.
+fn register_form(elem: ElemType) -> RegisterForm {
+    if elem.size_bits() == 32 {
+        RegisterForm::Scalar
     } else {
-        unreachable!("registers hold integers or floats")
-    };
-    vector_lanes(ctx, ty) * bits
+        RegisterForm::Word
+    }
+}
+
+/// The inline assembly constraint of a 32-bit register.
+fn constraint(ctx: &Context, reg: Value) -> &'static str {
+    if reg.get_type(ctx).deref(ctx).is::<FP32Type>() {
+        "f"
+    } else {
+        "r"
+    }
 }
 
 /// Calls an inline assembly `template` that reads and writes `regs` in place, along with
 /// `inputs`, and returns the registers it wrote.
-#[allow(clippy::too_many_arguments)]
 fn asm_in_place(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
     template: &str,
     regs: Vec<Value>,
-    form: AsmRegisters,
     inputs: Vec<(Value, &'static str)>,
     clobbers_memory: bool,
     convergent: bool,
@@ -260,8 +185,9 @@ fn asm_in_place(
     let count = regs.len();
     let reg_tys: Vec<TypeHandle> = regs.iter().map(|reg| reg.get_type(ctx)).collect();
 
-    let mut constraints: Vec<String> = (0..count)
-        .map(|_| format!("={}", form.constraint()))
+    let mut constraints: Vec<String> = regs
+        .iter()
+        .map(|&reg| format!("={}", constraint(ctx, reg)))
         .collect();
     constraints.extend((0..count).map(|i| i.to_string()));
     constraints.extend(inputs.iter().map(|(_, c)| c.to_string()));
@@ -272,11 +198,7 @@ fn asm_in_place(
     let mut args = regs;
     args.extend(inputs.into_iter().map(|(value, _)| value));
 
-    let result_ty: TypeHandle = if count == 1 {
-        reg_tys[0]
-    } else {
-        StructType::get_unnamed(ctx, (reg_tys, StructLayout::Unpacked)).into()
-    };
+    let result_ty = registers_result_ty(ctx, reg_tys);
     let asm = llvm::InlineAsmOp::new(ctx, result_ty, args, template, &constraints.join(","), true);
     if convergent {
         let mut attrs = LlvmAttributesAttr::new();
@@ -284,17 +206,7 @@ fn asm_in_place(
         asm.set_attr_llvm_inline_asm_attrs(ctx, attrs);
     }
     let result = insert(ctx, rw, &asm);
-
-    if count == 1 {
-        return vec![result];
-    }
-    (0..count)
-        .map(|field| {
-            let op = llvm::ExtractValueOp::new(ctx, result, vec![field as u32])
-                .expect("a constant index into the returned registers");
-            insert(ctx, rw, &op)
-        })
-        .collect()
+    unpack_registers(ctx, rw, result, count)
 }
 
 /// A run of `$i` operand references, braced as a PTX vector operand.
@@ -303,30 +215,12 @@ fn operand_list(first: usize, count: usize) -> String {
     format!("{{{}}}", operands.join(", "))
 }
 
-fn i64_ty(ctx: &mut Context) -> TypeHandle {
-    IntegerType::get(ctx, 64, Signedness::Signless).into()
-}
-
 fn int_width(ctx: &Context, value: Value) -> Option<u32> {
     value
         .get_type(ctx)
         .deref(ctx)
         .downcast_ref::<IntegerType>()
         .map(|int| int.width())
-}
-
-/// `value` zero extended to `ty`, an integer at least as wide.
-fn zext(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    value: Value,
-    ty: TypeHandle,
-) -> Value {
-    if value.get_type(ctx) == ty {
-        return value;
-    }
-    let op = llvm::ZExtOp::new_with_nneg(ctx, value, ty, false);
-    insert(ctx, rw, &op)
 }
 
 pub(crate) fn wgmma(
@@ -351,14 +245,10 @@ pub(crate) fn wgmma(
     let cd_elem = elem_type(ctx, cd_scalar);
 
     let supported = wgmma_configs();
-    let valid = supported.iter().any(|config| {
-        config.a_type == a_elem
-            && config.b_type == b_elem
-            && config.cd_type == cd_elem
-            && config.m as usize == shape.m
-            && config.k as usize == shape.k
-            && config.supports_n(shape.n as u32)
-    });
+    let MatrixShape { m, n, k } = shape;
+    let valid = supported
+        .iter()
+        .any(|config| config.matches(a_elem, b_elem, cd_elem, m as u32, n as u32, k as u32));
     if !valid {
         return input_err!(
             op.loc(ctx),
@@ -367,7 +257,7 @@ pub(crate) fn wgmma(
                 b: b_elem,
                 cd: cd_elem,
                 shape,
-                supported,
+                supported: supported.to_vec(),
             }
         );
     }
@@ -398,9 +288,9 @@ pub(crate) fn wgmma(
         );
     }
 
-    let acc_form = AsmRegisters::of(cd_elem);
+    let acc_form = register_form(cd_elem);
     let acc_value = registers_value(ctx, rw, acc, acc_vec_ty);
-    let acc_regs = split_registers(ctx, rw, acc_value, acc_form);
+    let acc_regs = registers_of(ctx, rw, acc_value, acc_form);
     let count = acc_regs.len();
 
     // Inputs follow the accumulator's outputs and the inputs tied to them.
@@ -420,7 +310,7 @@ pub(crate) fn wgmma(
             );
         }
         let a_value = registers_value(ctx, rw, a, a_vec_ty);
-        let a_regs = split_registers(ctx, rw, a_value, AsmRegisters::Words);
+        let a_regs = registers_of(ctx, rw, a_value, RegisterForm::Word);
         let operand = operand_list(2 * count, a_regs.len());
         inputs.extend(a_regs.into_iter().map(|reg| (reg, "r")));
         operand
@@ -439,11 +329,9 @@ pub(crate) fn wgmma(
     let b_operand = format!("${}", 2 * count + inputs.len());
     inputs.push((b, "l"));
     let scale_operand = format!("${}", 2 * count + inputs.len());
-    let word = word_ty(ctx);
-    let scale_d = zext(ctx, rw, scale_d, word);
+    let scale_d = resize_int(ctx, rw, scale_d, 32, false).expect("`scale_d` is a boolean");
     inputs.push((scale_d, "r"));
 
-    let MatrixShape { n, k, .. } = shape;
     let mut instruction = format!(
         "wgmma.mma_async.sync.aligned.m{M}n{n}k{k}.{}.{}.{} {}, {a_operand}, {b_operand}, p",
         ptx_type(cd_elem),
@@ -464,9 +352,9 @@ pub(crate) fn wgmma(
     let template =
         format!("{{\n.reg .pred p;\nsetp.ne.b32 p, {scale_operand}, 0;\n{instruction};\n}}");
 
-    let regs = asm_in_place(ctx, rw, &template, acc_regs, acc_form, inputs, true, true);
+    let regs = asm_in_place(ctx, rw, &template, acc_regs, inputs, true, true);
 
-    let result = join_registers(ctx, rw, &regs, acc_vec_ty);
+    let result = registers_into(ctx, rw, &regs, acc_vec_ty, acc_form);
     let acc_array_ty = registers_array_ty(ctx, operands_info, acc);
     let result = vector_into_array(ctx, rw, result, acc_array_ty);
     store_fragment(ctx, rw, acc, result);
@@ -487,9 +375,9 @@ pub(crate) fn fence_operand(
     let registers = op.registers(ctx);
 
     let (vec_ty, scalar) = registers_as_vector(ctx, operands_info, registers);
-    let form = AsmRegisters::of(elem_type(ctx, scalar));
+    let form = register_form(elem_type(ctx, scalar));
     let bits = vector_bits(ctx, vec_ty);
-    if form == AsmRegisters::Words && !bits.is_multiple_of(32) {
+    if form == RegisterForm::Word && !bits.is_multiple_of(32) {
         return input_err!(
             op.loc(ctx),
             WgmmaRegisterCount {
@@ -502,10 +390,10 @@ pub(crate) fn fence_operand(
     }
 
     let value = registers_value(ctx, rw, registers, vec_ty);
-    let regs = split_registers(ctx, rw, value, form);
-    let regs = asm_in_place(ctx, rw, "", regs, form, vec![], false, false);
+    let regs = registers_of(ctx, rw, value, form);
+    let regs = asm_in_place(ctx, rw, "", regs, vec![], false, false);
 
-    let result = join_registers(ctx, rw, &regs, vec_ty);
+    let result = registers_into(ctx, rw, &regs, vec_ty, form);
     let array_ty = registers_array_ty(ctx, operands_info, registers);
     let result = vector_into_array(ctx, rw, result, array_ty);
     store_fragment(ctx, rw, registers, result);
@@ -521,8 +409,7 @@ fn descriptor_field(
     value: Value,
     shift: i128,
 ) -> Value {
-    let i64_ty = i64_ty(ctx);
-    let value = zext(ctx, rw, value, i64_ty);
+    let value = resize_int(ctx, rw, value, 64, false).expect("descriptor fields are integers");
     let four = insert_int_const(ctx, rw, 64, 4);
     let op = llvm::LShrOp::new(ctx, value, four);
     let value = insert(ctx, rw, &op);

@@ -36,7 +36,6 @@ use cubecl_cpp::{
     },
 };
 use cubecl_llvm::nvptx::ptx_version::PtxVersion;
-use cubecl_llvm::nvptx::wgmma::wgmma_configs;
 use cubecl_llvm::shared::lowered_features::{GpuTarget, restrict_features};
 use cubecl_monitoring::{DeviceUtilization, UtilizationUnavailable, gpu_utilization::CardCounters};
 use cubecl_server::{
@@ -376,12 +375,7 @@ impl DeviceService for CudaServer {
         // compile rather than a slower one.
         let backend = CudaBackend::default();
         if backend == CudaBackend::Llvm {
-            restrict_features(&mut device_props, GpuTarget::Nvptx);
-            // Warpgroup MMA is Hopper's alone, Blackwell replaced it with `tcgen05`, and only the
-            // LLVM backend lowers it.
-            if arch_version == 90 {
-                device_props.features.matmul.wgmma.extend(wgmma_configs());
-            }
+            restrict_features(&mut device_props, GpuTarget::Nvptx { sm: arch_version });
         }
 
         let comp_opts = CudaCompilationOptions {

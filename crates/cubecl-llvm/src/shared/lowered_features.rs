@@ -21,21 +21,30 @@ const BF16: ElemType = ElemType::Float(FloatKind::BF16);
 /// The GPU target a device's features are narrowed for, with what its lowering depends on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GpuTarget {
+    /// `sm` is the part's packed compute capability: 90 is Hopper.
     #[cfg(feature = "nvptx")]
-    Nvptx,
+    Nvptx { sm: u32 },
     /// `wmma` is the part's WMMA generation, `None` on a part without one.
     #[cfg(feature = "amdgpu")]
     AmdGpu { wmma: Option<AmdWmma> },
 }
 
 /// Narrows `props` to what the LLVM backend lowers for `target`: the matrix forms that target
-/// has register shapes for, and nothing that neither target lowers.
+/// has register shapes for, and nothing that neither target lowers. It also adds what only this
+/// backend lowers, which the C++ backend that built `props` never advertised: Hopper's
+/// warpgroup MMA.
 pub fn restrict_features(props: &mut DeviceProperties, target: GpuTarget) {
+    props.features.matmul.wgmma.clear();
     match target {
         #[cfg(feature = "nvptx")]
-        GpuTarget::Nvptx => {
+        GpuTarget::Nvptx { sm } => {
             keep_nvptx_matrix_forms(props);
             keep_nvptx_tma(props);
+            // Warpgroup MMA is Hopper's alone: Blackwell replaced it with `tcgen05`.
+            if sm == 90 {
+                let configs = crate::nvptx::wgmma::wgmma_configs();
+                props.features.matmul.wgmma.extend(configs.iter().copied());
+            }
         }
         #[cfg(feature = "amdgpu")]
         GpuTarget::AmdGpu { wmma } => {
@@ -298,7 +307,7 @@ mod nvptx_tests {
         ];
         props.features.matmul.cmma.extend(forms);
         props.features.matmul.mma.extend(forms);
-        restrict_features(&mut props, GpuTarget::Nvptx);
+        restrict_features(&mut props, GpuTarget::Nvptx { sm: 80 });
         assert_eq!(props.features.matmul.cmma.len(), 1);
         assert!(props.features.matmul.cmma.contains(&config(16, 16, 8)));
         assert_eq!(props.features.matmul.mma.len(), 2);
@@ -329,7 +338,7 @@ mod nvptx_tests {
             .matmul
             .mma
             .extend([config(f32, 16, 8, 16), config(BF16, 16, 8, 16)]);
-        restrict_features(&mut props, GpuTarget::Nvptx);
+        restrict_features(&mut props, GpuTarget::Nvptx { sm: 80 });
         assert_eq!(props.features.matmul.cmma.len(), 2);
         assert!(props.features.matmul.cmma.iter().all(|c| c.cd_type == f32));
         assert_eq!(props.features.matmul.mma.len(), 1);
@@ -352,7 +361,7 @@ mod nvptx_tma_tests {
         for &feature in tma {
             props.features.tma.insert(feature);
         }
-        restrict_features(&mut props, GpuTarget::Nvptx);
+        restrict_features(&mut props, GpuTarget::Nvptx { sm: 90 });
         props
     }
 
@@ -366,6 +375,16 @@ mod nvptx_tma_tests {
         assert!(props.features.types.opaque.contains(&OpaqueType::TensorMap));
         assert!(props.features.types.opaque.contains(&OpaqueType::Barrier));
         assert!(!props.features.copy_async);
+    }
+
+    /// Hopper alone gets warpgroup MMA.
+    #[test]
+    fn only_hopper_gets_warpgroup_mma() {
+        for (sm, expected) in [(80, false), (90, true), (100, false)] {
+            let mut props = (*device_properties(32)).clone();
+            restrict_features(&mut props, GpuTarget::Nvptx { sm });
+            assert_eq!(!props.features.matmul.wgmma.is_empty(), expected, "sm_{sm}");
+        }
     }
 
     /// Every barrier operation is an `mbarrier` instruction from Hopper, so an older device

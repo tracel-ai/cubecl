@@ -27,17 +27,26 @@ use pliron::{
 /// served from a cache the acquire does not invalidate. The buffers it only reads, which no cube
 /// writes, keep both.
 ///
-/// `entry`'s parameters are the buffers in binding order followed by `metadata_params`
-/// metadata parameters. An LLVM without one of the two attributes gets the other alone.
+/// A tensor map is a binding like any other, so it never overlaps another binding either. Its
+/// parameter is the map itself, passed by value, so it is no buffer and gets no attribute.
+///
+/// `entry`'s parameters are the bindings in binding order, `tensor_maps` among them, followed by
+/// `metadata_params` metadata parameters. An LLVM without one of the two attributes gets the
+/// other alone.
 pub(crate) fn annotate_buffer_params(
     entry: &EntryFunction<'_>,
     io: &[BufferIOAttr],
     atomic_reads: &AtomicReads,
+    tensor_maps: &[usize],
     metadata_params: u32,
 ) {
     let (buffers, metadata) = entry.split_params(metadata_params);
     let buffers = buffers.enumerate().map(|(binding, param)| {
-        let promise = Promise::of_buffer(io.get(binding).copied(), binding, atomic_reads);
+        let promise = if tensor_maps.contains(&binding) {
+            Promise::Nothing
+        } else {
+            Promise::of_buffer(io.get(binding).copied(), binding, atomic_reads)
+        };
         (param, promise)
     });
     let metadata = metadata.map(|param| (param, Promise::DistinctReadOnly));

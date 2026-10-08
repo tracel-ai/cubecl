@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{prelude::*, shared::to_llvm::lower_by_target};
 use cubecl_core::ir::dialect::{
     barrier::{
         ArriveAndExpectTxOp, ArriveAndWaitOp, ArriveOp, CommitCopyAsyncOp, ExpectTxOp, InitOp,
@@ -399,20 +399,10 @@ impl ToLLVMDialect for PrintfOp {
     }
 }
 
+/// An operation that means nothing once lowered, on every target.
 macro_rules! erase_op {
     ($cube_op:ty) => {
-        #[op_interface_impl]
-        impl ToLLVMDialect for $cube_op {
-            fn rewrite(
-                &self,
-                ctx: &mut Context,
-                rewriter: &mut DialectConversionRewriter,
-                _operands_info: &OperandsInfo,
-            ) -> Result<()> {
-                rewriter.erase_operation(ctx, self.get_operation());
-                Ok(())
-            }
-        }
+        lower_by_target!($cube_op, [], super::erase);
     };
 }
 
@@ -424,26 +414,11 @@ erase_op!(CommitCopyAsyncOp);
 /// nothing to wait for and its operations are dropped.
 macro_rules! barrier_op {
     ($cube_op:ty, $method:ident) => {
-        #[op_interface_impl]
-        impl ToLLVMDialect for $cube_op {
-            fn rewrite(
-                &self,
-                ctx: &mut Context,
-                rewriter: &mut DialectConversionRewriter,
-                _operands_info: &OperandsInfo,
-            ) -> Result<()> {
-                match ctx.target() {
-                    #[cfg(feature = "nvptx")]
-                    LlvmTarget::Nvptx => {
-                        crate::nvptx::barrier::$method(self, ctx, rewriter, _operands_info)
-                    }
-                    _ => {
-                        rewriter.erase_operation(ctx, self.get_operation());
-                        Ok(())
-                    }
-                }
-            }
-        }
+        lower_by_target!(
+            $cube_op,
+            ["nvptx" Nvptx => crate::nvptx::barrier::$method],
+            super::erase
+        );
     };
 }
 

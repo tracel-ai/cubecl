@@ -241,6 +241,16 @@ impl WgmmaConfig {
     pub fn supports_n(&self, n: u32) -> bool {
         n > 0 && n.is_multiple_of(self.n_granularity) && n <= self.n_max
     }
+
+    /// Whether this configuration multiplies `a` by `b` into `cd` with shape `m x n x k`.
+    pub fn matches(&self, a: ElemType, b: ElemType, cd: ElemType, m: u32, n: u32, k: u32) -> bool {
+        self.a_type == a
+            && self.b_type == b
+            && self.cd_type == cd
+            && self.m == m
+            && self.k == k
+            && self.supports_n(n)
+    }
 }
 
 /// Shape and element types of a valid block-scaled MMA configuration

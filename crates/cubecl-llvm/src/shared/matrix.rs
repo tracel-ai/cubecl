@@ -1,6 +1,6 @@
 //! Target-specific matrix lowering.
 
-use crate::prelude::*;
+use crate::{prelude::*, shared::to_llvm::lower_by_target};
 use cubecl_core::{
     ir::{
         dialect::matrix::{
@@ -35,32 +35,25 @@ impl CubeToLLVMType for MatrixType {
     }
 }
 
+/// A target without the lowering has advertised a matrix feature it cannot honour.
 macro_rules! dispatch_matrix_op {
     ($cube_op:ty, $method:ident) => {
-        #[op_interface_impl]
-        impl ToLLVMDialect for $cube_op {
-            fn rewrite(
-                &self,
-                ctx: &mut Context,
-                _rewriter: &mut DialectConversionRewriter,
-                _operands_info: &OperandsInfo,
-            ) -> Result<()> {
-                match ctx.target() {
-                    #[cfg(feature = "amdgpu")]
-                    LlvmTarget::AmdGpu => {
-                        crate::amdgpu::matrix::$method(self, ctx, _rewriter, _operands_info)
-                    }
-                    #[cfg(feature = "nvptx")]
-                    LlvmTarget::Nvptx => {
-                        crate::nvptx::matrix::$method(self, ctx, _rewriter, _operands_info)
-                    }
-                    target => input_err!(
-                        self.loc(ctx),
-                        MatrixOpUnsupported(target, stringify!($cube_op))
-                    ),
-                }
+        dispatch_matrix_op!(
+            $cube_op,
+            [
+                "amdgpu" AmdGpu => crate::amdgpu::matrix::$method,
+                "nvptx" Nvptx => crate::nvptx::matrix::$method,
+            ]
+        );
+    };
+    ($cube_op:ty, [$($targets:tt)*]) => {
+        lower_by_target!(
+            $cube_op,
+            [$($targets)*],
+            |op: &$cube_op, ctx: &mut Context, _: &mut DialectConversionRewriter, target| -> Result<()> {
+                input_err!(op.loc(ctx), MatrixOpUnsupported(target, stringify!($cube_op)))
             }
-        }
+        );
     };
 }
 
@@ -78,26 +71,7 @@ dispatch_matrix_op!(StMatrixOp, st_matrix);
 /// Warpgroup MMA is Hopper's alone, so only NVPTX lowers it.
 macro_rules! dispatch_wgmma_op {
     ($cube_op:ty, $method:ident) => {
-        #[op_interface_impl]
-        impl ToLLVMDialect for $cube_op {
-            fn rewrite(
-                &self,
-                ctx: &mut Context,
-                _rewriter: &mut DialectConversionRewriter,
-                _operands_info: &OperandsInfo,
-            ) -> Result<()> {
-                match ctx.target() {
-                    #[cfg(feature = "nvptx")]
-                    LlvmTarget::Nvptx => {
-                        crate::nvptx::wgmma::$method(self, ctx, _rewriter, _operands_info)
-                    }
-                    target => input_err!(
-                        self.loc(ctx),
-                        MatrixOpUnsupported(target, stringify!($cube_op))
-                    ),
-                }
-            }
-        }
+        dispatch_matrix_op!($cube_op, ["nvptx" Nvptx => crate::nvptx::wgmma::$method]);
     };
 }
 

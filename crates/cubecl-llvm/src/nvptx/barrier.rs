@@ -40,17 +40,9 @@ pub(crate) fn barrier_ptr(
     Ok(as_shared(ctx, rw, barrier))
 }
 
+/// A `u32` operand as the 32-bit integer the instructions take.
 fn u32_operand(ctx: &mut Context, rw: &mut DialectConversionRewriter, value: Value) -> Value {
-    let i32_ty = i32_ty(ctx);
-    if value.get_type(ctx) == i32_ty {
-        return value;
-    }
-    let op = llvm::ZExtOp::new_with_nneg(ctx, value, i32_ty, false);
-    insert(ctx, rw, &op)
-}
-
-fn i64_ty(ctx: &mut Context) -> TypeHandle {
-    IntegerType::get(ctx, 64, Signedness::Signless).into()
+    resize_int(ctx, rw, value, 32, false).expect("barrier counts are integers")
 }
 
 /// The 32-bit shared address an inline `mbarrier` instruction takes.

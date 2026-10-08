@@ -1,6 +1,6 @@
 //! Target-specific tensor memory accelerator lowering, and the types it passes around.
 
-use crate::prelude::*;
+use crate::{prelude::*, shared::to_llvm::lower_by_target};
 use cubecl_core::ir::{
     dialect::{
         barrier::MemCopyAsyncTxOp,
@@ -33,27 +33,16 @@ impl CubeToLLVMType for BarrierTokenType {
     }
 }
 
+/// TMA is Hopper's, so only NVPTX lowers it.
 macro_rules! dispatch_tma_op {
     ($cube_op:ty, $method:ident) => {
-        #[op_interface_impl]
-        impl ToLLVMDialect for $cube_op {
-            fn rewrite(
-                &self,
-                ctx: &mut Context,
-                _rewriter: &mut DialectConversionRewriter,
-                _operands_info: &OperandsInfo,
-            ) -> Result<()> {
-                match ctx.target() {
-                    #[cfg(feature = "nvptx")]
-                    LlvmTarget::Nvptx => {
-                        crate::nvptx::tma::$method(self, ctx, _rewriter, _operands_info)
-                    }
-                    target => {
-                        input_err!(self.loc(ctx), TmaUnsupported(target, stringify!($cube_op)))
-                    }
-                }
+        lower_by_target!(
+            $cube_op,
+            ["nvptx" Nvptx => crate::nvptx::tma::$method],
+            |op: &$cube_op, ctx: &mut Context, _: &mut DialectConversionRewriter, target| -> Result<()> {
+                input_err!(op.loc(ctx), TmaUnsupported(target, stringify!($cube_op)))
             }
-        }
+        );
     };
 }
 

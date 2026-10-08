@@ -64,7 +64,7 @@ pub fn kernel_wgmma<A: Scalar, B: Scalar, CD: Numeric>(
     #[comptime] k_tiles: usize,
     #[comptime] a_in_registers: bool,
 ) {
-    let def = wgmma::WgmmaDefinition::<A, B, CD>::new(64usize, n, k);
+    let def = wgmma::WgmmaDefinition::<A, B, CD>::new(n);
     let size_k = comptime![k * k_tiles];
     let tile_a = comptime![64 * k];
     let tile_b = comptime![n * k];

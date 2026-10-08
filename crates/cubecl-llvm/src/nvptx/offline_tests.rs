@@ -130,8 +130,8 @@ fn loop_body(ptx: &str) -> Option<String> {
     None
 }
 
-/// The PTX `kernel` compiles to for `sm_{arch}`.
-fn ptx_of(kernel: impl CubeKernel, arch: u32) -> String {
+/// The module `kernel` compiles to for `sm_{arch}`.
+fn module_of(kernel: impl CubeKernel, arch: u32) -> crate::NvptxModule {
     let mut compiler = PlironCompiler {
         target: LlvmTarget::Nvptx,
     };
@@ -144,6 +144,12 @@ fn ptx_of(kernel: impl CubeKernel, arch: u32) -> String {
     else {
         unreachable!("the NVPTX target produces PTX");
     };
+    module
+}
+
+/// The PTX `kernel` compiles to for `sm_{arch}`.
+fn ptx_of(kernel: impl CubeKernel, arch: u32) -> String {
+    let module = module_of(kernel, arch);
     // SAFETY: the module's PTX is NUL-terminated.
     unsafe { CStr::from_ptr(module.ptx.as_ptr()) }
         .to_string_lossy()
@@ -264,6 +270,22 @@ fn a_tensor_map_is_a_grid_constant_parameter() {
         !ptx.contains("st.local") && !ptx.contains("ld.local"),
         "the map was copied to local memory:\n{ptx}"
     );
+
+    // The map is no buffer, so it gets none of their aliasing promises, while the output does.
+    let ir = module_of(crate::shared::offline_kernels::tma_tile_load_kernel(), 90).ir;
+    let define = ir
+        .lines()
+        .find(|line| line.starts_with("define"))
+        .unwrap_or_else(|| panic!("no entry point:\n{ir}"));
+    let (map, rest) = define
+        .split_once("%0,")
+        .unwrap_or_else(|| panic!("no map parameter: {define}"));
+    assert!(map.contains("nvvm.grid_constant"), "{map}");
+    assert!(
+        !map.contains("noalias") && !map.contains("readonly"),
+        "{map}"
+    );
+    assert!(rest.contains("noalias"), "{rest}");
 }
 
 /// A tiled load completes on the barrier as a transaction: the units expect its bytes, arrive,

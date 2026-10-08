@@ -417,9 +417,10 @@ fn warpgroup_product<I: Numeric, A: Numeric>(
     #[comptime] k: usize,
     #[comptime] a_in_registers: bool,
 ) {
-    let def = wgmma::WgmmaDefinition::<I, I, A>::new(64usize, n, k);
+    let def = wgmma::WgmmaDefinition::<I, I, A>::new(n);
     let mut smem_a = Shared::new_aligned_slice(64 * k, 128usize);
-    let mut smem_b = Shared::new_aligned_slice(n * k, 128usize);
+    // `B` is swizzled 32 bytes wide, a pattern that repeats every 256.
+    let mut smem_b = Shared::new_aligned_slice(n * k, 256usize);
     let unit = UNIT_POS as usize;
     if unit < 64 * k {
         smem_a[unit] = lhs[unit];

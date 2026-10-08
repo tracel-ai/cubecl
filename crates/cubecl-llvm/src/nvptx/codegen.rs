@@ -142,6 +142,7 @@ fn finalize(
         &entry_fn,
         &entry.io,
         &entry.atomic_reads,
+        &entry.tensor_maps,
         entry.metadata.count(),
     );
     if let MetadataParams::GridConstant { bytes, .. } = entry.metadata {
