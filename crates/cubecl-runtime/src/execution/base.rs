@@ -6,13 +6,13 @@ use super::{ProcessMode, ServiceStream, StreamMode};
 pub enum LaunchMode {
     /// Compile if needed, then run it. The normal case.
     Execute,
-    /// Compile if needed, cache the artifact, and drop the launch.
+    /// Compile if needed, cache the artifact, and discard the launch.
     ///
     /// A server honoring this must still do everything a first launch does
     /// short of dispatching — expand, compile, validate, populate its caches —
     /// or the pass buys nothing.
     Compile,
-    /// Queue the kernel to be compiled with others, and drop the launch.
+    /// Queue the kernel to be compiled with others, and discard the launch.
     ///
     /// A server honoring this compiles the queue when it next loads a kernel
     /// for a launch, and only then: flushing or syncing compiles nothing, so
@@ -35,8 +35,8 @@ impl LaunchMode {
         }
     }
 
-    /// Whether the launch is dropped rather than run.
-    pub fn drops_launch(self) -> bool {
+    /// Whether the launch is discarded rather than run.
+    pub fn discards_launch(self) -> bool {
         matches!(self, Self::Compile | Self::Queue)
     }
 }

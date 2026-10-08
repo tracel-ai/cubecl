@@ -143,7 +143,7 @@ pub struct MemoryPoolReport {
     /// pages the workload needed at its peak.
     pub pages_peak: u64,
     /// How many of the current pages have no device backing yet — carved under
-    /// a process mode that drops launches and never resolved into anything that
+    /// a process mode that discards launches and never resolved into anything that
     /// executes. They count toward `pages`/`pages_peak` (the plan is the
     /// *reserved* stream) while costing no device memory; `pages -
     /// pages_unmapped` is the footprint, in this pool, of what launches that

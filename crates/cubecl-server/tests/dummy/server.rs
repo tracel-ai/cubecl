@@ -237,7 +237,7 @@ impl<M: Marker> Server for DummyServer<M> {
                 // readable for whatever launches next on them.
                 let error = ServerError::from(cubecl_server::server::LaunchError::from(err));
                 self.timestamps.failure(&error);
-                if !launch_mode.drops_launch() {
+                if !launch_mode.discards_launch() {
                     let written: Vec<_> = bindings.buffers_written(None).cloned().collect();
                     self.taint(error, written.iter());
                 }
@@ -247,8 +247,8 @@ impl<M: Marker> Server for DummyServer<M> {
 
         // Compiled above, exactly as a real server does — and, exactly as a
         // real server does, a skipped launch stops before anything touches a
-        // buffer, so a dropped launch's lazily-carved allocations stay unmapped.
-        if launch_mode.drops_launch() {
+        // buffer, so a discarded launch's lazily-carved allocations stay unmapped.
+        if launch_mode.discards_launch() {
             return;
         }
 

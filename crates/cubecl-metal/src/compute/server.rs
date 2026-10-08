@@ -361,7 +361,7 @@ impl Server for MetalServer {
         // refuse every later launch that shares them, an autotune sweep
         // above all.
         //
-        // A dropped launch stages none either way. It was never going to write, so a
+        // A discarded launch stages none either way. It was never going to write, so a
         // failure in it leaves nothing stale, and tainting its buffers would
         // fail unrelated reads of memory the run deliberately left alone.
         if launch_mode == LaunchMode::Queue {
@@ -376,7 +376,7 @@ impl Server for MetalServer {
         let compiled = match compiled {
             Ok(compiled) => compiled,
             Err(err) => {
-                if !launch_mode.drops_launch() {
+                if !launch_mode.discards_launch() {
                     let mut written = self.write_set();
                     written.extend(bindings.buffers_written(None).cloned());
                     failed_writing(self, stream_id, written, ServerError::Launch(err));
@@ -386,7 +386,7 @@ impl Server for MetalServer {
                 return;
             }
         };
-        if launch_mode.drops_launch() {
+        if launch_mode.discards_launch() {
             return;
         }
         let kernel_id = id.kernel;

@@ -1144,9 +1144,9 @@ impl Client {
         // out on: the server receives the verdict, not what decided it.
         let launch_mode = crate::execution::LaunchMode::new(self.service_stream());
 
-        // A dropped launch runs nothing to time, and a backend timing windows by the
+        // A discarded launch runs nothing to time, and a backend timing windows by the
         // timestamps its passes write reports a window around one as never measured.
-        let timed = !launch_mode.drops_launch();
+        let timed = !launch_mode.discards_launch();
         let level = self.utilities.logger.profile_level().filter(|_| timed);
 
         // Before the submit, on the issuing thread: this is the last point at

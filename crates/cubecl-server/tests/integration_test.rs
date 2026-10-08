@@ -1374,8 +1374,9 @@ fn autotune_stops_sampling_an_eliminated_candidate() {
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 
-/// An override that drops launches drops an ordinary launch: the server still compiles the kernel,
-/// exactly as it would otherwise, and then never runs it.
+/// An override that discards launches discards an ordinary launch: the server
+/// still compiles the kernel, exactly as it would otherwise, and then never
+/// runs it.
 ///
 /// This is the mode's whole promise and its whole hazard in one assertion — a
 /// pass under it runs for the shapes it provokes, and anything it reads back
@@ -1383,7 +1384,7 @@ fn autotune_stops_sampling_an_eliminated_candidate() {
 #[test_log::test]
 #[cfg(feature = "std")]
 #[serial_test::serial]
-fn an_override_drops_an_ordinary_launch() {
+fn an_override_discards_an_ordinary_launch() {
     use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
 
     let client = test_client(&DummyDevice);
@@ -1411,7 +1412,7 @@ fn an_override_drops_an_ordinary_launch() {
         assert_eq!(
             client.read_one(out.clone()).unwrap().to_vec(),
             Vec::from([9, 9, 9]),
-            "the launch was compiled and then dropped, so the output is untouched"
+            "the launch was compiled and then discarded, so the output is untouched"
         );
         core::mem::drop(tune);
     }
@@ -1426,7 +1427,7 @@ fn an_override_drops_an_ordinary_launch() {
 /// A stream's mode follows the stream a client's launches go out on, not the
 /// thread that set it: a client bound to a stream of its own keeps executing
 /// when its launches are issued from another thread, while the thread's own
-/// stream still drops them.
+/// stream still discards them.
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::serial]
@@ -1445,7 +1446,7 @@ fn a_stream_mode_follows_its_client_across_threads() {
     };
     let lhs = client.create_from_slice(&[0, 1, 2]);
     let rhs = client.create_from_slice(&[4, 4, 4]);
-    let (executed, dropped) = (
+    let (executed, discarded) = (
         client.create_from_slice(&[9, 9, 9]),
         client.create_from_slice(&[9, 9, 9]),
     );
@@ -1468,16 +1469,16 @@ fn a_stream_mode_follows_its_client_across_threads() {
         std::thread::scope(|scope| {
             scope.spawn(|| add(&bound, &executed));
         });
-        add(&client, &dropped);
+        add(&client, &discarded);
         core::mem::drop(measuring);
         core::mem::drop(tune);
     }
 
     assert_eq!(client.read_one(executed).unwrap().to_vec(), vec![4, 5, 6]);
     assert_eq!(
-        client.read_one(dropped).unwrap().to_vec(),
+        client.read_one(discarded).unwrap().to_vec(),
         vec![9, 9, 9],
-        "the thread's own stream still drops"
+        "the thread's own stream still discards"
     );
 }
 
@@ -1701,7 +1702,7 @@ fn a_key_reached_inside_another_registers_only_once_tuned() {
     );
 }
 
-/// The other half of what dropping launches leaves alone: memory. A reservation no
+/// The other half of what discarding launches leaves alone: memory. A reservation no
 /// executed launch, read or write ever touches gets no device backing — the
 /// skipped launch resolves nothing — and backing is installed on demand the
 /// first time the buffer is actually dereferenced.
@@ -1738,7 +1739,7 @@ fn an_override_reserves_without_mapping() {
     }
 
     // A workload-sized buffer, launched against only under the override: the
-    // launch is compiled and dropped before resolving any resource.
+    // launch is compiled and discarded before resolving any resource.
     let out = client.empty(SIZE as usize);
     client.launch(
         Box::new(KernelTask::new(DummyElementwiseAddition)),

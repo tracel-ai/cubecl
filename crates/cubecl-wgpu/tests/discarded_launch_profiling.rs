@@ -1,4 +1,4 @@
-//! A dropped launch under the profiling logger, which times every launch.
+//! A discarded launch under the profiling logger, which times every launch.
 //!
 //! wgpu times a window with the timestamps its compute passes write, and a launch an execution
 //! override drops opens no pass.
@@ -18,7 +18,7 @@ fn fill(out: &mut [u32]) {
 }
 
 #[test]
-fn a_dropped_launch_is_issued_under_the_profiling_logger() {
+fn a_discarded_launch_is_issued_under_the_profiling_logger() {
     let mut config = CubeClRuntimeConfig::default();
     config.profiling.logger.level = ProfilingLogLevel::Medium;
     CubeClRuntimeConfig::set(config);
@@ -38,5 +38,5 @@ fn a_dropped_launch_is_issued_under_the_profiling_logger() {
 
     client
         .read_one(out)
-        .expect("a dropped launch fails nothing it would have written");
+        .expect("a discarded launch fails nothing it would have written");
 }

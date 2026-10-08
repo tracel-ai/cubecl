@@ -5,7 +5,7 @@
 //! measured, of which only the winner is ever launched again. Replaying the
 //! workload the environment is shipped for, under a [`LaunchedKernels`], names
 //! exactly the kernels it runs; everything else in the compilation store can
-//! go. The replay may run under a process mode that drops launches: a dropped launch
+//! go. The replay may run under a process mode that discards launches: a discarded launch
 //! is still issued, and so still collected.
 //!
 //! Collected on the issuing thread, where every backend's launch passes, by

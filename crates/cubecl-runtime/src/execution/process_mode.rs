@@ -6,11 +6,11 @@ use cubecl_environment::sync::{AtomicUsize, Mutex, Ordering};
 pub enum ProcessMode {
     /// Launches run. What the process does when no override is open.
     Execute,
-    /// Launches and tune candidates queue their kernels and are dropped. The
+    /// Launches and tune candidates queue their kernels and are discarded. The
     /// queue compiles in one batch, at the next launch that loads a kernel. A
     /// tune measures and decides nothing.
     CompileOnly,
-    /// Launches compile their kernels and are dropped. A tune measures its
+    /// Launches compile their kernels and are discarded. A tune measures its
     /// candidates for real.
     CompileAndAutotune,
 }
@@ -254,7 +254,7 @@ mod tests {
     #[should_panic(
         expected = "an override of CompileOnly cannot open while one of CompileAndAutotune is"
     )]
-    fn policies_do_not_overlap() {
+    fn process_modes_do_not_overlap() {
         let collector = StatisticsCollector::new();
         let opened = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
         let refused = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);

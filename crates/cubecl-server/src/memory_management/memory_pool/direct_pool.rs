@@ -19,7 +19,7 @@ use cubecl_environment::backtrace::BackTrace;
 /// demands. What it pays for that is driver traffic, which is what the other
 /// pools exist to avoid.
 ///
-/// That trade is worth making in two places. Under a process mode that drops launches
+/// That trade is worth making in two places. Under a process mode that discards launches
 /// ([`ProcessMode`](crate::execution::ProcessMode)) the traffic is
 /// free: reservations are [`PageMapping::Lazy`], so a slice nothing resolves is
 /// a minted id that costs no driver call to create and none to release. And on

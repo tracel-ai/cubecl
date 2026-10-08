@@ -404,7 +404,7 @@ mod tests {
     }
 
     /// A failure that tainted nothing is pruned rather than retained: a
-    /// dropped launch's compile error, say, has no buffer to name.
+    /// discarded launch's compile error, say, has no buffer to name.
     #[test]
     fn a_failure_that_tainted_nothing_is_pruned() {
         let mut graph = ErrorGraph::default();

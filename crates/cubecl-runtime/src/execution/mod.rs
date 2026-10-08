@@ -16,7 +16,7 @@
 //! a kernel — the first of a [`CompileAndAutotune`](ProcessMode::CompileAndAutotune)
 //! pass, or the first tune before it measures — which compiles the whole
 //! queue in one batch. Under `CompileAndAutotune` every launch compiles its
-//! kernel and is dropped, and the tunes measure. A workload then pays for
+//! kernel and is discarded, and the tunes measure. A workload then pays for
 //! compilation and tuning without paying for the work that provoked them,
 //! which is what makes producing a shippable environment affordable.
 //!
@@ -25,7 +25,7 @@
 //! thread: the kernels obtained and the tunes measured, counted to it by the
 //! code doing the work, on every device.
 //!
-//! **Buffers are left as they were** under either process mode that drops
+//! **Buffers are left as they were** under either process mode that discards
 //! launches, so anything read back is meaningless. It only suits a pass
 //! driven by the *shapes* it produces, which is what keys the caches, and
 //! never one that branches on a computed value.

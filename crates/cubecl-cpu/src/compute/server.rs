@@ -352,18 +352,18 @@ impl Server for CpuServer {
         // refuse every later launch that shares them, an autotune sweep
         // above all.
         //
-        // A dropped launch stages none either way. It was never going to write, so a
+        // A discarded launch stages none either way. It was never going to write, so a
         // failure in it leaves nothing stale, and tainting its buffers would
         // fail unrelated reads of memory the run deliberately left alone. It
         // stops right after compilation, before anything that touches a
         // buffer: resolving resources or reading a dynamic cube count would
-        // materialize memory dropping a launch exists to leave unmapped. It registers
+        // materialize memory discarding a launch exists to leave unmapped. It registers
         // no stream dependency either, which is correct rather than an
         // oversight — nothing is scheduled, so there is no work for a later
         // stream to order against.
         // Storage bases and pool offsets are 64-byte aligned. A view can weaken that
         // guarantee, so cache a separate specialization for its common alignment.
-        // Inspect only descriptors: dropped launches must not materialize any buffer.
+        // Inspect only descriptors: discarded launches must not materialize any buffer.
         let alignment =
             bindings
                 .resources
@@ -395,7 +395,7 @@ impl Server for CpuServer {
             Err(err) => {
                 let error = ServerError::Launch(err);
                 self.scheduler.stream(&stream_id).profile_failure(&error);
-                if !launch_mode.drops_launch() {
+                if !launch_mode.discards_launch() {
                     let mut written = self.write_set();
                     written.extend(bindings.buffers_written(None).cloned());
                     failed_writing(self, stream_id, written, error);
@@ -403,7 +403,7 @@ impl Server for CpuServer {
                 return;
             }
         };
-        if launch_mode.drops_launch() {
+        if launch_mode.discards_launch() {
             return;
         }
 
