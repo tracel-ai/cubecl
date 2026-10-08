@@ -2,6 +2,9 @@
 //! autotuned workload: a vector scaled by two factors at three sizes, each
 //! launch picking between a scalar and a vectorized kernel by measuring them.
 //!
+//! - **A direct run**, for comparison: the workload executes from a cold
+//!   start, compiling and tuning as it reaches each kernel and key, then once
+//!   more warmed up.
 //! - **A build** runs the workload twice. Under
 //!   [`ProcessMode::CompileOnly`] every launch and every tune only queues its
 //!   kernels; under [`ProcessMode::CompileAndAutotune`] the queue compiles in
@@ -14,9 +17,11 @@
 //!   [`StreamModeOverride`] puts one client's stream back in
 //!   [`StreamMode::Execute`].
 //!
-//! Tune picks persist in the active environment, so a second run of the
-//! example measures nothing; a runtime that stores its compiled kernels loads
-//! them rather than compiling them again.
+//! Each prints how long it took. Both start cold: the example keeps its
+//! environments in a directory of its own, emptied for every run, and the two
+//! scale by different factors, so neither reuses a kernel or a tune of the
+//! other's — a runtime that does not store its kernels keeps them across
+//! environments.
 
 use cubecl::{
     Device,
@@ -31,7 +36,7 @@ use cubecl::{
     tune::{CloneInputGenerator, LocalTuner, Tunable, TunableSet, local_tuner},
 };
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Every element of `input` times `factor`, into `output`.
 #[cube(launch_unchecked)]
@@ -45,9 +50,11 @@ fn scale<F: Float, N: Size>(
     }
 }
 
-/// The workload's factors: each is a kernel of its own, since it is known at
-/// compile time.
-const FACTORS: [u32; 2] = [2, 3];
+/// The direct run's factors: each is a kernel of its own, since it is known
+/// at compile time.
+const DIRECT_FACTORS: [u32; 2] = [2, 3];
+/// The build's factors: as many as the direct run's, and none of them.
+const BUILD_FACTORS: [u32; 2] = [5, 7];
 /// The workload's sizes: each is an autotune key of its own.
 const LENGTHS: [usize; 3] = [1 << 12, 1 << 16, 1 << 20];
 /// How many elements one unit scales per launch row.
@@ -55,40 +62,73 @@ const UNITS: u32 = 256;
 
 static TUNER: LocalTuner<String, String> = local_tuner!("scale");
 
-/// Build an environment, check a warmed-up run compiles nothing, and measure
-/// beside a process that discards its launches.
+/// Run the workload directly, then build it and run it warmed up, timing
+/// each, and measure beside a process that discards its launches.
 pub fn run(device: &Device) {
     let client = device.client();
+    // After the client: bringing it up applies cubecl's configuration, which
+    // sets the root of its own.
+    let root = std::env::temp_dir().join(format!("cubecl-execution-{}", std::process::id()));
+    cubecl::environment::set_root(&root);
     println!("Running on {}", client.name());
 
+    cubecl::environment::activate("direct");
+    let cold = timed(&client, || workload(&client, DIRECT_FACTORS));
+    let warmed = timed(&client, || workload(&client, DIRECT_FACTORS));
+    println!(
+        "Direct run: {} cold, compiling and tuning as it goes; {} warmed up",
+        Millis(cold),
+        Millis(warmed)
+    );
+
+    cubecl::environment::activate("build");
     let build = StatisticsCollector::new();
+    let mut passes = Vec::new();
     let built = watching(build.reader(), || {
         for mode in [ProcessMode::CompileOnly, ProcessMode::CompileAndAutotune] {
             let pass = ProcessModeOverride::new(mode, &build);
-            workload(&client);
-            // Drained under the override: a launch issued after it closes
-            // runs for real.
-            block_on(client.sync()).expect("the device is up");
+            // Drained under the override, which `timed` does: a launch
+            // issued after it closes runs for real.
+            passes.push((mode, timed(&client, || workload(&client, BUILD_FACTORS))));
             core::mem::drop(pass);
         }
     });
+    for (mode, took) in &passes {
+        println!("{mode:?} pass: {}", Millis(*took));
+    }
     println!("Built: {}", Summary(built));
 
     let warm = StatisticsCollector::new();
-    {
-        let counted = ProcessModeOverride::new(ProcessMode::Execute, &warm);
-        workload(&client);
-        block_on(client.sync()).expect("the device is up");
-        core::mem::drop(counted);
-    }
-    println!("Warmed-up run: {}", Summary(warm.statistics()));
+    let counted = ProcessModeOverride::new(ProcessMode::Execute, &warm);
+    let executed = timed(&client, || workload(&client, BUILD_FACTORS));
+    core::mem::drop(counted);
+    println!(
+        "Built run: {} executing, having compiled nothing and tuned nothing: {}",
+        Millis(executed),
+        Summary(warm.statistics())
+    );
+    let building: Duration = passes.iter().map(|(_, took)| *took).sum();
+    println!(
+        "Build and run: {}, against {} run directly",
+        Millis(building + executed),
+        Millis(cold)
+    );
 
     measurement_beside_discarded_work(&client);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// How long `work` takes, its launches drained.
+fn timed(client: &Client, work: impl FnOnce()) -> Duration {
+    let started = Instant::now();
+    work();
+    block_on(client.sync()).expect("the device is up");
+    started.elapsed()
 }
 
 /// The workload: every factor at every length, each launch autotuned.
-fn workload(client: &Client) {
-    for factor in FACTORS {
+fn workload(client: &Client, factors: [u32; 2]) {
+    for factor in factors {
         let tuned = format!("scale-x{factor}");
         let set = TUNER.init(&tuned, {
             let client = client.clone();
@@ -224,5 +264,14 @@ impl std::fmt::Display for Summary {
             autotune.measured,
             autotune.failed,
         )
+    }
+}
+
+/// A [`Duration`] in milliseconds.
+struct Millis(Duration);
+
+impl std::fmt::Display for Millis {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:.1} ms", self.0.as_secs_f64() * 1000.0)
     }
 }
