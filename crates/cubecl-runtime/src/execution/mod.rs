@@ -34,12 +34,12 @@
 //! out on, and handed to the server as a [`LaunchMode`].
 
 mod base;
-mod policy;
+mod process_mode;
 mod statistics;
 mod stream_mode;
 
 pub use base::LaunchMode;
-pub use policy::{ExecutionOverride, ExecutionPolicy};
+pub use process_mode::{ExecutionOverride, ExecutionPolicy};
 pub use statistics::{
     AutotuneStatistics, CompilationStatistics, ExecutionStatistics, KernelLoad, KernelOutcome,
     KernelRegistration, Registration, SettledKernel, StatisticsCollector, StatisticsReader,
