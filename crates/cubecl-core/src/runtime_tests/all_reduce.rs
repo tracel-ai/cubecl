@@ -2,8 +2,14 @@ use crate::prelude::*;
 use alloc::vec::Vec;
 use cubecl_common::device::Device;
 use cubecl_runtime::runtime::Runtime;
+use std::sync::{Mutex, PoisonError};
+
+/// Tests in one process share each device's communicators, which pair `all_reduce` calls in the
+/// order each device queues them, so the tests queue theirs one at a time.
+static COLLECTIVES: Mutex<()> = Mutex::new(());
 
 pub fn test_all_reduce_sync_collective<R: Runtime>() {
+    let _collectives = COLLECTIVES.lock().unwrap_or_else(PoisonError::into_inner);
     let type_id = 0;
     let device_ids = R::enumerate_devices(type_id);
     let device_count = device_ids.len();
@@ -71,6 +77,7 @@ pub fn test_all_reduce_sync_collective<R: Runtime>() {
 /// One thread queues `all_reduce` calls over two devices device by device, as a gradient sync
 /// does, while two other threads transfer between the same devices, one each way.
 pub fn test_all_reduce_beside_transfers<R: Runtime>() {
+    let _collectives = COLLECTIVES.lock().unwrap_or_else(PoisonError::into_inner);
     const ROUNDS: usize = 20;
     const HANDLES: usize = 8;
     const SIZE: usize = 64;

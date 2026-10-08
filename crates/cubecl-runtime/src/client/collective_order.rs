@@ -17,15 +17,17 @@ pub static COLLECTIVE_ORDER: CollectiveOrder = CollectiveOrder::new();
 #[cfg(feature = "std")]
 const WAIT_WARNING: core::time::Duration = core::time::Duration::from_secs(10);
 
-/// Queues collective operations so every device sees them in one order: the parts of
-/// `all_reduce` calls queue side by side, and a transfer queues alone, held back while an
-/// `all_reduce` is queued on some of its devices and not yet on the others.
+/// Gives collective operations one order on every device: each takes its places in the lines of
+/// its devices at once, then queues on each device in turn. A transfer takes its places only once
+/// no `all_reduce` over its devices is queued on some of them and not yet on the others.
+///
+/// Nothing queues while holding the order: a device's queue can be full while its thread waits on
+/// another device, whose part may be next in line behind the order.
 pub struct CollectiveOrder {
-    /// Shared by `all_reduce` parts, and held alone by a transfer.
-    queueing: RwLock<()>,
-    groups: ReduceGroups,
-    /// Held while a group is added, so the ranks of a new group add it once.
-    adding: Mutex<()>,
+    /// Shared by `all_reduce` parts taking a place, and held alone by a transfer taking its two.
+    placing: RwLock<()>,
+    groups: AddOnlyList<ReduceGroup>,
+    lines: AddOnlyList<DeviceLine>,
     /// Taken to wake waiting transfers, so the wake cannot fall between a transfer's last look
     /// and its wait.
     rejoin: Mutex<()>,
@@ -36,30 +38,31 @@ pub struct CollectiveOrder {
 impl CollectiveOrder {
     const fn new() -> Self {
         Self {
-            queueing: RwLock::new(()),
-            groups: ReduceGroups::new(),
-            adding: Mutex::new(()),
+            placing: RwLock::new(()),
+            groups: AddOnlyList::new(),
+            lines: AddOnlyList::new(),
             rejoin: Mutex::new(()),
             #[cfg(feature = "std")]
             rejoined: Condvar::new(),
         }
     }
 
-    /// Runs `queue`, which queues both halves of a transfer between `source` and `destination`,
-    /// once no `all_reduce` over either device is split: the transfer would land between its
-    /// halves, and the two devices would pair them in opposite orders.
-    pub fn transfer<R>(
+    /// Runs `send` in its turn on `source`, then `receive` in its turn on `destination`, once no
+    /// `all_reduce` over either device is split: the transfer would land between its parts, and
+    /// the two devices would pair them in opposite orders.
+    pub fn transfer(
         &self,
         source: DeviceId,
         destination: DeviceId,
-        queue: impl FnOnce() -> R,
-    ) -> R {
-        let mut queueing = self.queueing.write();
+        send: impl FnOnce(),
+        receive: impl FnOnce(),
+    ) {
+        let mut placing = self.placing.write();
         while let Some(split) = self.split_over(source, destination) {
             #[cfg_attr(not(feature = "std"), allow(unused_mut))]
             let mut rejoin = self.rejoin.lock();
-            // The parts still missing queue on the shared side.
-            drop(queueing);
+            // The parts still missing take their places on the shared side.
+            drop(placing);
             #[cfg(feature = "std")]
             if self
                 .rejoined
@@ -75,27 +78,33 @@ impl CollectiveOrder {
             drop(rejoin);
             #[cfg(not(feature = "std"))]
             core::hint::spin_loop();
-            queueing = self.queueing.write();
+            placing = self.placing.write();
         }
-        let output = queue();
-        drop(queueing);
-        output
+        let sending = self.line(source).take();
+        let receiving = self.line(destination).take();
+        drop(placing);
+        sending.queue(send);
+        receiving.queue(receive);
     }
 
-    /// Runs `queue` with `devices`, to queue `rank`'s part of an `all_reduce` over them.
+    /// Runs `queue` with `devices` in `rank`'s turn, to queue its part of an `all_reduce` over
+    /// them.
     pub fn all_reduce<R>(
         &self,
         rank: DeviceId,
         devices: Vec<DeviceId>,
         queue: impl FnOnce(Vec<DeviceId>) -> R,
     ) -> R {
-        let _queueing = self.queueing.read();
-        if self.count(rank, &devices) {
-            let _rejoin = self.rejoin.lock();
-            #[cfg(feature = "std")]
-            self.rejoined.notify_all();
-        }
-        queue(devices)
+        let place = {
+            let _placing = self.placing.read();
+            if self.count(rank, &devices) {
+                let _rejoin = self.rejoin.lock();
+                #[cfg(feature = "std")]
+                self.rejoined.notify_all();
+            }
+            self.line(rank).take()
+        };
+        place.queue(|| queue(devices))
     }
 
     /// The devices of an `all_reduce` split across `source` or `destination`, if there is one.
@@ -109,70 +118,163 @@ impl CollectiveOrder {
     /// Counts an `all_reduce` `rank` queued over `devices`, and returns whether every one of them
     /// has now queued as many.
     fn count(&self, rank: DeviceId, devices: &[DeviceId]) -> bool {
-        if let Some(group) = self.groups.find(devices) {
-            return group.count(rank);
-        }
-        let _adding = self.adding.lock();
-        let group = match self.groups.find(devices) {
-            Some(group) => group,
-            None => self.groups.push(ReduceGroup::over(devices)),
-        };
-        group.count(rank)
+        self.groups
+            .find_or_add(
+                |group| group.is_over(devices),
+                || ReduceGroup::over(devices),
+            )
+            .count(rank)
+    }
+
+    fn line(&self, device: DeviceId) -> &DeviceLine {
+        self.lines
+            .find_or_add(|line| line.device == device, || DeviceLine::new(device))
     }
 }
 
-/// Every set of devices an `all_reduce` has run over, newest first. Groups are only ever added,
-/// and only freed with the list, so ranks walk it without a lock.
-struct ReduceGroups {
-    newest: AtomicPtr<ReduceNode>,
+/// A list that only grows, so readers walk it without a lock, and that frees its items with
+/// itself. Its atomic pointer makes it `Sync` whatever it holds, hence the bound.
+struct AddOnlyList<T: Send + Sync> {
+    newest: AtomicPtr<Node<T>>,
+    adding: Mutex<()>,
 }
 
-struct ReduceNode {
-    group: ReduceGroup,
-    older: *mut ReduceNode,
+struct Node<T> {
+    item: T,
+    older: *mut Node<T>,
 }
 
-impl ReduceGroups {
+impl<T: Send + Sync> AddOnlyList<T> {
     const fn new() -> Self {
         Self {
             newest: AtomicPtr::new(core::ptr::null_mut()),
+            adding: Mutex::new(()),
         }
     }
 
-    fn iter(&self) -> impl Iterator<Item = &ReduceGroup> + '_ {
+    fn iter(&self) -> impl Iterator<Item = &T> + '_ {
         let mut node = self.newest.load(Ordering::Acquire);
         core::iter::from_fn(move || {
-            // SAFETY: `push` builds a node before publishing it, and only `drop`, which has no
+            // SAFETY: a node is built before it is published, and only `drop`, which has no
             // reader left, frees it.
             let current = unsafe { node.as_ref() }?;
             node = current.older;
-            Some(&current.group)
+            Some(&current.item)
         })
     }
 
-    fn find(&self, devices: &[DeviceId]) -> Option<&ReduceGroup> {
-        self.iter().find(|group| group.is_over(devices))
-    }
-
-    /// Adds `group`. Callers hold [`CollectiveOrder::adding`], so no other push races this one.
-    fn push(&self, group: ReduceGroup) -> &ReduceGroup {
+    /// The item that `matches`, added from `make` if there is none yet.
+    fn find_or_add(&self, matches: impl Fn(&T) -> bool, make: impl FnOnce() -> T) -> &T {
+        if let Some(item) = self.iter().find(|item| matches(item)) {
+            return item;
+        }
+        let _adding = self.adding.lock();
+        if let Some(item) = self.iter().find(|item| matches(item)) {
+            return item;
+        }
         let older = self.newest.load(Ordering::Relaxed);
-        let node = Box::into_raw(Box::new(ReduceNode { group, older }));
+        let node = Box::into_raw(Box::new(Node {
+            item: make(),
+            older,
+        }));
         self.newest.store(node, Ordering::Release);
         // SAFETY: the node was just published, and lives until `drop`.
-        unsafe { &(*node).group }
+        unsafe { &(*node).item }
     }
 }
 
-impl Drop for ReduceGroups {
+impl<T: Send + Sync> Drop for AddOnlyList<T> {
     fn drop(&mut self) {
         let mut node = *self.newest.get_mut();
         while !node.is_null() {
-            // SAFETY: every node came from `Box::into_raw` in `push`, and `&mut self` leaves no
-            // reader behind.
+            // SAFETY: every node came from `Box::into_raw` in `find_or_add`, and `&mut self`
+            // leaves no reader behind.
             let current = unsafe { Box::from_raw(node) };
             node = current.older;
         }
+    }
+}
+
+/// The places taken on one device, served in the order they were taken.
+struct DeviceLine {
+    device: DeviceId,
+    taken: AtomicUsize,
+    served: AtomicUsize,
+    #[cfg(feature = "std")]
+    waiting: AtomicUsize,
+    #[cfg(feature = "std")]
+    turn: Mutex<()>,
+    #[cfg(feature = "std")]
+    turned: Condvar,
+}
+
+impl DeviceLine {
+    fn new(device: DeviceId) -> Self {
+        Self {
+            device,
+            taken: AtomicUsize::new(0),
+            served: AtomicUsize::new(0),
+            #[cfg(feature = "std")]
+            waiting: AtomicUsize::new(0),
+            #[cfg(feature = "std")]
+            turn: Mutex::new(()),
+            #[cfg(feature = "std")]
+            turned: Condvar::new(),
+        }
+    }
+
+    fn take(&self) -> Place<'_> {
+        Place {
+            line: self,
+            number: self.taken.fetch_add(1, Ordering::Relaxed),
+        }
+    }
+
+    fn wait_for(&self, number: usize) {
+        #[cfg(feature = "std")]
+        if self.served.load(Ordering::Acquire) != number {
+            let mut turn = self.turn.lock();
+            self.waiting.fetch_add(1, Ordering::SeqCst);
+            while self.served.load(Ordering::SeqCst) != number {
+                self.turned.wait(&mut turn);
+            }
+            self.waiting.fetch_sub(1, Ordering::SeqCst);
+        }
+        #[cfg(not(feature = "std"))]
+        while self.served.load(Ordering::Acquire) != number {
+            core::hint::spin_loop();
+        }
+    }
+
+    fn pass(&self) {
+        // Of this and a waiter's count, both `SeqCst`, the later one's read sees the earlier.
+        self.served.fetch_add(1, Ordering::SeqCst);
+        #[cfg(feature = "std")]
+        if self.waiting.load(Ordering::SeqCst) > 0 {
+            let _turn = self.turn.lock();
+            self.turned.notify_all();
+        }
+    }
+}
+
+/// A place in a device's line, passed on when dropped, so a panic cannot stall the line.
+struct Place<'a> {
+    line: &'a DeviceLine,
+    number: usize,
+}
+
+impl Place<'_> {
+    /// Runs `operation` once every earlier place on the device has queued.
+    fn queue<R>(self, operation: impl FnOnce() -> R) -> R {
+        self.line.wait_for(self.number);
+        operation()
+    }
+}
+
+impl Drop for Place<'_> {
+    fn drop(&mut self) {
+        self.line.wait_for(self.number);
+        self.line.pass();
     }
 }
 
@@ -234,7 +336,7 @@ impl ReduceGroup {
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex as StdMutex};
+    use std::sync::{Arc, Mutex as StdMutex, mpsc};
 
     fn device(index_id: u16) -> DeviceId {
         DeviceId {
@@ -260,23 +362,48 @@ mod tests {
         order.all_reduce(device(0), group.to_vec(), reduce("reduce on 0"));
         let transfer = {
             let order = order.clone();
-            let queue = record("transfer");
-            std::thread::spawn(move || order.transfer(device(1), device(0), queue))
+            let (send, receive) = (record("send"), record("receive"));
+            std::thread::spawn(move || order.transfer(device(1), device(0), send, receive))
         };
         order.all_reduce(device(1), group.to_vec(), reduce("reduce on 1"));
         transfer.join().unwrap();
 
         assert_eq!(
             *queued.lock().unwrap(),
-            ["reduce on 0", "reduce on 1", "transfer"]
+            ["reduce on 0", "reduce on 1", "send", "receive"]
         );
     }
 
     #[test]
     fn a_transfer_between_other_devices_does_not_wait() {
         let order = CollectiveOrder::new();
+        let mut sent = false;
         order.all_reduce(device(0), alloc::vec![device(0), device(1)], |_| ());
 
-        assert!(order.transfer(device(2), device(3), || true));
+        order.transfer(device(2), device(3), || sent = true, || ());
+
+        assert!(sent);
+    }
+
+    #[test]
+    fn a_transfer_does_not_wait_for_a_part_still_queueing() {
+        let order = Arc::new(CollectiveOrder::new());
+        let (transferred, done) = mpsc::channel();
+
+        let transfer = order.all_reduce(device(0), alloc::vec![device(0)], |_| {
+            let order = order.clone();
+            let transfer = std::thread::spawn(move || {
+                order.transfer(
+                    device(1),
+                    device(2),
+                    || (),
+                    move || transferred.send(()).unwrap(),
+                )
+            });
+            done.recv().unwrap();
+            transfer
+        });
+
+        transfer.join().unwrap();
     }
 }

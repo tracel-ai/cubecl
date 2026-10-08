@@ -1056,11 +1056,9 @@ impl Client {
         );
         let handle_cloned = handle.clone();
 
-        COLLECTIVE_ORDER.transfer(device_id_src, device_id_dst, || {
-            let device_ids = vec![device_id_src, device_id_dst];
+        let device_ids = vec![device_id_src, device_id_dst];
+        let send = || {
             self.ensure_init_collective(device_ids.clone());
-            dst_server.ensure_init_collective(device_ids);
-
             self.device.submit(move |server_src| {
                 // A refused send has no local buffer to answer for, so the log is
                 // the whole local report. The peer's posted recv is left waiting
@@ -1068,13 +1066,18 @@ impl Client {
                 // here, and cross-device failure propagation needs a design pass
                 // of its own — so the wedge is named loudly rather than hidden
                 // behind a swallowed unwrap.
-                if let Err(err) = server_src.send(src_descriptor, dtype, stream_id_src, device_id_dst) {
+                if let Err(err) =
+                    server_src.send(src_descriptor, dtype, stream_id_src, device_id_dst)
+                {
                     log::error!(
                         "send to {device_id_dst:?} failed; the peer's recv is left waiting: {err}"
                     );
                 }
             });
-
+            self.device.flush_queue();
+        };
+        let receive = || {
+            dst_server.ensure_init_collective(device_ids.clone());
             dst_server.device.submit(move |server_dst| {
                 // A failed recv taints the destination handle, so the read that
                 // consumes this transfer fails on the cause.
@@ -1088,13 +1091,13 @@ impl Client {
                     log::error!("sync_collective failed: {err}");
                 }
             });
-
-            // `ServerCommunication::send` and`ServerCommunication::recv` are blocking: they each wait for the corresponding recv/send
-            // call to be made. We flush the operations right away so that the neither server ends up in a deadlock.
-            // The actual data transfer is still executed asynchronously on the communication stream.
-            self.device.flush_queue();
             dst_server.device.flush_queue();
-        });
+        };
+
+        // `ServerCommunication::send` and`ServerCommunication::recv` are blocking: they each wait for the corresponding recv/send
+        // call to be made. We flush the operations right away so that the neither server ends up in a deadlock.
+        // The actual data transfer is still executed asynchronously on the communication stream.
+        COLLECTIVE_ORDER.transfer(device_id_src, device_id_dst, send, receive);
 
         handle
     }
