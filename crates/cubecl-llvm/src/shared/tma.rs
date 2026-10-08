@@ -4,9 +4,7 @@ use crate::{prelude::*, shared::to_llvm::lower_by_target};
 use cubecl_core::ir::{
     dialect::{
         barrier::{MemCopyAsyncOp, MemCopyAsyncTxOp},
-        tma::{
-            CommitGroupOp, TmaLoadIm2colOp, TmaLoadOp, TmaStoreOp, WaitGroupOp, WaitGroupReadOp,
-        },
+        tma::{CommitGroupOp, TmaLoadIm2colOp, TmaLoadOp, TmaStoreOp, WaitGroupReadOp},
     },
     types::{barrier::BarrierTokenType, cuda::TensorMapType},
 };
@@ -58,5 +56,4 @@ nvptx_only!(TmaStoreOp, tma::store);
 nvptx_only!(MemCopyAsyncTxOp, barrier::memcpy_async_tx);
 nvptx_only!(MemCopyAsyncOp, barrier::memcpy_async);
 nvptx_only!(CommitGroupOp, tma::commit_group);
-nvptx_only!(WaitGroupOp, tma::wait_group);
 nvptx_only!(WaitGroupReadOp, tma::wait_group_read);

@@ -303,12 +303,6 @@ impl Verify for TmaStoreOp {
 #[result_ty(none)]
 pub struct CommitGroupOp {}
 
-#[cube_op(name = "tma.wait_group")]
-#[result_ty(none)]
-pub struct WaitGroupOp {
-    pub max_pending: IndexAttr,
-}
-
 #[cube_op(name = "tma.wait_group_read")]
 #[result_ty(none)]
 pub struct WaitGroupReadOp {

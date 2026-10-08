@@ -1,4 +1,4 @@
-use crate::{AddressType, ElemType, OpaqueType, SemanticType, Type};
+use crate::{AddressType, ElemType, OpaqueType, SemanticType, Type, types::MatrixShape};
 use alloc::collections::{BTreeMap, BTreeSet};
 
 use crate::EnumSetType;
@@ -242,15 +242,28 @@ impl WgmmaConfig {
         n > 0 && n.is_multiple_of(self.n_granularity) && n <= self.n_max
     }
 
-    /// Whether this configuration multiplies `a` by `b` into `cd` with shape `m x n x k`.
-    pub fn matches(&self, a: ElemType, b: ElemType, cd: ElemType, m: u32, n: u32, k: u32) -> bool {
+    /// Whether this configuration multiplies `elems.a` by `elems.b` into `elems.cd` with
+    /// `shape`.
+    pub fn matches(&self, elems: WgmmaElems, shape: MatrixShape) -> bool {
+        let WgmmaElems { a, b, cd } = elems;
         self.a_type == a
             && self.b_type == b
             && self.cd_type == cd
-            && self.m == m
-            && self.k == k
-            && self.supports_n(n)
+            && self.m as usize == shape.m
+            && self.k as usize == shape.k
+            && u32::try_from(shape.n).is_ok_and(|n| self.supports_n(n))
     }
+}
+
+/// The element types of a warpgroup MMA.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct WgmmaElems {
+    /// Element of the A matrix
+    pub a: ElemType,
+    /// Element of the B matrix
+    pub b: ElemType,
+    /// Element of the C/D matrices
+    pub cd: ElemType,
 }
 
 /// Shape and element types of a valid block-scaled MMA configuration

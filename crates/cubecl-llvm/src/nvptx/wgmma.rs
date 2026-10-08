@@ -15,11 +15,11 @@ use crate::{
 use cubecl_core::ir::{
     ElemType, FloatKind, IntKind, UIntKind,
     dialect::matrix::{
-        WgmmaCommitGroupOp, WgmmaDescriptorOp, WgmmaFenceOp, WgmmaFenceOperandOp, WgmmaOp,
-        WgmmaWaitGroupOp,
+        WgmmaCommitGroupOp, WgmmaDescriptorOp, WgmmaFenceOp, WgmmaFenceOperandOp, WgmmaMajor,
+        WgmmaOp, WgmmaSwizzle, WgmmaWaitGroupOp,
     },
-    features::WgmmaConfig,
-    types::{MatrixLayout, MatrixShape},
+    features::{WgmmaConfig, WgmmaElems},
+    types::{MatrixIdent, MatrixShape},
 };
 use pliron::r#type::type_cast;
 use std::sync::LazyLock;
@@ -29,47 +29,46 @@ const COMMIT_GROUP: &str = "llvm.nvvm.wgmma.commit_group.sync.aligned";
 const WAIT_GROUP: &str = "llvm.nvvm.wgmma.wait_group.sync.aligned";
 
 /// Units of the four planes that issue one warpgroup MMA together.
-const WARPGROUP_UNITS: u32 = 128;
+const WARPGROUP_UNITS: usize = 128;
 /// Every warpgroup MMA computes 64 rows.
-const M: u32 = 64;
+const M: usize = 64;
 const N_MAX: u32 = 256;
 /// `A` held in registers is always four 32-bit registers per unit.
 const A_REGISTERS: usize = 4;
 
+/// A warpgroup MMA no PTX form takes.
 #[derive(Debug, Error)]
-#[error(
-    "no warpgroup MMA multiplies {a:?} by {b:?} into {cd:?} with shape {shape:?}; supported \
-     configurations: {supported:?}"
-)]
-pub struct WgmmaUnsupported {
-    a: ElemType,
-    b: ElemType,
-    cd: ElemType,
-    shape: MatrixShape,
-    supported: Vec<WgmmaConfig>,
+pub enum WgmmaError {
+    #[error(
+        "no warpgroup MMA multiplies {:?} by {:?} into {:?} with shape {shape:?}; supported \
+         configurations: {supported:?}",
+        elems.a, elems.b, elems.cd
+    )]
+    Unsupported {
+        elems: WgmmaElems,
+        shape: MatrixShape,
+        supported: Vec<WgmmaConfig>,
+    },
+    #[error(
+        "a warpgroup MMA reads {operand} only K-major for {elem:?}: MN-major tiles are for \
+         16-bit elements"
+    )]
+    MnMajor {
+        operand: MatrixIdent,
+        elem: ElemType,
+    },
+    #[error(
+        "the warpgroup MMA {operand} holds {found} {unit} per unit, and the instruction takes {expected}"
+    )]
+    RegisterCount {
+        operand: MatrixIdent,
+        unit: &'static str,
+        found: usize,
+        expected: usize,
+    },
+    #[error("a warpgroup MMA matrix descriptor is a u64, not {0}")]
+    DescriptorType(String),
 }
-
-#[derive(Debug, Error)]
-#[error(
-    "a warpgroup MMA reads only K-major {0:?} tiles of {1:?}: the transposed layouts are for \
-     16-bit elements"
-)]
-pub struct WgmmaLayoutUnsupported(&'static str, ElemType);
-
-#[derive(Debug, Error)]
-#[error(
-    "the warpgroup MMA {what} holds {found} {unit} per unit, and the instruction takes {expected}"
-)]
-pub struct WgmmaRegisterCount {
-    what: &'static str,
-    unit: &'static str,
-    found: usize,
-    expected: usize,
-}
-
-#[derive(Debug, Error)]
-#[error("a warpgroup MMA matrix descriptor is a u64, not {0}")]
-pub struct WgmmaDescriptorType(String);
 
 /// The warpgroup MMA forms Hopper (`sm_90a`) has.
 pub fn wgmma_configs() -> &'static [WgmmaConfig] {
@@ -92,7 +91,7 @@ fn hopper_configs() -> Vec<WgmmaConfig> {
         a_type,
         b_type,
         cd_type,
-        m: M,
+        m: M as u32,
         n_granularity,
         n_max: N_MAX,
         k,
@@ -117,6 +116,108 @@ fn hopper_configs() -> Vec<WgmmaConfig> {
         }
     }
     configs
+}
+
+/// Where a warpgroup MMA reads `A` from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WgmmaA {
+    /// A shared memory tile, through a descriptor.
+    Shared(WgmmaMajor),
+    /// Four 32-bit registers per unit.
+    Registers,
+}
+
+/// A warpgroup MMA PTX has a form for: the element types, the shape, and how the operands are
+/// read. Its [`Display`](core::fmt::Display) is the instruction, without operands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WgmmaForm {
+    elems: WgmmaElems,
+    n: usize,
+    k: usize,
+    a: WgmmaA,
+    b_major: WgmmaMajor,
+}
+
+impl WgmmaForm {
+    pub fn new(
+        elems: WgmmaElems,
+        shape: MatrixShape,
+        a: WgmmaA,
+        b_major: WgmmaMajor,
+    ) -> core::result::Result<Self, WgmmaError> {
+        let supported = wgmma_configs();
+        if !supported.iter().any(|config| config.matches(elems, shape)) {
+            return Err(WgmmaError::Unsupported {
+                elems,
+                shape,
+                supported: supported.to_vec(),
+            });
+        }
+        let half = is_half(elems.a);
+        if !half && a == WgmmaA::Shared(WgmmaMajor::MN) {
+            return Err(WgmmaError::MnMajor {
+                operand: MatrixIdent::A,
+                elem: elems.a,
+            });
+        }
+        if !half && b_major == WgmmaMajor::MN {
+            return Err(WgmmaError::MnMajor {
+                operand: MatrixIdent::B,
+                elem: elems.b,
+            });
+        }
+        Ok(Self {
+            elems,
+            n: shape.n,
+            k: shape.k,
+            a,
+            b_major,
+        })
+    }
+
+    /// The accumulator elements each unit holds.
+    pub fn accumulator_elems(&self) -> usize {
+        M * self.n / WARPGROUP_UNITS
+    }
+
+    /// The immediate operands that follow `scale-d`: the operand negations, which integer forms
+    /// lack, then the transposes, which only 16-bit forms take, and only of a tile.
+    pub fn immediates(&self) -> String {
+        let mut immediates = String::new();
+        if !is_integer(self.elems.a) {
+            immediates.push_str(", 1, 1");
+        }
+        if is_half(self.elems.a) {
+            if let WgmmaA::Shared(major) = self.a {
+                immediates.push_str(&format!(", {}", transposed(major)));
+            }
+            immediates.push_str(&format!(", {}", transposed(self.b_major)));
+        }
+        immediates
+    }
+}
+
+impl core::fmt::Display for WgmmaForm {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let WgmmaElems { a, b, cd } = self.elems;
+        write!(
+            f,
+            "wgmma.mma_async.sync.aligned.m{M}n{}k{}.{}.{}.{}",
+            self.n,
+            self.k,
+            ptx_type(cd),
+            ptx_type(a),
+            ptx_type(b)
+        )
+    }
+}
+
+/// A K-major tile is the one PTX leaves untransposed.
+fn transposed(major: WgmmaMajor) -> u32 {
+    match major {
+        WgmmaMajor::K => 0,
+        WgmmaMajor::MN => 1,
+    }
 }
 
 /// The PTX name of a warpgroup MMA element.
@@ -170,72 +271,65 @@ fn int_width(ctx: &Context, value: Value) -> Option<u32> {
         .map(|int| int.width())
 }
 
+/// `value` as a descriptor operand of `asm`.
+fn descriptor_operand(
+    ctx: &Context,
+    asm: &mut InlineAsm,
+    value: Value,
+) -> core::result::Result<String, WgmmaError> {
+    if int_width(ctx, value) != Some(64) {
+        let ty = value.get_type(ctx).disp(ctx).to_string();
+        return Err(WgmmaError::DescriptorType(ty));
+    }
+    Ok(asm.input(value, "l"))
+}
+
 pub(crate) fn wgmma(
     op: &WgmmaOp,
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
     operands_info: &OperandsInfo,
 ) -> Result<()> {
+    let loc = op.loc(ctx);
+    match issue(op, ctx, rw, operands_info) {
+        Ok(()) => Ok(()),
+        Err(err) => input_err!(loc, err),
+    }
+}
+
+fn issue(
+    op: &WgmmaOp,
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    operands_info: &OperandsInfo,
+) -> core::result::Result<(), WgmmaError> {
     let old_op = op.get_operation();
-    let (a, b, acc, scale_d) = (op.a(ctx), op.b(ctx), op.accumulator(ctx), op.scale_d(ctx));
+    let (a, b, acc) = (op.a(ctx), op.b(ctx), op.accumulator(ctx));
     // The operands are already converted: a descriptor is an integer, registers an array.
-    let a_in_registers = int_width(ctx, a).is_none();
-    let a_ty = op.a_ty(ctx).get_type(ctx);
-    let b_ty = op.b_ty(ctx).get_type(ctx);
-    let a_elem = elem_type(ctx, a_ty);
-    let b_elem = elem_type(ctx, b_ty);
-    let shape = *op.shape(ctx).clone();
-    let a_layout = op.a_layout(ctx).0;
-    let b_layout = op.b_layout(ctx).0;
-
+    let a_source = match int_width(ctx, a) {
+        Some(_) => WgmmaA::Shared(*op.a_major(ctx)),
+        None => WgmmaA::Registers,
+    };
     let (acc_vec_ty, cd_scalar) = registers_as_vector(ctx, operands_info, acc);
-    let cd_elem = elem_type(ctx, cd_scalar);
-
-    let supported = wgmma_configs();
-    let MatrixShape { m, n, k } = shape;
-    let valid = supported
-        .iter()
-        .any(|config| config.matches(a_elem, b_elem, cd_elem, m as u32, n as u32, k as u32));
-    if !valid {
-        return input_err!(
-            op.loc(ctx),
-            WgmmaUnsupported {
-                a: a_elem,
-                b: b_elem,
-                cd: cd_elem,
-                shape,
-                supported: supported.to_vec(),
-            }
-        );
-    }
-
-    // Only 16-bit tiles may be MN-major; the others must be K-major, which is a row-major `A`
-    // and a column-major `B`.
-    let half = is_half(a_elem);
-    let trans_a = !a_in_registers && a_layout == MatrixLayout::ColMajor;
-    let trans_b = b_layout == MatrixLayout::RowMajor;
-    if !half && trans_a {
-        return input_err!(op.loc(ctx), WgmmaLayoutUnsupported("A", a_elem));
-    }
-    if !half && trans_b {
-        return input_err!(op.loc(ctx), WgmmaLayoutUnsupported("B", b_elem));
-    }
+    let elems = WgmmaElems {
+        a: elem_type(ctx, op.a_ty(ctx).get_type(ctx)),
+        b: elem_type(ctx, op.b_ty(ctx).get_type(ctx)),
+        cd: elem_type(ctx, cd_scalar),
+    };
+    let shape = *op.shape(ctx).clone();
+    let form = WgmmaForm::new(elems, shape, a_source, *op.b_major(ctx))?;
 
     let acc_elems = vector_lanes(ctx, acc_vec_ty);
-    let expected_acc = (M as usize * shape.n) / WARPGROUP_UNITS as usize;
-    if acc_elems != expected_acc {
-        return input_err!(
-            op.loc(ctx),
-            WgmmaRegisterCount {
-                what: "accumulator",
-                unit: "elements",
-                found: acc_elems,
-                expected: expected_acc,
-            }
-        );
+    if acc_elems != form.accumulator_elems() {
+        return Err(WgmmaError::RegisterCount {
+            operand: MatrixIdent::Accumulator,
+            unit: "elements",
+            found: acc_elems,
+            expected: form.accumulator_elems(),
+        });
     }
 
-    let acc_form = register_form(cd_elem);
+    let acc_form = register_form(elems.cd);
     let acc_value = registers_value(ctx, rw, acc, acc_vec_ty);
     let acc_regs = acc_form.split(ctx, rw, acc_value);
 
@@ -243,60 +337,35 @@ pub(crate) fn wgmma(
         .tied(acc_regs)
         .clobbers_memory()
         .convergent();
-    let a_operand = if a_in_registers {
-        let (a_vec_ty, _) = registers_as_vector(ctx, operands_info, a);
-        let bits = vector_bits(ctx, a_vec_ty);
-        if bits != A_REGISTERS * 32 {
-            return input_err!(
-                op.loc(ctx),
-                WgmmaRegisterCount {
-                    what: "A fragment",
+    let a_operand = match a_source {
+        WgmmaA::Shared(_) => descriptor_operand(ctx, &mut asm, a)?,
+        WgmmaA::Registers => {
+            let (a_vec_ty, _) = registers_as_vector(ctx, operands_info, a);
+            let bits = vector_bits(ctx, a_vec_ty);
+            if bits != A_REGISTERS * 32 {
+                return Err(WgmmaError::RegisterCount {
+                    operand: MatrixIdent::A,
                     unit: "bits",
                     found: bits,
                     expected: A_REGISTERS * 32,
-                }
-            );
+                });
+            }
+            let a_value = registers_value(ctx, rw, a, a_vec_ty);
+            let a_regs = RegisterForm::Word.split(ctx, rw, a_value);
+            let operands: Vec<String> = a_regs.into_iter().map(|reg| asm.input(reg, "r")).collect();
+            format!("{{{}}}", operands.join(", "))
         }
-        let a_value = registers_value(ctx, rw, a, a_vec_ty);
-        let a_regs = RegisterForm::Word.split(ctx, rw, a_value);
-        let operands: Vec<String> = a_regs.into_iter().map(|reg| asm.input(reg, "r")).collect();
-        format!("{{{}}}", operands.join(", "))
-    } else {
-        if int_width(ctx, a) != Some(64) {
-            let ty = a.get_type(ctx).disp(ctx).to_string();
-            return input_err!(op.loc(ctx), WgmmaDescriptorType(ty));
-        }
-        asm.input(a, "l")
     };
-    if int_width(ctx, b) != Some(64) {
-        let ty = b.get_type(ctx).disp(ctx).to_string();
-        return input_err!(op.loc(ctx), WgmmaDescriptorType(ty));
-    }
-    let b_operand = asm.input(b, "l");
-    let scale_d =
-        resize_int(ctx, rw, scale_d, 32, Extension::Zero).expect("`scale_d` is a boolean");
-    let scale_operand = asm.input(scale_d, "r");
+    let b_operand = descriptor_operand(ctx, &mut asm, b)?;
+    // The accumulator always adds to what it holds: a new one is zeroed.
+    let accumulate = insert_int_const(ctx, rw, 32, 1);
+    let scale_d = asm.input(accumulate, "r");
 
-    let mut instruction = format!(
-        "wgmma.mma_async.sync.aligned.m{M}n{n}k{k}.{}.{}.{} {}, {a_operand}, {b_operand}, p",
-        ptx_type(cd_elem),
-        ptx_type(a_elem),
-        ptx_type(b_elem),
+    let template = format!(
+        "{{\n.reg .pred p;\nsetp.ne.b32 p, {scale_d}, 0;\n{form} {}, {a_operand}, {b_operand}, p{};\n}}",
         asm.tied_operands(),
+        form.immediates(),
     );
-    // Integer forms take neither the operand negation nor the transposes.
-    if !is_integer(a_elem) {
-        instruction.push_str(", 1, 1");
-    }
-    if half {
-        if !a_in_registers {
-            instruction.push_str(&format!(", {}", trans_a as u32));
-        }
-        instruction.push_str(&format!(", {}", trans_b as u32));
-    }
-    let template =
-        format!("{{\n.reg .pred p;\nsetp.ne.b32 p, {scale_operand}, 0;\n{instruction};\n}}");
-
     let regs = asm.emit(ctx, rw, &template);
 
     let result = acc_form.join(ctx, rw, &regs, acc_vec_ty);
@@ -325,8 +394,8 @@ pub(crate) fn fence_operand(
     if form == RegisterForm::Word && !bits.is_multiple_of(32) {
         return input_err!(
             op.loc(ctx),
-            WgmmaRegisterCount {
-                what: "fenced array",
+            WgmmaError::RegisterCount {
+                operand: MatrixIdent::Accumulator,
                 unit: "bits",
                 found: bits,
                 expected: bits.next_multiple_of(32),
@@ -347,28 +416,11 @@ pub(crate) fn fence_operand(
     Ok(())
 }
 
-/// The descriptor's address and offset fields each hold bits 4 to 17 of a byte value.
-fn descriptor_field(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    value: Value,
-    shift: i128,
-) -> Value {
-    let value =
-        resize_int(ctx, rw, value, 64, Extension::Zero).expect("descriptor fields are integers");
-    let four = insert_int_const(ctx, rw, 64, 4);
-    let op = llvm::LShrOp::new(ctx, value, four);
-    let value = insert(ctx, rw, &op);
-    let mask = insert_int_const(ctx, rw, 64, 0x3FFF);
-    let op = llvm::AndOp::new(ctx, value, mask);
-    let value = insert(ctx, rw, &op);
-    if shift == 0 {
-        return value;
-    }
-    let shift = insert_int_const(ctx, rw, 64, shift);
-    let op =
-        llvm::ShlOp::new_with_overflow_flag(ctx, value, shift, IntegerOverflowFlagsAttr::default());
-    insert(ctx, rw, &op)
+/// The descriptor's fields that don't depend on the address: the offsets, already in 16-byte
+/// units, and the swizzle.
+fn descriptor_constant_bits(leading: usize, stride: usize, swizzle: WgmmaSwizzle) -> u64 {
+    let field = |bytes: usize| (bytes as u64 >> 4) & 0x3FFF;
+    field(leading) << 16 | field(stride) << 32 | swizzle.descriptor_bits() << 62
 }
 
 pub(crate) fn descriptor(
@@ -379,26 +431,26 @@ pub(crate) fn descriptor(
 ) -> Result<()> {
     let old_op = op.get_operation();
     let ptr = op.ptr(ctx);
-    let leading = op.leading_byte_offset(ctx);
-    let stride = op.stride_byte_offset(ctx);
-    let swizzle = op.swizzle(ctx).descriptor_bits();
+    let constant = descriptor_constant_bits(
+        op.leading_byte_offset(ctx).0,
+        op.stride_byte_offset(ctx).0,
+        *op.swizzle(ctx),
+    );
 
     let shared = NvptxSpace::Shared.cast(ctx, rw, ptr);
     let i64_ty = i64_ty(ctx);
     let op_addr = llvm::PtrToIntOp::new(ctx, shared, i64_ty);
     let address = insert(ctx, rw, &op_addr);
-
-    let mut descriptor = descriptor_field(ctx, rw, address, 0);
-    for (value, shift) in [(leading, 16), (stride, 32)] {
-        let field = descriptor_field(ctx, rw, value, shift);
-        let op = llvm::OrOp::new(ctx, descriptor, field);
-        descriptor = insert(ctx, rw, &op);
-    }
-    if swizzle != 0 {
-        let bits = insert_int_const(ctx, rw, 64, (swizzle << 62) as i64 as i128);
-        let op = llvm::OrOp::new(ctx, descriptor, bits);
-        descriptor = insert(ctx, rw, &op);
-    }
+    // The address field holds bits 4 to 17 of the shared memory address.
+    let four = insert_int_const(ctx, rw, 64, 4);
+    let op = llvm::LShrOp::new(ctx, address, four);
+    let address = insert(ctx, rw, &op);
+    let mask = insert_int_const(ctx, rw, 64, 0x3FFF);
+    let op = llvm::AndOp::new(ctx, address, mask);
+    let address = insert(ctx, rw, &op);
+    let constant = insert_int_const(ctx, rw, 64, constant as i64 as i128);
+    let op = llvm::OrOp::new(ctx, address, constant);
+    let descriptor = insert(ctx, rw, &op);
 
     rw.replace_operation_with_values(ctx, old_op, vec![descriptor]);
     Ok(())

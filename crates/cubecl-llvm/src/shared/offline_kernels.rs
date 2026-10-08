@@ -10,7 +10,7 @@ use cubecl_core::ir::{
 use cubecl_core::prelude::barrier::Barrier;
 use cubecl_core::prelude::*;
 use cubecl_runtime::kernel::CubeKernel;
-use half::bf16;
+use half::{bf16, f16};
 use std::sync::Arc;
 
 pub(crate) fn device_properties(plane_dim: u32) -> Arc<DeviceProperties> {
@@ -417,9 +417,20 @@ fn warpgroup_product<I: Numeric, A: Numeric>(
     #[comptime] k: usize,
     #[comptime] a_in_registers: bool,
 ) {
-    let def = wgmma::WgmmaDefinition::<I, I, A>::new(n);
-    let mut smem_a = Shared::new_aligned_slice(64 * k, 128usize);
+    let a_layout = comptime![wgmma::WgmmaTileLayout {
+        major: wgmma::Major::K,
+        swizzle: wgmma::Swizzle::None,
+        rows: 64,
+        k,
+    }];
     // `B` is swizzled 32 bytes wide, a pattern that repeats every 256.
+    let b_layout = comptime![wgmma::WgmmaTileLayout {
+        major: wgmma::Major::K,
+        swizzle: wgmma::Swizzle::B32,
+        rows: n,
+        k,
+    }];
+    let mut smem_a = Shared::new_aligned_slice(64 * k, 128usize);
     let mut smem_b = Shared::new_aligned_slice(n * k, 256usize);
     let unit = UNIT_POS as usize;
     if unit < 64 * k {
@@ -431,55 +442,87 @@ fn warpgroup_product<I: Numeric, A: Numeric>(
     sync_async_proxy_shared();
     sync_cube();
 
-    let elem_size = I::size();
-    let stride = comptime![(8 * k * elem_size) as u32];
-    let acc_len = def.elems_per_unit(wgmma::MatrixIdent::Accumulator);
-    let size!(NC) = 2usize;
-    let mut acc = Array::<Vector<A, NC>>::new(comptime![acc_len / 2]);
-    let b = wgmma::descriptor(&smem_b, 128u32, stride, wgmma::Swizzle::B32);
-
+    let b = wgmma::MatrixDescriptor::new(&smem_b, b_layout);
+    let mut acc = wgmma::Accumulator::<A>::new(n).start();
     if a_in_registers {
-        let run = def.contiguous_elems(wgmma::MatrixIdent::A);
-        let size!(NA) = comptime![run as usize];
-        let a_len = def.elems_per_unit(wgmma::MatrixIdent::A);
-        let mut registers_a = Array::<Vector<I, NA>>::new(comptime![a_len / run as usize]);
+        let mut fragment = wgmma::Fragment::<I>::new();
         #[unroll]
-        for v in 0..comptime![a_len / run as usize] {
-            registers_a[v] = Vector::cast_from(lhs[unit * 8 + v]);
+        for nth in 0..fragment.len() {
+            fragment.set(nth, lhs[unit * 16 + nth]);
         }
-        wgmma::fence_operand(&mut registers_a);
-        wgmma::fence_operand(&mut acc);
-        wgmma::fence();
-        def.execute_registers_a(
-            &registers_a,
-            b,
-            &mut acc,
-            false,
-            wgmma::MatrixLayout::ColMajor,
-        );
+        acc.execute_registers(&fragment, &b);
     } else {
-        let a = wgmma::descriptor(&smem_a, 128u32, stride, wgmma::Swizzle::None);
-        wgmma::fence_operand(&mut acc);
-        wgmma::fence();
-        def.execute(
-            a,
-            b,
-            &mut acc,
-            unit > 1000,
-            wgmma::MatrixLayout::RowMajor,
-            wgmma::MatrixLayout::ColMajor,
-        );
+        let a = wgmma::MatrixDescriptor::new(&smem_a, a_layout);
+        acc.execute(&a, &b);
     }
-    wgmma::commit_group();
-    wgmma::wait_group(0usize);
-    wgmma::fence_operand(&mut acc);
+    let acc = acc.wait();
 
+    let len = acc.len();
     #[unroll]
-    for v in 0..comptime![acc_len / 2] {
-        let reg = acc[v];
-        out[unit * acc_len + v * 2] = reg.extract(0usize);
-        out[unit * acc_len + v * 2 + 1] = reg.extract(1usize);
+    for nth in 0..len {
+        out[unit * len + nth] = acc.get(nth);
     }
+}
+
+/// `stages` tiles of K, one stage of MMAs committed per iteration of a loop the compiler can't
+/// unroll: each iteration waits for the previous stage's group, while its own runs on.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn warpgroup_pipeline(input: &[f16], out: &mut [f32], stages: u32) {
+    let layout = comptime![wgmma::WgmmaTileLayout {
+        major: wgmma::Major::K,
+        swizzle: wgmma::Swizzle::B128,
+        rows: 64,
+        k: 64,
+    }];
+    let mut tiles = Shared::new_aligned_slice(8192usize, 1024usize);
+    let unit = UNIT_POS as usize;
+    #[unroll]
+    for i in 0..64usize {
+        tiles[i * 128 + unit] = input[i * 128 + unit];
+    }
+    sync_async_proxy_shared();
+    sync_cube();
+
+    let mut acc = wgmma::Accumulator::<f32>::new(64usize).start();
+    let mut released = acc.commit();
+    for stage in 0..stages {
+        let at = (stage % 2) as usize * 4096;
+        let a = wgmma::MatrixDescriptor::new(&tiles[at..at + 4096], layout);
+        let b = wgmma::MatrixDescriptor::new(&tiles[at..at + 4096], layout);
+        #[unroll]
+        for step in 0..4usize {
+            acc.execute(&a.at(0usize, step * 16), &b.at(0usize, step * 16));
+        }
+        let read = acc.commit();
+        released.wait();
+        released = read;
+    }
+    let acc = acc.wait();
+    out[unit] = acc.get(0usize);
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn warpgroup_pipeline_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(128),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    let mut props = (*device_properties(32)).clone();
+    props
+        .features
+        .matmul
+        .wgmma
+        .extend(crate::nvptx::wgmma::wgmma_configs().iter().copied());
+    warpgroup_pipeline::WarpgroupPipeline::new(
+        settings,
+        Arc::new(props),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        (),
+    )
 }
 
 /// One warpgroup MMA of `I` operands accumulating in `A`, `64 x n x k`.
@@ -584,9 +627,11 @@ fn tma_tile_store(input: &[f32], output: &mut TensorMap<f32, Tiled>) {
     sync_cube();
 
     if UNIT_POS == 0 {
-        tma_store_2d(stage.as_slice(), output, 16, 8);
-        tma_group_commit();
-        tma_group_wait_read(0usize);
+        // Two stores in flight: the first is done reading once at most one group is left.
+        let first = tma_store_2d(&stage[0..256], output, 0, 0);
+        let second = tma_store_2d(&stage[256..512], output, 16, 8);
+        first.wait();
+        second.wait();
     }
 }
 
@@ -659,5 +704,89 @@ pub(crate) fn barrier_copies_kernel() -> impl CubeKernel {
         Arc::new(TargetProperties::default()),
         BufferCompilationArg { inplace: None },
         BufferCompilationArg { inplace: None },
+    )
+}
+
+/// How a kernel of [`group_waits`] commits and waits.
+#[cfg(feature = "nvptx")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum WaitCase {
+    /// A store on one branch only, between the first store and its wait.
+    OneBranchStores,
+    /// A store on both branches.
+    BothBranchesStore,
+    /// Two stores per iteration, the wait on the last store of the previous one.
+    TwoStoresPerIteration,
+    /// The stores between a wait and the token it waits on are in a loop that may not run.
+    MaybeEmptyInnerLoop,
+    /// A warpgroup MMA group committed after the store, which the store's wait doesn't count.
+    OtherKind,
+}
+
+/// Bulk stores of a tile, committed and waited on as `case` says.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn group_waits(output: &mut TensorMap<f32, Tiled>, count: u32, #[comptime] case: WaitCase) {
+    let stage = Shared::<[f32]>::new_aligned_slice(32usize * 16, 128usize);
+    let tile = stage.as_slice();
+    match comptime![case] {
+        WaitCase::OneBranchStores => {
+            let first = tma_store_2d(tile, output, 0, 0);
+            if count > 1 {
+                tma_store_2d(tile, output, 16, 0);
+            }
+            first.wait();
+        }
+        WaitCase::BothBranchesStore => {
+            let first = tma_store_2d(tile, output, 0, 0);
+            if count > 1 {
+                tma_store_2d(tile, output, 16, 0);
+            } else {
+                tma_store_2d(tile, output, 32, 0);
+            }
+            first.wait();
+        }
+        WaitCase::TwoStoresPerIteration => {
+            let mut previous = tma_store_2d(tile, output, 0, 0);
+            for i in 0..count {
+                tma_store_2d(tile, output, i as i32, 0);
+                let second = tma_store_2d(tile, output, i as i32, 8);
+                previous.wait();
+                previous = second;
+            }
+        }
+        WaitCase::MaybeEmptyInnerLoop => {
+            let mut previous = tma_store_2d(tile, output, 0, 0);
+            for i in 0..count {
+                for j in 0..i {
+                    tma_store_2d(tile, output, j as i32, 0);
+                }
+                previous.wait();
+                previous = tma_store_2d(tile, output, i as i32, 8);
+            }
+        }
+        WaitCase::OtherKind => {
+            let stored = tma_store_2d(tile, output, 0, 0);
+            let mut acc = wgmma::Accumulator::<f32>::new(8usize).start();
+            acc.commit();
+            stored.wait();
+            let _ = acc.wait();
+        }
+    }
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn group_waits_kernel(case: WaitCase) -> impl CubeKernel {
+    group_waits::GroupWaits::new(
+        KernelSettings::new(
+            *CubeDim::new_1d(128),
+            ExecutionMode::Unchecked,
+            AddressType::U32,
+        ),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        (),
+        (),
+        case,
     )
 }

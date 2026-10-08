@@ -255,6 +255,15 @@ macro_rules! warpgroup_synchronizes {
     };
 }
 
+/// Which dimension of a warpgroup MMA operand tile is contiguous in shared memory: K, as in a
+/// row-major `A` or a column-major `B`, or M for `A` and N for `B`.
+#[pliron_attr(name = "matrix.wgmma_major", format, verifier = "succ")]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, PartialOrd, Ord)]
+pub enum WgmmaMajor {
+    K,
+    MN,
+}
+
 /// Builds the 64-bit matrix descriptor a warpgroup MMA reads a shared memory tile through.
 /// `ptr` must point into shared memory, and the two offsets are in bytes.
 #[cube_op(name = "matrix.wgmma_descriptor")]
@@ -262,8 +271,8 @@ macro_rules! warpgroup_synchronizes {
 #[op_traits(CanMaterialize, Pure)]
 pub struct WgmmaDescriptorOp {
     pub ptr: Value,
-    pub leading_byte_offset: Value,
-    pub stride_byte_offset: Value,
+    pub leading_byte_offset: IndexAttr,
+    pub stride_byte_offset: IndexAttr,
     pub swizzle: WgmmaSwizzle,
 }
 
@@ -303,12 +312,12 @@ pub struct WgmmaFenceOperandOp {
     pub registers: Value,
 }
 
-/// Warpgroup MMA, `D = A * B + scale_d * D`, issued asynchronously: the accumulator may only be
-/// read after a [`WgmmaWaitGroupOp`] retires the group it was committed in.
+/// Warpgroup MMA, `D = A * B + D`, issued asynchronously: the accumulator may only be read after
+/// a [`WgmmaWaitGroupOp`] retires the group it was committed in.
 ///
 /// `a` is either a `u64` matrix descriptor of a shared memory tile or an array of registers, and
-/// `b` is always a descriptor, so the element types are carried as attributes. `scale_d` is a
-/// boolean: `false` ignores the accumulator's previous contents.
+/// `b` is always a descriptor, so the element types are carried as attributes. `a_major` is only
+/// read for a descriptor: `A` in registers has no layout in memory.
 #[cube_op(name = "matrix.wgmma")]
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]
@@ -317,12 +326,11 @@ pub struct WgmmaOp {
     pub a: Value,
     pub b: Value,
     pub accumulator: Value,
-    pub scale_d: Value,
     pub a_ty: TypeAttr,
     pub b_ty: TypeAttr,
     pub shape: MatrixShapeAttr,
-    pub a_layout: MatrixLayoutAttr,
-    pub b_layout: MatrixLayoutAttr,
+    pub a_major: WgmmaMajor,
+    pub b_major: WgmmaMajor,
 }
 warpgroup_synchronizes!(WgmmaOp);
 

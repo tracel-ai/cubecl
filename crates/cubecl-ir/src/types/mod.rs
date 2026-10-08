@@ -20,6 +20,7 @@ pub mod barrier;
 pub mod cuda;
 pub mod fp8;
 pub mod matrix;
+pub mod pending;
 pub mod scalar;
 pub mod spirv;
 

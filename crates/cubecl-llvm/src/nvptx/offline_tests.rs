@@ -236,25 +236,76 @@ fn an_integer_warpgroup_product_has_no_immediates() {
     assert!(mma.trim_end().ends_with(", p;"), "{mma}");
 }
 
-/// PTX wants every write to `A`'s registers and the accumulator ahead of the `wgmma.fence`.
-/// Pinned by `fence_operand`, the compiler cannot sink them past it.
+/// PTX wants every write to `A`'s registers ahead of the `wgmma.fence` before the MMA that reads
+/// them. Pinned by `fence_operand`, the compiler cannot sink them past it.
 #[test]
 fn the_registers_a_warpgroup_product_reads_are_written_before_its_fence() {
     let ptx = ptx_of(
         crate::shared::offline_kernels::warpgroup_product_kernel::<half::f16, f32>(32, 16, true),
         90,
     );
-    let fence = ptx
-        .find("wgmma.fence.sync.aligned")
-        .unwrap_or_else(|| panic!("no fence:\n{ptx}"));
     let mma = ptx
         .find("wgmma.mma_async")
         .unwrap_or_else(|| panic!("no MMA:\n{ptx}"));
+    let fence = ptx[..mma]
+        .rfind("wgmma.fence.sync.aligned")
+        .unwrap_or_else(|| panic!("no fence before the MMA:\n{ptx}"));
     let between = &ptx[fence..mma];
-    assert!(
-        !between.contains("mov.b32"),
-        "registers written between the fence and the MMA:\n{between}"
-    );
+    let mma_line = ptx[mma..].lines().next().expect("the MMA's line");
+    // The operands are the accumulator's registers, then `A`'s.
+    let a_registers = mma_line
+        .split('{')
+        .nth(2)
+        .and_then(|operands| operands.split('}').next())
+        .unwrap_or_else(|| panic!("no A registers: {mma_line}"));
+    for register in a_registers.split(',').map(str::trim) {
+        let written = between
+            .lines()
+            .any(|line| line.split_whitespace().nth(1) == Some(&format!("{register},")));
+        assert!(
+            !written,
+            "{register} written between the fence and the MMA:\n{between}"
+        );
+    }
+}
+
+/// The `n` of each wait on a commit group of `kind`, in program order.
+fn group_waits(ptx: &str, kind: &str) -> Vec<u32> {
+    ptx.lines()
+        .filter_map(|line| line.trim().strip_prefix(kind))
+        .map(|n| {
+            n.trim()
+                .trim_end_matches(';')
+                .parse()
+                .unwrap_or_else(|_| panic!("a count: {n}"))
+        })
+        .collect()
+}
+
+/// Each wait lets run the fewest groups committed after its token's on any path to it.
+#[test]
+fn a_wait_counts_the_groups_on_the_shortest_path() {
+    use crate::shared::offline_kernels::{WaitCase, group_waits_kernel};
+
+    // LLVM may unroll or duplicate a wait, so every copy of it must agree.
+    let bulk = |case| {
+        let ptx = ptx_of(group_waits_kernel(case), 90);
+        let waits = group_waits(&ptx, "cp.async.bulk.wait_group.read");
+        assert!(!waits.is_empty(), "no wait in {case:?}:\n{ptx}");
+        assert!(waits.iter().all(|&n| n == waits[0]), "{case:?}: {waits:?}");
+        waits[0]
+    };
+    // The path around the branch commits nothing.
+    assert_eq!(bulk(WaitCase::OneBranchStores), 0);
+    assert_eq!(bulk(WaitCase::BothBranchesStore), 1);
+    // Both stores of the iteration follow the previous iteration's second, or the store before
+    // the loop.
+    assert_eq!(bulk(WaitCase::TwoStoresPerIteration), 2);
+    assert_eq!(bulk(WaitCase::MaybeEmptyInnerLoop), 0);
+    // A warpgroup group is no bulk group.
+    assert_eq!(bulk(WaitCase::OtherKind), 0);
+    let ptx = ptx_of(group_waits_kernel(WaitCase::OtherKind), 90);
+    assert_eq!(group_waits(&ptx, "wgmma.wait_group.sync.aligned"), [0]);
 }
 
 /// A tensor map is a 128-byte parameter the kernel reads in place: had LLVM copied it to the
@@ -305,16 +356,63 @@ fn a_tma_load_completes_on_an_mbarrier() {
     assert!(ptx.contains("mbarrier.try_wait.shared::cta.b64"), "{ptx}");
 }
 
+/// Each store is its own bulk group. The first store's wait lets the second's group run on,
+/// and the second's waits for both.
 #[test]
 fn a_tma_store_is_tracked_by_a_bulk_group() {
     let ptx = ptx_of(crate::shared::offline_kernels::tma_tile_store_kernel(), 90);
     assert!(ptx.contains("fence.proxy.async.shared::cta"), "{ptx}");
-    assert!(
-        ptx.contains("cp.async.bulk.tensor.2d.global.shared::cta"),
+    assert_eq!(
+        ptx.matches("cp.async.bulk.tensor.2d.global.shared::cta")
+            .count(),
+        2,
         "{ptx}"
     );
-    assert!(ptx.contains("cp.async.bulk.commit_group"), "{ptx}");
-    assert!(ptx.contains("cp.async.bulk.wait_group.read"), "{ptx}");
+    assert_eq!(
+        ptx.matches("cp.async.bulk.commit_group").count(),
+        2,
+        "{ptx}"
+    );
+    let waits: Vec<&str> = ptx
+        .lines()
+        .filter(|line| line.contains("cp.async.bulk.wait_group.read"))
+        .map(str::trim)
+        .collect();
+    assert_eq!(
+        waits,
+        [
+            "cp.async.bulk.wait_group.read \t1;",
+            "cp.async.bulk.wait_group.read \t0;"
+        ],
+        "{ptx}"
+    );
+}
+
+/// In a loop that commits a stage of MMAs per iteration, the wait on the previous stage lets
+/// the stage just committed run on, and the accumulator's wait drains every group.
+#[test]
+fn a_pipelined_wait_lets_the_newest_stage_run() {
+    let ptx = ptx_of(
+        crate::shared::offline_kernels::warpgroup_pipeline_kernel(),
+        90,
+    );
+    let body = loop_body(&ptx).unwrap_or_else(|| panic!("no loop:\n{ptx}"));
+    assert_eq!(
+        body.matches("wgmma.mma_async.sync.aligned.m64n64k16.f32.f16.f16")
+            .count(),
+        4,
+        "{body}"
+    );
+    assert!(body.contains("wgmma.commit_group.sync.aligned"), "{body}");
+    assert!(
+        body.contains("wgmma.wait_group.sync.aligned \t1;"),
+        "{body}"
+    );
+    assert!(
+        !body.contains("wgmma.wait_group.sync.aligned \t0;"),
+        "{body}"
+    );
+    assert!(ptx.contains("wgmma.wait_group.sync.aligned \t0;"), "{ptx}");
 }
 
 #[test]

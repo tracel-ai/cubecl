@@ -9,12 +9,11 @@ use crate::{
     prelude::*,
 };
 use cubecl_core::ir::dialect::tma::{
-    CommitGroupOp, TmaLoadIm2colOp, TmaLoadOp, TmaStoreOp, WaitGroupOp, WaitGroupReadOp,
+    CommitGroupOp, TmaLoadIm2colOp, TmaLoadOp, TmaStoreOp, WaitGroupReadOp,
 };
 use pliron::location::Location;
 
 const COMMIT_GROUP: &str = "llvm.nvvm.cp.async.bulk.commit.group";
-const WAIT_GROUP: &str = "llvm.nvvm.cp.async.bulk.wait.group";
 const WAIT_GROUP_READ: &str = "llvm.nvvm.cp.async.bulk.wait.group.read";
 
 #[derive(Debug, Error)]
@@ -150,19 +149,6 @@ pub(crate) fn commit_group(
     _operands_info: &OperandsInfo,
 ) -> Result<()> {
     call_void(ctx, rw, COMMIT_GROUP, vec![]);
-    rw.erase_operation(ctx, op.get_operation());
-    Ok(())
-}
-
-pub(crate) fn wait_group(
-    op: &WaitGroupOp,
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    _operands_info: &OperandsInfo,
-) -> Result<()> {
-    let max_pending = op.max_pending(ctx).0 as i32;
-    let max_pending = insert_i32_const(ctx, rw, max_pending);
-    call_void(ctx, rw, WAIT_GROUP, vec![max_pending]);
     rw.erase_operation(ctx, op.get_operation());
     Ok(())
 }

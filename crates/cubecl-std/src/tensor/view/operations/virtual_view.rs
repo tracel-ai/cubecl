@@ -269,12 +269,12 @@ where
         scope: &Scope,
         shared_memory: &SliceExpand<T>,
         pos: C::ExpandType,
-    ) {
+    ) -> PendingExpand<()> {
         let pos = self
             .layout
             .clone()
             .__expand_to_source_pos_method(scope, pos);
         self.view
-            .__expand_tensor_map_store_method(scope, shared_memory, pos);
+            .__expand_tensor_map_store_method(scope, shared_memory, pos)
     }
 }
