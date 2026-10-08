@@ -125,12 +125,17 @@ pub struct Scope {
 
 #[derive(Clone, Copy, Default)]
 pub struct ExpandState {
+    pub may_terminate: bool,
     pub may_return: bool,
     pub may_break: bool,
-    // Whether the kernel has *not* returned. Inverted to save a not on the loop condition.
+    // Whether the kernel has *not* terminated. Inverted to save a not on the loop condition.
+    pub inv_terminate_flag: Option<Value>,
+    // Whether the current function has *not* returned. Inverted to save a not on the loop condition.
     pub inv_return_flag: Option<Value>,
     /// Whether the loop is *not* broken. Inverted to save a not on the loop condition.
     pub inv_break_flag: Option<Value>,
+    /// The return value, if early return is used.
+    pub return_value: Option<Value>,
 }
 
 impl Debug for Scope {
@@ -453,16 +458,22 @@ impl Scope {
             let entry_block = state.entry_func.get_entry_block(ctx);
             OpInserter::new_at_block_end(entry_block)
         };
-        let return_flag =
-            init_bool_flag(unsafe { &mut *ctx.get() }, &mut inserter, "inv_return_flag");
+        let terminate_flag = init_bool_flag(
+            unsafe { &mut *ctx.get() },
+            &mut inserter,
+            "inv_terminate_flag",
+        );
         Self {
             ctx: CtxHandle::Rc(ctx),
             inserter: InserterHandle::owned(inserter),
             expand_state: RefCell::new(ExpandState {
                 may_break: false,
                 may_return: false,
-                inv_return_flag: Some(return_flag),
+                may_terminate: false,
+                inv_terminate_flag: Some(terminate_flag),
+                inv_return_flag: None,
                 inv_break_flag: None,
+                return_value: None,
             }),
         }
     }
@@ -496,8 +507,11 @@ impl Scope {
             expand_state: RefCell::new(ExpandState {
                 may_return: false,
                 may_break: false,
+                may_terminate: false,
+                inv_terminate_flag: None,
                 inv_return_flag: None,
                 inv_break_flag: None,
+                return_value: None,
             }),
         }
     }
@@ -575,6 +589,23 @@ impl Scope {
     pub fn set_break_return(&self, children: &[Scope]) {
         self.set_may_break(children);
         self.set_may_return(children);
+        self.set_may_terminate(children);
+    }
+
+    pub fn set_terminate_return(&self, children: &[Scope]) {
+        self.set_may_return(children);
+        self.set_may_terminate(children);
+    }
+
+    pub fn set_may_terminate(&self, children: &[Scope]) {
+        let child_may_terminate = children
+            .iter()
+            .any(|scope| scope.expand_state().may_terminate);
+        if child_may_terminate {
+            self.expand_state_mut().may_terminate = true;
+            let flag = self.expand_state().inv_terminate_flag;
+            self.predicate_on_flag(flag.expect("Can't terminate in rewrite context"));
+        }
     }
 
     pub fn set_may_return(&self, children: &[Scope]) {
@@ -672,16 +703,19 @@ impl Scope {
         self.register_size::<N>(vector_size);
     }
 
-    /// Create an empty child scope.
-    pub fn child(&self, inserter: impl Inserter + 'static) -> Self {
+    /// Create an empty child scope for branching ops that don't need new flags, i.e. if/else.
+    pub fn branch_child(&self, inserter: impl Inserter + 'static) -> Self {
         Self {
             ctx: self.ctx.clone(),
             inserter: InserterHandle::owned(inserter),
             expand_state: RefCell::new(ExpandState {
                 may_break: false,
                 may_return: false,
+                may_terminate: false,
+                inv_terminate_flag: self.expand_state().inv_terminate_flag,
                 inv_return_flag: self.expand_state().inv_return_flag,
                 inv_break_flag: self.expand_state().inv_break_flag,
+                return_value: self.expand_state().return_value,
             }),
         }
     }
@@ -695,14 +729,21 @@ impl Scope {
             expand_state: RefCell::new(ExpandState {
                 may_return: false,
                 may_break: false,
+                may_terminate: false,
+                inv_terminate_flag: self.expand_state().inv_terminate_flag,
                 inv_return_flag: self.expand_state().inv_return_flag,
                 inv_break_flag: Some(break_flag),
+                return_value: self.expand_state().return_value,
             }),
         }
     }
 
-    /// Create a child that's at the root of a new function
-    pub fn func_child(&self, mut inserter: impl Inserter + 'static) -> Self {
+    /// Create a child that's at the root of a new inlined function and sets up a new early return flag.
+    pub fn inlined_func_child(
+        &self,
+        mut inserter: impl Inserter + 'static,
+        return_value: Option<Value>,
+    ) -> Self {
         let return_flag = init_bool_flag(self.ctx_mut(), &mut inserter, "inv_return_flag");
         Self {
             ctx: self.ctx.clone(),
@@ -710,8 +751,31 @@ impl Scope {
             expand_state: RefCell::new(ExpandState {
                 may_break: false,
                 may_return: false,
+                may_terminate: false,
+                inv_terminate_flag: self.expand_state().inv_terminate_flag,
                 inv_return_flag: Some(return_flag),
                 inv_break_flag: None,
+                return_value: return_value,
+            }),
+        }
+    }
+
+    /// Create a child that's at the root of a new non-inlined function.
+    /// `terminate!()` won't work for now so if non-inlined functions are ever made user accessible
+    /// we need to deal with that.
+    pub fn func_child(&self, mut inserter: impl Inserter + 'static) -> Self {
+        let terminate_flag = init_bool_flag(self.ctx_mut(), &mut inserter, "inv_terminate_flag");
+        Self {
+            ctx: self.ctx.clone(),
+            inserter: InserterHandle::owned(inserter),
+            expand_state: RefCell::new(ExpandState {
+                may_break: false,
+                may_return: false,
+                may_terminate: false,
+                inv_terminate_flag: Some(terminate_flag),
+                inv_return_flag: None,
+                inv_break_flag: None,
+                return_value: None,
             }),
         }
     }

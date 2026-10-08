@@ -88,7 +88,10 @@ pub enum Expression {
     },
     Asm(AsmExpression),
     Continue(Span),
-    Return(Span),
+    Return {
+        value: Option<Box<Expression>>,
+        span: Span,
+    },
     ForLoop {
         range: Box<Expression>,
         unroll: Option<Box<Expression>>,

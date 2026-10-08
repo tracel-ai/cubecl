@@ -18,6 +18,7 @@ pub mod comparison;
 pub mod compile;
 pub mod complex;
 pub mod const_match;
+pub mod control_flow;
 pub mod debug;
 pub mod different_rank;
 pub mod enums;
@@ -35,7 +36,6 @@ pub mod read_lazy;
 pub mod relocation;
 pub mod saturating;
 pub mod sequence;
-pub mod short_circuit;
 pub mod slice;
 pub mod stream;
 pub mod stream_errors;
@@ -173,7 +173,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_to_client!();
         cubecl_core::testgen_all_reduce!();
 
-        cubecl_core::testgen_short_circuit!();
+        cubecl_core::testgen_control_flow!();
         cubecl_core::testgen_stream_errors!();
         cubecl_core::testgen_allocation_mode!();
         cubecl_core::testgen_out_of_memory!();

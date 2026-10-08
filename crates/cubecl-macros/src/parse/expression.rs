@@ -198,7 +198,15 @@ impl Expression {
                 tokens: quote![#block],
             },
             Expr::Continue(cont) => Expression::Continue(cont.span()),
-            Expr::Return(ret) => Expression::Return(ret.span()),
+            Expr::Return(ret) => {
+                context.has_early_return = true;
+                let span = ret.span();
+                let value = match ret.expr {
+                    Some(value) => Some(Box::new(Expression::from_expr(*value, context)?)),
+                    None => None,
+                };
+                Expression::Return { value, span }
+            }
             Expr::ForLoop(for_loop) => expand_for_loop(for_loop, context)?,
             Expr::While(while_loop) => expand_while_loop(while_loop, context)?,
             Expr::Loop(loop_expr) => expand_loop(loop_expr, context)?,

@@ -54,6 +54,9 @@ pub struct Context {
     mut_scope_idx: usize,
     pub debug_symbols: bool,
     pub is_intrinsic: bool,
+    /// Flag that the function has an early return, used to avoid setting up return flags when
+    /// they're not necessary
+    pub has_early_return: bool,
 }
 
 impl Context {
@@ -79,6 +82,7 @@ impl Context {
             mut_scope_idx: 0,
             debug_symbols,
             is_intrinsic,
+            has_early_return: false,
         }
     }
 

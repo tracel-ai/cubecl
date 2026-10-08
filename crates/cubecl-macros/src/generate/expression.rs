@@ -274,10 +274,26 @@ impl Expression {
                 }
             }
             Expression::Continue(span) => error!(*span, "Continue not supported yet"),
-            Expression::Return(span) => error!(
-                *span,
-                "Return not supported yet. Consider using the terminate!() macro instead."
-            ),
+            Expression::Return {
+                value: Some(value),
+                span,
+            } => {
+                let value = value.to_tokens(context);
+                let path = frontend_path();
+                // Return terminates the current closure scope
+                quote_spanned! {*span=>
+                    #path::branch::return_with_value_expand(scope, (#value).into());
+                    return;
+                }
+            }
+            Expression::Return { value: None, span } => {
+                let path = frontend_path();
+                // Return terminates the current closure scope
+                quote_spanned! {*span=>
+                    #path::branch::return_expand(scope);
+                    return;
+                }
+            }
             Expression::Cast { from, to } => {
                 let cast = prelude_type("Cast");
                 let from = into_expand(from.to_tokens(context));
@@ -738,7 +754,7 @@ impl Expression {
                 quote![#ident!(#tokens)]
             }
             Expression::Terminate => {
-                quote![cubecl::frontend::branch::return_expand(scope);]
+                quote![cubecl::frontend::branch::terminate_expand(scope);]
             }
             Expression::AssertConstant { inner } => inner.to_tokens(context),
             Expression::ExpressionMacro { ident, args } => {
@@ -889,6 +905,10 @@ impl Block {
         let ret = if let Some(ret) = self.ret.as_ref() {
             if let Expression::PanickingMacro { .. } = &**ret {
                 ret.to_tokens(context)
+            } else if context.has_early_return {
+                let tokens = into_expand(ret.to_tokens(context));
+                let branch = frontend_type("branch");
+                quote! {#branch::return_with_value_expand(scope, #tokens)}
             } else {
                 into_expand(ret.to_tokens(context))
             }

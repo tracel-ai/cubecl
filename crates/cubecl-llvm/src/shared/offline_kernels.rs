@@ -278,6 +278,7 @@ pub(crate) fn tf32_round_kernel() -> impl CubeKernel {
 #[cfg(feature = "nvptx")]
 type Tf32 = tf32;
 
+#[allow(clippy::excessive_precision)]
 #[cfg(feature = "nvptx")]
 #[cube(launch)]
 fn tf32_round_constants(output: &mut [f32]) {

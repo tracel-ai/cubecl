@@ -629,7 +629,7 @@ impl<E: CubePrimitive> Iterable for SliceExpand<E> {
         child.terminate_yield();
 
         register_range_loop::<usize>(scope, &range_loop, &child);
-        scope.set_may_return(&[child]);
+        scope.set_terminate_return(&[child]);
     }
 
     fn expand_unroll(self, _scope: &Scope, _body: &mut dyn FnMut(&Scope, Self::Item)) {
@@ -657,7 +657,7 @@ impl<'a, E: CubePrimitive> Iterable for &'a SliceExpand<E> {
         child.terminate_yield();
 
         register_range_loop::<usize>(scope, &range_loop, &child);
-        scope.set_may_return(&[child]);
+        scope.set_terminate_return(&[child]);
     }
 
     fn expand_unroll(self, _scope: &Scope, _body: &mut dyn FnMut(&Scope, Self::Item)) {
@@ -685,7 +685,7 @@ impl<'a, E: CubePrimitive> Iterable for &'a mut SliceExpand<E> {
         child.terminate_yield();
 
         register_range_loop::<usize>(scope, &range_loop, &child);
-        scope.set_may_return(&[child]);
+        scope.set_terminate_return(&[child]);
     }
 
     fn expand_unroll(self, _scope: &Scope, _body: &mut dyn FnMut(&Scope, Self::Item)) {
