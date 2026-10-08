@@ -1,7 +1,4 @@
-use cubecl_core::ir::{
-    ElemType, FloatKind,
-    features::{Features, TypeUsage},
-};
+use cubecl_core::ir::{ElemType, FloatKind, features::Features};
 use cubecl_runtime::{client::Client, throughput::ComputeCmmaConfig};
 
 use crate::throughput::compute_direct;
@@ -17,11 +14,7 @@ impl Arithmetic {
         let mut dtypes = alloc::vec![dtype];
 
         if let Some(accumulator) = Self::promoted(dtype)
-            && client
-                .properties()
-                .features
-                .type_usage(accumulator)
-                .contains(TypeUsage::Arithmetic)
+            && client.properties().features.supports_type(accumulator)
         {
             dtypes.push(accumulator);
         }

@@ -34,8 +34,8 @@ const SAMPLE_PATIENCE: usize = 12;
 const TARGET_DURATION: Duration = Duration::from_millis(20);
 
 /// The most iterations one launch of a probe carries: far below `u32::MAX`,
-/// since a probe's kernel takes the count as an address-sized scalar, which is
-/// 32 bits on most GPUs.
+/// since a probe's kernel takes the count as an address-sized scalar, which a
+/// launch over small buffers registers as 32 bits.
 const MAX_ITERATIONS: usize = 1 << 24;
 
 /// Samples a ranking pass keeps the fastest of. A count and not a wall clock:
@@ -530,7 +530,7 @@ mod tests {
     /// whatever its count, and scaling a warmed count against that asks for
     /// one no kernel's 32-bit iteration count can hold.
     #[test]
-    fn ranking_a_shape_that_reads_as_instant_stays_under_the_ceiling() {
+    fn ranking_a_shape_that_reads_as_instant_is_capped_at_the_ceiling() {
         let config = KernelConfig {
             sample: Box::new(|_| Duration::from_micros(20)),
             ops_count: 1,

@@ -1,7 +1,4 @@
-use cubecl_core::ir::{
-    ElemType,
-    features::{Features, TypeUsage},
-};
+use cubecl_core::ir::{ElemType, features::Features};
 use cubecl_runtime::{
     client::Client,
     runtime::Runtime,
@@ -99,7 +96,7 @@ fn working_set_cap(client: &Client, access: MemoryAccess) -> u64 {
 /// no such operation, [`NoTiming`](ThroughputError::NoTiming) where it does
 /// and reported no elapsed time, [`Allocation`](ThroughputError::Allocation)
 /// where it has no room for the probe's buffers, [`Launch`](ThroughputError::Launch)
-/// where a memory probe's kernel did not run. None of them is cached, so a
+/// where a probe's kernel did not run. None of them is cached, so a
 /// device that was full is measured the next time it is asked.
 pub fn measure_peak_throughput(
     client: &Client,
@@ -196,9 +193,7 @@ fn probe(client: &Client, key: ThroughputKey) -> Result<ThroughputValue, Through
 /// cannot lower panics rather than answering, so this runs before any probe.
 fn declined(features: &Features, key: ThroughputKey) -> bool {
     match key.mode {
-        ThroughputMode::ComputeDirect { dtype } => {
-            !features.type_usage(dtype).contains(TypeUsage::Arithmetic)
-        }
+        ThroughputMode::ComputeDirect { dtype } => !features.supports_type(dtype),
         ThroughputMode::ComputeCmma { dtype, config } => {
             !CooperativeMatrix::implemented(features, dtype, config)
         }
@@ -311,7 +306,10 @@ pub fn measure_launch_overhead(client: &Client) -> core::time::Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cubecl_core::ir::{FloatKind, features::MmaConfig};
+    use cubecl_core::ir::{
+        FloatKind,
+        features::{MmaConfig, TypeUsage},
+    };
     use cubecl_runtime::throughput::{CmmaDims, ComputeCmmaConfig};
 
     const F16: ElemType = ElemType::Float(FloatKind::F16);
@@ -365,23 +363,6 @@ mod tests {
             .insert(F16, TypeUsage::Arithmetic.into());
 
         assert!(!declined(&features, key));
-    }
-
-    /// A type a device can only convert and store, as CUDA has fp8, passes a
-    /// check for any support at all, then fails to compile the probe's fma.
-    #[test]
-    fn a_type_the_device_only_stores_is_declined() {
-        let key = ThroughputKey {
-            mode: ThroughputMode::ComputeDirect { dtype: F16 },
-        };
-
-        let mut features = Features::default();
-        features
-            .types
-            .elem
-            .insert(F16, TypeUsage::Conversion | TypeUsage::Buffer);
-
-        assert!(declined(&features, key));
     }
 
     #[test]

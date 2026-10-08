@@ -5,7 +5,7 @@ use cubecl_runtime::{client::Client, server::Handle, throughput::ThroughputError
 ///
 /// A launch that fails leaves its failure on the buffers it never wrote, and
 /// `sync` answers `Ok` regardless. A sample has no way to say so, and would
-/// time the launch overhead and report it as bandwidth.
+/// time the launch overhead and report it as the probe's rate.
 ///
 /// # Errors
 ///
