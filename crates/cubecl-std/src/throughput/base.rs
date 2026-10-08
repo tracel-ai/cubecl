@@ -134,7 +134,7 @@ fn measure(
 
         let mut probed = false;
         let value = client.measure_throughput(key, || {
-            // The probe's stream executes whatever the policy drops: resolved
+            // The probe's stream executes whatever the process mode drops: resolved
             // where its launches are issued, which here is the runner.
             let _measuring = cubecl_runtime::execution::StreamModeOverride::new(
                 cubecl_runtime::execution::StreamMode::Execute,

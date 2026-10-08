@@ -25,7 +25,7 @@ pub struct MemoryPage {
     alignment: u64,
     location_base: MemoryLocation,
     /// Whether the page's [`StorageId`](crate::storage::StorageId) is backed by
-    /// a real device allocation. A page carved under a policy that drops
+    /// a real device allocation. A page carved under a process mode that drops
     /// launches starts unmapped — its id is minted but no driver memory exists
     /// behind it — and is [rebound](Self::rebind_storage) to a real allocation
     /// the first time one of its slices is resolved into a kernel argument,

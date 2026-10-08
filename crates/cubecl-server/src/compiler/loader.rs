@@ -846,13 +846,13 @@ mod tests {
     #[test]
     #[serial_test::serial(records)]
     fn a_batch_settles_every_kernel_to_the_collector_that_registered_it() {
-        use cubecl_runtime::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
+        use cubecl_runtime::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
 
         let mut loader = loader(2);
         let logger = ServerLogger::default();
         loader.enqueue(Box::new(Numbered(9)), ());
         let collector = StatisticsCollector::new();
-        let compile = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
+        let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
         for number in 0..5 {
             loader.enqueue(Box::new(Numbered(number)), ());
         }
@@ -862,7 +862,7 @@ mod tests {
         let queued = collector.statistics().compilation;
         assert_eq!((queued.registered, queued.settled()), (5, 0));
 
-        let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
+        let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
         loader.load(&Numbered(5), &id(5), &logger).unwrap();
         let batch = collector.statistics().compilation;
         assert_eq!(
@@ -901,10 +901,10 @@ mod tests {
     #[test]
     #[serial_test::serial(records)]
     fn a_failure_settles_as_failed_and_a_retry_registers_again() {
-        use cubecl_runtime::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
+        use cubecl_runtime::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
 
         let collector = StatisticsCollector::new();
-        let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
+        let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
         let mut loader = loader(4);
         loader.target.compiler.failing = Some(1);
         let logger = ServerLogger::default();
@@ -930,12 +930,12 @@ mod tests {
     #[test]
     #[serial_test::serial(records)]
     fn kernels_sharing_a_source_settle_with_it() {
-        use cubecl_runtime::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
+        use cubecl_runtime::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
 
         let logger = ServerLogger::default();
         for (refusing, expected) in [(false, (4, 1, 3, 0, 0)), (true, (4, 0, 0, 4, 0))] {
             let collector = StatisticsCollector::new();
-            let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
+            let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
             let mut loader = loader(4);
             loader.target.compiler.shared_source = true;
             loader.target.compiler.refusing = refusing;
@@ -956,10 +956,10 @@ mod tests {
     #[test]
     #[serial_test::serial(records)]
     fn a_refused_kernel_is_counted_beside_its_outcome() {
-        use cubecl_runtime::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
+        use cubecl_runtime::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
 
         let collector = StatisticsCollector::new();
-        let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
+        let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
         let mut loader = loader(4);
         loader.target.rejecting = Some(1);
         let logger = ServerLogger::default();
@@ -981,10 +981,10 @@ mod tests {
     #[test]
     #[serial_test::serial(records)]
     fn a_panicking_batch_settles_every_kernel() {
-        use cubecl_runtime::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
+        use cubecl_runtime::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
 
         let collector = StatisticsCollector::new();
-        let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
+        let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
         let mut loader = loader(4);
         loader.target.compiler.panicking = Some(2);
         let logger = ServerLogger::default();

@@ -153,8 +153,8 @@ pub enum TuneCacheResult {
     /// Callers that see this fall through to running the operation rather than blocking on
     /// the in-flight job. A tune stopped on a lost device leaves its key here for good.
     Pending,
-    /// A [`CompileOnly`](crate::execution::ExecutionPolicy::CompileOnly) override queued the kernels of the
-    /// key's candidates, and measured and decided nothing. Callers run the first candidate that
+    /// A [`CompileOnly`](crate::execution::ProcessMode::CompileOnly) override queued the kernels of
+    /// the key's candidates, and measured and decided nothing. Callers run the first candidate that
     /// serves the problem, which only queues its kernels too.
     Compiled,
     /// No operation is found yet.

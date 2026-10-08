@@ -59,7 +59,7 @@ pub(crate) struct Move {
     pub allocation: ManagedMemoryHandle,
     /// The slice reserved to receive it.
     pub target: ManagedMemoryHandle,
-    /// The bytes to copy, or `None` when the source was carved under a policy
+    /// The bytes to copy, or `None` when the source was carved under a process mode
     /// that drops launches and never resolved: there is nothing behind it to
     /// copy.
     pub copy: Option<StorageCopy>,

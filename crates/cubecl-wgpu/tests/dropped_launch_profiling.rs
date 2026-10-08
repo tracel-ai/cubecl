@@ -6,7 +6,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_server::config::{CubeClRuntimeConfig, RuntimeConfig, profiling::ProfilingLogLevel};
-use cubecl_server::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
+use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
 use cubecl_server::runtime::Runtime;
 use cubecl_wgpu::WgpuRuntime;
 
@@ -26,10 +26,8 @@ fn a_dropped_launch_is_issued_under_the_profiling_logger() {
     let client = <WgpuRuntime>::client(&Default::default());
     let out = client.empty(core::mem::size_of::<u32>());
 
-    let execution = ExecutionOverride::new(
-        ExecutionPolicy::CompileAndAutotune,
-        &StatisticsCollector::new(),
-    );
+    let execution =
+        ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &StatisticsCollector::new());
     fill::launch(
         &client,
         CubeCount::new_single(),

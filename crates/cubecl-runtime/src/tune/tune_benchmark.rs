@@ -102,7 +102,7 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
     mut evictor: Option<&mut Evictor<'_>>,
 ) -> Result<Vec<ProfileDuration>, AutotuneError> {
     // These launches are the measurement, so their stream executes whatever
-    // the policy drops: it exists to skip the *workload*, not the tuning it is
+    // the process mode drops: it exists to skip the *workload*, not the tuning it is
     // there to provoke. The guard covers the warm-up too, since a candidate
     // measured without one is measured on its slowest run.
     //

@@ -687,7 +687,7 @@ pub trait Server:
     /// [`LaunchMode::Compile`] the server must still do everything a first launch
     /// does short of dispatching — expand, compile, validate, fill its caches —
     /// and then drop the launch; skipping the compilation instead would defeat
-    /// the whole point of an [override](crate::execution::ExecutionOverride) that
+    /// the whole point of an [override](crate::execution::ProcessModeOverride) that
     /// drops launches.
     ///
     /// # Safety
@@ -1286,7 +1286,7 @@ pub enum IoError {
     },
 
     /// An allocation carved lazily under a
-    /// [policy](crate::execution::ExecutionPolicy) that drops launches could
+    /// [process mode](crate::execution::ProcessMode) that drops launches could
     /// not be given real device backing when it was finally resolved.
     ///
     /// Distinct from the same failure at reservation time, and the distinction

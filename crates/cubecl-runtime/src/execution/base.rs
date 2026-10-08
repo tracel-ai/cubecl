@@ -1,7 +1,7 @@
-use super::{ExecutionPolicy, ServiceStream, StreamMode};
+use super::{ProcessMode, ServiceStream, StreamMode};
 
 /// What a server does with one launch: the verdict its stream's mode and the
-/// process's policy resolve to.
+/// process mode resolve to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LaunchMode {
     /// Compile if needed, then run it. The normal case.
@@ -24,16 +24,14 @@ pub enum LaunchMode {
 impl LaunchMode {
     /// What a launch issued on `stream` does now.
     pub(crate) fn new(stream: ServiceStream) -> Self {
-        let policy = ExecutionPolicy::current();
-        match (stream.mode(policy.stream_mode()), policy) {
+        let mode = ProcessMode::current();
+        match (stream.mode(mode.stream_mode()), mode) {
             (StreamMode::Execute, _) => Self::Execute,
             // A stream discarding its launches while the process executes
             // queues them: they compile with the next launch that loads a
             // kernel.
-            (StreamMode::Discard, ExecutionPolicy::CompileOnly | ExecutionPolicy::Execute) => {
-                Self::Queue
-            }
-            (StreamMode::Discard, ExecutionPolicy::CompileAndAutotune) => Self::Compile,
+            (StreamMode::Discard, ProcessMode::CompileOnly | ProcessMode::Execute) => Self::Queue,
+            (StreamMode::Discard, ProcessMode::CompileAndAutotune) => Self::Compile,
         }
     }
 
@@ -45,7 +43,7 @@ impl LaunchMode {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{ExecutionOverride, StatisticsCollector, StreamModeOverride};
+    use super::super::{ProcessModeOverride, StatisticsCollector, StreamModeOverride};
     use super::*;
     use cubecl_common::device::{DeviceId, ServiceId};
     use cubecl_environment::stream::StreamId;
@@ -66,10 +64,10 @@ mod tests {
         StreamId { value }
     }
 
-    /// The verdict is a table of a stream's mode and the policy.
+    /// The verdict is a table of a stream's mode and the process mode.
     #[test]
     #[serial_test::serial]
-    fn a_launch_follows_its_stream_and_the_policy() {
+    fn a_launch_follows_its_stream_and_the_process_mode() {
         let collector = StatisticsCollector::new();
         let seventh = ServiceStream {
             service: device(0),
@@ -78,11 +76,11 @@ mod tests {
         let mode = || LaunchMode::new(seventh);
         assert_eq!(mode(), LaunchMode::Execute);
         {
-            let _compile = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
+            let _compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
             assert_eq!(mode(), LaunchMode::Queue);
         }
         {
-            let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
+            let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
             assert_eq!(mode(), LaunchMode::Compile);
         }
         {
@@ -91,18 +89,18 @@ mod tests {
             let _queuing = StreamModeOverride::of_stream(StreamMode::Discard, seventh);
             assert_eq!(mode(), LaunchMode::Queue);
         }
-        let _execute = ExecutionOverride::new(ExecutionPolicy::Execute, &collector);
+        let _execute = ProcessModeOverride::new(ProcessMode::Execute, &collector);
         assert_eq!(mode(), LaunchMode::Execute);
     }
 
-    /// A stream's mode overrides the policy's default for that stream of
+    /// A stream's mode overrides the process mode's default for that stream of
     /// that device alone, the newest override deciding, and overrides drop
     /// in any order.
     #[test]
     #[serial_test::serial]
     fn a_stream_mode_holds_for_its_stream_on_its_device() {
         let collector = StatisticsCollector::new();
-        let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
+        let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
         let measured = ServiceStream {
             service: device(0),
             stream: stream(1),
@@ -133,7 +131,7 @@ mod tests {
         assert_eq!(
             LaunchMode::new(measured),
             LaunchMode::Compile,
-            "the policy's again"
+            "the mode's again"
         );
     }
 }

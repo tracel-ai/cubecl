@@ -1384,7 +1384,7 @@ fn autotune_stops_sampling_an_eliminated_candidate() {
 #[cfg(feature = "std")]
 #[serial_test::serial]
 fn an_override_drops_an_ordinary_launch() {
-    use cubecl_server::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
 
     let client = test_client(&DummyDevice);
     let lhs = client.create_from_slice(&[0, 1, 2]);
@@ -1404,10 +1404,8 @@ fn an_override_drops_an_ordinary_launch() {
     };
 
     {
-        let _override = ExecutionOverride::new(
-            ExecutionPolicy::CompileAndAutotune,
-            &StatisticsCollector::new(),
-        );
+        let _override =
+            ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &StatisticsCollector::new());
         add(&out);
 
         assert_eq!(
@@ -1433,7 +1431,7 @@ fn an_override_drops_an_ordinary_launch() {
 #[serial_test::serial]
 fn a_stream_mode_follows_its_client_across_threads() {
     use cubecl_server::execution::{
-        ExecutionOverride, ExecutionPolicy, StatisticsCollector, StreamMode, StreamModeOverride,
+        ProcessMode, ProcessModeOverride, StatisticsCollector, StreamMode, StreamModeOverride,
     };
 
     let client = test_client(&DummyDevice);
@@ -1463,10 +1461,8 @@ fn a_stream_mode_follows_its_client_across_threads() {
     };
 
     {
-        let _tune = ExecutionOverride::new(
-            ExecutionPolicy::CompileAndAutotune,
-            &StatisticsCollector::new(),
-        );
+        let _tune =
+            ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &StatisticsCollector::new());
         let _measuring = StreamModeOverride::new(StreamMode::Execute, &bound);
         std::thread::scope(|scope| {
             scope.spawn(|| add(&bound, &executed));
@@ -1493,7 +1489,7 @@ fn a_stream_mode_follows_its_client_across_threads() {
 #[cfg(feature = "std")]
 #[serial_test::serial]
 fn an_override_still_autotunes() {
-    use cubecl_server::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
 
     static TUNER: LocalTuner<String, String> = local_tuner!("an_override_still_autotunes");
 
@@ -1508,10 +1504,8 @@ fn an_override_still_autotunes() {
     let out = client.empty(3);
 
     {
-        let _override = ExecutionOverride::new(
-            ExecutionPolicy::CompileAndAutotune,
-            &StatisticsCollector::new(),
-        );
+        let _override =
+            ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &StatisticsCollector::new());
         TUNER.execute(
             &"test".to_string(),
             &client,
@@ -1544,7 +1538,7 @@ fn an_override_still_autotunes() {
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::serial]
 fn a_compile_only_override_leaves_the_tune_to_the_next_pass() {
-    use cubecl_server::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -1578,7 +1572,7 @@ fn a_compile_only_override_leaves_the_tune_to_the_next_pass() {
 
     let collector = StatisticsCollector::new();
     {
-        let _compile = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
+        let _compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
         TUNER.execute(&"test".to_string(), &client, test_set.clone(), handles());
         let compiled = calls.load(Ordering::Relaxed);
         assert!(compiled > 0, "the candidates ran, to queue their kernels");
@@ -1621,7 +1615,7 @@ fn a_compile_only_override_leaves_the_tune_to_the_next_pass() {
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::serial]
 fn a_key_reached_inside_another_registers_only_once_tuned() {
-    use cubecl_server::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
     use cubecl_server::tune::{CloneInputGenerator, Tunable};
 
     static OUTER: LocalTuner<String, String> = local_tuner!("nested_outer");
@@ -1671,7 +1665,7 @@ fn a_key_reached_inside_another_registers_only_once_tuned() {
 
     let collector = StatisticsCollector::new();
     {
-        let _compile = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
+        let _compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
         OUTER.execute(&"outer".to_string(), &client, outer_set.clone(), handles());
     }
     assert!(
@@ -1686,7 +1680,7 @@ fn a_key_reached_inside_another_registers_only_once_tuned() {
 
     let gathered_calls = inner_calls.load(Ordering::Relaxed);
     {
-        let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
+        let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
         OUTER.execute(&"outer".to_string(), &client, outer_set, handles());
     }
     // The inner key registers only if measuring the outer one reached it.
@@ -1711,14 +1705,12 @@ fn a_key_reached_inside_another_registers_only_once_tuned() {
 #[cfg(not(exclusive_memory_only))]
 #[serial_test::serial]
 fn an_override_reserves_without_mapping() {
-    use cubecl_server::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
     use cubecl_server::memory_management::MemoryPoolReport;
 
     let client = test_client(&DummyDevice);
-    let execution = ExecutionOverride::new(
-        ExecutionPolicy::CompileAndAutotune,
-        &StatisticsCollector::new(),
-    );
+    let execution =
+        ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &StatisticsCollector::new());
 
     // Big enough to land in a large-page pool of its own: the parallel tests
     // in this binary allocate a few bytes at a time, so nothing else touches

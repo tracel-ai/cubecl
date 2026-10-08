@@ -10,7 +10,7 @@ pub enum StreamMode {
     /// They run.
     Execute,
     /// Their kernels compile — now under
-    /// [`CompileAndAutotune`](super::ExecutionPolicy::CompileAndAutotune),
+    /// [`CompileAndAutotune`](super::ProcessMode::CompileAndAutotune),
     /// queued for a batch otherwise — and the launches are discarded.
     Discard,
 }
@@ -66,7 +66,7 @@ impl ServiceStream {
 
 /// Sets the mode of one client's stream on its device while it lives,
 /// restored on drop: what a measurement opens, so its launches run whatever
-/// the policy discards.
+/// the process mode discards.
 ///
 /// Keyed on the device and the stream the client's launches go out on — a
 /// client bound to a stream of its own does not follow the thread's — so it
@@ -94,7 +94,7 @@ struct StreamModeEntry {
 
 /// How many live [`StreamModeOverride`]s set each mode, by
 /// [`StreamMode::index`]: a launch looks the overrides up only when one sets
-/// the mode its policy does not, so a measurement under no override, which
+/// the mode its process mode does not, so a measurement under no override, which
 /// sets the mode every stream already has, costs other launches nothing.
 static LIVE_STREAM_MODES: [AtomicUsize; 2] = [AtomicUsize::new(0), AtomicUsize::new(0)];
 /// The live overrides, oldest first.

@@ -29,7 +29,7 @@ pub enum PageMapping {
     /// behind it and the page's device footprint is zero.
     ///
     /// For the one case where the allocation may never be used: under a
-    /// [policy](crate::execution::ExecutionPolicy) that drops launches, the
+    /// [process mode](crate::execution::ProcessMode) that drops launches, the
     /// workload's launches are compiled and dropped, so most reservations are
     /// never resolved and never need to exist. That is what lets a workload far
     /// larger than the device replay its allocation stream — the pools still
@@ -38,13 +38,13 @@ pub enum PageMapping {
     Lazy,
 }
 
-impl From<crate::execution::ExecutionPolicy> for PageMapping {
-    /// [`Lazy`](Self::Lazy) under a policy whose streams discard their
+impl From<crate::execution::ProcessMode> for PageMapping {
+    /// [`Lazy`](Self::Lazy) under a process mode whose streams discard their
     /// launches, [`Eager`](Self::Eager) otherwise: a stream that executes
-    /// while the policy discards is a measurement, which resolves what it
+    /// while the process mode discards is a measurement, which resolves what it
     /// uses because it runs.
-    fn from(policy: crate::execution::ExecutionPolicy) -> Self {
-        match policy.stream_mode() {
+    fn from(mode: crate::execution::ProcessMode) -> Self {
+        match mode.stream_mode() {
             crate::execution::StreamMode::Discard => Self::Lazy,
             crate::execution::StreamMode::Execute => Self::Eager,
         }
@@ -53,9 +53,9 @@ impl From<crate::execution::ExecutionPolicy> for PageMapping {
 
 impl PageMapping {
     /// The mapping allocations made in this process, right now, should get:
-    /// what the [policy](crate::execution::ExecutionPolicy) in force asks.
+    /// what the [process mode](crate::execution::ProcessMode) in force asks.
     pub fn current() -> Self {
-        Self::from(crate::execution::ExecutionPolicy::current())
+        Self::from(crate::execution::ProcessMode::current())
     }
 
     /// A storage handle for `size` bytes honoring this mapping: a real device

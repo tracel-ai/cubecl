@@ -33,7 +33,7 @@ pub struct TuneRecord<K> {
     pub short_circuit: Option<String>,
     /// From the cache miss to the answer committed.
     pub wall: Duration,
-    /// Whether the tune ran under a policy that discards launches, where
+    /// Whether the tune ran under a process mode that discards launches, where
     /// they compile but do not execute. Stored under its earlier name, which
     /// environments already saved hold.
     #[serde(rename = "dry_run")]
@@ -115,7 +115,7 @@ impl<K: AutotuneKey> TuneRecording<K> {
                 key: key.clone(),
                 checksum: checksum.into(),
             },
-            launches_discarded: crate::execution::ExecutionPolicy::current().stream_mode()
+            launches_discarded: crate::execution::ProcessMode::current().stream_mode()
                 == crate::execution::StreamMode::Discard,
             plan: Vec::new(),
         });

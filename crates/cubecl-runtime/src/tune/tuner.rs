@@ -17,7 +17,7 @@ use crate::client::Client;
 use crate::config::Logger;
 #[cfg(persistence)]
 use crate::config::autotune::AutotuneLogLevel;
-use crate::execution::{ExecutionPolicy, TuneOutcome, TuneRegistration};
+use crate::execution::{ProcessMode, TuneOutcome, TuneRegistration};
 use crate::server::LaunchError;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
 use cubecl_environment::config::RuntimeConfig;
@@ -252,7 +252,7 @@ impl<K: AutotuneKey> Tuner<K> {
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
-        let compiling = ExecutionPolicy::current() == ExecutionPolicy::CompileOnly;
+        let compiling = ProcessMode::current() == ProcessMode::CompileOnly;
         // Where the key's tune was registered, if the override that gathered it registered it.
         let gathered;
 

@@ -3,7 +3,7 @@ use cubecl_environment::sync::{AtomicUsize, Mutex, Ordering};
 
 /// What the process does with the work it is asked to run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExecutionPolicy {
+pub enum ProcessMode {
     /// Launches run. What the process does when no override is open.
     Execute,
     /// Launches and tune candidates queue their kernels and are dropped. The
@@ -15,10 +15,10 @@ pub enum ExecutionPolicy {
     CompileAndAutotune,
 }
 
-impl ExecutionPolicy {
-    /// The process's policy now.
+impl ProcessMode {
+    /// The process mode now.
     pub fn current() -> Self {
-        OpenState::load().policy()
+        OpenState::load().mode()
     }
 
     /// The mode every stream has under it, unless a
@@ -31,7 +31,7 @@ impl ExecutionPolicy {
     }
 }
 
-/// Applies a policy to the whole process while it lives, counting what it
+/// Applies a process mode to the whole process while it lives, counting what it
 /// triggers into a collector, on every thread and every device.
 ///
 /// A build that compiles everything and then tunes with it compiled opens
@@ -39,29 +39,29 @@ impl ExecutionPolicy {
 ///
 /// ```no_run
 /// # fn warm_up() {}
-/// use cubecl_runtime::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
+/// use cubecl_runtime::execution::{ProcessModeOverride, ProcessMode, StatisticsCollector};
 ///
 /// let collector = StatisticsCollector::new();
 ///
 /// // Gather every kernel the warm-up reaches, and compile them together...
-/// let compile = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
+/// let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
 /// warm_up();
 /// drop(compile);
 ///
 /// // ...then tune with them compiled.
-/// let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
+/// let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
 /// warm_up();
 ///
 /// let statistics = collector.statistics();
 /// assert_eq!(statistics.compilation.settled(), statistics.compilation.registered);
 /// ```
 ///
-/// Overlapping overrides of one policy and one collector compose, so one
-/// opened while another is still open leaves the policy until the last of
-/// them drops. One policy and one collector at a time: the policy is
+/// Overlapping overrides of one process mode and one collector compose, so one
+/// opened while another is still open leaves the process mode until the last of
+/// them drops. One process mode and one collector at a time: the process mode is
 /// process-wide, and the work under it counts to one collector.
 ///
-/// The policy is read where a launch is issued, with relaxed ordering, so a
+/// The process mode is read where a launch is issued, with relaxed ordering, so a
 /// launch another thread had already begun issuing may still execute. What
 /// is guaranteed is the launches issued by the thread that opened it, and
 /// every launch issued after other threads observe it.
@@ -71,41 +71,41 @@ impl ExecutionPolicy {
 /// launches that quietly do nothing and read back uninitialized memory, so
 /// its lifetime belongs to a scope in the code that wants it.
 #[derive(Debug)]
-pub struct ExecutionOverride {
-    policy: ExecutionPolicy,
+pub struct ProcessModeOverride {
+    mode: ProcessMode,
 }
 
-impl ExecutionOverride {
+impl ProcessModeOverride {
     /// # Panics
     ///
-    /// If an override of another policy, or of another collector, is open.
-    pub fn new(policy: ExecutionPolicy, collector: &StatisticsCollector) -> Self {
+    /// If an override of another process mode, or of another collector, is open.
+    pub fn new(mode: ProcessMode, collector: &StatisticsCollector) -> Self {
         let mut active = ACTIVE.lock();
         let open = OpenState::load();
-        match Opening::of(open, active.as_ref(), policy, collector) {
+        match Opening::of(open, active.as_ref(), mode, collector) {
             Opening::First => {
                 *active = Some(collector.recorder());
-                OpenState::first(policy).store();
+                OpenState::first(mode).store();
             }
             Opening::Joins => open.joined().store(),
             Opening::OtherCollector => {
                 drop(active);
                 panic!("an override cannot open while one of another collector is")
             }
-            Opening::OtherPolicy => {
+            Opening::OtherMode => {
                 drop(active);
                 panic!(
-                    "an override of {policy:?} cannot open while one of {:?} is",
-                    open.policy()
+                    "an override of {mode:?} cannot open while one of {:?} is",
+                    open.mode()
                 )
             }
         }
-        Self { policy }
+        Self { mode }
     }
 
-    /// The policy it applies.
-    pub fn policy(&self) -> ExecutionPolicy {
-        self.policy
+    /// The process mode it applies.
+    pub fn mode(&self) -> ProcessMode {
+        self.mode
     }
 
     /// Where the work the open override triggers is tallied, or `None` when
@@ -123,9 +123,9 @@ impl ExecutionOverride {
     }
 }
 
-impl Drop for ExecutionOverride {
+impl Drop for ProcessModeOverride {
     fn drop(&mut self) {
-        // The last guard out closes the override, its policy and its
+        // The last guard out closes the override, its process mode and its
         // collector with it.
         let mut active = ACTIVE.lock();
         let left = OpenState::load().left();
@@ -140,19 +140,19 @@ impl Drop for ExecutionOverride {
 enum Opening {
     /// Nothing open: it opens.
     First,
-    /// One of its policy and its collector: it joins.
+    /// One of its process mode and its collector: it joins.
     Joins,
     /// One of another collector.
     OtherCollector,
-    /// One of its collector, of another policy.
-    OtherPolicy,
+    /// One of its collector, of another process mode.
+    OtherMode,
 }
 
 impl Opening {
     fn of(
         open: OpenState,
         active: Option<&StatisticsRecorder>,
-        policy: ExecutionPolicy,
+        mode: ProcessMode,
         collector: &StatisticsCollector,
     ) -> Self {
         let Some(active) = active.filter(|_| open.is_open()) else {
@@ -160,15 +160,15 @@ impl Opening {
         };
         if !active.tallies_into(collector) {
             Self::OtherCollector
-        } else if open.policy() != policy {
-            Self::OtherPolicy
+        } else if open.mode() != mode {
+            Self::OtherMode
         } else {
             Self::Joins
         }
     }
 }
 
-/// The open override as the process holds it: its policy's level in the low
+/// The open override as the process holds it: its process mode's level in the low
 /// [`LEVEL_BITS`](Self::LEVEL_BITS), and above them how many guards hold it
 /// open. Written only under [`ACTIVE`]'s lock, and read without it on every
 /// launch.
@@ -181,9 +181,9 @@ static OPEN: AtomicUsize = AtomicUsize::new(0);
 static ACTIVE: Mutex<Option<StatisticsRecorder>> = Mutex::new(None);
 
 impl OpenState {
-    /// The bits that hold the policy's level.
+    /// The bits that hold the process mode's level.
     const LEVEL_BITS: u32 = 2;
-    /// Masks the state down to the policy's level.
+    /// Masks the state down to the process mode's level.
     const LEVEL_MASK: usize = (1 << Self::LEVEL_BITS) - 1;
     /// One guard, in the state's count.
     const GUARD: usize = 1 << Self::LEVEL_BITS;
@@ -196,15 +196,15 @@ impl OpenState {
         OPEN.store(self.0, Ordering::Relaxed);
     }
 
-    /// One guard holding `policy` open. Every policy has a level of its own,
-    /// [`Execute`](ExecutionPolicy::Execute) included, so an override of it
+    /// One guard holding `mode` open. Every process mode has a level of its own,
+    /// [`Execute`](ProcessMode::Execute) included, so an override of it
     /// is told apart from none: it tallies what a real run compiles and
     /// tunes.
-    fn first(policy: ExecutionPolicy) -> Self {
-        let level = match policy {
-            ExecutionPolicy::CompileOnly => 1,
-            ExecutionPolicy::CompileAndAutotune => 2,
-            ExecutionPolicy::Execute => 3,
+    fn first(mode: ProcessMode) -> Self {
+        let level = match mode {
+            ProcessMode::CompileOnly => 1,
+            ProcessMode::CompileAndAutotune => 2,
+            ProcessMode::Execute => 3,
         };
         Self(Self::GUARD | level)
     }
@@ -213,12 +213,12 @@ impl OpenState {
         self.0 != 0
     }
 
-    /// The open policy; none open executes.
-    fn policy(self) -> ExecutionPolicy {
+    /// The open process mode; none open executes.
+    fn mode(self) -> ProcessMode {
         match self.0 & Self::LEVEL_MASK {
-            1 => ExecutionPolicy::CompileOnly,
-            2 => ExecutionPolicy::CompileAndAutotune,
-            _ => ExecutionPolicy::Execute,
+            1 => ProcessMode::CompileOnly,
+            2 => ProcessMode::CompileAndAutotune,
+            _ => ProcessMode::Execute,
         }
     }
 
@@ -246,7 +246,7 @@ mod tests {
     use alloc::vec;
     use alloc::vec::Vec;
 
-    /// One policy is open at a time: an override of another refuses to open
+    /// One process mode is open at a time: an override of another refuses to open
     /// beside it.
     #[test]
     #[serial_test::serial]
@@ -255,58 +255,55 @@ mod tests {
     )]
     fn policies_do_not_overlap() {
         let collector = StatisticsCollector::new();
-        let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
-        let _compile = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
+        let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+        let _compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
     }
 
     /// The work under an override counts to one collector: another's
-    /// refuses to open beside it, whatever its policy.
+    /// refuses to open beside it, whatever its process mode.
     #[test]
     #[serial_test::serial]
     #[should_panic(expected = "cannot open while one of another collector is")]
     fn two_collectors_do_not_overlap() {
         let (first, second) = (StatisticsCollector::new(), StatisticsCollector::new());
-        let _first = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &first);
-        let _second = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &second);
+        let _first = ProcessModeOverride::new(ProcessMode::CompileOnly, &first);
+        let _second = ProcessModeOverride::new(ProcessMode::CompileOnly, &second);
     }
 
     /// A refused open leaves the open override as it was.
     #[test]
     #[serial_test::serial]
-    fn a_refused_open_leaves_the_open_policy() {
+    fn a_refused_open_leaves_the_open_process_mode() {
         let collector = StatisticsCollector::new();
-        let tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
+        let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
         let refused = std::panic::catch_unwind(|| {
-            ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector)
+            ProcessModeOverride::new(ProcessMode::CompileOnly, &collector)
         });
         assert!(refused.is_err());
-        assert_eq!(
-            ExecutionPolicy::current(),
-            ExecutionPolicy::CompileAndAutotune
-        );
+        assert_eq!(ProcessMode::current(), ProcessMode::CompileAndAutotune);
         drop(tune);
-        assert_eq!(ExecutionPolicy::current(), ExecutionPolicy::Execute);
+        assert_eq!(ProcessMode::current(), ProcessMode::Execute);
     }
 
-    /// Overlapping overrides of one policy and collector compose: the last
+    /// Overlapping overrides of one process mode and collector compose: the last
     /// out closes it.
     #[test]
     #[serial_test::serial]
     fn overrides_nest() {
         let collector = StatisticsCollector::new();
         {
-            let _outer = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
+            let _outer = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
             {
-                let _inner = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
+                let _inner = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
             }
             assert_eq!(
-                ExecutionPolicy::current(),
-                ExecutionPolicy::CompileOnly,
+                ProcessMode::current(),
+                ProcessMode::CompileOnly,
                 "the outer is in force"
             );
         }
-        assert_eq!(ExecutionPolicy::current(), ExecutionPolicy::Execute);
-        assert!(ExecutionOverride::active_recorder().is_none());
+        assert_eq!(ProcessMode::current(), ProcessMode::Execute);
+        assert!(ProcessModeOverride::active_recorder().is_none());
     }
 
     /// What an override triggers counts to its collector, over every
@@ -323,7 +320,7 @@ mod tests {
         let collector = StatisticsCollector::new();
         let reader = collector.reader();
 
-        let compile = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
+        let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
         let queued: Vec<KernelRegistration> = (0..4)
             .filter_map(|_| KernelRegistration::register())
             .collect();
@@ -331,7 +328,7 @@ mod tests {
         drop(compile);
 
         // Kernels queued in one override compile in the next.
-        let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
+        let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
         let mut queued = queued.into_iter();
         let mut compiled = queued.next().unwrap().settle(KernelOutcome::Compiled);
         compiled.record(KernelLoad::Refused);
@@ -363,7 +360,7 @@ mod tests {
         assert_eq!(reader.statistics(), statistics);
         drop(_tune);
 
-        let execute = ExecutionOverride::new(ExecutionPolicy::Execute, &collector);
+        let execute = ProcessModeOverride::new(ProcessMode::Execute, &collector);
         let _measured = TuneRegistration::register()
             .expect("an execute override counts too")
             .settle(TuneOutcome::Measured);
@@ -380,7 +377,7 @@ mod tests {
     #[serial_test::serial]
     fn a_dropped_registration_settles_as_failed() {
         let collector = StatisticsCollector::new();
-        let _compile = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
+        let _compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
         drop(KernelRegistration::register());
         drop(TuneRegistration::register());
         let statistics = collector.statistics();

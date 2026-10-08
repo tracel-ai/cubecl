@@ -49,7 +49,7 @@ impl CompilationStatistics {
 /// candidate is answered, not tuned, and counts nowhere.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AutotuneStatistics {
-    /// Gathered by a [`CompileOnly`](super::ExecutionPolicy::CompileOnly)
+    /// Gathered by a [`CompileOnly`](super::ProcessMode::CompileOnly)
     /// pass, or reached ungathered by a tune that measures. A key reached
     /// inside another key's candidates is not gathered: it registers if it is
     /// ever measured.
@@ -71,7 +71,7 @@ impl AutotuneStatistics {
     }
 }
 
-/// Collects what the [overrides](super::ExecutionOverride) opened with it
+/// Collects what the [overrides](super::ProcessModeOverride) opened with it
 /// triggered.
 ///
 /// Not `Clone`: whoever holds it opens overrides that count into it. A
@@ -218,7 +218,7 @@ impl<O: Outcome> Registration<O> {
     /// Register one item with the collector of the override open now, if
     /// one is.
     pub fn register() -> Option<Self> {
-        let recorder = super::ExecutionOverride::active_recorder()?;
+        let recorder = super::ProcessModeOverride::active_recorder()?;
         O::tally(&recorder.tallies).register();
         Some(Self {
             recorder: Some(recorder),
