@@ -19,6 +19,20 @@ pub fn call_op(
     CallIntrinsicOp::new(ctx, name.into(), fn_ty, args)
 }
 
+/// Calls the intrinsic `name`, which returns nothing.
+pub fn call_void(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    name: &str,
+    args: Vec<Value>,
+) {
+    let arg_tys = args.iter().map(|arg| arg.get_type(ctx)).collect();
+    let void_ty = VoidType::get(ctx).into();
+    let fn_ty = FuncType::get(ctx, void_ty, arg_tys, false);
+    let call = llvm::CallIntrinsicOp::new(ctx, name.into(), fn_ty, args);
+    rw.insert_op(ctx, &call);
+}
+
 pub fn i32_const_op(ctx: &mut Context, value: i32) -> llvm::ConstantOp {
     let attr = int_attr(ctx, I32_WIDTH, value as i128);
     llvm::ConstantOp::new(ctx, Box::new(attr))
@@ -32,14 +46,23 @@ pub fn i64_ty(ctx: &mut Context) -> TypeHandle {
     int_ty(ctx, 64)
 }
 
-/// `value`, an integer, truncated or extended to `width` bits, sign extended when `signed`.
-/// `None` when `value` is not an integer.
+/// How [`resize_int`] widens an integer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Extension {
+    /// Copies the sign bit, for a value that may be negative.
+    Sign,
+    /// Fills with zeros, for an unsigned value or a boolean.
+    Zero,
+}
+
+/// `value`, an integer, truncated or extended to `width` bits as `extension` says. `None` when
+/// `value` is not an integer.
 pub fn resize_int(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
     value: Value,
     width: u32,
-    signed: bool,
+    extension: Extension,
 ) -> Option<Value> {
     let from = value
         .get_type(ctx)
@@ -50,10 +73,10 @@ pub fn resize_int(
     let op: Ptr<Operation> = match from.cmp(&width) {
         core::cmp::Ordering::Equal => return Some(value),
         core::cmp::Ordering::Greater => llvm::TruncOp::new(ctx, value, ty).get_operation(),
-        core::cmp::Ordering::Less if signed => llvm::SExtOp::new(ctx, value, ty).get_operation(),
-        core::cmp::Ordering::Less => {
-            llvm::ZExtOp::new_with_nneg(ctx, value, ty, false).get_operation()
-        }
+        core::cmp::Ordering::Less => match extension {
+            Extension::Sign => llvm::SExtOp::new(ctx, value, ty).get_operation(),
+            Extension::Zero => llvm::ZExtOp::new_with_nneg(ctx, value, ty, false).get_operation(),
+        },
     };
     rw.insert_operation(ctx, op);
     Some(op.deref(ctx).get_result(0))

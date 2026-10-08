@@ -144,3 +144,17 @@ pub fn llvm_mangled_ty(ctx: &Context, ty: TypeHandle) -> String {
         .map(|ty| ty.to_string(ctx))
         .expect("Type not supported for overloading of intrinsic")
 }
+
+/// The size of what `ptr` points at, read off the cube pointer type it was converted from.
+pub fn pointee_size(ctx: &Context, info: &OperandsInfo, ptr: Value) -> Option<usize> {
+    info.lookup_operand_history(ptr)
+        .into_iter()
+        .rev()
+        .chain(core::iter::once(ptr.get_type(ctx)))
+        .find_map(|ty| {
+            let ty = ty.deref(ctx);
+            let ptr = ty.downcast_ref::<CubePointerType>()?;
+            let inner = ptr.inner.deref(ctx);
+            Some(type_cast::<dyn SizedType>(&*inner)?.size(ctx))
+        })
+}

@@ -3,17 +3,18 @@
 //! A GPU runtime's properties come from its C++ backend, which gained each generation's hardware
 //! features as they shipped. The LLVM backend runs ordinary kernels: arithmetic, memory, shared
 //! memory, the plane operations, the two barriers and the matrix instructions it has register
-//! shapes for, plus Hopper's TMA and warpgroup MMA on NVPTX. Everything else is taken away here rather than left to fail at compile time,
-//! because a consumer picks its algorithm off these properties — cubek's matmul selectors ask for
-//! `mma` before they ask anything else — and an advertisement that cannot be honoured is a launch
-//! that fails rather than one that falls back. The CPU runtime builds its properties from what
-//! this backend lowers, so it has nothing to narrow.
+//! shapes for, plus Hopper's TMA and warpgroup MMA on NVPTX. Everything else is taken away here
+//! rather than left to fail at compile time, because a consumer picks its algorithm off these
+//! properties — cubek's matmul selectors ask for `mma` before they ask anything else — and an
+//! advertisement that cannot be honoured is a launch that fails rather than one that falls back.
+//! The CPU runtime builds its properties from what this backend lowers, so it has nothing to
+//! narrow.
 
 #[cfg(feature = "amdgpu")]
 use cubecl_core::ir::amd::AmdWmma;
 use cubecl_core::ir::{ComplexKind, DeviceProperties, ElemType, FloatKind, OpaqueType};
 #[cfg(feature = "nvptx")]
-use cubecl_core::ir::{IntKind, UIntKind};
+use cubecl_core::ir::{IntKind, UIntKind, nvidia::SmArch};
 
 const HALF: ElemType = ElemType::Float(FloatKind::F16);
 const BF16: ElemType = ElemType::Float(FloatKind::BF16);
@@ -21,9 +22,9 @@ const BF16: ElemType = ElemType::Float(FloatKind::BF16);
 /// The GPU target a device's features are narrowed for, with what its lowering depends on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GpuTarget {
-    /// `sm` is the part's packed compute capability: 90 is Hopper.
+    /// `arch` is the part's architecture.
     #[cfg(feature = "nvptx")]
-    Nvptx { sm: u32 },
+    Nvptx { arch: SmArch },
     /// `wmma` is the part's WMMA generation, `None` on a part without one.
     #[cfg(feature = "amdgpu")]
     AmdGpu { wmma: Option<AmdWmma> },
@@ -37,11 +38,11 @@ pub fn restrict_features(props: &mut DeviceProperties, target: GpuTarget) {
     props.features.matmul.wgmma.clear();
     match target {
         #[cfg(feature = "nvptx")]
-        GpuTarget::Nvptx { sm } => {
+        GpuTarget::Nvptx { arch } => {
             keep_nvptx_matrix_forms(props);
             keep_nvptx_tma(props);
             // Warpgroup MMA is Hopper's alone: Blackwell replaced it with `tcgen05`.
-            if sm == 90 {
+            if arch.version() == 90 {
                 let configs = crate::nvptx::wgmma::wgmma_configs();
                 props.features.matmul.wgmma.extend(configs.iter().copied());
             }
@@ -307,7 +308,12 @@ mod nvptx_tests {
         ];
         props.features.matmul.cmma.extend(forms);
         props.features.matmul.mma.extend(forms);
-        restrict_features(&mut props, GpuTarget::Nvptx { sm: 80 });
+        restrict_features(
+            &mut props,
+            GpuTarget::Nvptx {
+                arch: SmArch::new(80, true),
+            },
+        );
         assert_eq!(props.features.matmul.cmma.len(), 1);
         assert!(props.features.matmul.cmma.contains(&config(16, 16, 8)));
         assert_eq!(props.features.matmul.mma.len(), 2);
@@ -338,7 +344,12 @@ mod nvptx_tests {
             .matmul
             .mma
             .extend([config(f32, 16, 8, 16), config(BF16, 16, 8, 16)]);
-        restrict_features(&mut props, GpuTarget::Nvptx { sm: 80 });
+        restrict_features(
+            &mut props,
+            GpuTarget::Nvptx {
+                arch: SmArch::new(80, true),
+            },
+        );
         assert_eq!(props.features.matmul.cmma.len(), 2);
         assert!(props.features.matmul.cmma.iter().all(|c| c.cd_type == f32));
         assert_eq!(props.features.matmul.mma.len(), 1);
@@ -361,7 +372,12 @@ mod nvptx_tma_tests {
         for &feature in tma {
             props.features.tma.insert(feature);
         }
-        restrict_features(&mut props, GpuTarget::Nvptx { sm: 90 });
+        restrict_features(
+            &mut props,
+            GpuTarget::Nvptx {
+                arch: SmArch::new(90, true),
+            },
+        );
         props
     }
 
@@ -382,7 +398,8 @@ mod nvptx_tma_tests {
     fn only_hopper_gets_warpgroup_mma() {
         for (sm, expected) in [(80, false), (90, true), (100, false)] {
             let mut props = (*device_properties(32)).clone();
-            restrict_features(&mut props, GpuTarget::Nvptx { sm });
+            let arch = SmArch::new(sm, true);
+            restrict_features(&mut props, GpuTarget::Nvptx { arch });
             assert_eq!(!props.features.matmul.wgmma.is_empty(), expected, "sm_{sm}");
         }
     }

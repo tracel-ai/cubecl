@@ -3,11 +3,12 @@
 //! LLVM has intrinsics for the fence and for committing and waiting on groups, but none for
 //! `wgmma.mma_async` itself, so the MMA is inline PTX, as MLIR's NVVM dialect emits it.
 
-use super::matrix::{
-    RegisterForm, as_shared, call_void, registers_into, registers_of, registers_result_ty,
-    store_fragment, unpack_registers, vector_bits, vector_lanes,
-};
 use crate::{
+    nvptx::{
+        address::NvptxSpace,
+        inline_asm::InlineAsm,
+        registers::{RegisterForm, store_fragment, vector_bits, vector_lanes},
+    },
     prelude::*,
     shared::matrix::{registers_array_ty, registers_as_vector, registers_value, vector_into_array},
 };
@@ -21,7 +22,6 @@ use cubecl_core::ir::{
     types::{MatrixLayout, MatrixShape},
 };
 use pliron::r#type::type_cast;
-use pliron_llvm::llvm_attrs::{LlvmAttrValue, LlvmAttributesAttr};
 use std::sync::LazyLock;
 
 const FENCE: &str = "llvm.nvvm.wgmma.fence.sync.aligned";
@@ -162,59 +162,6 @@ fn register_form(elem: ElemType) -> RegisterForm {
     }
 }
 
-/// The inline assembly constraint of a 32-bit register.
-fn constraint(ctx: &Context, reg: Value) -> &'static str {
-    if reg.get_type(ctx).deref(ctx).is::<FP32Type>() {
-        "f"
-    } else {
-        "r"
-    }
-}
-
-/// Calls an inline assembly `template` that reads and writes `regs` in place, along with
-/// `inputs`, and returns the registers it wrote.
-fn asm_in_place(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    template: &str,
-    regs: Vec<Value>,
-    inputs: Vec<(Value, &'static str)>,
-    clobbers_memory: bool,
-    convergent: bool,
-) -> Vec<Value> {
-    let count = regs.len();
-    let reg_tys: Vec<TypeHandle> = regs.iter().map(|reg| reg.get_type(ctx)).collect();
-
-    let mut constraints: Vec<String> = regs
-        .iter()
-        .map(|&reg| format!("={}", constraint(ctx, reg)))
-        .collect();
-    constraints.extend((0..count).map(|i| i.to_string()));
-    constraints.extend(inputs.iter().map(|(_, c)| c.to_string()));
-    if clobbers_memory {
-        constraints.push("~{memory}".into());
-    }
-
-    let mut args = regs;
-    args.extend(inputs.into_iter().map(|(value, _)| value));
-
-    let result_ty = registers_result_ty(ctx, reg_tys);
-    let asm = llvm::InlineAsmOp::new(ctx, result_ty, args, template, &constraints.join(","), true);
-    if convergent {
-        let mut attrs = LlvmAttributesAttr::new();
-        attrs.set("convergent", LlvmAttrValue::Unit);
-        asm.set_attr_llvm_inline_asm_attrs(ctx, attrs);
-    }
-    let result = insert(ctx, rw, &asm);
-    unpack_registers(ctx, rw, result, count)
-}
-
-/// A run of `$i` operand references, braced as a PTX vector operand.
-fn operand_list(first: usize, count: usize) -> String {
-    let operands: Vec<String> = (first..first + count).map(|i| format!("${i}")).collect();
-    format!("{{{}}}", operands.join(", "))
-}
-
 fn int_width(ctx: &Context, value: Value) -> Option<u32> {
     value
         .get_type(ctx)
@@ -290,11 +237,12 @@ pub(crate) fn wgmma(
 
     let acc_form = register_form(cd_elem);
     let acc_value = registers_value(ctx, rw, acc, acc_vec_ty);
-    let acc_regs = registers_of(ctx, rw, acc_value, acc_form);
-    let count = acc_regs.len();
+    let acc_regs = acc_form.split(ctx, rw, acc_value);
 
-    // Inputs follow the accumulator's outputs and the inputs tied to them.
-    let mut inputs = vec![];
+    let mut asm = InlineAsm::new()
+        .tied(acc_regs)
+        .clobbers_memory()
+        .convergent();
     let a_operand = if a_in_registers {
         let (a_vec_ty, _) = registers_as_vector(ctx, operands_info, a);
         let bits = vector_bits(ctx, a_vec_ty);
@@ -310,34 +258,31 @@ pub(crate) fn wgmma(
             );
         }
         let a_value = registers_value(ctx, rw, a, a_vec_ty);
-        let a_regs = registers_of(ctx, rw, a_value, RegisterForm::Word);
-        let operand = operand_list(2 * count, a_regs.len());
-        inputs.extend(a_regs.into_iter().map(|reg| (reg, "r")));
-        operand
+        let a_regs = RegisterForm::Word.split(ctx, rw, a_value);
+        let operands: Vec<String> = a_regs.into_iter().map(|reg| asm.input(reg, "r")).collect();
+        format!("{{{}}}", operands.join(", "))
     } else {
         if int_width(ctx, a) != Some(64) {
             let ty = a.get_type(ctx).disp(ctx).to_string();
             return input_err!(op.loc(ctx), WgmmaDescriptorType(ty));
         }
-        inputs.push((a, "l"));
-        format!("${}", 2 * count)
+        asm.input(a, "l")
     };
     if int_width(ctx, b) != Some(64) {
         let ty = b.get_type(ctx).disp(ctx).to_string();
         return input_err!(op.loc(ctx), WgmmaDescriptorType(ty));
     }
-    let b_operand = format!("${}", 2 * count + inputs.len());
-    inputs.push((b, "l"));
-    let scale_operand = format!("${}", 2 * count + inputs.len());
-    let scale_d = resize_int(ctx, rw, scale_d, 32, false).expect("`scale_d` is a boolean");
-    inputs.push((scale_d, "r"));
+    let b_operand = asm.input(b, "l");
+    let scale_d =
+        resize_int(ctx, rw, scale_d, 32, Extension::Zero).expect("`scale_d` is a boolean");
+    let scale_operand = asm.input(scale_d, "r");
 
     let mut instruction = format!(
         "wgmma.mma_async.sync.aligned.m{M}n{n}k{k}.{}.{}.{} {}, {a_operand}, {b_operand}, p",
         ptx_type(cd_elem),
         ptx_type(a_elem),
         ptx_type(b_elem),
-        operand_list(0, count),
+        asm.tied_operands(),
     );
     // Integer forms take neither the operand negation nor the transposes.
     if !is_integer(a_elem) {
@@ -352,9 +297,9 @@ pub(crate) fn wgmma(
     let template =
         format!("{{\n.reg .pred p;\nsetp.ne.b32 p, {scale_operand}, 0;\n{instruction};\n}}");
 
-    let regs = asm_in_place(ctx, rw, &template, acc_regs, inputs, true, true);
+    let regs = asm.emit(ctx, rw, &template);
 
-    let result = registers_into(ctx, rw, &regs, acc_vec_ty, acc_form);
+    let result = acc_form.join(ctx, rw, &regs, acc_vec_ty);
     let acc_array_ty = registers_array_ty(ctx, operands_info, acc);
     let result = vector_into_array(ctx, rw, result, acc_array_ty);
     store_fragment(ctx, rw, acc, result);
@@ -390,10 +335,10 @@ pub(crate) fn fence_operand(
     }
 
     let value = registers_value(ctx, rw, registers, vec_ty);
-    let regs = registers_of(ctx, rw, value, form);
-    let regs = asm_in_place(ctx, rw, "", regs, vec![], false, false);
+    let regs = form.split(ctx, rw, value);
+    let regs = InlineAsm::new().tied(regs).emit(ctx, rw, "");
 
-    let result = registers_into(ctx, rw, &regs, vec_ty, form);
+    let result = form.join(ctx, rw, &regs, vec_ty);
     let array_ty = registers_array_ty(ctx, operands_info, registers);
     let result = vector_into_array(ctx, rw, result, array_ty);
     store_fragment(ctx, rw, registers, result);
@@ -409,7 +354,8 @@ fn descriptor_field(
     value: Value,
     shift: i128,
 ) -> Value {
-    let value = resize_int(ctx, rw, value, 64, false).expect("descriptor fields are integers");
+    let value =
+        resize_int(ctx, rw, value, 64, Extension::Zero).expect("descriptor fields are integers");
     let four = insert_int_const(ctx, rw, 64, 4);
     let op = llvm::LShrOp::new(ctx, value, four);
     let value = insert(ctx, rw, &op);
@@ -437,7 +383,7 @@ pub(crate) fn descriptor(
     let stride = op.stride_byte_offset(ctx);
     let swizzle = op.swizzle(ctx).descriptor_bits();
 
-    let shared = as_shared(ctx, rw, ptr);
+    let shared = NvptxSpace::Shared.cast(ctx, rw, ptr);
     let i64_ty = i64_ty(ctx);
     let op_addr = llvm::PtrToIntOp::new(ctx, shared, i64_ty);
     let address = insert(ctx, rw, &op_addr);

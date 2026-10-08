@@ -1,6 +1,8 @@
 pub use crate::{
     shared::{
-        intrinsic::{call_op, i32_const_op, i32_ty, i64_ty, int_ty, resize_int},
+        intrinsic::{
+            Extension, call_op, call_void, i32_const_op, i32_ty, i64_ty, int_ty, resize_int,
+        },
         lowering::TargetLowering,
         metadata::EntryArgLayout,
         polyfill::LowerOp,

@@ -11,20 +11,25 @@ use cubecl_core::ir::{
     types::{barrier::BarrierTokenType, cuda::TensorMapType},
 };
 
+/// The operations Hopper introduced, which only NVPTX lowers and advertises: TMA and the
+/// barriers its copies complete on.
 #[derive(Debug, Error)]
 #[error(
-    "the {0:?} target has no lowering for `{1}`; only NVPTX lowers TMA and the barrier copies, \
-     and only it advertises barriers"
+    "the {0:?} target has no lowering for `{1}`; only NVPTX lowers TMA and the copies that \
+     complete on its barriers, and only it advertises them"
 )]
-pub struct TmaUnsupported(LlvmTarget, &'static str);
+pub struct NvptxOnly(LlvmTarget, &'static str);
 
-/// A tensor map is passed by value, and the kernel holds its address.
+/// A tensor map is passed by value, and the kernel holds its generic address.
 #[type_interface_impl]
 impl CubeToLLVMType for TensorMapType {
     fn convert(&self, ctx: &Context) -> TypeHandle {
-        LlvmPointerType::get(ctx, 0).into()
+        LlvmPointerType::get(ctx, GENERIC_ADDRESS_SPACE).into()
     }
 }
+
+/// The generic address space, the same on every GPU target.
+const GENERIC_ADDRESS_SPACE: u32 = 0;
 
 /// The barrier state an arrival returns, for the wait on its phase.
 #[type_interface_impl]
@@ -34,37 +39,24 @@ impl CubeToLLVMType for BarrierTokenType {
     }
 }
 
-/// TMA is Hopper's, so only NVPTX lowers it.
-macro_rules! dispatch_tma_op {
-    ($cube_op:ty, $method:ident) => {
+/// Lowers `$cube_op` with `$module::$method` on NVPTX, and refuses it on the other targets.
+macro_rules! nvptx_only {
+    ($cube_op:ty, $module:ident::$method:ident) => {
         lower_by_target!(
             $cube_op,
-            ["nvptx" Nvptx => crate::nvptx::tma::$method],
+            ["nvptx" Nvptx => crate::nvptx::$module::$method],
             |op: &$cube_op, ctx: &mut Context, _: &mut DialectConversionRewriter, target| -> Result<()> {
-                input_err!(op.loc(ctx), TmaUnsupported(target, stringify!($cube_op)))
+                input_err!(op.loc(ctx), NvptxOnly(target, stringify!($cube_op)))
             }
         );
     };
 }
 
-/// `memcpy_async` lowers with the barriers.
-macro_rules! dispatch_barrier_copy {
-    ($cube_op:ty, $method:ident) => {
-        lower_by_target!(
-            $cube_op,
-            ["nvptx" Nvptx => crate::nvptx::barrier::$method],
-            |op: &$cube_op, ctx: &mut Context, _: &mut DialectConversionRewriter, target| -> Result<()> {
-                input_err!(op.loc(ctx), TmaUnsupported(target, stringify!($cube_op)))
-            }
-        );
-    };
-}
-
-dispatch_tma_op!(TmaLoadOp, load);
-dispatch_tma_op!(TmaLoadIm2colOp, load_im2col);
-dispatch_tma_op!(TmaStoreOp, store);
-dispatch_tma_op!(MemCopyAsyncTxOp, memcpy_async_tx);
-dispatch_barrier_copy!(MemCopyAsyncOp, memcpy_async);
-dispatch_tma_op!(CommitGroupOp, commit_group);
-dispatch_tma_op!(WaitGroupOp, wait_group);
-dispatch_tma_op!(WaitGroupReadOp, wait_group_read);
+nvptx_only!(TmaLoadOp, tma::load);
+nvptx_only!(TmaLoadIm2colOp, tma::load_im2col);
+nvptx_only!(TmaStoreOp, tma::store);
+nvptx_only!(MemCopyAsyncTxOp, barrier::memcpy_async_tx);
+nvptx_only!(MemCopyAsyncOp, barrier::memcpy_async);
+nvptx_only!(CommitGroupOp, tma::commit_group);
+nvptx_only!(WaitGroupOp, tma::wait_group);
+nvptx_only!(WaitGroupReadOp, tma::wait_group_read);

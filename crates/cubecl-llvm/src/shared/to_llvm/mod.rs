@@ -102,10 +102,10 @@ pub(crate) use lower_by_target;
 /// A [`lower_by_target!`] fallback that drops the operation: a target where it means nothing.
 pub(crate) fn erase<O: Op>(
     op: &O,
-    _ctx: &mut Context,
+    ctx: &mut Context,
     rewriter: &mut DialectConversionRewriter,
     _target: LlvmTarget,
 ) -> Result<()> {
-    rewriter.erase_operation(_ctx, op.get_operation());
+    rewriter.erase_operation(ctx, op.get_operation());
     Ok(())
 }

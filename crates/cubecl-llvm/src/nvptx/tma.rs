@@ -4,27 +4,18 @@
 //! A load completes on an `mbarrier` as a transaction of the bytes it wrote. A store is tracked
 //! by the bulk async-group it is committed in.
 
-use super::matrix::{as_shared, call_void};
-use crate::prelude::*;
-use cubecl_core::ir::{
-    dialect::{
-        barrier::MemCopyAsyncTxOp,
-        tma::{
-            CommitGroupOp, TmaLoadIm2colOp, TmaLoadOp, TmaStoreOp, WaitGroupOp, WaitGroupReadOp,
-        },
-    },
-    interfaces::SizedType,
+use crate::{
+    nvptx::{address::NvptxSpace, barrier::Barrier},
+    prelude::*,
+};
+use cubecl_core::ir::dialect::tma::{
+    CommitGroupOp, TmaLoadIm2colOp, TmaLoadOp, TmaStoreOp, WaitGroupOp, WaitGroupReadOp,
 };
 use pliron::location::Location;
 
 const COMMIT_GROUP: &str = "llvm.nvvm.cp.async.bulk.commit.group";
 const WAIT_GROUP: &str = "llvm.nvvm.cp.async.bulk.wait.group";
 const WAIT_GROUP_READ: &str = "llvm.nvvm.cp.async.bulk.wait.group.read";
-const BULK_GLOBAL_TO_SHARED: &str = "llvm.nvvm.cp.async.bulk.global.to.shared.cluster";
-
-const GLOBAL_ADDRESS_SPACE: u32 = 1;
-/// The loads write `.shared::cluster`, of which the cube's own shared memory is a part.
-const SHARED_CLUSTER_ADDRESS_SPACE: u32 = 7;
 
 #[derive(Debug, Error)]
 #[error("a TMA {0} is an integer, not {1}")]
@@ -39,7 +30,7 @@ fn to_width(
     what: &'static str,
     loc: Location,
 ) -> Result<Value> {
-    match resize_int(ctx, rw, value, width, true) {
+    match resize_int(ctx, rw, value, width, Extension::Sign) {
         Some(value) => Ok(value),
         None => {
             let ty = value.get_type(ctx).disp(ctx).to_string();
@@ -64,22 +55,6 @@ fn coordinates(
         .collect()
 }
 
-fn as_shared_cluster(ctx: &mut Context, rw: &mut DialectConversionRewriter, ptr: Value) -> Value {
-    let shared = as_shared(ctx, rw, ptr);
-    let ty: TypeHandle = LlvmPointerType::get(ctx, SHARED_CLUSTER_ADDRESS_SPACE).into();
-    let op = llvm::AddrSpaceCastOp::new(ctx, shared, ty);
-    insert(ctx, rw, &op)
-}
-
-fn as_global(ctx: &mut Context, rw: &mut DialectConversionRewriter, ptr: Value) -> Value {
-    let ty: TypeHandle = LlvmPointerType::get(ctx, GLOBAL_ADDRESS_SPACE).into();
-    if ptr.get_type(ctx) == ty {
-        return ptr;
-    }
-    let op = llvm::AddrSpaceCastOp::new(ctx, ptr, ty);
-    insert(ctx, rw, &op)
-}
-
 /// The trailing arguments of a load: no multicast mask, no cache hint, and the flags that say
 /// so, then a `cta_group` of 0, which Hopper requires.
 fn load_trailer(ctx: &mut Context, rw: &mut DialectConversionRewriter) -> Vec<Value> {
@@ -96,12 +71,12 @@ pub(crate) fn load(
     op: &TmaLoadOp,
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
-    _operands_info: &OperandsInfo,
+    info: &OperandsInfo,
 ) -> Result<()> {
     let loc = op.loc(ctx);
     let rank = op.rank(ctx);
-    let destination = as_shared_cluster(ctx, rw, op.destination(ctx));
-    let barrier = super::barrier::barrier_ptr(ctx, rw, op.barrier(ctx), loc.clone())?;
+    let destination = NvptxSpace::SharedCluster.cast(ctx, rw, op.destination(ctx));
+    let barrier = Barrier::new(ctx, rw, info, op.barrier(ctx)).mbarrier(loc.clone())?;
     let tensor_map = op.tensor_map(ctx);
     let indices = op.indices(ctx);
     let coords = coordinates(ctx, rw, indices, 32, "coordinate", loc)?;
@@ -120,12 +95,12 @@ pub(crate) fn load_im2col(
     op: &TmaLoadIm2colOp,
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
-    _operands_info: &OperandsInfo,
+    info: &OperandsInfo,
 ) -> Result<()> {
     let loc = op.loc(ctx);
     let rank = op.rank(ctx);
-    let destination = as_shared_cluster(ctx, rw, op.destination(ctx));
-    let barrier = super::barrier::barrier_ptr(ctx, rw, op.barrier(ctx), loc.clone())?;
+    let destination = NvptxSpace::SharedCluster.cast(ctx, rw, op.destination(ctx));
+    let barrier = Barrier::new(ctx, rw, info, op.barrier(ctx)).mbarrier(loc.clone())?;
     let tensor_map = op.tensor_map(ctx);
     let indices = op.indices(ctx);
     let offsets = op.offsets(ctx);
@@ -151,7 +126,7 @@ pub(crate) fn store(
 ) -> Result<()> {
     let loc = op.loc(ctx);
     let rank = op.rank(ctx);
-    let source = as_shared(ctx, rw, op.source(ctx));
+    let source = NvptxSpace::Shared.cast(ctx, rw, op.source(ctx));
     let tensor_map = op.tensor_map(ctx);
     let indices = op.indices(ctx);
     let coords = coordinates(ctx, rw, indices, 32, "coordinate", loc)?;
@@ -163,61 +138,6 @@ pub(crate) fn store(
     args.push(insert_bool_const(ctx, rw, false));
     let name = format!("llvm.nvvm.cp.async.bulk.tensor.s2g.tile.{rank}d");
     call_void(ctx, rw, &name, args);
-
-    rw.erase_operation(ctx, op.get_operation());
-    Ok(())
-}
-
-/// The size of what `ptr` points at, read off the cube pointer type it was converted from.
-pub(super) fn pointee_size(ctx: &Context, info: &OperandsInfo, ptr: Value) -> Option<usize> {
-    info.lookup_operand_history(ptr)
-        .into_iter()
-        .rev()
-        .chain(core::iter::once(ptr.get_type(ctx)))
-        .find_map(|ty| {
-            let ty = ty.deref(ctx);
-            let ptr = ty.downcast_ref::<CubePointerType>()?;
-            let inner = ptr.inner;
-            let size = type_cast::<dyn SizedType>(&*inner.deref(ctx))?.size(ctx);
-            Some(size)
-        })
-}
-
-/// A one-dimensional bulk copy of `source_length` elements from global to shared memory, which
-/// completes on the barrier as a transaction of the bytes it wrote.
-pub(crate) fn memcpy_async_tx(
-    op: &MemCopyAsyncTxOp,
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    operands_info: &OperandsInfo,
-) -> Result<()> {
-    let loc = op.loc(ctx);
-    let elem_size = pointee_size(ctx, operands_info, op.source(ctx))
-        .expect("a bulk copy source points at sized elements");
-    let destination = as_shared_cluster(ctx, rw, op.destination(ctx));
-    let barrier = super::barrier::barrier_ptr(ctx, rw, op.barrier(ctx), loc.clone())?;
-    let source = as_global(ctx, rw, op.source(ctx));
-    let length = to_width(ctx, rw, op.source_length(ctx), 32, "length", loc)?;
-    let elem_size = insert_i32_const(ctx, rw, elem_size as i32);
-    let bytes = llvm::MulOp::new_with_overflow_flag(
-        ctx,
-        length,
-        elem_size,
-        IntegerOverflowFlagsAttr::default(),
-    );
-    let bytes = insert(ctx, rw, &bytes);
-
-    let args = vec![
-        destination,
-        barrier,
-        source,
-        bytes,
-        insert_int_const(ctx, rw, 16, 0),
-        insert_int_const(ctx, rw, 64, 0),
-        insert_bool_const(ctx, rw, false),
-        insert_bool_const(ctx, rw, false),
-    ];
-    call_void(ctx, rw, BULK_GLOBAL_TO_SHARED, args);
 
     rw.erase_operation(ctx, op.get_operation());
     Ok(())
