@@ -1,4 +1,7 @@
-use crate::{AddressType, ElemType, OpaqueType, SemanticType, Type};
+use crate::{
+    AddressType, ElemType, OpaqueType, SemanticType, Type,
+    types::{LdMatrixForm, StMatrixForm},
+};
 use alloc::collections::{BTreeMap, BTreeSet};
 
 use crate::EnumSetType;
@@ -83,6 +86,10 @@ pub struct MatmulFeatures {
     pub ldmatrix: BTreeSet<ElemType>,
     /// Types supported by stmatrix, if any
     pub stmatrix: BTreeSet<ElemType>,
+    /// Forms of ldmatrix the device executes, if any
+    pub ldmatrix_forms: BTreeSet<LdMatrixForm>,
+    /// Forms of stmatrix the device executes, if any
+    pub stmatrix_forms: BTreeSet<StMatrixForm>,
     /// Whether tensor addressing is supported for CMMA load/store
     pub cmma_tensor_addressing: bool,
 }

@@ -5,7 +5,7 @@ use cubecl_core::{
         AddressType, ContextExt, ElemType, FloatKind, IntKind, UIntKind,
         dialect::matrix::{LdMatrixOp, MmaManualOp, MmaManualScaledOp, StMatrixOp},
         interfaces::{ScalarType, TypedExt},
-        types::VectorType,
+        types::{BlockScaleSelector, LdMatrixForm, StMatrixForm, VectorType},
     },
     prelude::*,
 };
@@ -68,11 +68,17 @@ fn scaled_mma(
     scale_b: Vector<S, NS>,
     #[comptime] k: usize,
     #[comptime] scales_factor: usize,
+    #[comptime] scale_a_selector: BlockScaleSelector,
+    #[comptime] scale_b_selector: BlockScaleSelector,
 ) -> Vector<RegCD, NCD> {
     let a_ty = ptx_mma_ty::<A>().comptime();
     let b_ty = ptx_mma_ty::<B>().comptime();
     let cd_ty = ptx_mma_ty::<CD>().comptime();
     let scale_ty = ptx_scale_ty::<S>().comptime();
+    let byte_a = comptime![scale_a_selector.byte_id];
+    let thread_a = comptime![scale_a_selector.thread_id];
+    let byte_b = comptime![scale_b_selector.byte_id];
+    let thread_b = comptime![scale_b_selector.thread_id];
 
     let kind = comptime![match scales_factor {
         1 => "mxf8f6f4",
@@ -84,7 +90,7 @@ fn scaled_mma(
     gpu_asm!(
         "mma.sync.aligned.m16n8k{k}.row.col.kind::{kind}.block_scale.scale_vec::{scales_factor}X",
         ".{cd_ty}.{a_ty}.{b_ty}.{cd_ty}.{scale_ty} {d}, {a}, {b}, {c}, ",
-        "{scale_a}, {{0, 0}}, {scale_b}, {{0, 0}};",
+        "{scale_a}, {{{byte_a}, {thread_a}}}, {scale_b}, {{{byte_b}, {thread_b}}};",
         a = in(_) frag_a, b = in(_) frag_b, c = in(_) frag_c, d = out(_) out,
         scale_a = in(_) u32::reinterpret(scale_a), scale_b = in(_) u32::reinterpret(scale_b),
         options(nomem),
@@ -97,6 +103,8 @@ fn ldmatrix(
     row: *const u32,
     #[comptime] num: usize,
     #[comptime] transpose: &str,
+    #[comptime] shape: &str,
+    #[comptime] types: &str,
     #[comptime] open: &str,
     #[comptime] close: &str,
 ) -> Vector<u32, NCD> {
@@ -104,7 +112,7 @@ fn ldmatrix(
 
     let out: Vector<u32, NCD>;
     gpu_asm!(
-        "ldmatrix.sync.aligned.m8n8.x{num}{transpose}.shared::cta.b16 {open}{out}{close}, [{addr}];",
+        "ldmatrix.sync.aligned.{shape}.x{num}{transpose}.shared::cta{types} {open}{out}{close}, [{addr}];",
         out = out(_) out, addr = mem_in(_) row_addr, options(explicit_mem),
     );
     out
@@ -116,13 +124,58 @@ fn stmatrix(
     row: *const u32,
     #[comptime] num: usize,
     #[comptime] transpose: &str,
+    #[comptime] shape: &str,
+    #[comptime] types: &str,
 ) {
     let row_addr = generic_to_shared::<u32>(row);
 
     gpu_asm!(
-        "stmatrix.sync.aligned.m8n8.x{num}{transpose}.shared::cta.b16 [{addr}], {val};",
+        "stmatrix.sync.aligned.{shape}.x{num}{transpose}.shared::cta{types} [{addr}], {val};",
         addr = mem_out(_) row_addr, val = in(_) value, options(explicit_mem),
     );
+}
+
+/// How PTX spells a form of `ldmatrix` or `stmatrix`: its `.shape` and its element qualifiers.
+trait PtxMatrixMoveQualifiers {
+    fn ptx_shape(&self) -> &'static str;
+    fn ptx_element_qualifiers(&self) -> &'static str;
+}
+
+impl PtxMatrixMoveQualifiers for LdMatrixForm {
+    fn ptx_shape(&self) -> &'static str {
+        match self {
+            LdMatrixForm::M8N8B16 => "m8n8",
+            LdMatrixForm::M8N16B4x16P64 | LdMatrixForm::M8N16B6x16P32 => "m8n16",
+            LdMatrixForm::M16N16B8
+            | LdMatrixForm::M16N16B4x16P64
+            | LdMatrixForm::M16N16B6x16P32 => "m16n16",
+        }
+    }
+
+    fn ptx_element_qualifiers(&self) -> &'static str {
+        match self {
+            LdMatrixForm::M8N8B16 => ".b16",
+            LdMatrixForm::M16N16B8 => ".b8",
+            LdMatrixForm::M8N16B4x16P64 | LdMatrixForm::M16N16B4x16P64 => ".b8x16.b4x16_p64",
+            LdMatrixForm::M8N16B6x16P32 | LdMatrixForm::M16N16B6x16P32 => ".b8x16.b6x16_p32",
+        }
+    }
+}
+
+impl PtxMatrixMoveQualifiers for StMatrixForm {
+    fn ptx_shape(&self) -> &'static str {
+        match self {
+            StMatrixForm::M8N8B16 => "m8n8",
+            StMatrixForm::M16N8B8 => "m16n8",
+        }
+    }
+
+    fn ptx_element_qualifiers(&self) -> &'static str {
+        match self {
+            StMatrixForm::M8N8B16 => ".b16",
+            StMatrixForm::M16N8B8 => ".b8",
+        }
+    }
 }
 
 #[op_interface_impl]
@@ -171,6 +224,8 @@ impl LowerOp<Cuda> for MmaManualScaledOp {
         let scales_b = self.scales_b(ctx);
         let scales_factor = self.scales_factor(ctx).0;
         let shape = self.shape(ctx).0;
+        let scale_a_selector = self.scale_a_selector(ctx).0;
+        let scale_b_selector = self.scale_b_selector(ctx).0;
 
         scope.register_value_type::<S, NS>(scales_a);
 
@@ -185,6 +240,8 @@ impl LowerOp<Cuda> for MmaManualScaledOp {
             scales_b.into(),
             shape.k,
             scales_factor,
+            scale_a_selector,
+            scale_b_selector,
         );
         let frag_out = reinterpret_value(scope, frag_out.read_value(scope), frag_d.unwrap_ptr(ctx));
         assign::expand_element(scope, frag_out.into(), frag_d.into());
@@ -200,11 +257,22 @@ impl LowerOp<Cuda> for LdMatrixOp {
         let out_arr = self.out_arr(ctx);
         let factor = self.factor(ctx).0;
         let trans = if self.transpose(ctx).0 { ".trans" } else { "" };
-        let (open, close) = if factor == 1 { ("{", "}") } else { ("", "") };
+        let form = self.form(ctx).0;
+        let registers = factor * form.registers_per_matrix();
+        let (open, close) = if registers == 1 { ("{", "}") } else { ("", "") };
 
-        scope.register_size::<NCD>(factor);
+        scope.register_size::<NCD>(registers);
 
-        let frag_out = ldmatrix::expand(scope, &row_ptr, factor, trans, open, close);
+        let frag_out = ldmatrix::expand(
+            scope,
+            &row_ptr,
+            factor,
+            trans,
+            form.ptx_shape(),
+            form.ptx_element_qualifiers(),
+            open,
+            close,
+        );
         let frag_out =
             reinterpret_value(scope, frag_out.read_value(scope), out_arr.unwrap_ptr(ctx));
         assign::expand_element(scope, frag_out.into(), out_arr.into());
@@ -225,7 +293,16 @@ impl LowerOp<Cuda> for StMatrixOp {
         let value = reinterpret_value(scope, self.registers(ctx), vec_ty.to_handle()).into();
         scope.register_size::<NCD>(factor);
 
-        stmatrix::expand(scope, value, &row_ptr, factor, trans);
+        let form = self.form(ctx).0;
+        stmatrix::expand(
+            scope,
+            value,
+            &row_ptr,
+            factor,
+            trans,
+            form.ptx_shape(),
+            form.ptx_element_qualifiers(),
+        );
         vec![]
     }
 }

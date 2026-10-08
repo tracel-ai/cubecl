@@ -13,7 +13,10 @@
 use cubecl_core::ir::amd::AmdWmma;
 use cubecl_core::ir::{ComplexKind, DeviceProperties, ElemType, FloatKind, OpaqueType};
 #[cfg(feature = "nvptx")]
-use cubecl_core::ir::{IntKind, UIntKind};
+use cubecl_core::ir::{
+    IntKind, UIntKind,
+    types::{LdMatrixForm, StMatrixForm},
+};
 
 const HALF: ElemType = ElemType::Float(FloatKind::F16);
 const BF16: ElemType = ElemType::Float(FloatKind::BF16);
@@ -95,6 +98,12 @@ fn keep_nvptx_matrix_forms(props: &mut DeviceProperties) {
     });
     // The manual `mma.sync` family, `ldmatrix` and `stmatrix` are advertised as lowered;
     // `test_cmma_manual` checks them element by element.
+    matmul
+        .ldmatrix_forms
+        .retain(|form| *form == LdMatrixForm::M8N8B16);
+    matmul
+        .stmatrix_forms
+        .retain(|form| *form == StMatrixForm::M8N8B16);
 }
 
 /// Keeps the matrix forms AMDGPU lowers. The matrix lowering is RDNA's WMMA with `f16` or `bf16`
