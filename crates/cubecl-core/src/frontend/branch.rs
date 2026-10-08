@@ -862,7 +862,8 @@ impl WhileBuilder {
             cond = binary_expand(&cond_scope, cond, return_flag, BoolAndOp::new);
         }
 
-        cond_scope.register(&ConditionOp::new(scope.ctx_mut(), cond.read_value(scope)));
+        let cond = cond.read_value(&cond_scope);
+        cond_scope.register(&ConditionOp::new(scope.ctx_mut(), cond));
 
         scope.register(&while_op);
     }
@@ -882,7 +883,7 @@ pub(crate) fn register_range_loop<I: Int>(scope: &Scope, for_op: &RangeLoopOp, b
         inv_continue_flag: _,
         return_value: _,
     } = *body.expand_state();
-    if !may_break && !may_return {
+    if !may_break && !may_return && !may_terminate {
         body.terminate_yield();
         scope.register(for_op);
         return;
@@ -932,7 +933,8 @@ pub(crate) fn register_range_loop<I: Int>(scope: &Scope, for_op: &RangeLoopOp, b
         cond = binary_expand(&cond_scope, cond, inv_terminate_flag, BoolAndOp::new);
     }
 
-    cond_scope.register(&ConditionOp::new(scope.ctx_mut(), cond.read_value(scope)));
+    let cond = cond.read_value(&cond_scope);
+    cond_scope.register(&ConditionOp::new(scope.ctx_mut(), cond));
 
     rewriter.erase_region(ctx, while_op.after_region(ctx));
     Region::move_to_op(for_op.get_region(ctx), while_op.get_operation(), ctx);
