@@ -6,7 +6,7 @@ use cubecl_cpp::shared::CompilationOptions;
 use cubecl_cpp::{ComputeKernel, shared::CppCompiler, target::Cuda};
 use cubecl_llvm::nvptx::ptx_version::PtxVersion;
 use cubecl_server::compiler::{CompilationError, Compiler};
-use cubecl_server::kernel::BufferIOAttr;
+use cubecl_server::kernel::{BufferIOAttr, PrecompiledBinary};
 
 /// Which backend turns a `KernelDefinition` into something the CUDA driver can load.
 ///
@@ -68,6 +68,8 @@ pub struct CudaCompilationOptions {
 pub enum CudaRepresentation {
     Cpp(ComputeKernel),
     Llvm(cubecl_llvm::NvptxModule),
+    /// A module compiled outside `CubeCL`, loaded as is.
+    Binary(PrecompiledBinary),
 }
 
 // `ComputeKernel` does not implement `Debug` (only `Display`, for its rendered source), so
@@ -80,6 +82,10 @@ impl core::fmt::Debug for CudaRepresentation {
                 .debug_tuple("CudaRepresentation::Llvm")
                 .field(module)
                 .finish(),
+            CudaRepresentation::Binary(binary) => f
+                .debug_tuple("CudaRepresentation::Binary")
+                .field(binary)
+                .finish(),
         }
     }
 }
@@ -91,6 +97,8 @@ impl CudaRepresentation {
         match self {
             CudaRepresentation::Cpp(kernel) => kernel.shared_memory_size,
             CudaRepresentation::Llvm(module) => module.shared_memory_size,
+            // A foreign module declares its shared memory itself.
+            CudaRepresentation::Binary(_) => 0,
         }
     }
 }
@@ -100,6 +108,12 @@ impl core::fmt::Display for CudaRepresentation {
         match self {
             CudaRepresentation::Cpp(kernel) => write!(f, "{kernel}"),
             CudaRepresentation::Llvm(module) => write!(f, "{}", module.ir),
+            CudaRepresentation::Binary(binary) => write!(
+                f,
+                "// precompiled module `{}`, {} bytes",
+                binary.entrypoint_name,
+                binary.image.len()
+            ),
         }
     }
 }
@@ -116,6 +130,7 @@ impl Compiler for CudaCompiler {
         match repr {
             CudaRepresentation::Cpp(kernel) => <CppCompiler<Cuda> as Compiler>::buffer_io(kernel),
             CudaRepresentation::Llvm(module) => Some(module.io.clone()),
+            CudaRepresentation::Binary(_) => None,
         }
     }
 
@@ -160,5 +175,13 @@ impl Compiler for CudaCompiler {
             CudaCompiler::Cpp(compiler) => compiler.lang_tag(),
             CudaCompiler::Llvm(compiler) => compiler.lang_tag(),
         }
+    }
+    /// The driver loads a cubin, fatbin or PTX whichever backend compiles the
+    /// rest, so both accept one.
+    fn load_binary(
+        &mut self,
+        binary: PrecompiledBinary,
+    ) -> Result<Self::Representation, CompilationError> {
+        Ok(CudaRepresentation::Binary(binary))
     }
 }

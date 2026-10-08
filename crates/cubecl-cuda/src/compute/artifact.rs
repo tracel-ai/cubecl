@@ -10,7 +10,9 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_server::compiler::{
     ArtifactCompiler, ArtifactId, CompilationError, CompilationRecording,
 };
-use cubecl_server::kernel::{BufferIOAttr, CompiledKernel, CubeKernel, DebugInformation};
+use cubecl_server::kernel::{
+    BufferIOAttr, CompiledKernel, CubeKernel, DebugInformation, KernelParam,
+};
 use cubecl_server::logging::ServerLogger;
 use cubecl_server::validation::{validate_cube_dim, validate_shared_memory, validate_units};
 use std::ffi::{CStr, CString, c_char};
@@ -60,6 +62,11 @@ pub struct CudaArtifact {
     /// defaulted for entries persisted before the field existed.
     #[serde(default)]
     pub io: Option<Vec<BufferIOAttr>>,
+    /// The parameter list of a precompiled binary, whose module `ptx` then
+    /// holds instead of PTX. `None` for a kernel `CubeCL` compiled, which takes
+    /// `CubeCL`'s own calling convention.
+    #[serde(default)]
+    pub params: Option<Vec<KernelParam>>,
 }
 
 impl ArtifactCompiler for CudaArtifactCompiler {
@@ -96,6 +103,7 @@ impl ArtifactCompiler for CudaArtifactCompiler {
         if logger.compilation_source_activated() {
             let extension = match lowered.repr {
                 Some(CudaRepresentation::Llvm(_)) => "ll",
+                Some(CudaRepresentation::Binary(_)) => "txt",
                 _ => "cpp",
             };
             lowered.debug_info = Some(DebugInformation::new(extension, id.kernel.clone()));
@@ -112,8 +120,12 @@ impl ArtifactCompiler for CudaArtifactCompiler {
 
     /// The C++ source NVRTC compiles, which is slow enough that PTX already
     /// compiled from the same text is worth reusing. The LLVM backend's
-    /// output is already PTX, so it has none.
+    /// output is already PTX, and a precompiled binary is already a module,
+    /// so neither has one.
     fn source(lowered: &Self::Lowered) -> Option<&str> {
+        if let Some(CudaRepresentation::Binary(_)) = lowered.repr {
+            return None;
+        }
         match backend_of(lowered) {
             CudaBackend::Cpp => Some(&lowered.source),
             CudaBackend::Llvm => None,
@@ -126,6 +138,15 @@ impl ArtifactCompiler for CudaArtifactCompiler {
         mut lowered: Self::Lowered,
     ) -> Result<Self::Artifact, LaunchError> {
         let io = lowered.io.take();
+        if let Some(CudaRepresentation::Binary(binary)) = lowered.repr {
+            return Ok(CudaArtifact {
+                entrypoint_name: binary.entrypoint_name,
+                shared_mem_bytes: 0,
+                ptx: binary.image.iter().map(|byte| *byte as c_char).collect(),
+                io,
+                params: Some(binary.params),
+            });
+        }
         let (ptx, shared_mem_bytes) = match (backend_of(&lowered), &lowered.repr) {
             // What the LLVM backend hands back is already PTX, so no `nvrtc*`
             // call belongs here. The driver still JITs it when the module
@@ -158,6 +179,7 @@ impl ArtifactCompiler for CudaArtifactCompiler {
             shared_mem_bytes,
             ptx,
             io,
+            params: None,
         })
     }
 }
@@ -234,6 +256,6 @@ fn backend_of(lowered: &CompiledKernel<CudaCompiler>) -> CudaBackend {
     match &lowered.repr {
         Some(CudaRepresentation::Cpp(_)) => CudaBackend::Cpp,
         Some(CudaRepresentation::Llvm(_)) => CudaBackend::Llvm,
-        None => CudaBackend::default(),
+        Some(CudaRepresentation::Binary(_)) | None => CudaBackend::default(),
     }
 }

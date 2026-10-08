@@ -10,7 +10,7 @@ use cubecl_llvm::nvptx::ptx_version::PtxVersion;
 use cubecl_server::compiler::{
     ArtifactId, ArtifactStore, CompilationError, CompilationTarget, StoreNames,
 };
-use cubecl_server::kernel::BufferIOAttr;
+use cubecl_server::kernel::{BufferIOAttr, KernelParam};
 use cudarc::driver::sys::CUfunc_st;
 use std::ffi::{CStr, CString, c_char};
 use std::sync::Arc;
@@ -38,6 +38,9 @@ pub struct CudaCompiledKernel {
     /// the answer existed, which the launch path reads as every buffer both
     /// read and written.
     pub io: Option<Arc<[BufferIOAttr]>>,
+    /// The parameter list of a precompiled binary; `None` for a kernel taking
+    /// `CubeCL`'s calling convention.
+    pub params: Option<Arc<[KernelParam]>>,
 }
 
 impl CudaModules {
@@ -87,10 +90,14 @@ impl CompilationTarget for CudaModules {
         id: &ArtifactId<()>,
         artifact: &CudaArtifact,
     ) -> Result<CudaCompiledKernel, CompilationError> {
-        dump_ptx(&id.kernel, &artifact.ptx);
+        // A precompiled binary is usually a cubin, not PTX text.
+        if artifact.params.is_none() {
+            dump_ptx(&id.kernel, &artifact.ptx);
+        }
 
         let func_name = CString::new(artifact.entrypoint_name.clone()).unwrap();
-        // SAFETY: `ptx` is a valid null-terminated PTX binary from NVRTC. `func_name` is a
+        // SAFETY: `ptx` is a valid null-terminated PTX binary from NVRTC, or a
+        // precompiled module image the kernel vouched for. `func_name` is a
         // null-terminated `CString` matching the kernel entry point in the compiled module.
         let func = unsafe {
             let module =
@@ -116,6 +123,7 @@ impl CompilationTarget for CudaModules {
             shared_mem_bytes: artifact.shared_mem_bytes,
             func,
             io: artifact.io.clone().map(Arc::from),
+            params: artifact.params.clone().map(Arc::from),
         })
     }
 

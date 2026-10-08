@@ -135,4 +135,23 @@ pub trait Compiler: Sync + Send + 'static + Clone + core::fmt::Debug {
     /// What a [`PrecompiledSource`](crate::kernel::PrecompiledSource) has to
     /// name to be accepted by this compiler.
     fn lang_tag(&self) -> &'static str;
+
+    /// Wraps a kernel compiled outside `CubeCL` as this compiler's
+    /// representation, so the backend loads it instead of compiling.
+    ///
+    /// The default refuses: only a backend that knows how to launch a
+    /// foreign module image accepts one.
+    fn load_binary(
+        &mut self,
+        binary: crate::kernel::PrecompiledBinary,
+    ) -> Result<Self::Representation, CompilationError> {
+        Err(CompilationError::Generic {
+            reason: alloc::format!(
+                "the {} compiler cannot load the precompiled binary `{}`",
+                self.lang_tag(),
+                binary.entrypoint_name
+            ),
+            backtrace: cubecl_environment::backtrace::BackTrace::capture(),
+        })
+    }
 }
