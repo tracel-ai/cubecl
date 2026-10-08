@@ -103,10 +103,8 @@ impl<C: Compiler> CompiledKernel<C> {
         let entrypoint_name = definition.settings.kernel_name.clone();
         let cube_dim = definition.settings.cube_dim.into();
 
-        // A hand-written kernel is already in the target language: there is no
-        // IR to hand the compiler, so neither analysis it produces exists.
-        // `io: None` reads as every buffer both read and written, which is the
-        // conservative direction.
+        // A foreign module is the compiler's to load, not to compile. Like a
+        // hand-written kernel below, it has no IR, so `io: None`.
         if let Some(binary) = kernel.binary() {
             if kernel.source().is_some() {
                 return Err(CompilationError::Generic {
@@ -130,6 +128,10 @@ impl<C: Compiler> CompiledKernel<C> {
             });
         }
 
+        // A hand-written kernel is already in the target language: there is no
+        // IR to hand the compiler, so neither analysis it produces exists.
+        // `io: None` reads as every buffer both read and written, which is the
+        // conservative direction.
         if let Some(precompiled) = kernel.source() {
             if precompiled.lang != compiler.lang_tag() {
                 return Err(CompilationError::Generic {

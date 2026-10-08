@@ -131,6 +131,10 @@ pub enum KernelParam {
     Resource(usize),
     /// The info slot at this index, passed by value. A slot is 8 bytes, so a
     /// parameter up to that size fits, read from the slot's first bytes.
+    ///
+    /// The driver reads as many bytes as the kernel's signature declares, so
+    /// a wider parameter spans the slots after this one, and the launch must
+    /// have them all: the bounds are only checked for the first.
     Info(usize),
 }
 

@@ -25,12 +25,11 @@ extern "C" __global__ void axpy(float* out, int n, const float* x, float a) {
 const BLOCK: u32 = 64;
 
 /// The module image a foreign compiler would hand over. NVRTC stands in for
-/// one here, and its PTX is a module the driver loads like a cubin.
+/// one here, and its PTX is a module the driver loads like a cubin. It is
+/// handed over without a NUL, which the runtime adds.
 fn image() -> Bytes {
     let ptx = cudarc::nvrtc::compile_ptx(SOURCE).expect("NVRTC compiles the test kernel");
-    let mut image = ptx.to_src().into_bytes();
-    image.push(0);
-    Bytes::from_bytes_vec(image)
+    Bytes::from_bytes_vec(ptx.to_src().into_bytes())
 }
 
 struct Axpy;

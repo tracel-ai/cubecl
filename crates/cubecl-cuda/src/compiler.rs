@@ -1,9 +1,12 @@
 //! Selecting between the CUDA C++ backend and the LLVM backend.
 
+use core::hash::Hasher;
+use cubecl_common::hash::StableHasher;
 use cubecl_core::ir::nvidia::SmArch;
 use cubecl_core::prelude::KernelDefinition;
 use cubecl_cpp::shared::CompilationOptions;
 use cubecl_cpp::{ComputeKernel, shared::CppCompiler, target::Cuda};
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_llvm::nvptx::ptx_version::PtxVersion;
 use cubecl_server::compiler::{CompilationError, Compiler};
 use cubecl_server::kernel::{BufferIOAttr, PrecompiledBinary};
@@ -108,12 +111,19 @@ impl core::fmt::Display for CudaRepresentation {
         match self {
             CudaRepresentation::Cpp(kernel) => write!(f, "{kernel}"),
             CudaRepresentation::Llvm(module) => write!(f, "{}", module.ir),
-            CudaRepresentation::Binary(binary) => write!(
-                f,
-                "// precompiled module `{}`, {} bytes",
-                binary.entrypoint_name,
-                binary.image.len()
-            ),
+            // The image stands in for the source in records and logs, so its
+            // hash tells two builds of one entrypoint apart.
+            CudaRepresentation::Binary(binary) => {
+                let mut hasher = StableHasher::new();
+                hasher.write(&binary.image);
+                write!(
+                    f,
+                    "// precompiled module `{}`, {} bytes, hash {:032x}",
+                    binary.entrypoint_name,
+                    binary.image.len(),
+                    hasher.finalize()
+                )
+            }
         }
     }
 }
@@ -178,10 +188,31 @@ impl Compiler for CudaCompiler {
     }
     /// The driver loads a cubin, fatbin or PTX whichever backend compiles the
     /// rest, so both accept one.
+    ///
+    /// # Errors
+    ///
+    /// [`CompilationError::Generic`] for an empty image, or an entrypoint name
+    /// the driver cannot be handed as a C string.
     fn load_binary(
         &mut self,
         binary: PrecompiledBinary,
     ) -> Result<Self::Representation, CompilationError> {
+        let refused = |reason: String| CompilationError::Generic {
+            reason,
+            backtrace: BackTrace::capture(),
+        };
+        if binary.image.is_empty() {
+            return Err(refused(format!(
+                "the precompiled binary `{}` has an empty image",
+                binary.entrypoint_name
+            )));
+        }
+        if binary.entrypoint_name.contains('\0') {
+            return Err(refused(format!(
+                "the precompiled binary's entrypoint name {:?} contains a NUL byte",
+                binary.entrypoint_name
+            )));
+        }
         Ok(CudaRepresentation::Binary(binary))
     }
 }

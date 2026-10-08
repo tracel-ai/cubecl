@@ -67,6 +67,11 @@ pub struct CudaArtifact {
     /// `CubeCL`'s own calling convention.
     #[serde(default)]
     pub params: Option<Vec<KernelParam>>,
+    /// Whether `ptx` is a module compiled outside `CubeCL`, which no store
+    /// keeps: its id is the caller's promise that it covers the image, and a
+    /// rebuilt module under a stale id must not load from the previous run.
+    #[serde(default)]
+    pub precompiled: bool,
 }
 
 impl ArtifactCompiler for CudaArtifactCompiler {
@@ -142,9 +147,10 @@ impl ArtifactCompiler for CudaArtifactCompiler {
             return Ok(CudaArtifact {
                 entrypoint_name: binary.entrypoint_name,
                 shared_mem_bytes: 0,
-                ptx: binary.image.iter().map(|byte| *byte as c_char).collect(),
+                ptx: module_image(&binary.image),
                 io,
                 params: Some(binary.params),
+                precompiled: true,
             });
         }
         let (ptx, shared_mem_bytes) = match (backend_of(&lowered), &lowered.repr) {
@@ -180,6 +186,7 @@ impl ArtifactCompiler for CudaArtifactCompiler {
             ptx,
             io,
             params: None,
+            precompiled: false,
         })
     }
 }
@@ -248,6 +255,27 @@ impl CudaArtifactCompiler {
     }
 }
 
+/// What `cuModuleLoadData` reads from `image`: a cubin or a fatbin as is,
+/// and anything else as PTX text, which the driver reads up to a NUL. PTX
+/// handed over without one gets one, so the driver never reads past the
+/// image.
+fn module_image(image: &[u8]) -> Vec<c_char> {
+    let mut module: Vec<c_char> = bytemuck::cast_slice(image).to_vec();
+    if is_ptx_text(&module) && module.last() != Some(&0) {
+        module.push(0);
+    }
+    module
+}
+
+/// Whether `module` is PTX text rather than a cubin (an ELF object) or a
+/// fatbin, told apart by their magic numbers.
+pub(crate) fn is_ptx_text(module: &[c_char]) -> bool {
+    const ELF: [u8; 4] = [0x7f, b'E', b'L', b'F'];
+    const FATBIN: [u8; 4] = 0xBA55_ED50u32.to_le_bytes();
+    let magic: &[u8] = bytemuck::cast_slice(module.get(..4).unwrap_or(module));
+    magic != ELF && magic != FATBIN
+}
+
 /// Which backend finalizes `lowered`: the one that compiled it, or, for a
 /// precompiled kernel whose text passed the language check in
 /// `CompiledKernel::compile`, the build's default — CUDA C++ goes through
@@ -257,5 +285,63 @@ fn backend_of(lowered: &CompiledKernel<CudaCompiler>) -> CudaBackend {
         Some(CudaRepresentation::Cpp(_)) => CudaBackend::Cpp,
         Some(CudaRepresentation::Llvm(_)) => CudaBackend::Llvm,
         Some(CudaRepresentation::Binary(_)) | None => CudaBackend::default(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_ptx_text, module_image};
+    use crate::compiler::CudaCompiler;
+    use cubecl_environment::bytes::Bytes;
+    use cubecl_server::compiler::Compiler;
+    use cubecl_server::kernel::PrecompiledBinary;
+
+    #[test]
+    fn ptx_without_a_nul_gets_one() {
+        let module = module_image(b".version 8.0");
+        assert_eq!(module.last(), Some(&0));
+        assert_eq!(module.len(), ".version 8.0".len() + 1);
+    }
+
+    #[test]
+    fn ptx_with_a_nul_is_left_alone() {
+        assert_eq!(
+            module_image(b".version 8.0\0").len(),
+            ".version 8.0".len() + 1
+        );
+    }
+
+    #[test]
+    fn cubins_and_fatbins_are_not_text() {
+        let cubin = module_image(&[0x7f, b'E', b'L', b'F', 2, 1]);
+        assert!(!is_ptx_text(&cubin));
+        assert_eq!(cubin.len(), 6, "a cubin is loaded as is");
+
+        let fatbin = module_image(&0xBA55_ED50u32.to_le_bytes());
+        assert!(!is_ptx_text(&fatbin));
+        assert_eq!(fatbin.len(), 4, "a fatbin is loaded as is");
+    }
+
+    fn load(image: Vec<u8>, entrypoint_name: &str) -> Result<(), String> {
+        CudaCompiler::default()
+            .load_binary(PrecompiledBinary {
+                image: Bytes::from_bytes_vec(image),
+                entrypoint_name: entrypoint_name.to_string(),
+                params: Vec::new(),
+            })
+            .map(|_| ())
+            .map_err(|err| err.to_string())
+    }
+
+    #[test]
+    fn an_empty_image_is_refused() {
+        let err = load(Vec::new(), "main").expect_err("nothing to load");
+        assert!(err.contains("empty"), "says why: {err}");
+    }
+
+    #[test]
+    fn an_entrypoint_with_a_nul_is_refused() {
+        let err = load(b".version 8.0".to_vec(), "ma\0in").expect_err("not a C string");
+        assert!(err.contains("NUL"), "says why: {err}");
     }
 }

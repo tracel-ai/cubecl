@@ -2,7 +2,7 @@
 //! stores, and the modules loaded from what they hold.
 
 use crate::compiler::CudaBackend;
-use crate::compute::artifact::{CudaArtifact, CudaArtifactCompiler};
+use crate::compute::artifact::{CudaArtifact, CudaArtifactCompiler, is_ptx_text};
 use crate::compute::events::{driver_error, poisons_device};
 use cubecl_core::prelude::*;
 use cubecl_environment::backtrace::BackTrace;
@@ -90,12 +90,16 @@ impl CompilationTarget for CudaModules {
         id: &ArtifactId<()>,
         artifact: &CudaArtifact,
     ) -> Result<CudaCompiledKernel, CompilationError> {
-        // A precompiled binary is usually a cubin, not PTX text.
-        if artifact.params.is_none() {
+        if is_ptx_text(&artifact.ptx) {
             dump_ptx(&id.kernel, &artifact.ptx);
         }
 
-        let func_name = CString::new(artifact.entrypoint_name.clone()).unwrap();
+        let func_name = CString::new(artifact.entrypoint_name.clone()).map_err(|err| {
+            CompilationError::Generic {
+                reason: format!("The entrypoint name is not a C string: {err}"),
+                backtrace: BackTrace::capture(),
+            }
+        })?;
         // SAFETY: `ptx` is a valid null-terminated PTX binary from NVRTC, or a
         // precompiled module image the kernel vouched for. `func_name` is a
         // null-terminated `CString` matching the kernel entry point in the compiled module.
@@ -127,7 +131,12 @@ impl CompilationTarget for CudaModules {
         })
     }
 
+    /// A precompiled module is never kept: there is no compilation to save,
+    /// and the store is keyed by an id only the caller vouches for.
     fn store(&mut self, id: &ArtifactId<()>, artifact: CudaArtifact, source: Option<&str>) -> bool {
+        if artifact.precompiled {
+            return false;
+        }
         self.ptx_store.keep(&id.kernel, artifact, source)
     }
 }
