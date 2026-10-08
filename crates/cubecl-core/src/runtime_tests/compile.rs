@@ -1,4 +1,4 @@
-//! Kernels queued by launches on a stream in compile mode: they compile
+//! Kernels queued by launches on a stream that discards them: they compile
 //! together when the queue does, on as many threads as the server compiles on,
 //! and then run like any other kernel. The launches that queued them do not
 //! run.
@@ -29,7 +29,7 @@ pub fn test_compiled_kernels_run<R: Runtime>(client: Client) {
         .collect();
 
     {
-        let _compile_only = StreamModeOverride::new(StreamMode::Compile, &client);
+        let _compile_only = StreamModeOverride::new(StreamMode::Discard, &client);
         for (number, out) in outputs.iter().enumerate() {
             launch_numbered(&client, out, number as u32);
         }

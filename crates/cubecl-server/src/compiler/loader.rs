@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 
 use cubecl_common::profile::Instant;
 use cubecl_environment::collections::{HashMap, HashSet};
-use cubecl_runtime::execution::KernelRegistration;
+use cubecl_runtime::execution::{KernelLoad, KernelOutcome, KernelRegistration, SettledKernel};
 
 use super::{
     ArtifactCompiler, ArtifactId, BatchOutcome, CompilationBatchRecording, CompilationOutcome,
@@ -481,9 +481,28 @@ struct Job<'k, T: CompilationTarget> {
     kernel: &'k dyn CubeKernel,
     recording: CompilationRecording,
     step: Step<T>,
-    /// Its registration: settled once the batch has the kernel, and told if
-    /// the device refuses it.
-    registration: Option<KernelRegistration>,
+    /// Where it stands in its collector's count.
+    count: JobCount,
+}
+
+/// Where a [`Job`] stands in the count of the collector it was registered
+/// with.
+enum JobCount {
+    /// No override was open to register it.
+    Uncounted,
+    /// Registered, its outcome not known yet.
+    Registered(KernelRegistration),
+    /// Its outcome counted; what its load does is counted next.
+    Settled(SettledKernel),
+}
+
+impl JobCount {
+    /// Count what the job's load did, once it settled.
+    fn record(&mut self, load: KernelLoad) {
+        if let Self::Settled(settled) = self {
+            settled.record(load);
+        }
+    }
 }
 
 /// How far a [`Job`] got.
@@ -511,6 +530,25 @@ enum Step<T: CompilationTarget> {
     Failed(LaunchError),
 }
 
+impl<T: CompilationTarget> Step<T> {
+    /// How the kernel ended, once it has: an artifact to load, compiled or
+    /// taken from the store, or a failure.
+    fn outcome(&self) -> Option<KernelOutcome> {
+        match self {
+            Self::Ready {
+                outcome: CompilationOutcome::Compiled,
+                ..
+            } => Some(KernelOutcome::Compiled),
+            Self::Ready {
+                outcome: CompilationOutcome::Loaded | CompilationOutcome::Rekeyed,
+                ..
+            } => Some(KernelOutcome::Loaded),
+            Self::Failed(_) => Some(KernelOutcome::Failed),
+            Self::Missing | Self::Lowered { .. } | Self::Waiting { .. } => None,
+        }
+    }
+}
+
 impl<'k, T: CompilationTarget> Job<'k, T> {
     fn new(request: Request<'k, VariantOf<T>>) -> Self {
         Self {
@@ -518,29 +556,24 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
             id: request.id,
             kernel: request.kernel,
             step: Step::Missing,
-            registration: request.registration,
+            count: match request.registration {
+                Some(registration) => JobCount::Registered(registration),
+                None => JobCount::Uncounted,
+            },
         }
     }
 
     /// Settle it where it was registered, once the batch has it — compiled,
-    /// read from the store, or failed. Only its first outcome counts, and a
-    /// job still on its way settles nothing yet.
+    /// read from the store, or failed. It settles once, and a job still on
+    /// its way settles nothing yet.
     fn settle(&mut self) {
-        let Some(registration) = self.registration.as_mut() else {
+        let Some(outcome) = self.step.outcome() else {
             return;
         };
-        match &self.step {
-            Step::Ready {
-                outcome: CompilationOutcome::Compiled,
-                ..
-            } => registration.compiled(),
-            Step::Ready {
-                outcome: CompilationOutcome::Loaded | CompilationOutcome::Rekeyed,
-                ..
-            } => registration.loaded(),
-            Step::Failed(_) => registration.failed(),
-            Step::Missing | Step::Lowered { .. } | Step::Waiting { .. } => {}
-        }
+        self.count = match core::mem::replace(&mut self.count, JobCount::Uncounted) {
+            JobCount::Registered(registration) => JobCount::Settled(registration.settle(outcome)),
+            count => count,
+        };
     }
 
     fn is_missing(&self) -> bool {
@@ -692,8 +725,8 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
                         if outcome != CompilationOutcome::Loaded {
                             stored = target.store(&self.id, artifact, source.as_deref());
                         }
-                        if stored && let Some(registration) = self.registration.as_mut() {
-                            registration.stored();
+                        if stored {
+                            self.count.record(KernelLoad::Stored);
                         }
                         self.recording.close(outcome, stored);
                         Ok(loaded)
@@ -701,9 +734,7 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
                     Err(err) => {
                         // Settled as obtained before the device saw it: the
                         // refusal is counted on its own.
-                        if let Some(registration) = self.registration.as_mut() {
-                            registration.refused();
-                        }
+                        self.count.record(KernelLoad::Refused);
                         Err(err.into())
                     }
                 }

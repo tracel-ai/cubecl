@@ -38,15 +38,24 @@ pub enum PageMapping {
     Lazy,
 }
 
+impl From<crate::execution::ExecutionPolicy> for PageMapping {
+    /// [`Lazy`](Self::Lazy) under a policy whose streams discard their
+    /// launches, [`Eager`](Self::Eager) otherwise: a stream that executes
+    /// while the policy discards is a measurement, which resolves what it
+    /// uses because it runs.
+    fn from(policy: crate::execution::ExecutionPolicy) -> Self {
+        match policy.stream_mode() {
+            crate::execution::StreamMode::Discard => Self::Lazy,
+            crate::execution::StreamMode::Execute => Self::Eager,
+        }
+    }
+}
+
 impl PageMapping {
     /// The mapping allocations made in this process, right now, should get:
-    /// [`Lazy`](Self::Lazy) under a [policy](crate::execution::ExecutionPolicy)
-    /// that drops launches, [`Eager`](Self::Eager) otherwise.
+    /// what the [policy](crate::execution::ExecutionPolicy) in force asks.
     pub fn current() -> Self {
-        match crate::execution::policy().drops_launches() {
-            true => PageMapping::Lazy,
-            false => PageMapping::Eager,
-        }
+        Self::from(crate::execution::ExecutionPolicy::current())
     }
 
     /// A storage handle for `size` bytes honoring this mapping: a real device

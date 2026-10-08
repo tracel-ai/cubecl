@@ -22,10 +22,11 @@ pub(crate) enum CacheEntry {
     Pending,
     /// A `CompileOnly` override queued the kernels of the key's candidates and decided nothing: a
     /// miss to anything that tunes, and done to the next `CompileOnly` override. Never persisted.
-    /// `registered_with` is the key's tune as the override that gathered it registered it, settled
-    /// once its pick commits; `None` when it registered none.
+    /// `registration` is the key's tune as the override that gathered it registered it, settled
+    /// once its pick commits; `None` when it registered none. Replacing the entry other than
+    /// through [`TuneCache::mark_pending`] drops the registration, which counts it failed.
     Compiled {
-        registered_with: Option<TuneRegistration>,
+        registration: Option<TuneRegistration>,
     },
 }
 
@@ -292,17 +293,17 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// gathered it registered it.
     pub(crate) fn mark_pending(&mut self, key: K) -> Option<TuneRegistration> {
         match self.in_memory_cache.insert(key, CacheEntry::Pending) {
-            Some(CacheEntry::Compiled { registered_with }) => registered_with,
+            Some(CacheEntry::Compiled { registration }) => registration,
             _ => None,
         }
     }
 
     /// Mark a key whose candidates' kernels a `CompileOnly` override queued, in place of the tune
-    /// it was [marked](Self::mark_pending) for: nothing was decided. `registered_with` is where
+    /// it was [marked](Self::mark_pending) for: nothing was decided. `registration` is where
     /// its tune was registered, if it was.
-    pub(crate) fn mark_compiled(&mut self, key: K, registered_with: Option<TuneRegistration>) {
+    pub(crate) fn mark_compiled(&mut self, key: K, registration: Option<TuneRegistration>) {
         self.in_memory_cache
-            .insert(key, CacheEntry::Compiled { registered_with });
+            .insert(key, CacheEntry::Compiled { registration });
     }
 
     /// Whether a `CompileOnly` override already queued the kernels of `key`'s candidates.

@@ -17,7 +17,7 @@ use crate::client::Client;
 use crate::config::Logger;
 #[cfg(persistence)]
 use crate::config::autotune::AutotuneLogLevel;
-use crate::execution::{ExecutionPolicy, TuneRegistration};
+use crate::execution::{ExecutionPolicy, TuneOutcome, TuneRegistration};
 use crate::server::LaunchError;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
 use cubecl_environment::config::RuntimeConfig;
@@ -252,9 +252,9 @@ impl<K: AutotuneKey> Tuner<K> {
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
-        let compiling = crate::execution::policy() == ExecutionPolicy::CompileOnly;
+        let compiling = ExecutionPolicy::current() == ExecutionPolicy::CompileOnly;
         // Where the key's tune was registered, if the override that gathered it registered it.
-        let registered_with;
+        let gathered;
 
         {
             let mut cache = self.cache.lock();
@@ -297,7 +297,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 | TuneCacheResult::Pending
                 | TuneCacheResult::Compiled => return cur,
                 TuneCacheResult::Miss | TuneCacheResult::Unchecked => {
-                    registered_with = cache.mark_pending(key.clone());
+                    gathered = cache.mark_pending(key.clone());
                 }
             }
             // Scope the guard: the rest of this function re-locks `self.cache` (fast
@@ -323,19 +323,18 @@ impl<K: AutotuneKey> Tuner<K> {
         // never run the one that reaches a key gathered inside it. Such a key is registered if
         // it is ever measured, as an ungathered one is.
         if compiling {
-            let registered_with = match super::gathering::inside_candidates() {
-                true => None,
-                false => TuneRegistration::register(),
+            let registration = if super::gathering::CandidateGathering::active() {
+                None
+            } else {
+                TuneRegistration::register()
             };
-            self.cache
-                .lock()
-                .mark_compiled(key.clone(), registered_with);
-            let _inside = super::gathering::InsideCandidates::enter();
+            self.cache.lock().mark_compiled(key.clone(), registration);
+            let _gathering = super::gathering::CandidateGathering::enter();
             self.compile_plan(key, inputs, tunables, &autotunables);
             return TuneCacheResult::Compiled;
         }
         // Sure to measure now: a tune registered nowhere yet registers with the override open.
-        let registration = registered_with.or_else(TuneRegistration::register);
+        let registration = gathered.or_else(TuneRegistration::register);
 
         let results: Vec<AutotuneResult> = autotunables
             .iter()
@@ -763,13 +762,13 @@ async fn process_request<K: AutotuneKey>(
         // a tune that measured nothing would keep failing the same way.
         cache.lock().cache_insert(key.clone(), fastest_index);
         // Where the tune was registered, whether or not that override is still open.
-        let mut registration = registration;
-        if let Some(registration) = registration.as_mut() {
-            match unmeasured {
-                true => registration.failed(),
-                false => registration.measured(),
-            }
-        }
+        let outcome = if unmeasured {
+            TuneOutcome::Failed
+        } else {
+            TuneOutcome::Measured
+        };
+        #[cfg_attr(not(persistence), allow(unused_variables, unused_mut))]
+        let mut settled = registration.map(|registration| registration.settle(outcome));
 
         // Not on disk, though. An unmeasured decision is a guess made to keep
         // the device thread alive, and the failures that produce one — a
@@ -791,8 +790,8 @@ async fn process_request<K: AutotuneKey>(
             );
 
         #[cfg(persistence)]
-        if stored && let Some(registration) = registration.as_mut() {
-            registration.persisted();
+        if stored && let Some(settled) = settled.as_mut() {
+            settled.record(crate::execution::TunePick::Persisted);
         }
 
         #[cfg(persistence)]

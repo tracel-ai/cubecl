@@ -429,7 +429,6 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         // A dropped launch stages none either way. It was never going to write, so a
         // failure in it leaves nothing stale, and tainting its buffers would
         // fail unrelated reads of memory the run deliberately left alone.
-        // A queued launch only queues its kernel, touching nothing else.
         let layout = MetadataLayout::from(&args.info);
         if launch_action == LaunchAction::Queue {
             self.pipelines.enqueue(kernel, layout);

@@ -364,7 +364,6 @@ impl Server for MetalServer {
         // A dropped launch stages none either way. It was never going to write, so a
         // failure in it leaves nothing stale, and tainting its buffers would
         // fail unrelated reads of memory the run deliberately left alone.
-        // A queued launch only queues its kernel, touching nothing else.
         if launch_action == LaunchAction::Queue {
             self.context.queue(kernel);
             return;

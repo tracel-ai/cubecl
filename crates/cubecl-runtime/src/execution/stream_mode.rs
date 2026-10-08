@@ -1,6 +1,7 @@
-use super::base::DeviceStream;
 use crate::client::Client;
 use alloc::vec::Vec;
+use cubecl_common::device::ServiceId;
+use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::{AtomicUsize, Mutex, Ordering};
 
 /// Whether a stream's launches run.
@@ -9,14 +10,63 @@ pub enum StreamMode {
     /// They run.
     Execute,
     /// Their kernels compile — now under
-    /// [`CompileAndAutotune`](super::ExecutionPolicy::CompileAndAutotune), queued for
-    /// a batch otherwise — and they are dropped.
-    Compile,
+    /// [`CompileAndAutotune`](super::ExecutionPolicy::CompileAndAutotune),
+    /// queued for a batch otherwise — and the launches are discarded.
+    Discard,
+}
+
+impl StreamMode {
+    /// Its slot in [`LIVE_STREAM_MODES`].
+    fn index(self) -> usize {
+        match self {
+            Self::Execute => 0,
+            Self::Discard => 1,
+        }
+    }
+
+    /// The other mode.
+    fn opposite(self) -> Self {
+        match self {
+            Self::Execute => Self::Discard,
+            Self::Discard => Self::Execute,
+        }
+    }
+}
+
+/// One stream of one device's service: what a [`StreamModeOverride`] sets
+/// the mode of. Stream ids are the process's, not a device's, so a
+/// measurement on one device leaves the same stream of every other device
+/// alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ServiceStream {
+    /// The device's service, as its clients reach it.
+    pub service: ServiceId,
+    /// The stream on it.
+    pub stream: StreamId,
+}
+
+impl ServiceStream {
+    /// Its mode now: what the newest live override sets for it, or
+    /// `default` when none does.
+    pub(crate) fn mode(self, default: StreamMode) -> StreamMode {
+        // An override setting the default changes nothing, unless it is
+        // newer than one setting the other mode on the same stream, and then
+        // there is one of those to look for.
+        if LIVE_STREAM_MODES[default.opposite().index()].load(Ordering::Acquire) == 0 {
+            return default;
+        }
+        STREAM_MODES
+            .lock()
+            .iter()
+            .rev()
+            .find(|entry| entry.stream == self)
+            .map_or(default, |entry| entry.mode)
+    }
 }
 
 /// Sets the mode of one client's stream on its device while it lives,
 /// restored on drop: what a measurement opens, so its launches run whatever
-/// the policy drops.
+/// the policy discards.
 ///
 /// Keyed on the device and the stream the client's launches go out on — a
 /// client bound to a stream of its own does not follow the thread's — so it
@@ -27,7 +77,7 @@ pub enum StreamMode {
 /// Every launch on that stream of that device follows it, whichever thread
 /// issues it. Where threads share a stream — `StreamPolicy::Single`, or a
 /// build without per-thread streams — a launch another thread issues while a
-/// measurement runs executes too, rather than being dropped.
+/// measurement runs executes too, rather than being discarded.
 #[derive(Debug)]
 pub struct StreamModeOverride {
     id: usize,
@@ -38,7 +88,7 @@ pub struct StreamModeOverride {
 #[derive(Debug)]
 struct StreamModeEntry {
     id: usize,
-    on: DeviceStream,
+    stream: ServiceStream,
     mode: StreamMode,
 }
 
@@ -52,32 +102,17 @@ static STREAM_MODES: Mutex<Vec<StreamModeEntry>> = Mutex::new(Vec::new());
 /// The id the next override takes.
 static NEXT_STREAM_MODE: AtomicUsize = AtomicUsize::new(0);
 
-impl StreamMode {
-    /// Its slot in [`LIVE_STREAM_MODES`].
-    fn index(self) -> usize {
-        match self {
-            Self::Execute => 0,
-            Self::Compile => 1,
-        }
-    }
-}
-
 impl StreamModeOverride {
     /// Put `client`'s stream on its device in `mode` until the guard drops.
     pub fn new(mode: StreamMode, client: &Client) -> Self {
-        Self::on(
-            mode,
-            DeviceStream {
-                service: client.service_id(),
-                stream: client.stream_id(),
-            },
-        )
+        Self::of_stream(mode, client.service_stream())
     }
 
-    pub(super) fn on(mode: StreamMode, on: DeviceStream) -> Self {
+    /// Put `stream` in `mode` until the guard drops.
+    pub(crate) fn of_stream(mode: StreamMode, stream: ServiceStream) -> Self {
         let id = NEXT_STREAM_MODE.fetch_add(1, Ordering::Relaxed);
         let mut modes = STREAM_MODES.lock();
-        modes.push(StreamModeEntry { id, on, mode });
+        modes.push(StreamModeEntry { id, stream, mode });
         LIVE_STREAM_MODES[mode.index()].fetch_add(1, Ordering::Release);
         Self { id, mode }
     }
@@ -89,25 +124,4 @@ impl Drop for StreamModeOverride {
         modes.retain(|entry| entry.id != self.id);
         LIVE_STREAM_MODES[self.mode.index()].fetch_sub(1, Ordering::Release);
     }
-}
-
-/// The mode the newest live override sets for `on`, or `default` when none
-/// does.
-pub(super) fn stream_mode(on: DeviceStream, default: StreamMode) -> StreamMode {
-    let other = match default {
-        StreamMode::Execute => StreamMode::Compile,
-        StreamMode::Compile => StreamMode::Execute,
-    };
-    // An override setting the default changes nothing, unless it is newer
-    // than one setting the other mode on the same stream, and then there is
-    // one of those to look for.
-    if LIVE_STREAM_MODES[other.index()].load(Ordering::Acquire) == 0 {
-        return default;
-    }
-    STREAM_MODES
-        .lock()
-        .iter()
-        .rev()
-        .find(|entry| entry.on == on)
-        .map_or(default, |entry| entry.mode)
 }

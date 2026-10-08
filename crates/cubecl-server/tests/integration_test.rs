@@ -633,7 +633,7 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
             <= tune.wall
     );
     assert_eq!(tune.short_circuit, None);
-    assert!(!tune.dry_run);
+    assert!(!tune.launches_discarded);
     assert!(tune.stored, "the table took the answer");
     let plan: Vec<(&str, Option<usize>)> = tune
         .plan

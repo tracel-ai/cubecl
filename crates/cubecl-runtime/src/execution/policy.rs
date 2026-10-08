@@ -2,83 +2,33 @@ use super::{StatisticsCollector, StatisticsRecorder, StreamMode};
 use cubecl_environment::sync::{AtomicUsize, Mutex, Ordering};
 
 /// What the process does with the work it is asked to run.
-///
-/// Each policy is a level, the number the process's open override holds in
-/// its low bits; zero is none, which executes. [`Execute`](Self::Execute) is
-/// a level of its own rather than zero so that an override of it is told
-/// apart from none: it counts what a real run compiles and tunes into its
-/// collector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(usize)]
 pub enum ExecutionPolicy {
     /// Launches run. What the process does when no override is open.
-    Execute = 3,
+    Execute,
     /// Launches and tune candidates queue their kernels and are dropped. The
     /// queue compiles in one batch, at the next launch that loads a kernel. A
     /// tune measures and decides nothing.
-    CompileOnly = 1,
+    CompileOnly,
     /// Launches compile their kernels and are dropped. A tune measures its
     /// candidates for real.
-    CompileAndAutotune = 2,
+    CompileAndAutotune,
 }
 
 impl ExecutionPolicy {
-    /// The policy at `level`: none open executes.
-    fn at(level: usize) -> Self {
-        match level {
-            1 => Self::CompileOnly,
-            2 => Self::CompileAndAutotune,
-            _ => Self::Execute,
-        }
+    /// The process's policy now.
+    pub fn current() -> Self {
+        OpenState::load().policy()
     }
 
-    /// The mode a stream has under it, unless a [`StreamModeOverride`] says
-    /// otherwise.
-    pub(super) fn stream_default(self) -> StreamMode {
+    /// The mode every stream has under it, unless a
+    /// [`StreamModeOverride`](super::StreamModeOverride) sets its own.
+    pub fn stream_mode(self) -> StreamMode {
         match self {
             Self::Execute => StreamMode::Execute,
-            Self::CompileOnly | Self::CompileAndAutotune => StreamMode::Compile,
+            Self::CompileOnly | Self::CompileAndAutotune => StreamMode::Discard,
         }
     }
-
-    /// Whether launches on a stream it sets are dropped.
-    pub fn drops_launches(self) -> bool {
-        self.stream_default() == StreamMode::Compile
-    }
-}
-
-/// The open override: its policy's level in the low [`LEVEL_BITS`], and
-/// above them how many guards hold it open. Written only under [`ACTIVE`]'s
-/// lock, and read without it on every launch.
-static OPEN: AtomicUsize = AtomicUsize::new(0);
-/// The bits of [`OPEN`] that hold the policy's level.
-const LEVEL_BITS: u32 = 2;
-/// Masks [`OPEN`] down to the policy's level.
-const LEVEL_MASK: usize = (1 << LEVEL_BITS) - 1;
-/// One guard, in [`OPEN`]'s count.
-const GUARD: usize = 1 << LEVEL_BITS;
-
-/// Where the open override counts, while one is.
-static ACTIVE: Mutex<Option<StatisticsRecorder>> = Mutex::new(None);
-
-/// The process's policy now.
-pub fn policy() -> ExecutionPolicy {
-    ExecutionPolicy::at(OPEN.load(Ordering::Relaxed) & LEVEL_MASK)
-}
-
-/// Where the work the open override triggers is counted, or `None` when
-/// none is open: what a [`KernelRegistration`] or a [`TuneRegistration`]
-/// holds.
-///
-/// Read without a lock first, then under [`ACTIVE`]'s: work begun as one
-/// override closes while another collector's opens on another thread counts
-/// to the one opening. Overrides follow each other under a caller's lease,
-/// so nothing starts work in that gap.
-pub(crate) fn recorder() -> Option<StatisticsRecorder> {
-    if OPEN.load(Ordering::Relaxed) == 0 {
-        return None;
-    }
-    ACTIVE.lock().clone()
 }
 
 /// Applies a policy to the whole process while it lives, counting what it
@@ -130,36 +80,46 @@ impl ExecutionOverride {
     ///
     /// If an override of another policy, or of another collector, is open.
     pub fn new(policy: ExecutionPolicy, collector: &StatisticsCollector) -> Self {
-        let level = policy as usize;
         let mut active = ACTIVE.lock();
-        let open = OPEN.load(Ordering::Relaxed);
-        let open_level = open & LEVEL_MASK;
-        if open_level == 0 {
-            *active = Some(collector.recorder());
-            OPEN.store(GUARD | level, Ordering::Relaxed);
-            return Self { policy };
-        }
-        let same_collector = active
-            .as_ref()
-            .is_some_and(|recorder| recorder.counts_into(collector));
-        let open_policy = ExecutionPolicy::at(open_level);
-        drop(active);
-        match (open_level == level, same_collector) {
-            (true, true) => {
-                OPEN.fetch_add(GUARD, Ordering::Relaxed);
-                Self { policy }
+        let open = OpenState::load();
+        match Opening::of(open, active.as_ref(), policy, collector) {
+            Opening::First => {
+                *active = Some(collector.recorder());
+                OpenState::first(policy).store();
             }
-            (_, false) => panic!("an override cannot open while one of another collector is"),
-            (false, true) => {
-                let (policy, open_policy) = (Article(policy), Article(open_policy));
-                panic!("{policy} override cannot open while {open_policy} one is")
+            Opening::Joins => open.joined().store(),
+            Opening::OtherCollector => {
+                drop(active);
+                panic!("an override cannot open while one of another collector is")
+            }
+            Opening::OtherPolicy => {
+                drop(active);
+                panic!(
+                    "an override of {policy:?} cannot open while one of {:?} is",
+                    open.policy()
+                )
             }
         }
+        Self { policy }
     }
 
     /// The policy it applies.
     pub fn policy(&self) -> ExecutionPolicy {
         self.policy
+    }
+
+    /// Where the work the open override triggers is tallied, or `None` when
+    /// none is open: what a [`Registration`](super::Registration) holds.
+    ///
+    /// Read without a lock first, then under [`ACTIVE`]'s: work begun as one
+    /// override closes while another collector's opens on another thread
+    /// counts to the one opening. Overrides follow each other under a
+    /// caller's lease, so nothing starts work in that gap.
+    pub(crate) fn active_recorder() -> Option<StatisticsRecorder> {
+        if !OpenState::load().is_open() {
+            return None;
+        }
+        ACTIVE.lock().clone()
     }
 }
 
@@ -168,30 +128,117 @@ impl Drop for ExecutionOverride {
         // The last guard out closes the override, its policy and its
         // collector with it.
         let mut active = ACTIVE.lock();
-        let open = OPEN.load(Ordering::Relaxed) - GUARD;
-        if open < GUARD {
-            OPEN.store(0, Ordering::Relaxed);
+        let left = OpenState::load().left();
+        if !left.is_open() {
             *active = None;
+        }
+        left.store();
+    }
+}
+
+/// What opening an override meets.
+enum Opening {
+    /// Nothing open: it opens.
+    First,
+    /// One of its policy and its collector: it joins.
+    Joins,
+    /// One of another collector.
+    OtherCollector,
+    /// One of its collector, of another policy.
+    OtherPolicy,
+}
+
+impl Opening {
+    fn of(
+        open: OpenState,
+        active: Option<&StatisticsRecorder>,
+        policy: ExecutionPolicy,
+        collector: &StatisticsCollector,
+    ) -> Self {
+        let Some(active) = active.filter(|_| open.is_open()) else {
+            return Self::First;
+        };
+        if !active.tallies_into(collector) {
+            Self::OtherCollector
+        } else if open.policy() != policy {
+            Self::OtherPolicy
         } else {
-            OPEN.store(open, Ordering::Relaxed);
+            Self::Joins
         }
     }
 }
 
-/// A policy with its article, for a panic message.
-struct Article(ExecutionPolicy);
+/// The open override as the process holds it: its policy's level in the low
+/// [`LEVEL_BITS`](Self::LEVEL_BITS), and above them how many guards hold it
+/// open. Written only under [`ACTIVE`]'s lock, and read without it on every
+/// launch.
+#[derive(Debug, Clone, Copy)]
+struct OpenState(usize);
 
-impl core::fmt::Display for Article {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.0 {
-            ExecutionPolicy::Execute => write!(f, "an {:?}", self.0),
-            policy => write!(f, "a {policy:?}"),
+/// [`OpenState`] as the process holds it.
+static OPEN: AtomicUsize = AtomicUsize::new(0);
+/// Where the open override tallies, while one is.
+static ACTIVE: Mutex<Option<StatisticsRecorder>> = Mutex::new(None);
+
+impl OpenState {
+    /// The bits that hold the policy's level.
+    const LEVEL_BITS: u32 = 2;
+    /// Masks the state down to the policy's level.
+    const LEVEL_MASK: usize = (1 << Self::LEVEL_BITS) - 1;
+    /// One guard, in the state's count.
+    const GUARD: usize = 1 << Self::LEVEL_BITS;
+
+    fn load() -> Self {
+        Self(OPEN.load(Ordering::Relaxed))
+    }
+
+    fn store(self) {
+        OPEN.store(self.0, Ordering::Relaxed);
+    }
+
+    /// One guard holding `policy` open. Every policy has a level of its own,
+    /// [`Execute`](ExecutionPolicy::Execute) included, so an override of it
+    /// is told apart from none: it tallies what a real run compiles and
+    /// tunes.
+    fn first(policy: ExecutionPolicy) -> Self {
+        let level = match policy {
+            ExecutionPolicy::CompileOnly => 1,
+            ExecutionPolicy::CompileAndAutotune => 2,
+            ExecutionPolicy::Execute => 3,
+        };
+        Self(Self::GUARD | level)
+    }
+
+    fn is_open(self) -> bool {
+        self.0 != 0
+    }
+
+    /// The open policy; none open executes.
+    fn policy(self) -> ExecutionPolicy {
+        match self.0 & Self::LEVEL_MASK {
+            1 => ExecutionPolicy::CompileOnly,
+            2 => ExecutionPolicy::CompileAndAutotune,
+            _ => ExecutionPolicy::Execute,
+        }
+    }
+
+    /// One more guard.
+    fn joined(self) -> Self {
+        Self(self.0 + Self::GUARD)
+    }
+
+    /// One guard fewer, closed with the last.
+    fn left(self) -> Self {
+        match self.0 - Self::GUARD {
+            rest if rest < Self::GUARD => Self(0),
+            rest => Self(rest),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::statistics::{KernelLoad, KernelOutcome, TuneOutcome, TunePick};
     use super::super::{CompilationStatistics, KernelRegistration, TuneRegistration};
     use super::*;
     // `serial_test`'s macro expands to `vec!`, which a `no_std` crate has to
@@ -204,7 +251,7 @@ mod tests {
     #[test]
     #[serial_test::serial]
     #[should_panic(
-        expected = "a CompileOnly override cannot open while a CompileAndAutotune one is"
+        expected = "an override of CompileOnly cannot open while one of CompileAndAutotune is"
     )]
     fn policies_do_not_overlap() {
         let collector = StatisticsCollector::new();
@@ -233,9 +280,12 @@ mod tests {
             ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector)
         });
         assert!(refused.is_err());
-        assert_eq!(policy(), ExecutionPolicy::CompileAndAutotune);
+        assert_eq!(
+            ExecutionPolicy::current(),
+            ExecutionPolicy::CompileAndAutotune
+        );
         drop(tune);
-        assert_eq!(policy(), ExecutionPolicy::Execute);
+        assert_eq!(ExecutionPolicy::current(), ExecutionPolicy::Execute);
     }
 
     /// Overlapping overrides of one policy and collector compose: the last
@@ -250,19 +300,19 @@ mod tests {
                 let _inner = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
             }
             assert_eq!(
-                policy(),
+                ExecutionPolicy::current(),
                 ExecutionPolicy::CompileOnly,
                 "the outer is in force"
             );
         }
-        assert_eq!(policy(), ExecutionPolicy::Execute);
-        assert!(recorder().is_none());
+        assert_eq!(ExecutionPolicy::current(), ExecutionPolicy::Execute);
+        assert!(ExecutionOverride::active_recorder().is_none());
     }
 
     /// What an override triggers counts to its collector, over every
     /// override of it — an `Execute` one included — and a registration made
-    /// under one settles there after it closes; a reader reads the same
-    /// counts.
+    /// under one settles there after it closes; what happens to settled work
+    /// counts once; a reader reads the same counts.
     #[test]
     #[serial_test::serial]
     fn work_counts_to_the_collector_of_the_open_override() {
@@ -274,7 +324,7 @@ mod tests {
         let reader = collector.reader();
 
         let compile = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
-        let mut queued: Vec<KernelRegistration> = (0..4)
+        let queued: Vec<KernelRegistration> = (0..4)
             .filter_map(|_| KernelRegistration::register())
             .collect();
         let gathered = TuneRegistration::register().expect("an override is open");
@@ -282,15 +332,15 @@ mod tests {
 
         // Kernels queued in one override compile in the next.
         let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
-        queued[0].compiled();
-        queued[0].refused();
-        queued[1].stored();
-        queued[1].loaded();
-        queued[2].failed();
-        queued[2].compiled();
-        let mut gathered = gathered;
-        gathered.measured();
-        gathered.persisted();
+        let mut queued = queued.into_iter();
+        let mut compiled = queued.next().unwrap().settle(KernelOutcome::Compiled);
+        compiled.record(KernelLoad::Refused);
+        compiled.record(KernelLoad::Refused);
+        let mut loaded = queued.next().unwrap().settle(KernelOutcome::Loaded);
+        loaded.record(KernelLoad::Stored);
+        let _failed = queued.next().unwrap().settle(KernelOutcome::Failed);
+        let mut measured = gathered.settle(TuneOutcome::Measured);
+        measured.record(TunePick::Persisted);
 
         let statistics = collector.statistics();
         assert_eq!(
@@ -303,22 +353,25 @@ mod tests {
                 refused: 1,
                 stored: 1,
             },
-            "only a kernel's first outcome counts"
+            "a refusal told twice counts once"
         );
         assert_eq!(
             statistics.autotune.settled(),
             statistics.autotune.registered
         );
+        assert_eq!(statistics.autotune.persisted, 1);
         assert_eq!(reader.statistics(), statistics);
         drop(_tune);
 
         let execute = ExecutionOverride::new(ExecutionPolicy::Execute, &collector);
-        TuneRegistration::register()
+        let _measured = TuneRegistration::register()
             .expect("an execute override counts too")
-            .measured();
-        assert_eq!(collector.statistics().autotune.persisted, 1);
+            .settle(TuneOutcome::Measured);
         drop(execute);
         assert_eq!(collector.statistics().autotune.measured, 2);
+        // The fourth kernel, never settled, fails as it drops.
+        drop(queued);
+        assert_eq!(collector.statistics().compilation.failed, 2);
     }
 
     /// A registration dropped before it settled — its batch or its tune

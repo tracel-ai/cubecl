@@ -33,9 +33,11 @@ pub struct TuneRecord<K> {
     pub short_circuit: Option<String>,
     /// From the cache miss to the answer committed.
     pub wall: Duration,
-    /// Whether the tune ran under an override that drops launches, where
-    /// they compile but do not execute.
-    pub dry_run: bool,
+    /// Whether the tune ran under a policy that discards launches, where
+    /// they compile but do not execute. Stored under its earlier name, which
+    /// environments already saved hold.
+    #[serde(rename = "dry_run")]
+    pub launches_discarded: bool,
     /// Whether the table took the answer. One that measured nothing, or that
     /// was tuned with the cache disabled, answers this process alone: the
     /// table holds another answer to the key, or none.
@@ -91,7 +93,7 @@ struct OpenRecording<K> {
     span: Span,
     table: String,
     entry: PersistentCacheKey<K>,
-    dry_run: bool,
+    launches_discarded: bool,
     plan: Vec<PlannedCandidate>,
 }
 
@@ -113,7 +115,8 @@ impl<K: AutotuneKey> TuneRecording<K> {
                 key: key.clone(),
                 checksum: checksum.into(),
             },
-            dry_run: crate::execution::policy().drops_launches(),
+            launches_discarded: crate::execution::ExecutionPolicy::current().stream_mode()
+                == crate::execution::StreamMode::Discard,
             plan: Vec::new(),
         });
         Self { open }
@@ -159,7 +162,7 @@ impl<K: AutotuneKey> TuneRecording<K> {
             trials,
             short_circuit,
             wall,
-            dry_run: open.dry_run,
+            launches_discarded: open.launches_discarded,
             stored: answer.stored,
             plan: open.plan,
         };

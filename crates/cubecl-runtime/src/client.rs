@@ -240,10 +240,20 @@ impl Client {
         }
     }
 
-    pub(crate) fn stream_id(&self) -> StreamId {
+    fn stream_id(&self) -> StreamId {
         match self.stream_id {
             Some(val) => val,
             None => StreamId::current(),
+        }
+    }
+
+    /// The stream its launches go out on, on its device's service: what a
+    /// [`StreamModeOverride`](crate::execution::StreamModeOverride) sets the
+    /// mode of.
+    pub(crate) fn service_stream(&self) -> crate::execution::ServiceStream {
+        crate::execution::ServiceStream {
+            service: self.service_id(),
+            stream: self.stream_id(),
         }
     }
 
@@ -1129,10 +1139,7 @@ impl Client {
 
         // Decided here, where the launch is issued, from the stream it goes
         // out on: the server receives the verdict, not what decided it.
-        let launch_action = crate::execution::launch_action(crate::execution::DeviceStream {
-            service: self.service_id(),
-            stream: stream_id,
-        });
+        let launch_action = crate::execution::LaunchAction::new(self.service_stream());
 
         // A dropped launch runs nothing to time, and a backend timing windows by the
         // timestamps its passes write reports a window around one as never measured.

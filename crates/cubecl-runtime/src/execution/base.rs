@@ -1,8 +1,4 @@
-use super::policy::policy;
-use super::stream_mode::stream_mode;
-use super::{ExecutionPolicy, StreamMode};
-use cubecl_common::device::ServiceId;
-use cubecl_environment::stream::StreamId;
+use super::{ExecutionPolicy, ServiceStream, StreamMode};
 
 /// What a server does with one launch: the verdict its stream's mode and the
 /// process's policy resolve to.
@@ -26,35 +22,24 @@ pub enum LaunchAction {
 }
 
 impl LaunchAction {
+    /// What a launch issued on `stream` does now.
+    pub(crate) fn new(stream: ServiceStream) -> Self {
+        let policy = ExecutionPolicy::current();
+        match (stream.mode(policy.stream_mode()), policy) {
+            (StreamMode::Execute, _) => Self::Execute,
+            // A stream discarding its launches while the process executes
+            // queues them: they compile with the next launch that loads a
+            // kernel.
+            (StreamMode::Discard, ExecutionPolicy::CompileOnly | ExecutionPolicy::Execute) => {
+                Self::Queue
+            }
+            (StreamMode::Discard, ExecutionPolicy::CompileAndAutotune) => Self::Compile,
+        }
+    }
+
     /// Whether the launch is dropped rather than run.
     pub fn drops_launch(self) -> bool {
         matches!(self, Self::Compile | Self::Queue)
-    }
-}
-
-/// One stream of one device: what a [`StreamModeOverride`] sets the mode of.
-/// Stream ids are the process's, not a device's, so a measurement on one
-/// device leaves the same stream of every other device alone.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DeviceStream {
-    /// The device's service, as its clients reach it.
-    pub service: ServiceId,
-    /// The stream on it.
-    pub stream: StreamId,
-}
-
-/// What a launch issued on `on` does now.
-pub fn launch_action(on: DeviceStream) -> LaunchAction {
-    let policy = policy();
-    let mode = stream_mode(on, policy.stream_default());
-    match (mode, policy) {
-        (StreamMode::Execute, _) => LaunchAction::Execute,
-        // A stream dropping its launches while the process executes queues
-        // them: they compile with the next launch that loads a kernel.
-        (StreamMode::Compile, ExecutionPolicy::CompileOnly | ExecutionPolicy::Execute) => {
-            LaunchAction::Queue
-        }
-        (StreamMode::Compile, ExecutionPolicy::CompileAndAutotune) => LaunchAction::Compile,
     }
 }
 
@@ -62,20 +47,23 @@ pub fn launch_action(on: DeviceStream) -> LaunchAction {
 mod tests {
     use super::super::{ExecutionOverride, StatisticsCollector, StreamModeOverride};
     use super::*;
-    use cubecl_common::device::DeviceId;
+    use cubecl_common::device::{DeviceId, ServiceId};
+    use cubecl_environment::stream::StreamId;
     // `serial_test`'s macro expands to `vec!`, which a `no_std` crate has to
     // bring in itself.
     use alloc::vec;
 
-    /// Stream `stream` of device `device`.
-    fn on(device: u16, stream: u64) -> DeviceStream {
-        DeviceStream {
-            service: ServiceId::of::<()>(DeviceId {
-                type_id: 0,
-                index_id: device,
-            }),
-            stream: StreamId { value: stream },
-        }
+    /// The service of device `index`.
+    fn device(index: u16) -> ServiceId {
+        ServiceId::of::<()>(DeviceId {
+            type_id: 0,
+            index_id: index,
+        })
+    }
+
+    /// Stream `value`.
+    fn stream(value: u64) -> StreamId {
+        StreamId { value }
     }
 
     /// The verdict is a table of a stream's mode and the policy.
@@ -83,7 +71,11 @@ mod tests {
     #[serial_test::serial]
     fn a_launch_follows_its_stream_and_the_policy() {
         let collector = StatisticsCollector::new();
-        let action = || launch_action(on(0, 7));
+        let seventh = ServiceStream {
+            service: device(0),
+            stream: stream(7),
+        };
+        let action = || LaunchAction::new(seventh);
         assert_eq!(action(), LaunchAction::Execute);
         {
             let _compile = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
@@ -94,9 +86,9 @@ mod tests {
             assert_eq!(action(), LaunchAction::Compile);
         }
         {
-            // A stream dropping its launches while the process executes
+            // A stream discarding its launches while the process executes
             // queues them.
-            let _queuing = StreamModeOverride::on(StreamMode::Compile, on(0, 7));
+            let _queuing = StreamModeOverride::of_stream(StreamMode::Discard, seventh);
             assert_eq!(action(), LaunchAction::Queue);
         }
         let _execute = ExecutionOverride::new(ExecutionPolicy::Execute, &collector);
@@ -111,31 +103,35 @@ mod tests {
     fn a_stream_mode_holds_for_its_stream_on_its_device() {
         let collector = StatisticsCollector::new();
         let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
+        let measured = ServiceStream {
+            service: device(0),
+            stream: stream(1),
+        };
+        let other_stream = ServiceStream {
+            stream: stream(2),
+            ..measured
+        };
+        let other_device = ServiceStream {
+            service: device(1),
+            ..measured
+        };
 
-        let measuring = StreamModeOverride::on(StreamMode::Execute, on(0, 1));
-        assert_eq!(launch_action(on(0, 1)), LaunchAction::Execute);
-        assert_eq!(
-            launch_action(on(0, 2)),
-            LaunchAction::Compile,
-            "another stream"
-        );
-        assert_eq!(
-            launch_action(on(1, 1)),
-            LaunchAction::Compile,
-            "another device"
-        );
+        let measuring = StreamModeOverride::of_stream(StreamMode::Execute, measured);
+        assert_eq!(LaunchAction::new(measured), LaunchAction::Execute);
+        assert_eq!(LaunchAction::new(other_stream), LaunchAction::Compile);
+        assert_eq!(LaunchAction::new(other_device), LaunchAction::Compile);
 
-        let nested = StreamModeOverride::on(StreamMode::Compile, on(0, 1));
+        let nested = StreamModeOverride::of_stream(StreamMode::Discard, measured);
         assert_eq!(
-            launch_action(on(0, 1)),
+            LaunchAction::new(measured),
             LaunchAction::Compile,
             "the newest decides"
         );
         drop(measuring);
-        assert_eq!(launch_action(on(0, 1)), LaunchAction::Compile);
+        assert_eq!(LaunchAction::new(measured), LaunchAction::Compile);
         drop(nested);
         assert_eq!(
-            launch_action(on(0, 1)),
+            LaunchAction::new(measured),
             LaunchAction::Compile,
             "the policy's again"
         );

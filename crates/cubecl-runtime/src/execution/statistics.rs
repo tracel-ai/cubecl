@@ -2,6 +2,7 @@
 //! kernels obtained and the autotune keys tuned, counted to it by the code
 //! doing the work.
 
+use core::marker::PhantomData;
 use cubecl_environment::sync::{Arc, AtomicUsize, Ordering};
 
 /// A snapshot of what a collector's overrides triggered. Every count only
@@ -75,309 +76,255 @@ impl AutotuneStatistics {
 ///
 /// Not `Clone`: whoever holds it opens overrides that count into it. A
 /// reader on another thread holds a [`StatisticsReader`].
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct StatisticsCollector {
-    counts: Arc<CollectorCounts>,
+    tallies: Arc<CollectorTallies>,
 }
 
 /// Reads a [`StatisticsCollector`]'s statistics from any thread, and opens
 /// nothing.
 #[derive(Debug, Clone)]
 pub struct StatisticsReader {
-    counts: Arc<CollectorCounts>,
+    tallies: Arc<CollectorTallies>,
 }
 
-/// Where the work under an override is counted: what a
-/// [`KernelRegistration`] or a [`TuneRegistration`] holds. A clone counts to
-/// the same collector, which is how a kernel queued under one override is
-/// counted to it when its batch compiles.
+/// Where the work under an override is tallied: what a [`Registration`]
+/// holds, and the open override hands out. A clone tallies into the same
+/// collector, which is how a kernel queued under one override is counted to
+/// it when its batch compiles.
 #[derive(Debug, Clone)]
 pub(crate) struct StatisticsRecorder {
-    counts: Arc<CollectorCounts>,
+    tallies: Arc<CollectorTallies>,
 }
-
-/// One collector's counts, shared by the collector, its readers and its
-/// recorders.
-#[derive(Debug)]
-struct CollectorCounts {
-    id: usize,
-    compilation: CompilationRecorder,
-    autotune: AutotuneRecorder,
-}
-
-/// The id the next collector takes.
-static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 
 impl StatisticsCollector {
     /// A collector nothing has counted into yet.
     pub fn new() -> Self {
-        Self {
-            counts: Arc::new(CollectorCounts {
-                id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
-                compilation: CompilationRecorder {
-                    outcomes: Outcomes::new(),
-                    refused: AtomicUsize::new(0),
-                    stored: AtomicUsize::new(0),
-                },
-                autotune: AutotuneRecorder {
-                    outcomes: Outcomes::new(),
-                    persisted: AtomicUsize::new(0),
-                },
-            }),
-        }
+        Self::default()
     }
 
     /// What reads it from another thread.
     pub fn reader(&self) -> StatisticsReader {
         StatisticsReader {
-            counts: self.counts.clone(),
+            tallies: self.tallies.clone(),
         }
     }
 
     /// What its overrides triggered so far.
     pub fn statistics(&self) -> ExecutionStatistics {
-        self.counts.statistics()
+        self.tallies.statistics()
     }
 
-    /// Where an override opened with it counts.
+    /// Where an override opened with it tallies.
     pub(crate) fn recorder(&self) -> StatisticsRecorder {
         StatisticsRecorder {
-            counts: self.counts.clone(),
+            tallies: self.tallies.clone(),
         }
-    }
-}
-
-impl Default for StatisticsCollector {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
 impl StatisticsReader {
     /// What the collector's overrides triggered so far.
     pub fn statistics(&self) -> ExecutionStatistics {
-        self.counts.statistics()
+        self.tallies.statistics()
     }
 }
 
 impl StatisticsRecorder {
-    /// Whether it counts into `collector`.
-    pub(crate) fn counts_into(&self, collector: &StatisticsCollector) -> bool {
-        self.counts.id == collector.counts.id
+    /// Whether it tallies into `collector`.
+    pub(crate) fn tallies_into(&self, collector: &StatisticsCollector) -> bool {
+        Arc::ptr_eq(&self.tallies, &collector.tallies)
     }
 }
 
-impl CollectorCounts {
-    fn statistics(&self) -> ExecutionStatistics {
-        ExecutionStatistics {
-            compilation: self.compilation.read(),
-            autotune: self.autotune.read(),
-        }
-    }
+/// How a registered kernel ended.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KernelOutcome {
+    /// Compiled by the backend's compiler.
+    Compiled,
+    /// Read from the compilation store.
+    Loaded,
+    /// Failed to compile.
+    Failed,
+}
+
+/// What became of a settled kernel when it was loaded.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KernelLoad {
+    /// The device refused it.
+    Refused,
+    /// The compilation store kept it.
+    Stored,
+}
+
+/// How a registered autotune key ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TuneOutcome {
+    /// Tuned by measuring its candidates.
+    Measured,
+    /// Every candidate failed: the pick was made unmeasured.
+    Failed,
+}
+
+/// What became of a settled key's pick.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TunePick {
+    /// The persistent autotune cache kept it.
+    Persisted,
 }
 
 /// One kernel registered with the collector of the override open when it
-/// was, which it settles to once: as it is compiled, read from the store or
-/// fails, wherever and whenever its batch runs. Dropped before it settled —
-/// its batch panicked — it settles as failed, so no registration is left
-/// open for good.
+/// was.
+#[doc(hidden)]
+pub type KernelRegistration = Registration<KernelOutcome>;
+/// A registered kernel once its outcome is counted.
+#[doc(hidden)]
+pub type SettledKernel = Settled<KernelOutcome>;
+/// One autotune key registered with the collector of the override open when
+/// it was.
+pub(crate) type TuneRegistration = Registration<TuneOutcome>;
+
+/// One item of work registered with the collector of the override open when
+/// it was, which it is counted to once it [settles](Self::settle) —
+/// wherever and whenever that is, whether or not that override is still
+/// open. Dropped before it settled — its batch or its tune panicked, or the
+/// key it holds was dropped — it settles as failed, so no registration is
+/// left open for good.
 ///
 /// Public for the kernel loader, which lives in `cubecl-server`; counting is
 /// not for callers, which read their own [`StatisticsCollector`].
 #[doc(hidden)]
-#[derive(Debug)]
-pub struct KernelRegistration {
-    recorder: StatisticsRecorder,
-    settled: bool,
+#[must_use]
+pub struct Registration<O: Outcome> {
+    /// Taken as it settles, so a drop knows whether it did.
+    recorder: Option<StatisticsRecorder>,
+    outcome: PhantomData<O>,
 }
 
-impl KernelRegistration {
-    /// Register one kernel with the collector of the override open now, if
+/// A [`Registration`] whose outcome is counted: what alone can count what
+/// happens to the work afterwards, each thing once.
+#[doc(hidden)]
+#[derive(Debug)]
+pub struct Settled<O: Outcome> {
+    recorder: StatisticsRecorder,
+    /// The afterwards already counted, one bit each.
+    recorded: u8,
+    outcome: PhantomData<O>,
+}
+
+impl<O: Outcome> Registration<O> {
+    /// Register one item with the collector of the override open now, if
     /// one is.
     pub fn register() -> Option<Self> {
-        let recorder = super::recorder()?;
-        recorder.counts.compilation.outcomes.register();
+        let recorder = super::ExecutionOverride::active_recorder()?;
+        O::tally(&recorder.tallies).register();
         Some(Self {
-            recorder,
-            settled: false,
+            recorder: Some(recorder),
+            outcome: PhantomData,
         })
     }
 
-    /// The kernel was compiled. Only the first outcome counts.
-    pub fn compiled(&mut self) {
-        self.settle(CompilationRecorder::COMPILED);
-    }
-
-    /// The kernel was read from the compilation store. Only the first
-    /// outcome counts.
-    pub fn loaded(&mut self) {
-        self.settle(CompilationRecorder::LOADED);
-    }
-
-    /// The kernel failed to compile. Only the first outcome counts.
-    pub fn failed(&mut self) {
-        self.settle(CompilationRecorder::FAILED);
-    }
-
-    /// The device refused the kernel once it was compiled or read from the
-    /// store.
-    pub fn refused(&mut self) {
-        let compilation = &self.recorder.counts.compilation;
-        compilation.refused.fetch_add(1, Ordering::Release);
-    }
-
-    /// The compilation store kept the kernel, once it was settled.
-    pub fn stored(&mut self) {
-        let compilation = &self.recorder.counts.compilation;
-        compilation.stored.fetch_add(1, Ordering::Release);
-    }
-
-    fn settle(&mut self, outcome: usize) {
-        if !core::mem::replace(&mut self.settled, true) {
-            self.recorder.counts.compilation.outcomes.settle(outcome);
-        }
-    }
-}
-
-impl Drop for KernelRegistration {
-    fn drop(&mut self) {
-        self.failed();
-    }
-}
-
-/// One autotune key registered with the collector of the override open when
-/// it was, which it settles to once its pick commits, whether or not that
-/// override is still open. Dropped before it settled — a candidate panicked,
-/// the plan was empty, an environment switch dropped the key — it settles as
-/// failed, so no registration is left open for good.
-#[derive(Debug)]
-pub(crate) struct TuneRegistration {
-    recorder: StatisticsRecorder,
-    settled: bool,
-}
-
-impl TuneRegistration {
-    /// Register one key with the collector of the override open now, if one
-    /// is.
-    pub(crate) fn register() -> Option<Self> {
-        let recorder = super::recorder()?;
-        recorder.counts.autotune.outcomes.register();
-        Some(Self {
+    /// Count how it ended.
+    pub fn settle(mut self, outcome: O) -> Settled<O> {
+        let recorder = self.recorder.take().expect("settled once, by value");
+        O::tally(&recorder.tallies).settle(outcome.index());
+        Settled {
             recorder,
-            settled: false,
-        })
-    }
-
-    /// The key was tuned by measuring its candidates. Only the first
-    /// outcome counts.
-    pub(crate) fn measured(&mut self) {
-        self.settle(AutotuneRecorder::MEASURED);
-    }
-
-    /// Every candidate of the key failed. Only the first outcome counts.
-    pub(crate) fn failed(&mut self) {
-        self.settle(AutotuneRecorder::FAILED);
-    }
-
-    /// The persistent autotune cache kept the key's pick, once it was
-    /// settled.
-    #[cfg_attr(not(persistence), allow(dead_code))]
-    pub(crate) fn persisted(&mut self) {
-        let autotune = &self.recorder.counts.autotune;
-        autotune.persisted.fetch_add(1, Ordering::Release);
-    }
-
-    fn settle(&mut self, outcome: usize) {
-        if !core::mem::replace(&mut self.settled, true) {
-            self.recorder.counts.autotune.outcomes.settle(outcome);
+            recorded: 0,
+            outcome: PhantomData,
         }
     }
 }
 
-impl Drop for TuneRegistration {
+impl<O: Outcome> Drop for Registration<O> {
     fn drop(&mut self) {
-        self.settle(AutotuneRecorder::FAILED);
-    }
-}
-
-/// Where a collector counts kernels.
-#[derive(Debug)]
-struct CompilationRecorder {
-    outcomes: Outcomes<3>,
-    /// Refusals and stores are not outcomes: either happens to a kernel
-    /// already settled.
-    refused: AtomicUsize,
-    stored: AtomicUsize,
-}
-
-impl CompilationRecorder {
-    const COMPILED: usize = 0;
-    const LOADED: usize = 1;
-    const FAILED: usize = 2;
-
-    fn read(&self) -> CompilationStatistics {
-        // Before the outcomes, so a read never sees more refused or stored
-        // than compiled and loaded.
-        let refused = self.refused.load(Ordering::Acquire);
-        let stored = self.stored.load(Ordering::Acquire);
-        let (registered, settled) = self.outcomes.read();
-        CompilationStatistics {
-            registered,
-            compiled: settled[Self::COMPILED],
-            loaded: settled[Self::LOADED],
-            failed: settled[Self::FAILED],
-            refused,
-            stored,
+        if let Some(recorder) = self.recorder.take() {
+            O::tally(&recorder.tallies).settle(O::FAILED.index());
         }
     }
 }
 
-/// Where a collector counts autotune keys.
-#[derive(Debug)]
-struct AutotuneRecorder {
-    outcomes: Outcomes<2>,
-    /// Not an outcome: it happens to a key already settled.
-    persisted: AtomicUsize,
+impl<O: Outcome> core::fmt::Debug for Registration<O> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Registration")
+            .field("settled", &self.recorder.is_none())
+            .finish()
+    }
 }
 
-impl AutotuneRecorder {
-    const MEASURED: usize = 0;
-    const FAILED: usize = 1;
-
-    fn read(&self) -> AutotuneStatistics {
-        // Before the outcomes, so a read never sees more persisted than
-        // measured.
-        let persisted = self.persisted.load(Ordering::Acquire);
-        let (registered, settled) = self.outcomes.read();
-        AutotuneStatistics {
-            registered,
-            measured: settled[Self::MEASURED],
-            failed: settled[Self::FAILED],
-            persisted,
+impl<O: Outcome> Settled<O> {
+    /// Count `later`, once however often it is told.
+    pub fn record(&mut self, later: O::Later) {
+        let index = O::later_index(later);
+        let bit = 1 << index;
+        if self.recorded & bit == 0 {
+            self.recorded |= bit;
+            O::tally(&self.recorder.tallies).record(index);
         }
     }
 }
 
-/// Items registered, and how many ended in each of `N` outcomes: the one
-/// counting mechanism both recorders share.
+/// A collector's tallies, shared by the collector, its readers and its
+/// recorders.
+#[derive(Debug, Default)]
+pub struct CollectorTallies {
+    kernels: Tally,
+    tunes: Tally,
+}
+
+impl CollectorTallies {
+    fn statistics(&self) -> ExecutionStatistics {
+        let kernels = self.kernels.read();
+        let tunes = self.tunes.read();
+        ExecutionStatistics {
+            compilation: CompilationStatistics {
+                registered: kernels.registered,
+                compiled: kernels.settled[KernelOutcome::Compiled.index()],
+                loaded: kernels.settled[KernelOutcome::Loaded.index()],
+                failed: kernels.settled[KernelOutcome::Failed.index()],
+                refused: kernels.later[KernelOutcome::later_index(KernelLoad::Refused)],
+                stored: kernels.later[KernelOutcome::later_index(KernelLoad::Stored)],
+            },
+            autotune: AutotuneStatistics {
+                registered: tunes.registered,
+                measured: tunes.settled[TuneOutcome::Measured.index()],
+                failed: tunes.settled[TuneOutcome::Failed.index()],
+                persisted: tunes.later[TuneOutcome::later_index(TunePick::Persisted)],
+            },
+        }
+    }
+}
+
+/// Room for every outcome a kind of work has.
+const OUTCOMES: usize = 3;
+/// Room for everything that can happen to a kind of work once it settled.
+const LATER: usize = 2;
+
+/// Items registered, how many ended in each outcome, and how many of those
+/// something happened to afterwards: the one counting mechanism every kind
+/// of work shares.
 ///
-/// An item is registered before its outcome, and a read loads the outcomes
-/// before the registrations, so a read never sees more settled than
-/// registered.
-#[derive(Debug)]
-struct Outcomes<const N: usize> {
+/// An item is registered before its outcome, and its outcome before
+/// anything after it; a read loads them the other way round, so a read
+/// never sees more settled than registered, nor more afterwards than
+/// settled.
+#[derive(Debug, Default)]
+pub struct Tally {
     registered: AtomicUsize,
-    settled: [AtomicUsize; N],
+    settled: [AtomicUsize; OUTCOMES],
+    later: [AtomicUsize; LATER],
 }
 
-impl<const N: usize> Outcomes<N> {
-    fn new() -> Self {
-        Self {
-            registered: AtomicUsize::new(0),
-            settled: core::array::from_fn(|_| AtomicUsize::new(0)),
-        }
-    }
+/// A [`Tally`] as read at one moment.
+struct TallyRead {
+    registered: usize,
+    settled: [usize; OUTCOMES],
+    later: [usize; LATER],
+}
 
+impl Tally {
     fn register(&self) {
         self.registered.fetch_add(1, Ordering::Release);
     }
@@ -386,8 +333,83 @@ impl<const N: usize> Outcomes<N> {
         self.settled[outcome].fetch_add(1, Ordering::Release);
     }
 
-    fn read(&self) -> (usize, [usize; N]) {
-        let settled = core::array::from_fn(|outcome| self.settled[outcome].load(Ordering::Acquire));
-        (self.registered.load(Ordering::Acquire), settled)
+    fn record(&self, later: usize) {
+        self.later[later].fetch_add(1, Ordering::Release);
+    }
+
+    fn read(&self) -> TallyRead {
+        let later = core::array::from_fn(|index| self.later[index].load(Ordering::Acquire));
+        let settled = core::array::from_fn(|index| self.settled[index].load(Ordering::Acquire));
+        TallyRead {
+            registered: self.registered.load(Ordering::Acquire),
+            settled,
+            later,
+        }
+    }
+}
+
+/// A kind of work a collector counts: how one item of it can end, and what
+/// can happen to it after.
+///
+/// Reachable only through the work it is implemented for: the tallies it
+/// picks are the collector's own.
+#[doc(hidden)]
+pub trait Outcome: Copy + 'static {
+    /// What can happen to an item once it settled.
+    type Later: Copy;
+    /// The outcome of an item dropped before it settled.
+    const FAILED: Self;
+
+    /// Its slot in a [`Tally`]'s outcomes.
+    fn index(self) -> usize;
+    /// `later`'s slot in a [`Tally`]'s afterwards.
+    fn later_index(later: Self::Later) -> usize;
+    /// The tally that counts this kind of work.
+    fn tally(tallies: &CollectorTallies) -> &Tally;
+}
+
+impl Outcome for KernelOutcome {
+    type Later = KernelLoad;
+    const FAILED: Self = Self::Failed;
+
+    fn index(self) -> usize {
+        match self {
+            Self::Compiled => 0,
+            Self::Loaded => 1,
+            Self::Failed => 2,
+        }
+    }
+
+    fn later_index(later: KernelLoad) -> usize {
+        match later {
+            KernelLoad::Refused => 0,
+            KernelLoad::Stored => 1,
+        }
+    }
+
+    fn tally(tallies: &CollectorTallies) -> &Tally {
+        &tallies.kernels
+    }
+}
+
+impl Outcome for TuneOutcome {
+    type Later = TunePick;
+    const FAILED: Self = Self::Failed;
+
+    fn index(self) -> usize {
+        match self {
+            Self::Measured => 0,
+            Self::Failed => 1,
+        }
+    }
+
+    fn later_index(later: TunePick) -> usize {
+        match later {
+            TunePick::Persisted => 0,
+        }
+    }
+
+    fn tally(tallies: &CollectorTallies) -> &Tally {
+        &tallies.tunes
     }
 }

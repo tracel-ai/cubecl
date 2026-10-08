@@ -63,23 +63,8 @@ pub use cubecl_environment::environment;
 /// the records its tunes and compilations leave.
 pub use cubecl_environment::records;
 
-/// What the process does with the work it is asked to run, and what that
-/// work triggered.
-///
-/// This is what makes producing a [`bundle`] affordable: under an
-/// [`ExecutionOverride`](execution::ExecutionOverride) of a policy that drops
-/// launches, every launch is compiled, cached and tuned without also being
-/// executed. Buffers are left as they were, so it only suits a pass driven by
-/// the *shapes* it produces.
-///
-/// ```no_run
-/// # fn warm_up() {}
-/// use cubecl::execution::{ExecutionOverride, ExecutionPolicy, StatisticsCollector};
-///
-/// let collector = StatisticsCollector::new();
-/// let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
-/// warm_up();
-/// ```
+/// What makes producing a [`bundle`] affordable: a workload run for the
+/// kernels it compiles and the tunes it measures, its launches discarded.
 pub use cubecl_runtime::execution;
 
 /// The kernels a workload launches, collected while it replays: what an

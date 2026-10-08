@@ -38,12 +38,15 @@ mod policy;
 mod statistics;
 mod stream_mode;
 
-pub use base::{DeviceStream, LaunchAction, launch_action};
-pub(crate) use policy::recorder;
-pub use policy::{ExecutionOverride, ExecutionPolicy, policy};
+pub use base::LaunchAction;
+pub use policy::{ExecutionOverride, ExecutionPolicy};
 pub use statistics::{
-    AutotuneStatistics, CompilationStatistics, ExecutionStatistics, KernelRegistration,
-    StatisticsCollector, StatisticsReader,
+    AutotuneStatistics, CompilationStatistics, ExecutionStatistics, KernelLoad, KernelOutcome,
+    KernelRegistration, Registration, SettledKernel, StatisticsCollector, StatisticsReader,
 };
-pub(crate) use statistics::{StatisticsRecorder, TuneRegistration};
+pub(crate) use statistics::{StatisticsRecorder, TuneOutcome, TuneRegistration};
+// Only a persisted pick names it.
+#[cfg_attr(not(persistence), allow(unused_imports))]
+pub(crate) use statistics::TunePick;
+pub(crate) use stream_mode::ServiceStream;
 pub use stream_mode::{StreamMode, StreamModeOverride};
