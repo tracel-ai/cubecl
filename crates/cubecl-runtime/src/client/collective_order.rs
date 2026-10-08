@@ -1,6 +1,7 @@
 //! The order collective operations reach every device of the process in.
 
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
+use core::sync::atomic::AtomicPtr;
 use cubecl_common::device::DeviceId;
 use cubecl_environment::sync::{AtomicUsize, Ordering};
 #[cfg(not(feature = "std"))]
@@ -22,7 +23,9 @@ const WAIT_WARNING: core::time::Duration = core::time::Duration::from_secs(10);
 pub struct CollectiveOrder {
     /// Shared by `all_reduce` parts, and held alone by a transfer.
     queueing: RwLock<()>,
-    groups: RwLock<Vec<ReduceGroup>>,
+    groups: ReduceGroups,
+    /// Held while a group is added, so the ranks of a new group add it once.
+    adding: Mutex<()>,
     /// Taken to wake waiting transfers, so the wake cannot fall between a transfer's last look
     /// and its wait.
     rejoin: Mutex<()>,
@@ -34,7 +37,8 @@ impl CollectiveOrder {
     const fn new() -> Self {
         Self {
             queueing: RwLock::new(()),
-            groups: RwLock::new(Vec::new()),
+            groups: ReduceGroups::new(),
+            adding: Mutex::new(()),
             rejoin: Mutex::new(()),
             #[cfg(feature = "std")]
             rejoined: Condvar::new(),
@@ -97,7 +101,6 @@ impl CollectiveOrder {
     /// The devices of an `all_reduce` split across `source` or `destination`, if there is one.
     fn split_over(&self, source: DeviceId, destination: DeviceId) -> Option<Vec<DeviceId>> {
         self.groups
-            .read()
             .iter()
             .find(|group| group.is_split() && (group.has(source) || group.has(destination)))
             .map(ReduceGroup::devices)
@@ -106,23 +109,70 @@ impl CollectiveOrder {
     /// Counts an `all_reduce` `rank` queued over `devices`, and returns whether every one of them
     /// has now queued as many.
     fn count(&self, rank: DeviceId, devices: &[DeviceId]) -> bool {
-        if let Some(group) = self
-            .groups
-            .read()
-            .iter()
-            .find(|group| group.is_over(devices))
-        {
+        if let Some(group) = self.groups.find(devices) {
             return group.count(rank);
         }
-        let mut groups = self.groups.write();
-        let index = match groups.iter().position(|group| group.is_over(devices)) {
-            Some(index) => index,
-            None => {
-                groups.push(ReduceGroup::over(devices));
-                groups.len() - 1
-            }
+        let _adding = self.adding.lock();
+        let group = match self.groups.find(devices) {
+            Some(group) => group,
+            None => self.groups.push(ReduceGroup::over(devices)),
         };
-        groups[index].count(rank)
+        group.count(rank)
+    }
+}
+
+/// Every set of devices an `all_reduce` has run over, newest first. Groups are only ever added,
+/// and only freed with the list, so ranks walk it without a lock.
+struct ReduceGroups {
+    newest: AtomicPtr<ReduceNode>,
+}
+
+struct ReduceNode {
+    group: ReduceGroup,
+    older: *mut ReduceNode,
+}
+
+impl ReduceGroups {
+    const fn new() -> Self {
+        Self {
+            newest: AtomicPtr::new(core::ptr::null_mut()),
+        }
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &ReduceGroup> + '_ {
+        let mut node = self.newest.load(Ordering::Acquire);
+        core::iter::from_fn(move || {
+            // SAFETY: `push` builds a node before publishing it, and only `drop`, which has no
+            // reader left, frees it.
+            let current = unsafe { node.as_ref() }?;
+            node = current.older;
+            Some(&current.group)
+        })
+    }
+
+    fn find(&self, devices: &[DeviceId]) -> Option<&ReduceGroup> {
+        self.iter().find(|group| group.is_over(devices))
+    }
+
+    /// Adds `group`. Callers hold [`CollectiveOrder::adding`], so no other push races this one.
+    fn push(&self, group: ReduceGroup) -> &ReduceGroup {
+        let older = self.newest.load(Ordering::Relaxed);
+        let node = Box::into_raw(Box::new(ReduceNode { group, older }));
+        self.newest.store(node, Ordering::Release);
+        // SAFETY: the node was just published, and lives until `drop`.
+        unsafe { &(*node).group }
+    }
+}
+
+impl Drop for ReduceGroups {
+    fn drop(&mut self) {
+        let mut node = *self.newest.get_mut();
+        while !node.is_null() {
+            // SAFETY: every node came from `Box::into_raw` in `push`, and `&mut self` leaves no
+            // reader behind.
+            let current = unsafe { Box::from_raw(node) };
+            node = current.older;
+        }
     }
 }
 
