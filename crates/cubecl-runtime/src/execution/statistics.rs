@@ -31,6 +31,9 @@ pub struct CompilationStatistics {
     /// [`loaded`](Self::loaded) too, since those are counted as the batch
     /// obtains them, before anything is loaded.
     pub refused: usize,
+    /// Kept in the compilation store once loaded: what the environment grew
+    /// by. Read from the store, or refused, a kernel is not stored again.
+    pub stored: usize,
 }
 
 impl CompilationStatistics {
@@ -54,6 +57,9 @@ pub struct AutotuneStatistics {
     pub measured: usize,
     /// Every candidate failed: the pick was made unmeasured.
     pub failed: usize,
+    /// Measured, and kept in the persistent autotune cache: what the
+    /// environment grew by. An unmeasured pick is never kept.
+    pub persisted: usize,
 }
 
 impl AutotuneStatistics {
@@ -111,9 +117,11 @@ impl StatisticsCollector {
                 compilation: CompilationRecorder {
                     outcomes: Outcomes::new(),
                     refused: AtomicUsize::new(0),
+                    stored: AtomicUsize::new(0),
                 },
                 autotune: AutotuneRecorder {
                     outcomes: Outcomes::new(),
+                    persisted: AtomicUsize::new(0),
                 },
             }),
         }
@@ -218,6 +226,12 @@ impl KernelRegistration {
         compilation.refused.fetch_add(1, Ordering::Release);
     }
 
+    /// The compilation store kept the kernel, once it was settled.
+    pub fn stored(&mut self) {
+        let compilation = &self.recorder.counts.compilation;
+        compilation.stored.fetch_add(1, Ordering::Release);
+    }
+
     fn settle(&mut self, outcome: usize) {
         if !core::mem::replace(&mut self.settled, true) {
             self.recorder.counts.compilation.outcomes.settle(outcome);
@@ -254,14 +268,23 @@ impl TuneRegistration {
         })
     }
 
-    /// The key was tuned by measuring its candidates.
-    pub(crate) fn measured(mut self) {
+    /// The key was tuned by measuring its candidates. Only the first
+    /// outcome counts.
+    pub(crate) fn measured(&mut self) {
         self.settle(AutotuneRecorder::MEASURED);
     }
 
-    /// Every candidate of the key failed.
-    pub(crate) fn failed(mut self) {
+    /// Every candidate of the key failed. Only the first outcome counts.
+    pub(crate) fn failed(&mut self) {
         self.settle(AutotuneRecorder::FAILED);
+    }
+
+    /// The persistent autotune cache kept the key's pick, once it was
+    /// settled.
+    #[cfg_attr(not(persistence), allow(dead_code))]
+    pub(crate) fn persisted(&mut self) {
+        let autotune = &self.recorder.counts.autotune;
+        autotune.persisted.fetch_add(1, Ordering::Release);
     }
 
     fn settle(&mut self, outcome: usize) {
@@ -281,8 +304,10 @@ impl Drop for TuneRegistration {
 #[derive(Debug)]
 struct CompilationRecorder {
     outcomes: Outcomes<3>,
-    /// Refusals are not outcomes: a refused kernel was already settled.
+    /// Refusals and stores are not outcomes: either happens to a kernel
+    /// already settled.
     refused: AtomicUsize,
+    stored: AtomicUsize,
 }
 
 impl CompilationRecorder {
@@ -291,9 +316,10 @@ impl CompilationRecorder {
     const FAILED: usize = 2;
 
     fn read(&self) -> CompilationStatistics {
-        // Before the outcomes, so a read never sees more refused than
-        // compiled and loaded.
+        // Before the outcomes, so a read never sees more refused or stored
+        // than compiled and loaded.
         let refused = self.refused.load(Ordering::Acquire);
+        let stored = self.stored.load(Ordering::Acquire);
         let (registered, settled) = self.outcomes.read();
         CompilationStatistics {
             registered,
@@ -301,6 +327,7 @@ impl CompilationRecorder {
             loaded: settled[Self::LOADED],
             failed: settled[Self::FAILED],
             refused,
+            stored,
         }
     }
 }
@@ -309,6 +336,8 @@ impl CompilationRecorder {
 #[derive(Debug)]
 struct AutotuneRecorder {
     outcomes: Outcomes<2>,
+    /// Not an outcome: it happens to a key already settled.
+    persisted: AtomicUsize,
 }
 
 impl AutotuneRecorder {
@@ -316,11 +345,15 @@ impl AutotuneRecorder {
     const FAILED: usize = 1;
 
     fn read(&self) -> AutotuneStatistics {
+        // Before the outcomes, so a read never sees more persisted than
+        // measured.
+        let persisted = self.persisted.load(Ordering::Acquire);
         let (registered, settled) = self.outcomes.read();
         AutotuneStatistics {
             registered,
             measured: settled[Self::MEASURED],
             failed: settled[Self::FAILED],
+            persisted,
         }
     }
 }

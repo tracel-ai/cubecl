@@ -1414,7 +1414,11 @@ fn a_stream_mode_follows_its_client_across_threads() {
     let client = test_client(&DummyDevice);
     let mut bound = client.clone();
     // A stream nothing else in the process issues on.
-    unsafe { bound.set_stream(StreamId { value: 4_000_000_007 }) };
+    unsafe {
+        bound.set_stream(StreamId {
+            value: 4_000_000_007,
+        })
+    };
     let lhs = client.create_from_slice(&[0, 1, 2]);
     let rhs = client.create_from_slice(&[4, 4, 4]);
     let (executed, dropped) = (

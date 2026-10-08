@@ -692,6 +692,9 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
                         if outcome != CompilationOutcome::Loaded {
                             stored = target.store(&self.id, artifact, source.as_deref());
                         }
+                        if stored && let Some(registration) = self.registration.as_mut() {
+                            registration.stored();
+                        }
                         self.recording.close(outcome, stored);
                         Ok(loaded)
                     }
@@ -910,6 +913,10 @@ mod tests {
             }
             let _ = loader.load(&Numbered(3), &id(3), &logger);
             assert_eq!(counted(&collector), expected, "refusing: {refusing}");
+            // What the store keeps is what it is given by source: every kernel
+            // of a source that finalized, none of one that failed.
+            let stored = collector.statistics().compilation.stored;
+            assert_eq!(stored, if refusing { 0 } else { 4 }, "refusing: {refusing}");
         }
     }
 
@@ -931,6 +938,11 @@ mod tests {
         loader.load(&Numbered(3), &id(3), &logger).unwrap();
         assert_eq!(loader.get(&id(1)), None);
         assert_eq!(counted(&collector), (4, 4, 0, 0, 1));
+        assert_eq!(
+            collector.statistics().compilation.stored,
+            0,
+            "a store keeps by source, and these kernels have none"
+        );
     }
 
     /// A batch that panics leaves no kernel of it registered and unsettled:

@@ -528,10 +528,13 @@ mod tests {
         let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
         queued[0].compiled();
         queued[0].refused();
+        queued[1].stored();
         queued[1].loaded();
         queued[2].failed();
         queued[2].compiled();
+        let mut gathered = gathered;
         gathered.measured();
+        gathered.persisted();
 
         let statistics = collector.statistics();
         assert_eq!(
@@ -542,6 +545,7 @@ mod tests {
                 loaded: 1,
                 failed: 1,
                 refused: 1,
+                stored: 1,
             },
             "only a kernel's first outcome counts"
         );
@@ -556,6 +560,7 @@ mod tests {
         TuneRegistration::register()
             .expect("an execute override counts too")
             .measured();
+        assert_eq!(collector.statistics().autotune.persisted, 1);
         drop(execute);
         assert_eq!(collector.statistics().autotune.measured, 2);
     }

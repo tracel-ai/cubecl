@@ -830,7 +830,8 @@ async fn process_request<K: AutotuneKey>(
         // a tune that measured nothing would keep failing the same way.
         cache.lock().cache_insert(key.clone(), fastest_index);
         // Where the tune was registered, whether or not that override is still open.
-        if let Some(registration) = registration {
+        let mut registration = registration;
+        if let Some(registration) = registration.as_mut() {
             match unmeasured {
                 true => registration.failed(),
                 false => registration.measured(),
@@ -855,6 +856,11 @@ async fn process_request<K: AutotuneKey>(
                     limit,
                 },
             );
+
+        #[cfg(persistence)]
+        if stored && let Some(registration) = registration.as_mut() {
+            registration.persisted();
+        }
 
         #[cfg(persistence)]
         recording.finish(
