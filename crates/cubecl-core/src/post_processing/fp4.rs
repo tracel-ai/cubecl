@@ -156,8 +156,8 @@ fn cleared<N: Size>(above: Vector<bool, N>) -> Vector<u32, N> {
     select_many(above, Vector::new(1u32), Vector::new(0u32))
 }
 
-/// What a code placed as an `f16` near the bottom of its range ([`f16_pair_bits`]) is short of
-/// its value by: `2^14`, the gap between an `e2m1` exponent of zero and an `f16` one.
+/// What a code placed as an `f16` near the bottom of its range, its sign, exponent and mantissa
+/// moved onto the `f16`'s own, is short of its value by: `2^14`, the gap between an `e2m1` exponent of zero and an `f16` one.
 pub const E2M1_F16_LIFT: f32 = 16384.0;
 
 /// The `f16` pair two codes name, from a word holding one code in its low nibble and the other
@@ -188,8 +188,8 @@ pub fn e2m1_words_to_f16<W: Size, V: Size>(words: Vector<u32, W>) -> Vector<f16,
 /// factor anyway, a block scale, takes, multiplying the lift into that factor once rather than
 /// paying a multiply a value.
 ///
-/// A word's codes `j` and `j + 4` sit sixteen bits apart, so a word is four pairs and four
-/// [`f16_pair_bits`]; the pairs land on their lanes by compile-time inserts.
+/// A word's codes `j` and `j + 4` sit sixteen bits apart, so a word is four pairs, each placed
+/// by one mask and one shift; the pairs land on their lanes by compile-time inserts.
 #[cube]
 pub fn e2m1_words_to_f16_placed<W: Size, V: Size>(words: Vector<u32, W>) -> Vector<f16, V> {
     let mut values = Vector::<f16, V>::empty();
