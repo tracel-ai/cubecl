@@ -1285,8 +1285,9 @@ pub enum IoError {
         backtrace: BackTrace,
     },
 
-    /// An allocation carved lazily under a [policy](crate::execution::ExecutionPolicy) that drops launches
-    /// could not be given real device backing when it was finally resolved.
+    /// An allocation carved lazily under a
+    /// [policy](crate::execution::ExecutionPolicy) that drops launches could
+    /// not be given real device backing when it was finally resolved.
     ///
     /// Distinct from the same failure at reservation time, and the distinction
     /// is what a caller acts on: the memory was promised earlier, by a pass

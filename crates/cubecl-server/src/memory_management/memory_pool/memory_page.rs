@@ -24,13 +24,13 @@ pub struct MemoryPage {
     /// Memory alignment.
     alignment: u64,
     location_base: MemoryLocation,
-    /// Whether the page's [`StorageId`](crate::storage::StorageId) is backed
-    /// by a real device allocation. A page carved under a policy that drops launches starts
-    /// unmapped — its id is minted but no driver memory exists behind it —
-    /// and is [rebound](Self::rebind_storage) to a real allocation the first
-    /// time one of its slices is resolved into a kernel argument, read or
-    /// write. Everything else about the page (slice offsets, coalescing,
-    /// high-water accounting) behaves identically either way.
+    /// Whether the page's [`StorageId`](crate::storage::StorageId) is backed by
+    /// a real device allocation. A page carved under a policy that drops
+    /// launches starts unmapped — its id is minted but no driver memory exists
+    /// behind it — and is [rebound](Self::rebind_storage) to a real allocation
+    /// the first time one of its slices is resolved into a kernel argument,
+    /// read or write. Everything else about the page (slice offsets,
+    /// coalescing, high-water accounting) behaves identically either way.
     mapped: bool,
     /// Counts the [guards](PageGuard) handed out on the page: it is guarded
     /// while any of them lives.

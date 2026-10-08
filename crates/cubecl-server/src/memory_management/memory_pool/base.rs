@@ -15,10 +15,10 @@ use cubecl_environment::backtrace::BackTrace;
 pub enum PageMapping {
     /// Allocate device memory now.
     ///
-    /// The answer whenever the allocation will be used, which outside a dry
-    /// run is all of them: a reservation becomes a kernel argument, a read or
-    /// a write within microseconds, so deferring it buys nothing — and gives
-    /// up the reservation-time failure the backends can still recover
+    /// The answer whenever the allocation will be used, which unless launches
+    /// are dropped is all of them: a reservation becomes a kernel argument, a
+    /// read or a write within microseconds, so deferring it buys nothing — and
+    /// gives up the reservation-time failure the backends can still recover
     /// (`Command::reserve` retries after reclaiming the stream), the pure
     /// lookup that keeps resolution infallible on the launch paths, and the
     /// guarantee that a capture window never allocates once recording starts.
@@ -29,17 +29,17 @@ pub enum PageMapping {
     /// behind it and the page's device footprint is zero.
     ///
     /// For the one case where the allocation may never be used: under a
-    /// [policy](crate::execution::ExecutionPolicy) that drops launches the workload's launches are compiled
-    /// and dropped, so most reservations are never resolved and never need to
-    /// exist. That is what lets a workload far larger than the device replay
-    /// its allocation stream — the pools still measure it, and only what
-    /// genuinely executes (a tuning pass, which resolves because it runs)
-    /// costs real memory.
+    /// [policy](crate::execution::ExecutionPolicy) that drops launches, the
+    /// workload's launches are compiled and dropped, so most reservations are
+    /// never resolved and never need to exist. That is what lets a workload far
+    /// larger than the device replay its allocation stream — the pools still
+    /// measure it, and only what genuinely executes (a tuning pass, which
+    /// resolves because it runs) costs real memory.
     Lazy,
 }
 
 impl PageMapping {
-    /// The mapping allocations made on this thread, right now, should get:
+    /// The mapping allocations made in this process, right now, should get:
     /// [`Lazy`](Self::Lazy) under a [policy](crate::execution::ExecutionPolicy)
     /// that drops launches, [`Eager`](Self::Eager) otherwise.
     pub fn current() -> Self {

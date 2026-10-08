@@ -148,7 +148,7 @@ impl Server for HipServer {
         stream_id: StreamId,
         launch_action: LaunchAction,
     ) {
-        // A compile-only launch only queues its kernel, touching nothing else.
+        // A queued launch only queues its kernel, touching nothing else.
         if launch_action == LaunchAction::Queue {
             self.ctx.queue_kernel(kernel);
             return;

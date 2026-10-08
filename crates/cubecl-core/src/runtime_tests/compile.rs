@@ -1,6 +1,7 @@
-//! Kernels a compile-only launch queues: they compile together when the queue
-//! does, on as many threads as the server compiles on, and then run like any
-//! other kernel. The launches that queued them do not run.
+//! Kernels queued by launches on a stream in compile mode: they compile
+//! together when the queue does, on as many threads as the server compiles on,
+//! and then run like any other kernel. The launches that queued them do not
+//! run.
 
 use crate::{self as cubecl};
 use alloc::vec::Vec;
@@ -38,7 +39,7 @@ pub fn test_compiled_kernels_run<R: Runtime>(client: Client) {
 
     for out in &outputs {
         let actual = client.read_one(out.clone()).unwrap();
-        assert_eq!(u32::from_bytes(&actual), &[0], "a compile-only launch ran");
+        assert_eq!(u32::from_bytes(&actual), &[0], "a queued launch ran");
     }
 
     for (number, out) in outputs.iter().enumerate() {

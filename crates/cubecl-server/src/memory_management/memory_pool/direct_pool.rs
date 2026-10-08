@@ -19,13 +19,12 @@ use cubecl_environment::backtrace::BackTrace;
 /// demands. What it pays for that is driver traffic, which is what the other
 /// pools exist to avoid.
 ///
-/// That trade is worth making in two places. Under a policy that drops
-/// launches ([`ExecutionPolicy`](crate::execution::ExecutionPolicy)) the
-/// traffic is free: reservations are
-/// [`PageMapping::Lazy`], so a slice nothing resolves is a minted id that
-/// costs no driver call to create and none to release. And on a device where
-/// the workload barely fits, the padding this removes can be the difference
-/// between fitting and not.
+/// That trade is worth making in two places. Under a policy that drops launches
+/// ([`ExecutionPolicy`](crate::execution::ExecutionPolicy)) the traffic is
+/// free: reservations are [`PageMapping::Lazy`], so a slice nothing resolves is
+/// a minted id that costs no driver call to create and none to release. And on
+/// a device where the workload barely fits, the padding this removes can be the
+/// difference between fitting and not.
 pub struct DirectPool {
     /// Every slice owns its whole device allocation. Indexed by
     /// [`MemoryLocation::slice`], so freed entries are tombstoned rather than

@@ -9,7 +9,7 @@ use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOption
 use serde::{Deserialize, Serialize};
 
 use super::{AutotuneError, AutotuneKey, AutotuneOutcome};
-use crate::execution::StatisticsRecorder;
+use crate::execution::TuneRegistration;
 use alloc::string::String;
 use cubecl_environment::collections::HashMap;
 
@@ -20,12 +20,12 @@ pub(crate) enum CacheEntry {
         fastest_index: usize,
     },
     Pending,
-    /// A `CompileOnly` override queued the kernels of the key's candidates and decided nothing:
-    /// a miss to anything that tunes, and done to the next `CompileOnly` override. Never
-    /// persisted. `registered_with` is where the override that gathered the key registered its
-    /// tune, and where the tune settles once its pick commits; `None` when it registered none.
+    /// A `CompileOnly` override queued the kernels of the key's candidates and decided nothing: a
+    /// miss to anything that tunes, and done to the next `CompileOnly` override. Never persisted.
+    /// `registered_with` is the key's tune as the override that gathered it registered it, settled
+    /// once its pick commits; `None` when it registered none.
     Compiled {
-        registered_with: Option<StatisticsRecorder>,
+        registered_with: Option<TuneRegistration>,
     },
 }
 
@@ -290,7 +290,7 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// concurrent callers see [`TuneCacheResult::Pending`] instead of starting a second job
     /// for the same key. Returns where the key's tune was registered, if the override that
     /// gathered it registered it.
-    pub(crate) fn mark_pending(&mut self, key: K) -> Option<StatisticsRecorder> {
+    pub(crate) fn mark_pending(&mut self, key: K) -> Option<TuneRegistration> {
         match self.in_memory_cache.insert(key, CacheEntry::Pending) {
             Some(CacheEntry::Compiled { registered_with }) => registered_with,
             _ => None,
@@ -300,7 +300,7 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// Mark a key whose candidates' kernels a `CompileOnly` override queued, in place of the tune
     /// it was [marked](Self::mark_pending) for: nothing was decided. `registered_with` is where
     /// its tune was registered, if it was.
-    pub(crate) fn mark_compiled(&mut self, key: K, registered_with: Option<StatisticsRecorder>) {
+    pub(crate) fn mark_compiled(&mut self, key: K, registered_with: Option<TuneRegistration>) {
         self.in_memory_cache
             .insert(key, CacheEntry::Compiled { registered_with });
     }
@@ -332,7 +332,10 @@ impl<K: AutotuneKey> TuneCache<K> {
     ///
     /// In-flight tunes are dropped with everything else: their completion
     /// still records a hardware-valid result, so the whole cost of the race
-    /// is one duplicate tune per switch.
+    /// is one duplicate tune per switch. A key a `CompileOnly` override
+    /// gathered for the old environment is dropped too, and its registration
+    /// settles as failed: the key is tuned, if at all, for the new
+    /// environment, under a registration of its own.
     pub(crate) fn reset_if_environment_switched(&mut self) {
         if !self.environment_switched() {
             return;

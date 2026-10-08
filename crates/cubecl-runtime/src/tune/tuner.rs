@@ -17,7 +17,7 @@ use crate::client::Client;
 use crate::config::Logger;
 #[cfg(persistence)]
 use crate::config::autotune::AutotuneLogLevel;
-use crate::execution::{ExecutionPolicy, StatisticsRecorder};
+use crate::execution::{ExecutionPolicy, TuneRegistration};
 use crate::server::LaunchError;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
 use cubecl_environment::config::RuntimeConfig;
@@ -152,7 +152,7 @@ struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
     #[cfg(persistence)]
     recording: crate::tune::record::TuneRecording<K>,
     /// Where the tune settles once its pick is committed.
-    recorder: Option<StatisticsRecorder>,
+    registration: Option<TuneRegistration>,
 }
 
 impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
@@ -171,7 +171,7 @@ impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
             bounds: self.bounds,
             #[cfg(persistence)]
             recording: self.recording,
-            recorder: self.recorder,
+            registration: self.registration,
         }
     }
 }
@@ -194,7 +194,7 @@ struct TuneRequest<K: AutotuneKey> {
     bounds: Option<crate::tune::Bounds>,
     #[cfg(persistence)]
     recording: crate::tune::record::TuneRecording<K>,
-    recorder: Option<StatisticsRecorder>,
+    registration: Option<TuneRegistration>,
 }
 
 #[allow(clippy::new_without_default)]
@@ -325,17 +325,17 @@ impl<K: AutotuneKey> Tuner<K> {
         if compiling {
             let registered_with = match gathering::inside_candidates() {
                 true => None,
-                false => register_tune(),
+                false => TuneRegistration::register(),
             };
             self.cache
                 .lock()
                 .mark_compiled(key.clone(), registered_with);
-            let _inside = gathering::Candidates::enter();
+            let _inside = gathering::InsideCandidates::enter();
             self.compile_plan(key, inputs, tunables, &autotunables);
             return TuneCacheResult::Compiled;
         }
         // Sure to measure now: a tune registered nowhere yet registers with the override open.
-        let recorder = registered_with.or_else(register_tune);
+        let registration = registered_with.or_else(TuneRegistration::register);
 
         let results: Vec<AutotuneResult> = autotunables
             .iter()
@@ -405,7 +405,7 @@ impl<K: AutotuneKey> Tuner<K> {
             log_context,
             #[cfg(persistence)]
             recording,
-            recorder,
+            registration,
         };
 
         #[cfg(not(target_family = "wasm"))]
@@ -672,18 +672,11 @@ async fn resolve_bench(bench: PendingBench) -> AutotuneResult {
     ))
 }
 
-/// Await every profile sample, pick the fastest tunable, commit to the cache.
-/// Register a tune with the collector of the override open now, if one is: where it settles
-/// once its pick commits.
-fn register_tune() -> Option<StatisticsRecorder> {
-    crate::execution::recorder().inspect(|recorder| recorder.autotune().register())
-}
-
 /// Whether this thread runs a key's candidates to gather their kernels: a key reached there is
 /// gathered by another key's candidates.
 mod gathering {
     /// Held while a key's candidates run under a `CompileOnly` override.
-    pub(super) struct Candidates {
+    pub(super) struct InsideCandidates {
         _private: (),
     }
 
@@ -697,16 +690,16 @@ mod gathering {
     static DEPTH: cubecl_environment::sync::AtomicUsize =
         cubecl_environment::sync::AtomicUsize::new(0);
 
-    impl Candidates {
+    impl InsideCandidates {
         pub(super) fn enter() -> Self {
-            deepen();
+            enter_candidates();
             Self { _private: () }
         }
     }
 
-    impl Drop for Candidates {
+    impl Drop for InsideCandidates {
         fn drop(&mut self) {
-            surface();
+            exit_candidates();
         }
     }
 
@@ -721,12 +714,12 @@ mod gathering {
     }
 
     #[cfg(feature = "std")]
-    fn deepen() {
+    fn enter_candidates() {
         DEPTH.with(|depth| depth.set(depth.get() + 1));
     }
 
     #[cfg(feature = "std")]
-    fn surface() {
+    fn exit_candidates() {
         DEPTH.with(|depth| depth.set(depth.get() - 1));
     }
 
@@ -736,16 +729,17 @@ mod gathering {
     }
 
     #[cfg(not(feature = "std"))]
-    fn deepen() {
+    fn enter_candidates() {
         DEPTH.fetch_add(1, cubecl_environment::sync::Ordering::Relaxed);
     }
 
     #[cfg(not(feature = "std"))]
-    fn surface() {
+    fn exit_candidates() {
         DEPTH.fetch_sub(1, cubecl_environment::sync::Ordering::Relaxed);
     }
 }
 
+/// Await every profile sample, pick the fastest tunable, commit to the cache.
 async fn process_request<K: AutotuneKey>(
     request: TuneRequest<K>,
     cache: &Mutex<TuneCache<K>>,
@@ -765,7 +759,7 @@ async fn process_request<K: AutotuneKey>(
         bounds,
         #[cfg(persistence)]
         recording,
-        recorder,
+        registration,
     } = request;
 
     // Resolved concurrently, and each benchmark timed individually rather than timing the loop:
@@ -836,10 +830,10 @@ async fn process_request<K: AutotuneKey>(
         // a tune that measured nothing would keep failing the same way.
         cache.lock().cache_insert(key.clone(), fastest_index);
         // Where the tune was registered, whether or not that override is still open.
-        if let Some(recorder) = recorder {
+        if let Some(registration) = registration {
             match unmeasured {
-                true => recorder.autotune().failed(),
-                false => recorder.autotune().measured(),
+                true => registration.failed(),
+                false => registration.measured(),
             }
         }
 

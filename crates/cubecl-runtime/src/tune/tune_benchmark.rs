@@ -106,10 +106,10 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
     // there to provoke. The guard covers the warm-up too, since a candidate
     // measured without one is measured on its slowest run.
     //
-    // It lives here rather than around the `exclusive` call in
-    // `tune_benchmark`: `exclusive` runs this body on the device thread, and a
-    // client that follows the thread's stream resolves it where the launches
-    // below are issued from.
+    // Inside the `exclusive` call, so the stream switches to executing only
+    // while this measurement holds the device. `exclusive` runs the body
+    // under the issuing thread's stream, so the client resolves the same
+    // stream here as there.
     let _measuring =
         crate::execution::StreamModeOverride::new(crate::execution::StreamMode::Execute, &client);
 

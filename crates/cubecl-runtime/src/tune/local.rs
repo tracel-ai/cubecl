@@ -227,9 +227,9 @@ where
                     "Somehow we STILL didn't check a tuning checksum or start tuning, something has gone wrong."
                 )
             }
-            // Still waiting (e.g. on wasm), or its candidates' kernels queued by a compile-only dry
-            // run: run the first operation that serves the problem, which there only queues its
-            // kernels.
+            // Still waiting (e.g. on wasm), or its candidates' kernels queued under a `CompileOnly`
+            // override: run the first operation that serves the problem, which there only queues
+            // its kernels.
             TuneCacheResult::Pending | TuneCacheResult::Compiled => {
                 for i in 0..operations.len() {
                     if let Ok(output) = operations.fastest(i).execute(inputs.clone()) {

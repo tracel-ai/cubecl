@@ -1129,7 +1129,10 @@ impl Client {
 
         // Decided here, where the launch is issued, from the stream it goes
         // out on: the server receives the verdict, not what decided it.
-        let launch_action = crate::execution::launch_action(stream_id);
+        let launch_action = crate::execution::launch_action(crate::execution::DeviceStream {
+            service: self.service_id(),
+            stream: stream_id,
+        });
 
         // A dropped launch runs nothing to time, and a backend timing windows by the
         // timestamps its passes write reports a window around one as never measured.

@@ -403,8 +403,8 @@ mod tests {
         assert!(graph.is_empty());
     }
 
-    /// A failure that tainted nothing is pruned rather than retained: a dry
-    /// run's compile error, say, has no buffer to name.
+    /// A failure that tainted nothing is pruned rather than retained: a
+    /// dropped launch's compile error, say, has no buffer to name.
     #[test]
     fn a_failure_that_tainted_nothing_is_pruned() {
         let mut graph = ErrorGraph::default();

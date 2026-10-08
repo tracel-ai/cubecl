@@ -379,7 +379,7 @@ impl Server for CpuServer {
                     },
                 );
         let alignment = BufferAlignment(alignment);
-        // A compile-only launch only queues its kernel, touching nothing else.
+        // A queued launch only queues its kernel, touching nothing else.
         if launch_action == LaunchAction::Queue {
             self.kernels.enqueue(kernel, alignment);
             return;

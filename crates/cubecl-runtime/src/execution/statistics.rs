@@ -26,6 +26,11 @@ pub struct CompilationStatistics {
     pub loaded: usize,
     /// Failed to compile.
     pub failed: usize,
+    /// Compiled or read from the store, then refused by the device when it
+    /// was loaded: counted among [`compiled`](Self::compiled) or
+    /// [`loaded`](Self::loaded) too, since those are counted as the batch
+    /// obtains them, before anything is loaded.
+    pub refused: usize,
 }
 
 impl CompilationStatistics {
@@ -66,30 +71,29 @@ impl AutotuneStatistics {
 /// reader on another thread holds a [`StatisticsReader`].
 #[derive(Debug)]
 pub struct StatisticsCollector {
-    collected: Arc<Collected>,
+    counts: Arc<CollectorCounts>,
 }
 
 /// Reads a [`StatisticsCollector`]'s statistics from any thread, and opens
 /// nothing.
 #[derive(Debug, Clone)]
 pub struct StatisticsReader {
-    collected: Arc<Collected>,
+    counts: Arc<CollectorCounts>,
 }
 
-/// Where the code doing the work counts it: the kernel loader and autotune,
-/// which reach the collector of the override open now through
-/// [`recorder`](super::recorder). A clone keeps counting to the same
-/// collector, which is how a kernel queued under one override is counted to
-/// it when its batch compiles.
+/// Where the work under an override is counted: what a
+/// [`KernelRegistration`] or a [`TuneRegistration`] holds. A clone counts to
+/// the same collector, which is how a kernel queued under one override is
+/// counted to it when its batch compiles.
 #[derive(Debug, Clone)]
-pub struct StatisticsRecorder {
-    collected: Arc<Collected>,
+pub(crate) struct StatisticsRecorder {
+    counts: Arc<CollectorCounts>,
 }
 
 /// One collector's counts, shared by the collector, its readers and its
 /// recorders.
 #[derive(Debug)]
-struct Collected {
+struct CollectorCounts {
     id: usize,
     compilation: CompilationRecorder,
     autotune: AutotuneRecorder,
@@ -102,10 +106,11 @@ impl StatisticsCollector {
     /// A collector nothing has counted into yet.
     pub fn new() -> Self {
         Self {
-            collected: Arc::new(Collected {
+            counts: Arc::new(CollectorCounts {
                 id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
                 compilation: CompilationRecorder {
                     outcomes: Outcomes::new(),
+                    refused: AtomicUsize::new(0),
                 },
                 autotune: AutotuneRecorder {
                     outcomes: Outcomes::new(),
@@ -117,19 +122,19 @@ impl StatisticsCollector {
     /// What reads it from another thread.
     pub fn reader(&self) -> StatisticsReader {
         StatisticsReader {
-            collected: self.collected.clone(),
+            counts: self.counts.clone(),
         }
     }
 
     /// What its overrides triggered so far.
     pub fn statistics(&self) -> ExecutionStatistics {
-        self.collected.statistics()
+        self.counts.statistics()
     }
 
     /// Where an override opened with it counts.
     pub(crate) fn recorder(&self) -> StatisticsRecorder {
         StatisticsRecorder {
-            collected: self.collected.clone(),
+            counts: self.counts.clone(),
         }
     }
 }
@@ -143,28 +148,18 @@ impl Default for StatisticsCollector {
 impl StatisticsReader {
     /// What the collector's overrides triggered so far.
     pub fn statistics(&self) -> ExecutionStatistics {
-        self.collected.statistics()
+        self.counts.statistics()
     }
 }
 
 impl StatisticsRecorder {
-    /// Where kernels are counted.
-    pub fn compilation(&self) -> &CompilationRecorder {
-        &self.collected.compilation
-    }
-
-    /// Where autotune keys are counted.
-    pub fn autotune(&self) -> &AutotuneRecorder {
-        &self.collected.autotune
-    }
-
     /// Whether it counts into `collector`.
     pub(crate) fn counts_into(&self, collector: &StatisticsCollector) -> bool {
-        self.collected.id == collector.collected.id
+        self.counts.id == collector.counts.id
     }
 }
 
-impl Collected {
+impl CollectorCounts {
     fn statistics(&self) -> ExecutionStatistics {
         ExecutionStatistics {
             compilation: self.compilation.read(),
@@ -173,10 +168,121 @@ impl Collected {
     }
 }
 
+/// One kernel registered with the collector of the override open when it
+/// was, which it settles to once: as it is compiled, read from the store or
+/// fails, wherever and whenever its batch runs. Dropped before it settled —
+/// its batch panicked — it settles as failed, so no registration is left
+/// open for good.
+///
+/// Public for the kernel loader, which lives in `cubecl-server`; counting is
+/// not for callers, which read their own [`StatisticsCollector`].
+#[doc(hidden)]
+#[derive(Debug)]
+pub struct KernelRegistration {
+    recorder: StatisticsRecorder,
+    settled: bool,
+}
+
+impl KernelRegistration {
+    /// Register one kernel with the collector of the override open now, if
+    /// one is.
+    pub fn register() -> Option<Self> {
+        let recorder = super::recorder()?;
+        recorder.counts.compilation.outcomes.register();
+        Some(Self {
+            recorder,
+            settled: false,
+        })
+    }
+
+    /// The kernel was compiled. Only the first outcome counts.
+    pub fn compiled(&mut self) {
+        self.settle(CompilationRecorder::COMPILED);
+    }
+
+    /// The kernel was read from the compilation store. Only the first
+    /// outcome counts.
+    pub fn loaded(&mut self) {
+        self.settle(CompilationRecorder::LOADED);
+    }
+
+    /// The kernel failed to compile. Only the first outcome counts.
+    pub fn failed(&mut self) {
+        self.settle(CompilationRecorder::FAILED);
+    }
+
+    /// The device refused the kernel once it was compiled or read from the
+    /// store.
+    pub fn refused(&mut self) {
+        let compilation = &self.recorder.counts.compilation;
+        compilation.refused.fetch_add(1, Ordering::Release);
+    }
+
+    fn settle(&mut self, outcome: usize) {
+        if !core::mem::replace(&mut self.settled, true) {
+            self.recorder.counts.compilation.outcomes.settle(outcome);
+        }
+    }
+}
+
+impl Drop for KernelRegistration {
+    fn drop(&mut self) {
+        self.failed();
+    }
+}
+
+/// One autotune key registered with the collector of the override open when
+/// it was, which it settles to once its pick commits, whether or not that
+/// override is still open. Dropped before it settled — a candidate panicked,
+/// the plan was empty, an environment switch dropped the key — it settles as
+/// failed, so no registration is left open for good.
+#[derive(Debug)]
+pub(crate) struct TuneRegistration {
+    recorder: StatisticsRecorder,
+    settled: bool,
+}
+
+impl TuneRegistration {
+    /// Register one key with the collector of the override open now, if one
+    /// is.
+    pub(crate) fn register() -> Option<Self> {
+        let recorder = super::recorder()?;
+        recorder.counts.autotune.outcomes.register();
+        Some(Self {
+            recorder,
+            settled: false,
+        })
+    }
+
+    /// The key was tuned by measuring its candidates.
+    pub(crate) fn measured(mut self) {
+        self.settle(AutotuneRecorder::MEASURED);
+    }
+
+    /// Every candidate of the key failed.
+    pub(crate) fn failed(mut self) {
+        self.settle(AutotuneRecorder::FAILED);
+    }
+
+    fn settle(&mut self, outcome: usize) {
+        if !core::mem::replace(&mut self.settled, true) {
+            self.recorder.counts.autotune.outcomes.settle(outcome);
+        }
+    }
+}
+
+impl Drop for TuneRegistration {
+    fn drop(&mut self) {
+        self.settle(AutotuneRecorder::FAILED);
+    }
+}
+
 /// Where a collector counts kernels.
 #[derive(Debug)]
-pub struct CompilationRecorder {
+struct CompilationRecorder {
     outcomes: Outcomes<3>,
+    /// Refusals are not outcomes: a refused kernel was already settled.
+    refused: AtomicUsize,
 }
 
 impl CompilationRecorder {
@@ -184,61 +290,30 @@ impl CompilationRecorder {
     const LOADED: usize = 1;
     const FAILED: usize = 2;
 
-    /// One more kernel set out to be obtained.
-    pub fn register(&self) {
-        self.outcomes.register();
-    }
-
-    /// A registered kernel was compiled.
-    pub fn compiled(&self) {
-        self.outcomes.settle(Self::COMPILED);
-    }
-
-    /// A registered kernel was read from the compilation store.
-    pub fn loaded(&self) {
-        self.outcomes.settle(Self::LOADED);
-    }
-
-    /// A registered kernel failed to compile.
-    pub fn failed(&self) {
-        self.outcomes.settle(Self::FAILED);
-    }
-
     fn read(&self) -> CompilationStatistics {
+        // Before the outcomes, so a read never sees more refused than
+        // compiled and loaded.
+        let refused = self.refused.load(Ordering::Acquire);
         let (registered, settled) = self.outcomes.read();
         CompilationStatistics {
             registered,
             compiled: settled[Self::COMPILED],
             loaded: settled[Self::LOADED],
             failed: settled[Self::FAILED],
+            refused,
         }
     }
 }
 
 /// Where a collector counts autotune keys.
 #[derive(Debug)]
-pub struct AutotuneRecorder {
+struct AutotuneRecorder {
     outcomes: Outcomes<2>,
 }
 
 impl AutotuneRecorder {
     const MEASURED: usize = 0;
     const FAILED: usize = 1;
-
-    /// One more key set out to be tuned.
-    pub fn register(&self) {
-        self.outcomes.register();
-    }
-
-    /// A registered key was tuned by measuring its candidates.
-    pub fn measured(&self) {
-        self.outcomes.settle(Self::MEASURED);
-    }
-
-    /// Every candidate of a registered key failed.
-    pub fn failed(&self) {
-        self.outcomes.settle(Self::FAILED);
-    }
 
     fn read(&self) -> AutotuneStatistics {
         let (registered, settled) = self.outcomes.read();

@@ -1399,6 +1399,60 @@ fn an_override_drops_an_ordinary_launch() {
     assert_eq!(client.read_one(out).unwrap().to_vec(), Vec::from([4, 5, 6]));
 }
 
+/// A stream's mode follows the stream a client's launches go out on, not the
+/// thread that set it: a client bound to a stream of its own keeps executing
+/// when its launches are issued from another thread, while the thread's own
+/// stream still drops them.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn a_stream_mode_follows_its_client_across_threads() {
+    use cubecl_server::execution::{
+        ExecutionOverride, ExecutionPolicy, StatisticsCollector, StreamMode, StreamModeOverride,
+    };
+
+    let client = test_client(&DummyDevice);
+    let mut bound = client.clone();
+    // A stream nothing else in the process issues on.
+    unsafe { bound.set_stream(StreamId { value: 4_000_000_007 }) };
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let (executed, dropped) = (
+        client.create_from_slice(&[9, 9, 9]),
+        client.create_from_slice(&[9, 9, 9]),
+    );
+    let add = |client: &Client, out: &Handle| {
+        client.launch(
+            Box::new(KernelTask::new(DummyElementwiseAddition)),
+            CubeCount::Static(1, 1, 1),
+            KernelArguments::new().with_buffers(vec![
+                lhs.clone().binding(),
+                rhs.clone().binding(),
+                out.clone().binding(),
+            ]),
+        );
+    };
+
+    {
+        let _tune = ExecutionOverride::new(
+            ExecutionPolicy::CompileAndAutotune,
+            &StatisticsCollector::new(),
+        );
+        let _measuring = StreamModeOverride::new(StreamMode::Execute, &bound);
+        std::thread::scope(|scope| {
+            scope.spawn(|| add(&bound, &executed));
+        });
+        add(&client, &dropped);
+    }
+
+    assert_eq!(client.read_one(executed).unwrap().to_vec(), vec![4, 5, 6]);
+    assert_eq!(
+        client.read_one(dropped).unwrap().to_vec(),
+        vec![9, 9, 9],
+        "the thread's own stream still drops"
+    );
+}
+
 /// The exception that makes the mode worth having: autotune still executes,
 /// because its launches *are* the measurement.
 ///
@@ -1601,16 +1655,19 @@ fn a_key_reached_inside_another_registers_only_once_tuned() {
         "only the outer key is registered"
     );
 
+    let gathered_calls = inner_calls.load(Ordering::Relaxed);
     {
         let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
         OUTER.execute(&"outer".to_string(), &client, outer_set, handles());
     }
+    // The inner key registers only if measuring the outer one reached it.
+    let inner_tuned = inner_calls.load(Ordering::Relaxed) > gathered_calls;
     let tuned = collector.statistics().autotune;
-    assert!(tuned.registered >= 1);
+    assert_eq!(tuned.registered, 1 + usize::from(inner_tuned));
     assert_eq!(
-        tuned.settled(),
-        tuned.registered,
-        "every tune registered has settled"
+        (tuned.measured, tuned.failed),
+        (tuned.registered, 0),
+        "every tune registered was measured, once"
     );
 }
 
