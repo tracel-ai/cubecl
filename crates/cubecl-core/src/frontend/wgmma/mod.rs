@@ -28,7 +28,7 @@
 //! ```
 //!
 //! Shared memory the units wrote is only visible to the MMAs after
-//! [`sync_async_proxy_shared`](crate::prelude::sync_async_proxy_shared) and a cube sync; a TMA
+//! [`sync_async_proxy_shared`](fn@crate::prelude::sync_async_proxy_shared) and a cube sync; a TMA
 //! load needs neither.
 //!
 //! Requires [`wgmma`](cubecl_ir::features::MatmulFeatures::wgmma), only present on `sm_90a`.

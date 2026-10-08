@@ -81,7 +81,9 @@ fn tensormap_load_swizzled(
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_async_proxy_shared();
     let size = comptime![layout.rows * layout.k];
-    let mut tile: Shared<[half::f16]> = Shared::new_aligned_slice(size, layout.alignment());
+    // TMA writes shared memory at 128-byte boundaries, past the 16 a tile without swizzle needs.
+    let alignment = comptime![layout.alignment().max(128)];
+    let mut tile: Shared<[half::f16]> = Shared::new_aligned_slice(size, alignment);
 
     let contiguous = comptime![size / lines];
     let panel = comptime![layout.panel_elems(2)];

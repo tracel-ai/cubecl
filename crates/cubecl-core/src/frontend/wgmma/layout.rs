@@ -78,7 +78,7 @@ impl WgmmaTileLayout {
         K_BYTES / elem_size
     }
 
-    /// The alignment, in bytes, the tile must start at.
+    /// The alignment, in bytes, the tile must start at. A TMA load or store also needs 128.
     pub fn alignment(&self) -> usize {
         self.swizzle.alignment()
     }

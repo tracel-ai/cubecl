@@ -177,7 +177,7 @@ macro_rules! tma_store {
             /// returns the copy's completion. The copy reads `src` until it resolves, so `src`
             /// may only be written after [`Pending::wait`]. Writes to shared memory by the units
             /// must be made visible to the copy first, with
-            /// [`sync_async_proxy_shared`](crate::prelude::sync_async_proxy_shared).
+            /// [`sync_async_proxy_shared`](fn@crate::prelude::sync_async_proxy_shared).
             #[allow(unused)]
             pub fn [<tma_store_ $dim d>]<T: CubePrimitive, T2: CubePrimitive<Scalar = T::Scalar>>(
                 src: &[T2],
