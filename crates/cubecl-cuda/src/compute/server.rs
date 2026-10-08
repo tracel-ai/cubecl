@@ -2,8 +2,7 @@ use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::driver::Cuda;
 use crate::compute::modules::CudaCompiledKernel;
 use crate::compute::{
-    Captures, Command, Window, communication, context::CudaContext, events::Fence,
-    stream::CudaStreamBackend,
+    Captures, Command, Window, context::CudaContext, events::Fence, stream::CudaStreamBackend,
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::server::{DeviceCaptures, ServerStorage};
@@ -437,8 +436,7 @@ impl ServerCommunication for CudaServer {
         // A group already joined is joined once, so the membership is
         // announced once too.
         if let Some(id) = self.collectives.join(device_ids)? {
-            communication::connect(self.collectives.get(&id)?, self.comm_stream())?;
-            self.utilities.initialized_comms.write().insert(id);
+            self.connect(&id)?;
         }
         Ok(())
     }
@@ -525,7 +523,11 @@ impl ServerCommunication for CudaServer {
         let (nccl_dtype, count) = Cuda::data_type(dtype, resource.size)?;
         let comm = self.collectives.transfers_with(device_id_dst)?;
 
-        Cuda::send(comm, &resource, nccl_dtype, count, peer, transfers)
+        Cuda::send(comm, &resource, nccl_dtype, count, peer, transfers)?;
+        // The source goes back to its stream's pool once this returns, so that stream waits for
+        // the send before reusing it.
+        Fence::new(transfers).wait_async(stream)?;
+        Ok(())
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
@@ -621,9 +623,25 @@ impl CudaServer {
         self.ctx.comm_stream
     }
 
-    /// The stream transfers between devices run on.
     fn transfer_stream(&self) -> CUstream {
         self.ctx.transfer_stream
+    }
+
+    /// Runs one single-element `all_reduce` over the group `id`, so NCCL connects its peers now:
+    /// it connects them on a communicator's first operation, which waits on the host for every
+    /// peer. A single element connects the algorithm it picks, the ring on a single node.
+    fn connect(&self, id: &CommunicationId) -> Result<(), ServerError> {
+        let element = &self.ctx.connect_element;
+        let (dtype, count) = Cuda::data_type(ElemType::Float(FloatKind::F32), element.size)?;
+        Cuda::all_reduce(
+            self.collectives.get(id)?,
+            element,
+            element,
+            dtype,
+            count,
+            ReduceOperation::Sum,
+            self.comm_stream(),
+        )
     }
 
     fn command_no_inputs(&mut self, stream_id: StreamId) -> Result<Command<'_>, ServerError> {

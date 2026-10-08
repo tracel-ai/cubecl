@@ -28,7 +28,8 @@ pub fn test_all_reduce_beside_transfers<R: Runtime>() {
 }
 
 /// A group's first `all_reduce` calls finish when one thread queues more of them on each device
-/// than its task queue holds before moving to the next device.
+/// than its task queue holds before moving to the next device. It is a first use only when no
+/// test before it in the process set the group up.
 pub fn test_all_reduce_first_use_many_parts<R: Runtime>() {
     let _collectives = COLLECTIVES.lock().unwrap_or_else(PoisonError::into_inner);
     finish_within_limit(first_use_many_parts::<R>);

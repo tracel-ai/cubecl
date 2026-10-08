@@ -903,6 +903,9 @@ impl Client {
     /// `src` must be this client's. The bytes go device to device when both
     /// clients are of the same runtime and it has a collective transport;
     /// otherwise, and always across runtimes, they go through the host.
+    ///
+    /// On CUDA, transfers run on a communicator and stream of their own, so they never wait on a
+    /// collective; `NCCL_LAUNCH_ORDER_IMPLICIT=1` orders them against collectives again.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst_server))
@@ -926,7 +929,7 @@ impl Client {
         }
     }
 
-    /// Perform an `all_reduce` operation on the given devices.
+    /// Sets up the group over `device_ids` on every one of its devices, unless it already is.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, device_ids))
@@ -986,6 +989,9 @@ impl Client {
     }
 
     /// Wait on the communication stream.
+    ///
+    /// Call it once every device has queued its part of the `all_reduce` calls it waits for: a
+    /// transfer from this device queued in between would wait on a part not queued yet.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn sync_collective(&self) {
         if DeviceHandle::<dyn Server>::is_blocking() {
@@ -1012,6 +1018,10 @@ impl Client {
     }
 
     /// Perform an `all_reduce` operation on the given devices.
+    ///
+    /// Every device has to queue the `all_reduce` calls over a group in one order. Queue each
+    /// call on every device before the next: a device waiting in NCCL for its peers stops taking
+    /// work after about a thousand calls, and the thread queueing them stops with it.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids, op))
