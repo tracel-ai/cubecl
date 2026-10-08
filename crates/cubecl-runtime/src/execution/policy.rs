@@ -1,51 +1,5 @@
-//! What the process does with the work it is asked to run, and what that
-//! work triggered.
-//!
-//! Two levels decide what a launch does. The [`ExecutionPolicy`] is the whole
-//! process's, on every device: it is where the state it governs lives — each
-//! server's compile queue, the tune cache keyed by tune key, measurements
-//! any other work on a device would skew, pages shared across streams. A
-//! stream only knows whether its launches run, its [`StreamMode`]: the policy
-//! sets every stream's default, and a measurement — autotune's candidates, a
-//! throughput probe — switches the stream it measures on to
-//! [`StreamMode::Execute`] while it measures. The stream never knows why.
-//!
-//! Under [`ExecutionPolicy::CompileOnly`] every launch and every tune's
-//! candidates only queue their kernels, so a pass gathers everything a
-//! workload and its tuning reach; nothing compiles until a later launch loads
-//! a kernel — the first of a [`CompileAndAutotune`](ExecutionPolicy::CompileAndAutotune)
-//! pass, or the first tune before it measures — which compiles the whole
-//! queue in one batch. Under `CompileAndAutotune` every launch compiles its
-//! kernel and is dropped, and the tunes measure. A workload then pays for
-//! compilation and tuning without paying for the work that provoked them,
-//! which is what makes producing a shippable environment affordable.
-//!
-//! An [`ExecutionOverride`] counts what it triggers into a
-//! [`StatisticsCollector`], which a [`StatisticsReader`] reads from any
-//! thread: the kernels obtained and the tunes measured, counted to it by the
-//! code doing the work, on every device.
-//!
-//! **Buffers are left as they were** under either policy that drops
-//! launches, so anything read back is meaningless. It only suits a pass
-//! driven by the *shapes* it produces, which is what keys the caches, and
-//! never one that branches on a computed value.
-//!
-//! The verdict is resolved where the launch is issued, on the stream it goes
-//! out on, and handed to the server as a [`LaunchAction`].
-
-use crate::client::Client;
-use alloc::vec::Vec;
-use cubecl_common::device::ServiceId;
-use cubecl_environment::stream::StreamId;
+use super::{StatisticsCollector, StatisticsRecorder, StreamMode};
 use cubecl_environment::sync::{AtomicUsize, Mutex, Ordering};
-
-mod statistics;
-
-pub use statistics::{
-    AutotuneStatistics, CompilationStatistics, ExecutionStatistics, KernelRegistration,
-    StatisticsCollector, StatisticsReader,
-};
-pub(crate) use statistics::{StatisticsRecorder, TuneRegistration};
 
 /// What the process does with the work it is asked to run.
 ///
@@ -80,7 +34,7 @@ impl ExecutionPolicy {
 
     /// The mode a stream has under it, unless a [`StreamModeOverride`] says
     /// otherwise.
-    fn stream_default(self) -> StreamMode {
+    pub(super) fn stream_default(self) -> StreamMode {
         match self {
             Self::Execute => StreamMode::Execute,
             Self::CompileOnly | Self::CompileAndAutotune => StreamMode::Compile,
@@ -90,71 +44,6 @@ impl ExecutionPolicy {
     /// Whether launches on a stream it sets are dropped.
     pub fn drops_launches(self) -> bool {
         self.stream_default() == StreamMode::Compile
-    }
-}
-
-/// Whether a stream's launches run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StreamMode {
-    /// They run.
-    Execute,
-    /// Their kernels compile — now under
-    /// [`CompileAndAutotune`](ExecutionPolicy::CompileAndAutotune), queued for
-    /// a batch otherwise — and they are dropped.
-    Compile,
-}
-
-/// What a server does with one launch: the verdict its stream's mode and the
-/// process's policy resolve to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LaunchAction {
-    /// Compile if needed, then run it. The normal case.
-    Execute,
-    /// Compile if needed, cache the artifact, and drop the launch.
-    ///
-    /// A server honoring this must still do everything a first launch does
-    /// short of dispatching — expand, compile, validate, populate its caches —
-    /// or the pass buys nothing.
-    Compile,
-    /// Queue the kernel to be compiled with others, and drop the launch.
-    ///
-    /// A server honoring this compiles the queue when it next loads a kernel
-    /// for a launch, and only then: flushing or syncing compiles nothing, so
-    /// a pass that only queues gathers everything it reaches into one batch.
-    /// A kernel that fails to compile there reports it when it is launched.
-    Queue,
-}
-
-impl LaunchAction {
-    /// Whether the launch is dropped rather than run.
-    pub fn drops_launch(self) -> bool {
-        matches!(self, Self::Compile | Self::Queue)
-    }
-}
-
-/// One stream of one device: what a [`StreamModeOverride`] sets the mode of.
-/// Stream ids are the process's, not a device's, so a measurement on one
-/// device leaves the same stream of every other device alone.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DeviceStream {
-    /// The device's service, as its clients reach it.
-    pub service: ServiceId,
-    /// The stream on it.
-    pub stream: StreamId,
-}
-
-/// What a launch issued on `on` does now.
-pub fn launch_action(on: DeviceStream) -> LaunchAction {
-    let policy = policy();
-    let mode = stream_mode(on, policy.stream_default());
-    match (mode, policy) {
-        (StreamMode::Execute, _) => LaunchAction::Execute,
-        // A stream dropping its launches while the process executes queues
-        // them: they compile with the next launch that loads a kernel.
-        (StreamMode::Compile, ExecutionPolicy::CompileOnly | ExecutionPolicy::Execute) => {
-            LaunchAction::Queue
-        }
-        (StreamMode::Compile, ExecutionPolicy::CompileAndAutotune) => LaunchAction::Compile,
     }
 }
 
@@ -289,104 +178,6 @@ impl Drop for ExecutionOverride {
     }
 }
 
-/// Sets the mode of one client's stream on its device while it lives,
-/// restored on drop: what a measurement opens, so its launches run whatever
-/// the policy drops.
-///
-/// Keyed on the device and the stream the client's launches go out on — a
-/// client bound to a stream of its own does not follow the thread's — so it
-/// holds wherever those launches are issued from, a task resumed on another
-/// thread included. Overrides of one stream nest, the newest deciding, and
-/// may drop in any order.
-///
-/// Every launch on that stream of that device follows it, whichever thread
-/// issues it. Where threads share a stream — `StreamPolicy::Single`, or a
-/// build without per-thread streams — a launch another thread issues while a
-/// measurement runs executes too, rather than being dropped.
-#[derive(Debug)]
-pub struct StreamModeOverride {
-    id: usize,
-    mode: StreamMode,
-}
-
-/// One live [`StreamModeOverride`].
-#[derive(Debug)]
-struct StreamModeEntry {
-    id: usize,
-    on: DeviceStream,
-    mode: StreamMode,
-}
-
-/// How many live [`StreamModeOverride`]s set each mode, by
-/// [`StreamMode::index`]: a launch looks the overrides up only when one sets
-/// the mode its policy does not, so a measurement under no override, which
-/// sets the mode every stream already has, costs other launches nothing.
-static LIVE_STREAM_MODES: [AtomicUsize; 2] = [AtomicUsize::new(0), AtomicUsize::new(0)];
-/// The live overrides, oldest first.
-static STREAM_MODES: Mutex<Vec<StreamModeEntry>> = Mutex::new(Vec::new());
-/// The id the next override takes.
-static NEXT_STREAM_MODE: AtomicUsize = AtomicUsize::new(0);
-
-impl StreamMode {
-    /// Its slot in [`LIVE_STREAM_MODES`].
-    fn index(self) -> usize {
-        match self {
-            Self::Execute => 0,
-            Self::Compile => 1,
-        }
-    }
-}
-
-impl StreamModeOverride {
-    /// Put `client`'s stream on its device in `mode` until the guard drops.
-    pub fn new(mode: StreamMode, client: &Client) -> Self {
-        Self::on(
-            mode,
-            DeviceStream {
-                service: client.service_id(),
-                stream: client.stream_id(),
-            },
-        )
-    }
-
-    fn on(mode: StreamMode, on: DeviceStream) -> Self {
-        let id = NEXT_STREAM_MODE.fetch_add(1, Ordering::Relaxed);
-        let mut modes = STREAM_MODES.lock();
-        modes.push(StreamModeEntry { id, on, mode });
-        LIVE_STREAM_MODES[mode.index()].fetch_add(1, Ordering::Release);
-        Self { id, mode }
-    }
-}
-
-impl Drop for StreamModeOverride {
-    fn drop(&mut self) {
-        let mut modes = STREAM_MODES.lock();
-        modes.retain(|entry| entry.id != self.id);
-        LIVE_STREAM_MODES[self.mode.index()].fetch_sub(1, Ordering::Release);
-    }
-}
-
-/// The mode the newest live override sets for `on`, or `default` when none
-/// does.
-fn stream_mode(on: DeviceStream, default: StreamMode) -> StreamMode {
-    let other = match default {
-        StreamMode::Execute => StreamMode::Compile,
-        StreamMode::Compile => StreamMode::Execute,
-    };
-    // An override setting the default changes nothing, unless it is newer
-    // than one setting the other mode on the same stream, and then there is
-    // one of those to look for.
-    if LIVE_STREAM_MODES[other.index()].load(Ordering::Acquire) == 0 {
-        return default;
-    }
-    STREAM_MODES
-        .lock()
-        .iter()
-        .rev()
-        .find(|entry| entry.on == on)
-        .map_or(default, |entry| entry.mode)
-}
-
 /// A policy with its article, for a panic message.
 struct Article(ExecutionPolicy);
 
@@ -401,47 +192,12 @@ impl core::fmt::Display for Article {
 
 #[cfg(test)]
 mod tests {
+    use super::super::{CompilationStatistics, KernelRegistration, TuneRegistration};
     use super::*;
-    use cubecl_common::device::DeviceId;
     // `serial_test`'s macro expands to `vec!`, which a `no_std` crate has to
     // bring in itself.
     use alloc::vec;
-
-    /// Stream `stream` of device `device`.
-    fn on(device: u16, stream: u64) -> DeviceStream {
-        DeviceStream {
-            service: ServiceId::of::<()>(DeviceId {
-                type_id: 0,
-                index_id: device,
-            }),
-            stream: StreamId { value: stream },
-        }
-    }
-
-    /// The verdict is a table of a stream's mode and the policy.
-    #[test]
-    #[serial_test::serial]
-    fn a_launch_follows_its_stream_and_the_policy() {
-        let collector = StatisticsCollector::new();
-        let action = || launch_action(on(0, 7));
-        assert_eq!(action(), LaunchAction::Execute);
-        {
-            let _compile = ExecutionOverride::new(ExecutionPolicy::CompileOnly, &collector);
-            assert_eq!(action(), LaunchAction::Queue);
-        }
-        {
-            let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
-            assert_eq!(action(), LaunchAction::Compile);
-        }
-        {
-            // A stream dropping its launches while the process executes
-            // queues them.
-            let _queuing = StreamModeOverride::on(StreamMode::Compile, on(0, 7));
-            assert_eq!(action(), LaunchAction::Queue);
-        }
-        let _execute = ExecutionOverride::new(ExecutionPolicy::Execute, &collector);
-        assert_eq!(action(), LaunchAction::Execute);
-    }
+    use alloc::vec::Vec;
 
     /// One policy is open at a time: an override of another refuses to open
     /// beside it.
@@ -585,44 +341,6 @@ mod tests {
         assert_eq!(
             (statistics.autotune.failed, statistics.autotune.settled()),
             (1, 1)
-        );
-    }
-
-    /// A stream's mode overrides the policy's default for that stream of
-    /// that device alone, the newest override deciding, and overrides drop
-    /// in any order.
-    #[test]
-    #[serial_test::serial]
-    fn a_stream_mode_holds_for_its_stream_on_its_device() {
-        let collector = StatisticsCollector::new();
-        let _tune = ExecutionOverride::new(ExecutionPolicy::CompileAndAutotune, &collector);
-
-        let measuring = StreamModeOverride::on(StreamMode::Execute, on(0, 1));
-        assert_eq!(launch_action(on(0, 1)), LaunchAction::Execute);
-        assert_eq!(
-            launch_action(on(0, 2)),
-            LaunchAction::Compile,
-            "another stream"
-        );
-        assert_eq!(
-            launch_action(on(1, 1)),
-            LaunchAction::Compile,
-            "another device"
-        );
-
-        let nested = StreamModeOverride::on(StreamMode::Compile, on(0, 1));
-        assert_eq!(
-            launch_action(on(0, 1)),
-            LaunchAction::Compile,
-            "the newest decides"
-        );
-        drop(measuring);
-        assert_eq!(launch_action(on(0, 1)), LaunchAction::Compile);
-        drop(nested);
-        assert_eq!(
-            launch_action(on(0, 1)),
-            LaunchAction::Compile,
-            "the policy's again"
         );
     }
 }
