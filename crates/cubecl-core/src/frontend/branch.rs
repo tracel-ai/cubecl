@@ -121,7 +121,7 @@ pub fn if_expand(scope: &Scope, condition: NativeExpand<bool>, block: impl FnOnc
             else_child.terminate_yield();
 
             scope.register(&if_op);
-            scope.set_break_return(&[then_child, else_child]);
+            scope.update_flags_after_branch(&[then_child, else_child]);
         }
     }
 }
@@ -149,7 +149,7 @@ impl IfElseExpand {
                 else_child.terminate_yield();
 
                 scope.register(&if_op);
-                scope.set_break_return(&[then_child, else_child]);
+                scope.update_flags_after_branch(&[then_child, else_child]);
             }
             Self::ComptimeElse => else_block(scope),
             Self::ComptimeThen => (),
@@ -218,7 +218,7 @@ impl<C: Assign> IfElseExprExpand<C> {
                 else_child.terminate_yield();
 
                 scope.register(&if_op);
-                scope.set_break_return(&[then_child, else_child]);
+                scope.update_flags_after_branch(&[then_child, else_child]);
                 out
             }
             Self::ComptimeElse => else_block(scope).into_expand(scope),
@@ -286,7 +286,7 @@ impl<I: Int> SwitchExpand<I> {
         });
         self.switch_op.set_attr_cases(scope.ctx(), cases);
         scope.register(&self.switch_op);
-        scope.set_break_return(&self.children);
+        scope.update_flags_after_branch(&self.children);
     }
 }
 
@@ -345,7 +345,7 @@ impl<I: Int, C: Assign> SwitchExpandExpr<I, C> {
         });
         self.switch_op.set_attr_cases(scope.ctx(), cases);
         scope.register(&self.switch_op);
-        scope.set_break_return(&self.children);
+        scope.update_flags_after_branch(&self.children);
         self.out
     }
 }
@@ -478,7 +478,7 @@ impl<T: CubeEnum> MatchExpand<T> {
                 });
                 switch_op.set_attr_cases(scope.ctx(), cases);
                 scope.register(&switch_op);
-                scope.set_break_return(&children);
+                scope.update_flags_after_branch(&children);
             }
         }
     }
@@ -649,7 +649,7 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 });
                 switch_op.set_attr_cases(scope.ctx(), cases);
                 scope.register(&switch_op);
-                scope.set_break_return(&children);
+                scope.update_flags_after_branch(&children);
 
                 out
             }
@@ -704,6 +704,16 @@ pub fn match_expand_expr<T: CubeEnum, C: RuntimeAssign>(
             }
         }
     }
+}
+
+pub fn continue_expand(scope: &Scope) {
+    let inv_continue_flag = scope
+        .expand_state()
+        .inv_continue_flag
+        .expect("Should be in loop");
+    let false_ = false.__expand_runtime_method(scope).expand;
+    assign::expand_element(scope, false_, inv_continue_flag.into());
+    scope.expand_state_mut().may_continue = true;
 }
 
 pub fn break_expand(scope: &Scope) {
@@ -790,10 +800,10 @@ pub fn setup_early_return<T: EarlyReturnable>(scope: &Scope, body: impl FnOnce(&
     if let Some(term) = term {
         Operation::erase(term, scope.ctx_mut());
     }
-    scope.set_may_terminate(&[child]);
     scope
         .inserter()
         .set_insertion_point_to_block_end(current_block);
+    scope.update_flags_after_early_return(&[child]);
     T::from_value(scope, value)
 }
 
@@ -865,9 +875,11 @@ pub(crate) fn register_range_loop<I: Int>(scope: &Scope, for_op: &RangeLoopOp, b
         may_terminate,
         may_return,
         may_break,
+        may_continue: _,
         inv_terminate_flag,
         inv_return_flag,
         inv_break_flag,
+        inv_continue_flag: _,
         return_value: _,
     } = *body.expand_state();
     if !may_break && !may_return {

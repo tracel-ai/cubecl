@@ -128,12 +128,15 @@ pub struct ExpandState {
     pub may_terminate: bool,
     pub may_return: bool,
     pub may_break: bool,
+    pub may_continue: bool,
     // Whether the kernel has *not* terminated. Inverted to save a not on the loop condition.
     pub inv_terminate_flag: Option<Value>,
     // Whether the current function has *not* returned. Inverted to save a not on the loop condition.
     pub inv_return_flag: Option<Value>,
     /// Whether the loop is *not* broken. Inverted to save a not on the loop condition.
     pub inv_break_flag: Option<Value>,
+    /// Whether the loop is *not* continued. Inverted to save a not on the loop condition.
+    pub inv_continue_flag: Option<Value>,
     /// The return value, if early return is used.
     pub return_value: Option<Value>,
 }
@@ -467,13 +470,8 @@ impl Scope {
             ctx: CtxHandle::Rc(ctx),
             inserter: InserterHandle::owned(inserter),
             expand_state: RefCell::new(ExpandState {
-                may_break: false,
-                may_return: false,
-                may_terminate: false,
                 inv_terminate_flag: Some(terminate_flag),
-                inv_return_flag: None,
-                inv_break_flag: None,
-                return_value: None,
+                ..ExpandState::default()
             }),
         }
     }
@@ -504,15 +502,7 @@ impl Scope {
         Self {
             ctx: CtxHandle::Ref(ctx),
             inserter: InserterHandle::Ref(inserter),
-            expand_state: RefCell::new(ExpandState {
-                may_return: false,
-                may_break: false,
-                may_terminate: false,
-                inv_terminate_flag: None,
-                inv_return_flag: None,
-                inv_break_flag: None,
-                return_value: None,
-            }),
+            expand_state: RefCell::new(ExpandState::default()),
         }
     }
 
@@ -586,14 +576,19 @@ impl Scope {
         }
     }
 
-    pub fn set_break_return(&self, children: &[Scope]) {
+    pub fn update_flags_after_branch(&self, children: &[Scope]) {
+        self.set_may_continue(children);
         self.set_may_break(children);
         self.set_may_return(children);
         self.set_may_terminate(children);
     }
 
-    pub fn set_terminate_return(&self, children: &[Scope]) {
+    pub fn update_flags_after_loop(&self, children: &[Scope]) {
         self.set_may_return(children);
+        self.set_may_terminate(children);
+    }
+
+    pub fn update_flags_after_early_return(&self, children: &[Scope]) {
         self.set_may_terminate(children);
     }
 
@@ -618,10 +613,21 @@ impl Scope {
     }
 
     pub fn set_may_break(&self, children: &[Scope]) {
-        let child_may_return = children.iter().any(|scope| scope.expand_state().may_break);
-        if child_may_return {
+        let child_may_break = children.iter().any(|scope| scope.expand_state().may_break);
+        if child_may_break {
             self.expand_state_mut().may_break = true;
             let flag = self.expand_state().inv_break_flag;
+            self.predicate_on_flag(flag.expect("Should have break flag"));
+        }
+    }
+
+    pub fn set_may_continue(&self, children: &[Scope]) {
+        let child_may_continue = children
+            .iter()
+            .any(|scope| scope.expand_state().may_continue);
+        if child_may_continue {
+            self.expand_state_mut().may_continue = true;
+            let flag = self.expand_state().inv_continue_flag;
             self.predicate_on_flag(flag.expect("Should have break flag"));
         }
     }
@@ -709,30 +715,35 @@ impl Scope {
             ctx: self.ctx.clone(),
             inserter: InserterHandle::owned(inserter),
             expand_state: RefCell::new(ExpandState {
+                may_continue: false,
                 may_break: false,
                 may_return: false,
                 may_terminate: false,
                 inv_terminate_flag: self.expand_state().inv_terminate_flag,
                 inv_return_flag: self.expand_state().inv_return_flag,
                 inv_break_flag: self.expand_state().inv_break_flag,
+                inv_continue_flag: self.expand_state().inv_continue_flag,
                 return_value: self.expand_state().return_value,
             }),
         }
     }
 
     /// Create a child scope with a new break condition.
-    pub fn loop_child(&self, inserter: impl Inserter + 'static) -> Self {
+    pub fn loop_child(&self, mut inserter: impl Inserter + 'static) -> Self {
         let break_flag = init_bool_flag(self.ctx_mut(), self.inserter(), "inv_break_flag");
+        let continue_flag = init_bool_flag(self.ctx_mut(), &mut inserter, "inv_continue_flag");
         Self {
             ctx: self.ctx.clone(),
             inserter: InserterHandle::owned(inserter),
             expand_state: RefCell::new(ExpandState {
+                may_terminate: false,
                 may_return: false,
                 may_break: false,
-                may_terminate: false,
+                may_continue: false,
                 inv_terminate_flag: self.expand_state().inv_terminate_flag,
                 inv_return_flag: self.expand_state().inv_return_flag,
                 inv_break_flag: Some(break_flag),
+                inv_continue_flag: Some(continue_flag),
                 return_value: self.expand_state().return_value,
             }),
         }
@@ -749,12 +760,14 @@ impl Scope {
             ctx: self.ctx.clone(),
             inserter: InserterHandle::owned(inserter),
             expand_state: RefCell::new(ExpandState {
+                may_continue: false,
                 may_break: false,
                 may_return: false,
                 may_terminate: false,
                 inv_terminate_flag: self.expand_state().inv_terminate_flag,
                 inv_return_flag: Some(return_flag),
                 inv_break_flag: None,
+                inv_continue_flag: None,
                 return_value: return_value,
             }),
         }
@@ -769,12 +782,14 @@ impl Scope {
             ctx: self.ctx.clone(),
             inserter: InserterHandle::owned(inserter),
             expand_state: RefCell::new(ExpandState {
+                may_continue: false,
                 may_break: false,
                 may_return: false,
                 may_terminate: false,
                 inv_terminate_flag: Some(terminate_flag),
                 inv_return_flag: None,
                 inv_break_flag: None,
+                inv_continue_flag: None,
                 return_value: None,
             }),
         }

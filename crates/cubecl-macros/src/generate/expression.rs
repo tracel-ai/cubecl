@@ -273,24 +273,31 @@ impl Expression {
                     return;
                 }
             }
-            Expression::Continue(span) => error!(*span, "Continue not supported yet"),
+            Expression::Continue(span) => {
+                let branch = frontend_type("branch");
+                // Continue terminates the current closure scope
+                quote_spanned! {*span=>
+                    #branch::continue_expand(scope);
+                    return;
+                }
+            }
             Expression::Return {
                 value: Some(value),
                 span,
             } => {
                 let value = value.to_tokens(context);
-                let path = frontend_path();
+                let branch = frontend_type("branch");
                 // Return terminates the current closure scope
                 quote_spanned! {*span=>
-                    #path::branch::return_with_value_expand(scope, (#value).into());
+                    #branch::return_with_value_expand(scope, (#value).into());
                     return;
                 }
             }
             Expression::Return { value: None, span } => {
-                let path = frontend_path();
+                let branch = frontend_type("branch");
                 // Return terminates the current closure scope
                 quote_spanned! {*span=>
-                    #path::branch::return_expand(scope);
+                    #branch::return_expand(scope);
                     return;
                 }
             }

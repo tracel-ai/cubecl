@@ -93,6 +93,50 @@ fn early_returning(divisor: i32) -> i32 {
     4 / divisor
 }
 
+#[cube(launch)]
+pub fn kernel_early_return_no_value(output: &mut [i32], divisor: i32) {
+    if UNIT_POS == 0 {
+        early_returning_no_value(output, divisor);
+    }
+}
+
+#[cube]
+fn early_returning_no_value(output: &mut [i32], divisor: i32) {
+    if divisor == 0 {
+        return;
+    }
+    output[0] = 4;
+}
+
+#[cube(launch)]
+pub fn kernel_terminate_nested(output: &mut [i32], cond: u32) {
+    if UNIT_POS < output.len() as u32 {
+        nested_terminate(cond != 0);
+        output[UNIT_POS as usize] = UNIT_POS as i32;
+    }
+}
+
+#[cube]
+fn nested_terminate(cond: bool) {
+    // Ensure return flag and terminate flag are not conflated
+    if !cond {
+        return;
+    }
+    terminate!();
+}
+
+#[cube(launch)]
+pub fn kernel_continue(output: &mut [i32]) {
+    if UNIT_POS == 0 {
+        for i in 0..4 {
+            if i != 1 {
+                continue;
+            }
+            output[0] = i;
+        }
+    }
+}
+
 pub fn test_short_circuit_or<R: Runtime>(client: Client) {
     let handle = client.empty(core::mem::size_of::<u32>());
     kernel_short_circuit_or::launch(
@@ -206,6 +250,82 @@ pub fn test_early_return<R: Runtime>(client: Client) {
     assert_eq!(actual[0], 2);
 }
 
+pub fn test_early_return_no_value<R: Runtime>(client: Client) {
+    let handle = client.create_from_slice(i32::as_bytes(&[5]));
+
+    kernel_early_return_no_value::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new(&client, 1),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
+        0,
+    );
+
+    let actual = client.read_one(handle.clone()).unwrap();
+    let actual = i32::from_bytes(&actual);
+
+    assert_eq!(actual[0], 5);
+
+    kernel_early_return_no_value::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new(&client, 1),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
+        2,
+    );
+
+    let actual = client.read_one(handle).unwrap();
+    let actual = i32::from_bytes(&actual);
+
+    assert_eq!(actual[0], 4);
+}
+
+pub fn test_nested_terminate<R: Runtime>(client: Client) {
+    let handle = client.create_from_slice(i32::as_bytes(&[0, 0, 0, 0]));
+
+    kernel_terminate_nested::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new(&client, 4),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 4) },
+        1,
+    );
+
+    let actual = client.read_one(handle.clone()).unwrap();
+    let actual = i32::from_bytes(&actual);
+
+    assert_eq!(actual, [0, 0, 0, 0]);
+
+    kernel_terminate_nested::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new(&client, 4),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 4) },
+        0,
+    );
+
+    let actual = client.read_one(handle).unwrap();
+    let actual = i32::from_bytes(&actual);
+
+    assert_eq!(actual, [0, 1, 2, 3]);
+}
+
+pub fn test_continue<R: Runtime>(client: Client) {
+    let handle = client.create_from_slice(i32::as_bytes(&[0]));
+
+    kernel_continue::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new(&client, 1),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
+    );
+
+    let actual = client.read_one(handle.clone()).unwrap();
+    let actual = i32::from_bytes(&actual);
+
+    assert_eq!(actual[0], 1);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_control_flow {
@@ -248,6 +368,26 @@ macro_rules! testgen_control_flow {
         fn test_early_return() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::control_flow::test_early_return::<TestRuntime>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_early_return_no_value() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::control_flow::test_early_return_no_value::<TestRuntime>(
+                client,
+            );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_nested_terminate() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::control_flow::test_nested_terminate::<TestRuntime>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_continue() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::control_flow::test_continue::<TestRuntime>(client);
         }
     };
 }

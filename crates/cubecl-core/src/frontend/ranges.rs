@@ -385,7 +385,7 @@ fn iter_expand<I: Int>(
     child.terminate_yield();
 
     register_range_loop::<I>(scope, &range_loop, &child);
-    scope.set_terminate_return(&[child]);
+    scope.update_flags_after_loop(&[child]);
 }
 
 pub struct SteppedRangeExpand<I: Int> {
@@ -416,7 +416,7 @@ impl<I: Int + Into<ExpandValue>> Iterable for SteppedRangeExpand<I> {
         body(&child, i.into());
 
         register_range_loop::<I>(scope, &range_loop, &child);
-        scope.set_terminate_return(&[child]);
+        scope.update_flags_after_loop(&[child]);
     }
 
     fn expand_unroll(
