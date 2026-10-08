@@ -333,3 +333,19 @@ fn an_im2col_load_and_a_bulk_copy_share_a_barrier() {
         "{ptx}"
     );
 }
+
+/// `memcpy_async` copies synchronously: on a unit barrier there is nothing to wait for, and a
+/// cooperative copy splits the elements over the cube before its units meet on the `mbarrier`.
+#[test]
+fn barrier_copies_are_synchronous() {
+    let ptx = ptx_of(crate::shared::offline_kernels::barrier_copies_kernel(), 90);
+    assert_eq!(
+        ptx.matches("mbarrier.try_wait").count(),
+        1,
+        "only the cube barrier waits:\n{ptx}"
+    );
+    assert!(
+        !ptx.contains("cp.async"),
+        "the copies are synchronous:\n{ptx}"
+    );
+}

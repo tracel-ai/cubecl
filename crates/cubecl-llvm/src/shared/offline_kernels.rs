@@ -631,3 +631,33 @@ pub(crate) fn tma_im2col_load_kernel() -> impl CubeKernel {
         BufferCompilationArg { inplace: None },
     )
 }
+
+/// `memcpy_async` on a unit barrier, then a cooperative one on a cube barrier.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn barrier_copies(input: &[f32], output: &mut [f32]) {
+    let mut own = Shared::<[f32]>::new_aligned_slice(512usize, 16usize);
+    let mut all = Shared::<[f32]>::new_aligned_slice(512usize, 16usize);
+    let unit = UNIT_POS as usize;
+
+    let local = Barrier::local();
+    local.memcpy_async(&input[unit..unit + 1], &mut own[unit..unit + 1]);
+    local.arrive_and_wait();
+
+    let shared = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
+    shared.memcpy_async_cooperative(&input[0..512], all.as_mut_slice());
+    shared.arrive_and_wait();
+
+    output[unit] = own[unit] + all[511 - unit];
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn barrier_copies_kernel() -> impl CubeKernel {
+    barrier_copies::BarrierCopies::new(
+        tma_settings(),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}

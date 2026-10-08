@@ -3,7 +3,7 @@
 use crate::{prelude::*, shared::to_llvm::lower_by_target};
 use cubecl_core::ir::{
     dialect::{
-        barrier::MemCopyAsyncTxOp,
+        barrier::{MemCopyAsyncOp, MemCopyAsyncTxOp},
         tma::{
             CommitGroupOp, TmaLoadIm2colOp, TmaLoadOp, TmaStoreOp, WaitGroupOp, WaitGroupReadOp,
         },
@@ -13,7 +13,8 @@ use cubecl_core::ir::{
 
 #[derive(Debug, Error)]
 #[error(
-    "the {0:?} target has no lowering for `{1}`; TMA is Hopper's, and only NVPTX advertises it"
+    "the {0:?} target has no lowering for `{1}`; only NVPTX lowers TMA and the barrier copies, \
+     and only it advertises barriers"
 )]
 pub struct TmaUnsupported(LlvmTarget, &'static str);
 
@@ -46,10 +47,24 @@ macro_rules! dispatch_tma_op {
     };
 }
 
+/// `memcpy_async` lowers with the barriers.
+macro_rules! dispatch_barrier_copy {
+    ($cube_op:ty, $method:ident) => {
+        lower_by_target!(
+            $cube_op,
+            ["nvptx" Nvptx => crate::nvptx::barrier::$method],
+            |op: &$cube_op, ctx: &mut Context, _: &mut DialectConversionRewriter, target| -> Result<()> {
+                input_err!(op.loc(ctx), TmaUnsupported(target, stringify!($cube_op)))
+            }
+        );
+    };
+}
+
 dispatch_tma_op!(TmaLoadOp, load);
 dispatch_tma_op!(TmaLoadIm2colOp, load_im2col);
 dispatch_tma_op!(TmaStoreOp, store);
 dispatch_tma_op!(MemCopyAsyncTxOp, memcpy_async_tx);
+dispatch_barrier_copy!(MemCopyAsyncOp, memcpy_async);
 dispatch_tma_op!(CommitGroupOp, commit_group);
 dispatch_tma_op!(WaitGroupOp, wait_group);
 dispatch_tma_op!(WaitGroupReadOp, wait_group_read);

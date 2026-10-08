@@ -166,7 +166,7 @@ fn restrict_common(props: &mut DeviceProperties) {
         props.hardware.min_tensor_cores_dim = None;
     }
 
-    // No clusters, and no `memcpy_async`, whose unit barriers have no lowering.
+    // No clusters, and no `copy_async` (`cp.async`). `memcpy_async` lowers with the barriers.
     props.features.cube_cluster = false;
     props.features.copy_async = false;
 

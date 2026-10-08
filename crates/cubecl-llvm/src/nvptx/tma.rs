@@ -169,7 +169,7 @@ pub(crate) fn store(
 }
 
 /// The size of what `ptr` points at, read off the cube pointer type it was converted from.
-fn pointee_size(ctx: &Context, info: &OperandsInfo, ptr: Value) -> Option<usize> {
+pub(super) fn pointee_size(ctx: &Context, info: &OperandsInfo, ptr: Value) -> Option<usize> {
     info.lookup_operand_history(ptr)
         .into_iter()
         .rev()
