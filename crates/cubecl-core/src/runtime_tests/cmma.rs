@@ -1290,6 +1290,91 @@ pub fn test_cmma_manual<
     }
 }
 
+/// An FP8 manual MMA on operands scattered over signs and magnitudes matches an f64 CPU product.
+pub fn test_cmma_manual_fp8_matches_cpu_reference<
+    R: Runtime,
+    A: CubeElement + Scalar + NumCast,
+    B: CubeElement + Scalar + NumCast,
+>(
+    client: Client,
+    cube_dimensions: CubeDim,
+) {
+    const LARGEST_ERROR_RELATIVE_TO_THE_SUM_OF_ABSOLUTE_PRODUCTS: f64 = 1e-3;
+    let (m, n, k) = (16, 8, 32);
+    if !client.features().matmul.mma.contains(&MmaConfig {
+        a_type: A::cube_type(),
+        b_type: B::cube_type(),
+        cd_type: f32::cube_type(),
+        m: m as u32,
+        n: n as u32,
+        k: k as u32,
+    }) {
+        println!(
+            "Skipping test for a: {:?} b: {:?}, cd: f32, m: {m}, n: {n}, k: {k}",
+            A::cube_type(),
+            B::cube_type(),
+        );
+        return;
+    }
+
+    let lhs: Vec<A> = (0..m * k)
+        .map(|index| A::from(scattered_fp8_operand(index)).unwrap())
+        .collect();
+    let rhs: Vec<B> = (0..k * n)
+        .map(|index| B::from(scattered_fp8_operand(m * k + index)).unwrap())
+        .collect();
+    let zeros = vec![0f32; m * n];
+
+    let lhs_handle = client.create_from_slice(A::as_bytes(&lhs));
+    let rhs_handle = client.create_from_slice(B::as_bytes(&rhs));
+    let out = client.create_from_slice(f32::as_bytes(&zeros));
+
+    unsafe {
+        kernel_manual::launch::<A, B, f32>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            cube_dimensions,
+            TensorArg::from_raw_parts(lhs_handle, [k, 1].into(), [m, k].into()),
+            TensorArg::from_raw_parts(rhs_handle, [n, 1].into(), [k, n].into()),
+            TensorArg::from_raw_parts(out.clone(), [n, 1].into(), [m, n].into()),
+            TensorArg::from_raw_parts(out.clone(), [n, 1].into(), [m, n].into()),
+            m,
+            n,
+            k,
+        )
+    };
+
+    let actual = client.read_one_unchecked(out);
+    let actual = f32::from_bytes(&actual);
+
+    for row in 0..m {
+        for col in 0..n {
+            let (expected, sum_of_absolute_products) =
+                (0..k).fold((0f64, 0f64), |(sum, absolute_sum), l| {
+                    let product =
+                        lhs[row * k + l].to_f64().unwrap() * rhs[l * n + col].to_f64().unwrap();
+                    (sum + product, absolute_sum + product.abs())
+                });
+            let actual = actual[row * n + col] as f64;
+            assert!(
+                (actual - expected).abs()
+                    <= sum_of_absolute_products
+                        * LARGEST_ERROR_RELATIVE_TO_THE_SUM_OF_ABSOLUTE_PRODUCTS,
+                "out[{row}][{col}]: expected {expected}, got {actual}"
+            );
+        }
+    }
+}
+
+/// Spreads `index` over both signs and the normal exponents both FP8 formats hold.
+fn scattered_fp8_operand(index: usize) -> f32 {
+    let mixed = (index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 40;
+    let sign = if mixed & 1 == 0 { 1.0 } else { -1.0 };
+    let exponent = ((mixed >> 1) % 13) as i32 - 6;
+    let mantissa = 1.0 + ((mixed >> 5) % 8) as f32 / 8.0;
+    sign * mantissa * 2f32.powi(exponent)
+}
+
 // Kinda hardcoded for f16 right now, but it's hard to make generic
 #[cube(launch)]
 pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
@@ -1999,6 +2084,27 @@ macro_rules! testgen_cmma {
             test::<f16, f16, f32>(16, 16, 16);
             // bf16 is broken in general right now, it generates a conflicting `__bf16_2` type
             //test::<bf16, bf16, f32>(16, 16, 16);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_cmma_manual_fp8_matches_cpu_reference() {
+            use cubecl_common::{e4m3, e5m2};
+            use cubecl_core::num_traits::cast::NumCast;
+
+            fn test<A: CubeElement + Scalar + NumCast, B: CubeElement + Scalar + NumCast>() {
+                let client = TestRuntime::client(&Default::default());
+                let cube_dimensions = cube_dim::<TestRuntime>(&client);
+                cubecl_core::runtime_tests::cmma::test_cmma_manual_fp8_matches_cpu_reference::<
+                    TestRuntime,
+                    A,
+                    B,
+                >(client, cube_dimensions)
+            }
+
+            test::<e4m3, e4m3>();
+            test::<e4m3, e5m2>();
+            test::<e5m2, e4m3>();
+            test::<e5m2, e5m2>();
         }
 
         #[$crate::runtime_tests::test_log::test]
