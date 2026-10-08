@@ -1,6 +1,13 @@
 use std::env;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("cargo::rerun-if-env-changed=DOCS_RS");
+    // Rustdoc needs the Rust API, but no native LLVM shims or link configuration.
+    // The LLVM bundle is not installed in the docs.rs sandbox.
+    if env::var_os("DOCS_RS").is_some() {
+        return Ok(());
+    }
+
     println!("cargo::rerun-if-env-changed=CUBECL_DEBUG_PLIRON");
     if env::var("CUBECL_DEBUG_PLIRON").is_ok() && env::var("CARGO_FEATURE_STD").is_ok() {
         println!("cargo:rustc-cfg=feature=\"pliron-dump\"");
