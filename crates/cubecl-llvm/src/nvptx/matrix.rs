@@ -192,7 +192,7 @@ fn matrix_of(ctx: &Context, info: &OperandsInfo, value: Value) -> MatrixType {
     pointee.expect("a matrix operand points at a matrix")
 }
 
-fn extract_lane(
+pub(super) fn extract_lane(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
     vector: Value,
@@ -203,7 +203,7 @@ fn extract_lane(
     insert(ctx, rw, &op)
 }
 
-fn insert_lane(
+pub(super) fn insert_lane(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
     vector: Value,
@@ -215,7 +215,11 @@ fn insert_lane(
     insert(ctx, rw, &op)
 }
 
-fn poison(ctx: &mut Context, rw: &mut DialectConversionRewriter, ty: TypeHandle) -> Value {
+pub(super) fn poison(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    ty: TypeHandle,
+) -> Value {
     let op = llvm::PoisonOp::new(ctx, ty);
     insert(ctx, rw, &op)
 }
@@ -316,7 +320,12 @@ fn call_returning_registers(
         .collect()
 }
 
-fn call_void(ctx: &mut Context, rw: &mut DialectConversionRewriter, name: &str, args: Vec<Value>) {
+pub(super) fn call_void(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    name: &str,
+    args: Vec<Value>,
+) {
     let arg_tys = args.iter().map(|arg| arg.get_type(ctx)).collect();
     let void_ty = pliron_llvm::types::VoidType::get(ctx).into();
     let fn_ty = FuncType::get(ctx, void_ty, arg_tys, false);
@@ -348,7 +357,7 @@ fn load_fragment(
     insert(ctx, rw, &op)
 }
 
-fn store_fragment(
+pub(super) fn store_fragment(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
     matrix: Value,
@@ -657,7 +666,7 @@ fn mma_type(ctx: &Context, elem: TypeHandle) -> Option<(&'static str, RegisterFo
     }
 }
 
-fn word_ty(ctx: &mut Context) -> TypeHandle {
+pub(super) fn word_ty(ctx: &mut Context) -> TypeHandle {
     IntegerType::get(ctx, 32, Signedness::Signless).into()
 }
 
@@ -872,7 +881,11 @@ fn in_origin_space(ctx: &mut Context, rw: &mut DialectConversionRewriter, ptr: V
     }
 }
 
-fn as_shared(ctx: &mut Context, rw: &mut DialectConversionRewriter, ptr: Value) -> Value {
+pub(super) fn as_shared(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    ptr: Value,
+) -> Value {
     let shared_ty: TypeHandle = LlvmPointerType::get(ctx, SHARED_ADDRESS_SPACE).into();
     if ptr.get_type(ctx) == shared_ty {
         return ptr;

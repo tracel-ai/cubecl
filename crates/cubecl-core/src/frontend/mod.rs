@@ -3,6 +3,7 @@ pub mod barrier;
 pub mod branch;
 pub mod cmma;
 pub mod synchronization;
+pub mod wgmma;
 
 /// Module containing compile-time information about the current runtime.
 pub mod comptime;

@@ -6,6 +6,8 @@ use cubecl_core::ir::{
     DeviceIdentity, HardwareProperties, MemoryDeviceProperties, features::Features,
     features::MmaConfig,
 };
+#[cfg(feature = "nvptx")]
+use cubecl_core::prelude::barrier::Barrier;
 use cubecl_core::prelude::*;
 use cubecl_runtime::kernel::CubeKernel;
 use half::bf16;
@@ -402,5 +404,229 @@ pub(crate) fn tile_product_kernel<
         m,
         n,
         k,
+    )
+}
+
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn warpgroup_product<I: Numeric, A: Numeric>(
+    lhs: &[I],
+    rhs: &[I],
+    out: &mut [A],
+    #[comptime] n: usize,
+    #[comptime] k: usize,
+    #[comptime] a_in_registers: bool,
+) {
+    let def = wgmma::WgmmaDefinition::<I, I, A>::new(64usize, n, k);
+    let mut smem_a = Shared::new_aligned_slice(64 * k, 128usize);
+    let mut smem_b = Shared::new_aligned_slice(n * k, 128usize);
+    let unit = UNIT_POS as usize;
+    if unit < 64 * k {
+        smem_a[unit] = lhs[unit];
+    }
+    if unit < n * k {
+        smem_b[unit] = rhs[unit];
+    }
+    sync_async_proxy_shared();
+    sync_cube();
+
+    let elem_size = I::size();
+    let stride = comptime![(8 * k * elem_size) as u32];
+    let acc_len = def.elems_per_unit(wgmma::MatrixIdent::Accumulator);
+    let size!(NC) = 2usize;
+    let mut acc = Array::<Vector<A, NC>>::new(comptime![acc_len / 2]);
+    let b = wgmma::descriptor(&smem_b, 128u32, stride, wgmma::Swizzle::B32);
+
+    if a_in_registers {
+        let run = def.contiguous_elems(wgmma::MatrixIdent::A);
+        let size!(NA) = comptime![run as usize];
+        let a_len = def.elems_per_unit(wgmma::MatrixIdent::A);
+        let mut registers_a = Array::<Vector<I, NA>>::new(comptime![a_len / run as usize]);
+        #[unroll]
+        for v in 0..comptime![a_len / run as usize] {
+            registers_a[v] = Vector::cast_from(lhs[unit * 8 + v]);
+        }
+        wgmma::fence_operand(&mut registers_a);
+        wgmma::fence_operand(&mut acc);
+        wgmma::fence();
+        def.execute_registers_a(
+            &registers_a,
+            b,
+            &mut acc,
+            false,
+            wgmma::MatrixLayout::ColMajor,
+        );
+    } else {
+        let a = wgmma::descriptor(&smem_a, 128u32, stride, wgmma::Swizzle::None);
+        wgmma::fence_operand(&mut acc);
+        wgmma::fence();
+        def.execute(
+            a,
+            b,
+            &mut acc,
+            unit > 1000,
+            wgmma::MatrixLayout::RowMajor,
+            wgmma::MatrixLayout::ColMajor,
+        );
+    }
+    wgmma::commit_group();
+    wgmma::wait_group(0usize);
+    wgmma::fence_operand(&mut acc);
+
+    #[unroll]
+    for v in 0..comptime![acc_len / 2] {
+        let reg = acc[v];
+        out[unit * acc_len + v * 2] = reg.extract(0usize);
+        out[unit * acc_len + v * 2 + 1] = reg.extract(1usize);
+    }
+}
+
+/// One warpgroup MMA of `I` operands accumulating in `A`, `64 x n x k`.
+#[cfg(feature = "nvptx")]
+pub(crate) fn warpgroup_product_kernel<
+    I: Numeric + cubecl_core::CubeElement,
+    A: Numeric + cubecl_core::CubeElement,
+>(
+    n: usize,
+    k: usize,
+    a_in_registers: bool,
+) -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(128),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    let mut props = (*device_properties(32)).clone();
+    props
+        .features
+        .matmul
+        .wgmma
+        .insert(cubecl_core::ir::features::WgmmaConfig {
+            a_type: I::cube_type(),
+            b_type: I::cube_type(),
+            cd_type: A::cube_type(),
+            m: 64,
+            n_granularity: n as u32,
+            n_max: n as u32,
+            k: k as u32,
+        });
+    warpgroup_product::WarpgroupProduct::<I, A>::new(
+        settings,
+        Arc::new(props),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        n,
+        k,
+        a_in_registers,
+    )
+}
+
+/// Device properties of a Hopper with TMA, for kernels that use it.
+#[cfg(feature = "nvptx")]
+fn tma_properties() -> Arc<DeviceProperties> {
+    use cubecl_core::ir::{OpaqueType, features::Tma};
+
+    let mut props = (*device_properties(32)).clone();
+    props.features.tma.insert(Tma::Base);
+    props.register_opaque_type(OpaqueType::TensorMap);
+    props.register_opaque_type(OpaqueType::Barrier);
+    Arc::new(props)
+}
+
+#[cfg(feature = "nvptx")]
+fn tma_settings() -> KernelSettings {
+    KernelSettings::new(
+        *CubeDim::new_2d(32, 16),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    )
+}
+
+/// A tile loaded by TMA, which unit 0 issues and every unit waits on.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn tma_tile_load(input: &TensorMap<f32, Tiled>, output: &mut [f32]) {
+    let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
+    sync_async_proxy_shared();
+    let mut stage = Shared::<[f32]>::new_aligned_slice(32usize * 16, 128usize);
+
+    let expected = select(UNIT_POS == 0, 32u32 * 16 * 4, 0);
+    if UNIT_POS == 0 {
+        barrier.tma_load_2d(input, stage.as_mut_slice(), 0, 8);
+    }
+    let token = barrier.arrive_and_expect_tx(1, expected);
+    barrier.wait(token);
+
+    output[UNIT_POS as usize] = stage[UNIT_POS as usize];
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn tma_tile_load_kernel() -> impl CubeKernel {
+    tma_tile_load::TmaTileLoad::new(
+        tma_settings(),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        (),
+        BufferCompilationArg { inplace: None },
+    )
+}
+
+/// A tile stored by TMA from shared memory the units wrote.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn tma_tile_store(input: &[f32], output: &mut TensorMap<f32, Tiled>) {
+    let mut stage = Shared::<[f32]>::new_aligned_slice(32usize * 16, 128usize);
+    stage[UNIT_POS as usize] = input[UNIT_POS as usize];
+    sync_async_proxy_shared();
+    sync_cube();
+
+    if UNIT_POS == 0 {
+        tma_store_2d(stage.as_slice(), output, 16, 8);
+        tma_group_commit();
+        tma_group_wait_read(0usize);
+    }
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn tma_tile_store_kernel() -> impl CubeKernel {
+    tma_tile_store::TmaTileStore::new(
+        tma_settings(),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        (),
+    )
+}
+
+/// An im2col load, waited on by phase, next to a one-dimensional bulk copy on the same barrier.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn tma_im2col_load(input: &TensorMap<f32, Im2col>, bias: &[f32], output: &mut [f32]) {
+    let barrier = Barrier::shared(1u32, UNIT_POS == 0);
+    sync_async_proxy_shared();
+    let mut stage = Shared::<[f32]>::new_aligned_slice(32usize * 16, 128usize);
+    let mut stage_bias = Shared::<[f32]>::new_aligned_slice(32usize, 128usize);
+
+    if UNIT_POS == 0 {
+        barrier.tma_load_im2col_4d(input, stage.as_mut_slice(), 0, -1, -1, 0, 1u16, 2u16);
+        barrier.memcpy_async_tx(&bias[0..32], stage_bias.as_mut_slice());
+        barrier.arrive_and_expect_tx(1, 32u32 * 16 * 4 + 32 * 4);
+    }
+    barrier.wait_parity(0);
+
+    output[UNIT_POS as usize] = stage[UNIT_POS as usize] + stage_bias[(UNIT_POS % 32) as usize];
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn tma_im2col_load_kernel() -> impl CubeKernel {
+    tma_im2col_load::TmaIm2colLoad::new(
+        tma_settings(),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        (),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
     )
 }

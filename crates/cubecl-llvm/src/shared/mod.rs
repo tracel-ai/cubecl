@@ -26,6 +26,7 @@ pub mod plane;
 pub mod plane_reduce;
 pub mod polyfill;
 pub mod shared_memory;
+pub mod tma;
 pub mod to_llvm;
 
 pub use base::*;

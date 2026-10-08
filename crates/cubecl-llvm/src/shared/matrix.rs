@@ -5,7 +5,8 @@ use cubecl_core::{
     ir::{
         dialect::matrix::{
             CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp,
-            RowIndexOp, StMatrixOp, StoreOp,
+            RowIndexOp, StMatrixOp, StoreOp, WgmmaCommitGroupOp, WgmmaDescriptorOp, WgmmaFenceOp,
+            WgmmaFenceOperandOp, WgmmaOp, WgmmaWaitGroupOp,
         },
         types::matrix::MatrixType,
     },
@@ -73,6 +74,39 @@ dispatch_matrix_op!(ColIndexOp, col_index);
 dispatch_matrix_op!(MmaManualOp, mma_manual);
 dispatch_matrix_op!(LdMatrixOp, ld_matrix);
 dispatch_matrix_op!(StMatrixOp, st_matrix);
+
+/// Warpgroup MMA is Hopper's alone, so only NVPTX lowers it.
+macro_rules! dispatch_wgmma_op {
+    ($cube_op:ty, $method:ident) => {
+        #[op_interface_impl]
+        impl ToLLVMDialect for $cube_op {
+            fn rewrite(
+                &self,
+                ctx: &mut Context,
+                _rewriter: &mut DialectConversionRewriter,
+                _operands_info: &OperandsInfo,
+            ) -> Result<()> {
+                match ctx.target() {
+                    #[cfg(feature = "nvptx")]
+                    LlvmTarget::Nvptx => {
+                        crate::nvptx::wgmma::$method(self, ctx, _rewriter, _operands_info)
+                    }
+                    target => input_err!(
+                        self.loc(ctx),
+                        MatrixOpUnsupported(target, stringify!($cube_op))
+                    ),
+                }
+            }
+        }
+    };
+}
+
+dispatch_wgmma_op!(WgmmaOp, wgmma);
+dispatch_wgmma_op!(WgmmaDescriptorOp, descriptor);
+dispatch_wgmma_op!(WgmmaFenceOp, fence);
+dispatch_wgmma_op!(WgmmaCommitGroupOp, commit_group);
+dispatch_wgmma_op!(WgmmaWaitGroupOp, wait_group);
+dispatch_wgmma_op!(WgmmaFenceOperandOp, fence_operand);
 
 /// NVPTX matrix coordinates use the shared MMA polyfills.
 macro_rules! lower_axis_index_polyfill {

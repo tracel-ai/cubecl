@@ -345,6 +345,7 @@ impl PlironCompiler {
         let plane_dim = arch.plane_dim();
         ctx.set_plane_dim(plane_dim);
 
+        let tensor_maps = tensor_map_bindings(&ctx, ir.entry_func);
         let Lowered { io, atomic_reads } = lower(&mut ctx, &ir, &NvptxLowering { plane_dim })?;
 
         let shared_memory_size = ctx.shared_memory_size();
@@ -370,6 +371,7 @@ impl PlironCompiler {
                 io,
                 atomic_reads,
                 metadata,
+                tensor_maps,
             },
         )
         .map_err(|err| {
@@ -380,6 +382,27 @@ impl PlironCompiler {
             ))
         })
     }
+}
+
+/// The binding positions of the entry point's tensor map arguments.
+#[cfg(feature = "nvptx")]
+fn tensor_map_bindings(ctx: &Context, entry_func: FuncOp) -> Vec<usize> {
+    use cubecl_core::ir::attributes::{
+        ATTR_BUFFER_BINDING, ATTR_TENSOR_MAP_BINDING, BufferBindingAttr, FuncInterface,
+    };
+
+    let args = entry_func
+        .get_entry_block(ctx)
+        .deref(ctx)
+        .get_num_arguments();
+    (0..args)
+        .filter(|&arg| entry_func.has_arg_attr(ctx, arg, &ATTR_TENSOR_MAP_BINDING))
+        .filter_map(|arg| {
+            entry_func
+                .get_arg_attr::<BufferBindingAttr>(ctx, arg, &ATTR_BUFFER_BINDING)
+                .map(|binding| binding.buffer_pos)
+        })
+        .collect()
 }
 
 struct KernelIr {

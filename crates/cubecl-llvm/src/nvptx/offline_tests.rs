@@ -172,3 +172,142 @@ fn tf32_constant_casts_preserve_rounding() {
         "constant float and integer casts must retain TF32 rounding through an FP32 round trip:\n{ptx}"
     );
 }
+
+/// A warpgroup MMA is one `wgmma.mma_async` between the fence and the group it is committed in,
+/// reading the tiles the units staged after fencing the async proxy.
+#[test]
+fn a_warpgroup_product_is_one_async_mma() {
+    let ptx = ptx_of(
+        crate::shared::offline_kernels::warpgroup_product_kernel::<half::f16, f32>(64, 16, false),
+        90,
+    );
+    assert!(ptx.contains(".target sm_90a"), "{ptx}");
+    assert!(ptx.contains("fence.proxy.async.shared::cta"), "{ptx}");
+    assert!(ptx.contains("wgmma.fence.sync.aligned"), "{ptx}");
+    assert_eq!(
+        ptx.matches("wgmma.mma_async.sync.aligned.m64n64k16.f32.f16.f16")
+            .count(),
+        1,
+        "{ptx}"
+    );
+    assert!(ptx.contains("wgmma.commit_group.sync.aligned"), "{ptx}");
+    assert!(ptx.contains("wgmma.wait_group.sync.aligned \t0;"), "{ptx}");
+    assert!(
+        !ptx.contains("ld.local") && !ptx.contains("st.local"),
+        "the accumulator is registers:\n{ptx}"
+    );
+}
+
+/// `A` in registers is four 32-bit registers per unit, and the 16-bit forms name only `B`'s
+/// transpose.
+#[test]
+fn a_warpgroup_product_takes_a_from_registers() {
+    let ptx = ptx_of(
+        crate::shared::offline_kernels::warpgroup_product_kernel::<half::bf16, f32>(32, 16, true),
+        90,
+    );
+    let mma = ptx
+        .lines()
+        .find(|line| line.contains("wgmma.mma_async"))
+        .unwrap_or_else(|| panic!("no MMA:\n{ptx}"));
+    assert!(mma.contains("m64n32k16.f32.bf16.bf16"), "{mma}");
+    // The 16 accumulator registers, then the four of `A`.
+    assert_eq!(mma.matches('{').count(), 2, "{mma}");
+}
+
+/// The integer forms take neither the operand negation nor the transposes.
+#[test]
+fn an_integer_warpgroup_product_has_no_immediates() {
+    let ptx = ptx_of(
+        crate::shared::offline_kernels::warpgroup_product_kernel::<i8, i32>(32, 32, false),
+        90,
+    );
+    let mma = ptx
+        .lines()
+        .find(|line| line.contains("wgmma.mma_async"))
+        .unwrap_or_else(|| panic!("no MMA:\n{ptx}"));
+    assert!(mma.contains("m64n32k32.s32.s8.s8"), "{mma}");
+    assert!(mma.trim_end().ends_with(", p;"), "{mma}");
+}
+
+/// PTX wants every write to `A`'s registers and the accumulator ahead of the `wgmma.fence`.
+/// Pinned by `fence_operand`, the compiler cannot sink them past it.
+#[test]
+fn the_registers_a_warpgroup_product_reads_are_written_before_its_fence() {
+    let ptx = ptx_of(
+        crate::shared::offline_kernels::warpgroup_product_kernel::<half::f16, f32>(32, 16, true),
+        90,
+    );
+    let fence = ptx
+        .find("wgmma.fence.sync.aligned")
+        .unwrap_or_else(|| panic!("no fence:\n{ptx}"));
+    let mma = ptx
+        .find("wgmma.mma_async")
+        .unwrap_or_else(|| panic!("no MMA:\n{ptx}"));
+    let between = &ptx[fence..mma];
+    assert!(
+        !between.contains("mov.b32"),
+        "registers written between the fence and the MMA:\n{between}"
+    );
+}
+
+/// A tensor map is a 128-byte parameter the kernel reads in place: had LLVM copied it to the
+/// stack, the copy would be in local memory, which TMA cannot read.
+#[test]
+fn a_tensor_map_is_a_grid_constant_parameter() {
+    let ptx = ptx_of(crate::shared::offline_kernels::tma_tile_load_kernel(), 90);
+    assert!(
+        ptx.contains(".param .align 64 .b8 tma_tile_load"),
+        "the map is passed by value:\n{ptx}"
+    );
+    assert!(
+        !ptx.contains("st.local") && !ptx.contains("ld.local"),
+        "the map was copied to local memory:\n{ptx}"
+    );
+}
+
+/// A tiled load completes on the barrier as a transaction: the units expect its bytes, arrive,
+/// and spin until the phase completes.
+#[test]
+fn a_tma_load_completes_on_an_mbarrier() {
+    let ptx = ptx_of(crate::shared::offline_kernels::tma_tile_load_kernel(), 90);
+    assert!(ptx.contains("mbarrier.init.shared"), "{ptx}");
+    assert!(
+        ptx.contains(
+            "cp.async.bulk.tensor.2d.shared::cluster.global.tile.mbarrier::complete_tx::bytes"
+        ),
+        "{ptx}"
+    );
+    assert!(ptx.contains("mbarrier.expect_tx"), "{ptx}");
+    assert!(ptx.contains("mbarrier.arrive"), "{ptx}");
+    assert!(ptx.contains("mbarrier.try_wait.shared::cta.b64"), "{ptx}");
+}
+
+#[test]
+fn a_tma_store_is_tracked_by_a_bulk_group() {
+    let ptx = ptx_of(crate::shared::offline_kernels::tma_tile_store_kernel(), 90);
+    assert!(ptx.contains("fence.proxy.async.shared::cta"), "{ptx}");
+    assert!(
+        ptx.contains("cp.async.bulk.tensor.2d.global.shared::cta"),
+        "{ptx}"
+    );
+    assert!(ptx.contains("cp.async.bulk.commit_group"), "{ptx}");
+    assert!(ptx.contains("cp.async.bulk.wait_group.read"), "{ptx}");
+}
+
+#[test]
+fn an_im2col_load_and_a_bulk_copy_share_a_barrier() {
+    let ptx = ptx_of(crate::shared::offline_kernels::tma_im2col_load_kernel(), 90);
+    assert!(
+        ptx.contains("cp.async.bulk.tensor.4d.shared::cluster.global.im2col"),
+        "{ptx}"
+    );
+    assert!(
+        ptx.contains("cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes"),
+        "{ptx}"
+    );
+    assert!(
+        ptx.contains("mbarrier.try_wait.parity.shared::cta.b64"),
+        "{ptx}"
+    );
+}

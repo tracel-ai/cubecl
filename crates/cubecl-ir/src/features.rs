@@ -79,6 +79,10 @@ pub struct MatmulFeatures {
     /// Scaled MMA allows combining matrix multiplication with unscaling quantized values into a single
     /// instruction. Scales must fit a specific layout and block size.
     pub scaled_mma: BTreeSet<ScaledMmaConfig>,
+    /// Warpgroup MMA (Hopper's `wgmma.mma_async`): four planes multiply a tile of `B`, and
+    /// optionally `A`, read straight from shared memory through matrix descriptors, and
+    /// accumulate asynchronously in registers.
+    pub wgmma: BTreeSet<WgmmaConfig>,
     /// Types supported for ldmatrix, if any
     pub ldmatrix: BTreeSet<ElemType>,
     /// Types supported by stmatrix, if any
@@ -208,6 +212,35 @@ pub struct CubeMmaConfig {
     /// The number of units that must be in the cube for this configuration to be valid.
     /// `None` means it's always valid (but might still have an optimal value).
     pub units_per_block: Option<u32>,
+}
+
+/// Shape and element types of a valid warpgroup MMA configuration.
+/// `m` and `k` are fixed by the element types, and `n` may be any multiple of `n_granularity` up
+/// to `n_max`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct WgmmaConfig {
+    /// Element of the A matrix
+    pub a_type: ElemType,
+    /// Element of the B matrix
+    pub b_type: ElemType,
+    /// Element of the C/D matrices
+    pub cd_type: ElemType,
+    /// The size of the matrix on the `m` dimension
+    pub m: u32,
+    /// The granularity of the matrix on the `n` dimension
+    pub n_granularity: u32,
+    /// The maximum value for `n`
+    pub n_max: u32,
+    /// The size of the matrix on the `k` dimension
+    pub k: u32,
+}
+
+impl WgmmaConfig {
+    /// Whether `n` is a valid size for this configuration.
+    pub fn supports_n(&self, n: u32) -> bool {
+        n > 0 && n.is_multiple_of(self.n_granularity) && n <= self.n_max
+    }
 }
 
 /// Shape and element types of a valid block-scaled MMA configuration
