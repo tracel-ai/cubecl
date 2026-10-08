@@ -159,6 +159,16 @@ const_eval!(RsqrtOp, {
     FloatAttr(f16, bf16, f32, f64): |inp| inp.sqrt().recip(),
 });
 
+pure_unop!("math.cbrt", CbrtOp);
+const_eval!(CbrtOp, {
+    FloatAttr(f16, bf16, f32, f64): |inp| inp.cbrt(),
+});
+
+pure_unop!("math.rcbrt", RcbrtOp);
+const_eval!(RcbrtOp, {
+    FloatAttr(f16, bf16, f32, f64): |inp| inp.cbrt().recip(),
+});
+
 pure_unop!("math.round", RoundOp);
 const_eval!(RoundOp, {
     FloatAttr(f16, bf16, f32, f64): |inp| inp.round(),

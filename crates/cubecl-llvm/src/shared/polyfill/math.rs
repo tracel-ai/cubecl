@@ -7,16 +7,16 @@ use cubecl_core::{
         bitwise::{BitwiseNotOp, FindFirstSetOp},
         cmp::{FClampOp, SClampOp, UClampOp},
         math::{
-            ArcCoshOp, ArcSinhOp, ArcTanhOp, CosOp, DegreesOp, Dp4aOp, ErfOp, ExpOp, Expm1Op,
-            FModFloorOp, HypotOp, Log1pOp, LogOp, PowiOp, RadiansOp, RecipOp, RhypotOp, RsqrtOp,
-            SModFloorOp, SMulHiOp, SNegOp, SinOp, TanhOp, UMulHiOp,
+            ArcCoshOp, ArcSinhOp, ArcTanhOp, CbrtOp, CosOp, DegreesOp, Dp4aOp, ErfOp, ExpOp,
+            Expm1Op, FModFloorOp, HypotOp, Log1pOp, LogOp, PowiOp, RadiansOp, RcbrtOp, RecipOp,
+            RhypotOp, RsqrtOp, SModFloorOp, SMulHiOp, SNegOp, SinOp, TanhOp, UMulHiOp,
         },
         vector::{FDotOp, MagnitudeOp, NormalizeOp, SDotOp, UDotOp},
     },
     prelude::{
         polyfills::{
-            erf, expand_dp4a_polyfill, expand_himul_sim, expand_s_himul_64, expand_u_himul_64,
-            expm1, log1p, powi_int, recip, to_degrees, to_radians,
+            cbrt, erf, expand_dp4a_polyfill, expand_himul_sim, expand_s_himul_64,
+            expand_u_himul_64, expm1, inverse_cbrt, log1p, powi_int, recip, to_degrees, to_radians,
         },
         *,
     },
@@ -192,6 +192,8 @@ fn inverse_sqrt<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
 }
 
 lower_unary_math_arith!(RsqrtOp => inverse_sqrt);
+lower_unary_math_arith!(CbrtOp => cbrt);
+lower_unary_math_arith!(RcbrtOp => inverse_cbrt);
 lower_unary_math_arith!(ErfOp => erf);
 lower_unary_math_arith!(RecipOp => recip);
 

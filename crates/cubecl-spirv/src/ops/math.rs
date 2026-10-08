@@ -196,6 +196,8 @@ impl ToSpirvDialectOp for gl::PowOp {
 lower_unop!(math::RecipOp, recip);
 lower_unop!(math::Log1pOp, log1p);
 lower_unop!(math::Expm1Op, expm1);
+lower_unop!(math::CbrtOp, cbrt);
+lower_unop!(math::RcbrtOp, inverse_cbrt);
 lower_unop!(math::ErfOp, erf);
 lower_binop!(math::HypotOp, hypot);
 lower_binop!(math::RhypotOp, rhypot);

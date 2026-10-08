@@ -813,6 +813,48 @@ test_unary_impl!(test_inverse_sqrt, F, Vector::inverse_sqrt, [
     }
 ]);
 
+test_unary_impl!(test_cbrt, F, Vector::cbrt, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0.0, 1.0, 8.0, -27.0],
+        expected: as_type![F: 0.0, 1.0, 2.0, -3.0]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 64.0, -0.125, 2.0, 1000.0],
+        expected: as_type![F: 4.0, -0.5, 1.259_921, 10.0]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: -1.0, 0.001, 3.0, -125.0],
+        expected: as_type![F: -1.0, 0.1, 1.442_25, -5.0]
+    }
+]);
+
+test_unary_impl!(test_inverse_cbrt, F, Vector::inverse_cbrt, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 1.0, 8.0, -27.0, 0.125],
+        expected: as_type![F: 1.0, 0.5, -0.333_333_34, 2.0]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 64.0, -0.001, 2.0, 1000.0],
+        expected: as_type![F: 0.25, -10.0, 0.793_700_5, 0.1]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0.0, -1.0, 0.008, 125.0],
+        expected: as_type![F: f32::INFINITY, -1.0, 5.0, 0.2]
+    }
+]);
+
 // No zero vector: its normalization is `0 / 0`, and these kernels opt into fast math, under which
 // a compiler may assume no NaN arises (Metal folds it to 1).
 test_unary_impl!(
@@ -1102,6 +1144,8 @@ macro_rules! testgen_unary {
             add_test!(test_vector_sum);
             add_test!(test_sqrt);
             add_test!(test_inverse_sqrt);
+            add_test!(test_cbrt);
+            add_test!(test_inverse_cbrt);
             add_test!(test_recip);
             add_test!(test_abs);
             add_test!(test_trunc);

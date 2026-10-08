@@ -389,10 +389,22 @@ define_unary_func!(
     Radians, to_radians, RadiansOp, f16, bf16, flex32, tf32, f32, f64
 );
 define_unary_func!(Sqrt, sqrt, SqrtOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(Cbrt, cbrt, CbrtOp, f16, bf16, flex32, tf32, f32, f64);
 define_unary_func!(
     InverseSqrt,
     inverse_sqrt,
     RsqrtOp,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+define_unary_func!(
+    InverseCbrt,
+    inverse_cbrt,
+    RcbrtOp,
     f16,
     bf16,
     flex32,
