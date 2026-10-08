@@ -34,6 +34,7 @@
 //! out on, and handed to the server as a [`LaunchMode`].
 
 mod base;
+mod issued;
 mod process_mode;
 mod statistics;
 mod stream_mode;
@@ -46,6 +47,7 @@ pub use statistics::{
 };
 pub(crate) use statistics::{StatisticsRecorder, TuneOutcome, TuneRegistration};
 // Only a persisted pick names it.
+pub(crate) use issued::IssuedRecorder;
 #[cfg_attr(not(persistence), allow(unused_imports))]
 pub(crate) use statistics::TunePick;
 pub(crate) use stream_mode::ServiceStream;

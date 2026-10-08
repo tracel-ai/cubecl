@@ -232,10 +232,12 @@ pub struct Settled<O: Outcome> {
 }
 
 impl<O: Outcome> Registration<O> {
-    /// Register one item with the collector of the override open now, if
-    /// one is.
+    /// Register one item with the collector of the override open where the
+    /// launch running now was issued — or, outside a launch, of the one open
+    /// now — if one is.
     pub fn register() -> Option<Self> {
-        let recorder = super::ProcessModeOverride::active_recorder()?;
+        let recorder = super::IssuedRecorder::running()
+            .unwrap_or_else(super::ProcessModeOverride::active_recorder)?;
         O::tally(&recorder.tallies).register();
         Some(Self {
             recorder: Some(recorder),

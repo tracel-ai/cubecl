@@ -112,10 +112,11 @@ impl ProcessModeOverride {
     /// Where the work the open override triggers is tallied, or `None` when
     /// none is open: what a [`Registration`](super::Registration) holds.
     ///
-    /// Read without a lock first, then under [`ACTIVE`]'s: work begun as one
-    /// override closes while another collector's opens on another thread
-    /// counts to the one opening. Overrides follow each other under a
-    /// caller's lease, so nothing starts work in that gap.
+    /// A launch reads it where it is issued and carries it to the thread that
+    /// runs it ([`IssuedRecorder`](super::IssuedRecorder)), so its kernels
+    /// count to the override open then. Read without a lock first, then under
+    /// [`ACTIVE`]'s: a launch issued as one override closes while another
+    /// collector's opens on another thread counts to the one opening.
     pub(crate) fn active_recorder() -> Option<StatisticsRecorder> {
         if !OpenState::load().is_open() {
             return None;
