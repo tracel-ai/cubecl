@@ -76,21 +76,25 @@ mod tests {
         let mode = || LaunchMode::new(seventh);
         assert_eq!(mode(), LaunchMode::Execute);
         {
-            let _compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+            let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
             assert_eq!(mode(), LaunchMode::Queue);
+            core::mem::drop(compile);
         }
         {
-            let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+            let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
             assert_eq!(mode(), LaunchMode::Compile);
+            core::mem::drop(tune);
         }
         {
             // A stream discarding its launches while the process executes
             // queues them.
-            let _queuing = StreamModeOverride::of_stream(StreamMode::Discard, seventh);
+            let queuing = StreamModeOverride::of_stream(StreamMode::Discard, seventh);
             assert_eq!(mode(), LaunchMode::Queue);
+            core::mem::drop(queuing);
         }
-        let _execute = ProcessModeOverride::new(ProcessMode::Execute, &collector);
+        let execute = ProcessModeOverride::new(ProcessMode::Execute, &collector);
         assert_eq!(mode(), LaunchMode::Execute);
+        core::mem::drop(execute);
     }
 
     /// A stream's mode overrides the process mode's default for that stream of
@@ -100,7 +104,7 @@ mod tests {
     #[serial_test::serial]
     fn a_stream_mode_holds_for_its_stream_on_its_device() {
         let collector = StatisticsCollector::new();
-        let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+        let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
         let measured = ServiceStream {
             service: device(0),
             stream: stream(1),
@@ -125,13 +129,14 @@ mod tests {
             LaunchMode::Compile,
             "the newest decides"
         );
-        drop(measuring);
+        core::mem::drop(measuring);
         assert_eq!(LaunchMode::new(measured), LaunchMode::Compile);
-        drop(nested);
+        core::mem::drop(nested);
         assert_eq!(
             LaunchMode::new(measured),
             LaunchMode::Compile,
             "the mode's again"
         );
+        core::mem::drop(tune);
     }
 }

@@ -29,10 +29,11 @@ pub fn test_compiled_kernels_run<R: Runtime>(client: Client) {
         .collect();
 
     {
-        let _compile_only = StreamModeOverride::new(StreamMode::Discard, &client);
+        let compile_only = StreamModeOverride::new(StreamMode::Discard, &client);
         for (number, out) in outputs.iter().enumerate() {
             launch_numbered(&client, out, number as u32);
         }
+        core::mem::drop(compile_only);
     }
     // A flush compiles nothing: only a launch that executes compiles the queue.
     client.flush().unwrap();

@@ -136,13 +136,15 @@ fn measure(
         let value = client.measure_throughput(key, || {
             // The probe's stream executes whatever the process mode drops: resolved
             // where its launches are issued, which here is the runner.
-            let _measuring = cubecl_runtime::execution::StreamModeOverride::new(
+            let measuring = cubecl_runtime::execution::StreamModeOverride::new(
                 cubecl_runtime::execution::StreamMode::Execute,
                 client,
             );
 
             probed = true;
-            probe(client, key)
+            let value = probe(client, key);
+            core::mem::drop(measuring);
+            value
         });
 
         (value, probed)

@@ -46,11 +46,12 @@ impl ProcessMode {
 /// // Gather every kernel the warm-up reaches, and compile them together...
 /// let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
 /// warm_up();
-/// drop(compile);
+/// core::mem::drop(compile);
 ///
 /// // ...then tune with them compiled.
-/// let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+/// let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
 /// warm_up();
+/// core::mem::drop(tune);
 ///
 /// let statistics = collector.statistics();
 /// assert_eq!(statistics.compilation.settled(), statistics.compilation.registered);
@@ -255,8 +256,10 @@ mod tests {
     )]
     fn policies_do_not_overlap() {
         let collector = StatisticsCollector::new();
-        let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
-        let _compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+        let opened = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+        let refused = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+        core::mem::drop(opened);
+        core::mem::drop(refused);
     }
 
     /// The work under an override counts to one collector: another's
@@ -266,8 +269,10 @@ mod tests {
     #[should_panic(expected = "cannot open while one of another collector is")]
     fn two_collectors_do_not_overlap() {
         let (first, second) = (StatisticsCollector::new(), StatisticsCollector::new());
-        let _first = ProcessModeOverride::new(ProcessMode::CompileOnly, &first);
-        let _second = ProcessModeOverride::new(ProcessMode::CompileOnly, &second);
+        let opened = ProcessModeOverride::new(ProcessMode::CompileOnly, &first);
+        let refused = ProcessModeOverride::new(ProcessMode::CompileOnly, &second);
+        core::mem::drop(opened);
+        core::mem::drop(refused);
     }
 
     /// A refused open leaves the open override as it was.
@@ -281,7 +286,7 @@ mod tests {
         });
         assert!(refused.is_err());
         assert_eq!(ProcessMode::current(), ProcessMode::CompileAndAutotune);
-        drop(tune);
+        core::mem::drop(tune);
         assert_eq!(ProcessMode::current(), ProcessMode::Execute);
     }
 
@@ -292,15 +297,17 @@ mod tests {
     fn overrides_nest() {
         let collector = StatisticsCollector::new();
         {
-            let _outer = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+            let outer = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
             {
-                let _inner = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+                let inner = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+                core::mem::drop(inner);
             }
             assert_eq!(
                 ProcessMode::current(),
                 ProcessMode::CompileOnly,
                 "the outer is in force"
             );
+            core::mem::drop(outer);
         }
         assert_eq!(ProcessMode::current(), ProcessMode::Execute);
         assert!(ProcessModeOverride::active_recorder().is_none());
@@ -325,10 +332,10 @@ mod tests {
             .filter_map(|_| KernelRegistration::register())
             .collect();
         let gathered = TuneRegistration::register().expect("an override is open");
-        drop(compile);
+        core::mem::drop(compile);
 
         // Kernels queued in one override compile in the next.
-        let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+        let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
         let mut queued = queued.into_iter();
         let mut compiled = queued.next().unwrap().settle(KernelOutcome::Compiled);
         compiled.record(KernelLoad::Refused);
@@ -358,13 +365,13 @@ mod tests {
         );
         assert_eq!(statistics.autotune.persisted, 1);
         assert_eq!(reader.statistics(), statistics);
-        drop(_tune);
+        core::mem::drop(tune);
 
         let execute = ProcessModeOverride::new(ProcessMode::Execute, &collector);
         let _measured = TuneRegistration::register()
             .expect("an execute override counts too")
             .settle(TuneOutcome::Measured);
-        drop(execute);
+        core::mem::drop(execute);
         assert_eq!(collector.statistics().autotune.measured, 2);
         // The fourth kernel, never settled, fails as it drops.
         drop(queued);
@@ -377,7 +384,7 @@ mod tests {
     #[serial_test::serial]
     fn a_dropped_registration_settles_as_failed() {
         let collector = StatisticsCollector::new();
-        let _compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+        let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
         drop(KernelRegistration::register());
         drop(TuneRegistration::register());
         let statistics = collector.statistics();
@@ -392,5 +399,6 @@ mod tests {
             (statistics.autotune.failed, statistics.autotune.settled()),
             (1, 1)
         );
+        core::mem::drop(compile);
     }
 }

@@ -64,20 +64,22 @@ pub fn run(device: &Device) {
     let build = StatisticsCollector::new();
     let built = watching(build.reader(), || {
         for mode in [ProcessMode::CompileOnly, ProcessMode::CompileAndAutotune] {
-            let _pass = ProcessModeOverride::new(mode, &build);
+            let pass = ProcessModeOverride::new(mode, &build);
             workload(&client);
             // Drained under the override: a launch issued after it closes
             // runs for real.
             block_on(client.sync()).expect("the device is up");
+            core::mem::drop(pass);
         }
     });
     println!("Built: {}", Summary(built));
 
     let warm = StatisticsCollector::new();
     {
-        let _counted = ProcessModeOverride::new(ProcessMode::Execute, &warm);
+        let counted = ProcessModeOverride::new(ProcessMode::Execute, &warm);
         workload(&client);
         block_on(client.sync()).expect("the device is up");
+        core::mem::drop(counted);
     }
     println!("Warmed-up run: {}", Summary(warm.statistics()));
 
@@ -180,7 +182,7 @@ fn measurement_beside_discarded_work(client: &Client) {
     };
 
     let collector = StatisticsCollector::new();
-    let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+    let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
     let discarded = output();
     launch_scale(
         client,
@@ -192,10 +194,12 @@ fn measurement_beside_discarded_work(client: &Client) {
 
     let executed = output();
     {
-        let _measuring = StreamModeOverride::new(StreamMode::Execute, client);
+        let measuring = StreamModeOverride::new(StreamMode::Execute, client);
         launch_scale(client, &[input, executed.clone()], VectorSize(4), 2);
+        core::mem::drop(measuring);
     }
     println!("Measured launch:  output[0] = {}", first(&executed));
+    core::mem::drop(tune);
 }
 
 /// [`ExecutionStatistics`] in one line.

@@ -34,7 +34,7 @@ fn a_dropped_launch_is_issued_under_the_profiling_logger() {
         CubeDim::new_1d(1),
         unsafe { BufferArg::from_raw_parts(out.clone(), 1) },
     );
-    drop(execution);
+    core::mem::drop(execution);
 
     client
         .read_one(out)

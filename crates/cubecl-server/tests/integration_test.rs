@@ -1404,7 +1404,7 @@ fn an_override_drops_an_ordinary_launch() {
     };
 
     {
-        let _override =
+        let tune =
             ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &StatisticsCollector::new());
         add(&out);
 
@@ -1413,6 +1413,7 @@ fn an_override_drops_an_ordinary_launch() {
             Vec::from([9, 9, 9]),
             "the launch was compiled and then dropped, so the output is untouched"
         );
+        core::mem::drop(tune);
     }
 
     // The very same launch runs once the mode is off: nothing was poisoned by
@@ -1461,13 +1462,15 @@ fn a_stream_mode_follows_its_client_across_threads() {
     };
 
     {
-        let _tune =
+        let tune =
             ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &StatisticsCollector::new());
-        let _measuring = StreamModeOverride::new(StreamMode::Execute, &bound);
+        let measuring = StreamModeOverride::new(StreamMode::Execute, &bound);
         std::thread::scope(|scope| {
             scope.spawn(|| add(&bound, &executed));
         });
         add(&client, &dropped);
+        core::mem::drop(measuring);
+        core::mem::drop(tune);
     }
 
     assert_eq!(client.read_one(executed).unwrap().to_vec(), vec![4, 5, 6]);
@@ -1504,7 +1507,7 @@ fn an_override_still_autotunes() {
     let out = client.empty(3);
 
     {
-        let _override =
+        let tune =
             ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &StatisticsCollector::new());
         TUNER.execute(
             &"test".to_string(),
@@ -1512,6 +1515,7 @@ fn an_override_still_autotunes() {
             test_set.clone(),
             vec![lhs.clone(), rhs.clone(), out.clone()],
         );
+        core::mem::drop(tune);
     }
 
     // Cached now, so this is the fast path: it executes the winner and nothing
@@ -1572,7 +1576,7 @@ fn a_compile_only_override_leaves_the_tune_to_the_next_pass() {
 
     let collector = StatisticsCollector::new();
     {
-        let _compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+        let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
         TUNER.execute(&"test".to_string(), &client, test_set.clone(), handles());
         let compiled = calls.load(Ordering::Relaxed);
         assert!(compiled > 0, "the candidates ran, to queue their kernels");
@@ -1581,6 +1585,7 @@ fn a_compile_only_override_leaves_the_tune_to_the_next_pass() {
         // candidate that launches.
         TUNER.execute(&"test".to_string(), &client, test_set.clone(), handles());
         assert_eq!(calls.load(Ordering::Relaxed), compiled + 1);
+        core::mem::drop(compile);
     }
     assert_eq!(evictions.load(Ordering::Relaxed), 0, "nothing was measured");
     let gathered = collector.statistics().autotune;
@@ -1665,8 +1670,9 @@ fn a_key_reached_inside_another_registers_only_once_tuned() {
 
     let collector = StatisticsCollector::new();
     {
-        let _compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+        let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
         OUTER.execute(&"outer".to_string(), &client, outer_set.clone(), handles());
+        core::mem::drop(compile);
     }
     assert!(
         inner_calls.load(Ordering::Relaxed) > 0,
@@ -1680,8 +1686,9 @@ fn a_key_reached_inside_another_registers_only_once_tuned() {
 
     let gathered_calls = inner_calls.load(Ordering::Relaxed);
     {
-        let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+        let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
         OUTER.execute(&"outer".to_string(), &client, outer_set, handles());
+        core::mem::drop(tune);
     }
     // The inner key registers only if measuring the outer one reached it.
     let inner_tuned = inner_calls.load(Ordering::Relaxed) > gathered_calls;
@@ -1761,7 +1768,7 @@ fn an_override_reserves_without_mapping() {
         "resolution installed the backing: {report:?}"
     );
 
-    drop(execution);
+    core::mem::drop(execution);
 }
 
 /// A tunable set is built from the device it will run on — a closure captures

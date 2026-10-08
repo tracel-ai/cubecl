@@ -858,11 +858,11 @@ mod tests {
         }
         // Queued twice, registered once.
         loader.enqueue(Box::new(Numbered(0)), ());
-        drop(compile);
+        core::mem::drop(compile);
         let queued = collector.statistics().compilation;
         assert_eq!((queued.registered, queued.settled()), (5, 0));
 
-        let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+        let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
         loader.load(&Numbered(5), &id(5), &logger).unwrap();
         let batch = collector.statistics().compilation;
         assert_eq!(
@@ -878,6 +878,7 @@ mod tests {
             batch,
             "a loaded kernel is not registered again"
         );
+        core::mem::drop(tune);
     }
 
     /// The compilation statistics of `collector`, as (registered, compiled,
@@ -904,7 +905,7 @@ mod tests {
         use cubecl_runtime::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
 
         let collector = StatisticsCollector::new();
-        let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+        let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
         let mut loader = loader(4);
         loader.target.compiler.failing = Some(1);
         let logger = ServerLogger::default();
@@ -922,6 +923,7 @@ mod tests {
         loader.target.compiler.failing = None;
         loader.load(&Numbered(1), &id(1), &logger).unwrap();
         assert_eq!(counted(&collector), (6, 4, 0, 2, 0));
+        core::mem::drop(tune);
     }
 
     /// Kernels of a batch that share a source settle with it: the one that
@@ -935,7 +937,7 @@ mod tests {
         let logger = ServerLogger::default();
         for (refusing, expected) in [(false, (4, 1, 3, 0, 0)), (true, (4, 0, 0, 4, 0))] {
             let collector = StatisticsCollector::new();
-            let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+            let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
             let mut loader = loader(4);
             loader.target.compiler.shared_source = true;
             loader.target.compiler.refusing = refusing;
@@ -948,6 +950,7 @@ mod tests {
             // of a source that finalized, none of one that failed.
             let stored = collector.statistics().compilation.stored;
             assert_eq!(stored, if refusing { 0 } else { 4 }, "refusing: {refusing}");
+            core::mem::drop(tune);
         }
     }
 
@@ -959,7 +962,7 @@ mod tests {
         use cubecl_runtime::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
 
         let collector = StatisticsCollector::new();
-        let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+        let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
         let mut loader = loader(4);
         loader.target.rejecting = Some(1);
         let logger = ServerLogger::default();
@@ -974,6 +977,7 @@ mod tests {
             0,
             "a store keeps by source, and these kernels have none"
         );
+        core::mem::drop(tune);
     }
 
     /// A batch that panics leaves no kernel of it registered and unsettled:
@@ -984,7 +988,7 @@ mod tests {
         use cubecl_runtime::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
 
         let collector = StatisticsCollector::new();
-        let _tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+        let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
         let mut loader = loader(4);
         loader.target.compiler.panicking = Some(2);
         let logger = ServerLogger::default();
@@ -999,6 +1003,7 @@ mod tests {
         assert_eq!(statistics.registered, 5);
         assert_eq!(statistics.settled(), 5);
         assert!(statistics.failed >= 1, "the panicking kernel failed");
+        core::mem::drop(tune);
     }
 
     /// Asked to, the queue compiles without a launch, and the launch that

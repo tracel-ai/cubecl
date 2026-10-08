@@ -329,8 +329,9 @@ impl<K: AutotuneKey> Tuner<K> {
                 TuneRegistration::register()
             };
             self.cache.lock().mark_compiled(key.clone(), registration);
-            let _gathering = super::gathering::CandidateGathering::enter();
+            let gathering = super::gathering::CandidateGathering::enter();
             self.compile_plan(key, inputs, tunables, &autotunables);
+            core::mem::drop(gathering);
             return TuneCacheResult::Compiled;
         }
         // Sure to measure now: a tune registered nowhere yet registers with the override open.

@@ -110,7 +110,7 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
     // while this measurement holds the device. `exclusive` runs the body
     // under the issuing thread's stream, so the client resolves the same
     // stream here as there.
-    let _measuring =
+    let measuring =
         crate::execution::StreamModeOverride::new(crate::execution::StreamMode::Execute, &client);
 
     warmup(operation, inputs.clone(), client.clone())?;
@@ -131,6 +131,7 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
         // for the failure replaced by `InvalidSamples`.
         durations.push(operation.sample_once(inputs.clone(), &client, evictor.as_deref_mut())?);
     }
+    core::mem::drop(measuring);
 
     if durations.is_empty() {
         Err(AutotuneError::InvalidSamples {
