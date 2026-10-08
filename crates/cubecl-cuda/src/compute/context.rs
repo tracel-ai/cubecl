@@ -19,6 +19,9 @@ pub(crate) struct CudaContext {
     /// The stream collectives run on. Kept on the context so a relocation —
     /// which reaches the context, not the server — can wait on it.
     pub comm_stream: CUstream,
+    /// The stream transfers between devices run on, apart from the collectives', so neither
+    /// queues behind the other.
+    pub transfer_stream: CUstream,
     /// The modules loaded on the device, and how to load another.
     kernels: KernelLoader<CudaModules>,
     /// The options kernels are compiled with.
@@ -44,12 +47,14 @@ impl CudaContext {
         arch: CudaArchitecture,
         backend: CudaBackend,
         comm_stream: CUstream,
+        transfer_stream: CUstream,
     ) -> Self {
         let compiler = CudaArtifactCompiler::new(properties, compilation_options.clone(), arch);
 
         Self {
             context,
             comm_stream,
+            transfer_stream,
             kernels: KernelLoader::new(CudaModules::new(compiler, backend)),
             compilation_options,
             profiler: EventProfiler::default(),

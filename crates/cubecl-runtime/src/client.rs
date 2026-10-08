@@ -18,22 +18,24 @@ use crate::{
 use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
 use core::any::{Any, TypeId};
 
-mod collective_order;
 #[cfg(not(target_family = "wasm"))]
 mod lazy;
-use collective_order::COLLECTIVE_ORDER;
 use cubecl_common::{
     bytes::{AllocationProperty, Bytes},
     device::{DeviceId, ServiceId},
     device_handle::{CallResultExt, DeviceHandle},
     profile::ProfileDuration,
 };
-use cubecl_environment::{backtrace::BackTrace, future::DynFut, stream::StreamId};
+use cubecl_environment::{backtrace::BackTrace, future::DynFut, stream::StreamId, sync::Mutex};
 use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, VectorSize, features::Features};
 use cubecl_zspace::Shape;
 
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
+
+/// Work that waits on the host for its peers, a communicator's setup and a transfer's two
+/// halves, queues on every device in the order this hands out.
+static PEER_ORDER: Mutex<()> = Mutex::new(());
 
 /// The `Client` is the entry point to require tasks from the `Server`.
 /// It should be obtained for a specific device via the Compute struct.
@@ -41,6 +43,8 @@ pub struct Client {
     device: DeviceHandle<dyn Server>,
     utilities: Arc<ServerUtilities>,
     stream_id: Option<StreamId>,
+    /// Loads the client of another device of the same runtime.
+    load_peer: fn(DeviceId) -> Client,
 }
 
 /// A captured graph produced by [`Client::stop_capture`]: a recorded
@@ -191,6 +195,7 @@ impl Clone for Client {
             device: self.device.clone(),
             utilities: self.utilities.clone(),
             stream_id: self.stream_id,
+            load_peer: self.load_peer,
         }
     }
 }
@@ -219,6 +224,7 @@ impl Client {
             device: context,
             utilities,
             stream_id: None,
+            load_peer: Self::load::<S>,
         })
     }
 
@@ -237,6 +243,7 @@ impl Client {
             device: context,
             utilities,
             stream_id: None,
+            load_peer: Self::load::<S>,
         }
     }
 
@@ -927,14 +934,32 @@ impl Client {
     pub fn ensure_init_collective(&mut self, device_ids: Vec<DeviceId>) {
         self.expect_device_transport(Collective::CommInit);
         let comm_id = CommunicationId::from(device_ids.clone());
-        let is_comms_init = self.utilities.initialized_comms.read().contains(&comm_id);
-        if !is_comms_init {
-            self.device
+        if self.utilities.initialized_comms.read().contains(&comm_id) {
+            return;
+        }
+        // Each member's setup waits for the others', so none may wait in turn on work queued
+        // behind it, such as this caller's next part on its own device.
+        let _order = PEER_ORDER.lock();
+        if self.utilities.initialized_comms.read().contains(&comm_id) {
+            return;
+        }
+        let members: Vec<Self> = device_ids
+            .iter()
+            .map(|device| (self.load_peer)(*device))
+            .collect();
+        for member in &members {
+            let device_ids = device_ids.clone();
+            member
+                .device
                 .submit(move |server| server.comm_init(device_ids).unwrap());
-            let mut initialized_comms = self.utilities.initialized_comms.write();
-            initialized_comms.insert(comm_id);
-            // Flush immediately so other devices aren't blocked waiting on this initialization.
-            self.device.flush_queue();
+            member
+                .utilities
+                .initialized_comms
+                .write()
+                .insert(comm_id.clone());
+        }
+        for member in &members {
+            member.device.flush_queue();
         }
     }
 
@@ -1010,19 +1035,17 @@ impl Client {
         self.expect_local(&src);
         self.expect_local(&dst);
 
-        COLLECTIVE_ORDER.all_reduce(self.device.device_id(), device_ids, |device_ids| {
-            self.ensure_init_collective(device_ids.clone());
+        self.ensure_init_collective(device_ids.clone());
 
-            self.device.submit(move |server| {
-                // The report lives on the buffers: a refused or failed reduce has
-                // tainted the destination, so the read that consumes it fails on
-                // the root cause. The log is the eager half of that report: an
-                // unwrap here would only be reduced to a warn by the channel's
-                // catch_unwind, with the taint doing the real work either way.
-                if let Err(err) = server.all_reduce(src, dst, dtype, stream_id, op, device_ids) {
-                    log::error!("all_reduce failed; the destination carries the failure: {err}");
-                }
-            });
+        self.device.submit(move |server| {
+            // The report lives on the buffers: a refused or failed reduce has
+            // tainted the destination, so the read that consumes it fails on
+            // the root cause. The log is the eager half of that report — an
+            // unwrap here would only be reduced to a warn by the channel's
+            // catch_unwind, with the taint doing the real work either way.
+            if let Err(err) = server.all_reduce(src, dst, dtype, stream_id, op, device_ids) {
+                log::error!("all_reduce failed; the destination carries the failure: {err}");
+            }
         });
     }
 
@@ -1047,7 +1070,7 @@ impl Client {
         let device_id_src = self.device.device_id();
         let device_id_dst = dst_server.device.device_id();
 
-        let mut dst_server = dst_server.clone();
+        let dst_server = dst_server.clone();
         let handle = Handle::new(
             dst_server.service_id(),
             stream_id_dst,
@@ -1055,45 +1078,38 @@ impl Client {
         );
         let handle_cloned = handle.clone();
 
-        let device_ids = vec![device_id_src, device_id_dst];
-        let send = || {
-            self.ensure_init_collective(device_ids.clone());
-            self.device.submit(move |server_src| {
-                // A refused send has no local buffer to answer for, so the log is
-                // the whole local report. The peer's posted recv is left waiting
-                // on its communication stream: the recv cannot be recalled from
-                // here, and cross-device failure propagation needs a design pass
-                // of its own, so the wedge is named loudly rather than hidden
-                // behind a swallowed unwrap.
-                if let Err(err) =
-                    server_src.send(src_descriptor, dtype, stream_id_src, device_id_dst)
-                {
-                    log::error!(
-                        "send to {device_id_dst:?} failed; the peer's recv is left waiting: {err}"
-                    );
-                }
-            });
-            // A send waits on its device thread for the matching recv, so both halves flush at once.
-            self.device.flush_queue();
-        };
-        let receive = || {
-            dst_server.ensure_init_collective(device_ids.clone());
-            dst_server.device.submit(move |server_dst| {
-                // A failed recv taints the destination handle, so the read that
-                // consumes this transfer fails on the cause.
-                if let Err(err) = server_dst.recv(handle_cloned, dtype, stream_id_dst, device_id_src) {
-                    log::error!(
-                        "recv from {device_id_src:?} failed; the destination carries the failure: {err}"
-                    );
-                    return;
-                }
-                if let Err(err) = server_dst.sync_collective(stream_id_dst) {
-                    log::error!("sync_collective failed: {err}");
-                }
-            });
-            dst_server.device.flush_queue();
-        };
-        COLLECTIVE_ORDER.transfer(device_id_src, device_id_dst, send, receive);
+        // NCCL pairs sends and recvs in the order each device queues them.
+        let _order = PEER_ORDER.lock();
+
+        self.device.submit(move |server_src| {
+            // A refused send has no local buffer to answer for, so the log is
+            // the whole local report. The peer's posted recv is left waiting
+            // on its communication stream — the recv cannot be recalled from
+            // here, and cross-device failure propagation needs a design pass
+            // of its own — so the wedge is named loudly rather than hidden
+            // behind a swallowed unwrap.
+            if let Err(err) = server_src.send(src_descriptor, dtype, stream_id_src, device_id_dst) {
+                log::error!(
+                    "send to {device_id_dst:?} failed; the peer's recv is left waiting: {err}"
+                );
+            }
+        });
+
+        dst_server.device.submit(move |server_dst| {
+            // A failed recv taints the destination handle, so the read that
+            // consumes this transfer fails on the cause.
+            if let Err(err) = server_dst.recv(handle_cloned, dtype, stream_id_dst, device_id_src) {
+                log::error!(
+                    "recv from {device_id_src:?} failed; the destination carries the failure: {err}"
+                );
+            }
+        });
+
+        // `ServerCommunication::send` and`ServerCommunication::recv` are blocking: they each wait for the corresponding recv/send
+        // call to be made. We flush the operations right away so that the neither server ends up in a deadlock.
+        // The actual data transfer is still executed asynchronously on the transfer stream.
+        self.device.flush_queue();
+        dst_server.device.flush_queue();
 
         handle
     }

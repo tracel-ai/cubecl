@@ -27,6 +27,13 @@ pub fn test_all_reduce_beside_transfers<R: Runtime>() {
     finish_within_limit(beside_transfers::<R>);
 }
 
+/// A group's first `all_reduce` calls finish when one thread queues more of them on each device
+/// than its task queue holds before moving to the next device.
+pub fn test_all_reduce_first_use_many_parts<R: Runtime>() {
+    let _collectives = COLLECTIVES.lock().unwrap_or_else(PoisonError::into_inner);
+    finish_within_limit(first_use_many_parts::<R>);
+}
+
 fn finish_within_limit(test: fn()) {
     let (finished, done) = mpsc::channel();
     let test = std::thread::spawn(move || {
@@ -102,6 +109,58 @@ fn sync_collective<R: Runtime>() {
             let actual = f32::from_bytes(&actual);
             let expected = [value_base + j as f32 * device_count as f32; SIZE];
             assert_eq!(actual, expected);
+        }
+    }
+}
+
+fn first_use_many_parts<R: Runtime>() {
+    const PARTS: usize = 100;
+    const SIZE: usize = 16;
+    let f32_type = cubecl_ir::ElemType::Float(cubecl_ir::FloatKind::F32);
+
+    let device_ids = R::enumerate_devices(0);
+    if device_ids.len() < 2 {
+        return;
+    }
+    let devices: Vec<R::Device> = device_ids
+        .iter()
+        .map(|id| R::Device::from_id(*id))
+        .collect();
+    if !R::client(&devices[0]).has_device_transport() {
+        return;
+    }
+
+    let mut clients: Vec<_> = devices.iter().map(R::client).collect();
+    let handles: Vec<Vec<_>> = clients
+        .iter()
+        .enumerate()
+        .map(|(rank, client)| {
+            (0..PARTS)
+                .map(|_| client.create_from_slice(f32::as_bytes(&[rank as f32; SIZE])))
+                .collect()
+        })
+        .collect();
+    for (client, handles) in clients.iter_mut().zip(&handles) {
+        for handle in handles {
+            client.all_reduce(
+                handle.clone(),
+                handle.clone(),
+                f32_type,
+                device_ids.clone(),
+                cubecl_runtime::server::ReduceOperation::Sum,
+            );
+        }
+    }
+    for client in &clients {
+        client.sync_collective();
+    }
+
+    let ranks = clients.len();
+    let expected = [(ranks * (ranks - 1) / 2) as f32; SIZE];
+    for (client, handles) in clients.iter().zip(handles) {
+        for handle in handles {
+            let actual = client.read_one(handle).unwrap();
+            assert_eq!(f32::from_bytes(&actual), expected);
         }
     }
 }
@@ -200,6 +259,13 @@ macro_rules! testgen_all_reduce {
         fn test_all_reduce_sync_collective() {
             cubecl_core::runtime_tests::all_reduce::test_all_reduce_sync_collective::<TestRuntime>(
             );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_all_reduce_first_use_many_parts() {
+            cubecl_core::runtime_tests::all_reduce::test_all_reduce_first_use_many_parts::<
+                TestRuntime,
+            >();
         }
 
         #[$crate::runtime_tests::test_log::test]

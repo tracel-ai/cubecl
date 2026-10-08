@@ -2,7 +2,8 @@ use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::driver::Cuda;
 use crate::compute::modules::CudaCompiledKernel;
 use crate::compute::{
-    Captures, Command, Window, context::CudaContext, events::Fence, stream::CudaStreamBackend,
+    Captures, Command, Window, communication, context::CudaContext, events::Fence,
+    stream::CudaStreamBackend,
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::server::{DeviceCaptures, ServerStorage};
@@ -436,6 +437,7 @@ impl ServerCommunication for CudaServer {
         // A group already joined is joined once, so the membership is
         // announced once too.
         if let Some(id) = self.collectives.join(device_ids)? {
+            communication::connect(self.collectives.get(&id)?, self.comm_stream())?;
             self.utilities.initialized_comms.write().insert(id);
         }
         Ok(())
@@ -514,14 +516,16 @@ impl ServerCommunication for CudaServer {
         drop(command);
 
         // Wait for the data to be ready on the compute stream.
-        Fence::new(stream).wait_async(self.comm_stream())?;
+        let transfers = self.transfer_stream();
+        Fence::new(stream).wait_async(transfers)?;
 
-        let (peers, comm_id) = pair(self.device_id, device_id_dst);
-        let comm = self.collectives.get(&comm_id)?;
-        let peer = self.collectives.peer_rank(&peers)?;
+        let peer = self
+            .collectives
+            .peer_rank(&pair(self.device_id, device_id_dst))?;
         let (nccl_dtype, count) = Cuda::data_type(dtype, resource.size)?;
+        let comm = self.collectives.transfers_with(device_id_dst)?;
 
-        Cuda::send(comm, &resource, nccl_dtype, count, peer, self.comm_stream())
+        Cuda::send(comm, &resource, nccl_dtype, count, peer, transfers)
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
@@ -615,6 +619,11 @@ impl CudaServer {
     /// The stream collectives run on.
     fn comm_stream(&self) -> CUstream {
         self.ctx.comm_stream
+    }
+
+    /// The stream transfers between devices run on.
+    fn transfer_stream(&self) -> CUstream {
+        self.ctx.transfer_stream
     }
 
     fn command_no_inputs(&mut self, stream_id: StreamId) -> Result<Command<'_>, ServerError> {
@@ -752,21 +761,23 @@ impl CudaServer {
         let memory = command_dst.reserve(handle.size())?;
         command_dst.bind(memory, handle.memory.clone())?;
         let resource_dst = command_dst.resource(handle.binding())?;
+        let stream = command_dst.stream().sys;
         drop(command_dst);
 
-        let (peers, comm_id) = pair(self.device_id, device_id_src);
-        let comm = self.collectives.get(&comm_id)?;
-        let peer = self.collectives.peer_rank(&peers)?;
-        let (nccl_dtype, count) = Cuda::data_type(dtype, resource_dst.size)?;
+        // Compute work queued before the reservation may still use its memory, and compute work
+        // queued after it reads what arrives.
+        let transfers = self.transfer_stream();
+        Fence::new(stream).wait_async(transfers)?;
 
-        Cuda::recv(
-            comm,
-            &resource_dst,
-            nccl_dtype,
-            count,
-            peer,
-            self.comm_stream(),
-        )
+        let peer = self
+            .collectives
+            .peer_rank(&pair(self.device_id, device_id_src))?;
+        let (nccl_dtype, count) = Cuda::data_type(dtype, resource_dst.size)?;
+        let comm = self.collectives.transfers_with(device_id_src)?;
+
+        Cuda::recv(comm, &resource_dst, nccl_dtype, count, peer, transfers)?;
+        Fence::new(transfers).wait_async(stream)?;
+        Ok(())
     }
 
     /// The stream a profiling window records its events into.
@@ -1353,15 +1364,14 @@ fn check_tma_im2col(
     Ok(())
 }
 
-/// The two devices of a peer-to-peer transfer, sorted, and the group they name.
+/// The two devices of a peer-to-peer transfer, sorted.
 ///
 /// Sorted because a rank is a position: `send` and `recv` are the two sides of
 /// one transfer and have to agree on which device is which.
-fn pair(this: DeviceId, peer: DeviceId) -> (Vec<DeviceId>, CommunicationId) {
+fn pair(this: DeviceId, peer: DeviceId) -> Vec<DeviceId> {
     let mut devices = vec![this, peer];
     devices.sort();
-    let id = CommunicationId::from(devices.clone());
-    (devices, id)
+    devices
 }
 
 impl ServerStorage for CudaServer {

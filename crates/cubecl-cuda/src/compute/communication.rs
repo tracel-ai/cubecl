@@ -86,6 +86,36 @@ fn nccl_dtype_count(
     Ok((nccl, (size / width) as usize))
 }
 
+/// Runs one single-element `all_reduce` over `comm`, so NCCL connects its peers now: it connects
+/// them on a communicator's first operation, which waits on the host until every peer runs it.
+pub fn connect(
+    comm: &cudarc::nccl::sys::ncclComm_t,
+    stream: cudarc::driver::sys::CUstream,
+) -> Result<(), ServerError> {
+    let failed = |call: &str, err: &dyn core::fmt::Debug| ServerError::Generic {
+        reason: format!("{call} failed while connecting a communicator: {err:?}"),
+        backtrace: BackTrace::capture(),
+    };
+    // SAFETY: the element is allocated, reduced in place and freed on `stream`, in that order,
+    // and `comm` was joined by `join`.
+    unsafe {
+        let element = cudarc::driver::result::malloc_async(stream, 4)
+            .map_err(|err| failed("cuMemAllocAsync", &err))?;
+        cudarc::nccl::result::all_reduce(
+            element as *const _,
+            element as *mut _,
+            1,
+            cudarc::nccl::sys::ncclDataType_t::ncclFloat32,
+            cudarc::nccl::sys::ncclRedOp_t::ncclSum,
+            *comm,
+            stream as _,
+        )
+        .map_err(|err| failed("ncclAllReduce", &err))?;
+        cudarc::driver::result::free_async(element, stream)
+            .map_err(|err| failed("cuMemFreeAsync", &err))
+    }
+}
+
 impl CollectiveDriver for Cuda {
     type Communicator = cudarc::nccl::sys::ncclComm_t;
     type UniqueId = cudarc::nccl::sys::ncclUniqueId;

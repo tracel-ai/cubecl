@@ -8,7 +8,7 @@ use std::sync::{
 #[cfg(not(feature = "std"))]
 pub use spin::{LazyLock, RwLockReadGuard, RwLockWriteGuard};
 #[cfg(feature = "std")]
-pub use std::sync::{Condvar, LazyLock, RwLockReadGuard, RwLockWriteGuard};
+pub use std::sync::{LazyLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// A spin-based one-time initialization cell, identical on every target.
 ///
