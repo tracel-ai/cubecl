@@ -2,7 +2,11 @@
 
 use alloc::vec::Vec;
 use cubecl_common::device::DeviceId;
-use cubecl_environment::sync::Mutex;
+use cubecl_environment::sync::{AtomicUsize, Ordering};
+#[cfg(not(feature = "std"))]
+use cubecl_environment::sync::{Mutex, RwLock};
+#[cfg(feature = "std")]
+use parking_lot::{Condvar, Mutex, RwLock};
 
 /// NCCL pairs the operations of a communicator in the order each device queues them, so every
 /// device has to queue them in one order.
@@ -12,23 +16,28 @@ pub static COLLECTIVE_ORDER: CollectiveOrder = CollectiveOrder::new();
 #[cfg(feature = "std")]
 const WAIT_WARNING: core::time::Duration = core::time::Duration::from_secs(10);
 
-/// Queues collective operations one at a time, holding back a transfer while an `all_reduce` is
-/// queued on some of its devices and not yet on the others.
+/// Queues collective operations so every device sees them in one order: the parts of
+/// `all_reduce` calls queue side by side, and a transfer queues alone, held back while an
+/// `all_reduce` is queued on some of its devices and not yet on the others.
 pub struct CollectiveOrder {
-    groups: Mutex<ReduceGroups>,
+    /// Shared by `all_reduce` parts, and held alone by a transfer.
+    queueing: RwLock<()>,
+    groups: RwLock<Vec<ReduceGroup>>,
+    /// Taken to wake waiting transfers, so the wake cannot fall between a transfer's last look
+    /// and its wait.
+    rejoin: Mutex<()>,
     #[cfg(feature = "std")]
-    rejoined: std::sync::Condvar,
+    rejoined: Condvar,
 }
 
 impl CollectiveOrder {
     const fn new() -> Self {
         Self {
-            groups: Mutex::new(ReduceGroups {
-                groups: Vec::new(),
-                waiting: 0,
-            }),
+            queueing: RwLock::new(()),
+            groups: RwLock::new(Vec::new()),
+            rejoin: Mutex::new(()),
             #[cfg(feature = "std")]
-            rejoined: std::sync::Condvar::new(),
+            rejoined: Condvar::new(),
         }
     }
 
@@ -41,32 +50,32 @@ impl CollectiveOrder {
         destination: DeviceId,
         queue: impl FnOnce() -> R,
     ) -> R {
-        let mut groups = self.groups.lock();
-        while let Some(split) = groups.split_over(source, destination) {
-            groups.waiting += 1;
+        let mut queueing = self.queueing.write();
+        while let Some(split) = self.split_over(source, destination) {
+            #[cfg_attr(not(feature = "std"), allow(unused_mut))]
+            let mut rejoin = self.rejoin.lock();
+            // The parts still missing queue on the shared side.
+            drop(queueing);
             #[cfg(feature = "std")]
+            if self
+                .rejoined
+                .wait_for(&mut rejoin, WAIT_WARNING)
+                .timed_out()
             {
-                let (guard, waited) = self
-                    .rejoined
-                    .wait_timeout(groups, WAIT_WARNING)
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                groups = guard;
-                if waited.timed_out() {
-                    log::warn!(
-                        "A transfer from {source:?} to {destination:?} is waiting on an all_reduce over {split:?} that only some of those devices have queued"
-                    );
-                }
+                log::warn!(
+                    "A transfer from {source:?} to {destination:?} is waiting on an all_reduce over {split:?} that only some of those devices have queued"
+                );
             }
             #[cfg(not(feature = "std"))]
-            {
-                let _ = split;
-                drop(groups);
-                core::hint::spin_loop();
-                groups = self.groups.lock();
-            }
-            groups.waiting -= 1;
+            let _ = split;
+            drop(rejoin);
+            #[cfg(not(feature = "std"))]
+            core::hint::spin_loop();
+            queueing = self.queueing.write();
         }
-        queue()
+        let output = queue();
+        drop(queueing);
+        output
     }
 
     /// Runs `queue` with `devices`, to queue `rank`'s part of an `all_reduce` over them.
@@ -76,28 +85,19 @@ impl CollectiveOrder {
         devices: Vec<DeviceId>,
         queue: impl FnOnce(Vec<DeviceId>) -> R,
     ) -> R {
-        let mut groups = self.groups.lock();
-        let rejoined = groups.queued(rank, &devices);
-        let output = queue(devices);
-        if rejoined && groups.waiting > 0 {
+        let _queueing = self.queueing.read();
+        if self.count(rank, &devices) {
+            let _rejoin = self.rejoin.lock();
             #[cfg(feature = "std")]
             self.rejoined.notify_all();
         }
-        output
+        queue(devices)
     }
-}
 
-/// Every set of devices an `all_reduce` has run over.
-struct ReduceGroups {
-    groups: Vec<ReduceGroup>,
-    /// Transfers waiting for a group to rejoin: waking them is a system call even with none.
-    waiting: usize,
-}
-
-impl ReduceGroups {
     /// The devices of an `all_reduce` split across `source` or `destination`, if there is one.
     fn split_over(&self, source: DeviceId, destination: DeviceId) -> Option<Vec<DeviceId>> {
         self.groups
+            .read()
             .iter()
             .find(|group| group.is_split() && (group.has(source) || group.has(destination)))
             .map(ReduceGroup::devices)
@@ -105,23 +105,30 @@ impl ReduceGroups {
 
     /// Counts an `all_reduce` `rank` queued over `devices`, and returns whether every one of them
     /// has now queued as many.
-    fn queued(&mut self, rank: DeviceId, devices: &[DeviceId]) -> bool {
-        let index = match self.groups.iter().position(|known| known.is_over(devices)) {
+    fn count(&self, rank: DeviceId, devices: &[DeviceId]) -> bool {
+        if let Some(group) = self
+            .groups
+            .read()
+            .iter()
+            .find(|group| group.is_over(devices))
+        {
+            return group.count(rank);
+        }
+        let mut groups = self.groups.write();
+        let index = match groups.iter().position(|group| group.is_over(devices)) {
             Some(index) => index,
             None => {
-                self.groups.push(ReduceGroup::over(devices));
-                self.groups.len() - 1
+                groups.push(ReduceGroup::over(devices));
+                groups.len() - 1
             }
         };
-        let group = &mut self.groups[index];
-        group.count(rank);
-        !group.is_split()
+        groups[index].count(rank)
     }
 }
 
 /// The devices of an `all_reduce`, each with how many `all_reduce` calls over them it has queued.
 struct ReduceGroup {
-    queued: Vec<(DeviceId, u64)>,
+    queued: Vec<(DeviceId, AtomicUsize)>,
 }
 
 impl ReduceGroup {
@@ -130,7 +137,10 @@ impl ReduceGroup {
         devices.sort();
         devices.dedup();
         Self {
-            queued: devices.into_iter().map(|device| (device, 0)).collect(),
+            queued: devices
+                .into_iter()
+                .map(|device| (device, AtomicUsize::new(0)))
+                .collect(),
         }
     }
 
@@ -151,15 +161,21 @@ impl ReduceGroup {
         self.queued.iter().any(|(member, _)| *member == device)
     }
 
-    fn count(&mut self, rank: DeviceId) {
-        if let Some((_, queued)) = self.queued.iter_mut().find(|(member, _)| *member == rank) {
-            *queued += 1;
+    /// Counts one more `all_reduce` on `rank`, and returns whether the group has rejoined. Of
+    /// ranks counting at once, the last to read sees every count, so a rejoin is never missed.
+    fn count(&self, rank: DeviceId) -> bool {
+        if let Some((_, queued)) = self.queued.iter().find(|(member, _)| *member == rank) {
+            queued.fetch_add(1, Ordering::SeqCst);
         }
+        !self.is_split()
     }
 
     /// Whether some device has queued an `all_reduce` that another has not yet.
     fn is_split(&self) -> bool {
-        let mut counts = self.queued.iter().map(|(_, queued)| *queued);
+        let mut counts = self
+            .queued
+            .iter()
+            .map(|(_, queued)| queued.load(Ordering::SeqCst));
         let first = counts.next();
         counts.any(|count| Some(count) != first)
     }

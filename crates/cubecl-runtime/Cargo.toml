@@ -31,7 +31,7 @@ default = [
 ]
 exclusive-memory-only = []
 profile-tracy = ["dep:tracy-client"]
-std = ["cubecl-common/std", "cubecl-environment/std", "toml", "thiserror/std"]
+std = ["cubecl-common/std", "cubecl-environment/std", "toml", "thiserror/std", "dep:parking_lot"]
 tokio = ["cubecl-environment/tokio"]
 
 tracing = ["dep:tracing", "cubecl-common/tracing", "cubecl-ir/tracing"]
@@ -71,6 +71,7 @@ buildid = { workspace = true }
 thiserror = { workspace = true }
 
 futures-util = { workspace = true, default-features = false }
+parking_lot = { workspace = true, optional = true }
 
 # Persistent cache deps - has to match the cfg(std_io) cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos", target_os = "android"))'.dependencies]
