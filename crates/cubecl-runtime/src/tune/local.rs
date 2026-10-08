@@ -227,8 +227,8 @@ where
                 )
             }
             // Still waiting (e.g. on wasm), stopped on a lost device, or its candidates' kernels
-            // queued by a compile-only dry run: run the first operation that serves the problem,
-            // which in a dry run only queues its kernels.
+            // queued under a `CompileOnly` override: run the first operation that serves the
+            // problem, which there only queues its kernels.
             TuneCacheResult::Pending | TuneCacheResult::Compiled => {
                 let mut failures = Vec::new();
                 for i in 0..operations.len() {
