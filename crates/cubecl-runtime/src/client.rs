@@ -1011,8 +1011,7 @@ impl Client {
         self.expect_local(&dst);
 
         let rank = self.device.device_id();
-        let group = device_ids.clone();
-        COLLECTIVE_ORDER.all_reduce(rank, &group, || {
+        COLLECTIVE_ORDER.all_reduce(rank, device_ids, |device_ids| {
             self.ensure_init_collective(device_ids.clone());
 
             self.device.submit(move |server| {

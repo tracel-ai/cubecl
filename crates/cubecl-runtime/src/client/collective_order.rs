@@ -23,7 +23,10 @@ pub struct CollectiveOrder {
 impl CollectiveOrder {
     const fn new() -> Self {
         Self {
-            groups: Mutex::new(ReduceGroups(Vec::new())),
+            groups: Mutex::new(ReduceGroups {
+                groups: Vec::new(),
+                waiting: 0,
+            }),
             #[cfg(feature = "std")]
             rejoined: std::sync::Condvar::new(),
         }
@@ -40,6 +43,7 @@ impl CollectiveOrder {
     ) -> R {
         let mut groups = self.groups.lock();
         while let Some(split) = groups.split_over(source, destination) {
+            groups.waiting += 1;
             #[cfg(feature = "std")]
             {
                 let (guard, waited) = self
@@ -60,20 +64,22 @@ impl CollectiveOrder {
                 core::hint::spin_loop();
                 groups = self.groups.lock();
             }
+            groups.waiting -= 1;
         }
         queue()
     }
 
-    /// Runs `queue`, which queues `rank`'s part of an `all_reduce` over `devices`.
+    /// Runs `queue` with `devices`, to queue `rank`'s part of an `all_reduce` over them.
     pub fn all_reduce<R>(
         &self,
         rank: DeviceId,
-        devices: &[DeviceId],
-        queue: impl FnOnce() -> R,
+        devices: Vec<DeviceId>,
+        queue: impl FnOnce(Vec<DeviceId>) -> R,
     ) -> R {
         let mut groups = self.groups.lock();
-        let output = queue();
-        if groups.queued(rank, devices) {
+        let rejoined = groups.queued(rank, &devices);
+        let output = queue(devices);
+        if rejoined && groups.waiting > 0 {
             #[cfg(feature = "std")]
             self.rejoined.notify_all();
         }
@@ -82,12 +88,16 @@ impl CollectiveOrder {
 }
 
 /// Every set of devices an `all_reduce` has run over.
-struct ReduceGroups(Vec<ReduceGroup>);
+struct ReduceGroups {
+    groups: Vec<ReduceGroup>,
+    /// Transfers waiting for a group to rejoin: waking them is a system call even with none.
+    waiting: usize,
+}
 
 impl ReduceGroups {
     /// The devices of an `all_reduce` split across `source` or `destination`, if there is one.
     fn split_over(&self, source: DeviceId, destination: DeviceId) -> Option<Vec<DeviceId>> {
-        self.0
+        self.groups
             .iter()
             .find(|group| group.is_split() && (group.has(source) || group.has(destination)))
             .map(ReduceGroup::devices)
@@ -96,19 +106,14 @@ impl ReduceGroups {
     /// Counts an `all_reduce` `rank` queued over `devices`, and returns whether every one of them
     /// has now queued as many.
     fn queued(&mut self, rank: DeviceId, devices: &[DeviceId]) -> bool {
-        let group = ReduceGroup::over(devices);
-        let index = match self
-            .0
-            .iter()
-            .position(|known| known.devices() == group.devices())
-        {
+        let index = match self.groups.iter().position(|known| known.is_over(devices)) {
             Some(index) => index,
             None => {
-                self.0.push(group);
-                self.0.len() - 1
+                self.groups.push(ReduceGroup::over(devices));
+                self.groups.len() - 1
             }
         };
-        let group = &mut self.0[index];
+        let group = &mut self.groups[index];
         group.count(rank);
         !group.is_split()
     }
@@ -131,6 +136,15 @@ impl ReduceGroup {
 
     fn devices(&self) -> Vec<DeviceId> {
         self.queued.iter().map(|(device, _)| *device).collect()
+    }
+
+    /// Whether `devices` names exactly this group's devices, in any order.
+    fn is_over(&self, devices: &[DeviceId]) -> bool {
+        devices.iter().all(|device| self.has(*device))
+            && self
+                .queued
+                .iter()
+                .all(|(member, _)| devices.contains(member))
     }
 
     fn has(&self, device: DeviceId) -> bool {
@@ -172,14 +186,18 @@ mod tests {
             let queued = queued.clone();
             move || queued.lock().unwrap().push(name)
         };
+        let reduce = |name| {
+            let record = record(name);
+            move |_| record()
+        };
 
-        order.all_reduce(device(0), &group, record("reduce on 0"));
+        order.all_reduce(device(0), group.to_vec(), reduce("reduce on 0"));
         let transfer = {
             let order = order.clone();
             let queue = record("transfer");
             std::thread::spawn(move || order.transfer(device(1), device(0), queue))
         };
-        order.all_reduce(device(1), &group, record("reduce on 1"));
+        order.all_reduce(device(1), group.to_vec(), reduce("reduce on 1"));
         transfer.join().unwrap();
 
         assert_eq!(
@@ -191,7 +209,7 @@ mod tests {
     #[test]
     fn a_transfer_between_other_devices_does_not_wait() {
         let order = CollectiveOrder::new();
-        order.all_reduce(device(0), &[device(0), device(1)], || ());
+        order.all_reduce(device(0), alloc::vec![device(0), device(1)], |_| ());
 
         assert!(order.transfer(device(2), device(3), || true));
     }
