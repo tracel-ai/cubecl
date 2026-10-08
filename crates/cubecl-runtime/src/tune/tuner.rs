@@ -475,14 +475,25 @@ impl<K: AutotuneKey> Tuner<K> {
             evictor: job.evictor.take(),
         };
 
-        let outcome = schedule.run_plan(
+        let outcome = match schedule.run_plan(
             &job.key,
             &mut job.plan,
             &job.autotunables,
             &job.test_inputs,
             client,
             &mut job.results,
-        );
+        ) {
+            Ok(outcome) => outcome,
+            // Left pending, so callers run the first candidate that serves the problem and meet
+            // the loss in their own reads instead of in a winner measured on nothing.
+            Err(lost) => {
+                log::error!(
+                    "Autotune of {} stopped, the device is lost: {lost}",
+                    job.key
+                );
+                return TuneCacheResult::Pending;
+            }
+        };
 
         for (name, duration) in outcome.steps {
             job.log_context.push_tuning_step(name, duration);

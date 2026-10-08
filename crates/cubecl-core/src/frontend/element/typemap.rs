@@ -30,6 +30,12 @@ use crate::{
 
 use super::*;
 
+/// Type-level tag for a launch kernel's dynamic generic.
+///
+/// `N` is the generic's position in the kernel signature, which keeps generics
+/// within one kernel distinct while letting kernels share the same types.
+pub struct GenericSlot<const N: usize>;
+
 /// A fake element type that can be configured to map to any other element type.
 #[repr(transparent)]
 #[derive(Serialize, Debug, Display)]
