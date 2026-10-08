@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 
 use cubecl_common::profile::Instant;
 use cubecl_environment::collections::{HashMap, HashSet};
-use cubecl_runtime::execution::{KernelLoad, KernelOutcome, KernelRegistration, SettledKernel};
+use cubecl_runtime::execution::{KernelHandling, KernelOutcome, KernelRegistration, SettledKernel};
 
 use super::{
     ArtifactCompiler, ArtifactId, BatchOutcome, CompilationBatchRecording, CompilationOutcome,
@@ -498,7 +498,7 @@ enum JobCount {
 
 impl JobCount {
     /// Count what the job's load did, once it settled.
-    fn record(&mut self, load: KernelLoad) {
+    fn record(&mut self, load: KernelHandling) {
         if let Self::Settled(settled) = self {
             settled.record(load);
         }
@@ -726,7 +726,7 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
                             stored = target.store(&self.id, artifact, source.as_deref());
                         }
                         if stored {
-                            self.count.record(KernelLoad::Stored);
+                            self.count.record(KernelHandling::Stored);
                         }
                         self.recording.close(outcome, stored);
                         Ok(loaded)
@@ -734,7 +734,7 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
                     Err(err) => {
                         // Settled as obtained before the device saw it: the
                         // refusal is counted on its own.
-                        self.count.record(KernelLoad::Refused);
+                        self.count.record(KernelHandling::Refused);
                         Err(err.into())
                     }
                 }
@@ -1002,7 +1002,10 @@ mod tests {
         let statistics = collector.statistics().compilation;
         assert_eq!(statistics.registered, 5);
         assert_eq!(statistics.settled(), 5);
-        assert!(statistics.failed >= 1, "the panicking kernel failed");
+        assert!(
+            statistics.abandoned >= 1,
+            "the kernels the panic left unfinished are abandoned"
+        );
         core::mem::drop(tune);
     }
 

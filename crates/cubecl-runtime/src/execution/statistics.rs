@@ -27,13 +27,18 @@ pub struct CompilationStatistics {
     pub loaded: usize,
     /// Failed to compile.
     pub failed: usize,
+    /// Dropped before it settled: the batch compiling it panicked, or the
+    /// server holding it went away.
+    pub abandoned: usize,
     /// Compiled or read from the store, then refused by the device when it
     /// was loaded: counted among [`compiled`](Self::compiled) or
     /// [`loaded`](Self::loaded) too, since those are counted as the batch
     /// obtains them, before anything is loaded.
     pub refused: usize,
     /// Kept in the compilation store once loaded: what the environment grew
-    /// by. Read from the store, or refused, a kernel is not stored again.
+    /// by. Read from the store under its own key, or refused, a kernel is not
+    /// stored again; one taken from the store by its source is, under its
+    /// own key.
     pub stored: usize,
 }
 
@@ -41,7 +46,7 @@ impl CompilationStatistics {
     /// The kernels done, however they ended: never more than
     /// [`registered`](Self::registered).
     pub fn settled(&self) -> usize {
-        self.compiled + self.loaded + self.failed
+        self.compiled + self.loaded + self.failed + self.abandoned
     }
 }
 
@@ -58,6 +63,10 @@ pub struct AutotuneStatistics {
     pub measured: usize,
     /// Every candidate failed: the pick was made unmeasured.
     pub failed: usize,
+    /// Dropped before it settled: a candidate panicked, the device was lost
+    /// while it measured, or an environment switch dropped the key it was
+    /// gathered for.
+    pub abandoned: usize,
     /// Measured, and kept in the persistent autotune cache: what the
     /// environment grew by. An unmeasured pick is never kept.
     pub persisted: usize,
@@ -67,7 +76,7 @@ impl AutotuneStatistics {
     /// The keys done, however they ended: never more than
     /// [`registered`](Self::registered).
     pub fn settled(&self) -> usize {
-        self.measured + self.failed
+        self.measured + self.failed + self.abandoned
     }
 }
 
@@ -147,12 +156,15 @@ pub enum KernelOutcome {
     Loaded,
     /// Failed to compile.
     Failed,
+    /// Dropped before it settled.
+    Abandoned,
 }
 
-/// What became of a settled kernel when it was loaded.
+/// What the server did with a settled kernel: the device refused it, or the
+/// compilation store kept it.
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KernelLoad {
+pub enum KernelHandling {
     /// The device refused it.
     Refused,
     /// The compilation store kept it.
@@ -166,6 +178,8 @@ pub(crate) enum TuneOutcome {
     Measured,
     /// Every candidate failed: the pick was made unmeasured.
     Failed,
+    /// Dropped before it settled.
+    Abandoned,
 }
 
 /// What became of a settled key's pick.
@@ -190,8 +204,11 @@ pub(crate) type TuneRegistration = Registration<TuneOutcome>;
 /// it was, which it is counted to once it [settles](Self::settle) —
 /// wherever and whenever that is, whether or not that override is still
 /// open. Dropped before it settled — its batch or its tune panicked, or the
-/// key it holds was dropped — it settles as failed, so no registration is
-/// left open for good.
+/// key it holds was dropped — it settles as abandoned.
+///
+/// What holds it decides when that is: a kernel queued and never loaded, or
+/// a key gathered and never measured again, stays registered until a later
+/// pass reaches it, its environment switches or its server goes away.
 ///
 /// Public for the kernel loader, which lives in `cubecl-server`; counting is
 /// not for callers, which read their own [`StatisticsCollector`].
@@ -241,7 +258,7 @@ impl<O: Outcome> Registration<O> {
 impl<O: Outcome> Drop for Registration<O> {
     fn drop(&mut self) {
         if let Some(recorder) = self.recorder.take() {
-            O::tally(&recorder.tallies).settle(O::FAILED.index());
+            O::tally(&recorder.tallies).settle(O::ABANDONED.index());
         }
     }
 }
@@ -284,13 +301,15 @@ impl CollectorTallies {
                 compiled: kernels.settled[KernelOutcome::Compiled.index()],
                 loaded: kernels.settled[KernelOutcome::Loaded.index()],
                 failed: kernels.settled[KernelOutcome::Failed.index()],
-                refused: kernels.later[KernelOutcome::later_index(KernelLoad::Refused)],
-                stored: kernels.later[KernelOutcome::later_index(KernelLoad::Stored)],
+                abandoned: kernels.settled[KernelOutcome::Abandoned.index()],
+                refused: kernels.later[KernelOutcome::later_index(KernelHandling::Refused)],
+                stored: kernels.later[KernelOutcome::later_index(KernelHandling::Stored)],
             },
             autotune: AutotuneStatistics {
                 registered: tunes.registered,
                 measured: tunes.settled[TuneOutcome::Measured.index()],
                 failed: tunes.settled[TuneOutcome::Failed.index()],
+                abandoned: tunes.settled[TuneOutcome::Abandoned.index()],
                 persisted: tunes.later[TuneOutcome::later_index(TunePick::Persisted)],
             },
         }
@@ -298,9 +317,14 @@ impl CollectorTallies {
 }
 
 /// Room for every outcome a kind of work has.
-const OUTCOMES: usize = 3;
+const OUTCOMES: usize = 4;
 /// Room for everything that can happen to a kind of work once it settled.
 const LATER: usize = 2;
+
+// Every kind of work fits its tally: a variant added past the room fails
+// here rather than out of bounds on a count.
+const _: () = assert!(KernelOutcome::OUTCOMES <= OUTCOMES && KernelOutcome::LATER <= LATER);
+const _: () = assert!(TuneOutcome::OUTCOMES <= OUTCOMES && TuneOutcome::LATER <= LATER);
 
 /// Items registered, how many ended in each outcome, and how many of those
 /// something happened to afterwards: the one counting mechanism every kind
@@ -351,14 +375,20 @@ impl Tally {
 /// A kind of work a collector counts: how one item of it can end, and what
 /// can happen to it after.
 ///
-/// Reachable only through the work it is implemented for: the tallies it
+/// Sealed: it, [`CollectorTallies`] and [`Tally`] are `pub` only so the
+/// public [`Registration`] can name them, in a module nothing outside the
+/// crate reaches, so no kind of work is added from outside — the tallies it
 /// picks are the collector's own.
 #[doc(hidden)]
 pub trait Outcome: Copy + 'static {
     /// What can happen to an item once it settled.
     type Later: Copy;
+    /// How many outcomes it has, which a [`Tally`] has room for.
+    const OUTCOMES: usize;
+    /// How many things can happen to it once settled.
+    const LATER: usize;
     /// The outcome of an item dropped before it settled.
-    const FAILED: Self;
+    const ABANDONED: Self;
 
     /// Its slot in a [`Tally`]'s outcomes.
     fn index(self) -> usize;
@@ -369,21 +399,24 @@ pub trait Outcome: Copy + 'static {
 }
 
 impl Outcome for KernelOutcome {
-    type Later = KernelLoad;
-    const FAILED: Self = Self::Failed;
+    type Later = KernelHandling;
+    const OUTCOMES: usize = 4;
+    const LATER: usize = 2;
+    const ABANDONED: Self = Self::Abandoned;
 
     fn index(self) -> usize {
         match self {
             Self::Compiled => 0,
             Self::Loaded => 1,
             Self::Failed => 2,
+            Self::Abandoned => 3,
         }
     }
 
-    fn later_index(later: KernelLoad) -> usize {
+    fn later_index(later: KernelHandling) -> usize {
         match later {
-            KernelLoad::Refused => 0,
-            KernelLoad::Stored => 1,
+            KernelHandling::Refused => 0,
+            KernelHandling::Stored => 1,
         }
     }
 
@@ -394,12 +427,15 @@ impl Outcome for KernelOutcome {
 
 impl Outcome for TuneOutcome {
     type Later = TunePick;
-    const FAILED: Self = Self::Failed;
+    const OUTCOMES: usize = 3;
+    const LATER: usize = 1;
+    const ABANDONED: Self = Self::Abandoned;
 
     fn index(self) -> usize {
         match self {
             Self::Measured => 0,
             Self::Failed => 1,
+            Self::Abandoned => 2,
         }
     }
 

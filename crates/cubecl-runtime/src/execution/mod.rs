@@ -41,7 +41,7 @@ mod stream_mode;
 pub use base::LaunchMode;
 pub use process_mode::{ProcessMode, ProcessModeOverride};
 pub use statistics::{
-    AutotuneStatistics, CompilationStatistics, ExecutionStatistics, KernelLoad, KernelOutcome,
+    AutotuneStatistics, CompilationStatistics, ExecutionStatistics, KernelHandling, KernelOutcome,
     KernelRegistration, Registration, SettledKernel, StatisticsCollector, StatisticsReader,
 };
 pub(crate) use statistics::{StatisticsRecorder, TuneOutcome, TuneRegistration};

@@ -239,7 +239,7 @@ impl OpenState {
 
 #[cfg(test)]
 mod tests {
-    use super::super::statistics::{KernelLoad, KernelOutcome, TuneOutcome, TunePick};
+    use super::super::statistics::{KernelHandling, KernelOutcome, TuneOutcome, TunePick};
     use super::super::{CompilationStatistics, KernelRegistration, TuneRegistration};
     use super::*;
     // `serial_test`'s macro expands to `vec!`, which a `no_std` crate has to
@@ -338,10 +338,10 @@ mod tests {
         let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
         let mut queued = queued.into_iter();
         let mut compiled = queued.next().unwrap().settle(KernelOutcome::Compiled);
-        compiled.record(KernelLoad::Refused);
-        compiled.record(KernelLoad::Refused);
+        compiled.record(KernelHandling::Refused);
+        compiled.record(KernelHandling::Refused);
         let mut loaded = queued.next().unwrap().settle(KernelOutcome::Loaded);
-        loaded.record(KernelLoad::Stored);
+        loaded.record(KernelHandling::Stored);
         let _failed = queued.next().unwrap().settle(KernelOutcome::Failed);
         let mut measured = gathered.settle(TuneOutcome::Measured);
         measured.record(TunePick::Persisted);
@@ -354,6 +354,7 @@ mod tests {
                 compiled: 1,
                 loaded: 1,
                 failed: 1,
+                abandoned: 0,
                 refused: 1,
                 stored: 1,
             },
@@ -373,16 +374,16 @@ mod tests {
             .settle(TuneOutcome::Measured);
         core::mem::drop(execute);
         assert_eq!(collector.statistics().autotune.measured, 2);
-        // The fourth kernel, never settled, fails as it drops.
+        // The fourth kernel, never settled, is abandoned as it drops.
         drop(queued);
-        assert_eq!(collector.statistics().compilation.failed, 2);
+        assert_eq!(collector.statistics().compilation.abandoned, 1);
     }
 
     /// A registration dropped before it settled — its batch or its tune
-    /// panicked — settles as failed: none stays open.
+    /// panicked — settles as abandoned.
     #[test]
     #[serial_test::serial]
-    fn a_dropped_registration_settles_as_failed() {
+    fn a_dropped_registration_settles_as_abandoned() {
         let collector = StatisticsCollector::new();
         let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
         drop(KernelRegistration::register());
@@ -390,13 +391,13 @@ mod tests {
         let statistics = collector.statistics();
         assert_eq!(
             (
-                statistics.compilation.failed,
+                statistics.compilation.abandoned,
                 statistics.compilation.settled()
             ),
             (1, 1)
         );
         assert_eq!(
-            (statistics.autotune.failed, statistics.autotune.settled()),
+            (statistics.autotune.abandoned, statistics.autotune.settled()),
             (1, 1)
         );
         core::mem::drop(compile);
