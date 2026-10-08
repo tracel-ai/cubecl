@@ -628,7 +628,7 @@ impl Scope {
         if child_may_continue {
             self.expand_state_mut().may_continue = true;
             let flag = self.expand_state().inv_continue_flag;
-            self.predicate_on_flag(flag.expect("Should have break flag"));
+            self.predicate_on_flag(flag.expect("Should have continue flag"));
         }
     }
 
