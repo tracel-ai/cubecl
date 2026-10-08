@@ -14,9 +14,9 @@
 //!   [`StreamModeOverride`] puts one client's stream back in
 //!   [`StreamMode::Execute`].
 //!
-//! Compiled kernels and tune picks persist in the active environment, so a
-//! second run of the example finds its build already done: its kernels load
-//! from the store and nothing is measured.
+//! Tune picks persist in the active environment, so a second run of the
+//! example measures nothing; a runtime that stores its compiled kernels loads
+//! them rather than compiling them again.
 
 use cubecl::{
     Device,
