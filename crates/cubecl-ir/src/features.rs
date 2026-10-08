@@ -220,12 +220,8 @@ pub struct CubeMmaConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WgmmaConfig {
-    /// Element of the A matrix
-    pub a_type: ElemType,
-    /// Element of the B matrix
-    pub b_type: ElemType,
-    /// Element of the C/D matrices
-    pub cd_type: ElemType,
+    /// The element types
+    pub elems: WgmmaElems,
     /// The size of the matrix on the `m` dimension
     pub m: u32,
     /// The granularity of the matrix on the `n` dimension
@@ -245,10 +241,7 @@ impl WgmmaConfig {
     /// Whether this configuration multiplies `elems.a` by `elems.b` into `elems.cd` with
     /// `shape`.
     pub fn matches(&self, elems: WgmmaElems, shape: MatrixShape) -> bool {
-        let WgmmaElems { a, b, cd } = elems;
-        self.a_type == a
-            && self.b_type == b
-            && self.cd_type == cd
+        self.elems == elems
             && self.m as usize == shape.m
             && self.k as usize == shape.k
             && u32::try_from(shape.n).is_ok_and(|n| self.supports_n(n))
@@ -256,7 +249,8 @@ impl WgmmaConfig {
 }
 
 /// The element types of a warpgroup MMA.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WgmmaElems {
     /// Element of the A matrix
     pub a: ElemType,

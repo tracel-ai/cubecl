@@ -16,53 +16,91 @@ use pliron::location::Location;
 const COMMIT_GROUP: &str = "llvm.nvvm.cp.async.bulk.commit.group";
 const WAIT_GROUP_READ: &str = "llvm.nvvm.cp.async.bulk.wait.group.read";
 
-#[derive(Debug, Error)]
-#[error("a TMA {0} is an integer, not {1}")]
-pub struct TmaOperandType(&'static str, String);
+/// What a TMA copy addresses its tile with, each an integer of its own width.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CoordinateKind {
+    /// A coordinate in the tensor, which may be negative.
+    Tensor,
+    /// An offset of an im2col load into the kernel window.
+    Im2colOffset,
+}
 
-/// `value`, an integer, sign extended or truncated to `width` bits. Coordinates may be negative.
-fn to_width(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    value: Value,
-    width: u32,
-    what: &'static str,
-    loc: Location,
-) -> Result<Value> {
-    match resize_int(ctx, rw, value, width, Extension::Sign) {
-        Some(value) => Ok(value),
-        None => {
-            let ty = value.get_type(ctx).disp(ctx).to_string();
-            input_err!(loc, TmaOperandType(what, ty))
+impl CoordinateKind {
+    fn width(self) -> u32 {
+        match self {
+            CoordinateKind::Tensor => 32,
+            CoordinateKind::Im2colOffset => 16,
         }
     }
 }
 
-/// The cube's coordinates are outermost first; PTX takes the innermost first.
+impl core::fmt::Display for CoordinateKind {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            CoordinateKind::Tensor => f.write_str("coordinate"),
+            CoordinateKind::Im2colOffset => f.write_str("im2col offset"),
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("a TMA {kind} is an integer, not {ty}")]
+pub struct TmaOperandType {
+    kind: CoordinateKind,
+    ty: String,
+}
+
+/// The cube's coordinates are outermost first; PTX takes the innermost first. Each is sign
+/// extended or truncated to the width of its kind.
 fn coordinates(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
     values: Vec<Value>,
-    width: u32,
-    what: &'static str,
+    kind: CoordinateKind,
     loc: Location,
 ) -> Result<Vec<Value>> {
     values
         .into_iter()
         .rev()
-        .map(|value| to_width(ctx, rw, value, width, what, loc.clone()))
+        .map(
+            |value| match resize_int(ctx, rw, value, kind.width(), Extension::Sign) {
+                Some(value) => Ok(value),
+                None => {
+                    let ty = value.get_type(ctx).disp(ctx).to_string();
+                    input_err!(loc.clone(), TmaOperandType { kind, ty })
+                }
+            },
+        )
         .collect()
 }
 
-/// The trailing arguments of a load: no multicast mask, no cache hint, and the flags that say
-/// so, then a `cta_group` of 0, which Hopper requires.
-fn load_trailer(ctx: &mut Context, rw: &mut DialectConversionRewriter) -> Vec<Value> {
+/// The optional operands a bulk copy into shared memory ends with: no multicast mask and no
+/// cache hint, then the two flags that say so.
+pub(crate) fn no_multicast_or_cache_hint(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+) -> Vec<Value> {
     vec![
         insert_int_const(ctx, rw, 16, 0),
         insert_int_const(ctx, rw, 64, 0),
         insert_bool_const(ctx, rw, false),
         insert_bool_const(ctx, rw, false),
-        insert_i32_const(ctx, rw, 0),
+    ]
+}
+
+/// The trailing operands of a tensor load: no hints, then a `cta_group` of 0, which Hopper
+/// requires.
+fn load_trailer(ctx: &mut Context, rw: &mut DialectConversionRewriter) -> Vec<Value> {
+    let mut trailer = no_multicast_or_cache_hint(ctx, rw);
+    trailer.push(insert_i32_const(ctx, rw, 0));
+    trailer
+}
+
+/// The trailing operands of a tensor store: no cache hint, and the flag that says so.
+fn store_trailer(ctx: &mut Context, rw: &mut DialectConversionRewriter) -> Vec<Value> {
+    vec![
+        insert_int_const(ctx, rw, 64, 0),
+        insert_bool_const(ctx, rw, false),
     ]
 }
 
@@ -78,7 +116,7 @@ pub(crate) fn load(
     let barrier = Barrier::new(ctx, rw, info, op.barrier(ctx)).mbarrier(loc.clone())?;
     let tensor_map = op.tensor_map(ctx);
     let indices = op.indices(ctx);
-    let coords = coordinates(ctx, rw, indices, 32, "coordinate", loc)?;
+    let coords = coordinates(ctx, rw, indices, CoordinateKind::Tensor, loc)?;
 
     let mut args = vec![destination, barrier, tensor_map];
     args.extend(coords);
@@ -103,8 +141,8 @@ pub(crate) fn load_im2col(
     let tensor_map = op.tensor_map(ctx);
     let indices = op.indices(ctx);
     let offsets = op.offsets(ctx);
-    let coords = coordinates(ctx, rw, indices, 32, "coordinate", loc.clone())?;
-    let offsets = coordinates(ctx, rw, offsets, 16, "im2col offset", loc)?;
+    let coords = coordinates(ctx, rw, indices, CoordinateKind::Tensor, loc.clone())?;
+    let offsets = coordinates(ctx, rw, offsets, CoordinateKind::Im2colOffset, loc)?;
 
     let mut args = vec![destination, barrier, tensor_map];
     args.extend(coords);
@@ -128,13 +166,11 @@ pub(crate) fn store(
     let source = NvptxSpace::Shared.cast(ctx, rw, op.source(ctx));
     let tensor_map = op.tensor_map(ctx);
     let indices = op.indices(ctx);
-    let coords = coordinates(ctx, rw, indices, 32, "coordinate", loc)?;
+    let coords = coordinates(ctx, rw, indices, CoordinateKind::Tensor, loc)?;
 
     let mut args = vec![source, tensor_map];
     args.extend(coords);
-    // No cache hint, and the flag that says so.
-    args.push(insert_int_const(ctx, rw, 64, 0));
-    args.push(insert_bool_const(ctx, rw, false));
+    args.extend(store_trailer(ctx, rw));
     let name = format!("llvm.nvvm.cp.async.bulk.tensor.s2g.tile.{rank}d");
     call_void(ctx, rw, &name, args);
 

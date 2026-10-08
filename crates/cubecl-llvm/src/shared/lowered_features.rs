@@ -41,11 +41,8 @@ pub fn restrict_features(props: &mut DeviceProperties, target: GpuTarget) {
         GpuTarget::Nvptx { arch } => {
             keep_nvptx_matrix_forms(props);
             keep_nvptx_tma(props);
-            // Warpgroup MMA is Hopper's alone: Blackwell replaced it with `tcgen05`.
-            if arch.version() == 90 {
-                let configs = crate::nvptx::wgmma::wgmma_configs();
-                props.features.matmul.wgmma.extend(configs.iter().copied());
-            }
+            let configs = crate::nvptx::wgmma::configs(arch);
+            props.features.matmul.wgmma.extend(configs.iter().copied());
         }
         #[cfg(feature = "amdgpu")]
         GpuTarget::AmdGpu { wmma } => {

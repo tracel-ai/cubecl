@@ -111,27 +111,29 @@ macro_rules! lower_axis_index_polyfill {
 lower_axis_index_polyfill!(RowIndexOp, polyfills::mma::row_index::expand);
 lower_axis_index_polyfill!(ColIndexOp, polyfills::mma::col_index::expand);
 
+/// The cube array of registers `value` was converted from, or points at.
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+fn register_array(ctx: &Context, info: &OperandsInfo, value: Value) -> CubeArrayType {
+    cube_origin(ctx, info, value, |ty| {
+        if let Some(array) = ty.downcast_ref::<CubeArrayType>() {
+            return Some(*array);
+        }
+        let ptr = ty.downcast_ref::<CubePointerType>()?;
+        ptr.inner
+            .deref(ctx)
+            .downcast_ref::<CubeArrayType>()
+            .copied()
+    })
+    .expect("a manual matrix operand is an array of registers")
+}
+
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub(crate) fn registers_as_vector(
     ctx: &Context,
     info: &OperandsInfo,
     value: Value,
 ) -> (TypeHandle, TypeHandle) {
-    let array = info
-        .lookup_operand_history(value)
-        .into_iter()
-        .rev()
-        .chain(core::iter::once(value.get_type(ctx)))
-        .find_map(|ty| {
-            let ty = ty.deref(ctx);
-            if let Some(array) = ty.downcast_ref::<CubeArrayType>() {
-                return Some(*array);
-            }
-            let ptr = ty.downcast_ref::<CubePointerType>()?;
-            let inner = ptr.inner.deref(ctx);
-            inner.downcast_ref::<CubeArrayType>().copied()
-        })
-        .expect("a manual matrix operand is an array of registers");
+    let array = register_array(ctx, info, value);
 
     let (scalar, per_register) = match array.inner.deref(ctx).downcast_ref::<CubeVectorType>() {
         Some(vector) => (vector.inner, vector.vectorization),
@@ -194,21 +196,7 @@ pub(crate) fn registers_value(
 
 #[cfg(feature = "nvptx")]
 pub(crate) fn registers_array_ty(ctx: &Context, info: &OperandsInfo, value: Value) -> TypeHandle {
-    let array = info
-        .lookup_operand_history(value)
-        .into_iter()
-        .rev()
-        .chain(core::iter::once(value.get_type(ctx)))
-        .find_map(|ty| {
-            let ty = ty.deref(ctx);
-            if let Some(array) = ty.downcast_ref::<CubeArrayType>() {
-                return Some(*array);
-            }
-            let ptr = ty.downcast_ref::<CubePointerType>()?;
-            let inner = ptr.inner.deref(ctx);
-            inner.downcast_ref::<CubeArrayType>().copied()
-        })
-        .expect("a manual matrix operand is an array of registers");
+    let array = register_array(ctx, info, value);
     let elem = cube_type_to_llvm(ctx, array.inner);
     LlvmArrayType::get(ctx, elem, array.length as u64).into()
 }

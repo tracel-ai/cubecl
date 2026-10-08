@@ -1,5 +1,7 @@
 mod base;
 
+pub mod barrier;
+
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub(crate) mod bitcode;
 pub mod branch;

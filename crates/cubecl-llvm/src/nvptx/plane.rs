@@ -2,7 +2,7 @@
 
 use crate::{
     prelude::*,
-    shared::plane::{PlaneLowering, call_intrinsic, route_words},
+    shared::plane::{PlaneLowering, route_words},
 };
 
 const LANEID: &str = "llvm.nvvm.read.ptx.sreg.laneid";

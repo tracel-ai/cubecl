@@ -11,32 +11,28 @@ use pliron_llvm::llvm_attrs::{LlvmAttrValue, LlvmAttributesAttr};
 /// to them), then the plain inputs in the order they were added.
 pub(crate) struct InlineAsm {
     tied: Vec<Value>,
-    inputs: Vec<(Value, &'static str)>,
+    inputs: Vec<Value>,
     clobbers_memory: bool,
     convergent: bool,
 }
 
 impl InlineAsm {
-    pub(crate) fn new() -> Self {
+    /// A statement that reads and writes `tied` in place. [`Self::emit`] returns what it wrote.
+    /// They come first in the operand numbering, so they are fixed before any input is added.
+    pub(crate) fn new(tied: Vec<Value>) -> Self {
         Self {
-            tied: Vec::new(),
+            tied,
             inputs: Vec::new(),
             clobbers_memory: false,
             convergent: false,
         }
     }
 
-    /// Registers the statement reads and writes in place. [`Self::emit`] returns what it wrote.
-    pub(crate) fn tied(mut self, regs: Vec<Value>) -> Self {
-        self.tied = regs;
-        self
-    }
-
-    /// Adds an input read through the register class `constraint`, and returns the template
-    /// operand that names it.
-    pub(crate) fn input(&mut self, value: Value, constraint: &'static str) -> String {
+    /// Adds an input, read in the register class of its type, and returns the template operand
+    /// that names it.
+    pub(crate) fn input(&mut self, value: Value) -> String {
         let operand = format!("${}", 2 * self.tied.len() + self.inputs.len());
-        self.inputs.push((value, constraint));
+        self.inputs.push(value);
         operand
     }
 
@@ -73,24 +69,35 @@ impl InlineAsm {
         let mut constraints: Vec<String> = self
             .tied
             .iter()
-            .map(|&reg| format!("={}", register_class(ctx, reg)))
+            .map(|&reg| format!("={}", RegisterClass::new(ctx, reg)))
             .collect();
         constraints.extend((0..count).map(|i| i.to_string()));
-        constraints.extend(self.inputs.iter().map(|(_, c)| c.to_string()));
+        constraints.extend(
+            self.inputs
+                .iter()
+                .map(|&input| RegisterClass::new(ctx, input).to_string()),
+        );
         if self.clobbers_memory {
             constraints.push("~{memory}".into());
         }
 
         let mut args = self.tied;
-        args.extend(self.inputs.into_iter().map(|(value, _)| value));
+        args.extend(self.inputs);
 
         let result_ty = if count == 0 {
             VoidType::get(ctx).into()
         } else {
             registers_result_ty(ctx, reg_tys)
         };
-        let asm =
-            llvm::InlineAsmOp::new(ctx, result_ty, args, template, &constraints.join(","), true);
+        let has_side_effects = true;
+        let asm = llvm::InlineAsmOp::new(
+            ctx,
+            result_ty,
+            args,
+            template,
+            &constraints.join(","),
+            has_side_effects,
+        );
         if self.convergent {
             let mut attrs = LlvmAttributesAttr::new();
             attrs.set("convergent", LlvmAttrValue::Unit);
@@ -106,23 +113,52 @@ impl InlineAsm {
 }
 
 /// A run of `$i` operand references, braced as a PTX vector operand.
-pub(crate) fn operand_list(first: usize, count: usize) -> String {
+fn operand_list(first: usize, count: usize) -> String {
     let operands: Vec<String> = (first..first + count).map(|i| format!("${i}")).collect();
     format!("{{{}}}", operands.join(", "))
 }
 
-/// The PTX register class of `reg`: `f` for `f32`, `l` for 64 bits, `r` for any other 32 bits.
-fn register_class(ctx: &Context, reg: Value) -> &'static str {
-    let ty = reg.get_type(ctx);
-    let ty = ty.deref(ctx);
-    if ty.is::<FP32Type>() {
-        "f"
-    } else if ty
-        .downcast_ref::<IntegerType>()
-        .is_some_and(|int| int.width() == 64)
-    {
-        "l"
-    } else {
-        "r"
+/// The PTX register class an operand is passed in, named by its LLVM constraint letter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RegisterClass {
+    B16,
+    B32,
+    B64,
+    F32,
+    F64,
+}
+
+impl RegisterClass {
+    fn new(ctx: &Context, value: Value) -> Self {
+        let ty = value.get_type(ctx);
+        let ty = ty.deref(ctx);
+        if ty.is::<FP32Type>() {
+            return RegisterClass::F32;
+        }
+        if ty.is::<FP64Type>() {
+            return RegisterClass::F64;
+        }
+        if ty.is::<FP16Type>() || ty.is::<BF16Type>() {
+            return RegisterClass::B16;
+        }
+        match ty.downcast_ref::<IntegerType>().map(|int| int.width()) {
+            Some(16) => RegisterClass::B16,
+            Some(64) => RegisterClass::B64,
+            Some(32) => RegisterClass::B32,
+            _ => unreachable!("an inline PTX operand is a 16, 32 or 64-bit register"),
+        }
+    }
+}
+
+impl core::fmt::Display for RegisterClass {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let letter = match self {
+            RegisterClass::B16 => "h",
+            RegisterClass::B32 => "r",
+            RegisterClass::B64 => "l",
+            RegisterClass::F32 => "f",
+            RegisterClass::F64 => "d",
+        };
+        f.write_str(letter)
     }
 }

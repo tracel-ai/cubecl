@@ -8,14 +8,16 @@
 
 use core::fmt;
 
-use alloc::{string::ToString, vec::Vec};
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 use cubecl_environment::collections::HashMap;
 use cubecl_ir::{
     dialect::{
-        matrix::{WgmmaCommitGroupOp, WgmmaWaitGroupOp},
         memory::{DeclareVariableOp, LoadOp, StoreOp},
         pending::{CommitOp, ReadyOp, WaitOp},
-        tma::{CommitGroupOp, WaitGroupReadOp},
     },
     prelude::*,
     rewrite::WALKCONFIG_ANY,
@@ -29,7 +31,9 @@ use pliron::{
     graph::walkers::uninterruptible::immutable::walk_op,
     irbuild::listener::DummyListener,
     printable::{self, Printable},
+    verify_err,
 };
+use thiserror::Error;
 
 use crate::analyses::dataflow_solver::{
     ChangeResult, DataflowSolver, ProgramPoint, ReadRef, SolverConfig, WriteRef,
@@ -38,60 +42,120 @@ use crate::analyses::dataflow_solver::{
     sccp::SparseConstantPropagationAnalysis,
 };
 
-/// Groups committed after a token's group. A token with nothing to wait for is infinitely far.
-type Distance = u32;
-const NOTHING_TO_WAIT: Distance = Distance::MAX;
-
-/// For each token, and each variable holding one, the fewest groups of its kind committed since
-/// its own on any path to this point.
-#[derive(Default, PartialEq)]
-pub struct GroupDistances(HashMap<Value, (AsyncGroup, Distance)>);
-
-impl GroupDistances {
-    fn get(&self, slot: Value, group: AsyncGroup) -> (AsyncGroup, Distance) {
-        // A token the analysis lost track of may have just been committed.
-        self.0.get(&slot).copied().unwrap_or((group, 0))
-    }
+#[derive(Error, Debug)]
+enum ResolvePendingError {
+    #[error("a commit group token is used by `{0}`; only variables and waits may hold one")]
+    UnsupportedUse(String),
 }
 
-impl Printable for GroupDistances {
-    fn fmt(&self, ctx: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let entries = self
-            .0
-            .iter()
-            .map(|(slot, (_, distance))| (slot.disp(ctx).to_string(), *distance))
-            .sorted()
-            .map(|(slot, distance)| match distance {
-                NOTHING_TO_WAIT => alloc::format!("{slot}: ready"),
-                distance => alloc::format!("{slot}: {distance}"),
-            })
-            .join(", ");
-        write!(f, "GroupDistances({{{entries}}})")
-    }
+/// How far a token's group is behind the newest of its kind. Every count is closer than
+/// [`Distance::Ready`], so merging paths keeps the smaller.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Distance {
+    /// Groups of the same kind committed after the token's.
+    Commits(u32),
+    /// Nothing to wait for.
+    Ready,
 }
 
-impl LatticeValue for GroupDistances {
-    /// Paths merge to the fewest commits either took.
-    fn join(&mut self, rhs: &Self) -> ChangeResult {
-        let mut change = ChangeResult::Unchanged;
-        for (slot, (group, distance)) in &rhs.0 {
-            let entry = self.0.entry(*slot).or_insert_with(|| {
-                change = ChangeResult::Changed;
-                (*group, *distance)
-            });
-            if *distance < entry.1 {
-                entry.1 = *distance;
-                change = ChangeResult::Changed;
-            }
+impl Distance {
+    fn after_commit(self) -> Self {
+        match self {
+            Distance::Commits(commits) => Distance::Commits(commits + 1),
+            Distance::Ready => Distance::Ready,
         }
-        change
     }
 }
 
-pub type GroupDistancesLattice = DenseLattice<GroupDistances>;
+/// What the analysis knows of a token, or of the variable holding one.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TokenState {
+    group: AsyncGroup,
+    distance: Distance,
+}
 
-#[derive(Default)]
-pub struct GroupDistancesAnalysis;
+/// An operation that makes, holds or uses a token.
+enum TokenOp {
+    Commit {
+        group: AsyncGroup,
+        token: Value,
+    },
+    Ready {
+        group: AsyncGroup,
+        token: Value,
+    },
+    Wait {
+        group: AsyncGroup,
+        token: Value,
+    },
+    Declare {
+        slot: Value,
+    },
+    Store {
+        group: AsyncGroup,
+        slot: Value,
+        token: Value,
+    },
+    Load {
+        group: AsyncGroup,
+        slot: Value,
+        token: Value,
+    },
+}
+
+impl TokenOp {
+    fn new(ctx: &Context, op: Ptr<Operation>) -> Option<Self> {
+        let op = op.dyn_op(ctx);
+        if let Some(commit) = op.downcast_ref::<CommitOp>() {
+            let group = *commit.group(ctx);
+            return Some(TokenOp::Commit {
+                group,
+                token: commit.get_result(ctx),
+            });
+        }
+        if let Some(ready) = op.downcast_ref::<ReadyOp>() {
+            let group = *ready.group(ctx);
+            return Some(TokenOp::Ready {
+                group,
+                token: ready.get_result(ctx),
+            });
+        }
+        if let Some(wait) = op.downcast_ref::<WaitOp>() {
+            let token = wait.token(ctx);
+            let group = token_group(ctx, token.get_type(ctx))?;
+            return Some(TokenOp::Wait { group, token });
+        }
+        if let Some(declare) = op.downcast_ref::<DeclareVariableOp>() {
+            let slot = declare.get_result(ctx);
+            token_group(ctx, slot.get_type(ctx))?;
+            return Some(TokenOp::Declare { slot });
+        }
+        if let Some(store) = op.downcast_ref::<StoreOp>() {
+            let token = store.value(ctx);
+            let group = token_group(ctx, token.get_type(ctx))?;
+            let slot = store.ptr(ctx);
+            return Some(TokenOp::Store { group, slot, token });
+        }
+        if let Some(load) = op.downcast_ref::<LoadOp>() {
+            let token = load.get_result(ctx);
+            let group = token_group(ctx, token.get_type(ctx))?;
+            let slot = load.ptr(ctx);
+            return Some(TokenOp::Load { group, slot, token });
+        }
+        None
+    }
+
+    /// The token or variable this operation defines, which only other token operations may use.
+    fn defines(&self) -> Option<Value> {
+        match *self {
+            TokenOp::Commit { token, .. }
+            | TokenOp::Ready { token, .. }
+            | TokenOp::Load { token, .. } => Some(token),
+            TokenOp::Declare { slot } => Some(slot),
+            TokenOp::Wait { .. } | TokenOp::Store { .. } => None,
+        }
+    }
+}
 
 /// The kind of group `ty` is a token of, or of the token a variable of type `ty` holds.
 fn token_group(ctx: &Context, ty: TypeHandle) -> Option<AsyncGroup> {
@@ -106,6 +170,80 @@ fn token_group(ctx: &Context, ty: TypeHandle) -> Option<AsyncGroup> {
         .map(|token| token.0)
 }
 
+/// For each token, and each variable holding one, the fewest groups of its kind committed since
+/// its own on any path to this point.
+#[derive(Default, PartialEq, Clone)]
+struct GroupDistances(HashMap<Value, TokenState>);
+
+impl GroupDistances {
+    /// What is known of `slot`. A token the analysis lost track of may have just been committed.
+    fn get(&self, slot: Value, group: AsyncGroup) -> TokenState {
+        self.0.get(&slot).copied().unwrap_or(TokenState {
+            group,
+            distance: Distance::Commits(0),
+        })
+    }
+
+    fn apply(&mut self, op: &TokenOp) {
+        match *op {
+            TokenOp::Commit { group, token } => {
+                for state in self.0.values_mut().filter(|state| state.group == group) {
+                    state.distance = state.distance.after_commit();
+                }
+                let distance = Distance::Commits(0);
+                self.0.insert(token, TokenState { group, distance });
+            }
+            TokenOp::Ready { group, token } => {
+                let distance = Distance::Ready;
+                self.0.insert(token, TokenState { group, distance });
+            }
+            TokenOp::Store { group, slot, token } => {
+                self.0.insert(slot, self.get(token, group));
+            }
+            TokenOp::Load { group, slot, token } => {
+                self.0.insert(token, self.get(slot, group));
+            }
+            TokenOp::Wait { .. } | TokenOp::Declare { .. } => {}
+        }
+    }
+}
+
+impl Printable for GroupDistances {
+    fn fmt(&self, ctx: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let entries = self
+            .0
+            .iter()
+            .map(|(slot, state)| format!("{}: {:?}", slot.disp(ctx), state.distance))
+            .sorted()
+            .join(", ");
+        write!(f, "GroupDistances({{{entries}}})")
+    }
+}
+
+impl LatticeValue for GroupDistances {
+    /// Paths merge to the fewest commits either took.
+    fn join(&mut self, rhs: &Self) -> ChangeResult {
+        let mut change = ChangeResult::Unchanged;
+        for (slot, state) in &rhs.0 {
+            let entry = self.0.entry(*slot).or_insert_with(|| {
+                change = ChangeResult::Changed;
+                *state
+            });
+            if state.distance < entry.distance {
+                entry.distance = state.distance;
+                change = ChangeResult::Changed;
+            }
+        }
+        change
+    }
+}
+
+type GroupDistancesLattice = DenseLattice<GroupDistances>;
+
+/// Tracks [`GroupDistances`] forward through the function.
+#[derive(Default)]
+struct GroupDistancesAnalysis;
+
 impl DenseForwardDataflowAnalysis for GroupDistancesAnalysis {
     type LatticeValue = GroupDistances;
 
@@ -117,34 +255,13 @@ impl DenseForwardDataflowAnalysis for GroupDistancesAnalysis {
         before: &ReadRef<GroupDistancesLattice>,
         after: &WriteRef<GroupDistancesLattice>,
     ) -> Result<()> {
-        let mut distances = GroupDistances(before.deref().value().0.clone());
-        let dyn_op = op.dyn_op(ctx);
-        if let Some(commit) = dyn_op.downcast_ref::<CommitOp>() {
-            let group = *commit.group(ctx);
-            for (slot_group, distance) in distances.0.values_mut() {
-                if *slot_group == group {
-                    *distance = distance.saturating_add(1);
-                }
-            }
-            distances.0.insert(commit.get_result(ctx), (group, 0));
-        } else if let Some(ready) = dyn_op.downcast_ref::<ReadyOp>() {
-            let group = *ready.group(ctx);
-            distances
-                .0
-                .insert(ready.get_result(ctx), (group, NOTHING_TO_WAIT));
-        } else if let Some(store) = dyn_op.downcast_ref::<StoreOp>() {
-            let value = store.value(ctx);
-            if let Some(group) = token_group(ctx, value.get_type(ctx)) {
-                let distance = distances.get(value, group);
-                distances.0.insert(store.ptr(ctx), distance);
-            }
-        } else if let Some(load) = dyn_op.downcast_ref::<LoadOp>() {
-            let ptr = load.ptr(ctx);
-            if let Some(group) = token_group(ctx, ptr.get_type(ctx)) {
-                let distance = distances.get(ptr, group);
-                distances.0.insert(load.get_result(ctx), distance);
-            }
-        }
+        let Some(token_op) = TokenOp::new(ctx, op) else {
+            let before = before.deref();
+            solver.update_state(ctx, after, |it| it.join(before.value()));
+            return Ok(());
+        };
+        let mut distances = before.deref().value().clone();
+        distances.apply(&token_op);
         solver.update_state(ctx, after, |it| it.join(&distances));
         Ok(())
     }
@@ -158,30 +275,38 @@ impl DenseForwardDataflowAnalysis for GroupDistancesAnalysis {
     }
 }
 
-/// Runs the analysis on `root`, whose regions hold the pending operations.
-pub fn group_distances(ctx: &Context, root: Ptr<Operation>) -> Result<DataflowSolver> {
-    let mut solver = DataflowSolver::new(SolverConfig::default());
-    solver.load(DeadCodeAnalysis::default());
-    solver.load(SparseConstantPropagationAnalysis::default());
-    solver.load(DenseForward::new(GroupDistancesAnalysis));
-    solver.initialize_and_run(ctx, root)?;
-    Ok(solver)
-}
+/// The group counts the waits of a function resolve to.
+struct WaitCounts(DataflowSolver);
 
-/// The groups of its kind a wait on `token` lets still run, or `None` when it has nothing to
-/// wait for.
-pub fn groups_left_running(
-    solver: &DataflowSolver,
-    ctx: &Context,
-    wait: Ptr<Operation>,
-    token: Value,
-) -> Option<usize> {
-    let point = ProgramPoint::before_op(ctx, wait);
-    let distance = solver
-        .lookup_state::<GroupDistancesLattice>(point)
-        .and_then(|lattice| lattice.deref().value().0.get(&token).map(|(_, d)| *d))
-        .unwrap_or(0);
-    (distance != NOTHING_TO_WAIT).then_some(distance as usize)
+impl WaitCounts {
+    fn new(ctx: &Context, root: Ptr<Operation>) -> Result<Self> {
+        let mut solver = DataflowSolver::new(SolverConfig::default());
+        solver.load(DeadCodeAnalysis::default());
+        solver.load(SparseConstantPropagationAnalysis::default());
+        solver.load(DenseForward::new(GroupDistancesAnalysis));
+        solver.initialize_and_run(ctx, root)?;
+        Ok(Self(solver))
+    }
+
+    /// The groups of its kind the wait on `token` lets still run, or `None` when it has nothing
+    /// to wait for.
+    fn max_pending(
+        &self,
+        ctx: &Context,
+        wait: Ptr<Operation>,
+        group: AsyncGroup,
+        token: Value,
+    ) -> Option<usize> {
+        let point = ProgramPoint::before_op(ctx, wait);
+        let state = match self.0.lookup_state::<GroupDistancesLattice>(point) {
+            Some(lattice) => lattice.deref().value().get(token, group),
+            None => GroupDistances::default().get(token, group),
+        };
+        match state.distance {
+            Distance::Commits(commits) => Some(commits as usize),
+            Distance::Ready => None,
+        }
+    }
 }
 
 /// Lowers the pending operations: commits to the commit of their kind, and each wait to the
@@ -201,32 +326,26 @@ impl Pass for ResolvePendingPass {
         if token_ops.is_empty() {
             return Ok(res);
         }
+        check_uses(ctx, &token_ops)?;
         res.ir_changed |= IRStatus::Changed;
 
-        let solver = group_distances(ctx, op)?;
-        let (waits, holders): (Vec<_>, Vec<_>) = token_ops
-            .into_iter()
-            .partition(|&op| Operation::get_op::<WaitOp>(op, ctx).is_some());
-        let waits = waits
-            .into_iter()
-            .map(|op| {
-                let token = Operation::get_op::<WaitOp>(op, ctx)
-                    .expect("partitioned on it")
-                    .token(ctx);
-                let group = token_group(ctx, token.get_type(ctx)).expect("a wait takes a token");
-                (op, group, groups_left_running(&solver, ctx, op, token))
+        let wait_counts = WaitCounts::new(ctx, op)?;
+        let lowered_waits = token_ops
+            .iter()
+            .filter_map(|(op, token_op)| match *token_op {
+                TokenOp::Wait { group, token } => {
+                    Some((*op, group, wait_counts.max_pending(ctx, *op, group, token)))
+                }
+                _ => None,
             })
             .collect::<Vec<_>>();
-        drop(solver);
+        drop(wait_counts);
 
         let mut rewriter = IRRewriter::<DummyListener>::default();
-        for (wait, group, left_running) in waits {
-            match left_running {
-                Some(n) => {
-                    let lowered = match group {
-                        AsyncGroup::Warpgroup => WgmmaWaitGroupOp::new(ctx, n).get_operation(),
-                        AsyncGroup::BulkCopy => WaitGroupReadOp::new(ctx, n).get_operation(),
-                    };
+        for (wait, group, max_pending) in lowered_waits {
+            match max_pending {
+                Some(max_pending) => {
+                    let lowered = group.wait_op(ctx, max_pending);
                     lowered.insert_before(ctx, wait);
                     rewriter.replace_operation(ctx, wait, lowered);
                 }
@@ -235,14 +354,11 @@ impl Pass for ResolvePendingPass {
         }
 
         // Users before the values they use: the stores and loads of a variable come after it.
-        for op in holders.into_iter().rev() {
-            if let Some(commit) = Operation::get_op::<CommitOp>(op, ctx) {
-                let group = *commit.group(ctx);
-                let lowered = match group {
-                    AsyncGroup::Warpgroup => WgmmaCommitGroupOp::new(ctx).get_operation(),
-                    AsyncGroup::BulkCopy => CommitGroupOp::new(ctx).get_operation(),
-                };
-                lowered.insert_before(ctx, op);
+        for (op, token_op) in token_ops.into_iter().rev() {
+            match token_op {
+                TokenOp::Wait { .. } => continue,
+                TokenOp::Commit { group, .. } => group.commit_op(ctx).insert_before(ctx, op),
+                _ => {}
             }
             rewriter.erase_operation(ctx, op);
         }
@@ -252,28 +368,34 @@ impl Pass for ResolvePendingPass {
 }
 
 /// The operations that make, hold or use a token, in program order.
-fn token_ops(ctx: &Context, root: Ptr<Operation>) -> Vec<Ptr<Operation>> {
+fn token_ops(ctx: &Context, root: Ptr<Operation>) -> Vec<(Ptr<Operation>, TokenOp)> {
     let mut ops = Vec::new();
     walk_op(ctx, &mut ops, &WALKCONFIG_ANY, root, |ctx, ops, node| {
-        let IRNode::Operation(op) = node else {
-            return;
-        };
-        let dyn_op = op.dyn_op(ctx);
-        let holds_token = dyn_op.is::<CommitOp>()
-            || dyn_op.is::<ReadyOp>()
-            || dyn_op.is::<WaitOp>()
-            || dyn_op
-                .downcast_ref::<DeclareVariableOp>()
-                .is_some_and(|var| token_group(ctx, var.get_result(ctx).get_type(ctx)).is_some())
-            || dyn_op
-                .downcast_ref::<StoreOp>()
-                .is_some_and(|store| token_group(ctx, store.value(ctx).get_type(ctx)).is_some())
-            || dyn_op
-                .downcast_ref::<LoadOp>()
-                .is_some_and(|load| token_group(ctx, load.get_result(ctx).get_type(ctx)).is_some());
-        if holds_token {
-            ops.push(op);
+        if let IRNode::Operation(op) = node
+            && let Some(token_op) = TokenOp::new(ctx, op)
+        {
+            ops.push((op, token_op));
         }
     });
     ops
+}
+
+/// Checks that only token operations use a token or a variable holding one, so removing them
+/// all leaves no dangling use.
+fn check_uses(ctx: &Context, token_ops: &[(Ptr<Operation>, TokenOp)]) -> Result<()> {
+    let users = token_ops.iter().map(|(op, _)| *op).collect::<Vec<_>>();
+    for value in token_ops
+        .iter()
+        .filter_map(|(_, token_op)| token_op.defines())
+    {
+        for r#use in value.uses(ctx) {
+            let user = r#use.user_op();
+            if !users.contains(&user) {
+                let loc = user.deref(ctx).loc();
+                let name = Operation::get_opid(user, ctx).to_string();
+                return verify_err!(loc, ResolvePendingError::UnsupportedUse(name));
+            }
+        }
+    }
+    Ok(())
 }

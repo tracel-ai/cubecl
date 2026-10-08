@@ -3,7 +3,7 @@
 //! Some operations run asynchronously: a warpgroup MMA, a TMA store. The kernel goes on while
 //! they run, and must not touch what they read or write until they complete. Such an operation
 //! returns a [`Pending`], which holds what the work produces, or `()`, and gives it back from
-//! [`Pending::wait`] once the work has completed:
+//! [`Pending::wait`] once the work is done with what the kernel must not touch:
 //!
 //! ```rust, ignore
 //! let stored = tma_store_2d(&tile, &mut output, row, col);
@@ -16,6 +16,10 @@
 //! for a given one. The compiler derives that number for each wait, from the groups committed
 //! between the operation and the wait on every path that leads to it: a wait in a pipelined loop
 //! lets the newer groups run on.
+//!
+//! What "done" means depends on the work. A warpgroup MMA is done once it wrote its accumulator.
+//! A TMA store is done once it read its shared memory source: its writes to global memory may
+//! still be in flight, and are visible once the kernel ends.
 
 use crate::{self as cubecl, prelude::*};
 use cubecl_ir::{
@@ -85,8 +89,8 @@ impl<T: PendingValue> PendingExpand<T> {
 
 /// The token of a commit group, which a wait resolves to a count of groups.
 #[derive(Clone, Copy)]
-pub struct GroupToken;
-pub type GroupTokenExpand = NativeExpand<GroupToken>;
+pub(crate) struct GroupToken;
+pub(crate) type GroupTokenExpand = NativeExpand<GroupToken>;
 
 impl GroupToken {
     pub(crate) fn commit(scope: &Scope, group: AsyncGroup) -> NativeExpand<GroupToken> {

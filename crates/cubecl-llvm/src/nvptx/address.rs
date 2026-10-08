@@ -19,18 +19,46 @@ pub(crate) enum NvptxSpace {
     SharedCluster,
 }
 
-impl NvptxSpace {
-    pub(crate) fn number(self) -> u32 {
-        match self {
+impl From<NvptxSpace> for u32 {
+    fn from(space: NvptxSpace) -> Self {
+        match space {
             NvptxSpace::Generic => 0,
             NvptxSpace::Global => 1,
             NvptxSpace::Shared => 3,
             NvptxSpace::SharedCluster => 7,
         }
     }
+}
+
+impl TryFrom<u32> for NvptxSpace {
+    type Error = u32;
+
+    fn try_from(number: u32) -> core::result::Result<Self, u32> {
+        [
+            NvptxSpace::Generic,
+            NvptxSpace::Global,
+            NvptxSpace::Shared,
+            NvptxSpace::SharedCluster,
+        ]
+        .into_iter()
+        .find(|&space| u32::from(space) == number)
+        .ok_or(number)
+    }
+}
+
+impl NvptxSpace {
+    /// The space `ptr` is in, when it is an LLVM pointer into one of these.
+    pub(crate) fn new(ctx: &Context, ptr: Value) -> Option<Self> {
+        let number = ptr
+            .get_type(ctx)
+            .deref(ctx)
+            .downcast_ref::<LlvmPointerType>()
+            .map(LlvmPointerType::address_space)?;
+        Self::try_from(number).ok()
+    }
 
     pub(crate) fn pointer_ty(self, ctx: &Context) -> TypeHandle {
-        LlvmPointerType::get(ctx, self.number()).into()
+        LlvmPointerType::get(ctx, self.into()).into()
     }
 
     /// `ptr` as a pointer into this space, cast when it is in another. A shared memory pointer
@@ -66,28 +94,12 @@ impl NvptxSpace {
         }
     }
 
-    fn of(ctx: &Context, ptr: Value) -> Option<Self> {
-        let number = ptr
-            .get_type(ctx)
-            .deref(ctx)
-            .downcast_ref::<LlvmPointerType>()
-            .map(LlvmPointerType::address_space)?;
-        [
-            NvptxSpace::Generic,
-            NvptxSpace::Global,
-            NvptxSpace::Shared,
-            NvptxSpace::SharedCluster,
-        ]
-        .into_iter()
-        .find(|space| space.number() == number)
-    }
-
     /// The space `ptr` was derived from, followed back through element offsets and casts to the
     /// generic space, or `None` when the derivation leaves those.
     fn origin(ctx: &Context, ptr: Value) -> Option<Self> {
         let mut ptr = ptr;
         loop {
-            match Self::of(ctx, ptr) {
+            match Self::new(ctx, ptr) {
                 Some(NvptxSpace::Generic) => {}
                 space => return space,
             }

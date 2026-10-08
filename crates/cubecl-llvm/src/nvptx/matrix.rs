@@ -4,8 +4,8 @@ use crate::{
     nvptx::{
         address::NvptxSpace,
         registers::{
-            Fragment, RegisterForm, call_returning_registers, extract_lane, from_registers,
-            insert_lane, load_fragment, poison, store_fragment, to_registers, word_ty,
+            RegisterForm, call_returning_registers, extract_lane, insert_lane, load_fragment,
+            poison, store_fragment,
         },
     },
     prelude::*,
@@ -57,6 +57,40 @@ pub struct MatrixElementLayoutUnsupported {
 )]
 pub struct MatrixManualUnsupported(&'static str);
 
+/// How a WMMA fragment is laid out in registers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Fragment {
+    regs: usize,
+    /// Scalar elements per register.
+    per_reg: usize,
+}
+
+impl Fragment {
+    /// Scalar elements per lane, including duplicated input elements.
+    fn elems(&self) -> usize {
+        self.regs * self.per_reg
+    }
+
+    /// How the instructions take the fragment's registers: `tf32` and `bf16` as opaque words,
+    /// the other types as themselves, packed when a register holds several.
+    fn register_form(&self, ctx: &Context, elem: TypeHandle) -> RegisterForm {
+        if elem.is_tfloat32(ctx) || elem.is_bfloat16(ctx) {
+            RegisterForm::Word
+        } else if self.per_reg == 1 {
+            RegisterForm::Scalar
+        } else {
+            RegisterForm::Packed(self.per_reg)
+        }
+    }
+
+    /// The type of one register of the fragment.
+    fn register_ty(&self, ctx: &mut Context, elem: TypeHandle) -> TypeHandle {
+        let form = self.register_form(ctx, elem);
+        let elem = cube_type_to_llvm(ctx, elem);
+        form.register_ty(ctx, elem)
+    }
+}
+
 /// Register layouts from LLVM `IntrinsicsNVVM.td`.
 fn fragment_of(ctx: &Context, matrix: &MatrixType) -> Option<Fragment> {
     let elem = matrix.elem_ty;
@@ -97,18 +131,6 @@ pub(crate) fn fragment_ty(ctx: &Context, matrix: &MatrixType) -> TypeHandle {
     LlvmVectorType::get(ctx, elem, elems as u32, VectorTypeKind::Fixed).into()
 }
 
-fn register_ty(ctx: &mut Context, frag: Fragment, elem: TypeHandle) -> TypeHandle {
-    if elem.is_tfloat32(ctx) || elem.is_bfloat16(ctx) {
-        return word_ty(ctx);
-    }
-    let elem = cube_type_to_llvm(ctx, elem);
-    if frag.per_reg == 1 {
-        elem
-    } else {
-        LlvmVectorType::get(ctx, elem, frag.per_reg as u32, VectorTypeKind::Fixed).into()
-    }
-}
-
 fn wmma_type(ctx: &Context, elem: TypeHandle) -> Option<&'static str> {
     if elem.is_tfloat32(ctx) {
         Some("tf32")
@@ -144,7 +166,7 @@ pub(crate) fn round_tf32(
         }
         rounded
     } else {
-        let word = word_ty(ctx);
+        let word = i32_ty(ctx);
         let op = call_op(ctx, "llvm.nvvm.f2tf32.rna", word, vec![value]);
         let bits = insert(ctx, rw, &op);
         bitcast(ctx, rw, bits, ty)
@@ -170,17 +192,9 @@ fn access_layout(matrix: &MatrixType, op_layout: MatrixLayout) -> Option<&'stati
 }
 
 fn matrix_of(ctx: &Context, info: &OperandsInfo, value: Value) -> MatrixType {
-    let pointee = info
-        .lookup_operand_history(value)
-        .into_iter()
-        .rev()
-        .chain(core::iter::once(value.get_type(ctx)))
-        .find_map(|ty| {
-            let ty = ty.deref(ctx);
-            let ptr = ty.downcast_ref::<CubePointerType>()?;
-            let pointee = ptr.inner.deref(ctx);
-            pointee.downcast_ref::<MatrixType>().copied()
-        });
+    let pointee = cube_pointee(ctx, info, value, |pointee| {
+        pointee.downcast_ref::<MatrixType>().copied()
+    });
     pointee.expect("a matrix operand points at a matrix")
 }
 
@@ -193,9 +207,8 @@ fn fragment_registers(
     frag: Fragment,
 ) -> Vec<Value> {
     let frag_ty = fragment_ty(ctx, ty);
-    let reg_ty = register_ty(ctx, frag, ty.elem_ty);
     let value = load_fragment(ctx, rw, matrix, frag_ty);
-    to_registers(ctx, rw, value, frag, reg_ty)
+    frag.register_form(ctx, ty.elem_ty).split(ctx, rw, value)
 }
 
 fn stride_as_i32(ctx: &mut Context, rw: &mut DialectConversionRewriter, stride: Value) -> Value {
@@ -267,7 +280,7 @@ pub(crate) fn load(
     };
 
     let frag_ty = fragment_ty(ctx, &ty);
-    let reg_ty = register_ty(ctx, frag, ty.elem_ty);
+    let reg_ty = frag.register_ty(ctx, ty.elem_ty);
     let stride = stride_as_i32(ctx, rw, stride);
 
     // WMMA memory instructions require the source address space for specialization.
@@ -286,7 +299,9 @@ pub(crate) fn load(
         vec![source, stride],
     );
 
-    let value = from_registers(ctx, rw, &regs, frag, frag_ty);
+    let value = frag
+        .register_form(ctx, ty.elem_ty)
+        .join(ctx, rw, &regs, frag_ty);
     store_fragment(ctx, rw, matrix, value);
 
     rw.erase_operation(ctx, old_op);
@@ -314,11 +329,10 @@ pub(crate) fn store(
     };
 
     let frag_ty = fragment_ty(ctx, &ty);
-    let reg_ty = register_ty(ctx, frag, ty.elem_ty);
     let stride = stride_as_i32(ctx, rw, stride);
 
     let value = load_fragment(ctx, rw, matrix, frag_ty);
-    let regs = to_registers(ctx, rw, value, frag, reg_ty);
+    let regs = frag.register_form(ctx, ty.elem_ty).split(ctx, rw, value);
 
     let destination = NvptxSpace::narrow(ctx, rw, destination);
     let name = format!(
@@ -376,12 +390,13 @@ pub(crate) fn multiply_accumulate(
     };
 
     let cd_frag_ty = fragment_ty(ctx, &c_ty);
-    let cd_reg_ty = register_ty(ctx, cd_frag, c_ty.elem_ty);
+    let cd_form = cd_frag.register_form(ctx, c_ty.elem_ty);
+    let cd_reg_ty = cd_frag.register_ty(ctx, c_ty.elem_ty);
 
     let mut args = fragment_registers(ctx, rw, a, &a_ty, a_frag);
     args.extend(fragment_registers(ctx, rw, b, &b_ty, b_frag));
     let c_val = load_fragment(ctx, rw, c, cd_frag_ty);
-    args.extend(to_registers(ctx, rw, c_val, cd_frag, cd_reg_ty));
+    args.extend(cd_form.split(ctx, rw, c_val));
 
     let name = format!(
         "llvm.nvvm.wmma.{}.mma.{a_layout}.{b_layout}.{}",
@@ -394,7 +409,7 @@ pub(crate) fn multiply_accumulate(
     );
     let regs = call_returning_registers(ctx, rw, &name, vec![cd_reg_ty; cd_frag.regs], args);
 
-    let result = from_registers(ctx, rw, &regs, cd_frag, cd_frag_ty);
+    let result = cd_form.join(ctx, rw, &regs, cd_frag_ty);
     store_fragment(ctx, rw, d, result);
 
     rw.erase_operation(ctx, old_op);
@@ -574,7 +589,7 @@ pub(crate) fn ld_matrix(
 
     let (out_vec_ty, _) = registers_as_vector(ctx, operands_info, out_arr);
     let source = NvptxSpace::Shared.cast(ctx, rw, ptr);
-    let word = word_ty(ctx);
+    let word = i32_ty(ctx);
 
     let name = format!(
         "llvm.nvvm.ldmatrix.sync.aligned.m8n8.x{factor}{}.b16.{}",

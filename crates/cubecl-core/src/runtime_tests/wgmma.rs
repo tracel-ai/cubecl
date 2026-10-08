@@ -1,20 +1,39 @@
 use crate::{
     self as cubecl,
     prelude::barrier::Barrier,
-    wgmma::{Accumulator, Fragment, Major, MatrixDescriptor, Swizzle, WgmmaTileLayout},
+    wgmma::{
+        Accumulator, Fragment, Major, MatrixDescriptor, Swizzle, WARPGROUP_M, WgmmaTileLayout,
+    },
 };
 use cubecl::prelude::*;
-use cubecl_ir::features::{Tma, WgmmaConfig};
+use cubecl_ir::{
+    features::{Tma, WgmmaConfig, WgmmaElems},
+    types::MatrixShape,
+};
 use cubecl_runtime::runtime::Runtime;
 use num_traits::NumCast;
 
 use alloc::{vec, vec::Vec};
 use std::println;
 
+/// How a tile is laid out in shared memory.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct TileFormat {
+    pub major: Major,
+    pub swizzle: Swizzle,
+}
+
+impl TileFormat {
+    pub const K_MAJOR_UNSWIZZLED: Self = Self {
+        major: Major::K,
+        swizzle: Swizzle::None,
+    };
+}
+
 /// Where a test reads `A` from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AOperand {
-    Shared(Major, Swizzle),
+    Shared(TileFormat),
     Registers,
 }
 
@@ -24,46 +43,30 @@ pub struct WgmmaCase {
     pub n: usize,
     pub k_steps: usize,
     pub a: AOperand,
-    pub b: (Major, Swizzle),
+    pub b: TileFormat,
     /// Commits each step and waits on the previous one in a loop, rather than committing once.
+    /// Only with `A` in shared memory.
     pub pipelined: bool,
 }
 
 impl WgmmaCase {
-    pub fn new(n: usize, k_steps: usize, a: AOperand, b: (Major, Swizzle)) -> Self {
-        Self {
-            n,
-            k_steps,
-            a,
-            b,
-            pipelined: false,
-        }
-    }
-
-    pub fn pipelined(self) -> Self {
-        Self {
-            pipelined: true,
-            ..self
-        }
-    }
-
     fn a_layout(&self, size_k: usize) -> WgmmaTileLayout {
-        let (major, swizzle) = match self.a {
-            AOperand::Shared(major, swizzle) => (major, swizzle),
-            AOperand::Registers => (Major::K, Swizzle::None),
+        let format = match self.a {
+            AOperand::Shared(format) => format,
+            AOperand::Registers => TileFormat::K_MAJOR_UNSWIZZLED,
         };
         WgmmaTileLayout {
-            major,
-            swizzle,
-            rows: 64,
+            major: format.major,
+            swizzle: format.swizzle,
+            rows: WARPGROUP_M,
             k: size_k,
         }
     }
 
     fn b_layout(&self, size_k: usize) -> WgmmaTileLayout {
         WgmmaTileLayout {
-            major: self.b.0,
-            swizzle: self.b.1,
+            major: self.b.major,
+            swizzle: self.b.swizzle,
             rows: self.n,
             k: size_k,
         }
@@ -138,7 +141,7 @@ pub fn kernel_wgmma<A: Scalar, B: Scalar, CD: Numeric>(
                     // The next step writes the fragment this MMA reads.
                     acc.commit().wait();
                 }
-                AOperand::Shared(_, _) => {
+                AOperand::Shared(_) => {
                     acc.execute(&a.at(0usize, step * k), &b);
                 }
             }
@@ -153,7 +156,8 @@ pub fn kernel_wgmma<A: Scalar, B: Scalar, CD: Numeric>(
     }
 }
 
-/// [`kernel_wgmma`] with K-major tiles swizzled 128 bytes wide, loaded by TMA.
+/// [`kernel_wgmma`] with tiles of `f16` K-major and swizzled 128 bytes wide, loaded by TMA: K is
+/// one 128-byte panel, so each tile is one box.
 #[cube(launch)]
 pub fn kernel_wgmma_tma(
     lhs: &TensorMap<half::f16, Tiled>,
@@ -161,23 +165,18 @@ pub fn kernel_wgmma_tma(
     out: &mut [f32],
     #[comptime] n: usize,
 ) {
-    let a_layout = comptime![WgmmaTileLayout {
-        major: Major::K,
-        swizzle: Swizzle::B128,
-        rows: 64,
-        k: 64,
-    }];
-    let b_layout = comptime![WgmmaTileLayout {
-        major: Major::K,
-        swizzle: Swizzle::B128,
-        rows: n,
-        k: 64,
-    }];
+    let a_layout = comptime![tma_tile(WARPGROUP_M)];
+    let b_layout = comptime![tma_tile(n)];
+    let size_k = comptime![a_layout.k];
+    let k = comptime![WgmmaTileLayout::k_step(F16_BYTES)];
+
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_async_proxy_shared();
-    let mut smem_a: Shared<[half::f16]> = Shared::new_aligned_slice(64 * 64usize, 1024usize);
-    let mut smem_b: Shared<[half::f16]> = Shared::new_aligned_slice(n * 64, 1024usize);
-    let bytes = comptime![((64 + n) * 64 * 2) as u32];
+    let mut smem_a: Shared<[half::f16]> =
+        Shared::new_aligned_slice(WARPGROUP_M * size_k, a_layout.alignment());
+    let mut smem_b: Shared<[half::f16]> =
+        Shared::new_aligned_slice(n * size_k, b_layout.alignment());
+    let bytes = comptime![((WARPGROUP_M + n) * size_k * F16_BYTES) as u32];
     let expected = select(UNIT_POS == 0, bytes, 0);
     if UNIT_POS == 0 {
         barrier.tma_load_2d(lhs, &mut smem_a, 0, 0);
@@ -190,8 +189,8 @@ pub fn kernel_wgmma_tma(
     let b = MatrixDescriptor::new(&smem_b, b_layout);
     let mut acc = Accumulator::<f32>::new(n).start();
     #[unroll]
-    for step in 0..4usize {
-        acc.execute(&a.at(0usize, step * 16), &b.at(0usize, step * 16));
+    for step in 0..comptime![size_k / k] {
+        acc.execute(&a.at(0usize, step * k), &b.at(0usize, step * k));
     }
     let acc = acc.wait();
 
@@ -202,30 +201,41 @@ pub fn kernel_wgmma_tma(
     }
 }
 
+const F16_BYTES: usize = 2;
+
+/// A `rows x 64` tile of `f16`, one TMA box of K-major lines 128 bytes wide.
+fn tma_tile(rows: usize) -> WgmmaTileLayout {
+    WgmmaTileLayout {
+        major: Major::K,
+        swizzle: Swizzle::B128,
+        rows,
+        k: Swizzle::B128.width() / F16_BYTES,
+    }
+}
+
 fn supported<A: CubeElement, B: CubeElement, CD: CubeElement>(
     client: &Client,
     n: usize,
     k: usize,
 ) -> bool {
-    let supported = client
-        .features()
+    let elems = WgmmaElems {
+        a: A::cube_type(),
+        b: B::cube_type(),
+        cd: CD::cube_type(),
+    };
+    let shape = MatrixShape {
+        m: WARPGROUP_M,
+        n,
+        k,
+    };
+    let features = client.features();
+    let supported = features
         .matmul
         .wgmma
         .iter()
-        .any(|config: &WgmmaConfig| {
-            config.a_type == A::cube_type()
-                && config.b_type == B::cube_type()
-                && config.cd_type == CD::cube_type()
-                && config.k as usize == k
-                && config.supports_n(n as u32)
-        });
+        .any(|config: &WgmmaConfig| config.matches(elems, shape));
     if !supported {
-        println!(
-            "Skipping wgmma test for a: {:?} b: {:?}, cd: {:?}, n: {n}, k: {k}",
-            A::cube_type(),
-            B::cube_type(),
-            CD::cube_type()
-        );
+        println!("Skipping wgmma test for {elems:?}, {shape:?}");
     }
     supported
 }
@@ -240,8 +250,12 @@ fn rhs_at(l: usize, j: usize) -> i64 {
 }
 
 fn check<CD: CubeElement + Numeric>(actual: &[CD], n: usize, size_k: usize, what: &str) {
-    assert_eq!(actual.len(), 64 * n, "the kernel did not run: {what}");
-    for i in 0..64 {
+    assert_eq!(
+        actual.len(),
+        WARPGROUP_M * n,
+        "the kernel did not run: {what}"
+    );
+    for i in 0..WARPGROUP_M {
         for j in 0..n {
             let expected: i64 = (0..size_k).map(|l| lhs_at(i, l) * rhs_at(l, j)).sum();
             let actual = actual[i * n + j].to_f64().unwrap();
@@ -259,11 +273,15 @@ pub fn test_wgmma<
     client: Client,
     case: WgmmaCase,
 ) {
+    assert!(
+        !case.pipelined || case.a != AOperand::Registers,
+        "a pipelined case reads A from shared memory"
+    );
     let k = WgmmaTileLayout::k_step(size_of::<A>());
     if !supported::<A, B, CD>(&client, case.n, k) {
         return;
     }
-    let (m, n) = (64, case.n);
+    let (m, n) = (WARPGROUP_M, case.n);
     let size_k = k * case.k_steps;
 
     let lhs: Vec<A> = (0..m)
@@ -301,13 +319,14 @@ pub fn test_wgmma<
 }
 
 pub fn test_wgmma_tma<R: Runtime>(client: Client, n: usize) {
+    let size_k = tma_tile(n).k;
+    let k = WgmmaTileLayout::k_step(F16_BYTES);
     if !client.features().tma.contains(Tma::Base)
-        || !supported::<half::f16, half::f16, f32>(&client, n, 16)
+        || !supported::<half::f16, half::f16, f32>(&client, n, k)
     {
         return;
     }
-    let size_k = 64;
-    let lhs: Vec<half::f16> = (0..64)
+    let lhs: Vec<half::f16> = (0..WARPGROUP_M)
         .flat_map(|i| (0..size_k).map(move |l| half::f16::from_f32(lhs_at(i, l) as f32)))
         .collect();
     let rhs: Vec<half::f16> = (0..n)
@@ -325,17 +344,17 @@ pub fn test_wgmma_tma<R: Runtime>(client: Client, n: usize) {
             tensor,
             half::f16::elem_type_native(),
         )
-        .with_swizzle(TensorMapSwizzle::B128)
+        .with_swizzle(tma_tile(rows).tensor_map_swizzle())
     };
-    let out = client.create_from_slice(f32::as_bytes(&vec![0.0; 64 * n]));
+    let out = client.create_from_slice(f32::as_bytes(&vec![0.0; WARPGROUP_M * n]));
 
     kernel_wgmma_tma::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(128),
-        map(&lhs, 64),
+        map(&lhs, WARPGROUP_M),
         map(&rhs, n),
-        unsafe { BufferArg::from_raw_parts(out.clone(), 64 * n) },
+        unsafe { BufferArg::from_raw_parts(out.clone(), WARPGROUP_M * n) },
         n,
     );
 
@@ -351,11 +370,15 @@ macro_rules! testgen_wgmma {
             use super::*;
             use cubecl_common::*;
             use cubecl_core::num_traits::cast::NumCast;
-            use cubecl_core::runtime_tests::wgmma::{AOperand, WgmmaCase};
+            use cubecl_core::runtime_tests::wgmma::{AOperand, TileFormat, WgmmaCase};
             use cubecl_core::wgmma::{Major, Swizzle};
             use half::{bf16, f16};
 
-            const K_MAJOR: (Major, Swizzle) = (Major::K, Swizzle::None);
+            const UNSWIZZLED: TileFormat = TileFormat::K_MAJOR_UNSWIZZLED;
+            const SWIZZLED: TileFormat = TileFormat {
+                major: Major::K,
+                swizzle: Swizzle::B128,
+            };
 
             fn test<
                 A: CubeElement + Scalar + NumCast,
@@ -368,15 +391,32 @@ macro_rules! testgen_wgmma {
                 cubecl_core::runtime_tests::wgmma::test_wgmma::<TestRuntime, A, B, CD>(client, case)
             }
 
-            fn shared(major: Major, swizzle: Swizzle) -> AOperand {
-                AOperand::Shared(major, swizzle)
+            /// `A` and `B` in shared memory, committed once.
+            fn shared(n: usize, k_steps: usize, a: TileFormat, b: TileFormat) -> WgmmaCase {
+                WgmmaCase {
+                    n,
+                    k_steps,
+                    a: AOperand::Shared(a),
+                    b,
+                    pipelined: false,
+                }
+            }
+
+            /// `A` in registers, one step committed and waited on at a time.
+            fn registers(n: usize, k_steps: usize, b: TileFormat) -> WgmmaCase {
+                WgmmaCase {
+                    n,
+                    k_steps,
+                    a: AOperand::Registers,
+                    b,
+                    pipelined: false,
+                }
             }
 
             #[$crate::runtime_tests::test_log::test]
             fn f16_shapes() {
                 for n in [8, 64, 256] {
-                    let case = WgmmaCase::new(n, 1, shared(Major::K, Swizzle::None), K_MAJOR);
-                    test::<f16, f16, f32>(case);
+                    test::<f16, f16, f32>(shared(n, 1, UNSWIZZLED, UNSWIZZLED));
                 }
             }
 
@@ -385,77 +425,80 @@ macro_rules! testgen_wgmma {
                 let swizzles = [Swizzle::None, Swizzle::B32, Swizzle::B64, Swizzle::B128];
                 for major in [Major::K, Major::MN] {
                     for swizzle in swizzles {
+                        let format = TileFormat { major, swizzle };
                         // Four steps of K are 128 bytes, a whole panel at the widest swizzle.
-                        let a = WgmmaCase::new(64, 4, shared(major, swizzle), K_MAJOR);
-                        test::<f16, f16, f32>(a);
-                        let k_major_a = shared(Major::K, Swizzle::None);
-                        test::<f16, f16, f32>(WgmmaCase::new(64, 4, k_major_a, (major, swizzle)));
+                        test::<f16, f16, f32>(shared(64, 4, format, UNSWIZZLED));
+                        test::<f16, f16, f32>(shared(64, 4, UNSWIZZLED, format));
                     }
                 }
             }
 
             #[$crate::runtime_tests::test_log::test]
             fn f16_accumulates_over_k() {
-                let b64 = shared(Major::K, Swizzle::B64);
-                test::<f16, f16, f32>(WgmmaCase::new(128, 4, b64, K_MAJOR));
-                let b32 = shared(Major::K, Swizzle::B32);
-                test::<f16, f16, f16>(WgmmaCase::new(64, 4, b32, K_MAJOR));
+                let b64 = TileFormat {
+                    major: Major::K,
+                    swizzle: Swizzle::B64,
+                };
+                let b32 = TileFormat {
+                    major: Major::K,
+                    swizzle: Swizzle::B32,
+                };
+                test::<f16, f16, f32>(shared(128, 4, b64, UNSWIZZLED));
+                test::<f16, f16, f16>(shared(64, 4, b32, UNSWIZZLED));
             }
 
             #[$crate::runtime_tests::test_log::test]
             fn f16_pipelined() {
-                let b128 = (Major::K, Swizzle::B128);
-                let case = WgmmaCase::new(64, 8, shared(b128.0, b128.1), b128);
-                test::<f16, f16, f32>(case.pipelined());
+                let case = WgmmaCase {
+                    pipelined: true,
+                    ..shared(64, 8, SWIZZLED, SWIZZLED)
+                };
+                test::<f16, f16, f32>(case);
             }
 
             #[$crate::runtime_tests::test_log::test]
             fn f16_registers_a() {
-                test::<f16, f16, f32>(WgmmaCase::new(64, 1, AOperand::Registers, K_MAJOR));
-                let mn = (Major::MN, Swizzle::B128);
-                test::<f16, f16, f32>(WgmmaCase::new(128, 2, AOperand::Registers, mn));
+                let mn = TileFormat {
+                    major: Major::MN,
+                    swizzle: Swizzle::B128,
+                };
+                test::<f16, f16, f32>(registers(64, 1, UNSWIZZLED));
+                test::<f16, f16, f32>(registers(128, 2, mn));
             }
 
             #[$crate::runtime_tests::test_log::test]
             fn bf16() {
-                let mn = shared(Major::MN, Swizzle::B64);
-                test::<bf16, bf16, f32>(WgmmaCase::new(64, 4, mn, K_MAJOR));
-                test::<bf16, bf16, f32>(WgmmaCase::new(64, 2, AOperand::Registers, K_MAJOR));
+                let mn = TileFormat {
+                    major: Major::MN,
+                    swizzle: Swizzle::B64,
+                };
+                test::<bf16, bf16, f32>(shared(64, 4, mn, UNSWIZZLED));
+                test::<bf16, bf16, f32>(registers(64, 2, UNSWIZZLED));
             }
 
             #[$crate::runtime_tests::test_log::test]
             fn tf32() {
-                let b128 = (Major::K, Swizzle::B128);
-                test::<tf32, tf32, f32>(WgmmaCase::new(
-                    8,
-                    1,
-                    shared(Major::K, Swizzle::None),
-                    K_MAJOR,
-                ));
-                test::<tf32, tf32, f32>(WgmmaCase::new(64, 4, shared(b128.0, b128.1), b128));
-                test::<tf32, tf32, f32>(WgmmaCase::new(64, 2, AOperand::Registers, K_MAJOR));
+                test::<tf32, tf32, f32>(shared(8, 1, UNSWIZZLED, UNSWIZZLED));
+                test::<tf32, tf32, f32>(shared(64, 4, SWIZZLED, SWIZZLED));
+                test::<tf32, tf32, f32>(registers(64, 2, UNSWIZZLED));
             }
 
             #[$crate::runtime_tests::test_log::test]
             fn fp8() {
-                let b128 = (Major::K, Swizzle::B128);
-                test::<e4m3, e4m3, f32>(WgmmaCase::new(64, 4, shared(b128.0, b128.1), b128));
-                let b64 = shared(Major::K, Swizzle::B64);
-                test::<e5m2, e4m3, f16>(WgmmaCase::new(64, 2, b64, K_MAJOR));
-                test::<e4m3, e5m2, f32>(WgmmaCase::new(64, 1, AOperand::Registers, K_MAJOR));
+                let b64 = TileFormat {
+                    major: Major::K,
+                    swizzle: Swizzle::B64,
+                };
+                test::<e4m3, e4m3, f32>(shared(64, 4, SWIZZLED, SWIZZLED));
+                test::<e5m2, e4m3, f16>(shared(64, 2, b64, UNSWIZZLED));
+                test::<e4m3, e5m2, f32>(registers(64, 1, UNSWIZZLED));
             }
 
             #[$crate::runtime_tests::test_log::test]
             fn int8() {
-                let b128 = (Major::K, Swizzle::B128);
-                test::<i8, i8, i32>(WgmmaCase::new(64, 4, shared(b128.0, b128.1), b128));
-                test::<u8, i8, i32>(WgmmaCase::new(
-                    32,
-                    1,
-                    shared(Major::K, Swizzle::None),
-                    K_MAJOR,
-                ));
-                test::<i8, u8, i32>(WgmmaCase::new(64, 1, AOperand::Registers, K_MAJOR));
+                test::<i8, i8, i32>(shared(64, 4, SWIZZLED, SWIZZLED));
+                test::<u8, i8, i32>(shared(32, 1, UNSWIZZLED, UNSWIZZLED));
+                test::<i8, u8, i32>(registers(64, 1, UNSWIZZLED));
             }
 
             #[$crate::runtime_tests::test_log::test]

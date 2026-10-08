@@ -6,11 +6,13 @@ use cubecl_core::ir::{
     DeviceIdentity, HardwareProperties, MemoryDeviceProperties, features::Features,
     features::MmaConfig,
 };
-#[cfg(feature = "nvptx")]
-use cubecl_core::prelude::barrier::Barrier;
 use cubecl_core::prelude::*;
+#[cfg(feature = "nvptx")]
+use cubecl_core::{ir::types::MatrixShape, prelude::barrier::Barrier};
 use cubecl_runtime::kernel::CubeKernel;
-use half::{bf16, f16};
+use half::bf16;
+#[cfg(feature = "nvptx")]
+use half::f16;
 use std::sync::Arc;
 
 pub(crate) fn device_properties(plane_dim: u32) -> Arc<DeviceProperties> {
@@ -415,7 +417,7 @@ fn warpgroup_product<I: Numeric, A: Numeric>(
     out: &mut [A],
     #[comptime] n: usize,
     #[comptime] k: usize,
-    #[comptime] a_in_registers: bool,
+    #[comptime] a: ProductA,
 ) {
     let a_layout = comptime![wgmma::WgmmaTileLayout {
         major: wgmma::Major::K,
@@ -444,7 +446,7 @@ fn warpgroup_product<I: Numeric, A: Numeric>(
 
     let b = wgmma::MatrixDescriptor::new(&smem_b, b_layout);
     let mut acc = wgmma::Accumulator::<A>::new(n).start();
-    if a_in_registers {
+    if comptime![a == ProductA::Registers] {
         let mut fragment = wgmma::Fragment::<I>::new();
         #[unroll]
         for nth in 0..fragment.len() {
@@ -510,11 +512,11 @@ pub(crate) fn warpgroup_pipeline_kernel() -> impl CubeKernel {
         AddressType::U32,
     );
     let mut props = (*device_properties(32)).clone();
-    props
-        .features
-        .matmul
-        .wgmma
-        .extend(crate::nvptx::wgmma::wgmma_configs().iter().copied());
+    props.features.matmul.wgmma.extend(
+        crate::nvptx::wgmma::configs(cubecl_core::ir::nvidia::SmArch::new(90, true))
+            .iter()
+            .copied(),
+    );
     warpgroup_pipeline::WarpgroupPipeline::new(
         settings,
         Arc::new(props),
@@ -525,16 +527,24 @@ pub(crate) fn warpgroup_pipeline_kernel() -> impl CubeKernel {
     )
 }
 
+/// Where [`warpgroup_product`] reads `A` from.
+#[cfg(feature = "nvptx")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum ProductA {
+    Shared,
+    Registers,
+}
+
 /// One warpgroup MMA of `I` operands accumulating in `A`, `64 x n x k`.
 #[cfg(feature = "nvptx")]
 pub(crate) fn warpgroup_product_kernel<
     I: Numeric + cubecl_core::CubeElement,
     A: Numeric + cubecl_core::CubeElement,
 >(
-    n: usize,
-    k: usize,
-    a_in_registers: bool,
+    shape: MatrixShape,
+    a: ProductA,
 ) -> impl CubeKernel {
+    let MatrixShape { n, k, .. } = shape;
     let settings = KernelSettings::new(
         *CubeDim::new_1d(128),
         ExecutionMode::Unchecked,
@@ -546,9 +556,11 @@ pub(crate) fn warpgroup_product_kernel<
         .matmul
         .wgmma
         .insert(cubecl_core::ir::features::WgmmaConfig {
-            a_type: I::cube_type(),
-            b_type: I::cube_type(),
-            cd_type: A::cube_type(),
+            elems: cubecl_core::ir::features::WgmmaElems {
+                a: I::cube_type(),
+                b: I::cube_type(),
+                cd: A::cube_type(),
+            },
             m: 64,
             n_granularity: n as u32,
             n_max: n as u32,
@@ -563,7 +575,7 @@ pub(crate) fn warpgroup_product_kernel<
         BufferCompilationArg { inplace: None },
         n,
         k,
-        a_in_registers,
+        a,
     )
 }
 

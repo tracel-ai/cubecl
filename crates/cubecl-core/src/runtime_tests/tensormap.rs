@@ -67,6 +67,8 @@ fn tensormap_store_pipeline<F: Float>(input: &[F], output: &mut TensorMap<F, Til
     previous.wait();
 }
 
+const F16_BYTES: usize = 2;
+
 /// Loads `layout`'s tile with TMA, one load per panel, and copies it back out in the order of
 /// `input`, finding each element through
 /// [`WgmmaTileLayout::offset`](crate::wgmma::WgmmaTileLayout::offset). `input` is `lines x
@@ -86,9 +88,9 @@ fn tensormap_load_swizzled(
     let mut tile: Shared<[half::f16]> = Shared::new_aligned_slice(size, alignment);
 
     let contiguous = comptime![size / lines];
-    let panel = comptime![layout.panel_elems(2)];
+    let panel = comptime![layout.panel_elems(F16_BYTES)];
     let panel_size = comptime![lines * panel];
-    let expected = select(UNIT_POS == 0, comptime![(size * 2) as u32], 0);
+    let expected = select(UNIT_POS == 0, comptime![(size * F16_BYTES) as u32], 0);
     if UNIT_POS == 0 {
         #[unroll]
         for p in 0..comptime![contiguous / panel] {
@@ -116,7 +118,7 @@ fn tensormap_load_swizzled(
             } else {
                 (along, line)
             };
-            output[index] = tile[layout.offset(row, k, 2usize)];
+            output[index] = tile[layout.offset(row, k, F16_BYTES)];
         }
     }
 }
@@ -362,7 +364,7 @@ where
             rows,
             k,
         };
-        layout.validate(2).expect("a layout an MMA reads");
+        layout.validate(F16_BYTES).expect("a layout an MMA reads");
         let (lines, contiguous) = match major {
             Major::K => (rows, k),
             Major::MN => (k, rows),
@@ -375,9 +377,9 @@ where
         let MemoryLayout {
             memory: handle,
             strides,
-        } = client.create_tensor_from_slice(half::f16::as_bytes(&values), shape.clone(), 2);
+        } = client.create_tensor_from_slice(half::f16::as_bytes(&values), shape.clone(), F16_BYTES);
         let input = unsafe { TensorArg::from_raw_parts(handle.clone(), strides, shape) };
-        let out = client.empty(size * 2);
+        let out = client.empty(size * F16_BYTES);
 
         tensormap_load_swizzled::launch(
             &client,
@@ -385,7 +387,7 @@ where
             CubeDim::new_1d(128),
             TensorMapArg::new(
                 TiledArgs {
-                    tile_size: shape![lines, layout.panel_elems(2)],
+                    tile_size: shape![lines, layout.panel_elems(F16_BYTES)],
                 },
                 input,
                 half::f16::elem_type_native(),

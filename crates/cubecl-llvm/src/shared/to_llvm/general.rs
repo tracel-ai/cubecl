@@ -1,9 +1,6 @@
 use crate::{prelude::*, shared::to_llvm::lower_by_target};
 use cubecl_core::ir::dialect::{
-    barrier::{
-        ArriveAndExpectTxOp, ArriveAndWaitOp, ArriveOp, CommitCopyAsyncOp, ExpectTxOp, InitOp,
-        WaitOp, WaitParityOp,
-    },
+    barrier::CommitCopyAsyncOp,
     general::{CastOp, CommentOp, CopyOp, FreeOp, PrintfOp, ReinterpretCastOp, SelectOp},
 };
 use pliron_llvm::{
@@ -409,26 +406,6 @@ macro_rules! erase_op {
 erase_op!(CommentOp);
 erase_op!(FreeOp);
 erase_op!(CommitCopyAsyncOp);
-
-/// NVPTX barriers are `mbarrier`s. The other targets copy synchronously, so a barrier has
-/// nothing to wait for and its operations are dropped.
-macro_rules! barrier_op {
-    ($cube_op:ty, $method:ident) => {
-        lower_by_target!(
-            $cube_op,
-            ["nvptx" Nvptx => crate::nvptx::barrier::$method],
-            super::erase
-        );
-    };
-}
-
-barrier_op!(InitOp, init);
-barrier_op!(ArriveOp, arrive_op);
-barrier_op!(ArriveAndExpectTxOp, arrive_and_expect_tx);
-barrier_op!(ExpectTxOp, expect_tx);
-barrier_op!(WaitOp, wait);
-barrier_op!(WaitParityOp, wait_parity);
-barrier_op!(ArriveAndWaitOp, arrive_and_wait);
 
 /// `value`'s float lanes converted to the float lanes of `ty`, rounding to nearest even. `f16`
 /// and `bf16` share a width and no instruction converts between them, so they go through the

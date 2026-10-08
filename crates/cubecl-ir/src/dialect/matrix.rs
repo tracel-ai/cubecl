@@ -214,6 +214,17 @@ pub enum WgmmaSwizzle {
 }
 
 impl WgmmaSwizzle {
+    /// The bytes of a line the swizzle permutes the 16-byte chunks of. Without swizzle, a line
+    /// is one chunk.
+    pub fn width(&self) -> usize {
+        match self {
+            WgmmaSwizzle::None => 16,
+            WgmmaSwizzle::B32 => 32,
+            WgmmaSwizzle::B64 => 64,
+            WgmmaSwizzle::B128 => 128,
+        }
+    }
+
     /// The alignment, in bytes, a tile with this swizzle must start at. A swizzled tile starts a
     /// repeat of its pattern, 8 rows of the swizzle's width, because the descriptor leaves the
     /// base offset that would shift the pattern at zero.
@@ -223,16 +234,6 @@ impl WgmmaSwizzle {
             WgmmaSwizzle::B32 => 256,
             WgmmaSwizzle::B64 => 512,
             WgmmaSwizzle::B128 => 1024,
-        }
-    }
-
-    /// The value of the descriptor's two-bit swizzle field.
-    pub fn descriptor_bits(&self) -> u64 {
-        match self {
-            WgmmaSwizzle::None => 0,
-            WgmmaSwizzle::B128 => 1,
-            WgmmaSwizzle::B64 => 2,
-            WgmmaSwizzle::B32 => 3,
         }
     }
 }
@@ -253,6 +254,16 @@ macro_rules! warpgroup_synchronizes {
             }
         }
     };
+}
+
+/// Units in a warpgroup: the four planes that issue one warpgroup MMA together.
+pub const WARPGROUP_UNITS: usize = 128;
+/// Rows every warpgroup MMA computes.
+pub const WARPGROUP_M: usize = 64;
+
+/// The elements each unit of a warpgroup holds of a `64 x cols` accumulator or `A` fragment.
+pub const fn warpgroup_elems_per_unit(cols: usize) -> usize {
+    WARPGROUP_M * cols / WARPGROUP_UNITS
 }
 
 /// Which dimension of a warpgroup MMA operand tile is contiguous in shared memory: K, as in a

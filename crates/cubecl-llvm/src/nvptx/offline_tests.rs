@@ -1,8 +1,8 @@
 //! Real kernels compiled to PTX without a device, checked on the assembly.
 
 use crate::shared::offline_kernels::{
-    Wait, bf16_math_kernel, keep_largest_kernel, plane_moves_kernel, relay_kernel, scale_kernel,
-    strided_walk_kernel, tally_kernel, tile_product_kernel,
+    ProductA, Wait, bf16_math_kernel, keep_largest_kernel, plane_moves_kernel, relay_kernel,
+    scale_kernel, strided_walk_kernel, tally_kernel, tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{PlironArtifact, PlironCompiler, PlironOptions, nvptx::ptx_version::PtxVersion};
@@ -184,7 +184,10 @@ fn tf32_constant_casts_preserve_rounding() {
 #[test]
 fn a_warpgroup_product_is_one_async_mma() {
     let ptx = ptx_of(
-        crate::shared::offline_kernels::warpgroup_product_kernel::<half::f16, f32>(64, 16, false),
+        crate::shared::offline_kernels::warpgroup_product_kernel::<half::f16, f32>(
+            shape(64, 16),
+            ProductA::Shared,
+        ),
         90,
     );
     assert!(ptx.contains(".target sm_90a"), "{ptx}");
@@ -209,7 +212,10 @@ fn a_warpgroup_product_is_one_async_mma() {
 #[test]
 fn a_warpgroup_product_takes_a_from_registers() {
     let ptx = ptx_of(
-        crate::shared::offline_kernels::warpgroup_product_kernel::<half::bf16, f32>(32, 16, true),
+        crate::shared::offline_kernels::warpgroup_product_kernel::<half::bf16, f32>(
+            shape(32, 16),
+            ProductA::Registers,
+        ),
         90,
     );
     let mma = ptx
@@ -218,14 +224,22 @@ fn a_warpgroup_product_takes_a_from_registers() {
         .unwrap_or_else(|| panic!("no MMA:\n{ptx}"));
     assert!(mma.contains("m64n32k16.f32.bf16.bf16"), "{mma}");
     // The 16 accumulator registers, then the four of `A`.
-    assert_eq!(mma.matches('{').count(), 2, "{mma}");
+    let lists: Vec<usize> = mma
+        .split('{')
+        .skip(1)
+        .map(|list| list.split('}').next().unwrap_or("").split(',').count())
+        .collect();
+    assert_eq!(lists, [16, 4], "{mma}");
 }
 
 /// The integer forms take neither the operand negation nor the transposes.
 #[test]
 fn an_integer_warpgroup_product_has_no_immediates() {
     let ptx = ptx_of(
-        crate::shared::offline_kernels::warpgroup_product_kernel::<i8, i32>(32, 32, false),
+        crate::shared::offline_kernels::warpgroup_product_kernel::<i8, i32>(
+            shape(32, 32),
+            ProductA::Shared,
+        ),
         90,
     );
     let mma = ptx
@@ -241,7 +255,10 @@ fn an_integer_warpgroup_product_has_no_immediates() {
 #[test]
 fn the_registers_a_warpgroup_product_reads_are_written_before_its_fence() {
     let ptx = ptx_of(
-        crate::shared::offline_kernels::warpgroup_product_kernel::<half::f16, f32>(32, 16, true),
+        crate::shared::offline_kernels::warpgroup_product_kernel::<half::f16, f32>(
+            shape(32, 16),
+            ProductA::Registers,
+        ),
         90,
     );
     let mma = ptx
@@ -267,6 +284,11 @@ fn the_registers_a_warpgroup_product_reads_are_written_before_its_fence() {
             "{register} written between the fence and the MMA:\n{between}"
         );
     }
+}
+
+/// A `64 x n x k` warpgroup MMA.
+fn shape(n: usize, k: usize) -> cubecl_core::ir::types::MatrixShape {
+    cubecl_core::ir::types::MatrixShape { m: 64, n, k }
 }
 
 /// The `n` of each wait on a commit group of `kind`, in program order.
@@ -415,6 +437,8 @@ fn a_pipelined_wait_lets_the_newest_stage_run() {
     assert!(ptx.contains("wgmma.wait_group.sync.aligned \t0;"), "{ptx}");
 }
 
+/// An im2col load and a one-dimensional bulk copy both complete on the same `mbarrier`, as
+/// transactions of the bytes they wrote, and the units wait on its phase parity.
 #[test]
 fn an_im2col_load_and_a_bulk_copy_share_a_barrier() {
     let ptx = ptx_of(crate::shared::offline_kernels::tma_im2col_load_kernel(), 90);

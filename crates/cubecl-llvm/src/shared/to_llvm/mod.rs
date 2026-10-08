@@ -1,6 +1,7 @@
 pub mod atomic;
 pub mod cmp;
 pub mod constant;
+mod dispatch;
 pub mod general;
 pub mod insert;
 pub mod math;
@@ -9,6 +10,8 @@ pub mod ty;
 pub mod vector;
 
 use crate::prelude::*;
+
+pub(crate) use dispatch::{NvptxOnly, erase, lower_by_target, nvptx_only};
 
 pub mod prelude {
     pub use crate::prelude::*;
@@ -70,42 +73,4 @@ impl DialectConversion for CubeToLLVM {
             .expect("Matched Op must implement ToLLVMDialect");
         to_llvm_op.rewrite(ctx, rewriter, operands_info)
     }
-}
-
-/// Implements [`ToLLVMDialect`] for `$cube_op` by its lowering on each target listed, gated on
-/// that target's feature, and by `$fallback(op, ctx, rewriter, target)` on the others.
-macro_rules! lower_by_target {
-    ($cube_op:ty, [$($feature:literal $target:ident => $lower:path),* $(,)?], $fallback:expr) => {
-        #[op_interface_impl]
-        impl $crate::shared::to_llvm::ToLLVMDialect for $cube_op {
-            fn rewrite(
-                &self,
-                ctx: &mut Context,
-                rewriter: &mut DialectConversionRewriter,
-                operands_info: &OperandsInfo,
-            ) -> Result<()> {
-                let _ = operands_info;
-                match ctx.target() {
-                    $(
-                        #[cfg(feature = $feature)]
-                        LlvmTarget::$target => $lower(self, ctx, rewriter, operands_info),
-                    )*
-                    #[allow(unreachable_patterns)]
-                    target => ($fallback)(self, ctx, rewriter, target),
-                }
-            }
-        }
-    };
-}
-pub(crate) use lower_by_target;
-
-/// A [`lower_by_target!`] fallback that drops the operation: a target where it means nothing.
-pub(crate) fn erase<O: Op>(
-    op: &O,
-    ctx: &mut Context,
-    rewriter: &mut DialectConversionRewriter,
-    _target: LlvmTarget,
-) -> Result<()> {
-    rewriter.erase_operation(ctx, op.get_operation());
-    Ok(())
 }

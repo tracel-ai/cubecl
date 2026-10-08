@@ -15,5 +15,6 @@ pub mod printf;
 pub mod ptx_version;
 pub(crate) mod registers;
 pub mod synchronization;
+pub(crate) mod tensor_map;
 pub mod tma;
 pub mod wgmma;

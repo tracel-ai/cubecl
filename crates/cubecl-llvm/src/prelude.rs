@@ -1,7 +1,8 @@
 pub use crate::{
     shared::{
         intrinsic::{
-            Extension, call_op, call_void, i32_const_op, i32_ty, i64_ty, int_ty, resize_int,
+            Extension, call_intrinsic, call_op, call_void, i32_const_op, i32_ty, i64_ty, int_ty,
+            resize_int,
         },
         lowering::TargetLowering,
         metadata::EntryArgLayout,
@@ -15,8 +16,8 @@ pub use crate::{
             },
             insert::insert,
             ty::{
-                GEP_INDEX_WIDTH, cube_type_to_llvm, index_width, llvm_mangled_ty, scalar_alignment,
-                type_alignment,
+                GEP_INDEX_WIDTH, cube_origin, cube_pointee, cube_type_to_llvm, index_width,
+                llvm_mangled_ty, scalar_alignment, type_alignment,
             },
             vector::insert_splat,
         },

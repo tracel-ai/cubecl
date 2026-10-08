@@ -19,6 +19,18 @@ pub fn call_op(
     CallIntrinsicOp::new(ctx, name.into(), fn_ty, args)
 }
 
+/// Calls the intrinsic `name`, which returns a `ret_ty`.
+pub fn call_intrinsic(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    name: &str,
+    ret_ty: TypeHandle,
+    args: Vec<Value>,
+) -> Value {
+    let op = call_op(ctx, name, ret_ty, args);
+    insert(ctx, rw, &op)
+}
+
 /// Calls the intrinsic `name`, which returns nothing.
 pub fn call_void(
     ctx: &mut Context,
@@ -26,10 +38,8 @@ pub fn call_void(
     name: &str,
     args: Vec<Value>,
 ) {
-    let arg_tys = args.iter().map(|arg| arg.get_type(ctx)).collect();
     let void_ty = VoidType::get(ctx).into();
-    let fn_ty = FuncType::get(ctx, void_ty, arg_tys, false);
-    let call = llvm::CallIntrinsicOp::new(ctx, name.into(), fn_ty, args);
+    let call = call_op(ctx, name, void_ty, args);
     rw.insert_op(ctx, &call);
 }
 

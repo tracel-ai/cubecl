@@ -5,6 +5,7 @@ use crate::{
         libdevice::{Libdevice, link_libdevice},
         printf::lower_printf_to_vprintf,
         ptx_version::PtxVersion,
+        tensor_map::TensorMapParams,
     },
     prelude::{BufferIOAttr, Context, ModuleOp},
     shared::{
@@ -80,8 +81,8 @@ pub struct NvptxEntry {
     pub atomic_reads: AtomicReads,
     /// Metadata parameter layout.
     pub metadata: MetadataParams,
-    /// The parameters that are tensor maps, by binding position.
-    pub tensor_maps: Vec<usize>,
+    /// The parameters that are tensor maps.
+    pub tensor_maps: TensorMapParams,
 }
 
 pub fn emit_ptx(
@@ -142,35 +143,14 @@ fn finalize(
         &entry_fn,
         &entry.io,
         &entry.atomic_reads,
-        &entry.tensor_maps,
+        entry.tensor_maps.bindings(),
         entry.metadata.count(),
     );
     if let MetadataParams::GridConstant { bytes, .. } = entry.metadata {
         mark_info_param_byval(&entry_fn, bytes);
     }
-    for &binding in &entry.tensor_maps {
-        mark_tensor_map_param(&entry_fn, binding as u32);
-    }
+    entry.tensor_maps.mark(&entry_fn);
     Ok(())
-}
-
-/// A `CUtensorMap` is 128 bytes, aligned to 64.
-const TENSOR_MAP_BYTES: u64 = 128;
-const TENSOR_MAP_ALIGN: u64 = 64;
-
-/// Passes a tensor map by value, as the runtime launches it, and declares it a grid constant: a
-/// TMA instruction reads the map through its address, and without the promise LLVM would copy
-/// the parameter to local memory first, where TMA cannot read it.
-fn mark_tensor_map_param(entry: &EntryFunction<'_>, binding: u32) {
-    let param = entry.param(binding);
-    let byval = entry.add_param_byval(param, TENSOR_MAP_BYTES);
-    let aligned = entry.add_param_attribute(param, "align", TENSOR_MAP_ALIGN);
-    assert!(
-        byval && aligned,
-        "this LLVM has no `byval` or `align` attribute, so the tensor map parameter cannot be \
-         declared"
-    );
-    entry.add_param_string_attribute(param, "nvvm.grid_constant", "");
 }
 
 /// Alignment required by the host metadata layout.

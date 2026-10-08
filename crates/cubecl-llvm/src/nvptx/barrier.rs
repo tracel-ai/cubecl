@@ -11,9 +11,9 @@
 //! nothing to wait for and its operations are dropped.
 
 use crate::{
-    nvptx::{address::NvptxSpace, inline_asm::InlineAsm},
+    nvptx::{address::NvptxSpace, inline_asm::InlineAsm, tma::no_multicast_or_cache_hint},
     prelude::*,
-    shared::{plane::call_intrinsic, to_llvm::ty::pointee_size},
+    shared::to_llvm::ty::pointee_size,
 };
 use cubecl_core::ir::{
     dialect::barrier::{
@@ -24,16 +24,17 @@ use cubecl_core::ir::{
 };
 use pliron::location::Location;
 
+// LLVM has no scoped form of `init`; arrivals and transactions use the scoped forms, which
+// take a count.
 const INIT: &str = "llvm.nvvm.mbarrier.init.shared";
-const ARRIVE: &str = "llvm.nvvm.mbarrier.arrive.shared";
 const ARRIVE_COUNT: &str = "llvm.nvvm.mbarrier.arrive.scope.cta.space.cta";
 const EXPECT_TX: &str = "llvm.nvvm.mbarrier.expect.tx.scope.cta.space.cta";
 const BULK_GLOBAL_TO_SHARED: &str = "llvm.nvvm.cp.async.bulk.global.to.shared.cluster";
 
 #[derive(Debug, Error)]
 #[error(
-    "a TMA copy completes on an `mbarrier`, which only a cube barrier in shared memory is; a \
-     unit barrier has none"
+    "a TMA or bulk copy completes on an `mbarrier`, which only a cube barrier in shared memory \
+     is; a unit barrier has none"
 )]
 pub struct UnitBarrierUnsupported;
 
@@ -56,18 +57,10 @@ impl Barrier {
         info: &OperandsInfo,
         barrier: Value,
     ) -> Self {
-        let level = info
-            .lookup_operand_history(barrier)
-            .into_iter()
-            .rev()
-            .chain(core::iter::once(barrier.get_type(ctx)))
-            .find_map(|ty| {
-                let ty = ty.deref(ctx);
-                let ptr = ty.downcast_ref::<CubePointerType>()?;
-                let inner = ptr.inner.deref(ctx);
-                inner.downcast_ref::<BarrierType>().map(|barrier| barrier.0)
-            })
-            .expect("a barrier operand points at a barrier");
+        let level = cube_pointee(ctx, info, barrier, |inner| {
+            inner.downcast_ref::<BarrierType>().map(|barrier| barrier.0)
+        })
+        .expect("a barrier operand points at a barrier");
         match level {
             BarrierLevel::Cube => Barrier::Cube(NvptxSpace::Shared.cast(ctx, rw, barrier)),
             BarrierLevel::Unit => Barrier::Unit,
@@ -99,15 +92,15 @@ impl Wait {
         let address = llvm::PtrToIntOp::new(ctx, barrier, i32_ty);
         let address = insert(ctx, rw, &address);
 
-        let mut asm = InlineAsm::new().clobbers_memory();
-        let address = asm.input(address, "r");
+        let mut asm = InlineAsm::new(Vec::new()).clobbers_memory();
+        let address = asm.input(address);
         let (test, phase) = match self {
-            Wait::Token(token) => ("mbarrier.try_wait.shared::cta.b64", asm.input(token, "l")),
+            Wait::Token(token) => ("mbarrier.try_wait.shared::cta.b64", asm.input(token)),
             Wait::Parity(parity) => {
                 let parity = u32_operand(ctx, rw, parity);
                 (
                     "mbarrier.try_wait.parity.shared::cta.b64",
-                    asm.input(parity, "r"),
+                    asm.input(parity),
                 )
             }
         };
@@ -147,7 +140,7 @@ pub(crate) fn arrive_op(
 }
 
 /// Raises the bytes the current phase expects, then arrives `arrive_count_update` times. Two
-/// instructions rather than `mbarrier.arrive.expect_tx`, because the count is a runtime value.
+/// instructions rather than `mbarrier.arrive.expect_tx`, which arrives only once.
 pub(crate) fn arrive_and_expect_tx(
     op: &ArriveAndExpectTxOp,
     ctx: &mut Context,
@@ -262,17 +255,8 @@ pub(crate) fn memcpy_async_tx(
     let destination = NvptxSpace::SharedCluster.cast(ctx, rw, op.destination(ctx));
     let source = NvptxSpace::Global.cast(ctx, rw, op.source(ctx));
 
-    // No multicast mask, no cache hint, and the flags that say so.
-    let args = vec![
-        destination,
-        barrier,
-        source,
-        bytes,
-        insert_int_const(ctx, rw, 16, 0),
-        insert_int_const(ctx, rw, 64, 0),
-        insert_bool_const(ctx, rw, false),
-        insert_bool_const(ctx, rw, false),
-    ];
+    let mut args = vec![destination, barrier, source, bytes];
+    args.extend(no_multicast_or_cache_hint(ctx, rw));
     call_void(ctx, rw, BULK_GLOBAL_TO_SHARED, args);
 
     rw.erase_operation(ctx, op.get_operation());
@@ -285,8 +269,9 @@ fn u32_operand(ctx: &mut Context, rw: &mut DialectConversionRewriter, value: Val
 }
 
 fn arrive(ctx: &mut Context, rw: &mut DialectConversionRewriter, barrier: Value) -> Value {
+    let once = insert_i32_const(ctx, rw, 1);
     let i64_ty = i64_ty(ctx);
-    call_intrinsic(ctx, rw, ARRIVE, i64_ty, vec![barrier])
+    call_intrinsic(ctx, rw, ARRIVE_COUNT, i64_ty, vec![barrier, once])
 }
 
 /// The token of an arrival on a unit barrier, which no wait reads.

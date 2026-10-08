@@ -5,23 +5,14 @@
 //! vector is split one element per register, packed several to a register, or bitcast into opaque
 //! 32-bit words, depending on what the instruction declares for its element type.
 
-use crate::{prelude::*, shared::plane::bitcast};
+use crate::{
+    prelude::*,
+    shared::{
+        matrix::{registers_array_ty, registers_as_vector, registers_value, vector_into_array},
+        plane::bitcast,
+    },
+};
 use pliron_llvm::types::{StructLayout, StructType};
-
-/// How a fragment is laid out in registers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Fragment {
-    pub(crate) regs: usize,
-    /// Scalar elements per register.
-    pub(crate) per_reg: usize,
-}
-
-impl Fragment {
-    /// Scalar elements per lane, including duplicated input elements.
-    pub(crate) fn elems(&self) -> usize {
-        self.regs * self.per_reg
-    }
-}
 
 pub(crate) fn extract_lane(
     ctx: &mut Context,
@@ -55,70 +46,6 @@ pub(crate) fn poison(
     insert(ctx, rw, &op)
 }
 
-pub(crate) fn to_registers(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    fragment: Value,
-    frag: Fragment,
-    reg_ty: TypeHandle,
-) -> Vec<Value> {
-    (0..frag.regs)
-        .map(|r| {
-            if frag.per_reg == 1 {
-                let value = extract_lane(ctx, rw, fragment, r);
-                return bitcast(ctx, rw, value, reg_ty);
-            }
-            let lanes_ty = packed_ty(ctx, fragment.get_type(ctx), frag.per_reg);
-            let mut reg = poison(ctx, rw, lanes_ty);
-            for lane in 0..frag.per_reg {
-                let element = extract_lane(ctx, rw, fragment, r * frag.per_reg + lane);
-                reg = insert_lane(ctx, rw, reg, element, lane);
-            }
-            bitcast(ctx, rw, reg, reg_ty)
-        })
-        .collect()
-}
-
-pub(crate) fn from_registers(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    regs: &[Value],
-    frag: Fragment,
-    frag_ty: TypeHandle,
-) -> Value {
-    let mut acc = poison(ctx, rw, frag_ty);
-    for (r, &reg) in regs.iter().enumerate() {
-        if frag.per_reg == 1 {
-            let elem_ty = frag_ty
-                .deref(ctx)
-                .downcast_ref::<LlvmVectorType>()
-                .unwrap()
-                .elem_type();
-            let reg = bitcast(ctx, rw, reg, elem_ty);
-            acc = insert_lane(ctx, rw, acc, reg, r);
-            continue;
-        }
-        let lanes_ty = packed_ty(ctx, frag_ty, frag.per_reg);
-        let reg = bitcast(ctx, rw, reg, lanes_ty);
-        for lane in 0..frag.per_reg {
-            let element = extract_lane(ctx, rw, reg, lane);
-            acc = insert_lane(ctx, rw, acc, element, r * frag.per_reg + lane);
-        }
-    }
-    acc
-}
-
-/// The `per_reg` elements of `frag_ty` one register holds, as a vector. A register of another
-/// type, such as the `i32` that carries two `bf16`, is a bitcast of it.
-fn packed_ty(ctx: &Context, frag_ty: TypeHandle, per_reg: usize) -> TypeHandle {
-    let elem = frag_ty
-        .deref(ctx)
-        .downcast_ref::<LlvmVectorType>()
-        .expect("a fragment is held in a vector")
-        .elem_type();
-    LlvmVectorType::get(ctx, elem, per_reg as u32, VectorTypeKind::Fixed).into()
-}
-
 pub(crate) fn call_returning_registers(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
@@ -128,10 +55,7 @@ pub(crate) fn call_returning_registers(
 ) -> Vec<Value> {
     let count = reg_tys.len();
     let result_ty = registers_result_ty(ctx, reg_tys);
-    let arg_tys = args.iter().map(|arg| arg.get_type(ctx)).collect();
-    let fn_ty = FuncType::get(ctx, result_ty, arg_tys, false);
-    let call = llvm::CallIntrinsicOp::new(ctx, name.into(), fn_ty, args);
-    let result = insert(ctx, rw, &call);
+    let result = call_intrinsic(ctx, rw, name, result_ty, args);
     unpack_registers(ctx, rw, result, count)
 }
 
@@ -225,11 +149,18 @@ pub(crate) enum RegisterForm {
     Word,
 }
 
-pub(crate) fn word_ty(ctx: &mut Context) -> TypeHandle {
-    IntegerType::get(ctx, 32, Signedness::Signless).into()
-}
-
 impl RegisterForm {
+    /// The type of one register holding elements of `elem` in this form.
+    pub(crate) fn register_ty(self, ctx: &mut Context, elem: TypeHandle) -> TypeHandle {
+        match self {
+            RegisterForm::Scalar => elem,
+            RegisterForm::Packed(per_reg) => {
+                LlvmVectorType::get(ctx, elem, per_reg as u32, VectorTypeKind::Fixed).into()
+            }
+            RegisterForm::Word => i32_ty(ctx),
+        }
+    }
+
     /// The registers that hold `vector`, in this form.
     pub(crate) fn split(
         self,
@@ -251,16 +182,20 @@ impl RegisterForm {
                 .map(|i| extract_lane(ctx, rw, vector, i))
                 .collect(),
             RegisterForm::Packed(per_reg) => {
-                let reg_ty =
-                    LlvmVectorType::get(ctx, elem, per_reg as u32, VectorTypeKind::Fixed).into();
-                let frag = Fragment {
-                    regs: elems / per_reg,
-                    per_reg,
-                };
-                to_registers(ctx, rw, vector, frag, reg_ty)
+                let reg_ty = self.register_ty(ctx, elem);
+                (0..elems / per_reg)
+                    .map(|r| {
+                        let mut reg = poison(ctx, rw, reg_ty);
+                        for lane in 0..per_reg {
+                            let element = extract_lane(ctx, rw, vector, r * per_reg + lane);
+                            reg = insert_lane(ctx, rw, reg, element, lane);
+                        }
+                        reg
+                    })
+                    .collect()
             }
             RegisterForm::Word => {
-                let word = word_ty(ctx);
+                let word = i32_ty(ctx);
                 let words = vector_bits(ctx, vector.get_type(ctx)) / 32;
                 let words_ty =
                     LlvmVectorType::get(ctx, word, words as u32, VectorTypeKind::Fixed).into();
@@ -280,14 +215,6 @@ impl RegisterForm {
         regs: &[Value],
         vector_ty: TypeHandle,
     ) -> Value {
-        let (elems, elem) = {
-            let ty = vector_ty.deref(ctx);
-            let vec = ty
-                .downcast_ref::<LlvmVectorType>()
-                .expect("a fragment is held in a vector");
-            (vec.num_elements() as usize, vec.elem_type())
-        };
-
         match self {
             RegisterForm::Scalar => {
                 let mut acc = poison(ctx, rw, vector_ty);
@@ -297,23 +224,88 @@ impl RegisterForm {
                 acc
             }
             RegisterForm::Packed(per_reg) => {
-                let frag = Fragment {
-                    regs: elems / per_reg,
-                    per_reg,
-                };
-                from_registers(ctx, rw, regs, frag, vector_ty)
+                let mut acc = poison(ctx, rw, vector_ty);
+                for (r, &reg) in regs.iter().enumerate() {
+                    for lane in 0..per_reg {
+                        let element = extract_lane(ctx, rw, reg, lane);
+                        acc = insert_lane(ctx, rw, acc, element, r * per_reg + lane);
+                    }
+                }
+                acc
             }
             RegisterForm::Word => {
-                let word = word_ty(ctx);
+                let word = i32_ty(ctx);
                 let words_ty =
                     LlvmVectorType::get(ctx, word, regs.len() as u32, VectorTypeKind::Fixed).into();
                 let mut acc = poison(ctx, rw, words_ty);
                 for (i, &reg) in regs.iter().enumerate() {
                     acc = insert_lane(ctx, rw, acc, reg, i);
                 }
-                let _ = elem;
                 bitcast(ctx, rw, acc, vector_ty)
             }
         }
+    }
+}
+
+/// An array of registers a lowered operation reads and rewrites in place, split into the
+/// registers an instruction or an inline assembly takes.
+pub(crate) struct RegisterOperand {
+    array: Value,
+    vector_ty: TypeHandle,
+    elem: TypeHandle,
+    form: RegisterForm,
+}
+
+impl RegisterOperand {
+    /// The registers of `array`, the converted value of a cube array or a pointer to one, taken
+    /// in `form`.
+    pub(crate) fn new(
+        ctx: &Context,
+        info: &OperandsInfo,
+        array: Value,
+        form: impl FnOnce(&Context, TypeHandle) -> RegisterForm,
+    ) -> Self {
+        let (vector_ty, elem) = registers_as_vector(ctx, info, array);
+        Self {
+            array,
+            vector_ty,
+            elem,
+            form: form(ctx, elem),
+        }
+    }
+
+    /// The cube type of an element.
+    pub(crate) fn elem(&self) -> TypeHandle {
+        self.elem
+    }
+
+    /// The elements the array holds.
+    pub(crate) fn lanes(&self, ctx: &Context) -> usize {
+        vector_lanes(ctx, self.vector_ty)
+    }
+
+    /// The bits the array holds.
+    pub(crate) fn bits(&self, ctx: &Context) -> usize {
+        vector_bits(ctx, self.vector_ty)
+    }
+
+    /// Reads the array, as registers.
+    pub(crate) fn load(&self, ctx: &mut Context, rw: &mut DialectConversionRewriter) -> Vec<Value> {
+        let value = registers_value(ctx, rw, self.array, self.vector_ty);
+        self.form.split(ctx, rw, value)
+    }
+
+    /// Writes `regs`, which [`Self::load`] read and an instruction rewrote, back to the array.
+    pub(crate) fn store(
+        &self,
+        ctx: &mut Context,
+        rw: &mut DialectConversionRewriter,
+        info: &OperandsInfo,
+        regs: &[Value],
+    ) {
+        let value = self.form.join(ctx, rw, regs, self.vector_ty);
+        let array_ty = registers_array_ty(ctx, info, self.array);
+        let value = vector_into_array(ctx, rw, value, array_ty);
+        store_fragment(ctx, rw, self.array, value);
     }
 }

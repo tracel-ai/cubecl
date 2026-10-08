@@ -2,7 +2,7 @@ pub mod asm;
 pub mod barrier;
 pub mod branch;
 pub mod cmma;
-pub mod pending;
+mod pending;
 pub mod synchronization;
 pub mod wgmma;
 

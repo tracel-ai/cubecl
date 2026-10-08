@@ -9,9 +9,31 @@ use cubecl_macros_internal::cube_op;
 
 use crate::{
     CanMaterialize, HasSideEffects, Pure,
+    dialect::{
+        matrix::{WgmmaCommitGroupOp, WgmmaWaitGroupOp},
+        tma::{CommitGroupOp, WaitGroupReadOp},
+    },
     prelude::*,
     types::pending::{AsyncGroup, GroupTokenType},
 };
+
+impl AsyncGroup {
+    /// The operation that commits a group of this kind.
+    pub fn commit_op(self, ctx: &mut Context) -> Ptr<Operation> {
+        match self {
+            AsyncGroup::Warpgroup => WgmmaCommitGroupOp::new(ctx).get_operation(),
+            AsyncGroup::BulkCopy => CommitGroupOp::new(ctx).get_operation(),
+        }
+    }
+
+    /// The operation that waits until at most `max_pending` groups of this kind are running.
+    pub fn wait_op(self, ctx: &mut Context, max_pending: usize) -> Ptr<Operation> {
+        match self {
+            AsyncGroup::Warpgroup => WgmmaWaitGroupOp::new(ctx, max_pending).get_operation(),
+            AsyncGroup::BulkCopy => WaitGroupReadOp::new(ctx, max_pending).get_operation(),
+        }
+    }
+}
 
 fn token_ty(ctx: &Context, group: &AsyncGroup) -> TypeHandle {
     GroupTokenType::get(ctx, *group).into()
@@ -34,7 +56,7 @@ pub struct ReadyOp {
     pub group: AsyncGroup,
 }
 
-/// Waits until the group `token` was committed into completes.
+/// Waits until the group `token` was committed into completes, as its [`AsyncGroup`] defines.
 #[cube_op(name = "pending.wait")]
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]

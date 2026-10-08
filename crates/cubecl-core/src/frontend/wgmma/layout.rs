@@ -6,7 +6,7 @@ use cubecl_runtime::tma::TensorMapSwizzle;
 pub use cubecl_ir::dialect::matrix::{WgmmaMajor as Major, WgmmaSwizzle as Swizzle};
 
 /// Bytes of K every warpgroup MMA reads.
-pub(crate) const K_BYTES: usize = 32;
+const K_BYTES: usize = 32;
 /// Every line of a swizzle pattern is 16-byte chunks, and the pattern repeats every 8 lines.
 const CHUNK_BYTES: usize = 16;
 const PATTERN_LINES: usize = 8;
@@ -83,19 +83,9 @@ impl WgmmaTileLayout {
         self.swizzle.alignment()
     }
 
-    /// The bytes the tile spans.
-    pub fn size_bytes(&self, elem_size: usize) -> usize {
-        self.rows * self.k * elem_size
-    }
-
     /// The swizzle a TMA load of the tile uses.
     pub fn tensor_map_swizzle(&self) -> TensorMapSwizzle {
-        match self.swizzle {
-            Swizzle::None => TensorMapSwizzle::None,
-            Swizzle::B32 => TensorMapSwizzle::B32,
-            Swizzle::B64 => TensorMapSwizzle::B64,
-            Swizzle::B128 => TensorMapSwizzle::B128,
-        }
+        self.swizzle.into()
     }
 
     /// The elements of the contiguous dimension a panel holds, the inner dimension of the box a
@@ -152,6 +142,7 @@ impl WgmmaTileLayout {
     /// The bytes from the start of the tile to element `(row, k)`, before the swizzle. A
     /// descriptor of the tile moved this far reads the sub-tile starting there.
     pub fn byte_offset(&self, row: usize, k: usize, elem_size: usize) -> usize {
+        // Kernels compute the same in the `byte_offset` cube function below.
         let (along, line) = match self.major {
             Major::K => (k, row),
             Major::MN => (row, k),
@@ -163,6 +154,7 @@ impl WgmmaTileLayout {
 
     /// The index of element `(row, k)` in the tile, swizzle included.
     pub fn offset(&self, row: usize, k: usize, elem_size: usize) -> usize {
+        // Kernels compute the same in the `swizzle` cube function below.
         let bytes = self.byte_offset(row, k, elem_size);
         let pattern = (bytes / (CHUNK_BYTES * PATTERN_LINES)) & self.chunk_mask();
         (bytes ^ (pattern * CHUNK_BYTES)) / elem_size
@@ -196,12 +188,7 @@ impl WgmmaTileLayout {
     }
 
     fn panel_bytes(&self) -> usize {
-        match self.swizzle {
-            Swizzle::None => CHUNK_BYTES,
-            Swizzle::B32 => 32,
-            Swizzle::B64 => 64,
-            Swizzle::B128 => 128,
-        }
+        self.swizzle.width()
     }
 
     /// The elements of the contiguous dimension.
@@ -234,7 +221,8 @@ impl WgmmaTileLayout {
     }
 }
 
-/// [`WgmmaTileLayout::byte_offset`], of the element `along` the contiguous dimension in `line`.
+/// [`WgmmaTileLayout::byte_offset`] in a kernel, of the element `along` the contiguous dimension
+/// in `line`. The unit tests check the host method, and the TMA runtime tests this one.
 #[cube]
 fn byte_offset(
     along: usize,
@@ -249,7 +237,8 @@ fn byte_offset(
         + along % panel_bytes
 }
 
-/// The element at `bytes` once the swizzle permuted its chunk.
+/// [`WgmmaTileLayout::offset`] in a kernel: the element at `bytes` once the swizzle permuted its
+/// chunk.
 #[cube]
 fn swizzle(bytes: usize, #[comptime] chunk_mask: usize, #[comptime] elem_size: usize) -> usize {
     let pattern = (bytes / comptime![CHUNK_BYTES * PATTERN_LINES]) & chunk_mask;
@@ -295,36 +284,61 @@ mod tests {
         }
     }
 
-    /// PTX ISA, MN-major with 32-byte swizzle, `bf16`: the exact layout
-    /// `((8,2,2),(8,2)):((1,8,128),(16,256))`, panels of 8 lines of K, gives an LBO of 128 and
-    /// an SBO of 256 elements. A tile of one 8-line group of K has the same panels.
-    #[test]
-    fn mn_major_32b_matches_the_ptx_example() {
-        let tile = layout(Major::MN, Swizzle::B32, 32, 8);
-        assert_eq!(tile.leading_byte_offset(), 128 * 2);
-        assert_eq!(tile.stride_byte_offset(), 8 * 32);
-        for (mn, k) in [(0, 0), (9, 0), (16, 3), (31, 7)] {
-            let unswizzled = (mn % 8) + ((mn / 8) % 2) * 8 + (mn / 16) * 128 + k * 16;
-            assert_eq!(tile.byte_offset(mn, k, 2), unswizzled * 2, "({mn}, {k})");
+    /// The element offset PTX's canonical layout gives `(row, k)`, from the tile's own leading
+    /// and stride byte offsets, before the swizzle (PTX ISA, "Canonical Layouts"). `T` is the
+    /// elements of 16 bytes and `c` the chunks of a swizzled line:
+    ///
+    /// - K-major, no swizzle: `((8,m),(T,2k)):((1T,SBO),(1,LBO))`
+    /// - K-major, swizzled: `((8,m),(T,2k)):((cT,SBO),(1,T))`
+    /// - MN-major, no swizzle: `((T,1,m),(8,k)):((1,T,SBO),(1T,LBO))`
+    /// - MN-major, swizzled: `((T,c,m),(8,k)):((1,T,LBO),(cT,SBO))`
+    fn canonical(tile: &WgmmaTileLayout, row: usize, k: usize, elem_size: usize) -> usize {
+        let t = CHUNK_BYTES / elem_size;
+        let c = tile.swizzle.width() / CHUNK_BYTES;
+        let lbo = tile.leading_byte_offset() / elem_size;
+        let sbo = tile.stride_byte_offset() / elem_size;
+        match (tile.major, tile.swizzle) {
+            (Major::K, Swizzle::None) => (row % 8) * t + (row / 8) * sbo + k % t + (k / t) * lbo,
+            (Major::K, _) => (row % 8) * c * t + (row / 8) * sbo + k,
+            (Major::MN, Swizzle::None) => row % t + (row / t) * sbo + (k % 8) * t + (k / 8) * lbo,
+            (Major::MN, _) => {
+                row % t
+                    + ((row / t) % c) * t
+                    + (row / (c * t)) * lbo
+                    + (k % 8) * c * t
+                    + (k / 8) * sbo
+            }
         }
     }
 
-    /// PTX ISA, MN-major with 64-byte swizzle, `bf16`: the exact layout
-    /// `((8,4,2),(8,2)):((1,8,256),(32,512))` gives an LBO of 256 elements between panels of 8
-    /// lines.
+    /// Every element one MMA step reads sits where the canonical layout puts it, for each
+    /// major, swizzle and 16-bit tile size an MMA reads.
     #[test]
-    fn mn_major_64b_matches_the_ptx_example() {
-        let tile = layout(Major::MN, Swizzle::B64, 64, 8);
-        assert_eq!(tile.leading_byte_offset(), 256 * 2);
-        assert_eq!(tile.stride_byte_offset(), 8 * 64);
-        for (mn, k) in [(0, 0), (9, 1), (32, 0), (63, 7)] {
-            let unswizzled = (mn % 32) + (mn / 32) * 256 + k * 32;
-            assert_eq!(tile.byte_offset(mn, k, 2), unswizzled * 2, "({mn}, {k})");
+    fn every_layout_is_canonical() {
+        let swizzles = [Swizzle::None, Swizzle::B32, Swizzle::B64, Swizzle::B128];
+        for major in [Major::K, Major::MN] {
+            for swizzle in swizzles {
+                for (rows, k) in [(64, 64), (128, 64), (256, 128)] {
+                    let tile = layout(major, swizzle, rows, k);
+                    tile.validate(2).unwrap();
+                    // One MMA step: 16 of K. K-major, its 32 bytes stay in the first panel;
+                    // MN-major, a panel holds every line of K.
+                    for row in 0..rows {
+                        for kk in 0..16 {
+                            assert_eq!(
+                                tile.byte_offset(row, kk, 2),
+                                canonical(&tile, row, kk, 2) * 2,
+                                "{tile:?} at ({row}, {kk})"
+                            );
+                        }
+                    }
+                }
+            }
         }
     }
 
-    /// PTX ISA, MN-major without swizzle, `bf16`: groups of 8 elements along MN are 16 bytes
-    /// apart within a group of 8 lines of K, `((8,1,2),(8,2))`.
+    /// MN-major without swizzle: groups of 8 elements along MN are 16 bytes apart within a
+    /// group of 8 lines of K.
     #[test]
     fn mn_major_no_swizzle_uses_core_matrices() {
         let tile = layout(Major::MN, Swizzle::None, 16, 16);
