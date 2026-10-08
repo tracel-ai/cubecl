@@ -3,26 +3,26 @@
 
 /// Held while a key's candidates run under a `CompileOnly` override, so a
 /// key their launches reach knows it was reached inside them.
-pub(super) struct CandidateGathering {
+pub(crate) struct CandidateGathering {
     _private: (),
 }
 
 impl CandidateGathering {
     /// Gather a key's candidates until the guard drops.
-    pub(super) fn enter() -> Self {
-        depth::add(1);
+    pub(crate) fn new() -> Self {
+        depth::enter();
         Self { _private: () }
     }
 
     /// Whether another key's candidates are running on this thread.
-    pub(super) fn active() -> bool {
+    pub(crate) fn active() -> bool {
         depth::get() > 0
     }
 }
 
 impl Drop for CandidateGathering {
     fn drop(&mut self) {
-        depth::sub(1);
+        depth::leave();
     }
 }
 
@@ -37,12 +37,12 @@ mod depth {
         DEPTH.with(core::cell::Cell::get)
     }
 
-    pub(super) fn add(by: usize) {
-        DEPTH.with(|depth| depth.set(depth.get() + by));
+    pub(super) fn enter() {
+        DEPTH.with(|depth| depth.set(depth.get() + 1));
     }
 
-    pub(super) fn sub(by: usize) {
-        DEPTH.with(|depth| depth.set(depth.get() - by));
+    pub(super) fn leave() {
+        DEPTH.with(|depth| depth.set(depth.get() - 1));
     }
 }
 
@@ -58,11 +58,11 @@ mod depth {
         DEPTH.load(Ordering::Relaxed)
     }
 
-    pub(super) fn add(by: usize) {
-        DEPTH.fetch_add(by, Ordering::Relaxed);
+    pub(super) fn enter() {
+        DEPTH.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub(super) fn sub(by: usize) {
-        DEPTH.fetch_sub(by, Ordering::Relaxed);
+    pub(super) fn leave() {
+        DEPTH.fetch_sub(1, Ordering::Relaxed);
     }
 }

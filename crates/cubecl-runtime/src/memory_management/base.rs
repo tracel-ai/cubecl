@@ -142,12 +142,11 @@ pub struct MemoryPoolReport {
     /// The most device allocations ever held at once: for a sliced pool, the
     /// pages the workload needed at its peak.
     pub pages_peak: u64,
-    /// How many of the current pages have no device backing yet — carved under
-    /// a process mode that discards launches and never resolved into anything that
+    /// How many of the current pages have no device backing yet — carved
+    /// while launches were discarded, and never resolved into anything that
     /// executes. They count toward `pages`/`pages_peak` (the plan is the
     /// *reserved* stream) while costing no device memory; `pages -
-    /// pages_unmapped` is the footprint, in this pool, of what launches that
-    /// were dropped resolved.
+    /// pages_unmapped` is what this pool's pages cost the device.
     pub pages_unmapped: u64,
     /// The largest single allocation this pool ever served, in requested
     /// (pre-padding) bytes.

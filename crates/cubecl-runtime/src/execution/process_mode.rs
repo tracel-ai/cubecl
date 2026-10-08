@@ -83,7 +83,7 @@ impl ProcessModeOverride {
     pub fn new(mode: ProcessMode, collector: &StatisticsCollector) -> Self {
         let mut active = ACTIVE.lock();
         let open = OpenState::load();
-        match Opening::of(open, active.as_ref(), mode, collector) {
+        match Opening::new(open, active.as_ref(), mode, collector) {
             Opening::First => {
                 *active = Some(collector.recorder());
                 OpenState::first(mode).store();
@@ -151,7 +151,7 @@ enum Opening {
 }
 
 impl Opening {
-    fn of(
+    fn new(
         open: OpenState,
         active: Option<&StatisticsRecorder>,
         mode: ProcessMode,

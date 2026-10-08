@@ -329,7 +329,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 TuneRegistration::register()
             };
             self.cache.lock().mark_compiled(key.clone(), registration);
-            let gathering = super::gathering::CandidateGathering::enter();
+            let gathering = super::gathering::CandidateGathering::new();
             self.compile_plan(key, inputs, tunables, &autotunables);
             core::mem::drop(gathering);
             return TuneCacheResult::Compiled;

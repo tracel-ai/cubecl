@@ -1,4 +1,4 @@
-use super::{ProcessMode, ServiceStream, StreamMode};
+use super::{ProcessMode, STREAM_MODES, ServiceStream, StreamMode};
 
 /// What a server does with one launch: the verdict its stream's mode and the
 /// process mode resolve to.
@@ -15,8 +15,9 @@ pub enum LaunchMode {
     /// Queue the kernel to be compiled with others, and discard the launch.
     ///
     /// A server honoring this compiles the queue when it next loads a kernel
-    /// for a launch, and only then: flushing or syncing compiles nothing, so
-    /// a pass that only queues gathers everything it reaches into one batch.
+    /// for a launch, or when asked to (`Server::compile_queued`): flushing or
+    /// syncing compiles nothing, so a pass that only queues gathers everything
+    /// it reaches into one batch.
     /// A kernel that fails to compile there reports it when it is launched.
     Queue,
 }
@@ -25,7 +26,7 @@ impl LaunchMode {
     /// What a launch issued on `stream` does now.
     pub(crate) fn new(stream: ServiceStream) -> Self {
         let mode = ProcessMode::current();
-        match (stream.mode(mode.stream_mode()), mode) {
+        match (STREAM_MODES.mode(stream, mode.stream_mode()), mode) {
             (StreamMode::Execute, _) => Self::Execute,
             // A stream discarding its launches while the process executes
             // queues them: they compile with the next launch that loads a
@@ -43,7 +44,7 @@ impl LaunchMode {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{ProcessModeOverride, StatisticsCollector, StreamModeOverride};
+    use super::super::{ProcessModeOverride, StatisticsCollector};
     use super::*;
     use cubecl_common::device::{DeviceId, ServiceId};
     use cubecl_environment::stream::StreamId;
@@ -88,7 +89,7 @@ mod tests {
         {
             // A stream discarding its launches while the process executes
             // queues them.
-            let queuing = StreamModeOverride::of_stream(StreamMode::Discard, seventh);
+            let queuing = STREAM_MODES.set(StreamMode::Discard, seventh);
             assert_eq!(mode(), LaunchMode::Queue);
             core::mem::drop(queuing);
         }
@@ -118,12 +119,12 @@ mod tests {
             ..measured
         };
 
-        let measuring = StreamModeOverride::of_stream(StreamMode::Execute, measured);
+        let measuring = STREAM_MODES.set(StreamMode::Execute, measured);
         assert_eq!(LaunchMode::new(measured), LaunchMode::Execute);
         assert_eq!(LaunchMode::new(other_stream), LaunchMode::Compile);
         assert_eq!(LaunchMode::new(other_device), LaunchMode::Compile);
 
-        let nested = StreamModeOverride::of_stream(StreamMode::Discard, measured);
+        let nested = STREAM_MODES.set(StreamMode::Discard, measured);
         assert_eq!(
             LaunchMode::new(measured),
             LaunchMode::Compile,

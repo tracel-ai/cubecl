@@ -50,5 +50,5 @@ pub(crate) use statistics::{StatisticsRecorder, TuneOutcome, TuneRegistration};
 pub(crate) use issued::IssuedRecorder;
 #[cfg_attr(not(persistence), allow(unused_imports))]
 pub(crate) use statistics::TunePick;
-pub(crate) use stream_mode::ServiceStream;
+pub(crate) use stream_mode::{STREAM_MODES, ServiceStream};
 pub use stream_mode::{StreamMode, StreamModeOverride};
