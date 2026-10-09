@@ -153,14 +153,18 @@ pub fn kernel_continue_and_break(output: &mut [i32]) {
 }
 
 #[cube(launch)]
-pub fn kernel_unrolled_continue_and_break(output: &mut [i32]) {
+pub fn kernel_unrolled_continue_and_break(
+    output: &mut [i32],
+    selected_iter: i32,
+    break_threshold: i32,
+) {
     if UNIT_POS == 0 {
         #[unroll]
         for i in 0..4 {
-            if i > 2 {
+            if i > break_threshold {
                 break;
             }
-            if i != 1 {
+            if i != selected_iter {
                 continue;
             }
             output[0] = i;
@@ -432,6 +436,8 @@ pub fn test_unrolled_continue_and_break<R: Runtime>(client: Client) {
         CubeCount::Static(1, 1, 1),
         CubeDim::new(&client, 1),
         unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
+        1,
+        2,
     );
 
     let actual = client.read_one(handle.clone()).unwrap();

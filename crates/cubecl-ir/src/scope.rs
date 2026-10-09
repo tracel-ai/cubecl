@@ -29,7 +29,7 @@ use pliron::{
     dict_key,
     identifier::Identifier,
     irbuild::{
-        inserter::{IRInserter, Inserter},
+        inserter::{IRInserter, Inserter, OpInsertionPoint},
         listener::DummyListener,
     },
     op::Op,
@@ -594,33 +594,40 @@ impl Scope {
         self.set_may_terminate(children);
     }
 
-    pub fn update_flags_before_unrolled_iteration(&self) {
+    pub fn update_flags_before_unrolled_iteration(&self, body: &Scope) {
+        body.update_flags_before_unrolled_iteration_at(self.unrolled_insertion_point(body));
+    }
+
+    fn update_flags_before_unrolled_iteration_at(&self, insertion_point: OpInsertionPoint) {
+        self.inserter().set_insertion_point(insertion_point);
+
+        // Reset continue to initial state
+        if self.expand_state().may_continue {
+            let flag = self.expand_state().inv_continue_flag.unwrap();
+            self.register(&StoreOp::new(self.ctx_mut(), flag, self.const_bool(true)));
+            self.expand_state_mut().may_continue = false;
+        }
+
         self.set_may_break(core::slice::from_ref(self));
         self.set_may_return(core::slice::from_ref(self));
         self.set_may_terminate(core::slice::from_ref(self));
-
-        self.expand_state_mut().may_break = false;
-        self.expand_state_mut().may_return = false;
-        self.expand_state_mut().may_terminate = false;
-
-        if self.expand_state().may_continue {
-            let flag = self.expand_state().inv_continue_flag.unwrap();
-            self.register(&StoreOp::new(self.ctx_mut(), flag, self.const_bool(false)));
-            self.expand_state_mut().may_continue = false;
-        }
     }
 
     pub fn finalize_unrolled_loop(&self, body: &Scope) {
-        let current_block = self.inserter().get_insertion_block(self.ctx()).unwrap();
-        let after_point = op_insertion_point_in_block(
-            self.ctx(),
-            body.inserter().get_insertion_point(),
-            current_block,
-        );
-        self.inserter().set_insertion_point(after_point);
+        self.inserter()
+            .set_insertion_point(self.unrolled_insertion_point(body));
 
         self.set_may_return(core::slice::from_ref(body));
         self.set_may_terminate(core::slice::from_ref(body));
+    }
+
+    fn unrolled_insertion_point(&self, body: &Scope) -> OpInsertionPoint {
+        let current_block = self.inserter().get_insertion_block(self.ctx()).unwrap();
+        op_insertion_point_in_block(
+            self.ctx(),
+            body.inserter().get_insertion_point(),
+            current_block,
+        )
     }
 
     pub fn set_may_terminate(&self, children: &[Scope]) {

@@ -348,13 +348,13 @@ fn iter_expand_unroll<I: Int>(
     if inclusive {
         for i in start..=end {
             let val = I::from_int(i);
-            body_scope.update_flags_before_unrolled_iteration();
+            scope.update_flags_before_unrolled_iteration(&body_scope);
             body(&body_scope, val.into());
         }
     } else {
         for i in start..end {
             let val = I::from_int(i);
-            body_scope.update_flags_before_unrolled_iteration();
+            scope.update_flags_before_unrolled_iteration(&body_scope);
             body(&body_scope, val.into());
         }
     }
@@ -452,28 +452,28 @@ impl<I: Int + Into<ExpandValue>> Iterable for SteppedRangeExpand<I> {
             (true, true) => {
                 for i in (end..=start).rev().step_by(step.unsigned_abs() as usize) {
                     let val = I::from_int_128(i);
-                    body_scope.update_flags_before_unrolled_iteration();
+                    scope.update_flags_before_unrolled_iteration(&body_scope);
                     body(&body_scope, val.into());
                 }
             }
             (true, false) => {
                 for i in (start..=end).step_by(step.unsigned_abs() as usize) {
                     let val = I::from_int_128(i);
-                    body_scope.update_flags_before_unrolled_iteration();
+                    scope.update_flags_before_unrolled_iteration(&body_scope);
                     body(&body_scope, val.into());
                 }
             }
             (false, true) => {
                 for i in (end..start).rev().step_by(step.unsigned_abs() as usize) {
                     let val = I::from_int_128(i);
-                    body_scope.update_flags_before_unrolled_iteration();
+                    scope.update_flags_before_unrolled_iteration(&body_scope);
                     body(&body_scope, val.into());
                 }
             }
             (false, false) => {
                 for i in (start..end).step_by(step.unsigned_abs() as usize) {
                     let val = I::from_int_128(i);
-                    body_scope.update_flags_before_unrolled_iteration();
+                    scope.update_flags_before_unrolled_iteration(&body_scope);
                     body(&body_scope, val.into());
                 }
             }

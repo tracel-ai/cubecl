@@ -198,7 +198,7 @@ impl<T: CubeType> Iterable for SequenceExpand<T> {
     ) {
         let body = scope.unrolled_loop_child();
         for elem in self {
-            body.update_flags_before_unrolled_iteration();
+            scope.update_flags_before_unrolled_iteration(&body);
             func(&body, elem);
         }
         scope.finalize_unrolled_loop(&body);
