@@ -777,6 +777,8 @@ pub(crate) enum WaitCase {
     MaybeEmptyInnerLoop,
     /// A warpgroup MMA group committed after the store, which the store's wait doesn't count.
     OtherKind,
+    /// A store whose completion nothing waits on.
+    Dropped,
     /// Three stages in flight, one token each in a sequence, in a loop unrolled over them.
     Ring,
     /// A wait for the first of two stores to perform its writes, not only read its source.
@@ -848,6 +850,9 @@ fn group_waits(output: &mut TensorMap<f32, Tiled>, count: u32, #[comptime] case:
                     *stored.index_mut(s) = tma_store_2d(tile, output, i as i32, 0);
                 }
             }
+        }
+        WaitCase::Dropped => {
+            let _ = tma_store_2d(tile, output, 0, 0);
         }
         WaitCase::Complete => {
             let first = tma_store_2d(tile, output, 0, 0);

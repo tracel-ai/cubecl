@@ -16,6 +16,7 @@ use alloc::{
 use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_ir::{
     dialect::{
+        branch::ReturnOp,
         memory::{DeclareVariableOp, LoadOp, StoreOp},
         pending::{CommitOp, ReadyOp, WaitOp},
     },
@@ -368,6 +369,25 @@ impl Pass for ResolvePendingPass {
             }
         }
 
+        // A bulk copy reads shared memory until its group completes, and the cube's shared memory
+        // goes to the next cube once it retires: a store left unwaited is waited for at each
+        // return, wherever a bulk group was committed.
+        let commits_bulk = token_ops.iter().any(|(_, token_op)| {
+            matches!(
+                token_op,
+                TokenOp::Commit {
+                    group: AsyncGroup::BulkCopy,
+                    ..
+                }
+            )
+        });
+        if commits_bulk {
+            for ret in returns(ctx, op) {
+                let wait = AsyncGroup::BulkCopy.wait_op(ctx, 0, WaitUntil::Released);
+                wait.insert_before(ctx, ret);
+            }
+        }
+
         // Users before the values they use: the stores and loads of a variable come after it.
         for (op, token_op) in token_ops.into_iter().rev() {
             match token_op {
@@ -393,6 +413,25 @@ fn token_ops(ctx: &Context, root: Ptr<Operation>) -> Vec<(Ptr<Operation>, TokenO
         }
     });
     ops
+}
+
+/// The returns of the function `root`.
+fn returns(ctx: &Context, root: Ptr<Operation>) -> Vec<Ptr<Operation>> {
+    let mut returns = Vec::new();
+    walk_op(
+        ctx,
+        &mut returns,
+        &WALKCONFIG_ANY,
+        root,
+        |ctx, returns, node| {
+            if let IRNode::Operation(op) = node
+                && op.dyn_op(ctx).downcast_ref::<ReturnOp>().is_some()
+            {
+                returns.push(op);
+            }
+        },
+    );
+    returns
 }
 
 /// Checks that only token operations use a token or a variable holding one, so removing them

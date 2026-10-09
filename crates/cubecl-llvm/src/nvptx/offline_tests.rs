@@ -298,10 +298,15 @@ fn shape(n: usize, k: usize) -> cubecl_core::ir::types::MatrixShape {
     cubecl_core::ir::types::MatrixShape { m: 64, n, k }
 }
 
-/// The `n` of each wait on a commit group of `kind`, in program order.
+/// The `n` of each wait on a commit group of `kind`, in program order, but for the wait for
+/// every bulk group a kernel ends with ([`exit_waits`]).
 fn group_waits(ptx: &str, kind: &str) -> Vec<u32> {
-    ptx.lines()
-        .filter_map(|line| line.trim().strip_prefix(kind))
+    let lines: Vec<&str> = ptx.lines().map(str::trim).collect();
+    lines
+        .iter()
+        .enumerate()
+        .filter(|&(i, _)| !before_ret(&lines, i))
+        .filter_map(|(_, line)| line.strip_prefix(kind))
         .map(|n| {
             n.trim()
                 .trim_end_matches(';')
@@ -309,6 +314,38 @@ fn group_waits(ptx: &str, kind: &str) -> Vec<u32> {
                 .unwrap_or_else(|_| panic!("a count: {n}"))
         })
         .collect()
+}
+
+/// Whether the line after `i` returns.
+fn before_ret(lines: &[&str], i: usize) -> bool {
+    lines
+        .get(i + 1)
+        .is_some_and(|next| next.starts_with("ret;"))
+}
+
+/// The waits for bulk groups a kernel ends with, right before it returns.
+fn exit_waits(ptx: &str) -> Vec<String> {
+    let lines: Vec<&str> = ptx.lines().map(str::trim).collect();
+    lines
+        .iter()
+        .enumerate()
+        .filter(|&(i, line)| line.starts_with("cp.async.bulk.wait_group") && before_ret(&lines, i))
+        .map(|(_, line)| line.to_string())
+        .collect()
+}
+
+/// A store whose completion is dropped is still waited for before the kernel returns: the
+/// cube's shared memory goes to the next cube once it retires.
+#[test]
+fn a_dropped_store_is_waited_for_before_the_kernel_returns() {
+    use crate::shared::offline_kernels::{WaitCase, group_waits_kernel};
+
+    let ptx = ptx_of(group_waits_kernel(WaitCase::Dropped), 90);
+    assert_eq!(
+        exit_waits(&ptx),
+        ["cp.async.bulk.wait_group.read \t0;"],
+        "{ptx}"
+    );
 }
 
 /// Each wait lets run the fewest groups committed after its token's on any path to it.
@@ -357,7 +394,10 @@ fn a_complete_wait_waits_for_the_writes() {
 
     let ptx = ptx_of(group_waits_kernel(WaitCase::Complete), 90);
     assert_eq!(group_waits(&ptx, "cp.async.bulk.wait_group "), [1], "{ptx}");
-    assert!(!ptx.contains("cp.async.bulk.wait_group.read"), "{ptx}");
+    assert!(
+        group_waits(&ptx, "cp.async.bulk.wait_group.read").is_empty(),
+        "only the kernel's exit waits for a read alone:\n{ptx}"
+    );
 }
 
 /// A tensor map is a 128-byte parameter the kernel reads in place: had LLVM copied it to the
@@ -434,6 +474,8 @@ fn a_tma_store_is_tracked_by_a_bulk_group() {
         waits,
         [
             "cp.async.bulk.wait_group.read \t1;",
+            "cp.async.bulk.wait_group.read \t0;",
+            // The kernel's exit, which waits for every bulk group whatever was waited on.
             "cp.async.bulk.wait_group.read \t0;"
         ],
         "{ptx}"

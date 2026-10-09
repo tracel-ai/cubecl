@@ -151,16 +151,9 @@ impl<CD: Numeric> Accumulator<CD> {
 impl<CD: Numeric> Clone for AccumulatorExpand<CD> {
     fn clone(&self) -> Self {
         Self {
-            registers: self.registers.clone(),
+            registers: self.registers,
             n: self.n,
         }
-    }
-}
-
-// Its registers take the other's values: an accumulator replaced by a fresh one.
-impl<CD: Numeric> Assign for AccumulatorExpand<CD> {
-    fn __expand_assign_method(&mut self, scope: &Scope, value: Self) {
-        self.registers.__expand_assign_method(scope, value.registers);
     }
 }
 
@@ -217,10 +210,34 @@ impl<CD: Numeric> Pending<Accumulator<CD>> {
         })
     }
 
+    /// Waits for every MMA issued into the accumulator, zeroes it, and hands it back to the MMAs
+    /// to come, in the same registers: what [`Accumulator::new`] then [`Accumulator::start`] give,
+    /// with no copy written after the fence the MMAs to come read past.
+    pub fn reset(&mut self) {
+        intrinsic!(|scope| {
+            let token = GroupToken::commit(scope, AsyncGroup::Warpgroup);
+            token.__expand_wait_method(scope);
+            fence_operand(scope, &self.value.registers);
+            let len = warpgroup_elems_per_unit(self.value.n);
+            zero_registers::expand::<CD>(scope, &mut self.value.registers, len);
+            fence_operand(scope, &self.value.registers);
+            scope.register(&WgmmaFenceOp::new(scope.ctx_mut()));
+        })
+    }
+
     /// Commits the MMAs issued since the last commit into a group, and returns its completion.
     /// Once it resolves, the MMAs are done reading their tiles and fragments.
     pub fn commit(&mut self) -> Pending<()> {
         intrinsic!(|scope| PendingExpand::commit(scope, AsyncGroup::Warpgroup, ()))
+    }
+}
+
+/// Sets the `len` registers to zero.
+#[cube]
+fn zero_registers<CD: Numeric>(registers: &mut Array<CD>, #[comptime] len: usize) {
+    #[unroll]
+    for i in 0..len {
+        registers[i] = CD::from_int(0);
     }
 }
 

@@ -324,6 +324,7 @@ pub fn test_wgmma_tma<R: Runtime>(client: Client, n: usize) {
     if !client.features().tma.contains(Tma::Base)
         || !supported::<half::f16, half::f16, f32>(&client, n, k)
     {
+        println!("Skipping the TMA-fed wgmma test for n = {n}: no TMA or no such wgmma");
         return;
     }
     let lhs: Vec<half::f16> = (0..WARPGROUP_M)
