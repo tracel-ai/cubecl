@@ -1859,6 +1859,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "execution"
+version = "0.11.0"
+dependencies = [
+ "cubecl",
+]
+
+[[package]]
 name = "expect-test"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

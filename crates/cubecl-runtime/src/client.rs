@@ -26,14 +26,14 @@ use cubecl_common::{
     device_handle::{CallResultExt, DeviceHandle},
     profile::ProfileDuration,
 };
-use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::future::DynFut;
+use cubecl_environment::{backtrace::BackTrace, future::DynFut, stream::StreamId, sync::Mutex};
 use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, VectorSize, features::Features};
 use cubecl_zspace::Shape;
 
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
-use cubecl_environment::stream::StreamId;
+
+static TRANSFER_ORDER: Mutex<()> = Mutex::new(());
 
 /// The `Client` is the entry point to require tasks from the `Server`.
 /// It should be obtained for a specific device via the Compute struct.
@@ -244,6 +244,16 @@ impl Client {
         match self.stream_id {
             Some(val) => val,
             None => StreamId::current(),
+        }
+    }
+
+    /// The stream its launches go out on, on its device's service: what a
+    /// [`StreamModeOverride`](crate::execution::StreamModeOverride) sets the
+    /// mode of.
+    pub(crate) fn service_stream(&self) -> crate::execution::ServiceStream {
+        crate::execution::ServiceStream {
+            service: self.service_id(),
+            stream: self.stream_id(),
         }
     }
 
@@ -1053,6 +1063,9 @@ impl Client {
         );
         let handle_cloned = handle.clone();
 
+        // NCCL pairs sends and recvs in the order each device queues them.
+        let _order = TRANSFER_ORDER.lock();
+
         let device_ids = vec![device_id_src, device_id_dst];
         self.ensure_init_collective(device_ids.clone());
         dst_server.ensure_init_collective(device_ids);
@@ -1127,14 +1140,16 @@ impl Client {
 
         crate::launched::note(|| kernel.id());
 
-        // Decided here, on the issuing thread, because that is the only place
-        // that still knows whether this launch is an autotune measurement — by
-        // the time it reaches the server thread, that context is gone.
-        let launch_mode = crate::dry_run::launch_mode();
+        // Decided here, where the launch is issued, from the stream it goes
+        // out on: the server receives the verdict, not what decided it.
+        let launch_mode = crate::execution::LaunchMode::new(self.service_stream());
+        // So is where its kernels count: the device runs it later, and an
+        // override closing in between must not change that.
+        let issued = crate::execution::IssuedRecorder::new();
 
-        // A launch the dry run drops runs nothing to time, and a backend timing windows by the
+        // A discarded launch runs nothing to time, and a backend timing windows by the
         // timestamps its passes write reports a window around one as never measured.
-        let timed = !launch_mode.is_skipped();
+        let timed = !launch_mode.discards_launch();
         let level = self.utilities.logger.profile_level().filter(|_| timed);
 
         // Before the submit, on the issuing thread: this is the last point at
@@ -1162,7 +1177,9 @@ impl Client {
                         None
                     };
 
-                    unsafe { state.launch(kernel, count, bindings, stream_id, launch_mode) };
+                    issued.apply(|| unsafe {
+                        state.launch(kernel, count, bindings, stream_id, launch_mode)
+                    });
 
                     if let Some(info) = execution_info {
                         utilities.logger.register_execution(info);
@@ -1185,6 +1202,7 @@ impl Client {
                     bindings,
                 ))));
                 let to_launch = slot.clone();
+                let issued_profiled = issued.clone();
                 let profiled = self.profile(
                     move || {
                         let (kernel, count, bindings) = to_launch
@@ -1192,8 +1210,10 @@ impl Client {
                             .take()
                             .expect("filled right above, emptied only here");
                         context
-                            .submit_blocking(move |state| unsafe {
-                                state.launch(kernel, count, bindings, stream_id, launch_mode)
+                            .submit_blocking(move |state| {
+                                issued_profiled.apply(|| unsafe {
+                                    state.launch(kernel, count, bindings, stream_id, launch_mode)
+                                })
                             })
                             .unwrap_or_resume()
                     },
@@ -1217,7 +1237,7 @@ impl Client {
                                 let utilities = self.utilities.clone();
                                 let kernel_id = kernel.id();
                                 self.device.submit(move |state| {
-                                    unsafe {
+                                    issued.apply(|| unsafe {
                                         state.launch(
                                             kernel,
                                             count,
@@ -1225,7 +1245,7 @@ impl Client {
                                             stream_id,
                                             launch_mode,
                                         )
-                                    };
+                                    });
                                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                                         let info = profile_label(name, &kernel_id);
                                         utilities.logger.register_execution(info);
@@ -1334,7 +1354,7 @@ impl Client {
     /// [`Server::compile_queued`]), before the work submitted after it.
     ///
     /// Every measurement starts with it — a tune, a throughput probe — so a
-    /// queue a compile-only dry run left is not timed as part of the first
+    /// queue a `CompileOnly` override left is not timed as part of the first
     /// launch measured.
     pub fn compile_queued(&self) {
         self.device.submit(move |server| server.compile_queued());

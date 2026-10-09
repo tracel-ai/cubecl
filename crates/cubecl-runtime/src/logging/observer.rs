@@ -54,12 +54,12 @@
 //! for — arrives afterwards, either unread through [`profiled`] or as a
 //! duration through [`timed`].
 //!
-//! Issued is not the same as executed. Under a
-//! [`DryRun`](crate::dry_run::DryRun) every launch is still compiled and still
-//! reported here, and is then dropped instead of reaching the device; a
+//! Issued is not the same as executed. A launch whose
+//! [mode](crate::execution::LaunchMode) discards it is still compiled and
+//! still reported here, and is then discarded instead of reaching the device; a
 //! duration measured over one is the compile and the submit, with no kernel
-//! under it. An observer that cares about the difference checks
-//! [`dry_run`](crate::dry_run::dry_run).
+//! under it. Which launches are discarded is decided per stream, where they are
+//! issued, and is not visible here.
 //!
 //! A replayed [`Graph`](crate::client::Graph) is the other direction: its
 //! kernels were observed once, when the capture window recorded them, and a

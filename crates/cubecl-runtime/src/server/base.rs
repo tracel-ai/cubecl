@@ -4,7 +4,7 @@ use crate::{
     client::Client,
     compiler::CompilationError,
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::BoundsCheckMode},
-    dry_run::LaunchMode,
+    execution::LaunchMode,
     id::GraphId,
     kernel::CubeKernel,
     logging::ServerLogger,
@@ -684,10 +684,11 @@ pub trait Server:
     /// and are responsible of determining which should be read or written.
     ///
     /// `launch_mode` says whether the kernel actually runs. On
-    /// [`LaunchMode::Skip`] the server must still do everything a first launch
+    /// [`LaunchMode::Compile`] the server must still do everything a first launch
     /// does short of dispatching — expand, compile, validate, fill its caches —
-    /// and then drop the launch; skipping the compilation instead would defeat
-    /// the whole point of a [dry run](crate::dry_run).
+    /// and then discard the launch; skipping the compilation instead would defeat
+    /// the whole point of an [override](crate::execution::ProcessModeOverride) that
+    /// drops launches.
     ///
     /// # Safety
     ///
@@ -710,7 +711,7 @@ pub trait Server:
     /// unwritten, and surfaces on any read, sync or check of them.
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
-    /// Compiles every kernel a [`LaunchMode::CompileOnly`] launch queued, now
+    /// Compiles every kernel a [`LaunchMode::Queue`] launch queued, now
     /// rather than inside the next launch, so a measurement that follows
     /// times its own kernels only.
     ///
@@ -1284,8 +1285,9 @@ pub enum IoError {
         backtrace: BackTrace,
     },
 
-    /// An allocation carved lazily under a [`DryRun`](crate::dry_run::DryRun)
-    /// could not be given real device backing when it was finally resolved.
+    /// An allocation carved lazily under a
+    /// [process mode](crate::execution::ProcessMode) that discards launches could
+    /// not be given real device backing when it was finally resolved.
     ///
     /// Distinct from the same failure at reservation time, and the distinction
     /// is what a caller acts on: the memory was promised earlier, by a pass

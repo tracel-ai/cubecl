@@ -1,11 +1,12 @@
-//! Kernels a compile-only launch queues: they compile together when the queue
-//! does, on as many threads as the server compiles on, and then run like any
-//! other kernel. The launches that queued them do not run.
+//! Kernels queued by launches on a stream that discards them: they compile
+//! together when the queue does, on as many threads as the server compiles on,
+//! and then run like any other kernel. The launches that queued them do not
+//! run.
 
 use crate::{self as cubecl};
 use alloc::vec::Vec;
 use cubecl::prelude::*;
-use cubecl_runtime::dry_run::CompileOnly;
+use cubecl_runtime::execution::{StreamMode, StreamModeOverride};
 use cubecl_runtime::runtime::Runtime;
 use cubecl_runtime::server::Handle;
 
@@ -28,17 +29,18 @@ pub fn test_compiled_kernels_run<R: Runtime>(client: Client) {
         .collect();
 
     {
-        let _compile_only = CompileOnly::new();
+        let compile_only = StreamModeOverride::new(StreamMode::Discard, &client);
         for (number, out) in outputs.iter().enumerate() {
             launch_numbered(&client, out, number as u32);
         }
+        core::mem::drop(compile_only);
     }
     // A flush compiles nothing: only a launch that executes compiles the queue.
     client.flush().unwrap();
 
     for out in &outputs {
         let actual = client.read_one(out.clone()).unwrap();
-        assert_eq!(u32::from_bytes(&actual), &[0], "a compile-only launch ran");
+        assert_eq!(u32::from_bytes(&actual), &[0], "a queued launch ran");
     }
 
     for (number, out) in outputs.iter().enumerate() {

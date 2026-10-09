@@ -347,7 +347,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Install real backing behind `binding` when its allocation was carved
-    /// lazily under a dry run. Lookup errors are left for
+    /// lazily under a process mode that discards launches. Lookup errors are left for
     /// [`find`](Self::find) to report with its usual diagnostics.
     fn materialize(&mut self, binding: &ManagedMemoryBinding) -> Result<(), IoError> {
         let location = binding.descriptor().location();

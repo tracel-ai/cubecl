@@ -4,7 +4,8 @@
 //! the underlying crates directly.
 
 pub use async_channel::{
-    Receiver, RecvError, SendError, Sender, TryRecvError, TrySendError, bounded, unbounded,
+    Receiver, RecvError, SendError, Sender, TryRecvError, TrySendError, WeakSender, bounded,
+    unbounded,
 };
 
 /// One-shot channels: a single value handed from one task to another.

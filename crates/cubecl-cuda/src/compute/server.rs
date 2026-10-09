@@ -25,7 +25,7 @@ use cubecl_server::command::{CollectiveDriver, Collectives, DeviceStream, Refuse
 use cubecl_server::compiler::ArtifactId;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
-    dry_run::LaunchMode,
+    execution::LaunchMode,
     id::GraphId,
     kernel::CubeKernel,
     logging::ServerLogger,
@@ -188,8 +188,7 @@ impl Server for CudaServer {
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) {
-        // A compile-only launch only queues its kernel, touching nothing else.
-        if launch_mode == LaunchMode::CompileOnly {
+        if launch_mode == LaunchMode::Queue {
             self.ctx.queue_kernel(kernel);
             return;
         }
@@ -200,11 +199,11 @@ impl Server for CudaServer {
         let Some(loaded) = self.load_or_fail(kernel, &id, &bindings, stream_id, launch_mode) else {
             return;
         };
-        // A dry run stops right here, after compilation and before anything
+        // A discarded launch stops right here, after compilation and before anything
         // that touches a buffer: resolving resources, building tensor maps,
         // uploading metadata or reading a dynamic cube count would materialize
         // memory the run exists to leave unmapped.
-        if launch_mode.is_skipped() {
+        if launch_mode.discards_launch() {
             return;
         }
         let kernel_id = id.kernel;
@@ -652,7 +651,7 @@ impl CudaServer {
     /// kernel was only going to read — tainting those would refuse every
     /// later launch that shares them, an autotune sweep above all.
     ///
-    /// A dry run claims none. It was never going to write, so a failure in it
+    /// A discarded launch claims none. It was never going to write, so a failure in it
     /// leaves nothing stale, and tainting its buffers would fail unrelated
     /// reads of memory the run deliberately left alone.
     fn load_or_fail(
@@ -667,7 +666,7 @@ impl CudaServer {
             Ok(loaded) => return Some(loaded),
             Err(err) => err,
         };
-        if !launch_mode.is_skipped() {
+        if !launch_mode.discards_launch() {
             // No compiled answer exists for a kernel that never compiled, so
             // the caller's declared IO decides what the failure claims: only
             // the outputs, never the buffers the kernel was only going to
@@ -908,7 +907,7 @@ impl CudaServer {
         // refine this to minimize allocations.
         let mut tensor_maps = Vec::new();
 
-        // Resolving is also where a dry run's deferred allocations get their
+        // Resolving is also where a discarded launch's deferred allocations get their
         // device backing, so this can fail on a device the measured plan does
         // not fit — reported, not panicked.
         for resource in bindings.resources.into_iter() {
