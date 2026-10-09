@@ -2,8 +2,8 @@ use std::env;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo::rerun-if-env-changed=DOCS_RS");
-    // Rustdoc needs the Rust API, but no native LLVM shims or link configuration.
-    // The LLVM bundle is not installed in the docs.rs sandbox.
+    // docs.rs does not need native LLVM setup.
+    // https://docs.rs/about/builds#detecting-docsrs
     if env::var_os("DOCS_RS").is_some() {
         return Ok(());
     }
