@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 use core::{default::Default, ops::Deref};
 use serde::{Deserialize, Serialize};
 
-use crate::ue8m0;
+use crate::{e2m1, ue8m0};
 
 /// Describes a quantization scheme/configuration.
 ///
@@ -248,9 +248,9 @@ impl ScaleDtype {
             ScaleDtype::F32 => f32::MAX,
             ScaleDtype::F16 => half::f16::MAX.to_f32(),
             ScaleDtype::BF16 => half::bf16::MAX.to_f32(),
-            // Spelled out because `ue8m0` and `e4m3` sit behind the `fp8` feature and this
-            // function is not gated. The tests check both against those types when it is on.
-            ScaleDtype::UE8M0 => f32::from_bits(0x7F00_0000), // 2^127
+            ScaleDtype::UE8M0 => ue8m0::MAX.to_f32(),
+            // Spelled out because `e4m3` sits behind the `fp8` feature and this function is not
+            // gated. The tests check it against that type when it is on.
             ScaleDtype::UE4M3 => 448.0,
         }
     }
@@ -455,7 +455,7 @@ impl QuantValue {
             QuantValue::Q2S => (-1.0, 1.0),
             QuantValue::E4M3 => (-448.0, 448.0),
             QuantValue::E5M2 => (-57344.0, 57344.0),
-            QuantValue::E2M1 => (-6.0, 6.0), // Hardcoded because of no-std
+            QuantValue::E2M1 => (e2m1::MIN.to_f32(), e2m1::MAX.to_f32()),
         }
     }
 
@@ -903,13 +903,6 @@ mod tests {
                 assert!(up >= scale.min(ScaleDtype::UE8M0_MAX), "{up:e} < {scale:e}");
             }
         }
-    }
-
-    /// The other limit spelled out as a literal. `ue8m0` is exponent only, so its maximum is the
-    /// power of two the hex literal encodes.
-    #[test]
-    fn max_representable_matches_the_e8m0_type() {
-        assert_eq!(ScaleDtype::UE8M0.max_representable(), ue8m0::MAX.to_f32());
     }
 
     #[test]
