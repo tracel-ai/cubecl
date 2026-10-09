@@ -10,6 +10,7 @@ use derive_more::{Deref, DerefMut, From};
 use derive_new::new;
 use pliron::{
     attribute::{AttrObj, Attribute},
+    basic_block::BasicBlock,
     builtin::{
         given_names::{get_operation_result_name, set_operation_result_name},
         ops::ConstantOp,
@@ -317,6 +318,18 @@ pub trait RewriterExt: Rewriter {
     }
 }
 impl<R: Rewriter> RewriterExt for R {}
+
+pub fn set_inserter_before_terminator(
+    inserter: &mut dyn Inserter,
+    ctx: &Context,
+    block: Ptr<BasicBlock>,
+) {
+    if let Some(term) = block.deref(ctx).get_terminator(ctx) {
+        inserter.set_insertion_point_before_operation(term);
+    } else {
+        inserter.set_insertion_point_to_block_end(block);
+    }
+}
 
 pub fn transfer_result_names(ctx: &Context, old_op: Ptr<Operation>, values: &[Value]) {
     for (idx, value) in values.iter().enumerate() {

@@ -7,6 +7,7 @@ use cubecl_ir::{
     },
     pliron::{irbuild::inserter::Inserter, r#type::TypedHandle},
     read_value,
+    rewrite::set_inserter_before_terminator,
 };
 use pliron::{
     basic_block::BasicBlock,
@@ -853,6 +854,7 @@ impl WhileBuilder {
         let expand_state = *body.expand_state();
         let break_flag = expand_state.inv_break_flag.unwrap().into();
         let return_flag = expand_state.inv_return_flag.map(Into::into);
+        let terminate_flag = expand_state.inv_terminate_flag.map(Into::into);
 
         if expand_state.may_break {
             cond = binary_expand(&cond_scope, cond, break_flag, BoolAndOp::new);
@@ -861,11 +863,16 @@ impl WhileBuilder {
             let return_flag = return_flag.unwrap();
             cond = binary_expand(&cond_scope, cond, return_flag, BoolAndOp::new);
         }
+        if expand_state.may_terminate {
+            let terminate_flag = terminate_flag.unwrap();
+            cond = binary_expand(&cond_scope, cond, terminate_flag, BoolAndOp::new);
+        }
 
         let cond = cond.read_value(&cond_scope);
         cond_scope.register(&ConditionOp::new(scope.ctx_mut(), cond));
 
         scope.register(&while_op);
+        scope.update_flags_after_loop(&[cond_scope, body]);
     }
 }
 
@@ -876,7 +883,7 @@ pub(crate) fn register_range_loop<I: Int>(scope: &Scope, for_op: &RangeLoopOp, b
         may_terminate,
         may_return,
         may_break,
-        may_continue: _,
+        may_continue,
         inv_terminate_flag,
         inv_return_flag,
         inv_break_flag,
@@ -899,6 +906,12 @@ pub(crate) fn register_range_loop<I: Int>(scope: &Scope, for_op: &RangeLoopOp, b
     let iter_var = ExpandValue::from(scope.create_local_mut(iter_var_old.get_type(ctx), None));
     assign::expand_element(scope, start.into(), iter_var);
 
+    // Normally it needs to be predicated on `break;`/`return;`, but not `continue;`. However, this
+    // would require additional branching and Rust actually doesn't allow loop counters to escape
+    // the loop. So just not predicating it is cheaper, easier, and semantically identical. Yay Rust!
+    if may_continue {
+        set_inserter_before_terminator(body.inserter(), ctx, for_op.loop_body(ctx));
+    }
     assign_binop_expand::<I>(
         body,
         &mut iter_var.into(),

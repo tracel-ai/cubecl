@@ -761,7 +761,11 @@ impl Expression {
                 quote![#ident!(#tokens)]
             }
             Expression::Terminate => {
-                quote![cubecl::frontend::branch::terminate_expand(scope);]
+                // Terminate ends the current scope
+                quote! {
+                    cubecl::frontend::branch::terminate_expand(scope);
+                    return;
+                }
             }
             Expression::AssertConstant { inner } => inner.to_tokens(context),
             Expression::ExpressionMacro { ident, args } => {
