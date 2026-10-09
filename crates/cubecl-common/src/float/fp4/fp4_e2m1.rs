@@ -250,11 +250,19 @@ mod tests {
             (5.0, 4.0),
             (0.3, 0.5),
             (2.4, 2.0),
+            (-0.75, -1.0),
+            (-2.5, -2.0),
             (100.0, 6.0),
             (-100.0, -6.0),
             (f32::NAN, 6.0),
         ] {
             assert_eq!(e2m1::from_f32(value).to_f32(), expected, "{value}");
         }
+    }
+
+    #[test]
+    fn a_negative_too_small_for_any_code_keeps_its_sign() {
+        assert_eq!(e2m1::from_f32(-0.0).to_bits(), 0x8);
+        assert_eq!(e2m1::from_f32(-0.1).to_bits(), 0x8);
     }
 }

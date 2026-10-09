@@ -53,8 +53,7 @@ impl Fp8Format {
         match self {
             Fp8Format::E4M3 => e4m3::MAX.to_f32(),
             Fp8Format::E5M2 => e5m2::MAX.to_f32(),
-            // 2^127. Written as a bit pattern because `to_f32` on `ue8m0` is not `const`.
-            Fp8Format::UE8M0 => f32::from_bits(0x7F00_0000),
+            Fp8Format::UE8M0 => ue8m0::MAX.to_f32(),
         }
     }
 
@@ -93,8 +92,8 @@ impl Fp8Format {
             Fp8Format::E4M3 => e4m3::MIN_POSITIVE.to_f32(),
             Fp8Format::E5M2 => e5m2::MIN_POSITIVE.to_f32(),
             // Every `ue8m0` code is normal in its own terms, so its smallest normal is the bottom
-            // of its range: 2^-127, written as a bit pattern because it is subnormal in f32.
-            Fp8Format::UE8M0 => f32::from_bits(0x0040_0000),
+            // of its range.
+            Fp8Format::UE8M0 => ue8m0::MIN.to_f32(),
         }
     }
 

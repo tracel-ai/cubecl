@@ -177,16 +177,18 @@ impl QuantScheme {
     /// Swap two tensor dimensions in the packing dim, mirroring `shape.swap(dim0, dim1)` on a
     /// tensor of `rank` dimensions: the packing dim counts from the innermost dimension, so it
     /// takes the rank to know which dimension it is.
-    pub fn swap_packing_dim(&mut self, rank: usize, dim0: usize, dim1: usize) {
+    fn swap_packing_dim(&mut self, rank: usize, dim0: usize, dim1: usize) {
         let mut axes: Vec<usize> = (0..rank).collect();
         axes.swap(dim0, dim1);
         self.permute_packing_dim(&axes);
     }
 
     /// Permute the packing dim, mirroring a permutation of the tensor's axes.
-    pub fn permute_packing_dim(&mut self, axes: &[usize]) {
+    fn permute_packing_dim(&mut self, axes: &[usize]) {
+        // A scalar keeps its packing dim, as `reshape_packing_dim` leaves it.
         if let QuantStore::PackedU32(packed_dim) | QuantStore::PackedNative(packed_dim) =
             &mut self.store
+            && !axes.is_empty()
         {
             let rank = axes.len();
             let packed_axis = rank
@@ -214,7 +216,8 @@ impl QuantScheme {
     }
 
     /// Update the packing dim for a reshape to `rank` dimensions: a packing dim the reshape drops
-    /// becomes the innermost one.
+    /// becomes the innermost one. Only the index changes, so a backend holding codes packed in
+    /// words repacks them itself.
     pub fn reshape_packing_dim(&mut self, rank: usize) {
         if let QuantStore::PackedU32(packed_dim) | QuantStore::PackedNative(packed_dim) =
             &mut self.store
@@ -262,15 +265,19 @@ impl ScaleDtype {
     /// the quantization range; rounding up costs one step of coarseness instead. Backends have to
     /// agree on this, or a tensor quantized on one reconstructs differently on another.
     ///
-    /// This is not a cast. Conversion to these types rounds to nearest, which is what a cast
-    /// should do; this is the storage policy for a scale specifically.
+    /// This is not a cast: conversion to these types rounds to nearest, which is what a cast
+    /// should do, and this is the storage policy for a scale. [`ScaleDtype::UE8M0`] is the
+    /// exception, rounded by [`ue8m0`]'s own conversion, which rounds up because that format
+    /// exists to store scales.
     ///
     /// `scale` must not be negative. Symmetric quantization only produces non-negative scales,
     /// and the stepping below walks away from zero for a negative input.
-    ///
-    /// [`ScaleDtype::UE8M0`] is rounded by its own type, [`ue8m0`], whose codes are bare exponents:
-    /// rounding up to one is rounding up to a power of two.
     pub fn round_up(&self, scale: f32) -> f32 {
+        if scale.is_nan() {
+            return scale;
+        }
+        debug_assert!(scale >= 0.0, "a quantization scale is never negative");
+
         match self {
             ScaleDtype::F32 => {
                 return scale;
@@ -280,10 +287,6 @@ impl ScaleDtype {
             }
             _ => {}
         }
-        if scale.is_nan() {
-            return scale;
-        }
-        debug_assert!(scale >= 0.0, "a quantization scale is never negative");
 
         // Nothing representable sits above the maximum, and converting past it yields an infinity
         // for the params that have one, which would make every reconstructed value NaN.
@@ -356,12 +359,9 @@ impl ScaleDtype {
     }
 
     /// The smallest and largest values [`ScaleDtype::UE8M0`] represents: 2^-127 and 2^127.
-    ///
-    /// The minimum is subnormal in f32 and the maximum is the largest power of two it holds, so
-    /// both are spelled as bit patterns rather than computed.
-    pub const UE8M0_MIN: f32 = f32::from_bits(0x0040_0000);
+    pub const UE8M0_MIN: f32 = ue8m0::MIN.to_f32();
     /// See [`ScaleDtype::UE8M0_MIN`].
-    pub const UE8M0_MAX: f32 = f32::from_bits(0x7F00_0000);
+    pub const UE8M0_MAX: f32 = ue8m0::MAX.to_f32();
 }
 
 /// A narrower float format's grid, laid over the f32 bit pattern.
@@ -459,8 +459,7 @@ impl QuantValue {
         }
     }
 
-    /// If the values are minifloat codes, which unlike integer codes do not order as the values
-    /// they stand for.
+    /// If the values are minifloat codes, stored as sign and magnitude, rather than integers.
     pub fn is_float(&self) -> bool {
         match self {
             Self::E4M3 | Self::E5M2 | Self::E2M1 => true,
@@ -785,6 +784,14 @@ mod tests {
         assert_eq!(scheme.store, QuantStore::PackedU32(0));
         scheme.swap_dims(3, 1, 2);
         assert_eq!(scheme.store, QuantStore::PackedU32(1));
+    }
+
+    #[test]
+    fn a_scalar_keeps_its_packing_dim() {
+        let mut scheme = QuantScheme::default().with_store(QuantStore::PackedU32(0));
+        scheme.reshape_packing_dim(0);
+        scheme.permute_dims(&[]);
+        assert_eq!(scheme.store, QuantStore::PackedU32(0));
     }
 
     #[test]

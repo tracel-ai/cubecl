@@ -31,7 +31,7 @@ impl ue8m0 {
     /// ends, a value at or below zero becomes the minimum, and NaN stays NaN.
     #[inline]
     #[must_use]
-    pub fn from_f32(value: f32) -> ue8m0 {
+    pub const fn from_f32(value: f32) -> ue8m0 {
         Self::from_f64(value as f64)
     }
 
@@ -41,7 +41,7 @@ impl ue8m0 {
     /// ends, a value at or below zero becomes the minimum, and NaN stays NaN.
     #[inline]
     #[must_use]
-    pub fn from_f64(value: f64) -> ue8m0 {
+    pub const fn from_f64(value: f64) -> ue8m0 {
         if value.is_nan() {
             return ue8m0(0xff);
         }
@@ -51,7 +51,7 @@ impl ue8m0 {
         let bits = value.to_bits();
         let exponent = ((bits >> 52) & 0x7ff) as i32 - 1023;
         // The base-2 log rounded up: the exponent, plus one unless the value is a power of two.
-        let log2_up = exponent + i32::from(bits & ((1 << 52) - 1) != 0);
+        let log2_up = exponent + (bits & ((1 << 52) - 1) != 0) as i32;
         match log2_up + 127 {
             biased if biased < 0 => Self::MIN,
             biased if biased > 0xfe => Self::MAX,
@@ -71,7 +71,7 @@ impl ue8m0 {
     /// This conversion is lossless as all values can be represented exactly in [`f32`].
     #[inline]
     #[must_use]
-    pub fn to_f32(self) -> f32 {
+    pub const fn to_f32(self) -> f32 {
         self.to_f64() as f32
     }
 
@@ -80,7 +80,7 @@ impl ue8m0 {
     /// This conversion is lossless as all values can be represented exactly in [`f64`].
     #[inline]
     #[must_use]
-    pub fn to_f64(self) -> f64 {
+    pub const fn to_f64(self) -> f64 {
         match self.0 {
             0xff => f64::NAN,
             // 2^(code - 127), a normal f64 whatever the code.
@@ -211,6 +211,14 @@ mod tests {
     fn a_value_between_powers_of_two_rounds_up() {
         assert_eq!(ue8m0::from_f32(3.0).to_f32(), 4.0);
         assert_eq!(ue8m0::from_f64(1.0 + f64::EPSILON).to_f64(), 2.0);
+        assert_eq!(ue8m0::from_f64(4.0 * (1.0 + f64::EPSILON)).to_f64(), 8.0);
+        let above_min = 2f64.powi(-127) * (1.0 + f64::EPSILON);
+        assert_eq!(ue8m0::from_f64(above_min).to_bits(), 1);
         assert_eq!(ue8m0::from_f32(-1.0), ue8m0::MIN);
+    }
+
+    #[test]
+    fn nan_is_the_all_ones_code() {
+        assert_eq!(ue8m0::from_f32(f32::NAN).to_bits(), 0xff);
     }
 }
