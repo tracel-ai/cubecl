@@ -5,6 +5,7 @@ use cubecl_runtime::throughput::{KernelConfig, MemorySpec, ThroughputError, Thro
 use crate::throughput::{
     LaunchConfig,
     memory_probe::{self, MemoryProbe},
+    verify::verify,
 };
 
 /// Builds the write-only streaming kernel, moving `working_set` bytes per
@@ -53,7 +54,7 @@ pub fn build_kernel(
         let _ = cubecl_core::future::block_on(client.sync());
         start.elapsed()
     });
-    memory_probe::verify(&verifier, &sample, &written)?;
+    verify(&verifier, &sample, &written)?;
 
     // Writes only, no `2 *`. That factor is the whole difference from the copy.
     let ops_count = probe.window_lines * config.vector_size;

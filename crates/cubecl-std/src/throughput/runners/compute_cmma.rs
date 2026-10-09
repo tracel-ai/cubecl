@@ -1,15 +1,17 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_runtime::throughput::{CmmaDims, ComputeCmmaConfig, KernelConfig, ThroughputKey};
+use cubecl_runtime::throughput::{
+    CmmaDims, ComputeCmmaConfig, KernelConfig, ThroughputError, ThroughputKey,
+};
 
-use crate::throughput::LaunchConfig;
+use crate::throughput::{LaunchConfig, verify::verify};
 
 pub fn build_kernel(
     client: &Client,
     key: ThroughputKey,
     cmma_config: ComputeCmmaConfig,
     config: LaunchConfig,
-) -> KernelConfig {
+) -> Result<KernelConfig, ThroughputError> {
     let client = client.clone();
     let dtype = key.dtype();
 
@@ -17,35 +19,38 @@ pub fn build_kernel(
     let out_bytes =
         cmma_config.cmma_dims.m * cmma_config.cmma_dims.n * cmma_config.accumulator_type.size();
 
+    let out = client.empty(out_bytes);
+
+    let (verifier, written) = (client.clone(), out.clone());
     let sample = Box::new(move |iterations: usize| {
         let start = cubecl_common::profile::Instant::now();
         unsafe {
-            let out = client.empty(out_bytes);
-
             compute_cmma_throughput::launch_unchecked(
                 &client,
                 CubeCount::Static(config.cube_count as u32, 1, 1),
                 config.cube_dim,
                 config.vector_size,
-                BufferArg::from_raw_parts(out, 1),
+                BufferArg::from_raw_parts(out.clone(), 1),
                 iterations,
                 cmma_config.cmma_dims,
                 dtype,
                 cmma_config.accumulator_type,
             )
         };
+        // A failure is not this sync's to report: `verify` asked the output.
         let _ = cubecl_core::future::block_on(client.sync());
         start.elapsed()
     });
+    verify(&verifier, &sample, &written)?;
 
     let planes_per_cube = config.cube_dim.num_elems() as usize / config.plane_size;
     let ops_count = config.cube_count * planes_per_cube * ops_per_cmma;
 
-    KernelConfig {
+    Ok(KernelConfig {
         sample,
         ops_count,
         min_iterations: 1,
-    }
+    })
 }
 
 #[cube(launch_unchecked)]
