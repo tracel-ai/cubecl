@@ -675,7 +675,11 @@ fn try_create_server<C: WgpuCompiler>(
             .saturating_sub(1),
         max_shared_memory_size: limits.max_compute_workgroup_storage_size as usize,
         max_cube_count: (max_count, max_count, max_count),
-        max_units_per_cube: adapter_limits.max_compute_invocations_per_workgroup,
+        // WGSL launches a cube spanning y or z as one row along x, so a cube holds no more
+        // units than that row does.
+        max_units_per_cube: adapter_limits
+            .max_compute_invocations_per_workgroup
+            .min(adapter_limits.max_compute_workgroup_size_x),
         max_cube_dim: (
             adapter_limits.max_compute_workgroup_size_x,
             adapter_limits.max_compute_workgroup_size_y,
