@@ -74,15 +74,22 @@ impl Pending<()> {
 // A completion carries no value, so waiting on it leaves nothing behind: a loop may wait on it
 // and replace it in the same iteration.
 impl Copy for PendingExpand<()> {}
-impl Clone for PendingExpand<()> {
+// The same work, waited on through either: a handle, as the value's own expand clones are.
+impl<T: PendingValue<ExpandType: Clone>> Clone for PendingExpand<T> {
     fn clone(&self) -> Self {
-        *self
+        Self {
+            value: self.value.clone(),
+            token: self.token,
+        }
     }
 }
 impl Copy for Pending<()> {}
-impl Clone for Pending<()> {
+impl<T: PendingValue + Clone> Clone for Pending<T> {
     fn clone(&self) -> Self {
-        *self
+        Self {
+            value: self.value.clone(),
+            token: self.token,
+        }
     }
 }
 

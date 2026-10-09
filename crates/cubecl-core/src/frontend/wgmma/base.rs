@@ -37,11 +37,15 @@ pub struct MatrixDescriptor<E: Scalar> {
 
 #[cube]
 impl<E: Scalar> MatrixDescriptor<E> {
-    /// Describes `tile`, laid out as `layout`. `tile` must be in shared memory and start at a
-    /// multiple of [`WgmmaTileLayout::alignment`]: a swizzled tile anywhere else is read with
-    /// its lines permuted wrong, silently.
+    /// Describes `tile`, laid out as `layout`, whose lines hold its elements one or several at a
+    /// time. `tile` must be in shared memory and start at a multiple of
+    /// [`WgmmaTileLayout::alignment`]: a swizzled tile anywhere else is read with its lines
+    /// permuted wrong, silently.
     #[allow(unused_variables)]
-    pub fn new(tile: &[E], #[comptime] layout: WgmmaTileLayout) -> Self {
+    pub fn new<L: CubePrimitive<Scalar = E>>(
+        tile: &[L],
+        #[comptime] layout: WgmmaTileLayout,
+    ) -> Self {
         intrinsic!(|scope| {
             if let Err(err) = layout.validate(E::elem_type(scope).size()) {
                 scope.push_error(format!("a warpgroup MMA can't read the tile: {err}"));
@@ -86,7 +90,7 @@ impl<E: Scalar> MatrixDescriptor<E> {
 }
 
 /// The registers each unit of a warpgroup holds of a `64 x n` accumulator.
-#[derive(CubeType)]
+#[derive(CubeType, Clone)]
 pub struct Accumulator<CD: Numeric> {
     registers: Array<CD>,
     #[allow(unused)]
@@ -140,6 +144,23 @@ impl<CD: Numeric> Accumulator<CD> {
             scope.register(&WgmmaFenceOp::new(scope.ctx_mut()));
             PendingExpand::ready(scope, AsyncGroup::Warpgroup, self)
         })
+    }
+}
+
+// A handle to the same registers, as an array's is.
+impl<CD: Numeric> Clone for AccumulatorExpand<CD> {
+    fn clone(&self) -> Self {
+        Self {
+            registers: self.registers.clone(),
+            n: self.n,
+        }
+    }
+}
+
+// Its registers take the other's values: an accumulator replaced by a fresh one.
+impl<CD: Numeric> Assign for AccumulatorExpand<CD> {
+    fn __expand_assign_method(&mut self, scope: &Scope, value: Self) {
+        self.registers.__expand_assign_method(scope, value.registers);
     }
 }
 
