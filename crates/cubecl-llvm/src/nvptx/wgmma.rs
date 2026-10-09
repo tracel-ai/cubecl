@@ -15,7 +15,7 @@ use cubecl_core::ir::{
     ElemType, FloatKind, IntKind, UIntKind,
     dialect::matrix::{
         WARPGROUP_M, WgmmaCommitGroupOp, WgmmaDescriptorOp, WgmmaFenceOp, WgmmaFenceOperandOp,
-        WgmmaMajor, WgmmaOp, WgmmaSwizzle, WgmmaWaitGroupOp, warpgroup_elems_per_unit,
+        WgmmaMajor, WgmmaOp, WgmmaSwizzle, WgmmaWaitGroupOp, warpgroup_elems_per_unit, warpgroup_k,
     },
     features::{WgmmaConfig, WgmmaElems},
     nvidia::SmArch,
@@ -29,8 +29,6 @@ const COMMIT_GROUP: &str = "llvm.nvvm.wgmma.commit_group.sync.aligned";
 const WAIT_GROUP: &str = "llvm.nvvm.wgmma.wait_group.sync.aligned";
 
 const N_MAX: u32 = 256;
-/// Every warpgroup MMA reads 32 bytes of K.
-const K_BYTES: usize = 32;
 /// `A` held in registers is always four 32-bit registers per unit.
 const A_REGISTER_BITS: usize = 4 * 32;
 /// A descriptor holds its address and offsets in 14-bit fields of 16-byte units.
@@ -81,9 +79,8 @@ pub enum WgmmaError {
 /// The warpgroup MMA forms `arch` has: Hopper's alone, since Blackwell replaced them with
 /// `tcgen05`.
 pub fn configs(arch: SmArch) -> &'static [WgmmaConfig] {
-    static HOPPER: LazyLock<Vec<WgmmaConfig>> = LazyLock::new(hopper_configs);
     match arch.version() {
-        90 => &HOPPER,
+        90 => &HOPPER_FORMS,
         _ => &[],
     }
 }
@@ -105,7 +102,7 @@ fn hopper_configs() -> Vec<WgmmaConfig> {
         m: WARPGROUP_M as u32,
         n_granularity: 8,
         n_max: N_MAX,
-        k: (K_BYTES / a.size()) as u32,
+        k: warpgroup_k(a.size()) as u32,
     };
 
     let mut configs = vec![

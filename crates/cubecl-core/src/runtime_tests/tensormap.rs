@@ -39,7 +39,7 @@ fn tensormap_store<F: Float, N: Size>(input: &[Vector<F, N>], output: &mut Tenso
     sync_cube();
 
     if UNIT_POS == 0 {
-        tma_store_2d(shared.as_slice(), output, 16, 8).wait();
+        tma_store_2d(shared.as_slice(), output, 16, 8).wait_complete();
     }
 }
 

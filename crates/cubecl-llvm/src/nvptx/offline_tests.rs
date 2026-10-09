@@ -130,8 +130,11 @@ fn loop_body(ptx: &str) -> Option<String> {
     None
 }
 
-/// The module `kernel` compiles to for `sm_{arch}`.
-fn module_of(kernel: impl CubeKernel, arch: u32) -> crate::NvptxModule {
+/// What compiling `kernel` for `sm_{arch}` gives.
+fn compile(
+    kernel: impl CubeKernel,
+    arch: u32,
+) -> Result<PlironArtifact, cubecl_runtime::compiler::CompilationError> {
     let mut compiler = PlironCompiler {
         target: LlvmTarget::Nvptx,
     };
@@ -140,8 +143,12 @@ fn module_of(kernel: impl CubeKernel, arch: u32) -> crate::NvptxModule {
         ptx_version: PtxVersion::for_driver(12080),
         ..Default::default()
     };
-    let PlironArtifact::NvptxCode(module) = compiler.compile(kernel.define(), &options).unwrap()
-    else {
+    compiler.compile(kernel.define(), &options)
+}
+
+/// The module `kernel` compiles to for `sm_{arch}`.
+fn module_of(kernel: impl CubeKernel, arch: u32) -> crate::NvptxModule {
+    let PlironArtifact::NvptxCode(module) = compile(kernel, arch).unwrap() else {
         unreachable!("the NVPTX target produces PTX");
     };
     module
@@ -324,10 +331,33 @@ fn a_wait_counts_the_groups_on_the_shortest_path() {
     // the loop.
     assert_eq!(bulk(WaitCase::TwoStoresPerIteration), 2);
     assert_eq!(bulk(WaitCase::MaybeEmptyInnerLoop), 0);
+    // Each stage's wait lets the two newer stages run on.
+    assert_eq!(bulk(WaitCase::Ring), 2);
     // A warpgroup group is no bulk group.
     assert_eq!(bulk(WaitCase::OtherKind), 0);
     let ptx = ptx_of(group_waits_kernel(WaitCase::OtherKind), 90);
     assert_eq!(group_waits(&ptx, "wgmma.wait_group.sync.aligned"), [0]);
+}
+
+/// An MMA reads `n` rows of `B`, which a tile with fewer can't hold.
+#[test]
+fn a_tile_too_small_for_the_mma_is_rejected() {
+    let kernel = crate::shared::offline_kernels::warpgroup_short_tile_kernel();
+    let Err(err) = compile(kernel, 90) else {
+        panic!("an 8-row tile of B compiled for a 64 x 16 MMA");
+    };
+    let err = format!("{err:?}");
+    assert!(err.contains("reads 16 rows and 16 of K of B"), "{err}");
+}
+
+/// A wait for a store to complete waits for its writes too, counted as a wait for its read.
+#[test]
+fn a_complete_wait_waits_for_the_writes() {
+    use crate::shared::offline_kernels::{WaitCase, group_waits_kernel};
+
+    let ptx = ptx_of(group_waits_kernel(WaitCase::Complete), 90);
+    assert_eq!(group_waits(&ptx, "cp.async.bulk.wait_group "), [1], "{ptx}");
+    assert!(!ptx.contains("cp.async.bulk.wait_group.read"), "{ptx}");
 }
 
 /// A tensor map is a 128-byte parameter the kernel reads in place: had LLVM copied it to the

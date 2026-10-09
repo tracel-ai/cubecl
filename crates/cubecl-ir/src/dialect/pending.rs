@@ -11,10 +11,10 @@ use crate::{
     CanMaterialize, HasSideEffects, Pure,
     dialect::{
         matrix::{WgmmaCommitGroupOp, WgmmaWaitGroupOp},
-        tma::{CommitGroupOp, WaitGroupReadOp},
+        tma::{CommitGroupOp, WaitGroupOp, WaitGroupReadOp},
     },
     prelude::*,
-    types::pending::{AsyncGroup, GroupTokenType},
+    types::pending::{AsyncGroup, GroupTokenType, WaitUntil},
 };
 
 impl AsyncGroup {
@@ -26,11 +26,22 @@ impl AsyncGroup {
         }
     }
 
-    /// The operation that waits until at most `max_pending` groups of this kind are running.
-    pub fn wait_op(self, ctx: &mut Context, max_pending: usize) -> Ptr<Operation> {
-        match self {
-            AsyncGroup::Warpgroup => WgmmaWaitGroupOp::new(ctx, max_pending).get_operation(),
-            AsyncGroup::BulkCopy => WaitGroupReadOp::new(ctx, max_pending).get_operation(),
+    /// The operation that waits until at most `max_pending` groups of this kind have not
+    /// reached `until`.
+    pub fn wait_op(
+        self,
+        ctx: &mut Context,
+        max_pending: usize,
+        until: WaitUntil,
+    ) -> Ptr<Operation> {
+        match (self, until) {
+            (AsyncGroup::Warpgroup, _) => WgmmaWaitGroupOp::new(ctx, max_pending).get_operation(),
+            (AsyncGroup::BulkCopy, WaitUntil::Released) => {
+                WaitGroupReadOp::new(ctx, max_pending).get_operation()
+            }
+            (AsyncGroup::BulkCopy, WaitUntil::Complete) => {
+                WaitGroupOp::new(ctx, max_pending).get_operation()
+            }
         }
     }
 }
@@ -56,10 +67,11 @@ pub struct ReadyOp {
     pub group: AsyncGroup,
 }
 
-/// Waits until the group `token` was committed into completes, as its [`AsyncGroup`] defines.
+/// Waits until the group `token` was committed into reaches `until`.
 #[cube_op(name = "pending.wait")]
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]
 pub struct WaitOp {
     pub token: Value,
+    pub until: WaitUntil,
 }

@@ -19,18 +19,20 @@
 //!
 //! What "done" means depends on the work. A warpgroup MMA is done once it wrote its accumulator.
 //! A TMA store is done once it read its shared memory source: its writes to global memory may
-//! still be in flight, and are visible once the kernel ends.
+//! still be in flight, and are visible once the kernel ends. [`Pending::wait_complete`] also
+//! waits for those writes, for a kernel that hands them to another cube.
 
 use crate::{self as cubecl, prelude::*};
 use cubecl_ir::{
     dialect::pending::{CommitOp, ReadyOp, WaitOp},
-    types::pending::AsyncGroup,
+    types::pending::{AsyncGroup, WaitUntil},
 };
 use cubecl_macros::{CubeTypeMut, intrinsic};
 use pliron::value::Value;
 
 /// Work that completes later, and the `T` it produces then.
 #[derive(CubeType, CubeTypeMut)]
+#[must_use = "the work runs on until it is waited on"]
 pub struct Pending<T: PendingValue> {
     #[allow(unused)]
     pub(crate) value: T,
@@ -59,10 +61,26 @@ impl PendingValue for () {
     }
 }
 
+#[cube]
+impl Pending<()> {
+    /// Waits for the work to fully complete. A TMA store has then also performed its writes to
+    /// global memory, which a fence or an atomic after the wait publishes to other cubes.
+    /// Anything else completes as [`Pending::wait`] waits for it.
+    pub fn wait_complete(self) {
+        self.token.wait_until(comptime![WaitUntil::Complete]);
+    }
+}
+
 // A completion carries no value, so waiting on it leaves nothing behind: a loop may wait on it
 // and replace it in the same iteration.
 impl Copy for PendingExpand<()> {}
 impl Clone for PendingExpand<()> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl Copy for Pending<()> {}
+impl Clone for Pending<()> {
     fn clone(&self) -> Self {
         *self
     }
@@ -101,11 +119,18 @@ impl GroupToken {
 
 #[cube]
 impl GroupToken {
-    /// Waits until the group this token was committed into completes.
+    /// Waits until the group this token was committed into is done with what the kernel must
+    /// not touch.
     pub(crate) fn wait(&self) {
+        self.wait_until(comptime![WaitUntil::Released]);
+    }
+
+    /// Waits until the group this token was committed into reaches `until`.
+    #[allow(unused_variables)]
+    pub(crate) fn wait_until(&self, #[comptime] until: WaitUntil) {
         intrinsic!(|scope| {
             let token = self.read_value(scope);
-            scope.register(&WaitOp::new(scope.ctx_mut(), token));
+            scope.register(&WaitOp::new(scope.ctx_mut(), token, until));
         })
     }
 }

@@ -9,11 +9,12 @@ use crate::{
     prelude::*,
 };
 use cubecl_core::ir::dialect::tma::{
-    CommitGroupOp, TmaLoadIm2colOp, TmaLoadOp, TmaStoreOp, WaitGroupReadOp,
+    CommitGroupOp, TmaLoadIm2colOp, TmaLoadOp, TmaStoreOp, WaitGroupOp, WaitGroupReadOp,
 };
 use pliron::location::Location;
 
 const COMMIT_GROUP: &str = "llvm.nvvm.cp.async.bulk.commit.group";
+const WAIT_GROUP: &str = "llvm.nvvm.cp.async.bulk.wait.group";
 const WAIT_GROUP_READ: &str = "llvm.nvvm.cp.async.bulk.wait.group.read";
 
 /// What a TMA copy addresses its tile with, each an integer of its own width.
@@ -189,15 +190,36 @@ pub(crate) fn commit_group(
     Ok(())
 }
 
+pub(crate) fn wait_group(
+    op: &WaitGroupOp,
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    _operands_info: &OperandsInfo,
+) -> Result<()> {
+    let max_pending = op.max_pending(ctx).0;
+    wait(ctx, rw, op.get_operation(), WAIT_GROUP, max_pending)
+}
+
 pub(crate) fn wait_group_read(
     op: &WaitGroupReadOp,
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
     _operands_info: &OperandsInfo,
 ) -> Result<()> {
-    let max_pending = op.max_pending(ctx).0 as i32;
-    let max_pending = insert_i32_const(ctx, rw, max_pending);
-    call_void(ctx, rw, WAIT_GROUP_READ, vec![max_pending]);
-    rw.erase_operation(ctx, op.get_operation());
+    let max_pending = op.max_pending(ctx).0;
+    wait(ctx, rw, op.get_operation(), WAIT_GROUP_READ, max_pending)
+}
+
+/// Replaces `op` with a call to the wait `intrinsic` for `max_pending` groups.
+fn wait(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    op: Ptr<Operation>,
+    intrinsic: &str,
+    max_pending: usize,
+) -> Result<()> {
+    let max_pending = insert_i32_const(ctx, rw, max_pending as i32);
+    call_void(ctx, rw, intrinsic, vec![max_pending]);
+    rw.erase_operation(ctx, op);
     Ok(())
 }

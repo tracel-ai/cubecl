@@ -7,7 +7,7 @@ use crate::{
     target::Cuda,
 };
 
-op_includes!(Cuda, [TmaStoreOp, CommitGroupOp, WaitGroupReadOp] => "cuda/barrier");
+op_includes!(Cuda, [TmaStoreOp, CommitGroupOp, WaitGroupOp, WaitGroupReadOp] => "cuda/barrier");
 
 cuda_op!(TmaLoadOp, |op, ctx| {
     let barrier = op.barrier(ctx).name(ctx);
@@ -34,6 +34,11 @@ cuda_op!(TmaStoreOp, |op, ctx| {
 
 cuda_op!(CommitGroupOp, |_, _| {
     "cuda::device::experimental::cp_async_bulk_commit_group();".into()
+});
+// `cuda::device::experimental` only has the `.read` wait.
+cuda_op!(WaitGroupOp, |op, ctx| {
+    let max_pending = op.max_pending(ctx).0;
+    format!(r#"asm volatile("cp.async.bulk.wait_group {max_pending};" ::: "memory");"#)
 });
 cuda_op!(WaitGroupReadOp, |op, ctx| {
     let max_pending = op.max_pending(ctx).0;

@@ -172,9 +172,9 @@ impl<CD: Numeric> Pending<Accumulator<CD>> {
         b: &MatrixDescriptor<B>,
     ) {
         intrinsic!(|scope| {
-            let a_major = a.layout.major;
+            let a_layout = a.layout;
             let a = a.descriptor.read_value(scope);
-            issue::<A, B, CD>(scope, &self.value, a, a_major, b)
+            issue::<A, B, CD>(scope, &self.value, a, Some(a_layout), b)
         })
     }
 
@@ -192,7 +192,7 @@ impl<CD: Numeric> Pending<Accumulator<CD>> {
             fence_operand(scope, &a.registers);
             scope.register(&WgmmaFenceOp::new(scope.ctx_mut()));
             let a = a.registers.read_value(scope);
-            issue::<A, B, CD>(scope, &self.value, a, Major::K, b)
+            issue::<A, B, CD>(scope, &self.value, a, None, b)
         })
     }
 
@@ -209,12 +209,13 @@ fn fence_operand<E: CubePrimitive>(scope: &Scope, registers: &NativeExpand<Array
     scope.register(&WgmmaFenceOperandOp::new(scope.ctx_mut(), registers))
 }
 
-/// Issues one MMA into `acc`, whose registers it writes asynchronously.
+/// Issues one MMA into `acc`, whose registers it writes asynchronously. `a_layout` is the layout
+/// of `A`'s tile, or `None` for `A` in registers.
 fn issue<A: Scalar, B: Scalar, CD: Numeric>(
     scope: &Scope,
     acc: &AccumulatorExpand<CD>,
     a: cubecl_ir::pliron::value::Value,
-    a_major: Major,
+    a_layout: Option<WgmmaTileLayout>,
     b: &MatrixDescriptorExpand<B>,
 ) {
     let elems = WgmmaElems {
@@ -228,6 +229,11 @@ fn issue<A: Scalar, B: Scalar, CD: Numeric>(
         k: WgmmaTileLayout::k_step(elems.a.size()),
     };
     check_supported(scope, elems, shape);
+    if let Some(a_layout) = a_layout {
+        check_covers(scope, "A", a_layout, shape.m, shape.k);
+    }
+    check_covers(scope, "B", b.layout, shape.n, shape.k);
+    let a_major = a_layout.map_or(Major::K, |layout| layout.major);
     let b_major = b.layout.major;
     let b = b.descriptor.read_value(scope);
     let registers = acc.registers.__extract_list(scope);
@@ -244,6 +250,18 @@ fn issue<A: Scalar, B: Scalar, CD: Numeric>(
         a_major,
         b_major,
     ));
+}
+
+/// Checks that `layout`'s tile holds the `rows x k` the MMA reads of `operand`. A sub-tile from
+/// [`MatrixDescriptor::at`] keeps the whole tile's layout, so this only catches a tile too small
+/// for one MMA, not an offset that runs past its end.
+fn check_covers(scope: &Scope, operand: &str, layout: WgmmaTileLayout, rows: usize, k: usize) {
+    if layout.rows < rows || layout.k < k {
+        scope.push_error(format!(
+            "a warpgroup MMA reads {rows} rows and {k} of K of {operand}, but its tile is {} x {}",
+            layout.rows, layout.k
+        ));
+    }
 }
 
 fn check_supported(scope: &Scope, elems: WgmmaElems, shape: MatrixShape) {

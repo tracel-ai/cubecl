@@ -260,6 +260,13 @@ macro_rules! warpgroup_synchronizes {
 pub const WARPGROUP_UNITS: usize = 128;
 /// Rows every warpgroup MMA computes.
 pub const WARPGROUP_M: usize = 64;
+/// Bytes of K every warpgroup MMA reads.
+pub const WARPGROUP_K_BYTES: usize = 32;
+
+/// The elements of K of `elem_size` bytes every warpgroup MMA reads.
+pub const fn warpgroup_k(elem_size: usize) -> usize {
+    WARPGROUP_K_BYTES / elem_size
+}
 
 /// The elements each unit of a warpgroup holds of a `64 x cols` accumulator or `A` fragment.
 pub const fn warpgroup_elems_per_unit(cols: usize) -> usize {
@@ -350,11 +357,17 @@ impl MemoryEffectsOp for WgmmaOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         // The descriptors carry addresses the analyses cannot follow, so the operation reads
         // any of shared memory.
-        vec![
+        let mut effects = vec![
             MemoryEffect::Read(self.accumulator(ctx)),
             MemoryEffect::Write(self.accumulator(ctx)),
             MemoryEffect::ReadAllInSpace(AddressSpace::Shared),
-        ]
+        ];
+        // `A` in registers is read out of its array.
+        let a = self.a(ctx);
+        if a.is_ptr(ctx) {
+            effects.push(MemoryEffect::Read(a));
+        }
+        effects
     }
 }
 

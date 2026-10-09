@@ -527,6 +527,50 @@ pub(crate) fn warpgroup_pipeline_kernel() -> impl CubeKernel {
     )
 }
 
+/// A `64 x 16` MMA whose `B` tile holds only 8 rows.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn warpgroup_short_tile(out: &mut [f32]) {
+    let a_layout = comptime![wgmma::WgmmaTileLayout {
+        major: wgmma::Major::K,
+        swizzle: wgmma::Swizzle::None,
+        rows: 64,
+        k: 16,
+    }];
+    let b_layout = comptime![wgmma::WgmmaTileLayout {
+        rows: 8,
+        ..a_layout
+    }];
+    let tiles = Shared::<[f16]>::new_aligned_slice(72 * 16usize, 128usize);
+    let a = wgmma::MatrixDescriptor::new(&tiles[0..1024], a_layout);
+    let b = wgmma::MatrixDescriptor::new(&tiles[1024..1152], b_layout);
+    let mut acc = wgmma::Accumulator::<f32>::new(16usize).start();
+    acc.execute(&a, &b);
+    let acc = acc.wait();
+    out[UNIT_POS as usize] = acc.get(0usize);
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn warpgroup_short_tile_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(128),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    let mut props = (*device_properties(32)).clone();
+    props.features.matmul.wgmma.extend(
+        crate::nvptx::wgmma::configs(cubecl_core::ir::nvidia::SmArch::new(90, true))
+            .iter()
+            .copied(),
+    );
+    warpgroup_short_tile::WarpgroupShortTile::new(
+        settings,
+        Arc::new(props),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 /// Where [`warpgroup_product`] reads `A` from.
 #[cfg(feature = "nvptx")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -733,6 +777,10 @@ pub(crate) enum WaitCase {
     MaybeEmptyInnerLoop,
     /// A warpgroup MMA group committed after the store, which the store's wait doesn't count.
     OtherKind,
+    /// Three stages in flight, one token each in a sequence, in a loop unrolled over them.
+    Ring,
+    /// A wait for the first of two stores to perform its writes, not only read its source.
+    Complete,
 }
 
 /// Bulk stores of a tile, committed and waited on as `case` says.
@@ -745,23 +793,23 @@ fn group_waits(output: &mut TensorMap<f32, Tiled>, count: u32, #[comptime] case:
         WaitCase::OneBranchStores => {
             let first = tma_store_2d(tile, output, 0, 0);
             if count > 1 {
-                tma_store_2d(tile, output, 16, 0);
+                let _ = tma_store_2d(tile, output, 16, 0);
             }
             first.wait();
         }
         WaitCase::BothBranchesStore => {
             let first = tma_store_2d(tile, output, 0, 0);
             if count > 1 {
-                tma_store_2d(tile, output, 16, 0);
+                let _ = tma_store_2d(tile, output, 16, 0);
             } else {
-                tma_store_2d(tile, output, 32, 0);
+                let _ = tma_store_2d(tile, output, 32, 0);
             }
             first.wait();
         }
         WaitCase::TwoStoresPerIteration => {
             let mut previous = tma_store_2d(tile, output, 0, 0);
             for i in 0..count {
-                tma_store_2d(tile, output, i as i32, 0);
+                let _ = tma_store_2d(tile, output, i as i32, 0);
                 let second = tma_store_2d(tile, output, i as i32, 8);
                 previous.wait();
                 previous = second;
@@ -771,7 +819,7 @@ fn group_waits(output: &mut TensorMap<f32, Tiled>, count: u32, #[comptime] case:
             let mut previous = tma_store_2d(tile, output, 0, 0);
             for i in 0..count {
                 for j in 0..i {
-                    tma_store_2d(tile, output, j as i32, 0);
+                    let _ = tma_store_2d(tile, output, j as i32, 0);
                 }
                 previous.wait();
                 previous = tma_store_2d(tile, output, i as i32, 8);
@@ -780,9 +828,31 @@ fn group_waits(output: &mut TensorMap<f32, Tiled>, count: u32, #[comptime] case:
         WaitCase::OtherKind => {
             let stored = tma_store_2d(tile, output, 0, 0);
             let mut acc = wgmma::Accumulator::<f32>::new(8usize).start();
-            acc.commit();
+            let _ = acc.commit();
             stored.wait();
             let _ = acc.wait();
+        }
+        WaitCase::Ring => {
+            let mut stored = Sequence::<Pending<()>>::new();
+            #[unroll]
+            for s in 0..3u32 {
+                // A slot is assigned again below, so it holds a variable, not the value itself.
+                #[allow(unused_mut)]
+                let mut first = tma_store_2d(tile, output, s as i32 * 16, 0);
+                stored.push(first);
+            }
+            for i in 0..count {
+                #[unroll]
+                for s in 0..3usize {
+                    stored.index(s).wait();
+                    *stored.index_mut(s) = tma_store_2d(tile, output, i as i32, 0);
+                }
+            }
+        }
+        WaitCase::Complete => {
+            let first = tma_store_2d(tile, output, 0, 0);
+            let _ = tma_store_2d(tile, output, 16, 0);
+            first.wait_complete();
         }
     }
 }

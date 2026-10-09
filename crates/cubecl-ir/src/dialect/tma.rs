@@ -303,6 +303,16 @@ impl Verify for TmaStoreOp {
 #[result_ty(none)]
 pub struct CommitGroupOp {}
 
+/// Waits until at most `max_pending` bulk async-groups are still running, their writes to
+/// global memory performed.
+#[cube_op(name = "tma.wait_group")]
+#[result_ty(none)]
+pub struct WaitGroupOp {
+    pub max_pending: IndexAttr,
+}
+
+/// Waits until at most `max_pending` bulk async-groups are still reading their shared memory
+/// sources.
 #[cube_op(name = "tma.wait_group_read")]
 #[result_ty(none)]
 pub struct WaitGroupReadOp {

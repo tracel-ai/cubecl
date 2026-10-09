@@ -18,6 +18,16 @@ pub enum AsyncGroup {
     BulkCopy,
 }
 
+/// What a wait on a group waits for.
+#[pliron_attr(name = "cube.wait_until", format, verifier = "succ")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum WaitUntil {
+    /// The group is done with what the kernel must not touch, as its [`AsyncGroup`] defines.
+    Released,
+    /// The group fully completed. Bulk copies also performed their writes to global memory.
+    Complete,
+}
+
 /// A committed group of asynchronous operations, waited on until it completes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[pliron_type(

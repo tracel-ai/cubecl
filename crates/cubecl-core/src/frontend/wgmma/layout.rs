@@ -3,10 +3,10 @@
 use crate::{self as cubecl, prelude::*};
 use cubecl_runtime::tma::TensorMapSwizzle;
 
+use cubecl_ir::dialect::matrix::warpgroup_k;
+
 pub use cubecl_ir::dialect::matrix::{WgmmaMajor as Major, WgmmaSwizzle as Swizzle};
 
-/// Bytes of K every warpgroup MMA reads.
-const K_BYTES: usize = 32;
 /// Every line of a swizzle pattern is 16-byte chunks, and the pattern repeats every 8 lines.
 const CHUNK_BYTES: usize = 16;
 const PATTERN_LINES: usize = 8;
@@ -75,7 +75,7 @@ impl core::fmt::Display for WgmmaLayoutError {
 impl WgmmaTileLayout {
     /// The elements of K one warpgroup MMA reads.
     pub fn k_step(elem_size: usize) -> usize {
-        K_BYTES / elem_size
+        warpgroup_k(elem_size)
     }
 
     /// The alignment, in bytes, the tile must start at. A TMA load or store also needs 128.

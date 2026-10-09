@@ -13,7 +13,7 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use cubecl_environment::collections::HashMap;
+use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_ir::{
     dialect::{
         memory::{DeclareVariableOp, LoadOp, StoreOp},
@@ -23,7 +23,7 @@ use cubecl_ir::{
     rewrite::WALKCONFIG_ANY,
     types::{
         PointerType,
-        pending::{AsyncGroup, GroupTokenType},
+        pending::{AsyncGroup, GroupTokenType, WaitUntil},
     },
 };
 use itertools::Itertools;
@@ -44,7 +44,11 @@ use crate::analyses::dataflow_solver::{
 
 #[derive(Error, Debug)]
 enum ResolvePendingError {
-    #[error("a commit group token is used by `{0}`; only variables and waits may hold one")]
+    #[error(
+        "a `Pending` is used by `{0}`, and the wait counts can't follow it there. Hold it in \
+         a variable, or keep a fixed number in flight in a `Sequence` indexed in a loop unrolled \
+         over the stages"
+    )]
     UnsupportedUse(String),
 }
 
@@ -87,6 +91,7 @@ enum TokenOp {
     Wait {
         group: AsyncGroup,
         token: Value,
+        until: WaitUntil,
     },
     Declare {
         slot: Value,
@@ -122,8 +127,13 @@ impl TokenOp {
         }
         if let Some(wait) = op.downcast_ref::<WaitOp>() {
             let token = wait.token(ctx);
+            let until = *wait.until(ctx);
             let group = token_group(ctx, token.get_type(ctx))?;
-            return Some(TokenOp::Wait { group, token });
+            return Some(TokenOp::Wait {
+                group,
+                token,
+                until,
+            });
         }
         if let Some(declare) = op.downcast_ref::<DeclareVariableOp>() {
             let slot = declare.get_result(ctx);
@@ -333,8 +343,13 @@ impl Pass for ResolvePendingPass {
         let lowered_waits = token_ops
             .iter()
             .filter_map(|(op, token_op)| match *token_op {
-                TokenOp::Wait { group, token } => {
-                    Some((*op, group, wait_counts.max_pending(ctx, *op, group, token)))
+                TokenOp::Wait {
+                    group,
+                    token,
+                    until,
+                } => {
+                    let max_pending = wait_counts.max_pending(ctx, *op, group, token);
+                    Some((*op, group, until, max_pending))
                 }
                 _ => None,
             })
@@ -342,10 +357,10 @@ impl Pass for ResolvePendingPass {
         drop(wait_counts);
 
         let mut rewriter = IRRewriter::<DummyListener>::default();
-        for (wait, group, max_pending) in lowered_waits {
+        for (wait, group, until, max_pending) in lowered_waits {
             match max_pending {
                 Some(max_pending) => {
-                    let lowered = group.wait_op(ctx, max_pending);
+                    let lowered = group.wait_op(ctx, max_pending, until);
                     lowered.insert_before(ctx, wait);
                     rewriter.replace_operation(ctx, wait, lowered);
                 }
@@ -383,7 +398,7 @@ fn token_ops(ctx: &Context, root: Ptr<Operation>) -> Vec<(Ptr<Operation>, TokenO
 /// Checks that only token operations use a token or a variable holding one, so removing them
 /// all leaves no dangling use.
 fn check_uses(ctx: &Context, token_ops: &[(Ptr<Operation>, TokenOp)]) -> Result<()> {
-    let users = token_ops.iter().map(|(op, _)| *op).collect::<Vec<_>>();
+    let users = token_ops.iter().map(|(op, _)| *op).collect::<HashSet<_>>();
     for value in token_ops
         .iter()
         .filter_map(|(_, token_op)| token_op.defines())
