@@ -10,6 +10,7 @@ macro_rules! testgen_tensor_into_contiguous {
                 test_into_contiguous_packed_repack, test_into_contiguous_packed_vector_size_one,
                 test_into_contiguous_permuted_sweep, test_into_contiguous_permuted_unaligned_axis,
                 test_into_contiguous_rank_mismatch, test_into_contiguous_shape_mismatch,
+                test_into_contiguous_tiled_reshape, test_into_contiguous_tiled_transpose,
             };
 
             #[$crate::tests::test_log::test]
@@ -50,6 +51,16 @@ macro_rules! testgen_tensor_into_contiguous {
             #[$crate::tests::test_log::test]
             pub fn test_permuted_sweep() {
                 test_into_contiguous_permuted_sweep::<TestRuntime>(&Default::default());
+            }
+
+            #[$crate::tests::test_log::test]
+            pub fn test_tiled_transpose() {
+                test_into_contiguous_tiled_transpose::<TestRuntime>(&Default::default());
+            }
+
+            #[$crate::tests::test_log::test]
+            pub fn test_tiled_reshape() {
+                test_into_contiguous_tiled_reshape::<TestRuntime>(&Default::default());
             }
         }
     };

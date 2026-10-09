@@ -320,6 +320,107 @@ pub fn test_into_contiguous_permuted_sweep<R: Runtime>(device: &R::Device) {
     }
 }
 
+/// Large F32 permutations exercise the shared-memory path, including partial
+/// 32x32 tiles. Existing u8/u32 tests continue to exercise the generic path.
+pub fn test_into_contiguous_tiled_transpose<R: Runtime>(device: &R::Device) {
+    for shape in [&[65, 97][..], &[3, 33, 67][..], &[2, 17, 35, 40][..]] {
+        for perm in permutations(shape.len()) {
+            run_permuted_case::<R, f32>(device, shape, &perm);
+        }
+    }
+}
+
+/// A transpose followed by a reshape must preserve logical order. A pitched
+/// output with a different shape cannot be treated as contiguous and must
+/// retain the general copy path.
+pub fn test_into_contiguous_tiled_reshape<R: Runtime>(device: &R::Device) {
+    let client = R::client(device);
+    let shape = [33, 2, 35, 40];
+    let strides = [1, 35 * 40 * 33, 40 * 33, 33];
+    let elements: usize = shape.iter().product();
+    let values = (0..elements)
+        .map(|i| (i % 251 + 1) as f32)
+        .collect::<Vec<_>>();
+    let input = TensorHandle::new(
+        client.create_from_slice(f32::as_bytes(&values)),
+        shape,
+        strides,
+        f32::cube_type(),
+    );
+    let linear_strides = contiguous_strides(&shape);
+    let expected = (0..elements)
+        .map(|i| {
+            let offset = (0..4)
+                .map(|axis| (i / linear_strides[axis]) % shape[axis] * strides[axis])
+                .sum::<usize>();
+            values[offset]
+        })
+        .collect::<Vec<_>>();
+    let rows = shape[0];
+    let cols = elements / rows;
+    for pitch in [cols, cols + 16] {
+        let data = vec![-1.0f32; rows * pitch];
+        let output = TensorHandle::new(
+            client.create_from_slice(f32::as_bytes(&data)),
+            [rows, cols],
+            [pitch, 1],
+            f32::cube_type(),
+        );
+        copy_into(
+            &client,
+            input.clone().binding(),
+            output.clone().binding(),
+            f32::cube_type(),
+        );
+        let bytes = client.read_one_unchecked(output.handle.clone());
+        let actual = f32::from_bytes(&bytes);
+        for row in 0..rows {
+            assert_eq!(
+                &actual[row * pitch..row * pitch + cols],
+                &expected[row * cols..(row + 1) * cols]
+            );
+            assert!(
+                actual[row * pitch + cols..(row + 1) * pitch]
+                    .iter()
+                    .all(|&v| v == -1.0),
+                "overwrote row padding"
+            );
+        }
+    }
+
+    // Same-shape pitched output is handled by the tiled path itself.
+    let width = shape[3];
+    let pitch = width + 8;
+    let rows = elements / width;
+    let data = vec![-1.0f32; rows * pitch];
+    let output = TensorHandle::new(
+        client.create_from_slice(f32::as_bytes(&data)),
+        shape,
+        [shape[1] * shape[2] * pitch, shape[2] * pitch, pitch, 1],
+        f32::cube_type(),
+    );
+    copy_into(
+        &client,
+        input.binding(),
+        output.clone().binding(),
+        f32::cube_type(),
+    );
+    let bytes = client.read_one_unchecked(output.handle);
+    let actual = f32::from_bytes(&bytes);
+    for row in 0..rows {
+        assert_eq!(
+            &actual[row * pitch..row * pitch + width],
+            &expected[row * width..(row + 1) * width]
+        );
+        assert!(
+            actual[row * pitch + width..(row + 1) * pitch]
+                .iter()
+                .all(|&v| v == -1.0),
+            "overwrote row padding in a tiled copy"
+        );
+    }
+}
+
 /// All permutations of `0..rank`.
 fn permutations(rank: usize) -> Vec<Vec<usize>> {
     let mut out = Vec::new();

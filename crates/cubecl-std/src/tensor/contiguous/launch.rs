@@ -33,6 +33,9 @@ pub fn into_contiguous_pitched(
 
 /// Copies the input tensor into the output tensor following the strides.
 pub fn copy_into(client: &Client, input: TensorBinding, output: TensorBinding, dtype: ElemType) {
+    if super::transpose::try_copy_transposed(client, &input, &output, dtype) {
+        return;
+    }
     let rank = input.strides.len();
 
     // It's normally faster on all devices, but since it doesn't parallelize on an axis, it
