@@ -253,18 +253,115 @@ pub fn powf<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<T, N>) -> Vector<
     select_many(is_even, even_res, sel1)
 }
 
+/// Integer powers by squaring, without converting the exponent to a float.
+/// Constant exponents, including vector splats, expand to multiplication chains.
 #[cube]
 pub fn powi<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vector<T, N> {
-    let is_even = exp.is_multiple_of(2);
-    let is_neg_base = base.less_than(&Vector::zero());
-    let exp = Vector::cast_from(exp);
+    intrinsic!(|scope| {
+        let value = exp.read_value(scope);
+        if let Some(exponent) = powi_constant_exponent(scope.ctx(), value) {
+            powi_constant::expand::<T, N>(scope, base, exponent)
+        } else {
+            powi_runtime::expand::<T, N>(scope, base, exp)
+        }
+    })
+}
 
-    let even_res = simple_pow(base.abs(), exp);
-    let odd_neg_res = -(simple_pow(-base, exp));
-    let default = simple_pow(base, exp);
+// Vector literals are broadcasts of scalar constants at this point in lowering.
+fn powi_constant_exponent(ctx: &Context, mut value: Value) -> Option<i32> {
+    use cubecl_ir::{attributes::IntAttrExt, dialect::vector::VectorBroadcastOp};
+    use pliron::builtin::{attributes::IntegerAttr, ops::ConstantOp};
 
-    let sel1 = select_many((!is_even).vec_and(is_neg_base), odd_neg_res, default);
-    select_many(is_even, even_res, sel1)
+    loop {
+        let op = value.defining_op()?;
+        if let Some(broadcast) = op.as_op::<VectorBroadcastOp>(ctx) {
+            value = broadcast.input(ctx);
+        } else {
+            let attr = op
+                .as_op::<ConstantOp>(ctx)?
+                .get_attr_builtin_constant_value(ctx)?;
+            return attr.downcast_ref::<IntegerAttr>()?.as_value::<i32>(ctx);
+        }
+    }
+}
+
+// Emit the squaring chain for a known exponent. In particular, a square
+// is one multiply for both scalar constants and vector splats, with no loop.
+#[cube]
+fn powi_constant<T: Float, N: Size>(base: Vector<T, N>, #[comptime] exp: i32) -> Vector<T, N> {
+    // For negative exponents, form base^(|exp| / 2), then square its reciprocal.
+    // This postpones reciprocal rounding without overflowing the full positive
+    // power when the negative power is a representable subnormal.
+    let magnitude = comptime!(exp.unsigned_abs() >> u32::from(exp < 0));
+    let mut factor = base;
+    let mut result = Vector::one();
+    #[unroll]
+    for bit in 0..comptime!(32 - magnitude.leading_zeros()) {
+        if comptime!(magnitude & (1 << bit) != 0) {
+            if comptime!(bit == magnitude.trailing_zeros()) {
+                result = factor;
+            } else {
+                result *= factor;
+            }
+        }
+        if comptime!(bit + 1 < 32 - magnitude.leading_zeros()) {
+            factor *= factor;
+        }
+    }
+    if comptime!(exp < 0) {
+        let reciprocal = Vector::one() / result;
+        result = reciprocal * reciprocal;
+        if comptime!(exp & 1 != 0) {
+            result /= base;
+        }
+    }
+    result
+}
+
+#[cube]
+fn powi_runtime<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vector<T, N> {
+    let zero = Vector::<u32, N>::zero();
+    let one = Vector::<T, N>::one();
+    let one_u = Vector::<u32, N>::one();
+    let negative = exp.less_than(&Vector::zero());
+
+    // Unsigned subtraction also represents abs(i32::MIN), without signed overflow.
+    let unsigned = Vector::<u32, N>::cast_from(exp);
+    let magnitude = select_many(negative, zero - unsigned, unsigned);
+    // As in the constant path, negative powers use half the magnitude so the
+    // reciprocal can be taken after exponentiation without losing subnormals.
+    let mut remaining = select_many(negative, magnitude >> one_u, magnitude);
+    let mut factor = base;
+    // Consume the first bit without multiplying by one. Square only when another
+    // exponent bit remains, so a runtime square needs just one loop iteration.
+    let mut result = select_many((remaining & one_u).equal(&one_u), base, one);
+    remaining >>= one_u;
+
+    // The highest bit across all lanes bounds the loop, without a reduction on
+    // every iteration. OR the signed exponents too: a negative result means at
+    // least one lane needs a reciprocal.
+    let mut bits = 0u32;
+    let mut signs = 0i32;
+    #[unroll]
+    for lane in 0..remaining.vector_size() {
+        bits |= remaining.extract(lane);
+        signs |= exp.extract(lane);
+    }
+    while bits != 0 {
+        factor *= factor;
+        // Select after multiplying so finished lanes retain their result even
+        // if their unused factor overflows while other lanes continue.
+        result = select_many((remaining & one_u).equal(&one_u), result * factor, result);
+        remaining >>= one_u;
+        bits >>= 1;
+    }
+
+    if signs < 0 {
+        let reciprocal = one / result;
+        let divisor = select_many((magnitude & one_u).equal(&one_u), base, one);
+        result = select_many(negative, (reciprocal * reciprocal) / divisor, result);
+    }
+    result
 }
 
 /// Wrapping integer power, interpreting the exponent as `u32`.
