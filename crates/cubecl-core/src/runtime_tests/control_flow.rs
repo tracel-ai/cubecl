@@ -176,6 +176,19 @@ pub fn kernel_comptime_terminate_ends_scope(output: &mut [i32], #[comptime] term
     output[0] = 10;
 }
 
+// Region ops with the same operands but different bodies should not be CSE'd. This test only tests
+// anything for backends using scf.
+#[cube(launch)]
+pub fn kernel_region_cse_regression(output: &mut [i32], cond: u32) {
+    let cond = cond != 0;
+    if UNIT_POS == 0 {
+        let a = if cond { 0 } else { 1 };
+        output[0] = a;
+        let b = if cond { 2 } else { 3 };
+        output[1] = b;
+    }
+}
+
 pub fn test_short_circuit_or<R: Runtime>(client: Client) {
     let handle = client.empty(core::mem::size_of::<u32>());
     kernel_short_circuit_or::launch(
@@ -414,6 +427,23 @@ pub fn comptime_terminate_ends_scope<R: Runtime>(client: Client) {
     assert_eq!(actual[0], 5);
 }
 
+pub fn test_cse_region_regression<R: Runtime>(client: Client) {
+    let handle = client.create_from_slice(i32::as_bytes(&[5, 5]));
+
+    kernel_region_cse_regression::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new(&client, 1),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
+        1,
+    );
+
+    let actual = client.read_one(handle.clone()).unwrap();
+    let actual = i32::from_bytes(&actual);
+
+    assert_eq!(actual, [0, 2]);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_control_flow {
@@ -496,6 +526,14 @@ macro_rules! testgen_control_flow {
         fn comptime_terminate_ends_scope() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::control_flow::comptime_terminate_ends_scope::<TestRuntime>(
+                client,
+            );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_cse_region_regression() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::control_flow::test_cse_region_regression::<TestRuntime>(
                 client,
             );
         }
