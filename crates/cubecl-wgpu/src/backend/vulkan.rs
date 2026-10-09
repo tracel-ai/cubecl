@@ -386,7 +386,8 @@ fn register_features(
     if let Some(largest) = heaps.iter().map(|heap| heap.size).max() {
         props.memory.set_max_memory(largest);
     }
-    // A property of the hardware like the capacity above, so read before the checks too.
+    // The compute units are hardware too, read here rather than with the properties
+    // `ExtendedFeatures` queries below: a device those checks decline still has them.
     props.hardware.num_streaming_multiprocessors = compute_units(adapter);
 
     // Can't even query for required features without `PhysicalDeviceFeatures2`
@@ -509,9 +510,7 @@ fn compute_units(adapter: &vulkan::Adapter) -> Option<u32> {
     let instance = adapter.shared_instance();
     let capabilities = adapter.physical_device_capabilities();
     // wgpu's instance only carries the core `get_physical_device_properties2`, which needs 1.1.
-    if instance.instance_api_version() < API_VERSION_1_1
-        || capabilities.properties().api_version < API_VERSION_1_1
-    {
+    if instance.instance_api_version() < API_VERSION_1_1 {
         return None;
     }
     // A structure is chained only where the device supports its extension: an unknown one in
@@ -535,8 +534,8 @@ fn compute_units(adapter: &vulkan::Adapter) -> Option<u32> {
     if has_arm {
         properties = properties.push_next(&mut arm);
     }
-    // SAFETY: the instance and device are 1.1, checked above, and every chained structure's
-    // extension is supported by this physical device.
+    // SAFETY: the instance is 1.1, checked above, and every chained structure's extension is
+    // supported by this physical device.
     unsafe {
         instance
             .raw_instance()
