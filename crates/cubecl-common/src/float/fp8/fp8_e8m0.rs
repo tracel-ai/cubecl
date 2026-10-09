@@ -189,3 +189,28 @@ mod numeric {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_code_converts_to_its_value_and_back() {
+        for code in 0..=0xfeu8 {
+            let value = ue8m0::from_bits(code).to_f32();
+            assert_eq!(
+                ue8m0::from_f32(value).to_bits(),
+                code,
+                "{code:#x} is {value:e}"
+            );
+        }
+        assert!(ue8m0::from_bits(0xff).to_f32().is_nan());
+    }
+
+    #[test]
+    fn a_value_between_powers_of_two_rounds_up() {
+        assert_eq!(ue8m0::from_f32(3.0).to_f32(), 4.0);
+        assert_eq!(ue8m0::from_f64(1.0 + f64::EPSILON).to_f64(), 2.0);
+        assert_eq!(ue8m0::from_f32(-1.0), ue8m0::MIN);
+    }
+}

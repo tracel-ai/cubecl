@@ -3,6 +3,8 @@ use alloc::vec::Vec;
 use core::{default::Default, ops::Deref};
 use serde::{Deserialize, Serialize};
 
+use crate::ue8m0;
+
 /// Describes a quantization scheme/configuration.
 ///
 /// Scales come at up to two levels, each an optional field set through
@@ -266,17 +268,15 @@ impl ScaleDtype {
     /// `scale` must not be negative. Symmetric quantization only produces non-negative scales,
     /// and the stepping below walks away from zero for a negative input.
     ///
-    /// [`ScaleDtype::UE8M0`] takes its own path rather than the shared grid below: its range runs
-    /// to 2^-127, which is subnormal in f32, so the two ends need clamping before the bit stepping
-    /// is meaningful. Between them the rule is the same one — a ue8m0 value is a bare exponent, so
-    /// rounding up to it is rounding up to a power of two.
+    /// [`ScaleDtype::UE8M0`] is rounded by its own type, [`ue8m0`], whose codes are bare exponents:
+    /// rounding up to one is rounding up to a power of two.
     pub fn round_up(&self, scale: f32) -> f32 {
         match self {
             ScaleDtype::F32 => {
                 return scale;
             }
             ScaleDtype::UE8M0 => {
-                return round_up_to_power_of_two(scale);
+                return ue8m0::from_f32(scale).to_f32();
             }
             _ => {}
         }
@@ -362,60 +362,6 @@ impl ScaleDtype {
     pub const UE8M0_MIN: f32 = f32::from_bits(0x0040_0000);
     /// See [`ScaleDtype::UE8M0_MIN`].
     pub const UE8M0_MAX: f32 = f32::from_bits(0x7F00_0000);
-}
-
-/// A `ue8m0` scale as its stored byte: the code is the exponent, biased by 127.
-///
-/// Rounds up, which is both the storage rule for a scale and what the host `ue8m0` codec and
-/// CUDA's `__nv_cvt_bfloat16raw_to_e8m0` (at `cudaRoundPosInf`) already do — a scale rounded down
-/// puts the block's largest value outside the quantization range.
-///
-/// Lives here rather than on the `ue8m0` type so it is available without the `fp8` feature:
-/// serialization needs it, and `ue8m0` is a bare exponent, so the byte is the whole of it. It has
-/// to keep answering what the type's conversions answer, which
-/// `the_ue8m0_codec_matches_the_storage_type` checks wherever they are compiled in.
-pub fn f32_to_ue8m0(scale: f32) -> u8 {
-    let rounded = round_up_to_power_of_two(scale);
-    if rounded.is_nan() {
-        return 0xFF;
-    }
-    // Codes 1..=254 are f32's own exponent field; the clamping above keeps the shift in range,
-    // and 2^-127 is subnormal in f32, so it lands on the exponent field 0 that code 0 names.
-    (rounded.to_bits() >> 23) as u8
-}
-
-/// The value a `ue8m0` byte stands for. Inverse of [`f32_to_ue8m0`] on every code it produces.
-pub fn ue8m0_to_f32(code: u8) -> f32 {
-    match code {
-        // f32 has no exponent field 0 to spare: its own is the subnormals.
-        0 => ScaleDtype::UE8M0_MIN,
-        0xFF => f32::NAN,
-        code => f32::from_bits((code as u32) << 23),
-    }
-}
-
-/// The smallest power of two not below `scale`, saturated into ue8m0's range.
-///
-/// A ue8m0 code *is* an exponent, so this is the whole storage rule for that dtype. Clamping both
-/// ends first is what lets the middle be the same mantissa-clearing step the other dtypes use:
-/// below 2^-127 there is nothing to round onto, and above 2^127 the step would carry into f32's
-/// infinity and take every value scaled by it with it. Zero clamps up to the minimum — ue8m0 has
-/// no zero, and a zero scale reconstructs an all-zero block correctly at any scale.
-fn round_up_to_power_of_two(scale: f32) -> f32 {
-    if scale.is_nan() {
-        return scale;
-    }
-    debug_assert!(scale >= 0.0, "a quantization scale is never negative");
-
-    if scale <= ScaleDtype::UE8M0_MIN {
-        return ScaleDtype::UE8M0_MIN;
-    }
-    if scale >= ScaleDtype::UE8M0_MAX {
-        return ScaleDtype::UE8M0_MAX;
-    }
-
-    let grid = ScaleDtype::UE8M0.f32_grid();
-    f32::from_bits((scale.to_bits() + grid.round_up_bias()) & grid.truncate_mask())
 }
 
 /// A narrower float format's grid, laid over the f32 bit pattern.
@@ -942,36 +888,6 @@ mod tests {
         }
     }
 
-    /// Every byte stands for a value that encodes back to it — the codec is a bijection on the
-    /// codes, which is what serializing a scale and reading it back depends on.
-    #[test]
-    fn every_ue8m0_code_round_trips() {
-        for code in 0..=0xFEu8 {
-            let value = ue8m0_to_f32(code);
-            assert_eq!(
-                f32_to_ue8m0(value),
-                code,
-                "code {code} decoded to {value:e}"
-            );
-        }
-        assert!(ue8m0_to_f32(0xFF).is_nan());
-    }
-
-    /// The codec agrees with `round_up`, so a scale stored through either lands on the same value.
-    #[test]
-    fn the_ue8m0_codec_agrees_with_the_round_up_rule() {
-        for exp in -130..130 {
-            for factor in [1.0, 1.3, 1.9] {
-                let scale = factor * 2f32.powi(exp);
-                assert_eq!(
-                    ue8m0_to_f32(f32_to_ue8m0(scale)),
-                    ScaleDtype::UE8M0.round_up(scale),
-                    "{scale:e}"
-                );
-            }
-        }
-    }
-
     /// The answer is always representable, so rounding it again changes nothing.
     #[test]
     fn ue8m0_round_up_is_idempotent() {
@@ -987,6 +903,13 @@ mod tests {
                 assert!(up >= scale.min(ScaleDtype::UE8M0_MAX), "{up:e} < {scale:e}");
             }
         }
+    }
+
+    /// The other limit spelled out as a literal. `ue8m0` is exponent only, so its maximum is the
+    /// power of two the hex literal encodes.
+    #[test]
+    fn max_representable_matches_the_e8m0_type() {
+        assert_eq!(ScaleDtype::UE8M0.max_representable(), ue8m0::MAX.to_f32());
     }
 
     #[test]
@@ -1070,47 +993,6 @@ mod tests {
                 ScaleDtype::UE4M3.max_representable(),
                 crate::e4m3::MAX.to_f32()
             );
-        }
-
-        /// The other limit spelled out as a literal. `ue8m0` is exponent only, so its maximum is
-        /// the power of two the hex literal encodes.
-        #[test]
-        fn max_representable_matches_the_e8m0_type() {
-            assert_eq!(
-                ScaleDtype::UE8M0.max_representable(),
-                crate::ue8m0::MAX.to_f32()
-            );
-        }
-
-        /// [`f32_to_ue8m0`] and [`ue8m0_to_f32`] restate what the `ue8m0` type already does, so
-        /// that this module stays usable without the `fp8` feature. Restating it is only safe
-        /// while the two agree: a scale written through one and read through the other has to be
-        /// the same scale, and the two ends of that trip are on opposite sides of the gate.
-        ///
-        /// Includes the rounding, which is the part that could plausibly drift — `ue8m0` rounds
-        /// up, where a conversion would normally round to nearest.
-        #[test]
-        fn the_ue8m0_codec_matches_the_storage_type() {
-            for code in 0..=0xFFu8 {
-                let ours = ue8m0_to_f32(code);
-                let theirs = crate::ue8m0::from_bits(code).to_f32();
-                if theirs.is_nan() {
-                    assert!(ours.is_nan(), "code {code}: {ours:e} is not a NaN");
-                } else {
-                    assert_eq!(ours.to_bits(), theirs.to_bits(), "code {code}");
-                }
-            }
-
-            for exp in -130..130 {
-                for factor in [1.0, 1.25, 1.5, 1.9] {
-                    let scale = factor * 2f32.powi(exp);
-                    assert_eq!(
-                        f32_to_ue8m0(scale),
-                        crate::ue8m0::from_f32(scale).to_bits(),
-                        "{scale:e}"
-                    );
-                }
-            }
         }
 
         /// `offset` representable steps from `value` in `dtype`, for positive values. Counted on

@@ -20,7 +20,6 @@ workspace = true
 
 [features]
 default = ["std"]
-fp4 = []
 fp8 = ["float8"]
 hash = ["xxhash-rust"]
 serde = []
