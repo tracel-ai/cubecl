@@ -205,10 +205,9 @@ pub trait Driver: Sized {
         queue: <Self::Stream as DeviceStream>::Signal,
     ) -> Result<(), IoError>;
 
-    /// Wait for device work enqueued outside the command's streams — CUDA's
-    /// collectives, on a stream of their own that the compute streams only
-    /// wait on at a collective sync — before a relocation moves the
-    /// allocations that work may still read or write.
+    /// Wait for device work enqueued outside the command's streams, such as
+    /// CUDA's collectives and transfers on streams of their own, before a
+    /// relocation moves the allocations that work may still read or write.
     ///
     /// Nothing by default: a backend whose every device operation runs on its
     /// command streams has nothing else to wait on.

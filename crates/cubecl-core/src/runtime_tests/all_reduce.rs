@@ -52,7 +52,11 @@ fn finish_within_limit(test: fn()) {
         let _ = finished.send(());
     });
     if let Err(RecvTimeoutError::Timeout) = done.recv_timeout(TIME_LIMIT) {
-        panic!("still running after {TIME_LIMIT:?}, most likely on devices waiting for each other");
+        // A panic would leave the devices waiting on each other for every later test.
+        std::eprintln!(
+            "still running after {TIME_LIMIT:?}, most likely on devices waiting for each other"
+        );
+        std::process::abort();
     }
     if let Err(panic) = test.join() {
         std::panic::resume_unwind(panic);
@@ -102,7 +106,7 @@ fn sync_collective<R: Runtime>() {
             client.all_reduce(
                 handle.clone(),
                 handle.clone(),
-                cubecl_ir::ElemType::Float(cubecl_ir::FloatKind::F32),
+                F32,
                 device_ids.clone(),
                 cubecl_runtime::server::ReduceOperation::Sum,
             );
@@ -127,8 +131,6 @@ fn sync_collective<R: Runtime>() {
 fn first_use_many_parts<R: Runtime>() {
     const PARTS: usize = 100;
     const SIZE: usize = 16;
-    let f32_type = cubecl_ir::ElemType::Float(cubecl_ir::FloatKind::F32);
-
     let device_ids = R::enumerate_devices(0);
     if device_ids.len() < 2 {
         return;
@@ -156,7 +158,7 @@ fn first_use_many_parts<R: Runtime>() {
             client.all_reduce(
                 handle.clone(),
                 handle.clone(),
-                f32_type,
+                F32,
                 device_ids.clone(),
                 cubecl_runtime::server::ReduceOperation::Sum,
             );
@@ -219,25 +221,26 @@ fn tensor_and_pipeline<R: Runtime>() {
                         transfer(&mut client);
                     }
                     let tensor_parallel: f32 = stage.clone().map(value).sum();
-                    reduce(
-                        &mut client,
-                        &device_ids[stage.clone()],
-                        value(rank),
-                        tensor_parallel,
+                    assert_eq!(
+                        reduced(&mut client, &device_ids[stage.clone()], value(rank)),
+                        [tensor_parallel; 64]
                     );
                     if (rank + round) % 2 == 1 {
                         transfer(&mut client);
                     }
                     let data_parallel: f32 = (0..4).map(value).sum();
-                    reduce(&mut client, device_ids, value(rank), data_parallel);
+                    assert_eq!(
+                        reduced(&mut client, device_ids, value(rank)),
+                        [data_parallel; 64]
+                    );
                 }
             });
         }
     });
 }
 
-/// Reduces `value` from `client`'s device over `group`, and checks it sums to `expected`.
-fn reduce(client: &mut Client, group: &[DeviceId], value: f32, expected: f32) {
+/// `value` from `client`'s device, summed over `group`.
+fn reduced(client: &mut Client, group: &[DeviceId], value: f32) -> Vec<f32> {
     let handle = client.create_from_slice(f32::as_bytes(&[value; 64]));
     client.all_reduce(
         handle.clone(),
@@ -247,15 +250,13 @@ fn reduce(client: &mut Client, group: &[DeviceId], value: f32, expected: f32) {
         cubecl_runtime::server::ReduceOperation::Sum,
     );
     client.sync_collective();
-    let actual = client.read_one(handle).unwrap();
-    assert_eq!(f32::from_bytes(&actual), [expected; 64]);
+    f32::from_bytes(&client.read_one(handle).unwrap()).to_vec()
 }
 
 fn beside_transfers<R: Runtime>() {
     const ROUNDS: usize = 20;
     const HANDLES: usize = 8;
     const SIZE: usize = 64;
-    let f32_type = cubecl_ir::ElemType::Float(cubecl_ir::FloatKind::F32);
 
     let device_ids = R::enumerate_devices(0);
     if device_ids.len() < 2 {
@@ -283,7 +284,7 @@ fn beside_transfers<R: Runtime>() {
                 for round in 0..ROUNDS {
                     let expected = [(thread * ROUNDS + round) as f32; SIZE];
                     let input = source.create_from_slice(f32::as_bytes(&expected));
-                    let output = source.to_client(input, &destination, f32_type);
+                    let output = source.to_client(input, &destination, F32);
                     let actual = destination.read_one_unchecked(output);
                     assert_eq!(f32::from_bytes(&actual), expected);
                 }
@@ -313,7 +314,7 @@ fn beside_transfers<R: Runtime>() {
                         client.all_reduce(
                             handle.clone(),
                             handle.clone(),
-                            f32_type,
+                            F32,
                             device_ids.clone(),
                             cubecl_runtime::server::ReduceOperation::Sum,
                         );

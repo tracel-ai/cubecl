@@ -497,6 +497,14 @@ impl ServerCommunication for CudaServer {
         stream_id: StreamId,
         device_id_dst: DeviceId,
     ) -> Result<(), ServerError> {
+        // Joined before anything that can fail: on a pair's first transfer the
+        // peer's thread waits in its own join until this one arrives.
+        let comm = *self.collectives.transfers_with(device_id_dst)?;
+        let peer = self
+            .collectives
+            .peer_rank(&pair(self.device_id, device_id_dst))?;
+        let transfers = self.transfer_stream();
+
         // The send reads the source, so it is worth no more than the work
         // that wrote it; see `FailureStore::ensure_written`. Skipping this
         // hands the peer stale bytes on a handle that carries no claim over
@@ -511,22 +519,15 @@ impl ServerCommunication for CudaServer {
         let mut command = self.command(stream_id, [&desc.handle].into_iter())?;
         let resource = command.resource(binding)?;
         let stream = command.stream().sys;
-        drop(command);
 
         // Wait for the data to be ready on the compute stream.
-        let transfers = self.transfer_stream();
         Fence::new(stream).wait_async(transfers)?;
-
-        let peer = self
-            .collectives
-            .peer_rank(&pair(self.device_id, device_id_dst))?;
         let (nccl_dtype, count) = Cuda::data_type(dtype, resource.size)?;
-        let comm = self.collectives.transfers_with(device_id_dst)?;
-
-        Cuda::send(comm, &resource, nccl_dtype, count, peer, transfers)?;
-        // The source goes back to its stream's pool once this returns, so that stream waits for
-        // the send before reusing it.
+        Cuda::send(&comm, &resource, nccl_dtype, count, peer, transfers)?;
+        // This stream's pool may reuse the source from here, and dropping the command releases one
+        // borrowed from another stream once this stream gets here: both wait for the send.
         Fence::new(transfers).wait_async(stream)?;
+        drop(command);
         Ok(())
     }
 
@@ -773,6 +774,13 @@ impl CudaServer {
         stream_id: StreamId,
         device_id_src: DeviceId,
     ) -> Result<(), ServerError> {
+        // Joined before anything that can fail or relocate: on a pair's first
+        // transfer the peer's thread waits in its own join until this one arrives.
+        let comm = *self.collectives.transfers_with(device_id_src)?;
+        let peer = self
+            .collectives
+            .peer_rank(&pair(self.device_id, device_id_src))?;
+
         // A command on the destination server reserves the memory the incoming
         // data lands in.
         let mut command_dst = self.command_no_inputs(stream_id)?;
@@ -786,14 +794,8 @@ impl CudaServer {
         // queued after it reads what arrives.
         let transfers = self.transfer_stream();
         Fence::new(stream).wait_async(transfers)?;
-
-        let peer = self
-            .collectives
-            .peer_rank(&pair(self.device_id, device_id_src))?;
         let (nccl_dtype, count) = Cuda::data_type(dtype, resource_dst.size)?;
-        let comm = self.collectives.transfers_with(device_id_src)?;
-
-        Cuda::recv(comm, &resource_dst, nccl_dtype, count, peer, transfers)?;
+        Cuda::recv(&comm, &resource_dst, nccl_dtype, count, peer, transfers)?;
         Fence::new(transfers).wait_async(stream)?;
         Ok(())
     }

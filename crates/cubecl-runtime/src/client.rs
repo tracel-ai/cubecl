@@ -904,8 +904,9 @@ impl Client {
     /// clients are of the same runtime and it has a collective transport;
     /// otherwise, and always across runtimes, they go through the host.
     ///
-    /// On CUDA, transfers run on a communicator and stream of their own, so they never wait on a
-    /// collective; `NCCL_LAUNCH_ORDER_IMPLICIT=1` orders them against collectives again.
+    /// On CUDA, transfers run on a communicator and stream of their own, so neither waits in
+    /// NCCL's queue behind a collective; a stream [`sync_collective`](Self::sync_collective) made
+    /// wait on one still does.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst_server))
@@ -1021,7 +1022,8 @@ impl Client {
     ///
     /// Every device has to queue the `all_reduce` calls over a group in one order. Queue each
     /// call on every device before the next: a device waiting in NCCL for its peers stops taking
-    /// work after about a thousand calls, and the thread queueing them stops with it.
+    /// work after about a thousand calls, or as soon as it relocates memory, and the thread
+    /// queueing them stops with it.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids, op))
@@ -1115,9 +1117,8 @@ impl Client {
             }
         });
 
-        // `ServerCommunication::send` and`ServerCommunication::recv` are blocking: they each wait for the corresponding recv/send
-        // call to be made. We flush the operations right away so that the neither server ends up in a deadlock.
-        // The actual data transfer is still executed asynchronously on the transfer stream.
+        // On a pair's first transfer, the send and the recv each wait in the join for the other, so
+        // neither may sit in a queue behind work that waits on this thread.
         self.device.flush_queue();
         dst_server.device.flush_queue();
 

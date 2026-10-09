@@ -59,8 +59,8 @@ impl CudaContext {
             context,
             comm_stream,
             transfer_stream,
-            // SAFETY: the context is current, and nothing reads the element before an
-            // `all_reduce` writes it.
+            // SAFETY: the context is current. The element is only ever reduced into itself, and
+            // nothing reads what that leaves in it.
             connect_element: unsafe { cudarc::driver::result::malloc_sync(4) }
                 .map(|ptr| GpuResource::new(ptr, core::ptr::null_mut(), 4))
                 .expect("Can allocate the element communicators connect over."),
