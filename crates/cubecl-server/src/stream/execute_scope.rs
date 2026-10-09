@@ -87,7 +87,7 @@ pub trait WriteScoped: Sized {
     ///
     /// Filled by the caller rather than inside the scope, which is what lets
     /// the body take the arguments the set was read from by value. A set left
-    /// empty claims nothing, which is what a dry run wants.
+    /// empty claims nothing, which is what a discarded launch wants.
     fn write_set(&mut self) -> Vec<BufferBinding> {
         self.write_streams().write_set()
     }

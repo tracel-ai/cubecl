@@ -1,5 +1,6 @@
 //! Moving a relocation's bytes on a wgpu device.
 
+use crate::compute::device_poison::PoisonWatch;
 use crate::compute::storage::WgpuStorage;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_server::memory_management::relocation::{CopyQueue, StorageCopy};
@@ -15,6 +16,7 @@ use cubecl_server::storage::ComputeStorage;
 pub(crate) struct WgpuCopies {
     device: wgpu::Device,
     queue: wgpu::Queue,
+    poison: PoisonWatch,
     /// The copies recorded since the last submission.
     batch: Option<Batch>,
 }
@@ -28,29 +30,19 @@ struct Batch {
 }
 
 impl WgpuCopies {
-    pub(crate) fn new(device: wgpu::Device, queue: wgpu::Queue) -> Self {
+    pub(crate) fn new(device: wgpu::Device, queue: wgpu::Queue, poison: PoisonWatch) -> Self {
         Self {
             device,
             queue,
+            poison,
             batch: None,
         }
     }
 
     /// Wait for the device, up to `submission` when one is named.
     fn wait(&self, submission: Option<wgpu::SubmissionIndex>) -> Result<(), ServerError> {
-        #[cfg(not(target_family = "wasm"))]
-        self.device
-            .poll(wgpu::PollType::Wait {
-                submission_index: submission,
-                timeout: None,
-            })
-            .map_err(|err| ServerError::Generic {
-                reason: format!("wgpu: waiting on a relocation failed ({err})"),
-                backtrace: BackTrace::capture(),
-            })?;
-        #[cfg(target_family = "wasm")]
-        let _ = submission;
-        Ok(())
+        self.poison
+            .wait_unless_lost(&self.device, &self.queue, submission)
     }
 }
 

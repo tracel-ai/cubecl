@@ -147,9 +147,9 @@ impl MemoryPool for PersistentPool {
         let effective_size = size + padding;
 
         // Every persistent slice owns its whole buffer, so laziness is
-        // per-slice: a minted id under a dry run (a scratch session's KV
-        // cache, for instance) costs nothing until a measurement actually
-        // touches it — see [`MemoryPool::materialize`].
+        // per-slice: a minted id under a process mode that discards launches (a scratch
+        // session's KV cache, for instance) costs nothing until a measurement
+        // actually touches it — see [`MemoryPool::materialize`].
         let storage_handle = mapping.storage_handle(storage, effective_size)?;
         let mut slice = Slice::new(storage_handle, padding);
         slice.mapped = matches!(mapping, PageMapping::Eager);

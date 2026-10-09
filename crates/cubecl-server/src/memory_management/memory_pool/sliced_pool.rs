@@ -306,7 +306,7 @@ impl MemoryPool for SlicedPool {
         // stale location whose page index a later cleanup reassigned: it names
         // a page this binding has no claim on, and backing that page would
         // allocate device memory for an allocation nobody asked to resolve —
-        // the opposite of what a dry run is for.
+        // the opposite of what discarding launches is for.
         let claimed = self.pages.get(page_index).is_some_and(|(page, _)| {
             page.find(binding)
                 .is_ok_and(|slice| slice.handle.descriptor() == binding.descriptor())

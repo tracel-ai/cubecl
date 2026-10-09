@@ -10,6 +10,7 @@ use cubecl_ir::{
     metadata::Info,
     settings::{Dim3, ExecutionMode, KernelSettings},
 };
+use cubecl_server::driver::DevicePoison;
 use cubecl_server::memory_management::{Cleanup, PageUpdate};
 use cubecl_server::server::ServerStorage;
 use cubecl_server::{
@@ -35,6 +36,16 @@ use std::sync::Arc;
 /// `serial`.
 pub static REFUSE_PROFILES: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
+
+/// Makes the server behave as a lost device while set: syncs report the poisoning and nothing
+/// can be profiled. Process-wide, so tests that flip it run `serial`.
+pub static POISONED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+fn poisoned() -> Option<ServerError> {
+    POISONED
+        .load(core::sync::atomic::Ordering::Relaxed)
+        .then(|| DevicePoison::new("this test server was told it is poisoned").into())
+}
 
 /// The dummy server is used to test the cubecl-runtime infrastructure.
 /// It uses simple memory management with a bytes storage on CPU, without asynchronous tasks.
@@ -197,8 +208,10 @@ impl<M: Marker> Server for DummyServer<M> {
         handles: Vec<BufferBinding>,
         _stream_id: StreamId,
     ) -> DynFut<Result<(), ServerError>> {
-        // The claim check a read would have made, without the read. There is
-        // no device to fault here, so the barrier itself never fails.
+        if let Some(poison) = poisoned() {
+            return Box::pin(async move { Err(poison) });
+        }
+        // The claim check a read would have made, without the read.
         let result = self.ensure_written(handles.iter());
         Box::pin(async move { result })
     }
@@ -209,7 +222,7 @@ impl<M: Marker> Server for DummyServer<M> {
         _count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
-        launch_mode: cubecl_server::dry_run::LaunchMode,
+        launch_mode: cubecl_server::execution::LaunchMode,
     ) {
         let kernel = (&*kernel as &dyn core::any::Any)
             .downcast_ref::<KernelTask>()
@@ -224,7 +237,7 @@ impl<M: Marker> Server for DummyServer<M> {
                 // readable for whatever launches next on them.
                 let error = ServerError::from(cubecl_server::server::LaunchError::from(err));
                 self.timestamps.failure(&error);
-                if !launch_mode.is_skipped() {
+                if !launch_mode.discards_launch() {
                     let written: Vec<_> = bindings.buffers_written(None).cloned().collect();
                     self.taint(error, written.iter());
                 }
@@ -234,8 +247,8 @@ impl<M: Marker> Server for DummyServer<M> {
 
         // Compiled above, exactly as a real server does — and, exactly as a
         // real server does, a skipped launch stops before anything touches a
-        // buffer, so a dry run's lazily-carved allocations stay unmapped.
-        if launch_mode.is_skipped() {
+        // buffer, so a discarded launch's lazily-carved allocations stay unmapped.
+        if launch_mode.discards_launch() {
             return;
         }
 
@@ -326,6 +339,9 @@ impl<M: Marker> Server for DummyServer<M> {
     }
 
     fn start_profile(&mut self, _stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
+        if let Some(poison) = poisoned() {
+            return Err(poison);
+        }
         if REFUSE_PROFILES.load(core::sync::atomic::Ordering::Relaxed) {
             return Err(ServerError::Generic {
                 reason: "this test server was told to refuse profiles".into(),

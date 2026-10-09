@@ -143,10 +143,10 @@ pub struct MemoryPoolReport {
     /// pages the workload needed at its peak.
     pub pages_peak: u64,
     /// How many of the current pages have no device backing yet — carved
-    /// under a dry run and never resolved into anything that executes. They
-    /// count toward `pages`/`pages_peak` (the plan is the *reserved* stream)
-    /// while costing no device memory; `pages - pages_unmapped` is the dry
-    /// run's actual footprint in this pool.
+    /// while launches were discarded, and never resolved into anything that
+    /// executes. They count toward `pages`/`pages_peak` (the plan is the
+    /// *reserved* stream) while costing no device memory; `pages -
+    /// pages_unmapped` is what this pool's pages cost the device.
     pub pages_unmapped: u64,
     /// The largest single allocation this pool ever served, in requested
     /// (pre-padding) bytes.
@@ -249,7 +249,7 @@ impl MemoryPoolsReport {
 /// [`Client::record_memory`](crate::client::Client::record_memory).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MemoryRecord {
-    /// What the caller was doing: `model loaded`, `after the dry run`.
+    /// What the caller was doing: `model loaded`, `after the build`.
     pub label: alloc::string::String,
     /// The device's memory at that moment, stream by stream.
     pub report: MemoryReport,
