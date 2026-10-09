@@ -30,6 +30,20 @@ pub fn kernel_plane_pos(output: &mut [u32]) {
     output[unit * 3 + 2] = PLANE_DIM;
 }
 
+/// Each unit's axes, its plane, lane and plane width, and its absolute position along x and y,
+/// at its cube's run of the output.
+#[cube(launch)]
+pub fn kernel_plane_pos_2d(output: &mut [u32]) {
+    let at = (CUBE_POS * CUBE_DIM as usize + UNIT_POS as usize) * 7;
+    output[at] = UNIT_POS_X;
+    output[at + 1] = UNIT_POS_Y;
+    output[at + 2] = PLANE_POS;
+    output[at + 3] = UNIT_POS_PLANE;
+    output[at + 4] = PLANE_DIM;
+    output[at + 5] = ABSOLUTE_POS_X;
+    output[at + 6] = ABSOLUTE_POS_Y;
+}
+
 pub fn test_kernel_topology_absolute_pos(client: Client, addr_type: AddressType) {
     if !client.properties().supports_address(addr_type) {
         return;
@@ -135,6 +149,57 @@ pub fn test_kernel_topology_plane_pos(client: Client) {
     }
 }
 
+/// [`test_kernel_topology_plane_pos`] on a cube spanning `y` as well, a plane's width of units
+/// along `x` and four along `y`: a unit's axes are its linear position's digits, its plane and
+/// lane are that position's, and its absolute position along an axis is its cube's times the
+/// cube's extent there, plus its own. WGSL takes its subgroup builtins only in a one-dimensional
+/// workgroup, so a backend whose compiler launches such a cube flat is held to the same answers.
+pub fn test_kernel_topology_plane_pos_in_a_cube_spanning_y(client: Client) {
+    if !client.features().plane.contains(Plane::Ops) {
+        return;
+    }
+    let width = client.properties().hardware.plane_size_max;
+    let (cube_dim, cube_count) = (CubeDim::new_2d(width, 4), (2u32, 3u32));
+    let units = cube_dim.num_elems() as usize;
+    let cubes = (cube_count.0 * cube_count.1) as usize;
+    let handle = client.empty(cubes * units * 7 * core::mem::size_of::<u32>());
+
+    unsafe {
+        kernel_plane_pos_2d::launch(
+            &client,
+            CubeCount::Static(cube_count.0, cube_count.1, 1),
+            cube_dim,
+            BufferArg::from_raw_parts(handle.clone(), cubes * units * 7),
+        )
+    };
+
+    let actual = client.read_one_unchecked(handle);
+    let actual = u32::from_bytes(&actual);
+    for cube in 0..cubes as u32 {
+        let (cube_x, cube_y) = (cube % cube_count.0, cube / cube_count.0);
+        for unit in 0..units as u32 {
+            let at = |field: usize| actual[(cube as usize * units + unit as usize) * 7 + field];
+            let (x, y) = (unit % width, unit / width);
+            assert_eq!(
+                (at(0), at(1)),
+                (x, y),
+                "unit {unit}: (UNIT_POS_X, UNIT_POS_Y)"
+            );
+            let dim = at(4);
+            assert_eq!(
+                (at(2), at(3)),
+                (unit / dim, unit % dim),
+                "unit {unit}: (PLANE_POS, UNIT_POS_PLANE) at PLANE_DIM {dim}"
+            );
+            assert_eq!(
+                (at(5), at(6)),
+                (cube_x * width + x, cube_y * 4 + y),
+                "cube {cube} unit {unit}: (ABSOLUTE_POS_X, ABSOLUTE_POS_Y)"
+            );
+        }
+    }
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_topology {
@@ -169,6 +234,13 @@ macro_rules! testgen_topology {
         fn test_topology_plane_pos() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::topology::test_kernel_topology_plane_pos(client);
+        }
+        #[$crate::runtime_tests::test_log::test]
+        fn test_topology_plane_pos_in_a_cube_spanning_y() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::topology::test_kernel_topology_plane_pos_in_a_cube_spanning_y(
+                client,
+            );
         }
     };
 }
