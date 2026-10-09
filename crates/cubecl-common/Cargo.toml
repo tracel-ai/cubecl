@@ -20,7 +20,6 @@ workspace = true
 
 [features]
 default = ["std"]
-fp4 = ["float4"]
 fp8 = ["float8"]
 hash = ["xxhash-rust"]
 serde = []
@@ -49,7 +48,6 @@ derive_more = { workspace = true, features = [
     "deref",
     "deref_mut",
 ] }
-float4 = { workspace = true, optional = true }
 float8 = { workspace = true, optional = true }
 half = { workspace = true }
 hashbrown = { workspace = true }

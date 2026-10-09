@@ -30,8 +30,8 @@ pub fn round_up_to_dtype<F: Float>(scale: F, #[comptime] dtype: ScaleDtype) -> F
 ///
 /// Kept apart from [`step_up`] because both of `ue8m0`'s ends need clamping before the shared
 /// stepping means anything — its bottom, 2^-127, is subnormal in f32, and it has no zero for a
-/// fully-zero block to calibrate to. Mirrors the host's `round_up_to_power_of_two`, and the two
-/// have to keep agreeing or a tensor quantized on one backend reconstructs differently on another.
+/// fully-zero block to calibrate to. Mirrors the host's `ue8m0::from_f32`, and the two have to
+/// keep agreeing or a tensor quantized on one backend reconstructs differently on another.
 #[cube]
 fn step_up_to_power_of_two(scale: f32) -> f32 {
     let min = comptime!(ScaleDtype::UE8M0_MIN);

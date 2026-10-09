@@ -136,7 +136,6 @@ tempfile = "3.20"
 bytemuck = "1.16.1"
 bytes = { version = "1.10", default-features = false }
 float-ord = "0.3"
-float4 = "0.2"
 float8 = { version = "0.7", default-features = false }
 half = { version = "2.5", features = [
     "alloc",
