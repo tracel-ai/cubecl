@@ -883,6 +883,18 @@ impl From<Vec<DeviceId>> for CommunicationId {
     }
 }
 
+impl CommunicationId {
+    /// The communicator transfers between `a` and `b` go through. It is not the one an
+    /// `all_reduce` over the same two devices uses, so neither waits in line behind the other.
+    pub fn transfers_between(a: DeviceId, b: DeviceId) -> Self {
+        let mut devices = [a, b];
+        devices.sort();
+        CommunicationId {
+            id: FixedState::default().hash_one((devices, "transfers")),
+        }
+    }
+}
+
 /// Different reduce operations.
 pub enum ReduceOperation {
     /// Sum.

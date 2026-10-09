@@ -388,6 +388,10 @@ impl DeviceService for CudaServer {
             CubeClRuntimeConfig::get().streaming.priority,
         )
         .expect("Can create the communication stream.");
+        let transfer_stream = crate::compute::stream::create_cuda_stream(
+            CubeClRuntimeConfig::get().streaming.priority,
+        )
+        .expect("Can create the transfer stream.");
         let cuda_ctx = CudaContext::new(
             comp_opts,
             device_props.clone(),
@@ -395,6 +399,7 @@ impl DeviceService for CudaServer {
             arch,
             backend,
             comm_stream,
+            transfer_stream,
         );
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);

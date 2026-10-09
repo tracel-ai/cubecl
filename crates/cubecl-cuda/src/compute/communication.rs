@@ -170,7 +170,7 @@ impl CollectiveDriver for Cuda {
         stream: Self::CommStream,
     ) -> Result<(), ServerError> {
         // SAFETY: `src.ptr` is a live device allocation, `comm` was joined by
-        // `join` above, and `stream` is the dedicated collective stream.
+        // `join` above, and `stream` is the stream transfers run on.
         unsafe {
             cudarc::nccl::result::send(
                 src.ptr as *const _,
@@ -197,7 +197,7 @@ impl CollectiveDriver for Cuda {
         stream: Self::CommStream,
     ) -> Result<(), ServerError> {
         // SAFETY: `dst.ptr` is a live device allocation, `comm` was joined by
-        // `join` above, and `stream` is the dedicated collective stream.
+        // `join` above, and `stream` is the stream transfers run on.
         unsafe {
             cudarc::nccl::result::recv(
                 dst.ptr as *mut _,
