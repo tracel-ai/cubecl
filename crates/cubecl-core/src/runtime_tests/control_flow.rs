@@ -152,6 +152,36 @@ pub fn kernel_continue_and_break(output: &mut [i32]) {
     }
 }
 
+#[cube(launch)]
+pub fn kernel_unrolled_continue_and_break(output: &mut [i32]) {
+    if UNIT_POS == 0 {
+        #[unroll]
+        for i in 0..4 {
+            if i > 2 {
+                break;
+            }
+            if i != 1 {
+                continue;
+            }
+            output[0] = i;
+        }
+    }
+}
+
+#[cube(launch)]
+pub fn kernel_unrolled_return(output: &mut [i32], threshold: i32) {
+    if UNIT_POS == 0 {
+        #[unroll]
+        for i in 0..4 {
+            if i > threshold {
+                return;
+            }
+            output[0] = i;
+        }
+        output[0] = 10;
+    }
+}
+
 #[allow(clippy::while_immutable_condition)]
 #[allow(unused_mut, reason = "otherwise it's comptime")]
 #[cube(launch)]
@@ -394,6 +424,39 @@ pub fn test_continue_and_break<R: Runtime>(client: Client) {
     assert_eq!(actual[0], 1);
 }
 
+pub fn test_unrolled_continue_and_break<R: Runtime>(client: Client) {
+    let handle = client.create_from_slice(i32::as_bytes(&[0]));
+
+    kernel_unrolled_continue_and_break::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new(&client, 1),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
+    );
+
+    let actual = client.read_one(handle.clone()).unwrap();
+    let actual = i32::from_bytes(&actual);
+
+    assert_eq!(actual[0], 1);
+}
+
+pub fn test_unrolled_return<R: Runtime>(client: Client) {
+    let handle = client.create_from_slice(i32::as_bytes(&[0]));
+
+    kernel_unrolled_return::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new(&client, 1),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
+        2,
+    );
+
+    let actual = client.read_one(handle.clone()).unwrap();
+    let actual = i32::from_bytes(&actual);
+
+    assert_eq!(actual[0], 2);
+}
+
 pub fn test_while_terminate<R: Runtime>(client: Client) {
     let handle = client.create_from_slice(i32::as_bytes(&[5]));
 
@@ -512,6 +575,22 @@ macro_rules! testgen_control_flow {
         fn test_continue_and_break() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::control_flow::test_continue_and_break::<TestRuntime>(
+                client,
+            );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_unrolled_continue_and_break() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::control_flow::test_unrolled_continue_and_break::<TestRuntime>(
+                client,
+            );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_unrolled_return() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::control_flow::test_unrolled_return::<TestRuntime>(
                 client,
             );
         }

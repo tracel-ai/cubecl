@@ -7,7 +7,7 @@ use cubecl_ir::{
     },
     pliron::{irbuild::inserter::Inserter, r#type::TypedHandle},
     read_value,
-    rewrite::set_inserter_before_terminator,
+    rewrite::{op_insertion_point_in_block, set_inserter_before_terminator},
 };
 use pliron::{
     basic_block::BasicBlock,
@@ -21,7 +21,6 @@ use pliron::{
         rewriter::{IRRewriter, Rewriter},
     },
     op::Op,
-    operation::Operation,
     region::Region,
     r#type::Typed,
     utils::apint::{APInt, bw},
@@ -796,14 +795,12 @@ pub fn setup_early_return<T: EarlyReturnable>(scope: &Scope, body: impl FnOnce(&
     child.terminate_yield();
 
     let current_block = scope.inserter().get_insertion_block(scope.ctx()).unwrap();
-    // Predication terminates with yield but we don't have an actual child, so un-terminate.
-    let term = current_block.deref(scope.ctx()).get_terminator(scope.ctx());
-    if let Some(term) = term {
-        Operation::erase(term, scope.ctx_mut());
-    }
-    scope
-        .inserter()
-        .set_insertion_point_to_block_end(current_block);
+    let after_point = op_insertion_point_in_block(
+        scope.ctx(),
+        child.inserter().get_insertion_point(),
+        current_block,
+    );
+    scope.inserter().set_insertion_point(after_point);
     scope.update_flags_after_early_return(&[child]);
     T::from_value(scope, value)
 }

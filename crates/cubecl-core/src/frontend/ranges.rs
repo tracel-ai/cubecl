@@ -344,17 +344,21 @@ fn iter_expand_unroll<I: Int>(
         .expect("Only constant end can be unrolled.")
         .as_i64();
 
+    let body_scope = scope.unrolled_loop_child();
     if inclusive {
         for i in start..=end {
             let val = I::from_int(i);
-            body(scope, val.into())
+            body_scope.update_flags_before_unrolled_iteration();
+            body(&body_scope, val.into());
         }
     } else {
         for i in start..end {
             let val = I::from_int(i);
-            body(scope, val.into())
+            body_scope.update_flags_before_unrolled_iteration();
+            body(&body_scope, val.into());
         }
     }
+    scope.finalize_unrolled_loop(&body_scope);
 }
 
 fn iter_expand<I: Int>(
@@ -443,32 +447,38 @@ impl<I: Int + Into<ExpandValue>> Iterable for SteppedRangeExpand<I> {
             .expect("Only constant step can be unrolled.")
             .as_i128();
 
+        let body_scope = scope.unrolled_loop_child();
         match (self.inclusive, step.is_negative()) {
             (true, true) => {
                 for i in (end..=start).rev().step_by(step.unsigned_abs() as usize) {
                     let val = I::from_int_128(i);
-                    body(scope, val.into())
+                    body_scope.update_flags_before_unrolled_iteration();
+                    body(&body_scope, val.into());
                 }
             }
             (true, false) => {
                 for i in (start..=end).step_by(step.unsigned_abs() as usize) {
                     let val = I::from_int_128(i);
-                    body(scope, val.into())
+                    body_scope.update_flags_before_unrolled_iteration();
+                    body(&body_scope, val.into());
                 }
             }
             (false, true) => {
                 for i in (end..start).rev().step_by(step.unsigned_abs() as usize) {
                     let val = I::from_int_128(i);
-                    body(scope, val.into())
+                    body_scope.update_flags_before_unrolled_iteration();
+                    body(&body_scope, val.into());
                 }
             }
             (false, false) => {
                 for i in (start..end).step_by(step.unsigned_abs() as usize) {
                     let val = I::from_int_128(i);
-                    body(scope, val.into())
+                    body_scope.update_flags_before_unrolled_iteration();
+                    body(&body_scope, val.into());
                 }
             }
         }
+        scope.finalize_unrolled_loop(&body_scope);
     }
 
     fn const_len(&self) -> Option<usize> {

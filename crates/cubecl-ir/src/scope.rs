@@ -1,6 +1,8 @@
 use crate::{
     EnumSet,
+    dialect::memory::StoreOp,
     interfaces::control_flow::{SymbolOpInterface, SymbolVisibility},
+    rewrite::op_insertion_point_in_block,
 };
 use alloc::{boxed::Box, format, rc::Rc, string::String, vec, vec::Vec};
 use core::{
@@ -592,6 +594,35 @@ impl Scope {
         self.set_may_terminate(children);
     }
 
+    pub fn update_flags_before_unrolled_iteration(&self) {
+        self.set_may_break(core::slice::from_ref(self));
+        self.set_may_return(core::slice::from_ref(self));
+        self.set_may_terminate(core::slice::from_ref(self));
+
+        self.expand_state_mut().may_break = false;
+        self.expand_state_mut().may_return = false;
+        self.expand_state_mut().may_terminate = false;
+
+        if self.expand_state().may_continue {
+            let flag = self.expand_state().inv_continue_flag.unwrap();
+            self.register(&StoreOp::new(self.ctx_mut(), flag, self.const_bool(false)));
+            self.expand_state_mut().may_continue = false;
+        }
+    }
+
+    pub fn finalize_unrolled_loop(&self, body: &Scope) {
+        let current_block = self.inserter().get_insertion_block(self.ctx()).unwrap();
+        let after_point = op_insertion_point_in_block(
+            self.ctx(),
+            body.inserter().get_insertion_point(),
+            current_block,
+        );
+        self.inserter().set_insertion_point(after_point);
+
+        self.set_may_return(core::slice::from_ref(body));
+        self.set_may_terminate(core::slice::from_ref(body));
+    }
+
     pub fn set_may_terminate(&self, children: &[Scope]) {
         let child_may_terminate = children
             .iter()
@@ -732,6 +763,28 @@ impl Scope {
     pub fn loop_child(&self, mut inserter: impl Inserter + 'static) -> Self {
         let break_flag = init_bool_flag(self.ctx_mut(), self.inserter(), "inv_break_flag");
         let continue_flag = init_bool_flag(self.ctx_mut(), &mut inserter, "inv_continue_flag");
+        Self {
+            ctx: self.ctx.clone(),
+            inserter: InserterHandle::owned(inserter),
+            expand_state: RefCell::new(ExpandState {
+                may_terminate: false,
+                may_return: false,
+                may_break: false,
+                may_continue: false,
+                inv_terminate_flag: self.expand_state().inv_terminate_flag,
+                inv_return_flag: self.expand_state().inv_return_flag,
+                inv_break_flag: Some(break_flag),
+                inv_continue_flag: Some(continue_flag),
+                return_value: self.expand_state().return_value,
+            }),
+        }
+    }
+
+    /// Create a child scope with a new break condition.
+    pub fn unrolled_loop_child(&self) -> Self {
+        let break_flag = init_bool_flag(self.ctx_mut(), self.inserter(), "inv_break_flag");
+        let continue_flag = init_bool_flag(self.ctx_mut(), self.inserter(), "inv_continue_flag");
+        let inserter = OpInserter::new(self.inserter().get_insertion_point());
         Self {
             ctx: self.ctx.clone(),
             inserter: InserterHandle::owned(inserter),
