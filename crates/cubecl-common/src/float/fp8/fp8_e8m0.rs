@@ -212,7 +212,7 @@ mod tests {
         assert_eq!(ue8m0::from_f32(3.0).to_f32(), 4.0);
         assert_eq!(ue8m0::from_f64(1.0 + f64::EPSILON).to_f64(), 2.0);
         assert_eq!(ue8m0::from_f64(4.0 * (1.0 + f64::EPSILON)).to_f64(), 8.0);
-        let above_min = 2f64.powi(-127) * (1.0 + f64::EPSILON);
+        let above_min = ue8m0::MIN.to_f64() * (1.0 + f64::EPSILON);
         assert_eq!(ue8m0::from_f64(above_min).to_bits(), 1);
         assert_eq!(ue8m0::from_f32(-1.0), ue8m0::MIN);
     }
