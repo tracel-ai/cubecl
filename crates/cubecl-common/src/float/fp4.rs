@@ -4,7 +4,6 @@ use core::{
 };
 
 use bytemuck::{Pod, Zeroable};
-use float4::F4E2M1;
 use num_traits::{NumCast, ToPrimitive};
 
 /// A 4-bit floating point type with 2 exponent bits and 1 mantissa bit.
@@ -42,9 +41,8 @@ impl e2m1 {
 
     /// Constructs a [`e2m1`] value from a 32-bit floating point value.
     ///
-    /// This operation is lossy. If the 32-bit value is too large to fit, ±∞ will result. NaN values
-    /// are preserved. Subnormal values that are too tiny to be represented will result in ±0. All
-    /// other values are truncated and rounded to the nearest representable value.
+    /// This operation is lossy: values past ±6 saturate to ±6, NaN becomes +6, and every other
+    /// value rounds to the nearest representable value, ties to even.
     #[inline]
     #[must_use]
     pub const fn from_f32(value: f32) -> e2m1 {
@@ -53,14 +51,12 @@ impl e2m1 {
 
     /// Constructs a [`e2m1`] value from a 64-bit floating point value.
     ///
-    /// This operation is lossy. If the 64-bit value is to large to fit, ±∞ will result. NaN values
-    /// are preserved. 64-bit subnormal values are too tiny to be represented and result in ±0.
-    /// Exponents that underflow the minimum exponent will result in subnormals or ±0. All other
-    /// values are truncated and rounded to the nearest representable value.
+    /// This operation is lossy: values past ±6 saturate to ±6, NaN becomes +6, and every other
+    /// value rounds to the nearest representable value, ties to even.
     #[inline]
     #[must_use]
     pub const fn from_f64(value: f64) -> e2m1 {
-        e2m1(F4E2M1::from_f64(value).to_bits())
+        e2m1(f64_to_e2m1_bits(value))
     }
 
     /// Converts a [`e2m1`] into the underlying bit representation.
@@ -85,8 +81,79 @@ impl e2m1 {
     #[inline]
     #[must_use]
     pub fn to_f64(self) -> f64 {
-        F4E2M1::from_bits(self.0).to_f64()
+        const MAGNITUDES: [f64; 8] = [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0];
+        let magnitude = MAGNITUDES[(self.0 & 0x7) as usize];
+        if self.0 & 0x8 != 0 {
+            -magnitude
+        } else {
+            magnitude
+        }
     }
+}
+
+// Adapted from `f64_to_fp4` in float4 0.2 (https://github.com/EricLBuehler/float4), itself based on
+// NVIDIA's `cuda_fp4.hpp`, under the MIT License:
+//
+// Copyright (c) 2024 Eric Buehler
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+// associated documentation files (the "Software"), to deal in the Software without restriction,
+// including without limitation the rights to use, copy, modify, merge, publish, distribute,
+// sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all copies or
+// substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+// NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+// NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+// OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/// The E2M1 bits of `x` in the low nibble, rounded to nearest even and saturated to ±6, with NaN
+/// saturating to +6.
+const fn f64_to_e2m1_bits(x: f64) -> u8 {
+    const EXP_BIAS: i16 = 1;
+    const SIGNIFICAND_BITS: u64 = 2;
+    const MANTISSA_MASK: u8 = 0x1;
+    const MIN_DENORM_HALF: u64 = 0x3FD0_0000_0000_0000; // 2^-2
+    const OVERFLOW_THRESHOLD: u64 = 0x4018_0000_0000_0000; // 6.0
+    const MAX_NORM: u8 = 0x7;
+    const MIN_NORM: u64 = 0x3FF0_0000_0000_0000; // 1.0
+    const F64_INF_BITS: u64 = 0x7FF0_0000_0000_0000;
+
+    let xbits = x.to_bits();
+    let absx = xbits & 0x7FFF_FFFF_FFFF_FFFF;
+    let mut sign = ((xbits >> 63) as u8) << 3;
+    let exp = (((xbits >> 52) & 0x7FF) as i16 - 1023 + EXP_BIAS) as i8;
+    let mantissa = ((xbits >> (53 - SIGNIFICAND_BITS)) as u8) & MANTISSA_MASK;
+    // Half an E2M1 ulp, in the f64 mantissa field.
+    let half_ulp: u64 = 1 << (53 - SIGNIFICAND_BITS - 1);
+
+    let mut bits: u8;
+    if absx <= MIN_DENORM_HALF {
+        bits = 0;
+    } else if absx > OVERFLOW_THRESHOLD {
+        if absx > F64_INF_BITS {
+            sign = 0;
+        }
+        bits = MAX_NORM;
+    } else if absx >= MIN_NORM {
+        bits = ((exp as u8) << (SIGNIFICAND_BITS - 1)) | mantissa;
+        let round = xbits & ((half_ulp << 1) - 1);
+        if round > half_ulp || (round == half_ulp && (mantissa & 1) != 0) {
+            bits = bits.wrapping_add(1);
+        }
+    } else {
+        let shift = if exp >= 1 { 0 } else { (1 - exp) as u8 };
+        bits = (mantissa | (1 << (SIGNIFICAND_BITS - 1))) >> shift;
+        let round_mask = (half_ulp << (shift as u64 + 1)) - 1;
+        let round = (xbits | (1 << 52)) & round_mask;
+        if round > (half_ulp << shift) || (round == (half_ulp << shift) && (bits & 1) != 0) {
+            bits = bits.wrapping_add(1);
+        }
+    }
+    bits | sign
 }
 
 impl Neg for e2m1 {
@@ -221,5 +288,42 @@ impl Debug for e2m1x2 {
         let a = e2m1::from_bits(self.0 & 0xF).to_f32();
         let b = e2m1::from_bits((self.0 >> 4) & 0xF).to_f32();
         f.debug_tuple("e2m1x2").field(&a).field(&b).finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_code_converts_to_its_value_and_back() {
+        for code in 0..16u8 {
+            let value = e2m1::from_bits(code).to_f32();
+            assert_eq!(
+                e2m1::from_f32(value).to_bits(),
+                code,
+                "{code:#x} is {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn values_round_to_the_nearest_code_ties_to_even_and_saturate() {
+        for (value, expected) in [
+            (0.25, 0.0),
+            (0.75, 1.0),
+            (1.25, 1.0),
+            (1.75, 2.0),
+            (2.5, 2.0),
+            (3.5, 4.0),
+            (5.0, 4.0),
+            (0.3, 0.5),
+            (2.4, 2.0),
+            (100.0, 6.0),
+            (-100.0, -6.0),
+            (f32::NAN, 6.0),
+        ] {
+            assert_eq!(e2m1::from_f32(value).to_f32(), expected, "{value}");
+        }
     }
 }

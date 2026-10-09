@@ -172,17 +172,53 @@ impl QuantScheme {
         self.store.packing_dim()
     }
 
-    /// Swaps the packing dim if it's either of `dim0` or `dim1`.
-    /// Executes the corresponding update to `shape.swap(dim0, dim1)`.
-    pub fn swap_packing_dim(&mut self, dim0: usize, dim1: usize) {
+    /// Swap two tensor dimensions in the packing dim, mirroring `shape.swap(dim0, dim1)` on a
+    /// tensor of `rank` dimensions: the packing dim counts from the innermost dimension, so it
+    /// takes the rank to know which dimension it is.
+    pub fn swap_packing_dim(&mut self, rank: usize, dim0: usize, dim1: usize) {
+        let mut axes: Vec<usize> = (0..rank).collect();
+        axes.swap(dim0, dim1);
+        self.permute_packing_dim(&axes);
+    }
+
+    /// Permute the packing dim, mirroring a permutation of the tensor's axes.
+    pub fn permute_packing_dim(&mut self, axes: &[usize]) {
         if let QuantStore::PackedU32(packed_dim) | QuantStore::PackedNative(packed_dim) =
             &mut self.store
         {
-            if *packed_dim == dim0 {
-                *packed_dim = dim1;
-            } else if *packed_dim == dim1 {
-                *packed_dim = dim0;
-            }
+            let rank = axes.len();
+            let packed_axis = rank
+                .checked_sub(*packed_dim + 1)
+                .expect("the packing dim to be one of the permuted axes");
+            let new_axis = axes
+                .iter()
+                .position(|axis| *axis == packed_axis)
+                .expect("the permutation to contain the packed axis");
+            *packed_dim = rank - new_axis - 1;
+        }
+    }
+
+    /// Swap two tensor dimensions in the block level and the packing dim, mirroring
+    /// `shape.swap(dim0, dim1)`.
+    pub fn swap_dims(&mut self, rank: usize, dim0: usize, dim1: usize) {
+        self.swap_block_dims(rank, dim0, dim1);
+        self.swap_packing_dim(rank, dim0, dim1);
+    }
+
+    /// Permute the block level and the packing dim, mirroring a permutation of the tensor's axes.
+    pub fn permute_dims(&mut self, axes: &[usize]) {
+        self.permute_block_dims(axes.len(), axes);
+        self.permute_packing_dim(axes);
+    }
+
+    /// Update the packing dim for a reshape to `rank` dimensions: a packing dim the reshape drops
+    /// becomes the innermost one.
+    pub fn reshape_packing_dim(&mut self, rank: usize) {
+        if let QuantStore::PackedU32(packed_dim) | QuantStore::PackedNative(packed_dim) =
+            &mut self.store
+            && *packed_dim >= rank.max(1)
+        {
+            *packed_dim = 0;
         }
     }
 }
@@ -334,11 +370,10 @@ impl ScaleDtype {
 /// CUDA's `__nv_cvt_bfloat16raw_to_e8m0` (at `cudaRoundPosInf`) already do — a scale rounded down
 /// puts the block's largest value outside the quantization range.
 ///
-/// Lives here rather than on the `ue8m0` type so it is available without the `float4` feature:
-/// serialization needs it, and `ue8m0` is a bare exponent, so the byte is the whole of it.
-/// (`ue8m0` itself is behind `fp8`, but its *conversions* come from `float4`, which is the gate
-/// that would otherwise reach serialization.) It has to keep answering what those conversions
-/// answer, which `the_ue8m0_codec_matches_the_storage_type` checks wherever they are compiled in.
+/// Lives here rather than on the `ue8m0` type so it is available without the `fp8` feature:
+/// serialization needs it, and `ue8m0` is a bare exponent, so the byte is the whole of it. It has
+/// to keep answering what the type's conversions answer, which
+/// `the_ue8m0_codec_matches_the_storage_type` checks wherever they are compiled in.
 pub fn f32_to_ue8m0(scale: f32) -> u8 {
     let rounded = round_up_to_power_of_two(scale);
     if rounded.is_nan() {
@@ -475,6 +510,15 @@ impl QuantValue {
             QuantValue::E4M3 => (-448.0, 448.0),
             QuantValue::E5M2 => (-57344.0, 57344.0),
             QuantValue::E2M1 => (-6.0, 6.0), // Hardcoded because of no-std
+        }
+    }
+
+    /// If the values are minifloat codes, which unlike integer codes do not order as the values
+    /// they stand for.
+    pub fn is_float(&self) -> bool {
+        match self {
+            Self::E4M3 | Self::E5M2 | Self::E2M1 => true,
+            Self::Q8F | Self::Q8S | Self::Q4F | Self::Q4S | Self::Q2F | Self::Q2S => false,
         }
     }
 
@@ -779,6 +823,34 @@ mod tests {
     }
 
     #[test]
+    fn permuting_dims_moves_the_packing_dim_and_the_block_with_their_axes() {
+        let mut scheme = QuantScheme::default()
+            .with_store(QuantStore::PackedU32(0))
+            .per_block([1, 2, 4], ScaleDtype::F32);
+        scheme.permute_dims(&[2, 0, 1]);
+        assert_eq!(scheme.store, QuantStore::PackedU32(2));
+        assert_eq!(scheme.block_size(), Some(BlockSize::new([4, 1, 2])));
+    }
+
+    #[test]
+    fn swapping_dims_moves_the_packing_dim_only_when_its_dim_is_swapped() {
+        let mut scheme = QuantScheme::default().with_store(QuantStore::PackedU32(0));
+        scheme.swap_dims(3, 0, 1);
+        assert_eq!(scheme.store, QuantStore::PackedU32(0));
+        scheme.swap_dims(3, 1, 2);
+        assert_eq!(scheme.store, QuantStore::PackedU32(1));
+    }
+
+    #[test]
+    fn a_reshape_that_drops_the_packing_dim_packs_innermost() {
+        let mut scheme = QuantScheme::default().with_store(QuantStore::PackedNative(1));
+        scheme.reshape_packing_dim(2);
+        assert_eq!(scheme.store, QuantStore::PackedNative(1));
+        scheme.reshape_packing_dim(1);
+        assert_eq!(scheme.store, QuantStore::PackedNative(0));
+    }
+
+    #[test]
     fn permuting_dims_rewrites_the_block() {
         let mut scheme = QuantScheme::default().per_block([1, 4, 32], ScaleDtype::F16);
         scheme.permute_block_dims(3, &[2, 0, 1]);
@@ -1017,12 +1089,7 @@ mod tests {
         ///
         /// Includes the rounding, which is the part that could plausibly drift — `ue8m0` rounds
         /// up, where a conversion would normally round to nearest.
-        ///
-        /// Gated on `float4` rather than on this module's `fp8`, because that is where `ue8m0`'s
-        /// conversions live — and it is exactly that split which is the reason the pair above
-        /// exists at all.
         #[test]
-        #[cfg(feature = "fp4")]
         fn the_ue8m0_codec_matches_the_storage_type() {
             for code in 0..=0xFFu8 {
                 let ours = ue8m0_to_f32(code);
