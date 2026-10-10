@@ -2,6 +2,7 @@ use crate::{
     prelude::*,
     shared::polyfill::transcendental::{cos, exp, ln, sin, tanh},
 };
+pub use cubecl_core::frontend::polyfills::powi;
 use cubecl_core::{
     ir::dialect::{
         bitwise::{BitwiseNotOp, FindFirstSetOp},
@@ -99,29 +100,6 @@ fn dot<T: Numeric, N: Size>(rhs: Vector<T, N>, lhs: Vector<T, N>) -> T {
 lower_binary_math_arith!(FDotOp => dot);
 lower_binary_math_arith!(UDotOp => dot);
 lower_binary_math_arith!(SDotOp => dot);
-
-#[cube]
-pub fn powi<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vector<T, N> {
-    let one_u = Vector::<i32, N>::new(1);
-    let one_t = Vector::<T, N>::new(T::from_int(1));
-
-    let neg = exp.less_than(&Vector::<i32, N>::new(0));
-    let mut e = select_many(neg, Vector::<i32, N>::new(0) - exp, exp);
-
-    let bits = 32;
-
-    let mut acc = one_t;
-    let mut sq = base;
-
-    for _ in 0..bits {
-        // TODO: Optimize masked multiplication.
-        acc *= select_many((e & one_u).equal(&one_u), sq, one_t);
-        sq *= sq;
-        e >>= one_u;
-    }
-
-    select_many(neg, one_t / acc, acc)
-}
 
 #[op_interface_impl]
 impl LowerOp for PowiOp {
