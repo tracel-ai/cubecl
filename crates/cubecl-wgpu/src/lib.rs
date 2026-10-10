@@ -207,6 +207,22 @@ mod tests_spirv {
     cubecl_std::testgen_tensor_identity!([f16, flex32, f32, u32]);
     cubecl_std::testgen_quantized_view!(f16);
     cubecl_core::testgen_profiling!();
+
+    /// The kernels above run on `flex32` whether or not the backend declares it; what the
+    /// declaration decides is whether a caller may *select* it (`supports_type`), which is
+    /// what a device's default float type is checked against.
+    #[test]
+    fn flex32_is_a_registered_type() {
+        use cubecl_core::ir::{ElemType, FloatKind};
+        use cubecl_server::runtime::Runtime;
+
+        let client = TestRuntime::client(&Default::default());
+        assert!(
+            client
+                .properties()
+                .supports_type(ElemType::Float(FloatKind::Flex32))
+        );
+    }
 }
 
 #[cfg(all(test, feature = "msl"))]
