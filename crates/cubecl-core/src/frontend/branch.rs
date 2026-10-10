@@ -767,6 +767,9 @@ pub fn terminate_expand(scope: &Scope) {
     }
 }
 
+#[diagnostic::on_unimplemented(
+    message = "Only runtime primitives can be returned. {Self} is not a primitive."
+)]
 pub trait EarlyReturnable {
     fn init_value(scope: &Scope) -> Option<Value>;
     fn from_value(scope: &Scope, value: Option<Value>) -> Self;
@@ -792,7 +795,6 @@ pub fn setup_early_return<T: EarlyReturnable>(scope: &Scope, body: impl FnOnce(&
     let inserter = OpInserter::new(scope.inserter().get_insertion_point());
     let child = scope.inlined_func_child(inserter, value);
     body(&child);
-    child.terminate_yield();
 
     let current_block = scope.inserter().get_insertion_block(scope.ctx()).unwrap();
     let after_point = op_insertion_point_in_block(
@@ -800,6 +802,10 @@ pub fn setup_early_return<T: EarlyReturnable>(scope: &Scope, body: impl FnOnce(&
         child.inserter().get_insertion_point(),
         current_block,
     );
+    if child.inserter().get_insertion_block(scope.ctx()) != Some(current_block) {
+        child.terminate_yield();
+    }
+
     scope.inserter().set_insertion_point(after_point);
     scope.update_flags_after_early_return(&[child]);
     T::from_value(scope, value)
