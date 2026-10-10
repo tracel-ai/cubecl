@@ -196,9 +196,12 @@ impl<T: CubeType> Iterable for SequenceExpand<T> {
         scope: &Scope,
         func: &mut dyn FnMut(&Scope, <T as CubeType>::ExpandType),
     ) {
+        let body = scope.unrolled_loop_child();
         for elem in self {
-            func(scope, elem);
+            scope.update_flags_before_unrolled_iteration(&body);
+            func(&body, elem);
         }
+        scope.finalize_unrolled_loop(&body);
     }
 
     fn const_len(&self) -> Option<usize> {

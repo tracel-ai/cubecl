@@ -2,10 +2,12 @@ use alloc::vec::Vec;
 use cubecl_ir::{
     ExpandState, ExpandValue, OpInserter,
     dialect::{
-        branch::{ConditionOp, IfOp, RangeLoopOp, ReturnOp, SwitchOp, UnreachableOp, WhileOp},
+        branch::{ConditionOp, IfOp, RangeLoopOp, SwitchOp, UnreachableOp, WhileOp},
         general::BoolAndOp,
     },
     pliron::{irbuild::inserter::Inserter, r#type::TypedHandle},
+    read_value,
+    rewrite::{op_insertion_point_in_block, set_inserter_before_terminator},
 };
 use pliron::{
     basic_block::BasicBlock,
@@ -22,11 +24,15 @@ use pliron::{
     region::Region,
     r#type::Typed,
     utils::apint::{APInt, bw},
+    value::Value,
 };
 
 use crate::{
     IntoRuntime,
-    frontend::{ReadValue, RuntimeAssign, assign, assign_binop_expand, binary_expand},
+    frontend::{
+        CubePrimitive, ReadValue, RuntimeAssign, assign, assign_binop_expand, binary_expand,
+        init_mut_of_type,
+    },
     prelude::{CubeEnum, ExpandTypeClone},
 };
 use crate::{ir::Scope, prelude::Assign};
@@ -106,16 +112,16 @@ pub fn if_expand(scope: &Scope, condition: NativeExpand<bool>, block: impl FnOnc
             let if_op = IfOp::new(scope.ctx_mut(), cond);
 
             let then_block = if_op.then_block(scope.ctx());
-            let then_child = scope.child(OpInserter::new_at_block_end(then_block));
+            let then_child = scope.branch_child(OpInserter::new_at_block_end(then_block));
             block(&then_child);
             then_child.terminate_yield();
 
             let else_block = if_op.else_block(scope.ctx());
-            let else_child = scope.child(OpInserter::new_at_block_end(else_block));
+            let else_child = scope.branch_child(OpInserter::new_at_block_end(else_block));
             else_child.terminate_yield();
 
             scope.register(&if_op);
-            scope.set_break_return(&[then_child, else_child]);
+            scope.update_flags_after_branch(&[then_child, else_child]);
         }
     }
 }
@@ -138,12 +144,12 @@ impl IfElseExpand {
                 if_op, then_child, ..
             } => {
                 let else_body = if_op.else_block(scope.ctx());
-                let else_child = scope.child(OpInserter::new_at_block_end(else_body));
+                let else_child = scope.branch_child(OpInserter::new_at_block_end(else_body));
                 else_block(&else_child);
                 else_child.terminate_yield();
 
                 scope.register(&if_op);
-                scope.set_break_return(&[then_child, else_child]);
+                scope.update_flags_after_branch(&[then_child, else_child]);
             }
             Self::ComptimeElse => else_block(scope),
             Self::ComptimeThen => (),
@@ -167,7 +173,7 @@ pub fn if_else_expand(
             let cond = condition.read_value(scope);
             let if_op = IfOp::new(scope.ctx_mut(), cond);
             let if_block = if_op.then_block(scope.ctx());
-            let then_child = scope.child(OpInserter::new_at_block_end(if_block));
+            let then_child = scope.branch_child(OpInserter::new_at_block_end(if_block));
             then_block(&then_child);
             then_child.terminate_yield();
 
@@ -206,13 +212,13 @@ impl<C: Assign> IfElseExprExpand<C> {
                 ..
             } => {
                 let else_body = if_op.else_block(scope.ctx());
-                let else_child = scope.child(OpInserter::new_at_block_end(else_body));
+                let else_child = scope.branch_child(OpInserter::new_at_block_end(else_body));
                 let ret = else_block(&else_child);
                 out.__expand_assign_method(&else_child, ret.into_expand(scope));
                 else_child.terminate_yield();
 
                 scope.register(&if_op);
-                scope.set_break_return(&[then_child, else_child]);
+                scope.update_flags_after_branch(&[then_child, else_child]);
                 out
             }
             Self::ComptimeElse => else_block(scope).into_expand(scope),
@@ -237,7 +243,7 @@ pub fn if_else_expr_expand<C: RuntimeAssign>(
             let cond = condition.read_value(scope);
             let if_op = IfOp::new(scope.ctx_mut(), cond);
             let then_body = if_op.then_block(scope.ctx());
-            let then_child = scope.child(OpInserter::new_at_block_end(then_body));
+            let then_child = scope.branch_child(OpInserter::new_at_block_end(then_body));
             let ret = then_block(&then_child);
             let mut out = ret.init_mut(scope);
             out.__expand_assign_method(&then_child, ret.into_expand(scope));
@@ -264,7 +270,7 @@ impl<I: Int> SwitchExpand<I> {
         let value = I::from(value).unwrap();
         self.cases.push(value);
         let body = self.switch_op.append_case_block(scope.ctx_mut());
-        let case_child = scope.child(OpInserter::new_at_block_end(body));
+        let case_child = scope.branch_child(OpInserter::new_at_block_end(body));
         block(&case_child);
         case_child.terminate_yield();
         self.children.push(case_child);
@@ -280,7 +286,7 @@ impl<I: Int> SwitchExpand<I> {
         });
         self.switch_op.set_attr_cases(scope.ctx(), cases);
         scope.register(&self.switch_op);
-        scope.set_break_return(&self.children);
+        scope.update_flags_after_branch(&self.children);
     }
 }
 
@@ -293,7 +299,7 @@ pub fn switch_expand<I: Int>(
     let switch_op = SwitchOp::new(scope.ctx_mut(), value);
 
     let default_body = switch_op.default_block(scope.ctx());
-    let default_child = scope.child(OpInserter::new_at_block_end(default_body));
+    let default_child = scope.branch_child(OpInserter::new_at_block_end(default_body));
     default_block(&default_child);
     default_child.terminate_yield();
 
@@ -321,7 +327,7 @@ impl<I: Int, C: Assign> SwitchExpandExpr<I, C> {
         let value = I::from(value).unwrap();
         self.cases.push(value);
         let body = self.switch_op.append_case_block(scope.ctx_mut());
-        let case_child = scope.child(OpInserter::new_at_block_end(body));
+        let case_child = scope.branch_child(OpInserter::new_at_block_end(body));
         let ret = block(&case_child);
         self.out
             .__expand_assign_method(&case_child, ret.into_expand(scope));
@@ -339,7 +345,7 @@ impl<I: Int, C: Assign> SwitchExpandExpr<I, C> {
         });
         self.switch_op.set_attr_cases(scope.ctx(), cases);
         scope.register(&self.switch_op);
-        scope.set_break_return(&self.children);
+        scope.update_flags_after_branch(&self.children);
         self.out
     }
 }
@@ -353,7 +359,7 @@ pub fn switch_expand_expr<I: Int, C: RuntimeAssign>(
     let switch_op = SwitchOp::new(scope.ctx_mut(), value);
 
     let default_body = switch_op.default_block(scope.ctx());
-    let default_child = scope.child(OpInserter::new_at_block_end(default_body));
+    let default_child = scope.branch_child(OpInserter::new_at_block_end(default_body));
     let default = default_block(&default_child);
     let mut out = default.init_mut(scope);
     out.__expand_assign_method(&default_child, default.into_expand(scope));
@@ -400,7 +406,7 @@ impl<T: CubeEnum> MatchExpand<T> {
             } => {
                 cases.push(value);
                 let body = switch_op.append_case_block(scope.ctx_mut());
-                let case_child = scope.child(OpInserter::new_at_block_end(body));
+                let case_child = scope.branch_child(OpInserter::new_at_block_end(body));
                 block(&case_child, (*runtime_value).clone_unchecked());
                 case_child.terminate_yield();
                 children.push(case_child);
@@ -429,7 +435,7 @@ impl<T: CubeEnum> MatchExpand<T> {
                 ..
             } => {
                 let body = switch_op.default_block(scope.ctx());
-                let case_child = scope.child(OpInserter::new_at_block_end(body));
+                let case_child = scope.branch_child(OpInserter::new_at_block_end(body));
                 block(&case_child, (*runtime_value).clone_unchecked());
                 case_child.terminate_yield();
                 children.push(case_child);
@@ -472,7 +478,7 @@ impl<T: CubeEnum> MatchExpand<T> {
                 });
                 switch_op.set_attr_cases(scope.ctx(), cases);
                 scope.register(&switch_op);
-                scope.set_break_return(&children);
+                scope.update_flags_after_branch(&children);
             }
         }
     }
@@ -506,7 +512,7 @@ pub fn match_expand<T: CubeEnum>(
 
             let switch_op = SwitchOp::new(scope.ctx_mut(), discriminant);
             let body = switch_op.append_case_block(scope.ctx_mut());
-            let case_child = scope.child(OpInserter::new_at_block_end(body));
+            let case_child = scope.branch_child(OpInserter::new_at_block_end(body));
             arm0(&case_child, runtime_value.clone_unchecked());
             case_child.terminate_yield();
 
@@ -557,7 +563,7 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
             } => {
                 cases.push(value);
                 let body = switch_op.append_case_block(scope.ctx_mut());
-                let case_child = scope.child(OpInserter::new_at_block_end(body));
+                let case_child = scope.branch_child(OpInserter::new_at_block_end(body));
                 let ret_val = block(&case_child, (*runtime_value).clone_unchecked());
                 out.__expand_assign_method(&case_child, ret_val.into_expand(scope));
                 case_child.terminate_yield();
@@ -594,7 +600,7 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 ..
             } => {
                 let body = switch_op.default_block(scope.ctx());
-                let case_child = scope.child(OpInserter::new_at_block_end(body));
+                let case_child = scope.branch_child(OpInserter::new_at_block_end(body));
                 let ret_val = block(&case_child, (*runtime_value).clone_unchecked());
                 out.__expand_assign_method(&case_child, ret_val.into_expand(scope));
                 case_child.terminate_yield();
@@ -643,7 +649,7 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 });
                 switch_op.set_attr_cases(scope.ctx(), cases);
                 scope.register(&switch_op);
-                scope.set_break_return(&children);
+                scope.update_flags_after_branch(&children);
 
                 out
             }
@@ -681,7 +687,7 @@ pub fn match_expand_expr<T: CubeEnum, C: RuntimeAssign>(
 
             let switch_op = SwitchOp::new(scope.ctx_mut(), discriminant);
             let body = switch_op.append_case_block(scope.ctx_mut());
-            let case_child = scope.child(OpInserter::new_at_block_end(body));
+            let case_child = scope.branch_child(OpInserter::new_at_block_end(body));
             let ret_val = arm0(&case_child, runtime_value.clone_unchecked());
 
             let mut out = ret_val.init_mut(scope);
@@ -698,6 +704,16 @@ pub fn match_expand_expr<T: CubeEnum, C: RuntimeAssign>(
             }
         }
     }
+}
+
+pub fn continue_expand(scope: &Scope) {
+    let inv_continue_flag = scope
+        .expand_state()
+        .inv_continue_flag
+        .expect("Should be in loop");
+    let false_ = false.__expand_runtime_method(scope).expand;
+    assign::expand_element(scope, false_, inv_continue_flag.into());
+    scope.expand_state_mut().may_continue = true;
 }
 
 pub fn break_expand(scope: &Scope) {
@@ -717,10 +733,82 @@ pub fn return_expand(scope: &Scope) {
         assign::expand_element(scope, false_, inv_return_flag.into());
         scope.expand_state_mut().may_return = true;
     } else {
-        // We're in a rewrite context, so just break the strict hammock model. We can't apply the
-        // single-return conversion after the scope is already built.
-        scope.register(&ReturnOp::new(scope.ctx_mut()));
+        panic!("Can't return when no return flag has been set up")
     }
+}
+
+/// This is a separate function because otherwise Rust can't infer the generic
+pub fn return_with_value_expand<T: CubePrimitive>(
+    scope: &Scope,
+    value: NativeExpand<T>,
+) -> NativeExpand<T> {
+    let inv_return_flag = scope.expand_state().inv_return_flag;
+    if let Some(inv_return_flag) = inv_return_flag {
+        let return_value = scope.expand_state().return_value.expect("Should exist");
+        let false_ = false.__expand_runtime_method(scope).expand;
+
+        assign::expand_element(scope, false_, inv_return_flag.into());
+        assign::expand_element(scope, value.expand, return_value.into());
+        scope.expand_state_mut().may_return = true;
+    } else {
+        panic!("Can't return when no return flag has been set up")
+    }
+    value
+}
+
+pub fn terminate_expand(scope: &Scope) {
+    let inv_terminate_flag = scope.expand_state().inv_terminate_flag;
+    if let Some(inv_terminate_flag) = inv_terminate_flag {
+        let false_ = false.__expand_runtime_method(scope).expand;
+        assign::expand_element(scope, false_, inv_terminate_flag.into());
+        scope.expand_state_mut().may_terminate = true;
+    } else {
+        panic!("Can't terminate when no terminate flag has been set up")
+    }
+}
+
+#[diagnostic::on_unimplemented(
+    message = "Only runtime primitives can be returned. {Self} is not a primitive."
+)]
+pub trait EarlyReturnable {
+    fn init_value(scope: &Scope) -> Option<Value>;
+    fn from_value(scope: &Scope, value: Option<Value>) -> Self;
+}
+
+impl<T: CubePrimitive> EarlyReturnable for NativeExpand<T> {
+    fn init_value(scope: &Scope) -> Option<Value> {
+        Some(init_mut_of_type(scope, T::__expand_as_type(scope)).value(scope))
+    }
+    fn from_value(scope: &Scope, value: Option<Value>) -> Self {
+        read_value(scope, value.unwrap()).into()
+    }
+}
+impl EarlyReturnable for () {
+    fn init_value(_: &Scope) -> Option<Value> {
+        None
+    }
+    fn from_value(_: &Scope, _: Option<Value>) -> Self {}
+}
+
+pub fn setup_early_return<T: EarlyReturnable>(scope: &Scope, body: impl FnOnce(&Scope) -> T) -> T {
+    let value = T::init_value(scope);
+    let inserter = OpInserter::new(scope.inserter().get_insertion_point());
+    let child = scope.inlined_func_child(inserter, value);
+    body(&child);
+
+    let current_block = scope.inserter().get_insertion_block(scope.ctx()).unwrap();
+    let after_point = op_insertion_point_in_block(
+        scope.ctx(),
+        child.inserter().get_insertion_point(),
+        current_block,
+    );
+    if child.inserter().get_insertion_block(scope.ctx()) != Some(current_block) {
+        child.terminate_yield();
+    }
+
+    scope.inserter().set_insertion_point(after_point);
+    scope.update_flags_after_early_return(&[child]);
+    T::from_value(scope, value)
 }
 
 pub mod unreachable_unchecked {
@@ -743,7 +831,7 @@ pub struct WhileBuilder {
 impl WhileBuilder {
     pub fn new(scope: &Scope, mut cond: impl FnMut(&Scope) -> NativeExpand<bool>) -> Self {
         let while_op = WhileOp::new(scope.ctx_mut());
-        let cond_scope = scope.child(OpInserter::new_at_block_start(
+        let cond_scope = scope.branch_child(OpInserter::new_at_block_start(
             while_op.before_block(scope.ctx()),
         ));
 
@@ -769,6 +857,7 @@ impl WhileBuilder {
         let expand_state = *body.expand_state();
         let break_flag = expand_state.inv_break_flag.unwrap().into();
         let return_flag = expand_state.inv_return_flag.map(Into::into);
+        let terminate_flag = expand_state.inv_terminate_flag.map(Into::into);
 
         if expand_state.may_break {
             cond = binary_expand(&cond_scope, cond, break_flag, BoolAndOp::new);
@@ -777,10 +866,16 @@ impl WhileBuilder {
             let return_flag = return_flag.unwrap();
             cond = binary_expand(&cond_scope, cond, return_flag, BoolAndOp::new);
         }
+        if expand_state.may_terminate {
+            let terminate_flag = terminate_flag.unwrap();
+            cond = binary_expand(&cond_scope, cond, terminate_flag, BoolAndOp::new);
+        }
 
-        cond_scope.register(&ConditionOp::new(scope.ctx_mut(), cond.read_value(scope)));
+        let cond = cond.read_value(&cond_scope);
+        cond_scope.register(&ConditionOp::new(scope.ctx_mut(), cond));
 
         scope.register(&while_op);
+        scope.update_flags_after_loop(&[cond_scope, body]);
     }
 }
 
@@ -788,12 +883,17 @@ impl WhileBuilder {
 pub(crate) fn register_range_loop<I: Int>(scope: &Scope, for_op: &RangeLoopOp, body: &Scope) {
     let ctx = scope.ctx_mut();
     let ExpandState {
+        may_terminate,
         may_return,
         may_break,
+        may_continue,
+        inv_terminate_flag,
         inv_return_flag,
         inv_break_flag,
+        inv_continue_flag: _,
+        return_value: _,
     } = *body.expand_state();
-    if !may_break && !may_return {
+    if !may_break && !may_return && !may_terminate {
         body.terminate_yield();
         scope.register(for_op);
         return;
@@ -809,6 +909,12 @@ pub(crate) fn register_range_loop<I: Int>(scope: &Scope, for_op: &RangeLoopOp, b
     let iter_var = ExpandValue::from(scope.create_local_mut(iter_var_old.get_type(ctx), None));
     assign::expand_element(scope, start.into(), iter_var);
 
+    // Normally it needs to be predicated on `break;`/`return;`, but not `continue;`. However, this
+    // would require additional branching and Rust actually doesn't allow loop counters to escape
+    // the loop. So just not predicating it is cheaper, easier, and semantically identical. Yay Rust!
+    if may_continue {
+        set_inserter_before_terminator(body.inserter(), ctx, for_op.loop_body(ctx));
+    }
     assign_binop_expand::<I>(
         body,
         &mut iter_var.into(),
@@ -825,7 +931,7 @@ pub(crate) fn register_range_loop<I: Int>(scope: &Scope, for_op: &RangeLoopOp, b
 
     let while_op = WhileOp::new(ctx);
 
-    let cond_scope = scope.child(OpInserter::new_at_block_start(
+    let cond_scope = scope.branch_child(OpInserter::new_at_block_start(
         while_op.before_block(scope.ctx()),
     ));
 
@@ -838,8 +944,13 @@ pub(crate) fn register_range_loop<I: Int>(scope: &Scope, for_op: &RangeLoopOp, b
         let inv_return_flag = inv_return_flag.unwrap().into();
         cond = binary_expand(&cond_scope, cond, inv_return_flag, BoolAndOp::new);
     }
+    if may_terminate {
+        let inv_terminate_flag = inv_terminate_flag.unwrap().into();
+        cond = binary_expand(&cond_scope, cond, inv_terminate_flag, BoolAndOp::new);
+    }
 
-    cond_scope.register(&ConditionOp::new(scope.ctx_mut(), cond.read_value(scope)));
+    let cond = cond.read_value(&cond_scope);
+    cond_scope.register(&ConditionOp::new(scope.ctx_mut(), cond));
 
     rewriter.erase_region(ctx, while_op.after_region(ctx));
     Region::move_to_op(for_op.get_region(ctx), while_op.get_operation(), ctx);

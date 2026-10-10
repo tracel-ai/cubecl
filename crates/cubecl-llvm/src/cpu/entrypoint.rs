@@ -175,7 +175,7 @@ fn insert_skeleton(
     builtins.set(Builtin::CubeCount, cube_count);
 
     let loop_z = RangeLoopOp::new(scope.ctx_mut(), zero, cube_count_z, one);
-    let scope_z = scope.child(OpInserter::new_at_block_end(loop_z.loop_body(scope.ctx())));
+    let scope_z = scope.branch_child(OpInserter::new_at_block_end(loop_z.loop_body(scope.ctx())));
     {
         let cube_pos_z = loop_z.iter_var(scope.ctx());
         builtins.set(Builtin::CubePosZ, cube_pos_z);
@@ -187,7 +187,7 @@ fn insert_skeleton(
     }
 
     let loop_y = RangeLoopOp::new(scope_z.ctx_mut(), zero, cube_count_y, one);
-    let scope_y = scope_z.child(OpInserter::new_at_block_end(
+    let scope_y = scope_z.branch_child(OpInserter::new_at_block_end(
         loop_y.loop_body(scope_z.ctx()),
     ));
     {
@@ -202,7 +202,7 @@ fn insert_skeleton(
 
     let loop_x = RangeLoopOp::new(scope_y.ctx_mut(), zero, cube_count_x, one);
     let body_block = loop_x.loop_body(scope_y.ctx());
-    let scope_x = scope_y.child(OpInserter::new_at_block_end(body_block));
+    let scope_x = scope_y.branch_child(OpInserter::new_at_block_end(body_block));
     {
         let cube_pos_x = loop_x.iter_var(scope.ctx());
         builtins.set(Builtin::CubePosX, cube_pos_x);

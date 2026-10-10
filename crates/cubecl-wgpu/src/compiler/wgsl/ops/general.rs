@@ -180,7 +180,7 @@ fn unroll_bool_and<T: Scalar, N: Size>(
     let mut out = Vector::empty();
     #[unroll]
     for i in 0..lhs.vector_size() {
-        out.insert(i, lhs.extract(i) && rhs.extract(i));
+        out.insert(i, lhs.extract(i) & rhs.extract(i));
     }
     out
 }
@@ -194,7 +194,7 @@ fn unroll_bool_or<T: Scalar, N: Size>(
     let mut out = Vector::empty();
     #[unroll]
     for i in 0..lhs.vector_size() {
-        out.insert(i, lhs.extract(i) || rhs.extract(i));
+        out.insert(i, lhs.extract(i) | rhs.extract(i));
     }
     out
 }

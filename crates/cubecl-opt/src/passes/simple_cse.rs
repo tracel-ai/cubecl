@@ -184,6 +184,9 @@ fn can_eliminate(
     op: Ptr<Operation>,
     memory_ssa: &mut MemorySSA,
 ) -> core::result::Result<Option<MemoryValue>, ()> {
+    if op.deref(ctx).num_regions() > 0 {
+        return Err(());
+    }
     let dyn_op = op.dyn_op(ctx);
     if op_cast::<dyn SideEffects>(&*dyn_op).is_none_or(|effects| effects.has_side_effects(ctx)) {
         return Err(());
