@@ -307,6 +307,25 @@ pub fn recip<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
     Vector::one() / input
 }
 
+/// Cube root of the magnitude with the input's sign put back, since `powf` is NaN for a negative
+/// base. A backend `pow` can be a few ulp off (WGSL's is `exp2(y * log2(x))`), so one Newton step
+/// refines it. The step is written as `mag / y²` rather than `y³` so it can't overflow, and is
+/// skipped for zero and infinity, where it would divide by zero.
+#[cube]
+pub fn cbrt<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
+    let zero = Vector::<T, N>::zero();
+    let mag = input.abs();
+    let approx = mag.powf(Vector::new(T::new(comptime!(1.0_f32 / 3.0_f32))));
+    let refined = (approx + approx + mag / (approx * approx)) / Vector::new(T::new(3.0_f32));
+    let root = select_many(mag.equal(&zero).or(mag.is_inf()), approx, refined);
+    select_many(input.less_than(&zero), -root, root)
+}
+
+#[cube]
+pub fn inverse_cbrt<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
+    Vector::one() / cbrt(input)
+}
+
 #[cube]
 pub fn to_degrees<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
     input * Vector::new(T::new(comptime!(180.0_f32 / PI)))
