@@ -694,10 +694,50 @@ async fn open_database(location: &str) -> Result<turso::Database, turso::Error> 
             .map_err(|error| turso::Error::IoError(error.kind(), "creating the cache directory"))?;
     }
 
+    match open_writable(location, true).await {
+        // Writable for this process alone is still a cache that outlives the
+        // run. Passed up, the refusal lands in the read-only fallback instead:
+        // a new file doesn't open there at all, and an existing one opens
+        // unable to take a single write.
+        Err(err) if multiprocess_wal_unsupported(&err) => {
+            log::debug!("cubecl cache: {err}; opening {location} for this process alone");
+            open_writable(location, false).await
+        }
+        opened => opened,
+    }
+}
+
+/// Opens `location` writable, its WAL shared between processes when
+/// `multiprocess`.
+///
+/// Without it, the engine locks the file for the process that opened it. A
+/// second process sharing the cache root is refused a writable open and takes
+/// the read-only fallback, as it would for any file it can't write: it reads
+/// what the first one stored, but can't add to it.
+#[cfg(native_cache)]
+async fn open_writable(
+    location: &str,
+    multiprocess: bool,
+) -> Result<turso::Database, turso::Error> {
     turso::Builder::new_local(location)
-        .experimental_multiprocess_wal(true)
+        .experimental_multiprocess_wal(multiprocess)
         .build()
         .await
+}
+
+/// Whether `err` is the engine declining to share a file's WAL between
+/// processes.
+///
+/// It declines wherever it can't coordinate the WAL through shared memory:
+/// on Windows, whose I/O backend has no such coordination; on network and
+/// cluster file systems (NFS, SMB, Lustre, Ceph, 9p, ...), whose shared memory
+/// isn't coherent between hosts; and for in-memory databases. Every one of
+/// them reaches the SDK as a plain [`turso::Error::Error`], the variant most
+/// engine errors map to, so the message is the only thing that sets them
+/// apart from a failure that single-process mode would hit just the same.
+#[cfg(native_cache)]
+fn multiprocess_wal_unsupported(err: &turso::Error) -> bool {
+    matches!(err, turso::Error::Error(message) if message.contains("multiprocess WAL is not supported"))
 }
 
 /// A database nobody may write, served as it is: a cache root in a container
@@ -1300,6 +1340,46 @@ mod tests {
 
         let reopened = TursoStorage::open("kept".to_string()).unwrap();
         assert_eq!(reopened.get(b"key"), Some(Bytes::from_bytes_vec(vec![7])));
+    }
+
+    /// Where the engine won't share a file's WAL between processes, the file
+    /// still opens writable, for this process alone, rather than failing into
+    /// the read-only fallback, which can't open a file that isn't an
+    /// environment yet.
+    ///
+    /// Windows and network file systems are where this matters, and CI runs on
+    /// neither. An in-memory location is declined by the same check, with the
+    /// same error, on every platform.
+    #[test_log::test]
+    #[cfg_attr(miri, ignore)]
+    fn a_location_without_a_shared_wal_opens_for_this_process() {
+        let database = block_on(open_database(":memory:")).unwrap();
+        migrate(&database).unwrap();
+
+        let connection = connect(&database).unwrap();
+        assert_eq!(
+            insert_on(&connection, "kernels", b"key", b"1", Origin::Local).unwrap(),
+            Insertion::Stored
+        );
+    }
+
+    /// The fallback keys on the engine's message, so it is pinned here: an
+    /// engine that rewords the refusal must fail this test, not quietly send
+    /// every such location back to the read-only fallback.
+    ///
+    /// Only where the engine coordinates WALs at all, 64-bit Unix and Windows;
+    /// elsewhere it ignores the request rather than refusing it.
+    #[test_log::test]
+    #[cfg_attr(miri, ignore)]
+    #[cfg(target_pointer_width = "64")]
+    fn the_engine_declines_a_shared_wal_in_words_we_recognize() {
+        let Err(err) = block_on(open_writable(":memory:", true)) else {
+            panic!("an in-memory database must not get a shared WAL");
+        };
+        assert!(
+            multiprocess_wal_unsupported(&err),
+            "unrecognized refusal: {err}"
+        );
     }
 
     /// Two independent connections to one file, which is what two processes
