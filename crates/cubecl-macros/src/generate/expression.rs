@@ -9,7 +9,7 @@ use crate::{
     expression::{Block, Expression, MatchArm},
     operator::Operator,
     paths::{frontend_path, frontend_type, prelude_path, prelude_type},
-    scope::Context,
+    scope::{ClosureScope, Context},
 };
 
 macro_rules! error {
@@ -265,40 +265,65 @@ impl Expression {
                 );
                 quote_spanned! {*span=>{#call}}
             }
-            Expression::Break => {
-                let path = frontend_path();
+            Expression::Break {
+                closure_scope,
+                span,
+            } => {
+                let branch = frontend_type("branch");
+                let ret = early_exit_valueless(context, *span, closure_scope, "Breaking");
                 // Break terminates the current closure scope
-                quote! {
-                    #path::branch::break_expand(scope);
-                    return;
+                quote_spanned! {*span=>
+                    #branch::break_expand(scope);
+                    #ret
                 }
             }
-            Expression::Continue(span) => {
+            Expression::Continue {
+                closure_scope,
+                span,
+            } => {
                 let branch = frontend_type("branch");
+                let ret = early_exit_valueless(context, *span, closure_scope, "Continuing");
                 // Continue terminates the current closure scope
                 quote_spanned! {*span=>
                     #branch::continue_expand(scope);
-                    return;
+                    #ret
                 }
             }
             Expression::Return {
                 value: Some(value),
                 span,
+                closure_scope,
             } => {
                 let value = value.to_tokens(context);
                 let branch = frontend_type("branch");
-                // Return terminates the current closure scope
-                quote_spanned! {*span=>
-                    #branch::return_with_value_expand(scope, (#value).into());
-                    return;
+                let ret_value = quote_spanned! {*span=>
+                    #branch::return_with_value_expand(scope, (#value).into())
+                };
+
+                match closure_scope {
+                    ClosureScope::Function | ClosureScope::Closure => quote![return #ret_value;],
+                    ClosureScope::NestedWithoutValue => quote! {
+                        #ret_value;
+                        return;
+                    },
+                    ClosureScope::NestedWithValue => syn::Error::new(
+                        *span,
+                        "Returning from value-returning branch is not currently supported",
+                    )
+                    .into_compile_error(),
                 }
             }
-            Expression::Return { value: None, span } => {
+            Expression::Return {
+                value: None,
+                span,
+                closure_scope,
+            } => {
                 let branch = frontend_type("branch");
+                let ret = early_exit_valueless(context, *span, closure_scope, "Returning");
                 // Return terminates the current closure scope
                 quote_spanned! {*span=>
                     #branch::return_expand(scope);
-                    return;
+                    #ret
                 }
             }
             Expression::Cast { from, to } => {
@@ -567,10 +592,28 @@ impl Expression {
                 params,
                 body,
                 scope,
+                has_early_return: false,
+                span,
             } => {
                 // Without knowing the closure type, we need to assume it's `FnMut`
                 let body = context.in_fn_mut(scope, |ctx| body.to_tokens(ctx));
-                quote![|scope, #(#params),*| #body]
+                quote_spanned! {*span=>
+                    |scope, #(#params),*| #body
+                }
+            }
+            Expression::Closure {
+                params,
+                body,
+                scope,
+                has_early_return: true,
+                span,
+            } => {
+                let branch = frontend_type("branch");
+                // Without knowing the closure type, we need to assume it's `FnMut`
+                let body = context.in_fn_mut(scope, |ctx| body.to_tokens(ctx));
+                quote_spanned! {*span=>
+                    |scope, #(#params),*| #branch::setup_early_return(scope, |scope| #body)
+                }
             }
             Expression::Verbatim { tokens, .. } => tokens.clone(),
             Expression::Block(block) => block.to_tokens(context),
@@ -582,13 +625,9 @@ impl Expression {
                 expr,
                 arms,
                 default,
+                has_value,
             } => {
                 let branch = frontend_type("branch");
-
-                let has_value = arms
-                    .iter()
-                    .next()
-                    .is_some_and(|arm| arm.expr.needs_terminator());
 
                 let match_ = match has_value {
                     true => quote![match_expand_expr],
@@ -760,11 +799,15 @@ impl Expression {
             Expression::PanickingMacro { ident, tokens } => {
                 quote![#ident!(#tokens)]
             }
-            Expression::Terminate => {
+            Expression::Terminate {
+                closure_scope,
+                span,
+            } => {
+                let ret = early_exit_valueless(context, *span, closure_scope, "Terminating");
                 // Terminate ends the current scope
-                quote! {
+                quote_spanned! {*span=>
                     cubecl::frontend::branch::terminate_expand(scope);
-                    return;
+                    #ret
                 }
             }
             Expression::AssertConstant { inner } => inner.to_tokens(context),
@@ -794,6 +837,34 @@ impl Expression {
                 quote! {{#path!(scope, #args)}}
             }
         }
+    }
+}
+
+/// Return for ops that cannot produce values, returns an error if a value is required
+fn early_exit_valueless(
+    context: &Context,
+    span: Span,
+    closure_scope: &ClosureScope,
+    op: &str,
+) -> TokenStream {
+    match closure_scope {
+        ClosureScope::Function if context.return_type != parse_quote![()] => syn::Error::new(
+            span,
+            format!(
+                "{op} at the top level of a value-returning function is currently not supported"
+            ),
+        )
+        .into_compile_error(),
+        // Closure type is inferred so just try to return a no-value and accept the worsened error message.
+        // There's no good to actually check if it has a return value.
+        ClosureScope::Closure | ClosureScope::Function | ClosureScope::NestedWithoutValue => {
+            quote![return;]
+        }
+        ClosureScope::NestedWithValue => syn::Error::new(
+            span,
+            format!("{op} in a value-returning branch is not currently supported"),
+        )
+        .into_compile_error(),
     }
 }
 
@@ -924,7 +995,7 @@ impl Block {
                 into_expand(ret.to_tokens(context))
             }
         } else {
-            quote![()]
+            quote![]
         };
 
         quote! {

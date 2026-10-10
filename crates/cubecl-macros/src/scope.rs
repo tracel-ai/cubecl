@@ -46,10 +46,19 @@ pub const KEYWORDS: [&str; 31] = [
 pub type Scope = usize;
 type ManagedScope = Vec<ManagedVar>;
 
+#[derive(Clone, Copy, Debug)]
+pub enum ClosureScope {
+    Function,
+    Closure,
+    NestedWithoutValue,
+    NestedWithValue,
+}
+
 #[derive(Clone, Debug)]
 pub struct Context {
     pub return_type: Type,
     scopes: Vec<ManagedScope>,
+    closure_scopes: Vec<ClosureScope>,
     level: usize,
     mut_scope_idx: usize,
     pub debug_symbols: bool,
@@ -78,6 +87,7 @@ impl Context {
         Self {
             return_type,
             scopes: vec![root_scope],
+            closure_scopes: vec![ClosureScope::Function],
             level: 0,
             mut_scope_idx: 0,
             debug_symbols,
@@ -127,6 +137,24 @@ impl Context {
         let res = with(self)?;
         self.pop_scope();
         Ok((res, self.scopes.len()))
+    }
+
+    pub fn in_closure_scope<T>(
+        &mut self,
+        scope: ClosureScope,
+        with: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        self.closure_scopes.push(scope);
+        let res = with(self);
+        self.closure_scopes.pop();
+        res
+    }
+
+    pub fn current_closure_scope(&self) -> ClosureScope {
+        *self
+            .closure_scopes
+            .last()
+            .expect("Should have root closure")
     }
 
     /// Mutable closures (for loops) have different behaviour because outer vars

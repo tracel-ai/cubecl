@@ -1,7 +1,7 @@
 use quote::{format_ident, quote};
 use syn::{
     Expr, ExprArray, Ident, LitStr, Local, Macro, Pat, PatMacro, Stmt, Type, TypeReference,
-    parse_quote, parse2,
+    parse_quote, parse2, spanned::Spanned,
 };
 
 use crate::{
@@ -169,7 +169,10 @@ pub fn parse_macros(mac: Macro, context: &mut Context) -> syn::Result<Expression
         let content = syn::parse2::<LitStr>(mac.tokens)?;
         Ok(Expression::Comment { content })
     } else if mac.path.is_ident("terminate") {
-        Ok(Expression::Terminate)
+        Ok(Expression::Terminate {
+            closure_scope: context.current_closure_scope(),
+            span: mac.span(),
+        })
     } else if mac.path.is_ident("intrinsic") {
         context.is_intrinsic = true;
         let closure: syn::ExprClosure = mac.parse_body()?;

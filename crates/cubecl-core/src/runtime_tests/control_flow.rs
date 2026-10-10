@@ -94,6 +94,22 @@ fn early_returning(divisor: i32) -> i32 {
 }
 
 #[cube(launch)]
+pub fn kernel_early_and_top_level_return(output: &mut [i32], divisor: i32) {
+    if UNIT_POS == 0 {
+        output[0] = early_returning(divisor);
+    }
+}
+
+#[allow(clippy::needless_return)]
+#[cube]
+fn early_returning_top_level_return(divisor: i32) -> i32 {
+    if divisor == 0 {
+        return 0;
+    }
+    return 4 / divisor;
+}
+
+#[cube(launch)]
 pub fn kernel_early_return_no_value(output: &mut [i32], divisor: i32) {
     if UNIT_POS == 0 {
         early_returning_no_value(output, divisor);
@@ -334,6 +350,23 @@ pub fn test_early_return<R: Runtime>(client: Client) {
     let actual = i32::from_bytes(&actual);
 
     assert_eq!(actual[0], 2);
+}
+
+pub fn test_early_and_top_level_return<R: Runtime>(client: Client) {
+    let handle = client.create_from_slice(i32::as_bytes(&[5]));
+
+    kernel_early_and_top_level_return::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new(&client, 1),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
+        0,
+    );
+
+    let actual = client.read_one(handle.clone()).unwrap();
+    let actual = i32::from_bytes(&actual);
+
+    assert_eq!(actual[0], 0);
 }
 
 pub fn test_early_return_no_value<R: Runtime>(client: Client) {
