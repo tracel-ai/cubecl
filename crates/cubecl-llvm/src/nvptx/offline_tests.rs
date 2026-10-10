@@ -1,8 +1,8 @@
 //! Real kernels compiled to PTX without a device, checked on the assembly.
 
 use crate::shared::offline_kernels::{
-    Wait, bf16_math_kernel, keep_largest_kernel, plane_moves_kernel, relay_kernel, scale_kernel,
-    strided_walk_kernel, tally_kernel, tile_product_kernel,
+    ProductA, Wait, bf16_math_kernel, keep_largest_kernel, plane_moves_kernel, relay_kernel,
+    scale_kernel, strided_walk_kernel, tally_kernel, tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{PlironArtifact, PlironCompiler, PlironOptions, nvptx::ptx_version::PtxVersion};
@@ -130,8 +130,11 @@ fn loop_body(ptx: &str) -> Option<String> {
     None
 }
 
-/// The PTX `kernel` compiles to for `sm_{arch}`.
-fn ptx_of(kernel: impl CubeKernel, arch: u32) -> String {
+/// What compiling `kernel` for `sm_{arch}` gives.
+fn compile(
+    kernel: impl CubeKernel,
+    arch: u32,
+) -> Result<PlironArtifact, cubecl_runtime::compiler::CompilationError> {
     let mut compiler = PlironCompiler {
         target: LlvmTarget::Nvptx,
     };
@@ -140,10 +143,20 @@ fn ptx_of(kernel: impl CubeKernel, arch: u32) -> String {
         ptx_version: PtxVersion::for_driver(12080),
         ..Default::default()
     };
-    let PlironArtifact::NvptxCode(module) = compiler.compile(kernel.define(), &options).unwrap()
-    else {
+    compiler.compile(kernel.define(), &options)
+}
+
+/// The module `kernel` compiles to for `sm_{arch}`.
+fn module_of(kernel: impl CubeKernel, arch: u32) -> crate::NvptxModule {
+    let PlironArtifact::NvptxCode(module) = compile(kernel, arch).unwrap() else {
         unreachable!("the NVPTX target produces PTX");
     };
+    module
+}
+
+/// The PTX `kernel` compiles to for `sm_{arch}`.
+fn ptx_of(kernel: impl CubeKernel, arch: u32) -> String {
+    let module = module_of(kernel, arch);
     // SAFETY: the module's PTX is NUL-terminated.
     unsafe { CStr::from_ptr(module.ptx.as_ptr()) }
         .to_string_lossy()
@@ -170,5 +183,363 @@ fn tf32_constant_casts_preserve_rounding() {
         ptx.matches("cvt.rna.tf32.f32").count(),
         4,
         "constant float and integer casts must retain TF32 rounding through an FP32 round trip:\n{ptx}"
+    );
+}
+
+/// A warpgroup MMA is one `wgmma.mma_async` between the fence and the group it is committed in,
+/// reading the tiles the units staged after fencing the async proxy.
+#[test]
+fn a_warpgroup_product_is_one_async_mma() {
+    let ptx = ptx_of(
+        crate::shared::offline_kernels::warpgroup_product_kernel::<half::f16, f32>(
+            shape(64, 16),
+            ProductA::Shared,
+        ),
+        90,
+    );
+    assert!(ptx.contains(".target sm_90a"), "{ptx}");
+    assert!(ptx.contains("fence.proxy.async.shared::cta"), "{ptx}");
+    assert!(ptx.contains("wgmma.fence.sync.aligned"), "{ptx}");
+    assert_eq!(
+        ptx.matches("wgmma.mma_async.sync.aligned.m64n64k16.f32.f16.f16")
+            .count(),
+        1,
+        "{ptx}"
+    );
+    assert!(ptx.contains("wgmma.commit_group.sync.aligned"), "{ptx}");
+    assert!(ptx.contains("wgmma.wait_group.sync.aligned \t0;"), "{ptx}");
+    assert!(
+        !ptx.contains("ld.local") && !ptx.contains("st.local"),
+        "the accumulator is registers:\n{ptx}"
+    );
+}
+
+/// `A` in registers is four 32-bit registers per unit, and the 16-bit forms name only `B`'s
+/// transpose.
+#[test]
+fn a_warpgroup_product_takes_a_from_registers() {
+    let ptx = ptx_of(
+        crate::shared::offline_kernels::warpgroup_product_kernel::<half::bf16, f32>(
+            shape(32, 16),
+            ProductA::Registers,
+        ),
+        90,
+    );
+    let mma = ptx
+        .lines()
+        .find(|line| line.contains("wgmma.mma_async"))
+        .unwrap_or_else(|| panic!("no MMA:\n{ptx}"));
+    assert!(mma.contains("m64n32k16.f32.bf16.bf16"), "{mma}");
+    // The 16 accumulator registers, then the four of `A`.
+    let lists: Vec<usize> = mma
+        .split('{')
+        .skip(1)
+        .map(|list| list.split('}').next().unwrap_or("").split(',').count())
+        .collect();
+    assert_eq!(lists, [16, 4], "{mma}");
+}
+
+/// The integer forms take neither the operand negation nor the transposes.
+#[test]
+fn an_integer_warpgroup_product_has_no_immediates() {
+    let ptx = ptx_of(
+        crate::shared::offline_kernels::warpgroup_product_kernel::<i8, i32>(
+            shape(32, 32),
+            ProductA::Shared,
+        ),
+        90,
+    );
+    let mma = ptx
+        .lines()
+        .find(|line| line.contains("wgmma.mma_async"))
+        .unwrap_or_else(|| panic!("no MMA:\n{ptx}"));
+    assert!(mma.contains("m64n32k32.s32.s8.s8"), "{mma}");
+    assert!(mma.trim_end().ends_with(", p;"), "{mma}");
+}
+
+/// PTX wants every write to `A`'s registers ahead of the `wgmma.fence` before the MMA that reads
+/// them. Pinned by `fence_operand`, the compiler cannot sink them past it.
+#[test]
+fn the_registers_a_warpgroup_product_reads_are_written_before_its_fence() {
+    let ptx = ptx_of(
+        crate::shared::offline_kernels::warpgroup_product_kernel::<half::f16, f32>(
+            shape(32, 16),
+            ProductA::Registers,
+        ),
+        90,
+    );
+    let mma = ptx
+        .find("wgmma.mma_async")
+        .unwrap_or_else(|| panic!("no MMA:\n{ptx}"));
+    let fence = ptx[..mma]
+        .rfind("wgmma.fence.sync.aligned")
+        .unwrap_or_else(|| panic!("no fence before the MMA:\n{ptx}"));
+    let between = &ptx[fence..mma];
+    let mma_line = ptx[mma..].lines().next().expect("the MMA's line");
+    // The operands are the accumulator's registers, then `A`'s.
+    let a_registers = mma_line
+        .split('{')
+        .nth(2)
+        .and_then(|operands| operands.split('}').next())
+        .unwrap_or_else(|| panic!("no A registers: {mma_line}"));
+    for register in a_registers.split(',').map(str::trim) {
+        let written = between
+            .lines()
+            .any(|line| line.split_whitespace().nth(1) == Some(&format!("{register},")));
+        assert!(
+            !written,
+            "{register} written between the fence and the MMA:\n{between}"
+        );
+    }
+}
+
+/// A `64 x n x k` warpgroup MMA.
+fn shape(n: usize, k: usize) -> cubecl_core::ir::types::MatrixShape {
+    cubecl_core::ir::types::MatrixShape { m: 64, n, k }
+}
+
+/// The `n` of each wait on a commit group of `kind`, in program order, but for the wait for
+/// every bulk group a kernel ends with ([`exit_waits`]).
+fn group_waits(ptx: &str, kind: &str) -> Vec<u32> {
+    let lines: Vec<&str> = ptx.lines().map(str::trim).collect();
+    lines
+        .iter()
+        .enumerate()
+        .filter(|&(i, _)| !before_ret(&lines, i))
+        .filter_map(|(_, line)| line.strip_prefix(kind))
+        .map(|n| {
+            n.trim()
+                .trim_end_matches(';')
+                .parse()
+                .unwrap_or_else(|_| panic!("a count: {n}"))
+        })
+        .collect()
+}
+
+/// Whether the line after `i` returns.
+fn before_ret(lines: &[&str], i: usize) -> bool {
+    lines
+        .get(i + 1)
+        .is_some_and(|next| next.starts_with("ret;"))
+}
+
+/// The waits for bulk groups a kernel ends with, right before it returns.
+fn exit_waits(ptx: &str) -> Vec<String> {
+    let lines: Vec<&str> = ptx.lines().map(str::trim).collect();
+    lines
+        .iter()
+        .enumerate()
+        .filter(|&(i, line)| line.starts_with("cp.async.bulk.wait_group") && before_ret(&lines, i))
+        .map(|(_, line)| line.to_string())
+        .collect()
+}
+
+/// A store whose completion is dropped is still waited for before the kernel returns: the
+/// cube's shared memory goes to the next cube once it retires.
+#[test]
+fn a_dropped_store_is_waited_for_before_the_kernel_returns() {
+    use crate::shared::offline_kernels::{WaitCase, group_waits_kernel};
+
+    let ptx = ptx_of(group_waits_kernel(WaitCase::Dropped), 90);
+    assert_eq!(
+        exit_waits(&ptx),
+        ["cp.async.bulk.wait_group.read \t0;"],
+        "{ptx}"
+    );
+}
+
+/// Each wait lets run the fewest groups committed after its token's on any path to it.
+#[test]
+fn a_wait_counts_the_groups_on_the_shortest_path() {
+    use crate::shared::offline_kernels::{WaitCase, group_waits_kernel};
+
+    // LLVM may unroll or duplicate a wait, so every copy of it must agree.
+    let bulk = |case| {
+        let ptx = ptx_of(group_waits_kernel(case), 90);
+        let waits = group_waits(&ptx, "cp.async.bulk.wait_group.read");
+        assert!(!waits.is_empty(), "no wait in {case:?}:\n{ptx}");
+        assert!(waits.iter().all(|&n| n == waits[0]), "{case:?}: {waits:?}");
+        waits[0]
+    };
+    // The path around the branch commits nothing.
+    assert_eq!(bulk(WaitCase::OneBranchStores), 0);
+    assert_eq!(bulk(WaitCase::BothBranchesStore), 1);
+    // Both stores of the iteration follow the previous iteration's second, or the store before
+    // the loop.
+    assert_eq!(bulk(WaitCase::TwoStoresPerIteration), 2);
+    assert_eq!(bulk(WaitCase::MaybeEmptyInnerLoop), 0);
+    // Each stage's wait lets the two newer stages run on.
+    assert_eq!(bulk(WaitCase::Ring), 2);
+    // A warpgroup group is no bulk group.
+    assert_eq!(bulk(WaitCase::OtherKind), 0);
+    let ptx = ptx_of(group_waits_kernel(WaitCase::OtherKind), 90);
+    assert_eq!(group_waits(&ptx, "wgmma.wait_group.sync.aligned"), [0]);
+}
+
+/// An MMA reads `n` rows of `B`, which a tile with fewer can't hold.
+#[test]
+fn a_tile_too_small_for_the_mma_is_rejected() {
+    let kernel = crate::shared::offline_kernels::warpgroup_short_tile_kernel();
+    let Err(err) = compile(kernel, 90) else {
+        panic!("an 8-row tile of B compiled for a 64 x 16 MMA");
+    };
+    let err = format!("{err:?}");
+    assert!(err.contains("reads 16 rows and 16 of K of B"), "{err}");
+}
+
+/// A wait for a store to complete waits for its writes too, counted as a wait for its read.
+#[test]
+fn a_complete_wait_waits_for_the_writes() {
+    use crate::shared::offline_kernels::{WaitCase, group_waits_kernel};
+
+    let ptx = ptx_of(group_waits_kernel(WaitCase::Complete), 90);
+    assert_eq!(group_waits(&ptx, "cp.async.bulk.wait_group "), [1], "{ptx}");
+    assert!(
+        group_waits(&ptx, "cp.async.bulk.wait_group.read").is_empty(),
+        "only the kernel's exit waits for a read alone:\n{ptx}"
+    );
+}
+
+/// A tensor map is a 128-byte parameter the kernel reads in place: had LLVM copied it to the
+/// stack, the copy would be in local memory, which TMA cannot read.
+#[test]
+fn a_tensor_map_is_a_grid_constant_parameter() {
+    let ptx = ptx_of(crate::shared::offline_kernels::tma_tile_load_kernel(), 90);
+    assert!(
+        ptx.contains(".param .align 64 .b8 tma_tile_load"),
+        "the map is passed by value:\n{ptx}"
+    );
+    assert!(
+        !ptx.contains("st.local") && !ptx.contains("ld.local"),
+        "the map was copied to local memory:\n{ptx}"
+    );
+
+    // The map is no buffer, so it gets none of their aliasing promises, while the output does.
+    let ir = module_of(crate::shared::offline_kernels::tma_tile_load_kernel(), 90).ir;
+    let define = ir
+        .lines()
+        .find(|line| line.starts_with("define"))
+        .unwrap_or_else(|| panic!("no entry point:\n{ir}"));
+    let (map, rest) = define
+        .split_once("%0,")
+        .unwrap_or_else(|| panic!("no map parameter: {define}"));
+    assert!(map.contains("nvvm.grid_constant"), "{map}");
+    assert!(
+        !map.contains("noalias") && !map.contains("readonly"),
+        "{map}"
+    );
+    assert!(rest.contains("noalias"), "{rest}");
+}
+
+/// A tiled load completes on the barrier as a transaction: the units expect its bytes, arrive,
+/// and spin until the phase completes.
+#[test]
+fn a_tma_load_completes_on_an_mbarrier() {
+    let ptx = ptx_of(crate::shared::offline_kernels::tma_tile_load_kernel(), 90);
+    assert!(ptx.contains("mbarrier.init.shared"), "{ptx}");
+    assert!(
+        ptx.contains(
+            "cp.async.bulk.tensor.2d.shared::cluster.global.tile.mbarrier::complete_tx::bytes"
+        ),
+        "{ptx}"
+    );
+    assert!(ptx.contains("mbarrier.expect_tx"), "{ptx}");
+    assert!(ptx.contains("mbarrier.arrive"), "{ptx}");
+    assert!(ptx.contains("mbarrier.try_wait.shared::cta.b64"), "{ptx}");
+}
+
+/// Each store is its own bulk group. The first store's wait lets the second's group run on,
+/// and the second's waits for both.
+#[test]
+fn a_tma_store_is_tracked_by_a_bulk_group() {
+    let ptx = ptx_of(crate::shared::offline_kernels::tma_tile_store_kernel(), 90);
+    assert!(ptx.contains("fence.proxy.async.shared::cta"), "{ptx}");
+    assert_eq!(
+        ptx.matches("cp.async.bulk.tensor.2d.global.shared::cta")
+            .count(),
+        2,
+        "{ptx}"
+    );
+    assert_eq!(
+        ptx.matches("cp.async.bulk.commit_group").count(),
+        2,
+        "{ptx}"
+    );
+    let waits: Vec<&str> = ptx
+        .lines()
+        .filter(|line| line.contains("cp.async.bulk.wait_group.read"))
+        .map(str::trim)
+        .collect();
+    assert_eq!(
+        waits,
+        [
+            "cp.async.bulk.wait_group.read \t1;",
+            "cp.async.bulk.wait_group.read \t0;",
+            // The kernel's exit, which waits for every bulk group whatever was waited on.
+            "cp.async.bulk.wait_group.read \t0;"
+        ],
+        "{ptx}"
+    );
+}
+
+/// In a loop that commits a stage of MMAs per iteration, the wait on the previous stage lets
+/// the stage just committed run on, and the accumulator's wait drains every group.
+#[test]
+fn a_pipelined_wait_lets_the_newest_stage_run() {
+    let ptx = ptx_of(
+        crate::shared::offline_kernels::warpgroup_pipeline_kernel(),
+        90,
+    );
+    let body = loop_body(&ptx).unwrap_or_else(|| panic!("no loop:\n{ptx}"));
+    assert_eq!(
+        body.matches("wgmma.mma_async.sync.aligned.m64n64k16.f32.f16.f16")
+            .count(),
+        4,
+        "{body}"
+    );
+    assert!(body.contains("wgmma.commit_group.sync.aligned"), "{body}");
+    assert!(
+        body.contains("wgmma.wait_group.sync.aligned \t1;"),
+        "{body}"
+    );
+    assert!(
+        !body.contains("wgmma.wait_group.sync.aligned \t0;"),
+        "{body}"
+    );
+    assert!(ptx.contains("wgmma.wait_group.sync.aligned \t0;"), "{ptx}");
+}
+
+/// An im2col load and a one-dimensional bulk copy both complete on the same `mbarrier`, as
+/// transactions of the bytes they wrote, and the units wait on its phase parity.
+#[test]
+fn an_im2col_load_and_a_bulk_copy_share_a_barrier() {
+    let ptx = ptx_of(crate::shared::offline_kernels::tma_im2col_load_kernel(), 90);
+    assert!(
+        ptx.contains("cp.async.bulk.tensor.4d.shared::cluster.global.im2col"),
+        "{ptx}"
+    );
+    assert!(
+        ptx.contains("cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes"),
+        "{ptx}"
+    );
+    assert!(
+        ptx.contains("mbarrier.try_wait.parity.shared::cta.b64"),
+        "{ptx}"
+    );
+}
+
+/// `memcpy_async` copies synchronously: on a unit barrier there is nothing to wait for, and a
+/// cooperative copy splits the elements over the cube before its units meet on the `mbarrier`.
+#[test]
+fn barrier_copies_are_synchronous() {
+    let ptx = ptx_of(crate::shared::offline_kernels::barrier_copies_kernel(), 90);
+    assert_eq!(
+        ptx.matches("mbarrier.try_wait").count(),
+        1,
+        "only the cube barrier waits:\n{ptx}"
+    );
+    assert!(
+        !ptx.contains("cp.async"),
+        "the copies are synchronous:\n{ptx}"
     );
 }

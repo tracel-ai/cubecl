@@ -5,6 +5,7 @@ use crate::{
         libdevice::{Libdevice, link_libdevice},
         printf::lower_printf_to_vprintf,
         ptx_version::PtxVersion,
+        tensor_map::TensorMapParams,
     },
     prelude::{BufferIOAttr, Context, ModuleOp},
     shared::{
@@ -80,6 +81,8 @@ pub struct NvptxEntry {
     pub atomic_reads: AtomicReads,
     /// Metadata parameter layout.
     pub metadata: MetadataParams,
+    /// The parameters that are tensor maps.
+    pub tensor_maps: TensorMapParams,
 }
 
 pub fn emit_ptx(
@@ -140,11 +143,13 @@ fn finalize(
         &entry_fn,
         &entry.io,
         &entry.atomic_reads,
+        entry.tensor_maps.bindings(),
         entry.metadata.count(),
     );
     if let MetadataParams::GridConstant { bytes, .. } = entry.metadata {
         mark_info_param_byval(&entry_fn, bytes);
     }
+    entry.tensor_maps.mark(&entry_fn);
     Ok(())
 }
 

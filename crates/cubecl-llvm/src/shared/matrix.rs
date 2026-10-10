@@ -1,11 +1,12 @@
 //! Target-specific matrix lowering.
 
-use crate::prelude::*;
+use crate::{prelude::*, shared::to_llvm::lower_by_target};
 use cubecl_core::{
     ir::{
         dialect::matrix::{
             CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp,
-            RowIndexOp, StMatrixOp, StoreOp,
+            RowIndexOp, StMatrixOp, StoreOp, WgmmaCommitGroupOp, WgmmaDescriptorOp, WgmmaFenceOp,
+            WgmmaFenceOperandOp, WgmmaOp, WgmmaWaitGroupOp,
         },
         types::matrix::MatrixType,
     },
@@ -34,32 +35,25 @@ impl CubeToLLVMType for MatrixType {
     }
 }
 
+/// A target without the lowering has advertised a matrix feature it cannot honour.
 macro_rules! dispatch_matrix_op {
     ($cube_op:ty, $method:ident) => {
-        #[op_interface_impl]
-        impl ToLLVMDialect for $cube_op {
-            fn rewrite(
-                &self,
-                ctx: &mut Context,
-                _rewriter: &mut DialectConversionRewriter,
-                _operands_info: &OperandsInfo,
-            ) -> Result<()> {
-                match ctx.target() {
-                    #[cfg(feature = "amdgpu")]
-                    LlvmTarget::AmdGpu => {
-                        crate::amdgpu::matrix::$method(self, ctx, _rewriter, _operands_info)
-                    }
-                    #[cfg(feature = "nvptx")]
-                    LlvmTarget::Nvptx => {
-                        crate::nvptx::matrix::$method(self, ctx, _rewriter, _operands_info)
-                    }
-                    target => input_err!(
-                        self.loc(ctx),
-                        MatrixOpUnsupported(target, stringify!($cube_op))
-                    ),
-                }
+        dispatch_matrix_op!(
+            $cube_op,
+            [
+                "amdgpu" AmdGpu => crate::amdgpu::matrix::$method,
+                "nvptx" Nvptx => crate::nvptx::matrix::$method,
+            ]
+        );
+    };
+    ($cube_op:ty, [$($targets:tt)*]) => {
+        lower_by_target!(
+            $cube_op,
+            [$($targets)*],
+            |op: &$cube_op, ctx: &mut Context, _: &mut DialectConversionRewriter, target| -> Result<()> {
+                input_err!(op.loc(ctx), MatrixOpUnsupported(target, stringify!($cube_op)))
             }
-        }
+        );
     };
 }
 
@@ -73,6 +67,20 @@ dispatch_matrix_op!(ColIndexOp, col_index);
 dispatch_matrix_op!(MmaManualOp, mma_manual);
 dispatch_matrix_op!(LdMatrixOp, ld_matrix);
 dispatch_matrix_op!(StMatrixOp, st_matrix);
+
+/// Warpgroup MMA is Hopper's alone, so only NVPTX lowers it.
+macro_rules! dispatch_wgmma_op {
+    ($cube_op:ty, $method:ident) => {
+        dispatch_matrix_op!($cube_op, ["nvptx" Nvptx => crate::nvptx::wgmma::$method]);
+    };
+}
+
+dispatch_wgmma_op!(WgmmaOp, wgmma);
+dispatch_wgmma_op!(WgmmaDescriptorOp, descriptor);
+dispatch_wgmma_op!(WgmmaFenceOp, fence);
+dispatch_wgmma_op!(WgmmaCommitGroupOp, commit_group);
+dispatch_wgmma_op!(WgmmaWaitGroupOp, wait_group);
+dispatch_wgmma_op!(WgmmaFenceOperandOp, fence_operand);
 
 /// NVPTX matrix coordinates use the shared MMA polyfills.
 macro_rules! lower_axis_index_polyfill {
@@ -103,27 +111,29 @@ macro_rules! lower_axis_index_polyfill {
 lower_axis_index_polyfill!(RowIndexOp, polyfills::mma::row_index::expand);
 lower_axis_index_polyfill!(ColIndexOp, polyfills::mma::col_index::expand);
 
+/// The cube array of registers `value` was converted from, or points at.
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+fn register_array(ctx: &Context, info: &OperandsInfo, value: Value) -> CubeArrayType {
+    cube_origin(ctx, info, value, |ty| {
+        if let Some(array) = ty.downcast_ref::<CubeArrayType>() {
+            return Some(*array);
+        }
+        let ptr = ty.downcast_ref::<CubePointerType>()?;
+        ptr.inner
+            .deref(ctx)
+            .downcast_ref::<CubeArrayType>()
+            .copied()
+    })
+    .expect("a manual matrix operand is an array of registers")
+}
+
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub(crate) fn registers_as_vector(
     ctx: &Context,
     info: &OperandsInfo,
     value: Value,
 ) -> (TypeHandle, TypeHandle) {
-    let array = info
-        .lookup_operand_history(value)
-        .into_iter()
-        .rev()
-        .chain(core::iter::once(value.get_type(ctx)))
-        .find_map(|ty| {
-            let ty = ty.deref(ctx);
-            if let Some(array) = ty.downcast_ref::<CubeArrayType>() {
-                return Some(*array);
-            }
-            let ptr = ty.downcast_ref::<CubePointerType>()?;
-            let inner = ptr.inner.deref(ctx);
-            inner.downcast_ref::<CubeArrayType>().copied()
-        })
-        .expect("a manual matrix operand is an array of registers");
+    let array = register_array(ctx, info, value);
 
     let (scalar, per_register) = match array.inner.deref(ctx).downcast_ref::<CubeVectorType>() {
         Some(vector) => (vector.inner, vector.vectorization),
@@ -186,21 +196,7 @@ pub(crate) fn registers_value(
 
 #[cfg(feature = "nvptx")]
 pub(crate) fn registers_array_ty(ctx: &Context, info: &OperandsInfo, value: Value) -> TypeHandle {
-    let array = info
-        .lookup_operand_history(value)
-        .into_iter()
-        .rev()
-        .chain(core::iter::once(value.get_type(ctx)))
-        .find_map(|ty| {
-            let ty = ty.deref(ctx);
-            if let Some(array) = ty.downcast_ref::<CubeArrayType>() {
-                return Some(*array);
-            }
-            let ptr = ty.downcast_ref::<CubePointerType>()?;
-            let inner = ptr.inner.deref(ctx);
-            inner.downcast_ref::<CubeArrayType>().copied()
-        })
-        .expect("a manual matrix operand is an array of registers");
+    let array = register_array(ctx, info, value);
     let elem = cube_type_to_llvm(ctx, array.inner);
     LlvmArrayType::get(ctx, elem, array.length as u64).into()
 }

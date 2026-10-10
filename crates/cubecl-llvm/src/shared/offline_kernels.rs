@@ -7,8 +7,12 @@ use cubecl_core::ir::{
     features::MmaConfig,
 };
 use cubecl_core::prelude::*;
+#[cfg(feature = "nvptx")]
+use cubecl_core::{ir::types::MatrixShape, prelude::barrier::Barrier};
 use cubecl_runtime::kernel::CubeKernel;
 use half::bf16;
+#[cfg(feature = "nvptx")]
+use half::f16;
 use std::sync::Arc;
 
 pub(crate) fn device_properties(plane_dim: u32) -> Arc<DeviceProperties> {
@@ -403,5 +407,474 @@ pub(crate) fn tile_product_kernel<
         m,
         n,
         k,
+    )
+}
+
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn warpgroup_product<I: Numeric, A: Numeric>(
+    lhs: &[I],
+    rhs: &[I],
+    out: &mut [A],
+    #[comptime] n: usize,
+    #[comptime] k: usize,
+    #[comptime] a: ProductA,
+) {
+    let a_layout = comptime![wgmma::WgmmaTileLayout {
+        major: wgmma::Major::K,
+        swizzle: wgmma::Swizzle::None,
+        rows: 64,
+        k,
+    }];
+    // `B` is swizzled 32 bytes wide, a pattern that repeats every 256.
+    let b_layout = comptime![wgmma::WgmmaTileLayout {
+        major: wgmma::Major::K,
+        swizzle: wgmma::Swizzle::B32,
+        rows: n,
+        k,
+    }];
+    let mut smem_a = Shared::new_aligned_slice(64 * k, 128usize);
+    let mut smem_b = Shared::new_aligned_slice(n * k, 256usize);
+    let unit = UNIT_POS as usize;
+    if unit < 64 * k {
+        smem_a[unit] = lhs[unit];
+    }
+    if unit < n * k {
+        smem_b[unit] = rhs[unit];
+    }
+    sync_async_proxy_shared();
+    sync_cube();
+
+    let b = wgmma::MatrixDescriptor::new(&smem_b, b_layout);
+    let mut acc = wgmma::Accumulator::<A>::new(n).start();
+    if comptime![a == ProductA::Registers] {
+        let mut fragment = wgmma::Fragment::<I>::new();
+        #[unroll]
+        for nth in 0..fragment.len() {
+            fragment.set(nth, lhs[unit * 16 + nth]);
+        }
+        acc.execute_registers(&fragment, &b);
+    } else {
+        let a = wgmma::MatrixDescriptor::new(&smem_a, a_layout);
+        acc.execute(&a, &b);
+    }
+    let acc = acc.wait();
+
+    let len = acc.len();
+    #[unroll]
+    for nth in 0..len {
+        out[unit * len + nth] = acc.get(nth);
+    }
+}
+
+/// `stages` tiles of K, one stage of MMAs committed per iteration of a loop the compiler can't
+/// unroll: each iteration waits for the previous stage's group, while its own runs on.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn warpgroup_pipeline(input: &[f16], out: &mut [f32], stages: u32) {
+    let layout = comptime![wgmma::WgmmaTileLayout {
+        major: wgmma::Major::K,
+        swizzle: wgmma::Swizzle::B128,
+        rows: 64,
+        k: 64,
+    }];
+    let mut tiles = Shared::new_aligned_slice(8192usize, 1024usize);
+    let unit = UNIT_POS as usize;
+    #[unroll]
+    for i in 0..64usize {
+        tiles[i * 128 + unit] = input[i * 128 + unit];
+    }
+    sync_async_proxy_shared();
+    sync_cube();
+
+    let mut acc = wgmma::Accumulator::<f32>::new(64usize).start();
+    let mut released = acc.commit();
+    for stage in 0..stages {
+        let at = (stage % 2) as usize * 4096;
+        let a = wgmma::MatrixDescriptor::new(&tiles[at..at + 4096], layout);
+        let b = wgmma::MatrixDescriptor::new(&tiles[at..at + 4096], layout);
+        #[unroll]
+        for step in 0..4usize {
+            acc.execute(&a.at(0usize, step * 16), &b.at(0usize, step * 16));
+        }
+        let read = acc.commit();
+        released.wait();
+        released = read;
+    }
+    let acc = acc.wait();
+    out[unit] = acc.get(0usize);
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn warpgroup_pipeline_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(128),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    let mut props = (*device_properties(32)).clone();
+    props.features.matmul.wgmma.extend(
+        crate::nvptx::wgmma::configs(cubecl_core::ir::nvidia::SmArch::new(90, true))
+            .iter()
+            .copied(),
+    );
+    warpgroup_pipeline::WarpgroupPipeline::new(
+        settings,
+        Arc::new(props),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        (),
+    )
+}
+
+/// A `64 x 16` MMA whose `B` tile holds only 8 rows.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn warpgroup_short_tile(out: &mut [f32]) {
+    let a_layout = comptime![wgmma::WgmmaTileLayout {
+        major: wgmma::Major::K,
+        swizzle: wgmma::Swizzle::None,
+        rows: 64,
+        k: 16,
+    }];
+    let b_layout = comptime![wgmma::WgmmaTileLayout {
+        rows: 8,
+        ..a_layout
+    }];
+    let tiles = Shared::<[f16]>::new_aligned_slice(72 * 16usize, 128usize);
+    let a = wgmma::MatrixDescriptor::new(&tiles[0..1024], a_layout);
+    let b = wgmma::MatrixDescriptor::new(&tiles[1024..1152], b_layout);
+    let mut acc = wgmma::Accumulator::<f32>::new(16usize).start();
+    acc.execute(&a, &b);
+    let acc = acc.wait();
+    out[UNIT_POS as usize] = acc.get(0usize);
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn warpgroup_short_tile_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(128),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    let mut props = (*device_properties(32)).clone();
+    props.features.matmul.wgmma.extend(
+        crate::nvptx::wgmma::configs(cubecl_core::ir::nvidia::SmArch::new(90, true))
+            .iter()
+            .copied(),
+    );
+    warpgroup_short_tile::WarpgroupShortTile::new(
+        settings,
+        Arc::new(props),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+    )
+}
+
+/// Where [`warpgroup_product`] reads `A` from.
+#[cfg(feature = "nvptx")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum ProductA {
+    Shared,
+    Registers,
+}
+
+/// One warpgroup MMA of `I` operands accumulating in `A`, `64 x n x k`.
+#[cfg(feature = "nvptx")]
+pub(crate) fn warpgroup_product_kernel<
+    I: Numeric + cubecl_core::CubeElement,
+    A: Numeric + cubecl_core::CubeElement,
+>(
+    shape: MatrixShape,
+    a: ProductA,
+) -> impl CubeKernel {
+    let MatrixShape { n, k, .. } = shape;
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(128),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    let mut props = (*device_properties(32)).clone();
+    props
+        .features
+        .matmul
+        .wgmma
+        .insert(cubecl_core::ir::features::WgmmaConfig {
+            elems: cubecl_core::ir::features::WgmmaElems {
+                a: I::cube_type(),
+                b: I::cube_type(),
+                cd: A::cube_type(),
+            },
+            m: 64,
+            n_granularity: n as u32,
+            n_max: n as u32,
+            k: k as u32,
+        });
+    warpgroup_product::WarpgroupProduct::<I, A>::new(
+        settings,
+        Arc::new(props),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        n,
+        k,
+        a,
+    )
+}
+
+/// Device properties of a Hopper with TMA, for kernels that use it.
+#[cfg(feature = "nvptx")]
+fn tma_properties() -> Arc<DeviceProperties> {
+    use cubecl_core::ir::{OpaqueType, features::Tma};
+
+    let mut props = (*device_properties(32)).clone();
+    props.features.tma.insert(Tma::Base);
+    props.register_opaque_type(OpaqueType::TensorMap);
+    props.register_opaque_type(OpaqueType::Barrier);
+    Arc::new(props)
+}
+
+#[cfg(feature = "nvptx")]
+fn tma_settings() -> KernelSettings {
+    KernelSettings::new(
+        *CubeDim::new_2d(32, 16),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    )
+}
+
+/// A tile loaded by TMA, which unit 0 issues and every unit waits on.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn tma_tile_load(input: &TensorMap<f32, Tiled>, output: &mut [f32]) {
+    let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
+    sync_async_proxy_shared();
+    let mut stage = Shared::<[f32]>::new_aligned_slice(32usize * 16, 128usize);
+
+    let expected = select(UNIT_POS == 0, 32u32 * 16 * 4, 0);
+    if UNIT_POS == 0 {
+        barrier.tma_load_2d(input, stage.as_mut_slice(), 0, 8);
+    }
+    let token = barrier.arrive_and_expect_tx(1, expected);
+    barrier.wait(token);
+
+    output[UNIT_POS as usize] = stage[UNIT_POS as usize];
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn tma_tile_load_kernel() -> impl CubeKernel {
+    tma_tile_load::TmaTileLoad::new(
+        tma_settings(),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        (),
+        BufferCompilationArg { inplace: None },
+    )
+}
+
+/// A tile stored by TMA from shared memory the units wrote.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn tma_tile_store(input: &[f32], output: &mut TensorMap<f32, Tiled>) {
+    let mut stage = Shared::<[f32]>::new_aligned_slice(32usize * 16, 128usize);
+    stage[UNIT_POS as usize] = input[UNIT_POS as usize];
+    sync_async_proxy_shared();
+    sync_cube();
+
+    if UNIT_POS == 0 {
+        // Two stores in flight: the first is done reading once at most one group is left.
+        let first = tma_store_2d(&stage[0..256], output, 0, 0);
+        let second = tma_store_2d(&stage[256..512], output, 16, 8);
+        first.wait();
+        second.wait();
+    }
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn tma_tile_store_kernel() -> impl CubeKernel {
+    tma_tile_store::TmaTileStore::new(
+        tma_settings(),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        (),
+    )
+}
+
+/// An im2col load, waited on by phase, next to a one-dimensional bulk copy on the same barrier.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn tma_im2col_load(input: &TensorMap<f32, Im2col>, bias: &[f32], output: &mut [f32]) {
+    let barrier = Barrier::shared(1u32, UNIT_POS == 0);
+    sync_async_proxy_shared();
+    let mut stage = Shared::<[f32]>::new_aligned_slice(32usize * 16, 128usize);
+    let mut stage_bias = Shared::<[f32]>::new_aligned_slice(32usize, 128usize);
+
+    if UNIT_POS == 0 {
+        barrier.tma_load_im2col_4d(input, stage.as_mut_slice(), 0, -1, -1, 0, 1u16, 2u16);
+        barrier.memcpy_async_tx(&bias[0..32], stage_bias.as_mut_slice());
+        barrier.arrive_and_expect_tx(1, 32u32 * 16 * 4 + 32 * 4);
+    }
+    barrier.wait_parity(0);
+
+    output[UNIT_POS as usize] = stage[UNIT_POS as usize] + stage_bias[(UNIT_POS % 32) as usize];
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn tma_im2col_load_kernel() -> impl CubeKernel {
+    tma_im2col_load::TmaIm2colLoad::new(
+        tma_settings(),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        (),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
+/// `memcpy_async` on a unit barrier, then a cooperative one on a cube barrier.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn barrier_copies(input: &[f32], output: &mut [f32]) {
+    let mut own = Shared::<[f32]>::new_aligned_slice(512usize, 16usize);
+    let mut all = Shared::<[f32]>::new_aligned_slice(512usize, 16usize);
+    let unit = UNIT_POS as usize;
+
+    let local = Barrier::local();
+    local.memcpy_async(&input[unit..unit + 1], &mut own[unit..unit + 1]);
+    local.arrive_and_wait();
+
+    let shared = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
+    shared.memcpy_async_cooperative(&input[0..512], all.as_mut_slice());
+    shared.arrive_and_wait();
+
+    output[unit] = own[unit] + all[511 - unit];
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn barrier_copies_kernel() -> impl CubeKernel {
+    barrier_copies::BarrierCopies::new(
+        tma_settings(),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
+/// How a kernel of [`group_waits`] commits and waits.
+#[cfg(feature = "nvptx")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum WaitCase {
+    /// A store on one branch only, between the first store and its wait.
+    OneBranchStores,
+    /// A store on both branches.
+    BothBranchesStore,
+    /// Two stores per iteration, the wait on the last store of the previous one.
+    TwoStoresPerIteration,
+    /// The stores between a wait and the token it waits on are in a loop that may not run.
+    MaybeEmptyInnerLoop,
+    /// A warpgroup MMA group committed after the store, which the store's wait doesn't count.
+    OtherKind,
+    /// A store whose completion nothing waits on.
+    Dropped,
+    /// Three stages in flight, one token each in a sequence, in a loop unrolled over them.
+    Ring,
+    /// A wait for the first of two stores to perform its writes, not only read its source.
+    Complete,
+}
+
+/// Bulk stores of a tile, committed and waited on as `case` says.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn group_waits(output: &mut TensorMap<f32, Tiled>, count: u32, #[comptime] case: WaitCase) {
+    let stage = Shared::<[f32]>::new_aligned_slice(32usize * 16, 128usize);
+    let tile = stage.as_slice();
+    match comptime![case] {
+        WaitCase::OneBranchStores => {
+            let first = tma_store_2d(tile, output, 0, 0);
+            if count > 1 {
+                let _ = tma_store_2d(tile, output, 16, 0);
+            }
+            first.wait();
+        }
+        WaitCase::BothBranchesStore => {
+            let first = tma_store_2d(tile, output, 0, 0);
+            if count > 1 {
+                let _ = tma_store_2d(tile, output, 16, 0);
+            } else {
+                let _ = tma_store_2d(tile, output, 32, 0);
+            }
+            first.wait();
+        }
+        WaitCase::TwoStoresPerIteration => {
+            let mut previous = tma_store_2d(tile, output, 0, 0);
+            for i in 0..count {
+                let _ = tma_store_2d(tile, output, i as i32, 0);
+                let second = tma_store_2d(tile, output, i as i32, 8);
+                previous.wait();
+                previous = second;
+            }
+        }
+        WaitCase::MaybeEmptyInnerLoop => {
+            let mut previous = tma_store_2d(tile, output, 0, 0);
+            for i in 0..count {
+                for j in 0..i {
+                    let _ = tma_store_2d(tile, output, j as i32, 0);
+                }
+                previous.wait();
+                previous = tma_store_2d(tile, output, i as i32, 8);
+            }
+        }
+        WaitCase::OtherKind => {
+            let stored = tma_store_2d(tile, output, 0, 0);
+            let mut acc = wgmma::Accumulator::<f32>::new(8usize).start();
+            let _ = acc.commit();
+            stored.wait();
+            let _ = acc.wait();
+        }
+        WaitCase::Ring => {
+            let mut stored = Sequence::<Pending<()>>::new();
+            #[unroll]
+            for s in 0..3u32 {
+                // A slot is assigned again below, so it holds a variable, not the value itself.
+                #[allow(unused_mut)]
+                let mut first = tma_store_2d(tile, output, s as i32 * 16, 0);
+                stored.push(first);
+            }
+            for i in 0..count {
+                #[unroll]
+                for s in 0..3usize {
+                    stored.index(s).wait();
+                    *stored.index_mut(s) = tma_store_2d(tile, output, i as i32, 0);
+                }
+            }
+        }
+        WaitCase::Dropped => {
+            let _ = tma_store_2d(tile, output, 0, 0);
+        }
+        WaitCase::Complete => {
+            let first = tma_store_2d(tile, output, 0, 0);
+            let _ = tma_store_2d(tile, output, 16, 0);
+            first.wait_complete();
+        }
+    }
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn group_waits_kernel(case: WaitCase) -> impl CubeKernel {
+    group_waits::GroupWaits::new(
+        KernelSettings::new(
+            *CubeDim::new_1d(128),
+            ExecutionMode::Unchecked,
+            AddressType::U32,
+        ),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        (),
+        (),
+        case,
     )
 }

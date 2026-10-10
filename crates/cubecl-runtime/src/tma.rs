@@ -104,6 +104,19 @@ pub enum TensorMapSwizzle {
     B128Atom64B,
 }
 
+impl From<cubecl_ir::dialect::matrix::WgmmaSwizzle> for TensorMapSwizzle {
+    /// The swizzle that writes a tile the way a warpgroup MMA reads it with `swizzle`.
+    fn from(swizzle: cubecl_ir::dialect::matrix::WgmmaSwizzle) -> Self {
+        use cubecl_ir::dialect::matrix::WgmmaSwizzle;
+        match swizzle {
+            WgmmaSwizzle::None => TensorMapSwizzle::None,
+            WgmmaSwizzle::B32 => TensorMapSwizzle::B32,
+            WgmmaSwizzle::B64 => TensorMapSwizzle::B64,
+            WgmmaSwizzle::B128 => TensorMapSwizzle::B128,
+        }
+    }
+}
+
 /// Additional prefetching to perform during load
 /// Specifies L2 fetch size which indicates the byte granularity at which L2 requests are filled from DRAM
 #[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy)]

@@ -1,13 +1,20 @@
 use darling::{FromDeriveInput, FromField, ast::Data, uses_type_params, util::Flag};
 use quote::format_ident;
-use syn::{Generics, Ident, Type, Visibility};
+use syn::{Attribute, Generics, Ident, Type, Visibility};
 
 use crate::generate::RuntimeField;
 
 #[derive(FromDeriveInput, Debug)]
-#[darling(supports(struct_named, struct_unit), attributes(expand, cube, launch), map = unwrap_fields)]
+#[darling(
+    supports(struct_named, struct_unit),
+    attributes(expand, cube, launch),
+    forward_attrs(must_use),
+    map = unwrap_fields
+)]
 pub struct CubeTypeStruct {
     pub ident: Ident,
+    /// Attributes the expand type carries too: a value that must be used must be in expansion.
+    pub attrs: Vec<Attribute>,
     pub name_launch: Option<Ident>,
     pub name_comptime: Option<Ident>,
     pub name_expand: Option<Ident>,

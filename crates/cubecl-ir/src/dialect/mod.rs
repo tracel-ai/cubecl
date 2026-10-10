@@ -10,6 +10,7 @@ pub mod general;
 pub mod math;
 pub mod matrix;
 pub mod memory;
+pub mod pending;
 pub mod plane;
 pub mod scf;
 pub mod spirv;

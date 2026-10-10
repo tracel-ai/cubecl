@@ -1,6 +1,7 @@
 pub mod atomic;
 pub mod cmp;
 pub mod constant;
+mod dispatch;
 pub mod general;
 pub mod insert;
 pub mod math;
@@ -9,6 +10,8 @@ pub mod ty;
 pub mod vector;
 
 use crate::prelude::*;
+
+pub(crate) use dispatch::{NvptxOnly, erase, lower_by_target, nvptx_only};
 
 pub mod prelude {
     pub use crate::prelude::*;

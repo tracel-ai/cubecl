@@ -227,6 +227,33 @@ impl<'m> EntryFunction<'m> {
         )
     }
 
+    /// The parameter at `index`, in declaration order.
+    #[cfg(feature = "nvptx")]
+    pub(crate) fn param(&self, index: u32) -> Param {
+        debug_assert!(
+            index < self.param_count(),
+            "the function has no parameter {index}"
+        );
+        Param(index)
+    }
+
+    /// Adds the string attribute `key=value` to `param`.
+    #[cfg(feature = "nvptx")]
+    pub(crate) fn add_param_string_attribute(&self, param: Param, key: &str, value: &str) {
+        // SAFETY: the function belongs to the module's context, a `Param` names one of its
+        // parameters, and both strings are read for the lengths given.
+        unsafe {
+            let attribute = LLVMCreateStringAttribute(
+                self.module.ctx,
+                key.as_ptr() as *const _,
+                key.len() as u32,
+                value.as_ptr() as *const _,
+                value.len() as u32,
+            );
+            LLVMAddAttributeAtIndex(self.func, param.attribute_index(), attribute);
+        }
+    }
+
     /// The parameter the entry ABI lowering appended last, or `None` for a function with none.
     #[cfg(feature = "nvptx")]
     pub(crate) fn last_param(&self) -> Option<Param> {

@@ -115,7 +115,7 @@ impl<'a, T: CubePrimitive, C: Coordinates + 'a> ViewOperationsMutExpand<T, C>
         scope: &Scope,
         shared_memory: &SliceExpand<T>,
         pos: C::ExpandType,
-    ) {
+    ) -> PendingExpand<()> {
         self.inner
             .__expand_tensor_map_store_method(scope, shared_memory, pos)
     }

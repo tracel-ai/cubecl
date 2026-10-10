@@ -44,7 +44,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
-    sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
+    resolve_pending::ResolvePendingPass, sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::compiler::{CompilationError, Compiler};
 use pliron::{
@@ -237,6 +237,7 @@ where
 
         func_passes.add_pass(LowerInfoPass);
         func_passes.add_pass(SROAPass);
+        func_passes.add_pass(ResolvePendingPass);
         func_passes.add_pass(CheckedIoPass::new(CheckedIo::new(
             kernel.settings.execution_mode,
             kernel.settings.kernel_name,
