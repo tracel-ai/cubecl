@@ -6,6 +6,7 @@ pub(crate) mod device_poison;
 mod graph;
 mod storage;
 
+pub(super) mod bind_group_cache;
 pub(super) mod mem_manager;
 pub(crate) mod pipelines;
 pub(super) mod poll;
