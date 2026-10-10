@@ -1,4 +1,5 @@
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::hash::Hash;
 use pliron::derive::format;
 
@@ -8,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::compiler::CompilationError;
 use crate::id::KernelId;
 use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::bytes::Bytes;
 
 /// Implement this trait to create a [kernel definition](KernelDefinition).
 pub trait KernelMetadata: core::any::Any + Send + Sync + 'static {
@@ -96,6 +98,46 @@ pub struct PrecompiledSource {
     pub lang: &'static str,
 }
 
+/// A kernel compiled outside `CubeCL`, handed to the driver as a module image.
+///
+/// This is how a kernel from another compiler, such as a cuTile cubin, runs
+/// on `CubeCL`'s memory and streams. Neither the IR nor `CubeCL`'s calling
+/// convention exists for it, so the kernel settles both itself:
+///
+/// - `params` is its parameter list, in order, since a foreign kernel does not
+///   take its buffers first and its scalars packed after them.
+/// - The kernel's [`id`](crate::kernel::KernelMetadata::id) must cover the
+///   image, for the same reason as a [`PrecompiledSource`]'s.
+///
+/// Like a [`PrecompiledSource`], it is launched with no dynamic shared memory
+/// and its buffers all read as read-write.
+#[derive(Debug, Clone)]
+pub struct PrecompiledBinary {
+    /// The module image, in whatever format the backend's driver loads. For
+    /// CUDA that is a cubin, a fatbin, or NUL-terminated PTX.
+    pub image: Bytes,
+    /// The name of the entrypoint within `image`.
+    pub entrypoint_name: String,
+    /// The kernel's parameters, in the order its signature declares them.
+    pub params: Vec<KernelParam>,
+}
+
+/// One parameter of a [`PrecompiledBinary`], naming where its value comes
+/// from in the launch's [`KernelArguments`](crate::server::KernelArguments).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum KernelParam {
+    /// The resource at this index: a buffer's device address, or a tensor
+    /// map passed by value.
+    Resource(usize),
+    /// The info slot at this index, passed by value. A slot is 8 bytes, so a
+    /// parameter up to that size fits, read from the slot's first bytes.
+    ///
+    /// The driver reads as many bytes as the kernel's signature declares, so
+    /// a wider parameter spans the slots after this one, and the launch must
+    /// have them all: the bounds are only checked for the first.
+    Info(usize),
+}
+
 /// Kernel that can be defined
 pub trait CubeKernel: KernelMetadata {
     /// Define the kernel for compilation
@@ -109,6 +151,15 @@ pub trait CubeKernel: KernelMetadata {
     ///
     /// `None`, the default, compiles what [`define`](Self::define) returns.
     fn source(&self) -> Option<PrecompiledSource> {
+        None
+    }
+
+    /// The kernel's own module image, for a kernel compiled outside `CubeCL`.
+    ///
+    /// `None`, the default, compiles what [`define`](Self::define) returns.
+    /// Only a backend whose compiler loads binaries accepts one; the others
+    /// refuse it when the kernel compiles.
+    fn binary(&self) -> Option<PrecompiledBinary> {
         None
     }
 }
