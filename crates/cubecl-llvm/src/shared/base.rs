@@ -48,7 +48,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::bytes::Bytes;
 use cubecl_opt::passes::{
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
-    sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
+    resolve_pending::ResolvePendingPass, sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::{
     compiler::CompilationError, config::compilation::F16Evaluation, kernel::BufferIOAttr,
@@ -345,6 +345,7 @@ impl PlironCompiler {
         let plane_dim = arch.plane_dim();
         ctx.set_plane_dim(plane_dim);
 
+        let tensor_maps = crate::nvptx::tensor_map::TensorMapParams::new(&ctx, ir.entry_func);
         let Lowered { io, atomic_reads } = lower(&mut ctx, &ir, &NvptxLowering { plane_dim })?;
 
         let shared_memory_size = ctx.shared_memory_size();
@@ -370,6 +371,7 @@ impl PlironCompiler {
                 io,
                 atomic_reads,
                 metadata,
+                tensor_maps,
             },
         )
         .map_err(|err| {
@@ -434,6 +436,7 @@ fn lower(
     let mut func_passes = OpPass::<FuncOp, Passes>::default();
     target.prologue(&mut func_passes);
     func_passes.add_pass(SROAPass);
+    func_passes.add_pass(ResolvePendingPass);
     func_passes.add_pass(SCCPPass);
     func_passes.add_pass(SimpleCSEPass::with_memory());
     func_passes.add_pass(SimplifyOpsPass::default());
