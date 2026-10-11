@@ -2,13 +2,16 @@ use cubecl_core::{self as cubecl, prelude::*};
 use cubecl_ir::{
     Builtin, CanMaterialize, ContextExt, FuncOpExt, Pure,
     attributes::{EntrypointInterface, FuncInterface, IndexAttr},
-    dialect::general::ReadBuiltinOp,
+    dialect::{general::ReadBuiltinOp, plane::ElectOp},
     pliron::{
         builtin::{
             ops::FuncOp,
             types::{IntegerType, Signedness},
         },
         dict_key,
+        graph::walkers::{
+            IRNode, WALKCONFIG_PREORDER_FORWARD, uninterruptible::immutable::walk_op,
+        },
         irbuild::match_rewrite::apply_match_rewrite,
     },
     prelude::*,
@@ -169,12 +172,37 @@ fn constant(#[comptime] value: u32) -> u32 {
     value
 }
 
-/// Whether a cube of `cube_dim` is launched as a one-dimensional workgroup of as many
-/// invocations: WGSL refuses the subgroup builtins in any workgroup that is not, so a cube
-/// spanning `y` or `z` runs flat and reads its axes back off its linear position, which is the
-/// same either way.
-pub(crate) fn launches_flat(cube_dim: &Dim3) -> bool {
-    cube_dim.y > 1 || cube_dim.z > 1
+/// Whether the kernel at `root`, run in cubes of `cube_dim`, is launched as a one-dimensional
+/// workgroup of as many invocations: WGSL refuses the subgroup builtins in any workgroup that is
+/// not, so a cube spanning `y` or `z` whose kernel works by planes runs flat and reads its axes
+/// back off its linear position, which is the same either way. Any other cube keeps its shape.
+pub(crate) fn launches_flat(ctx: &Context, root: Ptr<Operation>, cube_dim: &Dim3) -> bool {
+    (cube_dim.y > 1 || cube_dim.z > 1) && uses_planes(ctx, root)
+}
+
+/// Whether the kernel at `root` reads a plane builtin or runs a plane operation, which is what
+/// lays its units out in planes.
+fn uses_planes(ctx: &Context, root: Ptr<Operation>) -> bool {
+    let mut uses = false;
+    walk_op(
+        ctx,
+        &mut uses,
+        &WALKCONFIG_PREORDER_FORWARD,
+        root,
+        |ctx, uses, node| {
+            let IRNode::Operation(op) = node else {
+                return;
+            };
+            *uses |= match op.as_op::<ReadBuiltinOp>(ctx) {
+                Some(read) => matches!(
+                    read.builtin(ctx).0,
+                    Builtin::PlaneDim | Builtin::PlanePos | Builtin::UnitPosPlane
+                ),
+                None => op.dyn_op(ctx).get_opid().dialect == ElectOp::get_opid_static().dialect,
+            };
+        },
+    );
+    uses
 }
 
 /// The unit's position along the axis whose stride in the cube is `below` and whose extent is
@@ -199,10 +227,11 @@ impl RewriteBuiltins {
         func: FuncOp,
         builtin: Builtin,
     ) -> Value {
-        let cube_dim = scope.ctx().aux_ty::<KernelInfo>().cube_dim;
-        if launches_flat(&cube_dim)
-            && let Some(value) = self.lower_flat(scope, ty, func, builtin, cube_dim)
-        {
+        let KernelInfo {
+            cube_dim,
+            launches_flat,
+        } = *scope.ctx().aux_ty::<KernelInfo>();
+        if launches_flat && let Some(value) = self.lower_flat(scope, ty, func, builtin, cube_dim) {
             return value;
         }
         match builtin {
@@ -286,9 +315,9 @@ impl RewriteBuiltins {
                 _ => (cube_dim.x * cube_dim.y, cube_dim.z),
             }
         };
-        let unit = |axis: usize| {
-            let (below, extent) = unit_pos(axis);
-            flat_unit_pos::expand(scope, below, extent).value(scope)
+        let unit = |axis: usize| match unit_pos(axis) {
+            (_, 1) => constant::expand(scope, 0).value(scope),
+            (below, extent) => flat_unit_pos::expand(scope, below, extent).value(scope),
         };
         Some(match builtin {
             Builtin::UnitPosX => unit(0),
