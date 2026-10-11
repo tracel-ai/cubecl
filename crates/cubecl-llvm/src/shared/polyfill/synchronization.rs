@@ -1,7 +1,7 @@
 //! Target-specific synchronization.
 
 use crate::prelude::*;
-use cubecl_core::ir::dialect::synchronization::{SyncOp, SyncScope};
+use cubecl_core::ir::dialect::synchronization::{SyncAsyncProxyOp, SyncOp, SyncScope};
 
 #[op_interface_impl]
 impl LowerOp for SyncOp {
@@ -38,6 +38,20 @@ impl LowerOp for SyncOp {
                 #[cfg(feature = "nvptx")]
                 LlvmTarget::Nvptx => crate::nvptx::synchronization::lower_sync_storage(scope),
             },
+        }
+        vec![]
+    }
+}
+
+/// Only NVPTX has an async proxy to fence; elsewhere shared memory has one view and the fence is
+/// nothing.
+#[op_interface_impl]
+impl LowerOp for SyncAsyncProxyOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        match scope.ctx().target() {
+            #[cfg(feature = "nvptx")]
+            LlvmTarget::Nvptx => crate::nvptx::synchronization::lower_sync_async_proxy(scope),
+            _ => {}
         }
         vec![]
     }

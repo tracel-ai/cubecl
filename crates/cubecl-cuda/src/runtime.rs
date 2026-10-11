@@ -375,7 +375,8 @@ impl DeviceService for CudaServer {
         // compile rather than a slower one.
         let backend = CudaBackend::default();
         if backend == CudaBackend::Llvm {
-            restrict_features(&mut device_props, GpuTarget::Nvptx);
+            let sm_arch = SmArch::new(arch_version, arch.tensor_cores);
+            restrict_features(&mut device_props, GpuTarget::Nvptx { arch: sm_arch });
         }
 
         let comp_opts = CudaCompilationOptions {
