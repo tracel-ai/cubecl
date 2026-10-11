@@ -1,9 +1,6 @@
-use crate::prelude::*;
+use crate::{prelude::*, shared::to_llvm::lower_by_target};
 use cubecl_core::ir::dialect::{
-    barrier::{
-        ArriveAndExpectTxOp, ArriveAndWaitOp, ArriveOp, CommitCopyAsyncOp, ExpectTxOp, InitOp,
-        WaitOp, WaitParityOp,
-    },
+    barrier::CommitCopyAsyncOp,
     general::{CastOp, CommentOp, CopyOp, FreeOp, PrintfOp, ReinterpretCastOp, SelectOp},
 };
 use pliron_llvm::{
@@ -399,33 +396,16 @@ impl ToLLVMDialect for PrintfOp {
     }
 }
 
+/// An operation that means nothing once lowered, on every target.
 macro_rules! erase_op {
     ($cube_op:ty) => {
-        #[op_interface_impl]
-        impl ToLLVMDialect for $cube_op {
-            fn rewrite(
-                &self,
-                ctx: &mut Context,
-                rewriter: &mut DialectConversionRewriter,
-                _operands_info: &OperandsInfo,
-            ) -> Result<()> {
-                rewriter.erase_operation(ctx, self.get_operation());
-                Ok(())
-            }
-        }
+        lower_by_target!($cube_op, [], super::erase);
     };
 }
 
 erase_op!(CommentOp);
 erase_op!(FreeOp);
-erase_op!(InitOp);
-erase_op!(ArriveOp);
-erase_op!(ArriveAndExpectTxOp);
 erase_op!(CommitCopyAsyncOp);
-erase_op!(ExpectTxOp);
-erase_op!(WaitOp);
-erase_op!(WaitParityOp);
-erase_op!(ArriveAndWaitOp);
 
 /// `value`'s float lanes converted to the float lanes of `ty`, rounding to nearest even. `f16`
 /// and `bf16` share a width and no instruction converts between them, so they go through the

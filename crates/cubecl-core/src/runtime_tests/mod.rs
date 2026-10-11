@@ -48,6 +48,7 @@ pub mod traits;
 pub mod unary;
 pub mod unroll;
 pub mod vector;
+pub mod wgmma;
 
 #[allow(missing_docs)]
 #[macro_export]
@@ -153,6 +154,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_launch_untyped!();
         cubecl_core::testgen_cmma!();
         cubecl_core::testgen_cmma2!();
+        cubecl_core::testgen_wgmma!();
         cubecl_core::testgen_numeric!();
         cubecl_core::testgen_bf16!();
         cubecl_core::testgen_file!();
