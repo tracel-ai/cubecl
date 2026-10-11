@@ -168,13 +168,19 @@ pub fn test_kernel_topology_plane_pos(client: Client) {
 /// along `x` and four along `y`: a unit's axes are its linear position's digits, its plane and
 /// lane are that position's, and its absolute position along an axis is its cube's times the
 /// cube's extent there, plus its own. WGSL takes its subgroup builtins only in a one-dimensional
-/// workgroup, so a backend whose compiler launches such a cube flat is held to the same answers.
+/// workgroup, so it launches such a cube flat and is held to those planes. Elsewhere the cube
+/// keeps its shape and the API leaves which units share a plane to the driver, so there its
+/// planes need only split the cube into whole planes of distinct lanes.
 pub fn test_kernel_topology_plane_pos_in_a_cube_spanning_y(client: Client) {
     if !client.features().plane.contains(Plane::Ops) {
         return;
     }
     let width = client.properties().hardware.plane_size_max;
     let (cube_dim, cube_count) = (CubeDim::new_2d(width, 4), (2u32, 3u32));
+    if cube_dim.num_elems() > client.properties().hardware.max_units_per_cube {
+        return;
+    }
+    let launches_flat = client.name() == "wgpu<wgsl>";
     let units = cube_dim.num_elems() as usize;
     let cubes = (cube_count.0 * cube_count.1) as usize;
     let handle = client.empty(cubes * units * 7 * core::mem::size_of::<u32>());
@@ -190,8 +196,10 @@ pub fn test_kernel_topology_plane_pos_in_a_cube_spanning_y(client: Client) {
 
     let actual = client.read_one_unchecked(handle);
     let actual = u32::from_bytes(&actual);
+    assert_eq!(actual.len(), cubes * units * 7, "the launch ran");
     for cube in 0..cubes as u32 {
         let (cube_x, cube_y) = (cube % cube_count.0, cube / cube_count.0);
+        let mut lanes = Vec::new();
         for unit in 0..units as u32 {
             let at = |field: usize| actual[(cube as usize * units + unit as usize) * 7 + field];
             let (x, y) = (unit % width, unit / width);
@@ -201,17 +209,26 @@ pub fn test_kernel_topology_plane_pos_in_a_cube_spanning_y(client: Client) {
                 "unit {unit}: (UNIT_POS_X, UNIT_POS_Y)"
             );
             let dim = at(4);
-            assert_eq!(
-                (at(2), at(3)),
-                (unit / dim, unit % dim),
-                "unit {unit}: (PLANE_POS, UNIT_POS_PLANE) at PLANE_DIM {dim}"
-            );
+            if launches_flat {
+                assert_eq!(
+                    (at(2), at(3)),
+                    (unit / dim, unit % dim),
+                    "unit {unit}: (PLANE_POS, UNIT_POS_PLANE) at PLANE_DIM {dim}"
+                );
+            }
+            lanes.push(at(2) * dim + at(3));
             assert_eq!(
                 (at(5), at(6)),
                 (cube_x * width + x, cube_y * 4 + y),
                 "cube {cube} unit {unit}: (ABSOLUTE_POS_X, ABSOLUTE_POS_Y)"
             );
         }
+        lanes.sort_unstable();
+        assert_eq!(
+            lanes,
+            (0..units as u32).collect::<Vec<_>>(),
+            "cube {cube}: every (PLANE_POS, UNIT_POS_PLANE) a distinct lane of a whole plane"
+        );
     }
 }
 
@@ -237,6 +254,7 @@ pub fn test_kernel_topology_unit_pos_in_a_cube_spanning_z(client: Client) {
 
     let actual = client.read_one_unchecked(handle);
     let actual = u32::from_bytes(&actual);
+    assert_eq!(actual.len(), cubes * units * 8, "the launch ran");
     for cube in 0..cubes as u32 {
         let (cube_x, cube_y, cube_z) = (
             cube % count.0,

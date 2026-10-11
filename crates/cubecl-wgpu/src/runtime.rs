@@ -675,11 +675,7 @@ fn try_create_server<C: WgpuCompiler>(
             .saturating_sub(1),
         max_shared_memory_size: limits.max_compute_workgroup_storage_size as usize,
         max_cube_count: (max_count, max_count, max_count),
-        // WGSL launches a cube spanning y or z as one row along x, so a cube holds no more
-        // units than that row does.
-        max_units_per_cube: adapter_limits
-            .max_compute_invocations_per_workgroup
-            .min(adapter_limits.max_compute_workgroup_size_x),
+        max_units_per_cube: adapter_limits.max_compute_invocations_per_workgroup,
         max_cube_dim: (
             adapter_limits.max_compute_workgroup_size_x,
             adapter_limits.max_compute_workgroup_size_y,
@@ -750,6 +746,14 @@ fn try_create_server<C: WgpuCompiler>(
             message: format!("failed to initialize the wgpu compiler: {err}"),
         }
     })?;
+
+    // WGSL launches a cube spanning y or z whose kernel uses planes as one row along x, so a
+    // cube it compiles holds no more units than that row does. SPIR-V and MSL keep the cube's
+    // shape and the adapter's own limit.
+    if C::init(setup.backend, &compilation_options).lang_tag() == "wgsl" {
+        let hardware = &mut device_props.hardware;
+        hardware.max_units_per_cube = hardware.max_units_per_cube.min(hardware.max_cube_dim.0);
+    }
 
     let logger = alloc::sync::Arc::new(ServerLogger::default());
     let name = runtime_name(setup.backend, &compilation_options);
