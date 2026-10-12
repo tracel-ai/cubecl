@@ -26,7 +26,7 @@ fn copy_perpendicular<T: Numeric, N: Size>(
     tiles_last: usize,
     panel_rows: usize,
     num_tiles: usize,
-    #[comptime] axis: usize,
+    axis: usize,
     #[comptime] rank: usize,
     #[define(T)] _elem: ElemType,
 ) {
@@ -122,6 +122,10 @@ pub fn try_launch_copy_perpendicular(
     output: &TensorBinding,
     dtype: ElemType,
 ) -> bool {
+    // An empty tensor has nothing to copy, and no blocks to divide it into.
+    if output.shape.contains(&0) {
+        return false;
+    }
     let (axis, vector_size) = perpendicular_vector_size(client, input, output, dtype);
     if vector_size == 1 {
         return false;
@@ -134,19 +138,24 @@ pub fn try_launch_copy_perpendicular(
         output.shape.iter().product::<usize>() / (output.shape[rank - 1] * output.shape[axis]);
     let rows = batches * blocks_axis;
 
-    let (blocks_per_unit, cube_dim) = if client.properties().hardware.num_cpu_cores.is_some() {
+    let hardware = &client.properties().hardware;
+    let (blocks_per_unit, cube_dim) = if hardware.num_cpu_cores.is_some() {
         // Cubes run one after another on a CPU, so a cube spreads rows over the threads, and
         // each unit walks its whole row: a regular stride to prefetch, and one setup per row.
         let cube_dim = CubeDim::new(client, rows);
         (blocks_last, CubeDim::new_2d(1, cube_dim.num_elems()))
     } else {
-        // A cube covers up to 8 blocks along the last axis and fills the rest of 256 units with
-        // rows, so its loads share cache lines while its stores stay coalesced. A side shorter
-        // than the cube shrinks it, and the other side takes the units it frees.
-        let blocks_last_pow2 = blocks_last.next_power_of_two();
-        let cube_x = blocks_last_pow2.min(8);
-        let cube_y = rows.next_power_of_two().min(256 / cube_x);
-        let cube_x = blocks_last_pow2.min(256 / cube_y);
+        // A cube covers up to 8 blocks along the last axis and fills the rest of up to 256 units
+        // with rows, so its loads share cache lines while its stores stay coalesced. A side
+        // shorter than the cube shrinks it, and the other side takes the units it frees.
+        let units = prev_power_of_two(hardware.max_units_per_cube.min(256) as usize);
+        let (max_x, max_y, _) = hardware.max_cube_dim;
+        let max_x = prev_power_of_two(max_x as usize);
+        let max_y = prev_power_of_two(max_y as usize);
+        let blocks_last_pow2 = blocks_last.next_power_of_two().min(max_x);
+        let cube_x = blocks_last_pow2.min(8).min(units);
+        let cube_y = rows.next_power_of_two().min(units / cube_x).min(max_y);
+        let cube_x = blocks_last_pow2.min(units / cube_y);
         (1, CubeDim::new_2d(cube_x as u32, cube_y as u32))
     };
 
@@ -194,10 +203,13 @@ fn perpendicular_vector_size(
     output: &TensorBinding,
     dtype: ElemType,
 ) -> (usize, VectorSize) {
+    // A unit-stride axis of size 1 has nothing to vectorize, while another unit-stride axis
+    // might.
     let axis = input
         .strides
         .iter()
-        .position(|stride| *stride == 1)
+        .zip(input.shape.iter())
+        .position(|(stride, shape)| *stride == 1 && *shape > 1)
         .unwrap_or(0);
     let rank = output.shape.len();
 
@@ -227,4 +239,9 @@ fn perpendicular_vector_size(
     );
 
     (axis, vector_size)
+}
+
+/// The largest power of two at most `value`, which must not be 0.
+fn prev_power_of_two(value: usize) -> usize {
+    1 << value.ilog2()
 }

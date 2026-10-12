@@ -337,6 +337,17 @@ pub fn test_into_contiguous_permuted_blocks<R: Runtime>(device: &R::Device) {
     }
 }
 
+/// Layouts at the edges of the perpendicular kernel: an empty tensor, and a size-1 axis with
+/// the same unit stride as the axis that can actually be vectorized.
+pub fn test_into_contiguous_permuted_edges<R: Runtime>(device: &R::Device) {
+    for perm in permutations(2) {
+        run_permuted_case::<R, u32>(device, &[0, 8], &perm);
+    }
+    for perm in permutations(3) {
+        run_permuted_case::<R, u32>(device, &[6, 8, 1], &perm);
+    }
+}
+
 /// All permutations of `0..rank`.
 fn permutations(rank: usize) -> Vec<Vec<usize>> {
     let mut out = Vec::new();
