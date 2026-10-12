@@ -356,6 +356,24 @@ pub struct BoolType;
 aligned!(BoolType, 1);
 scalar!(BoolType);
 not_packed!(BoolType);
+// A `bool` element is one byte natively (C++ `bool`, LLVM `i1` with byte-sized
+// memory), which is the size a `&[bool]` launch argument needs. Not every target
+// can *store* it: WGSL has no host-shareable `bool` buffer and SPIR-V has no
+// physical bool buffer, so those backends must refuse such a buffer rather than
+// declare one.
+sized!(BoolType, 1);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bool_is_one_byte_natively() {
+        let ctx = &mut Context::new();
+        assert_eq!(BoolType.size(ctx), 1);
+        assert_eq!(BoolType.size_bits(ctx), 8);
+    }
+}
 
 #[type_interface_impl]
 impl ScalarType for BoolType {
