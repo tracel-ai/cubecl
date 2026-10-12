@@ -1,7 +1,7 @@
 use super::shader::ComputeShader;
 use crate::compiler::wgsl::{
     self, EnableFeaturesPass,
-    builtin::{LowerBuiltinsPass, launches_flat},
+    builtin::{LowerBuiltinsPass, WorkgroupLayout},
     lower::LowerOpsWgslPass,
     metadata::declare_info,
     rewrite_args, shared_memory_size, types,
@@ -45,8 +45,8 @@ const MAX_VECTOR_SIZE: usize = 4;
 #[derive(Clone, Copy)]
 pub struct KernelInfo {
     pub cube_dim: Dim3,
-    /// Whether the cube is launched as a one-dimensional workgroup, see [`launches_flat`].
-    pub launches_flat: bool,
+    /// How the cube is laid out as a workgroup.
+    pub layout: WorkgroupLayout,
 }
 
 /// Wgsl Compiler.
@@ -116,11 +116,8 @@ impl WgslCompiler {
         let mut ctx = value.body.into_context().expect("Should be unique");
         ctx.set_aux_ty(value.info);
         let cube_dim = value.settings.cube_dim;
-        let launches_flat = launches_flat(&ctx, module_op, &cube_dim);
-        ctx.set_aux_ty(KernelInfo {
-            cube_dim,
-            launches_flat,
-        });
+        let layout = WorkgroupLayout::new(&ctx, module_op, &cube_dim);
+        ctx.set_aux_ty(KernelInfo { cube_dim, layout });
         ctx.set_aux_ty(*compilation_options);
 
         #[cfg(feature = "pliron-dump")]
@@ -246,6 +243,12 @@ mod tests {
         let _ = UNIT_POS_X + UNIT_POS_Y + UNIT_POS_Z + PLANE_POS;
     }
 
+    /// Reads a unit's axes and sums over its plane, without reading which plane or lane it is.
+    #[cube]
+    fn axes_and_plane_sum() {
+        let _ = plane_sum(UNIT_POS_X + UNIT_POS_Y + UNIT_POS_Z);
+    }
+
     /// The `@workgroup_size` line of the WGSL a kernel of `body` compiles to in cubes of
     /// `cube_dim`.
     fn workgroup_size(cube_dim: Dim3, body: fn(&Scope)) -> String {
@@ -281,6 +284,14 @@ mod tests {
         assert_eq!(
             workgroup_size(Dim3::new_3d(8, 4, 2), axes_and_plane::expand),
             "@compute @workgroup_size(64, 1, 1)"
+        );
+    }
+
+    #[test]
+    fn a_cube_spanning_y_with_plane_ops_but_no_plane_ids_keeps_its_shape() {
+        assert_eq!(
+            workgroup_size(Dim3::new_3d(8, 4, 2), axes_and_plane_sum::expand),
+            "@compute @workgroup_size(8, 4, 2)"
         );
     }
 

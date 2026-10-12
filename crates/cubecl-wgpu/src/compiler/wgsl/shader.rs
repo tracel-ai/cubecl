@@ -256,10 +256,8 @@ fn func_to_wgsl(ctx: &Context, op: &FuncOp) -> core::result::Result<String, fmt:
     let mut sig = String::new();
     let f = &mut sig;
     if let Some(entry) = op.get_entrypoint_abi(ctx) {
-        let (x, y, z) = match ctx.aux_ty::<KernelInfo>().launches_flat {
-            true => (entry.cube_dim.num_elems(), 1, 1),
-            false => entry.cube_dim.into(),
-        };
+        let layout = ctx.aux_ty::<KernelInfo>().layout;
+        let (x, y, z) = layout.workgroup_size(entry.cube_dim).into();
         writeln!(f, "@compute @workgroup_size({x}, {y}, {z})")?;
     }
     let name = op.get_symbol_name(ctx);

@@ -2,7 +2,7 @@ use cubecl_core::{self as cubecl, prelude::*};
 use cubecl_ir::{
     Builtin, CanMaterialize, ContextExt, FuncOpExt, Pure,
     attributes::{EntrypointInterface, FuncInterface, IndexAttr},
-    dialect::{general::ReadBuiltinOp, plane::ElectOp},
+    dialect::general::ReadBuiltinOp,
     pliron::{
         builtin::{
             ops::FuncOp,
@@ -172,51 +172,95 @@ fn constant(#[comptime] value: u32) -> u32 {
     value
 }
 
-/// Whether the kernel at `root`, run in cubes of `cube_dim`, is launched as a one-dimensional
-/// workgroup of as many invocations: WGSL refuses the subgroup builtins in any workgroup that is
-/// not, so a cube spanning `y` or `z` whose kernel works by planes runs flat and reads its axes
-/// back off its linear position, which is the same either way. Any other cube keeps its shape.
-pub(crate) fn launches_flat(ctx: &Context, root: Ptr<Operation>, cube_dim: &Dim3) -> bool {
-    (cube_dim.y > 1 || cube_dim.z > 1) && uses_planes(ctx, root)
+/// How a kernel's cube is laid out as a WGSL workgroup.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkgroupLayout {
+    /// The cube's own `(x, y, z)` shape, read through the hardware's axis builtins.
+    Shaped,
+    /// One row of every unit in the cube. WGSL refuses `subgroup_id` and
+    /// `subgroup_invocation_id` in a workgroup spanning `y` or `z`, so a kernel reading a unit's
+    /// plane or lane runs flat and reads its axes back off its linear position, which is the
+    /// same either way.
+    Flat,
 }
 
-/// Whether the kernel at `root` reads a plane builtin or runs a plane operation, which is what
-/// lays its units out in planes.
-fn uses_planes(ctx: &Context, root: Ptr<Operation>) -> bool {
-    let mut uses = false;
+impl WorkgroupLayout {
+    /// The layout of the kernel at `root`, run in cubes of `cube_dim`.
+    pub fn new(ctx: &Context, root: Ptr<Operation>, cube_dim: &Dim3) -> Self {
+        let spans_rows = cube_dim.y > 1 || cube_dim.z > 1;
+        match spans_rows && reads_plane_ids(ctx, root) {
+            true => Self::Flat,
+            false => Self::Shaped,
+        }
+    }
+
+    /// The `@workgroup_size` a cube of `cube_dim` launches with.
+    pub fn workgroup_size(self, cube_dim: Dim3) -> Dim3 {
+        match self {
+            Self::Shaped => cube_dim,
+            Self::Flat => Dim3::new_1d(cube_dim.num_elems()),
+        }
+    }
+}
+
+/// Whether the kernel at `root` reads a unit's plane or its lane in it, the builtins WGSL
+/// only takes in a one-dimensional workgroup.
+fn reads_plane_ids(ctx: &Context, root: Ptr<Operation>) -> bool {
+    let mut reads = false;
     walk_op(
         ctx,
-        &mut uses,
+        &mut reads,
         &WALKCONFIG_PREORDER_FORWARD,
         root,
-        |ctx, uses, node| {
+        |ctx, reads, node| {
             let IRNode::Operation(op) = node else {
                 return;
             };
-            *uses |= match op.as_op::<ReadBuiltinOp>(ctx) {
-                Some(read) => matches!(
+            *reads |= op.as_op::<ReadBuiltinOp>(ctx).is_some_and(|read| {
+                matches!(
                     read.builtin(ctx).0,
-                    Builtin::PlaneDim | Builtin::PlanePos | Builtin::UnitPosPlane
-                ),
-                None => op.dyn_op(ctx).get_opid().dialect == ElectOp::get_opid_static().dialect,
-            };
+                    Builtin::PlanePos | Builtin::UnitPosPlane
+                )
+            });
         },
     );
-    uses
+    reads
 }
 
-/// The unit's position along the axis whose stride in the cube is `below` and whose extent is
-/// `extent`, read off its linear position.
+/// A unit's position along `x` in a flat cube: its linear position's lowest digit.
 #[cube]
-fn flat_unit_pos(#[comptime] below: u32, #[comptime] extent: u32) -> u32 {
-    (UNIT_POS / below) % extent
+fn flat_unit_pos_x() -> u32 {
+    UNIT_POS % CUBE_DIM_X
 }
 
-/// The unit's position in the whole kernel along an axis: its cube's, times the cube's extent
-/// there, and its own.
+/// A unit's position along `y` in a flat cube: its linear position's middle digit.
 #[cube]
-fn flat_absolute_pos(cube_pos: u32, #[comptime] extent: u32, unit_pos: u32) -> u32 {
-    cube_pos * extent + unit_pos
+fn flat_unit_pos_y() -> u32 {
+    (UNIT_POS / CUBE_DIM_X) % CUBE_DIM_Y
+}
+
+/// A unit's position along `z` in a flat cube: its linear position's highest digit.
+#[cube]
+fn flat_unit_pos_z() -> u32 {
+    UNIT_POS / (CUBE_DIM_X * CUBE_DIM_Y)
+}
+
+/// A unit's position in the whole kernel along `x` in a flat cube.
+#[cube]
+fn flat_absolute_pos_x() -> u32 {
+    CUBE_POS_X * CUBE_DIM_X + UNIT_POS_X
+}
+
+/// A unit's position in the whole kernel along `y` in a flat cube.
+#[cube]
+fn flat_absolute_pos_y() -> u32 {
+    CUBE_POS_Y * CUBE_DIM_Y + UNIT_POS_Y
+}
+
+/// A unit's position in the whole kernel along `z` in a flat cube.
+#[cube]
+fn flat_absolute_pos_z() -> u32 {
+    CUBE_POS_Z * CUBE_DIM_Z + UNIT_POS_Z
 }
 
 impl RewriteBuiltins {
@@ -227,13 +271,8 @@ impl RewriteBuiltins {
         func: FuncOp,
         builtin: Builtin,
     ) -> Value {
-        let KernelInfo {
-            cube_dim,
-            launches_flat,
-        } = *scope.ctx().aux_ty::<KernelInfo>();
-        if launches_flat && let Some(value) = self.lower_flat(scope, ty, func, builtin, cube_dim) {
-            return value;
-        }
+        let KernelInfo { cube_dim, layout } = *scope.ctx().aux_ty::<KernelInfo>();
+        let flat = layout == WorkgroupLayout::Flat;
         match builtin {
             Builtin::UnitPos if cube_dim.num_elems() == 1 => {
                 constant::expand(scope, 0).value(scope)
@@ -241,6 +280,12 @@ impl RewriteBuiltins {
             Builtin::UnitPosX if cube_dim.x == 1 => constant::expand(scope, 0).value(scope),
             Builtin::UnitPosY if cube_dim.y == 1 => constant::expand(scope, 0).value(scope),
             Builtin::UnitPosZ if cube_dim.z == 1 => constant::expand(scope, 0).value(scope),
+            Builtin::UnitPosX if flat => flat_unit_pos_x::expand(scope).value(scope),
+            Builtin::UnitPosY if flat => flat_unit_pos_y::expand(scope).value(scope),
+            Builtin::UnitPosZ if flat => flat_unit_pos_z::expand(scope).value(scope),
+            Builtin::AbsolutePosX if flat => flat_absolute_pos_x::expand(scope).value(scope),
+            Builtin::AbsolutePosY if flat => flat_absolute_pos_y::expand(scope).value(scope),
+            Builtin::AbsolutePosZ if flat => flat_absolute_pos_z::expand(scope).value(scope),
             Builtin::UnitPos => {
                 self.read_scalar_builtin(scope, ty, func, BuiltIn::LocalInvocationIndex)
             }
@@ -295,46 +340,6 @@ impl RewriteBuiltins {
                 self.read_dim3_builtin(scope, ty, func, BuiltIn::GlobalInvocationId, 2)
             }
         }
-    }
-
-    /// The axis builtins of a cube launched flat ([`launches_flat`]): a unit's position along
-    /// an axis off its linear one, and its absolute position off its cube's. `None` for every
-    /// other builtin, which reads the same either way.
-    fn lower_flat(
-        &mut self,
-        scope: &Scope,
-        ty: TypeHandle,
-        func: FuncOp,
-        builtin: Builtin,
-        cube_dim: Dim3,
-    ) -> Option<Value> {
-        let unit_pos = |axis: usize| -> (u32, u32) {
-            match axis {
-                0 => (1, cube_dim.x),
-                1 => (cube_dim.x, cube_dim.y),
-                _ => (cube_dim.x * cube_dim.y, cube_dim.z),
-            }
-        };
-        let unit = |axis: usize| match unit_pos(axis) {
-            (_, 1) => constant::expand(scope, 0).value(scope),
-            (below, extent) => flat_unit_pos::expand(scope, below, extent).value(scope),
-        };
-        Some(match builtin {
-            Builtin::UnitPosX => unit(0),
-            Builtin::UnitPosY => unit(1),
-            Builtin::UnitPosZ => unit(2),
-            Builtin::AbsolutePosX | Builtin::AbsolutePosY | Builtin::AbsolutePosZ => {
-                let axis = match builtin {
-                    Builtin::AbsolutePosX => 0,
-                    Builtin::AbsolutePosY => 1,
-                    _ => 2,
-                };
-                let cube = self.read_dim3_builtin(scope, ty, func, BuiltIn::WorkgroupId, axis);
-                flat_absolute_pos::expand(scope, cube.into(), unit_pos(axis).1, unit(axis).into())
-                    .value(scope)
-            }
-            _ => return None,
-        })
     }
 
     fn read_scalar_builtin(
