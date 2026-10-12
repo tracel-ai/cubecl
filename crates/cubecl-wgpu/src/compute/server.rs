@@ -97,6 +97,66 @@ pub struct WgpuServer<C: WgpuCompiler> {
     _compiler: PhantomData<C>,
 }
 
+/// Completion handle for one native WGPU queue submission.
+///
+/// Modified from tensor4all/cubecl `ffc017d54` (MIT OR Apache-2.0): this
+/// upstream port captures a fixed submission boundary before returning.
+#[cfg(not(target_family = "wasm"))]
+#[derive(Clone, Debug)]
+pub struct WgpuSubmission {
+    device: wgpu::Device,
+    index: wgpu::SubmissionIndex,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl WgpuSubmission {
+    /// Wait for this submission to finish. Calling this method more than once is valid.
+    pub fn wait(&self) -> Result<(), ServerError> {
+        self.device
+            .poll(wgpu::PollType::Wait {
+                submission_index: Some(self.index.clone()),
+                timeout: None,
+            })
+            .map(|_| ())
+            .map_err(|error| ServerError::Generic {
+                reason: format!("WGPU submission wait failed: {error}"),
+                backtrace: BackTrace::capture(),
+            })
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl<C: WgpuCompiler> WgpuServer<C> {
+    /// Submit `stream_id`'s queued work and return the exact completion of that
+    /// submission.
+    ///
+    /// The stream's scheduled work runs and its queue is sealed before this
+    /// returns, and the submission that seals it is captured here. A later
+    /// [`WgpuSubmission::wait`] therefore covers that work, but not later
+    /// submissions. It may also cover earlier submissions on the shared queue.
+    /// Unlike `sync`, whose future registers its work-done callback only when
+    /// first polled, the boundary does not change when the caller waits.
+    ///
+    /// # Errors
+    ///
+    /// Fails while `stream_id` records a software graph: recorded launches do
+    /// not execute, so there is no submission whose completion would mean
+    /// anything.
+    pub fn submit_stream_completion(
+        &mut self,
+        stream_id: StreamId,
+    ) -> Result<WgpuSubmission, ServerError> {
+        self.scheduler
+            .stream(&stream_id)
+            .reject_while_recording("submit_stream_completion")?;
+        self.scheduler.execute_streams(vec![stream_id]);
+        let stream = self.scheduler.stream(&stream_id);
+        let device = stream.device.clone();
+        let index = stream.seal_submission();
+        Ok(WgpuSubmission { device, index })
+    }
+}
+
 impl<C: WgpuCompiler> ServerCommunication for WgpuServer<C> {}
 
 impl<C: WgpuCompiler> WriteScoped for WgpuServer<C> {
@@ -855,5 +915,72 @@ impl<C: WgpuCompiler> ServerStorage for WgpuServer<C> {
             binding.offset_start,
             binding.offset_end,
         )?)
+    }
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod submission_completion_tests {
+    use super::*;
+    use crate::AutoCompiler;
+    use crate::runtime::test_server_on_vulkan;
+    use cubecl_environment::future;
+
+    /// The token is a value a caller hands to another thread, and the entry
+    /// point is a plain server method.
+    #[test]
+    fn submission_completion_api_is_thread_safe() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<WgpuSubmission>();
+
+        let _submit: fn(
+            &mut WgpuServer<AutoCompiler>,
+            StreamId,
+        ) -> Result<WgpuSubmission, ServerError> = WgpuServer::submit_stream_completion;
+    }
+
+    /// An idle stream has nothing to submit, so the seal has to make a
+    /// submission of its own for the token to name. Waiting on it twice is
+    /// valid.
+    #[test]
+    #[ignore = "requires a native Vulkan adapter (software adapters are supported)"]
+    fn empty_stream_completion_is_waitable_repeatedly() {
+        let mut server = test_server_on_vulkan();
+        let stream_id = StreamId::current();
+
+        let completion = server.submit_stream_completion(stream_id).unwrap();
+        completion.wait().unwrap();
+        completion.wait().unwrap();
+        drop(completion);
+
+        future::block_on(server.sync(Vec::new(), stream_id)).unwrap();
+    }
+
+    /// A stream whose only work is a `write_buffer` has an empty task queue, so
+    /// the seal has to submit the staged write itself; waiting on the token
+    /// then covers it.
+    #[test]
+    #[ignore = "requires a native Vulkan adapter (software adapters are supported)"]
+    fn write_only_stream_completion_flushes_the_staged_write() {
+        let mut server = test_server_on_vulkan();
+        let stream_id = StreamId::current();
+
+        server
+            .scheduler
+            .stream(&stream_id)
+            .create_uniform(&[1, 2, 3, 4]);
+        assert_eq!(server.scheduler.stream(&stream_id).queued_tasks(), 0);
+        assert_eq!(server.scheduler.stream(&stream_id).pending_writes(), 1);
+
+        let completion = server.submit_stream_completion(stream_id).unwrap();
+        assert_eq!(
+            server.scheduler.stream(&stream_id).pending_writes(),
+            0,
+            "the seal submitted the staged write"
+        );
+
+        completion.wait().unwrap();
+        drop(completion);
+
+        future::block_on(server.sync(Vec::new(), stream_id)).unwrap();
     }
 }

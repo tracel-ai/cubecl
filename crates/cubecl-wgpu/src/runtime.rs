@@ -774,6 +774,21 @@ fn try_create_server<C: WgpuCompiler>(
     ))
 }
 
+/// A server on the default Vulkan adapter, for the tests that need a real
+/// queue. Unregistered: the caller owns it directly.
+#[cfg(all(test, not(target_family = "wasm")))]
+pub(crate) fn test_server_on_vulkan() -> WgpuServer<AutoCompiler> {
+    let selector = WgpuDevice::default().on(WgpuBackend::Vulkan);
+    let setup = future::block_on(try_create_setup(&selector)).expect("Vulkan setup");
+    try_create_server(
+        setup,
+        RuntimeOptions::default(),
+        selector.to_id(),
+        selector.backend,
+    )
+    .expect("Vulkan server")
+}
+
 /// Acquire an adapter and device without blocking the caller's executor.
 async fn try_create_setup(device: &WgpuDevice) -> Result<WgpuSetup, WgpuInitError> {
     // Validate overrides before touching the graphics APIs. They choose hardware, not

@@ -880,10 +880,43 @@ impl WgpuStream {
         Ok(())
     }
 
-    fn submit_tasks(&mut self) {
+    /// Submit this stream's queued work and pending queue writes, and return the
+    /// index of the submission that seals them.
+    ///
+    /// Modified from tensor4all/cubecl `ffc017d54` (MIT OR Apache-2.0):
+    /// preserve a fixed upstream task/write boundary before returning.
+    ///
+    /// The index is captured here, not when it is waited on, so a completion
+    /// token built from it names the work submitted by this call and not
+    /// whatever is submitted before the token is waited on.
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn seal_submission(&mut self) -> wgpu::SubmissionIndex {
+        if let Some(index) = self.submit_tasks() {
+            return index;
+        }
+
+        // The task queue is empty, but `write_buffer` stages its copies in the
+        // queue and only a `submit` flushes them. An empty submission seals
+        // those writes, and gives an otherwise idle stream a submission to
+        // name.
+        self.pending_write_count = 0;
+        let encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("CubeCL Submission Seal"),
+            });
+        self.queue.submit([encoder.finish()])
+    }
+
+    /// Submit the queued work, returning the submission that carries it.
+    ///
+    /// `None` means the task queue was empty, so nothing was submitted; the
+    /// pending `write_buffer` copies are still where `write_to_buffer` staged
+    /// them, in the queue rather than the encoder.
+    fn submit_tasks(&mut self) -> Option<wgpu::SubmissionIndex> {
         if self.tasks_count == 0 {
             self.shared_bindings.clear();
-            return;
+            return None;
         }
 
         // End the current compute pass.
@@ -916,7 +949,7 @@ impl WgpuStream {
             &self.device,
             &self.queue,
             self.tasks_count,
-            index,
+            index.clone(),
         );
 
         // The main pool's pages are cleaned up by the server before it
@@ -934,6 +967,7 @@ impl WgpuStream {
 
         self.tasks_count = 0;
         self.pending_write_count = 0;
+        Some(index)
     }
 
     /// Drain the driver's validation canary into the log.
@@ -1261,3 +1295,16 @@ mod __submission_load_wasm {
 use __submission_load::*;
 #[cfg(target_family = "wasm")]
 use __submission_load_wasm::*;
+
+#[cfg(test)]
+impl WgpuStream {
+    /// Write-buffer copies staged for the next submission.
+    pub(crate) fn pending_writes(&self) -> usize {
+        self.pending_write_count
+    }
+
+    /// Tasks awaiting submission.
+    pub(crate) fn queued_tasks(&self) -> usize {
+        self.tasks_count
+    }
+}
