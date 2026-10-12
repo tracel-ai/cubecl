@@ -1,6 +1,4 @@
-use crate::tensor::{
-    TensorHandle, copy_gpu_ref, launch_copy_perpendicular_ref, try_launch_copy_perpendicular_blocks,
-};
+use crate::tensor::{TensorHandle, copy_gpu_ref, try_launch_copy_perpendicular};
 use cubecl_core::{client::Client, ir::ElemType, prelude::TensorBinding};
 
 /// Make a jit tensor contiguous.
@@ -45,11 +43,7 @@ pub fn copy_into(client: &Client, input: TensorBinding, output: TensorBinding, d
         return copy_gpu_ref(client, input, output, dtype);
     }
 
-    // A CPU unit walks a whole row, which suits it. A GPU needs one unit per block, and only
-    // gains over the general copy when the block is vectorized.
-    if client.properties().hardware.num_cpu_cores.is_some() {
-        launch_copy_perpendicular_ref(client, input, output, dtype);
-    } else if !try_launch_copy_perpendicular_blocks(client, &input, &output, dtype) {
+    if !try_launch_copy_perpendicular(client, &input, &output, dtype) {
         copy_gpu_ref(client, input, output, dtype);
     }
 }
