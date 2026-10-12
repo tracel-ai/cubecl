@@ -253,16 +253,7 @@ Commutative!(FAddOp);
 const_eval!(FAddOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs + rhs
 });
-simplify!(FAddOp, {
-    |lhs, _| match lhs?.float_as_f64(ctx) {
-        Some(0.0) => Some(self.rhs(ctx)),
-        _ => None?,
-    },
-    |_, rhs| match rhs?.float_as_f64(ctx) {
-        Some(0.0) => Some(self.lhs(ctx)),
-        _ => None?,
-    }
-});
+// No `FAddOp` simplify: `0.0 + x` is not `x` (`+0.0 + -0.0` is `+0.0`).
 
 pure_binop!("math.saturating_s_add", SaturatingSAddOp);
 Commutative!(SaturatingSAddOp);
@@ -318,16 +309,9 @@ simplify!(ISubOp, {
 
 pure_binop!("math.f_sub", FSubOp);
 const_eval!(FSubOp, {
+    // No `x - x -> +0` fold: `NaN - NaN` and `inf - inf` are NaN, so the result
+    // depends on the runtime operand. Only the both-constants case is folded.
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs - rhs,
-    // x - x -> 0. Only for one lane: `float_attr` carries no vectorization.
-    custom: |_, _| {
-        let result = self.get_result(ctx);
-        if self.lhs(ctx) == self.rhs(ctx) && result.vector_size(ctx) == 1 {
-            Some(float_attr(ctx, result.get_type(ctx), 0.0))
-        } else {
-            None
-        }
-    }
 });
 simplify!(FSubOp, {
     |_, rhs| match rhs?.as_const_val(ctx) {
@@ -386,15 +370,10 @@ simplify!(IMulOp, {
 pure_binop!("math.f_mul", FMulOp);
 Commutative!(FMulOp);
 const_eval!(FMulOp, {
+    // A partial fold (one operand a constant zero) is not sound under IEEE 754:
+    // `-4.0 * 0.0` is `-0.0` and `NaN * 0.0` is `NaN`, so the result depends on
+    // the runtime operand. Only the both-constant case is folded.
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs * rhs,
-    // 0 * x -> 0; x * 0 -> 0
-    custom: |lhs, rhs| {
-        let const_val = lhs.or(rhs)?;
-        Some(match const_val.float_as_f64(ctx) {
-            Some(0.0) => float_attr(ctx, const_val.get_type(ctx), 0.0),
-            _ => None?
-        })
-    }
 });
 simplify!(FMulOp, {
     |lhs, _| match lhs?.float_as_f64(ctx) {
@@ -501,14 +480,9 @@ impl ConditionallySpeculatable for UDivOp {
 
 pure_binop!("math.f_div", FDivOp);
 const_eval!(FDivOp, {
+    // 0 / x is NaN for x = 0, so the partial fold is not sound; both constants
+    // are folded by the arm below.
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs / rhs,
-    // 0 / x -> 0
-    custom: |lhs, _| {
-        Some(match lhs?.float_as_f64(ctx) {
-            Some(0.0) => float_attr(ctx, lhs?.get_type(ctx), 0.0),
-            _ => None?
-        })
-    },
 });
 simplify!(FDivOp, {
     |_, rhs| match rhs?.float_as_f64(ctx) {
@@ -635,18 +609,8 @@ impl ConditionallySpeculatable for URemOp {
 
 pure_binop!("math.f_rem", FRemOp);
 const_eval!(FRemOp, {
+    // 0 % x is NaN for x = 0, so no partial fold; both constants fold below.
     [FloatAttr(f16, bf16, f32, f64)]: |lhs, rhs| lhs % rhs,
-    // 0 % x -> 0
-    custom: |lhs, _| match lhs?.float_as_f64(ctx) {
-        Some(0.0) => Some(float_attr(ctx, lhs?.get_type(ctx), 0.0)),
-        _ => None
-    },
-});
-simplify!(FRemOp, {
-    |_, rhs| match rhs?.float_as_f64(ctx) {
-        Some(1.0) => Some(self.lhs(ctx)),
-        _ => None?,
-    }
 });
 
 /// Signed floor modulo. A nonzero result has the same sign as the divisor.
@@ -689,12 +653,8 @@ impl ConditionallySpeculatable for SModFloorOp {
 
 pure_binop!("math.f_mod_floor", FModFloorOp);
 const_eval!(FModFloorOp, {
+    // As for `FRemOp`: a zero dividend does not decide the result.
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs - (lhs / rhs).floor() * rhs,
-    // 0 % x -> 0
-    custom: |lhs, _| match lhs?.float_as_f64(ctx) {
-        Some(0.0) => Some(float_attr(ctx, lhs?.get_type(ctx), 0.0)),
-        _ => None?
-    },
 });
 
 pure_binop!("math.s_mul_hi", SMulHiOp);
