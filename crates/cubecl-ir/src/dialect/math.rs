@@ -717,10 +717,6 @@ pub(super) fn int_attr(ctx: &Context, ty: TypeHandle, val: i128) -> AttrObj {
     }
 }
 
-pub(super) fn float_attr(ctx: &Context, ty: TypeHandle, val: f64) -> AttrObj {
-    AttrObj::from(FloatAttr::from_f64(ctx, ty, val))
-}
-
 #[cube_op(name = "math.fma")]
 #[result_ty(same_as = a)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
