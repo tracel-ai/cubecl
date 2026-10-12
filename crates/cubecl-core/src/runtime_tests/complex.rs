@@ -1162,6 +1162,114 @@ pub fn test_complex_validation_math<R: Runtime>(client: Client) {
     assert_complex_validation_error(client.read_one(output).map(|_| ()), "Complex operation");
 }
 
+/// The same product-and-add on a *vector* of complex values: a vector's own type is
+/// a vector, not a complex scalar, so the FMA guard has to look through it.
+#[cube(launch_unchecked)]
+pub fn kernel_complex_mul_add_vector<C: ComplexCore, N: Size>(
+    output: &mut [Vector<C, N>],
+    a: &[Vector<C, N>],
+    b: &[Vector<C, N>],
+    c: &[Vector<C, N>],
+) {
+    if ABSOLUTE_POS < output.len() {
+        output[ABSOLUTE_POS] = a[ABSOLUTE_POS] * b[ABSOLUTE_POS] + c[ABSOLUTE_POS];
+    }
+}
+
+pub fn test_complex_mul_add_vector_cf32<R: Runtime>(client: Client) {
+    type C = num_complex::Complex<f32>;
+    let a = vec![C::new(1.0f32, 2.0f32), C::new(-3.0f32, 0.5f32)];
+    let b = vec![C::new(2.0f32, -1.0f32), C::new(0.0f32, 1.5f32)];
+    let c = vec![C::new(0.25f32, -0.5f32), C::new(2.0f32, 1.0f32)];
+    let expected = alloc::vec::Vec::from_iter((0..a.len()).map(|i| a[i] * b[i] + c[i]));
+
+    let handle_a = client.create_from_slice(C::as_bytes(&a));
+    let handle_b = client.create_from_slice(C::as_bytes(&b));
+    let handle_c = client.create_from_slice(C::as_bytes(&c));
+    let handle_output = client.empty(a.len() * core::mem::size_of::<C>());
+
+    unsafe {
+        kernel_complex_mul_add_vector::launch_unchecked::<C>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(1),
+            2,
+            BufferArg::from_raw_parts(handle_output.clone(), a.len()),
+            BufferArg::from_raw_parts(handle_a, a.len()),
+            BufferArg::from_raw_parts(handle_b, b.len()),
+            BufferArg::from_raw_parts(handle_c, c.len()),
+        )
+    };
+
+    assert_complex_approx_eq::<f32>(&client, handle_output, &expected, 1.0e-5f32);
+}
+
+/// A complex product consumed by an add must stay a multiply and an add.
+///
+/// Forming an FMA from it does not compile: the backends' `fma` has no complex
+/// overload (`fma(cuDoubleComplex, ...)` in the C++ backend, and no `llvm.fmuladd`
+/// for complex either).
+#[cube(launch_unchecked)]
+pub fn kernel_complex_mul_add<C: ComplexCore>(output: &mut [C], a: &[C], b: &[C], c: &[C]) {
+    if ABSOLUTE_POS < output.len() {
+        output[ABSOLUTE_POS] = a[ABSOLUTE_POS] * b[ABSOLUTE_POS] + c[ABSOLUTE_POS];
+    }
+}
+
+pub fn test_complex_mul_add_cf32<R: Runtime>(client: Client) {
+    type C = num_complex::Complex<f32>;
+    let a = vec![C::new(1.0f32, 2.0f32), C::new(-3.0f32, 0.5f32)];
+    let b = vec![C::new(2.0f32, -1.0f32), C::new(0.0f32, 1.5f32)];
+    let c = vec![C::new(0.25f32, -0.5f32), C::new(2.0f32, 1.0f32)];
+    let expected = alloc::vec::Vec::from_iter((0..a.len()).map(|i| a[i] * b[i] + c[i]));
+
+    let handle_a = client.create_from_slice(C::as_bytes(&a));
+    let handle_b = client.create_from_slice(C::as_bytes(&b));
+    let handle_c = client.create_from_slice(C::as_bytes(&c));
+    let handle_output = client.empty(a.len() * core::mem::size_of::<C>());
+
+    unsafe {
+        kernel_complex_mul_add::launch_unchecked::<C>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(a.len() as u32),
+            BufferArg::from_raw_parts(handle_output.clone(), a.len()),
+            BufferArg::from_raw_parts(handle_a, a.len()),
+            BufferArg::from_raw_parts(handle_b, b.len()),
+            BufferArg::from_raw_parts(handle_c, c.len()),
+        )
+    };
+
+    assert_complex_approx_eq::<f32>(&client, handle_output, &expected, 1.0e-5f32);
+}
+
+pub fn test_complex_mul_add_cf64<R: Runtime>(client: Client) {
+    type C = num_complex::Complex<f64>;
+    let a = vec![C::new(1.0f64, 2.0f64), C::new(-3.0f64, 0.5f64)];
+    let b = vec![C::new(2.0f64, -1.0f64), C::new(0.0f64, 1.5f64)];
+    let c = vec![C::new(0.25f64, -0.5f64), C::new(2.0f64, 1.0f64)];
+    let expected = alloc::vec::Vec::from_iter((0..a.len()).map(|i| a[i] * b[i] + c[i]));
+
+    let handle_a = client.create_from_slice(C::as_bytes(&a));
+    let handle_b = client.create_from_slice(C::as_bytes(&b));
+    let handle_c = client.create_from_slice(C::as_bytes(&c));
+    let handle_output = client.empty(a.len() * core::mem::size_of::<C>());
+
+    unsafe {
+        kernel_complex_mul_add::launch_unchecked::<C>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(a.len() as u32),
+            BufferArg::from_raw_parts(handle_output.clone(), a.len()),
+            BufferArg::from_raw_parts(handle_a, a.len()),
+            BufferArg::from_raw_parts(handle_b, b.len()),
+            BufferArg::from_raw_parts(handle_c, c.len()),
+        )
+    };
+
+    assert_complex_approx_eq::<f64>(&client, handle_output, &expected, 1.0e-12f64);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_complex_core {
@@ -1205,6 +1313,30 @@ macro_rules! testgen_complex_core {
             fn test_complex_mul_cf64() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::complex::test_complex_mul_cf64::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_mul_add_cf32() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_mul_add_cf32::<TestRuntime>(
+                    client,
+                );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_mul_add_vector_cf32() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_mul_add_vector_cf32::<TestRuntime>(
+                    client,
+                );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_mul_add_cf64() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_mul_add_cf64::<TestRuntime>(
+                    client,
+                );
             }
 
             #[$crate::runtime_tests::test_log::test]
