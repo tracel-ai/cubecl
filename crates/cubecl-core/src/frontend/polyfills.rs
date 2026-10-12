@@ -1,5 +1,5 @@
 use alloc::vec;
-use core::f32::consts::PI;
+use core::f64::consts::PI;
 
 use cubecl_ir::{Type, cube_op, interfaces::TypedExt, prelude::*};
 use num_traits::One;
@@ -90,7 +90,7 @@ fn max_nan_fallback<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> 
 #[cube]
 pub fn erf<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     let erf = erf_positive(x.abs());
-    select_many(x.less_than(&Vector::new(F::new(0f32))), -erf, erf)
+    select_many(x.less_than(&Vector::new(F::new(0.0))), -erf, erf)
 }
 
 /// An approximation of the error function: <https://en.wikipedia.org/wiki/Error_function#Numerical_approximations>
@@ -99,13 +99,13 @@ pub fn erf<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
 /// > All of these approximations are valid for x ≥ 0. To use these approximations for negative x, use the fact that erf x is an odd function, so erf x = −erf(−x).
 #[cube]
 fn erf_positive<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
-    let p = Vector::new(F::new(0.3275911_f32));
-    let a1 = Vector::new(F::new(0.2548296_f32));
-    let a2 = Vector::new(F::new(-0.28449674_f32));
-    let a3 = Vector::new(F::new(1.4214137_f32));
-    let a4 = Vector::new(F::new(-1.453152_f32));
-    let a5 = Vector::new(F::new(1.0614054_f32));
-    let one = Vector::new(F::new(1.0_f32));
+    let p = Vector::new(F::new(0.3275911));
+    let a1 = Vector::new(F::new(0.2548296));
+    let a2 = Vector::new(F::new(-0.28449674));
+    let a3 = Vector::new(F::new(1.4214137));
+    let a4 = Vector::new(F::new(-1.453152));
+    let a5 = Vector::new(F::new(1.0614054));
+    let one = Vector::new(F::new(1.0));
 
     let t = one / (one + p * x);
     let tmp = ((((a5 * t + a4) * t) + a3) * t + a2) * t + a1;
@@ -211,10 +211,10 @@ pub fn log1p<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
 #[cube]
 pub fn expm1<T: Float, N: Size>(x: Vector<T, N>) -> Vector<T, N> {
     let sq = x * x;
-    let a = sq * Vector::new(T::new(0.5_f32));
-    let b = sq * x * Vector::new(T::new(1.0_f32 / 6.0_f32));
+    let a = sq * Vector::new(T::new(0.5));
+    let b = sq * x * Vector::new(T::new(1.0 / 6.0));
     let taylor = x + a + b;
-    let is_small = x.abs().less_than(&Vector::new(T::new(1e-5_f32)));
+    let is_small = x.abs().less_than(&Vector::new(T::new(1e-5)));
     select_many(is_small, taylor, x.exp() - Vector::one())
 }
 
@@ -240,7 +240,7 @@ fn simple_pow<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<T, N>) -> Vecto
 
 #[cube]
 pub fn powf<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<T, N>) -> Vector<T, N> {
-    let modulo = exp.mod_floor(Vector::new(T::new(2.0_f32)));
+    let modulo = exp.mod_floor(Vector::new(T::new(2.0)));
     let is_even = modulo.equal(&Vector::zero());
     let is_odd = modulo.equal(&Vector::one());
     let is_neg_base = base.less_than(&Vector::zero());
@@ -309,12 +309,12 @@ pub fn recip<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
 
 #[cube]
 pub fn to_degrees<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
-    input * Vector::new(T::new(comptime!(180.0_f32 / PI)))
+    input * Vector::new(T::new(comptime!(180.0 / PI)))
 }
 
 #[cube]
 pub fn to_radians<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
-    input * Vector::new(T::new(comptime!(PI / 180.0_f32)))
+    input * Vector::new(T::new(comptime!(PI / 180.0)))
 }
 
 pub mod bitwise {

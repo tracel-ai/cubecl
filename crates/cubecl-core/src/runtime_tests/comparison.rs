@@ -259,9 +259,9 @@ fn min_max_nan_kernel<F: Float, N: Size>(
 /// Binary extrema propagate either NaN operand, for scalar and vector inputs.
 pub fn test_min_max_nan<R: Runtime, F: Float + CubeElement + num_traits::Float>(client: Client) {
     let cases = [
-        (f32::NAN, 3.0, f32::NAN, f32::NAN),
-        (3.0, f32::NAN, f32::NAN, f32::NAN),
-        (f32::NAN, f32::NAN, f32::NAN, f32::NAN),
+        (f64::NAN, 3.0, f64::NAN, f64::NAN),
+        (3.0, f64::NAN, f64::NAN, f64::NAN),
+        (f64::NAN, f64::NAN, f64::NAN, f64::NAN),
         (-2.0, 3.0, -2.0, 3.0),
     ];
     for vector_size in [1, 4] {
@@ -290,7 +290,7 @@ pub fn test_min_max_nan<R: Runtime, F: Float + CubeElement + num_traits::Float>(
         ] {
             let bytes = client.read_one_unchecked(output);
             for (i, expected) in expected.into_iter().enumerate() {
-                let actual = F::from_bytes(&bytes)[i].to_f32().unwrap();
+                let actual = F::from_bytes(&bytes)[i].to_f64().unwrap();
                 assert!(
                     actual == expected || (actual.is_nan() && expected.is_nan()),
                     "lane {i}: expected {expected}, got {actual}",
@@ -315,9 +315,9 @@ fn clamp_nan_kernel<F: Float, N: Size>(
 /// Clamp values and propagate NaN from each operand, for scalar and vector inputs.
 pub fn test_clamp_nan<R: Runtime, F: Float + CubeElement + num_traits::Float>(client: Client) {
     let cases = [
-        (f32::NAN, 0.0, 1.0, f32::NAN),
-        (0.5, f32::NAN, 1.0, f32::NAN),
-        (0.5, 0.0, f32::NAN, f32::NAN),
+        (f64::NAN, 0.0, 1.0, f64::NAN),
+        (0.5, f64::NAN, 1.0, f64::NAN),
+        (0.5, 0.0, f64::NAN, f64::NAN),
         (0.5, 2.0, 1.0, 2.0), // Upper bound first, then lower bound.
     ];
     for vector_size in [1, 4] {
@@ -342,7 +342,7 @@ pub fn test_clamp_nan<R: Runtime, F: Float + CubeElement + num_traits::Float>(cl
         }
         let bytes = client.read_one_unchecked(output);
         for (i, &(_, _, _, expected)) in cases.iter().enumerate() {
-            let actual = F::from_bytes(&bytes)[i].to_f32().unwrap();
+            let actual = F::from_bytes(&bytes)[i].to_f64().unwrap();
             assert!(
                 actual == expected || (actual.is_nan() && expected.is_nan()),
                 "lane {i}: expected {expected}, got {actual}",
