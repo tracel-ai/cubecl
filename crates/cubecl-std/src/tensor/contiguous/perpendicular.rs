@@ -1,7 +1,7 @@
 use crate::tensor::{TensorHandle, into_contiguous};
 use cubecl::prelude::*;
 use cubecl_core::{
-    self as cubecl, calculate_cube_count_elemwise, tensor_vector_size_parallel,
+    self as cubecl, calculate_cube_count_elemwise, ir::VectorSize, tensor_vector_size_parallel,
     tensor_vector_size_perpendicular,
 };
 use std::cmp::min;
@@ -94,6 +94,94 @@ fn copy_perpendicular<T: Numeric, N: Size>(
     }
 }
 
+/// The GPU form of [`copy_perpendicular`]: one unit per `vector_size × vector_size` block
+/// instead of one per row.
+///
+/// Each unit gathers `vector_size` vectors along the input's unit-stride axis, transposes them
+/// in registers, and stores `vector_size` vectors along the output's last axis. Units walk the
+/// output's last axis fastest, so stores are coalesced across a cube, while the loads of
+/// neighbouring units along `axis` fill the same cache lines.
+#[cube(launch_unchecked, address_type = "dynamic")]
+fn copy_perpendicular_blocks<T: Numeric, N: Size>(
+    input: &Tensor<Vector<T, N>>,
+    output: &mut Tensor<Vector<T, N>>,
+    tiles_last: usize,
+    tiles_axis: usize,
+    num_tiles: usize,
+    #[comptime] axis: usize,
+    #[comptime] rank: usize,
+    #[define(T)] _elem: ElemType,
+) {
+    let tile = CUBE_POS;
+    if tile >= num_tiles {
+        terminate!()
+    }
+
+    let vector_size = input.vector_size();
+    let last_axis = rank - 1;
+
+    // Tiles are walked diagonally: with power-of-two strides, cubes running side by side on
+    // the same input rows would otherwise all hit the same memory channels.
+    let tile_in_batch = tile % (tiles_last * tiles_axis);
+    let tile_axis = tile_in_batch % tiles_axis;
+    let tile_last = (tile_in_batch / tiles_axis + tile_axis) % tiles_last;
+    let block_last = tile_last * CUBE_DIM_X as usize + UNIT_POS_X as usize;
+    let block_axis = tile_axis * CUBE_DIM_Y as usize + UNIT_POS_Y as usize;
+    if block_last * vector_size >= output.shape(last_axis)
+        || block_axis * vector_size >= output.shape(axis)
+    {
+        terminate!()
+    }
+
+    // Every axis but the two being transposed is a batch.
+    let mut batch = tile / (tiles_last * tiles_axis);
+    let mut offset_input = 0;
+    let mut offset_output = 0;
+    #[unroll]
+    for i in 0..rank {
+        let dim = rank - 1 - i;
+        if dim != axis && dim != last_axis {
+            let coordinate = batch % output.shape(dim);
+            batch /= output.shape(dim);
+            offset_input += coordinate * input.stride(dim);
+            offset_output += coordinate * output.stride(dim);
+        }
+    }
+
+    let start_axis = block_axis * vector_size;
+    let start_last = block_last * vector_size;
+    let input_stride = input.stride(last_axis);
+    let output_stride = output.stride(axis);
+
+    let index_input = (offset_input + start_axis + start_last * input_stride) / vector_size;
+    let index_output = (offset_output + start_axis * output_stride + start_last) / vector_size;
+    let input_stride = input_stride / vector_size;
+    let output_stride = output_stride / vector_size;
+
+    let mut accumulators = Sequence::<Vector<T, N>>::new();
+
+    #[unroll]
+    for _ in 0..vector_size {
+        accumulators.push(Vector::empty());
+    }
+
+    #[unroll]
+    for i in 0..vector_size {
+        let gathered = input[index_input + i * input_stride];
+
+        #[unroll]
+        for o in 0..vector_size {
+            let vector = accumulators.index_mut(o);
+            vector.insert(i, gathered.extract(o));
+        }
+    }
+
+    #[unroll]
+    for o in 0..vector_size {
+        output[index_output + o * output_stride] = accumulators[o];
+    }
+}
+
 /// Launches the perpendicular contiguous kernel.
 ///
 /// This is used when the input tensor's memory layout is such that the last dimension
@@ -126,14 +214,100 @@ pub fn launch_copy_perpendicular_ref(
     output: TensorBinding,
     dtype: ElemType,
 ) {
-    let mut axis = 0;
+    let (axis, vector_size) = perpendicular_vector_size(client, &input, &output, dtype);
+    let rank = output.shape.len();
 
-    for (i, stride) in input.strides.iter().enumerate() {
-        if *stride == 1 {
-            axis = i;
-            break;
-        }
+    let num_elems = output.shape.iter().product::<usize>();
+    let working_units = num_elems / (vector_size * output.shape[rank - 1]);
+    let cube_dim = CubeDim::new(client, working_units);
+    let cube_count = calculate_cube_count_elemwise(client, working_units, cube_dim);
+    let address_type = input
+        .required_address_type(dtype.size())
+        .max(output.required_address_type(dtype.size()));
+
+    unsafe {
+        copy_perpendicular::launch_unchecked(
+            client,
+            cube_count,
+            cube_dim,
+            address_type,
+            vector_size,
+            input.into_tensor_arg(),
+            output.into_tensor_arg(),
+            axis,
+            dtype,
+        );
     }
+}
+
+/// Launches the GPU perpendicular kernel when its blocks can be vectorized, returning whether
+/// it did.
+///
+/// Without vectorization a block is a single element and the kernel is a strided copy, so the
+/// caller keeps its general path for that case.
+pub fn try_launch_copy_perpendicular_blocks(
+    client: &Client,
+    input: &TensorBinding,
+    output: &TensorBinding,
+    dtype: ElemType,
+) -> bool {
+    let (axis, vector_size) = perpendicular_vector_size(client, input, output, dtype);
+    if vector_size == 1 {
+        return false;
+    }
+
+    let rank = output.shape.len();
+    let blocks_last = output.shape[rank - 1] / vector_size;
+    let blocks_axis = output.shape[axis] / vector_size;
+    let batches =
+        output.shape.iter().product::<usize>() / (output.shape[rank - 1] * output.shape[axis]);
+
+    // A cube covers up to 8 blocks along the last axis and fills the rest of 256 units along
+    // `axis`, so its loads share cache lines while its stores stay coalesced. Narrow outputs
+    // shrink the first side rather than leave units idle.
+    let cube_x = blocks_last.next_power_of_two().min(8) as u32;
+    let cube_dim = CubeDim::new_2d(cube_x, 256 / cube_x);
+    let tiles_last = blocks_last.div_ceil(cube_dim.x as usize);
+    let tiles_axis = blocks_axis.div_ceil(cube_dim.y as usize);
+    let num_tiles = tiles_last * tiles_axis * batches;
+    let cube_count = calculate_cube_count_elemwise(client, num_tiles, CubeDim::new_1d(1));
+    let address_type = input
+        .required_address_type(dtype.size())
+        .max(output.required_address_type(dtype.size()));
+
+    unsafe {
+        copy_perpendicular_blocks::launch_unchecked(
+            client,
+            cube_count,
+            cube_dim,
+            address_type,
+            vector_size,
+            input.clone().into_tensor_arg(),
+            output.clone().into_tensor_arg(),
+            tiles_last,
+            tiles_axis,
+            num_tiles,
+            axis,
+            rank,
+            dtype,
+        );
+    }
+
+    true
+}
+
+/// The input's unit-stride axis, and the vector size both perpendicular kernels can use.
+fn perpendicular_vector_size(
+    client: &Client,
+    input: &TensorBinding,
+    output: &TensorBinding,
+    dtype: ElemType,
+) -> (usize, VectorSize) {
+    let axis = input
+        .strides
+        .iter()
+        .position(|stride| *stride == 1)
+        .unwrap_or(0);
     let rank = output.shape.len();
 
     let vector_size_perpendicular = tensor_vector_size_perpendicular(
@@ -161,25 +335,5 @@ pub fn launch_copy_perpendicular_ref(
         vector_size_axis,
     );
 
-    let num_elems = output.shape.iter().product::<usize>();
-    let working_units = num_elems / (vector_size as usize * output.shape[rank - 1]);
-    let cube_dim = CubeDim::new(client, working_units);
-    let cube_count = calculate_cube_count_elemwise(client, working_units, cube_dim);
-    let address_type = input
-        .required_address_type(dtype.size())
-        .max(output.required_address_type(dtype.size()));
-
-    unsafe {
-        copy_perpendicular::launch_unchecked(
-            client,
-            cube_count,
-            cube_dim,
-            address_type,
-            vector_size,
-            input.into_tensor_arg(),
-            output.into_tensor_arg(),
-            axis,
-            dtype,
-        );
-    }
+    (axis, vector_size)
 }

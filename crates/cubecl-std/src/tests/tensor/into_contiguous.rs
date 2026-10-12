@@ -234,6 +234,10 @@ fn run_permuted_case<R: Runtime, E: CubeElement + From<u8> + PartialEq>(
 ) {
     let client = R::client(device);
     let dtype = E::cube_type();
+    // WGSL has no `u8`.
+    if !client.properties().supports_type(dtype) {
+        return;
+    }
     let base_strides = contiguous_strides(base_shape);
     let num_elems: usize = base_shape.iter().product();
 
@@ -311,6 +315,19 @@ pub fn test_into_contiguous_permuted_sweep<R: Runtime>(device: &R::Device) {
         &[32, 2, 3],
         &[2, 3, 4, 5],
     ];
+
+    for shape in shapes {
+        for perm in permutations(shape.len()) {
+            run_permuted_case::<R, u8>(device, shape, &perm);
+            run_permuted_case::<R, u32>(device, shape, &perm);
+        }
+    }
+}
+
+/// Shapes spanning several cubes of the GPU perpendicular kernel, with ragged edges on both
+/// transposed axes and batch axes on either side of them.
+pub fn test_into_contiguous_permuted_blocks<R: Runtime>(device: &R::Device) {
+    let shapes: &[&[usize]] = &[&[68, 100], &[3, 36, 68], &[2, 20, 12, 40]];
 
     for shape in shapes {
         for perm in permutations(shape.len()) {
