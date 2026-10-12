@@ -44,7 +44,7 @@ cubecl-zspace = { workspace = true, default-features = true }
 
 bitflags = { workspace = true }
 bytemuck = { workspace = true }
-cubecl-common = { workspace = true }
+cubecl-common = { workspace = true, features = ["hash"] }
 cubecl-environment = { workspace = true }
 cubecl-macros = { workspace = true }
 derive-new = { workspace = true }
