@@ -582,7 +582,9 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         ElemType::UInt(UIntKind::U32),
         ElemType::Int(IntKind::I32),
         ElemType::Float(FloatKind::F32),
-        ElemType::Bool,
+        // A `bool` element is usable as a value but not storable here: WGSL has
+        // no host-shareable `bool` buffer and this path has no physical bool
+        // buffer either. It is registered below without `Buffer` usage.
     ];
 
     let default_atomic_types = [ElemType::Int(IntKind::I32), ElemType::UInt(UIntKind::U32)];
@@ -597,6 +599,10 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
     for ty in default_types {
         props.register_type_usage(ty, TypeUsage::all());
     }
+
+    // Value uses only: see the note on the list above. `register_type_usage` ORs,
+    // so this must not follow a registration that already claimed `Buffer`.
+    props.register_type_usage(ElemType::Bool, TypeUsage::all() - TypeUsage::Buffer);
 
     // The extension atomics below are the buffer ones: their shared-memory counterparts
     // (`shaderSharedFloat32AtomicAdd`, ...) are features of their own, never enabled.
