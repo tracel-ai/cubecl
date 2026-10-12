@@ -86,12 +86,12 @@ pub struct WgpuStream {
     pub auxiliary: AuxiliaryMemory,
     pub device: wgpu::Device,
     /// Whether the device is poisoned, shared with every other stream on the device.
-    poison: PoisonWatch,
+    pub(crate) poison: PoisonWatch,
     compute_pass: Option<wgpu::ComputePass<'static>>,
     timings: Timings,
     tasks_count: usize,
     tasks_max: usize,
-    queue: wgpu::Queue,
+    pub(crate) queue: wgpu::Queue,
     encoder: wgpu::CommandEncoder,
     poll: WgpuPoll,
     submission_load: SubmissionLoad,
@@ -224,6 +224,7 @@ impl WgpuStream {
             primary_memory,
             logger.clone(),
             use_vulkan_compiler,
+            poison.clone(),
         );
         let auxiliary =
             AuxiliaryMemory::new(&device, &memory_properties, logger, use_vulkan_compiler);

@@ -7,6 +7,7 @@ use super::graph::WgpuGraph;
 use super::storage::{WgpuResource, WgpuStorage};
 use crate::WgpuCompiler;
 use crate::compute::artifact::WgpuArtifactCompiler;
+use crate::compute::device_poison::PoisonWatch;
 use crate::compute::pipelines::{MetadataLayout, WgpuPipelines};
 use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
 use crate::{GpuAccessToken, PrimaryMemoryMode};
@@ -106,23 +107,21 @@ pub struct WgpuServer<C: WgpuCompiler> {
 #[derive(Clone, Debug)]
 pub struct WgpuSubmission {
     device: wgpu::Device,
+    queue: wgpu::Queue,
+    /// The device-loss watch, so the wait fails instead of blocking forever
+    /// once the device is lost.
+    poison: PoisonWatch,
     index: wgpu::SubmissionIndex,
 }
 
 #[cfg(not(target_family = "wasm"))]
 impl WgpuSubmission {
-    /// Wait for this submission to finish. Calling this method more than once is valid.
+    /// Wait for this submission to finish. Calling this method more than once
+    /// is valid. Uses the device-loss-aware wait, so a lost device fails with
+    /// an error instead of blocking forever on work that will never complete.
     pub fn wait(&self) -> Result<(), ServerError> {
-        self.device
-            .poll(wgpu::PollType::Wait {
-                submission_index: Some(self.index.clone()),
-                timeout: None,
-            })
-            .map(|_| ())
-            .map_err(|error| ServerError::Generic {
-                reason: format!("WGPU submission wait failed: {error}"),
-                backtrace: BackTrace::capture(),
-            })
+        self.poison
+            .wait_unless_lost(&self.device, &self.queue, Some(self.index.clone()))
     }
 }
 
@@ -153,8 +152,15 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         let device = stream.device.clone();
+        let queue = stream.queue.clone();
+        let poison = stream.poison.clone();
         let index = stream.seal_submission();
-        Ok(WgpuSubmission { device, index })
+        Ok(WgpuSubmission {
+            device,
+            queue,
+            poison,
+            index,
+        })
     }
 }
 

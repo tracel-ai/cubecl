@@ -1,3 +1,4 @@
+use crate::compute::device_poison::{PoisonWatch, WAIT_SLICE};
 use cubecl_core::server::{IoError, ServerError};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
@@ -50,6 +51,9 @@ pub enum HostAccessError {
     MapCallbackFailure(String),
     /// WGPU failed while polling the device for mapping completion.
     DevicePollFailure(String),
+    /// The wgpu device was lost while a mapping waited on it, so the map
+    /// callback will never complete.
+    DeviceLost,
     /// Synchronous host mapping is unavailable on this target.
     UnsupportedTarget,
 }
@@ -71,6 +75,9 @@ impl core::fmt::Display for HostAccessError {
             ),
             Self::MapCallbackFailure(reason) => {
                 write!(f, "the WGPU map callback failed: {reason}")
+            }
+            Self::DeviceLost => {
+                f.write_str("the wgpu device was lost while waiting for the mapping")
             }
             Self::DevicePollFailure(reason) => {
                 write!(
@@ -110,6 +117,10 @@ struct AllocationAccessInner {
     /// The device to poll for a mapping; `None` for a resource a caller built
     /// around a buffer of its own.
     device: Option<wgpu::Device>,
+    /// The device-loss watch, so a mapping that can never complete is
+    /// abandoned once the device is known lost instead of blocking forever.
+    /// `None` where `device` is `None`, and for the device-local pools.
+    poison: Option<PoisonWatch>,
 }
 
 #[derive(Clone, Debug)]
@@ -118,7 +129,7 @@ struct AllocationAccess {
 }
 
 impl AllocationAccess {
-    fn new(host_visible: bool, device: Option<wgpu::Device>) -> Self {
+    fn new(host_visible: bool, device: Option<wgpu::Device>, poison: Option<PoisonWatch>) -> Self {
         let allocation_id = NEXT_ALLOCATION_ID
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 current.checked_add(1)
@@ -131,6 +142,7 @@ impl AllocationAccess {
                 state: AtomicUsize::new(ACCESS_GPU_IDLE),
                 host_visible,
                 device,
+                poison,
             }),
         }
     }
@@ -281,7 +293,7 @@ impl WgpuMemory {
             buffer,
             address,
             host_ptr,
-            allocation_access: AllocationAccess::new(false, None),
+            allocation_access: AllocationAccess::new(false, None, None),
         }
     }
 }
@@ -329,7 +341,7 @@ impl WgpuResource {
             host_ptr: None,
             offset,
             size,
-            allocation_access: AllocationAccess::new(false, None),
+            allocation_access: AllocationAccess::new(false, None, None),
             lease: None,
         }
     }
@@ -400,11 +412,8 @@ impl WgpuResource {
     }
 
     #[cfg(not(target_family = "wasm"))]
-    fn map_range(&self) -> core::ops::Range<u64> {
-        // A mapping is page-granular, so it covers the offset-aligned span the
-        // logical range sits in rather than the logical bytes alone.
-        let end = self.offset + self.size;
-        self.offset..end.next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT)
+    fn map_range(&self) -> (core::ops::Range<u64>, usize) {
+        host_mapping_range(self.offset, self.size)
     }
 
     /// Maps the allocation for synchronous host reads.
@@ -426,13 +435,14 @@ impl WgpuResource {
             return Ok(WgpuMappedReadGuard {
                 buffer: self.buffer.clone(),
                 view: None,
+                view_offset: 0,
                 logical_len: 0,
                 token: Some(token),
                 _lease: self.lease.clone(),
             });
         }
 
-        let range = self.map_range();
+        let (range, view_offset) = self.map_range();
         self.wait_for_mapping(wgpu::MapMode::Read, range.clone())?;
         let view = self
             .buffer
@@ -441,6 +451,7 @@ impl WgpuResource {
         Ok(WgpuMappedReadGuard {
             buffer: self.buffer.clone(),
             view: Some(view),
+            view_offset,
             logical_len: self.size as usize,
             token: Some(token),
             _lease: self.lease.clone(),
@@ -462,13 +473,14 @@ impl WgpuResource {
             return Ok(WgpuMappedWriteGuard {
                 buffer: self.buffer.clone(),
                 view: None,
+                view_offset: 0,
                 logical_len: 0,
                 token: Some(token),
                 _lease: self.lease.clone(),
             });
         }
 
-        let range = self.map_range();
+        let (range, view_offset) = self.map_range();
         self.wait_for_mapping(wgpu::MapMode::Write, range.clone())?;
         let view = self
             .buffer
@@ -477,6 +489,7 @@ impl WgpuResource {
         Ok(WgpuMappedWriteGuard {
             buffer: self.buffer.clone(),
             view: Some(view),
+            view_offset,
             logical_len: self.size as usize,
             token: Some(token),
             _lease: self.lease.clone(),
@@ -528,20 +541,43 @@ impl WgpuResource {
             self.buffer.unmap();
             return Err(HostAccessError::DeviceLocalAllocation);
         };
-        if let Err(err) = device.poll(wgpu::PollType::wait_indefinitely()) {
-            self.buffer.unmap();
-            return Err(HostAccessError::DevicePollFailure(err.to_string()));
-        }
-
-        match receiver.recv() {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(err)) => {
-                self.buffer.unmap();
-                Err(HostAccessError::MapCallbackFailure(err.to_string()))
+        let poison = self.allocation_access.inner.poison.as_ref();
+        loop {
+            match device.poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(WAIT_SLICE),
+            }) {
+                Ok(_) => {}
+                Err(wgpu::PollError::Timeout) => {}
+                Err(err) => {
+                    self.buffer.unmap();
+                    return Err(HostAccessError::DevicePollFailure(err.to_string()));
+                }
             }
-            Err(err) => {
-                self.buffer.unmap();
-                Err(HostAccessError::MapCallbackFailure(err.to_string()))
+            // A lost device never completes the map callback: stop as soon as
+            // the loss is known instead of polling a device that will not
+            // answer. The stall probe of `PoisonWatch::wait_unless_lost` needs
+            // a queue, which a pool does not hold, so wgpu's own poll is what
+            // surfaces the loss on the next slice.
+            if let Some(poison) = poison {
+                if poison.check().is_err() {
+                    self.buffer.unmap();
+                    return Err(HostAccessError::DeviceLost);
+                }
+            }
+            match receiver.recv_timeout(WAIT_SLICE) {
+                Ok(Ok(())) => return Ok(()),
+                Ok(Err(err)) => {
+                    self.buffer.unmap();
+                    return Err(HostAccessError::MapCallbackFailure(err.to_string()));
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    self.buffer.unmap();
+                    return Err(HostAccessError::MapCallbackFailure(
+                        "the mapping callback channel closed".into(),
+                    ));
+                }
             }
         }
     }
@@ -583,6 +619,7 @@ impl WgpuResource {
 pub struct WgpuMappedReadGuard {
     buffer: wgpu::Buffer,
     view: Option<wgpu::BufferView>,
+    view_offset: usize,
     logical_len: usize,
     token: Option<HostAccessToken>,
     _lease: Option<ManagedMemoryBinding>,
@@ -593,7 +630,7 @@ impl Deref for WgpuMappedReadGuard {
 
     fn deref(&self) -> &Self::Target {
         match &self.view {
-            Some(view) => &view[..self.logical_len],
+            Some(view) => &view[self.view_offset..self.view_offset + self.logical_len],
             None => &[],
         }
     }
@@ -618,6 +655,7 @@ impl Drop for WgpuMappedReadGuard {
 pub struct WgpuMappedWriteGuard {
     buffer: wgpu::Buffer,
     view: Option<wgpu::BufferViewMut>,
+    view_offset: usize,
     logical_len: usize,
     token: Option<HostAccessToken>,
     _lease: Option<ManagedMemoryBinding>,
@@ -628,7 +666,7 @@ impl WgpuMappedWriteGuard {
     pub fn as_write_only(&mut self) -> Option<wgpu::WriteOnly<'_, [u8]>> {
         self.view
             .as_mut()
-            .map(|view| view.slice(..self.logical_len))
+            .map(|view| view.slice(self.view_offset..self.view_offset + self.logical_len))
     }
 
     /// Copies `bytes` into the mapped logical resource range.
@@ -676,6 +714,9 @@ pub struct WgpuStorage {
     vk_storage: bool,
     /// Whether every buffer this storage allocates is mappable by the host.
     host_visible: bool,
+    /// The device-loss watch, handed to every host-visible allocation so a
+    /// mapping that can never complete is abandoned once the device is lost.
+    poison: PoisonWatch,
 }
 
 impl core::fmt::Debug for WgpuStorage {
@@ -691,6 +732,7 @@ impl WgpuStorage {
         device: wgpu::Device,
         usages: BufferUsages,
         vk_storage: bool,
+        poison: PoisonWatch,
     ) -> Self {
         Self {
             memory: HashMap::new(),
@@ -700,6 +742,7 @@ impl WgpuStorage {
             mem_alignment,
             vk_storage,
             host_visible: false,
+            poison,
         }
     }
 
@@ -715,6 +758,7 @@ impl WgpuStorage {
         mem_alignment: usize,
         device: wgpu::Device,
         usages: BufferUsages,
+        poison: PoisonWatch,
     ) -> Self {
         Self {
             memory: HashMap::new(),
@@ -724,6 +768,7 @@ impl WgpuStorage {
             mem_alignment,
             vk_storage: false,
             host_visible: true,
+            poison,
         }
     }
 
@@ -828,7 +873,11 @@ impl WgpuStorage {
                 buffer,
                 address: None,
                 host_ptr: None,
-                allocation_access: AllocationAccess::new(true, Some(self.device.clone())),
+                allocation_access: AllocationAccess::new(
+                    true,
+                    Some(self.device.clone()),
+                    Some(self.poison.clone()),
+                ),
             },
             false => WgpuMemory::device_local(buffer, None, None),
         }
@@ -841,7 +890,7 @@ mod tests {
 
     #[test]
     fn cloned_allocation_access_retains_nonzero_identity() {
-        let access = AllocationAccess::new(false, None);
+        let access = AllocationAccess::new(false, None, None);
         let cloned = access.clone();
 
         assert_ne!(access.allocation_id(), 0);
@@ -850,7 +899,7 @@ mod tests {
 
     #[test]
     fn host_access_excludes_other_host_and_gpu_access_until_drop() {
-        let access = AllocationAccess::new(true, None);
+        let access = AllocationAccess::new(true, None, None);
         let token = access.acquire_host().unwrap();
 
         assert_eq!(
@@ -870,7 +919,7 @@ mod tests {
 
     #[test]
     fn gpu_reservation_excludes_host_access_until_submission() {
-        let access = AllocationAccess::new(true, None);
+        let access = AllocationAccess::new(true, None, None);
         let worker_access = access.clone();
         let (reserved_tx, reserved_rx) = std::sync::mpsc::sync_channel(1);
         let (submitted_tx, submitted_rx) = std::sync::mpsc::sync_channel(1);
@@ -895,8 +944,66 @@ mod tests {
 
     #[test]
     fn device_local_allocation_never_reports_host_visibility() {
-        let access = AllocationAccess::new(false, None);
+        let access = AllocationAccess::new(false, None, None);
 
         assert!(!access.inner.host_visible);
+    }
+}
+
+/// The range to map for a logical resource at `offset` of `size` bytes, and
+/// how far into that range the logical bytes start.
+///
+/// A mapping is page-granular and wgpu requires its start to be
+/// [`wgpu::MAP_ALIGNMENT`]-aligned and its size [`wgpu::COPY_BUFFER_ALIGNMENT`]
+/// aligned, while a resource's logical `offset` need not be aligned at all, so
+/// the mapping covers the aligned span the logical range sits in and the guard
+/// slices the logical bytes back out of it.
+fn host_mapping_range(offset: u64, size: u64) -> (core::ops::Range<u64>, usize) {
+    let start = offset & !(wgpu::MAP_ALIGNMENT - 1);
+    let end = (offset + size).next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT);
+    (start..end, (offset - start) as usize)
+}
+
+#[cfg(test)]
+mod storage_range_tests {
+    use super::host_mapping_range;
+
+    #[test]
+    fn aligned_resources_map_their_exact_span() {
+        let (range, delta) = host_mapping_range(0, 16);
+        assert_eq!(range, 0..16);
+        assert_eq!(delta, 0);
+    }
+
+    #[test]
+    fn a_misaligned_offset_resource_sits_inside_its_mapping() {
+        // The reviewer's example: a 12-byte logical resource at byte 4.
+        let (range, delta) = host_mapping_range(4, 12);
+        assert_eq!(range, 0..16);
+        assert_eq!(delta, 4);
+    }
+
+    #[test]
+    fn the_mapping_start_is_map_aligned_and_covers_the_logical_bytes() {
+        for (offset, size) in [(1u64, 1u64), (2, 4), (10, 6), (13, 3), (0, 0)] {
+            let (range, delta) = host_mapping_range(offset, size);
+            assert!(
+                range.start.is_multiple_of(wgpu::MAP_ALIGNMENT),
+                "start {range:?} for ({offset}, {size})"
+            );
+            assert!(
+                (range.end - range.start).is_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT),
+                "size {range:?} for ({offset}, {size})"
+            );
+            assert!(
+                range.start <= offset,
+                "start {range:?} for ({offset}, {size})"
+            );
+            assert!(
+                range.end >= offset + size,
+                "end {range:?} for ({offset}, {size})"
+            );
+            assert_eq!(delta, (offset - range.start) as usize);
+        }
     }
 }

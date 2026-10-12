@@ -868,6 +868,16 @@ fn try_create_server<C: WgpuCompiler>(
         logger,
         allocator,
     );
+    validate_host_visible_combination(
+        options.primary_memory,
+        setup.backend,
+        setup
+            .device
+            .features()
+            .contains(wgpu::Features::MAPPABLE_PRIMARY_BUFFERS),
+        compilation_options.supports_vulkan_compiler,
+    )?;
+
     Ok(WgpuServer::new(
         memory_properties,
         options.memory_config,
@@ -1408,5 +1418,114 @@ mod device_tests {
 
             assert_eq!(<WgpuRuntime>::find_device(device.to_id()), Err(discrete));
         }
+    }
+}
+
+/// Two initialisation guards that apply to every server-creation route,
+/// including one whose device was imported.
+///
+/// The imported route never runs [`requested_features`], so the device's own
+/// enabled features are checked here: without `MAPPABLE_PRIMARY_BUFFERS` a
+/// host-visible primary allocation cannot be mapped, and registering would only
+/// reach wgpu's validation instead of failing initialization.
+///
+/// A native Vulkan/SPIR-V build expects a device address on every primary
+/// buffer, which the host-visible allocator does not carry, so the two cannot
+/// be combined: the first kernel launch would hit the address unwrap. A Vulkan
+/// device whose compiler is WGSL, and Metal with its MSL compiler, are both
+/// fine.
+fn validate_host_visible_combination(
+    primary_memory: PrimaryMemoryMode,
+    backend: wgpu::Backend,
+    device_enables_mappable_primary: bool,
+    supports_vulkan_compiler: bool,
+) -> Result<(), WgpuInitError> {
+    if primary_memory != PrimaryMemoryMode::HostVisible {
+        return Ok(());
+    }
+    if !device_enables_mappable_primary {
+        return Err(WgpuInitError::InvalidConfiguration {
+            message: "host-visible primary memory requires wgpu::Features::MAPPABLE_PRIMARY_BUFFERS                       to be enabled on the device, but this device does not enable it"
+                .into(),
+        });
+    }
+    if backend == wgpu::Backend::Vulkan && supports_vulkan_compiler {
+        return Err(WgpuInitError::InvalidConfiguration {
+            message: "host-visible primary memory cannot run with the native Vulkan compiler:                       SPIR-V expects a device address on every primary buffer, which the                       host-visible allocations do not carry"
+                .into(),
+        });
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod host_visible_combination_tests {
+    use super::*;
+
+    fn check(
+        primary_memory: PrimaryMemoryMode,
+        backend: wgpu::Backend,
+        device_enables_mappable_primary: bool,
+        supports_vulkan_compiler: bool,
+    ) -> Result<(), WgpuInitError> {
+        validate_host_visible_combination(
+            primary_memory,
+            backend,
+            device_enables_mappable_primary,
+            supports_vulkan_compiler,
+        )
+    }
+
+    #[test]
+    fn imported_device_without_the_mapping_feature_is_rejected() {
+        let err = check(
+            PrimaryMemoryMode::HostVisible,
+            wgpu::Backend::Vulkan,
+            false,
+            false,
+        )
+        .expect_err("missing MAPPABLE_PRIMARY_BUFFERS must fail");
+        assert!(err.to_string().contains("MAPPABLE_PRIMARY_BUFFERS"));
+    }
+
+    #[test]
+    fn host_visible_with_the_native_vulkan_compiler_is_rejected() {
+        let err = check(
+            PrimaryMemoryMode::HostVisible,
+            wgpu::Backend::Vulkan,
+            true,
+            true,
+        )
+        .expect_err("SPIR-V addresses are not available");
+        assert!(!err.to_string().is_empty());
+    }
+
+    #[test]
+    fn host_visible_is_allowed_with_wgsl_vulkan_and_with_metal() {
+        check(
+            PrimaryMemoryMode::HostVisible,
+            wgpu::Backend::Vulkan,
+            true,
+            false,
+        )
+        .expect("WGSL Vulkan has no address contract");
+        check(
+            PrimaryMemoryMode::HostVisible,
+            wgpu::Backend::Metal,
+            true,
+            false,
+        )
+        .expect("Metal is the intended host-visible target");
+    }
+
+    #[test]
+    fn device_local_never_triggers_the_guards() {
+        check(
+            PrimaryMemoryMode::DeviceLocal,
+            wgpu::Backend::Vulkan,
+            false,
+            true,
+        )
+        .expect("device-local is unaffected");
     }
 }

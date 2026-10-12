@@ -31,6 +31,7 @@ pub(crate) fn main_memory(
     primary_memory: PrimaryMemoryMode,
     logger: Arc<ServerLogger>,
     use_vulkan_compiler: bool,
+    poison: crate::compute::device_poison::PoisonWatch,
 ) -> MemoryManagement<WgpuStorage> {
     let usages = BufferUsages::STORAGE
         | BufferUsages::COPY_SRC
@@ -43,6 +44,7 @@ pub(crate) fn main_memory(
                 device.clone(),
                 usages,
                 use_vulkan_compiler,
+                poison,
             ),
             config,
         ),
@@ -51,6 +53,7 @@ pub(crate) fn main_memory(
                 properties.alignment as usize,
                 device.clone(),
                 usages,
+                poison,
             ),
             MemoryConfiguration::ExclusivePages,
         ),
@@ -98,6 +101,7 @@ impl AuxiliaryMemory {
                 device.clone(),
                 BufferUsages::MAP_READ | BufferUsages::COPY_DST,
                 false,
+                crate::compute::device_poison::PoisonWatch::default(),
             ),
             properties,
             // A mapped buffer is mapped whole, so two reads cannot share one.
@@ -114,6 +118,7 @@ impl AuxiliaryMemory {
                 device.clone(),
                 BufferUsages::UNIFORM | BufferUsages::STORAGE | BufferUsages::COPY_DST,
                 use_vulkan_compiler,
+                crate::compute::device_poison::PoisonWatch::default(),
             ),
             properties,
             MemoryConfiguration::ExclusivePages,
