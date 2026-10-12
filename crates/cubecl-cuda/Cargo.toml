@@ -82,6 +82,7 @@ cubecl-std = { workspace = true, default-features = true, features = [
     "export_tests",
 ] }
 paste = { workspace = true }
+num-complex = { workspace = true }
 test-log = { workspace = true, features = ["trace"] }
 
 [build-dependencies]

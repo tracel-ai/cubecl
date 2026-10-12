@@ -1078,6 +1078,7 @@ dependencies = [
  "derive-new",
  "half",
  "log",
+ "num-complex",
  "paste",
  "serde",
  "test-log",

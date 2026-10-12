@@ -1081,6 +1081,18 @@ pub fn kernel_complex_validation_core<C: ComplexCore>(output: &mut [C], lhs: &[C
 }
 
 #[cube(launch)]
+pub fn kernel_complex_validation_plane_sum<C: ComplexCore + PlaneReduce>(
+    output: &mut [C],
+    input: &[C],
+) {
+    let value = input[UNIT_POS as usize];
+    let sum = plane_sum(value);
+    if UNIT_POS == 0 {
+        output[0] = sum;
+    }
+}
+
+#[cube(launch)]
 pub fn kernel_complex_validation_compare<C: ComplexCompare>(
     output: &mut [u8],
     lhs: &[C],
@@ -1115,6 +1127,26 @@ pub fn test_complex_validation_core<R: Runtime>(client: Client) {
         unsafe { BufferArg::from_raw_parts(output.clone(), 1) },
         unsafe { BufferArg::from_raw_parts(lhs, 1) },
         unsafe { BufferArg::from_raw_parts(rhs, 1) },
+    );
+
+    assert_complex_validation_error(client.read_one(output).map(|_| ()), "Complex operation");
+}
+
+pub fn test_complex_validation_plane_sum<R: Runtime>(client: Client) {
+    type C = num_complex::Complex<f32>;
+    if C::supported_complex_uses(&client).contains(cubecl::ir::features::ComplexUsage::Core) {
+        return;
+    }
+
+    let output = client.empty(core::mem::size_of::<C>());
+    let input = client.create_from_slice(C::as_bytes(&[C::new(1.0, 2.0)]));
+
+    kernel_complex_validation_plane_sum::launch::<C>(
+        &client,
+        CubeCount::new_single(),
+        CubeDim::new_1d(1),
+        unsafe { BufferArg::from_raw_parts(output.clone(), 1) },
+        unsafe { BufferArg::from_raw_parts(input, 1) },
     );
 
     assert_complex_validation_error(client.read_one(output).map(|_| ()), "Complex operation");
@@ -1485,6 +1517,14 @@ macro_rules! testgen_complex_validation {
                 cubecl_core::runtime_tests::complex::test_complex_validation_core::<TestRuntime>(
                     client,
                 );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_validation_plane_sum() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_validation_plane_sum::<
+                    TestRuntime,
+                >(client);
             }
 
             #[$crate::runtime_tests::test_log::test]
