@@ -80,7 +80,7 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
 
     let scheme = QuantScheme::default().with_value(QuantValue::Q4F);
     let float_data = (-8..=7)
-        .map(|it| F::new(it as f64 * 3.4))
+        .map(|it| F::new((it as f32 * 3.4) as f64)) // Double cast because of rounding error
         .collect::<Vec<_>>();
 
     let output = client.empty(16 * size_of::<F>());
