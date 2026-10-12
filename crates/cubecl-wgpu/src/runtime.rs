@@ -747,6 +747,8 @@ fn try_create_server<C: WgpuCompiler>(
         }
     })?;
 
+    C::init(setup.backend, &compilation_options).limit_properties(&mut device_props);
+
     let logger = alloc::sync::Arc::new(ServerLogger::default());
     let name = runtime_name(setup.backend, &compilation_options);
 
