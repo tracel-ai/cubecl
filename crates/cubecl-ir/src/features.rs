@@ -302,6 +302,16 @@ impl Features {
     }
 
     /// Get the usages for a type
+    /// Whether `ty` can be the element type of a buffer.
+    ///
+    /// A type may be usable as a value and not storable: WGSL has no
+    /// host-shareable `bool` buffer and SPIR-V has no physical bool buffer, so
+    /// those backends refuse such a buffer rather than declare one.
+    pub fn supports_buffer(&self, ty: ElemType) -> bool {
+        self.type_usage(ty).contains(TypeUsage::Buffer)
+    }
+
+    /// Get the usages for a type.
     pub fn type_usage(&self, ty: ElemType) -> EnumSet<TypeUsage> {
         self.types
             .elem
