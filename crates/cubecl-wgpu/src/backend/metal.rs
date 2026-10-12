@@ -36,8 +36,11 @@ pub fn bindings(repr: &MslComputeKernel, metadata: MetadataLayout) -> (Vec<Visib
 }
 
 /// Request a native Metal device, panicking if device creation fails.
-pub async fn request_metal_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
-    try_request_metal_device(adapter)
+pub async fn request_metal_device(
+    adapter: &wgpu::Adapter,
+    primary_memory: crate::PrimaryMemoryMode,
+) -> (wgpu::Device, wgpu::Queue) {
+    try_request_metal_device(adapter, primary_memory)
         .await
         .expect("Unable to request Metal device")
 }
@@ -46,11 +49,10 @@ pub async fn request_metal_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgp
 /// Returns an error if the adapter does not use Metal.
 pub async fn try_request_metal_device(
     adapter: &wgpu::Adapter,
+    primary_memory: crate::PrimaryMemoryMode,
 ) -> Result<(wgpu::Device, wgpu::Queue), crate::WgpuInitError> {
     let limits = adapter.limits();
-    let features = adapter
-        .features()
-        .difference(Features::MAPPABLE_PRIMARY_BUFFERS);
+    let features = crate::backend::requested_features(adapter, primary_memory)?;
     unsafe {
         let hal_adapter = adapter.as_hal::<hal::api::Metal>().ok_or_else(|| {
             crate::WgpuInitError::InvalidConfiguration {

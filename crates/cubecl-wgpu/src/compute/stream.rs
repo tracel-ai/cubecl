@@ -7,7 +7,7 @@ use super::{
 use crate::compute::copies::WgpuCopies;
 use crate::compute::device_poison::PoisonWatch;
 use crate::{
-    WgpuResource, WgpuStorage,
+    GpuAccessToken, PrimaryMemoryMode, WgpuResource, WgpuStorage,
     controller::WgpuAllocController,
     schedule::{Addresses, ScheduleTask},
 };
@@ -99,6 +99,15 @@ pub struct WgpuStream {
     /// Used to prevent wgpu staging buffer pool exhaustion during bulk writes
     /// (e.g. model loading with hundreds of tensors).
     pending_write_count: usize,
+    /// Reservations held until the encoder's tasks are submitted: they keep the
+    /// buffers those tasks name out of host mappings.
+    pending_gpu_reservations: Vec<GpuAccessToken>,
+    /// Reservations held until the staged `write_buffer` calls are submitted.
+    ///
+    /// A staged write is not part of the encoder, so it is not covered by the
+    /// encoder's reservations: it lands with the next submission, which is
+    /// where these drop.
+    pending_write_gpu_reservations: Vec<GpuAccessToken>,
     /// Cross-stream input bindings for tasks recorded but not yet submitted.
     /// Kept alive here until the next `flush` ties their release to the submission's completion.
     /// See [`ScheduleTask::Execute::pins`](crate::schedule::ScheduleTask).
@@ -180,6 +189,7 @@ impl WgpuStream {
         queue: wgpu::Queue,
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
+        primary_memory: PrimaryMemoryMode,
         timing_method: TimingMethod,
         timing_budget: Arc<TimestampQuerySetBudget>,
         timestamp_sampling: TimestampSampling,
@@ -211,6 +221,7 @@ impl WgpuStream {
             &device,
             &memory_properties,
             memory_config,
+            primary_memory,
             logger.clone(),
             use_vulkan_compiler,
         );
@@ -235,6 +246,8 @@ impl WgpuStream {
             poll,
             submission_load: SubmissionLoad::default(),
             pending_write_count: 0,
+            pending_gpu_reservations: Vec::new(),
+            pending_write_gpu_reservations: Vec::new(),
             shared_bindings: SharedMemoryBindings::default(),
             // Tighter entry cap than the default policy: the uniforms pool is
             // bucketed exclusive pages with a 32 KiB minimum, so every cached
@@ -310,6 +323,7 @@ impl WgpuStream {
                 data,
                 buffer,
                 handle,
+                reservation,
             } => {
                 // Defensive: the server already rejects writes while recording,
                 // and `begin_capture` drains the queue, so none should reach here.
@@ -328,8 +342,10 @@ impl WgpuStream {
                 // into the QUEUE not the encoder. We want to make sure all outstanding work
                 // happens _before_ the write operation.
                 self.submit();
+                // A direct host copy involves no queued work, so its reservation
+                // is released when this arm ends.
                 if !self.write_mapped(&buffer, &data) {
-                    self.write_to_buffer(&buffer, &data);
+                    self.write_to_buffer(&buffer, &data, reservation);
                 }
             }
             ScheduleTask::Execute {
@@ -353,7 +369,17 @@ impl WgpuStream {
                         .shared
                         .bindings
                         .append(&mut shared_inputs.bindings);
-                    let (resources, custom_handles, addresses) = resources.into_resources(self);
+                    let (resources, custom_handles, addresses, reservations) =
+                        match resources.into_resources(self) {
+                            Ok(prepared) => prepared,
+                            Err(err) => {
+                                self.capture_error(err.into());
+                                return;
+                            }
+                        };
+                    // Nothing was submitted, so the recording owns the
+                    // reservations until it is drained or discarded.
+                    self.recording.reservations.extend(reservations);
                     self.record_pipeline(pipeline, &resources, &custom_handles, addresses, &count);
                     return;
                 }
@@ -362,8 +388,22 @@ impl WgpuStream {
                 self.shared_bindings
                     .bindings
                     .append(&mut shared_inputs.bindings);
-                let (resources, custom_handles, addresses) = resources.into_resources(self);
-                self.register_pipeline(pipeline, &resources, &custom_handles, addresses, &count);
+                let (resources, custom_handles, addresses, reservations) =
+                    match resources.into_resources(self) {
+                        Ok(prepared) => prepared,
+                        Err(err) => {
+                            self.capture_error(err.into());
+                            return;
+                        }
+                    };
+                self.register_pipeline(
+                    pipeline,
+                    &resources,
+                    &custom_handles,
+                    addresses,
+                    &count,
+                    reservations,
+                );
             }
         }
     }
@@ -388,6 +428,12 @@ impl WgpuStream {
         let mut callbacks = Vec::with_capacity(descriptors.len());
 
         for (resource, shape, elem_size) in descriptors {
+            // The copy about to be queued is GPU work on this buffer, so the
+            // host must not map it until that work is submitted.
+            let reservation = match resource.acquire_gpu() {
+                Ok(reservation) => reservation,
+                Err(err) => return Box::pin(async move { Err(err.into()) }),
+            };
             let size = shape.iter().product::<usize>() * elem_size;
 
             // Zero-sized resources don't need a GPU copy.
@@ -410,6 +456,8 @@ impl WgpuStream {
                 0,
                 aligned_len,
             );
+            // Released by the `flush` below, which submits the copy.
+            self.pending_gpu_reservations.push(reservation);
             staging_info.push(Some((staging, binding, size)));
         }
 
@@ -712,7 +760,12 @@ impl WgpuStream {
         if self.capturing.is_recording() {
             self.recording.uniform_pins.push(handle);
         }
-        self.write_to_buffer(&resource, data);
+        // A uniform slice was just reserved for this write, so no host mapping
+        // can be live on it: the write's own reservation is enough.
+        let reservation = resource
+            .acquire_gpu()
+            .expect("a freshly reserved uniform cannot be mapped by the host");
+        self.write_to_buffer(&resource, data, reservation);
         resource
     }
 
@@ -733,7 +786,10 @@ impl WgpuStream {
             return resource;
         }
         let (handle, resource) = self.auxiliary.reserve_uniform(size as u64);
-        self.write_to_buffer(&resource, bytemuck::cast_slice(&words));
+        let reservation = resource
+            .acquire_gpu()
+            .expect("a freshly reserved uniform cannot be mapped by the host");
+        self.write_to_buffer(&resource, bytemuck::cast_slice(&words), reservation);
         self.info_cache.insert(words, (handle, resource.clone()));
         resource
     }
@@ -783,7 +839,12 @@ impl WgpuStream {
     // so you have to be really careful about the ordering of operations here.
     // Any buffer which has outstanding (not yet flushed) compute work should
     // NOT be copied to.
-    fn write_to_buffer(&mut self, resource: &WgpuResource, data: &[u8]) {
+    fn write_to_buffer(
+        &mut self,
+        resource: &WgpuResource,
+        data: &[u8],
+        reservation: GpuAccessToken,
+    ) {
         // Nothing to write for zero-sized resources.
         if resource.size == 0 {
             return;
@@ -816,6 +877,7 @@ impl WgpuStream {
         }
 
         self.pending_write_count += 1;
+        self.pending_write_gpu_reservations.push(reservation);
 
         // Prevent wgpu staging buffer pool exhaustion during bulk writes (e.g. model
         // loading with hundreds of tensors). queue.write_buffer() is async — wgpu
@@ -836,6 +898,9 @@ impl WgpuStream {
                         label: Some("CubeCL Write Flush Encoder"),
                     });
             let index = self.queue.submit([write_flush_encoder.finish()]);
+            // The staged writes are submitted: their buffers are the GPU's
+            // again, and the host may map them.
+            self.pending_write_gpu_reservations.clear();
 
             // Wait for the GPU to finish processing these writes before continuing.
             #[cfg(not(target_family = "wasm"))]
@@ -867,7 +932,14 @@ impl WgpuStream {
     /// scheduler aligning streams. Whatever is queued stays queued, for the
     /// flush of the stream that owns it.
     pub fn submit(&mut self) {
-        self.submit_tasks();
+        if self.submit_tasks().is_none() && self.pending_write_count > 0 {
+            // No queued task, but `write_buffer` staged copies the queue only
+            // flushes on a submission. Sealing them here is what a caller who
+            // flushes before reading or mapping expects: the bytes are in the
+            // queue, and a staged write holds the buffer's GPU access until it
+            // is submitted.
+            self.seal_writes();
+        }
         self.collect_validation_errors();
     }
 
@@ -899,13 +971,21 @@ impl WgpuStream {
         // queue and only a `submit` flushes them. An empty submission seals
         // those writes, and gives an otherwise idle stream a submission to
         // name.
+        self.seal_writes()
+    }
+
+    /// Submit the staged `write_buffer` copies, releasing the GPU access they
+    /// hold, and return the submission that covers them.
+    fn seal_writes(&mut self) -> wgpu::SubmissionIndex {
         self.pending_write_count = 0;
         let encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("CubeCL Submission Seal"),
             });
-        self.queue.submit([encoder.finish()])
+        let index = self.queue.submit([encoder.finish()]);
+        self.pending_write_gpu_reservations.clear();
+        index
     }
 
     /// Submit the queued work, returning the submission that carries it.
@@ -935,6 +1015,11 @@ impl WgpuStream {
 
         // This will _first_ fire off all pending write_buffer work.
         let index = self.queue.submit([tasks_encoder.finish()]);
+
+        // Everything those reservations guarded is submitted: the buffers are
+        // the GPU's again, and a mapping may take them.
+        self.pending_gpu_reservations.clear();
+        self.pending_write_gpu_reservations.clear();
 
         // Release cross-stream input pins.
         if !self.shared_bindings.is_empty() {
@@ -1055,7 +1140,18 @@ impl WgpuStream {
         let dispatch = match dispatch.clone() {
             CubeCount::Static(x, y, z) => ReplayDispatch::Static(x, y, z),
             CubeCount::Dynamic(binding) => match self.resource(binding) {
-                Ok(resource) => ReplayDispatch::Dynamic(resource),
+                Ok(resource) => {
+                    // The graph reads this buffer on every replay, so the host
+                    // must not map it until the graph is destroyed.
+                    match resource.acquire_gpu() {
+                        Ok(reservation) => self.recording.reservations.push(reservation),
+                        Err(err) => {
+                            self.capture_error(err.into());
+                            return;
+                        }
+                    }
+                    ReplayDispatch::Dynamic(resource)
+                }
                 Err(err) => {
                     // The recording is now incomplete; `end_capture` sees the
                     // doomed window and rejects the capture. It taints nothing
@@ -1143,6 +1239,7 @@ impl WgpuStream {
         custom_resources: &[WgpuResource],
         addresses: Option<Addresses>,
         dispatch: &CubeCount,
+        mut reservations: Vec<GpuAccessToken>,
     ) {
         if dispatch.is_empty() {
             return;
@@ -1203,10 +1300,18 @@ impl WgpuStream {
                     .memory
                     .get_resource(binding.memory, binding.offset_start, binding.offset_end)
                     .unwrap();
+                match res.acquire_gpu() {
+                    Ok(reservation) => reservations.push(reservation),
+                    Err(err) => {
+                        self.capture_error(err.into());
+                        return;
+                    }
+                }
                 pass.dispatch_workgroups_indirect(&res.buffer, res.offset);
             }
         }
 
+        self.pending_gpu_reservations.extend(reservations);
         self.flush_if_needed();
     }
 }

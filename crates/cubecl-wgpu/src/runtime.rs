@@ -47,9 +47,10 @@ impl<C> Clone for WgpuRuntime<C> {
 impl<C: WgpuCompiler> DeviceService for WgpuServer<C> {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
         let device = WgpuDevice::from_id(device_id);
-        let setup =
-            future::block_on(try_create_setup(&device)).expect("Unable to acquire wgpu device");
-        try_create_server(setup, RuntimeOptions::default(), device_id, device.backend)
+        let options = RuntimeOptions::default();
+        let setup = future::block_on(try_create_setup(&device, options.primary_memory))
+            .expect("Unable to acquire wgpu device");
+        try_create_server(setup, options, device_id, device.backend)
             .expect("Unable to initialize wgpu runtime")
     }
 
@@ -332,12 +333,38 @@ pub enum WgpuInitError {
     },
 }
 
+/// Where the runtime's primary memory — the pool every buffer a user allocates
+/// lives in — is placed.
+///
+/// [`HostVisible`](Self::HostVisible) is for sharing a buffer with another
+/// graphics API on a device whose memory the host can reach, such as an Apple
+/// GPU: the buffers stay ordinary WGPU buffers a kernel reads and writes, and
+/// the host maps them on demand through [`WgpuResource::map_read`] and
+/// [`WgpuResource::map_write`].
+///
+/// [`WgpuResource::map_read`]: crate::WgpuResource::map_read
+/// [`WgpuResource::map_write`]: crate::WgpuResource::map_write
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PrimaryMemoryMode {
+    /// Allocate primary memory in device-local buffers, as WGPU does by default.
+    #[default]
+    DeviceLocal,
+    /// Allocate primary memory in buffers the host can map.
+    ///
+    /// Requires an adapter that supports `wgpu::Features::MAPPABLE_PRIMARY_BUFFERS`,
+    /// and implies [`MemoryConfiguration::ExclusivePages`]: a mapped buffer is
+    /// mapped whole, so two live allocations must not share one page.
+    HostVisible,
+}
+
 /// The values that control how a WGPU Runtime will perform its calculations.
 pub struct RuntimeOptions {
     /// Control the amount of compute tasks to be aggregated into a single GPU command.
     pub tasks_max: usize,
     /// Configures the memory management.
     pub memory_config: MemoryConfiguration,
+    /// Where primary-memory allocations are placed.
+    pub primary_memory: PrimaryMemoryMode,
 }
 
 impl Default for RuntimeOptions {
@@ -373,6 +400,7 @@ impl RuntimeOptions {
         let options = Self {
             tasks_max,
             memory_config: MemoryConfiguration::default(),
+            primary_memory: PrimaryMemoryMode::DeviceLocal,
         };
         options.validate()?;
         Ok(options)
@@ -382,6 +410,16 @@ impl RuntimeOptions {
         if self.tasks_max == 0 {
             return Err(WgpuInitError::InvalidConfiguration {
                 message: "tasks_max must be greater than zero".into(),
+            });
+        }
+        if self.primary_memory == PrimaryMemoryMode::HostVisible
+            && !matches!(self.memory_config, MemoryConfiguration::ExclusivePages)
+        {
+            return Err(WgpuInitError::InvalidConfiguration {
+                message: "host-visible primary memory requires \
+                    MemoryConfiguration::ExclusivePages: a mapped buffer is mapped whole, so two \
+                    live allocations must not share a page"
+                    .into(),
             });
         }
         Ok(())
@@ -596,7 +634,7 @@ pub async fn try_init_setup_async<G: GraphicsApi>(
     }
     let mut selected = device.clone();
     selected.backend = requested_backend;
-    let setup = try_create_setup(&selected).await?;
+    let setup = try_create_setup(&selected, options.primary_memory).await?;
     let server = try_create_server::<AutoCompiler>(
         setup.clone(),
         options,
@@ -607,6 +645,76 @@ pub async fn try_init_setup_async<G: GraphicsApi>(
         message: format!("{device:?}: {err:?}"),
     })?;
     Ok(setup)
+}
+
+/// Build a device and client on an explicitly selected graphics API, under an
+/// id of its own.
+///
+/// Unlike [`init_setup`], which registers a client under `selector`'s id and so
+/// can only be called once per selector, every call here registers a fresh
+/// [`WgpuDeviceKind::Existing`] device. Repeated calls with the same selector
+/// therefore get independent devices — independent memory managers, and for
+/// [`PrimaryMemoryMode::HostVisible`] independent pools the host maps.
+///
+/// `selector` chooses the adapter; `G` chooses the graphics API and, through
+/// [`AutoCompiler`], the compiler.
+///
+/// # Panics
+///
+/// If configuration is invalid, the adapter does not support the requested
+/// primary memory, or registration fails. Use
+/// [`try_init_device_for_graphics_api`] to handle these errors. With `msl`
+/// enabled, an explicit [`crate::Metal`] request also panics if native MSL is
+/// unavailable.
+#[cfg(not(target_family = "wasm"))]
+pub fn init_device_for_graphics_api<G: GraphicsApi>(
+    selector: &WgpuDevice,
+    options: RuntimeOptions,
+) -> WgpuDevice {
+    try_init_device_for_graphics_api::<G>(selector, options)
+        .expect("Unable to initialize a wgpu device for the requested graphics API")
+}
+
+/// Fallible [`init_device_for_graphics_api`].
+#[cfg(not(target_family = "wasm"))]
+pub fn try_init_device_for_graphics_api<G: GraphicsApi>(
+    selector: &WgpuDevice,
+    options: RuntimeOptions,
+) -> Result<WgpuDevice, WgpuInitError> {
+    future::block_on(try_init_device_for_graphics_api_async::<G>(
+        selector, options,
+    ))
+}
+
+/// Asynchronous [`init_device_for_graphics_api`].
+///
+/// # Errors
+///
+/// [`WgpuInitError::InvalidConfiguration`] for an invalid configuration or a
+/// selector that pins another graphics API, for an `Existing` selector, and for
+/// an adapter that cannot provide the requested primary memory.
+pub async fn try_init_device_for_graphics_api_async<G: GraphicsApi>(
+    selector: &WgpuDevice,
+    options: RuntimeOptions,
+) -> Result<WgpuDevice, WgpuInitError> {
+    options.validate()?;
+    if matches!(selector.kind, WgpuDeviceKind::Existing(_)) {
+        return Err(WgpuInitError::InvalidConfiguration {
+            message: "an Existing ID is not an adapter selector; reuse its device instead".into(),
+        });
+    }
+    let requested_backend = G::backend_for(selector);
+    if selector.backend != WgpuBackend::Auto && selector.backend != requested_backend {
+        return Err(WgpuInitError::InvalidConfiguration {
+            message: format!("{selector:?} cannot be initialized on {requested_backend:?}"),
+        });
+    }
+    let mut selected = selector.clone();
+    selected.backend = requested_backend;
+    let setup = try_create_setup(&selected, options.primary_memory).await?;
+    // `try_init_device_with_api` mints the fresh id and validates that `setup`
+    // really came up on `G`'s backend.
+    try_init_device_with_api::<G>(setup, options)
 }
 
 /// The runtime name for `backend`, naming the compiler that serves it.
@@ -767,6 +875,7 @@ fn try_create_server<C: WgpuCompiler>(
         setup.device.clone(),
         setup.queue,
         options.tasks_max,
+        options.primary_memory,
         setup.backend,
         time_measurement,
         utilities,
@@ -779,7 +888,8 @@ fn try_create_server<C: WgpuCompiler>(
 #[cfg(all(test, not(target_family = "wasm")))]
 pub(crate) fn test_server_on_vulkan() -> WgpuServer<AutoCompiler> {
     let selector = WgpuDevice::default().on(WgpuBackend::Vulkan);
-    let setup = future::block_on(try_create_setup(&selector)).expect("Vulkan setup");
+    let setup = future::block_on(try_create_setup(&selector, PrimaryMemoryMode::DeviceLocal))
+        .expect("Vulkan setup");
     try_create_server(
         setup,
         RuntimeOptions::default(),
@@ -789,8 +899,26 @@ pub(crate) fn test_server_on_vulkan() -> WgpuServer<AutoCompiler> {
     .expect("Vulkan server")
 }
 
+/// A server on the default Metal adapter, for the tests that need a real queue
+/// and a host-visible main memory. Unregistered: the caller owns it directly.
+#[cfg(all(test, target_os = "macos"))]
+pub(crate) fn test_server_on_metal(primary_memory: PrimaryMemoryMode) -> WgpuServer<AutoCompiler> {
+    let selector = WgpuDevice::default().on(WgpuBackend::Metal);
+    let options = RuntimeOptions {
+        primary_memory,
+        memory_config: MemoryConfiguration::ExclusivePages,
+        ..RuntimeOptions::default()
+    };
+    options.validate().expect("Metal runtime options");
+    let setup = future::block_on(try_create_setup(&selector, primary_memory)).expect("Metal setup");
+    try_create_server(setup, options, selector.to_id(), selector.backend).expect("Metal server")
+}
+
 /// Acquire an adapter and device without blocking the caller's executor.
-async fn try_create_setup(device: &WgpuDevice) -> Result<WgpuSetup, WgpuInitError> {
+async fn try_create_setup(
+    device: &WgpuDevice,
+    primary_memory: PrimaryMemoryMode,
+) -> Result<WgpuSetup, WgpuInitError> {
     // Validate overrides before touching the graphics APIs. They choose hardware, not
     // the graphics API or the registration key the caller selected.
     let override_device = match device.kind {
@@ -863,7 +991,7 @@ async fn try_create_setup(device: &WgpuDevice) -> Result<WgpuSetup, WgpuInitErro
         message: "no adapter found on the requested graphics API".into(),
     })?;
     let (instance, adapter) = request_adapter(device, backend).await?;
-    let (device, queue) = backend::try_request_device(&adapter).await?;
+    let (device, queue) = backend::try_request_device(&adapter, primary_memory).await?;
     Ok(WgpuSetup {
         instance,
         adapter,
@@ -1070,10 +1198,35 @@ mod device_tests {
     use super::*;
 
     #[test]
+    fn runtime_options_default_to_device_local_primary_memory() {
+        assert_eq!(
+            RuntimeOptions::default().primary_memory,
+            PrimaryMemoryMode::DeviceLocal
+        );
+    }
+
+    #[cfg(not(feature = "exclusive-memory-only"))]
+    #[test]
+    fn host_visible_primary_memory_requires_exclusive_pages() {
+        let options = RuntimeOptions {
+            primary_memory: PrimaryMemoryMode::HostVisible,
+            memory_config: MemoryConfiguration::Adaptive,
+            ..RuntimeOptions::default()
+        };
+
+        assert!(matches!(
+            options.validate(),
+            Err(WgpuInitError::InvalidConfiguration { message })
+                if message.contains("ExclusivePages")
+        ));
+    }
+
+    #[test]
     #[ignore = "requires a native Vulkan adapter (software adapters are supported)"]
     fn fallible_import_preserves_api_selection_and_unique_ids() {
         let selector = WgpuDevice::default().on(WgpuBackend::Vulkan);
-        let setup = future::block_on(try_create_setup(&selector)).unwrap();
+        let setup =
+            future::block_on(try_create_setup(&selector, PrimaryMemoryMode::DeviceLocal)).unwrap();
 
         assert!(matches!(
             try_init_device_with_api::<crate::Metal>(setup.clone(), RuntimeOptions::default()),
@@ -1081,7 +1234,8 @@ mod device_tests {
         ));
 
         let automatic = try_init_device(setup, RuntimeOptions::default()).unwrap();
-        let setup = future::block_on(try_create_setup(&selector)).unwrap();
+        let setup =
+            future::block_on(try_create_setup(&selector, PrimaryMemoryMode::DeviceLocal)).unwrap();
         let explicit = init_device_with_api::<crate::Vulkan>(setup, RuntimeOptions::default());
         assert_ne!(automatic.to_id(), explicit.to_id());
     }
@@ -1091,7 +1245,8 @@ mod device_tests {
     #[ignore = "requires a native Vulkan adapter (software adapters are supported)"]
     fn compiler_validation_returns_an_initialization_error() {
         let selector = WgpuDevice::default().on(WgpuBackend::Vulkan);
-        let setup = future::block_on(try_create_setup(&selector)).unwrap();
+        let setup =
+            future::block_on(try_create_setup(&selector, PrimaryMemoryMode::DeviceLocal)).unwrap();
 
         // An explicit MSL compiler still rejects Vulkan, through a recoverable error.
         assert!(matches!(

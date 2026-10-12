@@ -1,6 +1,6 @@
 use crate::compute::device_poison::PoisonWatch;
 use crate::{
-    CompilerInfo, ParamsTransfer, WgpuResource,
+    CompilerInfo, GpuAccessToken, ParamsTransfer, PrimaryMemoryMode, WgpuResource,
     stream::WgpuStream,
     timings::{TimestampQuerySetBudget, TimestampSampling},
 };
@@ -27,6 +27,9 @@ pub enum ScheduleTask {
         /// destination nothing copied into is one a later read must fail on
         /// rather than copy stale bytes out of.
         handle: BufferBinding,
+        /// Reservation held until the queue write is submitted: the host must
+        /// not map the buffer while a staged write to it is still in flight.
+        reservation: GpuAccessToken,
     },
     /// Represents a task to execute a compute pipeline.
     Execute {
@@ -65,6 +68,9 @@ impl core::fmt::Debug for ScheduleTask {
 pub struct BindingsResource {
     /// List of WGPU resources used in the task.
     pub resources: Vec<WgpuResource>,
+    /// Reservations that keep those buffers out of host mappings until the task
+    /// naming them is submitted.
+    pub(crate) reservations: Vec<GpuAccessToken>,
     /// Metadata for uniform bindings.
     pub info: MetadataBindingInfo,
     /// Which compiler was used. This determines the passing strategy of params.
@@ -86,6 +92,7 @@ pub struct WgpuStreamFactory {
     queue: wgpu::Queue,
     memory_properties: MemoryDeviceProperties,
     memory_config: MemoryConfiguration,
+    primary_memory: PrimaryMemoryMode,
     timing_method: TimingMethod,
     /// Per-device budget of live timestamp query sets, shared by every stream it creates.
     timing_budget: Arc<TimestampQuerySetBudget>,
@@ -112,6 +119,7 @@ impl StreamFactory for WgpuStreamFactory {
             self.queue.clone(),
             self.memory_properties.clone(),
             gpu_config,
+            self.primary_memory,
             self.timing_method,
             self.timing_budget.clone(),
             self.timestamp_sampling,
@@ -132,6 +140,7 @@ impl ScheduledWgpuBackend {
         queue: wgpu::Queue,
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
+        primary_memory: PrimaryMemoryMode,
         timing_method: TimingMethod,
         backend: wgpu::Backend,
         tasks_max: usize,
@@ -153,6 +162,7 @@ impl ScheduledWgpuBackend {
                 queue,
                 memory_properties,
                 memory_config,
+                primary_memory,
                 timing_method,
                 timing_budget,
                 timestamp_sampling: TimestampSampling::new(backend),
@@ -171,13 +181,38 @@ pub type Addresses = SmallVec<[u64; 8]>;
 
 impl BindingsResource {
     /// Converts metadata and scalar bindings into WGPU resources for a stream.
+    ///
+    /// Every uniform built here joins the reservations the caller holds for the
+    /// launch, on top of the one its own staged write holds.
+    ///
+    /// # Errors
+    ///
+    /// [`HostAccessError::MappedForHost`](crate::HostAccessError::MappedForHost)
+    /// when one of the buffers is mapped for the host, or the write to a uniform
+    /// failed to reserve it.
+    #[allow(clippy::type_complexity)]
     pub fn into_resources(
         mut self,
         stream: &mut WgpuStream,
-    ) -> (Vec<WgpuResource>, Vec<WgpuResource>, Option<Addresses>) {
-        let info = (!self.info.data.is_empty())
-            .then(|| stream.info_uniform(core::mem::take(&mut self.info.data)));
-        match self.compiler_info {
+    ) -> Result<
+        (
+            Vec<WgpuResource>,
+            Vec<WgpuResource>,
+            Option<Addresses>,
+            Vec<GpuAccessToken>,
+        ),
+        crate::HostAccessError,
+    > {
+        let mut reservations = core::mem::take(&mut self.reservations);
+        let info = match !self.info.data.is_empty() {
+            true => {
+                let info = stream.info_uniform(core::mem::take(&mut self.info.data));
+                reservations.push(info.acquire_gpu()?);
+                Some(info)
+            }
+            false => None,
+        };
+        let (resources, custom_handles, addresses) = match self.compiler_info {
             CompilerInfo::Vulkan { params_transfer } => {
                 let addresses = self
                     .resources
@@ -193,6 +228,7 @@ impl BindingsResource {
                     ParamsTransfer::Uniform => {
                         let address_buffer =
                             stream.create_uniform(bytemuck::cast_slice(&addresses));
+                        reservations.push(address_buffer.acquire_gpu()?);
                         (vec![address_buffer], self.resources, None)
                     }
                 }
@@ -203,7 +239,8 @@ impl BindingsResource {
                 }
                 (self.resources, vec![], None)
             }
-        }
+        };
+        Ok((resources, custom_handles, addresses, reservations))
     }
 }
 

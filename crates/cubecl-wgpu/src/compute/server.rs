@@ -9,6 +9,7 @@ use crate::WgpuCompiler;
 use crate::compute::artifact::WgpuArtifactCompiler;
 use crate::compute::pipelines::{MetadataLayout, WgpuPipelines};
 use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
+use crate::{GpuAccessToken, PrimaryMemoryMode};
 use alloc::sync::Arc;
 use cubecl_common::pool::LeasePool;
 use cubecl_common::{
@@ -187,6 +188,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         device: wgpu::Device,
         queue: wgpu::Queue,
         tasks_max: usize,
+        primary_memory: PrimaryMemoryMode,
         backend: wgpu::Backend,
         timing_method: TimingMethod,
         utilities: ServerUtilities,
@@ -199,6 +201,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             queue.clone(),
             memory_properties,
             memory_config,
+            primary_memory,
             timing_method,
             backend,
             tasks_max,
@@ -251,10 +254,11 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         stream_id: StreamId,
         bindings: KernelArguments,
         compiler_info: CompilerInfo,
-    ) -> Result<BindingsResource, IoError> {
+    ) -> Result<BindingsResource, ServerError> {
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
         let mut resources = Vec::with_capacity(bindings.resources.len());
+        let mut reservations: Vec<GpuAccessToken> = Vec::with_capacity(bindings.resources.len());
 
         for resource in bindings.resources.into_iter() {
             match resource {
@@ -265,7 +269,8 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                         .capturing
                         .touch(b.stream, b.memory.descriptor().location());
                     let stream = self.scheduler.stream(&b.stream);
-                    let resource = stream.resource(b)?;
+                    let resource = stream.resource(b).map_err(ServerError::Io)?;
+                    reservations.push(resource.acquire_gpu()?);
                     resources.push(resource);
                 }
                 KernelResource::TensorMap(_) => panic!("Tensor map not supported in wgpu"),
@@ -274,6 +279,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
         Ok(BindingsResource {
             resources,
+            reservations,
             info: bindings.info,
             compiler_info,
         })
@@ -449,10 +455,15 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 let handle = desc.handle.clone();
                 let stream = server.scheduler.stream(&owner);
                 let resource = stream.resource(desc.handle).map_err(ServerError::Io)?;
+                // The write is staged in the queue, not the encoder, so hold its
+                // reservation until the submission that flushes it: the host
+                // must not map bytes a staged copy is about to overwrite.
+                let reservation = resource.acquire_gpu()?;
                 let task = ScheduleTask::Write {
                     data,
                     buffer: resource,
                     handle,
+                    reservation,
                 };
 
                 server.scheduler.register(stream_id, task, &[owner]);
@@ -573,9 +584,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 }
             });
 
-            let resources = server
-                .prepare_bindings(stream_id, args, compiler_info)
-                .map_err(ServerError::Io)?;
+            let resources = server.prepare_bindings(stream_id, args, compiler_info)?;
 
             let task = ScheduleTask::Execute {
                 pipeline,
@@ -812,6 +821,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 tasks: recording.tasks,
                 _guards: guards,
                 _uniforms: recording.uniform_pins,
+                _reservations: recording.reservations,
                 _shared: recording.shared,
                 written,
             },
@@ -910,11 +920,17 @@ impl<C: WgpuCompiler> ServerStorage for WgpuServer<C> {
         }
         self.scheduler.execute_streams(streams);
         let stream = self.scheduler.stream(&binding.stream);
-        Ok(stream.memory.managed_resource(
+        // The resource is handed to a caller who may clone it out of the
+        // managed resource, so it carries the slice's binding too: a clone that
+        // outlives the `ManagedResource` still keeps the bytes it names alive.
+        let lease = binding.memory.clone();
+        let mut managed = stream.memory.managed_resource(
             binding.memory,
             binding.offset_start,
             binding.offset_end,
-        )?)
+        )?;
+        managed.resource_mut().set_lease(lease);
+        Ok(managed)
     }
 }
 
@@ -982,5 +998,136 @@ mod submission_completion_tests {
         drop(completion);
 
         future::block_on(server.sync(Vec::new(), stream_id)).unwrap();
+    }
+}
+
+/// The host-visible access contract, on a real device: a staged write keeps the
+/// host out until it is submitted, and the bytes it staged are what a later
+/// mapping reads.
+#[cfg(all(test, target_os = "macos"))]
+mod host_visible_tests {
+    use super::*;
+    use crate::AutoCompiler;
+    use crate::HostAccessError;
+    use crate::runtime::test_server_on_metal;
+    use alloc::vec;
+    use cubecl_common::device::{DeviceId, ServiceId};
+
+    fn binding_for(memory: &ManagedMemoryHandle, stream_id: StreamId, size: u64) -> BufferBinding {
+        BufferBinding {
+            memory: memory.clone().binding(),
+            service: ServiceId::of::<WgpuServer<AutoCompiler>>(DeviceId::new(0, 0)),
+            offset_start: None,
+            offset_end: None,
+            stream: stream_id,
+            size,
+        }
+    }
+
+    #[test]
+    fn staged_write_reserves_gpu_access_until_it_is_submitted() {
+        let mut server = test_server_on_metal(PrimaryMemoryMode::HostVisible);
+        let stream_id = StreamId::current();
+        let memory = ManagedMemoryHandle::new();
+        server
+            .initialize_memory(memory.clone(), 16, stream_id)
+            .unwrap();
+        let binding = binding_for(&memory, stream_id, 16);
+        let managed = server.get_resource(binding.clone(), stream_id).unwrap();
+        let resource = managed.resource().clone();
+
+        server.write(
+            vec![(
+                CopyDescriptor::new(binding, [16].into(), [1].into(), 1),
+                Bytes::from_bytes_vec(vec![7; 16]),
+            )],
+            stream_id,
+        );
+
+        // The write is staged in the queue, not the encoder: until a submission
+        // flushes it, the host must not map the buffer it is about to fill.
+        let host_attempt = std::thread::spawn(move || resource.map_read().unwrap_err());
+        assert_eq!(
+            host_attempt.join().unwrap(),
+            HostAccessError::GpuAccessInProgress
+        );
+
+        // Nothing is queued in the encoder, so the seal is what submits the
+        // staged write.
+        let completion = server.submit_stream_completion(stream_id).unwrap();
+        assert_eq!(
+            server.scheduler.stream(&stream_id).pending_writes(),
+            0,
+            "the seal submitted the staged write"
+        );
+        completion.wait().unwrap();
+        drop(completion);
+
+        let guard = managed.resource().map_read().unwrap();
+        assert_eq!(&*guard, &[7; 16]);
+    }
+
+    #[test]
+    fn host_mapping_is_refused_on_a_device_local_pool() {
+        let mut server = test_server_on_metal(PrimaryMemoryMode::DeviceLocal);
+        let stream_id = StreamId::current();
+        let memory = ManagedMemoryHandle::new();
+        server
+            .initialize_memory(memory.clone(), 16, stream_id)
+            .unwrap();
+        let binding = binding_for(&memory, stream_id, 16);
+        let managed = server.get_resource(binding, stream_id).unwrap();
+
+        assert_eq!(
+            managed.resource().map_read().unwrap_err(),
+            HostAccessError::DeviceLocalAllocation
+        );
+    }
+
+    /// A resource cloned out of its `ManagedResource` — the shape a downstream
+    /// caller gets, since `get_resource` hands back the managed wrapper — has to
+    /// keep the memory manager from recycling the slice it names. Otherwise the
+    /// clone's bytes could be overwritten by a later allocation that lands on
+    /// the same page.
+    #[test]
+    fn a_resource_clone_keeps_its_allocation_out_of_the_pool() {
+        let mut server = test_server_on_metal(PrimaryMemoryMode::HostVisible);
+        let stream_id = StreamId::current();
+        let memory = ManagedMemoryHandle::new();
+        server
+            .initialize_memory(memory.clone(), 16, stream_id)
+            .unwrap();
+        let binding = binding_for(&memory, stream_id, 16);
+        let managed = server.get_resource(binding, stream_id).unwrap();
+        let clone = managed.resource().clone();
+
+        let id = clone.allocation_id();
+        assert_ne!(id, 0, "an allocation with a mapping identity reports it");
+        assert_eq!(clone.allocation_id(), managed.resource().allocation_id());
+
+        {
+            let mut guard = clone.map_write().unwrap();
+            guard.copy_from_slice(u32::as_bytes(&[1, 2, 3, 4]));
+        }
+        drop(managed);
+        drop(memory);
+
+        // The page the clone names is still leased, so this allocation cannot
+        // land on it.
+        let replacement_memory = ManagedMemoryHandle::new();
+        server
+            .initialize_memory(replacement_memory.clone(), 16, stream_id)
+            .unwrap();
+        let replacement = server
+            .get_resource(binding_for(&replacement_memory, stream_id, 16), stream_id)
+            .unwrap();
+        assert_ne!(
+            replacement.resource().allocation_id(),
+            id,
+            "a live clone keeps its slice out of the pool"
+        );
+
+        let guard = clone.map_read().unwrap();
+        assert_eq!(u32::from_bytes(&guard), &[1, 2, 3, 4]);
     }
 }
