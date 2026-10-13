@@ -156,10 +156,11 @@ pub trait DenseForwardDataflowAnalysis: Sized + 'static {
         solver: &DataflowSolver,
         ctx: &Context,
         branch: &dyn RegionBranchOpInterface,
+        point: ProgramPoint,
         predecessors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
         after: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) {
-        let _ = branch;
+        let _ = (branch, point);
         Self::visit_control_flow_transfer(this, solver, ctx, predecessors, after);
     }
 
@@ -541,6 +542,7 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
             solver,
             ctx,
             branch,
+            point,
             &predecessor_lattices,
             &after,
         );
@@ -621,7 +623,7 @@ pub trait DenseBackwardDataflowAnalysis: Sized + 'static {
         before: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) -> Result<()> {
         let _ = (block, point);
-        Self::visit_control_flow_transfer(this, solver, ctx, successors, before)
+        Self::visit_control_flow_transfer(this, solver, ctx, point, successors, before)
     }
 
     fn visit_region_branch_operation(
@@ -643,11 +645,12 @@ pub trait DenseBackwardDataflowAnalysis: Sized + 'static {
         ctx: &Context,
         branch: &dyn RegionBranchOpInterface,
         region_from: RegionPredecessor,
+        point: ProgramPoint,
         successors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
         before: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) -> Result<()> {
-        let _ = (branch, region_from);
-        Self::visit_control_flow_transfer(this, solver, ctx, successors, before)
+        let _ = (branch, region_from, point);
+        Self::visit_control_flow_transfer(this, solver, ctx, point, successors, before)
     }
 
     fn visit_call_control_flow_transfer(
@@ -659,26 +662,36 @@ pub trait DenseBackwardDataflowAnalysis: Sized + 'static {
         before: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) -> Result<()> {
         let _ = call;
-        Self::visit_control_flow_transfer(this, solver, ctx, core::slice::from_ref(after), before)
+        Self::visit_control_flow_transfer(
+            this,
+            solver,
+            ctx,
+            ProgramPoint::before_op(ctx, call.get_operation()),
+            core::slice::from_ref(after),
+            before,
+        )
     }
 
     fn visit_return_control_flow_transfer(
         this: &DenseBackward<Self>,
         solver: &DataflowSolver,
         ctx: &Context,
+        point: ProgramPoint,
         successors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
         before: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) -> Result<()> {
-        Self::visit_control_flow_transfer(this, solver, ctx, successors, before)
+        Self::visit_control_flow_transfer(this, solver, ctx, point, successors, before)
     }
 
     fn visit_control_flow_transfer(
         this: &DenseBackward<Self>,
         solver: &DataflowSolver,
         ctx: &Context,
+        point: ProgramPoint,
         successors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
         before: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) -> Result<()> {
+        let _ = point;
         for successor in successors {
             this.meet(solver, ctx, before, successor);
         }
@@ -933,7 +946,14 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
                         self.get_lattice_for(solver, point, ProgramPoint::after_op(ctx, callsite));
                     successors.push(after);
                 }
-                T::visit_return_control_flow_transfer(self, solver, ctx, &successors, &before)?;
+                T::visit_return_control_flow_transfer(
+                    self,
+                    solver,
+                    ctx,
+                    point,
+                    &successors,
+                    &before,
+                )?;
                 return Ok(true);
             }
 
@@ -997,6 +1017,7 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
             ctx,
             branch,
             predecessor,
+            point,
             &successor_lattices,
             before,
         )?;

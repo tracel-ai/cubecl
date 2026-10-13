@@ -30,6 +30,7 @@ pub mod dense;
 pub mod pre;
 pub mod sccp;
 pub mod sparse;
+pub mod speculatability;
 pub mod value_dependents;
 pub mod value_numbering;
 pub mod value_uniformity;
@@ -229,6 +230,11 @@ mod solver {
                     _ty: PhantomData,
                 })
                 .collect()
+        }
+
+        pub fn clear_states_of_type<T: AnalysisState>(&mut self) {
+            let mut states = self.analysis_states.borrow_mut();
+            states.retain(|(_, t), _| t != &TypeId::of::<T>());
         }
     }
 

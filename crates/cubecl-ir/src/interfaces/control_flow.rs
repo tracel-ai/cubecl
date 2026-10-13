@@ -489,3 +489,8 @@ pub trait RegionBranchTerminatorOpInterface {
             .successor_regions(ctx, RegionPredecessor::Terminator(op))
     }
 }
+
+#[op_interface]
+pub trait HoistableRegionOpInterface {
+    verify_op_succ!();
+}
