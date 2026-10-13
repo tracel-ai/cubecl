@@ -12,7 +12,9 @@
 
 #[cfg(feature = "amdgpu")]
 use cubecl_core::ir::amd::AmdWmma;
-use cubecl_core::ir::{ComplexKind, DeviceProperties, ElemType, FloatKind, OpaqueType};
+use cubecl_core::ir::{
+    ComplexKind, DeviceProperties, ElemType, FloatKind, OpaqueType, features::TypeUsage,
+};
 #[cfg(feature = "nvptx")]
 use cubecl_core::ir::{IntKind, UIntKind, nvidia::SmArch};
 
@@ -189,6 +191,29 @@ fn restrict_common(props: &mut DeviceProperties) {
         .types
         .atomic
         .retain(|ty, _| ty.vector_size() == 1);
+
+    restrict_fp4_and_fp6(props);
+}
+
+/// LLVM has no fp4 or fp6 type. An `e2m1x2` pair converts through the software codec
+/// (`LowerFp4Cast`), so where the device converts it, the conversion is emulated: a consumer
+/// then decodes it the way it does on any device that emulates it, rather than casting through a
+/// conversion it takes for native. Nothing lowers a lone `e2m1` code or the fp6 formats, so they
+/// convert nowhere.
+fn restrict_fp4_and_fp6(props: &mut DeviceProperties) {
+    let pair = ElemType::Float(FloatKind::E2M1x2);
+    if props
+        .features
+        .type_usage(pair)
+        .contains(TypeUsage::Conversion)
+    {
+        props.register_emulated_conversion(pair);
+    }
+    for kind in [FloatKind::E2M1, FloatKind::E2M3, FloatKind::E3M2] {
+        if let Some(usage) = props.features.types.elem.get_mut(&ElemType::Float(kind)) {
+            usage.remove(TypeUsage::Conversion);
+        }
+    }
 }
 
 #[cfg(all(test, feature = "amdgpu"))]
