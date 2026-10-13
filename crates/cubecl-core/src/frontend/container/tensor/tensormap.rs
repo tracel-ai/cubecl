@@ -170,87 +170,28 @@ impl<E: CubePrimitive, K: TensorMapKind> LaunchArg for TensorMap<E, K> {
     }
 }
 
-/// Commit an async tensor operation. Not sure how this works, poor docs. But you need to call it
-/// after a write, but not after reads.
-pub fn tma_group_commit() {
-    unexpanded!()
-}
-
-pub mod tma_group_commit {
-
-    use cubecl_ir::dialect::tma::CommitGroupOp;
-
-    use super::*;
-
-    pub fn expand(scope: &Scope) {
-        scope.register(&CommitGroupOp::new(scope.ctx_mut()))
-    }
-}
-
-/// Wait until at most `max_pending` TMA copy operations are in flight.
-pub fn tma_group_wait(_max_pending: usize) {
-    unexpanded!()
-}
-
-pub mod tma_group_wait {
-    use cubecl_ir::dialect::tma::WaitGroupOp;
-
-    use super::*;
-
-    pub fn expand(scope: &Scope, max_pending: usize) {
-        scope.register(&WaitGroupOp::new(scope.ctx_mut(), max_pending));
-    }
-}
-
-/// Wait TMA copy operations have finished reading from shared memory, with at most `max_pending`
-/// operations being unfinished.
-///
-/// # Example
-///
-/// I believe you may use `max_pending` like this.
-///
-/// ```ignore
-/// copy_data(smem1);
-/// copy_data(smem2);
-/// copy_data(smem3);
-/// copy_data(smem4);
-/// tma_wait_read(2);
-/// // reuse smem1 & smem2 while 3 and 4 are still pending
-/// ```
-pub fn tma_group_wait_read(_max_pending: usize) {
-    unexpanded!()
-}
-
-pub mod tma_group_wait_read {
-
-    use cubecl_ir::dialect::tma::WaitGroupReadOp;
-
-    use super::*;
-
-    pub fn expand(scope: &Scope, max_pending: usize) {
-        scope.register(&WaitGroupReadOp::new(scope.ctx_mut(), max_pending))
-    }
-}
-
 macro_rules! tma_store {
     ($dim: literal, $($arg: expr),*) => {
         paste! {
-            /// Copy a tile from a shared memory `src` to a global memory `dst`, with the provided
-            /// offsets. Should be combined with ``memcpy_async_tensor_commit`` and
-            /// ``memcpy_async_tensor_wait_read``.
+            /// Copies a tile from shared memory `src` to the tile of `dst` at the coordinates, and
+            /// returns the copy's completion. The copy reads `src` until it resolves, so `src`
+            /// may only be written after [`Pending::wait`]. Writes to shared memory by the units
+            /// must be made visible to the copy first, with
+            /// [`sync_async_proxy_shared`](fn@crate::prelude::sync_async_proxy_shared).
             #[allow(unused)]
             pub fn [<tma_store_ $dim d>]<T: CubePrimitive, T2: CubePrimitive<Scalar = T::Scalar>>(
                 src: &[T2],
                 dst: &mut TensorMap<T, Tiled>,
                 $($arg: i32),*
-            ) {
+            ) -> Pending<()> {
                 unexpanded!()
             }
 
             pub mod [<tma_store_ $dim d>] {
-                use cubecl_ir::dialect::tma::TmaStoreOp;
+                use cubecl_ir::{dialect::tma::TmaStoreOp, types::pending::AsyncGroup};
 
                 use super::*;
+                use crate::frontend::pending::PendingExpand;
 
                 #[allow(clippy::too_many_arguments)]
                 pub fn expand<T: CubePrimitive, T2: CubePrimitive<Scalar = T::Scalar>>(
@@ -258,7 +199,7 @@ macro_rules! tma_store {
                     src: &SliceExpand<T2>,
                     dst: &mut NativeExpand<TensorMap<T, Tiled>>,
                     $($arg: NativeExpand<i32>),*
-                ) {
+                ) -> PendingExpand<()> {
                     let source = unsafe { *src.__expand_as_ptr_method(scope) }.value(scope);
                     let dst = dst.value(scope);
                     let coordinates = vec![$($arg.read_value(scope)),*];
@@ -268,6 +209,7 @@ macro_rules! tma_store {
                         dst,
                         coordinates,
                     ));
+                    PendingExpand::commit(scope, AsyncGroup::BulkCopy, ())
                 }
             }
         }

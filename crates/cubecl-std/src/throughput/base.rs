@@ -96,7 +96,7 @@ fn working_set_cap(client: &Client, access: MemoryAccess) -> u64 {
 /// no such operation, [`NoTiming`](ThroughputError::NoTiming) where it does
 /// and reported no elapsed time, [`Allocation`](ThroughputError::Allocation)
 /// where it has no room for the probe's buffers, [`Launch`](ThroughputError::Launch)
-/// where a memory probe's kernel did not run. None of them is cached, so a
+/// where a probe's kernel did not run. None of them is cached, so a
 /// device that was full is measured the next time it is asked.
 pub fn measure_peak_throughput(
     client: &Client,
@@ -134,11 +134,17 @@ fn measure(
 
         let mut probed = false;
         let value = client.measure_throughput(key, || {
-            // Read where the launch is issued, which here is the runner.
-            let _measurement = cubecl_runtime::dry_run::RealRun::new();
+            // The probe's stream executes whatever the process mode drops: resolved
+            // where its launches are issued, which here is the runner.
+            let measuring = cubecl_runtime::execution::StreamModeOverride::new(
+                cubecl_runtime::execution::StreamMode::Execute,
+                client,
+            );
 
             probed = true;
-            probe(client, key)
+            let value = probe(client, key);
+            core::mem::drop(measuring);
+            value
         });
 
         (value, probed)
@@ -152,14 +158,14 @@ fn probe(client: &Client, key: ThroughputKey) -> Result<ThroughputValue, Through
     match key.mode {
         ThroughputMode::ComputeDirect { dtype } => {
             ShapeSweep::new(compute_direct_shapes(client, dtype, launch_config))
-                .fastest(|(dtype, config)| Ok(compute_direct::build_kernel(client, dtype, config)))
+                .fastest(|(dtype, config)| compute_direct::build_kernel(client, dtype, config))
                 .map(|(value, _)| value)
         }
         ThroughputMode::ComputeCmma {
             config: cmma_config,
             ..
         } => ShapeSweep::new(alloc::vec![launch_config])
-            .fastest(|config| Ok(compute_cmma::build_kernel(client, key, cmma_config, config)))
+            .fastest(|config| compute_cmma::build_kernel(client, key, cmma_config, config))
             .map(|(value, _)| value),
         ThroughputMode::Memory(spec) => {
             let (value, fastest) = ShapeSweep::new(WorkerSweep::shapes(

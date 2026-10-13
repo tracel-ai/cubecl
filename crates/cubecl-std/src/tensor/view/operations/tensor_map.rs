@@ -114,12 +114,12 @@ macro_rules! impl_tensor_map {
                     scope: &Scope,
                     shared_memory: &SliceExpand<T>,
                     pos: <$coords as CubeType>::ExpandType,
-                ) {
+                ) -> PendingExpand<()> {
                     let shared = shared_memory.__expand_downcast_method(scope);
                     let ($($val),*) = pos;
                     let ($($val),*) = ($(i32::__expand_cast_from(scope, $val)),*);
                     let mut this = self.clone();
-                    [<tma_store_ $dim d>]::expand::<T, T>(scope, &shared, &mut this, $($val),*);
+                    [<tma_store_ $dim d>]::expand::<T, T>(scope, &shared, &mut this, $($val),*)
                 }
             }
         }
@@ -394,32 +394,32 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsMutExpand<T
         scope: &Scope,
         shared_memory: &SliceExpand<T>,
         pos: SequenceExpand<N>,
-    ) {
+    ) -> PendingExpand<()> {
         let mut this = *self;
         let rank = pos.len();
         let pos = &pos;
         match rank {
             1 => {
                 let x = as_i32(scope, pos, 0);
-                tma_store_1d::expand(scope, shared_memory, &mut this, x);
+                tma_store_1d::expand(scope, shared_memory, &mut this, x)
             }
             2 => {
                 let y = as_i32(scope, pos, 0);
                 let x = as_i32(scope, pos, 1);
-                tma_store_2d::expand(scope, shared_memory, &mut this, y, x);
+                tma_store_2d::expand(scope, shared_memory, &mut this, y, x)
             }
             3 => {
                 let z = as_i32(scope, pos, 0);
                 let y = as_i32(scope, pos, 1);
                 let x = as_i32(scope, pos, 2);
-                tma_store_3d::expand(scope, shared_memory, &mut this, z, y, x);
+                tma_store_3d::expand(scope, shared_memory, &mut this, z, y, x)
             }
             4 => {
                 let w = as_i32(scope, pos, 0);
                 let z = as_i32(scope, pos, 1);
                 let y = as_i32(scope, pos, 2);
                 let x = as_i32(scope, pos, 3);
-                tma_store_4d::expand(scope, shared_memory, &mut this, w, z, y, x);
+                tma_store_4d::expand(scope, shared_memory, &mut this, w, z, y, x)
             }
             5 => {
                 let v = as_i32(scope, pos, 0);
@@ -427,7 +427,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsMutExpand<T
                 let z = as_i32(scope, pos, 2);
                 let y = as_i32(scope, pos, 3);
                 let x = as_i32(scope, pos, 4);
-                tma_store_5d::expand(scope, shared_memory, &mut this, v, w, z, y, x);
+                tma_store_5d::expand(scope, shared_memory, &mut this, v, w, z, y, x)
             }
             _ => panic!("TMA store supports 1D-5D loads"),
         }

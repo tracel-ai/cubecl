@@ -129,7 +129,7 @@ pub fn float_to_e2m1_bits<F: Numeric, N: Size>(value: Vector<F, N>) -> Vector<u3
 
     // The sign comes off the bit pattern rather than a comparison against zero. `-0.0` is not
     // less than zero, so a comparison calls it positive and drops it on code `0x0`, where
-    // [`e2m1_bits_to_float`] and the host codec both name it `0x8`. The negative zero a decode
+    // [`e2m1_bits_to_float`](fn@e2m1_bits_to_float) and the host codec both name it `0x8`. The negative zero a decode
     // produces has to encode back to the code it came from.
     let sign_bit = Vector::new(0x8000_0000u32);
     let negative = (Vector::<u32, N>::reinterpret(value) & sign_bit).equal(&sign_bit);
@@ -150,14 +150,14 @@ pub fn float_to_e2m1_bits<F: Numeric, N: Size>(value: Vector<F, N>) -> Vector<u3
 }
 
 /// One per lane where the lane cleared its threshold, zero elsewhere — the term
-/// [`float_to_e2m1_bits`] sums to reach a code.
+/// [`float_to_e2m1_bits`](fn@float_to_e2m1_bits) sums to reach a code.
 #[cube]
 fn cleared<N: Size>(above: Vector<bool, N>) -> Vector<u32, N> {
     select_many(above, Vector::new(1u32), Vector::new(0u32))
 }
 
-/// What a code placed as an `f16` near the bottom of its range ([`f16_pair_bits`]) is short of
-/// its value by: `2^14`, the gap between an `e2m1` exponent of zero and an `f16` one.
+/// What a code placed as an `f16` near the bottom of its range, its sign, exponent and mantissa
+/// moved onto the `f16`'s own, is short of its value by: `2^14`, the gap between an `e2m1` exponent of zero and an `f16` one.
 pub const E2M1_F16_LIFT: f32 = 16384.0;
 
 /// The `f16` pair two codes name, from a word holding one code in its low nibble and the other
@@ -176,7 +176,7 @@ fn f16_pair_bits(codes: u32) -> u32 {
 
 /// Decode the eight codes of each word of `words`, lowest nibble first, to `f16`.
 ///
-/// One multiply for every lane lifts the placed values ([`e2m1_words_to_f16_placed`]) to their
+/// One multiply for every lane lifts the placed values ([`e2m1_words_to_f16_placed`](fn@e2m1_words_to_f16_placed)) to their
 /// values, exactly, the factor being a power of two.
 #[cube]
 pub fn e2m1_words_to_f16<W: Size, V: Size>(words: Vector<u32, W>) -> Vector<f16, V> {
@@ -188,8 +188,8 @@ pub fn e2m1_words_to_f16<W: Size, V: Size>(words: Vector<u32, W>) -> Vector<f16,
 /// factor anyway, a block scale, takes, multiplying the lift into that factor once rather than
 /// paying a multiply a value.
 ///
-/// A word's codes `j` and `j + 4` sit sixteen bits apart, so a word is four pairs and four
-/// [`f16_pair_bits`]; the pairs land on their lanes by compile-time inserts.
+/// A word's codes `j` and `j + 4` sit sixteen bits apart, so a word is four pairs, each placed
+/// by one mask and one shift; the pairs land on their lanes by compile-time inserts.
 #[cube]
 pub fn e2m1_words_to_f16_placed<W: Size, V: Size>(words: Vector<u32, W>) -> Vector<f16, V> {
     let mut values = Vector::<f16, V>::empty();
@@ -207,7 +207,7 @@ pub fn e2m1_words_to_f16_placed<W: Size, V: Size>(words: Vector<u32, W>) -> Vect
     values
 }
 
-/// [`e2m1_words_to_f16`] for bytes that do not fill a word, one `e2m1x2` per lane of `bytes`:
+/// [`e2m1_words_to_f16`](fn@e2m1_words_to_f16) for bytes that do not fill a word, one `e2m1x2` per lane of `bytes`:
 /// the high nibble moves up to the second half of the word first, one more mask and shift a pair.
 #[cube]
 pub fn e2m1_bytes_to_f16<B: Size, V: Size>(bytes: Vector<u32, B>) -> Vector<f16, V> {
@@ -289,11 +289,11 @@ pub type LowerFp4CastPass = MatchRewritePass<LowerFp4Cast>;
 /// Lowers every cast from or to `e2m1x2` onto the software codec, for a backend that has no
 /// native fp4 conversion.
 ///
-/// The decode goes through `f16` pairs ([`e2m1_words_to_f16`]) where the backend has `f16`, and
-/// through `f32` ([`e2m1_bits_to_float`]) where it does not: the pairs decode two codes for what
+/// The decode goes through `f16` pairs ([`e2m1_words_to_f16`](fn@e2m1_words_to_f16)) where the backend has `f16`, and
+/// through `f32` ([`e2m1_bits_to_float`](fn@e2m1_bits_to_float)) where it does not: the pairs decode two codes for what
 /// the `f32` path spends on one and need no select, and the backend is what knows whether `f16`
 /// exists. A cast whose bytes fill whole words decodes a word at a time, codes four apart
-/// sharing a pair. The encode is [`float_to_e2m1_bits`] either way.
+/// sharing a pair. The encode is [`float_to_e2m1_bits`](fn@float_to_e2m1_bits) either way.
 #[derive(new, Clone, Copy, Debug, Default, NamedRewrite)]
 pub struct LowerFp4Cast {
     /// Whether the backend computes in `f16`.

@@ -15,9 +15,13 @@ workspace = true
 
 [features]
 default = [
+    "std",
     "cubecl-server/default",
     "cubecl-common/default",
     "cubecl-core/default",
+    # Compiler defaults enable runtime persistence, so only forward them with our defaults.
+    "cubecl-cpp?/default",
+    "cubecl-spirv?/default",
 ]
 exclusive-memory-only = ["cubecl-server/exclusive-memory-only"]
 persistence = ["cubecl-server/persistence"]
@@ -25,7 +29,8 @@ std = [
     "cubecl-server/std",
     "cubecl-common/std",
     "cubecl-core/std",
-    "cubecl-cpp/std",
+    "cubecl-cpp?/std",
+    "cubecl-spirv?/std",
     "cubecl-opt/std",
     "pliron/std",
     "sanitize-filename",
@@ -79,11 +84,11 @@ tracy-client = { workspace = true, optional = true }
 
 # SPIR-V
 ash = { workspace = true, optional = true }
-cubecl-spirv = { workspace = true, default-features = true, optional = true }
+cubecl-spirv = { workspace = true, optional = true }
 tracel-ash = { workspace = true, optional = true }
 
 # Metal
-cubecl-cpp = { workspace = true, default-features = true, features = [
+cubecl-cpp = { workspace = true, features = [
     "metal",
 ], optional = true }
 

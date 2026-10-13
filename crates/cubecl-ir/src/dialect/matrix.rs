@@ -8,7 +8,7 @@ use derive_new::new;
 use itertools::Itertools;
 use pliron::{
     builtin::{
-        attributes::IdentifierAttr,
+        attributes::{IdentifierAttr, TypeAttr},
         ops::FuncOp,
         types::{FunctionType, IntegerType, Signedness},
     },
@@ -27,7 +27,7 @@ use pliron::{
 };
 
 use crate::{
-    CanMaterialize, HasSideEffects, Pure,
+    AddressSpace, CanMaterialize, HasSideEffects, Pure,
     attributes::{BoolAttr, IndexAttr},
     dialect::{general::SymbolUserOpVerifyErr, synchronization::SyncScope},
     interfaces::{
@@ -200,6 +200,176 @@ pub struct MmaManualScaledOp {
     pub shape: MatrixShapeAttr,
 }
 synchronizes!(MmaManualScaledOp, SyncScope::Plane);
+
+/// The swizzle a warpgroup MMA matrix descriptor declares for the tile it points at, named for
+/// the width of the rows it permutes. The pattern repeats every 8 rows.
+#[pliron_attr(name = "matrix.wgmma_swizzle", format, verifier = "succ")]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, PartialOrd, Ord)]
+pub enum WgmmaSwizzle {
+    /// No swizzle: the tile is made of 8x16-byte core matrices.
+    None,
+    B32,
+    B64,
+    B128,
+}
+
+impl WgmmaSwizzle {
+    /// The bytes of a line the swizzle permutes the 16-byte chunks of. Without swizzle, a line
+    /// is one chunk.
+    pub fn width(&self) -> usize {
+        match self {
+            WgmmaSwizzle::None => 16,
+            WgmmaSwizzle::B32 => 32,
+            WgmmaSwizzle::B64 => 64,
+            WgmmaSwizzle::B128 => 128,
+        }
+    }
+
+    /// The alignment, in bytes, a tile with this swizzle must start at. A swizzled tile starts a
+    /// repeat of its pattern, 8 rows of the swizzle's width, because the descriptor leaves the
+    /// base offset that would shift the pattern at zero.
+    pub fn alignment(&self) -> usize {
+        match self {
+            WgmmaSwizzle::None => 16,
+            WgmmaSwizzle::B32 => 256,
+            WgmmaSwizzle::B64 => 512,
+            WgmmaSwizzle::B128 => 1024,
+        }
+    }
+}
+
+/// A warpgroup operation is `.sync.aligned` over four planes. No scope names a warpgroup, so it
+/// declares the conservative end of each bound: at least a plane, so no pass takes it for a
+/// cube barrier, and at most a cube, so no pass sinks it into control flow that only a plane
+/// agrees on.
+macro_rules! warpgroup_synchronizes {
+    ($ty: ty) => {
+        #[op_interface_impl]
+        impl crate::interfaces::Synchronizes for $ty {
+            fn minimum_scope(&self, _ctx: &Context) -> SyncScope {
+                SyncScope::Plane
+            }
+            fn maximum_scope(&self, _ctx: &Context) -> SyncScope {
+                SyncScope::Cube
+            }
+        }
+    };
+}
+
+/// Units in a warpgroup: the four planes that issue one warpgroup MMA together.
+pub const WARPGROUP_UNITS: usize = 128;
+/// Rows every warpgroup MMA computes.
+pub const WARPGROUP_M: usize = 64;
+/// Bytes of K every warpgroup MMA reads.
+pub const WARPGROUP_K_BYTES: usize = 32;
+
+/// The elements of K of `elem_size` bytes every warpgroup MMA reads.
+pub const fn warpgroup_k(elem_size: usize) -> usize {
+    WARPGROUP_K_BYTES / elem_size
+}
+
+/// The elements each unit of a warpgroup holds of a `64 x cols` accumulator or `A` fragment.
+pub const fn warpgroup_elems_per_unit(cols: usize) -> usize {
+    WARPGROUP_M * cols / WARPGROUP_UNITS
+}
+
+/// Which dimension of a warpgroup MMA operand tile is contiguous in shared memory: K, as in a
+/// row-major `A` or a column-major `B`, or M for `A` and N for `B`.
+#[pliron_attr(name = "matrix.wgmma_major", format, verifier = "succ")]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, PartialOrd, Ord)]
+pub enum WgmmaMajor {
+    K,
+    MN,
+}
+
+/// Builds the 64-bit matrix descriptor a warpgroup MMA reads a shared memory tile through.
+/// `ptr` must point into shared memory, and the two offsets are in bytes.
+#[cube_op(name = "matrix.wgmma_descriptor")]
+#[result_ty(fixed = IntegerType::get(ctx, 64, Signedness::Unsigned).into())]
+#[op_traits(CanMaterialize, Pure)]
+pub struct WgmmaDescriptorOp {
+    pub ptr: Value,
+    pub leading_byte_offset: IndexAttr,
+    pub stride_byte_offset: IndexAttr,
+    pub swizzle: WgmmaSwizzle,
+}
+
+/// Orders register accesses before the warpgroup MMAs that follow it. Required before the first
+/// MMA, and whenever registers an MMA reads were written by something else in between.
+#[cube_op(name = "matrix.wgmma_fence")]
+#[result_ty(none)]
+#[op_traits(CanMaterialize, HasSideEffects)]
+pub struct WgmmaFenceOp {}
+warpgroup_synchronizes!(WgmmaFenceOp);
+
+/// Commits every warpgroup MMA issued and not yet committed into one group.
+#[cube_op(name = "matrix.wgmma_commit_group")]
+#[result_ty(none)]
+#[op_traits(CanMaterialize, HasSideEffects)]
+pub struct WgmmaCommitGroupOp {}
+warpgroup_synchronizes!(WgmmaCommitGroupOp);
+
+/// Waits until at most `max_pending` committed groups of warpgroup MMAs are still running.
+#[cube_op(name = "matrix.wgmma_wait_group")]
+#[result_ty(none)]
+#[op_traits(CanMaterialize, HasSideEffects)]
+pub struct WgmmaWaitGroupOp {
+    pub max_pending: IndexAttr,
+}
+warpgroup_synchronizes!(WgmmaWaitGroupOp);
+
+/// Pins the registers of an array in place: no access to them moves across it. An MMA in flight
+/// owns its accumulator until the wait that retires it, so the compiler must neither read the
+/// registers early nor copy them elsewhere in between.
+#[cube_op(name = "matrix.wgmma_fence_operand")]
+#[result_ty(none)]
+#[op_traits(CanMaterialize, HasSideEffects)]
+#[op_interfaces(OperandNOfType<0, PointerType>)]
+pub struct WgmmaFenceOperandOp {
+    #[operand(ptr_read, ptr_write)]
+    pub registers: Value,
+}
+
+/// Warpgroup MMA, `D = A * B + D`, issued asynchronously: the accumulator may only be read after
+/// a [`WgmmaWaitGroupOp`] retires the group it was committed in.
+///
+/// `a` is either a `u64` matrix descriptor of a shared memory tile or an array of registers, and
+/// `b` is always a descriptor, so the element types are carried as attributes. `a_major` is only
+/// read for a descriptor: `A` in registers has no layout in memory.
+#[cube_op(name = "matrix.wgmma")]
+#[result_ty(none)]
+#[op_traits(CanMaterialize, HasSideEffects)]
+#[op_interfaces(OperandNOfType<2, PointerType>)]
+pub struct WgmmaOp {
+    pub a: Value,
+    pub b: Value,
+    pub accumulator: Value,
+    pub a_ty: TypeAttr,
+    pub b_ty: TypeAttr,
+    pub shape: MatrixShapeAttr,
+    pub a_major: WgmmaMajor,
+    pub b_major: WgmmaMajor,
+}
+warpgroup_synchronizes!(WgmmaOp);
+
+#[op_interface_impl]
+impl MemoryEffectsOp for WgmmaOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        // The descriptors carry addresses the analyses cannot follow, so the operation reads
+        // any of shared memory.
+        let mut effects = vec![
+            MemoryEffect::Read(self.accumulator(ctx)),
+            MemoryEffect::Write(self.accumulator(ctx)),
+            MemoryEffect::ReadAllInSpace(AddressSpace::Shared),
+        ];
+        // `A` in registers is read out of its array.
+        let a = self.a(ctx);
+        if a.is_ptr(ctx) {
+            effects.push(MemoryEffect::Read(a));
+        }
+        effects
+    }
+}
 
 /// Executes a closure for each element in the matrix.
 /// Note: Unlike most matrix ops, this does not have implicit synchronization because there's no

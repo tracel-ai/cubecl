@@ -211,7 +211,7 @@ Sometimes the results are surprising, which is part of why this is so useful for
 
 Even if these benchmarks add some overhead the first time, the results get cached on the device and reused on later runs.
 When you have control over the deployment target, you can save a warm environment with `cubecl::environment::bundle()` and ship it with your binary, which removes the cold-start cost entirely.
-A dry run compiles and tunes every launch without executing it, so producing that bundle is cheap.
+A `ProcessModeOverride` compiles and tunes every launch without executing it, so producing that bundle is cheap: `examples/execution` shows how.
 
 ## Ecosystem
 
