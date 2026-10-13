@@ -1,6 +1,7 @@
 use crate::prelude::*;
 use crate::{self as cubecl};
 use cubecl_runtime::runtime::Runtime;
+use cubecl_runtime::server::Handle;
 
 macro_rules! test_binary_impl {
     (
@@ -204,6 +205,54 @@ pub fn test_nan_ordering<R: Runtime>(client: Client) {
     }
 }
 
+pub fn test_bool_operators<R: Runtime>(client: Client) {
+    #[cube(launch_unchecked)]
+    fn test_function(
+        lhs: &[u32],
+        rhs: &[u32],
+        eq: &mut [u32],
+        ne: &mut [u32],
+        xor: &mut [u32],
+        xor_assign: &mut [u32],
+    ) {
+        let a = lhs[ABSOLUTE_POS] == 1;
+        let b = rhs[ABSOLUTE_POS] == 1;
+        let mut c = a;
+        c ^= b;
+
+        eq[ABSOLUTE_POS] = u32::cast_from(a == b);
+        ne[ABSOLUTE_POS] = u32::cast_from(a != b);
+        xor[ABSOLUTE_POS] = u32::cast_from(a ^ b);
+        xor_assign[ABSOLUTE_POS] = u32::cast_from(c);
+    }
+
+    let lhs = client.create_from_slice(u32::as_bytes(&[0, 0, 1, 1]));
+    let rhs = client.create_from_slice(u32::as_bytes(&[0, 1, 0, 1]));
+    let [eq, ne, xor, xor_assign] =
+        core::array::from_fn(|_| client.empty(4 * core::mem::size_of::<u32>()));
+    let arg = |handle: &Handle| unsafe { BufferArg::from_raw_parts(handle.clone(), 4) };
+
+    unsafe {
+        test_function::launch_unchecked(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(4),
+            arg(&lhs),
+            arg(&rhs),
+            arg(&eq),
+            arg(&ne),
+            arg(&xor),
+            arg(&xor_assign),
+        )
+    };
+
+    let read = |handle: Handle| u32::from_bytes(&client.read_one_unchecked(handle)).to_vec();
+    assert_eq!(read(eq), [1, 0, 0, 1]);
+    assert_eq!(read(ne), [0, 1, 1, 0]);
+    assert_eq!(read(xor), [0, 1, 1, 0]);
+    assert_eq!(read(xor_assign), [0, 1, 1, 0]);
+}
+
 /// Comparing a vector with itself folds at compile time, and the answer is a vector of `true`,
 /// not the one `true` a bare [`BoolAttr`](cubecl_ir::attributes::BoolAttr) can hold. Each of these
 /// picks a different fold: two identical operands, and an operand against its type's extreme.
@@ -374,6 +423,7 @@ macro_rules! testgen_comparison {
             add_test!(test_le);
             add_test!(test_eq);
             add_test!(test_ne);
+            add_test!(test_bool_operators);
             add_test!(test_nan_ordering);
             add_test!(test_folded_vector);
         }
