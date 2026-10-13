@@ -157,10 +157,11 @@ impl ToLLVMDialect for vector::FSumOp {
         rewriter.insert_op(ctx, &zero_const);
 
         let intrinsic_type = FuncType::get(ctx, res_ty, vec![res_ty, elem_ty], false);
+        let name = format!("llvm.vector.reduce.fadd.{}", llvm_mangled_ty(ctx, elem_ty));
 
         let op = llvm::CallIntrinsicOp::new(
             ctx,
-            "llvm.vector.reduce.fadd".into(),
+            name.into(),
             intrinsic_type,
             vec![zero_const.get_result(ctx), input],
         );
@@ -186,13 +187,9 @@ impl ToLLVMDialect for vector::ISumOp {
         let res_ty = cube_type_to_llvm(ctx, res_ty);
 
         let intrinsic_type = FuncType::get(ctx, res_ty, vec![elem_ty], false);
+        let name = format!("llvm.vector.reduce.add.{}", llvm_mangled_ty(ctx, elem_ty));
 
-        let op = llvm::CallIntrinsicOp::new(
-            ctx,
-            "llvm.vector.reduce.add".into(),
-            intrinsic_type,
-            vec![input],
-        );
+        let op = llvm::CallIntrinsicOp::new(ctx, name.into(), intrinsic_type, vec![input]);
 
         rewriter.insert_op(ctx, &op);
         rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![op.get_result(ctx)]);

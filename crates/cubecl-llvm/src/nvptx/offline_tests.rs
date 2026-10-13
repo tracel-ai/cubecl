@@ -1,8 +1,9 @@
 //! Real kernels compiled to PTX without a device, checked on the assembly.
 
 use crate::shared::offline_kernels::{
-    ProductA, Wait, bf16_math_kernel, keep_largest_kernel, plane_moves_kernel, relay_kernel,
-    scale_kernel, strided_walk_kernel, tally_kernel, tile_product_kernel,
+    ProductA, Wait, bf16_math_kernel, keep_largest_kernel, mixed_vector_reductions_kernel,
+    plane_moves_kernel, relay_kernel, scale_kernel, strided_walk_kernel, tally_kernel,
+    tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{PlironArtifact, PlironCompiler, PlironOptions, nvptx::ptx_version::PtxVersion};
@@ -10,6 +11,32 @@ use cubecl_core::Compiler;
 use cubecl_core::ir::{AddressType, nvidia::SmArch};
 use cubecl_runtime::kernel::CubeKernel;
 use std::ffi::CStr;
+
+#[test]
+fn mixed_vector_reductions_keep_distinct_float_declarations() {
+    let ir = module_of(mixed_vector_reductions_kernel::<f32>(), 80).ir;
+    assert!(
+        ir.contains("declare float @llvm.vector.reduce.fadd.v4f32(float, <4 x float>)"),
+        "{ir}"
+    );
+    assert!(
+        ir.contains("declare float @llvm.vector.reduce.fadd.v2f32(float, <2 x float>)"),
+        "{ir}"
+    );
+}
+
+#[test]
+fn mixed_vector_reductions_keep_distinct_integer_declarations() {
+    let ir = module_of(mixed_vector_reductions_kernel::<i32>(), 80).ir;
+    assert!(
+        ir.contains("declare i32 @llvm.vector.reduce.add.v4i32(<4 x i32>)"),
+        "{ir}"
+    );
+    assert!(
+        ir.contains("declare i32 @llvm.vector.reduce.add.v2i32(<2 x i32>)"),
+        "{ir}"
+    );
+}
 
 #[test]
 fn a_1d_cube_reads_only_the_x_thread_id() {
