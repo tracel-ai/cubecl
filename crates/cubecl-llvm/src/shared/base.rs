@@ -39,7 +39,8 @@ use cubecl_core::{
     post_processing::{
         bf16::LowerWideBf16CastPass,
         bitwise::PromoteBitwisePass,
-        minifloat::{LowerMinifloatCastPass, LowerMinifloatComparePass},
+        fp4::{LowerFp4Cast, LowerFp4CastPass},
+        minifloat::{Fp8Container, LowerMinifloatCastPass, LowerMinifloatComparePass},
     },
     prelude::*,
 };
@@ -445,6 +446,11 @@ fn lower(
     // LLVM converts between `f32` and `bfloat`; a wider source would round twice through `f32`.
     func_passes.add_pass(LowerWideBf16CastPass::default());
     func_passes.add_pass(LowerMinifloatCastPass::default());
+    // LLVM has no fp4 type: `e2m1x2` is a byte, decoded in software through `f16` pairs.
+    func_passes.add_pass(LowerFp4CastPass::new(LowerFp4Cast::new(
+        true,
+        Fp8Container::Bytes,
+    )));
     func_passes.add_pass(LowerMinifloatComparePass::default());
     func_passes.add_pass(LowerComplexOpPass::default());
     target.epilogue(&mut func_passes);
