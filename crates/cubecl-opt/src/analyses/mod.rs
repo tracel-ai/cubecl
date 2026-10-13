@@ -32,6 +32,10 @@ where
 }
 
 impl MaybeUninitBitset {
+    pub fn empty_init() -> Self {
+        Self::Initialized(Default::default())
+    }
+
     pub fn union(&self, other: &Self) -> Self {
         match (self, other) {
             (MaybeUninitBitset::Uninitialized, other)
@@ -113,5 +117,12 @@ impl MaybeUninitBitset {
 
     pub fn is_initialized(&self) -> bool {
         matches!(self, MaybeUninitBitset::Initialized(_))
+    }
+
+    fn unwrap(&self) -> &SparseBitSet {
+        match self {
+            MaybeUninitBitset::Uninitialized => panic!(),
+            MaybeUninitBitset::Initialized(bit_set) => bit_set,
+        }
     }
 }

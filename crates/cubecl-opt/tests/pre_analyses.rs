@@ -8,8 +8,7 @@ use cubecl_opt::analyses::dataflow_solver::{
     AnalysisState, DataflowSolver, ProgramPoint, ReadRef,
     dense::{self, DenseLattice},
     pre::{
-        AnticipatedExpressions, AvailableExpressions, Computes, compute_lcm_analyses,
-        compute_slcm_analyses,
+        Anticipated, AvailableExpressions, Computes, compute_lcm_analyses, compute_scm_analyses,
     },
 };
 use expect_test::expect;
@@ -79,7 +78,7 @@ fn run_speculative_pre_analyses_on_text(ctx: &mut Context, input: &str) -> Resul
 
     verify_operation(op, ctx)?;
 
-    let solver = compute_slcm_analyses(ctx, op)?;
+    let solver = compute_scm_analyses(ctx, op)?;
     std::println!("{}", solver.disp(ctx));
 
     Ok(display_sorted_anticipated(ctx, &solver, op))
@@ -181,7 +180,7 @@ fn display_sorted_anticipated(
     solver: &DataflowSolver,
     op: Ptr<Operation>,
 ) -> String {
-    let states = states_topological_bwd::<AnticipatedExpressions>(ctx, solver, op, true);
+    let states = states_topological_bwd::<Anticipated>(ctx, solver, op, true);
     states.iter().map(|it| display_dense_bwd(ctx, it)).join("")
 }
 
@@ -794,6 +793,56 @@ fn pre_region_result_convergence() -> Result<()> {
 }
 
 #[test]
+fn pre_loop_propagates_from_immediate_dominator() -> Result<()> {
+    let input = r#"
+    builtin.func @f: builtin.function <(cube.index, cube.index, cube.index, builtin.integer i64, builtin.integer i64) -> ()>
+        [entry_point: cube.entrypoint_abi <cube_dim: (1, 1, 1)>] {
+    ^entry(start: cube.index, end: cube.index, step: cube.index, a: builtin.integer i64, b: builtin.integer i64):
+        value_before = math.i_add (a, b) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>;
+        scf.for start to end step step iter_args() {
+        ^body(i: builtin.integer i32):
+            branch.yield ()
+        };
+        value_after = math.i_sub (a, b) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>;
+        branch.return
+    }
+  "#;
+
+    let ctx = &mut Context::default();
+    let sets = run_pre_analyses_on_text(ctx, input)?;
+
+    // `Available` for `value_before` and `Anticipated` for `value_after` should propagate through
+    // the loop.
+    expect![[r#"
+        computes:
+        value_before_v5 = math.i_add (a_v3, b_v4) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Computes({e6})
+        branch.yield (): Computes({})
+        value_after_v7 = math.i_sub (a_v3, b_v4) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Computes({e7})
+        branch.return : Computes({})
+
+        available:
+        block_start(^entry_block1v1): Available({})
+        value_before_v5 = math.i_add (a_v3, b_v4) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Available({e6})
+        block_start(^body_block2v1): Available({e6})
+        branch.yield (): Available({e6})
+        scf.for start_v0 to end_v1 step step_v2 {..}: Available({e6})
+        value_after_v7 = math.i_sub (a_v3, b_v4) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Available({e6, e7})
+        branch.return : Available({e6, e7})
+
+        anticipated:
+        block_end(^entry_block1v1): Anticipated({})
+        branch.return : Anticipated({})
+        value_after_v7 = math.i_sub (a_v3, b_v4) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Anticipated({e7})
+        block_end(^body_block2v1): Anticipated({e7})
+        branch.yield (): Anticipated({e7})
+        scf.for start_v0 to end_v1 step step_v2 {..}: Anticipated({e7})
+        value_before_v5 = math.i_add (a_v3, b_v4) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Anticipated({e6, e7})
+    "#]].assert_eq(&sets);
+
+    Ok(())
+}
+
+#[test]
 fn pre_region_result_distinct_values() -> Result<()> {
     let input = r#"
     builtin.func @f: builtin.function <(cube.bool, builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)> [] {
@@ -945,7 +994,7 @@ fn pre_region_memory_clobber() -> Result<()> {
 }
 
 #[test]
-fn slcm_if_uniform_condition() -> Result<()> {
+fn scm_if_uniform_condition() -> Result<()> {
     let input = r#"
     builtin.module @module {
       ^module_block():
@@ -989,7 +1038,7 @@ fn slcm_if_uniform_condition() -> Result<()> {
 }
 
 #[test]
-fn slcm_if_divergent_condition() -> Result<()> {
+fn scm_if_divergent_condition() -> Result<()> {
     let input = r#"
     builtin.module @module {
       ^module_block():
@@ -1033,7 +1082,80 @@ fn slcm_if_divergent_condition() -> Result<()> {
 }
 
 #[test]
-fn slcm_for_uniform_bounds() -> Result<()> {
+fn scm_speculative_seed_external_fixpoint() -> Result<()> {
+    let input = r#"
+    builtin.module @module {
+      ^module_block():
+      builtin.func @f: builtin.function <(builtin.integer i64, builtin.integer i64, cube.bool) -> ()>
+          [entry_point: cube.entrypoint_abi <cube_dim: (1, 1, 1)>] {
+        ^entry(a: builtin.integer i64, b: builtin.integer i64, uniform_cond: cube.bool):
+          outer_cond = plane.elect () [] []: <() -> (cube.bool)>;
+          result = scf.if outer_cond : builtin.integer i64 then {
+            ^outer_then():
+              middle = scf.if uniform_cond : builtin.integer i64 then {
+                ^uniform_then():
+                  inner_cond = plane.elect () [] []: <() -> (cube.bool)>;
+                  inner = scf.if inner_cond : builtin.integer i64 then {
+                    ^inner_then():
+                      value = math.i_add (a, b) [] []:
+                          <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>;
+                      branch.yield (value)
+                  } else {
+                    ^inner_else():
+                      branch.yield (a)
+                  };
+                  branch.yield (inner)
+              } else {
+                ^uniform_else():
+                  fallback_value = math.i_add (a, b) [] []:
+                      <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>;
+                  branch.yield (fallback_value)
+              };
+              branch.yield (middle)
+          } else {
+            ^outer_else():
+              branch.yield (a)
+          };
+          branch.return
+      }
+    }
+  "#;
+
+    let ctx = &mut Context::new();
+    let actual = run_speculative_pre_analyses_on_text(ctx, input)?;
+
+    expect![[r#"
+        block_end(^module_block_block1v1): Anticipated({})
+        block_end(^entry_block2v1): Anticipated({})
+        branch.return : Anticipated({})
+        block_end(^outer_then_block3v1): Anticipated({})
+        branch.yield (middle_v8): Anticipated({})
+        block_end(^uniform_then_block4v1): Anticipated({})
+        branch.yield (inner_v6): Anticipated({})
+        block_end(^inner_then_block5v1): Anticipated({})
+        branch.yield (value_v5): Anticipated({})
+        value_v5 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Anticipated({e4})
+        block_end(^inner_else_block6v1): Anticipated({})
+        branch.yield (a_v0): Anticipated({})
+        inner_v6 = scf.if inner_cond_v4 : builtin.integer i64 then {..} else {..}: Anticipated({e4})
+        inner_cond_v4 = plane.elect () [] []: <() -> (cube.bool )>: Anticipated({e3, e4})
+        block_end(^uniform_else_block7v1): Anticipated({})
+        branch.yield (fallback_value_v7): Anticipated({})
+        fallback_value_v7 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Anticipated({e4})
+        middle_v8 = scf.if uniform_cond_v2 : builtin.integer i64 then {..} else {..}: Anticipated({e4})
+        block_end(^outer_else_block8v1): Anticipated({})
+        branch.yield (a_v0): Anticipated({})
+        result_v9 = scf.if outer_cond_v3 : builtin.integer i64 then {..} else {..}: Anticipated({e4})
+        outer_cond_v3 = plane.elect () [] []: <() -> (cube.bool )>: Anticipated({e3, e4})
+        builtin.func @f: builtin.function <(builtin.integer i64, builtin.integer i64, cube.bool ) -> ()> 
+          [entry_point: cube.entrypoint_abi <cube_dim: (1, 1, 1)>]{..}: Anticipated({})
+    "#]].assert_eq(&actual);
+
+    Ok(())
+}
+
+#[test]
+fn scm_for_uniform_bounds() -> Result<()> {
     let input = r#"
     builtin.module @module {
       ^module_block():
@@ -1072,7 +1194,7 @@ fn slcm_for_uniform_bounds() -> Result<()> {
 }
 
 #[test]
-fn slcm_for_divergent_bounds() -> Result<()> {
+fn scm_for_divergent_bounds() -> Result<()> {
     let input = r#"
     builtin.module @module {
       ^module_block():
@@ -1113,7 +1235,7 @@ fn slcm_for_divergent_bounds() -> Result<()> {
 }
 
 #[test]
-fn slcm_while_uniform_condition() -> Result<()> {
+fn scm_while_uniform_condition() -> Result<()> {
     let input = r#"
     builtin.module @module {
       ^module_block():
@@ -1157,7 +1279,7 @@ fn slcm_while_uniform_condition() -> Result<()> {
 }
 
 #[test]
-fn slcm_while_divergent_condition() -> Result<()> {
+fn scm_while_divergent_condition() -> Result<()> {
     let input = r#"
     builtin.module @module {
       ^module_block():
