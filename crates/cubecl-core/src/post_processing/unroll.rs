@@ -6,7 +6,7 @@ use cubecl_ir::{
     dialect::{
         base::OperationPtrExt,
         cmp::IEqualOp,
-        general::{CopyOp, ReinterpretCastOp, SelectOp},
+        general::{CastOp, CopyOp, ReinterpretCastOp, SelectOp},
         math::{IAddOp, IMulOp, UDivOp, URemOp},
         matrix,
         memory::{DeclareVariableOp, IndexOp},
@@ -472,6 +472,97 @@ impl CustomUnrollOp for ReinterpretCastOp {
                         }
                     };
                     let new_op = ReinterpretCastOp::new(ctx, piece_ty, piece);
+                    new_op.get_operation().insert_before(ctx, op);
+                    new_op.get_result(ctx)
+                })
+                .collect();
+            state.mappings.insert(result, new_results);
+        }
+        state.to_erase.push(op);
+    }
+}
+
+#[op_interface_impl]
+impl CustomUnrollOp for CastOp {
+    fn unroll(&self, ctx: &mut Context, state: &mut UnrollState) {
+        let input = self.input(ctx);
+        let result = self.get_result(ctx);
+        let max = state.max_vector_size;
+        let (in_vec, out_vec) = (try_get_vec(ctx, input), try_get_vec(ctx, result));
+        if in_vec <= max && out_vec <= max {
+            return;
+        }
+
+        let (wide, narrow) = match in_vec >= out_vec {
+            true => (in_vec, out_vec),
+            false => (out_vec, in_vec),
+        };
+        let factor = wide / max;
+        state.result.ir_changed |= IRStatus::Changed;
+        let op = self.get_operation();
+
+        // in_vec is the bigger end. it means packed value can only happen on the out. we should
+        // look at the in side.
+        if in_vec > max && in_vec >= out_vec {
+            let piece_ty = lanes_type(ctx, result, out_vec / factor);
+            let pieces = state.mappings.get(&input).expect("Should exist").clone();
+            let converted = pieces
+                .into_iter()
+                .map(|piece| {
+                    let new_op = CastOp::new(ctx, piece_ty, piece);
+                    new_op.get_operation().insert_before(ctx, op);
+                    new_op.get_result(ctx)
+                })
+                .collect::<Vec<_>>();
+            if in_vec == out_vec {
+                state.mappings.insert(result, converted);
+            } else {
+                let lanes = converted
+                    .iter()
+                    .flat_map(|piece| split_lanes(ctx, *piece, op))
+                    .collect::<Vec<_>>();
+                if out_vec <= max {
+                    let result_ty = result.get_type(ctx);
+                    let joined = CompositeConstructOp::new(ctx, result_ty, lanes);
+                    joined.get_operation().insert_before(ctx, op);
+                    result.replace_all_uses_with(ctx, &joined.get_result(ctx));
+                } else {
+                    let result_ty = unroll_ty(ctx, result, max);
+                    let new_results = lanes
+                        .chunks(max)
+                        .map(|lanes| {
+                            let joined = CompositeConstructOp::new(ctx, result_ty, lanes.to_vec());
+                            joined.get_operation().insert_before(ctx, op);
+                            joined.get_result(ctx)
+                        })
+                        .collect::<Vec<_>>();
+                    state.mappings.insert(result, new_results);
+                }
+            }
+        } else {
+            let piece_ty = unroll_ty(ctx, result, max);
+            let lanes = if in_vec <= max {
+                split_lanes(ctx, input, op)
+            } else {
+                let pieces = state.mappings.get(&input).expect("Should exist").clone();
+                pieces
+                    .into_iter()
+                    .flat_map(|piece| split_lanes(ctx, piece, op))
+                    .collect::<Vec<_>>()
+            };
+            let new_results = lanes
+                .chunks(in_vec / factor)
+                .map(|chunk| {
+                    let piece = match chunk {
+                        [lane] => *lane,
+                        lanes => {
+                            let ty = lanes_type(ctx, input, lanes.len());
+                            let joined = CompositeConstructOp::new(ctx, ty, lanes.to_vec());
+                            joined.get_operation().insert_before(ctx, op);
+                            joined.get_result(ctx)
+                        }
+                    };
+                    let new_op = CastOp::new(ctx, piece_ty, piece);
                     new_op.get_operation().insert_before(ctx, op);
                     new_op.get_result(ctx)
                 })
