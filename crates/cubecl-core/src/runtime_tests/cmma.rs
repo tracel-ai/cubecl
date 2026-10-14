@@ -677,7 +677,7 @@ pub fn test_rebuilt_from_raw<R: Runtime>(client: Client, cube_dimensions: CubeDi
         return;
     }
 
-    let lhs: Vec<f16> = (0..256).map(|i| f16::from_int(i)).collect();
+    let lhs: Vec<f16> = (0..256).map(f16::from_int).collect();
     let rhs: Vec<f16> = (0..256).map(|i| f16::from_int(i % 8)).collect();
     let lhs = client.create_from_slice(f16::as_bytes(&lhs));
     let rhs = client.create_from_slice(f16::as_bytes(&rhs));
