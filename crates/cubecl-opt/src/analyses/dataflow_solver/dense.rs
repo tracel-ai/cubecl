@@ -172,9 +172,11 @@ pub trait DenseForwardDataflowAnalysis: Sized + 'static {
         this: &DenseForward<Self>,
         solver: &DataflowSolver,
         ctx: &Context,
+        callable: &dyn CallableOpInterface,
         predecessors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
         after: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) {
+        let _ = callable;
         Self::visit_control_flow_transfer(this, solver, ctx, predecessors, after);
     }
 
@@ -182,9 +184,11 @@ pub trait DenseForwardDataflowAnalysis: Sized + 'static {
         this: &DenseForward<Self>,
         solver: &DataflowSolver,
         ctx: &Context,
+        call: &dyn CallOpInterface,
         predecessors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
         after: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) {
+        let _ = call;
         Self::visit_control_flow_transfer(this, solver, ctx, predecessors, after);
     }
 
@@ -407,7 +411,14 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
 
                     predecessors.push(before);
                 }
-                T::visit_callee_control_flow_transfer(self, solver, ctx, &predecessors, &after);
+                T::visit_callee_control_flow_transfer(
+                    self,
+                    solver,
+                    ctx,
+                    &*callable,
+                    &predecessors,
+                    &after,
+                );
                 return;
             }
 
@@ -490,7 +501,14 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
             predecessor_lattices.push(lattice_at_callee_return);
         }
 
-        T::visit_return_control_flow_transfer(self, solver, ctx, &predecessor_lattices, after);
+        T::visit_return_control_flow_transfer(
+            self,
+            solver,
+            ctx,
+            call,
+            &predecessor_lattices,
+            after,
+        );
     }
 
     pub fn visit_region_branch_operation(
