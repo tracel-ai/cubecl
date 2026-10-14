@@ -1,6 +1,6 @@
 #![allow(clippy::approx_constant)]
 
-use core::f32::consts::PI;
+use core::f64::consts::PI;
 use cubecl_runtime::runtime::Runtime;
 
 use core::fmt::Display;
@@ -808,7 +808,7 @@ test_unary_impl!(test_inverse_sqrt, F, Vector::inverse_sqrt, [
         input_vectorization: 4,
         out_vectorization: 4,
         input: as_type![F: 0.0, 0.01, 64.0, 0.111111],
-        expected: as_type![F: f32::INFINITY, 10.0, 0.125, 3.0]
+        expected: as_type![F: f64::INFINITY, 10.0, 0.125, 3.0]
     }
 ]);
 
@@ -853,13 +853,13 @@ test_unary_impl!(
     {
         input_vectorization: 2,
         out_vectorization: 2,
-        input: as_type![F: f32::NAN, 1., 1.2, 1.9],
-        expected: as_type![F: f32::NAN, 1., 1., 1.0]
+        input: as_type![F: f64::NAN, 1., 1.2, 1.9],
+        expected: as_type![F: f64::NAN, 1., 1., 1.0]
     },{
         input_vectorization: 4,
         out_vectorization: 4,
-        input: as_type![F: -0.9, 0.2, f32::NAN, 1.99],
-        expected: as_type![F: -0., 0., f32::NAN, 1.]
+        input: as_type![F: -0.9, 0.2, f64::NAN, 1.99],
+        expected: as_type![F: -0., 0., f64::NAN, 1.]
     }]
 );
 
@@ -895,17 +895,17 @@ test_unary_impl_fixed!(
     [
         {
             input_vectorization: 1,
-            input: as_type![F: 0., f32::NAN, f32::INFINITY, f32::NEG_INFINITY],
+            input: as_type![F: 0., f64::NAN, f64::INFINITY, f64::NEG_INFINITY],
             expected: as_type![u32: false as i64, false as i64, true as i64, true as i64]
         },
         {
             input_vectorization: 2,
-            input: as_type![F: f32::INFINITY, -100., f32::NAN, f32::NEG_INFINITY],
+            input: as_type![F: f64::INFINITY, -100., f64::NAN, f64::NEG_INFINITY],
             expected: as_type![u32: true as i64, false as i64, false as i64, true as i64]
         },
         {
             input_vectorization: 4,
-            input: as_type![F: f32::NEG_INFINITY, f32::INFINITY, 100., f32::NAN],
+            input: as_type![F: f64::NEG_INFINITY, f64::INFINITY, 100., f64::NAN],
             expected: as_type![u32: true as i64, true as i64, false as i64, false as i64]
         }
     ]

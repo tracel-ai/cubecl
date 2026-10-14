@@ -795,8 +795,8 @@ impl<Marker: 'static> Float for DynamicScalar<Marker> {
 
     const RADIX: u32 = 2;
 
-    fn new(val: f32) -> Self {
-        DynamicScalar::from_f64(val as f64)
+    fn new(val: f64) -> Self {
+        DynamicScalar::from_f64(val)
     }
 }
 

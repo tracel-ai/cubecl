@@ -3,7 +3,7 @@
 //! This module provides basic trigonometric operations and angle conversion utilities
 //! that can be used in all GPU kernels.
 
-use core::f32;
+use core::f64;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
@@ -18,7 +18,7 @@ use cubecl_core as cubecl;
 /// ```
 #[cube]
 pub fn to_degrees<F: Float>(val: F) -> F {
-    val * F::new(180.0 / f32::consts::PI)
+    val * F::new(180.0 / f64::consts::PI)
 }
 
 /// Converts an angle from degrees to radians.
@@ -32,5 +32,5 @@ pub fn to_degrees<F: Float>(val: F) -> F {
 /// ```
 #[cube]
 pub fn to_radians<F: Float>(val: F) -> F {
-    val * F::new(f32::consts::PI / 180.0)
+    val * F::new(f64::consts::PI / 180.0)
 }

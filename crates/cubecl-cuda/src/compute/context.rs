@@ -53,7 +53,8 @@ impl CudaContext {
         comm_stream: CUstream,
         transfer_stream: CUstream,
     ) -> Self {
-        let compiler = CudaArtifactCompiler::new(properties, compilation_options.clone(), arch);
+        let compiler =
+            CudaArtifactCompiler::new(properties, compilation_options.clone(), arch, context);
 
         Self {
             context,

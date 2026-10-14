@@ -165,13 +165,13 @@ pub fn test_match_value_literals_portable<R: Runtime>(client: Client) {
 pub fn kernel_switch_simple<F: Float>(output: &mut [F], case: u32) {
     match case {
         0 => {
-            output[0] = F::new(1f32);
+            output[0] = F::new(1.0);
         }
         1 => {
-            output[0] = F::new(3f32);
+            output[0] = F::new(3.0);
         }
         _ => {
-            output[0] = F::new(5f32);
+            output[0] = F::new(5.0);
         }
     }
 }
@@ -180,9 +180,9 @@ pub fn kernel_switch_simple<F: Float>(output: &mut [F], case: u32) {
 pub fn kernel_switch_value_expr<F: Float>(output: &mut [F], case: u32) {
     if UNIT_POS == 0 {
         let value = match case {
-            0 => F::new(1.0f32),
-            1 => F::new(3.0f32),
-            _ => F::new(5.0f32),
+            0 => F::new(1.0),
+            1 => F::new(3.0),
+            _ => F::new(5.0),
         };
         output[0] = value;
     }
@@ -192,9 +192,9 @@ pub fn kernel_switch_value_expr<F: Float>(output: &mut [F], case: u32) {
 pub fn kernel_switch_or_arm<F: Float>(output: &mut [F], case: u32) {
     if UNIT_POS == 0 {
         let value = match case {
-            0 => F::new(1.0f32),
-            1 | 2 => F::new(3.0f32),
-            _ => F::new(5.0f32),
+            0 => F::new(1.0),
+            1 | 2 => F::new(3.0),
+            _ => F::new(5.0),
         };
         output[0] = value;
     }
@@ -207,9 +207,9 @@ const CASE_1: u32 = 1;
 pub fn kernel_switch_const<F: Float>(output: &mut [F], case: u32) {
     if UNIT_POS == 0 {
         let value = match case {
-            CASE_0 => F::new(1.0f32),
-            CASE_1 => F::new(3.0f32),
-            _ => F::new(5.0f32),
+            CASE_0 => F::new(1.0),
+            CASE_1 => F::new(3.0),
+            _ => F::new(5.0),
         };
         output[0] = value;
     }
@@ -218,7 +218,7 @@ pub fn kernel_switch_const<F: Float>(output: &mut [F], case: u32) {
 #[cube(launch)]
 pub fn kernel_select<F: Float>(output: &mut [F], cond: u32) {
     if UNIT_POS == 0 {
-        output[0] = select(cond == 1, F::new(3f32), F::new(5f32));
+        output[0] = select(cond == 1, F::new(3.0), F::new(5.0));
     }
 }
 
@@ -229,7 +229,7 @@ pub fn kernel_for_loop_with_break<F: Float>(output: &mut [F]) {
         if i > 3 {
             break;
         }
-        output[i as usize] = F::new(1f32);
+        output[i as usize] = F::new(1.0);
     }
 }
 
@@ -240,9 +240,9 @@ pub fn kernel_for_loop_with_return<F: Float>(output: &mut [F]) {
         if i > 3 {
             terminate!();
         }
-        output[i as usize] = F::new(1f32);
+        output[i as usize] = F::new(1.0);
     }
-    output[0] = F::new(5f32);
+    output[0] = F::new(5.0);
 }
 
 pub fn test_switch_const<R: Runtime, F: Float + CubeElement>(client: Client) {
