@@ -515,6 +515,14 @@ impl DeviceProperties {
         self.features.types.emulated_conversion.insert(ty.into());
     }
 
+    /// Register `ty`'s arithmetic as emulated through a wider type
+    /// ([`Types::emulated_arithmetic`]).
+    ///
+    /// [`Types::emulated_arithmetic`]: crate::Types::emulated_arithmetic
+    pub fn register_emulated_arithmetic(&mut self, ty: impl Into<ElemType>) {
+        self.features.types.emulated_arithmetic.insert(ty.into());
+    }
+
     /// Register complex capability families for an element type.
     pub fn register_complex_usage(
         &mut self,

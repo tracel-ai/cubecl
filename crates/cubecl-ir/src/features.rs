@@ -61,6 +61,10 @@ pub struct Types {
     /// type from its bits itself pays no more than the conversion would, and may move what the
     /// emulation spends into work it already does.
     pub emulated_conversion: BTreeSet<ElemType>,
+    /// Types whose [`Arithmetic`](TypeUsage::Arithmetic) the device runs through a wider type,
+    /// for example `f16` computed in `f32` on a CPU without native `f16` instructions. The type
+    /// still works, but a caller that chooses a precision can prefer the wider type.
+    pub emulated_arithmetic: BTreeSet<ElemType>,
 }
 
 /// Matrix multiplication-related features
@@ -299,6 +303,13 @@ impl Features {
     /// Whether converting `ty` is emulated in software ([`Types::emulated_conversion`]).
     pub fn conversion_is_emulated(&self, ty: ElemType) -> bool {
         self.types.emulated_conversion.contains(&ty)
+    }
+
+    /// Whether arithmetic on `ty` is emulated through a wider type
+    /// ([`Types::emulated_arithmetic`]).
+    #[must_use]
+    pub fn arithmetic_is_emulated(&self, ty: ElemType) -> bool {
+        self.types.emulated_arithmetic.contains(&ty)
     }
 
     /// Get the usages for a type
