@@ -11,9 +11,11 @@ use core::{cell::Ref, fmt, ops::Deref};
 
 use alloc::format;
 use cubecl_ir::{
+    dialect::{BlockPtrExt, RegionPtrExt},
     interfaces::{
         control_flow::{
-            HoistableRegionOpInterface, RegionBranchOpInterface, RegionPredecessor, RegionSuccessor,
+            CallableOpInterface, HoistableRegionOpInterface, RegionBranchOpInterface,
+            RegionPredecessor, RegionSuccessor,
         },
         memory_slot::MemoryValue,
         uniformity::{
@@ -297,6 +299,23 @@ pub type AvailableAnalysis = DenseForward<AvailableForward>;
 #[derive(Default)]
 pub struct AvailableForward;
 
+impl AvailableForward {
+    fn extend_from_values(
+        solver: &DataflowSolver,
+        point: ProgramPoint,
+        set: &mut SparseBitSet,
+        values: impl IntoIterator<Item = Value>,
+    ) {
+        for arg in values {
+            let value_number =
+                solver.get_or_create_for::<AvailableAnalysis, ValueNumberLattice>(point, arg);
+            if let Some(value_number) = value_number.deref().value().value() {
+                set.insert(value_number as usize);
+            }
+        }
+    }
+}
+
 impl DenseForwardDataflowAnalysis for AvailableForward {
     type LatticeValue = AvailableSet;
 
@@ -330,6 +349,48 @@ impl DenseForwardDataflowAnalysis for AvailableForward {
         Ok(())
     }
 
+    fn visit_region_branch_control_flow_transfer(
+        this: &DenseForward<Self>,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        branch: &dyn RegionBranchOpInterface,
+        point: ProgramPoint,
+        predecessors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
+        after: &WriteRef<DenseLattice<Self::LatticeValue>>,
+    ) {
+        let branch_op = branch.get_operation();
+        if branch_op.impls::<dyn HoistableRegionOpInterface>(ctx) {
+            Self::visit_control_flow_transfer(this, solver, ctx, predecessors, after);
+        } else if branch_op.impls::<dyn IsolatedFromAboveInterface>(ctx)
+            && point != ProgramPoint::after_op(ctx, branch_op)
+        {
+            let mut before = SparseBitSet::new();
+            let args = point.block().unwrap().arguments(ctx);
+            Self::extend_from_values(solver, point, &mut before, args);
+            solver.update_state(ctx, after, |it| {
+                it.join(&AvailableSet(MaybeUninitBitset::Initialized(before)))
+            });
+        } else {
+            // Nested regions are discarded and only things before the region are made available
+            // because we can't thread new values out of them
+            let before =
+                this.get_lattice_for(solver, point, ProgramPoint::before_op(ctx, branch_op));
+            let before = before.deref();
+            let MaybeUninitBitset::Initialized(mut before) = before.value().0.clone() else {
+                return;
+            };
+            if point == ProgramPoint::after_op(ctx, branch_op) {
+                Self::extend_from_values(solver, point, &mut before, branch_op.results(ctx));
+            } else if point.is_block_start(ctx) {
+                let args = point.block().unwrap().arguments(ctx);
+                Self::extend_from_values(solver, point, &mut before, args);
+            }
+            solver.update_state(ctx, after, |it| {
+                it.join(&AvailableSet(MaybeUninitBitset::Initialized(before)))
+            });
+        }
+    }
+
     fn visit_control_flow_transfer(
         _: &DenseForward<Self>,
         solver: &DataflowSolver,
@@ -348,6 +409,52 @@ impl DenseForwardDataflowAnalysis for AvailableForward {
             let union = pred.union(&computes.deref().value().0).into();
             solver.update_state(ctx, after, |it| it.join(&AvailableSet(union)));
         }
+    }
+
+    fn visit_callee_control_flow_transfer(
+        _: &DenseForward<Self>,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        callable: &dyn CallableOpInterface,
+        _: &[ReadRef<DenseLattice<Self::LatticeValue>>],
+        after: &WriteRef<DenseLattice<Self::LatticeValue>>,
+    ) {
+        // Maybe add callable interface later that allows adding args
+        let Some(region) = callable.callable_region(ctx) else {
+            return;
+        };
+        let Some(entry) = region.deref(ctx).get_entry_block() else {
+            return;
+        };
+        let point = ProgramPoint::at_block_start(ctx, entry);
+        let mut before = SparseBitSet::new();
+        let args = callable.callable_region(ctx).unwrap().arguments(ctx);
+        Self::extend_from_values(solver, point, &mut before, args);
+        solver.update_state(ctx, after, |it| {
+            it.join(&AvailableSet(MaybeUninitBitset::Initialized(before)))
+        });
+    }
+
+    fn visit_return_control_flow_transfer(
+        this: &DenseForward<Self>,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        call: &dyn CallOpInterface,
+        _: &[ReadRef<DenseLattice<Self::LatticeValue>>],
+        after: &WriteRef<DenseLattice<Self::LatticeValue>>,
+    ) {
+        let call_op = call.get_operation();
+        let point = ProgramPoint::after_op(ctx, call_op);
+        // Maybe add call interface later that allows adding args
+        let before = this.get_lattice_for(solver, point, ProgramPoint::before_op(ctx, call_op));
+        let before = before.deref();
+        let MaybeUninitBitset::Initialized(mut before) = before.value().0.clone() else {
+            return;
+        };
+        Self::extend_from_values(solver, point, &mut before, call_op.deref(ctx).results());
+        solver.update_state(ctx, after, |it| {
+            it.join(&AvailableSet(MaybeUninitBitset::Initialized(before)))
+        });
     }
 
     fn set_to_entry_state(
