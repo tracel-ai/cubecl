@@ -1166,7 +1166,8 @@ pub mod cast {
     ) -> MatrixExpand<O, S> {
         let ident = input.ident;
 
-        if core::any::TypeId::of::<C>() == core::any::TypeId::of::<O>() {
+        // Compared as the scope resolves them: two `define!`d names for one element are one type.
+        if C::Scalar::elem_type(scope) == O::Scalar::elem_type(scope) {
             return MatrixExpand {
                 elem: input.elem,
                 ident,
@@ -1219,7 +1220,7 @@ pub mod cast_with_ident {
         input: MatrixExpand<C, S>,
         ident: MatrixIdent,
     ) -> MatrixExpand<O, S> {
-        if core::any::TypeId::of::<C>() == core::any::TypeId::of::<O>() && ident == input.ident {
+        if C::Scalar::elem_type(scope) == O::Scalar::elem_type(scope) && ident == input.ident {
             return MatrixExpand {
                 elem: input.elem,
                 ident,

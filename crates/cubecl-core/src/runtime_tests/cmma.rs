@@ -332,6 +332,34 @@ pub fn cast_matrix_f16(input: &[f32], out: &mut [f16]) {
     cmma::store(out, &output, 16, cmma::MatrixLayout::RowMajor);
 }
 
+/// An `f32` accumulator cast to a name the kernel defines for `f32` and back: one element under
+/// two names, so each cast is the fragment itself.
+#[cube(launch)]
+pub fn cast_matrix_renamed(
+    input: &[f32],
+    out: &mut [f32],
+    #[comptime] m: usize,
+    #[comptime] n: usize,
+    #[comptime] k: usize,
+) {
+    let define!(Named) = elem_type_of::<f32>();
+    let mut acc = unsafe {
+        cmma::Matrix::<f32>::uninitialized(
+            cmma::MatrixIdent::Accumulator,
+            m,
+            n,
+            k,
+            cmma::MatrixLayout::Undefined,
+        )
+    };
+    cmma::load_with_layout(&mut acc, input, n as u32, cmma::MatrixLayout::RowMajor);
+
+    let named: cmma::Matrix<Named> = cmma::cast(&acc);
+    let output: cmma::Matrix<f32> = cmma::cast(&named);
+
+    cmma::store(out, &output, n as u32, cmma::MatrixLayout::RowMajor);
+}
+
 #[cube(launch)]
 pub fn cast_matrix_bf16(input: &[f32], out: &mut [bf16]) {
     let mut acc = unsafe {
@@ -977,6 +1005,42 @@ pub fn test_cmma_cast_f16<R: Runtime>(client: Client, cube_dimensions: CubeDim) 
     let expected: Vec<f16> = (0..256).map(|i| f16::from_f32(i as f32)).collect();
 
     assert_eq!(actual, expected);
+}
+
+/// [`cast_matrix_renamed`] at any `f32` accumulator shape the device offers.
+pub fn test_cmma_cast_renamed<R: Runtime>(client: Client, cube_dimensions: CubeDim) {
+    let Some(config) = client
+        .features()
+        .matmul
+        .cmma
+        .iter()
+        .find(|config| config.cd_type == ElemType::Float(FloatKind::F32))
+        .cloned()
+    else {
+        // We can't execute the test, skip.
+        return;
+    };
+    let (m, n, k) = (config.m as usize, config.n as usize, config.k as usize);
+
+    let input: Vec<f32> = (0..m * n).map(|i| i as f32).collect();
+    let input_handle = client.create_from_slice(f32::as_bytes(&input));
+    let out = client.empty(core::mem::size_of::<f32>() * m * n);
+
+    unsafe {
+        cast_matrix_renamed::launch(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            cube_dimensions,
+            BufferArg::from_raw_parts(input_handle, m * n),
+            BufferArg::from_raw_parts(out.clone(), m * n),
+            m,
+            n,
+            k,
+        )
+    };
+
+    let actual = client.read_one_unchecked(out);
+    assert_eq!(f32::from_bytes(&actual), input.as_slice());
 }
 
 /// Casting an `f32` accumulator to `bf16` needs a `bf16` accumulator fragment, which only some
@@ -2056,6 +2120,16 @@ macro_rules! testgen_cmma {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
             cubecl_core::runtime_tests::cmma::test_cmma_cast_f16::<TestRuntime>(
+                client,
+                cube_dimensions,
+            );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_cmma_cast_renamed() {
+            let client = TestRuntime::client(&Default::default());
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
+            cubecl_core::runtime_tests::cmma::test_cmma_cast_renamed::<TestRuntime>(
                 client,
                 cube_dimensions,
             );
