@@ -2,7 +2,7 @@ use super::data::PlironData;
 use crate::{
     cpu::shared_memory::SharedMemories,
     prelude::{Context, ModuleOp},
-    shared::llvm_module::LlvmModule,
+    shared::llvm_module::{LlvmModule, TargetMachine},
 };
 use cubecl_runtime::kernel::BufferIOAttr;
 use pliron_llvm::{
@@ -156,6 +156,7 @@ fn optimize(
 
 fn run_pipeline(ir: &str) -> Result<String, String> {
     let module = LlvmModule::new(ir)?;
-    module.run_passes(PASS_PIPELINE, None)?;
+    let machine = TargetMachine::native(&module)?;
+    module.run_passes(PASS_PIPELINE, &machine)?;
     Ok(module.print())
 }
