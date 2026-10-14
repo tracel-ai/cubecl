@@ -8,7 +8,7 @@ fn sum_basic<F: Float>(input: &[F], output: &mut [F], #[comptime] end: Option<us
     let unroll = end.is_some();
     let end = end.unwrap_or(input.len());
 
-    let mut sum = F::new(0.0f32);
+    let mut sum = F::new(0.0);
 
     #[unroll(unroll)]
     for i in 0..end {
@@ -46,7 +46,7 @@ impl SumKind for SumBasic {
         let unroll = end.is_some();
         let end = end.unwrap_or(input.len());
 
-        let mut sum = F::new(0.0f32);
+        let mut sum = F::new(0.0);
 
         #[unroll(unroll)]
         for i in 0..end {

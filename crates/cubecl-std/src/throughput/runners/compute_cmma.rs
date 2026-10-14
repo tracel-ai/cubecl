@@ -94,7 +94,8 @@ pub fn compute_cmma_throughput<I: Numeric, ACC: Numeric, N: Size>(
         cmma::execute(&a, &b, &acc, &acc);
     }
 
-    if ABSOLUTE_POS == 0 {
+    // A store is collective over the plane, so the whole first plane issues it.
+    if ABSOLUTE_POS < PLANE_DIM as usize {
         cmma::store(output, &acc, n as u32, cmma::MatrixLayout::RowMajor);
     }
 }

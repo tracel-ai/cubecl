@@ -214,8 +214,8 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
     }
 
     let num_data = 4;
-    let lhs_data: Vec<F> = (0..num_data).map(|i| F::new(i as f32)).collect();
-    let rhs_data: Vec<F> = (0..num_data).map(|i| F::new(i as f32)).collect();
+    let lhs_data: Vec<F> = (0..num_data).map(|i| F::new(i as f64)).collect();
+    let rhs_data: Vec<F> = (0..num_data).map(|i| F::new(i as f64)).collect();
 
     let lhs = client.create_from_slice(F::as_bytes(&lhs_data));
     let rhs = client.create_from_slice(F::as_bytes(&rhs_data));
