@@ -47,6 +47,8 @@ pub struct WgmmaCase {
     /// Commits each step and waits on the previous one in a loop, rather than committing once.
     /// Only with `A` in shared memory.
     pub pipelined: bool,
+    /// Takes the accumulator apart into its raw parts once started, and rebuilds it from them.
+    pub rebuilt: bool,
 }
 
 impl WgmmaCase {
@@ -115,7 +117,12 @@ pub fn kernel_wgmma<A: Scalar, B: Scalar, CD: Numeric>(
 
     let a = MatrixDescriptor::new(&smem_a, a_layout);
     let b = MatrixDescriptor::new(&smem_b, b_layout);
-    let mut acc = Accumulator::<CD>::new(n).start();
+    let started = Accumulator::<CD>::new(n).start();
+    let mut acc = if comptime![case.rebuilt] {
+        rebuilt(&started)
+    } else {
+        started
+    };
 
     if comptime![case.pipelined] {
         let mut released = acc.commit();
@@ -153,6 +160,22 @@ pub fn kernel_wgmma<A: Scalar, B: Scalar, CD: Numeric>(
     for nth in 0..acc.len() {
         let (row, col) = acc.position_of_nth(UNIT_POS, nth as u32);
         out[row as usize * n + col as usize] = acc.get(nth);
+    }
+}
+
+/// `acc` taken apart into its raw parts and rebuilt from them.
+fn rebuilt<CD: Numeric>(_acc: &Pending<Accumulator<CD>>) -> Pending<Accumulator<CD>> {
+    cubecl::unexpanded!()
+}
+
+mod rebuilt {
+    use super::*;
+
+    pub fn expand<CD: Numeric>(
+        scope: &Scope,
+        acc: &PendingExpand<Accumulator<CD>>,
+    ) -> PendingExpand<Accumulator<CD>> {
+        PendingExpand::from_raw(scope, acc.clone().into_raw(scope))
     }
 }
 
@@ -400,6 +423,7 @@ macro_rules! testgen_wgmma {
                     a: AOperand::Shared(a),
                     b,
                     pipelined: false,
+                    rebuilt: false,
                 }
             }
 
@@ -411,6 +435,7 @@ macro_rules! testgen_wgmma {
                     a: AOperand::Registers,
                     b,
                     pipelined: false,
+                    rebuilt: false,
                 }
             }
 
@@ -453,6 +478,15 @@ macro_rules! testgen_wgmma {
                 let case = WgmmaCase {
                     pipelined: true,
                     ..shared(64, 8, SWIZZLED, SWIZZLED)
+                };
+                test::<f16, f16, f32>(case);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn f16_rebuilt_from_raw() {
+                let case = WgmmaCase {
+                    rebuilt: true,
+                    ..shared(64, 4, SWIZZLED, SWIZZLED)
                 };
                 test::<f16, f16, f32>(case);
             }

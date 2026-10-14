@@ -4,6 +4,7 @@ use crate::frontend::pending::{GroupToken, PendingExpand};
 use crate::{self as cubecl, prelude::*, unexpanded};
 use core::marker::PhantomData;
 use cubecl_ir::{
+    ExpandValue,
     dialect::matrix::{
         WgmmaDescriptorOp, WgmmaFenceOp, WgmmaFenceOperandOp, WgmmaOp, warpgroup_elems_per_unit,
     },
@@ -153,6 +154,58 @@ impl<CD: Numeric> Clone for AccumulatorExpand<CD> {
         Self {
             registers: self.registers,
             n: self.n,
+        }
+    }
+}
+
+/// A [`Pending`] accumulator apart from the element its type names, which it records instead:
+/// what a caller holding the element as data keeps, to name it where the MMAs and the drain use
+/// it ([`PendingExpand::from_raw`]).
+#[derive(Clone, Copy)]
+pub struct PendingAccumulatorRaw {
+    registers: ExpandValue,
+    n: usize,
+    token: ExpandValue,
+    held: ElemType,
+}
+
+impl PendingAccumulatorRaw {
+    /// The element the accumulator holds.
+    pub fn held(&self) -> ElemType {
+        self.held
+    }
+}
+
+impl<CD: Numeric> PendingExpand<Accumulator<CD>> {
+    /// This accumulator apart from the element its type names: the inverse of
+    /// [`from_raw`](Self::from_raw).
+    pub fn into_raw(self, scope: &Scope) -> PendingAccumulatorRaw {
+        PendingAccumulatorRaw {
+            registers: self.value.registers.expand,
+            n: self.value.n,
+            token: self.token.expand,
+            held: CD::elem_type(scope),
+        }
+    }
+
+    /// `raw` named at `CD`. Only the name changes: the registers and the wait are the same.
+    ///
+    /// # Panics
+    ///
+    /// Where `raw` holds another element than `CD`.
+    pub fn from_raw(scope: &Scope, raw: PendingAccumulatorRaw) -> Self {
+        let named = CD::elem_type(scope);
+        assert_eq!(
+            raw.held, named,
+            "PendingExpand::from_raw: the accumulator holds {:?}, not {named:?}",
+            raw.held
+        );
+        Self {
+            value: AccumulatorExpand {
+                registers: raw.registers.into(),
+                n: raw.n,
+            },
+            token: raw.token.into(),
         }
     }
 }
