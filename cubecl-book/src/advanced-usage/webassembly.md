@@ -3,7 +3,9 @@
 CubeCL's compiler uses Pliron, which initializes its registries through `inventory` constructors.
 With wasm-bindgen, the Wasm linker can run these constructors on every call from JavaScript,
 including async callbacks. This repeated work caused the WebGPU slowdown reported in
-[Burn #5992](https://github.com/tracel-ai/burn/issues/5992).
+[Burn #5992](https://github.com/tracel-ai/burn/issues/5992). This upstream initialization behavior
+requires an explicit startup call in the application, as shown below. Upgrading CubeCL alone does
+not prevent it.
 
 For `wasm32-unknown-unknown`, call `__wasm_call_ctors()` once at the beginning of your application's
 `#[wasm_bindgen(start)]` function. This tells the linker that the application handles
