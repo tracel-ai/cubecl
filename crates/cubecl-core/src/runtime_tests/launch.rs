@@ -18,9 +18,9 @@ pub struct ComptimeTag {
 pub fn kernel_with_comptime_tag(mut output: ComptimeTag) {
     if UNIT_POS == 0 {
         if comptime![&output.tag == "zero"] {
-            output.array[0] = f32::new(0f32);
+            output.array[0] = f32::new(0.0);
         } else {
-            output.array[0] = f32::new(1f32);
+            output.array[0] = f32::new(1.0);
         }
     }
 }
@@ -33,7 +33,7 @@ pub fn kernel_with_comptime(#[comptime] factor: u32) {
 #[cube(launch)]
 pub fn kernel_with_generics<F: Float>(output: &mut [F]) {
     if UNIT_POS == 0 {
-        output[0] = F::new(5f32);
+        output[0] = F::new(5.0);
     }
 }
 

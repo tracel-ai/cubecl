@@ -34,7 +34,7 @@ macro_rules! local_tuner {
         LocalTuner::new(concat!(module_path!(), "-", $name))
     };
     () => {
-        LocalTuner::new(module_path!());
+        LocalTuner::new(module_path!())
     };
 }
 
