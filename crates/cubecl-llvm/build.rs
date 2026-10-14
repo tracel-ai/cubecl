@@ -1,4 +1,11 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("cargo::rerun-if-env-changed=DOCS_RS");
+    // docs.rs does not need native LLVM setup.
+    // https://docs.rs/about/builds#detecting-docsrs
+    if std::env::var_os("DOCS_RS").is_some() {
+        return Ok(());
+    }
+
     // C++ shims for the LLVM APIs that the C API does not bind, and the features that need them.
     let shims: Vec<&str> = [
         (

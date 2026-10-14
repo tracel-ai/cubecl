@@ -63,20 +63,9 @@ pub use cubecl_environment::environment;
 /// the records its tunes and compilations leave.
 pub use cubecl_environment::records;
 
-/// Running a workload for the compilation and tuning it provokes, without
-/// running the workload itself.
-///
-/// This is what makes producing a [`bundle`] affordable: inside a
-/// [`DryRun`](dry_run::DryRun) every launch is compiled, cached and tuned
-/// without also being executed. Buffers are left as they were, so it only suits
-/// a pass driven by the *shapes* it produces.
-///
-/// ```no_run
-/// # fn warm_up() {}
-/// let _dry_run = cubecl::dry_run::DryRun::new(cubecl::dry_run::DryRunScope::Profile);
-/// warm_up();
-/// ```
-pub use cubecl_runtime::dry_run;
+/// What makes producing a [`bundle`] affordable: a workload run for the
+/// kernels it compiles and the tunes it measures, its launches discarded.
+pub use cubecl_runtime::execution;
 
 /// The kernels a workload launches, collected while it replays: what an
 /// environment shipped for it has to keep.

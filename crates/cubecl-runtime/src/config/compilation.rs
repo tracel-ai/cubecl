@@ -80,7 +80,7 @@ pub struct CompilationConfig {
     #[cfg(feature = "std")]
     pub source_cache: Option<std::path::PathBuf>,
     /// How many threads a server compiles a queue of kernels on — see
-    /// [`LaunchMode::CompileOnly`](crate::dry_run::LaunchMode::CompileOnly). The
+    /// [`LaunchMode::Queue`](crate::execution::LaunchMode::Queue). The
     /// queue itself is as long as what was queued; each thread takes the next
     /// kernel as it finishes one. `None` uses every core the process may run
     /// on; a smaller number leaves cores to other work. It does not bound

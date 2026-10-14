@@ -6,6 +6,7 @@ use alloc::vec::Vec;
 
 use cubecl_common::profile::Instant;
 use cubecl_environment::collections::{HashMap, HashSet};
+use cubecl_runtime::execution::{KernelHandling, KernelOutcome, KernelRegistration, SettledKernel};
 
 use super::{
     ArtifactCompiler, ArtifactId, BatchOutcome, CompilationBatchRecording, CompilationOutcome,
@@ -115,6 +116,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
             let asked = missing.then(|| Request {
                 id: id.clone(),
                 kernel,
+                registration: None,
             });
             self.compile_queue(asked, logger);
 
@@ -143,12 +145,21 @@ impl<T: CompilationTarget> KernelLoader<T> {
         if self.queue.is_empty() && asked.is_none() {
             return;
         }
-        let queue = self.queue.take();
+        let mut queue = self.queue.take();
         // A failure an earlier batch left unreported is dropped: its kernel
         // compiles again when it is launched or queued.
         self.failed.clear();
+        // Asked for and queued, it takes the registration it was queued
+        // with; asked for alone, it registers with the override open now.
+        let asked = asked.map(|mut asked| {
+            asked.registration = match queue.iter_mut().find(|queued| queued.id == asked.id) {
+                Some(queued) => queued.registration.take(),
+                None => KernelRegistration::register(),
+            };
+            asked
+        });
         let mut requests: Vec<Request<'_, VariantOf<T>>> = queue
-            .iter()
+            .iter_mut()
             .filter(|queued| asked.as_ref().is_none_or(|asked| queued.id != asked.id))
             .map(Queued::request)
             .collect();
@@ -175,7 +186,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
             return;
         }
         self.failed.remove(&id);
-        self.queue.push(id, kernel);
+        self.queue.push(id, kernel, KernelRegistration::register());
     }
 
     /// Keeps a loaded kernel, or the reason it failed.
@@ -206,6 +217,10 @@ impl<T: CompilationTarget> KernelLoader<T> {
         for job in jobs.iter_mut() {
             job.look_up(&mut self.target);
         }
+        // Each kernel settles as the batch finishes with it, so a
+        // collector's count moves while the batch runs: those the store held
+        // now, those compiled as each thread finishes one.
+        jobs.iter_mut().for_each(Job::settle);
 
         let compiler = self.target.compiler();
         let mut missing: Vec<&mut Job<'_, T>> =
@@ -230,6 +245,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
             if job.is_lowered() && !(reuses && job.has_source()) {
                 job.finalize(compiler);
             }
+            job.settle();
         });
 
         let mut finalizing = HashSet::new();
@@ -249,9 +265,16 @@ impl<T: CompilationTarget> KernelLoader<T> {
             })
             .collect();
         let compiler = self.target.compiler();
+        // Those the store took by their source settle now; those waiting on
+        // another kernel of the batch with the same source settle once it is
+        // done, as they are loaded.
+        jobs.iter_mut().for_each(Job::settle);
         let mut lowered: Vec<&mut Job<'_, T>> =
             jobs.iter_mut().filter(|job| job.is_lowered()).collect();
-        for_each_at_once(&mut lowered, self.parallelism, |job| job.finalize(compiler));
+        for_each_at_once(&mut lowered, self.parallelism, |job| {
+            job.finalize(compiler);
+            job.settle();
+        });
 
         // A kernel waiting on a source that failed to finalize fails the same
         // way, rather than finalizing it again, one after another, on this
@@ -404,9 +427,18 @@ impl<V: Clone + Eq + core::hash::Hash> KernelQueue<V> {
     }
 
     /// Queues `kernel` under `id`, which is not queued yet.
-    fn push(&mut self, id: ArtifactId<V>, kernel: Box<dyn CubeKernel>) {
+    fn push(
+        &mut self,
+        id: ArtifactId<V>,
+        kernel: Box<dyn CubeKernel>,
+        registration: Option<KernelRegistration>,
+    ) {
         self.ids.insert(id.clone());
-        self.kernels.push(Queued { id, kernel });
+        self.kernels.push(Queued {
+            id,
+            kernel,
+            registration,
+        });
     }
 
     /// Every queued kernel, leaving the queue empty.
@@ -420,13 +452,17 @@ impl<V: Clone + Eq + core::hash::Hash> KernelQueue<V> {
 struct Queued<V> {
     id: ArtifactId<V>,
     kernel: Box<dyn CubeKernel>,
+    /// The registration it was queued with, handed to the batch that
+    /// compiles it.
+    registration: Option<KernelRegistration>,
 }
 
 impl<V: Clone> Queued<V> {
-    fn request(&self) -> Request<'_, V> {
+    fn request(&mut self) -> Request<'_, V> {
         Request {
             id: self.id.clone(),
             kernel: &*self.kernel,
+            registration: self.registration.take(),
         }
     }
 }
@@ -435,6 +471,8 @@ impl<V: Clone> Queued<V> {
 struct Request<'k, V> {
     id: ArtifactId<V>,
     kernel: &'k dyn CubeKernel,
+    /// Its registration, if an override was open to register it.
+    registration: Option<KernelRegistration>,
 }
 
 /// One kernel on its way through [`KernelLoader::compile`].
@@ -443,6 +481,28 @@ struct Job<'k, T: CompilationTarget> {
     kernel: &'k dyn CubeKernel,
     recording: CompilationRecording,
     step: Step<T>,
+    /// Where it stands in its collector's count.
+    count: JobCount,
+}
+
+/// Where a [`Job`] stands in the count of the collector it was registered
+/// with.
+enum JobCount {
+    /// No override was open to register it.
+    Uncounted,
+    /// Registered, its outcome not known yet.
+    Registered(KernelRegistration),
+    /// Its outcome counted; what its load does is counted next.
+    Settled(SettledKernel),
+}
+
+impl JobCount {
+    /// Count what the job's load did, once it settled.
+    fn record(&mut self, load: KernelHandling) {
+        if let Self::Settled(settled) = self {
+            settled.record(load);
+        }
+    }
 }
 
 /// How far a [`Job`] got.
@@ -470,6 +530,25 @@ enum Step<T: CompilationTarget> {
     Failed(LaunchError),
 }
 
+impl<T: CompilationTarget> Step<T> {
+    /// How the kernel ended, once it has: an artifact to load, compiled or
+    /// taken from the store, or a failure.
+    fn outcome(&self) -> Option<KernelOutcome> {
+        match self {
+            Self::Ready {
+                outcome: CompilationOutcome::Compiled,
+                ..
+            } => Some(KernelOutcome::Compiled),
+            Self::Ready {
+                outcome: CompilationOutcome::Loaded | CompilationOutcome::Rekeyed,
+                ..
+            } => Some(KernelOutcome::Loaded),
+            Self::Failed(_) => Some(KernelOutcome::Failed),
+            Self::Missing | Self::Lowered { .. } | Self::Waiting { .. } => None,
+        }
+    }
+}
+
 impl<'k, T: CompilationTarget> Job<'k, T> {
     fn new(request: Request<'k, VariantOf<T>>) -> Self {
         Self {
@@ -477,7 +556,24 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
             id: request.id,
             kernel: request.kernel,
             step: Step::Missing,
+            count: match request.registration {
+                Some(registration) => JobCount::Registered(registration),
+                None => JobCount::Uncounted,
+            },
         }
+    }
+
+    /// Settle it where it was registered, once the batch has it — compiled,
+    /// read from the store, or failed. It settles once, and a job still on
+    /// its way settles nothing yet.
+    fn settle(&mut self) {
+        let Some(outcome) = self.step.outcome() else {
+            return;
+        };
+        self.count = match core::mem::replace(&mut self.count, JobCount::Uncounted) {
+            JobCount::Registered(registration) => JobCount::Settled(registration.settle(outcome)),
+            count => count,
+        };
     }
 
     fn is_missing(&self) -> bool {
@@ -610,6 +706,9 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
                 self.finalize(target.compiler());
             }
         }
+        // Every job ends here, so none is left unsettled whatever step a
+        // batch grows: a waiting one settles now, its source done.
+        self.settle();
 
         let mut stored = false;
         let result = match self.step {
@@ -626,10 +725,18 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
                         if outcome != CompilationOutcome::Loaded {
                             stored = target.store(&self.id, artifact, source.as_deref());
                         }
+                        if stored {
+                            self.count.record(KernelHandling::Stored);
+                        }
                         self.recording.close(outcome, stored);
                         Ok(loaded)
                     }
-                    Err(err) => Err(err.into()),
+                    Err(err) => {
+                        // Settled as obtained before the device saw it: the
+                        // refusal is counted on its own.
+                        self.count.record(KernelHandling::Refused);
+                        Err(err.into())
+                    }
                 }
             }
             Step::Failed(err) => Err(err),
@@ -730,6 +837,176 @@ mod tests {
         for number in 0..3 {
             assert_eq!(loader.get(&id(number)), Some(&number));
         }
+    }
+
+    /// A collector registers each kernel as it is queued under one of its
+    /// overrides, or as a launch asks for it unqueued, and every one of them
+    /// settles once the batch has it — under a later override too. A kernel
+    /// queued with no override open counts nowhere.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_batch_settles_every_kernel_to_the_collector_that_registered_it() {
+        use cubecl_runtime::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+
+        let mut loader = loader(2);
+        let logger = ServerLogger::default();
+        loader.enqueue(Box::new(Numbered(9)), ());
+        let collector = StatisticsCollector::new();
+        let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+        for number in 0..5 {
+            loader.enqueue(Box::new(Numbered(number)), ());
+        }
+        // Queued twice, registered once.
+        loader.enqueue(Box::new(Numbered(0)), ());
+        core::mem::drop(compile);
+        let queued = collector.statistics().compilation;
+        assert_eq!((queued.registered, queued.settled()), (5, 0));
+
+        let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+        loader.load(&Numbered(5), &id(5), &logger).unwrap();
+        let batch = collector.statistics().compilation;
+        assert_eq!(
+            (batch.registered, batch.settled(), batch.failed),
+            (6, 6, 0),
+            "the kernel queued with no override open counts nowhere"
+        );
+        assert_eq!(batch.compiled + batch.loaded, 6);
+
+        loader.load(&Numbered(5), &id(5), &logger).unwrap();
+        assert_eq!(
+            collector.statistics().compilation,
+            batch,
+            "a loaded kernel is not registered again"
+        );
+        core::mem::drop(tune);
+    }
+
+    /// The compilation statistics of `collector`, as (registered, compiled,
+    /// loaded, failed, refused).
+    fn counted(
+        collector: &cubecl_runtime::execution::StatisticsCollector,
+    ) -> (usize, usize, usize, usize, usize) {
+        let statistics = collector.statistics().compilation;
+        (
+            statistics.registered,
+            statistics.compiled,
+            statistics.loaded,
+            statistics.failed,
+            statistics.refused,
+        )
+    }
+
+    /// A kernel that fails to compile settles as failed, is not registered
+    /// again while its failure is reported, and registers again each time
+    /// it is tried again.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_failure_settles_as_failed_and_a_retry_registers_again() {
+        use cubecl_runtime::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+
+        let collector = StatisticsCollector::new();
+        let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+        let mut loader = loader(4);
+        loader.target.compiler.failing = Some(1);
+        let logger = ServerLogger::default();
+        for number in 0..3 {
+            loader.enqueue(Box::new(Numbered(number)), ());
+        }
+        loader.load(&Numbered(3), &id(3), &logger).unwrap();
+        assert_eq!(counted(&collector), (4, 3, 0, 1, 0));
+
+        assert!(loader.load(&Numbered(1), &id(1), &logger).is_err());
+        assert_eq!(counted(&collector), (4, 3, 0, 1, 0), "reported, not tried");
+        assert!(loader.load(&Numbered(1), &id(1), &logger).is_err());
+        assert_eq!(counted(&collector), (5, 3, 0, 2, 0), "tried again");
+
+        loader.target.compiler.failing = None;
+        loader.load(&Numbered(1), &id(1), &logger).unwrap();
+        assert_eq!(counted(&collector), (6, 4, 0, 2, 0));
+        core::mem::drop(tune);
+    }
+
+    /// Kernels of a batch that share a source settle with it: the one that
+    /// finalizes it as compiled, those that take its artifact as loaded, or
+    /// every one of them as failed when it fails.
+    #[test]
+    #[serial_test::serial(records)]
+    fn kernels_sharing_a_source_settle_with_it() {
+        use cubecl_runtime::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+
+        let logger = ServerLogger::default();
+        for (refusing, expected) in [(false, (4, 1, 3, 0, 0)), (true, (4, 0, 0, 4, 0))] {
+            let collector = StatisticsCollector::new();
+            let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+            let mut loader = loader(4);
+            loader.target.compiler.shared_source = true;
+            loader.target.compiler.refusing = refusing;
+            for number in 0..3 {
+                loader.enqueue(Box::new(Numbered(number)), ());
+            }
+            let _ = loader.load(&Numbered(3), &id(3), &logger);
+            assert_eq!(counted(&collector), expected, "refusing: {refusing}");
+            // What the store keeps is what it is given by source: every kernel
+            // of a source that finalized, none of one that failed.
+            let stored = collector.statistics().compilation.stored;
+            assert_eq!(stored, if refusing { 0 } else { 4 }, "refusing: {refusing}");
+            core::mem::drop(tune);
+        }
+    }
+
+    /// A kernel the device refuses was already counted as compiled: the
+    /// refusal is counted beside it.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_refused_kernel_is_counted_beside_its_outcome() {
+        use cubecl_runtime::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+
+        let collector = StatisticsCollector::new();
+        let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+        let mut loader = loader(4);
+        loader.target.rejecting = Some(1);
+        let logger = ServerLogger::default();
+        for number in 0..3 {
+            loader.enqueue(Box::new(Numbered(number)), ());
+        }
+        loader.load(&Numbered(3), &id(3), &logger).unwrap();
+        assert_eq!(loader.get(&id(1)), None);
+        assert_eq!(counted(&collector), (4, 4, 0, 0, 1));
+        assert_eq!(
+            collector.statistics().compilation.stored,
+            0,
+            "a store keeps by source, and these kernels have none"
+        );
+        core::mem::drop(tune);
+    }
+
+    /// A batch that panics leaves no kernel of it registered and unsettled:
+    /// those it never finished settle as failed.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_panicking_batch_settles_every_kernel() {
+        use cubecl_runtime::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+
+        let collector = StatisticsCollector::new();
+        let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+        let mut loader = loader(4);
+        loader.target.compiler.panicking = Some(2);
+        let logger = ServerLogger::default();
+        for number in 0..4 {
+            loader.enqueue(Box::new(Numbered(number)), ());
+        }
+        let _ = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
+            let _ = loader.load(&Numbered(4), &id(4), &logger);
+        }))
+        .expect_err("the load panics");
+        let statistics = collector.statistics().compilation;
+        assert_eq!(statistics.registered, 5);
+        assert_eq!(statistics.settled(), 5);
+        assert!(
+            statistics.abandoned >= 1,
+            "the kernels the panic left unfinished are abandoned"
+        );
+        core::mem::drop(tune);
     }
 
     /// Asked to, the queue compiles without a launch, and the launch that
@@ -1087,6 +1364,8 @@ mod tests {
         by_source: alloc::collections::BTreeMap<String, u32>,
         /// Whether it keeps nothing between runs, by source or otherwise.
         storeless: bool,
+        /// The number of the kernel the device refuses to load.
+        rejecting: Option<u32>,
     }
 
     #[derive(Debug, Default)]
@@ -1199,8 +1478,18 @@ mod tests {
             None
         }
 
-        fn load(&mut self, _id: &ArtifactId<()>, artifact: &u32) -> Result<u32, CompilationError> {
-            Ok(*artifact)
+        fn load(
+            &mut self,
+            loaded: &ArtifactId<()>,
+            artifact: &u32,
+        ) -> Result<u32, CompilationError> {
+            match self.rejecting.is_some_and(|number| *loaded == id(number)) {
+                true => Err(CompilationError::Validation {
+                    reason: "rejected".into(),
+                    backtrace: BackTrace::capture(),
+                }),
+                false => Ok(*artifact),
+            }
         }
 
         fn stored_for_source(&mut self, source: &str) -> Option<u32> {

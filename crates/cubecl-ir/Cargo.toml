@@ -29,7 +29,6 @@ tracing = ["cubecl-common/tracing"]
 
 [dependencies]
 cubecl-common = { workspace = true, features = [
-    "fp4",
     "fp8",
     "hash",
 ] }

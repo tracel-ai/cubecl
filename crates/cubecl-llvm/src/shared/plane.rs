@@ -326,17 +326,6 @@ pub fn extend_to_mask(ctx: &mut Context, rw: &mut DialectConversionRewriter, lan
     insert(ctx, rw, &op)
 }
 
-pub fn call_intrinsic(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    name: &str,
-    ret_ty: TypeHandle,
-    args: Vec<Value>,
-) -> Value {
-    let op = call_op(ctx, name, ret_ty, args);
-    insert(ctx, rw, &op)
-}
-
 pub fn operand_ty(ctx: &Context, info: &OperandsInfo, value: Value) -> TypeHandle {
     info.lookup_most_recent_type(value)
         .unwrap_or_else(|| value.get_type(ctx))

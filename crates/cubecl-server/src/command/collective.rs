@@ -11,8 +11,7 @@
 
 use super::{DeviceResource, Driver};
 use crate::server::{CommunicationId, ReduceOperation, ServerError};
-use alloc::format;
-use alloc::vec::Vec;
+use alloc::{format, vec, vec::Vec};
 use cubecl_common::device::DeviceId;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
@@ -149,7 +148,25 @@ impl<D: CollectiveDriver> Collectives<D> {
     /// would have no rank in a group it is not in — and whatever the driver
     /// says about agreeing an identifier or joining.
     pub fn join(&mut self, devices: Vec<DeviceId>) -> Result<Option<CommunicationId>, ServerError> {
-        let id = CommunicationId::from(devices.clone());
+        self.join_as(CommunicationId::from(devices.clone()), devices)
+    }
+
+    /// The communicator for transfers between this device and `peer`, joined on first use.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the driver says about agreeing an identifier or joining.
+    pub fn transfers_with(&mut self, peer: DeviceId) -> Result<&D::Communicator, ServerError> {
+        let id = CommunicationId::transfers_between(self.device, peer);
+        self.join_as(id.clone(), vec![self.device, peer])?;
+        self.get(&id)
+    }
+
+    fn join_as(
+        &mut self,
+        id: CommunicationId,
+        devices: Vec<DeviceId>,
+    ) -> Result<Option<CommunicationId>, ServerError> {
         if self.joined.contains_key(&id) {
             return Ok(None);
         }

@@ -93,11 +93,21 @@ metal_op_with_out!(PowfOp, |op, ctx| {
     format!("pow({lhs}, {rhs})")
 });
 
-metal_op_with_out!(PowiOp, |op, ctx| {
-    let lhs = op.lhs(ctx).name(ctx);
-    let rhs = op.rhs(ctx).name(ctx);
-    format!("pow({lhs}, {rhs})")
-});
+#[op_interface_impl]
+impl LowerOp<Metal> for PowiOp {
+    fn should_lower(&self, ctx: &Context) -> bool {
+        self.lhs(ctx).scalar_ty(ctx).is_float(ctx)
+    }
+
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        define_scalar!(T);
+        define_size!(S);
+        let lhs = self.lhs(scope.ctx());
+        let rhs = self.rhs(scope.ctx());
+        scope.register_value_type::<T, S>(lhs);
+        vec![powi::expand::<T, S>(scope, lhs.into(), rhs.into()).read_value(scope)]
+    }
+}
 
 metal_op_with_out!(HypotOp, |op, ctx| {
     let lhs = op.lhs(ctx).name(ctx);

@@ -4,6 +4,7 @@ use crate::tune::AutotuneLoggerExt;
 use crate::{client::Client, tune::TuneCacheResult};
 use alloc::string::ToString;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use core::{
     any::{Any, TypeId},
     fmt::Display,
@@ -152,8 +153,6 @@ where
     where
         <I as TuneInputs>::At<'a>: Clone + Send,
     {
-        use alloc::vec::Vec;
-
         let mut checks_outputs = Vec::new();
         for i in 0..operations.len() {
             let op = operations.fastest(i);
@@ -227,16 +226,18 @@ where
                     "Somehow we STILL didn't check a tuning checksum or start tuning, something has gone wrong."
                 )
             }
-            // Still waiting (e.g. on wasm), or its candidates' kernels queued by a compile-only dry
-            // run: run the first operation that serves the problem, which there only queues its
-            // kernels.
+            // Still waiting (e.g. on wasm), stopped on a lost device, or its candidates' kernels
+            // queued under a `CompileOnly` override: run the first operation that serves the
+            // problem, which there only queues its kernels.
             TuneCacheResult::Pending | TuneCacheResult::Compiled => {
+                let mut failures = Vec::new();
                 for i in 0..operations.len() {
-                    if let Ok(output) = operations.fastest(i).execute(inputs.clone()) {
-                        return output;
+                    match operations.fastest(i).execute(inputs.clone()) {
+                        Ok(output) => return output,
+                        Err(err) => failures.push(err),
                     }
                 }
-                panic!("All autotune operations failed, no viable operation found.");
+                panic!("All autotune operations failed, no viable operation found.\n{failures:?}");
             }
         }
     }

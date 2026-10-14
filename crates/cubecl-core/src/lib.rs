@@ -28,6 +28,7 @@ use cubecl_runtime::client::Client;
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::server::CubeCountSelection;
 pub use frontend::cmma;
+pub use frontend::wgmma;
 
 /// Cube Language Internal Representation.
 pub use cubecl_ir as ir;

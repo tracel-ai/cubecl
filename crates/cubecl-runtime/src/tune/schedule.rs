@@ -7,6 +7,7 @@ use cubecl_common::profile::{Instant, ProfileDuration, TimingMethod};
 
 use crate::client::Client;
 use crate::config::autotune::BenchConfig;
+use crate::server::ServerError;
 use crate::tune::Evictor;
 use crate::tune::patience::PatienceTable;
 use crate::tune::sampler::SampleSet;
@@ -72,9 +73,19 @@ impl Schedule<'_> {
     {
         let fallback = batch.indices();
         let run = || {
-            let _real_run = crate::dry_run::RealRun::new();
+            let measuring = crate::execution::StreamModeOverride::new(
+                crate::execution::StreamMode::Execute,
+                client,
+            );
 
-            cubecl_environment::future::block_on(self.drive(batch, autotunables, inputs, client))
+            let outcome = cubecl_environment::future::block_on(self.drive(
+                batch,
+                autotunables,
+                inputs,
+                client,
+            ));
+            core::mem::drop(measuring);
+            outcome
         };
 
         match client.clone().exclusive(run) {
@@ -420,6 +431,10 @@ impl Schedule<'_> {
     }
 
     /// Walk the plan batch by batch until one produces a usable measurement.
+    ///
+    /// # Errors
+    ///
+    /// The device fault a sync reports once every candidate has failed: the device is lost.
     pub(crate) fn run_plan<'a, K, F, Out>(
         &mut self,
         key: &K,
@@ -428,7 +443,7 @@ impl Schedule<'_> {
         inputs: &<F as TuneInputs>::At<'a>,
         client: &Client,
         results: &mut [AutotuneResult],
-    ) -> PlanOutcome
+    ) -> Result<PlanOutcome, ServerError>
     where
         K: core::fmt::Debug,
         F: TuneInputs,
@@ -442,6 +457,12 @@ impl Schedule<'_> {
             let batch = retry.take().unwrap_or_else(|| plan.next());
 
             if batch.is_empty() {
+                if let Err(err) = cubecl_environment::future::block_on(client.sync())
+                    && err.is_device_poisoned()
+                {
+                    return Err(err);
+                }
+
                 // Every candidate failed. A candidate that *executed* but
                 // could not be *measured* — `Unknown` wraps benchmark-harness
                 // failures like a profiling hiccup (timestamp query sets on a
@@ -466,11 +487,11 @@ impl Schedule<'_> {
                         "Autotune measured no candidate for key {key:?}; \
                          deciding candidate {index} unmeasured.\n - results: {results:?}"
                     );
-                    return PlanOutcome {
+                    return Ok(PlanOutcome {
                         steps,
                         short_circuit: None,
                         decided: Some(index),
-                    };
+                    });
                 }
 
                 panic!(
@@ -486,11 +507,11 @@ impl Schedule<'_> {
             steps.extend(outcome.steps);
 
             if outcome.any_success {
-                return PlanOutcome {
+                return Ok(PlanOutcome {
                     steps,
                     short_circuit: outcome.short_circuit,
                     decided: outcome.decided,
-                };
+                });
             }
 
             // Every candidate measured failed, so the ones their groups' patience skipped never

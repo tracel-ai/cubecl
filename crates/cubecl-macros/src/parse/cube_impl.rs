@@ -124,18 +124,24 @@ impl CubeImplItem {
         let (_, generics, _) = &call_generics.split_for_impl();
         let generics = generics.as_turbofish();
 
-        let mut body = KernelBody::Verbatim(quote! {
-            this.#method_name #generics(
-                scope,
-                #(#args),*
-            )
-        });
-
         // The function points to the method's body.
-        core::mem::swap(&mut func.body, &mut body);
-        // The method has the body, so it opens the frame and records the lines. The function only
-        // forwards to it.
-        let debug_symbols = core::mem::replace(&mut func.context.debug_symbols, false);
+        let body = core::mem::replace(
+            &mut func.body,
+            KernelBody::Verbatim(quote! {
+                this.#method_name #generics(
+                    scope,
+                    #(#args),*
+                )
+            }),
+        );
+        // The method has the body and the context of the function, so it opens the frame and
+        // records the lines. The function only forwards to it.
+        let context = Context::new(
+            func.context.return_type.clone(),
+            false,
+            func.context.is_intrinsic,
+        );
+        let context = core::mem::replace(&mut func.context, context);
 
         KernelFn {
             attrs: func.attrs.clone(),
@@ -144,11 +150,7 @@ impl CubeImplItem {
             body,
             full_name: func.full_name.clone(),
             span: func.span,
-            context: Context::new(
-                func.context.return_type.clone(),
-                debug_symbols,
-                func.context.is_intrinsic,
-            ),
+            context,
             args: func.args.clone(),
             analysis: func.analysis.clone(),
         }

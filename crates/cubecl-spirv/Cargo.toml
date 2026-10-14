@@ -20,12 +20,14 @@ default = [
     "std",
     "cubecl-common/default",
     "cubecl-core/default",
+    "cubecl-opt/default",
     "cubecl-runtime/default",
 ]
 pliron-dump = ["std"]
 std = [
     "cubecl-common/std",
     "cubecl-core/std",
+    "cubecl-opt/std",
     "cubecl-runtime/std",
     "pliron/std",
 ]
@@ -40,7 +42,7 @@ tracing = [
 [dependencies]
 bitflags = { workspace = true }
 cubecl-common = { workspace = true }
-cubecl-core = { workspace = true, default-features = true }
+cubecl-core = { workspace = true }
 cubecl-environment = { workspace = true }
 cubecl-ir = { workspace = true, features = [
     "spirv",
@@ -61,7 +63,7 @@ pliron-spirv = { workspace = true }
 rspirv = { workspace = true, features = ["serialize", "deserialize"] }
 
 # Optimizer
-cubecl-opt = { workspace = true, default-features = true }
+cubecl-opt = { workspace = true }
 
 [dev-dependencies]
 cubecl-core = { workspace = true, default-features = true, features = [

@@ -45,15 +45,20 @@ impl KernelFn {
         let vis = &self.vis;
         let sig = &self.sig;
 
-        let body = match &self.body {
+        let mut body = match &self.body {
             KernelBody::Block(block) => match matches!(sig.returns, KernelReturns::ExpandType(_))
                 && !self.context.is_intrinsic
             {
-                true => &block.to_tokens_runtime_return(&mut self.context),
-                false => &block.to_tokens(&mut self.context),
+                true => block.to_tokens_runtime_return(&mut self.context),
+                false => block.to_tokens(&mut self.context),
             },
-            KernelBody::Verbatim(tokens) => tokens,
+            KernelBody::Verbatim(tokens) => tokens.clone(),
         };
+        if self.context.has_early_return {
+            let branch = frontend_type("branch");
+            body = quote![#branch::setup_early_return(scope, |scope| #body)]
+        }
+
         let name = &self.full_name;
 
         let (debug_source, debug_params) = if self.context.debug_symbols {

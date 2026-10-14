@@ -1,6 +1,5 @@
 #![allow(clippy::approx_constant)]
 
-use core::f32;
 use core::f32::consts::PI;
 use cubecl_runtime::runtime::Runtime;
 
