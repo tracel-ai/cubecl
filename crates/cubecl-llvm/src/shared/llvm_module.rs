@@ -1,8 +1,8 @@
 //! The LLVM module and target machine the pliron conversion hands its output to: parsed,
 //! finalized, optimized and emitted here, each handle owned and disposed on drop.
 //!
-//! The CPU target parses, optimizes and prints a module; finalizing an entry point and
-//! building a target machine are the GPU targets' alone, and are compiled only with them.
+//! All targets optimize with a target machine; GPU targets also finalize entry points
+//! and emit object code here.
 
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 use llvm_sys::{
@@ -11,32 +11,31 @@ use llvm_sys::{
         LLVMAddAttributeAtIndex, LLVMCountParams, LLVMCreateEnumAttribute,
         LLVMCreateStringAttribute, LLVMGetBufferSize, LLVMGetBufferStart,
         LLVMGetEnumAttributeKindForName, LLVMGetNamedFunction, LLVMGetParam, LLVMGetTypeKind,
-        LLVMSetFunctionCallConv, LLVMSetTarget, LLVMTypeOf,
+        LLVMSetFunctionCallConv, LLVMTypeOf,
     },
     prelude::LLVMValueRef,
-    target::{LLVMDisposeTargetData, LLVMSetModuleDataLayout},
-    target_machine::{
-        LLVMCodeGenFileType, LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout,
-        LLVMCreateTargetMachine, LLVMGetTargetFromTriple, LLVMRelocMode,
-        LLVMTargetMachineEmitToMemoryBuffer,
-    },
+    target_machine::{LLVMCodeGenFileType, LLVMTargetMachineEmitToMemoryBuffer},
 };
 use llvm_sys::{
     core::{
         LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy,
         LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMDisposeModule, LLVMPrintModuleToString,
+        LLVMSetTarget,
     },
     error::{LLVMDisposeErrorMessage, LLVMGetErrorMessage},
     ir_reader::LLVMParseIRInContext2,
     prelude::{LLVMContextRef, LLVMModuleRef},
-    target_machine::{LLVMDisposeTargetMachine, LLVMTargetMachineRef},
+    target::{LLVMDisposeTargetData, LLVMSetModuleDataLayout},
+    target_machine::{
+        LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout, LLVMCreateTargetMachine,
+        LLVMDisposeTargetMachine, LLVMGetDefaultTargetTriple, LLVMGetHostCPUFeatures,
+        LLVMGetHostCPUName, LLVMGetTargetFromTriple, LLVMRelocMode, LLVMTargetMachineRef,
+    },
     transforms::pass_builder::{
         LLVMCreatePassBuilderOptions, LLVMDisposePassBuilderOptions, LLVMRunPasses,
     },
 };
-use std::ffi::CStr;
-#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 #[cfg(feature = "amdgpu")]
 use std::marker::PhantomData;
 
@@ -78,7 +77,6 @@ impl LlvmModule {
         self.module
     }
 
-    #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
     pub(crate) fn set_triple(&self, triple: &CStr) {
         // SAFETY: the module is live for `self`'s lifetime.
         unsafe { LLVMSetTarget(self.module, triple.as_ptr()) }
@@ -138,13 +136,12 @@ impl LlvmModule {
     pub(crate) fn run_passes(
         &self,
         pipeline: &CStr,
-        machine: Option<&TargetMachine>,
+        machine: &TargetMachine,
     ) -> Result<(), String> {
-        let tm = machine.map_or(std::ptr::null_mut(), |machine| machine.0);
         // SAFETY: the module and the target machine are live for the call.
         unsafe {
             let options = LLVMCreatePassBuilderOptions();
-            let error = LLVMRunPasses(self.module, pipeline.as_ptr(), tm, options);
+            let error = LLVMRunPasses(self.module, pipeline.as_ptr(), machine.0, options);
             LLVMDisposePassBuilderOptions(options);
             if error.is_null() {
                 return Ok(());
@@ -391,7 +388,6 @@ fn enum_attribute_kind(name: &str) -> Option<u32> {
 }
 
 /// What a target machine is built from.
-#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub(crate) struct TargetSpec<'a> {
     pub triple: &'a CStr,
     /// The architecture, as the target names it: `sm_60`, `gfx1201`.
@@ -401,12 +397,33 @@ pub(crate) struct TargetSpec<'a> {
 }
 
 /// An LLVM target machine at the aggressive optimization level.
-// The CPU runs its passes without one, so only the GPU targets ever build it.
-#[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
 pub(crate) struct TargetMachine(LLVMTargetMachineRef);
 
-#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 impl TargetMachine {
+    /// Builds a machine for the host CPU and all its detected features, and sets
+    /// the module's target triple and data layout. The native target must be initialized.
+    pub(crate) fn native(module: &LlvmModule) -> Result<Self, String> {
+        // SAFETY: host queries return owned LLVM messages, consumed exactly once.
+        let (triple, cpu, features) = unsafe {
+            (
+                take_message(LLVMGetDefaultTargetTriple()),
+                take_message(LLVMGetHostCPUName()),
+                take_message(LLVMGetHostCPUFeatures()),
+            )
+        };
+        let triple = CString::new(triple).map_err(|err| err.to_string())?;
+        let features = CString::new(features).map_err(|err| err.to_string())?;
+        let machine = Self::new(&TargetSpec {
+            triple: &triple,
+            cpu: &cpu,
+            features: &features,
+            reloc: LLVMRelocMode::LLVMRelocDefault,
+        })?;
+        module.set_triple(&triple);
+        machine.set_data_layout(module);
+        Ok(machine)
+    }
+
     /// The target `spec` names must have been initialized.
     ///
     /// # Errors
@@ -452,6 +469,7 @@ impl TargetMachine {
     ///
     /// # Errors
     /// The message LLVM gives, when it cannot emit this module for this machine.
+    #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
     pub(crate) fn emit(
         &self,
         module: LlvmModule,

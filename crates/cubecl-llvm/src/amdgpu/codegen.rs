@@ -219,7 +219,7 @@ fn compile(
 
     // SAFETY: the module is live, stamped with the AMDGPU triple and layout.
     unsafe { lower_to_device_libs(module.raw(), arch)? };
-    module.run_passes(PASS_PIPELINE, Some(&machine))?;
+    module.run_passes(PASS_PIPELINE, &machine)?;
 
     // Emission consumes a module, so the assembly comes from a copy.
     let asm = if assembly == Assembly::Keep {
