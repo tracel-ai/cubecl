@@ -7,11 +7,11 @@ use crate::{prelude::*, shared::llvm_module::LlvmModule};
 use cubecl_core::ir::{ContextExt, debug::DebugState, settings::DebugInfo};
 use cubecl_runtime::debug_source::{kernel_source_root, source_md5s};
 use pliron_llvm::{
-    debug_info_conversions::to_llvm_ir::{
-        DebugInfoOptions, EmissionKind, LLVMDWARFSourceLanguage, SourceText,
-    },
     llvm_sys::core::{LLVMContext, LLVMModule},
-    to_llvm_ir,
+    metadata_conversions::to_llvm_ir::{
+        DebugInfoOptions, DwarfEmissionKind, DwarfSourceLanguage, SourceText,
+    },
+    to_llvm_ir::{self, ToLLVMOptions},
 };
 
 /// Converts `module` to LLVM IR, with the debug data of `level`.
@@ -28,19 +28,25 @@ pub(crate) fn convert_module(
     level: DebugInfo,
     embed_source: bool,
 ) -> pliron::result::Result<LLVMModule> {
-    if level == DebugInfo::None {
-        return to_llvm_ir::convert_module(ctx, llvm_ctx, module);
-    }
-    let mut options = DebugInfoOptions::default();
-    options.emission_kind = match level {
-        DebugInfo::Full => EmissionKind::Full,
-        _ => EmissionKind::LineTablesOnly,
+    let debug_info = (level != DebugInfo::None)
+        .then(|| debug_info_options(ctx, level, embed_source));
+    to_llvm_ir::convert_module(ctx, llvm_ctx, module, ToLLVMOptions { debug_info })
+}
+
+/// The debug data options of `level`, for [`convert_module`].
+fn debug_info_options(ctx: &Context, level: DebugInfo, embed_source: bool) -> DebugInfoOptions<'_> {
+    let mut options = DebugInfoOptions {
+        emission_kind: match level {
+            DebugInfo::Full => DwarfEmissionKind::Full,
+            _ => DwarfEmissionKind::LineTablesOnly,
+        },
+        language: DwarfSourceLanguage::Rust,
+        producer: "cubecl".to_string(),
+        optimized: true,
+        ..Default::default()
     };
-    options.language = LLVMDWARFSourceLanguage::LLVMDWARFSourceLanguageRust;
-    options.producer = "cubecl".to_string();
-    options.optimized = true;
     let Some(debug) = ctx.try_aux_ty::<DebugState>() else {
-        return to_llvm_ir::convert_module_with_debug_info(ctx, llvm_ctx, module, options);
+        return options;
     };
     // Only `Full` has the source text, as the macro records it only then.
     let md5s = source_md5s(debug, level);
@@ -57,7 +63,7 @@ pub(crate) fn convert_module(
         // LLVM writes the source text into the object only with DWARF 5.
         options.dwarf_version = 5;
     }
-    to_llvm_ir::convert_module_with_debug_info(ctx, llvm_ctx, module, options)
+    options
 }
 
 /// Runs LLVM's verifier on the debug data of `module`, in a debug build of cubecl only. The test

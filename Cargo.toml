@@ -262,9 +262,9 @@ cfg_aliases = "0.2.2"
 [profile.dev.build-override]
 opt-level = 3
 
-# `pliron-llvm` debug data is not merged into `pliron` yet. The `llvm-debug-info` branch has it on
-# top of `pliron` 0.19. The patch also gives `pliron-spirv` the same `pliron`.
+# `pliron-llvm` debug data (pliron-org/pliron#290 and #304) is merged but not released yet. The
+# patch also gives `pliron-spirv` the same `pliron`.
 [patch.crates-io]
-pliron = { git = "https://github.com/skewballfox/pliron", rev = "1f4fe409027459c49aa05121d0ff776a9b82f936" }
-pliron-derive = { git = "https://github.com/skewballfox/pliron", rev = "1f4fe409027459c49aa05121d0ff776a9b82f936" }
-pliron-llvm = { git = "https://github.com/skewballfox/pliron", rev = "1f4fe409027459c49aa05121d0ff776a9b82f936" }
+pliron = { git = "https://github.com/pliron-org/pliron", rev = "6acd77affed679641446ea8aeeb10bcaa1de095d" }
+pliron-derive = { git = "https://github.com/pliron-org/pliron", rev = "6acd77affed679641446ea8aeeb10bcaa1de095d" }
+pliron-llvm = { git = "https://github.com/pliron-org/pliron", rev = "6acd77affed679641446ea8aeeb10bcaa1de095d" }
