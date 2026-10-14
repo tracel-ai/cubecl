@@ -83,7 +83,7 @@ impl Float for flex32 {
 
     const RADIX: u32 = 2;
 
-    fn new(val: f32) -> Self {
-        flex32::from_f32(val)
+    fn new(val: f64) -> Self {
+        flex32::from_f64(val)
     }
 }

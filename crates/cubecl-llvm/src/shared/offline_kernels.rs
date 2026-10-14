@@ -312,9 +312,9 @@ pub(crate) fn tf32_round_constants_kernel() -> impl CubeKernel {
 #[cube(launch)]
 fn bf16_math(input: &[Vector<bf16, Const<4>>], output: &mut [Vector<bf16, Const<4>>]) {
     let value = input[UNIT_POS as usize];
-    let scaled = value * Vector::new(bf16::new(1.5f32)) + Vector::new(bf16::new(0.25f32));
+    let scaled = value * Vector::new(bf16::new(1.5)) + Vector::new(bf16::new(0.25));
     let positive = select_many(
-        scaled.greater_than(&Vector::new(bf16::new(0.0f32))),
+        scaled.greater_than(&Vector::new(bf16::new(0.0))),
         scaled,
         scaled.abs().sqrt(),
     );

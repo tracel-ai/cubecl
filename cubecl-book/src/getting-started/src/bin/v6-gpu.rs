@@ -55,7 +55,7 @@ fn reduce_matrix<F: Float, N: Size>(input: &Tensor<Vector<F, N>>, output: &mut T
     let x = UNIT_POS_X as usize;
     let y = UNIT_POS_Y as usize;
     let offset = (x * input.stride(0) + y * input.stride(1)) / N::value();
-    let mut acc = Vector::<F, N>::new(F::new(0.0f32));
+    let mut acc = Vector::<F, N>::new(F::new(0.0));
     for i in 0..input.shape(2) / N::value() {
         acc += input[offset + i];
     }
