@@ -541,7 +541,7 @@ fn autotune_resets_when_the_environment_switches() {
     ];
     let key = set.generate_key(&handles);
 
-    let tuner: Tuner<String> = Tuner::new("environment-switch", "device0");
+    let tuner: Tuner<String> = Tuner::new("environment-switch", "device0", "fp0");
     tuner.check_tune(
         &key,
         &handles,
@@ -630,7 +630,7 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     ];
     let key = set.generate_key(&handles);
 
-    let tuner: Tuner<String> = Tuner::new("recorded", "device0");
+    let tuner: Tuner<String> = Tuner::new("recorded", "device0", "fp0");
     let answer = tuner.check_tune(
         &key,
         &handles,
@@ -688,6 +688,42 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     assert_eq!(tunes[0].stamp.session, sessions[0].id);
 }
 
+/// A device id that resolves to another adapter must not read the first
+/// adapter's persisted answers.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn persisted_answers_are_scoped_to_the_adapter_fingerprint() {
+    use cubecl_server::tune::{TuneCacheResult, Tuner};
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+
+    let client = test_client(&DummyDevice);
+    let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
+    let (handles, key) = addition_inputs(&client, &set);
+
+    let tuned: Tuner<String> = Tuner::new("fingerprinted", "device0", "fp-a");
+    tuned.check_tune(
+        &key,
+        &handles,
+        &set,
+        || set.compute_checksum(),
+        &client,
+        None,
+    );
+
+    let other_adapter: Tuner<String> = Tuner::new("fingerprinted", "device0", "fp-b");
+    assert!(matches!(other_adapter.fastest(&key), TuneCacheResult::Miss));
+
+    // Unchecked, not Miss: the answer was hydrated from disk.
+    let same_adapter: Tuner<String> = Tuner::new("fingerprinted", "device0", "fp-a");
+    assert!(matches!(
+        same_adapter.fastest(&key),
+        TuneCacheResult::Unchecked
+    ));
+}
+
 /// A tune stopped by the short circuit records which candidate stopped it.
 #[test_log::test]
 #[cfg(all(feature = "std", persistence, not(target_family = "wasm")))]
@@ -711,7 +747,7 @@ fn a_short_circuited_tune_records_where_it_stopped() {
     ];
     let key = set.generate_key(&handles);
 
-    let tuner: Tuner<String> = Tuner::new("short-circuited", "device0");
+    let tuner: Tuner<String> = Tuner::new("short-circuited", "device0", "fp0");
     tuner.check_tune(
         &key,
         &handles,
@@ -756,7 +792,7 @@ fn nothing_is_recorded_when_records_are_off() {
         client.empty(3),
     ];
     let key = set.generate_key(&handles);
-    let tuner: Tuner<String> = Tuner::new("unrecorded", "device0");
+    let tuner: Tuner<String> = Tuner::new("unrecorded", "device0", "fp0");
     let answer = tuner.check_tune(
         &key,
         &handles,

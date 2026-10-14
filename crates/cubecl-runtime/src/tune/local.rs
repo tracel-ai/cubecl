@@ -185,7 +185,8 @@ where
                 .entry(id.clone())
                 .or_insert_with(move || {
                     let name = self.name.replace("::", "-");
-                    Arc::new(Tuner::new(&name, &id.to_string()))
+                    let fingerprint = &client.properties().identity.fingerprint;
+                    Arc::new(Tuner::new(&name, &id.to_string(), fingerprint))
                 })
                 .clone()
         };
