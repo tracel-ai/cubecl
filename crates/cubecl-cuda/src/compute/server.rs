@@ -27,7 +27,7 @@ use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
     execution::LaunchMode,
     id::GraphId,
-    kernel::CubeKernel,
+    kernel::{CubeKernel, KernelParam},
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, StreamMemoryReport},
     server::Server,
@@ -911,7 +911,11 @@ impl CudaServer {
             .grid_constants;
         let mut command = self.command(stream_id, bindings.buffers())?;
 
-        let (info_const, info_binding) = if grid_constants {
+        let (info_const, info_binding) = if kernel.params.is_some() {
+            // A precompiled binary takes its info slots as parameters of their
+            // own, named by its parameter list below.
+            (None, None)
+        } else if grid_constants {
             let info = &bindings.info;
 
             let mut handle = Option::None;
@@ -958,6 +962,9 @@ impl CudaServer {
             }
         }
 
+        if let Some(params) = kernel.params.as_deref() {
+            resources = binary_params(params, &resources, &bindings.info.data)?;
+        }
         if let Some(binding) = info_binding {
             resources.push(command.resource(binding.binding())?.binding);
         }
@@ -971,6 +978,43 @@ impl CudaServer {
     pub(crate) fn utilities(&self) -> Arc<ServerUtilities> {
         self.utilities.clone()
     }
+}
+
+/// The parameters a precompiled binary is launched with, in the order its
+/// `params` declares them: `resources` are the launch's resources as the
+/// driver reads them, and `info` its info slots, which must outlive the
+/// launch call.
+///
+/// # Errors
+///
+/// [`LaunchError::Unknown`] when a parameter names a resource or a slot the
+/// launch does not have: the kernel and its arguments disagree, and launching
+/// would hand the driver a dangling parameter.
+fn binary_params(
+    params: &[KernelParam],
+    resources: &[*mut c_void],
+    info: &[u64],
+) -> Result<SmallVec<[*mut c_void; 5]>, LaunchError> {
+    params
+        .iter()
+        .map(|param| {
+            let found = match *param {
+                KernelParam::Resource(index) => resources.get(index).copied(),
+                KernelParam::Info(slot) => info
+                    .get(slot)
+                    .map(|value| value as *const u64 as *mut c_void),
+            };
+            found.ok_or_else(|| LaunchError::Unknown {
+                reason: format!(
+                    "the precompiled kernel takes {param:?}, but the launch has {} resources \
+                     and {} info slots",
+                    resources.len(),
+                    info.len()
+                ),
+                backtrace: BackTrace::capture(),
+            })
+        })
+        .collect()
 }
 
 fn create_tensor_map(

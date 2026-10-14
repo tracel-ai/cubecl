@@ -1,7 +1,9 @@
 //! A kernel carrying its own compiled text skips the compiler, and is only
-//! accepted by a compiler of its language.
+//! accepted by a compiler of its language. One carrying a binary is only
+//! accepted by a compiler that loads binaries.
 
 use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::bytes::Bytes;
 use cubecl_ir::{
     AddressType, ElemType, Scope, UIntKind,
     metadata::Info,
@@ -10,7 +12,8 @@ use cubecl_ir::{
 use cubecl_server::compiler::{CompilationError, Compiler};
 use cubecl_server::id::KernelId;
 use cubecl_server::kernel::{
-    CompiledKernel, CubeKernel, KernelDefinition, KernelMetadata, PrecompiledSource,
+    CompiledKernel, CubeKernel, KernelDefinition, KernelMetadata, KernelParam, PrecompiledBinary,
+    PrecompiledSource,
 };
 
 const SOURCE: &str = "fn main() {}";
@@ -115,4 +118,123 @@ fn a_kernel_in_another_language_is_refused() {
         reason.contains("wgsl"),
         "names the compiler's language: {reason}"
     );
+}
+
+/// A compiler that loads binaries, keeping what it was handed.
+#[derive(Clone, Debug)]
+struct LoadingCompiler;
+
+impl Compiler for LoadingCompiler {
+    type Representation = String;
+    type CompilationOptions = ();
+
+    fn compile(
+        &mut self,
+        _kernel: KernelDefinition,
+        _options: &Self::CompilationOptions,
+    ) -> Result<Self::Representation, CompilationError> {
+        Err(CompilationError::Generic {
+            reason: "a precompiled binary must not reach the compiler".to_string(),
+            backtrace: BackTrace::capture(),
+        })
+    }
+
+    fn extension(&self) -> &'static str {
+        "bin"
+    }
+
+    fn lang_tag(&self) -> &'static str {
+        "bin"
+    }
+
+    fn load_binary(
+        &mut self,
+        binary: PrecompiledBinary,
+    ) -> Result<Self::Representation, CompilationError> {
+        Ok(format!("{} {:?}", binary.entrypoint_name, binary.params))
+    }
+}
+
+/// A kernel that brings its own module image, and optionally text too.
+struct Foreign {
+    with_source: bool,
+}
+
+impl KernelMetadata for Foreign {
+    fn id(&self) -> KernelId {
+        KernelId::new::<Self>().info(self.with_source)
+    }
+
+    fn address_type(&self) -> ElemType {
+        ElemType::UInt(UIntKind::U32)
+    }
+}
+
+impl CubeKernel for Foreign {
+    fn define(&self) -> KernelDefinition {
+        HandWritten { lang: "bin" }.define()
+    }
+
+    fn source(&self) -> Option<PrecompiledSource> {
+        self.with_source.then(|| PrecompiledSource {
+            source: SOURCE.to_string(),
+            entrypoint_name: "main".to_string(),
+            lang: "bin",
+        })
+    }
+
+    fn binary(&self) -> Option<PrecompiledBinary> {
+        Some(PrecompiledBinary {
+            image: Bytes::from_bytes_vec(vec![0x7f, b'E', b'L', b'F']),
+            entrypoint_name: "main".to_string(),
+            params: vec![KernelParam::Resource(0), KernelParam::Info(0)],
+        })
+    }
+}
+
+fn reason(result: Result<CompiledKernel<impl Compiler>, CompilationError>) -> String {
+    match result {
+        Ok(_) => panic!("the kernel must be refused"),
+        Err(CompilationError::Generic { reason, .. }) => reason,
+        Err(err) => panic!("expected a generic compilation error, got {err}"),
+    }
+}
+
+#[test]
+fn a_binary_reaches_a_compiler_that_loads_it() {
+    let kernel = Foreign { with_source: false };
+    let compiled = CompiledKernel::compile(&kernel, kernel.define(), &mut LoadingCompiler, &())
+        .expect("the compiler loads binaries");
+
+    assert_eq!(compiled.entrypoint_name, "main");
+    assert_eq!(
+        compiled.repr.as_deref(),
+        Some("main [Resource(0), Info(0)]"),
+        "the compiler was handed the binary's parameter list"
+    );
+    assert!(compiled.io.is_none(), "every buffer reads as read-write");
+}
+
+#[test]
+fn a_binary_is_refused_by_a_compiler_that_does_not_load_one() {
+    let kernel = Foreign { with_source: false };
+    let reason = reason(CompiledKernel::compile(
+        &kernel,
+        kernel.define(),
+        &mut TaggedCompiler("wgsl"),
+        &(),
+    ));
+    assert!(reason.contains("main"), "names the entrypoint: {reason}");
+}
+
+#[test]
+fn a_kernel_with_both_a_binary_and_a_source_is_refused() {
+    let kernel = Foreign { with_source: true };
+    let reason = reason(CompiledKernel::compile(
+        &kernel,
+        kernel.define(),
+        &mut LoadingCompiler,
+        &(),
+    ));
+    assert!(reason.contains("both"), "says why: {reason}");
 }

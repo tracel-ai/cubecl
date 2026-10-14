@@ -103,6 +103,31 @@ impl<C: Compiler> CompiledKernel<C> {
         let entrypoint_name = definition.settings.kernel_name.clone();
         let cube_dim = definition.settings.cube_dim.into();
 
+        // A foreign module is the compiler's to load, not to compile. Like a
+        // hand-written kernel below, it has no IR, so `io: None`.
+        if let Some(binary) = kernel.binary() {
+            if kernel.source().is_some() {
+                return Err(CompilationError::Generic {
+                    reason: alloc::format!(
+                        "kernel `{}` carries both a precompiled source and a binary",
+                        kernel.name()
+                    ),
+                    backtrace: BackTrace::capture(),
+                });
+            }
+            let entrypoint_name = binary.entrypoint_name.clone();
+            let repr = compiler.load_binary(binary)?;
+            return Ok(CompiledKernel {
+                entrypoint_name,
+                debug_name: Some(kernel.name()),
+                source: repr.to_string(),
+                io: None,
+                repr: Some(repr),
+                cube_dim,
+                debug_info: None,
+            });
+        }
+
         // A hand-written kernel is already in the target language: there is no
         // IR to hand the compiler, so neither analysis it produces exists.
         // `io: None` reads as every buffer both read and written, which is the
