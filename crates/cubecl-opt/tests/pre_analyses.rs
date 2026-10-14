@@ -4,11 +4,15 @@ use cubecl_ir::{
     interfaces::side_effects::{MemoryEffect, MemoryEffectsOp},
     prelude::*,
 };
-use cubecl_opt::analyses::dataflow_solver::{
-    AnalysisState, DataflowSolver, ProgramPoint, ReadRef,
-    dense::{self, DenseLattice},
-    pre::{
-        Anticipated, AvailableExpressions, Computes, compute_lcm_analyses, compute_scm_analyses,
+use cubecl_opt::{
+    SparseBitSet,
+    analyses::dataflow_solver::{
+        AnalysisState, DataflowSolver, ProgramPoint, ReadRef,
+        dense::{self, DenseLattice},
+        pre::{
+            Anticipated, Available, Computes, InsertionMode, compute_lcm_analyses,
+            compute_pruned_insertion_points, compute_scm_analyses,
+        },
     },
 };
 use expect_test::expect;
@@ -22,6 +26,7 @@ use pliron::{
     parsable::parse_from_str,
     printable::Printable,
     result::ExpectOk,
+    utils::table::IMap,
 };
 
 #[pliron_op(
@@ -84,6 +89,29 @@ fn run_speculative_pre_analyses_on_text(ctx: &mut Context, input: &str) -> Resul
     Ok(display_sorted_anticipated(ctx, &solver, op))
 }
 
+fn run_insert_analyses_on_text(
+    ctx: &mut Context,
+    input: &str,
+    speculative: bool,
+    insert_mode: InsertionMode,
+) -> Result<String> {
+    init_env_logger_for_tests!();
+    let op = parse_from_str(spaced(Operation::top_level_parser()), ctx, input).expect_ok(ctx);
+
+    verify_operation(op, ctx)?;
+
+    let mut solver = match speculative {
+        true => compute_scm_analyses(ctx, op)?,
+        false => compute_lcm_analyses(ctx, op)?,
+    };
+    let insertion_points = compute_pruned_insertion_points(ctx, op, &mut solver, insert_mode)?;
+    std::println!("{}\n", solver.disp(ctx));
+
+    std::println!("{}", display_sets(ctx, &solver, op));
+
+    Ok(display_sorted_insertions(ctx, &insertion_points, op))
+}
+
 fn display_dense_fwd<T: dense::LatticeValue>(
     ctx: &Context,
     lattice: &ReadRef<DenseLattice<T>>,
@@ -110,6 +138,24 @@ fn display_dense_bwd<T: dense::LatticeValue>(
             "block_end(^{}): {}\n",
             lattice.anchor().block().unwrap().label(ctx),
             lattice.value().disp(ctx)
+        ),
+    }
+}
+
+fn display_insertions(ctx: &Context, anchor: &ProgramPoint, value: &SparseBitSet) -> String {
+    let value = value.iter().map(|it| format!("e{it}")).join(", ");
+    match anchor.next_op(ctx) {
+        Some(op) if let Some(block) = op.deref(ctx).get_parent_block() => format!(
+            "^{}({}): {{{}}}\n",
+            block.label(ctx),
+            OpDbg { op, ctx },
+            value
+        ),
+        Some(op) => format!("{}: {{{}}}\n", OpDbg { op, ctx }, value),
+        None => format!(
+            "block_end(^{}): {}\n",
+            anchor.block().unwrap().label(ctx),
+            value
         ),
     }
 }
@@ -165,13 +211,35 @@ fn states_topological_bwd<'a, T: AnalysisState<Anchor = ProgramPoint>>(
     out
 }
 
+fn insertions_topological<'a>(
+    ctx: &Context,
+    points: &'a IMap<ProgramPoint, SparseBitSet>,
+    op: Ptr<Operation>,
+) -> Vec<(ProgramPoint, &'a SparseBitSet)> {
+    let mut out = Vec::new();
+    for region in op.deref(ctx).regions() {
+        for block in region.deref(ctx).iter(ctx) {
+            if let Some(state) = points.get(&ProgramPoint::at_block_end(ctx, block)) {
+                out.push((ProgramPoint::at_block_end(ctx, block), state));
+            }
+            for op in block.deref(ctx).iter(ctx) {
+                out.extend(insertions_topological(ctx, points, op));
+            }
+        }
+    }
+    if let Some(state) = points.get(&ProgramPoint::before_op(ctx, op)) {
+        out.push((ProgramPoint::before_op(ctx, op), state));
+    }
+    out
+}
+
 fn display_sorted_computes(ctx: &Context, solver: &DataflowSolver, op: Ptr<Operation>) -> String {
     let states = states_topological_fwd::<Computes>(ctx, solver, op, true);
     states.iter().map(|it| display_dense_fwd(ctx, it)).join("")
 }
 
 fn display_sorted_available(ctx: &Context, solver: &DataflowSolver, op: Ptr<Operation>) -> String {
-    let states = states_topological_fwd::<AvailableExpressions>(ctx, solver, op, true);
+    let states = states_topological_fwd::<Available>(ctx, solver, op, true);
     states.iter().map(|it| display_dense_fwd(ctx, it)).join("")
 }
 
@@ -182,6 +250,18 @@ fn display_sorted_anticipated(
 ) -> String {
     let states = states_topological_bwd::<Anticipated>(ctx, solver, op, true);
     states.iter().map(|it| display_dense_bwd(ctx, it)).join("")
+}
+
+fn display_sorted_insertions(
+    ctx: &Context,
+    points: &IMap<ProgramPoint, SparseBitSet>,
+    op: Ptr<Operation>,
+) -> String {
+    let states = insertions_topological(ctx, points, op);
+    states
+        .iter()
+        .map(|(anchor, value)| display_insertions(ctx, anchor, value))
+        .join("")
 }
 
 fn display_sets(ctx: &Context, solver: &DataflowSolver, op: Ptr<Operation>) -> String {
@@ -1316,6 +1396,102 @@ fn scm_while_divergent_condition() -> Result<()> {
         y_v7 = scf.while init_v0 : builtin.integer i64 {..} do {..}: Anticipated({e4})
         cond_v3 = plane.elect () [] []: <() -> (cube.bool )>: Anticipated({e3, e4})
         builtin.func @f: builtin.function <(builtin.integer i64, builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)> {..}: Anticipated({})
+    "#]]
+    .assert_eq(&actual);
+
+    Ok(())
+}
+
+// Example from the Branch Divergence Reduction Based on Code Motion paper to validate the different
+// insertion strategies
+fn sscm_paper_example() -> &'static str {
+    r#"
+    builtin.module @module {
+      ^module_block():
+      builtin.func @f: builtin.function <(
+          builtin.integer i64, builtin.integer i64, cube.bool, cube.index
+      ) -> (builtin.integer i64)>
+          [entry_point: cube.entrypoint_abi <cube_dim: (1, 1, 1)>] {
+        ^entry(a: builtin.integer i64, b: builtin.integer i64, outer_cond: cube.bool, lo: cube.index):
+          result = scf.if outer_cond : builtin.integer i64 then {
+            ^outer_then():
+              stride = builtin.constant <cube.index 1> : cube.index;
+              hi = cube.read_builtin (UnitPos) : cube.index;
+
+              scf.for lo to hi step stride iter_args() {
+                ^loop_body(iv: builtin.integer i64):
+                  x = math.i_add (a, b) [] []:
+                      <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>;
+                  branch.yield ()
+              };
+              branch.yield (a)
+          } else {
+            ^outer_else():
+              inner_cond = plane.elect () [] []: <() -> (cube.bool)>;
+
+              inner = scf.if inner_cond : builtin.integer i64 then {
+                ^inner_then():
+                  y = math.i_add (a, b) [] []:
+                      <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>;
+                  branch.yield (y)
+              } else {
+                ^inner_else():
+                  branch.yield (a)
+              };
+
+              z = math.i_add (a, b) [] []:
+                  <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>;
+              branch.yield (z)
+          };
+
+          branch.return result
+      }
+    }
+    "#
+}
+
+#[test]
+fn insert_paper_example_lcm() -> Result<()> {
+    let input = sscm_paper_example();
+
+    let ctx = &mut Context::new();
+    let actual = run_insert_analyses_on_text(ctx, input, false, InsertionMode::Lazy)?;
+
+    // Should insert in `inner_else`
+    expect![[r#"
+        ^inner_else_block7v1(branch.yield (a_v0)): {e8}
+    "#]]
+    .assert_eq(&actual);
+
+    Ok(())
+}
+
+#[test]
+fn insert_paper_example_scm() -> Result<()> {
+    let input = sscm_paper_example();
+
+    let ctx = &mut Context::new();
+    let actual = run_insert_analyses_on_text(ctx, input, false, InsertionMode::Sparse)?;
+
+    // Should insert in `outer_else` before the `scf.if`
+    expect![[r#"
+        ^outer_else_block5v1(inner_v10 = scf.if inner_cond_v8 : builtin.integer i64 then {..} else {..}): {e8}
+    "#]]
+    .assert_eq(&actual);
+
+    Ok(())
+}
+
+#[test]
+fn insert_paper_example_sscm() -> Result<()> {
+    let input = sscm_paper_example();
+
+    let ctx = &mut Context::new();
+    let actual = run_insert_analyses_on_text(ctx, input, true, InsertionMode::Sparse)?;
+
+    // Should insert in `entry` before the `scf.if`
+    expect![[r#"
+        ^entry_block2v1(result_v12 = scf.if outer_cond_v2 : builtin.integer i64 then {..} else {..}): {e8}
     "#]]
     .assert_eq(&actual);
 

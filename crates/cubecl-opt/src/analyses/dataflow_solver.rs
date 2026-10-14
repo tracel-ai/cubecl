@@ -134,6 +134,7 @@ mod solver {
         root: Option<Ptr<Operation>>,
         /// Analyses that have been given to `load` but may still be in the pre-load phase.
         preloaded_analyses: Vec<TypeId>,
+        unloaded_analyses: Vec<TypeId>,
         child_analyses: IMap<TypeId, Box<dyn DataflowAnalysis>>,
         worklist: RefCell<VecDeque<SolverWorkItem>>,
         anchor_hash: FixedState,
@@ -148,6 +149,7 @@ mod solver {
             Self {
                 root: Default::default(),
                 preloaded_analyses: Default::default(),
+                unloaded_analyses: Default::default(),
                 child_analyses: Default::default(),
                 worklist: Default::default(),
                 anchor_hash: Default::default(),
@@ -276,6 +278,11 @@ mod solver {
             &self.preloaded_analyses
         }
 
+        pub fn unload<A: DataflowAnalysis>(&mut self) {
+            let key = TypeId::of::<A>();
+            self.unloaded_analyses.push(key);
+        }
+
         pub fn initialize_and_run(&mut self, ctx: &Context, root: Ptr<Operation>) -> Result<()> {
             self.initialize_filtered_and_run(ctx, root, |_| true)
         }
@@ -298,7 +305,9 @@ mod solver {
 
             // Initialize equivalent lattice anchors.
             for analysis in child_analyses.values() {
-                if !should_initialize(&**analysis) {
+                if !should_initialize(&**analysis)
+                    || self.unloaded_analyses.contains(&analysis.type_id())
+                {
                     continue;
                 }
                 analysis.initialize_equivalent_lattice_anchor(self, ctx, root);
@@ -306,6 +315,11 @@ mod solver {
 
             // Initialize the analyses.
             for analysis in child_analyses.values_mut() {
+                if !should_initialize(&**analysis)
+                    || self.unloaded_analyses.contains(&analysis.type_id())
+                {
+                    continue;
+                }
                 if let Err(err) = analysis.initialize(self, ctx, root) {
                     self.root = None;
                     self.child_analyses = child_analyses;
@@ -320,6 +334,9 @@ mod solver {
                 let mut worklist = self.worklist.borrow_mut();
                 worklist.pop_front()
             } {
+                if self.unloaded_analyses.contains(&analysis) {
+                    continue;
+                }
                 let analysis = self.child_analyses.get(&analysis).expect("Should exist");
                 if let Err(err) = analysis.visit(self, ctx, point) {
                     self.root = None;

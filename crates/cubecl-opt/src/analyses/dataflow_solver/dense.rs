@@ -71,6 +71,10 @@ impl<T: LatticeValue> DenseLattice<T> {
     pub fn value_mut(&mut self) -> &mut T {
         &mut self.value
     }
+
+    pub fn clear_dependents(&self) {
+        self.dependents.borrow_mut().clear();
+    }
 }
 
 impl<T: LatticeValue> AnalysisState for DenseLattice<T> {
