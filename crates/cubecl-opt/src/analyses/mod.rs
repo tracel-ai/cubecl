@@ -119,6 +119,7 @@ impl MaybeUninitBitset {
         matches!(self, MaybeUninitBitset::Initialized(_))
     }
 
+    #[track_caller]
     fn unwrap(&self) -> &SparseBitSet {
         match self {
             MaybeUninitBitset::Uninitialized => panic!(),

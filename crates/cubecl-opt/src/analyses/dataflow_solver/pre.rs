@@ -104,27 +104,64 @@ pub fn compute_scm_analyses(ctx: &Context, op: Ptr<Operation>) -> Result<Dataflo
     solver.load(AnticipatedBackwards::new(memory_kill_sets.clone()));
     solver.initialize_filtered_and_run(ctx, op, should_init)?;
 
+    // Standard anticipated runs a most fixpoint starting with `U` and intersecting,
+    // so it cannot converge together with the speculative anticipated which runs a least fixpoint
+    // starting with ∅ and unioning. So we split it into the seed rounds that only seed speculative
+    // anticipation and then reset and re-run the standard anticipated with the speculatively
+    // transferred sets merged into the transfer function. This can require more than one iteration
+    // to converge because speculative expressions may become strictly anticipated in an outer branch
+    // and then become speculatively available on another edge.
+    let mut n_iters = 0;
     let rerun_antic = |analysis: &dyn DataflowAnalysis| analysis.is::<AnticipatedAnalysis>();
     while seed_speculative(ctx, &solver, op, &memory_kill_sets)? == ChangeResult::Changed {
         solver.clear_states_of_type::<Anticipated>();
         solver.initialize_filtered_and_run(ctx, op, rerun_antic)?;
+        // Safety shutoff because I don't have a mathematical proof of convergence
+        n_iters += 1;
+        if n_iters > 10 {
+            break;
+        }
     }
 
     Ok(solver)
+}
+
+/// Mode for computing insertions
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum InsertionMode {
+    /// Lazy insertions minimize register lifetime but can cause divergence and code size to increase.
+    /// Should probably be used on CPU.
+    Lazy,
+    /// Approximation of Sparse Code Motion, can increase register lifetime but reduces divergence
+    /// and code size. Should be used on GPU.
+    Sparse,
 }
 
 pub fn compute_pruned_insertion_points(
     ctx: &Context,
     op: Ptr<Operation>,
     solver: &mut DataflowSolver,
+    mode: InsertionMode,
 ) -> Result<IMap<ProgramPoint, SparseBitSet>> {
     let finished_analyses = solver.loaded_analyses().to_vec();
     let should_init =
         |analysis: &dyn DataflowAnalysis| !finished_analyses.contains(&analysis.type_id());
 
     solver.load(InsertedAnalysis::default());
-    solver.load(SparseInsertedAnalysis::default());
+    if mode == InsertionMode::Sparse {
+        solver.load(SparseInsertedAnalysis::default());
+    }
     solver.initialize_filtered_and_run(ctx, op, should_init)?;
+
+    // Rerun available because it can't grow but we need to prune based on new availability facts
+    // post insertion
+    let rerun_avail = |analysis: &dyn DataflowAnalysis| analysis.is::<AvailableAnalysis>();
+    // Don't want to rerun other stuff
+    for computes in solver.states_of_type::<Computes>() {
+        computes.deref().clear_dependents();
+    }
+    solver.clear_states_of_type::<Available>();
+    solver.initialize_filtered_and_run(ctx, op, rerun_avail)?;
 
     let mut out = IMap::default();
     let inserted = solver.states_of_type::<Inserted>();
@@ -133,8 +170,7 @@ pub fn compute_pruned_insertion_points(
         let mut inserted = inserted.deref().value().0.clone();
         // Clean up inserts that were later made redundant
         if let Some(op) = point.prev_op(ctx)
-            && let Some(avail) =
-                solver.lookup_state::<AvailableExpressions>(ProgramPoint::before_op(ctx, op))
+            && let Some(avail) = solver.lookup_state::<Available>(ProgramPoint::before_op(ctx, op))
         {
             inserted = inserted.difference(avail.deref().value().0.unwrap()).into();
         }
@@ -143,7 +179,9 @@ pub fn compute_pruned_insertion_points(
         {
             point = ProgramPoint::before_op(ctx, op);
         }
-        out.insert(point, inserted);
+        if !inserted.is_empty() {
+            out.insert(point, inserted);
+        }
     }
     Ok(out)
 }
@@ -159,14 +197,12 @@ impl Printable for ComputesSet {
 }
 
 impl LatticeValue for ComputesSet {
+    fn join(&mut self, rhs: &Self) -> ChangeResult {
+        self.0.unite_changed(&rhs.0)
+    }
+
     fn meet(&mut self, rhs: &Self) -> ChangeResult {
-        let new = ComputesSet(self.union(&rhs.0).into());
-        if new == *self {
-            ChangeResult::Unchanged
-        } else {
-            *self = new;
-            ChangeResult::Changed
-        }
+        self.0.unite_changed(&rhs.0)
     }
 }
 
@@ -255,13 +291,13 @@ impl LatticeValue for AvailableSet {
     }
 }
 
-pub type AvailableExpressions = DenseLattice<AvailableSet>;
-pub type AvailableAnalysis = DenseForward<Available>;
+pub type Available = DenseLattice<AvailableSet>;
+pub type AvailableAnalysis = DenseForward<AvailableForward>;
 
 #[derive(Default)]
-pub struct Available;
+pub struct AvailableForward;
 
-impl DenseForwardDataflowAnalysis for Available {
+impl DenseForwardDataflowAnalysis for AvailableForward {
     type LatticeValue = AvailableSet;
 
     fn on_load(&self, solver: &mut DataflowSolver) {
@@ -277,7 +313,7 @@ impl DenseForwardDataflowAnalysis for Available {
         after: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) -> Result<()> {
         let point = ProgramPoint::after_op(ctx, op);
-        let computes = solver.get_or_create_for::<Self, Computes>(point, point);
+        let computes = solver.get_or_create_for::<AvailableAnalysis, Computes>(point, point);
 
         if after == before {
             Self::set_to_entry_state(this, solver, ctx, after);
@@ -292,6 +328,26 @@ impl DenseForwardDataflowAnalysis for Available {
         let union = before.union(&computes.deref().value().0).into();
         solver.update_state(ctx, after, |it| it.join(&AvailableSet(union)));
         Ok(())
+    }
+
+    fn visit_control_flow_transfer(
+        _: &DenseForward<Self>,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        predecessors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
+        after: &WriteRef<DenseLattice<Self::LatticeValue>>,
+    ) {
+        for predecessor in predecessors {
+            let pred = predecessor.deref();
+            let MaybeUninitBitset::Initialized(pred) = &pred.value().0 else {
+                continue;
+            };
+
+            let point = predecessor.deref().anchor();
+            let computes = solver.get_or_create_for::<AvailableAnalysis, Computes>(point, point);
+            let union = pred.union(&computes.deref().value().0).into();
+            solver.update_state(ctx, after, |it| it.join(&AvailableSet(union)));
+        }
     }
 
     fn set_to_entry_state(
@@ -450,7 +506,8 @@ impl DenseBackwardDataflowAnalysis for AnticipatedBackwards {
 
         let point = ProgramPoint::before_op(ctx, op);
         let after_point = ProgramPoint::after_op(ctx, op);
-        let computes = solver.get_or_create_for::<Self, Computes>(point, after_point);
+        let computes =
+            solver.get_or_create_for::<AnticipatedAnalysis, Computes>(point, after_point);
         let computes = computes.deref();
         let before_set = after.union(&**computes.value());
 
@@ -743,17 +800,14 @@ impl InsertedForward {
             .collect::<SmallVec<[_; 4]>>();
         let available_preds = predecessors
             .iter()
-            .map(|&pred| {
-                solver.get_or_create_for::<InsertedAnalysis, AvailableExpressions>(point, pred)
-            })
+            .map(|&pred| solver.get_or_create_for::<InsertedAnalysis, Available>(point, pred))
             .collect::<SmallVec<[_; 4]>>();
         let available_preds = available_preds
             .iter()
             .map(|it| Ref::map(it.deref(), |it| it.value().0.unwrap()))
             .collect::<SmallVec<[_; 4]>>();
 
-        let avail =
-            solver.get_or_create_for::<InsertedAnalysis, AvailableExpressions>(point, point);
+        let avail = solver.get_or_create_for::<InsertedAnalysis, Available>(point, point);
         let antic = solver.get_or_create_for::<InsertedAnalysis, Anticipated>(point, point);
         let available_anywhere: SparseBitSet =
             hi_sparse_bitset::reduce(ops::Or, available_preds.iter().map(|it| &**it))
@@ -771,6 +825,8 @@ impl InsertedForward {
 
             let computes = solver.get_or_create_mut::<Computes>(pred);
             solver.update_state(ctx, &computes, |it| it.join(&ComputesSet(insert.clone())));
+            std::println!("Joining compute at {} with {:?}", pred.disp(ctx), insert);
+
             let lattice = this.get_lattice_mut(solver, pred);
             solver.update_state(ctx, &lattice, |it| it.join(&InsertedSet(insert)));
         }
@@ -848,7 +904,7 @@ pub struct ComputedOnImmediateEdge(pub SparseBitSet);
 impl Printable for ComputedOnImmediateEdge {
     fn fmt(&self, _: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let set = self.0.iter().map(|i| format!("e{i}")).join(", ");
-        write!(f, "Inserted({{{}}})", set)
+        write!(f, "ComputedOnImmediateEdge({{{}}})", set)
     }
 }
 
@@ -873,8 +929,7 @@ impl InsertedBackward {
         before: &WriteRef<DenseLattice<ComputedOnImmediateEdge>>,
     ) {
         // Hoist all expressions that are computed on any successors, are anticipated, and not available
-        let avail =
-            solver.get_or_create_for::<SparseInsertedAnalysis, AvailableExpressions>(point, point);
+        let avail = solver.get_or_create_for::<SparseInsertedAnalysis, Available>(point, point);
         let antic = solver.get_or_create_for::<SparseInsertedAnalysis, Anticipated>(point, point);
         let successors = successors
             .iter()

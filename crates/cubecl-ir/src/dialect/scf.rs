@@ -12,7 +12,7 @@ use pliron::{
     basic_block::BasicBlock,
     builtin::attributes::IntegerAttr,
     combine::{
-        Parser, optional,
+        Parser, attempt, optional,
         parser::char::{self, spaces},
     },
     identifier::Identifier,
@@ -40,7 +40,8 @@ use crate::{
     interfaces::{
         CanonicalizeInterface,
         control_flow::{
-            InvocationBounds, RegionBranchOpInterface, RegionPredecessor, RegionSuccessor,
+            HoistableRegionOpInterface, InvocationBounds, RegionBranchOpInterface,
+            RegionPredecessor, RegionSuccessor,
         },
         memory_slot::{
             MemoryRegionPredecessor, MemorySSAContext, MemorySSARegionOpInterface, MemoryValue,
@@ -202,6 +203,9 @@ impl PromotableRegionOpInterface for IfOp {
         self.get_result(ctx, res_idx)
     }
 }
+
+#[op_interface_impl]
+impl HoistableRegionOpInterface for IfOp {}
 
 #[op_interface_impl]
 impl MemorySSARegionOpInterface for IfOp {
@@ -548,6 +552,9 @@ impl PromotableRegionOpInterface for SwitchOp {
 }
 
 #[op_interface_impl]
+impl HoistableRegionOpInterface for SwitchOp {}
+
+#[op_interface_impl]
 impl MemorySSARegionOpInterface for SwitchOp {
     fn setup_memory_ssa(
         &self,
@@ -877,7 +884,7 @@ impl Parsable for ForOp {
         let cur_loc = state_stream.loc();
         let iter_args = delimited_list_parser('(', ')', ',', ssa_opd_parser()).skip(spaces());
         let mut iter_args_parser =
-            optional(spaced(char::string("iter_args").with(iter_args))).skip(spaces());
+            attempt(optional(spaced(char::string("iter_args").with(iter_args))).skip(spaces()));
         let mut range_parser = (
             ssa_opd_parser().skip(spaced(char::string("to"))),
             ssa_opd_parser().skip(spaced(char::string("step"))),
@@ -998,6 +1005,9 @@ impl PromotableRegionOpInterface for ForOp {
         self.get_operation().deref(ctx).get_result(idx)
     }
 }
+
+#[op_interface_impl]
+impl HoistableRegionOpInterface for ForOp {}
 
 #[op_interface_impl]
 impl MemorySSARegionOpInterface for ForOp {
@@ -1289,6 +1299,9 @@ impl PromotableRegionOpInterface for WhileOp {
         self.get_operation().deref(ctx).get_result(idx)
     }
 }
+
+#[op_interface_impl]
+impl HoistableRegionOpInterface for WhileOp {}
 
 #[op_interface_impl]
 impl MemorySSARegionOpInterface for WhileOp {
