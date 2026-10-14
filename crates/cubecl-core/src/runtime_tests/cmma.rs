@@ -609,6 +609,92 @@ pub fn test_simple_1_typed<R: Runtime, I: Float + CubeElement, A: Float + CubeEl
     }
 }
 
+/// `matrix` taken apart into its raw parts and rebuilt from them.
+fn rebuilt<C: CubePrimitive>(_matrix: &cmma::Matrix<C>) -> cmma::Matrix<C> {
+    cubecl::unexpanded!()
+}
+
+mod rebuilt {
+    use super::*;
+
+    pub fn expand<C: CubePrimitive>(
+        scope: &Scope,
+        matrix: &cmma::MatrixExpand<C, cmma::Plane>,
+    ) -> cmma::MatrixExpand<C, cmma::Plane> {
+        let (elem, ident) = matrix.clone().into_raw();
+        cmma::MatrixExpand::from_raw(scope, elem, ident)
+    }
+}
+
+#[cube(launch)]
+/// [`kernel_simple_m16n16k16_gmem`] with every fragment rebuilt from its raw parts before use.
+pub fn kernel_rebuilt_from_raw(lhs: &[f16], rhs: &[f16], out: &mut [f32]) {
+    let a = cmma::Matrix::<f16>::from_slice(
+        cmma::MatrixIdent::A,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::RowMajor,
+        lhs,
+        16,
+    );
+    let b = cmma::Matrix::<f16>::from_slice(
+        cmma::MatrixIdent::B,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::ColMajor,
+        rhs,
+        16,
+    );
+    let c = cmma::Matrix::<f32>::from_value(
+        cmma::MatrixIdent::Accumulator,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::Undefined,
+        0.0,
+    );
+    let (a, b, c) = (rebuilt(&a), rebuilt(&b), rebuilt(&c));
+
+    cmma::execute(&a, &b, &c, &c);
+
+    cmma::store(out, &c, 16, cmma::MatrixLayout::RowMajor);
+}
+
+/// A fragment rebuilt from its raw parts ([`cmma::MatrixExpand::from_raw`]) computes as the one
+/// taken apart: [`test_simple_1`]'s product through rebuilt fragments.
+pub fn test_rebuilt_from_raw<R: Runtime>(client: Client, cube_dimensions: CubeDim) {
+    if !client.features().matmul.cmma.contains(&MmaConfig {
+        a_type: f16::cube_type(),
+        b_type: f16::cube_type(),
+        cd_type: f32::cube_type(),
+        m: 16,
+        k: 16,
+        n: 16,
+    }) {
+        println!("Unsupported, skipping");
+        return;
+    }
+
+    let lhs: Vec<f16> = (0..256).map(|i| f16::from_int(i)).collect();
+    let rhs: Vec<f16> = (0..256).map(|i| f16::from_int(i % 8)).collect();
+    let lhs = client.create_from_slice(f16::as_bytes(&lhs));
+    let rhs = client.create_from_slice(f16::as_bytes(&rhs));
+    let out = client.empty(core::mem::size_of::<f32>() * 256);
+
+    kernel_rebuilt_from_raw::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        cube_dimensions,
+        unsafe { BufferArg::from_raw_parts(lhs, 256) },
+        unsafe { BufferArg::from_raw_parts(rhs, 256) },
+        unsafe { BufferArg::from_raw_parts(out.clone(), 256) },
+    );
+
+    assert_equals_approx::<f32>(&client, out, &test_simple_1_expected(), 1e-3);
+}
+
 #[cube(launch)]
 pub fn kernel_unsupported_fragment(out: &mut [f32]) {
     let acc = cmma::Matrix::<f32>::from_value(
@@ -1852,6 +1938,16 @@ macro_rules! testgen_cmma {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
             cubecl_core::runtime_tests::cmma::test_simple_1::<TestRuntime>(client, cube_dimensions);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_cmma_rebuilt_from_raw() {
+            let client = TestRuntime::client(&Default::default());
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
+            cubecl_core::runtime_tests::cmma::test_rebuilt_from_raw::<TestRuntime>(
+                client,
+                cube_dimensions,
+            );
         }
 
         #[$crate::runtime_tests::test_log::test]

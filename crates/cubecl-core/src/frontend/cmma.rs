@@ -137,6 +137,42 @@ impl<C: CubeType, S: MatrixScope> Clone for MatrixExpand<C, S> {
     }
 }
 
+impl<C: CubePrimitive, S: MatrixScope> MatrixExpand<C, S> {
+    /// The fragment's variable and the operand it is, apart from the element its type names: what
+    /// a caller holding the element as data keeps, to rebuild the fragment where it is used
+    /// ([`from_raw`](Self::from_raw)).
+    pub fn into_raw(self) -> (Value, MatrixIdent) {
+        (self.elem, self.ident)
+    }
+
+    /// The fragment `elem`, the `ident` operand, typed at `C`: the inverse of
+    /// [`into_raw`](Self::into_raw).
+    ///
+    /// # Panics
+    ///
+    /// Where `elem` is no fragment of `C`'s element.
+    pub fn from_raw(scope: &Scope, elem: Value, ident: MatrixIdent) -> Self {
+        let expected = C::Scalar::__expand_as_type(scope);
+        let ctx = scope.ctx();
+        let held = elem
+            .unwrap_ptr(ctx)
+            .deref(ctx)
+            .downcast_ref::<MatrixType>()
+            .map(|matrix| matrix.elem_ty);
+        assert_eq!(
+            held,
+            Some(expected),
+            "MatrixExpand::from_raw: the variable is no fragment of the element it is typed at"
+        );
+        MatrixExpand {
+            elem,
+            ident,
+            _c: PhantomData,
+            _s: PhantomData,
+        }
+    }
+}
+
 impl<C: CubeType, S: MatrixScope> ExpandTypeClone for MatrixExpand<C, S> {
     fn clone_unchecked(&self) -> Self {
         self.clone()
