@@ -182,10 +182,11 @@ impl DeviceService for CpuServer {
         // measured ~2.5x worse on decode gemv, stages outgrowing what stays
         // resident. GPU-like floor when the topology cannot be read.
         let max_shared_memory_size = affinity::l1d_cache_size().unwrap_or(64 * 1024);
+        let native_f16 = host_has_f16_arithmetic();
         let f16_evaluation = CubeClRuntimeConfig::get()
             .compilation
             .f16_evaluation
-            .unwrap_or_else(|| F16Evaluation::for_native_f16(host_has_f16_arithmetic()));
+            .unwrap_or_else(|| F16Evaluation::for_native_f16(native_f16));
         let vector_registers = host_vector_registers();
         let load_width = vector_registers.width;
         let topology = HardwareProperties {
@@ -236,6 +237,11 @@ impl DeviceService for CpuServer {
         // Past one register, a wider vector still amortizes each IO iteration's index math.
         device_props.io_width_override = Some(512);
         register_supported_types(&mut device_props);
+        // f16 runs everywhere, but without native instructions LLVM computes it in f32 and
+        // converts around each operation, so f32 is the faster choice for a caller that has one.
+        if !native_f16 {
+            device_props.register_emulated_arithmetic(ElemType::Float(FloatKind::F16));
+        }
 
         // No graph capture on this backend: nothing updates the captures.
         let (utilities, _captures) = ServerUtilities::init(
@@ -283,5 +289,22 @@ impl Runtime for CpuRuntime {
 
     fn utilization(_device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
         ProcessorTimes::read_machine_wide()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_f16_arithmetic_is_emulated_without_native_f16() {
+        let client = CpuRuntime::client(&CpuDevice);
+        let f16 = ElemType::Float(FloatKind::F16);
+        assert_eq!(
+            client.properties().features.arithmetic_is_emulated(f16),
+            !host_has_f16_arithmetic()
+        );
+        // Emulated or not, f16 keeps every usage: kernels in f16 still run.
+        assert_eq!(client.properties().type_usage(f16), TypeUsage::all());
     }
 }
