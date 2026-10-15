@@ -21,53 +21,25 @@ fn run_mem2reg_on_text(ctx: &mut Context, input: &str) -> Result<String> {
     Ok(Operation::get_op_dyn(op, ctx).disp(ctx).to_string())
 }
 
-/// `@f` taking `params` and returning `results`, with `LOCAL` in `body` declaring a local
-/// `cube.index` and `LOAD` and `STORE` typing its loads and stores. The parser of
-/// `memory.declare_variable` requires an `init`.
-fn func(params: &str, results: &str, body: &str) -> String {
-    let param_types: Vec<_> = params
-        .split(", ")
-        .map(|param| param.split_once(": ").unwrap().1)
-        .collect();
-    let body = body
-        .replace(
-            "LOCAL",
-            "memory.declare_variable cube.index Local, align = 4, init = cube.index 0",
-        )
-        .replace(
-            "LOAD",
-            "[] []: <(cube.ptr <cube.index, Local>) -> (cube.index)>",
-        )
-        .replace(
-            "STORE",
-            "[] []: <(cube.ptr <cube.index, Local>, cube.index) -> ()>",
-        );
-    format!(
-        "builtin.func @f: builtin.function <({}) -> ({results})> [] {{\n  ^entry({params}):\n{body}\n}}",
-        param_types.join(", ")
-    )
-}
-
 #[test]
 fn mem2reg_promotes_interleaved_allocs_of_one_block() -> Result<()> {
-    let input = func(
-        "x: cube.index, y: cube.index",
-        "cube.index, cube.index",
-        r#"
-        a = LOCAL;
-        b = LOCAL;
-        memory.store (a, x) STORE;
-        b0 = memory.load (b) LOAD;
-        memory.store (b, y) STORE;
-        memory.store (a, b0) STORE;
-        a1 = memory.load (a) LOAD;
-        b1 = memory.load (b) LOAD;
+    let input = r#"
+    builtin.func @f: builtin.function <(cube.index, cube.index) -> (cube.index, cube.index)> [] {
+      ^entry(x: cube.index, y: cube.index):
+        a = memory.declare_variable cube.index Local, align = 4, init = cube.index 0;
+        b = memory.declare_variable cube.index Local, align = 4, init = cube.index 0;
+        memory.store (a, x) [] []: <(cube.ptr <cube.index, Local>, cube.index) -> ()>;
+        b0 = memory.load (b) [] []: <(cube.ptr <cube.index, Local>) -> (cube.index)>;
+        memory.store (b, y) [] []: <(cube.ptr <cube.index, Local>, cube.index) -> ()>;
+        memory.store (a, b0) [] []: <(cube.ptr <cube.index, Local>, cube.index) -> ()>;
+        a1 = memory.load (a) [] []: <(cube.ptr <cube.index, Local>) -> (cube.index)>;
+        b1 = memory.load (b) [] []: <(cube.ptr <cube.index, Local>) -> (cube.index)>;
         branch.return a1, b1
-        "#,
-    );
+    }
+  "#;
 
     let ctx = &mut Context::default();
-    let printed = run_mem2reg_on_text(ctx, &input)?;
+    let printed = run_mem2reg_on_text(ctx, input)?;
 
     expect![[r#"
         builtin.func @f: builtin.function <(cube.index , cube.index ) -> (cube.index , cube.index )> 
@@ -83,27 +55,26 @@ fn mem2reg_promotes_interleaved_allocs_of_one_block() -> Result<()> {
 
 #[test]
 fn mem2reg_threads_a_store_out_of_one_branch_of_an_if() -> Result<()> {
-    let input = func(
-        "cond: cube.bool, x: cube.index, y: cube.index",
-        "cube.index, cube.index",
-        r#"
-        a = LOCAL;
-        memory.store (a, x) STORE;
+    let input = r#"
+    builtin.func @f: builtin.function <(cube.bool, cube.index, cube.index) -> (cube.index, cube.index)> [] {
+      ^entry(cond: cube.bool, x: cube.index, y: cube.index):
+        a = memory.declare_variable cube.index Local, align = 4, init = cube.index 0;
+        memory.store (a, x) [] []: <(cube.ptr <cube.index, Local>, cube.index) -> ()>;
         z = scf.if cond : cube.index then {
           ^then():
-            memory.store (a, y) STORE;
+            memory.store (a, y) [] []: <(cube.ptr <cube.index, Local>, cube.index) -> ()>;
             branch.yield (y)
         } else {
           ^else():
             branch.yield (x)
         };
-        l = memory.load (a) LOAD;
+        l = memory.load (a) [] []: <(cube.ptr <cube.index, Local>) -> (cube.index)>;
         branch.return l, z
-        "#,
-    );
+    }
+  "#;
 
     let ctx = &mut Context::default();
-    let printed = run_mem2reg_on_text(ctx, &input)?;
+    let printed = run_mem2reg_on_text(ctx, input)?;
 
     expect![[r#"
         builtin.func @f: builtin.function <(cube.bool , cube.index , cube.index ) -> (cube.index , cube.index )> 
@@ -127,27 +98,26 @@ fn mem2reg_threads_a_store_out_of_one_branch_of_an_if() -> Result<()> {
 
 #[test]
 fn mem2reg_threads_stores_out_of_both_branches_of_an_if() -> Result<()> {
-    let input = func(
-        "cond: cube.bool, x: cube.index, y: cube.index",
-        "cube.index, cube.index",
-        r#"
-        a = LOCAL;
+    let input = r#"
+    builtin.func @f: builtin.function <(cube.bool, cube.index, cube.index) -> (cube.index, cube.index)> [] {
+      ^entry(cond: cube.bool, x: cube.index, y: cube.index):
+        a = memory.declare_variable cube.index Local, align = 4, init = cube.index 0;
         z = scf.if cond : cube.index then {
           ^then():
-            memory.store (a, x) STORE;
+            memory.store (a, x) [] []: <(cube.ptr <cube.index, Local>, cube.index) -> ()>;
             branch.yield (y)
         } else {
           ^else():
-            memory.store (a, y) STORE;
+            memory.store (a, y) [] []: <(cube.ptr <cube.index, Local>, cube.index) -> ()>;
             branch.yield (x)
         };
-        l = memory.load (a) LOAD;
+        l = memory.load (a) [] []: <(cube.ptr <cube.index, Local>) -> (cube.index)>;
         branch.return l, z
-        "#,
-    );
+    }
+  "#;
 
     let ctx = &mut Context::default();
-    let printed = run_mem2reg_on_text(ctx, &input)?;
+    let printed = run_mem2reg_on_text(ctx, input)?;
 
     expect![[r#"
         builtin.func @f: builtin.function <(cube.bool , cube.index , cube.index ) -> (cube.index , cube.index )> 
@@ -171,27 +141,26 @@ fn mem2reg_threads_stores_out_of_both_branches_of_an_if() -> Result<()> {
 
 #[test]
 fn mem2reg_carries_a_store_through_a_for_loop() -> Result<()> {
-    let input = func(
-        "x: cube.index, end: cube.index",
-        "cube.index",
-        r#"
+    let input = r#"
+    builtin.func @f: builtin.function <(cube.index, cube.index) -> (cube.index)> [] {
+      ^entry(x: cube.index, end: cube.index):
         start = builtin.constant <cube.index 0> : cube.index;
         step = builtin.constant <cube.index 1> : cube.index;
-        a = LOCAL;
-        memory.store (a, x) STORE;
+        a = memory.declare_variable cube.index Local, align = 4, init = cube.index 0;
+        memory.store (a, x) [] []: <(cube.ptr <cube.index, Local>, cube.index) -> ()>;
         scf.for start to end step step iter_args() {
           ^body(i: cube.index):
-            l = memory.load (a) LOAD;
-            memory.store (a, i) STORE;
+            l = memory.load (a) [] []: <(cube.ptr <cube.index, Local>) -> (cube.index)>;
+            memory.store (a, i) [] []: <(cube.ptr <cube.index, Local>, cube.index) -> ()>;
             branch.yield ()
         };
-        r = memory.load (a) LOAD;
+        r = memory.load (a) [] []: <(cube.ptr <cube.index, Local>) -> (cube.index)>;
         branch.return r
-        "#,
-    );
+    }
+  "#;
 
     let ctx = &mut Context::default();
-    let printed = run_mem2reg_on_text(ctx, &input)?;
+    let printed = run_mem2reg_on_text(ctx, input)?;
 
     expect![[r#"
         builtin.func @f: builtin.function <(cube.index , cube.index ) -> (cube.index )> 
@@ -213,29 +182,28 @@ fn mem2reg_carries_a_store_through_a_for_loop() -> Result<()> {
 
 #[test]
 fn mem2reg_merges_stores_of_two_cfg_paths() -> Result<()> {
-    let input = func(
-        "cond: cube.bool, x: cube.index, y: cube.index",
-        "cube.index",
-        r#"
-        a = LOCAL;
-        memory.store (a, x) STORE;
+    let input = r#"
+    builtin.func @f: builtin.function <(cube.bool, cube.index, cube.index) -> (cube.index)> [] {
+      ^entry(cond: cube.bool, x: cube.index, y: cube.index):
+        a = memory.declare_variable cube.index Local, align = 4, init = cube.index 0;
+        memory.store (a, x) [] []: <(cube.ptr <cube.index, Local>, cube.index) -> ()>;
         cf.branch_conditional if cond ^bb0() else ^bb1()
 
       ^bb0():
-        memory.store (a, y) STORE;
+        memory.store (a, y) [] []: <(cube.ptr <cube.index, Local>, cube.index) -> ()>;
         cf.branch ^bb2()
 
       ^bb1():
         cf.branch ^bb2()
 
       ^bb2():
-        l = memory.load (a) LOAD;
+        l = memory.load (a) [] []: <(cube.ptr <cube.index, Local>) -> (cube.index)>;
         branch.return l
-        "#,
-    );
+    }
+  "#;
 
     let ctx = &mut Context::default();
-    let printed = run_mem2reg_on_text(ctx, &input)?;
+    let printed = run_mem2reg_on_text(ctx, input)?;
 
     expect![[r#"
         builtin.func @f: builtin.function <(cube.bool , cube.index , cube.index ) -> (cube.index )> 
