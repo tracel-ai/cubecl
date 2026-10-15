@@ -1,14 +1,15 @@
 use cubecl_ir::{
     NamedRewrite,
-    attributes::BoolAttr,
     dialect::{
         cmp::{BoolEqualOp, BoolNotEqualOp},
         general::BoolNotOp,
         math::{FAddOp, FMulOp, FNegOp, FSubOp, FmaOp},
     },
+    interfaces::ConstantAttr,
     prelude::{Inserter as _, Rewriter as _, *},
-    rewrite::{MatchRewritePass, const_operand},
+    rewrite::{MatchRewritePass, const_operands},
 };
+use pliron::attribute::attr_cast;
 
 /// Combine a product and the add or subtract that consumes it into a single FMA operation,
 /// and turn a bool compared against the constant that flips it into a plain negation.
@@ -56,7 +57,7 @@ fn as_fma(ctx: &Context, op: Ptr<Operation>) -> Option<(FMulOp, Value, Negate)> 
 /// The operand to negate, for an `op` of the form `x == false` or `x != true`, in either
 /// operand order.
 ///
-/// The other constants leave `x` itself and are already folded by `SimplifyOps`.
+/// The other constants leave `x` itself, which `SimplifyOps` folds.
 fn as_bool_not(ctx: &Context, op: Ptr<Operation>) -> Option<Value> {
     let (lhs, rhs, negating) = if let Some(eq) = op.as_op::<BoolEqualOp>(ctx) {
         (eq.lhs(ctx), eq.rhs(ctx), false)
@@ -64,7 +65,13 @@ fn as_bool_not(ctx: &Context, op: Ptr<Operation>) -> Option<Value> {
         let ne = op.as_op::<BoolNotEqualOp>(ctx)?;
         (ne.lhs(ctx), ne.rhs(ctx), true)
     };
-    let is_negating = |idx| const_operand::<BoolAttr>(ctx, op, idx) == Some(BoolAttr(negating));
+    let consts = const_operands(ctx, op);
+    let is_negating = |idx: usize| {
+        consts[idx]
+            .as_ref()
+            .and_then(|attr| attr_cast::<dyn ConstantAttr>(&**attr)?.as_bool(ctx))
+            == Some(negating)
+    };
     if is_negating(1) {
         Some(lhs)
     } else if is_negating(0) {

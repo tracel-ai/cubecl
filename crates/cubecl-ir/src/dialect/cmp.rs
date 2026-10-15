@@ -622,15 +622,9 @@ const_eval!(BoolEqualOp, {
 });
 simplify!(BoolEqualOp, {
     // true == x -> x
-    |lhs, _| match lhs?.as_const_val(ctx) {
-        ConstantValue::Bool(true) => Some(self.rhs(ctx)),
-        _ => None,
-    },
+    |lhs, _| lhs?.as_bool(ctx)?.then(|| self.rhs(ctx)),
     // x == true -> x
-    |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::Bool(true) => Some(self.lhs(ctx)),
-        _ => None,
-    }
+    |_, rhs| rhs?.as_bool(ctx)?.then(|| self.lhs(ctx))
 });
 
 cmp_binop!("cmp.i_not_equal", INotEqualOp);
@@ -666,15 +660,9 @@ const_eval!(BoolNotEqualOp, {
 });
 simplify!(BoolNotEqualOp, {
     // false != x -> x
-    |lhs, _| match lhs?.as_const_val(ctx) {
-        ConstantValue::Bool(false) => Some(self.rhs(ctx)),
-        _ => None,
-    },
+    |lhs, _| (!lhs?.as_bool(ctx)?).then(|| self.rhs(ctx)),
     // x != false -> x
-    |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::Bool(false) => Some(self.lhs(ctx)),
-        _ => None,
-    }
+    |_, rhs| (!rhs?.as_bool(ctx)?).then(|| self.lhs(ctx))
 });
 
 fn cmp_result_ty(ctx: &Context, lhs: &Value, _: &Value) -> TypeHandle {
