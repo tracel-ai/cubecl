@@ -152,7 +152,7 @@ impl<C: CubePrimitive, S: MatrixScope> MatrixExpand<C, S> {
     ///
     /// Where `elem` is no fragment of `C`'s element.
     pub fn from_raw(scope: &Scope, elem: Value, ident: MatrixIdent) -> Self {
-        let expected = C::Scalar::__expand_as_type(scope);
+        let named = C::Scalar::__expand_as_type(scope);
         let ctx = scope.ctx();
         let held = elem
             .unwrap_ptr(ctx)
@@ -161,8 +161,8 @@ impl<C: CubePrimitive, S: MatrixScope> MatrixExpand<C, S> {
             .map(|matrix| matrix.elem_ty);
         assert_eq!(
             held,
-            Some(expected),
-            "MatrixExpand::from_raw: the variable is no fragment of the element it is typed at"
+            Some(named),
+            "MatrixExpand::from_raw: the variable is no fragment of {named:?}"
         );
         MatrixExpand {
             elem,
