@@ -113,6 +113,17 @@ fn host_cpu_name(system: &System) -> String {
         .map_or_else(|| format!("CPU {}", std::env::consts::ARCH), String::from)
 }
 
+/// Derives the device fingerprint for persistent compilation caching on this host.
+pub fn host_device_fingerprint(f16_evaluation: F16Evaluation) -> String {
+    let (cpu_name, cpu_features) = cubecl_llvm::host_cpu_target();
+    let features_hash = cubecl_common::hash::StableHasher::hash_one(&cpu_features);
+    format!(
+        "{}-{}-{features_hash:032x}-f16_{f16_evaluation}",
+        std::env::consts::ARCH,
+        cpu_name
+    )
+}
+
 struct HostVectorRegisters {
     width: u32,
     count: Option<u32>,
@@ -213,6 +224,8 @@ impl DeviceService for CpuServer {
         let mem_properties = MemoryDeviceProperties::new(total_memory as u64, ALIGNMENT)
             .with_max_memory(total_memory as u64);
 
+        let fingerprint = host_device_fingerprint(f16_evaluation);
+
         let mut device_props = DeviceProperties::new(
             Features {
                 unaligned_io: true,
@@ -221,16 +234,12 @@ impl DeviceService for CpuServer {
             mem_properties.clone(),
             topology.clone(),
             TimingMethod::Device,
-            // The CPU backend JITs through LLVM for whatever host it runs on
-            // and persists no compiled code, so there is no per-machine
-            // namespace to match against. The architecture and its load width
-            // are the honest fingerprint: they are what the generated code is valid for.
+            // The CPU backend JITs through LLVM for the host CPU microarchitecture.
+            // Its fingerprint identifies the target architecture, host CPU model,
+            // target feature set, and f16 evaluation mode for persistent compilation caches.
             DeviceIdentity {
                 name: host_cpu_name(&system),
-                fingerprint: format!(
-                    "cpu_{}_load-{load_width}_f16-{f16_evaluation}",
-                    std::env::consts::ARCH
-                ),
+                fingerprint: fingerprint.clone(),
                 physical: None,
             },
         );
@@ -252,11 +261,16 @@ impl DeviceService for CpuServer {
             logger,
             ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize),
         );
+        #[cfg(compilation_cache)]
+        let store = cubecl_server::compiler::ArtifactStore::new("cpu", &fingerprint);
+
         CpuServer::new(
             mem_properties,
             options.memory_config,
             f16_evaluation,
             Arc::new(utilities),
+            #[cfg(compilation_cache)]
+            store,
         )
     }
 
