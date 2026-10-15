@@ -21,7 +21,7 @@ pub fn slice_len<F: Float>(input: &[F], output: &mut [u32]) {
 #[cube(launch)]
 pub fn slice_for<F: Float>(input: &[F], output: &mut [F]) {
     if UNIT_POS == 0 {
-        let mut sum = F::new(0f32);
+        let mut sum = F::zero();
 
         for item in &input[2..4] {
             sum += *item;

@@ -1,8 +1,8 @@
+use crate::compute::pipelines::MetadataLayout;
 use cubecl_core::{
     WgpuCompilationOptions,
     ir::{AddressType, UIntKind},
     prelude::Visibility,
-    server::KernelArguments,
 };
 use cubecl_cpp::{
     metal::{arch::MetalArchitecture, supported_cmma_combinations_metal},
@@ -17,7 +17,7 @@ use wgpu::{
     hal::{self, Adapter, metal},
 };
 
-pub fn bindings(repr: &MslComputeKernel, args: &KernelArguments) -> (Vec<Visibility>, usize) {
+pub fn bindings(repr: &MslComputeKernel, metadata: MetadataLayout) -> (Vec<Visibility>, usize) {
     let buffers = repr.buffers.iter().map(|it| {
         // When slices are shared, it needs to be read-write if ANY of the slices is read-write,
         // and since we can't be sure, we'll assume everything is read-write.
@@ -27,11 +27,11 @@ pub fn bindings(repr: &MslComputeKernel, args: &KernelArguments) -> (Vec<Visibil
             Visibility::ReadWrite
         }
     });
-    let uniform = args.info.dynamic_metadata_offset >= args.info.data.len();
-    let info_vis = (!args.info.data.is_empty()).then_some(match uniform {
-        true => Visibility::Uniform,
-        false => Visibility::Read,
-    });
+    let info_vis = match metadata {
+        MetadataLayout::Absent => None,
+        MetadataLayout::Static => Some(Visibility::Uniform),
+        MetadataLayout::Dynamic => Some(Visibility::Read),
+    };
     (buffers.chain(info_vis).collect(), 0)
 }
 

@@ -11,7 +11,7 @@ use cubecl_core::{
     WgpuCompilationOptions,
     ir::{AddressType, ElemType, FloatKind, IntKind, UIntKind},
     prelude::{CubeKernel, KernelDefinition, Visibility},
-    server::{IoError, KernelArguments},
+    server::IoError,
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::{AdapterLuid, DeviceProperties, Type, features::*};
@@ -36,13 +36,13 @@ use wgpu::{
     },
 };
 
-use crate::{HostPtr, WgpuCompiler, WgpuMemory, WgpuServer};
+use crate::{HostPtr, WgpuCompiler, WgpuMemory};
 
 mod features;
 
 pub type VkSpirvCompiler = SpirvCompiler;
 
-pub fn bindings(repr: &SpirvKernel, _bindings: &KernelArguments) -> (Vec<Visibility>, usize) {
+pub fn bindings(repr: &SpirvKernel) -> (Vec<Visibility>, usize) {
     match repr.immediate_size {
         Some(immediate_size) => (vec![], immediate_size),
         None => (vec![Visibility::Uniform], 0),
@@ -834,16 +834,15 @@ fn convert_type(vk_ty: ComponentTypeKHR) -> Option<ElemType> {
 /// Check robustness and compile.
 pub(crate) fn compile<C>(
     dyn_comp: &mut C,
-    server: &mut WgpuServer<C>,
-    kernel: Box<dyn CubeKernel>,
+    kernel: &dyn CubeKernel,
     definition: KernelDefinition,
+    options: &WgpuCompilationOptions,
 ) -> Result<CompiledKernel<C>, CompilationError>
 where
     C: WgpuCompiler<CompilationOptions = WgpuCompilationOptions>,
 {
     log::debug!("Compiling {}", kernel.name());
-    let compiled =
-        CompiledKernel::compile(&*kernel, definition, dyn_comp, &server.compilation_options)?;
+    let compiled = CompiledKernel::compile(kernel, definition, dyn_comp, options)?;
     // SPIR-V reaches the device as an assembled module, never as text, so a
     // precompiled kernel has nothing this path can load.
     if compiled.repr.is_none() {

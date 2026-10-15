@@ -10,6 +10,7 @@ use derive_more::{Deref, DerefMut, From};
 use derive_new::new;
 use pliron::{
     attribute::{AttrObj, Attribute},
+    basic_block::BasicBlock,
     builtin::{
         given_names::{get_operation_result_name, set_operation_result_name},
         ops::ConstantOp,
@@ -23,6 +24,7 @@ use pliron::{
     },
     irbuild::{
         dialect_conversion::apply_dialect_conversion,
+        inserter::OpInsertionPoint,
         match_rewrite::{RewriterOrder, apply_match_rewrite},
     },
     op::{OpInterfaceMarker, OpObj},
@@ -317,6 +319,39 @@ pub trait RewriterExt: Rewriter {
     }
 }
 impl<R: Rewriter> RewriterExt for R {}
+
+pub fn set_inserter_before_terminator(
+    inserter: &mut dyn Inserter,
+    ctx: &Context,
+    block: Ptr<BasicBlock>,
+) {
+    if let Some(term) = block.deref(ctx).get_terminator(ctx) {
+        inserter.set_insertion_point_before_operation(term);
+    } else {
+        inserter.set_insertion_point_to_block_end(block);
+    }
+}
+
+/// Lifts an insertion point until it's in the target block, after the op that defines the nested block.
+/// Useful for placing an inserter or rewriter immediately after a nested scope that may have been
+/// predicated.
+pub fn op_insertion_point_in_block(
+    ctx: &Context,
+    mut point: OpInsertionPoint,
+    block: Ptr<BasicBlock>,
+) -> OpInsertionPoint {
+    while point.get_insertion_block(ctx) != Some(block) {
+        let block = point
+            .get_insertion_block(ctx)
+            .expect("`point` is not nested in `block`");
+        let op = block
+            .deref(ctx)
+            .get_parent_op(ctx)
+            .expect("Should have parent");
+        point = OpInsertionPoint::AfterOperation(op);
+    }
+    point
+}
 
 pub fn transfer_result_names(ctx: &Context, old_op: Ptr<Operation>, values: &[Value]) {
     for (idx, value) in values.iter().enumerate() {

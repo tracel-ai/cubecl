@@ -2,7 +2,9 @@ pub mod asm;
 pub mod barrier;
 pub mod branch;
 pub mod cmma;
+mod pending;
 pub mod synchronization;
+pub mod wgmma;
 
 /// Module containing compile-time information about the current runtime.
 pub mod comptime;
@@ -40,6 +42,7 @@ pub use indexation::*;
 pub use list::*;
 pub use operation::*;
 pub use options::*;
+pub use pending::{Pending, PendingExpand, PendingValue};
 pub use plane::*;
 pub use ranges::*;
 pub use runtime_option::*;

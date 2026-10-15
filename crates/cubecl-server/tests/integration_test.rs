@@ -40,7 +40,7 @@ fn empty_allocates_memory() {
     assert_eq!(empty_resource.len(), 4);
 }
 
-// Dry runs are process-wide, so a test asserting that a launch really ran must
+// Execution overrides are process-wide, so a test asserting that a launch really ran must
 // not overlap one. `parallel` still runs alongside the other parallel tests; it
 
 /// A handle stamped for `service`, never allocated: what a caller holding a
@@ -240,7 +240,7 @@ fn execute_elementwise_addition() {
 /// must cost the observer its timing and nothing else: the kernel still runs,
 /// [`launched`](cubecl_server::logging::LaunchObserver::launched) still
 /// arrives, and `timed` is skipped. `serial` because the observer slot, the
-/// refusal toggle, and dry runs are all process-wide.
+/// refusal toggle, and execution overrides are all process-wide.
 #[test_log::test]
 #[serial_test::serial]
 fn a_refused_profile_degrades_to_an_untimed_launch() {
@@ -399,6 +399,43 @@ fn the_fastest_tunable_hands_back_its_identity() {
     );
 }
 
+#[test_log::test]
+#[cfg(feature = "std")]
+#[serial_test::serial]
+fn a_tune_on_a_lost_device_settles_nothing() {
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("a_tune_on_a_lost_device_settles_nothing");
+    #[cfg(persistence)]
+    let root = tempfile::tempdir().unwrap();
+    #[cfg(persistence)]
+    rooted_at(root.path());
+
+    let client = test_client(&DummyDevice);
+    let id = "test".to_string();
+    let set = TUNER.init(&id, identified_addition_initializer(Default::default()));
+    let (handles, key) = addition_inputs(&client, &set);
+    let out = handles[2].clone();
+
+    // Counted under `Execute`, which runs every launch as it would without.
+    let collector = StatisticsCollector::new();
+    let counted = ProcessModeOverride::new(ProcessMode::Execute, &collector);
+    POISONED.store(true, Ordering::Relaxed);
+    TUNER.execute(&id, &client, set.clone(), handles);
+    POISONED.store(false, Ordering::Relaxed);
+    core::mem::drop(counted);
+
+    assert_eq!(TUNER.fastest_identity(&id, &set, &key), None);
+    assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
+    let autotune = collector.statistics().autotune;
+    assert_eq!(
+        (autotune.registered, autotune.abandoned),
+        (1, 1),
+        "the stopped tune is abandoned, not left registered"
+    );
+}
+
 /// A result belongs to the environment it was tuned under, and one only on disk has no fastest
 /// identity until an `execute` validates it: after a switch away the result is unreachable, and
 /// after the switch back it is found again once an `execute` has read it back — with no second
@@ -504,7 +541,7 @@ fn autotune_resets_when_the_environment_switches() {
     ];
     let key = set.generate_key(&handles);
 
-    let tuner: Tuner<String> = Tuner::new("environment-switch", "device0");
+    let tuner: Tuner<String> = Tuner::new("environment-switch", "device0", "fp0");
     tuner.check_tune(
         &key,
         &handles,
@@ -593,7 +630,7 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     ];
     let key = set.generate_key(&handles);
 
-    let tuner: Tuner<String> = Tuner::new("recorded", "device0");
+    let tuner: Tuner<String> = Tuner::new("recorded", "device0", "fp0");
     let answer = tuner.check_tune(
         &key,
         &handles,
@@ -633,7 +670,7 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
             <= tune.wall
     );
     assert_eq!(tune.short_circuit, None);
-    assert!(!tune.dry_run);
+    assert!(!tune.launches_discarded);
     assert!(tune.stored, "the table took the answer");
     let plan: Vec<(&str, Option<usize>)> = tune
         .plan
@@ -649,6 +686,42 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     let sessions = Records::new(&database).sessions();
     assert_eq!(sessions.len(), 1);
     assert_eq!(tunes[0].stamp.session, sessions[0].id);
+}
+
+/// A device id that resolves to another adapter must not read the first
+/// adapter's persisted answers.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn persisted_answers_are_scoped_to_the_adapter_fingerprint() {
+    use cubecl_server::tune::{TuneCacheResult, Tuner};
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+
+    let client = test_client(&DummyDevice);
+    let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
+    let (handles, key) = addition_inputs(&client, &set);
+
+    let tuned: Tuner<String> = Tuner::new("fingerprinted", "device0", "fp-a");
+    tuned.check_tune(
+        &key,
+        &handles,
+        &set,
+        || set.compute_checksum(),
+        &client,
+        None,
+    );
+
+    let other_adapter: Tuner<String> = Tuner::new("fingerprinted", "device0", "fp-b");
+    assert!(matches!(other_adapter.fastest(&key), TuneCacheResult::Miss));
+
+    // Unchecked, not Miss: the answer was hydrated from disk.
+    let same_adapter: Tuner<String> = Tuner::new("fingerprinted", "device0", "fp-a");
+    assert!(matches!(
+        same_adapter.fastest(&key),
+        TuneCacheResult::Unchecked
+    ));
 }
 
 /// A tune stopped by the short circuit records which candidate stopped it.
@@ -674,7 +747,7 @@ fn a_short_circuited_tune_records_where_it_stopped() {
     ];
     let key = set.generate_key(&handles);
 
-    let tuner: Tuner<String> = Tuner::new("short-circuited", "device0");
+    let tuner: Tuner<String> = Tuner::new("short-circuited", "device0", "fp0");
     tuner.check_tune(
         &key,
         &handles,
@@ -719,7 +792,7 @@ fn nothing_is_recorded_when_records_are_off() {
         client.empty(3),
     ];
     let key = set.generate_key(&handles);
-    let tuner: Tuner<String> = Tuner::new("unrecorded", "device0");
+    let tuner: Tuner<String> = Tuner::new("unrecorded", "device0", "fp0");
     let answer = tuner.check_tune(
         &key,
         &handles,
@@ -1349,8 +1422,9 @@ fn autotune_stops_sampling_an_eliminated_candidate() {
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 
-/// A dry run drops an ordinary launch: the server still compiles the kernel,
-/// exactly as it would otherwise, and then never runs it.
+/// An override that discards launches discards an ordinary launch: the server
+/// still compiles the kernel, exactly as it would otherwise, and then never
+/// runs it.
 ///
 /// This is the mode's whole promise and its whole hazard in one assertion — a
 /// pass under it runs for the shapes it provokes, and anything it reads back
@@ -1358,8 +1432,8 @@ fn autotune_stops_sampling_an_eliminated_candidate() {
 #[test_log::test]
 #[cfg(feature = "std")]
 #[serial_test::serial]
-fn a_dry_run_drops_an_ordinary_launch() {
-    use cubecl_server::dry_run::DryRun;
+fn an_override_discards_an_ordinary_launch() {
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
 
     let client = test_client(&DummyDevice);
     let lhs = client.create_from_slice(&[0, 1, 2]);
@@ -1379,14 +1453,16 @@ fn a_dry_run_drops_an_ordinary_launch() {
     };
 
     {
-        let _dry_run = DryRun::new();
+        let tune =
+            ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &StatisticsCollector::new());
         add(&out);
 
         assert_eq!(
             client.read_one(out.clone()).unwrap().to_vec(),
             Vec::from([9, 9, 9]),
-            "the launch was compiled and then dropped, so the output is untouched"
+            "the launch was compiled and then discarded, so the output is untouched"
         );
+        core::mem::drop(tune);
     }
 
     // The very same launch runs once the mode is off: nothing was poisoned by
@@ -1396,20 +1472,78 @@ fn a_dry_run_drops_an_ordinary_launch() {
     assert_eq!(client.read_one(out).unwrap().to_vec(), Vec::from([4, 5, 6]));
 }
 
+/// A stream's mode follows the stream a client's launches go out on, not the
+/// thread that set it: a client bound to a stream of its own keeps executing
+/// when its launches are issued from another thread, while the thread's own
+/// stream still discards them.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn a_stream_mode_follows_its_client_across_threads() {
+    use cubecl_server::execution::{
+        ProcessMode, ProcessModeOverride, StatisticsCollector, StreamMode, StreamModeOverride,
+    };
+
+    let client = test_client(&DummyDevice);
+    let mut bound = client.clone();
+    // A stream nothing else in the process issues on.
+    unsafe {
+        bound.set_stream(StreamId {
+            value: 4_000_000_007,
+        })
+    };
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let (executed, discarded) = (
+        client.create_from_slice(&[9, 9, 9]),
+        client.create_from_slice(&[9, 9, 9]),
+    );
+    let add = |client: &Client, out: &Handle| {
+        client.launch(
+            Box::new(KernelTask::new(DummyElementwiseAddition)),
+            CubeCount::Static(1, 1, 1),
+            KernelArguments::new().with_buffers(vec![
+                lhs.clone().binding(),
+                rhs.clone().binding(),
+                out.clone().binding(),
+            ]),
+        );
+    };
+
+    {
+        let tune =
+            ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &StatisticsCollector::new());
+        let measuring = StreamModeOverride::new(StreamMode::Execute, &bound);
+        std::thread::scope(|scope| {
+            scope.spawn(|| add(&bound, &executed));
+        });
+        add(&client, &discarded);
+        core::mem::drop(measuring);
+        core::mem::drop(tune);
+    }
+
+    assert_eq!(client.read_one(executed).unwrap().to_vec(), vec![4, 5, 6]);
+    assert_eq!(
+        client.read_one(discarded).unwrap().to_vec(),
+        vec![9, 9, 9],
+        "the thread's own stream still discards"
+    );
+}
+
 /// The exception that makes the mode worth having: autotune still executes,
 /// because its launches *are* the measurement.
 ///
-/// Tuning happens inside the dry run; the winner is then executed outside it. A
+/// Tuning happens under the override; the winner is then executed outside it. A
 /// tuner whose candidates had all been skipped would have nothing to tell them
 /// apart, and the slow kernel — which writes `[0, 1, 2]` — would win as often
 /// as not.
 #[test_log::test]
 #[cfg(feature = "std")]
 #[serial_test::serial]
-fn a_dry_run_still_autotunes() {
-    use cubecl_server::dry_run::DryRun;
+fn an_override_still_autotunes() {
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
 
-    static TUNER: LocalTuner<String, String> = local_tuner!("a_dry_run_still_autotunes");
+    static TUNER: LocalTuner<String, String> = local_tuner!("an_override_still_autotunes");
 
     let client = test_client(&DummyDevice);
     let test_set = TUNER.init(&"test".to_string(), || {
@@ -1422,13 +1556,15 @@ fn a_dry_run_still_autotunes() {
     let out = client.empty(3);
 
     {
-        let _dry_run = DryRun::new();
+        let tune =
+            ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &StatisticsCollector::new());
         TUNER.execute(
             &"test".to_string(),
             &client,
             test_set.clone(),
             vec![lhs.clone(), rhs.clone(), out.clone()],
         );
+        core::mem::drop(tune);
     }
 
     // Cached now, so this is the fast path: it executes the winner and nothing
@@ -1443,11 +1579,182 @@ fn a_dry_run_still_autotunes() {
     assert_eq!(
         client.read_one(out).unwrap().to_vec(),
         Vec::from([4, 5, 6]),
-        "the candidates were measured inside the dry run, so the fast one won"
+        "the candidates were measured under the override, so the fast one won"
     );
 }
 
-/// The other half of what a dry run leaves alone: memory. A reservation no
+/// A `CompileOnly` override measures nothing and decides nothing: no sample is
+/// taken, so the eviction that runs before each never does; it queues a key's
+/// candidates once however often it reaches it; and the key is tuned for real
+/// by the first execution outside it.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn a_compile_only_override_leaves_the_tune_to_the_next_pass() {
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("compile_only_override");
+
+    let client = test_client(&DummyDevice);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let evictions = Arc::new(AtomicUsize::new(0));
+    let misdirected = Arc::new(AtomicUsize::new(0));
+    let uid = fresh_tune_key_uid();
+    let test_set = {
+        let (calls, evictions, misdirected) =
+            (calls.clone(), evictions.clone(), misdirected.clone());
+        TUNER.init(&"test".to_string(), move || {
+            let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+            dummy::addition_set_with_eviction(
+                test_client(&DummyDevice),
+                shapes,
+                uid.clone(),
+                calls.clone(),
+                evictions.clone(),
+                misdirected.clone(),
+            )
+        })
+    };
+
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = || vec![lhs.clone(), rhs.clone(), out.clone()];
+
+    let collector = StatisticsCollector::new();
+    {
+        let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+        TUNER.execute(&"test".to_string(), &client, test_set.clone(), handles());
+        let compiled = calls.load(Ordering::Relaxed);
+        assert!(compiled > 0, "the candidates ran, to queue their kernels");
+
+        // A walk reaches the same key at every layer: once queued, the key only runs the
+        // candidate that launches.
+        TUNER.execute(&"test".to_string(), &client, test_set.clone(), handles());
+        assert_eq!(calls.load(Ordering::Relaxed), compiled + 1);
+        core::mem::drop(compile);
+    }
+    assert_eq!(evictions.load(Ordering::Relaxed), 0, "nothing was measured");
+    let gathered = collector.statistics().autotune;
+    assert_eq!(
+        (gathered.registered, gathered.settled()),
+        (1, 0),
+        "gathered once"
+    );
+
+    // Measured with no override open, the tune still settles to the
+    // collector that gathered it.
+    let reader = collector.reader();
+    drop(collector);
+    TUNER.execute(&"test".to_string(), &client, test_set, handles());
+    assert!(
+        evictions.load(Ordering::Relaxed) > 0,
+        "the key was left untuned, so this execution tuned it"
+    );
+    let measured = reader.statistics().autotune;
+    assert_eq!(
+        (measured.registered, measured.measured),
+        (1, 1),
+        "the tune gathered is the one measured, counted where it was gathered"
+    );
+    assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
+}
+
+/// A key a `CompileOnly` pass reaches inside another key's candidates is not
+/// registered: the pass that tunes may never run the candidate that reaches
+/// it. Once both passes are done, every tune registered has settled.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn a_key_reached_inside_another_registers_only_once_tuned() {
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+    use cubecl_server::tune::{CloneInputGenerator, Tunable};
+
+    static OUTER: LocalTuner<String, String> = local_tuner!("nested_outer");
+    static INNER: LocalTuner<String, String> = local_tuner!("nested_inner");
+
+    let client = test_client(&DummyDevice);
+    let inner_calls = Arc::new(AtomicUsize::new(0));
+    let uid = fresh_tune_key_uid();
+    let inner_set = {
+        let (uid, inner_calls) = (uid.clone(), inner_calls.clone());
+        INNER.init(&"inner".to_string(), move || {
+            dummy::addition_set_with_rejected_candidate(
+                test_client(&DummyDevice),
+                vec![vec![1, 3], vec![1, 3], vec![1, 3]],
+                uid.clone(),
+                inner_calls.clone(),
+            )
+        })
+    };
+    let outer_set = OUTER.init(&"outer".to_string(), move || {
+        let op_add = OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseAddition),
+            test_client(&DummyDevice),
+        );
+        let (inner_client, inner_set) = (test_client(&DummyDevice), inner_set.clone());
+        let uid = uid.clone();
+        TunableSet::<String, Vec<Handle>, ()>::new(
+            move |_input: &Vec<Handle>| format!("nested-{uid}"),
+            CloneInputGenerator,
+        )
+        .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
+        .with(Tunable::new("through_inner", move |inputs: Vec<Handle>| {
+            INNER.execute(
+                &"inner".to_string(),
+                &inner_client,
+                inner_set.clone(),
+                inputs,
+            );
+            Ok::<(), String>(())
+        }))
+    });
+
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = || vec![lhs.clone(), rhs.clone(), out.clone()];
+
+    let collector = StatisticsCollector::new();
+    {
+        let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+        OUTER.execute(&"outer".to_string(), &client, outer_set.clone(), handles());
+        core::mem::drop(compile);
+    }
+    assert!(
+        inner_calls.load(Ordering::Relaxed) > 0,
+        "the outer key's candidates reached the inner key"
+    );
+    assert_eq!(
+        collector.statistics().autotune.registered,
+        1,
+        "only the outer key is registered"
+    );
+
+    let gathered_calls = inner_calls.load(Ordering::Relaxed);
+    {
+        let tune = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+        OUTER.execute(&"outer".to_string(), &client, outer_set, handles());
+        core::mem::drop(tune);
+    }
+    // Measuring the outer key runs every candidate, the one reaching the
+    // inner key included: the inner key registers as it is measured.
+    assert!(
+        inner_calls.load(Ordering::Relaxed) > gathered_calls,
+        "measuring the outer key reached the inner one"
+    );
+    let tuned = collector.statistics().autotune;
+    assert_eq!(tuned.registered, 2);
+    assert_eq!(
+        (tuned.measured, tuned.failed),
+        (tuned.registered, 0),
+        "every tune registered was measured, once"
+    );
+}
+
+/// The other half of what discarding launches leaves alone: memory. A reservation no
 /// executed launch, read or write ever touches gets no device backing — the
 /// skipped launch resolves nothing — and backing is installed on demand the
 /// first time the buffer is actually dereferenced.
@@ -1457,12 +1764,13 @@ fn a_dry_run_still_autotunes() {
 // sub-slicing falls back to are always mapped at reservation.
 #[cfg(not(exclusive_memory_only))]
 #[serial_test::serial]
-fn a_dry_run_reserves_without_mapping() {
-    use cubecl_server::dry_run::DryRun;
+fn an_override_reserves_without_mapping() {
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
     use cubecl_server::memory_management::MemoryPoolReport;
 
     let client = test_client(&DummyDevice);
-    let dry_run = DryRun::new();
+    let execution =
+        ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &StatisticsCollector::new());
 
     // Big enough to land in a large-page pool of its own: the parallel tests
     // in this binary allocate a few bytes at a time, so nothing else touches
@@ -1482,8 +1790,8 @@ fn a_dry_run_reserves_without_mapping() {
             .clone()
     }
 
-    // A workload-sized buffer, launched against only inside the dry run: the
-    // launch is compiled and dropped before resolving any resource.
+    // A workload-sized buffer, launched against only under the override: the
+    // launch is compiled and discarded before resolving any resource.
     let out = client.empty(SIZE as usize);
     client.launch(
         Box::new(KernelTask::new(DummyElementwiseAddition)),
@@ -1513,7 +1821,7 @@ fn a_dry_run_reserves_without_mapping() {
         "resolution installed the backing: {report:?}"
     );
 
-    drop(dry_run);
+    core::mem::drop(execution);
 }
 
 /// A tunable set is built from the device it will run on — a closure captures
@@ -1602,9 +1910,9 @@ fn a_compilation_is_recorded_with_its_outcome() {
 
     let id = KernelId::new::<Recorded>().info(3u32);
     let stored = true;
-    CompilationRecording::new(&id).compiled(stored);
-    CompilationRecording::new(&id).loaded();
-    CompilationRecording::new(&id).rekeyed(stored);
+    CompilationRecording::new(&id).close(CompilationOutcome::Compiled, stored);
+    CompilationRecording::new(&id).close(CompilationOutcome::Loaded, false);
+    CompilationRecording::new(&id).close(CompilationOutcome::Rekeyed, stored);
 
     let database = Database::open_active().unwrap();
     let trips = Records::new(&database).read::<CompilationRecord>();
@@ -1644,7 +1952,10 @@ fn a_compilation_keeps_its_code_only_when_records_are_full() {
         recording_at(level);
         let mut recording = CompilationRecording::new(&id);
         recording.source("source");
-        recording.compiled(stored);
+        recording.close(
+            cubecl_server::compiler::CompilationOutcome::Compiled,
+            stored,
+        );
     }
     recording_at(RecordLevel::Basic);
 
@@ -1666,7 +1977,9 @@ fn a_compilation_keeps_its_code_only_when_records_are_full() {
 fn a_compile_nothing_stored_leaves_no_session() {
     use cubecl_environment::persistence::{Database, Namespace, Store, StoreOptions};
     use cubecl_environment::records::{RecordLevel, Records};
-    use cubecl_server::compiler::{CompilationRecord, CompilationRecording, store_compiled};
+    use cubecl_server::compiler::{
+        CompilationOutcome, CompilationRecord, CompilationRecording, store_compiled,
+    };
     use cubecl_server::id::KernelId;
 
     struct Unstored;
@@ -1681,7 +1994,7 @@ fn a_compile_nothing_stored_leaves_no_session() {
 
     let id = KernelId::new::<Unstored>();
     let stored = false;
-    CompilationRecording::new(&id).compiled(stored);
+    CompilationRecording::new(&id).close(CompilationOutcome::Compiled, stored);
 
     let database = Database::open_active().unwrap();
     let records = Records::new(&database);
@@ -1716,7 +2029,10 @@ fn a_memory_snapshot_is_recorded_under_its_label() {
     struct Stored;
     let id = cubecl_server::id::KernelId::new::<Stored>();
     let stored = true;
-    cubecl_server::compiler::CompilationRecording::new(&id).compiled(stored);
+    cubecl_server::compiler::CompilationRecording::new(&id).close(
+        cubecl_server::compiler::CompilationOutcome::Compiled,
+        stored,
+    );
 
     let snapshots = Records::new(&database).read::<MemoryRecord>();
     assert_eq!(snapshots.len(), 1);

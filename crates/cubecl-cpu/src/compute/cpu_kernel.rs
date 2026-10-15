@@ -6,21 +6,20 @@ use cubecl_server::kernel::CompiledKernel;
 use cubecl_llvm::PlironCompiler;
 
 /// A compiled cpu kernel.
-pub struct CpuKernel {
+#[derive(Clone)]
+pub struct CpuCompiledKernel {
     pub(crate) mlir: Arc<CompiledKernel<PlironCompiler>>,
 }
 
-impl CpuKernel {
-    pub fn new(kernel: CompiledKernel<PlironCompiler>) -> Self {
-        Self {
-            mlir: Arc::new(kernel),
-        }
+impl CpuCompiledKernel {
+    pub fn new(kernel: Arc<CompiledKernel<PlironCompiler>>) -> Self {
+        Self { mlir: kernel }
     }
 }
 
-impl Debug for CpuKernel {
+impl Debug for CpuCompiledKernel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CpuKernel")
+        f.debug_struct("CpuCompiledKernel")
             .field("entrypoint_name", &self.mlir.entrypoint_name)
             .field("debug_name", &self.mlir.debug_name)
             .finish()

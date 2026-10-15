@@ -1,4 +1,4 @@
-use cubecl_core::{Compiler, prelude::Visibility, server::KernelArguments};
+use cubecl_core::{Compiler, prelude::Visibility};
 use cubecl_core::{
     WgpuCompilationOptions,
     ir::{ElemType, UIntKind},
@@ -7,10 +7,11 @@ use cubecl_ir::{DeviceProperties, Type};
 use wgpu::Features;
 
 use crate::WgslCompiler;
+use crate::compute::pipelines::MetadataLayout;
 
 pub fn bindings(
     repr: &<WgslCompiler as Compiler>::Representation,
-    args: &KernelArguments,
+    metadata: MetadataLayout,
 ) -> (Vec<Visibility>, usize) {
     let mut bindings = repr
         .buffers
@@ -25,7 +26,7 @@ pub fn bindings(
             }
         })
         .collect::<Vec<_>>();
-    if !args.info.data.is_empty() {
+    if metadata != MetadataLayout::Absent {
         bindings.push(Visibility::Read);
     }
     (bindings, 0)

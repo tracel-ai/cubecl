@@ -12,7 +12,7 @@ use cubecl_core::device::{DeviceId, ServerUtilitiesHandle};
 use cubecl_core::ir::TargetProperties;
 use cubecl_core::server::ServerUtilities;
 use cubecl_core::zspace::{Shape, Strides};
-use cubecl_environment::future;
+use cubecl_environment::{future, sync::Mutex};
 use cubecl_ir::{DeviceIdentity, DeviceProperties, HardwareProperties, MemoryDeviceProperties};
 use cubecl_monitoring::{DeviceUtilization, UtilizationUnavailable, gpu_utilization::CardCounters};
 use cubecl_server::allocator::ContiguousMemoryLayoutPolicy;
@@ -188,15 +188,15 @@ fn adapters_on(backend: WgpuBackend) -> Vec<DeviceId> {
 /// stopping at Vulkan leaves that GPU unreachable through `Auto`, and wgpu
 /// declining a machine it could have served.
 #[cfg(not(target_family = "wasm"))]
-fn settle(backend: WgpuBackend) -> Option<(wgpu::Backend, Vec<wgpu::Adapter>)> {
+fn settle(backend: WgpuBackend) -> Option<(wgpu::Backend, Vec<wgpu::AdapterInfo>)> {
     let mut software_only = None;
 
     for api in backend_candidates(backend) {
-        let adapters = enumerate_all_adapters(instance_for(api), api);
+        let adapters = probe(api);
 
         if adapters
             .iter()
-            .any(|adapter| adapter.get_info().device_type != wgpu::DeviceType::Cpu)
+            .any(|adapter| adapter.device_type != wgpu::DeviceType::Cpu)
         {
             return Some((api, adapters));
         }
@@ -223,13 +223,23 @@ fn backend_candidates(backend: WgpuBackend) -> alloc::vec::Vec<wgpu::Backend> {
     }
 }
 
-/// An instance limited to one graphics API, for asking what it has.
+/// The instance each backend's devices come up on, kept so a device going away never destroys
+/// one. Locked whenever an instance is created or dropped: the Vulkan loader crashes when
+/// instances come and go on several threads at once.
+static INSTANCES: Mutex<Vec<(wgpu::Backend, wgpu::Instance)>> = Mutex::new(Vec::new());
+
+/// The adapters `backend` has on this machine, asked through an instance limited to it.
 #[cfg(not(target_family = "wasm"))]
-fn instance_for(backend: wgpu::Backend) -> wgpu::Instance {
-    wgpu::Instance::new(wgpu::InstanceDescriptor {
+fn probe(backend: wgpu::Backend) -> Vec<wgpu::AdapterInfo> {
+    let _instances = INSTANCES.lock();
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: backend.into(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
-    })
+    });
+    future::block_on(instance.enumerate_adapters(backend.into()))
+        .iter()
+        .map(wgpu::Adapter::get_info)
+        .collect()
 }
 
 /// The graphics API a device on `backend` comes up on.
@@ -255,13 +265,13 @@ pub(crate) fn resolve_backend(backend: WgpuBackend) -> wgpu::Backend {
 /// counter over the mixed list hands out ids for devices that do not exist.
 /// `Cpu` carries no index in `WgpuDevice`, so it stays at zero.
 #[cfg(not(target_family = "wasm"))]
-fn adapter_device_ids(adapters: Vec<wgpu::Adapter>) -> Vec<DeviceId> {
+fn adapter_device_ids(adapters: Vec<wgpu::AdapterInfo>) -> Vec<DeviceId> {
     let mut next = [0u16; 7];
 
     adapters
         .into_iter()
         .map(|adapter| {
-            let type_id = match adapter.get_info().device_type {
+            let type_id = match adapter.device_type {
                 wgpu::DeviceType::DiscreteGpu => 0,
                 wgpu::DeviceType::IntegratedGpu => 1,
                 wgpu::DeviceType::VirtualGpu => 2,
@@ -282,12 +292,6 @@ fn adapter_device_ids(adapters: Vec<wgpu::Adapter>) -> Vec<DeviceId> {
             DeviceId::new(type_id, index)
         })
         .collect()
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn enumerate_all_adapters(instance: wgpu::Instance, backend: wgpu::Backend) -> Vec<wgpu::Adapter> {
-    // `enumerate_adapters` is now async & available on WebGPU
-    cubecl_environment::future::block_on(instance.enumerate_adapters(backend.into()))
 }
 
 /// A recoverable failure while acquiring or registering a wgpu runtime.
@@ -608,11 +612,15 @@ pub async fn try_init_setup_async<G: GraphicsApi>(
 /// The runtime name for `backend`, naming the compiler that serves it.
 ///
 /// Read from the same options [`AutoCompiler`] picks its compiler from, so a device that fell
-/// back to WGSL says so.
+/// back to WGSL says so, along with its API: DX12 and Vulkan on one card share a fingerprint.
 fn runtime_name(backend: wgpu::Backend, options: &WgpuCompilationOptions) -> &'static str {
     match backend {
         wgpu::Backend::Vulkan if options.supports_vulkan_compiler => "wgpu<spirv>",
         wgpu::Backend::Metal if options.supports_msl_compiler => "wgpu<msl>",
+        wgpu::Backend::Vulkan => "wgpu<wgsl-vulkan>",
+        wgpu::Backend::Metal => "wgpu<wgsl-metal>",
+        wgpu::Backend::Dx12 => "wgpu<wgsl-dx12>",
+        wgpu::Backend::Gl => "wgpu<wgsl-gl>",
         _ => "wgpu<wgsl>",
     }
 }
@@ -743,6 +751,8 @@ fn try_create_server<C: WgpuCompiler>(
         }
     })?;
 
+    C::init(setup.backend, &compilation_options).limit_properties(&mut device_props);
+
     let logger = alloc::sync::Arc::new(ServerLogger::default());
     let name = runtime_name(setup.backend, &compilation_options);
 
@@ -818,10 +828,10 @@ async fn try_create_setup(device: &WgpuDevice) -> Result<WgpuSetup, WgpuInitErro
         if !wgpu::Instance::enabled_backend_features().contains(api.into()) {
             continue;
         }
-        let adapters = instance_for(api).enumerate_adapters(api.into()).await;
+        let adapters = probe(api);
         if adapters
             .iter()
-            .any(|adapter| adapter.get_info().device_type != wgpu::DeviceType::Cpu)
+            .any(|adapter| adapter.device_type != wgpu::DeviceType::Cpu)
         {
             backend = Some(api);
             break;
@@ -873,11 +883,7 @@ async fn request_adapter(
     #[cfg(feature = "vulkan-validate")]
     let instance_flags = InstanceFlags::advanced_debugging();
     log::debug!("{instance_flags:?}");
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: backend.into(),
-        flags: instance_flags,
-        ..wgpu::InstanceDescriptor::new_without_display_handle()
-    });
+    let instance = device_instance(backend, instance_flags);
 
     let adapter = match device.kind {
         #[cfg(not(target_family = "wasm"))]
@@ -938,6 +944,21 @@ async fn request_adapter(
     })?;
 
     Ok((instance, adapter))
+}
+
+/// The instance devices on `backend` come up on, created with the first device's `flags`.
+fn device_instance(backend: wgpu::Backend, flags: InstanceFlags) -> wgpu::Instance {
+    let mut instances = INSTANCES.lock();
+    if let Some((_, instance)) = instances.iter().find(|(api, _)| *api == backend) {
+        return instance.clone();
+    }
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: backend.into(),
+        flags,
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    instances.push((backend, instance.clone()));
+    instance
 }
 
 async fn request_adapter_with_preference(
@@ -1223,5 +1244,13 @@ mod device_tests {
 
             assert_eq!(<WgpuRuntime>::find_device(device.to_id()), Err(discrete));
         }
+    }
+
+    #[test]
+    fn wgsl_runtime_names_its_api() {
+        let wgsl = WgpuCompilationOptions::default();
+        let vulkan = runtime_name(wgpu::Backend::Vulkan, &wgsl);
+        assert_ne!(vulkan, runtime_name(wgpu::Backend::Gl, &wgsl));
+        assert_ne!(vulkan, runtime_name(wgpu::Backend::Dx12, &wgsl));
     }
 }

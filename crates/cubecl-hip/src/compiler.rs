@@ -60,6 +60,11 @@ pub struct HipCompilationOptions {
     pub cpp: CompilationOptions,
     /// The device, as the runtime parsed it out of `gcnArchName`.
     pub arch: Option<GfxArch>,
+    /// The full `gcnArchName`, target-feature suffix included, which HIP RTC
+    /// compiles for as its `--offload-arch`. Without one it compiles for the
+    /// calling thread's current device, and kernels compile on threads that
+    /// never selected the server's.
+    pub target: String,
 }
 
 pub enum HipRepresentation {

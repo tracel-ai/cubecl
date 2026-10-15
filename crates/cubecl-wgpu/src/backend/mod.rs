@@ -1,5 +1,5 @@
 mod base;
-mod wgsl;
+pub(crate) mod wgsl;
 
 #[cfg(feature = "spirv")]
 pub mod vulkan;

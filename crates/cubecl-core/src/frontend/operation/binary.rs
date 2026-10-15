@@ -9,6 +9,7 @@ use crate::{frontend::operation::base::binary_expand, unexpanded};
 use core::ops::*;
 use cubecl_ir::dialect::{
     bitwise::*,
+    cmp::BoolNotEqualOp,
     general::{BoolAndOp, BoolOrOp},
     math::*,
     vector::{FDotOp, SDotOp, UDotOp},
@@ -481,6 +482,11 @@ impl BitAndNativeExpand for bool {
 impl BitOrNativeExpand for bool {
     fn __expand_native_bitor(scope: &Scope, this: ExpandValue, rhs: ExpandValue) -> ExpandValue {
         binary_expand(scope, this, rhs, BoolOrOp::new)
+    }
+}
+impl BitXorNativeExpand for bool {
+    fn __expand_native_bitxor(scope: &Scope, this: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        binary_expand(scope, this, rhs, BoolNotEqualOp::new)
     }
 }
 

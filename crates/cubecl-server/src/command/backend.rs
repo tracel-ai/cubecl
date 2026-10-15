@@ -131,6 +131,11 @@ pub trait Driver: Sized {
     ///
     /// [`launch`]: Self::launch
     type LaunchArgs: ?Sized;
+    /// A kernel loaded on the device, as the server's
+    /// [`KernelLoader`](crate::compiler::KernelLoader) hands it out: launching
+    /// it takes no lookup, so nothing that empties the loader in between —
+    /// an environment switch — can leave a launch without its kernel.
+    type Loaded;
 
     /// Hand out `size` bytes of the pinned host allocation `binding` names,
     /// released back to the pool when the [`Bytes`] drop.
@@ -200,10 +205,9 @@ pub trait Driver: Sized {
         queue: <Self::Stream as DeviceStream>::Signal,
     ) -> Result<(), IoError>;
 
-    /// Wait for device work enqueued outside the command's streams — CUDA's
-    /// collectives, on a stream of their own that the compute streams only
-    /// wait on at a collective sync — before a relocation moves the
-    /// allocations that work may still read or write.
+    /// Wait for device work enqueued outside the command's streams, such as
+    /// CUDA's collectives and transfers on streams of their own, before a
+    /// relocation moves the allocations that work may still read or write.
     ///
     /// Nothing by default: a backend whose every device operation runs on its
     /// command streams has nothing else to wait on.
@@ -215,7 +219,7 @@ pub trait Driver: Sized {
         Ok(())
     }
 
-    /// Enqueue an already-compiled kernel on `stream`.
+    /// Enqueue `kernel`, already compiled and loaded under `id`, on `stream`.
     ///
     /// Always a compiled kernel: the server compiles before entering its write
     /// scope, and a skipped launch stops there, before any resource is
@@ -227,7 +231,8 @@ pub trait Driver: Sized {
     fn launch(
         ctx: &mut Self::Context,
         stream: &mut Self::Stream,
-        kernel: KernelId,
+        id: &KernelId,
+        kernel: &Self::Loaded,
         count: (u32, u32, u32),
         args: &mut Self::LaunchArgs,
     ) -> Result<(), LaunchError>;

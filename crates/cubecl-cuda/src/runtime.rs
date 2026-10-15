@@ -403,7 +403,8 @@ impl DeviceService for CudaServer {
         // compile rather than a slower one.
         let backend = CudaBackend::default();
         if backend == CudaBackend::Llvm {
-            restrict_features(&mut device_props, GpuTarget::Nvptx);
+            let sm_arch = SmArch::new(arch_version, arch.tensor_cores);
+            restrict_features(&mut device_props, GpuTarget::Nvptx { arch: sm_arch });
         }
 
         let comp_opts = CudaCompilationOptions {
@@ -416,6 +417,10 @@ impl DeviceService for CudaServer {
             CubeClRuntimeConfig::get().streaming.priority,
         )
         .expect("Can create the communication stream.");
+        let transfer_stream = crate::compute::stream::create_cuda_stream(
+            CubeClRuntimeConfig::get().streaming.priority,
+        )
+        .expect("Can create the transfer stream.");
         let cuda_ctx = CudaContext::new(
             comp_opts,
             device_props.clone(),
@@ -423,6 +428,7 @@ impl DeviceService for CudaServer {
             arch,
             backend,
             comm_stream,
+            transfer_stream,
         );
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);

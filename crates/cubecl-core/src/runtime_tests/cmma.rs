@@ -332,6 +332,34 @@ pub fn cast_matrix_f16(input: &[f32], out: &mut [f16]) {
     cmma::store(out, &output, 16, cmma::MatrixLayout::RowMajor);
 }
 
+/// An `f32` accumulator cast to a name the kernel defines for `f32` and back: one element under
+/// two names, so each cast is the fragment itself.
+#[cube(launch)]
+pub fn cast_matrix_renamed(
+    input: &[f32],
+    out: &mut [f32],
+    #[comptime] m: usize,
+    #[comptime] n: usize,
+    #[comptime] k: usize,
+) {
+    let define!(Named) = elem_type_of::<f32>();
+    let mut acc = unsafe {
+        cmma::Matrix::<f32>::uninitialized(
+            cmma::MatrixIdent::Accumulator,
+            m,
+            n,
+            k,
+            cmma::MatrixLayout::Undefined,
+        )
+    };
+    cmma::load_with_layout(&mut acc, input, n as u32, cmma::MatrixLayout::RowMajor);
+
+    let named: cmma::Matrix<Named> = cmma::cast(&acc);
+    let output: cmma::Matrix<f32> = cmma::cast(&named);
+
+    cmma::store(out, &output, n as u32, cmma::MatrixLayout::RowMajor);
+}
+
 #[cube(launch)]
 pub fn cast_matrix_bf16(input: &[f32], out: &mut [bf16]) {
     let mut acc = unsafe {
@@ -607,6 +635,90 @@ pub fn test_simple_1_typed<R: Runtime, I: Float + CubeElement, A: Float + CubeEl
             "element {i}: expected {expected}, got {actual}"
         );
     }
+}
+
+#[cube(launch)]
+/// [`kernel_simple_m16n16k16_gmem`] with every fragment kept at a dummy type, then named at an
+/// element the kernel defines before the product.
+pub fn kernel_downcast(lhs: &[f16], rhs: &[f16], out: &mut [f32]) {
+    let a = cmma::Matrix::<f16>::from_slice(
+        cmma::MatrixIdent::A,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::RowMajor,
+        lhs,
+        16,
+    );
+    let b = cmma::Matrix::<f16>::from_slice(
+        cmma::MatrixIdent::B,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::ColMajor,
+        rhs,
+        16,
+    );
+    let c = cmma::Matrix::<f32>::from_value(
+        cmma::MatrixIdent::Accumulator,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::Undefined,
+        0.0,
+    );
+    let (a, b, c) = unsafe {
+        (
+            a.downcast_unchecked::<u8>(),
+            b.downcast_unchecked::<u8>(),
+            c.downcast_unchecked::<u8>(),
+        )
+    };
+
+    let define!(Input) = elem_type_of::<f16>();
+    let define!(Acc) = elem_type_of::<f32>();
+    let (a, b, c) = (
+        a.downcast::<Input>(),
+        b.downcast::<Input>(),
+        c.downcast::<Acc>(),
+    );
+
+    cmma::execute(&a, &b, &c, &c);
+
+    cmma::store(out, &c, 16, cmma::MatrixLayout::RowMajor);
+}
+
+/// A fragment named at another type and back ([`cmma::Matrix::downcast`]) is the same fragment:
+/// [`test_simple_1`]'s product through downcast fragments.
+pub fn test_downcast<R: Runtime>(client: Client, cube_dimensions: CubeDim) {
+    if !client.features().matmul.cmma.contains(&MmaConfig {
+        a_type: f16::cube_type(),
+        b_type: f16::cube_type(),
+        cd_type: f32::cube_type(),
+        m: 16,
+        k: 16,
+        n: 16,
+    }) {
+        println!("Unsupported, skipping");
+        return;
+    }
+
+    let lhs: Vec<f16> = (0..256).map(f16::from_int).collect();
+    let rhs: Vec<f16> = (0..256).map(|i| f16::from_int(i % 8)).collect();
+    let lhs = client.create_from_slice(f16::as_bytes(&lhs));
+    let rhs = client.create_from_slice(f16::as_bytes(&rhs));
+    let out = client.empty(core::mem::size_of::<f32>() * 256);
+
+    kernel_downcast::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        cube_dimensions,
+        unsafe { BufferArg::from_raw_parts(lhs, 256) },
+        unsafe { BufferArg::from_raw_parts(rhs, 256) },
+        unsafe { BufferArg::from_raw_parts(out.clone(), 256) },
+    );
+
+    assert_equals_approx::<f32>(&client, out, &test_simple_1_expected(), 1e-3);
 }
 
 #[cube(launch)]
@@ -891,6 +1003,42 @@ pub fn test_cmma_cast_f16<R: Runtime>(client: Client, cube_dimensions: CubeDim) 
     let expected: Vec<f16> = (0..256).map(|i| f16::from_f32(i as f32)).collect();
 
     assert_eq!(actual, expected);
+}
+
+/// [`cast_matrix_renamed`] at any `f32` accumulator shape the device offers.
+pub fn test_cmma_cast_renamed<R: Runtime>(client: Client, cube_dimensions: CubeDim) {
+    let Some(config) = client
+        .features()
+        .matmul
+        .cmma
+        .iter()
+        .find(|config| config.cd_type == ElemType::Float(FloatKind::F32))
+        .cloned()
+    else {
+        // We can't execute the test, skip.
+        return;
+    };
+    let (m, n, k) = (config.m as usize, config.n as usize, config.k as usize);
+
+    let input: Vec<f32> = (0..m * n).map(|i| i as f32).collect();
+    let input_handle = client.create_from_slice(f32::as_bytes(&input));
+    let out = client.empty(core::mem::size_of::<f32>() * m * n);
+
+    unsafe {
+        cast_matrix_renamed::launch(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            cube_dimensions,
+            BufferArg::from_raw_parts(input_handle, m * n),
+            BufferArg::from_raw_parts(out.clone(), m * n),
+            m,
+            n,
+            k,
+        )
+    };
+
+    let actual = client.read_one_unchecked(out);
+    assert_eq!(f32::from_bytes(&actual), input.as_slice());
 }
 
 /// Casting an `f32` accumulator to `bf16` needs a `bf16` accumulator fragment, which only some
@@ -1288,6 +1436,91 @@ pub fn test_cmma_manual<
             )
         }
     }
+}
+
+/// An FP8 manual MMA on operands scattered over signs and magnitudes matches an f64 CPU product.
+pub fn test_cmma_manual_fp8_matches_cpu_reference<
+    R: Runtime,
+    A: CubeElement + Scalar + NumCast,
+    B: CubeElement + Scalar + NumCast,
+>(
+    client: Client,
+    cube_dimensions: CubeDim,
+) {
+    const LARGEST_ERROR_RELATIVE_TO_THE_SUM_OF_ABSOLUTE_PRODUCTS: f64 = 1e-3;
+    let (m, n, k) = (16, 8, 32);
+    if !client.features().matmul.mma.contains(&MmaConfig {
+        a_type: A::cube_type(),
+        b_type: B::cube_type(),
+        cd_type: f32::cube_type(),
+        m: m as u32,
+        n: n as u32,
+        k: k as u32,
+    }) {
+        println!(
+            "Skipping test for a: {:?} b: {:?}, cd: f32, m: {m}, n: {n}, k: {k}",
+            A::cube_type(),
+            B::cube_type(),
+        );
+        return;
+    }
+
+    let lhs: Vec<A> = (0..m * k)
+        .map(|index| A::from(scattered_fp8_operand(index)).unwrap())
+        .collect();
+    let rhs: Vec<B> = (0..k * n)
+        .map(|index| B::from(scattered_fp8_operand(m * k + index)).unwrap())
+        .collect();
+    let zeros = vec![0f32; m * n];
+
+    let lhs_handle = client.create_from_slice(A::as_bytes(&lhs));
+    let rhs_handle = client.create_from_slice(B::as_bytes(&rhs));
+    let out = client.create_from_slice(f32::as_bytes(&zeros));
+
+    unsafe {
+        kernel_manual::launch::<A, B, f32>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            cube_dimensions,
+            TensorArg::from_raw_parts(lhs_handle, [k, 1].into(), [m, k].into()),
+            TensorArg::from_raw_parts(rhs_handle, [n, 1].into(), [k, n].into()),
+            TensorArg::from_raw_parts(out.clone(), [n, 1].into(), [m, n].into()),
+            TensorArg::from_raw_parts(out.clone(), [n, 1].into(), [m, n].into()),
+            m,
+            n,
+            k,
+        )
+    };
+
+    let actual = client.read_one_unchecked(out);
+    let actual = f32::from_bytes(&actual);
+
+    for row in 0..m {
+        for col in 0..n {
+            let (expected, sum_of_absolute_products) =
+                (0..k).fold((0f64, 0f64), |(sum, absolute_sum), l| {
+                    let product =
+                        lhs[row * k + l].to_f64().unwrap() * rhs[l * n + col].to_f64().unwrap();
+                    (sum + product, absolute_sum + product.abs())
+                });
+            let actual = actual[row * n + col] as f64;
+            assert!(
+                (actual - expected).abs()
+                    <= sum_of_absolute_products
+                        * LARGEST_ERROR_RELATIVE_TO_THE_SUM_OF_ABSOLUTE_PRODUCTS,
+                "out[{row}][{col}]: expected {expected}, got {actual}"
+            );
+        }
+    }
+}
+
+/// Spreads `index` over both signs and the normal exponents both FP8 formats hold.
+fn scattered_fp8_operand(index: usize) -> f32 {
+    let mixed = (index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 40;
+    let sign = if mixed & 1 == 0 { 1.0 } else { -1.0 };
+    let exponent = ((mixed >> 1) % 13) as i32 - 6;
+    let mantissa = 1.0 + ((mixed >> 5) % 8) as f32 / 8.0;
+    sign * mantissa * 2f32.powi(exponent)
 }
 
 // Kinda hardcoded for f16 right now, but it's hard to make generic
@@ -1697,7 +1930,35 @@ pub fn test_cmma_scaled<
     assert_equals_approx::<f32>(&client, out, &expected, 0.03);
 }
 
-pub fn test_cmma_scaled_fp4<R: Runtime, S: CubeElement + Scalar + NumCast>(
+/// A block scale a scaled matrix instruction reads, as the fp4 test builds and checks one.
+pub trait BlockScale: CubeElement + Scalar {
+    /// The `n`th of a run of distinct positive scales.
+    fn nth(n: usize) -> Self;
+    fn to_f32(self) -> f32;
+}
+
+impl BlockScale for ue8m0 {
+    fn nth(n: usize) -> Self {
+        ue8m0::from_bits(120 + (n % 16) as u8)
+    }
+
+    fn to_f32(self) -> f32 {
+        ue8m0::to_f32(self)
+    }
+}
+
+/// The scale of NVFP4, read unsigned by the instruction: kept positive so the reference agrees.
+impl BlockScale for e4m3 {
+    fn nth(n: usize) -> Self {
+        e4m3::from_bits(0x30 + (n % 32) as u8)
+    }
+
+    fn to_f32(self) -> f32 {
+        e4m3::to_f32(self)
+    }
+}
+
+pub fn test_cmma_scaled_fp4<R: Runtime, S: BlockScale>(
     client: Client,
     cube_dimensions: CubeDim,
     (m, n, k): (usize, usize, usize),
@@ -1738,10 +1999,8 @@ pub fn test_cmma_scaled_fp4<R: Runtime, S: CubeElement + Scalar + NumCast>(
         .collect();
     //println!("lhs: {lhs_data:?}");
     let lhs = e2m1x2::from_f32_slice(&lhs_data);
-    // Powers of two from 1/8 to 8, exact in both `ue8m0` and `ue4m3`.
-    let scale = |index: usize| S::from(2f32.powi((index % 7) as i32 - 3)).unwrap();
     let lhs_scales_data: Vec<S> = (0..m)
-        .flat_map(|i| (0..scales_factor).map(move |j| scale(i * 2 + j)))
+        .flat_map(|i| (0..scales_factor).map(move |j| S::nth(i * 2 + j)))
         .collect();
 
     // RHS: matrix where each element = (row_index * 3) + column_index, col-major
@@ -1750,7 +2009,7 @@ pub fn test_cmma_scaled_fp4<R: Runtime, S: CubeElement + Scalar + NumCast>(
         .collect();
     let rhs = e2m1x2::from_f32_slice(&rhs_data);
     let rhs_scales_data: Vec<S> = (0..n)
-        .flat_map(|j| (0..scales_factor).map(move |i| scale(i * 3 + j)))
+        .flat_map(|j| (0..scales_factor).map(move |i| S::nth(i * 3 + j)))
         .collect();
 
     let out = vec![0.0; m * n];
@@ -1802,13 +2061,9 @@ pub fn test_cmma_scaled_fp4<R: Runtime, S: CubeElement + Scalar + NumCast>(
 
                 // Dot product over k-dimension
                 let lhs_val = lhs_data[i * k + l]; // LHS[i, l]
-                let lhs_scale = lhs_scales_data[i * scales_factor + l_scales]
-                    .to_f32()
-                    .unwrap();
+                let lhs_scale = lhs_scales_data[i * scales_factor + l_scales].to_f32();
                 let rhs_val = rhs_data[j * k + l];
-                let rhs_scale = rhs_scales_data[j * scales_factor + l_scales]
-                    .to_f32()
-                    .unwrap();
+                let rhs_scale = rhs_scales_data[j * scales_factor + l_scales].to_f32();
                 sum += lhs_val * lhs_scale * rhs_val * rhs_scale;
             }
             expected.push(sum);
@@ -2292,6 +2547,13 @@ macro_rules! testgen_cmma {
         }
 
         #[$crate::runtime_tests::test_log::test]
+        fn test_cmma_downcast() {
+            let client = TestRuntime::client(&Default::default());
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
+            cubecl_core::runtime_tests::cmma::test_downcast::<TestRuntime>(client, cube_dimensions);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
         fn test_cmma_simple_1_bf16() {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
@@ -2403,6 +2665,16 @@ macro_rules! testgen_cmma {
         }
 
         #[$crate::runtime_tests::test_log::test]
+        fn test_cmma_cast_renamed() {
+            let client = TestRuntime::client(&Default::default());
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
+            cubecl_core::runtime_tests::cmma::test_cmma_cast_renamed::<TestRuntime>(
+                client,
+                cube_dimensions,
+            );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
         fn test_cmma_cast_bf16() {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
@@ -2450,6 +2722,8 @@ macro_rules! testgen_cmma {
             test::<tf32, tf32, f32>(16, 8, 8);
             test::<f16, f16, f32>(16, 8, 16);
             test::<bf16, bf16, f32>(16, 8, 16);
+            test::<f16, f16, f32>(16, 8, 8);
+            test::<bf16, bf16, f32>(16, 8, 8);
             test::<e5m2, e5m2, f32>(16, 8, 32);
             test::<e4m3, e4m3, f32>(16, 8, 32);
             test::<e5m2, e4m3, f32>(16, 8, 32);
@@ -2463,6 +2737,27 @@ macro_rules! testgen_cmma {
             test::<f16, f16, f32>(16, 16, 16);
             // bf16 is broken in general right now, it generates a conflicting `__bf16_2` type
             //test::<bf16, bf16, f32>(16, 16, 16);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_cmma_manual_fp8_matches_cpu_reference() {
+            use cubecl_common::{e4m3, e5m2};
+            use cubecl_core::num_traits::cast::NumCast;
+
+            fn test<A: CubeElement + Scalar + NumCast, B: CubeElement + Scalar + NumCast>() {
+                let client = TestRuntime::client(&Default::default());
+                let cube_dimensions = cube_dim::<TestRuntime>(&client);
+                cubecl_core::runtime_tests::cmma::test_cmma_manual_fp8_matches_cpu_reference::<
+                    TestRuntime,
+                    A,
+                    B,
+                >(client, cube_dimensions)
+            }
+
+            test::<e4m3, e4m3>();
+            test::<e4m3, e5m2>();
+            test::<e5m2, e4m3>();
+            test::<e5m2, e5m2>();
         }
 
         #[$crate::runtime_tests::test_log::test]
@@ -2520,9 +2815,13 @@ macro_rules! testgen_cmma {
         #[$crate::runtime_tests::test_log::test]
         fn test_cmma_scaled_fp4() {
             use cubecl_common::*;
-            use cubecl_core::num_traits::cast::NumCast;
 
-            fn test<S: CubeElement + Scalar + NumCast>(m: usize, n: usize, k: usize, factor: usize) {
+            fn test<S: cubecl_core::runtime_tests::cmma::BlockScale>(
+                m: usize,
+                n: usize,
+                k: usize,
+                factor: usize,
+            ) {
                 let client = TestRuntime::client(&Default::default());
                 let cube_dimensions = cube_dim::<TestRuntime>(&client);
                 cubecl_core::runtime_tests::cmma::test_cmma_scaled_fp4::<TestRuntime, S>(
@@ -2533,9 +2832,11 @@ macro_rules! testgen_cmma {
                 )
             }
 
-            // FP4 needs more design for transferring properly as packed values
+            // MXFP4: a power-of-two scale every 32 values.
             test::<ue8m0>(16, 8, 64, 2);
+            // A power-of-two scale every 16 values, `scale_vec::4X` under `ue8m0`.
             test::<ue8m0>(16, 8, 64, 4);
+            // NVFP4: an `e4m3` scale every 16 values.
             test::<e4m3>(16, 8, 64, 4);
         }
 

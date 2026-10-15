@@ -65,7 +65,7 @@ pub fn kernel_quantized_view<F: Float, N: Size>(
         output[pos] = match mode {
             ReadMode::Read => lhs.read(pos),
             ReadMode::Checked => lhs.read_checked(pos),
-            ReadMode::Masked => lhs.read_masked(pos, Vector::<F, N>::cast_from(F::new(0.0_f32))),
+            ReadMode::Masked => lhs.read_masked(pos, Vector::<F, N>::cast_from(F::new(0.0))),
             ReadMode::Unchecked => lhs.read_unchecked(pos),
         };
     }
@@ -80,7 +80,7 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
 
     let scheme = QuantScheme::default().with_value(QuantValue::Q4F);
     let float_data = (-8..=7)
-        .map(|it| F::new(it as f32 * 3.4))
+        .map(|it| F::new((it as f32 * 3.4) as f64)) // Double cast because of rounding error
         .collect::<Vec<_>>();
 
     let output = client.empty(16 * size_of::<F>());
@@ -149,7 +149,7 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
     let scheme = QuantScheme::default().with_value(QuantValue::E2M1);
     let float_data = (0..16)
         .map(e2m1::from_bits)
-        .map(|it| F::new(it.to_f32() * 3.4))
+        .map(|it| F::new(it.to_f64() * 3.4))
         .collect::<Vec<_>>();
 
     let output = client.empty(16 * size_of::<F>());
@@ -242,7 +242,7 @@ pub fn test_quantized_global_scale<R: Runtime, F: Float + CubeElement>(client: C
     let global_scale = 2f32.powi(-20);
     let block_scales = [2f32.powi(18), 2f32.powi(19)];
     let expected = (0..16)
-        .map(|i| F::new(global_scale * block_scales[i / block] * (i as f32 - 8.0)))
+        .map(|i| F::new(global_scale as f64 * block_scales[i / block] as f64 * (i as f64 - 8.0)))
         .collect::<Vec<_>>();
 
     let values = client.create_from_slice(u32::as_bytes(&[0xFEDCBA98, 0x76543210]));
@@ -306,7 +306,7 @@ pub fn test_quantized_whole_scale<R: Runtime, F: Float + CubeElement>(
     let output = client.empty(16 * size_of::<F>());
 
     let expected = (0..16)
-        .map(|i| F::new(scale * (i as f32 - 8.0)))
+        .map(|i| F::new(scale as f64 * (i as f64 - 8.0)))
         .collect::<Vec<_>>();
 
     unsafe {
@@ -349,7 +349,7 @@ pub fn test_quantized_two_level_int<R: Runtime, F: Float + CubeElement>(client: 
     let global_scale = 2f32.powi(-20);
     let block_scales = [2f32.powi(18), 2f32.powi(19)];
     let expected = (0..16)
-        .map(|i| F::new(global_scale * block_scales[i / block] * (i as f32 - 8.0)))
+        .map(|i| F::new(global_scale as f64 * block_scales[i / block] as f64 * (i as f64 - 8.0)))
         .collect::<Vec<_>>();
 
     let values = client.create_from_slice(u32::as_bytes(&[0xFEDCBA98, 0x76543210]));
@@ -418,7 +418,7 @@ pub fn test_quantized_two_level_ue4m3<R: Runtime, F: Float + CubeElement>(client
     let block_scales = [e4m3::from_f32(1.5), e4m3::from_f32(0.1171875)];
     assert_eq!(block_scales.map(|s| s.to_f32()), [1.5, 0.1171875]);
     let expected = (0..16)
-        .map(|i| F::new(global_scale * block_scales[i / block].to_f32() * (i as f32 - 8.0)))
+        .map(|i| F::new(global_scale as f64 * block_scales[i / block].to_f64() * (i as f64 - 8.0)))
         .collect::<Vec<_>>();
 
     let values = client.create_from_slice(u32::as_bytes(&[0xFEDCBA98, 0x76543210]));
@@ -510,7 +510,7 @@ pub fn test_quantized_lookup<R: Runtime, F: Float + CubeElement>(client: Client)
     let expected = (0..16)
         .map(|i| {
             let field = (words[i / 8] >> (4 * (i % 8))) & 0xF;
-            F::new(table[field as usize] * scale)
+            F::new(table[field as usize] as f64 * scale as f64)
         })
         .collect::<Vec<_>>();
 

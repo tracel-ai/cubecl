@@ -26,14 +26,16 @@ use cubecl_common::{
     device_handle::{CallResultExt, DeviceHandle},
     profile::ProfileDuration,
 };
-use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::future::DynFut;
+use cubecl_environment::{backtrace::BackTrace, future::DynFut, stream::StreamId, sync::Mutex};
 use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, VectorSize, features::Features};
 use cubecl_zspace::Shape;
 
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
-use cubecl_environment::stream::StreamId;
+
+/// Work that waits on the host for its peers, a communicator's setup and a transfer's two
+/// halves, queues on every device in the order this hands out.
+static PEER_ORDER: Mutex<()> = Mutex::new(());
 
 /// The `Client` is the entry point to require tasks from the `Server`.
 /// It should be obtained for a specific device via the Compute struct.
@@ -41,6 +43,8 @@ pub struct Client {
     device: DeviceHandle<dyn Server>,
     utilities: Arc<ServerUtilities>,
     stream_id: Option<StreamId>,
+    /// Loads the client of another device of the same runtime.
+    load_peer: fn(DeviceId) -> Client,
 }
 
 /// A captured graph produced by [`Client::stop_capture`]: a recorded
@@ -191,6 +195,7 @@ impl Clone for Client {
             device: self.device.clone(),
             utilities: self.utilities.clone(),
             stream_id: self.stream_id,
+            load_peer: self.load_peer,
         }
     }
 }
@@ -219,6 +224,7 @@ impl Client {
             device: context,
             utilities,
             stream_id: None,
+            load_peer: Self::load::<S>,
         })
     }
 
@@ -237,6 +243,7 @@ impl Client {
             device: context,
             utilities,
             stream_id: None,
+            load_peer: Self::load::<S>,
         }
     }
 
@@ -244,6 +251,16 @@ impl Client {
         match self.stream_id {
             Some(val) => val,
             None => StreamId::current(),
+        }
+    }
+
+    /// The stream its launches go out on, on its device's service: what a
+    /// [`StreamModeOverride`](crate::execution::StreamModeOverride) sets the
+    /// mode of.
+    pub(crate) fn service_stream(&self) -> crate::execution::ServiceStream {
+        crate::execution::ServiceStream {
+            service: self.service_id(),
+            stream: self.stream_id(),
         }
     }
 
@@ -896,6 +913,10 @@ impl Client {
     /// `src` must be this client's. The bytes go device to device when both
     /// clients are of the same runtime and it has a collective transport;
     /// otherwise, and always across runtimes, they go through the host.
+    ///
+    /// On CUDA, transfers run on a communicator and stream of their own, so neither waits in
+    /// NCCL's queue behind a collective; a stream [`sync_collective`](Self::sync_collective) made
+    /// wait on one still does.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst_server))
@@ -919,7 +940,7 @@ impl Client {
         }
     }
 
-    /// Perform an `all_reduce` operation on the given devices.
+    /// Sets up the group over `device_ids` on every one of its devices, unless it already is.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, device_ids))
@@ -927,14 +948,32 @@ impl Client {
     pub fn ensure_init_collective(&mut self, device_ids: Vec<DeviceId>) {
         self.expect_device_transport(Collective::CommInit);
         let comm_id = CommunicationId::from(device_ids.clone());
-        let is_comms_init = self.utilities.initialized_comms.read().contains(&comm_id);
-        if !is_comms_init {
-            self.device
+        if self.utilities.initialized_comms.read().contains(&comm_id) {
+            return;
+        }
+        // Each member's setup waits for the others', so none may wait in turn on work queued
+        // behind it, such as this caller's next part on its own device.
+        let _order = PEER_ORDER.lock();
+        if self.utilities.initialized_comms.read().contains(&comm_id) {
+            return;
+        }
+        let members: Vec<Self> = device_ids
+            .iter()
+            .map(|device| (self.load_peer)(*device))
+            .collect();
+        for member in &members {
+            let device_ids = device_ids.clone();
+            member
+                .device
                 .submit(move |server| server.comm_init(device_ids).unwrap());
-            let mut initialized_comms = self.utilities.initialized_comms.write();
-            initialized_comms.insert(comm_id);
-            // Flush immediately so other devices aren't blocked waiting on this initialization.
-            self.device.flush_queue();
+            member
+                .utilities
+                .initialized_comms
+                .write()
+                .insert(comm_id.clone());
+        }
+        for member in &members {
+            member.device.flush_queue();
         }
     }
 
@@ -961,6 +1000,9 @@ impl Client {
     }
 
     /// Wait on the communication stream.
+    ///
+    /// Call it once every device has queued its part of the `all_reduce` calls it waits for: a
+    /// transfer from this device queued in between would wait on a part not queued yet.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn sync_collective(&self) {
         if DeviceHandle::<dyn Server>::is_blocking() {
@@ -987,6 +1029,11 @@ impl Client {
     }
 
     /// Perform an `all_reduce` operation on the given devices.
+    ///
+    /// Every device has to queue the `all_reduce` calls over a group in one order. Queue each
+    /// call on every device before the next: a device waiting in NCCL for its peers stops taking
+    /// work after about a thousand calls, or as soon as it relocates memory, and the thread
+    /// queueing them stops with it.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids, op))
@@ -1045,7 +1092,7 @@ impl Client {
         let device_id_src = self.device.device_id();
         let device_id_dst = dst_server.device.device_id();
 
-        let mut dst_server = dst_server.clone();
+        let dst_server = dst_server.clone();
         let handle = Handle::new(
             dst_server.service_id(),
             stream_id_dst,
@@ -1053,9 +1100,8 @@ impl Client {
         );
         let handle_cloned = handle.clone();
 
-        let device_ids = vec![device_id_src, device_id_dst];
-        self.ensure_init_collective(device_ids.clone());
-        dst_server.ensure_init_collective(device_ids);
+        // NCCL pairs sends and recvs in the order each device queues them.
+        let _order = PEER_ORDER.lock();
 
         self.device.submit(move |server_src| {
             // A refused send has no local buffer to answer for, so the log is
@@ -1078,16 +1124,11 @@ impl Client {
                 log::error!(
                     "recv from {device_id_src:?} failed; the destination carries the failure: {err}"
                 );
-                return;
-            }
-            if let Err(err) = server_dst.sync_collective(stream_id_dst) {
-                log::error!("sync_collective failed: {err}");
             }
         });
 
-        // `ServerCommunication::send` and`ServerCommunication::recv` are blocking: they each wait for the corresponding recv/send
-        // call to be made. We flush the operations right away so that the neither server ends up in a deadlock.
-        // The actual data transfer is still executed asynchronously on the communication stream.
+        // On a pair's first transfer, the send and the recv each wait in the join for the other, so
+        // neither may sit in a queue behind work that waits on this thread.
         self.device.flush_queue();
         dst_server.device.flush_queue();
 
@@ -1127,14 +1168,16 @@ impl Client {
 
         crate::launched::note(|| kernel.id());
 
-        // Decided here, on the issuing thread, because that is the only place
-        // that still knows whether this launch is an autotune measurement — by
-        // the time it reaches the server thread, that context is gone.
-        let launch_mode = crate::dry_run::launch_mode();
+        // Decided here, where the launch is issued, from the stream it goes
+        // out on: the server receives the verdict, not what decided it.
+        let launch_mode = crate::execution::LaunchMode::new(self.service_stream());
+        // So is where its kernels count: the device runs it later, and an
+        // override closing in between must not change that.
+        let issued = crate::execution::IssuedRecorder::new();
 
-        // A launch the dry run drops runs nothing to time, and a backend timing windows by the
+        // A discarded launch runs nothing to time, and a backend timing windows by the
         // timestamps its passes write reports a window around one as never measured.
-        let timed = !launch_mode.is_skipped();
+        let timed = !launch_mode.discards_launch();
         let level = self.utilities.logger.profile_level().filter(|_| timed);
 
         // Before the submit, on the issuing thread: this is the last point at
@@ -1162,7 +1205,9 @@ impl Client {
                         None
                     };
 
-                    unsafe { state.launch(kernel, count, bindings, stream_id, launch_mode) };
+                    issued.apply(|| unsafe {
+                        state.launch(kernel, count, bindings, stream_id, launch_mode)
+                    });
 
                     if let Some(info) = execution_info {
                         utilities.logger.register_execution(info);
@@ -1185,6 +1230,7 @@ impl Client {
                     bindings,
                 ))));
                 let to_launch = slot.clone();
+                let issued_profiled = issued.clone();
                 let profiled = self.profile(
                     move || {
                         let (kernel, count, bindings) = to_launch
@@ -1192,8 +1238,10 @@ impl Client {
                             .take()
                             .expect("filled right above, emptied only here");
                         context
-                            .submit_blocking(move |state| unsafe {
-                                state.launch(kernel, count, bindings, stream_id, launch_mode)
+                            .submit_blocking(move |state| {
+                                issued_profiled.apply(|| unsafe {
+                                    state.launch(kernel, count, bindings, stream_id, launch_mode)
+                                })
                             })
                             .unwrap_or_resume()
                     },
@@ -1217,7 +1265,7 @@ impl Client {
                                 let utilities = self.utilities.clone();
                                 let kernel_id = kernel.id();
                                 self.device.submit(move |state| {
-                                    unsafe {
+                                    issued.apply(|| unsafe {
                                         state.launch(
                                             kernel,
                                             count,
@@ -1225,7 +1273,7 @@ impl Client {
                                             stream_id,
                                             launch_mode,
                                         )
-                                    };
+                                    });
                                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                                         let info = profile_label(name, &kernel_id);
                                         utilities.logger.register_execution(info);
@@ -1328,6 +1376,16 @@ impl Client {
         self.device
             .submit_blocking(move |server| server.flush(stream_id))
             .unwrap_or_resume()
+    }
+
+    /// Compile every kernel queued for compilation (see
+    /// [`Server::compile_queued`]), before the work submitted after it.
+    ///
+    /// Every measurement starts with it — a tune, a throughput probe — so a
+    /// queue a `CompileOnly` override left is not timed as part of the first
+    /// launch measured.
+    pub fn compile_queued(&self) {
+        self.device.submit(move |server| server.compile_queued());
     }
 
     /// Prepare this client's stream for a graph capture (see
@@ -1812,6 +1870,9 @@ impl Client {
             return Ok(value);
         }
 
+        // Kernels queued for compilation compile now, together, rather than in the probe's
+        // first launch, inside the time it measures.
+        self.compile_queued();
         // Asked again inside: another thread may have answered while this one queued.
         self.exclusive(move || throughputs.measure(key, probe))
             .unwrap_or(Err(ThroughputError::Launch))

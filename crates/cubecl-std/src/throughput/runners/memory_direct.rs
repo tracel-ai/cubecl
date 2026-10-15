@@ -5,6 +5,7 @@ use cubecl_runtime::throughput::{KernelConfig, MemorySpec, ThroughputError, Thro
 use crate::throughput::{
     LaunchConfig,
     memory_probe::{self, MemoryProbe},
+    verify::verify,
 };
 
 /// Builds the copy kernel, moving `working_set` bytes per pass: half read out
@@ -46,7 +47,7 @@ pub fn build_kernel(
         let _ = cubecl_core::future::block_on(client.sync());
         start.elapsed()
     });
-    memory_probe::verify(&verifier, &sample, &written)?;
+    verify(&verifier, &sample, &written)?;
 
     // One pass moves the window twice: once in, once out.
     let ops_count = 2 * probe.window_lines * config.vector_size;

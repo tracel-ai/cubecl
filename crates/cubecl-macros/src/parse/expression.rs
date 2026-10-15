@@ -13,7 +13,7 @@ use crate::{
         branch::{expand_if_let, expand_while_loop},
         helpers::is_comptime_attr,
     },
-    scope::Context,
+    scope::{ClosureScope, Context},
 };
 
 use super::{
@@ -115,7 +115,10 @@ impl Expression {
                 let (block, _) = context.in_scope(|ctx| Block::from_block(block.block, ctx))?;
                 Expression::Block(block)
             }
-            Expr::Break(_) => Expression::Break,
+            Expr::Break(brk) => Expression::Break {
+                closure_scope: context.current_closure_scope(),
+                span: brk.span(),
+            },
             Expr::Call(call) => {
                 let span = call.span();
                 let func = Box::new(Expression::from_expr(*call.func, context)?);
@@ -197,8 +200,23 @@ impl Expression {
             Expr::Const(block) => Expression::Verbatim {
                 tokens: quote![#block],
             },
-            Expr::Continue(cont) => Expression::Continue(cont.span()),
-            Expr::Return(ret) => Expression::Return(ret.span()),
+            Expr::Continue(cont) => Expression::Continue {
+                closure_scope: context.current_closure_scope(),
+                span: cont.span(),
+            },
+            Expr::Return(ret) => {
+                context.has_early_return = true;
+                let span = ret.span();
+                let value = match ret.expr {
+                    Some(value) => Some(Box::new(Expression::from_expr(*value, context)?)),
+                    None => None,
+                };
+                Expression::Return {
+                    value,
+                    span,
+                    closure_scope: context.current_closure_scope(),
+                }
+            }
             Expr::ForLoop(for_loop) => expand_for_loop(for_loop, context)?,
             Expr::While(while_loop) => expand_while_loop(while_loop, context)?,
             Expr::Loop(loop_expr) => expand_loop(loop_expr, context)?,
@@ -310,19 +328,26 @@ impl Expression {
                 } else if let Some(switch) = numeric_match(mat.clone(), context) {
                     switch
                 } else {
-                    let mut arms = Vec::new();
+                    let compute_arms =
+                        |context: &mut Context, scope: ClosureScope| -> syn::Result<_> {
+                            let mut arms = Vec::new();
+                            for arm in mat.arms.iter() {
+                                let (expr, _) = context.in_scope(|context| {
+                                    add_variables_from_pat(&arm.pat, context);
+                                    context.in_closure_scope(scope, |context| {
+                                        Self::from_expr(arm.body.as_ref().clone(), context)
+                                    })
+                                })?;
+                                arms.push(MatchArm {
+                                    pat: arm.pat.clone(),
+                                    expr: Box::new(expr),
+                                });
+                            }
+                            Ok(arms)
+                        };
 
-                    for arm in mat.arms.iter() {
-                        let (expr, _) = context.in_scope(|context| {
-                            add_variables_from_pat(&arm.pat, context);
-                            Self::from_expr(arm.body.as_ref().clone(), context)
-                        })?;
-                        arms.push(MatchArm {
-                            pat: arm.pat.clone(),
-                            expr: Box::new(expr),
-                        });
-                    }
-
+                    let closure_scope = context.current_closure_scope();
+                    let arms = compute_arms(context, closure_scope)?;
                     let runtime_compatible = arms
                         .iter()
                         .all(|arm| is_runtime_compatible_variant(&arm.pat));
@@ -337,7 +362,14 @@ impl Expression {
                         || arms.iter().all(|it| it.expr.is_const())
                         || expr.is_const();
 
+                    let has_value = arms.first().is_some_and(|arm| arm.expr.needs_terminator());
+
                     if !is_comptime && maybe_runtime {
+                        let mut arms = match has_value {
+                            true => compute_arms(context, ClosureScope::NestedWithValue)?,
+                            false => compute_arms(context, ClosureScope::NestedWithoutValue)?,
+                        };
+
                         let default = arms
                             .iter()
                             .find(|arm| matches!(arm.pat, Pat::Wild(_)))
@@ -348,6 +380,7 @@ impl Expression {
                             expr: Box::new(expr),
                             arms,
                             default,
+                            has_value,
                         }
                     } else {
                         Expression::Match {
@@ -384,18 +417,27 @@ impl Expression {
             Expr::Verbatim(verbatim) => Expression::Verbatim { tokens: verbatim },
             Expr::Reference(expr_reference) => Self::from_expr_reference(expr_reference, context)?,
             Expr::Closure(expr) => {
+                let span = expr.span();
+                let early_return_before = context.has_early_return;
+                context.has_early_return = false;
                 let (body, scope) = context.in_scope(|ctx| {
                     for arg in expr.inputs.iter() {
                         add_variables_from_pat(arg, ctx);
                     }
-                    Expression::from_expr(*expr.body, ctx)
+                    ctx.in_closure_scope(ClosureScope::Closure, |ctx| {
+                        Expression::from_expr(*expr.body, ctx)
+                    })
                 })?;
+                let has_early_return = context.has_early_return;
+                context.has_early_return = early_return_before;
                 let body = Box::new(body);
                 let params = expr.inputs.into_iter().collect();
                 Expression::Closure {
                     params,
                     body,
                     scope,
+                    has_early_return,
+                    span,
                 }
             }
 

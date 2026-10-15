@@ -30,6 +30,12 @@ use crate::{
 
 use super::*;
 
+/// Type-level tag for a launch kernel's dynamic generic.
+///
+/// `N` is the generic's position in the kernel signature, which keeps generics
+/// within one kernel distinct while letting kernels share the same types.
+pub struct GenericSlot<const N: usize>;
+
 /// A fake element type that can be configured to map to any other element type.
 #[repr(transparent)]
 #[derive(Serialize, Debug, Display)]
@@ -789,8 +795,8 @@ impl<Marker: 'static> Float for DynamicScalar<Marker> {
 
     const RADIX: u32 = 2;
 
-    fn new(val: f32) -> Self {
-        DynamicScalar::from_f64(val as f64)
+    fn new(val: f64) -> Self {
+        DynamicScalar::from_f64(val)
     }
 }
 

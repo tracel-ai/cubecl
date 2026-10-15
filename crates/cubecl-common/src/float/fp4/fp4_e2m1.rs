@@ -4,8 +4,9 @@ use core::{
 };
 
 use bytemuck::{Pod, Zeroable};
-use float4::F4E2M1;
 use num_traits::{NumCast, ToPrimitive};
+
+use super::cvt::{f64_to_fp4, fp4_to_f64};
 
 /// A 4-bit floating point type with 2 exponent bits and 1 mantissa bit.
 ///
@@ -42,9 +43,8 @@ impl e2m1 {
 
     /// Constructs a [`e2m1`] value from a 32-bit floating point value.
     ///
-    /// This operation is lossy. If the 32-bit value is too large to fit, ±∞ will result. NaN values
-    /// are preserved. Subnormal values that are too tiny to be represented will result in ±0. All
-    /// other values are truncated and rounded to the nearest representable value.
+    /// This operation is lossy: values past ±6 saturate to ±6, NaN becomes +6, and every other
+    /// value rounds to the nearest representable value, ties to even.
     #[inline]
     #[must_use]
     pub const fn from_f32(value: f32) -> e2m1 {
@@ -53,14 +53,12 @@ impl e2m1 {
 
     /// Constructs a [`e2m1`] value from a 64-bit floating point value.
     ///
-    /// This operation is lossy. If the 64-bit value is to large to fit, ±∞ will result. NaN values
-    /// are preserved. 64-bit subnormal values are too tiny to be represented and result in ±0.
-    /// Exponents that underflow the minimum exponent will result in subnormals or ±0. All other
-    /// values are truncated and rounded to the nearest representable value.
+    /// This operation is lossy: values past ±6 saturate to ±6, NaN becomes +6, and every other
+    /// value rounds to the nearest representable value, ties to even.
     #[inline]
     #[must_use]
     pub const fn from_f64(value: f64) -> e2m1 {
-        e2m1(F4E2M1::from_f64(value).to_bits())
+        e2m1(f64_to_fp4(value))
     }
 
     /// Converts a [`e2m1`] into the underlying bit representation.
@@ -85,7 +83,7 @@ impl e2m1 {
     #[inline]
     #[must_use]
     pub fn to_f64(self) -> f64 {
-        F4E2M1::from_bits(self.0).to_f64()
+        fp4_to_f64(self.0)
     }
 }
 
@@ -221,5 +219,50 @@ impl Debug for e2m1x2 {
         let a = e2m1::from_bits(self.0 & 0xF).to_f32();
         let b = e2m1::from_bits((self.0 >> 4) & 0xF).to_f32();
         f.debug_tuple("e2m1x2").field(&a).field(&b).finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_code_converts_to_its_value_and_back() {
+        for code in 0..16u8 {
+            let value = e2m1::from_bits(code).to_f32();
+            assert_eq!(
+                e2m1::from_f32(value).to_bits(),
+                code,
+                "{code:#x} is {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn values_round_to_the_nearest_code_ties_to_even_and_saturate() {
+        for (value, expected) in [
+            (0.25, 0.0),
+            (0.75, 1.0),
+            (1.25, 1.0),
+            (1.75, 2.0),
+            (2.5, 2.0),
+            (3.5, 4.0),
+            (5.0, 4.0),
+            (0.3, 0.5),
+            (2.4, 2.0),
+            (-0.75, -1.0),
+            (-2.5, -2.0),
+            (100.0, 6.0),
+            (-100.0, -6.0),
+            (f32::NAN, 6.0),
+        ] {
+            assert_eq!(e2m1::from_f32(value).to_f32(), expected, "{value}");
+        }
+    }
+
+    #[test]
+    fn a_negative_too_small_for_any_code_keeps_its_sign() {
+        assert_eq!(e2m1::from_f32(-0.0).to_bits(), 0x8);
+        assert_eq!(e2m1::from_f32(-0.1).to_bits(), 0x8);
     }
 }

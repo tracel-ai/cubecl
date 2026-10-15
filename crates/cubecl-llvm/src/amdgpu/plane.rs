@@ -3,7 +3,7 @@
 use crate::{
     amdgpu::intrinsic::lane_id_ops,
     prelude::*,
-    shared::plane::{PlaneLowering, call_intrinsic, mask_ty, route_words, shl},
+    shared::plane::{PlaneLowering, mask_ty, route_words, shl},
 };
 
 /// Lane routing uses byte addresses.

@@ -101,16 +101,17 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
     client: Client,
     mut evictor: Option<&mut Evictor<'_>>,
 ) -> Result<Vec<ProfileDuration>, AutotuneError> {
-    // These launches are the measurement, so they run even inside a dry run:
-    // that mode exists to skip the *workload*, not the tuning it is there to
-    // provoke. The guard covers the warm-up too, since a candidate measured
-    // without one is measured on its slowest run.
+    // These launches are the measurement, so their stream executes whatever
+    // the process mode drops: it exists to skip the *workload*, not the tuning it is
+    // there to provoke. The guard covers the warm-up too, since a candidate
+    // measured without one is measured on its slowest run.
     //
-    // It has to live here rather than around the `exclusive` call in
-    // `tune_benchmark`: the guard is thread-local, and `exclusive` runs this
-    // body on the device thread, which is where the launches below are issued
-    // from.
-    let _real_run = crate::dry_run::RealRun::new();
+    // Inside the `exclusive` call, so the stream switches to executing only
+    // while this measurement holds the device. `exclusive` runs the body
+    // under the issuing thread's stream, so the client resolves the same
+    // stream here as there.
+    let measuring =
+        crate::execution::StreamModeOverride::new(crate::execution::StreamMode::Execute, &client);
 
     warmup(operation, inputs.clone(), client.clone())?;
 
@@ -130,6 +131,7 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
         // for the failure replaced by `InvalidSamples`.
         durations.push(operation.sample_once(inputs.clone(), &client, evictor.as_deref_mut())?);
     }
+    core::mem::drop(measuring);
 
     if durations.is_empty() {
         Err(AutotuneError::InvalidSamples {

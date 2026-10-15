@@ -144,3 +144,38 @@ pub fn llvm_mangled_ty(ctx: &Context, ty: TypeHandle) -> String {
         .map(|ty| ty.to_string(ctx))
         .expect("Type not supported for overloading of intrinsic")
 }
+
+/// `find` of the first cube type `value` had, newest first, that it accepts: the operand history
+/// of a converted value, then its current type.
+pub fn cube_origin<T>(
+    ctx: &Context,
+    info: &OperandsInfo,
+    value: Value,
+    find: impl Fn(&dyn Type) -> Option<T>,
+) -> Option<T> {
+    info.lookup_operand_history(value)
+        .into_iter()
+        .rev()
+        .chain(core::iter::once(value.get_type(ctx)))
+        .find_map(|ty| find(&*ty.deref(ctx)))
+}
+
+/// The cube type the pointer `value` was converted from points at, passed to `find`.
+pub fn cube_pointee<T>(
+    ctx: &Context,
+    info: &OperandsInfo,
+    value: Value,
+    find: impl Fn(&dyn Type) -> Option<T>,
+) -> Option<T> {
+    cube_origin(ctx, info, value, |ty| {
+        let ptr = ty.downcast_ref::<CubePointerType>()?;
+        find(&*ptr.inner.deref(ctx))
+    })
+}
+
+/// The size of what `ptr` points at, read off the cube pointer type it was converted from.
+pub fn pointee_size(ctx: &Context, info: &OperandsInfo, ptr: Value) -> Option<usize> {
+    cube_pointee(ctx, info, ptr, |inner| {
+        Some(type_cast::<dyn SizedType>(inner)?.size(ctx))
+    })
+}

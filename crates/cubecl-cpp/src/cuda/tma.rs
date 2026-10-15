@@ -35,9 +35,10 @@ cuda_op!(TmaStoreOp, |op, ctx| {
 cuda_op!(CommitGroupOp, |_, _| {
     "cuda::device::experimental::cp_async_bulk_commit_group();".into()
 });
+// `cuda::device::experimental` only has the `.read` wait.
 cuda_op!(WaitGroupOp, |op, ctx| {
     let max_pending = op.max_pending(ctx).0;
-    format!("cuda::device::experimental::cp_async_bulk_wait_group<{max_pending}>();")
+    format!(r#"asm volatile("cp.async.bulk.wait_group {max_pending};" ::: "memory");"#)
 });
 cuda_op!(WaitGroupReadOp, |op, ctx| {
     let max_pending = op.max_pending(ctx).0;

@@ -2,21 +2,17 @@ use super::data::PlironData;
 use crate::{
     cpu::shared_memory::SharedMemories,
     prelude::{Context, ModuleOp},
-    shared::llvm_module::LlvmModule,
+    shared::llvm_module::{LlvmModule, TargetMachine},
 };
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::bytes::Bytes;
+use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::kernel::BufferIOAttr;
-use pliron_llvm::{
-    llvm_sys::{
-        core::{LLVMContext, LLVMMemoryBuffer, LLVMModule},
-        lljit::LLVMLLJIT,
-        target::initialize_native,
-    },
-    to_llvm_ir,
-};
+use pliron_llvm::{llvm_sys::core::LLVMContext, to_llvm_ir};
 use std::{
-    ffi::{CStr, c_void},
+    ffi::{CStr, CString, c_void},
     fmt::Display,
-    sync::{Arc, Once},
+    sync::{Arc, Mutex, Once},
 };
 
 /// Kernel ABI: buffer pointers, cube count x/y/z, unit position x/y/z,
@@ -32,14 +28,101 @@ pub struct KernelRequirements {
     pub shared_memories: SharedMemories,
 }
 
+/// Self-contained wrapper around LLVM `OrcV2` LLJIT handle.
+struct OrcJit(llvm_sys::orc2::lljit::LLVMOrcLLJITRef);
+
+impl OrcJit {
+    fn new() -> Result<Self, String> {
+        unsafe {
+            let mut jit = std::mem::MaybeUninit::uninit();
+            let err =
+                llvm_sys::orc2::lljit::LLVMOrcCreateLLJIT(jit.as_mut_ptr(), std::ptr::null_mut());
+            if !err.is_null() {
+                let msg_ptr = llvm_sys::error::LLVMGetErrorMessage(err);
+                let text = CStr::from_ptr(msg_ptr).to_string_lossy().into_owned();
+                llvm_sys::error::LLVMDisposeErrorMessage(msg_ptr);
+                return Err(text);
+            }
+            let jit = jit.assume_init();
+
+            let prefix = llvm_sys::orc2::lljit::LLVMOrcLLJITGetGlobalPrefix(jit);
+            let mut generator = std::ptr::null_mut();
+            let err = llvm_sys::orc2::LLVMOrcCreateDynamicLibrarySearchGeneratorForProcess(
+                &mut generator,
+                prefix,
+                None,
+                std::ptr::null_mut(),
+            );
+            if !err.is_null() {
+                let msg_ptr = llvm_sys::error::LLVMGetErrorMessage(err);
+                let text = CStr::from_ptr(msg_ptr).to_string_lossy().into_owned();
+                llvm_sys::error::LLVMDisposeErrorMessage(msg_ptr);
+                llvm_sys::orc2::lljit::LLVMOrcDisposeLLJIT(jit);
+                return Err(text);
+            }
+            let main_jd = llvm_sys::orc2::lljit::LLVMOrcLLJITGetMainJITDylib(jit);
+            llvm_sys::orc2::LLVMOrcJITDylibAddGenerator(main_jd, generator);
+
+            Ok(Self(jit))
+        }
+    }
+
+    fn add_object_file(&self, bytes: &[u8], name: &str) -> Result<(), String> {
+        let name_c = CString::new(name).map_err(|e| e.to_string())?;
+        unsafe {
+            let main_jd = llvm_sys::orc2::lljit::LLVMOrcLLJITGetMainJITDylib(self.0);
+            let mem_buf = llvm_sys::core::LLVMCreateMemoryBufferWithMemoryRangeCopy(
+                bytes.as_ptr() as *const _,
+                bytes.len(),
+                name_c.as_ptr(),
+            );
+            let err = llvm_sys::orc2::lljit::LLVMOrcLLJITAddObjectFile(self.0, main_jd, mem_buf);
+            if !err.is_null() {
+                let msg_ptr = llvm_sys::error::LLVMGetErrorMessage(err);
+                let text = CStr::from_ptr(msg_ptr).to_string_lossy().into_owned();
+                llvm_sys::error::LLVMDisposeErrorMessage(msg_ptr);
+                return Err(text);
+            }
+            Ok(())
+        }
+    }
+
+    fn lookup_symbol(&self, name: &str) -> Result<u64, String> {
+        let name_c = CString::new(name).map_err(|e| e.to_string())?;
+        unsafe {
+            let mut addr = 0u64;
+            let err = llvm_sys::orc2::lljit::LLVMOrcLLJITLookup(self.0, &mut addr, name_c.as_ptr());
+            if !err.is_null() {
+                let msg_ptr = llvm_sys::error::LLVMGetErrorMessage(err);
+                let text = CStr::from_ptr(msg_ptr).to_string_lossy().into_owned();
+                llvm_sys::error::LLVMDisposeErrorMessage(msg_ptr);
+                return Err(text);
+            }
+            Ok(addr)
+        }
+    }
+}
+
+impl Drop for OrcJit {
+    fn drop(&mut self) {
+        unsafe {
+            let err = llvm_sys::orc2::lljit::LLVMOrcDisposeLLJIT(self.0);
+            if !err.is_null() {
+                let msg_ptr = llvm_sys::error::LLVMGetErrorMessage(err);
+                llvm_sys::error::LLVMDisposeErrorMessage(msg_ptr);
+            }
+        }
+    }
+}
+
 /// A compiled kernel and its owning JIT.
-#[repr(C)]
 struct JitKernel {
     func: KernelFn,
     requirements: KernelRequirements,
     /// Buffer access modes in binding order.
     io: Vec<BufferIOAttr>,
-    _lljit: LLVMLLJIT,
+    object_bytes: Mutex<Option<Bytes>>,
+    _jit: OrcJit,
 }
 
 /// SAFETY: Compiled code is immutable and its JIT owns the context.
@@ -51,6 +134,13 @@ pub struct PlironEngine(Arc<JitKernel>);
 
 static INIT_NATIVE: Once = Once::new();
 
+pub(crate) fn init_native() {
+    INIT_NATIVE.call_once(|| {
+        pliron_llvm::llvm_sys::target::initialize_native()
+            .expect("failed to initialize native target");
+    });
+}
+
 impl PlironEngine {
     pub fn compile(
         ctx: &Context,
@@ -58,10 +148,9 @@ impl PlironEngine {
         kernel_name: &str,
         requirements: KernelRequirements,
         io: Vec<BufferIOAttr>,
+        keep_object: bool,
     ) -> pliron::result::Result<Self> {
-        INIT_NATIVE.call_once(|| {
-            initialize_native().expect("failed to initialize native target");
-        });
+        init_native();
 
         let llvm_ctx = LLVMContext::default();
         let llvm_module = to_llvm_ir::convert_module(ctx, &llvm_ctx, module)?;
@@ -70,29 +159,86 @@ impl PlironEngine {
             let _ = std::fs::write(dir.join("llvm.ll"), llvm_module.to_string());
         }
 
-        let llvm_module = optimize(llvm_module, &llvm_ctx, kernel_name)
+        let module = LlvmModule::new(&llvm_module.to_string())
+            .unwrap_or_else(|err| panic!("LLVM parsing failed for '{kernel_name}': {err}"));
+
+        let target_machine = TargetMachine::native(&module)
+            .unwrap_or_else(|err| panic!("failed to create native target machine: {err}"));
+
+        module
+            .run_passes(PASS_PIPELINE, &target_machine)
             .unwrap_or_else(|err| panic!("LLVM optimization failed for '{kernel_name}': {err}"));
+
         #[cfg(feature = "pliron-dump")]
         if let Some(dir) = ir_dump_path(kernel_name) {
-            let _ = std::fs::write(dir.join("llvm.opt.ll"), llvm_module.to_string());
+            let _ = std::fs::write(dir.join("llvm.opt.ll"), module.print());
         }
 
-        let lljit = LLVMLLJIT::new_with_default_builder().expect("failed to create LLJIT");
-        lljit
-            .add_module(llvm_ctx, llvm_module)
-            .expect("failed to add module to JIT");
-        let addr = lljit
-            .lookup_symbol(kernel_name)
-            .unwrap_or_else(|err| panic!("kernel symbol '{kernel_name}' not found: {err}"));
-        // SAFETY: The generated entry point matches `KernelFn`.
+        let object_bytes = target_machine
+            .emit(
+                module,
+                llvm_sys::target_machine::LLVMCodeGenFileType::LLVMObjectFile,
+            )
+            .unwrap_or_else(|err| panic!("LLVM code generation failed for '{kernel_name}': {err}"));
+
+        #[cfg(feature = "pliron-dump")]
+        if let Some(dir) = ir_dump_path(kernel_name) {
+            let _ = std::fs::write(dir.join("kernel.o"), &object_bytes);
+        }
+
+        let engine = Self::from_object(&object_bytes, kernel_name, requirements, io)
+            .unwrap_or_else(|err| {
+                panic!("failed to load compiled object for '{kernel_name}': {err}")
+            });
+
+        if keep_object {
+            *engine.0.object_bytes.lock().unwrap() = Some(Bytes::from_bytes_vec(object_bytes));
+        }
+
+        Ok(engine)
+    }
+
+    /// Load precompiled object bytes directly into the JIT linking layer.
+    pub fn from_object(
+        bytes: &[u8],
+        entrypoint: &str,
+        requirements: KernelRequirements,
+        io: Vec<BufferIOAttr>,
+    ) -> Result<Self, CompilationError> {
+        init_native();
+
+        let jit = OrcJit::new().map_err(|err| CompilationError::Generic {
+            reason: format!("failed to create OrcJit: {err}"),
+            backtrace: BackTrace::capture(),
+        })?;
+
+        jit.add_object_file(bytes, entrypoint)
+            .map_err(|err| CompilationError::Generic {
+                reason: format!("failed to add object file to JIT: {err}"),
+                backtrace: BackTrace::capture(),
+            })?;
+
+        let addr = jit
+            .lookup_symbol(entrypoint)
+            .map_err(|err| CompilationError::Generic {
+                reason: format!("kernel symbol '{entrypoint}' not found: {err}"),
+                backtrace: BackTrace::capture(),
+            })?;
+
         let func: KernelFn = unsafe { std::mem::transmute::<u64, KernelFn>(addr) };
 
         Ok(PlironEngine(Arc::new(JitKernel {
             func,
             requirements,
             io,
-            _lljit: lljit,
+            object_bytes: Mutex::new(None),
+            _jit: jit,
         })))
+    }
+
+    /// Takes the precompiled object bytes by value, leaving None in the engine.
+    pub fn take_object_bytes(&self) -> Option<Bytes> {
+        self.0.object_bytes.lock().unwrap().take()
     }
 
     pub fn requirements(&self) -> &KernelRequirements {
@@ -140,22 +286,3 @@ pub(crate) fn ir_dump_path(kernel_name: &str) -> Option<std::path::PathBuf> {
 
 /// Optimization pipeline for JIT compilation.
 const PASS_PIPELINE: &CStr = c"default<O3>";
-
-fn optimize(
-    module: LLVMModule,
-    llvm_ctx: &LLVMContext,
-    kernel_name: &str,
-) -> Result<LLVMModule, String> {
-    let optimized = run_pipeline(&module.to_string())?;
-    drop(module);
-    LLVMModule::from_ir_in_memory_buffer(
-        llvm_ctx,
-        LLVMMemoryBuffer::from_str(&optimized, kernel_name),
-    )
-}
-
-fn run_pipeline(ir: &str) -> Result<String, String> {
-    let module = LlvmModule::new(ir)?;
-    module.run_passes(PASS_PIPELINE, None)?;
-    Ok(module.print())
-}
