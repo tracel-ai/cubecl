@@ -37,7 +37,10 @@ use cubecl_cpp::{
 };
 use cubecl_llvm::nvptx::ptx_version::PtxVersion;
 use cubecl_llvm::shared::lowered_features::{GpuTarget, restrict_features};
-use cubecl_monitoring::{DeviceUtilization, UtilizationUnavailable, gpu_utilization::CardCounters};
+use cubecl_monitoring::{
+    DevicePower, DeviceTemperature, DeviceUtilization, UtilizationUnavailable,
+    gpu_utilization::CardCounters,
+};
 use cubecl_server::{
     allocator::PitchedMemoryLayoutPolicy,
     config::{CubeClRuntimeConfig, RuntimeConfig},
@@ -486,7 +489,26 @@ impl Runtime for CudaRuntime {
     }
 
     fn utilization(device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
-        CardCounters::read(Self::client(device).properties().identity.physical.as_ref())
+        CardCounters::utilization(Self::client(device).properties().identity.physical.as_ref())
+    }
+
+    fn temperature(device: &Self::Device) -> Result<DeviceTemperature, UtilizationUnavailable> {
+        CardCounters::temperature(Self::client(device).properties().identity.physical.as_ref())
+    }
+
+    fn power(device: &Self::Device) -> Result<DevicePower, UtilizationUnavailable> {
+        CardCounters::power(Self::client(device).properties().identity.physical.as_ref())
+    }
+
+    fn name(device: &Self::Device) -> Option<String> {
+        // SAFETY: the call only tries to `dlopen` each candidate name; past it,
+        // the driver is loaded and initializing it cannot panic.
+        if !unsafe { cudarc::driver::sys::is_culib_present() } {
+            return None;
+        }
+        cudarc::driver::result::init().ok()?;
+        let handle = cudarc::driver::result::device::get(device.index as i32).ok()?;
+        cudarc::driver::result::device::get_name(handle).ok()
     }
 }
 

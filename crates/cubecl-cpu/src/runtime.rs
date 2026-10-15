@@ -304,6 +304,12 @@ impl Runtime for CpuRuntime {
     fn utilization(_device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
         ProcessorTimes::read_machine_wide()
     }
+
+    fn name(_device: &Self::Device) -> Option<String> {
+        let mut system = System::new();
+        system.refresh_cpu_list(CpuRefreshKind::nothing());
+        Some(host_cpu_name(&system))
+    }
 }
 
 #[cfg(test)]

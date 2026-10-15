@@ -5,7 +5,9 @@ use cubecl_zspace::{Shape, Strides};
 
 use crate::{client::Client, server::ServerStorage};
 
-pub use cubecl_monitoring::{DeviceUtilization, UtilizationUnavailable};
+pub use cubecl_monitoring::{
+    DevicePower, DeviceTemperature, DeviceUtilization, UtilizationUnavailable,
+};
 
 /// Runtime for the `CubeCL`.
 pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
@@ -74,11 +76,36 @@ pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
         !Self::enumerate_all_devices().is_empty()
     }
 
+    /// The name `device` reports (e.g. `NVIDIA GeForce RTX 5070`). Doesn't go through
+    /// the client to fetch that name.
+    ///
+    /// Returns `None` when the runtime needs a client to get the name, the device is
+    /// the runtime's "you choose" device, or the machine has no such device.
+    fn name(_device: &Self::Device) -> Option<alloc::string::String> {
+        None
+    }
+
     /// How busy `device` is, by the counter its card's driver or its platform keeps. Asking
     /// creates the device's client, and must never wait on the work the device is running.
     ///
     /// A runtime that reads no counter for its devices says so.
     fn utilization(_device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
+        Err(UtilizationUnavailable::RuntimeReadsNoCounter)
+    }
+
+    /// The current temperature of `device`. Creates a client if needed.
+    ///
+    /// Returns a (UtilizationUnavailable::RuntimeReadsNoCounter)[UtilizationUnavailable::RuntimeReadsNoCounter]
+    /// error if the runtime doesn't read any counter.
+    fn temperature(_device: &Self::Device) -> Result<DeviceTemperature, UtilizationUnavailable> {
+        Err(UtilizationUnavailable::RuntimeReadsNoCounter)
+    }
+
+    /// The power usage of `device`, in Watt. Creates a client if needed.
+    ///
+    /// Returns a (UtilizationUnavailable::RuntimeReadsNoCounter)[UtilizationUnavailable::RuntimeReadsNoCounter]
+    /// error if the runtime doesn't read any counter.
+    fn power(_device: &Self::Device) -> Result<DevicePower, UtilizationUnavailable> {
         Err(UtilizationUnavailable::RuntimeReadsNoCounter)
     }
 }

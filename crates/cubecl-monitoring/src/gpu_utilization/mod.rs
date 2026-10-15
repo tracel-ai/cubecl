@@ -6,7 +6,7 @@ mod opened;
 mod source;
 
 #[cfg(amdgpu_busy_percent)]
-mod amdgpu_busy_percent;
+mod amdgpu_sysfs;
 #[cfg(intel_idle_residency)]
 mod intel_idle_residency;
 #[cfg(nvml)]

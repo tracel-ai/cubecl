@@ -14,7 +14,10 @@ use cubecl_core::server::ServerUtilities;
 use cubecl_core::zspace::{Shape, Strides};
 use cubecl_environment::{future, sync::Mutex};
 use cubecl_ir::{DeviceIdentity, DeviceProperties, HardwareProperties, MemoryDeviceProperties};
-use cubecl_monitoring::{DeviceUtilization, UtilizationUnavailable, gpu_utilization::CardCounters};
+use cubecl_monitoring::{
+    DevicePower, DeviceTemperature, DeviceUtilization, UtilizationUnavailable,
+    gpu_utilization::CardCounters,
+};
 use cubecl_server::allocator::ContiguousMemoryLayoutPolicy;
 #[cfg(not(feature = "vulkan-validate"))]
 use cubecl_server::logging::ProfileLevel;
@@ -150,7 +153,44 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
     }
 
     fn utilization(device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
-        CardCounters::read(Self::client(device).properties().identity.physical.as_ref())
+        CardCounters::utilization(Self::client(device).properties().identity.physical.as_ref())
+    }
+
+    fn temperature(device: &Self::Device) -> Result<DeviceTemperature, UtilizationUnavailable> {
+        CardCounters::temperature(Self::client(device).properties().identity.physical.as_ref())
+    }
+
+    fn power(device: &Self::Device) -> Result<DevicePower, UtilizationUnavailable> {
+        CardCounters::power(Self::client(device).properties().identity.physical.as_ref())
+    }
+
+    /// The adapter's name, from the list its graphics API enumerates: the one
+    /// `request_adapter` would select, in the order `enumerate_devices` lists
+    /// them.
+    fn name(device: &Self::Device) -> Option<String> {
+        #[cfg(target_family = "wasm")]
+        {
+            let _ = device;
+            None
+        }
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let (kind, index) = match device.kind {
+                WgpuDeviceKind::DiscreteGpu(index) => (wgpu::DeviceType::DiscreteGpu, index),
+                WgpuDeviceKind::IntegratedGpu(index) => (wgpu::DeviceType::IntegratedGpu, index),
+                WgpuDeviceKind::VirtualGpu(index) => (wgpu::DeviceType::VirtualGpu, index),
+                WgpuDeviceKind::Other(index) => (wgpu::DeviceType::Other, index),
+                WgpuDeviceKind::Cpu => (wgpu::DeviceType::Cpu, 0),
+                // The adapter it lands on is chosen at creation.
+                WgpuDeviceKind::DefaultDevice | WgpuDeviceKind::Existing(_) => return None,
+            };
+            let (_, adapters) = settle(device.backend)?;
+            adapters
+                .into_iter()
+                .filter(|adapter| adapter.device_type == kind)
+                .nth(index)
+                .map(|adapter| adapter.name)
+        }
     }
 }
 

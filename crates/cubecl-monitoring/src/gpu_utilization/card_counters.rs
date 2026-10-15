@@ -7,7 +7,9 @@ use cubecl_ir::PhysicalDevice;
 
 #[cfg(card_counter)]
 use super::{opened::OpenedCounter, source::UtilizationSource};
-use crate::utilization::{DeviceUtilization, UtilizationUnavailable};
+use crate::utilization::{
+    DevicePower, DeviceTemperature, DeviceUtilization, UtilizationUnavailable,
+};
 
 /// The counters of the cards the GPU runtimes drive, each opened the first time its card is asked
 /// and kept for the life of the process: opening is the costly half, loading NVML or opening a
@@ -23,7 +25,7 @@ impl CardCounters {
     /// platform decide which counter answers, never the runtime: an NVIDIA card reads the same
     /// through CUDA as through wgpu.
     #[cfg(card_counter)]
-    pub fn read(
+    pub fn utilization(
         card: Option<&PhysicalDevice>,
     ) -> Result<DeviceUtilization, UtilizationUnavailable> {
         Self::opened_for(UtilizationSource::of_card(card)).read()
@@ -31,13 +33,56 @@ impl CardCounters {
 
     /// How busy `card` is: never known to a build that compiles no counter for this platform.
     #[cfg(not(card_counter))]
-    pub fn read(
+    pub fn utilization(
         card: Option<&PhysicalDevice>,
     ) -> Result<DeviceUtilization, UtilizationUnavailable> {
-        Err(match card {
+        Err(Self::no_counter(card))
+    }
+
+    /// Returns the reason why a build that compiles no counter for this platform reads nothing
+    /// of `card`.
+    #[cfg(not(card_counter))]
+    fn no_counter(card: Option<&PhysicalDevice>) -> UtilizationUnavailable {
+        match card {
             Some(card) => UtilizationUnavailable::NoCounterForCard(card.vendor),
             None => UtilizationUnavailable::NoCard,
-        })
+        }
+    }
+
+    /// The current temperature of `card`.
+    ///
+    /// Returns a [`NoSuchReading`](UtilizationUnavailable::NoSuchReading) error on cards that
+    /// don't report temperature.
+    #[cfg(card_counter)]
+    pub fn temperature(
+        card: Option<&PhysicalDevice>,
+    ) -> Result<DeviceTemperature, UtilizationUnavailable> {
+        Self::opened_for(UtilizationSource::of_card(card)).temperature()
+    }
+
+    /// The power usage of `card`, in Watt.
+    ///
+    /// Returns a [`NoSuchReading`](UtilizationUnavailable::NoSuchReading) error on cards that
+    /// don't report their power usage.
+    #[cfg(card_counter)]
+    pub fn power(card: Option<&PhysicalDevice>) -> Result<DevicePower, UtilizationUnavailable> {
+        Self::opened_for(UtilizationSource::of_card(card)).power()
+    }
+
+    /// The current temperature of `card`, never known to a build that compiles no counter for
+    /// this platform.
+    #[cfg(not(card_counter))]
+    pub fn temperature(
+        card: Option<&PhysicalDevice>,
+    ) -> Result<DeviceTemperature, UtilizationUnavailable> {
+        Err(Self::no_counter(card))
+    }
+
+    /// The power usage of `card`, in Watt, never known to a build that compiles no counter for
+    /// this platform.
+    #[cfg(not(card_counter))]
+    pub fn power(card: Option<&PhysicalDevice>) -> Result<DevicePower, UtilizationUnavailable> {
+        Err(Self::no_counter(card))
     }
 
     /// Keyed by the counter rather than the device, so the devices of every runtime on one card
