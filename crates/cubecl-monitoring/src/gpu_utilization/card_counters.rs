@@ -69,8 +69,8 @@ impl CardCounters {
         Self::opened_for(UtilizationSource::of_card(card)).power()
     }
 
-    /// The current temperature of `card`, never known to a build that compiles no counter for
-    /// this platform.
+    /// The current temperature of `card` (never known to a build that compiles no counter for
+    /// this platform).
     #[cfg(not(card_counter))]
     pub fn temperature(
         card: Option<&PhysicalDevice>,
@@ -78,8 +78,8 @@ impl CardCounters {
         Err(Self::no_counter(card))
     }
 
-    /// The power usage of `card`, in Watt, never known to a build that compiles no counter for
-    /// this platform.
+    /// The power usage of `card`, in Watt (never known to a build that compiles no counter for
+    /// this platform).
     #[cfg(not(card_counter))]
     pub fn power(card: Option<&PhysicalDevice>) -> Result<DevicePower, UtilizationUnavailable> {
         Err(Self::no_counter(card))
