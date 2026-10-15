@@ -135,9 +135,13 @@ impl LowerOp<Cuda> for MmaManualOp {
         let frag_d = self.registers_d(ctx);
         let shape = self.shape(ctx).0;
 
-        let kind = if frag_a.element_ty(ctx).is_fp8_fp6_fp4(ctx)
-            || frag_b.element_ty(ctx).is_fp8_fp6_fp4(ctx)
-        {
+        // FP8 operands take the kind-less form, which ptxas accepts from sm_89 on, while
+        // `.kind::f8f6f4` needs sm_100a or later. FP6 and FP4 operands exist only with it.
+        let is_fp6_or_fp4 = |fragment: Value| {
+            let elem = fragment.element_ty(ctx);
+            elem.is_float6(ctx) || elem.is_float4(ctx)
+        };
+        let kind = if is_fp6_or_fp4(frag_a) || is_fp6_or_fp4(frag_b) {
             ".kind::f8f6f4"
         } else {
             ""
