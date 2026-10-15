@@ -50,7 +50,7 @@ impl<F: Float + CubeElement> Benchmark for ReductionBench<F> {
 #[cube(launch_unchecked)]
 fn reduce_matrix<F: Float>(input: &Tensor<F>, output: &mut Tensor<F>) {
     for row in 0..input.shape(0) {
-        let mut acc = F::new(0.0f32);
+        let mut acc = F::new(0.0);
         for col in 0..input.shape(1) {
             acc += input[row * input.stride(0) + col];
         }

@@ -25,7 +25,7 @@ use cubecl_server::command::{CollectiveDriver, Collectives, DeviceStream, Refuse
 use cubecl_server::compiler::ArtifactId;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
-    dry_run::LaunchMode,
+    execution::LaunchMode,
     id::GraphId,
     kernel::CubeKernel,
     logging::ServerLogger,
@@ -188,8 +188,7 @@ impl Server for CudaServer {
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) {
-        // A compile-only launch only queues its kernel, touching nothing else.
-        if launch_mode == LaunchMode::CompileOnly {
+        if launch_mode == LaunchMode::Queue {
             self.ctx.queue_kernel(kernel);
             return;
         }
@@ -200,11 +199,11 @@ impl Server for CudaServer {
         let Some(loaded) = self.load_or_fail(kernel, &id, &bindings, stream_id, launch_mode) else {
             return;
         };
-        // A dry run stops right here, after compilation and before anything
+        // A discarded launch stops right here, after compilation and before anything
         // that touches a buffer: resolving resources, building tensor maps,
         // uploading metadata or reading a dynamic cube count would materialize
         // memory the run exists to leave unmapped.
-        if launch_mode.is_skipped() {
+        if launch_mode.discards_launch() {
             return;
         }
         let kernel_id = id.kernel;
@@ -436,7 +435,7 @@ impl ServerCommunication for CudaServer {
         // A group already joined is joined once, so the membership is
         // announced once too.
         if let Some(id) = self.collectives.join(device_ids)? {
-            self.utilities.initialized_comms.write().insert(id);
+            self.connect(&id)?;
         }
         Ok(())
     }
@@ -497,6 +496,14 @@ impl ServerCommunication for CudaServer {
         stream_id: StreamId,
         device_id_dst: DeviceId,
     ) -> Result<(), ServerError> {
+        // Joined before anything that can fail: on a pair's first transfer the
+        // peer's thread waits in its own join until this one arrives.
+        let comm = *self.collectives.transfers_with(device_id_dst)?;
+        let peer = self
+            .collectives
+            .peer_rank(&pair(self.device_id, device_id_dst))?;
+        let transfers = self.transfer_stream();
+
         // The send reads the source, so it is worth no more than the work
         // that wrote it; see `FailureStore::ensure_written`. Skipping this
         // hands the peer stale bytes on a handle that carries no claim over
@@ -511,17 +518,16 @@ impl ServerCommunication for CudaServer {
         let mut command = self.command(stream_id, [&desc.handle].into_iter())?;
         let resource = command.resource(binding)?;
         let stream = command.stream().sys;
-        drop(command);
 
         // Wait for the data to be ready on the compute stream.
-        Fence::new(stream).wait_async(self.comm_stream())?;
-
-        let (peers, comm_id) = pair(self.device_id, device_id_dst);
-        let comm = self.collectives.get(&comm_id)?;
-        let peer = self.collectives.peer_rank(&peers)?;
+        Fence::new(stream).wait_async(transfers)?;
         let (nccl_dtype, count) = Cuda::data_type(dtype, resource.size)?;
-
-        Cuda::send(comm, &resource, nccl_dtype, count, peer, self.comm_stream())
+        Cuda::send(&comm, &resource, nccl_dtype, count, peer, transfers)?;
+        // This stream's pool may reuse the source from here, and dropping the command releases one
+        // borrowed from another stream once this stream gets here: both wait for the send.
+        Fence::new(transfers).wait_async(stream)?;
+        drop(command);
+        Ok(())
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
@@ -617,6 +623,27 @@ impl CudaServer {
         self.ctx.comm_stream
     }
 
+    fn transfer_stream(&self) -> CUstream {
+        self.ctx.transfer_stream
+    }
+
+    /// Runs one single-element `all_reduce` over the group `id`, so NCCL connects its peers now:
+    /// it connects them on a communicator's first operation, which waits on the host for every
+    /// peer. A single element connects the algorithm it picks, the ring on a single node.
+    fn connect(&self, id: &CommunicationId) -> Result<(), ServerError> {
+        let element = &self.ctx.connect_element;
+        let (dtype, count) = Cuda::data_type(ElemType::Float(FloatKind::F32), element.size)?;
+        Cuda::all_reduce(
+            self.collectives.get(id)?,
+            element,
+            element,
+            dtype,
+            count,
+            ReduceOperation::Sum,
+            self.comm_stream(),
+        )
+    }
+
     fn command_no_inputs(&mut self, stream_id: StreamId) -> Result<Command<'_>, ServerError> {
         self.command(stream_id, [].into_iter())
     }
@@ -652,7 +679,7 @@ impl CudaServer {
     /// kernel was only going to read — tainting those would refuse every
     /// later launch that shares them, an autotune sweep above all.
     ///
-    /// A dry run claims none. It was never going to write, so a failure in it
+    /// A discarded launch claims none. It was never going to write, so a failure in it
     /// leaves nothing stale, and tainting its buffers would fail unrelated
     /// reads of memory the run deliberately left alone.
     fn load_or_fail(
@@ -667,7 +694,7 @@ impl CudaServer {
             Ok(loaded) => return Some(loaded),
             Err(err) => err,
         };
-        if !launch_mode.is_skipped() {
+        if !launch_mode.discards_launch() {
             // No compiled answer exists for a kernel that never compiled, so
             // the caller's declared IO decides what the failure claims: only
             // the outputs, never the buffers the kernel was only going to
@@ -746,27 +773,30 @@ impl CudaServer {
         stream_id: StreamId,
         device_id_src: DeviceId,
     ) -> Result<(), ServerError> {
+        // Joined before anything that can fail or relocate: on a pair's first
+        // transfer the peer's thread waits in its own join until this one arrives.
+        let comm = *self.collectives.transfers_with(device_id_src)?;
+        let peer = self
+            .collectives
+            .peer_rank(&pair(self.device_id, device_id_src))?;
+
         // A command on the destination server reserves the memory the incoming
         // data lands in.
         let mut command_dst = self.command_no_inputs(stream_id)?;
         let memory = command_dst.reserve(handle.size())?;
         command_dst.bind(memory, handle.memory.clone())?;
         let resource_dst = command_dst.resource(handle.binding())?;
+        let stream = command_dst.stream().sys;
         drop(command_dst);
 
-        let (peers, comm_id) = pair(self.device_id, device_id_src);
-        let comm = self.collectives.get(&comm_id)?;
-        let peer = self.collectives.peer_rank(&peers)?;
+        // Compute work queued before the reservation may still use its memory, and compute work
+        // queued after it reads what arrives.
+        let transfers = self.transfer_stream();
+        Fence::new(stream).wait_async(transfers)?;
         let (nccl_dtype, count) = Cuda::data_type(dtype, resource_dst.size)?;
-
-        Cuda::recv(
-            comm,
-            &resource_dst,
-            nccl_dtype,
-            count,
-            peer,
-            self.comm_stream(),
-        )
+        Cuda::recv(&comm, &resource_dst, nccl_dtype, count, peer, transfers)?;
+        Fence::new(transfers).wait_async(stream)?;
+        Ok(())
     }
 
     /// The stream a profiling window records its events into.
@@ -908,7 +938,7 @@ impl CudaServer {
         // refine this to minimize allocations.
         let mut tensor_maps = Vec::new();
 
-        // Resolving is also where a dry run's deferred allocations get their
+        // Resolving is also where a discarded launch's deferred allocations get their
         // device backing, so this can fail on a device the measured plan does
         // not fit — reported, not panicked.
         for resource in bindings.resources.into_iter() {
@@ -1353,15 +1383,14 @@ fn check_tma_im2col(
     Ok(())
 }
 
-/// The two devices of a peer-to-peer transfer, sorted, and the group they name.
+/// The two devices of a peer-to-peer transfer, sorted.
 ///
 /// Sorted because a rank is a position: `send` and `recv` are the two sides of
 /// one transfer and have to agree on which device is which.
-fn pair(this: DeviceId, peer: DeviceId) -> (Vec<DeviceId>, CommunicationId) {
+fn pair(this: DeviceId, peer: DeviceId) -> Vec<DeviceId> {
     let mut devices = vec![this, peer];
     devices.sort();
-    let id = CommunicationId::from(devices.clone());
-    (devices, id)
+    devices
 }
 
 impl ServerStorage for CudaServer {

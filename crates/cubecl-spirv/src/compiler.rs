@@ -246,6 +246,8 @@ impl SpirvCompiler {
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(PromoteBitwisePass);
         func_passes.add_pass(LowerOpsSpirvPass::default());
+        // Polyfills such as powi can introduce loops after the initial branch conversion.
+        func_passes.add_pass(BranchToSCFPass::default());
         func_passes.add_pass(DCEPass);
         func_passes.add_pass(SROAPass);
 

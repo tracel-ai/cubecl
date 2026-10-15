@@ -45,9 +45,11 @@ impl CubeTypeStruct {
         let name = &self.name_expand;
         let generics = &self.generics;
         let vis = &self.vis;
+        let attrs = &self.attrs;
 
         quote! {
             #expand_derives
+            #(#attrs)*
             #vis struct #name #generics {
                 #(#fields),*
             }

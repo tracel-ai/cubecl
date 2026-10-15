@@ -35,7 +35,6 @@ test-log = { workspace = true, optional = true }
 
 cubecl-common = { workspace = true, features = [
     "hash",
-    "fp4",
     "fp8",
 ] }
 cubecl-environment = { workspace = true }

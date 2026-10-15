@@ -25,11 +25,13 @@ extern crate alloc;
 #[macro_use]
 extern crate derive_new;
 
+pub use serde;
+
 // The runtime API, re-exported so `crate::server::Handle` and
 // `cubecl_server::server::Handle` both name the one type.
 pub use cubecl_runtime::benchmark;
 pub use cubecl_runtime::{
-    client, config, device, dry_run, id, launched, logging, runtime, throughput, tma, tune,
+    client, config, device, execution, id, launched, logging, runtime, throughput, tma, tune,
 };
 pub use cubecl_runtime::{local_tuner, storage_id_type};
 

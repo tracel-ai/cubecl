@@ -142,7 +142,7 @@ impl SparseForwardDataflowAnalysis for ValueClasses {
         operands: &[ReadRef<SparseLattice<ValueClass>>],
         results: &[WriteRef<SparseLattice<ValueClass>>],
     ) -> Result<()> {
-        if results.len() > 1 {
+        if results.len() > 1 || op.deref(ctx).num_regions() > 0 {
             this.set_all_to_entry_states(solver, ctx, results);
             return Ok(());
         }
