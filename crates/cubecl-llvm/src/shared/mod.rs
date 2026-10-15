@@ -12,7 +12,7 @@ pub(crate) mod builtin_values;
 pub mod builtins;
 pub mod intrinsic;
 pub(crate) mod llvm_module;
-#[cfg(feature = "nvptx")]
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub(crate) mod llvm_options;
 #[cfg(feature = "nvptx")]
 pub(crate) mod loop_hints;
