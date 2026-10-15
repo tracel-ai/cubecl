@@ -178,7 +178,7 @@ fn tensor_and_pipeline<R: Runtime>() {
                     let transfer = |client: &mut Client| {
                         let sent = [(100 * rank + round) as f32; 64];
                         let input = client.create_from_slice(f32::as_bytes(&sent));
-                        let output = client.to_client(input, &next_stage, F32);
+                        let output = client.to_client(input, &next_stage);
                         let received = next_stage.read_one_unchecked(output);
                         assert_eq!(
                             f32::from_bytes(&received),
@@ -255,7 +255,7 @@ fn beside_transfers<R: Runtime>() {
                 for round in 0..ROUNDS {
                     let expected = [(thread * ROUNDS + round) as f32; SIZE];
                     let input = source.create_from_slice(f32::as_bytes(&expected));
-                    let output = source.to_client(input, &destination, F32);
+                    let output = source.to_client(input, &destination);
                     let actual = destination.read_one_unchecked(output);
                     assert_eq!(f32::from_bytes(&actual), expected);
                 }

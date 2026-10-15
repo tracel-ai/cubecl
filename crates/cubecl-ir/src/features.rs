@@ -68,10 +68,6 @@ pub struct Types {
     /// for example `f16` computed in `f32` on a CPU without native `f16` instructions. The type
     /// still works, but a caller that chooses a precision can prefer the wider type.
     pub emulated_arithmetic: BTreeSet<ElemType>,
-    /// Types the runtime's device transport moves between its devices without the host. Kept
-    /// apart from [`TypeUsage`] because it depends on a library loaded at runtime, not the
-    /// compiler.
-    pub device_transport: BTreeSet<ElemType>,
 }
 
 /// Matrix multiplication-related features
@@ -321,11 +317,6 @@ impl Features {
     #[must_use]
     pub fn arithmetic_is_emulated(&self, ty: ElemType) -> bool {
         self.types.emulated_arithmetic.contains(&ty)
-    }
-
-    /// Whether the device transport moves `ty` ([`Types::device_transport`]).
-    pub fn device_transport_moves(&self, ty: ElemType) -> bool {
-        self.types.device_transport.contains(&ty)
     }
 
     /// Get the usages for a type

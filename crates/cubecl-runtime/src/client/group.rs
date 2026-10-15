@@ -1,9 +1,11 @@
 //! Collectives queued by one caller over the clients of several devices.
 
 use super::{Client, PEER_ORDER};
-use crate::server::{Collective, Handle, ReduceOperation};
-use alloc::vec::Vec;
-use cubecl_common::device::DeviceId;
+use crate::server::{
+    Collective, CollectiveBuffer, ComputeWait, Handle, Overlap, ReduceOperation, Server,
+};
+use alloc::{collections::BTreeSet, vec::Vec};
+use cubecl_common::{device::DeviceId, device_handle::DeviceHandle};
 use cubecl_ir::ElemType;
 use thiserror::Error;
 
@@ -19,10 +21,14 @@ use thiserror::Error;
 /// Every member's buffers are checked before any part is queued, since a part one device refuses
 /// leaves the devices that queued theirs waiting on it. A source carrying a failure from earlier
 /// work is refused by its device alone, so the other members still wait.
+///
+/// Buffers move as raw bytes and split into chunks by bytes, so a pitched handle's row padding
+/// moves too and counts toward its chunks.
 #[derive(Clone)]
 pub struct ClientGroup {
     clients: Vec<Client>,
     device_ids: Vec<DeviceId>,
+    reduces: BTreeSet<ElemType>,
 }
 
 /// One member's buffers in a collective.
@@ -40,6 +46,9 @@ pub enum ClientGroupError {
     /// There are no clients.
     #[error("a client group needs at least one client")]
     Empty,
+    /// The device handle blocks the caller, which collectives cannot run on.
+    #[error("collectives cannot run on a blocking device handle")]
+    BlockingDeviceHandle,
     /// The clients run different runtimes, which share no transport.
     #[error("the clients run different runtimes")]
     MixedRuntimes,
@@ -58,15 +67,26 @@ pub enum ClientGroupError {
     },
 }
 
+/// Whether a collective may run with a member's source and destination on the same bytes.
+#[derive(Clone, Copy)]
+enum InPlace {
+    Allowed,
+    Refused,
+}
+
 impl ClientGroup {
     /// A group of `clients`, one per member.
     ///
     /// # Errors
     ///
-    /// When there are none, when they mix runtimes, when their devices are not in strictly
-    /// ascending order, and when their runtime has no device transport.
+    /// When there are none, when the device handle blocks, when they mix runtimes, when their
+    /// devices are not in strictly ascending order, and when their runtime has no device
+    /// transport.
     pub fn new(clients: Vec<Client>) -> Result<Self, ClientGroupError> {
         let first = clients.first().ok_or(ClientGroupError::Empty)?;
+        if DeviceHandle::<dyn Server>::is_blocking() {
+            return Err(ClientGroupError::BlockingDeviceHandle);
+        }
         let runtime = first.service_id().service;
         if clients
             .iter()
@@ -83,14 +103,24 @@ impl ClientGroup {
                 devices: device_ids,
             });
         }
-        if !first.has_device_transport() {
+        let Some(transports) = clients
+            .iter()
+            .map(|client| client.utilities.device_transport.as_ref())
+            .collect::<Option<Vec<_>>>()
+        else {
             return Err(ClientGroupError::NoDeviceTransport {
                 runtime: first.name(),
             });
+        };
+        // The members reduce together only the types every one of their devices reduces.
+        let mut reduces = transports[0].reduces.clone();
+        for transport in &transports[1..] {
+            reduces.retain(|dtype| transport.reduces.contains(dtype));
         }
         Ok(Self {
             clients,
             device_ids,
+            reduces,
         })
     }
 
@@ -99,57 +129,68 @@ impl ClientGroup {
         &self.clients
     }
 
-    /// Every member's `dst` receives every member's `src` reduced by `op`.
-    pub fn all_reduce(
-        &mut self,
-        buffers: Vec<MemberBuffers>,
-        dtype: ElemType,
-        op: ReduceOperation,
-    ) {
+    /// Whether the members reduce elements of `dtype` together. Every other collective moves bytes,
+    /// whatever their type.
+    pub fn reduces(&self, dtype: ElemType) -> bool {
+        self.reduces.contains(&dtype)
+    }
+
+    /// Every member's `dst` receives every member's `src` reduced by `op`. A member's `src` may be
+    /// its `dst`.
+    pub fn all_reduce(&self, buffers: Vec<MemberBuffers>, dtype: ElemType, op: ReduceOperation) {
         let collective = Collective::AllReduce;
-        let src = self.expect_buffers(collective, dtype, &buffers);
+        self.expect_reduces(collective, dtype);
+        let src = self.expect_buffers(collective, &buffers, InPlace::Allowed);
+        Self::expect_whole_elements(collective, dtype, src);
         Self::expect_sizes(
             collective,
-            "destination",
+            CollectiveBuffer::Destination,
             buffers.iter().map(|it| &it.dst),
             src,
         );
         self.queue(collective, buffers, |client, buffers, device_ids| {
-            client.queue_all_reduce(buffers.src, buffers.dst, dtype, device_ids, op)
+            client.queue_all_reduce(
+                buffers.src,
+                buffers.dst,
+                dtype,
+                device_ids,
+                op,
+                ComputeWait::Now,
+            )
         });
-        // Unlike the other four, an all_reduce's stream waits only at `sync_collective`.
-        self.clients.iter().for_each(Client::sync_collective);
     }
 
     /// Every member's `dst` receives every member's `src`, concatenated in member order.
-    pub fn all_gather(&mut self, buffers: Vec<MemberBuffers>, dtype: ElemType) {
+    pub fn all_gather(&self, buffers: Vec<MemberBuffers>) {
         let collective = Collective::AllGather;
-        let src = self.expect_buffers(collective, dtype, &buffers);
+        let src = self.expect_buffers(collective, &buffers, InPlace::Refused);
         let members = self.clients.len() as u64;
         Self::expect_sizes(
             collective,
-            "destination",
+            CollectiveBuffer::Destination,
             buffers.iter().map(|it| &it.dst),
             src * members,
         );
         self.queue(collective, buffers, |client, buffers, device_ids| {
-            client.queue_all_gather(buffers.src, buffers.dst, dtype, device_ids)
+            client.queue_all_gather(buffers.src, buffers.dst, device_ids)
         });
     }
 
     /// Member `i`'s `dst` receives chunk `i` of every member's `src` reduced by `op`.
     pub fn reduce_scatter(
-        &mut self,
+        &self,
         buffers: Vec<MemberBuffers>,
         dtype: ElemType,
         op: ReduceOperation,
     ) {
         let collective = Collective::ReduceScatter;
-        let src = self.expect_buffers(collective, dtype, &buffers);
-        let chunk = self.expect_chunks(collective, dtype, src);
+        self.expect_reduces(collective, dtype);
+        let src = self.expect_buffers(collective, &buffers, InPlace::Refused);
+        let chunk = self.expect_chunks(collective, src);
+        Self::expect_whole_elements(collective, dtype, chunk);
         Self::expect_sizes(
             collective,
-            "destination",
+            CollectiveBuffer::Destination,
             buffers.iter().map(|it| &it.dst),
             chunk,
         );
@@ -158,23 +199,31 @@ impl ClientGroup {
         });
     }
 
-    /// Every member's `dst` receives `src`, which member `root` holds.
-    pub fn broadcast(&mut self, root: usize, src: Handle, dst: Vec<Handle>, dtype: ElemType) {
+    /// Every member's `dst` receives `src`, sent by the member whose device holds it. That
+    /// member's `dst` may be `src`.
+    pub fn broadcast(&self, src: Handle, dst: Vec<Handle>) {
         let collective = Collective::Broadcast;
-        let members = self.clients.len();
-        assert!(
-            root < members,
-            "the root of a broadcast is member {root} of a group of {members}"
-        );
         self.expect_parts(collective, dst.len());
-        self.expect_transport_moves(collective, dtype);
-        self.expect_member_buffers(root, &src, &dst[root]);
+        let root = self
+            .clients
+            .iter()
+            .position(|client| client.service_id() == src.service)
+            .unwrap_or_else(|| {
+                panic!(
+                    "a broadcast's source is on {}, which is no member's device",
+                    src.service
+                )
+            });
+        self.expect_member_buffers(collective, root, &src, &dst[root], InPlace::Allowed);
         for (member, dst) in dst.iter().enumerate() {
             self.expect_on_member(member, dst);
         }
-        let size = src.size_in_used();
-        Self::expect_whole_elements(collective, dtype, size);
-        Self::expect_sizes(collective, "destination", dst.iter(), size);
+        Self::expect_sizes(
+            collective,
+            CollectiveBuffer::Destination,
+            dst.iter(),
+            src.size_in_used(),
+        );
 
         let root_id = self.device_ids[root];
         let mut src = Some(src);
@@ -184,50 +233,46 @@ impl ClientGroup {
                 true => src.take(),
                 false => None,
             };
-            client.queue_broadcast(src, dst, dtype, root_id, device_ids)
+            client.queue_broadcast(src, dst, root_id, device_ids)
         });
     }
 
     /// Member `i`'s `dst` receives chunk `i` of every member's `src`, concatenated in member
-    /// order. A member's `src` and `dst` are distinct buffers.
-    pub fn all_to_all(&mut self, buffers: Vec<MemberBuffers>, dtype: ElemType) {
+    /// order.
+    pub fn all_to_all(&self, buffers: Vec<MemberBuffers>) {
         let collective = Collective::AllToAll;
-        let src = self.expect_buffers(collective, dtype, &buffers);
-        self.expect_chunks(collective, dtype, src);
+        let src = self.expect_buffers(collective, &buffers, InPlace::Refused);
+        self.expect_chunks(collective, src);
         Self::expect_sizes(
             collective,
-            "destination",
+            CollectiveBuffer::Destination,
             buffers.iter().map(|it| &it.dst),
             src,
         );
-        for (member, buffers) in buffers.iter().enumerate() {
-            assert!(
-                !buffers.src.overlaps(&buffers.dst),
-                "member {member}'s all_to_all source and destination overlap"
-            );
-        }
         self.queue(collective, buffers, |client, buffers, device_ids| {
-            client.queue_all_to_all(buffers.src, buffers.dst, dtype, device_ids)
+            client.queue_all_to_all(buffers.src, buffers.dst, device_ids)
         });
     }
 
-    /// Checks one part per member, each member's buffers on its device and one stream, and
-    /// sources of one size in whole elements of a type the transport moves; returns the size of
-    /// each source.
+    /// Checks one part per member, each member's buffers, and sources of one size; returns the
+    /// size of each source.
     fn expect_buffers(
         &self,
         collective: Collective,
-        dtype: ElemType,
         buffers: &[MemberBuffers],
+        in_place: InPlace,
     ) -> u64 {
         self.expect_parts(collective, buffers.len());
-        self.expect_transport_moves(collective, dtype);
         for (member, buffers) in buffers.iter().enumerate() {
-            self.expect_member_buffers(member, &buffers.src, &buffers.dst);
+            self.expect_member_buffers(collective, member, &buffers.src, &buffers.dst, in_place);
         }
         let src = buffers[0].src.size_in_used();
-        Self::expect_sizes(collective, "source", buffers.iter().map(|it| &it.src), src);
-        Self::expect_whole_elements(collective, dtype, src);
+        Self::expect_sizes(
+            collective,
+            CollectiveBuffer::Source,
+            buffers.iter().map(|it| &it.src),
+            src,
+        );
         src
     }
 
@@ -235,46 +280,58 @@ impl ClientGroup {
         let members = self.clients.len();
         assert!(
             parts == members,
-            "a {collective} over {members} members takes one part each, not {parts}"
+            "{collective} over {members} members takes one part each, not {parts}"
         );
     }
 
-    fn expect_transport_moves(&self, collective: Collective, dtype: ElemType) {
-        let client = &self.clients[0];
+    fn expect_reduces(&self, collective: Collective, dtype: ElemType) {
         assert!(
-            client.properties().features.device_transport_moves(dtype),
-            "a {collective} on {} cannot move {dtype:?}",
-            client.name()
+            self.reduces(dtype),
+            "{collective} on {} cannot reduce {dtype:?}",
+            self.clients[0].name()
         );
     }
 
     fn expect_whole_elements(collective: Collective, dtype: ElemType, size: u64) {
         assert!(
             size.is_multiple_of(dtype.size() as u64),
-            "a {collective} cannot cut {size} bytes into whole {dtype:?} elements"
+            "{collective} cannot cut {size} bytes into whole {dtype:?} elements"
         );
     }
 
-    /// Checks `size` bytes split into one chunk of whole elements per member, and returns the
-    /// size of a chunk.
-    fn expect_chunks(&self, collective: Collective, dtype: ElemType, size: u64) -> u64 {
+    /// Checks `size` bytes split evenly over the members, and returns the size of a chunk.
+    fn expect_chunks(&self, collective: Collective, size: u64) -> u64 {
         let members = self.clients.len() as u64;
-        let element = dtype.size() as u64;
         assert!(
-            size.is_multiple_of(members * element),
-            "a {collective} over {members} members cannot split {size} bytes of {dtype:?}"
+            size.is_multiple_of(members),
+            "{collective} over {members} members cannot split {size} bytes evenly"
         );
         size / members
     }
 
-    /// Checks a member's source and destination are on its device, and on one stream, which the
-    /// device requires of a collective's buffers.
-    fn expect_member_buffers(&self, member: usize, src: &Handle, dst: &Handle) {
+    /// Checks a member's source and destination are on its device and one stream, which the
+    /// device requires, and apart unless the collective runs in place on exactly the same bytes.
+    fn expect_member_buffers(
+        &self,
+        collective: Collective,
+        member: usize,
+        src: &Handle,
+        dst: &Handle,
+        in_place: InPlace,
+    ) {
         self.expect_on_member(member, src);
         self.expect_on_member(member, dst);
         assert!(
             src.stream == dst.stream,
             "member {member}'s source and destination are on two streams"
+        );
+        let overlap = src.overlap(dst);
+        assert!(
+            matches!(
+                (overlap, in_place),
+                (Overlap::Disjoint, _) | (Overlap::Same, InPlace::Allowed)
+            ),
+            "member {member}'s {collective} source and destination overlap ({overlap:?})"
         );
     }
 
@@ -289,7 +346,7 @@ impl ClientGroup {
 
     fn expect_sizes<'a>(
         collective: Collective,
-        buffer: &str,
+        buffer: CollectiveBuffer,
         handles: impl Iterator<Item = &'a Handle>,
         expected: u64,
     ) {
@@ -304,7 +361,7 @@ impl ClientGroup {
 
     /// Prepares every member, then queues each member's part before anything else can queue.
     fn queue<Part>(
-        &mut self,
+        &self,
         collective: Collective,
         parts: Vec<Part>,
         mut queue_part: impl FnMut(&Client, Part, Vec<DeviceId>),

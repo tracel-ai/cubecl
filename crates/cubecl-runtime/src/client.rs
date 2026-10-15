@@ -5,7 +5,7 @@ use crate::{
     logging::ProfileLevel,
     memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
-        BufferBinding, Collective, CommunicationId, CopyDescriptor, CubeCount, Handle,
+        BufferBinding, Collective, CommunicationId, ComputeWait, CopyDescriptor, CubeCount, Handle,
         KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
         MemoryLayoutStrategy, ProfileError, ProfilingToken, ReduceOperation, Server, ServerError,
         ServerStorage, ServerUtilities,
@@ -932,14 +932,14 @@ impl Client {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst_server))
     )]
-    pub fn to_client(&mut self, src: Handle, dst_server: &Self, dtype: ElemType) -> Handle {
+    pub fn to_client(&mut self, src: Handle, dst_server: &Self) -> Handle {
         self.expect_local(&src.clone().binding());
         let shape = [src.size_in_used() as usize];
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
         let same_runtime = dst_server.service_id().service == self.service_id().service;
         if self.has_device_transport() && same_runtime {
-            self.to_client_tensor(src_descriptor, dst_server, dtype)
+            self.to_client_tensor(src_descriptor, dst_server)
         } else {
             let alloc_desc = MemoryLayoutDescriptor::new(
                 MemoryLayoutStrategy::Contiguous,
@@ -956,7 +956,7 @@ impl Client {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, device_ids))
     )]
-    pub fn ensure_init_collective(&mut self, device_ids: Vec<DeviceId>) {
+    pub fn ensure_init_collective(&self, device_ids: Vec<DeviceId>) {
         self.expect_device_transport(Collective::CommInit);
         // Two ranks on one device wait on its server thread for each other, forever.
         if let Some(repeated) = repeated_device(&device_ids) {
@@ -997,7 +997,7 @@ impl Client {
     /// Whether this runtime moves data between its devices itself. Without it, `to_client`
     /// copies through the host and the collectives refuse.
     pub fn has_device_transport(&self) -> bool {
-        !self.properties().features.types.device_transport.is_empty()
+        self.utilities.device_transport.is_some()
     }
 
     /// Panics on the caller when the runtime has no device transport.
@@ -1065,11 +1065,11 @@ impl Client {
         op: ReduceOperation,
     ) {
         self.prepare_collective(Collective::AllReduce, device_ids.clone());
-        self.queue_all_reduce(src, dst, dtype, device_ids, op);
+        self.queue_all_reduce(src, dst, dtype, device_ids, op, ComputeWait::AtSync);
     }
 
     /// Checks `collective` can run from here, and sets up the group over `device_ids`.
-    fn prepare_collective(&mut self, collective: Collective, device_ids: Vec<DeviceId>) {
+    fn prepare_collective(&self, collective: Collective, device_ids: Vec<DeviceId>) {
         if DeviceHandle::<dyn Server>::is_blocking() {
             panic!("Can't use `{collective}` with a blocking device handle");
         }
@@ -1084,27 +1084,22 @@ impl Client {
         dtype: ElemType,
         device_ids: Vec<DeviceId>,
         op: ReduceOperation,
+        wait: ComputeWait,
     ) {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
         self.queue_collective(Collective::AllReduce, move |server, stream_id| {
-            server.all_reduce(src, dst, dtype, stream_id, op, device_ids)
+            server.all_reduce(src, dst, dtype, stream_id, op, device_ids, wait)
         });
     }
 
-    fn queue_all_gather(
-        &self,
-        src: Handle,
-        dst: Handle,
-        dtype: ElemType,
-        device_ids: Vec<DeviceId>,
-    ) {
+    fn queue_all_gather(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>) {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
         self.queue_collective(Collective::AllGather, move |server, stream_id| {
-            server.all_gather(src, dst, dtype, stream_id, device_ids)
+            server.all_gather(src, dst, stream_id, device_ids)
         });
     }
 
@@ -1128,7 +1123,6 @@ impl Client {
         &self,
         src: Option<Handle>,
         dst: Handle,
-        dtype: ElemType,
         root: DeviceId,
         device_ids: Vec<DeviceId>,
     ) {
@@ -1137,22 +1131,16 @@ impl Client {
             .chain([&dst])
             .for_each(|binding| self.expect_local(binding));
         self.queue_collective(Collective::Broadcast, move |server, stream_id| {
-            server.broadcast(src, dst, dtype, stream_id, root, device_ids)
+            server.broadcast(src, dst, stream_id, root, device_ids)
         });
     }
 
-    fn queue_all_to_all(
-        &self,
-        src: Handle,
-        dst: Handle,
-        dtype: ElemType,
-        device_ids: Vec<DeviceId>,
-    ) {
+    fn queue_all_to_all(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>) {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
         self.queue_collective(Collective::AllToAll, move |server, stream_id| {
-            server.all_to_all(src, dst, dtype, stream_id, device_ids)
+            server.all_to_all(src, dst, stream_id, device_ids)
         });
     }
 
@@ -1186,7 +1174,6 @@ impl Client {
         &mut self,
         src_descriptor: CopyDescriptor,
         dst_server: &Self,
-        dtype: ElemType,
     ) -> Handle {
         self.expect_device_transport(Collective::Send);
         self.expect_local(&src_descriptor.handle);
@@ -1214,7 +1201,7 @@ impl Client {
             // here, and cross-device failure propagation needs a design pass
             // of its own — so the wedge is named loudly rather than hidden
             // behind a swallowed unwrap.
-            if let Err(err) = server_src.send(src_descriptor, dtype, stream_id_src, device_id_dst) {
+            if let Err(err) = server_src.send(src_descriptor, stream_id_src, device_id_dst) {
                 log::error!(
                     "send to {device_id_dst:?} failed; the peer's recv is left waiting: {err}"
                 );
@@ -1224,7 +1211,7 @@ impl Client {
         dst_server.device.submit(move |server_dst| {
             // A failed recv taints the destination handle, so the read that
             // consumes this transfer fails on the cause.
-            if let Err(err) = server_dst.recv(handle_cloned, dtype, stream_id_dst, device_id_src) {
+            if let Err(err) = server_dst.recv(handle_cloned, stream_id_dst, device_id_src) {
                 log::error!(
                     "recv from {device_id_src:?} failed; the destination carries the failure: {err}"
                 );

@@ -312,23 +312,6 @@ impl<D: CollectiveDriver> Collectives<D> {
     }
 }
 
-/// Refuses a collective whose `buffer` holds `size` bytes where it needs `expected`.
-///
-/// # Errors
-///
-/// [`ServerError::Generic`] when the sizes differ.
-pub fn expect_size(buffer: &str, size: u64, expected: u64) -> Result<(), ServerError> {
-    match size == expected {
-        true => Ok(()),
-        false => Err(ServerError::Generic {
-            reason: format!(
-                "the collective's {buffer} holds {size} bytes where it needs {expected}"
-            ),
-            backtrace: BackTrace::capture(),
-        }),
-    }
-}
-
 /// `device`'s position in `devices`, which is its rank.
 ///
 /// Free of the driver because a rank is arithmetic over device ids and

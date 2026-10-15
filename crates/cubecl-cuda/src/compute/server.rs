@@ -2,7 +2,8 @@ use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::driver::Cuda;
 use crate::compute::modules::CudaCompiledKernel;
 use crate::compute::{
-    Captures, Command, Window, context::CudaContext, events::Fence, stream::CudaStreamBackend,
+    Captures, Command, Window, communication::BYTES, context::CudaContext, events::Fence,
+    stream::CudaStreamBackend,
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::server::{DeviceCaptures, ServerStorage};
@@ -12,18 +13,17 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, UIntKind},
     prelude::*,
     server::{
-        BufferBinding, CommunicationId, CopyDescriptor, Handle, KernelArguments, KernelResource,
-        LaunchError, ProfileError, ProfilingToken, ReduceOperation, ServerCommunication,
-        ServerError, ServerUtilities, TensorMapBinding, TensorMapMeta,
+        BufferBinding, CollectiveBuffer, CommunicationId, ComputeWait, CopyDescriptor, Handle,
+        KernelArguments, KernelResource, LaunchError, ProfileError, ProfilingToken,
+        ReduceOperation, ServerCommunication, ServerError, ServerUtilities, TensorMapBinding,
+        TensorMapMeta,
     },
     zspace::SmallVec,
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::{self, DynFut};
 use cubecl_environment::stream::StreamId;
-use cubecl_server::command::{
-    CollectiveDriver, Collectives, DeviceStream, Elements, Refused, expect_size,
-};
+use cubecl_server::command::{CollectiveDriver, Collectives, DeviceStream, Elements, Refused};
 use cubecl_server::compiler::ArtifactId;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
@@ -442,6 +442,7 @@ impl ServerCommunication for CudaServer {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn all_reduce(
         &mut self,
         src: BufferBinding,
@@ -450,6 +451,7 @@ impl ServerCommunication for CudaServer {
         stream_id: StreamId,
         op: ReduceOperation,
         device_ids: Vec<DeviceId>,
+        wait: ComputeWait,
     ) -> Result<(), ServerError> {
         self.settle_collective([src], dst, |server, [src], dst| {
             let group = CommunicationId::from(device_ids);
@@ -457,10 +459,10 @@ impl ServerCommunication for CudaServer {
                 stream_id,
                 &group,
                 [src, dst],
-                ComputeWait::AtSync,
+                wait,
                 |comm, [src, dst], stream| {
                     let elements = Cuda::elements(dtype, src.size)?;
-                    expect_size("destination", dst.size, src.size)?;
+                    dst.expect_size(CollectiveBuffer::Destination, src.size)?;
                     Cuda::all_reduce(comm, src, dst, elements, op, stream)
                 },
             )
@@ -471,7 +473,6 @@ impl ServerCommunication for CudaServer {
         &mut self,
         src: BufferBinding,
         dst: BufferBinding,
-        dtype: ElemType,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
     ) -> Result<(), ServerError> {
@@ -484,9 +485,8 @@ impl ServerCommunication for CudaServer {
                 [src, dst],
                 ComputeWait::Now,
                 |comm, [src, dst], stream| {
-                    let elements = Cuda::elements(dtype, src.size)?;
-                    expect_size("destination", dst.size, src.size * ranks)?;
-                    Cuda::all_gather(comm, src, dst, elements, stream)
+                    dst.expect_size(CollectiveBuffer::Destination, src.size * ranks)?;
+                    Cuda::all_gather(comm, src, dst, Cuda::elements(BYTES, src.size)?, stream)
                 },
             )
         })
@@ -511,7 +511,7 @@ impl ServerCommunication for CudaServer {
                 ComputeWait::Now,
                 |comm, [src, dst], stream| {
                     let elements = Cuda::elements(dtype, dst.size)?;
-                    expect_size("source", src.size, dst.size * ranks)?;
+                    src.expect_size(CollectiveBuffer::Source, dst.size * ranks)?;
                     Cuda::reduce_scatter(comm, src, dst, elements, op, stream)
                 },
             )
@@ -522,7 +522,6 @@ impl ServerCommunication for CudaServer {
         &mut self,
         src: Option<BufferBinding>,
         dst: BufferBinding,
-        dtype: ElemType,
         stream_id: StreamId,
         root: DeviceId,
         device_ids: Vec<DeviceId>,
@@ -538,8 +537,8 @@ impl ServerCommunication for CudaServer {
                     [src, dst],
                     ComputeWait::Now,
                     |comm, [src, dst], stream| {
-                        let elements = Cuda::elements(dtype, dst.size)?;
-                        expect_size("source", src.size, dst.size)?;
+                        src.expect_size(CollectiveBuffer::Source, dst.size)?;
+                        let elements = Cuda::elements(BYTES, dst.size)?;
                         Cuda::broadcast(comm, Some(src), dst, elements, root, stream)
                     },
                 )
@@ -552,12 +551,12 @@ impl ServerCommunication for CudaServer {
                     [dst],
                     ComputeWait::Now,
                     |comm, [dst], stream| {
-                        let elements = Cuda::elements(dtype, dst.size)?;
+                        let elements = Cuda::elements(BYTES, dst.size)?;
                         Cuda::broadcast(comm, None, dst, elements, root, stream)
                     },
                 )
             }),
-            // A root without a source would send its own stale destination as the result.
+            // Only the root sends, so a source anywhere else, or none there, has nothing to send.
             _ => self.settle_collective([], dst, |_, [], _| {
                 Err(ServerError::Generic {
                     reason: format!(
@@ -573,7 +572,6 @@ impl ServerCommunication for CudaServer {
         &mut self,
         src: BufferBinding,
         dst: BufferBinding,
-        dtype: ElemType,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
     ) -> Result<(), ServerError> {
@@ -593,20 +591,20 @@ impl ServerCommunication for CudaServer {
                             backtrace: BackTrace::capture(),
                         });
                     }
-                    let elements = Cuda::elements(dtype, src.size)?;
-                    expect_size("destination", dst.size, src.size)?;
-                    if elements.count % ranks != 0 {
+                    dst.expect_size(CollectiveBuffer::Destination, src.size)?;
+                    let bytes = Cuda::elements(BYTES, src.size)?;
+                    if bytes.count % ranks != 0 {
                         return Err(ServerError::Generic {
                             reason: format!(
-                                "an all_to_all over {ranks} ranks splits {} elements unevenly",
-                                elements.count
+                                "an all_to_all over {ranks} ranks splits {} bytes unevenly",
+                                bytes.count
                             ),
                             backtrace: BackTrace::capture(),
                         });
                     }
                     let chunk = Elements {
-                        count: elements.count / ranks,
-                        ..elements
+                        count: bytes.count / ranks,
+                        ..bytes
                     };
                     Cuda::all_to_all(comm, src, dst, chunk, ranks, stream)
                 },
@@ -629,7 +627,6 @@ impl ServerCommunication for CudaServer {
     fn send(
         &mut self,
         desc: CopyDescriptor,
-        dtype: ElemType,
         stream_id: StreamId,
         device_id_dst: DeviceId,
     ) -> Result<(), ServerError> {
@@ -658,8 +655,8 @@ impl ServerCommunication for CudaServer {
 
         // Wait for the data to be ready on the compute stream.
         Fence::new(stream).wait_async(transfers)?;
-        let elements = Cuda::elements(dtype, resource.size)?;
-        Cuda::send(&comm, &resource, elements, peer, transfers)?;
+        let bytes = Cuda::elements(BYTES, resource.size)?;
+        Cuda::send(&comm, &resource, bytes, peer, transfers)?;
         // This stream's pool may reuse the source from here, and dropping the command releases one
         // borrowed from another stream once this stream gets here: both wait for the send.
         Fence::new(transfers).wait_async(stream)?;
@@ -671,7 +668,6 @@ impl ServerCommunication for CudaServer {
     fn recv(
         &mut self,
         handle: Handle,
-        dtype: ElemType,
         stream_id: StreamId,
         device_id_src: DeviceId,
     ) -> Result<(), ServerError> {
@@ -681,7 +677,7 @@ impl ServerCommunication for CudaServer {
         // Every failure from here leaves the destination holding whatever it
         // held, so a read of it has to fail on that rather than take those
         // bytes for a result.
-        let received = self.recv_checked(handle, dtype, stream_id, device_id_src);
+        let received = self.recv_checked(handle, stream_id, device_id_src);
         match received {
             Ok(()) => {
                 // The data is on its way, so an earlier failure that left the
@@ -933,7 +929,6 @@ impl CudaServer {
     fn recv_checked(
         &mut self,
         handle: Handle,
-        dtype: ElemType,
         stream_id: StreamId,
         device_id_src: DeviceId,
     ) -> Result<(), ServerError> {
@@ -957,8 +952,8 @@ impl CudaServer {
         // queued after it reads what arrives.
         let transfers = self.transfer_stream();
         Fence::new(stream).wait_async(transfers)?;
-        let elements = Cuda::elements(dtype, resource_dst.size)?;
-        Cuda::recv(&comm, &resource_dst, elements, peer, transfers)?;
+        let bytes = Cuda::elements(BYTES, resource_dst.size)?;
+        Cuda::recv(&comm, &resource_dst, bytes, peer, transfers)?;
         Fence::new(transfers).wait_async(stream)?;
         Ok(())
     }
@@ -1545,15 +1540,6 @@ fn check_tma_im2col(
     )?;
 
     Ok(())
-}
-
-/// When the compute stream waits for a collective.
-enum ComputeWait {
-    /// At the next `sync_collective`, so the compute stream keeps working meanwhile.
-    AtSync,
-    /// Before anything queued after it, so its buffers are released and its result read in
-    /// order.
-    Now,
 }
 
 /// The two devices of a peer-to-peer transfer, sorted.

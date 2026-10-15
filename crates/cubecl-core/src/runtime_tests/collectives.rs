@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use alloc::{vec, vec::Vec};
 use core::time::Duration;
-use cubecl_common::device::Device;
+use cubecl_common::device::{Device, DeviceId};
 use cubecl_runtime::{
     client::{Client, ClientGroup, ClientGroupError, MemberBuffers},
     runtime::Runtime,
@@ -27,7 +27,7 @@ const LEN: usize = 6;
 /// No collective here writes it, since no contribution is negative.
 const UNWRITTEN: f32 = -1.0;
 
-pub fn test_a_group_all_reduce_sums_every_member<R: Runtime>() {
+pub fn test_a_group_all_reduce_sums_and_averages<R: Runtime>() {
     let _collectives = queue_alone();
     finish_within_limit(all_reduce::<R>);
 }
@@ -42,7 +42,7 @@ pub fn test_reduce_scatter_gives_each_member_its_chunk<R: Runtime>() {
     finish_within_limit(reduce_scatter::<R>);
 }
 
-pub fn test_broadcast_copies_the_root_to_every_member<R: Runtime>() {
+pub fn test_broadcast_in_place_copies_the_root_to_every_member<R: Runtime>() {
     let _collectives = queue_alone();
     finish_within_limit(broadcast::<R>);
 }
@@ -50,6 +50,16 @@ pub fn test_broadcast_copies_the_root_to_every_member<R: Runtime>() {
 pub fn test_all_to_all_exchanges_chunks_by_rank<R: Runtime>() {
     let _collectives = queue_alone();
     finish_within_limit(all_to_all::<R>);
+}
+
+pub fn test_a_group_without_the_first_device_gathers<R: Runtime>() {
+    let _collectives = queue_alone();
+    finish_within_limit(later_devices::<R>);
+}
+
+pub fn test_a_transfer_moves_bytes_of_any_type<R: Runtime>() {
+    let _collectives = queue_alone();
+    finish_within_limit(transfer_of_any_type::<R>);
 }
 
 pub fn test_a_collective_refuses_a_repeated_device<R: Runtime>() {
@@ -62,9 +72,9 @@ pub fn test_a_group_refuses_mismatched_buffers_before_any_member_queues<R: Runti
     finish_within_limit(mismatched_buffers::<R>);
 }
 
-pub fn test_a_broadcast_takes_a_source_on_the_root_only<R: Runtime>() {
+pub fn test_a_broadcast_refuses_a_source_on_no_member<R: Runtime>() {
     let _collectives = queue_alone();
-    finish_within_limit(source_off_the_root::<R>);
+    finish_within_limit(source_on_no_member::<R>);
 }
 
 /// Holds every device's collectives for the caller until the guard drops.
@@ -92,55 +102,51 @@ pub fn finish_within_limit(test: fn()) {
 }
 
 fn all_reduce<R: Runtime>() {
-    let Some(mut group) = group::<R>() else {
+    let Some(group) = group::<R>() else {
         return;
     };
     let members = group.clients().len();
-    let buffers: Vec<_> = group
-        .clients()
-        .iter()
-        .enumerate()
-        .map(|(member, client)| MemberBuffers {
-            src: from_values(client, &values(member, LEN)),
-            dst: unwritten(client, LEN),
-        })
-        .collect();
-    let destinations = destinations(&buffers);
-
-    group.all_reduce(buffers, F32, ReduceOperation::Sum);
-
+    let contributions = || -> Vec<MemberBuffers> {
+        group
+            .clients()
+            .iter()
+            .enumerate()
+            .map(|(member, client)| MemberBuffers {
+                src: from_values(client, &values(member, LEN)),
+                dst: unwritten(client, LEN),
+            })
+            .collect()
+    };
     let summed: Vec<f32> = (0..LEN)
         .map(|i| (0..members).map(|member| values(member, LEN)[i]).sum())
         .collect();
-    assert_every_member_holds(&group, destinations, |_| summed.clone());
+
+    let buffers = contributions();
+    let sums = destinations(&buffers);
+    group.all_reduce(buffers, F32, ReduceOperation::Sum);
+    assert_every_member_holds(&group, sums, |_| summed.clone());
+
+    let buffers = contributions();
+    let means = destinations(&buffers);
+    group.all_reduce(buffers, F32, ReduceOperation::Mean);
+    for (member, (client, destination)) in group.clients().iter().zip(means).enumerate() {
+        let actual = client.read_one(destination).unwrap();
+        for (actual, sum) in f32::from_bytes(&actual).iter().zip(&summed) {
+            let mean = sum / members as f32;
+            assert!((actual - mean).abs() <= mean * 1e-6, "member {member}");
+        }
+    }
 }
 
 fn all_gather<R: Runtime>() {
-    let Some(mut group) = group::<R>() else {
+    let Some(group) = group::<R>() else {
         return;
     };
-    let members = group.clients().len();
-    let buffers: Vec<_> = group
-        .clients()
-        .iter()
-        .enumerate()
-        .map(|(member, client)| MemberBuffers {
-            src: from_values(client, &values(member, LEN)),
-            dst: unwritten(client, members * LEN),
-        })
-        .collect();
-    let destinations = destinations(&buffers);
-
-    group.all_gather(buffers, F32);
-
-    let expected: Vec<f32> = (0..members)
-        .flat_map(|member| values(member, LEN))
-        .collect();
-    assert_every_member_holds(&group, destinations, |_| expected.clone());
+    gather_every_member(&group);
 }
 
 fn reduce_scatter<R: Runtime>() {
-    let Some(mut group) = group::<R>() else {
+    let Some(group) = group::<R>() else {
         return;
     };
     let members = group.clients().len();
@@ -170,25 +176,28 @@ fn reduce_scatter<R: Runtime>() {
 }
 
 fn broadcast<R: Runtime>() {
-    let Some(mut group) = group::<R>() else {
+    let Some(group) = group::<R>() else {
         return;
     };
     // The last member, so a root taken for rank 0 shows.
     let root = group.clients().len() - 1;
-    let src = from_values(&group.clients()[root], &values(root, LEN));
     let destinations: Vec<_> = group
         .clients()
         .iter()
-        .map(|client| unwritten(client, LEN))
+        .enumerate()
+        .map(|(member, client)| match member == root {
+            true => from_values(client, &values(root, LEN)),
+            false => unwritten(client, LEN),
+        })
         .collect();
 
-    group.broadcast(root, src, destinations.clone(), F32);
+    group.broadcast(destinations[root].clone(), destinations.clone());
 
     assert_every_member_holds(&group, destinations, |_| values(root, LEN));
 }
 
 fn all_to_all<R: Runtime>() {
-    let Some(mut group) = group::<R>() else {
+    let Some(group) = group::<R>() else {
         return;
     };
     let members = group.clients().len();
@@ -211,19 +220,52 @@ fn all_to_all<R: Runtime>() {
         .collect();
     let destinations = destinations(&buffers);
 
-    group.all_to_all(buffers, F32);
+    group.all_to_all(buffers);
 
     assert_every_member_holds(&group, destinations, |member| {
         (0..members).flat_map(|from| chunk(from, member)).collect()
     });
 }
 
-fn repeated_device<R: Runtime>() {
-    let Some(group) = group::<R>() else {
+fn later_devices<R: Runtime>() {
+    let device_ids = R::enumerate_devices(0);
+    if device_ids.len() < 2 {
+        return;
+    }
+    let Some(group) = group_of::<R>(&device_ids[1..]) else {
         return;
     };
-    let mut client = group.clients()[0].clone();
-    let device = R::enumerate_devices(0)[0];
+    gather_every_member(&group);
+}
+
+fn transfer_of_any_type<R: Runtime>() {
+    let device_ids = R::enumerate_devices(0);
+    if device_ids.len() < 2 {
+        return;
+    }
+    let mut source = R::client(&R::Device::from_id(device_ids[0]));
+    let destination = R::client(&R::Device::from_id(device_ids[1]));
+    if !source.has_device_transport() {
+        log::warn!("skipping transfers: {} has no transport", source.name());
+        return;
+    }
+    // Three `i16`s, a type NCCL has no name for.
+    let bytes = [1u8, 2, 3, 4, 5, 6];
+    let src = source.create_from_slice(&bytes);
+
+    let moved = source.to_client(src, &destination);
+
+    assert_eq!(destination.read_one(moved).unwrap().to_vec(), bytes);
+}
+
+fn repeated_device<R: Runtime>() {
+    let Some(device) = R::enumerate_devices(0).first().copied() else {
+        return;
+    };
+    let client = R::client(&R::Device::from_id(device));
+    if !client.has_device_transport() {
+        return;
+    }
 
     let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.ensure_init_collective(vec![device, device]);
@@ -233,11 +275,11 @@ fn repeated_device<R: Runtime>() {
 }
 
 fn mismatched_buffers<R: Runtime>() {
-    let Some(mut group) = group::<R>() else {
+    let Some(group) = group::<R>() else {
         return;
     };
     let members = group.clients().len();
-    let gather = |group: &ClientGroup, last_dst: usize| -> Vec<MemberBuffers> {
+    let gather = |last_dst: usize| -> Vec<MemberBuffers> {
         group
             .clients()
             .iter()
@@ -254,68 +296,110 @@ fn mismatched_buffers<R: Runtime>() {
             })
             .collect()
     };
+    let refused = |reason: &str, collective: &dyn Fn()| {
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(collective));
+        assert_panicked_with(outcome, reason);
+    };
 
-    let wrong_size = gather(&group, LEN);
-    assert_refused(&mut group, "holds", |group| {
-        group.all_gather(wrong_size, F32)
+    refused("holds", &|| group.all_gather(gather(LEN)));
+    assert!(group.reduces(F32));
+    assert!(!group.reduces(cubecl_ir::ElemType::Bool));
+    refused("cannot reduce", &|| {
+        group.all_reduce(gather(LEN), cubecl_ir::ElemType::Bool, ReduceOperation::Sum)
     });
-    let features = &group.clients()[0].properties().features;
-    assert!(features.device_transport_moves(F32));
-    let untaken = gather(&group, members * LEN);
-    assert_refused(&mut group, "cannot move", |group| {
-        group.all_gather(untaken, cubecl_ir::ElemType::Bool)
+    refused("two streams", &|| {
+        let mut two_streams = gather(members * LEN);
+        let client = group.clients()[0].clone();
+        two_streams[0].src = std::thread::spawn(move || from_values(&client, &values(0, LEN)))
+            .join()
+            .unwrap();
+        group.all_gather(two_streams)
     });
-    let mut two_streams = gather(&group, members * LEN);
-    let client = group.clients()[0].clone();
-    two_streams[0].src = std::thread::spawn(move || from_values(&client, &values(0, LEN)))
-        .join()
-        .unwrap();
-    assert_refused(&mut group, "two streams", |group| {
-        group.all_gather(two_streams, F32)
+    refused("overlap", &|| {
+        let overlapping = group
+            .clients()
+            .iter()
+            .map(|client| {
+                let dst = unwritten(client, members * LEN);
+                let first_chunk = (members - 1) * LEN * size_of::<f32>();
+                MemberBuffers {
+                    src: dst.clone().offset_end(first_chunk as u64),
+                    dst,
+                }
+            })
+            .collect();
+        group.all_gather(overlapping)
     });
-    let partial = group
-        .clients()
-        .iter()
-        .map(|client| MemberBuffers {
-            src: client.create_from_slice(&[0; 2 + LEN * size_of::<f32>()]),
-            dst: unwritten(client, members * LEN),
-        })
-        .collect();
-    assert_refused(&mut group, "whole", |group| group.all_gather(partial, F32));
+    refused("whole", &|| {
+        let partial = group
+            .clients()
+            .iter()
+            .map(|client| MemberBuffers {
+                src: client.create_from_slice(&[0; 2 + LEN * size_of::<f32>()]),
+                dst: client.create_from_slice(&[0; 2 + LEN * size_of::<f32>()]),
+            })
+            .collect();
+        group.all_reduce(partial, F32, ReduceOperation::Sum)
+    });
+    refused("evenly", &|| {
+        let uneven = group
+            .clients()
+            .iter()
+            .map(|client| MemberBuffers {
+                src: client.create_from_slice(&vec![0; 1 + members * LEN * size_of::<f32>()]),
+                dst: unwritten(client, LEN),
+            })
+            .collect();
+        group.reduce_scatter(uneven, F32, ReduceOperation::Sum)
+    });
 
     // No member queued a part, so the devices still run the next collective.
-    let buffers = gather(&group, members * LEN);
-    let destinations = destinations(&buffers);
-    group.all_gather(buffers, F32);
-    let expected: Vec<f32> = (0..members)
-        .flat_map(|member| values(member, LEN))
-        .collect();
-    assert_every_member_holds(&group, destinations, |_| expected.clone());
+    gather_every_member(&group);
 }
 
-fn source_off_the_root<R: Runtime>() {
-    let Some(mut group) = group::<R>() else {
+fn source_on_no_member<R: Runtime>() {
+    let device_ids = R::enumerate_devices(0);
+    if device_ids.len() < 2 {
+        return;
+    }
+    let Some(group) = group_of::<R>(&device_ids[1..]) else {
         return;
     };
-    let src = from_values(&group.clients()[0], &values(0, LEN));
+    let outsider = R::client(&R::Device::from_id(device_ids[0]));
+    let src = from_values(&outsider, &values(0, LEN));
     let destinations = group
         .clients()
         .iter()
         .map(|client| unwritten(client, LEN))
         .collect();
 
-    assert_refused(&mut group, "not on its device", |group| {
-        group.broadcast(1, src, destinations, F32)
-    });
+    let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        group.broadcast(src, destinations)
+    }));
+
+    assert_panicked_with(refused, "no member's device");
 }
 
-fn assert_refused(
-    group: &mut ClientGroup,
-    reason: &str,
-    collective: impl FnOnce(&mut ClientGroup),
-) {
-    let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| collective(group)));
-    assert_panicked_with(refused, reason);
+/// Gathers `values(member, LEN)` from every member, checking each holds them all in order.
+fn gather_every_member(group: &ClientGroup) {
+    let members = group.clients().len();
+    let buffers: Vec<_> = group
+        .clients()
+        .iter()
+        .enumerate()
+        .map(|(member, client)| MemberBuffers {
+            src: from_values(client, &values(member, LEN)),
+            dst: unwritten(client, members * LEN),
+        })
+        .collect();
+    let destinations = destinations(&buffers);
+
+    group.all_gather(buffers);
+
+    let expected: Vec<f32> = (0..members)
+        .flat_map(|member| values(member, LEN))
+        .collect();
+    assert_every_member_holds(group, destinations, |_| expected.clone());
 }
 
 fn assert_panicked_with(outcome: std::thread::Result<()>, reason: &str) {
@@ -333,6 +417,11 @@ fn group<R: Runtime>() -> Option<ClientGroup> {
     if device_ids.len() < 2 {
         return None;
     }
+    group_of::<R>(&device_ids)
+}
+
+/// A group of `device_ids`, or `None` when their runtime has no transport.
+fn group_of<R: Runtime>(device_ids: &[DeviceId]) -> Option<ClientGroup> {
     let clients = device_ids
         .iter()
         .map(|id| R::client(&R::Device::from_id(*id)))
@@ -387,8 +476,8 @@ macro_rules! testgen_collectives {
         use super::*;
 
         #[$crate::runtime_tests::test_log::test]
-        fn test_a_group_all_reduce_sums_every_member() {
-            cubecl_core::runtime_tests::collectives::test_a_group_all_reduce_sums_every_member::<
+        fn test_a_group_all_reduce_sums_and_averages() {
+            cubecl_core::runtime_tests::collectives::test_a_group_all_reduce_sums_and_averages::<
                 TestRuntime,
             >();
         }
@@ -408,8 +497,8 @@ macro_rules! testgen_collectives {
         }
 
         #[$crate::runtime_tests::test_log::test]
-        fn test_broadcast_copies_the_root_to_every_member() {
-            cubecl_core::runtime_tests::collectives::test_broadcast_copies_the_root_to_every_member::<
+        fn test_broadcast_in_place_copies_the_root_to_every_member() {
+            cubecl_core::runtime_tests::collectives::test_broadcast_in_place_copies_the_root_to_every_member::<
                 TestRuntime,
             >();
         }
@@ -422,6 +511,20 @@ macro_rules! testgen_collectives {
         }
 
         #[$crate::runtime_tests::test_log::test]
+        fn test_a_group_without_the_first_device_gathers() {
+            cubecl_core::runtime_tests::collectives::test_a_group_without_the_first_device_gathers::<
+                TestRuntime,
+            >();
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_a_transfer_moves_bytes_of_any_type() {
+            cubecl_core::runtime_tests::collectives::test_a_transfer_moves_bytes_of_any_type::<
+                TestRuntime,
+            >();
+        }
+
+        #[$crate::runtime_tests::test_log::test]
         fn test_a_group_refuses_mismatched_buffers_before_any_member_queues() {
             cubecl_core::runtime_tests::collectives::test_a_group_refuses_mismatched_buffers_before_any_member_queues::<
                 TestRuntime,
@@ -429,8 +532,8 @@ macro_rules! testgen_collectives {
         }
 
         #[$crate::runtime_tests::test_log::test]
-        fn test_a_broadcast_takes_a_source_on_the_root_only() {
-            cubecl_core::runtime_tests::collectives::test_a_broadcast_takes_a_source_on_the_root_only::<
+        fn test_a_broadcast_refuses_a_source_on_no_member() {
+            cubecl_core::runtime_tests::collectives::test_a_broadcast_refuses_a_source_on_no_member::<
                 TestRuntime,
             >();
         }

@@ -17,6 +17,7 @@ use crate::{
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
 use alloc::boxed::Box;
+use alloc::collections::BTreeSet;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -135,6 +136,8 @@ pub struct ServerUtilities {
     pub logger: Arc<ServerLogger>,
     /// How to create the allocation.
     pub layout_policy: Box<dyn MemoryLayoutPolicy>,
+    /// The runtime's transport between its devices without the host, when it has one.
+    pub device_transport: Option<DeviceTransport>,
     /// How to enforce bounds checking on kernels.
     pub check_mode: BoundsCheckMode,
     /// A set containing the ids for which the inter-device communication has already been initialized.
@@ -142,6 +145,13 @@ pub struct ServerUtilities {
     /// The graph captures under way on the device, read-only: the streams update them through
     /// the [`DeviceCaptures`] [`init`](Self::init) returns alongside.
     pub captures: CaptureStatus,
+}
+
+/// A runtime's transport between its devices, which moves any buffer as bytes.
+#[derive(Debug, Clone, Default)]
+pub struct DeviceTransport {
+    /// The element types it reduces.
+    pub reduces: BTreeSet<ElemType>,
 }
 
 /// Defines how the memory layout is determined.
@@ -209,6 +219,7 @@ impl ServerUtilities {
             #[cfg(feature = "profile-tracy")]
             epoch_time: cubecl_environment::time::Instant::now(),
             layout_policy: Box::new(allocator),
+            device_transport: None,
             check_mode: CubeClRuntimeConfig::get().compilation.check_mode,
             initialized_comms: RwLock::new(HashSet::default()),
             captures: captures.status(),
@@ -375,6 +386,34 @@ impl Display for Collective {
             Self::SyncCollective => "sync_collective",
         })
     }
+}
+
+/// Which of a collective's buffers a check is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CollectiveBuffer {
+    /// What a member contributes.
+    Source,
+    /// Where a member's result lands.
+    Destination,
+}
+
+impl Display for CollectiveBuffer {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::Source => "source",
+            Self::Destination => "destination",
+        })
+    }
+}
+
+/// When a device's compute stream waits for a collective it queued.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComputeWait {
+    /// At the next `sync_collective`, so compute keeps running meanwhile. The caller keeps the
+    /// buffers alive until then: one released earlier can be reused while the collective reads it.
+    AtSync,
+    /// Before anything queued after it, so its buffers are released and its result read in order.
+    Now,
 }
 
 /// Error that can happen asynchronously while executing registered kernels.
@@ -976,6 +1015,7 @@ pub trait ServerCommunication {
     /// * `stream_id` - The data's stream id.
     /// * `op` - The reduce's aggregation operation e.g. mean, sum, etc.
     /// * `device_ids` - The list of device ids from which to `all_reduce`.
+    /// * `wait` - When the compute stream waits for it.
     ///
     /// # Returns
     ///
@@ -984,7 +1024,7 @@ pub trait ServerCommunication {
     /// # Errors
     ///
     /// The default returns [`ServerError::NoDeviceTransport`].
-    #[allow(unused_variables)]
+    #[allow(unused_variables, clippy::too_many_arguments)]
     fn all_reduce(
         &mut self,
         src: BufferBinding,
@@ -993,6 +1033,7 @@ pub trait ServerCommunication {
         stream_id: StreamId,
         op: ReduceOperation,
         device_ids: Vec<DeviceId>,
+        wait: ComputeWait,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::AllReduce))
     }
@@ -1008,7 +1049,6 @@ pub trait ServerCommunication {
         &mut self,
         src: BufferBinding,
         dst: BufferBinding,
-        dtype: ElemType,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
     ) -> Result<(), ServerError> {
@@ -1044,7 +1084,6 @@ pub trait ServerCommunication {
         &mut self,
         src: Option<BufferBinding>,
         dst: BufferBinding,
-        dtype: ElemType,
         stream_id: StreamId,
         root: DeviceId,
         device_ids: Vec<DeviceId>,
@@ -1063,7 +1102,6 @@ pub trait ServerCommunication {
         &mut self,
         src: BufferBinding,
         dst: BufferBinding,
-        dtype: ElemType,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
     ) -> Result<(), ServerError> {
@@ -1075,7 +1113,6 @@ pub trait ServerCommunication {
     /// # Arguments
     ///
     /// * `desc` - A descriptor specifying the data to be sent, including shape, strides, and binding.
-    /// * `dtype` - The element type of the data being sent.
     /// * `stream_id` - The stream ID associated with the server's operation.
     /// * `device_id_dst` - ID of the device receiving the data.
     ///
@@ -1100,7 +1137,6 @@ pub trait ServerCommunication {
     fn send(
         &mut self,
         desc: CopyDescriptor,
-        dtype: ElemType,
         stream_id: StreamId,
         device_id_dst: DeviceId,
     ) -> Result<(), ServerError> {
@@ -1112,7 +1148,6 @@ pub trait ServerCommunication {
     /// # Arguments
     ///
     /// * `handle` - The handle in which the received data is written.
-    /// * `dtype` - The element type of the data being sent.
     /// * `stream_id` - The stream ID associated with the server's operation.
     /// * `device_id_src` - ID of the device sending the data.
     ///
@@ -1127,7 +1162,6 @@ pub trait ServerCommunication {
     fn recv(
         &mut self,
         handle: Handle,
-        dtype: ElemType,
         stream_id: StreamId,
         device_id_src: DeviceId,
     ) -> Result<(), ServerError> {

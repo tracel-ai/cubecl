@@ -9,13 +9,13 @@ use core::ffi::c_int;
 use std::{collections::HashMap, sync::OnceLock};
 
 use cubecl_core::{
-    ir::{DeviceProperties, ElemType, FloatKind, IntKind, UIntKind},
-    server::{CommunicationId, ReduceOperation, ServerError},
+    ir::{ElemType, FloatKind, IntKind, UIntKind},
+    server::{CollectiveBuffer, CommunicationId, DeviceTransport, ReduceOperation, ServerError},
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::sync::Mutex;
 use cubecl_server::command::{CollectiveDriver, Elements};
-use cudarc::nccl::sys::ncclDataType_t as Nccl;
+use cudarc::nccl::sys::ncclDataType_t as NcclDataType;
 use std::mem::MaybeUninit;
 
 use crate::compute::driver::Cuda;
@@ -33,11 +33,14 @@ fn to_nccl_op(op: ReduceOperation) -> cudarc::nccl::sys::ncclRedOp_t {
     }
 }
 
+/// What a collective that only moves data names its buffers as, whatever they hold.
+pub const BYTES: ElemType = ElemType::UInt(UIntKind::U8);
+
 /// NCCL 2.24.3, the first release with the FP8 data types.
 const NCCL_FP8: c_int = 22403;
 
-/// NCCL's FP8 data types need Hopper.
-const NCCL_FP8_ARCH: u32 = 90;
+/// NCCL reduces FP8 only on Hopper and newer.
+const NCCL_FP8_REDUCTION_ARCH: u32 = 90;
 
 /// The elements of `dtype` that `size` bytes hold, as NCCL names them.
 ///
@@ -45,7 +48,7 @@ const NCCL_FP8_ARCH: u32 = 90;
 ///
 /// [`ServerError::Generic`] for an element type NCCL has no data type for, and for a size that
 /// is not whole elements, whose last bytes NCCL would leave out.
-fn nccl_elements(dtype: ElemType, size: u64) -> Result<Elements<Nccl>, ServerError> {
+fn nccl_elements(dtype: ElemType, size: u64) -> Result<Elements<NcclDataType>, ServerError> {
     let data_type = nccl_dtype(dtype).ok_or_else(|| ServerError::Generic {
         reason: format!("NCCL has no data type for {dtype:?}, so no collective over it"),
         backtrace: BackTrace::capture(),
@@ -63,64 +66,86 @@ fn nccl_elements(dtype: ElemType, size: u64) -> Result<Elements<Nccl>, ServerErr
     })
 }
 
-/// Registers the device's types that the NCCL it loads moves as its device transport's.
-pub fn register_nccl_transport(props: &mut DeviceProperties, arch_version: u32) {
-    // SAFETY: the call only tries to `dlopen` each candidate name.
-    if !unsafe { cudarc::nccl::sys::is_culib_present() } {
-        return;
-    }
-    let Ok(version) = cudarc::nccl::result::get_nccl_version() else {
-        return;
-    };
-    let target = NcclTarget {
-        version,
-        arch_version,
-    };
-    let moved: Vec<ElemType> = props
-        .features
-        .types
-        .elem
-        .keys()
-        .copied()
-        .filter(|dtype| target.moves(*dtype))
-        .collect();
-    for dtype in moved {
-        props.register_device_transport(dtype);
-    }
-}
-
-/// The NCCL loaded, which may predate types this crate names, and the device it runs on.
-struct NcclTarget {
+/// The NCCL this process loads, which may predate types this crate names, and the device it
+/// runs on.
+pub struct NcclTarget {
     version: c_int,
     arch_version: u32,
 }
 
 impl NcclTarget {
-    fn moves(&self, dtype: ElemType) -> bool {
+    /// The NCCL this process loads, for a device of `arch_version`, or `None` when none loads.
+    pub fn loaded(arch_version: u32) -> Option<Self> {
+        // SAFETY: the call only tries to `dlopen` each candidate name.
+        if !unsafe { cudarc::nccl::sys::is_culib_present() } {
+            return None;
+        }
+        match cudarc::nccl::result::get_nccl_version() {
+            Ok(version) => Some(Self {
+                version,
+                arch_version,
+            }),
+            Err(err) => {
+                log::warn!(
+                    "NCCL loaded but gave no version, so transfers go through the host: {err:?}"
+                );
+                None
+            }
+        }
+    }
+
+    /// The transport NCCL gives a device that supports `types`.
+    pub fn transport(&self, types: impl Iterator<Item = ElemType>) -> DeviceTransport {
+        DeviceTransport {
+            reduces: types.filter(|dtype| self.reduces(*dtype)).collect(),
+        }
+    }
+
+    fn reduces(&self, dtype: ElemType) -> bool {
         match dtype {
             ElemType::Float(FloatKind::E4M3 | FloatKind::E5M2) => {
-                self.version >= NCCL_FP8 && self.arch_version >= NCCL_FP8_ARCH
+                self.version >= NCCL_FP8 && self.arch_version >= NCCL_FP8_REDUCTION_ARCH
             }
             dtype => nccl_dtype(dtype).is_some(),
         }
     }
 }
 
+impl GpuResource {
+    /// Refuses a collective whose `buffer` holds other than `needed` bytes.
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::Generic`] when the sizes differ.
+    pub fn expect_size(&self, buffer: CollectiveBuffer, needed: u64) -> Result<(), ServerError> {
+        match self.size == needed {
+            true => Ok(()),
+            false => Err(ServerError::Generic {
+                reason: format!(
+                    "the collective's {buffer} holds {} bytes where it needs {needed}",
+                    self.size
+                ),
+                backtrace: BackTrace::capture(),
+            }),
+        }
+    }
+}
+
 /// The NCCL data type for `dtype`.
-fn nccl_dtype(dtype: ElemType) -> Option<Nccl> {
+fn nccl_dtype(dtype: ElemType) -> Option<NcclDataType> {
     Some(match dtype {
-        ElemType::Float(FloatKind::E4M3) => Nccl::ncclFloat8e4m3,
-        ElemType::Float(FloatKind::E5M2) => Nccl::ncclFloat8e5m2,
-        ElemType::Float(FloatKind::F16) => Nccl::ncclFloat16,
-        ElemType::Float(FloatKind::BF16) => Nccl::ncclBfloat16,
-        ElemType::Float(FloatKind::F32) => Nccl::ncclFloat32,
-        ElemType::Float(FloatKind::F64) => Nccl::ncclFloat64,
-        ElemType::Int(IntKind::I8) => Nccl::ncclInt8,
-        ElemType::Int(IntKind::I32) => Nccl::ncclInt32,
-        ElemType::Int(IntKind::I64) => Nccl::ncclInt64,
-        ElemType::UInt(UIntKind::U8) => Nccl::ncclUint8,
-        ElemType::UInt(UIntKind::U32) => Nccl::ncclUint32,
-        ElemType::UInt(UIntKind::U64) => Nccl::ncclUint64,
+        ElemType::Float(FloatKind::E4M3) => NcclDataType::ncclFloat8e4m3,
+        ElemType::Float(FloatKind::E5M2) => NcclDataType::ncclFloat8e5m2,
+        ElemType::Float(FloatKind::F16) => NcclDataType::ncclFloat16,
+        ElemType::Float(FloatKind::BF16) => NcclDataType::ncclBfloat16,
+        ElemType::Float(FloatKind::F32) => NcclDataType::ncclFloat32,
+        ElemType::Float(FloatKind::F64) => NcclDataType::ncclFloat64,
+        ElemType::Int(IntKind::I8) => NcclDataType::ncclInt8,
+        ElemType::Int(IntKind::I32) => NcclDataType::ncclInt32,
+        ElemType::Int(IntKind::I64) => NcclDataType::ncclInt64,
+        ElemType::UInt(UIntKind::U8) => NcclDataType::ncclUint8,
+        ElemType::UInt(UIntKind::U32) => NcclDataType::ncclUint32,
+        ElemType::UInt(UIntKind::U64) => NcclDataType::ncclUint64,
         // Spelled out rather than caught by a wildcard, so a new element type
         // has to be placed on one side or the other before this compiles.
         ElemType::Index
@@ -151,7 +176,7 @@ fn nccl_error(operation: &str, err: cudarc::nccl::result::NcclError) -> ServerEr
 impl CollectiveDriver for Cuda {
     type Communicator = cudarc::nccl::sys::ncclComm_t;
     type UniqueId = cudarc::nccl::sys::ncclUniqueId;
-    type DataType = Nccl;
+    type DataType = NcclDataType;
     type CommStream = cudarc::driver::sys::CUstream;
 
     fn group_id(id: &CommunicationId) -> Result<Self::UniqueId, ServerError> {
@@ -306,8 +331,8 @@ impl CollectiveDriver for Cuda {
         stream: Self::CommStream,
     ) -> Result<(), ServerError> {
         let chunk = src.size / ranks as u64;
-        // NCCL has no all-to-all: one send and one receive per rank, itself included, grouped so
-        // NCCL pairs them as one operation rather than waiting on each in turn.
+        // One send and one receive per rank, itself included, grouped so NCCL pairs them as one
+        // operation; older releases have no `ncclAlltoAll`.
         cudarc::nccl::result::group_start().map_err(|err| nccl_error("group_start", err))?;
         let queued = (0..ranks).try_for_each(|rank| {
             let offset = rank as u64 * chunk;
@@ -399,27 +424,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nccl_moves_only_the_types_it_names() {
-        let target = NcclTarget {
+    fn nccl_reduces_only_the_types_it_names() {
+        let nccl = NcclTarget {
             version: 21800,
             arch_version: 75,
         };
-        assert!(target.moves(ElemType::Float(FloatKind::F32)));
-        assert!(target.moves(ElemType::UInt(UIntKind::U8)));
-        assert!(!target.moves(ElemType::Bool));
-        assert!(!target.moves(ElemType::Int(IntKind::I16)));
+        assert!(nccl.reduces(ElemType::Float(FloatKind::F32)));
+        assert!(nccl.reduces(ElemType::UInt(UIntKind::U8)));
+        assert!(!nccl.reduces(ElemType::Bool));
+        assert!(!nccl.reduces(ElemType::Int(IntKind::I16)));
     }
 
     #[test]
-    fn nccl_moves_fp8_from_its_release_on_hopper() {
+    fn nccl_reduces_fp8_from_its_release_on_hopper() {
         let fp8 = ElemType::Float(FloatKind::E4M3);
-        let target = |version, arch_version| NcclTarget {
+        let nccl = |version, arch_version| NcclTarget {
             version,
             arch_version,
         };
-        assert!(target(NCCL_FP8, NCCL_FP8_ARCH).moves(fp8));
-        assert!(!target(NCCL_FP8 - 1, NCCL_FP8_ARCH).moves(fp8));
-        assert!(!target(NCCL_FP8, 89).moves(fp8));
+        assert!(nccl(NCCL_FP8, NCCL_FP8_REDUCTION_ARCH).reduces(fp8));
+        assert!(!nccl(NCCL_FP8 - 1, NCCL_FP8_REDUCTION_ARCH).reduces(fp8));
+        assert!(!nccl(NCCL_FP8, 89).reduces(fp8));
     }
 
     #[test]

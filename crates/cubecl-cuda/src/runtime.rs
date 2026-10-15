@@ -1,6 +1,6 @@
 use crate::{
     compiler::{CudaBackend, CudaCompilationOptions},
-    compute::{CudaServer, context::CudaContext},
+    compute::{CudaServer, communication::NcclTarget, context::CudaContext},
     device::CudaDevice,
 };
 use cubecl_common::{
@@ -406,7 +406,6 @@ impl DeviceService for CudaServer {
             let sm_arch = SmArch::new(arch_version, arch.tensor_cores);
             restrict_features(&mut device_props, GpuTarget::Nvptx { arch: sm_arch });
         }
-        crate::compute::communication::register_nccl_transport(&mut device_props, arch_version);
 
         let comp_opts = CudaCompilationOptions {
             cpp: comp_opts,
@@ -433,7 +432,7 @@ impl DeviceService for CudaServer {
         );
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
-        let (utilities, captures) = ServerUtilities::init(
+        let (mut utilities, captures) = ServerUtilities::init(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "cuda",
             device_props,
@@ -441,6 +440,8 @@ impl DeviceService for CudaServer {
             logger,
             policy,
         );
+        utilities.device_transport = NcclTarget::loaded(arch_version)
+            .map(|nccl| nccl.transport(utilities.properties.features.types.elem.keys().copied()));
 
         CudaServer::new(
             cuda_ctx,

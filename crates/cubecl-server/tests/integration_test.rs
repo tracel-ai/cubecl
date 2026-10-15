@@ -9,7 +9,7 @@ use cubecl_environment::stream::StreamId;
 use cubecl_ir::{ElemType, UIntKind};
 use cubecl_server::client::{Client, ClientGroup, ClientGroupError};
 use cubecl_server::server::{
-    CubeCount, Handle, IoError, KernelArguments, ReduceOperation, ServerError,
+    CubeCount, Handle, IoError, KernelArguments, Overlap, ReduceOperation, ServerError,
 };
 use cubecl_server::{
     local_tuner,
@@ -127,7 +127,7 @@ fn transferring_a_foreign_handle_to_another_client_panics() {
     let destination = client.clone();
     let handle = handle_of(ServiceId::of::<()>(DeviceId::new(0, 0)));
 
-    client.to_client(handle, &destination, ElemType::UInt(UIntKind::U8));
+    client.to_client(handle, &destination);
 }
 
 #[test_log::test]
@@ -137,7 +137,7 @@ fn a_transfer_between_devices_of_the_same_runtime_round_trips() {
     let bytes = [1u8, 2, 3, 4];
     let handle = source.create_from_slice(&bytes);
 
-    let transferred = source.to_client(handle, &destination, ElemType::UInt(UIntKind::U8));
+    let transferred = source.to_client(handle, &destination);
 
     assert_eq!(transferred.service, destination.service_id());
     assert_eq!(destination.read_one(transferred).unwrap().to_vec(), bytes);
@@ -152,7 +152,7 @@ fn a_transfer_without_a_device_transport_panics_on_the_caller() {
     assert!(!source.has_device_transport());
 
     let descriptor = handle.copy_descriptor([4].into(), [1].into(), 1);
-    source.to_client_tensor(descriptor, &destination, ElemType::UInt(UIntKind::U8));
+    source.to_client_tensor(descriptor, &destination);
 }
 
 #[test_log::test]
@@ -198,10 +198,11 @@ fn handles_overlap_only_where_their_bytes_meet() {
     let back = whole.clone().offset_start(8);
     let middle = whole.clone().offset_start(4).offset_end(4);
 
-    assert!(whole.overlaps(&front));
-    assert!(middle.overlaps(&front) && middle.overlaps(&back));
-    assert!(!front.overlaps(&back));
-    assert!(!whole.overlaps(&client.empty(16)));
+    assert_eq!(whole.overlap(&whole.clone()), Overlap::Same);
+    assert_eq!(whole.overlap(&front), Overlap::Partial);
+    assert_eq!(middle.overlap(&back), Overlap::Partial);
+    assert_eq!(front.overlap(&back), Overlap::Disjoint);
+    assert_eq!(whole.overlap(&client.empty(16)), Overlap::Disjoint);
 }
 
 #[test_log::test]
@@ -253,7 +254,7 @@ fn a_transfer_across_runtimes_goes_through_the_host() {
     let bytes = [5u8, 6, 7, 8];
     let handle = source.create_from_slice(&bytes);
 
-    let transferred = source.to_client(handle, &destination, ElemType::UInt(UIntKind::U8));
+    let transferred = source.to_client(handle, &destination);
 
     assert_eq!(transferred.service, destination.service_id());
     assert_eq!(destination.read_one(transferred).unwrap().to_vec(), bytes);
