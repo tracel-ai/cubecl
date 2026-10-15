@@ -7,7 +7,7 @@
 //! that wrong on one rank and the whole group hangs. That is what lives here.
 //!
 //! What does not is [`CollectiveDriver`]: agreeing the identifier, joining,
-//! naming an element type, and the three operations themselves.
+//! naming an element type, and the operations themselves.
 
 use super::{DeviceResource, Driver};
 use crate::server::{CommunicationId, ReduceOperation, ServerError};
@@ -74,6 +74,70 @@ pub trait CollectiveDriver: Driver {
         dtype: Self::DataType,
         count: usize,
         op: ReduceOperation,
+        stream: Self::CommStream,
+    ) -> Result<(), ServerError>;
+
+    /// Write every rank's `src` of `count` elements, concatenated in rank order, to `dst`.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to enqueue the gather.
+    fn all_gather(
+        comm: &Self::Communicator,
+        src: &DeviceResource<Self>,
+        dst: &DeviceResource<Self>,
+        dtype: Self::DataType,
+        count: usize,
+        stream: Self::CommStream,
+    ) -> Result<(), ServerError>;
+
+    /// Reduce every rank's `src` and write this rank's chunk of `count` elements to `dst`.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to enqueue the reduction.
+    #[allow(clippy::too_many_arguments)]
+    fn reduce_scatter(
+        comm: &Self::Communicator,
+        src: &DeviceResource<Self>,
+        dst: &DeviceResource<Self>,
+        dtype: Self::DataType,
+        count: usize,
+        op: ReduceOperation,
+        stream: Self::CommStream,
+    ) -> Result<(), ServerError>;
+
+    /// Write rank `root`'s `src` of `count` elements to `dst` on every rank. Only `root` has a
+    /// `src`.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to enqueue the broadcast.
+    #[allow(clippy::too_many_arguments)]
+    fn broadcast(
+        comm: &Self::Communicator,
+        src: Option<&DeviceResource<Self>>,
+        dst: &DeviceResource<Self>,
+        dtype: Self::DataType,
+        count: usize,
+        root: usize,
+        stream: Self::CommStream,
+    ) -> Result<(), ServerError>;
+
+    /// Send chunk `r` of `src` to rank `r` and write the chunk rank `r` sends to chunk `r` of
+    /// `dst`, each of the `ranks` chunks holding `count` elements.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to enqueue the exchange.
+    #[allow(clippy::too_many_arguments)]
+    fn all_to_all(
+        comm: &Self::Communicator,
+        src: &DeviceResource<Self>,
+        dst: &DeviceResource<Self>,
+        dtype: Self::DataType,
+        count: usize,
+        ranks: usize,
         stream: Self::CommStream,
     ) -> Result<(), ServerError>;
 
@@ -176,6 +240,16 @@ impl<D: CollectiveDriver> Collectives<D> {
         // number.
         let mut devices = devices;
         devices.sort();
+        // Two ranks on one device would each wait in its join for the other.
+        if let Some(pair) = devices.windows(2).find(|pair| pair[0] == pair[1]) {
+            return Err(ServerError::Generic {
+                reason: format!(
+                    "{:?} appears twice among the devices of a group, which need one rank each",
+                    pair[0]
+                ),
+                backtrace: BackTrace::capture(),
+            });
+        }
         let rank = rank_in(self.device, &devices).ok_or_else(|| ServerError::Generic {
             reason: format!(
                 "this device ({:?}) is not among the {} the group was formed over, \
@@ -206,6 +280,20 @@ impl<D: CollectiveDriver> Collectives<D> {
             })
     }
 
+    /// The rank of `device` in the group over `devices`.
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::Generic`] when `device` is not among `devices`.
+    pub fn rank(&self, device: DeviceId, devices: &[DeviceId]) -> Result<usize, ServerError> {
+        let mut sorted = devices.to_vec();
+        sorted.sort();
+        rank_in(device, &sorted).ok_or_else(|| ServerError::Generic {
+            reason: format!("{device:?} is not among the devices of the group"),
+            backtrace: BackTrace::capture(),
+        })
+    }
+
     /// The rank of the one device in `devices` that is not this one.
     ///
     /// For the two-device operations — a send has exactly one peer, and its
@@ -223,6 +311,23 @@ impl<D: CollectiveDriver> Collectives<D> {
             ),
             backtrace: BackTrace::capture(),
         })
+    }
+}
+
+/// Refuses a collective whose `buffer` holds `size` bytes where it needs `expected`.
+///
+/// # Errors
+///
+/// [`ServerError::Generic`] when the sizes differ.
+pub fn expect_size(buffer: &str, size: u64, expected: u64) -> Result<(), ServerError> {
+    match size == expected {
+        true => Ok(()),
+        false => Err(ServerError::Generic {
+            reason: format!(
+                "the collective's {buffer} holds {size} bytes where it needs {expected}"
+            ),
+            backtrace: BackTrace::capture(),
+        }),
     }
 }
 

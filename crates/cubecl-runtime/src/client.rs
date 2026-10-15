@@ -18,8 +18,10 @@ use crate::{
 use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
 use core::any::{Any, TypeId};
 
+mod group;
 #[cfg(not(target_family = "wasm"))]
 mod lazy;
+
 use cubecl_common::{
     bytes::{AllocationProperty, Bytes},
     device::{DeviceId, ServiceId},
@@ -29,6 +31,7 @@ use cubecl_common::{
 use cubecl_environment::{backtrace::BackTrace, future::DynFut, stream::StreamId, sync::Mutex};
 use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, VectorSize, features::Features};
 use cubecl_zspace::Shape;
+pub use group::*;
 
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
@@ -36,6 +39,14 @@ use cubecl_common::profile::TimingMethod;
 /// Work that waits on the host for its peers, a communicator's setup and a transfer's two
 /// halves, queues on every device in the order this hands out.
 static PEER_ORDER: Mutex<()> = Mutex::new(());
+
+/// The first device that appears more than once in `device_ids`.
+fn repeated_device(device_ids: &[DeviceId]) -> Option<DeviceId> {
+    device_ids
+        .iter()
+        .enumerate()
+        .find_map(|(i, id)| device_ids[..i].contains(id).then_some(*id))
+}
 
 /// The `Client` is the entry point to require tasks from the `Server`.
 /// It should be obtained for a specific device via the Compute struct.
@@ -947,6 +958,12 @@ impl Client {
     )]
     pub fn ensure_init_collective(&mut self, device_ids: Vec<DeviceId>) {
         self.expect_device_transport(Collective::CommInit);
+        // Two ranks on one device wait on its server thread for each other, forever.
+        if let Some(repeated) = repeated_device(&device_ids) {
+            panic!(
+                "{repeated:?} appears twice among a collective's devices, which need one rank each"
+            );
+        }
         let comm_id = CommunicationId::from(device_ids.clone());
         if self.utilities.initialized_comms.read().contains(&comm_id) {
             return;
@@ -980,7 +997,14 @@ impl Client {
     /// Whether this runtime moves data between its devices itself. Without it, `to_client`
     /// copies through the host and the collectives refuse.
     pub fn has_device_transport(&self) -> bool {
-        self.utilities.server_comm_enabled
+        self.utilities.device_transport.is_some()
+    }
+
+    /// Whether the device transport moves elements of `dtype`. False without a transport.
+    pub fn device_transport_takes(&self, dtype: ElemType) -> bool {
+        self.utilities
+            .device_transport
+            .is_some_and(|transport| (transport.takes)(dtype))
     }
 
     /// Panics on the caller when the runtime has no device transport.
@@ -1046,27 +1070,129 @@ impl Client {
         device_ids: Vec<DeviceId>,
         op: ReduceOperation,
     ) {
-        if DeviceHandle::<dyn Server>::is_blocking() {
-            panic!("Can't use `all_reduce` with a blocking device handle");
-        }
-        self.expect_device_transport(Collective::AllReduce);
-
-        let stream_id = self.stream_id();
-        let src = src.binding();
-        let dst = dst.binding();
+        let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
+        self.queue_collective(
+            Collective::AllReduce,
+            device_ids.clone(),
+            move |server, stream_id| server.all_reduce(src, dst, dtype, stream_id, op, device_ids),
+        );
+    }
 
-        self.ensure_init_collective(device_ids.clone());
+    /// Perform an `all_gather` on the given devices: `dst` receives every device's `src`,
+    /// concatenated in rank order, a rank being a device's position among `device_ids` sorted.
+    ///
+    /// Queued like [`all_reduce`](Self::all_reduce), whose ordering rule it shares.
+    pub fn all_gather(
+        &mut self,
+        src: Handle,
+        dst: Handle,
+        dtype: ElemType,
+        device_ids: Vec<DeviceId>,
+    ) {
+        let (src, dst) = (src.binding(), dst.binding());
+        self.expect_local(&src);
+        self.expect_local(&dst);
+        self.queue_collective(
+            Collective::AllGather,
+            device_ids.clone(),
+            move |server, stream_id| server.all_gather(src, dst, dtype, stream_id, device_ids),
+        );
+    }
 
+    /// Perform a `reduce_scatter` on the given devices: `dst` receives this device's rank's chunk
+    /// of every device's `src` reduced, a rank being a device's position among `device_ids`
+    /// sorted.
+    ///
+    /// Queued like [`all_reduce`](Self::all_reduce), whose ordering rule it shares.
+    pub fn reduce_scatter(
+        &mut self,
+        src: Handle,
+        dst: Handle,
+        dtype: ElemType,
+        device_ids: Vec<DeviceId>,
+        op: ReduceOperation,
+    ) {
+        let (src, dst) = (src.binding(), dst.binding());
+        self.expect_local(&src);
+        self.expect_local(&dst);
+        self.queue_collective(
+            Collective::ReduceScatter,
+            device_ids.clone(),
+            move |server, stream_id| {
+                server.reduce_scatter(src, dst, dtype, stream_id, op, device_ids)
+            },
+        );
+    }
+
+    /// Perform a `broadcast` on the given devices: `dst` receives `root`'s `src`. Only `root`
+    /// passes a `src`, which may be its `dst`.
+    ///
+    /// Queued like [`all_reduce`](Self::all_reduce), whose ordering rule it shares.
+    pub fn broadcast(
+        &mut self,
+        src: Option<Handle>,
+        dst: Handle,
+        dtype: ElemType,
+        root: DeviceId,
+        device_ids: Vec<DeviceId>,
+    ) {
+        let (src, dst) = (src.map(Handle::binding), dst.binding());
+        src.iter()
+            .chain([&dst])
+            .for_each(|binding| self.expect_local(binding));
+        self.queue_collective(
+            Collective::Broadcast,
+            device_ids.clone(),
+            move |server, stream_id| server.broadcast(src, dst, dtype, stream_id, root, device_ids),
+        );
+    }
+
+    /// Perform an `all_to_all` on the given devices: chunk `r` of `src` goes to rank `r`, and
+    /// chunk `r` of `dst` comes from rank `r`, a rank being a device's position among
+    /// `device_ids` sorted.
+    ///
+    /// Queued like [`all_reduce`](Self::all_reduce), whose ordering rule it shares.
+    pub fn all_to_all(
+        &mut self,
+        src: Handle,
+        dst: Handle,
+        dtype: ElemType,
+        device_ids: Vec<DeviceId>,
+    ) {
+        let (src, dst) = (src.binding(), dst.binding());
+        self.expect_local(&src);
+        self.expect_local(&dst);
+        self.queue_collective(
+            Collective::AllToAll,
+            device_ids.clone(),
+            move |server, stream_id| server.all_to_all(src, dst, dtype, stream_id, device_ids),
+        );
+    }
+
+    /// Queues this device's part of `collective`, once the group over `device_ids` is set up.
+    fn queue_collective(
+        &mut self,
+        collective: Collective,
+        device_ids: Vec<DeviceId>,
+        part: impl FnOnce(&mut dyn Server, StreamId) -> Result<(), ServerError> + Send + 'static,
+    ) {
+        if DeviceHandle::<dyn Server>::is_blocking() {
+            panic!("Can't use `{collective}` with a blocking device handle");
+        }
+        self.expect_device_transport(collective);
+        self.ensure_init_collective(device_ids);
+
+        let stream_id = self.stream_id();
         self.device.submit(move |server| {
-            // The report lives on the buffers: a refused or failed reduce has
+            // The report lives on the buffers: a refused or failed collective has
             // tainted the destination, so the read that consumes it fails on
             // the root cause. The log is the eager half of that report — an
             // unwrap here would only be reduced to a warn by the channel's
             // catch_unwind, with the taint doing the real work either way.
-            if let Err(err) = server.all_reduce(src, dst, dtype, stream_id, op, device_ids) {
-                log::error!("all_reduce failed; the destination carries the failure: {err}");
+            if let Err(err) = part(server, stream_id) {
+                log::error!("{collective} failed; the destination carries the failure: {err}");
             }
         });
     }

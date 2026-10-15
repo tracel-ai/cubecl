@@ -20,7 +20,7 @@ use cubecl_core::{
         features::{AtomicUsage, ComplexUsage, Plane, Tma, TypeUsage},
         nvidia::SmArch,
     },
-    server::ServerUtilities,
+    server::{DeviceTransport, ServerUtilities},
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_cpp::{
@@ -441,7 +441,11 @@ impl DeviceService for CudaServer {
             policy,
         );
         // SAFETY: the call only tries to `dlopen` each candidate name.
-        utilities.server_comm_enabled = unsafe { cudarc::nccl::sys::is_culib_present() };
+        if unsafe { cudarc::nccl::sys::is_culib_present() } {
+            utilities.device_transport = Some(DeviceTransport {
+                takes: crate::compute::communication::nccl_takes,
+            });
+        }
 
         CudaServer::new(
             cuda_ctx,

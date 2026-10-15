@@ -21,7 +21,7 @@ use cubecl_core::{
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::{self, DynFut};
 use cubecl_environment::stream::StreamId;
-use cubecl_server::command::{CollectiveDriver, Collectives, DeviceStream, Refused};
+use cubecl_server::command::{CollectiveDriver, Collectives, DeviceStream, Refused, expect_size};
 use cubecl_server::compiler::ArtifactId;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
@@ -449,32 +449,122 @@ impl ServerCommunication for CudaServer {
         op: ReduceOperation,
         device_ids: Vec<DeviceId>,
     ) -> Result<(), ServerError> {
-        // Staged before the bindings are consumed below.
-        let destination = dst.clone();
+        self.settle_collective([src], dst, |server, [src], dst| {
+            let [src, dst] = server.collective_resources(stream_id, [src, dst])?;
+            let comm = server.collectives.get(&CommunicationId::from(device_ids))?;
+            let (nccl_dtype, count) = Cuda::data_type(dtype, src.size)?;
+            expect_size("destination", dst.size, src.size)?;
+            Cuda::all_reduce(
+                comm,
+                &src,
+                &dst,
+                nccl_dtype,
+                count,
+                op,
+                server.comm_stream(),
+            )
+        })
+    }
 
-        // The reduction reads the source, so it is worth no more than the work
-        // that wrote it; see `FailureStore::ensure_written`. The refusal
-        // settles the destination below like any other failure: the reduce
-        // never runs, so a read of the destination has to fail on the
-        // source's failure rather than take last step's bytes for this
-        // step's result — the caller's Result is swallowed by the
-        // fire-and-forget submit, so the taint is the only durable report.
-        let reduced = self
-            .streams
-            .ensure_written([&src].into_iter())
-            .and_then(|()| self.reduce_checked(src, dst, dtype, stream_id, op, device_ids));
-        match reduced {
-            Ok(()) => {
-                // The result is on its way, so an earlier failure that left the
-                // destination stale has nothing left to say about it.
-                self.mark_written(&destination);
-                Ok(())
-            }
-            Err(error) => {
-                self.taint_returned(error.clone(), &destination);
-                Err(error)
-            }
+    fn all_gather(
+        &mut self,
+        src: BufferBinding,
+        dst: BufferBinding,
+        dtype: ElemType,
+        stream_id: StreamId,
+        device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        self.settle_collective([src], dst, |server, [src], dst| {
+            let [src, dst] = server.collective_resources(stream_id, [src, dst])?;
+            let ranks = device_ids.len() as u64;
+            let comm = server.collectives.get(&CommunicationId::from(device_ids))?;
+            let (nccl_dtype, count) = Cuda::data_type(dtype, src.size)?;
+            expect_size("destination", dst.size, src.size * ranks)?;
+            Cuda::all_gather(comm, &src, &dst, nccl_dtype, count, server.comm_stream())
+        })
+    }
+
+    fn reduce_scatter(
+        &mut self,
+        src: BufferBinding,
+        dst: BufferBinding,
+        dtype: ElemType,
+        stream_id: StreamId,
+        op: ReduceOperation,
+        device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        self.settle_collective([src], dst, |server, [src], dst| {
+            let [src, dst] = server.collective_resources(stream_id, [src, dst])?;
+            let ranks = device_ids.len() as u64;
+            let comm = server.collectives.get(&CommunicationId::from(device_ids))?;
+            let (nccl_dtype, count) = Cuda::data_type(dtype, dst.size)?;
+            expect_size("source", src.size, dst.size * ranks)?;
+            Cuda::reduce_scatter(
+                comm,
+                &src,
+                &dst,
+                nccl_dtype,
+                count,
+                op,
+                server.comm_stream(),
+            )
+        })
+    }
+
+    fn broadcast(
+        &mut self,
+        src: Option<BufferBinding>,
+        dst: BufferBinding,
+        dtype: ElemType,
+        stream_id: StreamId,
+        root: DeviceId,
+        device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        match src {
+            Some(src) => self.settle_collective([src], dst, |server, [src], dst| {
+                let [src, dst] = server.collective_resources(stream_id, [src, dst])?;
+                expect_size("source", src.size, dst.size)?;
+                server.queue_broadcast(Some(&src), &dst, dtype, root, device_ids)
+            }),
+            None => self.settle_collective([], dst, |server, [], dst| {
+                let [dst] = server.collective_resources(stream_id, [dst])?;
+                server.queue_broadcast(None, &dst, dtype, root, device_ids)
+            }),
         }
+    }
+
+    fn all_to_all(
+        &mut self,
+        src: BufferBinding,
+        dst: BufferBinding,
+        dtype: ElemType,
+        stream_id: StreamId,
+        device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        self.settle_collective([src], dst, |server, [src], dst| {
+            let [src, dst] = server.collective_resources(stream_id, [src, dst])?;
+            let ranks = device_ids.len();
+            let comm = server.collectives.get(&CommunicationId::from(device_ids))?;
+            let (nccl_dtype, count) = Cuda::data_type(dtype, src.size)?;
+            expect_size("destination", dst.size, src.size)?;
+            if count % ranks != 0 {
+                return Err(ServerError::Generic {
+                    reason: format!(
+                        "an all_to_all over {ranks} ranks splits {count} elements unevenly"
+                    ),
+                    backtrace: BackTrace::capture(),
+                });
+            }
+            Cuda::all_to_all(
+                comm,
+                &src,
+                &dst,
+                nccl_dtype,
+                count / ranks,
+                ranks,
+                server.comm_stream(),
+            )
+        })
     }
 
     fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
@@ -709,53 +799,90 @@ impl CudaServer {
         None
     }
 
-    /// The reduction itself, so every way it can fail settles the destination
-    /// through one path in [`all_reduce`](Server::all_reduce).
+    /// Runs `collective`, which reads `reads` and writes `dst`, under the tainted-buffer rules.
+    ///
+    /// A collective reads its source, so it is worth no more than the work that wrote it; see
+    /// `FailureStore::ensure_written`. Any refusal settles the destination: the collective never
+    /// runs, so a read of the destination has to fail on the cause rather than take a previous
+    /// step's bytes for this step's result. The caller's `Result` is swallowed by the
+    /// fire-and-forget submit, so the taint is the only durable report.
+    fn settle_collective<const N: usize>(
+        &mut self,
+        reads: [BufferBinding; N],
+        dst: BufferBinding,
+        collective: impl FnOnce(&mut Self, [BufferBinding; N], BufferBinding) -> Result<(), ServerError>,
+    ) -> Result<(), ServerError> {
+        let destination = dst.clone();
+        let ran = self
+            .streams
+            .ensure_written(reads.iter())
+            .and_then(|()| collective(self, reads, dst));
+        match ran {
+            Ok(()) => {
+                // The result is on its way, so an earlier failure that left the
+                // destination stale has nothing left to say about it.
+                self.mark_written(&destination);
+                Ok(())
+            }
+            Err(error) => {
+                self.taint_returned(error.clone(), &destination);
+                Err(error)
+            }
+        }
+    }
+
+    /// Queues a broadcast from the rank of `root` over `device_ids`, which `src` belongs to when
+    /// this device is the root.
+    fn queue_broadcast(
+        &self,
+        src: Option<&GpuResource>,
+        dst: &GpuResource,
+        dtype: ElemType,
+        root: DeviceId,
+        device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        let root = self.collectives.rank(root, &device_ids)?;
+        let comm = self.collectives.get(&CommunicationId::from(device_ids))?;
+        let (nccl_dtype, count) = Cuda::data_type(dtype, dst.size)?;
+        Cuda::broadcast(comm, src, dst, nccl_dtype, count, root, self.comm_stream())
+    }
+
+    /// The memory behind a collective's `bindings`, once the collective stream waits for the
+    /// compute stream that writes them.
     ///
     /// # Errors
     ///
-    /// A source and destination on different streams, a binding that names no
-    /// live allocation, a group never joined, an element type NCCL has no name
-    /// for, and NCCL's refusal to enqueue.
-    fn reduce_checked(
+    /// Bindings on different streams, a binding that names no live allocation, and a fence the
+    /// driver refuses.
+    fn collective_resources<const N: usize>(
         &mut self,
-        src: BufferBinding,
-        dst: BufferBinding,
-        dtype: ElemType,
         stream_id: StreamId,
-        op: ReduceOperation,
-        device_ids: Vec<DeviceId>,
-    ) -> Result<(), ServerError> {
-        // The collective needs both bindings on one stream, and nothing below
-        // can proceed without that.
-        if src.stream != dst.stream {
+        bindings: [BufferBinding; N],
+    ) -> Result<[GpuResource; N], ServerError> {
+        // The collective stream waits on one compute stream, so every binding has to be on it.
+        if bindings
+            .windows(2)
+            .any(|pair| pair[0].stream != pair[1].stream)
+        {
             return Err(ServerError::Generic {
-                reason: "Source and destination should be on the same stream.".into(),
+                reason: "A collective's bindings should be on the same stream.".into(),
                 backtrace: BackTrace::capture(),
             });
         }
 
-        let mut command = self.command(stream_id, [&src, &dst].into_iter())?;
-        let resource_src = command.resource(src)?;
-        let resource_dst = command.resource(dst)?;
+        let mut command = self.command(stream_id, bindings.iter())?;
+        let mut resources = Vec::with_capacity(N);
+        for binding in bindings {
+            resources.push(command.resource(binding)?);
+        }
         let stream = command.stream().sys;
         drop(command);
 
         // Wait for the data to be ready on the compute stream.
         Fence::new(stream).wait_async(self.comm_stream())?;
-
-        let comm = self.collectives.get(&CommunicationId::from(device_ids))?;
-        let (nccl_dtype, count) = Cuda::data_type(dtype, resource_src.size)?;
-
-        Cuda::all_reduce(
-            comm,
-            &resource_src,
-            &resource_dst,
-            nccl_dtype,
-            count,
-            op,
-            self.comm_stream(),
-        )
+        Ok(resources
+            .try_into()
+            .unwrap_or_else(|_| unreachable!("one resource per binding")))
     }
 
     /// The receive itself, so every way it can fail settles the destination

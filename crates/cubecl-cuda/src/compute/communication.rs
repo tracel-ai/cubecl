@@ -1,5 +1,5 @@
 //! NCCL's half of collectives: agreeing an identifier, joining, naming an
-//! element type, and the three operations.
+//! element type, and the operations.
 //!
 //! The bookkeeping around them — which groups this device has joined, what its
 //! rank in one is — is the shared
@@ -43,11 +43,23 @@ fn nccl_dtype_count(
     dtype: ElemType,
     size: u64,
 ) -> Result<(cudarc::nccl::sys::ncclDataType_t, usize), ServerError> {
+    let (nccl, width) = nccl_dtype(dtype).ok_or_else(|| ServerError::Generic {
+        reason: format!("NCCL has no data type for {dtype:?}, so no collective over it"),
+        backtrace: BackTrace::capture(),
+    })?;
+    Ok((nccl, (size / width) as usize))
+}
+
+/// Whether NCCL moves elements of `dtype`, which is what the device transport takes.
+pub fn nccl_takes(dtype: ElemType) -> bool {
+    nccl_dtype(dtype).is_some()
+}
+
+/// The NCCL data type for `dtype`, paired with the width of one element.
+fn nccl_dtype(dtype: ElemType) -> Option<(cudarc::nccl::sys::ncclDataType_t, u64)> {
     use cudarc::nccl::sys::ncclDataType_t as Nccl;
 
-    // Paired with the width of one element, so the count below is worked out
-    // once rather than at every arm.
-    let (nccl, width) = match dtype {
+    Some(match dtype {
         ElemType::Float(FloatKind::E4M3) => (Nccl::ncclFloat8e4m3, 1),
         ElemType::Float(FloatKind::E5M2) => (Nccl::ncclFloat8e5m2, 1),
         ElemType::Float(FloatKind::F16) => (Nccl::ncclFloat16, 2),
@@ -75,15 +87,16 @@ fn nccl_dtype_count(
         )
         | ElemType::Int(IntKind::I16)
         | ElemType::UInt(UIntKind::U16)
-        | ElemType::Complex(_) => {
-            return Err(ServerError::Generic {
-                reason: format!("NCCL has no data type for {dtype:?}, so no collective over it"),
-                backtrace: BackTrace::capture(),
-            });
-        }
-    };
+        | ElemType::Complex(_) => return None,
+    })
+}
 
-    Ok((nccl, (size / width) as usize))
+/// NCCL's refusal to enqueue `operation`.
+fn nccl_error(operation: &str, err: cudarc::nccl::result::NcclError) -> ServerError {
+    ServerError::Generic {
+        reason: format!("NCCL {operation} failed: {err:?}"),
+        backtrace: BackTrace::capture(),
+    }
 }
 
 impl CollectiveDriver for Cuda {
@@ -161,6 +174,129 @@ impl CollectiveDriver for Cuda {
         }
     }
 
+    fn all_gather(
+        comm: &Self::Communicator,
+        src: &GpuResource,
+        dst: &GpuResource,
+        dtype: Self::DataType,
+        count: usize,
+        stream: Self::CommStream,
+    ) -> Result<(), ServerError> {
+        // SAFETY: both pointers are live device allocations, `dst` holding one `src` per rank,
+        // `comm` was joined by `join` above, and `stream` is the dedicated collective stream.
+        unsafe {
+            cudarc::nccl::result::all_gather(
+                src.ptr as *const _,
+                dst.ptr as *mut _,
+                count,
+                dtype,
+                *comm,
+                stream as _,
+            )
+        }
+        .map(|_| ())
+        .map_err(|err| nccl_error("all_gather", err))
+    }
+
+    fn reduce_scatter(
+        comm: &Self::Communicator,
+        src: &GpuResource,
+        dst: &GpuResource,
+        dtype: Self::DataType,
+        count: usize,
+        op: ReduceOperation,
+        stream: Self::CommStream,
+    ) -> Result<(), ServerError> {
+        // SAFETY: both pointers are live device allocations, `src` holding one `dst` per rank,
+        // `comm` was joined by `join` above, and `stream` is the dedicated collective stream.
+        unsafe {
+            cudarc::nccl::result::reduce_scatter(
+                src.ptr as *const _,
+                dst.ptr as *mut _,
+                count,
+                dtype,
+                to_nccl_op(op),
+                *comm,
+                stream as _,
+            )
+        }
+        .map(|_| ())
+        .map_err(|err| nccl_error("reduce_scatter", err))
+    }
+
+    fn broadcast(
+        comm: &Self::Communicator,
+        src: Option<&GpuResource>,
+        dst: &GpuResource,
+        dtype: Self::DataType,
+        count: usize,
+        root: usize,
+        stream: Self::CommStream,
+    ) -> Result<(), ServerError> {
+        // NCCL reads the send buffer on the root only, so the other ranks name their own.
+        let src = src.unwrap_or(dst);
+        // SAFETY: both pointers are live device allocations of `count` elements, `comm` was
+        // joined by `join` above, and `stream` is the dedicated collective stream.
+        unsafe {
+            cudarc::nccl::result::broadcast(
+                src.ptr as *const _,
+                dst.ptr as *mut _,
+                count,
+                dtype,
+                root as i32,
+                *comm,
+                stream as _,
+            )
+        }
+        .map(|_| ())
+        .map_err(|err| nccl_error("broadcast", err))
+    }
+
+    fn all_to_all(
+        comm: &Self::Communicator,
+        src: &GpuResource,
+        dst: &GpuResource,
+        dtype: Self::DataType,
+        count: usize,
+        ranks: usize,
+        stream: Self::CommStream,
+    ) -> Result<(), ServerError> {
+        let chunk = src.size / ranks as u64;
+        // NCCL has no all-to-all: one send and one receive per rank, itself included, grouped so
+        // NCCL pairs them as one operation rather than waiting on each in turn.
+        cudarc::nccl::result::group_start().map_err(|err| nccl_error("group_start", err))?;
+        let queued = (0..ranks).try_for_each(|rank| {
+            let offset = rank as u64 * chunk;
+            // SAFETY: `src` and `dst` are live device allocations of `ranks` chunks of `count`
+            // elements, so both offsets stay inside them; `comm` was joined by `join` above, and
+            // `stream` is the dedicated collective stream.
+            unsafe {
+                cudarc::nccl::result::send(
+                    (src.ptr + offset) as *const _,
+                    count,
+                    dtype,
+                    rank as i32,
+                    *comm,
+                    stream as _,
+                )
+                .map_err(|err| nccl_error("send", err))?;
+                cudarc::nccl::result::recv(
+                    (dst.ptr + offset) as *mut _,
+                    count,
+                    dtype,
+                    rank as i32,
+                    *comm,
+                    stream as _,
+                )
+                .map_err(|err| nccl_error("recv", err))?;
+            }
+            Ok(())
+        });
+        // Closed whatever was queued: a group left open swallows every later NCCL call.
+        let closed = cudarc::nccl::result::group_end().map_err(|err| nccl_error("group_end", err));
+        queued.and(closed.map(|_| ()))
+    }
+
     fn send(
         comm: &Self::Communicator,
         src: &GpuResource,
@@ -213,5 +349,18 @@ impl CollectiveDriver for Cuda {
                 backtrace: BackTrace::capture(),
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_transport_takes_only_what_nccl_names() {
+        assert!(nccl_takes(ElemType::Float(FloatKind::F32)));
+        assert!(nccl_takes(ElemType::UInt(UIntKind::U8)));
+        assert!(!nccl_takes(ElemType::Bool));
+        assert!(!nccl_takes(ElemType::Int(IntKind::I16)));
     }
 }

@@ -7,7 +7,7 @@ use cubecl_common::bytes::Bytes;
 use cubecl_common::device::{DeviceId, ServiceId};
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{ElemType, UIntKind};
-use cubecl_server::client::Client;
+use cubecl_server::client::{Client, ClientGroup, ClientGroupError};
 use cubecl_server::server::{
     CubeCount, Handle, IoError, KernelArguments, ReduceOperation, ServerError,
 };
@@ -169,6 +169,37 @@ fn an_all_reduce_without_a_device_transport_panics_on_the_caller() {
         device_ids,
         ReduceOperation::Sum,
     );
+}
+
+#[test_log::test]
+fn a_client_group_refuses_devices_out_of_ascending_order() {
+    let clients = |indices: [u16; 2]| {
+        indices
+            .map(|index| Client::load::<DummyServer>(DeviceId::new(0, index)))
+            .to_vec()
+    };
+
+    for indices in [[1, 0], [0, 0]] {
+        assert!(
+            matches!(
+                ClientGroup::new(clients(indices)),
+                Err(ClientGroupError::NotAscending { .. })
+            ),
+            "{indices:?}"
+        );
+    }
+}
+
+#[test_log::test]
+fn a_client_group_needs_a_device_transport() {
+    let clients = [0, 1]
+        .map(|index| Client::load::<DummyServer>(DeviceId::new(0, index)))
+        .to_vec();
+
+    assert!(matches!(
+        ClientGroup::new(clients),
+        Err(ClientGroupError::NoDeviceTransport { .. })
+    ));
 }
 
 #[test_log::test]
