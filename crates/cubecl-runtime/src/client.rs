@@ -29,10 +29,7 @@ use cubecl_common::{
     profile::ProfileDuration,
 };
 use cubecl_environment::{backtrace::BackTrace, future::DynFut, stream::StreamId, sync::Mutex};
-use cubecl_ir::{
-    DeviceProperties, ElemType, TargetProperties, VectorSize,
-    features::{Features, TypeUsage},
-};
+use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, VectorSize, features::Features};
 use cubecl_zspace::Shape;
 pub use group::*;
 
@@ -1000,12 +997,7 @@ impl Client {
     /// Whether this runtime moves data between its devices itself. Without it, `to_client`
     /// copies through the host and the collectives refuse.
     pub fn has_device_transport(&self) -> bool {
-        self.properties()
-            .features
-            .types
-            .elem
-            .values()
-            .any(|usage| usage.contains(TypeUsage::Transport))
+        !self.properties().features.types.device_transport.is_empty()
     }
 
     /// Panics on the caller when the runtime has no device transport.

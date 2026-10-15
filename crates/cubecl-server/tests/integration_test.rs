@@ -191,6 +191,20 @@ fn a_client_group_refuses_devices_out_of_ascending_order() {
 }
 
 #[test_log::test]
+fn handles_overlap_only_where_their_bytes_meet() {
+    let client = test_client(&DummyDevice);
+    let whole = client.empty(16);
+    let front = whole.clone().offset_end(8);
+    let back = whole.clone().offset_start(8);
+    let middle = whole.clone().offset_start(4).offset_end(4);
+
+    assert!(whole.overlaps(&front));
+    assert!(middle.overlaps(&front) && middle.overlaps(&back));
+    assert!(!front.overlaps(&back));
+    assert!(!whole.overlaps(&client.empty(16)));
+}
+
+#[test_log::test]
 fn a_client_group_needs_a_client() {
     assert!(matches!(
         ClientGroup::new(Vec::new()),

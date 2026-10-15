@@ -9,7 +9,7 @@ use core::ffi::c_int;
 use std::{collections::HashMap, sync::OnceLock};
 
 use cubecl_core::{
-    ir::{DeviceProperties, ElemType, FloatKind, IntKind, UIntKind, features::TypeUsage},
+    ir::{DeviceProperties, ElemType, FloatKind, IntKind, UIntKind},
     server::{CommunicationId, ReduceOperation, ServerError},
 };
 use cubecl_environment::backtrace::BackTrace;
@@ -36,6 +36,9 @@ fn to_nccl_op(op: ReduceOperation) -> cudarc::nccl::sys::ncclRedOp_t {
 /// NCCL 2.24.3, the first release with the FP8 data types.
 const NCCL_FP8: c_int = 22403;
 
+/// NCCL's FP8 data types need Hopper.
+const NCCL_FP8_ARCH: u32 = 90;
+
 /// The elements of `dtype` that `size` bytes hold, as NCCL names them.
 ///
 /// # Errors
@@ -60,8 +63,8 @@ fn nccl_elements(dtype: ElemType, size: u64) -> Result<Elements<Nccl>, ServerErr
     })
 }
 
-/// Registers [`TypeUsage::Transport`] for the device's types that the NCCL it loads moves.
-pub fn register_transport(props: &mut DeviceProperties) {
+/// Registers the device's types that the NCCL it loads moves as its device transport's.
+pub fn register_nccl_transport(props: &mut DeviceProperties, arch_version: u32) {
     // SAFETY: the call only tries to `dlopen` each candidate name.
     if !unsafe { cudarc::nccl::sys::is_culib_present() } {
         return;
@@ -69,19 +72,37 @@ pub fn register_transport(props: &mut DeviceProperties) {
     let Ok(version) = cudarc::nccl::result::get_nccl_version() else {
         return;
     };
-    for (dtype, usage) in props.features.types.elem.iter_mut() {
-        if nccl_moves(*dtype, version) {
-            *usage |= TypeUsage::Transport;
-        }
+    let target = NcclTarget {
+        version,
+        arch_version,
+    };
+    let moved: Vec<ElemType> = props
+        .features
+        .types
+        .elem
+        .keys()
+        .copied()
+        .filter(|dtype| target.moves(*dtype))
+        .collect();
+    for dtype in moved {
+        props.register_device_transport(dtype);
     }
 }
 
-/// Whether NCCL `version` has a data type for `dtype`; the library is loaded at runtime, so it
-/// may predate types this crate names.
-fn nccl_moves(dtype: ElemType, version: c_int) -> bool {
-    match dtype {
-        ElemType::Float(FloatKind::E4M3 | FloatKind::E5M2) => version >= NCCL_FP8,
-        dtype => nccl_dtype(dtype).is_some(),
+/// The NCCL loaded, which may predate types this crate names, and the device it runs on.
+struct NcclTarget {
+    version: c_int,
+    arch_version: u32,
+}
+
+impl NcclTarget {
+    fn moves(&self, dtype: ElemType) -> bool {
+        match dtype {
+            ElemType::Float(FloatKind::E4M3 | FloatKind::E5M2) => {
+                self.version >= NCCL_FP8 && self.arch_version >= NCCL_FP8_ARCH
+            }
+            dtype => nccl_dtype(dtype).is_some(),
+        }
     }
 }
 
@@ -378,14 +399,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nccl_moves_only_the_types_its_version_names() {
+    fn nccl_moves_only_the_types_it_names() {
+        let target = NcclTarget {
+            version: 21800,
+            arch_version: 75,
+        };
+        assert!(target.moves(ElemType::Float(FloatKind::F32)));
+        assert!(target.moves(ElemType::UInt(UIntKind::U8)));
+        assert!(!target.moves(ElemType::Bool));
+        assert!(!target.moves(ElemType::Int(IntKind::I16)));
+    }
+
+    #[test]
+    fn nccl_moves_fp8_from_its_release_on_hopper() {
         let fp8 = ElemType::Float(FloatKind::E4M3);
-        assert!(nccl_moves(ElemType::Float(FloatKind::F32), 21800));
-        assert!(nccl_moves(ElemType::UInt(UIntKind::U8), 21800));
-        assert!(!nccl_moves(ElemType::Bool, NCCL_FP8));
-        assert!(!nccl_moves(ElemType::Int(IntKind::I16), NCCL_FP8));
-        assert!(!nccl_moves(fp8, NCCL_FP8 - 1));
-        assert!(nccl_moves(fp8, NCCL_FP8));
+        let target = |version, arch_version| NcclTarget {
+            version,
+            arch_version,
+        };
+        assert!(target(NCCL_FP8, NCCL_FP8_ARCH).moves(fp8));
+        assert!(!target(NCCL_FP8 - 1, NCCL_FP8_ARCH).moves(fp8));
+        assert!(!target(NCCL_FP8, 89).moves(fp8));
     }
 
     #[test]

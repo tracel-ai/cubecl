@@ -523,6 +523,13 @@ impl DeviceProperties {
         self.features.types.emulated_arithmetic.insert(ty.into());
     }
 
+    /// Register `ty` as moved by the device transport ([`Types::device_transport`]).
+    ///
+    /// [`Types::device_transport`]: crate::Types::device_transport
+    pub fn register_device_transport(&mut self, ty: impl Into<ElemType>) {
+        self.features.types.device_transport.insert(ty.into());
+    }
+
     /// Register complex capability families for an element type.
     pub fn register_complex_usage(
         &mut self,

@@ -4,7 +4,7 @@ use super::{Client, PEER_ORDER};
 use crate::server::{Collective, Handle, ReduceOperation};
 use alloc::vec::Vec;
 use cubecl_common::device::DeviceId;
-use cubecl_ir::{ElemType, features::TypeUsage};
+use cubecl_ir::ElemType;
 use thiserror::Error;
 
 /// The clients of distinct devices of one runtime that run collectives together, for a caller
@@ -242,10 +242,7 @@ impl ClientGroup {
     fn expect_transport_moves(&self, collective: Collective, dtype: ElemType) {
         let client = &self.clients[0];
         assert!(
-            client
-                .properties()
-                .type_usage(dtype)
-                .contains(TypeUsage::Transport),
+            client.properties().features.device_transport_moves(dtype),
             "a {collective} on {} cannot move {dtype:?}",
             client.name()
         );

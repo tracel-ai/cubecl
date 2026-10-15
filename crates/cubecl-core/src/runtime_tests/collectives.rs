@@ -259,8 +259,8 @@ fn mismatched_buffers<R: Runtime>() {
     assert_refused(&mut group, "holds", |group| {
         group.all_gather(wrong_size, F32)
     });
-    let transport = group.clients()[0].properties().type_usage(F32);
-    assert!(transport.contains(cubecl_ir::features::TypeUsage::Transport));
+    let features = &group.clients()[0].properties().features;
+    assert!(features.device_transport_moves(F32));
     let untaken = gather(&group, members * LEN);
     assert_refused(&mut group, "cannot move", |group| {
         group.all_gather(untaken, cubecl_ir::ElemType::Bool)

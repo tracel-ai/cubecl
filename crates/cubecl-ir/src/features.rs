@@ -68,6 +68,10 @@ pub struct Types {
     /// for example `f16` computed in `f32` on a CPU without native `f16` instructions. The type
     /// still works, but a caller that chooses a precision can prefer the wider type.
     pub emulated_arithmetic: BTreeSet<ElemType>,
+    /// Types the runtime's device transport moves between its devices without the host. Kept
+    /// apart from [`TypeUsage`] because it depends on a library loaded at runtime, not the
+    /// compiler.
+    pub device_transport: BTreeSet<ElemType>,
 }
 
 /// Matrix multiplication-related features
@@ -113,8 +117,6 @@ pub enum TypeUsage {
     DotProduct,
     /// Whether this type can be stored in a buffer
     Buffer,
-    /// Moved between the runtime's devices by its device transport, without the host.
-    Transport,
 }
 
 /// Complex capability families allowed for a complex element type.
@@ -129,10 +131,8 @@ pub enum ComplexUsage {
 }
 
 impl TypeUsage {
-    /// Every use a kernel can make of a type. A runtime registers
-    /// [`Transport`](Self::Transport) itself, for the types its device transport moves.
     pub fn all() -> EnumSet<Self> {
-        Self::Conversion | Self::Arithmetic | Self::DotProduct | Self::Buffer
+        EnumSet::all()
     }
 
     pub fn no_store() -> EnumSet<Self> {
@@ -141,7 +141,7 @@ impl TypeUsage {
 
     pub fn maybe_store(storable: bool) -> EnumSet<Self> {
         if storable {
-            Self::all()
+            EnumSet::all()
         } else {
             Self::no_store()
         }
@@ -321,6 +321,11 @@ impl Features {
     #[must_use]
     pub fn arithmetic_is_emulated(&self, ty: ElemType) -> bool {
         self.types.emulated_arithmetic.contains(&ty)
+    }
+
+    /// Whether the device transport moves `ty` ([`Types::device_transport`]).
+    pub fn device_transport_moves(&self, ty: ElemType) -> bool {
+        self.types.device_transport.contains(&ty)
     }
 
     /// Get the usages for a type

@@ -406,7 +406,7 @@ impl DeviceService for CudaServer {
             let sm_arch = SmArch::new(arch_version, arch.tensor_cores);
             restrict_features(&mut device_props, GpuTarget::Nvptx { arch: sm_arch });
         }
-        crate::compute::communication::register_transport(&mut device_props);
+        crate::compute::communication::register_nccl_transport(&mut device_props, arch_version);
 
         let comp_opts = CudaCompilationOptions {
             cpp: comp_opts,
