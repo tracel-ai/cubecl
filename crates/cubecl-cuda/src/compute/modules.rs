@@ -91,12 +91,25 @@ impl CompilationTarget for CudaModules {
 
         let func_name = CString::new(artifact.entrypoint_name.clone()).unwrap();
         let line_info = id.kernel.debug_info != DebugInfo::None;
-        // SAFETY: `ptx` is a valid null-terminated PTX binary from NVRTC. `func_name` is a
-        // null-terminated `CString` matching the kernel entry point in the compiled module.
+        // SAFETY: `cubin` is machine code a driver assembled for this device's architecture, and
+        // `ptx` a valid null-terminated PTX binary. `func_name` is a null-terminated `CString`
+        // matching the kernel entry point in the compiled module.
         let func = unsafe {
-            let module = load_module(artifact.ptx.as_ptr().cast(), line_info).map_err(|err| {
+            // The machine code a compiling thread assembled. A stored environment may carry
+            // machine code from a newer driver than this one, which refuses it: the PTX is
+            // then assembled here instead.
+            let module = cudarc::driver::result::module::load_data(
+                artifact.cubin.as_ptr() as *const std::ffi::c_void
+            )
+            .map_err(|err| ("cuModuleLoadData", err))
+            .or_else(|(op, err)| match poisons_device(err.0) {
+                true => Err((op, err)),
+                false => load_module(artifact.ptx.as_ptr().cast(), line_info)
+                    .map_err(|err| (load_module_op(line_info), err)),
+            })
+            .map_err(|(op, err)| {
                 if poisons_device(err.0) {
-                    driver_error(load_module_op(line_info), err).into()
+                    driver_error(op, err).into()
                 } else {
                     CompilationError::Generic {
                         reason: format!("Unable to load the PTX: {err}"),

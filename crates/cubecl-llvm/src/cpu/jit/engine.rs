@@ -8,7 +8,7 @@ use crate::{
     prelude::{Context, ModuleOp},
     shared::{
         debug_info::{check_debug_info, convert_module},
-        llvm_module::LlvmModule,
+        llvm_module::{LlvmModule, TargetMachine},
     },
 };
 use cubecl_core::{codegen::KernelDump, ir::settings::DebugInfo};
@@ -94,8 +94,8 @@ impl PlironEngine {
         if symbols.jitdump {
             llvm_module.add_function_enum_attribute("uwtable", 2);
         }
-        llvm_module
-            .run_passes(PASS_PIPELINE, None)
+        TargetMachine::native(&llvm_module)
+            .and_then(|machine| llvm_module.run_passes(PASS_PIPELINE, &machine))
             .unwrap_or_else(|err| panic!("LLVM optimization failed for '{kernel_name}': {err}"));
         dump.write("llvm.opt.ll", || llvm_module.print());
 

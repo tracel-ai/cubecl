@@ -242,7 +242,7 @@ fn compile(
 
     // SAFETY: the module is live for the call.
     unsafe { lower_to_device_libs(module.raw())? };
-    module.run_passes(PASS_PIPELINE, Some(&machine))?;
+    module.run_passes(PASS_PIPELINE, &machine)?;
     let bytes = machine.emit(module, LLVMCodeGenFileType::LLVMAssemblyFile)?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }

@@ -1,20 +1,39 @@
 //! The half of CUDA's compilation any thread can do: from a kernel to the
-//! PTX `cuModuleLoadData` reads.
+//! PTX, and from the PTX to the machine code `cuModuleLoadData` reads.
 
 use crate::compiler::{CudaBackend, CudaCompilationOptions, CudaCompiler, CudaRepresentation};
+use crate::compute::events::driver_error;
 use crate::install::{cccl_include_path, include_path};
-use cubecl_core::{ir::DeviceProperties, prelude::*};
+use cubecl_core::{
+    ir::{DeviceProperties, settings::DebugInfo},
+    prelude::*,
+};
 use cubecl_cpp::cuda::arch::CudaArchitecture;
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_server::compiler::{
     ArtifactCompiler, ArtifactId, CompilationError, CompilationRecording,
 };
+use cubecl_server::driver::DriverError;
 use cubecl_server::kernel::{BufferIOAttr, CompiledKernel, CubeKernel, DebugInformation};
 use cubecl_server::logging::ServerLogger;
 use cubecl_server::validation::{validate_cube_dim, validate_shared_memory, validate_units};
-use std::ffi::{CStr, CString, c_char};
+use cudarc::driver::sys::{self, CUctx_st, CUjit_option, CUjitInputType, CUlinkState};
+use std::ffi::{CStr, CString, c_char, c_void};
+use std::mem::MaybeUninit;
 use std::str::FromStr;
+
+/// How much of the assembler's log a failed assembly reports.
+const ASSEMBLER_LOG_BYTES: usize = 16 * 1024;
+
+#[derive(Debug, Clone, Copy)]
+struct DriverContext(*mut CUctx_st);
+
+// SAFETY: a CUDA context is a driver handle, not memory this process reads: any thread may make
+// it current, and the driver API it is used through is thread-safe.
+unsafe impl Send for DriverContext {}
+// SAFETY: as for `Send`; sharing the handle shares nothing but the right to make it current.
+unsafe impl Sync for DriverContext {}
 
 /// Compiles kernels for one CUDA device, through whichever backend the build
 /// selected: C++ through NVRTC, or LLVM straight to PTX.
@@ -23,6 +42,8 @@ pub(crate) struct CudaArtifactCompiler {
     properties: DeviceProperties,
     options: CudaCompilationOptions,
     arch: CudaArchitecture,
+    /// The CUDA context to assemble PTX on.
+    context: DriverContext,
 }
 
 impl CudaArtifactCompiler {
@@ -30,11 +51,13 @@ impl CudaArtifactCompiler {
         properties: DeviceProperties,
         options: CudaCompilationOptions,
         arch: CudaArchitecture,
+        context: *mut CUctx_st,
     ) -> Self {
         Self {
             properties,
             options,
             arch,
+            context: DriverContext(context),
         }
     }
 
@@ -49,13 +72,15 @@ impl CudaArtifactCompiler {
     }
 }
 
-/// PTX ready for `cuModuleLoadData`, with what launching it needs: what the
+/// A kernel ready for `cuModuleLoadData`, with what launching it needs: what the
 /// compilation store keeps for a kernel.
 #[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
 pub struct CudaArtifact {
     pub entrypoint_name: String,
     pub shared_mem_bytes: usize,
     pub ptx: Vec<std::ffi::c_char>,
+    /// The machine code the driver assembled `ptx` to, which the load hands the driver.
+    pub cubin: Vec<u8>,
     /// See [`CudaCompiledKernel::io`](super::modules::CudaCompiledKernel::io);
     /// defaulted for entries persisted before the field existed.
     #[serde(default)]
@@ -122,7 +147,7 @@ impl ArtifactCompiler for CudaArtifactCompiler {
 
     fn finalize(
         &self,
-        _id: &ArtifactId<Self::Variant>,
+        id: &ArtifactId<Self::Variant>,
         mut lowered: Self::Lowered,
     ) -> Result<Self::Artifact, LaunchError> {
         let io = lowered.io.take();
@@ -153,16 +178,105 @@ impl ArtifactCompiler for CudaArtifactCompiler {
             }
         };
 
+        let cubin = self.assemble(&ptx, id.kernel.debug_info != DebugInfo::None)?;
         Ok(CudaArtifact {
             entrypoint_name: lowered.entrypoint_name,
             shared_mem_bytes,
             ptx,
+            cubin,
             io,
         })
     }
 }
 
 impl CudaArtifactCompiler {
+    /// Assembles `ptx` into the machine code of this context's device, with the line table of
+    /// the PTX's `.loc` directives if `line_info` is set.
+    ///
+    /// # Errors
+    ///
+    /// The driver call that failed, with the assembler's log when it wrote one: PTX the
+    /// assembler rejects, or a kernel past the device's limits.
+    fn assemble(&self, ptx: &[c_char], line_info: bool) -> Result<Vec<u8>, CompilationError> {
+        let mut log = vec![0u8; ASSEMBLER_LOG_BYTES];
+        let mut options = vec![
+            CUjit_option::CU_JIT_ERROR_LOG_BUFFER,
+            CUjit_option::CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES,
+        ];
+        // The driver reads a size or flag option's value as the number itself, not through a
+        // pointer.
+        let mut values = vec![log.as_mut_ptr() as *mut c_void, log.len() as *mut c_void];
+        if line_info {
+            options.push(CUjit_option::CU_JIT_GENERATE_LINE_INFO);
+            values.push(std::ptr::without_provenance_mut(1));
+        }
+
+        // SAFETY: the context is the device's, valid for the server's life, and any thread may
+        // make it current. `log`, `options` and `values` outlive the link state, which reads the
+        // options and writes the log and how much of it it filled.
+        let assembled = unsafe {
+            cudarc::driver::result::ctx::set_current(self.context.0)
+                .map_err(|err| driver_error("cuCtxSetCurrent", err))?;
+            let mut state = MaybeUninit::uninit();
+            sys::cuLinkCreate_v2(
+                options.len() as u32,
+                options.as_mut_ptr(),
+                values.as_mut_ptr(),
+                state.as_mut_ptr(),
+            )
+            .result()
+            .map_err(|err| driver_error("cuLinkCreate", err))?;
+            let state = state.assume_init();
+            let assembled = Self::link(state, ptx);
+            let _ = sys::cuLinkDestroy(state);
+            assembled
+        };
+
+        assembled.map_err(|err| match CompilationError::from(err) {
+            CompilationError::Generic { reason, backtrace } => {
+                let log = CStr::from_bytes_until_nul(&log).map_or("", |log| {
+                    log.to_str().unwrap_or("the assembler's log is not UTF-8")
+                });
+                CompilationError::Generic {
+                    reason: format!("[Assembly Error] {reason}\n{log}"),
+                    backtrace,
+                }
+            }
+            poisoned => poisoned,
+        })
+    }
+
+    /// Assembles `ptx` with the link `state`, and copies out the machine code it yields.
+    ///
+    /// # Safety
+    ///
+    /// `state` is a live link state, and `ptx` the null-terminated PTX `cuModuleLoadData`
+    /// would read.
+    unsafe fn link(state: CUlinkState, ptx: &[c_char]) -> Result<Vec<u8>, DriverError> {
+        // SAFETY: as the caller promises. The machine code is the link state's, and copied out
+        // before the caller destroys the state, which frees it.
+        unsafe {
+            sys::cuLinkAddData_v2(
+                state,
+                CUjitInputType::CU_JIT_INPUT_PTX,
+                ptx.as_ptr() as *mut c_void,
+                ptx.len(),
+                c"kernel".as_ptr(),
+                0,
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+            )
+            .result()
+            .map_err(|err| driver_error("cuLinkAddData", err))?;
+            let mut cubin = core::ptr::null_mut();
+            let mut size = 0usize;
+            sys::cuLinkComplete(state, &mut cubin, &mut size)
+                .result()
+                .map_err(|err| driver_error("cuLinkComplete", err))?;
+            Ok(core::slice::from_raw_parts(cubin as *const u8, size).to_vec())
+        }
+    }
+
     /// Compiles `source` to PTX with NVRTC.
     ///
     /// # Errors
