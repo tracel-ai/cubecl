@@ -94,3 +94,38 @@ pub mod cube_comment {
         scope.register(&CommentOp::new(scope.ctx_mut(), content.to_string()));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate as cubecl;
+    use crate::prelude::*;
+    use cubecl_ir::settings::{Dim3, ExecutionMode, KernelSettings};
+
+    #[cube(debug_symbols)]
+    fn add_one(x: u32) -> u32 {
+        x + 1
+    }
+
+    #[cube(debug_symbols)]
+    fn sum_indices(n: u32) -> u32 {
+        let mut acc = 0u32;
+        for i in 0..n {
+            acc += add_one(i);
+        }
+        acc
+    }
+
+    /// The loop index is a block argument and has no defining op. Debug symbols name the
+    /// parameter `x` of `add_one`, so the name goes on the argument of the loop body.
+    #[test]
+    fn a_block_argument_takes_its_name() {
+        let scope = Scope::root(
+            KernelSettings::new(Dim3::new_single(), ExecutionMode::Checked, AddressType::U32)
+                .debug_symbols(),
+        );
+        let n = NativeExpand::<u32>::from_lit(&scope, 4);
+        sum_indices::expand(&scope, n);
+        let ir = alloc::format!("{scope}");
+        assert!(ir.contains("(x_v"), "{ir}");
+    }
+}

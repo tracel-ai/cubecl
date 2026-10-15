@@ -66,7 +66,6 @@ use cubecl_ir::{
 };
 
 pub use cubecl_ir::types::matrix::{MatrixIdent, MatrixLayout, MatrixShape, MatrixType};
-use pliron::builtin::given_names::set_operation_result_name;
 use pliron::r#type::TypeHandle;
 
 #[derive(Clone, Copy)]
@@ -202,8 +201,7 @@ impl<C: CubeType, S: MatrixScope> IntoMut for MatrixExpand<C, S> {
 
 impl<C: CubeType, S: MatrixScope> CubeDebug for MatrixExpand<C, S> {
     fn set_debug_name(&self, scope: &Scope, name: &'static str) {
-        let op = self.elem.defining_op().unwrap();
-        set_operation_result_name(scope.ctx(), op, 0, Some(ident(name)));
+        self.elem.set_name(scope.ctx(), Some(ident(name)));
     }
 }
 
