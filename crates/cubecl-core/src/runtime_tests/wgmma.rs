@@ -47,6 +47,8 @@ pub struct WgmmaCase {
     /// Commits each step and waits on the previous one in a loop, rather than committing once.
     /// Only with `A` in shared memory.
     pub pipelined: bool,
+    /// Keeps the accumulator at a dummy type once started, and names it at its element again.
+    pub downcast: bool,
 }
 
 impl WgmmaCase {
@@ -115,7 +117,12 @@ pub fn kernel_wgmma<A: Scalar, B: Scalar, CD: Numeric>(
 
     let a = MatrixDescriptor::new(&smem_a, a_layout);
     let b = MatrixDescriptor::new(&smem_b, b_layout);
-    let mut acc = Accumulator::<CD>::new(n).start();
+    let started = Accumulator::<CD>::new(n).start();
+    let mut acc = if comptime![case.downcast] {
+        unsafe { started.downcast_unchecked::<u8>() }.downcast::<CD>()
+    } else {
+        started
+    };
 
     if comptime![case.pipelined] {
         let mut released = acc.commit();
@@ -400,6 +407,7 @@ macro_rules! testgen_wgmma {
                     a: AOperand::Shared(a),
                     b,
                     pipelined: false,
+                    downcast: false,
                 }
             }
 
@@ -411,6 +419,7 @@ macro_rules! testgen_wgmma {
                     a: AOperand::Registers,
                     b,
                     pipelined: false,
+                    downcast: false,
                 }
             }
 
@@ -453,6 +462,15 @@ macro_rules! testgen_wgmma {
                 let case = WgmmaCase {
                     pipelined: true,
                     ..shared(64, 8, SWIZZLED, SWIZZLED)
+                };
+                test::<f16, f16, f32>(case);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn f16_downcast() {
+                let case = WgmmaCase {
+                    downcast: true,
+                    ..shared(64, 4, SWIZZLED, SWIZZLED)
                 };
                 test::<f16, f16, f32>(case);
             }

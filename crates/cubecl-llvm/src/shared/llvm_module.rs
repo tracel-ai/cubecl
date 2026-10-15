@@ -9,27 +9,26 @@ use llvm_sys::{
     LLVMAttributeFunctionIndex, LLVMTypeKind,
     core::{
         LLVMAddAttributeAtIndex, LLVMCountParams, LLVMCreateEnumAttribute,
-        LLVMCreateStringAttribute, LLVMGetBufferSize, LLVMGetBufferStart,
-        LLVMGetEnumAttributeKindForName, LLVMGetNamedFunction, LLVMGetParam, LLVMGetTypeKind,
-        LLVMSetFunctionCallConv, LLVMTypeOf,
+        LLVMCreateStringAttribute, LLVMGetEnumAttributeKindForName, LLVMGetNamedFunction,
+        LLVMGetParam, LLVMGetTypeKind, LLVMSetFunctionCallConv, LLVMTypeOf,
     },
     prelude::LLVMValueRef,
-    target_machine::{LLVMCodeGenFileType, LLVMTargetMachineEmitToMemoryBuffer},
 };
 use llvm_sys::{
     core::{
         LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy,
-        LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMDisposeModule, LLVMPrintModuleToString,
-        LLVMSetTarget,
+        LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMDisposeModule, LLVMGetBufferSize,
+        LLVMGetBufferStart, LLVMPrintModuleToString, LLVMSetTarget,
     },
     error::{LLVMDisposeErrorMessage, LLVMGetErrorMessage},
     ir_reader::LLVMParseIRInContext2,
     prelude::{LLVMContextRef, LLVMModuleRef},
     target::{LLVMDisposeTargetData, LLVMSetModuleDataLayout},
     target_machine::{
-        LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout, LLVMCreateTargetMachine,
-        LLVMDisposeTargetMachine, LLVMGetDefaultTargetTriple, LLVMGetHostCPUFeatures,
-        LLVMGetHostCPUName, LLVMGetTargetFromTriple, LLVMRelocMode, LLVMTargetMachineRef,
+        LLVMCodeGenFileType, LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout,
+        LLVMCreateTargetMachine, LLVMDisposeTargetMachine, LLVMGetDefaultTargetTriple,
+        LLVMGetHostCPUFeatures, LLVMGetHostCPUName, LLVMGetTargetFromTriple, LLVMRelocMode,
+        LLVMTargetMachineEmitToMemoryBuffer, LLVMTargetMachineRef,
     },
     transforms::pass_builder::{
         LLVMCreatePassBuilderOptions, LLVMDisposePassBuilderOptions, LLVMRunPasses,
@@ -153,6 +152,7 @@ impl LlvmModule {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn print(&self) -> String {
         // SAFETY: the module is live, and the printed string is ours to free.
         unsafe { take_message(LLVMPrintModuleToString(self.module)) }
@@ -444,7 +444,7 @@ impl TargetMachine {
             triple: &triple,
             cpu: &cpu,
             features: &features,
-            reloc: LLVMRelocMode::LLVMRelocDefault,
+            reloc: LLVMRelocMode::LLVMRelocPIC,
         })?;
         module.set_triple(&triple);
         machine.set_data_layout(module);
@@ -496,7 +496,6 @@ impl TargetMachine {
     ///
     /// # Errors
     /// The message LLVM gives, when it cannot emit this module for this machine.
-    #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
     pub(crate) fn emit(
         &self,
         module: LlvmModule,
