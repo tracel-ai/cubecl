@@ -29,7 +29,10 @@ use cubecl_common::{
     profile::ProfileDuration,
 };
 use cubecl_environment::{backtrace::BackTrace, future::DynFut, stream::StreamId, sync::Mutex};
-use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, VectorSize, features::Features};
+use cubecl_ir::{
+    DeviceProperties, ElemType, TargetProperties, VectorSize,
+    features::{Features, TypeUsage},
+};
 use cubecl_zspace::Shape;
 pub use group::*;
 
@@ -997,14 +1000,12 @@ impl Client {
     /// Whether this runtime moves data between its devices itself. Without it, `to_client`
     /// copies through the host and the collectives refuse.
     pub fn has_device_transport(&self) -> bool {
-        self.utilities.device_transport.is_some()
-    }
-
-    /// Whether the device transport moves elements of `dtype`. False without a transport.
-    pub fn device_transport_takes(&self, dtype: ElemType) -> bool {
-        self.utilities
-            .device_transport
-            .is_some_and(|transport| (transport.takes)(dtype))
+        self.properties()
+            .features
+            .types
+            .elem
+            .values()
+            .any(|usage| usage.contains(TypeUsage::Transport))
     }
 
     /// Panics on the caller when the runtime has no device transport.
@@ -1026,8 +1027,8 @@ impl Client {
     /// Wait on the communication stream.
     ///
     /// Call it once every device has queued its part of the `all_reduce` calls it waits for: a
-    /// transfer from this device queued in between would wait on a part not queued yet. The
-    /// other collectives need no sync: each one's stream waits for it as it is queued.
+    /// transfer from this device queued in between would wait on a part not queued yet. A
+    /// [`ClientGroup`]'s other collectives need none: each one's stream waits for it at once.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn sync_collective(&self) {
         if DeviceHandle::<dyn Server>::is_blocking() {
@@ -1073,94 +1074,6 @@ impl Client {
     ) {
         self.prepare_collective(Collective::AllReduce, device_ids.clone());
         self.queue_all_reduce(src, dst, dtype, device_ids, op);
-    }
-
-    /// Perform an `all_gather` on the given devices: `dst` receives every device's `src`,
-    /// concatenated in rank order, a rank being a device's position among `device_ids` sorted.
-    ///
-    /// Queued in one order on every device, as [`all_reduce`](Self::all_reduce) is, but this
-    /// device's stream waits for it at once, with no [`sync_collective`](Self::sync_collective).
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids))
-    )]
-    pub fn all_gather(
-        &mut self,
-        src: Handle,
-        dst: Handle,
-        dtype: ElemType,
-        device_ids: Vec<DeviceId>,
-    ) {
-        self.prepare_collective(Collective::AllGather, device_ids.clone());
-        self.queue_all_gather(src, dst, dtype, device_ids);
-        self.flush_part();
-    }
-
-    /// Perform a `reduce_scatter` on the given devices: `dst` receives this device's rank's chunk
-    /// of every device's `src` reduced, a rank being a device's position among `device_ids`
-    /// sorted.
-    ///
-    /// Queued in one order on every device, as [`all_reduce`](Self::all_reduce) is, but this
-    /// device's stream waits for it at once, with no [`sync_collective`](Self::sync_collective).
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids, op))
-    )]
-    pub fn reduce_scatter(
-        &mut self,
-        src: Handle,
-        dst: Handle,
-        dtype: ElemType,
-        device_ids: Vec<DeviceId>,
-        op: ReduceOperation,
-    ) {
-        self.prepare_collective(Collective::ReduceScatter, device_ids.clone());
-        self.queue_reduce_scatter(src, dst, dtype, device_ids, op);
-        self.flush_part();
-    }
-
-    /// Perform a `broadcast` on the given devices: `dst` receives `root`'s `src`. The root, and
-    /// only the root, passes a `src`, which may be its `dst`.
-    ///
-    /// Queued in one order on every device, as [`all_reduce`](Self::all_reduce) is, but this
-    /// device's stream waits for it at once, with no [`sync_collective`](Self::sync_collective).
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids))
-    )]
-    pub fn broadcast(
-        &mut self,
-        src: Option<Handle>,
-        dst: Handle,
-        dtype: ElemType,
-        root: DeviceId,
-        device_ids: Vec<DeviceId>,
-    ) {
-        self.prepare_collective(Collective::Broadcast, device_ids.clone());
-        self.queue_broadcast(src, dst, dtype, root, device_ids);
-        self.flush_part();
-    }
-
-    /// Perform an `all_to_all` on the given devices: chunk `r` of `src` goes to rank `r`, and
-    /// chunk `r` of `dst` comes from rank `r`, a rank being a device's position among
-    /// `device_ids` sorted. `src` and `dst` are distinct buffers.
-    ///
-    /// Queued in one order on every device, as [`all_reduce`](Self::all_reduce) is, but this
-    /// device's stream waits for it at once, with no [`sync_collective`](Self::sync_collective).
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids))
-    )]
-    pub fn all_to_all(
-        &mut self,
-        src: Handle,
-        dst: Handle,
-        dtype: ElemType,
-        device_ids: Vec<DeviceId>,
-    ) {
-        self.prepare_collective(Collective::AllToAll, device_ids.clone());
-        self.queue_all_to_all(src, dst, dtype, device_ids);
-        self.flush_part();
     }
 
     /// Checks `collective` can run from here, and sets up the group over `device_ids`.
@@ -1227,12 +1140,6 @@ impl Client {
         root: DeviceId,
         device_ids: Vec<DeviceId>,
     ) {
-        // A root without a source would send its own stale destination as the result.
-        let is_root = self.device.device_id() == root;
-        assert!(
-            src.is_some() == is_root,
-            "a broadcast from {root:?} takes a source on the root and nowhere else"
-        );
         let (src, dst) = (src.map(Handle::binding), dst.binding());
         src.iter()
             .chain([&dst])
@@ -1249,23 +1156,12 @@ impl Client {
         dtype: ElemType,
         device_ids: Vec<DeviceId>,
     ) {
-        // Its sends would read chunks its receives are overwriting.
-        assert!(
-            src.memory.descriptor().id != dst.memory.descriptor().id,
-            "an all_to_all cannot run in place"
-        );
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
         self.queue_collective(Collective::AllToAll, move |server, stream_id| {
             server.all_to_all(src, dst, dtype, stream_id, device_ids)
         });
-    }
-
-    /// Sends a queued part to the device, which `sync_collective` does for an `all_reduce` and
-    /// nothing does for the collectives the stream waits for at once.
-    fn flush_part(&self) {
-        self.device.flush_queue();
     }
 
     /// Queues this device's part of `collective`.

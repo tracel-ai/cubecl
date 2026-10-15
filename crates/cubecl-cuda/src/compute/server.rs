@@ -21,7 +21,9 @@ use cubecl_core::{
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::{self, DynFut};
 use cubecl_environment::stream::StreamId;
-use cubecl_server::command::{CollectiveDriver, Collectives, DeviceStream, Refused, expect_size};
+use cubecl_server::command::{
+    CollectiveDriver, Collectives, DeviceStream, Elements, Refused, expect_size,
+};
 use cubecl_server::compiler::ArtifactId;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
@@ -457,9 +459,9 @@ impl ServerCommunication for CudaServer {
                 [src, dst],
                 ComputeWait::AtSync,
                 |comm, [src, dst], stream| {
-                    let (nccl_dtype, count) = Cuda::data_type(dtype, src.size)?;
+                    let elements = Cuda::elements(dtype, src.size)?;
                     expect_size("destination", dst.size, src.size)?;
-                    Cuda::all_reduce(comm, src, dst, nccl_dtype, count, op, stream)
+                    Cuda::all_reduce(comm, src, dst, elements, op, stream)
                 },
             )
         })
@@ -482,9 +484,9 @@ impl ServerCommunication for CudaServer {
                 [src, dst],
                 ComputeWait::Now,
                 |comm, [src, dst], stream| {
-                    let (nccl_dtype, count) = Cuda::data_type(dtype, src.size)?;
+                    let elements = Cuda::elements(dtype, src.size)?;
                     expect_size("destination", dst.size, src.size * ranks)?;
-                    Cuda::all_gather(comm, src, dst, nccl_dtype, count, stream)
+                    Cuda::all_gather(comm, src, dst, elements, stream)
                 },
             )
         })
@@ -508,9 +510,9 @@ impl ServerCommunication for CudaServer {
                 [src, dst],
                 ComputeWait::Now,
                 |comm, [src, dst], stream| {
-                    let (nccl_dtype, count) = Cuda::data_type(dtype, dst.size)?;
+                    let elements = Cuda::elements(dtype, dst.size)?;
                     expect_size("source", src.size, dst.size * ranks)?;
-                    Cuda::reduce_scatter(comm, src, dst, nccl_dtype, count, op, stream)
+                    Cuda::reduce_scatter(comm, src, dst, elements, op, stream)
                 },
             )
         })
@@ -536,9 +538,9 @@ impl ServerCommunication for CudaServer {
                     [src, dst],
                     ComputeWait::Now,
                     |comm, [src, dst], stream| {
-                        let (nccl_dtype, count) = Cuda::data_type(dtype, dst.size)?;
+                        let elements = Cuda::elements(dtype, dst.size)?;
                         expect_size("source", src.size, dst.size)?;
-                        Cuda::broadcast(comm, Some(src), dst, nccl_dtype, count, root, stream)
+                        Cuda::broadcast(comm, Some(src), dst, elements, root, stream)
                     },
                 )
             }),
@@ -550,8 +552,8 @@ impl ServerCommunication for CudaServer {
                     [dst],
                     ComputeWait::Now,
                     |comm, [dst], stream| {
-                        let (nccl_dtype, count) = Cuda::data_type(dtype, dst.size)?;
-                        Cuda::broadcast(comm, None, dst, nccl_dtype, count, root, stream)
+                        let elements = Cuda::elements(dtype, dst.size)?;
+                        Cuda::broadcast(comm, None, dst, elements, root, stream)
                     },
                 )
             }),
@@ -576,13 +578,6 @@ impl ServerCommunication for CudaServer {
         device_ids: Vec<DeviceId>,
     ) -> Result<(), ServerError> {
         self.settle_collective([src], dst, |server, [src], dst| {
-            // Its sends would read chunks its receives are overwriting.
-            if src.memory.id() == dst.memory.id() {
-                return Err(ServerError::Generic {
-                    reason: "an all_to_all cannot run in place".into(),
-                    backtrace: BackTrace::capture(),
-                });
-            }
             let ranks = device_ids.len();
             let group = CommunicationId::from(device_ids);
             server.run_collective(
@@ -591,19 +586,29 @@ impl ServerCommunication for CudaServer {
                 [src, dst],
                 ComputeWait::Now,
                 |comm, [src, dst], stream| {
-                    let (nccl_dtype, count) = Cuda::data_type(dtype, src.size)?;
+                    // Its sends would read chunks its receives are overwriting.
+                    if src.ptr < dst.ptr + dst.size && dst.ptr < src.ptr + src.size {
+                        return Err(ServerError::Generic {
+                            reason: "an all_to_all's source and destination overlap".into(),
+                            backtrace: BackTrace::capture(),
+                        });
+                    }
+                    let elements = Cuda::elements(dtype, src.size)?;
                     expect_size("destination", dst.size, src.size)?;
-                    // The chunks are cut by bytes, so the source has to hold whole elements.
-                    expect_size("source", src.size, count as u64 * dtype.size() as u64)?;
-                    if count % ranks != 0 {
+                    if elements.count % ranks != 0 {
                         return Err(ServerError::Generic {
                             reason: format!(
-                                "an all_to_all over {ranks} ranks splits {count} elements unevenly"
+                                "an all_to_all over {ranks} ranks splits {} elements unevenly",
+                                elements.count
                             ),
                             backtrace: BackTrace::capture(),
                         });
                     }
-                    Cuda::all_to_all(comm, src, dst, nccl_dtype, count / ranks, ranks, stream)
+                    let chunk = Elements {
+                        count: elements.count / ranks,
+                        ..elements
+                    };
+                    Cuda::all_to_all(comm, src, dst, chunk, ranks, stream)
                 },
             )
         })
@@ -653,8 +658,8 @@ impl ServerCommunication for CudaServer {
 
         // Wait for the data to be ready on the compute stream.
         Fence::new(stream).wait_async(transfers)?;
-        let (nccl_dtype, count) = Cuda::data_type(dtype, resource.size)?;
-        Cuda::send(&comm, &resource, nccl_dtype, count, peer, transfers)?;
+        let elements = Cuda::elements(dtype, resource.size)?;
+        Cuda::send(&comm, &resource, elements, peer, transfers)?;
         // This stream's pool may reuse the source from here, and dropping the command releases one
         // borrowed from another stream once this stream gets here: both wait for the send.
         Fence::new(transfers).wait_async(stream)?;
@@ -764,13 +769,12 @@ impl CudaServer {
     /// peer. A single element connects the algorithm it picks, the ring on a single node.
     fn connect(&self, id: &CommunicationId) -> Result<(), ServerError> {
         let element = &self.ctx.connect_element;
-        let (dtype, count) = Cuda::data_type(ElemType::Float(FloatKind::F32), element.size)?;
+        let elements = Cuda::elements(ElemType::Float(FloatKind::F32), element.size)?;
         Cuda::all_reduce(
             self.collectives.get(id)?,
             element,
             element,
-            dtype,
-            count,
+            elements,
             ReduceOperation::Sum,
             self.comm_stream(),
         )
@@ -888,8 +892,6 @@ impl CudaServer {
             CUstream,
         ) -> Result<(), ServerError>,
     ) -> Result<(), ServerError> {
-        // The collective needs its bindings on one stream, and nothing below
-        // can proceed without that.
         if bindings
             .windows(2)
             .any(|pair| pair[0].stream != pair[1].stream)
@@ -955,8 +957,8 @@ impl CudaServer {
         // queued after it reads what arrives.
         let transfers = self.transfer_stream();
         Fence::new(stream).wait_async(transfers)?;
-        let (nccl_dtype, count) = Cuda::data_type(dtype, resource_dst.size)?;
-        Cuda::recv(&comm, &resource_dst, nccl_dtype, count, peer, transfers)?;
+        let elements = Cuda::elements(dtype, resource_dst.size)?;
+        Cuda::recv(&comm, &resource_dst, elements, peer, transfers)?;
         Fence::new(transfers).wait_async(stream)?;
         Ok(())
     }

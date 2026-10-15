@@ -4,7 +4,7 @@ use super::{Client, PEER_ORDER};
 use crate::server::{Collective, Handle, ReduceOperation};
 use alloc::vec::Vec;
 use cubecl_common::device::DeviceId;
-use cubecl_ir::ElemType;
+use cubecl_ir::{ElemType, features::TypeUsage};
 use thiserror::Error;
 
 /// The clients of distinct devices of one runtime that run collectives together, for a caller
@@ -12,11 +12,13 @@ use thiserror::Error;
 ///
 /// Member `i` is rank `i`, so the members are in ascending device order, the order a collective's
 /// ranks take. A collective queues every member's part before another group or a transfer queues
-/// anything, and returns once each member's stream waits for its part. Per-device collectives
-/// other threads queue on the same devices are not ordered against it.
+/// anything, and returns once each member's stream waits for its part. Per-device `all_reduce`
+/// calls other threads queue are not ordered against it, and two of its devices running
+/// collectives in different orders hang.
 ///
-/// Every member's buffers are checked before any part is queued: a part one device refuses
-/// leaves the devices that queued theirs waiting on it forever.
+/// Every member's buffers are checked before any part is queued, since a part one device refuses
+/// leaves the devices that queued theirs waiting on it. A source carrying a failure from earlier
+/// work is refused by its device alone, so the other members still wait.
 #[derive(Clone)]
 pub struct ClientGroup {
     clients: Vec<Client>,
@@ -115,7 +117,7 @@ impl ClientGroup {
         self.queue(collective, buffers, |client, buffers, device_ids| {
             client.queue_all_reduce(buffers.src, buffers.dst, dtype, device_ids, op)
         });
-        // An all_reduce leaves the wait to `sync_collective`, so many can overlap compute.
+        // Unlike the other four, an all_reduce's stream waits only at `sync_collective`.
         self.clients.iter().for_each(Client::sync_collective);
     }
 
@@ -165,12 +167,14 @@ impl ClientGroup {
             "the root of a broadcast is member {root} of a group of {members}"
         );
         self.expect_parts(collective, dst.len());
-        self.expect_transport_takes(collective, dtype);
-        self.expect_on_member(root, &src);
+        self.expect_transport_moves(collective, dtype);
+        self.expect_member_buffers(root, &src, &dst[root]);
         for (member, dst) in dst.iter().enumerate() {
             self.expect_on_member(member, dst);
         }
-        Self::expect_sizes(collective, "destination", dst.iter(), src.size_in_used());
+        let size = src.size_in_used();
+        Self::expect_whole_elements(collective, dtype, size);
+        Self::expect_sizes(collective, "destination", dst.iter(), size);
 
         let root_id = self.device_ids[root];
         let mut src = Some(src);
@@ -198,8 +202,8 @@ impl ClientGroup {
         );
         for (member, buffers) in buffers.iter().enumerate() {
             assert!(
-                buffers.src.memory.descriptor().id != buffers.dst.memory.descriptor().id,
-                "member {member}'s all_to_all cannot run in place"
+                !buffers.src.overlaps(&buffers.dst),
+                "member {member}'s all_to_all source and destination overlap"
             );
         }
         self.queue(collective, buffers, |client, buffers, device_ids| {
@@ -207,8 +211,9 @@ impl ClientGroup {
         });
     }
 
-    /// Checks one part per member, each member's buffers on its device, sources of one size,
-    /// and a type the transport moves; returns the size of each source.
+    /// Checks one part per member, each member's buffers on its device and one stream, and
+    /// sources of one size in whole elements of a type the transport moves; returns the size of
+    /// each source.
     fn expect_buffers(
         &self,
         collective: Collective,
@@ -216,13 +221,13 @@ impl ClientGroup {
         buffers: &[MemberBuffers],
     ) -> u64 {
         self.expect_parts(collective, buffers.len());
-        self.expect_transport_takes(collective, dtype);
+        self.expect_transport_moves(collective, dtype);
         for (member, buffers) in buffers.iter().enumerate() {
-            self.expect_on_member(member, &buffers.src);
-            self.expect_on_member(member, &buffers.dst);
+            self.expect_member_buffers(member, &buffers.src, &buffers.dst);
         }
         let src = buffers[0].src.size_in_used();
         Self::expect_sizes(collective, "source", buffers.iter().map(|it| &it.src), src);
+        Self::expect_whole_elements(collective, dtype, src);
         src
     }
 
@@ -234,11 +239,22 @@ impl ClientGroup {
         );
     }
 
-    fn expect_transport_takes(&self, collective: Collective, dtype: ElemType) {
+    fn expect_transport_moves(&self, collective: Collective, dtype: ElemType) {
+        let client = &self.clients[0];
         assert!(
-            self.clients[0].device_transport_takes(dtype),
+            client
+                .properties()
+                .type_usage(dtype)
+                .contains(TypeUsage::Transport),
             "a {collective} on {} cannot move {dtype:?}",
-            self.clients[0].name()
+            client.name()
+        );
+    }
+
+    fn expect_whole_elements(collective: Collective, dtype: ElemType, size: u64) {
+        assert!(
+            size.is_multiple_of(dtype.size() as u64),
+            "a {collective} cannot cut {size} bytes into whole {dtype:?} elements"
         );
     }
 
@@ -252,6 +268,17 @@ impl ClientGroup {
             "a {collective} over {members} members cannot split {size} bytes of {dtype:?}"
         );
         size / members
+    }
+
+    /// Checks a member's source and destination are on its device, and on one stream, which the
+    /// device requires of a collective's buffers.
+    fn expect_member_buffers(&self, member: usize, src: &Handle, dst: &Handle) {
+        self.expect_on_member(member, src);
+        self.expect_on_member(member, dst);
+        assert!(
+            src.stream == dst.stream,
+            "member {member}'s source and destination are on two streams"
+        );
     }
 
     fn expect_on_member(&self, member: usize, handle: &Handle) {

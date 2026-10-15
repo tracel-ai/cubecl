@@ -20,7 +20,7 @@ use cubecl_core::{
         features::{AtomicUsage, ComplexUsage, Plane, Tma, TypeUsage},
         nvidia::SmArch,
     },
-    server::{DeviceTransport, ServerUtilities},
+    server::ServerUtilities,
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_cpp::{
@@ -406,6 +406,7 @@ impl DeviceService for CudaServer {
             let sm_arch = SmArch::new(arch_version, arch.tensor_cores);
             restrict_features(&mut device_props, GpuTarget::Nvptx { arch: sm_arch });
         }
+        crate::compute::communication::register_transport(&mut device_props);
 
         let comp_opts = CudaCompilationOptions {
             cpp: comp_opts,
@@ -432,7 +433,7 @@ impl DeviceService for CudaServer {
         );
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
-        let (mut utilities, captures) = ServerUtilities::init(
+        let (utilities, captures) = ServerUtilities::init(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "cuda",
             device_props,
@@ -440,12 +441,6 @@ impl DeviceService for CudaServer {
             logger,
             policy,
         );
-        // SAFETY: the call only tries to `dlopen` each candidate name.
-        if unsafe { cudarc::nccl::sys::is_culib_present() } {
-            utilities.device_transport = Some(DeviceTransport {
-                takes: crate::compute::communication::nccl_takes,
-            });
-        }
 
         CudaServer::new(
             cuda_ctx,

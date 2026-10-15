@@ -5,15 +5,17 @@
 //! rank in one is — is the shared
 //! [`Collectives`](cubecl_server::command::Collectives)'.
 
+use core::ffi::c_int;
 use std::{collections::HashMap, sync::OnceLock};
 
 use cubecl_core::{
-    ir::{ElemType, FloatKind, IntKind, UIntKind},
+    ir::{DeviceProperties, ElemType, FloatKind, IntKind, UIntKind, features::TypeUsage},
     server::{CommunicationId, ReduceOperation, ServerError},
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::sync::Mutex;
-use cubecl_server::command::CollectiveDriver;
+use cubecl_server::command::{CollectiveDriver, Elements};
+use cudarc::nccl::sys::ncclDataType_t as Nccl;
 use std::mem::MaybeUninit;
 
 use crate::compute::driver::Cuda;
@@ -31,47 +33,73 @@ fn to_nccl_op(op: ReduceOperation) -> cudarc::nccl::sys::ncclRedOp_t {
     }
 }
 
-/// The NCCL data type for `dtype`, and how many of them `size` bytes hold.
+/// NCCL 2.24.3, the first release with the FP8 data types.
+const NCCL_FP8: c_int = 22403;
+
+/// The elements of `dtype` that `size` bytes hold, as NCCL names them.
 ///
 /// # Errors
 ///
-/// [`ServerError::Generic`] for an element type NCCL has no data type for.
-/// Reported rather than fatal: a collective is one operation among many, and
-/// refusing it is not a reason to take the process down — the caller can pick
-/// another type, or another way to move the tensor.
-fn nccl_dtype_count(
-    dtype: ElemType,
-    size: u64,
-) -> Result<(cudarc::nccl::sys::ncclDataType_t, usize), ServerError> {
-    let (nccl, width) = nccl_dtype(dtype).ok_or_else(|| ServerError::Generic {
+/// [`ServerError::Generic`] for an element type NCCL has no data type for, and for a size that
+/// is not whole elements, whose last bytes NCCL would leave out.
+fn nccl_elements(dtype: ElemType, size: u64) -> Result<Elements<Nccl>, ServerError> {
+    let data_type = nccl_dtype(dtype).ok_or_else(|| ServerError::Generic {
         reason: format!("NCCL has no data type for {dtype:?}, so no collective over it"),
         backtrace: BackTrace::capture(),
     })?;
-    Ok((nccl, (size / width) as usize))
+    let width = dtype.size() as u64;
+    if !size.is_multiple_of(width) {
+        return Err(ServerError::Generic {
+            reason: format!("{size} bytes are not whole {dtype:?} elements"),
+            backtrace: BackTrace::capture(),
+        });
+    }
+    Ok(Elements {
+        data_type,
+        count: (size / width) as usize,
+    })
 }
 
-/// Whether NCCL moves elements of `dtype`, which is what the device transport takes.
-pub fn nccl_takes(dtype: ElemType) -> bool {
-    nccl_dtype(dtype).is_some()
+/// Registers [`TypeUsage::Transport`] for the device's types that the NCCL it loads moves.
+pub fn register_transport(props: &mut DeviceProperties) {
+    // SAFETY: the call only tries to `dlopen` each candidate name.
+    if !unsafe { cudarc::nccl::sys::is_culib_present() } {
+        return;
+    }
+    let Ok(version) = cudarc::nccl::result::get_nccl_version() else {
+        return;
+    };
+    for (dtype, usage) in props.features.types.elem.iter_mut() {
+        if nccl_moves(*dtype, version) {
+            *usage |= TypeUsage::Transport;
+        }
+    }
 }
 
-/// The NCCL data type for `dtype`, paired with the width of one element.
-fn nccl_dtype(dtype: ElemType) -> Option<(cudarc::nccl::sys::ncclDataType_t, u64)> {
-    use cudarc::nccl::sys::ncclDataType_t as Nccl;
+/// Whether NCCL `version` has a data type for `dtype`; the library is loaded at runtime, so it
+/// may predate types this crate names.
+fn nccl_moves(dtype: ElemType, version: c_int) -> bool {
+    match dtype {
+        ElemType::Float(FloatKind::E4M3 | FloatKind::E5M2) => version >= NCCL_FP8,
+        dtype => nccl_dtype(dtype).is_some(),
+    }
+}
 
+/// The NCCL data type for `dtype`.
+fn nccl_dtype(dtype: ElemType) -> Option<Nccl> {
     Some(match dtype {
-        ElemType::Float(FloatKind::E4M3) => (Nccl::ncclFloat8e4m3, 1),
-        ElemType::Float(FloatKind::E5M2) => (Nccl::ncclFloat8e5m2, 1),
-        ElemType::Float(FloatKind::F16) => (Nccl::ncclFloat16, 2),
-        ElemType::Float(FloatKind::BF16) => (Nccl::ncclBfloat16, 2),
-        ElemType::Float(FloatKind::F32) => (Nccl::ncclFloat32, 4),
-        ElemType::Float(FloatKind::F64) => (Nccl::ncclFloat64, 8),
-        ElemType::Int(IntKind::I8) => (Nccl::ncclInt8, 1),
-        ElemType::Int(IntKind::I32) => (Nccl::ncclInt32, 4),
-        ElemType::Int(IntKind::I64) => (Nccl::ncclInt64, 8),
-        ElemType::UInt(UIntKind::U8) => (Nccl::ncclUint8, 1),
-        ElemType::UInt(UIntKind::U32) => (Nccl::ncclUint32, 4),
-        ElemType::UInt(UIntKind::U64) => (Nccl::ncclUint64, 8),
+        ElemType::Float(FloatKind::E4M3) => Nccl::ncclFloat8e4m3,
+        ElemType::Float(FloatKind::E5M2) => Nccl::ncclFloat8e5m2,
+        ElemType::Float(FloatKind::F16) => Nccl::ncclFloat16,
+        ElemType::Float(FloatKind::BF16) => Nccl::ncclBfloat16,
+        ElemType::Float(FloatKind::F32) => Nccl::ncclFloat32,
+        ElemType::Float(FloatKind::F64) => Nccl::ncclFloat64,
+        ElemType::Int(IntKind::I8) => Nccl::ncclInt8,
+        ElemType::Int(IntKind::I32) => Nccl::ncclInt32,
+        ElemType::Int(IntKind::I64) => Nccl::ncclInt64,
+        ElemType::UInt(UIntKind::U8) => Nccl::ncclUint8,
+        ElemType::UInt(UIntKind::U32) => Nccl::ncclUint32,
+        ElemType::UInt(UIntKind::U64) => Nccl::ncclUint64,
         // Spelled out rather than caught by a wildcard, so a new element type
         // has to be placed on one side or the other before this compiles.
         ElemType::Index
@@ -102,7 +130,7 @@ fn nccl_error(operation: &str, err: cudarc::nccl::result::NcclError) -> ServerEr
 impl CollectiveDriver for Cuda {
     type Communicator = cudarc::nccl::sys::ncclComm_t;
     type UniqueId = cudarc::nccl::sys::ncclUniqueId;
-    type DataType = cudarc::nccl::sys::ncclDataType_t;
+    type DataType = Nccl;
     type CommStream = cudarc::driver::sys::CUstream;
 
     fn group_id(id: &CommunicationId) -> Result<Self::UniqueId, ServerError> {
@@ -141,16 +169,15 @@ impl CollectiveDriver for Cuda {
         }
     }
 
-    fn data_type(dtype: ElemType, size: u64) -> Result<(Self::DataType, usize), ServerError> {
-        nccl_dtype_count(dtype, size)
+    fn elements(dtype: ElemType, size: u64) -> Result<Elements<Self::DataType>, ServerError> {
+        nccl_elements(dtype, size)
     }
 
     fn all_reduce(
         comm: &Self::Communicator,
         src: &GpuResource,
         dst: &GpuResource,
-        dtype: Self::DataType,
-        count: usize,
+        elements: Elements<Self::DataType>,
         op: ReduceOperation,
         stream: Self::CommStream,
     ) -> Result<(), ServerError> {
@@ -160,8 +187,8 @@ impl CollectiveDriver for Cuda {
             cudarc::nccl::result::all_reduce(
                 src.ptr as *const _,
                 dst.ptr as *mut _,
-                count,
-                dtype,
+                elements.count,
+                elements.data_type,
                 to_nccl_op(op),
                 *comm,
                 stream as _,
@@ -178,8 +205,7 @@ impl CollectiveDriver for Cuda {
         comm: &Self::Communicator,
         src: &GpuResource,
         dst: &GpuResource,
-        dtype: Self::DataType,
-        count: usize,
+        elements: Elements<Self::DataType>,
         stream: Self::CommStream,
     ) -> Result<(), ServerError> {
         // SAFETY: both pointers are live device allocations, `dst` holding one `src` per rank,
@@ -188,8 +214,8 @@ impl CollectiveDriver for Cuda {
             cudarc::nccl::result::all_gather(
                 src.ptr as *const _,
                 dst.ptr as *mut _,
-                count,
-                dtype,
+                elements.count,
+                elements.data_type,
                 *comm,
                 stream as _,
             )
@@ -202,8 +228,7 @@ impl CollectiveDriver for Cuda {
         comm: &Self::Communicator,
         src: &GpuResource,
         dst: &GpuResource,
-        dtype: Self::DataType,
-        count: usize,
+        elements: Elements<Self::DataType>,
         op: ReduceOperation,
         stream: Self::CommStream,
     ) -> Result<(), ServerError> {
@@ -213,8 +238,8 @@ impl CollectiveDriver for Cuda {
             cudarc::nccl::result::reduce_scatter(
                 src.ptr as *const _,
                 dst.ptr as *mut _,
-                count,
-                dtype,
+                elements.count,
+                elements.data_type,
                 to_nccl_op(op),
                 *comm,
                 stream as _,
@@ -228,21 +253,20 @@ impl CollectiveDriver for Cuda {
         comm: &Self::Communicator,
         src: Option<&GpuResource>,
         dst: &GpuResource,
-        dtype: Self::DataType,
-        count: usize,
+        elements: Elements<Self::DataType>,
         root: usize,
         stream: Self::CommStream,
     ) -> Result<(), ServerError> {
         // NCCL reads the send buffer on the root only, so the other ranks name their own.
         let src = src.unwrap_or(dst);
-        // SAFETY: both pointers are live device allocations of `count` elements, `comm` was
+        // SAFETY: both pointers are live device allocations of `elements`, `comm` was
         // joined by `join` above, and `stream` is the dedicated collective stream.
         unsafe {
             cudarc::nccl::result::broadcast(
                 src.ptr as *const _,
                 dst.ptr as *mut _,
-                count,
-                dtype,
+                elements.count,
+                elements.data_type,
                 root as i32,
                 *comm,
                 stream as _,
@@ -256,8 +280,7 @@ impl CollectiveDriver for Cuda {
         comm: &Self::Communicator,
         src: &GpuResource,
         dst: &GpuResource,
-        dtype: Self::DataType,
-        count: usize,
+        elements: Elements<Self::DataType>,
         ranks: usize,
         stream: Self::CommStream,
     ) -> Result<(), ServerError> {
@@ -267,14 +290,14 @@ impl CollectiveDriver for Cuda {
         cudarc::nccl::result::group_start().map_err(|err| nccl_error("group_start", err))?;
         let queued = (0..ranks).try_for_each(|rank| {
             let offset = rank as u64 * chunk;
-            // SAFETY: `src` and `dst` are live device allocations of `ranks` chunks of `count`
-            // elements, so both offsets stay inside them; `comm` was joined by `join` above, and
+            // SAFETY: `src` and `dst` are live device allocations of `ranks` chunks of `elements`,
+            // so both offsets stay inside them; `comm` was joined by `join` above, and
             // `stream` is the dedicated collective stream.
             unsafe {
                 cudarc::nccl::result::send(
                     (src.ptr + offset) as *const _,
-                    count,
-                    dtype,
+                    elements.count,
+                    elements.data_type,
                     rank as i32,
                     *comm,
                     stream as _,
@@ -282,8 +305,8 @@ impl CollectiveDriver for Cuda {
                 .map_err(|err| nccl_error("send", err))?;
                 cudarc::nccl::result::recv(
                     (dst.ptr + offset) as *mut _,
-                    count,
-                    dtype,
+                    elements.count,
+                    elements.data_type,
                     rank as i32,
                     *comm,
                     stream as _,
@@ -300,8 +323,7 @@ impl CollectiveDriver for Cuda {
     fn send(
         comm: &Self::Communicator,
         src: &GpuResource,
-        dtype: Self::DataType,
-        count: usize,
+        elements: Elements<Self::DataType>,
         peer: usize,
         stream: Self::CommStream,
     ) -> Result<(), ServerError> {
@@ -310,8 +332,8 @@ impl CollectiveDriver for Cuda {
         unsafe {
             cudarc::nccl::result::send(
                 src.ptr as *const _,
-                count,
-                dtype,
+                elements.count,
+                elements.data_type,
                 peer as i32,
                 *comm,
                 stream as _,
@@ -327,8 +349,7 @@ impl CollectiveDriver for Cuda {
     fn recv(
         comm: &Self::Communicator,
         dst: &GpuResource,
-        dtype: Self::DataType,
-        count: usize,
+        elements: Elements<Self::DataType>,
         peer: usize,
         stream: Self::CommStream,
     ) -> Result<(), ServerError> {
@@ -337,8 +358,8 @@ impl CollectiveDriver for Cuda {
         unsafe {
             cudarc::nccl::result::recv(
                 dst.ptr as *mut _,
-                count,
-                dtype,
+                elements.count,
+                elements.data_type,
                 peer as i32,
                 *comm,
                 stream as _,
@@ -357,10 +378,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_transport_takes_only_what_nccl_names() {
-        assert!(nccl_takes(ElemType::Float(FloatKind::F32)));
-        assert!(nccl_takes(ElemType::UInt(UIntKind::U8)));
-        assert!(!nccl_takes(ElemType::Bool));
-        assert!(!nccl_takes(ElemType::Int(IntKind::I16)));
+    fn nccl_moves_only_the_types_its_version_names() {
+        let fp8 = ElemType::Float(FloatKind::E4M3);
+        assert!(nccl_moves(ElemType::Float(FloatKind::F32), 21800));
+        assert!(nccl_moves(ElemType::UInt(UIntKind::U8), 21800));
+        assert!(!nccl_moves(ElemType::Bool, NCCL_FP8));
+        assert!(!nccl_moves(ElemType::Int(IntKind::I16), NCCL_FP8));
+        assert!(!nccl_moves(fp8, NCCL_FP8 - 1));
+        assert!(nccl_moves(fp8, NCCL_FP8));
+    }
+
+    #[test]
+    fn nccl_refuses_a_partial_element() {
+        let f32 = ElemType::Float(FloatKind::F32);
+        assert_eq!(nccl_elements(f32, 12).map(|it| it.count).ok(), Some(3));
+        assert!(nccl_elements(f32, 6).is_err());
     }
 }

@@ -191,6 +191,27 @@ fn a_client_group_refuses_devices_out_of_ascending_order() {
 }
 
 #[test_log::test]
+fn a_client_group_needs_a_client() {
+    assert!(matches!(
+        ClientGroup::new(Vec::new()),
+        Err(ClientGroupError::Empty)
+    ));
+}
+
+#[test_log::test]
+fn a_client_group_refuses_mixed_runtimes() {
+    let clients = vec![
+        Client::load::<DummyServer>(DeviceId::new(0, 0)),
+        Client::load::<DummyServer<Other>>(DeviceId::new(0, 1)),
+    ];
+
+    assert!(matches!(
+        ClientGroup::new(clients),
+        Err(ClientGroupError::MixedRuntimes)
+    ));
+}
+
+#[test_log::test]
 fn a_client_group_needs_a_device_transport() {
     let clients = [0, 1]
         .map(|index| Client::load::<DummyServer>(DeviceId::new(0, index)))

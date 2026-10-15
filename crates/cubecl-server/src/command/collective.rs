@@ -52,15 +52,15 @@ pub trait CollectiveDriver: Driver {
         rank: usize,
     ) -> Result<Self::Communicator, ServerError>;
 
-    /// How the driver names `dtype`, and how many elements `size` bytes hold.
+    /// The elements of `dtype` that `size` bytes hold, as the driver names them.
     ///
     /// # Errors
     ///
-    /// An element type the driver has no name for. Reported rather than fatal:
-    /// a collective is one operation among many, and refusing it is not a
-    /// reason to take the process down — the caller can pick another type, or
-    /// another way to move the tensor.
-    fn data_type(dtype: ElemType, size: u64) -> Result<(Self::DataType, usize), ServerError>;
+    /// An element type the driver has no name for, and a size that is not whole elements.
+    /// Reported rather than fatal: a collective is one operation among many, and
+    /// refusing it is not a reason to take the process down. The caller can pick
+    /// another type, or another way to move the tensor.
+    fn elements(dtype: ElemType, size: u64) -> Result<Elements<Self::DataType>, ServerError>;
 
     /// Reduce `src` across the group into `dst` on every rank.
     ///
@@ -71,13 +71,12 @@ pub trait CollectiveDriver: Driver {
         comm: &Self::Communicator,
         src: &DeviceResource<Self>,
         dst: &DeviceResource<Self>,
-        dtype: Self::DataType,
-        count: usize,
+        elements: Elements<Self::DataType>,
         op: ReduceOperation,
         stream: Self::CommStream,
     ) -> Result<(), ServerError>;
 
-    /// Write every rank's `src` of `count` elements, concatenated in rank order, to `dst`.
+    /// Write every rank's `src` of `elements`, concatenated in rank order, to `dst`.
     ///
     /// # Errors
     ///
@@ -86,57 +85,49 @@ pub trait CollectiveDriver: Driver {
         comm: &Self::Communicator,
         src: &DeviceResource<Self>,
         dst: &DeviceResource<Self>,
-        dtype: Self::DataType,
-        count: usize,
+        elements: Elements<Self::DataType>,
         stream: Self::CommStream,
     ) -> Result<(), ServerError>;
 
-    /// Reduce every rank's `src` and write this rank's chunk of `count` elements to `dst`.
+    /// Reduce every rank's `src` and write this rank's chunk of `elements` to `dst`.
     ///
     /// # Errors
     ///
     /// The driver's refusal to enqueue the reduction.
-    #[allow(clippy::too_many_arguments)]
     fn reduce_scatter(
         comm: &Self::Communicator,
         src: &DeviceResource<Self>,
         dst: &DeviceResource<Self>,
-        dtype: Self::DataType,
-        count: usize,
+        elements: Elements<Self::DataType>,
         op: ReduceOperation,
         stream: Self::CommStream,
     ) -> Result<(), ServerError>;
 
-    /// Write rank `root`'s `src` of `count` elements to `dst` on every rank. Only `root` has a
-    /// `src`.
+    /// Write rank `root`'s `src` of `elements` to `dst` on every rank. Only `root` has a `src`.
     ///
     /// # Errors
     ///
     /// The driver's refusal to enqueue the broadcast.
-    #[allow(clippy::too_many_arguments)]
     fn broadcast(
         comm: &Self::Communicator,
         src: Option<&DeviceResource<Self>>,
         dst: &DeviceResource<Self>,
-        dtype: Self::DataType,
-        count: usize,
+        elements: Elements<Self::DataType>,
         root: usize,
         stream: Self::CommStream,
     ) -> Result<(), ServerError>;
 
     /// Send chunk `r` of `src` to rank `r` and write the chunk rank `r` sends to chunk `r` of
-    /// `dst`, each of the `ranks` chunks holding `count` elements.
+    /// `dst`, each of the `ranks` chunks holding `elements`.
     ///
     /// # Errors
     ///
     /// The driver's refusal to enqueue the exchange.
-    #[allow(clippy::too_many_arguments)]
     fn all_to_all(
         comm: &Self::Communicator,
         src: &DeviceResource<Self>,
         dst: &DeviceResource<Self>,
-        dtype: Self::DataType,
-        count: usize,
+        elements: Elements<Self::DataType>,
         ranks: usize,
         stream: Self::CommStream,
     ) -> Result<(), ServerError>;
@@ -149,8 +140,7 @@ pub trait CollectiveDriver: Driver {
     fn send(
         comm: &Self::Communicator,
         src: &DeviceResource<Self>,
-        dtype: Self::DataType,
-        count: usize,
+        elements: Elements<Self::DataType>,
         peer: usize,
         stream: Self::CommStream,
     ) -> Result<(), ServerError>;
@@ -163,11 +153,19 @@ pub trait CollectiveDriver: Driver {
     fn recv(
         comm: &Self::Communicator,
         dst: &DeviceResource<Self>,
-        dtype: Self::DataType,
-        count: usize,
+        elements: Elements<Self::DataType>,
         peer: usize,
         stream: Self::CommStream,
     ) -> Result<(), ServerError>;
+}
+
+/// A buffer's elements, with their type as the driver names it.
+#[derive(Debug, Clone, Copy)]
+pub struct Elements<T> {
+    /// The driver's name for the element type.
+    pub data_type: T,
+    /// How many elements.
+    pub count: usize,
 }
 
 /// The groups this device has joined.

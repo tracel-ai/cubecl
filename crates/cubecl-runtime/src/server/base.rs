@@ -135,11 +135,6 @@ pub struct ServerUtilities {
     pub logger: Arc<ServerLogger>,
     /// How to create the allocation.
     pub layout_policy: Box<dyn MemoryLayoutPolicy>,
-    /// How the server moves data to a peer server of the same runtime directly,
-    /// without a round trip through the host: the device transport
-    /// `Client::has_device_transport` reports. `None` unless the backend sets
-    /// one at init.
-    pub device_transport: Option<DeviceTransport>,
     /// How to enforce bounds checking on kernels.
     pub check_mode: BoundsCheckMode,
     /// A set containing the ids for which the inter-device communication has already been initialized.
@@ -147,14 +142,6 @@ pub struct ServerUtilities {
     /// The graph captures under way on the device, read-only: the streams update them through
     /// the [`DeviceCaptures`] [`init`](Self::init) returns alongside.
     pub captures: CaptureStatus,
-}
-
-/// A runtime's transport between its devices.
-#[derive(Debug, Clone, Copy)]
-pub struct DeviceTransport {
-    /// Whether the transport moves elements of a type. Asked on the caller's
-    /// thread, so a caller can pick another path before the device refuses.
-    pub takes: fn(ElemType) -> bool,
 }
 
 /// Defines how the memory layout is determined.
@@ -222,7 +209,6 @@ impl ServerUtilities {
             #[cfg(feature = "profile-tracy")]
             epoch_time: cubecl_environment::time::Instant::now(),
             layout_policy: Box::new(allocator),
-            device_transport: None,
             check_mode: CubeClRuntimeConfig::get().compilation.check_mode,
             initialized_comms: RwLock::new(HashSet::default()),
             captures: captures.status(),

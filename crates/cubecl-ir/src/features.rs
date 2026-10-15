@@ -113,6 +113,8 @@ pub enum TypeUsage {
     DotProduct,
     /// Whether this type can be stored in a buffer
     Buffer,
+    /// Moved between the runtime's devices by its device transport, without the host.
+    Transport,
 }
 
 /// Complex capability families allowed for a complex element type.
@@ -127,8 +129,10 @@ pub enum ComplexUsage {
 }
 
 impl TypeUsage {
+    /// Every use a kernel can make of a type. A runtime registers
+    /// [`Transport`](Self::Transport) itself, for the types its device transport moves.
     pub fn all() -> EnumSet<Self> {
-        EnumSet::all()
+        Self::Conversion | Self::Arithmetic | Self::DotProduct | Self::Buffer
     }
 
     pub fn no_store() -> EnumSet<Self> {
@@ -137,7 +141,7 @@ impl TypeUsage {
 
     pub fn maybe_store(storable: bool) -> EnumSet<Self> {
         if storable {
-            EnumSet::all()
+            Self::all()
         } else {
             Self::no_store()
         }

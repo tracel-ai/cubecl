@@ -134,6 +134,14 @@ impl Handle {
             handle: self.binding(),
         }
     }
+    /// Whether the two handles address a byte in common.
+    pub fn overlaps(&self, other: &Self) -> bool {
+        let start = |handle: &Self| handle.offset_start.unwrap_or(0);
+        let end = |handle: &Self| handle.size - handle.offset_end.unwrap_or(0);
+        self.memory.descriptor().id == other.memory.descriptor().id
+            && start(self) < end(other)
+            && start(other) < end(self)
+    }
     /// Get the size of the handle, in bytes, accounting for offsets
     pub fn size_in_used(&self) -> u64 {
         self.size - self.offset_start.unwrap_or(0) - self.offset_end.unwrap_or(0)
