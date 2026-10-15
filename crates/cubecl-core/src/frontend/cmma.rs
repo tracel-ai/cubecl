@@ -137,6 +137,58 @@ impl<C: CubeType, S: MatrixScope> Clone for MatrixExpand<C, S> {
     }
 }
 
+impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
+    /// This fragment named at `O`, panicking unless `O` is the element it holds.
+    ///
+    /// Like a slice's `downcast`, this only satisfies the Rust type system: the fragment is the
+    /// same, so it costs nothing.
+    pub fn downcast<O: CubePrimitive>(&self) -> Matrix<O, S> {
+        unexpanded!()
+    }
+
+    /// This fragment named at `O`, whatever element it holds.
+    ///
+    /// # Safety
+    ///
+    /// Only for keeping the fragment at a dummy type, to be named again with
+    /// [`downcast`](Self::downcast) where it is used, as a slice's `downcast_unchecked` is.
+    pub unsafe fn downcast_unchecked<O: CubePrimitive>(&self) -> Matrix<O, S> {
+        unexpanded!()
+    }
+}
+
+impl<C: CubeType, S: MatrixScope> MatrixExpand<C, S> {
+    pub fn __expand_downcast_method<O: CubePrimitive>(&self, scope: &Scope) -> MatrixExpand<O, S> {
+        let named = O::Scalar::__expand_as_type(scope);
+        let ctx = scope.ctx();
+        let held = self
+            .elem
+            .unwrap_ptr(ctx)
+            .deref(ctx)
+            .downcast_ref::<MatrixType>()
+            .map(|matrix| matrix.elem_ty);
+        assert_eq!(
+            held,
+            Some(named),
+            "Matrix::downcast: the fragment holds {held:?}, not {named:?}"
+        );
+        self.__expand_downcast_unchecked_method(scope)
+    }
+
+    #[doc(hidden)]
+    pub fn __expand_downcast_unchecked_method<O: CubePrimitive>(
+        &self,
+        _scope: &Scope,
+    ) -> MatrixExpand<O, S> {
+        MatrixExpand {
+            elem: self.elem,
+            ident: self.ident,
+            _c: PhantomData,
+            _s: PhantomData,
+        }
+    }
+}
+
 impl<C: CubeType, S: MatrixScope> ExpandTypeClone for MatrixExpand<C, S> {
     fn clone_unchecked(&self) -> Self {
         self.clone()
@@ -1130,7 +1182,8 @@ pub mod cast {
     ) -> MatrixExpand<O, S> {
         let ident = input.ident;
 
-        if core::any::TypeId::of::<C>() == core::any::TypeId::of::<O>() {
+        // Compared as the scope resolves them: two `define!`d names for one element are one type.
+        if C::Scalar::elem_type(scope) == O::Scalar::elem_type(scope) {
             return MatrixExpand {
                 elem: input.elem,
                 ident,
@@ -1183,7 +1236,7 @@ pub mod cast_with_ident {
         input: MatrixExpand<C, S>,
         ident: MatrixIdent,
     ) -> MatrixExpand<O, S> {
-        if core::any::TypeId::of::<C>() == core::any::TypeId::of::<O>() && ident == input.ident {
+        if C::Scalar::elem_type(scope) == O::Scalar::elem_type(scope) && ident == input.ident {
             return MatrixExpand {
                 elem: input.elem,
                 ident,
