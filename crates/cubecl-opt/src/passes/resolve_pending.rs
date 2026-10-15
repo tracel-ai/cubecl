@@ -445,9 +445,11 @@ fn check_uses(ctx: &Context, token_ops: &[(Ptr<Operation>, TokenOp)]) -> Result<
         for r#use in value.uses(ctx) {
             let user = r#use.user_op();
             if !users.contains(&user) {
-                let loc = user.deref(ctx).loc();
                 let name = Operation::get_opid(user, ctx).to_string();
-                return verify_err!(loc, ResolvePendingError::UnsupportedUse(name));
+                return verify_err!(
+                    user.deref(ctx).loc(),
+                    ResolvePendingError::UnsupportedUse(name)
+                );
             }
         }
     }

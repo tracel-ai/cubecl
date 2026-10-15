@@ -276,7 +276,7 @@ impl<'a> AllocPromoter<'a> {
             return Ok(default_val);
         }
         let mut rewriter = IRRewriter::<DummyListener>::default();
-        let block = self.alloc.ptr.get_defining_block(ctx);
+        let block = self.alloc.ptr.get_parent_block(ctx);
         rewriter.set_insertion_point_to_block_start(block.expect("Should have parent"));
         let value = self
             .allocator
@@ -474,7 +474,7 @@ impl<'a> AllocPromoter<'a> {
         }
 
         while let Some(arg) = merge_point_args_to_process.pop() {
-            let merge_point = arg.get_defining_block(ctx).unwrap();
+            let merge_point = arg.get_parent_block(ctx).unwrap();
 
             for r#use in merge_point.uses(ctx) {
                 let user_block = r#use.user_op().deref(ctx).get_parent_block().unwrap();
@@ -501,7 +501,7 @@ impl<'a> AllocPromoter<'a> {
         }
 
         for arg in merge_point_args_unused {
-            let merge_point = arg.get_defining_block(ctx).unwrap();
+            let merge_point = arg.get_parent_block(ctx).unwrap();
             let num_args = merge_point.deref(ctx).get_num_arguments();
             BasicBlock::remove_argument(merge_point, ctx, num_args - 1);
         }
@@ -541,7 +541,7 @@ fn get_or_create_default_value(
         return Ok(default_val);
     }
     let mut rewriter = IRRewriter::<DummyListener>::default();
-    let block = alloc.ptr.get_defining_block(ctx);
+    let block = alloc.ptr.get_parent_block(ctx);
     rewriter.set_insertion_point_to_block_start(block.expect("Should have parent"));
     let value = allocator.default_value(ctx, &mut rewriter, alloc)?;
     *default_value = Some(value);

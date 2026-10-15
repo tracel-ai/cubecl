@@ -28,7 +28,7 @@ use pliron::{
     combine::stream::position::SourcePosition,
     context::{Context, Ptr},
     irbuild::listener::InsertionListener,
-    location::{Located, Location, Source},
+    location::{Location, Source},
     operation::Operation,
     std_deps::path::PathBuf,
 };

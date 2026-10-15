@@ -262,9 +262,13 @@ cfg_aliases = "0.2.2"
 [profile.dev.build-override]
 opt-level = 3
 
-# `pliron-llvm` debug data (pliron-org/pliron#290 and #304) is merged but not released yet. The
-# patch also gives `pliron-spirv` the same `pliron`.
+# `pliron-llvm` debug data (pliron-org/pliron#290 and #304) and the borrowed locations of
+# pliron-org/pliron#307 are merged but not released yet. The patch also gives `pliron-spirv` the
+# same `pliron`. `tracel-rspirv` 0.16.0 does not build with #307, so `pliron-spirv` and
+# `tracel-rspirv` come from the port on a fork until a release has it.
 [patch.crates-io]
-pliron = { git = "https://github.com/pliron-org/pliron", rev = "6acd77affed679641446ea8aeeb10bcaa1de095d" }
-pliron-derive = { git = "https://github.com/pliron-org/pliron", rev = "6acd77affed679641446ea8aeeb10bcaa1de095d" }
-pliron-llvm = { git = "https://github.com/pliron-org/pliron", rev = "6acd77affed679641446ea8aeeb10bcaa1de095d" }
+pliron = { git = "https://github.com/pliron-org/pliron", rev = "0abdb154de39cd4b8d892c1dda3d6e2da615a8d3" }
+pliron-derive = { git = "https://github.com/pliron-org/pliron", rev = "0abdb154de39cd4b8d892c1dda3d6e2da615a8d3" }
+pliron-llvm = { git = "https://github.com/pliron-org/pliron", rev = "0abdb154de39cd4b8d892c1dda3d6e2da615a8d3" }
+pliron-spirv = { git = "https://github.com/skewballfox/tracel-rspirv", rev = "825b10b8ee7dba83e2ea9bc421857839cdf4577b" }
+tracel-rspirv = { git = "https://github.com/skewballfox/tracel-rspirv", rev = "825b10b8ee7dba83e2ea9bc421857839cdf4577b" }

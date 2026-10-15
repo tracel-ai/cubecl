@@ -146,10 +146,7 @@ mod tests {
     use crate::prelude::*;
     use alloc::vec::Vec;
     use cubecl_ir::{
-        pliron::{
-            linked_list::ContainsLinkedList,
-            location::{Located, Location},
-        },
+        pliron::{linked_list::ContainsLinkedList, location::Location},
         settings::{DebugInfo, Dim3, ExecutionMode, KernelSettings},
     };
 
@@ -266,7 +263,9 @@ mod tests {
         let ctx = scope.ctx();
         let block = scope.state().entry_func.get_entry_block(ctx);
         let ops = block.deref(ctx).iter(ctx).collect::<Vec<_>>();
-        ops.into_iter().map(|op| op.deref(ctx).loc()).collect()
+        ops.into_iter()
+            .map(|op| op.deref(ctx).loc().clone())
+            .collect()
     }
 
     /// A function name, and a line and a column in the function.

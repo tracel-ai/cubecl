@@ -68,7 +68,7 @@ fn line_directive<'c>(
     next_line: Option<(&'c PathBuf, u32)>,
     out: &mut String,
 ) -> Option<(&'c PathBuf, u32)> {
-    let Some(source) = leaf_line(ctx, &op.deref(ctx).loc()) else {
+    let Some(source) = leaf_line(ctx, op.deref(ctx).loc()) else {
         return next_line;
     };
     if next_line == Some(source) {

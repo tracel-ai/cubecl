@@ -3723,7 +3723,7 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 [[package]]
 name = "pliron"
 version = "0.19.0"
-source = "git+https://github.com/pliron-org/pliron?rev=6acd77affed679641446ea8aeeb10bcaa1de095d#6acd77affed679641446ea8aeeb10bcaa1de095d"
+source = "git+https://github.com/pliron-org/pliron?rev=0abdb154de39cd4b8d892c1dda3d6e2da615a8d3#0abdb154de39cd4b8d892c1dda3d6e2da615a8d3"
 dependencies = [
  "awint",
  "combine",
@@ -3750,7 +3750,7 @@ dependencies = [
 [[package]]
 name = "pliron-derive"
 version = "0.19.0"
-source = "git+https://github.com/pliron-org/pliron?rev=6acd77affed679641446ea8aeeb10bcaa1de095d#6acd77affed679641446ea8aeeb10bcaa1de095d"
+source = "git+https://github.com/pliron-org/pliron?rev=0abdb154de39cd4b8d892c1dda3d6e2da615a8d3#0abdb154de39cd4b8d892c1dda3d6e2da615a8d3"
 dependencies = [
  "combine",
  "convert_case 0.12.0",
@@ -3764,7 +3764,7 @@ dependencies = [
 [[package]]
 name = "pliron-llvm"
 version = "0.19.0"
-source = "git+https://github.com/pliron-org/pliron?rev=6acd77affed679641446ea8aeeb10bcaa1de095d#6acd77affed679641446ea8aeeb10bcaa1de095d"
+source = "git+https://github.com/pliron-org/pliron?rev=0abdb154de39cd4b8d892c1dda3d6e2da615a8d3#0abdb154de39cd4b8d892c1dda3d6e2da615a8d3"
 dependencies = [
  "bitflags 2.13.2",
  "llvm-sys",
@@ -3776,8 +3776,7 @@ dependencies = [
 [[package]]
 name = "pliron-spirv"
 version = "0.16.0+sdk-1.4.357.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bf161ba39ae0577f141933d3213bbb2fe255442c8528fd5caf4b5706e63c09a"
+source = "git+https://github.com/skewballfox/tracel-rspirv?rev=825b10b8ee7dba83e2ea9bc421857839cdf4577b#825b10b8ee7dba83e2ea9bc421857839cdf4577b"
 dependencies = [
  "derive-new",
  "derive_more",
@@ -5217,8 +5216,7 @@ dependencies = [
 [[package]]
 name = "tracel-rspirv"
 version = "0.16.0+sdk-1.4.357.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66a203420d85384f39eccada940df9c747ef36ddf59e64230f5251cfb76fb331"
+source = "git+https://github.com/skewballfox/tracel-rspirv?rev=825b10b8ee7dba83e2ea9bc421857839cdf4577b#825b10b8ee7dba83e2ea9bc421857839cdf4577b"
 dependencies = [
  "bitflags 2.13.2",
  "pliron",

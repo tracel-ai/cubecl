@@ -172,8 +172,8 @@ mod tests {
         let lines = ops(&lowered)
             .into_iter()
             .filter_map(|op| {
-                let loc = op.deref(ctx).loc();
-                let (name, line) = innermost(&loc)?;
+                let op = op.deref(ctx);
+                let (name, line) = innermost(op.loc())?;
                 Some((name.to_string(), line))
             })
             .collect::<Vec<_>>();

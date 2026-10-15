@@ -1,4 +1,3 @@
-use alloc::borrow::Cow;
 use core::{
     fmt::Debug,
     hash::Hash,
@@ -30,7 +29,6 @@ use pliron::{
         match_rewrite::{RewriterOrder, apply_match_rewrite},
     },
     linked_list::ContainsLinkedList,
-    location::Location,
     op::{OpInterfaceMarker, OpObj},
     value::Use,
     verify_err_noloc,
@@ -149,10 +147,11 @@ fn keep_location(
     op: Ptr<Operation>,
     rewrite: impl FnOnce(&mut Context, &mut IRRewriter<Recorder>) -> Result<()>,
 ) -> Result<()> {
-    let loc = op.deref(ctx).loc();
-    if loc.is_unknown() {
+    if op.deref(ctx).loc().is_unknown() {
         return rewrite(ctx, rewriter);
     }
+    // The rewrite can change or erase `op`, so keep its location.
+    let loc = op.deref(ctx).loc().clone();
     let first = rewriter.get_listener().events.len();
     rewrite(ctx, rewriter)?;
 
@@ -190,41 +189,40 @@ impl Pass for InheritLocationPass {
         ctx: &mut Context,
         _analyses: &mut AnalysisManager,
     ) -> Result<PassResult> {
-        let loc = op.deref(ctx).loc();
         let mut res = PassResult::default();
-        if inherit_locations(ctx, op, &loc) {
+        if inherit_locations(ctx, op) {
             res.ir_changed = IRStatus::Changed;
         }
         Ok(res)
     }
 }
 
-/// Gives the ops nested in `op` a location, where `loc` is the location of `op`. Returns whether
-/// an op changed.
-fn inherit_locations(ctx: &Context, op: Ptr<Operation>, loc: &Location) -> bool {
+/// Gives the ops nested in `op` a location, where the first op of a block takes the location of
+/// `op`. Returns whether an op changed.
+fn inherit_locations(ctx: &Context, op: Ptr<Operation>) -> bool {
     // The iterators borrow each node only to step to the next one, so a child op can change.
     op.deref(ctx)
         .regions()
         .flat_map(|region| region.deref(ctx).iter(ctx))
         .flat_map(|block| {
-            // The location the next op without one takes. It borrows `loc` until an op of the
-            // block has its own, as `Location::clone` copies the whole inlining chain.
-            block
-                .deref(ctx)
-                .iter(ctx)
-                .scan(Cow::Borrowed(loc), move |previous, child| {
-                    let child_loc = child.deref(ctx).loc();
-                    let set = if !child_loc.is_unknown() {
-                        *previous = Cow::Owned(child_loc);
-                        false
-                    } else if previous.is_unknown() {
-                        false
-                    } else {
-                        child.deref_mut(ctx).set_loc(previous.as_ref().clone());
-                        true
-                    };
-                    Some(inherit_locations(ctx, child, previous) | set)
-                })
+            // The op whose location the next op without one takes. It is an op and not a
+            // location, as `Location::clone` copies the whole inlining chain: only an op that
+            // takes the location clones it.
+            block.deref(ctx).iter(ctx).scan(op, move |source, child| {
+                let from = *source;
+                let set = if !child.deref(ctx).loc().is_unknown() {
+                    *source = child;
+                    false
+                } else if from.deref(ctx).loc().is_unknown() {
+                    false
+                } else {
+                    let loc = from.deref(ctx).loc().clone();
+                    child.deref_mut(ctx).set_loc(loc);
+                    true
+                };
+                // `child` now has the location that the ops nested in it take.
+                Some(inherit_locations(ctx, child) | set)
+            })
         })
         // Not `any`: it would stop at the first change and leave the other ops without one.
         .fold(false, |changed, child| changed | child)
@@ -632,7 +630,7 @@ mod tests {
         basic_block::BasicBlock,
         builtin::op_interfaces::OneResultInterface,
         combine::stream::position::SourcePosition,
-        location::{Located, Source},
+        location::{Location, Source},
     };
 
     /// A kernel scope without debug data, so that only the test gives locations.
@@ -706,7 +704,7 @@ mod tests {
             (first_else, &one),
             (last, &three),
         ] {
-            assert_eq!(op.deref(ctx).loc(), *loc);
+            assert_eq!(op.deref(ctx).loc(), loc);
         }
 
         let again = InheritLocationPass.run(module, ctx, &mut analyses).unwrap();
@@ -780,7 +778,7 @@ mod tests {
         let locations = rewrite
             .inserted
             .iter()
-            .map(|op| op.deref(ctx).loc())
+            .map(|op| op.deref(ctx).loc().clone())
             .collect::<Vec<_>>();
         assert_eq!(locations, [one.clone(), two, one]);
     }
