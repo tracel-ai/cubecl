@@ -28,8 +28,8 @@ pub(crate) fn convert_module(
     level: DebugInfo,
     embed_source: bool,
 ) -> pliron::result::Result<LLVMModule> {
-    let debug_info = (level != DebugInfo::None)
-        .then(|| debug_info_options(ctx, level, embed_source));
+    let debug_info =
+        (level != DebugInfo::None).then(|| debug_info_options(ctx, level, embed_source));
     to_llvm_ir::convert_module(ctx, llvm_ctx, module, ToLLVMOptions { debug_info })
 }
 
