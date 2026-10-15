@@ -49,6 +49,16 @@ pub fn test_a_collective_refuses_a_repeated_device<R: Runtime>() {
     finish_within_limit(repeated_device::<R>);
 }
 
+pub fn test_a_group_refuses_mismatched_buffers_before_any_member_queues<R: Runtime>() {
+    let _collectives = queue_alone();
+    finish_within_limit(mismatched_buffers::<R>);
+}
+
+pub fn test_a_broadcast_takes_a_source_on_the_root_only<R: Runtime>() {
+    let _collectives = queue_alone();
+    finish_within_limit(source_off_the_root::<R>);
+}
+
 /// Holds every device's collectives for the caller until the guard drops.
 pub fn queue_alone() -> MutexGuard<'static, ()> {
     COLLECTIVES.lock().unwrap_or_else(PoisonError::into_inner)
@@ -187,12 +197,81 @@ fn repeated_device<R: Runtime>() {
         client.ensure_init_collective(vec![device, device]);
     }));
 
-    let panic = refused.expect_err("a repeated device was accepted");
+    assert_panicked_with(refused, "appears twice");
+}
+
+fn mismatched_buffers<R: Runtime>() {
+    let Some(mut group) = group::<R>() else {
+        return;
+    };
+    let members = group.clients().len();
+    let gather = |group: &ClientGroup, last_dst: usize| -> Vec<MemberBuffers> {
+        group
+            .clients()
+            .iter()
+            .enumerate()
+            .map(|(member, client)| MemberBuffers {
+                src: from_values(client, &values(member, LEN)),
+                dst: client.empty(match member == members - 1 {
+                    true => last_dst,
+                    false => members * LEN * size_of::<f32>(),
+                }),
+            })
+            .collect()
+    };
+
+    let wrong_size = gather(&group, LEN * size_of::<f32>());
+    assert_refused(&mut group, "holds", |group| {
+        group.all_gather(wrong_size, F32)
+    });
+    assert!(group.clients()[0].device_transport_takes(F32));
+    let untaken = gather(&group, members * LEN * size_of::<f32>());
+    assert_refused(&mut group, "cannot move", |group| {
+        group.all_gather(untaken, cubecl_ir::ElemType::Bool)
+    });
+
+    // No member queued a part, so the devices still run the next collective.
+    let buffers = gather(&group, members * LEN * size_of::<f32>());
+    let destinations = destinations(&buffers);
+    group.all_gather(buffers, F32);
+    let expected: Vec<f32> = (0..members)
+        .flat_map(|member| values(member, LEN))
+        .collect();
+    assert_every_member_holds(&group, destinations, |_| expected.clone());
+}
+
+fn source_off_the_root<R: Runtime>() {
+    let Some(group) = group::<R>() else {
+        return;
+    };
+    let device_ids = R::enumerate_devices(0);
+    let mut client = group.clients()[0].clone();
+    let src = from_values(&client, &values(0, LEN));
+    let dst = client.empty(LEN * size_of::<f32>());
+
+    let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.broadcast(Some(src), dst, F32, device_ids[1], device_ids.clone());
+    }));
+
+    assert_panicked_with(refused, "takes a source on the root");
+}
+
+fn assert_refused(
+    group: &mut ClientGroup,
+    reason: &str,
+    collective: impl FnOnce(&mut ClientGroup),
+) {
+    let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| collective(group)));
+    assert_panicked_with(refused, reason);
+}
+
+fn assert_panicked_with(outcome: std::thread::Result<()>, reason: &str) {
+    let panic = outcome.expect_err("the collective was accepted");
     let message = panic
         .downcast_ref::<std::string::String>()
         .map(std::string::String::as_str)
         .unwrap_or_default();
-    assert!(message.contains("appears twice"), "{message}");
+    assert!(message.contains(reason), "{message}");
 }
 
 /// A group of every device, or `None` when there are fewer than two or no transport.
@@ -273,6 +352,20 @@ macro_rules! testgen_collectives {
         #[$crate::runtime_tests::test_log::test]
         fn test_all_to_all_exchanges_chunks_by_rank() {
             cubecl_core::runtime_tests::collectives::test_all_to_all_exchanges_chunks_by_rank::<
+                TestRuntime,
+            >();
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_a_group_refuses_mismatched_buffers_before_any_member_queues() {
+            cubecl_core::runtime_tests::collectives::test_a_group_refuses_mismatched_buffers_before_any_member_queues::<
+                TestRuntime,
+            >();
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_a_broadcast_takes_a_source_on_the_root_only() {
+            cubecl_core::runtime_tests::collectives::test_a_broadcast_takes_a_source_on_the_root_only::<
                 TestRuntime,
             >();
         }

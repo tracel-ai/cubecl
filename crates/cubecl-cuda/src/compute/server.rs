@@ -450,18 +450,17 @@ impl ServerCommunication for CudaServer {
         device_ids: Vec<DeviceId>,
     ) -> Result<(), ServerError> {
         self.settle_collective([src], dst, |server, [src], dst| {
-            let [src, dst] = server.collective_resources(stream_id, [src, dst])?;
-            let comm = server.collectives.get(&CommunicationId::from(device_ids))?;
-            let (nccl_dtype, count) = Cuda::data_type(dtype, src.size)?;
-            expect_size("destination", dst.size, src.size)?;
-            Cuda::all_reduce(
-                comm,
-                &src,
-                &dst,
-                nccl_dtype,
-                count,
-                op,
-                server.comm_stream(),
+            let group = CommunicationId::from(device_ids);
+            server.run_collective(
+                stream_id,
+                &group,
+                [src, dst],
+                ComputeWait::AtSync,
+                |comm, [src, dst], stream| {
+                    let (nccl_dtype, count) = Cuda::data_type(dtype, src.size)?;
+                    expect_size("destination", dst.size, src.size)?;
+                    Cuda::all_reduce(comm, src, dst, nccl_dtype, count, op, stream)
+                },
             )
         })
     }
@@ -475,12 +474,19 @@ impl ServerCommunication for CudaServer {
         device_ids: Vec<DeviceId>,
     ) -> Result<(), ServerError> {
         self.settle_collective([src], dst, |server, [src], dst| {
-            let [src, dst] = server.collective_resources(stream_id, [src, dst])?;
             let ranks = device_ids.len() as u64;
-            let comm = server.collectives.get(&CommunicationId::from(device_ids))?;
-            let (nccl_dtype, count) = Cuda::data_type(dtype, src.size)?;
-            expect_size("destination", dst.size, src.size * ranks)?;
-            Cuda::all_gather(comm, &src, &dst, nccl_dtype, count, server.comm_stream())
+            let group = CommunicationId::from(device_ids);
+            server.run_collective(
+                stream_id,
+                &group,
+                [src, dst],
+                ComputeWait::Now,
+                |comm, [src, dst], stream| {
+                    let (nccl_dtype, count) = Cuda::data_type(dtype, src.size)?;
+                    expect_size("destination", dst.size, src.size * ranks)?;
+                    Cuda::all_gather(comm, src, dst, nccl_dtype, count, stream)
+                },
+            )
         })
     }
 
@@ -494,19 +500,18 @@ impl ServerCommunication for CudaServer {
         device_ids: Vec<DeviceId>,
     ) -> Result<(), ServerError> {
         self.settle_collective([src], dst, |server, [src], dst| {
-            let [src, dst] = server.collective_resources(stream_id, [src, dst])?;
             let ranks = device_ids.len() as u64;
-            let comm = server.collectives.get(&CommunicationId::from(device_ids))?;
-            let (nccl_dtype, count) = Cuda::data_type(dtype, dst.size)?;
-            expect_size("source", src.size, dst.size * ranks)?;
-            Cuda::reduce_scatter(
-                comm,
-                &src,
-                &dst,
-                nccl_dtype,
-                count,
-                op,
-                server.comm_stream(),
+            let group = CommunicationId::from(device_ids);
+            server.run_collective(
+                stream_id,
+                &group,
+                [src, dst],
+                ComputeWait::Now,
+                |comm, [src, dst], stream| {
+                    let (nccl_dtype, count) = Cuda::data_type(dtype, dst.size)?;
+                    expect_size("source", src.size, dst.size * ranks)?;
+                    Cuda::reduce_scatter(comm, src, dst, nccl_dtype, count, op, stream)
+                },
             )
         })
     }
@@ -520,15 +525,44 @@ impl ServerCommunication for CudaServer {
         root: DeviceId,
         device_ids: Vec<DeviceId>,
     ) -> Result<(), ServerError> {
-        match src {
-            Some(src) => self.settle_collective([src], dst, |server, [src], dst| {
-                let [src, dst] = server.collective_resources(stream_id, [src, dst])?;
-                expect_size("source", src.size, dst.size)?;
-                server.queue_broadcast(Some(&src), &dst, dtype, root, device_ids)
+        let root_rank = self.collectives.rank(root, &device_ids);
+        let group = CommunicationId::from(device_ids);
+        match (src, self.device_id == root) {
+            (Some(src), true) => self.settle_collective([src], dst, |server, [src], dst| {
+                let root = root_rank?;
+                server.run_collective(
+                    stream_id,
+                    &group,
+                    [src, dst],
+                    ComputeWait::Now,
+                    |comm, [src, dst], stream| {
+                        let (nccl_dtype, count) = Cuda::data_type(dtype, dst.size)?;
+                        expect_size("source", src.size, dst.size)?;
+                        Cuda::broadcast(comm, Some(src), dst, nccl_dtype, count, root, stream)
+                    },
+                )
             }),
-            None => self.settle_collective([], dst, |server, [], dst| {
-                let [dst] = server.collective_resources(stream_id, [dst])?;
-                server.queue_broadcast(None, &dst, dtype, root, device_ids)
+            (None, false) => self.settle_collective([], dst, |server, [], dst| {
+                let root = root_rank?;
+                server.run_collective(
+                    stream_id,
+                    &group,
+                    [dst],
+                    ComputeWait::Now,
+                    |comm, [dst], stream| {
+                        let (nccl_dtype, count) = Cuda::data_type(dtype, dst.size)?;
+                        Cuda::broadcast(comm, None, dst, nccl_dtype, count, root, stream)
+                    },
+                )
+            }),
+            // A root without a source would send its own stale destination as the result.
+            _ => self.settle_collective([], dst, |_, [], _| {
+                Err(ServerError::Generic {
+                    reason: format!(
+                        "a broadcast from {root:?} takes a source on the root and nowhere else"
+                    ),
+                    backtrace: BackTrace::capture(),
+                })
             }),
         }
     }
@@ -542,27 +576,35 @@ impl ServerCommunication for CudaServer {
         device_ids: Vec<DeviceId>,
     ) -> Result<(), ServerError> {
         self.settle_collective([src], dst, |server, [src], dst| {
-            let [src, dst] = server.collective_resources(stream_id, [src, dst])?;
-            let ranks = device_ids.len();
-            let comm = server.collectives.get(&CommunicationId::from(device_ids))?;
-            let (nccl_dtype, count) = Cuda::data_type(dtype, src.size)?;
-            expect_size("destination", dst.size, src.size)?;
-            if count % ranks != 0 {
+            // Its sends would read chunks its receives are overwriting.
+            if src.memory.id() == dst.memory.id() {
                 return Err(ServerError::Generic {
-                    reason: format!(
-                        "an all_to_all over {ranks} ranks splits {count} elements unevenly"
-                    ),
+                    reason: "an all_to_all cannot run in place".into(),
                     backtrace: BackTrace::capture(),
                 });
             }
-            Cuda::all_to_all(
-                comm,
-                &src,
-                &dst,
-                nccl_dtype,
-                count / ranks,
-                ranks,
-                server.comm_stream(),
+            let ranks = device_ids.len();
+            let group = CommunicationId::from(device_ids);
+            server.run_collective(
+                stream_id,
+                &group,
+                [src, dst],
+                ComputeWait::Now,
+                |comm, [src, dst], stream| {
+                    let (nccl_dtype, count) = Cuda::data_type(dtype, src.size)?;
+                    expect_size("destination", dst.size, src.size)?;
+                    // The chunks are cut by bytes, so the source has to hold whole elements.
+                    expect_size("source", src.size, count as u64 * dtype.size() as u64)?;
+                    if count % ranks != 0 {
+                        return Err(ServerError::Generic {
+                            reason: format!(
+                                "an all_to_all over {ranks} ranks splits {count} elements unevenly"
+                            ),
+                            backtrace: BackTrace::capture(),
+                        });
+                    }
+                    Cuda::all_to_all(comm, src, dst, nccl_dtype, count / ranks, ranks, stream)
+                },
             )
         })
     }
@@ -799,13 +841,9 @@ impl CudaServer {
         None
     }
 
-    /// Runs `collective`, which reads `reads` and writes `dst`, under the tainted-buffer rules.
-    ///
-    /// A collective reads its source, so it is worth no more than the work that wrote it; see
-    /// `FailureStore::ensure_written`. Any refusal settles the destination: the collective never
-    /// runs, so a read of the destination has to fail on the cause rather than take a previous
-    /// step's bytes for this step's result. The caller's `Result` is swallowed by the
-    /// fire-and-forget submit, so the taint is the only durable report.
+    /// Runs `collective`, which reads `reads` and writes `dst`, under the tainted-buffer rules:
+    /// a tainted read or any refusal leaves `dst` carrying the failure, the only report a
+    /// fire-and-forget submit keeps.
     fn settle_collective<const N: usize>(
         &mut self,
         reads: [BufferBinding; N],
@@ -831,35 +869,27 @@ impl CudaServer {
         }
     }
 
-    /// Queues a broadcast from the rank of `root` over `device_ids`, which `src` belongs to when
-    /// this device is the root.
-    fn queue_broadcast(
-        &self,
-        src: Option<&GpuResource>,
-        dst: &GpuResource,
-        dtype: ElemType,
-        root: DeviceId,
-        device_ids: Vec<DeviceId>,
-    ) -> Result<(), ServerError> {
-        let root = self.collectives.rank(root, &device_ids)?;
-        let comm = self.collectives.get(&CommunicationId::from(device_ids))?;
-        let (nccl_dtype, count) = Cuda::data_type(dtype, dst.size)?;
-        Cuda::broadcast(comm, src, dst, nccl_dtype, count, root, self.comm_stream())
-    }
-
-    /// The memory behind a collective's `bindings`, once the collective stream waits for the
-    /// compute stream that writes them.
+    /// Runs `collective` on the collective stream over `bindings`, once the compute stream has
+    /// written them, keeping them borrowed until the compute stream waits as `wait` says.
     ///
     /// # Errors
     ///
-    /// Bindings on different streams, a binding that names no live allocation, and a fence the
-    /// driver refuses.
-    fn collective_resources<const N: usize>(
+    /// Bindings on different streams, a group never joined, a binding that names no live
+    /// allocation, a fence the driver refuses, and whatever `collective` returns.
+    fn run_collective<const N: usize>(
         &mut self,
         stream_id: StreamId,
+        group: &CommunicationId,
         bindings: [BufferBinding; N],
-    ) -> Result<[GpuResource; N], ServerError> {
-        // The collective stream waits on one compute stream, so every binding has to be on it.
+        wait: ComputeWait,
+        collective: impl FnOnce(
+            &<Cuda as CollectiveDriver>::Communicator,
+            [&GpuResource; N],
+            CUstream,
+        ) -> Result<(), ServerError>,
+    ) -> Result<(), ServerError> {
+        // The collective needs its bindings on one stream, and nothing below
+        // can proceed without that.
         if bindings
             .windows(2)
             .any(|pair| pair[0].stream != pair[1].stream)
@@ -869,6 +899,8 @@ impl CudaServer {
                 backtrace: BackTrace::capture(),
             });
         }
+        let comm = *self.collectives.get(group)?;
+        let comm_stream = self.comm_stream();
 
         let mut command = self.command(stream_id, bindings.iter())?;
         let mut resources = Vec::with_capacity(N);
@@ -876,13 +908,16 @@ impl CudaServer {
             resources.push(command.resource(binding)?);
         }
         let stream = command.stream().sys;
-        drop(command);
 
-        // Wait for the data to be ready on the compute stream.
-        Fence::new(stream).wait_async(self.comm_stream())?;
-        Ok(resources
-            .try_into()
-            .unwrap_or_else(|_| unreachable!("one resource per binding")))
+        Fence::new(stream).wait_async(comm_stream)?;
+        collective(&comm, core::array::from_fn(|i| &resources[i]), comm_stream)?;
+        if let ComputeWait::Now = wait {
+            Fence::new(comm_stream).wait_async(stream)?;
+        }
+        // Dropping the command releases bindings borrowed from other streams at this point of
+        // the compute stream, which only waits for the collective under `ComputeWait::Now`.
+        drop(command);
+        Ok(())
     }
 
     /// The receive itself, so every way it can fail settles the destination
@@ -1508,6 +1543,15 @@ fn check_tma_im2col(
     )?;
 
     Ok(())
+}
+
+/// When the compute stream waits for a collective.
+enum ComputeWait {
+    /// At the next `sync_collective`, so the compute stream keeps working meanwhile.
+    AtSync,
+    /// Before anything queued after it, so its buffers are released and its result read in
+    /// order.
+    Now,
 }
 
 /// The two devices of a peer-to-peer transfer, sorted.
