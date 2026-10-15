@@ -59,6 +59,18 @@ macro_rules! operator {
     };
 }
 
+/// An operator whose result is always a bool, so it never needs its integers promoted.
+macro_rules! bool_operator {
+    ($name:ident, $op:expr) => {
+        shared_op_with_out!($name, |op, ctx| {
+            let lhs = op.lhs(ctx).name(ctx);
+            let rhs = op.rhs(ctx).name(ctx);
+            format!("{lhs} {} {rhs}", $op)
+        });
+        unrolling!($name);
+    };
+}
+
 operator!(IAddOp, "+");
 operator!(FAddOp, "+");
 operator!(ISubOp, "-");
@@ -70,10 +82,10 @@ operator!(IMulOp, "*");
 operator!(FMulOp, "*");
 operator!(IEqualOp, "==");
 operator!(FEqualOp, "==");
-operator!(BoolEqualOp, "==");
+bool_operator!(BoolEqualOp, "==");
 operator!(INotEqualOp, "!=");
 operator!(FNotEqualOp, "!=");
-operator!(BoolNotEqualOp, "!=");
+bool_operator!(BoolNotEqualOp, "!=");
 operator!(SLessThanOp, "<");
 operator!(ULessThanOp, "<");
 operator!(FLessThanOp, "<");
@@ -91,8 +103,8 @@ operator!(ShiftRightOp, ">>");
 operator!(BitwiseOrOp, "|");
 operator!(BitwiseAndOp, "&");
 operator!(BitwiseXorOp, "^");
-operator!(BoolOrOp, "||");
-operator!(BoolAndOp, "&&");
+bool_operator!(BoolOrOp, "||");
+bool_operator!(BoolAndOp, "&&");
 
 shared_op_with_out!(SRemOp, |op, ctx| {
     let lhs = op.lhs(ctx).name(ctx);

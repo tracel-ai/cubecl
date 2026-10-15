@@ -620,6 +620,18 @@ const_eval!(BoolEqualOp, {
         false => None
     }
 });
+simplify!(BoolEqualOp, {
+    // true == x -> x
+    |lhs, _| match lhs?.as_const_val(ctx) {
+        ConstantValue::Bool(true) => Some(self.rhs(ctx)),
+        _ => None,
+    },
+    // x == true -> x
+    |_, rhs| match rhs?.as_const_val(ctx) {
+        ConstantValue::Bool(true) => Some(self.lhs(ctx)),
+        _ => None,
+    }
+});
 
 cmp_binop!("cmp.i_not_equal", INotEqualOp);
 Commutative!(INotEqualOp);
@@ -650,6 +662,18 @@ const_eval!(BoolNotEqualOp, {
     custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
         true => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
         false => None
+    }
+});
+simplify!(BoolNotEqualOp, {
+    // false != x -> x
+    |lhs, _| match lhs?.as_const_val(ctx) {
+        ConstantValue::Bool(false) => Some(self.rhs(ctx)),
+        _ => None,
+    },
+    // x != false -> x
+    |_, rhs| match rhs?.as_const_val(ctx) {
+        ConstantValue::Bool(false) => Some(self.lhs(ctx)),
+        _ => None,
     }
 });
 

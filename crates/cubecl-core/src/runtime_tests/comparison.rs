@@ -205,52 +205,114 @@ pub fn test_nan_ordering<R: Runtime>(client: Client) {
     }
 }
 
-pub fn test_bool_operators<R: Runtime>(client: Client) {
-    #[cube(launch_unchecked)]
-    fn test_function(
-        lhs: &[u32],
-        rhs: &[u32],
-        eq: &mut [u32],
-        ne: &mut [u32],
-        xor: &mut [u32],
-        xor_assign: &mut [u32],
-    ) {
-        let a = lhs[ABSOLUTE_POS] == 1;
-        let b = rhs[ABSOLUTE_POS] == 1;
+#[cube(launch_unchecked)]
+fn bool_operators_kernel<N: Size>(
+    lhs: &[Vector<u32, N>],
+    rhs: &[Vector<u32, N>],
+    eq: &mut [Vector<u32, N>],
+    ne: &mut [Vector<u32, N>],
+    xor: &mut [Vector<u32, N>],
+    xor_assign: &mut [Vector<u32, N>],
+) {
+    if ABSOLUTE_POS < lhs.len() {
+        let one = Vector::new(1u32);
+        let a = lhs[ABSOLUTE_POS].equal(&one);
+        let b = rhs[ABSOLUTE_POS].equal(&one);
         let mut c = a;
         c ^= b;
 
-        eq[ABSOLUTE_POS] = u32::cast_from(a == b);
-        ne[ABSOLUTE_POS] = u32::cast_from(a != b);
-        xor[ABSOLUTE_POS] = u32::cast_from(a ^ b);
-        xor_assign[ABSOLUTE_POS] = u32::cast_from(c);
+        eq[ABSOLUTE_POS] = Vector::cast_from(a.equal(&b));
+        ne[ABSOLUTE_POS] = Vector::cast_from(a.not_equal(&b));
+        xor[ABSOLUTE_POS] = Vector::cast_from(a ^ b);
+        xor_assign[ABSOLUTE_POS] = Vector::cast_from(c);
     }
+}
 
-    let lhs = client.create_from_slice(u32::as_bytes(&[0, 0, 1, 1]));
-    let rhs = client.create_from_slice(u32::as_bytes(&[0, 1, 0, 1]));
-    let [eq, ne, xor, xor_assign] =
-        core::array::from_fn(|_| client.empty(4 * core::mem::size_of::<u32>()));
-    let arg = |handle: &Handle| unsafe { BufferArg::from_raw_parts(handle.clone(), 4) };
+/// Bool `==`, `!=`, `^` and `^=` answer per lane, for scalar and vector bools.
+pub fn test_bool_operators<R: Runtime>(client: Client) {
+    for vector_size in [1, 4] {
+        let lhs = client.create_from_slice(u32::as_bytes(&[0, 0, 1, 1]));
+        let rhs = client.create_from_slice(u32::as_bytes(&[0, 1, 0, 1]));
+        let [eq, ne, xor, xor_assign] =
+            core::array::from_fn(|_| client.empty(4 * core::mem::size_of::<u32>()));
+        let arg = |handle: &Handle| unsafe { BufferArg::from_raw_parts(handle.clone(), 4) };
+
+        unsafe {
+            bool_operators_kernel::launch_unchecked(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                CubeDim::new_1d(4),
+                vector_size,
+                arg(&lhs),
+                arg(&rhs),
+                arg(&eq),
+                arg(&ne),
+                arg(&xor),
+                arg(&xor_assign),
+            )
+        };
+
+        let read = |handle: Handle| u32::from_bytes(&client.read_one_unchecked(handle)).to_vec();
+        assert_eq!(read(eq), [1, 0, 0, 1], "vector size {vector_size}");
+        assert_eq!(read(ne), [0, 1, 1, 0], "vector size {vector_size}");
+        assert_eq!(read(xor), [0, 1, 1, 0], "vector size {vector_size}");
+        assert_eq!(read(xor_assign), [0, 1, 1, 0], "vector size {vector_size}");
+    }
+}
+
+/// Each bool comparison against a constant folds to a constant, the operand or its negation.
+#[allow(
+    clippy::eq_op,
+    clippy::bool_comparison,
+    clippy::identity_op,
+    reason = "the redundant operands are what the folds key on"
+)]
+#[cube(launch_unchecked)]
+fn bool_folded_kernel(input: &[u32], output: &mut [u32]) {
+    if ABSOLUTE_POS < input.len() {
+        let a = input[ABSOLUTE_POS] == 1;
+        let base = ABSOLUTE_POS * 13;
+        output[base + 0] = u32::cast_from(a ^ true);
+        output[base + 1] = u32::cast_from(a ^ false);
+        output[base + 2] = u32::cast_from(true ^ a);
+        output[base + 3] = u32::cast_from(a ^ a);
+        output[base + 4] = u32::cast_from(a == true);
+        output[base + 5] = u32::cast_from(a == false);
+        output[base + 6] = u32::cast_from(false == a);
+        output[base + 7] = u32::cast_from(a == a);
+        output[base + 8] = u32::cast_from(a != true);
+        output[base + 9] = u32::cast_from(a != false);
+        output[base + 10] = u32::cast_from(true != a);
+        output[base + 11] = u32::cast_from(a != a);
+        output[base + 12] = u32::cast_from(true ^ false);
+    }
+}
+
+/// Bool comparisons that fold at compile time still give the right answer.
+pub fn test_bool_folded<R: Runtime>(client: Client) {
+    const RESULTS: usize = 13;
+    let input = client.create_from_slice(u32::as_bytes(&[0, 1]));
+    let output = client.empty(2 * RESULTS * core::mem::size_of::<u32>());
 
     unsafe {
-        test_function::launch_unchecked(
+        bool_folded_kernel::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new_1d(4),
-            arg(&lhs),
-            arg(&rhs),
-            arg(&eq),
-            arg(&ne),
-            arg(&xor),
-            arg(&xor_assign),
+            CubeDim::new_1d(2),
+            BufferArg::from_raw_parts(input, 2),
+            BufferArg::from_raw_parts(output.clone(), 2 * RESULTS),
         )
     };
 
-    let read = |handle: Handle| u32::from_bytes(&client.read_one_unchecked(handle)).to_vec();
-    assert_eq!(read(eq), [1, 0, 0, 1]);
-    assert_eq!(read(ne), [0, 1, 1, 0]);
-    assert_eq!(read(xor), [0, 1, 1, 0]);
-    assert_eq!(read(xor_assign), [0, 1, 1, 0]);
+    let actual = u32::from_bytes(&client.read_one_unchecked(output)).to_vec();
+    #[rustfmt::skip]
+    let expected = [
+        // a = false
+        1, 0, 1, 0, 0, 1, 1, 1, 1, 0, 1, 0, 1,
+        // a = true
+        0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1,
+    ];
+    assert_eq!(actual, expected);
 }
 
 /// Comparing a vector with itself folds at compile time, and the answer is a vector of `true`,
@@ -424,6 +486,7 @@ macro_rules! testgen_comparison {
             add_test!(test_eq);
             add_test!(test_ne);
             add_test!(test_bool_operators);
+            add_test!(test_bool_folded);
             add_test!(test_nan_ordering);
             add_test!(test_folded_vector);
         }
