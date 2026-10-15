@@ -227,6 +227,7 @@ impl AllocPromotionAnalyzer<'_> {
 }
 
 type BlockIndexCache = HMap<Ptr<BasicBlock>, HMap<Ptr<BasicBlock>, usize>>;
+type OpsByBlock = HMap<Ptr<BasicBlock>, Vec<Ptr<Operation>>>;
 
 struct AllocPromoter<'a> {
     alloc: AllocInfo,
@@ -245,7 +246,7 @@ struct AllocPromoter<'a> {
     info: AllocPromotionInfo,
 
     visited_blocks: HSet<Ptr<BasicBlock>>,
-    ops_to_visit: HMap<Ptr<BasicBlock>, Vec<Ptr<Operation>>>,
+    ops_to_visit: OpsByBlock,
 
     block_index_cache: &'a mut BlockIndexCache,
 }
@@ -288,9 +289,9 @@ impl<'a> AllocPromoter<'a> {
         Ok(value)
     }
 
-    /// The ops promoting the alloc can change, by block: only a user of its pointer loads or
-    /// stores it, and only an op holding a region to promote holds more of them.
-    fn ops_by_block(&self, ctx: &Context) -> HMap<Ptr<BasicBlock>, Vec<Ptr<Operation>>> {
+    /// Buckets the alloc pointer's users and the holders of regions to promote by unwalked block.
+    /// Runs again after a region op's hooks, which can move or add ops.
+    fn gather_ops_to_visit(&mut self, ctx: &Context) {
         let users = self
             .alloc
             .ptr
@@ -303,12 +304,13 @@ impl<'a> AllocPromoter<'a> {
             .keys()
             .map(|region| region.deref(ctx).get_parent_op());
         let ops: ISet<_> = users.chain(holders).collect();
-        let mut by_block = HMap::<_, Vec<_>>::default();
+        self.ops_to_visit.clear();
         for op in ops {
             let block = op.deref(ctx).get_parent_block().unwrap();
-            by_block.entry(block).or_default().push(op);
+            if !self.visited_blocks.contains(&block) {
+                self.ops_to_visit.entry(block).or_default().push(op);
+            }
         }
-        by_block
     }
 
     fn promote_in_block(
@@ -368,6 +370,7 @@ impl<'a> AllocPromoter<'a> {
                         has_value_stores,
                         &mut regions_to_process,
                     );
+                    self.gather_ops_to_visit(ctx);
 
                     for (&region, &reaching_def) in regions_to_process.iter() {
                         if !self.info.regions_to_promote.contains_key(&region) {
@@ -388,6 +391,7 @@ impl<'a> AllocPromoter<'a> {
                     for (region, _) in regions_to_process {
                         self.remove_blocking_uses(ctx, region);
                     }
+                    self.gather_ops_to_visit(ctx);
                 }
             }
         }
@@ -545,7 +549,7 @@ impl<'a> AllocPromoter<'a> {
         // outermost region which we have to remove manually afterwards. This is
         // because `PromotableRegionOpInterface::finalize_promotion` must be called
         // before remove_blocking_uses.
-        self.ops_to_visit = self.ops_by_block(ctx);
+        self.gather_ops_to_visit(ctx);
         self.promote_in_region(ctx, ptr_region, None);
 
         // Blocking uses can then be removed for the outermost region.
@@ -629,7 +633,6 @@ fn dominance_sort(
     });
 }
 
-/// How two ops of one block are ordered in it.
 fn block_order(ctx: &Context, lhs: Ptr<Operation>, rhs: Ptr<Operation>) -> Ordering {
     if lhs == rhs {
         Ordering::Equal
