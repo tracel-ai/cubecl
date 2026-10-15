@@ -1229,7 +1229,7 @@ fn args_with_position(
         return quote![#scope, #(#tokens),*];
     };
     if let Some(last) = args.iter().rposition(|arg| !is_closure(arg)) {
-        tokens[last] = then_position(tokens[last].clone(), Some(position));
+        tokens[last] = then_position(core::mem::take(&mut tokens[last]), Some(position));
         quote![#scope, #(#tokens),*]
     } else {
         quote![{ #position; #scope }, #(#tokens),*]

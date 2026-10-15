@@ -129,7 +129,7 @@ impl Compiler for SpirvCompiler {
         });
 
         let (module, bindings, io, shared_size) =
-            self.compile_kernel(&mut ctx, module, entry_func, value.settings.clone(), &dump)?;
+            self.compile_kernel(&mut ctx, module, entry_func, value.settings, &dump)?;
 
         let info_visibility = Visibility::Read;
         let immediate_size = match params_storage_class(&ctx, bindings.len()) {

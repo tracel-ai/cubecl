@@ -13,18 +13,17 @@ use llvm_sys::{
         LLVMGetEnumAttributeKindForName, LLVMGetNamedFunction, LLVMGetParam, LLVMGetTypeKind,
         LLVMSetFunctionCallConv, LLVMTypeOf,
     },
-    prelude::LLVMValueRef,
     target_machine::{LLVMCodeGenFileType, LLVMTargetMachineEmitToMemoryBuffer},
 };
 use llvm_sys::{
     core::{
         LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy,
-        LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMDisposeModule, LLVMPrintModuleToString,
-        LLVMSetTarget,
+        LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMDisposeModule, LLVMGetFirstFunction,
+        LLVMGetNextFunction, LLVMPrintModuleToString, LLVMSetTarget,
     },
     error::{LLVMDisposeErrorMessage, LLVMErrorRef, LLVMGetErrorMessage},
     ir_reader::LLVMParseIRInContext2,
-    prelude::{LLVMContextRef, LLVMModuleRef},
+    prelude::{LLVMContextRef, LLVMModuleRef, LLVMValueRef},
     target::{LLVMDisposeTargetData, LLVMSetModuleDataLayout},
     target_machine::{
         LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout, LLVMCreateTargetMachine,
@@ -114,21 +113,16 @@ impl LlvmModule {
     unsafe fn add_to_defined_functions(&self, attribute: llvm_sys::prelude::LLVMAttributeRef) {
         use llvm_sys::{
             LLVMAttributeFunctionIndex,
-            core::{
-                LLVMAddAttributeAtIndex, LLVMGetFirstFunction, LLVMGetNextFunction,
-                LLVMIsDeclaration,
-            },
+            core::{LLVMAddAttributeAtIndex, LLVMIsDeclaration},
         };
 
-        // SAFETY: the functions belong to the module, and the caller's contract.
+        // SAFETY: the module is live, the functions belong to it, and the caller's contract.
         unsafe {
-            let mut func = LLVMGetFirstFunction(self.module);
-            while !func.is_null() {
-                if LLVMIsDeclaration(func) == 0 {
+            functions(self.module)
+                .filter(|&func| LLVMIsDeclaration(func) == 0)
+                .for_each(|func| {
                     LLVMAddAttributeAtIndex(func, LLVMAttributeFunctionIndex, attribute);
-                }
-                func = LLVMGetNextFunction(func);
-            }
+                });
         }
     }
 
@@ -604,6 +598,21 @@ impl Drop for TargetMachine {
         // SAFETY: the target machine is owned by `self`.
         unsafe { LLVMDisposeTargetMachine(self.0) }
     }
+}
+
+/// The functions of `module`, in order.
+///
+/// # Safety
+/// `module` must be a live LLVM module while the iterator is used, and no function may be deleted
+/// from it while the iterator is used.
+pub(crate) unsafe fn functions(module: LLVMModuleRef) -> impl Iterator<Item = LLVMValueRef> {
+    let non_null = |func: LLVMValueRef| (!func.is_null()).then_some(func);
+    // SAFETY: the caller's contract.
+    let first = unsafe { LLVMGetFirstFunction(module) };
+    core::iter::successors(non_null(first), move |&func| {
+        // SAFETY: `func` belongs to `module`, which is live, by the caller's contract.
+        non_null(unsafe { LLVMGetNextFunction(func) })
+    })
 }
 
 /// `Ok` for a null `error`, else its message. The error is consumed.

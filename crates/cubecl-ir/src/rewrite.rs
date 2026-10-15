@@ -1,3 +1,4 @@
+use alloc::borrow::Cow;
 use core::{
     fmt::Debug,
     hash::Hash,
@@ -201,26 +202,32 @@ impl Pass for InheritLocationPass {
 /// Gives the ops nested in `op` a location, where `loc` is the location of `op`. Returns whether
 /// an op changed.
 fn inherit_locations(ctx: &Context, op: Ptr<Operation>, loc: &Location) -> bool {
-    let mut changed = false;
     // The iterators borrow each node only to step to the next one, so a child op can change.
-    for region in op.deref(ctx).regions() {
-        for block in region.deref(ctx).iter(ctx) {
-            let mut previous = loc.clone();
-            for child in block.deref(ctx).iter(ctx) {
-                let child_loc = child.deref(ctx).loc();
-                if child_loc.is_unknown() {
-                    if !previous.is_unknown() {
-                        child.deref_mut(ctx).set_loc(previous.clone());
-                        changed = true;
-                    }
-                } else {
-                    previous = child_loc;
-                }
-                changed |= inherit_locations(ctx, child, &previous);
-            }
-        }
-    }
-    changed
+    op.deref(ctx)
+        .regions()
+        .flat_map(|region| region.deref(ctx).iter(ctx))
+        .flat_map(|block| {
+            // The location the next op without one takes. It borrows `loc` until an op of the
+            // block has its own, as `Location::clone` copies the whole inlining chain.
+            block
+                .deref(ctx)
+                .iter(ctx)
+                .scan(Cow::Borrowed(loc), move |previous, child| {
+                    let child_loc = child.deref(ctx).loc();
+                    let set = if !child_loc.is_unknown() {
+                        *previous = Cow::Owned(child_loc);
+                        false
+                    } else if previous.is_unknown() {
+                        false
+                    } else {
+                        child.deref_mut(ctx).set_loc(previous.as_ref().clone());
+                        true
+                    };
+                    Some(inherit_locations(ctx, child, previous) | set)
+                })
+        })
+        // Not `any`: it would stop at the first change and leave the other ops without one.
+        .fold(false, |changed, child| changed | child)
 }
 
 #[derive(new, Clone, Copy, Default, Debug)]

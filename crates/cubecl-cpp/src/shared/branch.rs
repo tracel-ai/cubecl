@@ -1,3 +1,4 @@
+use alloc::borrow::Cow;
 use core::fmt::Write;
 use cubecl_core::ir::{
     ContextExt,
@@ -84,12 +85,23 @@ fn line_directive<'c>(
         .try_aux_ty::<LineDirectives>()
         .and_then(|lines| lines.directory.as_ref());
     let file = match directory {
-        Some(directory) if file.is_relative() => directory.join(file),
-        _ => file.clone(),
+        Some(directory) if file.is_relative() => Cow::Owned(directory.join(file)),
+        _ => Cow::Borrowed(file),
     };
-    push_string_literal(out, &file.display().to_string());
+    let _ = write!(StringLiteral(out), "{}", file.display());
     out.push_str("\"\n");
     Some(source)
+}
+
+/// Writes into a `String` as the body of a C string literal, so a value is escaped without first
+/// being formatted into a `String` of its own.
+struct StringLiteral<'a>(&'a mut String);
+
+impl Write for StringLiteral<'_> {
+    fn write_str(&mut self, text: &str) -> core::fmt::Result {
+        push_string_literal(self.0, text);
+        Ok(())
+    }
 }
 
 /// Appends `text` to `out` as the body of a C string literal.
