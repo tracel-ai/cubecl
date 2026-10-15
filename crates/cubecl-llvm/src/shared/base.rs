@@ -88,6 +88,8 @@ pub struct PlironOptions {
     /// Pass scalars and static metadata in the kernel parameter block.
     /// The host must use the same layout.
     pub grid_constants: bool,
+    /// Whether to retain compiled object bytes in the resulting engine for caching.
+    pub keep_object: bool,
 }
 
 #[cfg(feature = "amdgpu")]
@@ -263,6 +265,7 @@ impl PlironCompiler {
             lowered.requirements,
             lowered.io,
             lowered.debug_info,
+            options.keep_object,
         )
         .map_err(|err| generic(format!("converting to LLVM IR: {err}")))
     }

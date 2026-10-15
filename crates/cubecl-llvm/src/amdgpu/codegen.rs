@@ -26,7 +26,7 @@ use cubecl_core::{
 use cubecl_environment::bytes::Bytes;
 use llvm_sys::{
     LLVMAtomicRMWBinOp,
-    target_machine::{LLVMCodeGenFileType, LLVMRelocMode},
+    target_machine::{LLVMCodeGenFileType, LLVMCodeModel, LLVMRelocMode},
 };
 use pliron_llvm::{attributes::set_data_layout, llvm_sys::core::LLVMContext};
 use std::{
@@ -231,6 +231,7 @@ fn compile(
         cpu: arch.name(),
         features: &features,
         reloc: LLVMRelocMode::LLVMRelocPIC,
+        code_model: LLVMCodeModel::LLVMCodeModelDefault,
     })?;
     machine.set_data_layout(&module);
 

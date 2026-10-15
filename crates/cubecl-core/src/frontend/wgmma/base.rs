@@ -1,5 +1,6 @@
 use super::layout::{Major, WgmmaTileLayout};
 
+use crate::frontend::container::inner_array_ty;
 use crate::frontend::pending::{GroupToken, PendingExpand};
 use crate::{self as cubecl, prelude::*, unexpanded};
 use core::marker::PhantomData;
@@ -153,6 +154,57 @@ impl<CD: Numeric> Clone for AccumulatorExpand<CD> {
         Self {
             registers: self.registers,
             n: self.n,
+        }
+    }
+}
+
+impl<CD: Numeric> Pending<Accumulator<CD>> {
+    /// This accumulator named at `O`, panicking unless `O` is the element it holds.
+    ///
+    /// Like a slice's `downcast`, this only satisfies the Rust type system: the registers and the
+    /// wait are the same, so it costs nothing.
+    pub fn downcast<O: Numeric>(&self) -> Pending<Accumulator<O>> {
+        unexpanded!()
+    }
+
+    /// This accumulator named at `O`, whatever element it holds.
+    ///
+    /// # Safety
+    ///
+    /// Only for keeping the accumulator at a dummy type, to be named again with
+    /// [`downcast`](Self::downcast) where it is used, as a slice's `downcast_unchecked` is.
+    pub unsafe fn downcast_unchecked<O: Numeric>(&self) -> Pending<Accumulator<O>> {
+        unexpanded!()
+    }
+}
+
+impl<CD: Numeric> PendingExpand<Accumulator<CD>> {
+    pub fn __expand_downcast_method<O: Numeric>(
+        &self,
+        scope: &Scope,
+    ) -> PendingExpand<Accumulator<O>> {
+        let named = O::__expand_as_type(scope);
+        let held = inner_array_ty(scope, self.value.registers.value(scope))
+            .deref(scope.ctx())
+            .inner;
+        assert_eq!(
+            held, named,
+            "Pending<Accumulator>::downcast: the accumulator holds {held:?}, not {named:?}"
+        );
+        self.__expand_downcast_unchecked_method(scope)
+    }
+
+    #[doc(hidden)]
+    pub fn __expand_downcast_unchecked_method<O: Numeric>(
+        &self,
+        _scope: &Scope,
+    ) -> PendingExpand<Accumulator<O>> {
+        PendingExpand {
+            value: AccumulatorExpand {
+                registers: self.value.registers.expand.into(),
+                n: self.value.n,
+            },
+            token: self.token,
         }
     }
 }

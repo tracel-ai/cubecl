@@ -9,26 +9,26 @@ use llvm_sys::{
     LLVMAttributeFunctionIndex, LLVMTypeKind,
     core::{
         LLVMAddAttributeAtIndex, LLVMCountParams, LLVMCreateEnumAttribute,
-        LLVMCreateStringAttribute, LLVMGetBufferSize, LLVMGetBufferStart,
-        LLVMGetEnumAttributeKindForName, LLVMGetNamedFunction, LLVMGetParam, LLVMGetTypeKind,
-        LLVMSetFunctionCallConv, LLVMTypeOf,
+        LLVMCreateStringAttribute, LLVMGetEnumAttributeKindForName, LLVMGetNamedFunction,
+        LLVMGetParam, LLVMGetTypeKind, LLVMSetFunctionCallConv, LLVMTypeOf,
     },
-    target_machine::{LLVMCodeGenFileType, LLVMTargetMachineEmitToMemoryBuffer},
 };
 use llvm_sys::{
     core::{
         LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy,
-        LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMDisposeModule, LLVMGetFirstFunction,
-        LLVMGetNextFunction, LLVMPrintModuleToString, LLVMSetTarget,
+        LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMDisposeModule, LLVMGetBufferSize,
+        LLVMGetBufferStart, LLVMGetFirstFunction, LLVMGetNextFunction, LLVMPrintModuleToString,
+        LLVMSetTarget,
     },
     error::{LLVMDisposeErrorMessage, LLVMErrorRef, LLVMGetErrorMessage},
     ir_reader::LLVMParseIRInContext2,
     prelude::{LLVMContextRef, LLVMModuleRef, LLVMValueRef},
     target::{LLVMDisposeTargetData, LLVMSetModuleDataLayout},
     target_machine::{
-        LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout, LLVMCreateTargetMachine,
-        LLVMDisposeTargetMachine, LLVMGetDefaultTargetTriple, LLVMGetHostCPUFeatures,
-        LLVMGetHostCPUName, LLVMGetTargetFromTriple, LLVMRelocMode, LLVMTargetMachineRef,
+        LLVMCodeGenFileType, LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout,
+        LLVMCreateTargetMachine, LLVMDisposeTargetMachine, LLVMGetDefaultTargetTriple,
+        LLVMGetHostCPUFeatures, LLVMGetHostCPUName, LLVMGetTargetFromTriple, LLVMRelocMode,
+        LLVMTargetMachineEmitToMemoryBuffer, LLVMTargetMachineRef,
     },
     transforms::pass_builder::{
         LLVMCreatePassBuilderOptions, LLVMDisposePassBuilderOptions, LLVMRunPasses,
@@ -213,12 +213,6 @@ impl LlvmModule {
             LLVMDisposePassBuilderOptions(options);
             error_message(error)
         }
-    }
-
-    /// The context and the module, which the caller now owns.
-    pub(crate) fn into_raw(self) -> (LLVMContextRef, LLVMModuleRef) {
-        let this = std::mem::ManuallyDrop::new(self);
-        (this.ctx, this.module)
     }
 
     pub(crate) fn print(&self) -> String {
@@ -489,15 +483,16 @@ pub(crate) struct TargetSpec<'a> {
     pub cpu: &'a str,
     pub features: &'a CStr,
     pub reloc: LLVMRelocMode,
+    pub code_model: LLVMCodeModel,
 }
 
 /// An LLVM target machine at the aggressive optimization level.
 pub(crate) struct TargetMachine(LLVMTargetMachineRef);
 
 impl TargetMachine {
-    /// Builds a machine for the host CPU and all its detected features, and sets
-    /// the module's target triple and data layout. The native target must be initialized.
-    pub(crate) fn native(module: &LlvmModule) -> Result<Self, String> {
+    /// Builds a machine for the host CPU and all its detected features, with `code_model`, and
+    /// sets the module's target triple and data layout. The native target must be initialized.
+    pub(crate) fn native(module: &LlvmModule, code_model: LLVMCodeModel) -> Result<Self, String> {
         // SAFETY: host queries return owned LLVM messages, consumed exactly once.
         let (triple, cpu, features) = unsafe {
             (
@@ -512,7 +507,8 @@ impl TargetMachine {
             triple: &triple,
             cpu: &cpu,
             features: &features,
-            reloc: LLVMRelocMode::LLVMRelocDefault,
+            reloc: LLVMRelocMode::LLVMRelocPIC,
+            code_model,
         })?;
         module.set_triple(&triple);
         machine.set_data_layout(module);
@@ -542,7 +538,7 @@ impl TargetMachine {
                 spec.features.as_ptr(),
                 LLVMCodeGenOptLevel::LLVMCodeGenLevelAggressive,
                 spec.reloc,
-                LLVMCodeModel::LLVMCodeModelDefault,
+                spec.code_model,
             );
             if tm.is_null() {
                 return Err(format!("no target machine for '{}'", spec.cpu));
@@ -564,7 +560,6 @@ impl TargetMachine {
     ///
     /// # Errors
     /// The message LLVM gives, when it cannot emit this module for this machine.
-    #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
     pub(crate) fn emit(
         &self,
         module: LlvmModule,

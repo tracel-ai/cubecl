@@ -63,6 +63,9 @@ impl CpuServer {
         memory_config: MemoryConfiguration,
         f16_evaluation: F16Evaluation,
         utilities: Arc<ServerUtilities>,
+        #[cfg(compilation_cache)] store: cubecl_server::compiler::ArtifactStore<
+            crate::compute::cache::CpuCacheEntry,
+        >,
     ) -> Self {
         let backend =
             ScheduledCpuBackend::new(memory_properties, memory_config, utilities.logger.clone());
@@ -82,10 +85,14 @@ impl CpuServer {
         Self {
             scheduler,
             utilities,
-            kernels: KernelLoader::new(CpuKernelCompiler::new(PlironOptions {
-                f16_evaluation,
-                ..Default::default()
-            })),
+            kernels: KernelLoader::new(CpuKernelCompiler::new(
+                PlironOptions {
+                    f16_evaluation,
+                    ..Default::default()
+                },
+                #[cfg(compilation_cache)]
+                store,
+            )),
             streams_pool: Vec::new(),
         }
     }

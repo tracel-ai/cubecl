@@ -22,7 +22,9 @@ use cubecl_core::ir::{
         CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp,
         RowIndexOp, StMatrixOp, StoreOp,
     },
-    types::{MatrixIdent, MatrixLayout, MatrixShape, matrix::MatrixType},
+    types::{
+        LdMatrixForm, MatrixIdent, MatrixLayout, MatrixShape, StMatrixForm, matrix::MatrixType,
+    },
 };
 
 #[derive(Debug, Error)]
@@ -571,6 +573,10 @@ pub(crate) fn mma_manual(
     Ok(())
 }
 
+#[derive(Debug, Error)]
+#[error("the NVPTX backend lowers `ldmatrix`/`stmatrix` in the `m8n8 .b16` form only, not `{0}`")]
+pub struct MatrixMoveFormUnsupported(String);
+
 fn transpose_name(transpose: bool) -> &'static str {
     if transpose { ".trans" } else { "" }
 }
@@ -586,6 +592,10 @@ pub(crate) fn ld_matrix(
     let out_arr = op.out_arr(ctx);
     let factor = op.factor(ctx).0;
     let transpose = op.transpose(ctx).0;
+    let form = op.form(ctx).0;
+    if form != LdMatrixForm::M8N8B16 {
+        return input_err!(op.loc(ctx), MatrixMoveFormUnsupported(format!("{form:?}")));
+    }
 
     let (out_vec_ty, _) = registers_as_vector(ctx, operands_info, out_arr);
     let source = NvptxSpace::Shared.cast(ctx, rw, ptr);
@@ -618,6 +628,10 @@ pub(crate) fn st_matrix(
     let destination = op.destination(ctx);
     let factor = op.factor(ctx).0;
     let transpose = op.transpose(ctx).0;
+    let form = op.form(ctx).0;
+    if form != StMatrixForm::M8N8B16 {
+        return input_err!(op.loc(ctx), MatrixMoveFormUnsupported(format!("{form:?}")));
+    }
 
     let (vec_ty, _) = registers_as_vector(ctx, operands_info, registers);
     let value = registers_value(ctx, rw, registers, vec_ty);

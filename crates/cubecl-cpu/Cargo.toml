@@ -18,6 +18,7 @@ workspace = true
 [features]
 default = [
     "std",
+    "persistence",
     "cubecl-server/default",
     "cubecl-common/default",
     "cubecl-core/default",

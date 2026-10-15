@@ -13,7 +13,7 @@ use crate::{
         buffer_params::{AtomicReads, annotate_buffer_params},
         debug_info::{check_debug_info, convert_module},
         llvm_module::{EntryFunction, LlvmModule, TargetMachine, TargetSpec},
-        llvm_options::set_llvm_option,
+        llvm_options::{read_llvm_options, set_llvm_option},
         math_library::redirect_intrinsics,
     },
 };
@@ -24,7 +24,7 @@ use cubecl_core::{
         settings::{DebugInfo, Dim3},
     },
 };
-use llvm_sys::target_machine::{LLVMCodeGenFileType, LLVMRelocMode};
+use llvm_sys::target_machine::{LLVMCodeGenFileType, LLVMCodeModel, LLVMRelocMode};
 use pliron_llvm::llvm_sys::core::LLVMContext;
 use std::{ffi::CStr, fmt::Write, sync::Once};
 
@@ -228,6 +228,8 @@ fn compile(
     ptx_version: Option<PtxVersion>,
 ) -> Result<String, String> {
     init_nvptx();
+    // Instruction selection reads `ALLOW_FTZ_ATOMICS`.
+    let _options = read_llvm_options();
 
     let features = ptx_version
         .map(PtxVersion::target_feature)
@@ -237,6 +239,7 @@ fn compile(
         cpu: &arch.target_cpu(),
         features: &features,
         reloc: LLVMRelocMode::LLVMRelocDefault,
+        code_model: LLVMCodeModel::LLVMCodeModelDefault,
     })?;
     machine.set_data_layout(&module);
 
@@ -312,10 +315,19 @@ entry:
   ret void
 }
 "#;
-        let ptx =
-            compile_to_ptx(ir, &SmArch::new(60, false), PtxVersion::for_driver(12080)).unwrap();
-        assert!(ptx.contains("atom.gpu.global.add.f32"), "{ptx}");
-        assert!(!ptx.contains(".cas."), "no CAS loop:\n{ptx}");
+        let check = || {
+            let ptx =
+                compile_to_ptx(ir, &SmArch::new(60, false), PtxVersion::for_driver(12080)).unwrap();
+            assert!(ptx.contains("atom.gpu.global.add.f32"), "{ptx}");
+            assert!(!ptx.contains(".cas."), "no CAS loop:\n{ptx}");
+        };
+        check();
+        // A link, even one that fails, sets LLVM's options back to their defaults.
+        #[cfg(feature = "amdgpu")]
+        {
+            let _ = crate::amdgpu::lld::link_relocatable(b"", "k");
+            check();
+        }
     }
 
     #[test]

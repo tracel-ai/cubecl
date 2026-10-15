@@ -5,9 +5,9 @@
 #[cfg(feature = "jitdump")]
 use super::perf_support::enable_perf_support;
 use super::symbols::{JitSymbols, SymbolSizes};
-use crate::shared::llvm_module::{LlvmModule, error_message};
+use crate::shared::llvm_module::error_message;
 use llvm_sys::{
-    core::LLVMDisposeMessage,
+    core::{LLVMCreateMemoryBufferWithMemoryRangeCopy, LLVMDisposeMessage},
     error::LLVMErrorRef,
     execution_engine::LLVMCreateGDBRegistrationListener,
     object::{
@@ -16,8 +16,6 @@ use llvm_sys::{
         LLVMObjectFileIsSymbolIteratorAtEnd,
     },
     orc2::{
-        LLVMOrcCreateNewThreadSafeContextFromLLVMContext, LLVMOrcCreateNewThreadSafeModule,
-        LLVMOrcDisposeThreadSafeContext, LLVMOrcDisposeThreadSafeModule,
         LLVMOrcExecutionSessionRef, LLVMOrcObjectLayerRef, LLVMOrcObjectTransformLayerSetTransform,
         ee::{
             LLVMOrcCreateRTDyldObjectLinkingLayerWithSectionMemoryManagerReserveAlloc,
@@ -25,21 +23,24 @@ use llvm_sys::{
         },
         lljit::{
             LLVMOrcCreateLLJIT, LLVMOrcCreateLLJITBuilder, LLVMOrcDisposeLLJIT,
-            LLVMOrcLLJITAddLLVMIRModule, LLVMOrcLLJITBuilderSetObjectLinkingLayerCreator,
+            LLVMOrcLLJITAddObjectFile, LLVMOrcLLJITBuilderSetObjectLinkingLayerCreator,
             LLVMOrcLLJITGetMainJITDylib, LLVMOrcLLJITGetObjTransformLayer, LLVMOrcLLJITLookup,
             LLVMOrcLLJITRef,
         },
     },
     prelude::LLVMMemoryBufferRef,
+    target_machine::LLVMCodeModel,
 };
 use std::{
     ffi::{CStr, CString, c_char, c_void},
     sync::Once,
 };
 
-/// An LLJIT that owns the modules added to it.
+/// An LLJIT that owns the objects added to it.
 pub(crate) struct Jit {
     jit: LLVMOrcLLJITRef,
+    /// Whether the objects link with `RuntimeDyld`, not with `JITLink`.
+    runtime_dyld: bool,
     /// The object transform writes here. It must live as long as the JIT.
     sizes: Option<Box<SymbolSizes>>,
 }
@@ -65,11 +66,13 @@ impl Jit {
         }
         let jitlink = jitdump && cfg!(feature = "jitdump");
 
+        let runtime_dyld = listeners && !jitlink;
+
         let mut jit = std::ptr::null_mut();
         // SAFETY: a null builder asks for the default settings. `LLVMOrcCreateLLJIT` takes the
         // builder.
         unsafe {
-            let builder = if listeners && !jitlink {
+            let builder = if runtime_dyld {
                 let builder = LLVMOrcCreateLLJITBuilder();
                 LLVMOrcLLJITBuilderSetObjectLinkingLayerCreator(
                     builder,
@@ -101,31 +104,46 @@ impl Jit {
             sizes
         });
 
-        Ok(Self { jit, sizes })
+        Ok(Self {
+            jit,
+            runtime_dyld,
+            sizes,
+        })
     }
 
-    /// Adds `module` to the main library of the JIT.
-    ///
-    /// # Errors
-    /// The message LLVM gives, when the JIT does not accept the module.
-    pub(crate) fn add_module(&self, module: LlvmModule) -> Result<(), String> {
-        let (ctx, module) = module.into_raw();
-        // SAFETY: the thread-safe context takes the context, and the thread-safe module takes
-        // the module. The JIT takes the thread-safe module only if the call succeeds.
-        unsafe {
-            let ts_ctx = LLVMOrcCreateNewThreadSafeContextFromLLVMContext(ctx);
-            let ts_module = LLVMOrcCreateNewThreadSafeModule(module, ts_ctx);
-            LLVMOrcDisposeThreadSafeContext(ts_ctx);
-            let dylib = LLVMOrcLLJITGetMainJITDylib(self.jit);
-            let result = error_message(LLVMOrcLLJITAddLLVMIRModule(self.jit, dylib, ts_module));
-            if result.is_err() {
-                LLVMOrcDisposeThreadSafeModule(ts_module);
-            }
-            result
+    /// The code model of the objects this JIT links. `RuntimeDyld` puts the GOT entries and the
+    /// stubs of a small-code-model object wherever its memory manager gives memory, which can be
+    /// out of the 32-bit reach of the code. The call then jumps through a truncated offset. Thus
+    /// its objects take the large code model, which LLVM also picks for a JIT target machine.
+    /// `JITLink` puts the stubs within reach.
+    pub(crate) fn code_model(&self) -> LLVMCodeModel {
+        if self.runtime_dyld {
+            LLVMCodeModel::LLVMCodeModelLarge
+        } else {
+            LLVMCodeModel::LLVMCodeModelDefault
         }
     }
 
-    /// The address of the symbol `name`. The first lookup compiles the module.
+    /// Adds the object code `bytes` to the main library of the JIT. `name` names the buffer of
+    /// the object in the messages of LLVM.
+    ///
+    /// # Errors
+    /// The message LLVM gives, when the JIT does not accept the object.
+    pub(crate) fn add_object_file(&self, bytes: &[u8], name: &str) -> Result<(), String> {
+        let c_name = CString::new(name).map_err(|_| format!("object '{name}' contains a NUL"))?;
+        // SAFETY: the buffer copies `bytes`, and the JIT takes the buffer, also when it fails.
+        unsafe {
+            let buffer = LLVMCreateMemoryBufferWithMemoryRangeCopy(
+                bytes.as_ptr().cast::<c_char>(),
+                bytes.len(),
+                c_name.as_ptr(),
+            );
+            let dylib = LLVMOrcLLJITGetMainJITDylib(self.jit);
+            error_message(LLVMOrcLLJITAddObjectFile(self.jit, dylib, buffer))
+        }
+    }
+
+    /// The address of the symbol `name`. The first lookup links the object.
     ///
     /// # Errors
     /// The message LLVM gives, when the symbol is not defined or does not compile.
@@ -138,7 +156,7 @@ impl Jit {
     }
 
     /// The size of the symbol `name` in the object code, if the perf map asked for it and the
-    /// module is compiled.
+    /// object is linked.
     pub(crate) fn symbol_size(&self, name: &str) -> Option<u64> {
         self.sizes.as_ref()?.get(name)
     }
@@ -233,18 +251,29 @@ extern "C" fn record_symbol_sizes(
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
+    use crate::shared::llvm_module::{LlvmModule, TargetMachine};
+    use llvm_sys::target_machine::LLVMCodeGenFileType;
     use std::sync::Mutex;
 
     /// The tests run one at a time: a JIT removes its objects from the GDB JIT interface when it
     /// is dropped, and `JITDUMPDIR` is global.
     static JIT_TESTS: Mutex<()> = Mutex::new(());
 
-    /// A JIT with `symbols` that has compiled the function `name`.
+    /// The object code of the LLVM IR `ir` for the host, as the engine emits it for `jit`.
+    fn object(jit: &Jit, ir: &str) -> Vec<u8> {
+        let module = LlvmModule::new(ir).unwrap();
+        let machine = TargetMachine::native(&module, jit.code_model()).unwrap();
+        machine
+            .emit(module, LLVMCodeGenFileType::LLVMObjectFile)
+            .unwrap()
+    }
+
+    /// A JIT with `symbols` that has linked the function `name`.
     fn jit_with(symbols: JitSymbols, name: &str) -> Jit {
         pliron_llvm::llvm_sys::target::initialize_native().unwrap();
         let jit = Jit::new(symbols, true).unwrap();
-        let ir = format!("define i32 @{name}() {{\n  ret i32 1\n}}\n");
-        jit.add_module(LlvmModule::new(&ir).unwrap()).unwrap();
+        let object = object(&jit, &format!("define i32 @{name}() {{\n  ret i32 1\n}}\n"));
+        jit.add_object_file(&object, name).unwrap();
         jit.lookup(name).unwrap();
         jit
     }
@@ -284,8 +313,8 @@ mod tests {
         let names = ["cubecl_gdb_jitlink_probe", "cubecl_perf_second_probe"];
         pliron_llvm::llvm_sys::target::initialize_native().unwrap();
         let jit = Jit::new(symbols, true).unwrap();
-        jit.add_module(LlvmModule::new(&probe_with_debug_info(&names)).unwrap())
-            .unwrap();
+        let object = object(&jit, &probe_with_debug_info(&names));
+        jit.add_object_file(&object, names[0]).unwrap();
         for name in names {
             jit.lookup(name).unwrap();
         }

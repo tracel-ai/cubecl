@@ -25,6 +25,15 @@ impl CudaArchitecture {
     }
 }
 
+/// The CUDA toolkit kernels are compiled with, spelled as `CUDA_VERSION` spells it:
+/// `1000 * major + 10 * minor`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CudaToolkitVersion(pub u32);
+
+impl CudaToolkitVersion {
+    pub const FIRST_WITH_PTX_ISA_9_1: CudaToolkitVersion = CudaToolkitVersion(13010);
+}
+
 impl Display for CudaArchitecture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.version)
