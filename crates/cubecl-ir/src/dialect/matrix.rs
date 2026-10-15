@@ -37,7 +37,7 @@ use crate::{
     },
     prelude::*,
     types::{
-        ArrayType, MatrixShape, PointerType, VectorType,
+        ArrayType, LdMatrixForm, MatrixShape, PointerType, StMatrixForm, VectorType,
         matrix::{MatrixLayout, MatrixType},
     },
 };
@@ -53,6 +53,14 @@ pub struct MatrixTypeAttr(pub TypedHandle<MatrixType>);
 #[pliron_attr(name = "matrix.type", format = "$0", verifier = "succ")]
 #[derive(new, From, Debug, Clone, PartialEq, Eq, Hash, Deref)]
 pub struct MatrixShapeAttr(pub MatrixShape);
+
+#[pliron_attr(name = "matrix.ldmatrix_form", format = "$0", verifier = "succ")]
+#[derive(new, From, Debug, Clone, PartialEq, Eq, Hash, Deref)]
+pub struct LdMatrixFormAttr(pub LdMatrixForm);
+
+#[pliron_attr(name = "matrix.stmatrix_form", format = "$0", verifier = "succ")]
+#[derive(new, From, Debug, Clone, PartialEq, Eq, Hash, Deref)]
+pub struct StMatrixFormAttr(pub StMatrixForm);
 
 /// Fill a matrix with a scalar value.
 /// Note: Unlike most matrix ops, this does not have implicit synchronization because there's no
@@ -148,6 +156,7 @@ pub struct LdMatrixOp {
     pub out_arr: Value,
     pub factor: IndexAttr,
     pub transpose: BoolAttr,
+    pub form: LdMatrixFormAttr,
 }
 synchronizes!(LdMatrixOp, SyncScope::Plane);
 
@@ -161,6 +170,7 @@ pub struct StMatrixOp {
     pub destination: Value,
     pub factor: IndexAttr,
     pub transpose: BoolAttr,
+    pub form: StMatrixFormAttr,
 }
 synchronizes!(StMatrixOp, SyncScope::Plane);
 
