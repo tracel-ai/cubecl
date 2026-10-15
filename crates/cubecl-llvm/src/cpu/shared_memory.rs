@@ -1,12 +1,10 @@
 //! Host-managed shared memory for CPU kernels.
 
-use crate::{
-    prelude::*,
-    shared::{metadata::load_table, shared_memory::SharedMemoryBlock},
-};
+pub use crate::shared::shared_memory::SharedMemoryBlock;
+use crate::{prelude::*, shared::metadata::load_table};
 
 /// Shared memory blocks and their pointer table offset.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SharedMemories {
     pub base: usize,
     pub blocks: Vec<SharedMemoryBlock>,
