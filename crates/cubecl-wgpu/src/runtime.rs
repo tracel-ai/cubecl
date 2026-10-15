@@ -152,6 +152,35 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
     fn utilization(device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
         CardCounters::read(Self::client(device).properties().identity.physical.as_ref())
     }
+
+    /// The adapter's name, from the list its graphics API enumerates: the one
+    /// `request_adapter` would select, in the order `enumerate_devices` lists
+    /// them.
+    fn name(device: &Self::Device) -> Option<String> {
+        #[cfg(target_family = "wasm")]
+        {
+            let _ = device;
+            None
+        }
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let (kind, index) = match device.kind {
+                WgpuDeviceKind::DiscreteGpu(index) => (wgpu::DeviceType::DiscreteGpu, index),
+                WgpuDeviceKind::IntegratedGpu(index) => (wgpu::DeviceType::IntegratedGpu, index),
+                WgpuDeviceKind::VirtualGpu(index) => (wgpu::DeviceType::VirtualGpu, index),
+                WgpuDeviceKind::Other(index) => (wgpu::DeviceType::Other, index),
+                WgpuDeviceKind::Cpu => (wgpu::DeviceType::Cpu, 0),
+                // The adapter it lands on is chosen at creation.
+                WgpuDeviceKind::DefaultDevice | WgpuDeviceKind::Existing(_) => return None,
+            };
+            let (_, adapters) = settle(device.backend)?;
+            adapters
+                .into_iter()
+                .filter(|adapter| adapter.device_type == kind)
+                .nth(index)
+                .map(|adapter| adapter.name)
+        }
+    }
 }
 
 /// The ids of the adapters `backend` reaches, pinned the way it is.

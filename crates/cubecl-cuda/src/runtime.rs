@@ -488,6 +488,18 @@ impl Runtime for CudaRuntime {
     fn utilization(device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
         CardCounters::read(Self::client(device).properties().identity.physical.as_ref())
     }
+
+    /// The driver's name for the device, which needs no context.
+    fn name(device: &Self::Device) -> Option<String> {
+        // SAFETY: the call only tries to `dlopen` each candidate name; past it,
+        // the driver is loaded and initializing it cannot panic.
+        if !unsafe { cudarc::driver::sys::is_culib_present() } {
+            return None;
+        }
+        cudarc::driver::result::init().ok()?;
+        let handle = cudarc::driver::result::device::get(device.index as i32).ok()?;
+        cudarc::driver::result::device::get_name(handle).ok()
+    }
 }
 
 /// What the driver says about a device. A refused query leaves its field empty rather than

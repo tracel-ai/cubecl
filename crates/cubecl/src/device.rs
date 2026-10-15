@@ -484,6 +484,37 @@ impl Device {
         }
     }
 
+    /// The name the device gives itself — `NVIDIA GeForce RTX 5070`,
+    /// `Intel(R) Graphics (ARL)` — read without creating its client, so a
+    /// caller listing devices brings none of them up.
+    ///
+    /// `None` where its runtime cannot say without a client, for a runtime's
+    /// "you choose" device, and for a runtime this build does not link.
+    ///
+    /// ```no_run
+    /// use cubecl::Device;
+    ///
+    /// for device in Device::enumerate_all() {
+    ///     println!("{}", device.name().unwrap_or_default());
+    /// }
+    /// ```
+    pub fn name(&self) -> Option<alloc::string::String> {
+        match *self {
+            #[cfg(feature = "cuda")]
+            Self::Cuda(ref device) => cubecl_cuda::CudaRuntime::name(device),
+            #[cfg(feature = "hip")]
+            Self::Hip(ref device) => cubecl_hip::HipRuntime::name(device),
+            #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
+            Self::Metal(ref device) => cubecl_metal::MetalRuntime::name(device),
+            #[cfg(feature = "wgpu")]
+            Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::name(device),
+            #[cfg(feature = "cpu")]
+            Self::Cpu(ref device) => cubecl_cpu::CpuRuntime::name(device),
+            #[allow(unreachable_patterns)]
+            _ => None,
+        }
+    }
+
     /// The device a [`DeviceId`] in this type's encoding names.
     ///
     /// # Panics

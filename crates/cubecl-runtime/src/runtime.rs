@@ -74,6 +74,18 @@ pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
         !Self::enumerate_all_devices().is_empty()
     }
 
+    /// The name `device` gives itself — `NVIDIA GeForce RTX 5070`, the
+    /// [`DeviceIdentity::name`](crate::DeviceIdentity) its client would report —
+    /// read without creating the client, so a caller listing devices never
+    /// brings one up.
+    ///
+    /// `None` where the runtime cannot say without a client, the device is
+    /// the runtime's "you choose" device that names no hardware of its own,
+    /// or the machine has no such device.
+    fn name(_device: &Self::Device) -> Option<alloc::string::String> {
+        None
+    }
+
     /// How busy `device` is, by the counter its card's driver or its platform keeps. Asking
     /// creates the device's client, and must never wait on the work the device is running.
     ///

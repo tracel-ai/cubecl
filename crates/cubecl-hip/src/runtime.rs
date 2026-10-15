@@ -301,10 +301,47 @@ impl Runtime for HipRuntime {
     fn utilization(device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
         CardCounters::read(Self::client(device).properties().identity.physical.as_ref())
     }
+
+    /// The driver's marketing name for the device, from its properties.
+    fn name(device: &Self::Device) -> Option<String> {
+        if !cubecl_hip_sys::is_available() {
+            return None;
+        }
+        let props = device_properties(device.index as i32).ok()?;
+        Some(marketing_name(&props))
+    }
 }
 
 /// What the driver says about one AMD device.
 ///
+/// What the driver says of device `index`, without creating a context on it.
+fn device_properties(
+    index: i32,
+) -> Result<cubecl_hip_sys::hipDeviceProp_tR0600, cubecl_server::driver::DriverError> {
+    // SAFETY: `hipGetDevicePropertiesR0600` initializes the struct on success,
+    // which is checked before it is read.
+    unsafe {
+        let mut props = MaybeUninit::uninit();
+        let status = cubecl_hip_sys::hipGetDevicePropertiesR0600(
+            props.as_mut_ptr(),
+            index as cubecl_hip_sys::hipDevice_t,
+        );
+        checked("hipGetDevicePropertiesR0600", status)?;
+        Ok(props.assume_init())
+    }
+}
+
+/// The marketing name in `props`, lossily decoded: a driver returning
+/// something that is not UTF-8 must not take the runtime down over a display
+/// string.
+fn marketing_name(props: &cubecl_hip_sys::hipDeviceProp_tR0600) -> String {
+    // SAFETY: the array is a null-terminated C string the driver wrote, copied
+    // out before `props` is released.
+    unsafe { CStr::from_ptr(props.name.as_ptr()) }
+        .to_string_lossy()
+        .into_owned()
+}
+
 /// Every field is copied out of the property struct rather than borrowed from
 /// it. That struct is a 1.6 KB C type built for the length of one query, and a
 /// `&str` into its `gcnArchName` array would outlive it by the whole of
@@ -348,20 +385,9 @@ impl DeviceProbe {
     /// returns `Self`, so there is nowhere to report this to and nothing that
     /// follows would be meaningful.
     fn of(index: i32) -> Self {
-        // SAFETY: `hipGetDevicePropertiesR0600` initializes the struct on
-        // success, which is asserted before anything reads it, and `index` was
-        // validated by the `AmdDevice` constructor.
-        let props = unsafe {
-            let mut props = MaybeUninit::uninit();
-            let status = cubecl_hip_sys::hipGetDevicePropertiesR0600(
-                props.as_mut_ptr(),
-                index as cubecl_hip_sys::hipDevice_t,
-            );
-            checked("hipGetDevicePropertiesR0600", status).unwrap_or_else(|err| {
-                panic!("the driver could not describe device {index}: {err}")
-            });
-            props.assume_init()
-        };
+        // `index` was validated by the `AmdDevice` constructor.
+        let props = device_properties(index)
+            .unwrap_or_else(|err| panic!("the driver could not describe device {index}: {err}"));
 
         // SAFETY: both arrays are null-terminated C strings written by the
         // driver, and both are copied out before `props` goes out of scope.
@@ -370,9 +396,7 @@ impl DeviceProbe {
                 CStr::from_ptr(props.gcnArchName.as_ptr())
                     .to_string_lossy()
                     .into_owned(),
-                CStr::from_ptr(props.name.as_ptr())
-                    .to_string_lossy()
-                    .into_owned(),
+                marketing_name(&props),
             )
         };
 
