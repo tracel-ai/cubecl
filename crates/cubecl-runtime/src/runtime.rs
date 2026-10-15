@@ -95,7 +95,7 @@ pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
 
     /// The current temperature of `device`. Creates a client if needed.
     ///
-    /// Returns a (UtilizationUnavailable::RuntimeReadsNoCounter)[UtilizationUnavailable::RuntimeReadsNoCounter]
+    /// Returns an [`UtilizationUnavailable::RuntimeReadsNoCounter`]
     /// error if the runtime doesn't read any counter.
     fn temperature(_device: &Self::Device) -> Result<DeviceTemperature, UtilizationUnavailable> {
         Err(UtilizationUnavailable::RuntimeReadsNoCounter)
@@ -103,7 +103,7 @@ pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
 
     /// The power usage of `device`, in Watt. Creates a client if needed.
     ///
-    /// Returns a (UtilizationUnavailable::RuntimeReadsNoCounter)[UtilizationUnavailable::RuntimeReadsNoCounter]
+    /// Returns an [`UtilizationUnavailable::RuntimeReadsNoCounter`]
     /// error if the runtime doesn't read any counter.
     fn power(_device: &Self::Device) -> Result<DevicePower, UtilizationUnavailable> {
         Err(UtilizationUnavailable::RuntimeReadsNoCounter)

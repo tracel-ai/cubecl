@@ -427,7 +427,7 @@ impl<K: AutotuneKey> TuneCache<K> {
                 log::debug!("Autotune result for key {key:?} was already stored concurrently")
             }
             StoreError::Backend { key, error } => log::warn!(
-                "Autotune result for key {key:?} could not be stored, it will be retuned: {error}"
+                "Autotune result for key {key:?} could not be stored, it will be re-tuned: {error}"
             ),
         }
         false
