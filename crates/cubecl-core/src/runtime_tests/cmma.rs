@@ -2073,6 +2073,465 @@ pub fn test_cmma_scaled_fp4<R: Runtime, S: BlockScale>(
     assert_equals_approx::<f32>(&client, out, &expected, 0.03);
 }
 
+#[cube(launch)]
+pub fn kernel_ldmatrix_form_registers(
+    input: &[u32],
+    output: &mut [u32],
+    #[comptime] form: cmma::LdMatrixForm,
+    #[comptime] num_matrices: usize,
+    #[comptime] transpose: bool,
+    #[comptime] rows: usize,
+) {
+    let words = comptime![rows * 4];
+    let mut stage = Shared::<[u32]>::new_aligned_slice(words, 16usize);
+    let lane = UNIT_POS_PLANE as usize;
+    let mut i = lane;
+    while i < words {
+        stage[i] = input[i];
+        i += PLANE_DIM as usize;
+    }
+    sync_cube();
+
+    let start = (lane % rows) * 4;
+    let def = cmma::MmaDefinition::<f16, f16, f32>::new(16usize, 8usize, 16usize);
+    let size!(NW) = 1usize;
+    let registers = def.load_matrix_with_form::<u32, NW>(
+        &stage[start..start + 4],
+        form,
+        num_matrices,
+        transpose,
+    );
+    let count = comptime![num_matrices * form.registers_per_matrix()];
+    #[unroll]
+    for r in 0..count {
+        output[lane * count + r] = registers[r].extract(0usize);
+    }
+}
+
+#[cube(launch)]
+pub fn kernel_stmatrix_m16n8_registers(output: &mut [u32], #[comptime] num_matrices: usize) {
+    let rows = comptime![num_matrices * 8];
+    let words = comptime![rows * 4];
+    let mut stage = Shared::<[u32]>::new_aligned_slice(words, 16usize);
+    let lane = UNIT_POS_PLANE as usize;
+
+    let def = cmma::MmaDefinition::<f16, f16, f32>::new(16usize, 8usize, 16usize);
+    let size!(NW) = 1usize;
+    let mut registers = Array::<Vector<u32, NW>>::new(num_matrices);
+    #[unroll]
+    for r in 0..num_matrices {
+        let mut word = 0u32;
+        #[unroll]
+        for k in 0..4u32 {
+            word |= stmatrix_byte(r as u32, lane as u32, k) << (k * 8);
+        }
+        let mut register = Vector::empty();
+        register.insert(0usize, word);
+        registers[r] = register;
+    }
+    let start = (lane % rows) * 4;
+    def.store_matrix_with_form::<u32, NW>(
+        &mut stage[start..start + 4],
+        &registers,
+        cmma::StMatrixForm::M16N8B8,
+        num_matrices,
+        true,
+    );
+    sync_cube();
+
+    let mut i = lane;
+    while i < words {
+        output[i] = stage[i];
+        i += PLANE_DIM as usize;
+    }
+}
+
+#[cube]
+fn stmatrix_byte(matrix: u32, lane: u32, byte: u32) -> u32 {
+    (matrix * 67 + lane * 4 + byte) % 256
+}
+
+/// How the elements of a row sit in shared memory for an `ldmatrix` form.
+#[derive(Clone, Copy)]
+enum LdMatrixRowElements {
+    Bytes,
+    Packed { bits: usize },
+}
+
+impl LdMatrixRowElements {
+    fn of(form: cmma::LdMatrixForm) -> Self {
+        match form {
+            cmma::LdMatrixForm::M8N8B16 | cmma::LdMatrixForm::M16N16B8 => Self::Bytes,
+            cmma::LdMatrixForm::M8N16B4x16P64 | cmma::LdMatrixForm::M16N16B4x16P64 => {
+                Self::Packed { bits: 4 }
+            }
+            cmma::LdMatrixForm::M8N16B6x16P32 | cmma::LdMatrixForm::M16N16B6x16P32 => {
+                Self::Packed { bits: 6 }
+            }
+        }
+    }
+
+    /// Element `element` of memory row `row`, distinct across rows sixteen apart.
+    fn value(self, row: usize, element: usize) -> u8 {
+        match self {
+            Self::Bytes => ((row * 16 + element + (row / 16) * 7) % 256) as u8,
+            Self::Packed { bits: 4 } => ((row * 5 + element + (row / 16) * 3) % 16) as u8,
+            Self::Packed { .. } => ((row * 7 + element * 3) % 64) as u8,
+        }
+    }
+
+    /// Sixteen elements laid out as a 16-byte row, padding bytes set to a pattern no element has.
+    fn row_bytes(self, row: usize) -> [u8; 16] {
+        let values: Vec<u8> = (0..16).map(|element| self.value(row, element)).collect();
+        match self {
+            Self::Bytes => values.try_into().unwrap(),
+            Self::Packed { bits } => pack_sub_byte_row(&values, bits),
+        }
+    }
+}
+
+fn pack_sub_byte_row(values: &[u8], bits: usize) -> [u8; 16] {
+    let mut row = [0xA5u8; 16];
+    row.iter_mut()
+        .take(16 * bits / 8)
+        .for_each(|byte| *byte = 0);
+    for (element, &value) in values.iter().enumerate() {
+        for bit in 0..bits {
+            if (value >> bit) & 1 == 1 {
+                let position = element * bits + bit;
+                row[position / 8] |= 1 << (position % 8);
+            }
+        }
+    }
+    row
+}
+
+fn words_of(bytes: &[u8]) -> Vec<u32> {
+    bytes
+        .chunks(4)
+        .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+        .collect()
+}
+
+fn check_ldmatrix_form(
+    client: &Client,
+    cube_dimensions: CubeDim,
+    form: cmma::LdMatrixForm,
+    num_matrices: usize,
+    transpose: bool,
+) {
+    if !client.features().matmul.ldmatrix_forms.contains(&form) {
+        println!("Skipping ldmatrix {form:?}: not advertised");
+        return;
+    }
+    let elements = LdMatrixRowElements::of(form);
+    let registers_per_matrix = form.registers_per_matrix();
+    let rows_per_matrix = 8 * registers_per_matrix;
+    let rows = rows_per_matrix * num_matrices;
+    let memory: Vec<u8> = (0..rows).flat_map(|row| elements.row_bytes(row)).collect();
+    let words = words_of(&memory);
+
+    let count = num_matrices * registers_per_matrix;
+    let input = client.create_from_slice(u32::as_bytes(&words));
+    let output = client.empty(32 * count * core::mem::size_of::<u32>());
+    unsafe {
+        kernel_ldmatrix_form_registers::launch(
+            client,
+            CubeCount::Static(1, 1, 1),
+            cube_dimensions,
+            BufferArg::from_raw_parts(input, words.len()),
+            BufferArg::from_raw_parts(output.clone(), 32 * count),
+            form,
+            num_matrices,
+            transpose,
+            rows,
+        )
+    };
+    let actual = client.read_one_unchecked(output);
+    let actual = u32::from_bytes(&actual);
+
+    // Register `half` of matrix `matrix` holds logical rows `8 * half..8 * half + 8`; lane `t`
+    // holds columns `(t % 4) * 4..+4` of row `t / 4` of them, one per byte. Without
+    // transposition element (row, col) is element `col` of memory row `row`, with it element
+    // `row` of memory row `col`. Sub-byte values sit in the low bits of their byte.
+    for lane in 0..32 {
+        for register in 0..count {
+            let matrix = register / registers_per_matrix;
+            let half = register % registers_per_matrix;
+            let bytes = actual[lane * count + register].to_le_bytes();
+            for (byte, &got) in bytes.iter().enumerate() {
+                let row = lane / 4 + 8 * half;
+                let col = (lane % 4) * 4 + byte;
+                let (memory_row, element) = if transpose { (col, row) } else { (row, col) };
+                let expected = elements.value(matrix * rows_per_matrix + memory_row, element);
+                assert_eq!(
+                    got, expected,
+                    "ldmatrix {form:?} x{num_matrices}: lane {lane}, register {register}, byte {byte}"
+                );
+            }
+        }
+    }
+}
+
+pub fn test_ldmatrix_forms_place_each_byte_where_ptx_says<R: Runtime>(
+    client: Client,
+    cube_dimensions: CubeDim,
+) {
+    for num_matrices in [1, 2, 4] {
+        check_ldmatrix_form(
+            &client,
+            cube_dimensions,
+            cmma::LdMatrixForm::M8N16B4x16P64,
+            num_matrices,
+            false,
+        );
+        check_ldmatrix_form(
+            &client,
+            cube_dimensions,
+            cmma::LdMatrixForm::M8N16B6x16P32,
+            num_matrices,
+            false,
+        );
+    }
+    for num_matrices in [1, 2] {
+        for form in [
+            cmma::LdMatrixForm::M16N16B8,
+            cmma::LdMatrixForm::M16N16B4x16P64,
+            cmma::LdMatrixForm::M16N16B6x16P32,
+        ] {
+            check_ldmatrix_form(&client, cube_dimensions, form, num_matrices, true);
+        }
+    }
+}
+
+pub fn test_stmatrix_m16n8_places_each_byte_where_ptx_says<R: Runtime>(
+    client: Client,
+    cube_dimensions: CubeDim,
+) {
+    if !client
+        .features()
+        .matmul
+        .stmatrix_forms
+        .contains(&cmma::StMatrixForm::M16N8B8)
+    {
+        println!("Skipping stmatrix M16N8B8: not advertised");
+        return;
+    }
+    for num_matrices in [1, 2, 4] {
+        let words = num_matrices * 8 * 4;
+        let output = client.empty(words * core::mem::size_of::<u32>());
+        unsafe {
+            kernel_stmatrix_m16n8_registers::launch(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                cube_dimensions,
+                BufferArg::from_raw_parts(output.clone(), words),
+                num_matrices,
+            )
+        };
+        let memory = client.read_one_unchecked(output);
+
+        // Byte `e` of lane `t` is logical (t / 4 + 8 * (e / 2), 2 * (t % 4) + e % 2) of a 16x8
+        // matrix, stored transposed: byte `row` of memory row `col`.
+        for matrix in 0..num_matrices {
+            for lane in 0..32 {
+                for byte in 0..4 {
+                    let row = lane / 4 + 8 * (byte / 2);
+                    let col = 2 * (lane % 4) + byte % 2;
+                    let expected = ((matrix * 67 + lane * 4 + byte) % 256) as u8;
+                    assert_eq!(
+                        memory[(matrix * 8 + col) * 16 + row],
+                        expected,
+                        "stmatrix x{num_matrices}: matrix {matrix}, lane {lane}, byte {byte}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[cube(launch)]
+pub fn kernel_fp4_tile_through_ldmatrix<S: Scalar, NC: Size>(
+    a: &[u32],
+    b: &[u32],
+    scales_a: &[S],
+    scales_b: &[S],
+    out: &mut [Vector<f32, NC>],
+    #[comptime] scales_factor: usize,
+) {
+    // A is 16 rows of 32 bytes and B 8 columns of 32 bytes, both contiguous along `k`.
+    let mut stage_a = Shared::<[u32]>::new_aligned_slice(128usize, 16usize);
+    let mut stage_b = Shared::<[u32]>::new_aligned_slice(64usize, 16usize);
+    let lane = UNIT_POS_PLANE as usize;
+    #[unroll]
+    for i in 0..4usize {
+        stage_a[lane + i * 32] = a[lane + i * 32];
+    }
+    #[unroll]
+    for i in 0..2usize {
+        stage_b[lane + i * 32] = b[lane + i * 32];
+    }
+    sync_cube();
+
+    let def = cmma::MmaDefinition::<e2m1x2, e2m1x2, f32>::new_scaled::<S>(
+        16usize,
+        8usize,
+        64usize,
+        scales_factor,
+    );
+    let size!(NW) = 1usize;
+    // The four 8x16-byte matrices of A are rows 0-7 and 8-15 of bytes 0-15, then of bytes 16-31.
+    let row_a = lane % 8 + 8 * ((lane / 8) % 2);
+    let start_a = row_a * 8 + (lane / 16) * 4;
+    let words_a = def.load_matrix::<u32, NW>(
+        &stage_a[start_a..start_a + 4],
+        MatrixIdent::A,
+        4usize,
+        false,
+    );
+    let start_b = (lane % 8) * 8 + ((lane / 8) % 2) * 4;
+    let words_b = def.load_matrix::<u32, NW>(
+        &stage_b[start_b..start_b + 4],
+        MatrixIdent::B,
+        2usize,
+        false,
+    );
+
+    let size!(N4) = 4usize;
+    let mut registers_a = Array::<Vector<e2m1x2, N4>>::new(4usize);
+    #[unroll]
+    for i in 0..4usize {
+        registers_a[i] = Vector::<e2m1x2, N4>::reinterpret(words_a[i].extract(0usize));
+    }
+    let mut registers_b = Array::<Vector<e2m1x2, N4>>::new(2usize);
+    #[unroll]
+    for i in 0..2usize {
+        registers_b[i] = Vector::<e2m1x2, N4>::reinterpret(words_b[i].extract(0usize));
+    }
+    let mut registers_c = Array::<Vector<f32, NC>>::new(2usize);
+    #[unroll]
+    for i in 0..2usize {
+        registers_c[i] = Vector::new(0.0);
+    }
+
+    let size!(NS) = def.scales_vector_size();
+    let mut scale_register_a = Vector::<S, NS>::empty();
+    let mut scale_register_b = Vector::<S, NS>::empty();
+    #[unroll]
+    for byte in 0..4usize {
+        scale_register_a.insert(byte, scales_a[lane * 4 + byte]);
+        scale_register_b.insert(byte, scales_b[lane * 4 + byte]);
+    }
+
+    let registers_d = def.execute_scaled(
+        &registers_a,
+        &registers_b,
+        &registers_c,
+        scale_register_a,
+        scale_register_b,
+    );
+
+    #[unroll]
+    for i in 0..2usize {
+        let (row, col) = def.position_of_nth(lane as u32, (i * 2) as u32, MatrixIdent::Accumulator);
+        out[(row as usize * 8 + col as usize) / 2] = registers_d[i];
+    }
+}
+
+/// Runs one 16x8x64 FP4 tile, operands loaded through `ldmatrix`, with each lane's scale
+/// register given by `scale_of(lane, byte, operand)`, against the CPU reference.
+fn check_fp4_tile_through_ldmatrix<S: CubeElement + Scalar + NumCast>(
+    client: &Client,
+    cube_dimensions: CubeDim,
+    scales_factor: usize,
+    scale_of: impl Fn(usize, usize, usize) -> S,
+) {
+    let config = ScaledMmaConfig {
+        a_type: e2m1x2::cube_type(),
+        b_type: e2m1x2::cube_type(),
+        cd_type: f32::cube_type(),
+        scales_type: S::cube_type(),
+        m: 16,
+        n: 8,
+        k: 64,
+        scales_factor: scales_factor as u32,
+    };
+    if !client.features().matmul.scaled_mma.contains(&config) {
+        println!("Skipping FP4 tile: {config:?} not advertised");
+        return;
+    }
+    let (m, n, k) = (16usize, 8usize, 64usize);
+    let a_values: Vec<f32> = (0..m * k)
+        .map(|i| e2m1::from_bits(((i * 7 + i / 64) % 16) as u8).to_f32())
+        .collect();
+    let b_values: Vec<f32> = (0..n * k)
+        .map(|i| e2m1::from_bits(((i * 5 + 3 * (i / 64)) % 16) as u8).to_f32())
+        .collect();
+    let scales_a: Vec<S> = (0..128).map(|i| scale_of(i / 4, i % 4, 0)).collect();
+    let scales_b: Vec<S> = (0..128).map(|i| scale_of(i / 4, i % 4, 1)).collect();
+
+    let a = client.create_from_slice(e2m1x2::as_bytes(&e2m1x2::from_f32_slice(&a_values)));
+    let b = client.create_from_slice(e2m1x2::as_bytes(&e2m1x2::from_f32_slice(&b_values)));
+    let scales_a_handle = client.create_from_slice(S::as_bytes(&scales_a));
+    let scales_b_handle = client.create_from_slice(S::as_bytes(&scales_b));
+    let out = client.create_from_slice(f32::as_bytes(&vec![0.0f32; m * n]));
+    unsafe {
+        kernel_fp4_tile_through_ldmatrix::launch::<S>(
+            client,
+            CubeCount::Static(1, 1, 1),
+            cube_dimensions,
+            2,
+            BufferArg::from_raw_parts(a, 128),
+            BufferArg::from_raw_parts(b, 64),
+            BufferArg::from_raw_parts(scales_a_handle, 128),
+            BufferArg::from_raw_parts(scales_b_handle, 128),
+            BufferArg::from_raw_parts(out.clone(), m * n / 2),
+            scales_factor,
+        )
+    };
+
+    // Row `i` takes its scales from lane `4 * (i % 8) + i / 8`, column `j` from lane `4 * j`,
+    // block `l / (k / scales_factor)` at that byte of the lane's scale register.
+    let block = k / scales_factor;
+    let mut expected = Vec::with_capacity(m * n);
+    for i in 0..m {
+        let lane_a = 4 * (i % 8) + i / 8;
+        for j in 0..n {
+            let lane_b = 4 * j;
+            let sum: f32 = (0..k)
+                .map(|l| {
+                    let scale_a = scales_a[lane_a * 4 + l / block];
+                    let scale_b = scales_b[lane_b * 4 + l / block];
+                    a_values[i * k + l]
+                        * scale_a.to_f32().unwrap()
+                        * b_values[j * k + l]
+                        * scale_b.to_f32().unwrap()
+                })
+                .sum();
+            expected.push(sum);
+        }
+    }
+    assert_equals_approx::<f32>(client, out, &expected, 0.001);
+}
+
+pub fn test_nvfp4_tile_loaded_through_ldmatrix_matches_reference<R: Runtime>(
+    client: Client,
+    cube_dimensions: CubeDim,
+) {
+    // The units the scaled `mma` reads: lane `t` holds the scales of row `t / 4 + 8 * (t % 2)` of A
+    // and of column `t / 4` of B, one per block of 16 along `k`.
+    let values = [0.5f32, 1.0, 1.5, 2.0, 0.75, 3.0, 0.25, 1.25];
+    let scale_of = |lane: usize, block: usize, operand: usize| {
+        let owner = if operand == 0 {
+            lane / 4 + 8 * (lane % 2)
+        } else {
+            lane / 4
+        };
+        e4m3::from_f32(values[(owner * 3 + block * 5 + operand) % 8])
+    };
+    check_fp4_tile_through_ldmatrix(&client, cube_dimensions, 4, scale_of);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_cmma {
@@ -2375,8 +2834,41 @@ macro_rules! testgen_cmma {
 
             // MXFP4: a power-of-two scale every 32 values.
             test::<ue8m0>(16, 8, 64, 2);
+            // A power-of-two scale every 16 values, `scale_vec::4X` under `ue8m0`.
+            test::<ue8m0>(16, 8, 64, 4);
             // NVFP4: an `e4m3` scale every 16 values.
             test::<e4m3>(16, 8, 64, 4);
+        }
+
+        /// Each sm_120 `ldmatrix` form, at each count it allows, delivers every byte to the lane
+        /// and register the PTX fragment figures name.
+        #[$crate::runtime_tests::test_log::test]
+        fn test_ldmatrix_forms_place_each_byte_where_ptx_says() {
+            let client = TestRuntime::client(&Default::default());
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
+            cubecl_core::runtime_tests::cmma::test_ldmatrix_forms_place_each_byte_where_ptx_says::<
+                TestRuntime,
+            >(client, cube_dimensions);
+        }
+
+        /// `stmatrix` `m16n8 .trans .b8` writes every byte of every lane where PTX puts it.
+        #[$crate::runtime_tests::test_log::test]
+        fn test_stmatrix_m16n8_places_each_byte_where_ptx_says() {
+            let client = TestRuntime::client(&Default::default());
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
+            cubecl_core::runtime_tests::cmma::test_stmatrix_m16n8_places_each_byte_where_ptx_says::<
+                TestRuntime,
+            >(client, cube_dimensions);
+        }
+
+        /// An NVFP4 tile whose operands are loaded through `ldmatrix` matches the CPU reference.
+        #[$crate::runtime_tests::test_log::test]
+        fn test_nvfp4_tile_loaded_through_ldmatrix_matches_reference() {
+            let client = TestRuntime::client(&Default::default());
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
+            cubecl_core::runtime_tests::cmma::test_nvfp4_tile_loaded_through_ldmatrix_matches_reference::<
+                TestRuntime,
+            >(client, cube_dimensions);
         }
 
         fn cube_dim<R: Runtime>(client: &Client) -> CubeDim {

@@ -11,7 +11,7 @@ use cubecl_common::{
 use cubecl_core::ir::AdapterLuid;
 use cubecl_core::{
     MemoryConfiguration,
-    cmma::MatrixLayout,
+    cmma::{LdMatrixForm, MatrixLayout, StMatrixForm},
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         ComplexKind, ContiguousElements, DeviceIdentity, DeviceProperties, ElemType, FloatKind,
@@ -26,7 +26,7 @@ use cubecl_core::{
 use cubecl_cpp::{
     cuda::{
         self,
-        arch::CudaArchitecture,
+        arch::{CudaArchitecture, CudaToolkitVersion},
         mma::{CudaCmmaCompiler, manual::contiguous_elements_cuda},
     },
     register_supported_types,
@@ -110,7 +110,8 @@ impl DeviceService for CudaServer {
         };
         let supported_cmma_combinations = CudaCmmaCompiler::Cpp.supported_cmma_combinations(&arch);
         let supported_mma_combinations = cuda::supported_mma_combinations(&arch);
-        let supported_scaled_mma_combinations = cuda::supported_scaled_mma_combinations(&arch);
+        let supported_scaled_mma_combinations =
+            cuda::supported_scaled_mma_combinations(&arch, CudaToolkitVersion(CUDA_VERSION));
 
         // SAFETY: `device_ptr` is a valid CUDA device. `primary_ctx::retain` returns the
         // primary context which is then set as current for the calling thread.
@@ -255,6 +256,11 @@ impl DeviceService for CudaServer {
                 .matmul
                 .ldmatrix
                 .insert(ElemType::Float(FloatKind::BF16));
+            device_props
+                .features
+                .matmul
+                .ldmatrix_forms
+                .insert(LdMatrixForm::M8N8B16);
             comp_opts.supports_features.fast_tanh = CUDA_VERSION >= 12080;
         }
 
@@ -280,6 +286,11 @@ impl DeviceService for CudaServer {
                 .matmul
                 .stmatrix
                 .insert(ElemType::Float(FloatKind::BF16));
+            device_props
+                .features
+                .matmul
+                .stmatrix_forms
+                .insert(StMatrixForm::M8N8B16);
 
             // bf16 add is only properly supported in sm_90+, even though most bf16 ops are supported
             // earlier. It's technically supported earlier but is missing the now-required `.noftz`
@@ -318,6 +329,23 @@ impl DeviceService for CudaServer {
                     AtomicUsage::LoadStore | AtomicUsage::Exchange | AtomicUsage::Add,
                 );
             }
+        }
+
+        // The PTX ISA also gives these forms to the `sm_100f` and `sm_110f` families; only the
+        // `sm_120f` family, where they were checked, is offered them.
+        if (120..130).contains(&arch_version) {
+            device_props.features.matmul.ldmatrix_forms.extend([
+                LdMatrixForm::M8N16B4x16P64,
+                LdMatrixForm::M8N16B6x16P32,
+                LdMatrixForm::M16N16B8,
+                LdMatrixForm::M16N16B4x16P64,
+                LdMatrixForm::M16N16B6x16P32,
+            ]);
+            device_props
+                .features
+                .matmul
+                .stmatrix_forms
+                .insert(StMatrixForm::M16N8B8);
         }
 
         if arch_version >= 100 {
