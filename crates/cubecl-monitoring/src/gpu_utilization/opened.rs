@@ -69,7 +69,7 @@ impl OpenedCounter {
             #[cfg(gpu_engine_counters)]
             Self::GpuEngineCounters(counters) => counters.read(),
             #[cfg(io_accelerator)]
-            Self::IoAcceleratorStatistics(statistics) => statistics.read(),
+            Self::IoAcceleratorStatistics(statistics) => statistics.utilization(),
             Self::Unavailable(reason) => Err(reason.clone()),
         }
     }
@@ -81,6 +81,8 @@ impl OpenedCounter {
             Self::Nvml(counter) => counter.temperature(),
             #[cfg(amdgpu_busy_percent)]
             Self::AmdgpuSysfsFiles(file) => file.temperature(),
+            #[cfg(io_accelerator)]
+            Self::IoAcceleratorStatistics(statistics) => statistics.temperature(),
             Self::Unavailable(reason) => Err(reason.clone()),
             #[allow(unreachable_patterns)]
             _ => Err(UtilizationUnavailable::NoSuchReading),
@@ -94,6 +96,8 @@ impl OpenedCounter {
             Self::Nvml(counter) => counter.power(),
             #[cfg(amdgpu_busy_percent)]
             Self::AmdgpuSysfsFiles(file) => file.power(),
+            #[cfg(io_accelerator)]
+            Self::IoAcceleratorStatistics(statistics) => statistics.power(),
             Self::Unavailable(reason) => Err(reason.clone()),
             #[allow(unreachable_patterns)]
             _ => Err(UtilizationUnavailable::NoSuchReading),
