@@ -637,26 +637,10 @@ pub fn test_simple_1_typed<R: Runtime, I: Float + CubeElement, A: Float + CubeEl
     }
 }
 
-/// `matrix` taken apart into its raw parts and rebuilt from them.
-fn rebuilt<C: CubePrimitive>(_matrix: &cmma::Matrix<C>) -> cmma::Matrix<C> {
-    cubecl::unexpanded!()
-}
-
-mod rebuilt {
-    use super::*;
-
-    pub fn expand<C: CubePrimitive>(
-        scope: &Scope,
-        matrix: &cmma::MatrixExpand<C, cmma::Plane>,
-    ) -> cmma::MatrixExpand<C, cmma::Plane> {
-        let (elem, ident) = matrix.clone().into_raw();
-        cmma::MatrixExpand::from_raw(scope, elem, ident)
-    }
-}
-
 #[cube(launch)]
-/// [`kernel_simple_m16n16k16_gmem`] with every fragment rebuilt from its raw parts before use.
-pub fn kernel_rebuilt_from_raw(lhs: &[f16], rhs: &[f16], out: &mut [f32]) {
+/// [`kernel_simple_m16n16k16_gmem`] with every fragment kept at a dummy type, then named at an
+/// element the kernel defines before the product.
+pub fn kernel_downcast(lhs: &[f16], rhs: &[f16], out: &mut [f32]) {
     let a = cmma::Matrix::<f16>::from_slice(
         cmma::MatrixIdent::A,
         16usize,
@@ -683,16 +667,30 @@ pub fn kernel_rebuilt_from_raw(lhs: &[f16], rhs: &[f16], out: &mut [f32]) {
         cmma::MatrixLayout::Undefined,
         0.0,
     );
-    let (a, b, c) = (rebuilt(&a), rebuilt(&b), rebuilt(&c));
+    let (a, b, c) = unsafe {
+        (
+            a.downcast_unchecked::<u8>(),
+            b.downcast_unchecked::<u8>(),
+            c.downcast_unchecked::<u8>(),
+        )
+    };
+
+    let define!(Input) = elem_type_of::<f16>();
+    let define!(Acc) = elem_type_of::<f32>();
+    let (a, b, c) = (
+        a.downcast::<Input>(),
+        b.downcast::<Input>(),
+        c.downcast::<Acc>(),
+    );
 
     cmma::execute(&a, &b, &c, &c);
 
     cmma::store(out, &c, 16, cmma::MatrixLayout::RowMajor);
 }
 
-/// A fragment rebuilt from its raw parts ([`cmma::MatrixExpand::from_raw`]) computes as the one
-/// taken apart: [`test_simple_1`]'s product through rebuilt fragments.
-pub fn test_rebuilt_from_raw<R: Runtime>(client: Client, cube_dimensions: CubeDim) {
+/// A fragment named at another type and back ([`cmma::Matrix::downcast`]) is the same fragment:
+/// [`test_simple_1`]'s product through downcast fragments.
+pub fn test_downcast<R: Runtime>(client: Client, cube_dimensions: CubeDim) {
     if !client.features().matmul.cmma.contains(&MmaConfig {
         a_type: f16::cube_type(),
         b_type: f16::cube_type(),
@@ -711,7 +709,7 @@ pub fn test_rebuilt_from_raw<R: Runtime>(client: Client, cube_dimensions: CubeDi
     let rhs = client.create_from_slice(f16::as_bytes(&rhs));
     let out = client.empty(core::mem::size_of::<f32>() * 256);
 
-    kernel_rebuilt_from_raw::launch(
+    kernel_downcast::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         cube_dimensions,
@@ -2005,13 +2003,10 @@ macro_rules! testgen_cmma {
         }
 
         #[$crate::runtime_tests::test_log::test]
-        fn test_cmma_rebuilt_from_raw() {
+        fn test_cmma_downcast() {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
-            cubecl_core::runtime_tests::cmma::test_rebuilt_from_raw::<TestRuntime>(
-                client,
-                cube_dimensions,
-            );
+            cubecl_core::runtime_tests::cmma::test_downcast::<TestRuntime>(client, cube_dimensions);
         }
 
         #[$crate::runtime_tests::test_log::test]

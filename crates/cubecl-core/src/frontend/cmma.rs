@@ -137,24 +137,32 @@ impl<C: CubeType, S: MatrixScope> Clone for MatrixExpand<C, S> {
     }
 }
 
-impl<C: CubePrimitive, S: MatrixScope> MatrixExpand<C, S> {
-    /// The fragment's variable and the operand it is, apart from the element its type names: what
-    /// a caller holding the element as data keeps, to rebuild the fragment where it is used
-    /// ([`from_raw`](Self::from_raw)).
-    pub fn into_raw(self) -> (Value, MatrixIdent) {
-        (self.elem, self.ident)
+impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
+    /// This fragment named at `O`, panicking unless `O` is the element it holds.
+    ///
+    /// Like a slice's `downcast`, this only satisfies the Rust type system: the fragment is the
+    /// same, so it costs nothing.
+    pub fn downcast<O: CubePrimitive>(&self) -> Matrix<O, S> {
+        unexpanded!()
     }
 
-    /// The fragment `elem`, the `ident` operand, typed at `C`: the inverse of
-    /// [`into_raw`](Self::into_raw).
+    /// This fragment named at `O`, whatever element it holds.
     ///
-    /// # Panics
+    /// # Safety
     ///
-    /// Where `elem` is no fragment of `C`'s element.
-    pub fn from_raw(scope: &Scope, elem: Value, ident: MatrixIdent) -> Self {
-        let named = C::Scalar::__expand_as_type(scope);
+    /// Only for keeping the fragment at a dummy type, to be named again with
+    /// [`downcast`](Self::downcast) where it is used, as a slice's `downcast_unchecked` is.
+    pub unsafe fn downcast_unchecked<O: CubePrimitive>(&self) -> Matrix<O, S> {
+        unexpanded!()
+    }
+}
+
+impl<C: CubeType, S: MatrixScope> MatrixExpand<C, S> {
+    pub fn __expand_downcast_method<O: CubePrimitive>(&self, scope: &Scope) -> MatrixExpand<O, S> {
+        let named = O::Scalar::__expand_as_type(scope);
         let ctx = scope.ctx();
-        let held = elem
+        let held = self
+            .elem
             .unwrap_ptr(ctx)
             .deref(ctx)
             .downcast_ref::<MatrixType>()
@@ -162,11 +170,19 @@ impl<C: CubePrimitive, S: MatrixScope> MatrixExpand<C, S> {
         assert_eq!(
             held,
             Some(named),
-            "MatrixExpand::from_raw: the variable is no fragment of {named:?}"
+            "Matrix::downcast: the fragment holds {held:?}, not {named:?}"
         );
+        self.__expand_downcast_unchecked_method(scope)
+    }
+
+    #[doc(hidden)]
+    pub fn __expand_downcast_unchecked_method<O: CubePrimitive>(
+        &self,
+        _scope: &Scope,
+    ) -> MatrixExpand<O, S> {
         MatrixExpand {
-            elem,
-            ident,
+            elem: self.elem,
+            ident: self.ident,
             _c: PhantomData,
             _s: PhantomData,
         }

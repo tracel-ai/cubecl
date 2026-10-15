@@ -46,41 +46,6 @@ fn kernel_copy_erased<F: Float, N: Size>(
     }
 }
 
-/// [`kernel_copy_erased`] with both tensors taken apart from their element and named again at
-/// one the kernel defines, the one `F` is: what a caller holding the element as data does
-/// ([`ErasedTensorExpand::into_raw`], [`ErasedTensorExpand::from_raw`]).
-#[cube(launch_unchecked)]
-fn kernel_copy_renamed<F: Float, N: Size>(
-    input: &Tensor<Vector<F, N>>,
-    out: &mut Tensor<Vector<F, N>>,
-) {
-    let define!(Named) = elem_type_of::<F>();
-    let source = renamed::<F, Named, ReadOnly>(&ErasedTensor::<F, ReadOnly>::of_tensor::<N>(input));
-    let mut sink =
-        renamed::<F, Named, ReadWrite>(&ErasedTensor::<F, ReadWrite>::of_tensor_mut::<N>(out));
-
-    if ABSOLUTE_POS < source.len() {
-        sink.write::<N>(ABSOLUTE_POS, source.read::<N>(ABSOLUTE_POS));
-    }
-}
-
-/// `tensor` taken apart from `E` and named at `E2` again.
-fn renamed<E: Numeric, E2: Numeric, IO>(_tensor: &ErasedTensor<E, IO>) -> ErasedTensor<E2, IO> {
-    cubecl::unexpanded!()
-}
-
-mod renamed {
-    use super::*;
-    use crate::tensor::ErasedTensorExpand;
-
-    pub fn expand<E: Numeric, E2: Numeric, IO>(
-        scope: &Scope,
-        tensor: &ErasedTensorExpand<E, IO>,
-    ) -> ErasedTensorExpand<E2, IO> {
-        ErasedTensorExpand::from_raw(scope, tensor.clone().into_raw(scope))
-    }
-}
-
 /// The `len` an erased tensor reports is in lines, so a bound check against the
 /// caller's line index is allowed to use it. Getting this wrong would be off by
 /// a factor of the width.
@@ -122,12 +87,6 @@ pub fn test_copy_erased<R: Runtime>(client: Client, width: usize) {
     assert_eq!(actual, input, "read and write erased at width {width}");
 }
 
-pub fn test_copy_renamed<R: Runtime>(client: Client, width: usize) {
-    let input = values(width);
-    let actual = launch_copy(&client, &input, width, Kernel::Renamed);
-    assert_eq!(actual, input, "read and write renamed at width {width}");
-}
-
 pub fn test_len_is_in_lines<R: Runtime>(client: Client, width: usize) {
     let input = values(width);
 
@@ -160,7 +119,6 @@ enum Kernel {
     Write,
     Read,
     Copy,
-    Renamed,
 }
 
 fn launch_copy(client: &Client, input: &[f32], width: usize, kernel: Kernel) -> Vec<f32> {
@@ -185,9 +143,6 @@ fn launch_copy(client: &Client, input: &[f32], width: usize, kernel: Kernel) -> 
                 client, cube_count, dim, width, arg_in, arg_out,
             ),
             Kernel::Copy => kernel_copy_erased::launch_unchecked::<f32>(
-                client, cube_count, dim, width, arg_in, arg_out,
-            ),
-            Kernel::Renamed => kernel_copy_renamed::launch_unchecked::<f32>(
                 client, cube_count, dim, width, arg_in, arg_out,
             ),
         }
@@ -237,14 +192,6 @@ macro_rules! testgen_erased {
                     fn copy_erased() {
                         let client = TestRuntime::client(&Default::default());
                         cubecl_std::tests::erased::test_copy_erased::<TestRuntime>(client, $width);
-                    }
-
-                    #[$crate::tests::test_log::test]
-                    fn copy_renamed() {
-                        let client = TestRuntime::client(&Default::default());
-                        cubecl_std::tests::erased::test_copy_renamed::<TestRuntime>(
-                            client, $width,
-                        );
                     }
 
                     #[$crate::tests::test_log::test]
