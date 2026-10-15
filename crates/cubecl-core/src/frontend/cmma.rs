@@ -66,8 +66,7 @@ use cubecl_ir::{
 };
 
 pub use cubecl_ir::types::matrix::{
-    BlockScaleSelector, LdMatrixForm, MatrixIdent, MatrixLayout, MatrixShape, MatrixType,
-    StMatrixForm,
+    LdMatrixForm, MatrixIdent, MatrixLayout, MatrixShape, MatrixType, StMatrixForm,
 };
 use pliron::builtin::given_names::set_operation_result_name;
 use pliron::r#type::TypeHandle;
@@ -885,43 +884,6 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         scales_b: Vector<S, NS>,
     ) -> Array<Vector<CD, NC>> {
         intrinsic!(|scope| {
-            self.__expand_execute_scaled_with_selectors_method(
-                scope,
-                registers_a,
-                registers_b,
-                registers_c,
-                scales_a,
-                scales_b,
-                BlockScaleSelector::default(),
-                BlockScaleSelector::default(),
-            )
-        })
-    }
-
-    /// Execute a low level block scaled `mma` operation with manually managed registers, reading
-    /// each scale from the byte and units of the quad its [selector](BlockScaleSelector) names.
-    /// Register layout and index mapping can be retrieved from the [`MmaDefinition`]
-    #[allow(unused, clippy::too_many_arguments)]
-    pub fn execute_scaled_with_selectors<S: Scalar, NA: Size, NB: Size, NC: Size, NS: Size>(
-        &self,
-        registers_a: &Array<Vector<A, NA>>,
-        registers_b: &Array<Vector<B, NB>>,
-        registers_c: &Array<Vector<CD, NC>>,
-        scales_a: Vector<S, NS>,
-        scales_b: Vector<S, NS>,
-        #[comptime] scale_a_selector: BlockScaleSelector,
-        #[comptime] scale_b_selector: BlockScaleSelector,
-    ) -> Array<Vector<CD, NC>> {
-        intrinsic!(|scope| {
-            let scales_factor = self.scales_factor.expect("Should have scales");
-            assert!(
-                scale_a_selector.is_valid_for(MatrixIdent::A, scales_factor),
-                "{scale_a_selector:?} selects no scale of A with {scales_factor} scales per row"
-            );
-            assert!(
-                scale_b_selector.is_valid_for(MatrixIdent::B, scales_factor),
-                "{scale_b_selector:?} selects no scale of B with {scales_factor} scales per column"
-            );
             let acc_elems = self
                 .clone()
                 .__expand_elems_per_lane_method(scope, MatrixIdent::Accumulator);
@@ -947,10 +909,8 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 registers_d,
                 scales_a,
                 scales_b,
-                scales_factor,
+                self.scales_factor.expect("Should have scales"),
                 self.shape,
-                scale_a_selector,
-                scale_b_selector,
             ));
 
             registers_d_arr

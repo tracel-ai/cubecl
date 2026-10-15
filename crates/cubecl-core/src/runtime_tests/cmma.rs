@@ -2096,170 +2096,6 @@ pub fn test_stmatrix_m16n8_places_each_byte_where_ptx_says<R: Runtime>(
 }
 
 #[cube(launch)]
-pub fn kernel_scale_selectors_e4m3<NA: Size, NB: Size, NC: Size>(
-    a: &[Vector<e4m3, NA>],
-    b: &[Vector<e4m3, NB>],
-    scales_a: &[ue8m0],
-    scales_b: &[ue8m0],
-    out: &mut [Vector<f32, NC>],
-    #[comptime] scale_a_selector: cmma::BlockScaleSelector,
-    #[comptime] scale_b_selector: cmma::BlockScaleSelector,
-) {
-    let size_k = 32usize;
-    let size_n = 8usize;
-    let def = cmma::MmaDefinition::<e4m3, e4m3, f32>::new_scaled::<ue8m0>(
-        16usize, 8usize, 32usize, 1usize,
-    );
-    let lane_id = UNIT_POS_PLANE;
-
-    let vector_size_a = def.vector_size(MatrixIdent::A);
-    let vector_count_a = def.vectors_per_lane(MatrixIdent::A);
-    let mut registers_a = Array::<Vector<e4m3, NA>>::new(vector_count_a);
-    let vector_size_b = def.vector_size(MatrixIdent::B);
-    let vector_count_b = def.vectors_per_lane(MatrixIdent::B);
-    let mut registers_b = Array::<Vector<e4m3, NB>>::new(vector_count_b);
-    let vector_size_c = def.vector_size(MatrixIdent::Accumulator);
-    let vector_count_c = def.vectors_per_lane(MatrixIdent::Accumulator);
-    let mut registers_c = Array::<Vector<f32, NC>>::new(vector_count_c);
-
-    #[unroll]
-    for i in 0..vector_count_a {
-        let (row, col) = def.position_of_nth(lane_id, (i * vector_size_a) as u32, MatrixIdent::A);
-        registers_a[i] = a[(row as usize * size_k + col as usize) / a.vector_size()];
-    }
-    #[unroll]
-    for i in 0..vector_count_b {
-        let (row, col) = def.position_of_nth(lane_id, (i * vector_size_b) as u32, MatrixIdent::B);
-        registers_b[i] = b[(col as usize * size_k + row as usize) / b.vector_size()];
-    }
-    #[unroll]
-    for i in 0..vector_count_c {
-        registers_c[i] = Vector::new(0.0);
-    }
-
-    let size!(NS) = def.scales_vector_size();
-    let mut scale_register_a = Vector::<ue8m0, NS>::empty();
-    let mut scale_register_b = Vector::<ue8m0, NS>::empty();
-    #[unroll]
-    for byte in 0..4usize {
-        scale_register_a.insert(byte, scales_a[lane_id as usize * 4 + byte]);
-        scale_register_b.insert(byte, scales_b[lane_id as usize * 4 + byte]);
-    }
-
-    let registers_d = def.execute_scaled_with_selectors(
-        &registers_a,
-        &registers_b,
-        &registers_c,
-        scale_register_a,
-        scale_register_b,
-        scale_a_selector,
-        scale_b_selector,
-    );
-
-    #[unroll]
-    for i in 0..vector_count_c {
-        let (row, col) = def.position_of_nth(
-            lane_id,
-            (i * vector_size_c) as u32,
-            MatrixIdent::Accumulator,
-        );
-        out[(row as usize * size_n + col as usize) / out.vector_size()] = registers_d[i];
-    }
-}
-
-/// The exponent in byte `byte` of lane `lane`'s scale register, distinct for every byte of every
-/// unit within a quad, so a selector that reads the wrong one changes the result.
-fn scale_exponent(lane: usize, byte: usize, operand: usize) -> u8 {
-    (118 + (lane % 4) * 4 + byte + (lane / 4 + operand) % 3) as u8
-}
-
-pub fn test_scale_selectors_read_the_byte_and_lanes_they_name<R: Runtime>(
-    client: Client,
-    cube_dimensions: CubeDim,
-) {
-    let config = ScaledMmaConfig {
-        a_type: e4m3::cube_type(),
-        b_type: e4m3::cube_type(),
-        cd_type: f32::cube_type(),
-        scales_type: ue8m0::cube_type(),
-        m: 16,
-        n: 8,
-        k: 32,
-        scales_factor: 1,
-    };
-    if !client.features().matmul.scaled_mma.contains(&config) {
-        println!("Skipping scale selectors: {config:?} not advertised");
-        return;
-    }
-    let selector = |byte_id, thread_id| cmma::BlockScaleSelector { byte_id, thread_id };
-    for (scale_a_selector, scale_b_selector) in [
-        (selector(0, 0), selector(0, 0)),
-        (selector(3, 1), selector(2, 3)),
-        (selector(1, 0), selector(3, 2)),
-        (selector(2, 1), selector(1, 1)),
-    ] {
-        let (m, n, k) = (16usize, 8usize, 32usize);
-        let a_values: Vec<f32> = (0..m * k).map(|i| ((i * 7 % 9) as f32) - 4.0).collect();
-        let b_values: Vec<f32> = (0..n * k).map(|i| ((i * 5 % 7) as f32) - 3.0).collect();
-        let a: Vec<e4m3> = a_values
-            .iter()
-            .map(|value| e4m3::from_f32(*value))
-            .collect();
-        let b: Vec<e4m3> = b_values
-            .iter()
-            .map(|value| e4m3::from_f32(*value))
-            .collect();
-        let scales = |operand| -> Vec<ue8m0> {
-            (0..128)
-                .map(|i| ue8m0::from_bits(scale_exponent(i / 4, i % 4, operand)))
-                .collect()
-        };
-
-        let a_handle = client.create_from_slice(e4m3::as_bytes(&a));
-        let b_handle = client.create_from_slice(e4m3::as_bytes(&b));
-        let scales_a = client.create_from_slice(ue8m0::as_bytes(&scales(0)));
-        let scales_b = client.create_from_slice(ue8m0::as_bytes(&scales(1)));
-        let out = client.create_from_slice(f32::as_bytes(&vec![0.0f32; m * n]));
-        unsafe {
-            kernel_scale_selectors_e4m3::launch(
-                &client,
-                CubeCount::Static(1, 1, 1),
-                cube_dimensions,
-                4,
-                4,
-                2,
-                BufferArg::from_raw_parts(a_handle, m * k / 4),
-                BufferArg::from_raw_parts(b_handle, n * k / 4),
-                BufferArg::from_raw_parts(scales_a, 128),
-                BufferArg::from_raw_parts(scales_b, 128),
-                BufferArg::from_raw_parts(out.clone(), m * n / 2),
-                scale_a_selector,
-                scale_b_selector,
-            )
-        };
-
-        // Row `i` takes its scale from lane `4 * (i % 8) + 2 * thread_id + i / 8`, column `j`
-        // from lane `4 * j + thread_id`, both at byte `byte_id`.
-        let mut expected = Vec::with_capacity(m * n);
-        for i in 0..m {
-            let lane_a = 4 * (i % 8) + 2 * scale_a_selector.thread_id + i / 8;
-            let scale_a =
-                ue8m0::from_bits(scale_exponent(lane_a, scale_a_selector.byte_id, 0)).to_f32();
-            for j in 0..n {
-                let lane_b = 4 * j + scale_b_selector.thread_id;
-                let scale_b =
-                    ue8m0::from_bits(scale_exponent(lane_b, scale_b_selector.byte_id, 1)).to_f32();
-                let dot: f32 = (0..k)
-                    .map(|l| a_values[i * k + l] * b_values[j * k + l])
-                    .sum();
-                expected.push(dot * scale_a * scale_b);
-            }
-        }
-        assert_equals_approx::<f32>(&client, out, &expected, 0.001);
-    }
-}
-
-#[cube(launch)]
 pub fn kernel_fp4_tile_through_ldmatrix<S: Scalar, NC: Size>(
     a: &[u32],
     b: &[u32],
@@ -2267,8 +2103,6 @@ pub fn kernel_fp4_tile_through_ldmatrix<S: Scalar, NC: Size>(
     scales_b: &[S],
     out: &mut [Vector<f32, NC>],
     #[comptime] scales_factor: usize,
-    #[comptime] scale_a_selector: cmma::BlockScaleSelector,
-    #[comptime] scale_b_selector: cmma::BlockScaleSelector,
 ) {
     // A is 16 rows of 32 bytes and B 8 columns of 32 bytes, both contiguous along `k`.
     let mut stage_a = Shared::<[u32]>::new_aligned_slice(128usize, 16usize);
@@ -2334,14 +2168,12 @@ pub fn kernel_fp4_tile_through_ldmatrix<S: Scalar, NC: Size>(
         scale_register_b.insert(byte, scales_b[lane * 4 + byte]);
     }
 
-    let registers_d = def.execute_scaled_with_selectors(
+    let registers_d = def.execute_scaled(
         &registers_a,
         &registers_b,
         &registers_c,
         scale_register_a,
         scale_register_b,
-        scale_a_selector,
-        scale_b_selector,
     );
 
     #[unroll]
@@ -2358,8 +2190,6 @@ fn check_fp4_tile_through_ldmatrix<S: CubeElement + Scalar + NumCast>(
     cube_dimensions: CubeDim,
     scales_factor: usize,
     scale_of: impl Fn(usize, usize, usize) -> S,
-    scale_a_selector: cmma::BlockScaleSelector,
-    scale_b_selector: cmma::BlockScaleSelector,
 ) {
     let config = ScaledMmaConfig {
         a_type: e2m1x2::cube_type(),
@@ -2402,23 +2232,21 @@ fn check_fp4_tile_through_ldmatrix<S: CubeElement + Scalar + NumCast>(
             BufferArg::from_raw_parts(scales_b_handle, 128),
             BufferArg::from_raw_parts(out.clone(), m * n / 2),
             scales_factor,
-            scale_a_selector,
-            scale_b_selector,
         )
     };
 
-    // Row `i` takes its scales from lane `4 * (i % 8) + 2 * thread_id + i / 8`, column `j` from
-    // lane `4 * j + thread_id`, block `l / (k / scales_factor)` at byte `byte_id` plus the block.
+    // Row `i` takes its scales from lane `4 * (i % 8) + i / 8`, column `j` from lane `4 * j`,
+    // block `l / (k / scales_factor)` at that byte of the lane's scale register.
     let block = k / scales_factor;
     let mut expected = Vec::with_capacity(m * n);
     for i in 0..m {
-        let lane_a = 4 * (i % 8) + 2 * scale_a_selector.thread_id + i / 8;
+        let lane_a = 4 * (i % 8) + i / 8;
         for j in 0..n {
-            let lane_b = 4 * j + scale_b_selector.thread_id;
+            let lane_b = 4 * j;
             let sum: f32 = (0..k)
                 .map(|l| {
-                    let scale_a = scales_a[lane_a * 4 + scale_a_selector.byte_id + l / block];
-                    let scale_b = scales_b[lane_b * 4 + scale_b_selector.byte_id + l / block];
+                    let scale_a = scales_a[lane_a * 4 + l / block];
+                    let scale_b = scales_b[lane_b * 4 + l / block];
                     a_values[i * k + l]
                         * scale_a.to_f32().unwrap()
                         * b_values[j * k + l]
@@ -2431,55 +2259,12 @@ fn check_fp4_tile_through_ldmatrix<S: CubeElement + Scalar + NumCast>(
     assert_equals_approx::<f32>(client, out, &expected, 0.001);
 }
 
-pub fn test_fp4_scale_selectors_read_the_byte_and_lanes_they_name<R: Runtime>(
-    client: Client,
-    cube_dimensions: CubeDim,
-) {
-    let selector = |byte_id, thread_id| cmma::BlockScaleSelector { byte_id, thread_id };
-    let ue8m0_scale = |lane, byte, operand| ue8m0::from_bits(scale_exponent(lane, byte, operand));
-    let ue4m3_values = [
-        0.5f32, 1.0, 1.5, 2.0, 0.75, 3.0, 0.25, 1.25, 1.75, 2.5, 0.375, 0.625,
-    ];
-    let ue4m3_scale = |lane: usize, byte: usize, operand: usize| {
-        e4m3::from_f32(ue4m3_values[((lane % 4) * 4 + byte + (lane / 4) * 5 + operand * 7) % 12])
-    };
-    for (scale_a_selector, scale_b_selector) in [
-        (selector(2, 1), selector(2, 3)),
-        (selector(2, 0), selector(0, 1)),
-    ] {
-        check_fp4_tile_through_ldmatrix(
-            &client,
-            cube_dimensions,
-            2,
-            ue8m0_scale,
-            scale_a_selector,
-            scale_b_selector,
-        );
-    }
-    check_fp4_tile_through_ldmatrix(
-        &client,
-        cube_dimensions,
-        4,
-        ue4m3_scale,
-        selector(0, 1),
-        selector(0, 2),
-    );
-    check_fp4_tile_through_ldmatrix(
-        &client,
-        cube_dimensions,
-        4,
-        ue8m0_scale,
-        selector(0, 1),
-        selector(0, 3),
-    );
-}
-
 pub fn test_nvfp4_tile_loaded_through_ldmatrix_matches_reference<R: Runtime>(
     client: Client,
     cube_dimensions: CubeDim,
 ) {
-    // The units the default selectors read: lane `t` holds the scales of row `t / 4 + 8 * (t % 2)`
-    // of A and of column `t / 4` of B, one per block of 16 along `k`.
+    // The units the scaled `mma` reads: lane `t` holds the scales of row `t / 4 + 8 * (t % 2)` of A
+    // and of column `t / 4` of B, one per block of 16 along `k`.
     let values = [0.5f32, 1.0, 1.5, 2.0, 0.75, 3.0, 0.25, 1.25];
     let scale_of = |lane: usize, block: usize, operand: usize| {
         let owner = if operand == 0 {
@@ -2489,14 +2274,7 @@ pub fn test_nvfp4_tile_loaded_through_ldmatrix_matches_reference<R: Runtime>(
         };
         e4m3::from_f32(values[(owner * 3 + block * 5 + operand) % 8])
     };
-    check_fp4_tile_through_ldmatrix(
-        &client,
-        cube_dimensions,
-        4,
-        scale_of,
-        cmma::BlockScaleSelector::default(),
-        cmma::BlockScaleSelector::default(),
-    );
+    check_fp4_tile_through_ldmatrix(&client, cube_dimensions, 4, scale_of);
 }
 
 #[allow(missing_docs)]
@@ -2778,27 +2556,6 @@ macro_rules! testgen_cmma {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
             cubecl_core::runtime_tests::cmma::test_stmatrix_m16n8_places_each_byte_where_ptx_says::<
-                TestRuntime,
-            >(client, cube_dimensions);
-        }
-
-        /// Non-zero scale selectors of a `scale_vec::1X` MMA read the byte and units they name.
-        #[$crate::runtime_tests::test_log::test]
-        fn test_scale_selectors_read_the_byte_and_lanes_they_name() {
-            let client = TestRuntime::client(&Default::default());
-            let cube_dimensions = cube_dim::<TestRuntime>(&client);
-            cubecl_core::runtime_tests::cmma::test_scale_selectors_read_the_byte_and_lanes_they_name::<
-                TestRuntime,
-            >(client, cube_dimensions);
-        }
-
-        /// Non-zero scale selectors of the FP4 `scale_vec::2X` and `4X` MMAs read the bytes and
-        /// units they name.
-        #[$crate::runtime_tests::test_log::test]
-        fn test_fp4_scale_selectors_read_the_byte_and_lanes_they_name() {
-            let client = TestRuntime::client(&Default::default());
-            let cube_dimensions = cube_dim::<TestRuntime>(&client);
-            cubecl_core::runtime_tests::cmma::test_fp4_scale_selectors_read_the_byte_and_lanes_they_name::<
                 TestRuntime,
             >(client, cube_dimensions);
         }

@@ -5,7 +5,7 @@ use cubecl_core::{
         AddressType, ContextExt, ElemType, FloatKind, IntKind, UIntKind,
         dialect::matrix::{LdMatrixOp, MmaManualOp, MmaManualScaledOp, StMatrixOp},
         interfaces::{ScalarType, TypedExt},
-        types::{BlockScaleSelector, LdMatrixForm, StMatrixForm, VectorType},
+        types::{LdMatrixForm, StMatrixForm, VectorType},
     },
     prelude::*,
 };
@@ -68,17 +68,11 @@ fn scaled_mma(
     scale_b: Vector<S, NS>,
     #[comptime] k: usize,
     #[comptime] scales_factor: usize,
-    #[comptime] scale_a_selector: BlockScaleSelector,
-    #[comptime] scale_b_selector: BlockScaleSelector,
 ) -> Vector<RegCD, NCD> {
     let a_ty = ptx_mma_ty::<A>().comptime();
     let b_ty = ptx_mma_ty::<B>().comptime();
     let cd_ty = ptx_mma_ty::<CD>().comptime();
     let scale_ty = ptx_scale_ty::<S>().comptime();
-    let byte_a = comptime![scale_a_selector.byte_id];
-    let thread_a = comptime![scale_a_selector.thread_id];
-    let byte_b = comptime![scale_b_selector.byte_id];
-    let thread_b = comptime![scale_b_selector.thread_id];
 
     let kind = comptime![match scales_factor {
         1 => "mxf8f6f4",
@@ -90,7 +84,7 @@ fn scaled_mma(
     gpu_asm!(
         "mma.sync.aligned.m16n8k{k}.row.col.kind::{kind}.block_scale.scale_vec::{scales_factor}X",
         ".{cd_ty}.{a_ty}.{b_ty}.{cd_ty}.{scale_ty} {d}, {a}, {b}, {c}, ",
-        "{scale_a}, {{{byte_a}, {thread_a}}}, {scale_b}, {{{byte_b}, {thread_b}}};",
+        "{scale_a}, {{0, 0}}, {scale_b}, {{0, 0}};",
         a = in(_) frag_a, b = in(_) frag_b, c = in(_) frag_c, d = out(_) out,
         scale_a = in(_) u32::reinterpret(scale_a), scale_b = in(_) u32::reinterpret(scale_b),
         options(nomem),
@@ -224,8 +218,6 @@ impl LowerOp<Cuda> for MmaManualScaledOp {
         let scales_b = self.scales_b(ctx);
         let scales_factor = self.scales_factor(ctx).0;
         let shape = self.shape(ctx).0;
-        let scale_a_selector = self.scale_a_selector(ctx).0;
-        let scale_b_selector = self.scale_b_selector(ctx).0;
 
         scope.register_value_type::<S, NS>(scales_a);
 
@@ -240,8 +232,6 @@ impl LowerOp<Cuda> for MmaManualScaledOp {
             scales_b.into(),
             shape.k,
             scales_factor,
-            scale_a_selector,
-            scale_b_selector,
         );
         let frag_out = reinterpret_value(scope, frag_out.read_value(scope), frag_d.unwrap_ptr(ctx));
         assign::expand_element(scope, frag_out.into(), frag_d.into());

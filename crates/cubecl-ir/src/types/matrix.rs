@@ -209,68 +209,9 @@ impl StMatrixForm {
     }
 }
 
-/// Which scale a block-scaled `mma` takes from the scale registers of each quad of units, PTX's
-/// `{byte-id, thread-id}`. The default, byte 0 of the first units of the quad, is what the scaled
-/// `mma` reads when no selector is given.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
-#[format("`{` $byte_id `,` $thread_id `}`")]
-pub struct BlockScaleSelector {
-    /// The first byte of the scale register read: any byte under `scale_vec::1X`, 0 or 2 under
-    /// `2X`, 0 under `4X`.
-    pub byte_id: usize,
-    /// The units of the quad whose registers are read: for A, 0 selects units 0 and 1 and 1
-    /// selects units 2 and 3; for B, the unit's index within the quad.
-    pub thread_id: usize,
-}
-
-impl BlockScaleSelector {
-    /// Whether this selector names scales of the `ident` operand of a block-scaled `mma` with
-    /// `scales_factor` scales per row or column. PTX leaves any other selector undefined.
-    pub fn is_valid_for(self, ident: MatrixIdent, scales_factor: usize) -> bool {
-        let byte_is_valid = match scales_factor {
-            1 => self.byte_id < 4,
-            2 => matches!(self.byte_id, 0 | 2),
-            _ => self.byte_id == 0,
-        };
-        let thread_is_valid = match ident {
-            MatrixIdent::A => self.thread_id < 2,
-            MatrixIdent::B => self.thread_id < 4,
-            MatrixIdent::Accumulator => false,
-        };
-        byte_is_valid && thread_is_valid
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The valid selectors are exactly PTX's table: any byte under `1X`, byte 0 or 2 under `2X`,
-    /// byte 0 under `4X`; thread 0 or 1 for A, 0 to 3 for B; none for the accumulator.
-    #[test]
-    fn block_scale_selectors_valid_exactly_where_the_ptx_table_says() {
-        let valid_bytes = [(1, &[0, 1, 2, 3][..]), (2, &[0, 2][..]), (4, &[0][..])];
-        let valid_threads = [
-            (MatrixIdent::A, &[0, 1][..]),
-            (MatrixIdent::B, &[0, 1, 2, 3][..]),
-            (MatrixIdent::Accumulator, &[][..]),
-        ];
-        for (scales_factor, bytes) in valid_bytes {
-            for (ident, threads) in valid_threads {
-                for byte_id in 0..5 {
-                    for thread_id in 0..5 {
-                        let selector = BlockScaleSelector { byte_id, thread_id };
-                        assert_eq!(
-                            selector.is_valid_for(ident, scales_factor),
-                            bytes.contains(&byte_id) && threads.contains(&thread_id),
-                            "{selector:?} for {ident:?} with {scales_factor} scales"
-                        );
-                    }
-                }
-            }
-        }
-    }
 
     /// The 16x16 loads take one or two matrices, two registers each, and must transpose; the
     /// 8x16 loads take one, two or four, one register each, and cannot.
