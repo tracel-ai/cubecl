@@ -531,6 +531,7 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         ElemType::UInt(UIntKind::U32),
         ElemType::Int(IntKind::I32),
         ElemType::Float(FloatKind::F32),
+        ElemType::Float(FloatKind::Flex32),
         ElemType::Bool,
     ];
 
