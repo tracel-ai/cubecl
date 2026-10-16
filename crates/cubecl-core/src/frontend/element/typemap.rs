@@ -396,18 +396,21 @@ impl<Marker: 'static> AtomicNumeric for DynamicScalar<Marker> {
     }
 }
 
-impl<Marker: 'static> PlaneNumeric for DynamicScalar<Marker> {
+impl<Marker: 'static> PlaneReduce for DynamicScalar<Marker> {
     fn __expand_native_sum(scope: &Scope, value: ExpandValue) -> ExpandValue {
         unary_dispatch!(__expand_native_sum, scope, value)
     }
+    fn __expand_native_prod(scope: &Scope, value: ExpandValue) -> ExpandValue {
+        unary_dispatch!(__expand_native_prod, scope, value)
+    }
+}
+
+impl<Marker: 'static> PlaneNumeric for DynamicScalar<Marker> {
     fn __expand_native_inclusive_sum(scope: &Scope, value: ExpandValue) -> ExpandValue {
         unary_dispatch!(__expand_native_inclusive_sum, scope, value)
     }
     fn __expand_native_exclusive_sum(scope: &Scope, value: ExpandValue) -> ExpandValue {
         unary_dispatch!(__expand_native_exclusive_sum, scope, value)
-    }
-    fn __expand_native_prod(scope: &Scope, value: ExpandValue) -> ExpandValue {
-        unary_dispatch!(__expand_native_prod, scope, value)
     }
     fn __expand_native_inclusive_prod(scope: &Scope, value: ExpandValue) -> ExpandValue {
         unary_dispatch!(__expand_native_inclusive_prod, scope, value)

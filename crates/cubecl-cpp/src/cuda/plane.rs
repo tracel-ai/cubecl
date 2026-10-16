@@ -1,6 +1,6 @@
 use cubecl_core::{
     frontend::cast_value,
-    ir::{ContextExt, dialect::plane::*, types::scalar::BoolType},
+    ir::{ContextExt, dialect::plane::*, interfaces::TypedExt, types::scalar::*},
     prelude::*,
 };
 use pliron::{
@@ -29,9 +29,21 @@ cuda_op_with_out!(ShuffleOp, |op, ctx| {
 });
 
 cuda_op_with_out!(ShuffleXorOp, |op, ctx| {
-    let val = op.input(ctx).name(ctx);
+    let input = op.input(ctx);
+    let val = input.name(ctx);
     let mask = op.mask(ctx).name(ctx);
-    format!("__shfl_xor_sync(__activemask(), {val}, {mask})")
+    let scalar = input.get_type(ctx).scalar_ty(ctx).deref(ctx);
+    if scalar.is::<Complex32Type>() {
+        format!(
+            "make_cuFloatComplex(__shfl_xor_sync(__activemask(), {val}.x, {mask}), __shfl_xor_sync(__activemask(), {val}.y, {mask}))"
+        )
+    } else if scalar.is::<Complex64Type>() {
+        format!(
+            "make_cuDoubleComplex(__shfl_xor_sync(__activemask(), {val}.x, {mask}), __shfl_xor_sync(__activemask(), {val}.y, {mask}))"
+        )
+    } else {
+        format!("__shfl_xor_sync(__activemask(), {val}, {mask})")
+    }
 });
 
 cuda_op_with_out!(ShuffleUpOp, |op, ctx| {
