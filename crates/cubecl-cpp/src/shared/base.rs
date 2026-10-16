@@ -422,6 +422,7 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
             _ => AtomicUsage::Add | AtomicUsage::LoadStore | AtomicUsage::Exchange,
         };
         props.register_atomic_type_usage(Type::atomic(ty), usage);
+        props.register_shared_atomic_type_usage(Type::atomic(ty), usage);
     }
 }
 

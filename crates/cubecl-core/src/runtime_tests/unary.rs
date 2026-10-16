@@ -850,7 +850,7 @@ test_unary_impl!(test_inverse_cbrt, F, Vector::inverse_cbrt, [
         input_vectorization: 4,
         out_vectorization: 4,
         input: as_type![F: 0.0, -1.0, 0.008, 125.0],
-        expected: as_type![F: f32::INFINITY, -1.0, 5.0, 0.2]
+        expected: as_type![F: f64::INFINITY, -1.0, 5.0, 0.2]
     }
 ]);
 

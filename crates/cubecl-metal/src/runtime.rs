@@ -233,9 +233,11 @@ fn register_types(props: &mut DeviceProperties) {
     }
 
     // Metal natively supports the full integer atomic set; float atomics are
-    // limited to add + load/store (no native float min/max).
+    // limited to add + load/store (no native float min/max), on `device` pointers
+    // only, so shared memory gets none.
     for ty in [ElemType::Int(IntKind::I32), ElemType::UInt(UIntKind::U32)] {
         props.register_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
+        props.register_shared_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
     }
     props.register_atomic_type_usage(
         Type::atomic(ElemType::Float(FloatKind::F32)),
