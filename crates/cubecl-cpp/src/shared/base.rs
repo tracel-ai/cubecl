@@ -10,7 +10,8 @@ use crate::{
         metadata::LowerInfoPass,
         signature::{
             CollectIncludesPass, DeclareComplexHelpersOp, DeclareInfoTypeOp,
-            DeclareVectorTypesPass, buffer_io, buffers, shared_memory_size,
+            DeclareRoundedArithmeticOp, DeclareVectorTypesPass, buffer_io, buffers,
+            prints_rounded_arithmetic, shared_memory_size,
         },
         unroll::CppUnrollPass,
     },
@@ -311,6 +312,12 @@ where
         passes.add_pass(CollectIncludesPass::<T>::default());
 
         passes.run(module_op, &mut ctx, &mut analyses)?;
+
+        if T::target() == Target::Hip && prints_rounded_arithmetic(&ctx, module_op) {
+            DeclareRoundedArithmeticOp::new(&mut ctx)
+                .get_operation()
+                .insert_before(&ctx, entry_func.get_operation());
+        }
 
         #[cfg(feature = "metal")]
         if T::target() == Target::Metal {

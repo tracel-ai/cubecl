@@ -439,6 +439,24 @@ fn register_features(
         comp_options.vulkan.supports_fp_fast_math = true;
     }
 
+    if let Some(float_controls) = &extended_feat.float_controls_properties {
+        let vulkan = &mut comp_options.vulkan;
+        vulkan.supports_signed_zero_inf_nan_preserve_f16 =
+            float_controls.shader_signed_zero_inf_nan_preserve_float16 == TRUE;
+        vulkan.supports_signed_zero_inf_nan_preserve_f32 =
+            float_controls.shader_signed_zero_inf_nan_preserve_float32 == TRUE;
+        vulkan.supports_signed_zero_inf_nan_preserve_f64 =
+            float_controls.shader_signed_zero_inf_nan_preserve_float64 == TRUE;
+
+        let f16 = extended_feat
+            .float16_int8
+            .is_some_and(|it| it.shader_float16 == TRUE);
+        let f64 = extended_feat.core.shader_float64 == TRUE;
+        props.features.ieee_special_values = vulkan.supports_signed_zero_inf_nan_preserve_f32
+            && (vulkan.supports_signed_zero_inf_nan_preserve_f16 || !f16)
+            && (vulkan.supports_signed_zero_inf_nan_preserve_f64 || !f64);
+    }
+
     // Native fp8 takes no comparison, so equality and the bool conversion read the value as an
     // 8-bit integer instead. `shaderInt8` is what makes that integer legal, and every device that
     // reports `shaderFloat8` reports it too, so requiring both costs nothing.

@@ -5,6 +5,7 @@ use cubecl_core::ir::dialect::{
     general::{BoolAndOp, BoolNotOp, BoolOrOp},
     math::*,
 };
+use cubecl_core::ir::{EnumSet, FastMath};
 
 macro_rules! lower_unary_intrinsic_arith {
     ($cube_op:ty => $llvm_op:expr) => {
@@ -380,7 +381,10 @@ macro_rules! lower_float_bin_arith {
             ) -> Result<()> {
                 let lhs = self.lhs(ctx);
                 let rhs = self.rhs(ctx);
-                let flags = $flags(ctx);
+                let flags = match self.fast_math(ctx) {
+                    Some(fast_math) => llvm_fast_math(fast_math),
+                    None => without(ctx, $flags(ctx)),
+                };
                 let op = <$llvm_op>::new_with_fast_math_flags(ctx, lhs, rhs, flags);
                 rewriter.insert_op(ctx, &op);
                 rewriter.replace_operation_with_values(
@@ -396,6 +400,32 @@ macro_rules! lower_float_bin_arith {
 
 fn no_fast_math(_ctx: &Context) -> FastmathFlagsAttr {
     FastmathFlagsAttr::default()
+}
+
+/// `flags` less what the compilation disables.
+fn without(ctx: &Context, flags: FastmathFlagsAttr) -> FastmathFlagsAttr {
+    let disabled = llvm_fast_math(ctx.disabled_fast_math().optimizations());
+    FastmathFlagsAttr(flags.0.difference(disabled.0))
+}
+
+fn llvm_fast_math(fast_math: EnumSet<FastMath>) -> FastmathFlagsAttr {
+    let flags = fast_math
+        .iter()
+        .fold(FastmathFlags::empty(), |flags, flag| {
+            flags
+                | match flag {
+                    FastMath::NotNaN => FastmathFlags::NNAN,
+                    FastMath::NotInf => FastmathFlags::NINF,
+                    FastMath::UnsignedZero => FastmathFlags::NSZ,
+                    FastMath::AllowReciprocal => FastmathFlags::ARCP,
+                    FastMath::AllowContraction => FastmathFlags::CONTRACT,
+                    FastMath::AllowReassociation => FastmathFlags::REASSOC,
+                    // Always stored with the contraction and reassociation it includes.
+                    FastMath::AllowTransform => FastmathFlags::empty(),
+                    FastMath::ReducedPrecision => FastmathFlags::AFN,
+                }
+        });
+    FastmathFlagsAttr(flags)
 }
 
 lower_float_bin_arith!(FAddOp => llvm::FAddOp, fma_contraction);

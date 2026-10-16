@@ -1,3 +1,4 @@
+use core::fmt::Display;
 use cubecl_core::{
     self as cubecl, define_scalar, define_size,
     frontend::polyfills::{expand_dp4a_polyfill, powi_int},
@@ -11,7 +12,7 @@ use cubecl_core::{
         },
         interfaces::TypedExt,
         prelude::*,
-        types::{ArrayType, PointerType},
+        types::{ArrayType, PointerType, scalar::Float64Type},
     },
     prelude::*,
 };
@@ -59,15 +60,51 @@ macro_rules! operator {
     };
 }
 
+/// Float arithmetic, printed so the C++ compiler cannot fuse it when the kernel forbids that.
+macro_rules! float_operator {
+    ($name:ident, $op:expr, $rounded:literal) => {
+        shared_op_with_out!($name, |op, ctx| {
+            let lhs = op.lhs(ctx).name(ctx);
+            let rhs = op.rhs(ctx).name(ctx);
+            match op.get_operation().forbids_contraction(ctx) {
+                true => rounded_call(ctx, op.get_result(ctx), $rounded, $op, lhs, rhs),
+                false => format!("{lhs} {} {rhs}", $op),
+            }
+        });
+        unrolling!($name);
+    };
+}
+
+/// `lhs op rhs` as a call the compiler never fuses: `__fadd_rn` on CUDA, a helper compiled under
+/// `#pragma clang fp contract(off)` on HIP. Metal has no such call. Half types arrive promoted to
+/// `f32` by `PromoteUnsupportedTypes`.
+fn rounded_call(
+    ctx: &Context,
+    out: Value,
+    name: &str,
+    op: &str,
+    lhs: impl Display,
+    rhs: impl Display,
+) -> String {
+    let double = out.scalar_ty(ctx).deref(ctx).is::<Float64Type>();
+    match ctx.target() {
+        Target::Cuda if out.is_complex(ctx) => format!("cubecl_c{name}_rn({lhs}, {rhs})"),
+        Target::Cuda if double => format!("__d{name}_rn({lhs}, {rhs})"),
+        Target::Cuda => format!("__f{name}_rn({lhs}, {rhs})"),
+        Target::Hip => format!("cubecl_{name}_rn({lhs}, {rhs})"),
+        Target::Metal => format!("{lhs} {op} {rhs}"),
+    }
+}
+
 operator!(IAddOp, "+");
-operator!(FAddOp, "+");
+float_operator!(FAddOp, "+", "add");
 operator!(ISubOp, "-");
-operator!(FSubOp, "-");
+float_operator!(FSubOp, "-", "sub");
 operator!(SDivOp, "/");
 operator!(UDivOp, "/");
-operator!(FDivOp, "/");
+float_operator!(FDivOp, "/", "div");
 operator!(IMulOp, "*");
-operator!(FMulOp, "*");
+float_operator!(FMulOp, "*", "mul");
 operator!(IEqualOp, "==");
 operator!(FEqualOp, "==");
 operator!(BoolEqualOp, "==");

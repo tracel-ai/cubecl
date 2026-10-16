@@ -177,6 +177,7 @@ impl DeviceService for HipServer {
 
         device_props.features.memory_reinterpret = true;
         device_props.features.alignment = true;
+        device_props.features.ieee_special_values = true;
         // `__threadfence` carries a block's writes to device scope.
         device_props.features.device_memory_scope = true;
         device_props.features.plane.insert(Plane::Ops);

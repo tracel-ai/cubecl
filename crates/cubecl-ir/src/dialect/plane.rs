@@ -90,6 +90,15 @@ unary_plane_op!("plane.s_max", SMaxOp);
 unary_plane_op!("plane.u_max", UMaxOp);
 unary_plane_op!("plane.f_max", FMaxOp);
 
+crate::FastMathOp!(
+    FSumOp,
+    InclusiveFSumOp,
+    ExclusiveFSumOp,
+    FProdOp,
+    InclusiveFProdOp,
+    ExclusiveFProdOp
+);
+
 #[cube_op(name = "plane.ballot")]
 #[result_ty(fixed = ballot_ty(ctx))]
 #[op_interfaces(TriviallyUnrollable)]

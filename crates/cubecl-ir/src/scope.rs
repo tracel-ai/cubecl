@@ -32,7 +32,7 @@ use pliron::{
         inserter::{IRInserter, Inserter, OpInsertionPoint},
         listener::DummyListener,
     },
-    op::Op,
+    op::{Op, op_cast},
     operation::Operation,
     printable::Printable,
     r#type::{TypeHandle, Typed, type_cast},
@@ -42,7 +42,8 @@ use portable_atomic::AtomicUsize;
 use spin::LazyLock;
 
 use crate::{
-    AddressSpace, AddressType, DeviceProperties, ElemType, FastMath, TargetProperties, TypeHash,
+    AddressSpace, AddressType, DeviceProperties, DisabledFastMath, ElemType, FastMath,
+    TargetProperties, TypeHash,
     arena::DropBump,
     attributes::{
         ATTR_BUFFER_BINDING, ATTR_KEY_ARG_ATTRS, ATTR_TENSOR_MAP_BINDING, BoolAttr,
@@ -54,7 +55,7 @@ use crate::{
         memory::DeclareVariableOp,
         vector::CompositeExtractOp,
     },
-    interfaces::{ScalarType, TypedExt},
+    interfaces::{ScalarType, TypedExt, fast_math::FastMathOp},
     read_value,
     settings::KernelSettings,
     types::{PointerType, RuntimeArrayType, cuda::TensorMapType, scalar::BoolType},
@@ -201,10 +202,13 @@ fn ty_key<T: 'static>(ctx: &Context) -> Option<AuxDataIndex> {
 
 pub trait ContextExt {
     fn aux_ty<T: Send + 'static>(&self) -> &T;
+    fn try_aux_ty<T: Send + 'static>(&self) -> Option<&T>;
     fn aux_ty_mut<T: Send + 'static>(&mut self) -> &mut T;
     fn set_aux_ty<T: Send + 'static>(&mut self, value: T);
     fn set_address_type(&mut self, addr: AddressType);
     fn address_type(&self) -> AddressType;
+    /// What this compilation disables, which is nothing unless it was told otherwise.
+    fn disabled_fast_math(&self) -> DisabledFastMath;
 }
 
 impl ContextExt for Context {
@@ -214,6 +218,10 @@ impl ContextExt for Context {
             .ok_or_else(|| format!("Key for {} should exist", type_name::<T>()))
             .unwrap();
         self.aux_data[key].downcast_ref().unwrap()
+    }
+
+    fn try_aux_ty<T: Send + 'static>(&self) -> Option<&T> {
+        self.aux_data[ty_key::<T>(self)?].downcast_ref()
     }
 
     #[track_caller]
@@ -246,6 +254,10 @@ impl ContextExt for Context {
     fn address_type(&self) -> AddressType {
         let key = self.aux_data_map[&ADDRESS_TYPE_KEY];
         *self.aux_data[key].downcast_ref::<AddressType>().unwrap()
+    }
+
+    fn disabled_fast_math(&self) -> DisabledFastMath {
+        self.try_aux_ty().copied().unwrap_or_default()
     }
 }
 
@@ -406,7 +418,8 @@ impl Debug for GlobalState {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, TypeHash)]
 pub struct InstructionModes {
-    pub fp_math_mode: EnumSet<FastMath>,
+    /// The float optimizations ops registered now allow, or `None` when the kernel said nothing.
+    pub fast_math: Option<EnumSet<FastMath>>,
 }
 
 impl Scope {
@@ -560,7 +573,24 @@ impl Scope {
     /// Register an [`Instruction`] into the scope.
     pub fn register(&self, op: &dyn Op) {
         let ctx = self.ctx();
+        if let Some(fast_math) = self.state().modes.fast_math
+            && let Some(op) = op_cast::<dyn FastMathOp>(op)
+        {
+            op.set_fast_math(ctx, fast_math);
+        }
         self.inserter().append_op(ctx, op);
+    }
+
+    /// Run `body` with the float ops it registers allowing `fast_math`.
+    pub fn with_fast_math<R>(
+        &self,
+        fast_math: Option<EnumSet<FastMath>>,
+        body: impl FnOnce(&Self) -> R,
+    ) -> R {
+        let outer = core::mem::replace(&mut self.state_mut().modes.fast_math, fast_math);
+        let result = body(self);
+        self.state_mut().modes.fast_math = outer;
+        result
     }
 
     /// Register an [`Instruction`] into the scope and return its result.
