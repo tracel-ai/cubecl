@@ -5,7 +5,7 @@ use cubecl_core::ir::dialect::{
     general::{BoolAndOp, BoolNotOp, BoolOrOp},
     math::*,
 };
-use cubecl_core::ir::{EnumSet, FastMath, interfaces::fast_math::DisabledFastMath};
+use cubecl_core::ir::{EnumSet, FastMath};
 
 macro_rules! lower_unary_intrinsic_arith {
     ($cube_op:ty => $llvm_op:expr) => {
@@ -404,7 +404,7 @@ fn no_fast_math(_ctx: &Context) -> FastmathFlagsAttr {
 
 /// `flags` less what the compilation disables.
 fn without(ctx: &Context, flags: FastmathFlagsAttr) -> FastmathFlagsAttr {
-    let disabled = llvm_fast_math(DisabledFastMath::of(ctx).optimizations());
+    let disabled = llvm_fast_math(ctx.disabled_fast_math().optimizations());
     FastmathFlagsAttr(flags.0.difference(disabled.0))
 }
 

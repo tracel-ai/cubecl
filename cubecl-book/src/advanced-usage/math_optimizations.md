@@ -46,8 +46,14 @@ fn two_sum<F: Float>(a: F, b: F) -> (F, F) {
 }
 ```
 
+Rounding is kept on every backend below except WGSL and Metal. `Inf`, `NaN` and signed zero are
+kept where `client.properties().features.ieee_special_values` is true.
+
 A function that says nothing gets each backend's default, which usually allows contraction: CubeCL
-fuses a product into the add that consumes it, and so may the driver.
+fuses a product into the add that consumes it, and so may the driver. A function that gives a set
+gets exactly that set, so `FastMath::NotNaN.into()` alone also forbids contraction and can run
+slower than saying nothing. Operations CubeCL expands into several, such as `exp` on the CPU, carry
+the flags of the function they appear in.
 
 To take optimizations away from every kernel, including those in other crates, see
 `disabled_fast_math` in the [configuration](./config.md).
@@ -57,23 +63,26 @@ To take optimizations away from every kernel, including those in other crates, s
 #### WGPU with Vulkan Compiler
 
 Forbidden contraction is `NoContraction` on each operation. Other permissions become
-`FPFastMathMode` where the device supports `SPV_KHR_float_controls2`. Vulkan may assume there is no
-`Inf`, `NaN` or signed zero whatever the flags say, so strict kernels on Vulkan are guaranteed only
-the rounding of each operation.
+`FPFastMathMode` where the device supports `SPV_KHR_float_controls2`. A kernel with an operation
+that may assume nothing about `Inf`, `NaN` or signed zero asks for `SignedZeroInfNanPreserve` at
+each float width the device can preserve; without it, Vulkan may assume they never occur.
 
 #### CPU, and CUDA/HIP through LLVM
 
-The flags map to LLVM's fast-math flags on each operation.
+The flags become LLVM's fast-math flags on add, subtract, multiply, divide and remainder. Calls such
+as `exp` and vector reductions take none, so `ReducedPrecision` has no effect.
 
 #### CUDA/HIP C++
 
 Forbidden contraction prints add, subtract, multiply and divide as `__fadd_rn` and its siblings on
-CUDA, and as helpers compiled under `#pragma clang fp contract(off)` on HIP. Half precision runs in
-`f32` for these, which rounds to the same result.
+CUDA, complex numbers included, and as helpers compiled under `#pragma clang fp contract(off)` on
+HIP. Half precision runs in `f32` for these, which rounds to the same result. No other flag has an
+effect.
 
 #### Metal
 
-Metal compiles with `MathMode::Safe`, so it never contracts on its own.
+Metal has no per-operation control. `cubecl-metal` compiles with `MathMode::Safe`, and WGPU with
+Metal's default, which is fast math.
 
 #### WGSL
 

@@ -42,6 +42,7 @@ pub struct ExtendedFeatures<'a> {
 
     // Properties
     pub long_vector_properties: Option<PhysicalDeviceShaderLongVectorPropertiesEXT<'a>>,
+    pub float_controls_properties: Option<PhysicalDeviceFloatControlsProperties<'a>>,
 
     pub max_spirv_version: (u8, u8),
 
@@ -144,6 +145,10 @@ impl<'a> ExtendedFeatures<'a> {
             // Properties
             EXT_SHADER_LONG_VECTOR_NAME => long_vector_properties,
         );
+
+        if version >= API_VERSION_1_2 || self.extensions.contains(&KHR_SHADER_FLOAT_CONTROLS_NAME) {
+            self.float_controls_properties = Some(Default::default());
+        }
     }
 
     pub fn add_to_device_create(
@@ -266,6 +271,7 @@ impl<'a> ExtendedFeatures<'a> {
         }
 
         properties = push_opt(properties, &mut self.long_vector_properties);
+        properties = push_opt(properties, &mut self.float_controls_properties);
 
         unsafe {
             // convert to ash version, they represent the same type so this is safe
@@ -309,6 +315,7 @@ impl<'a> ExtendedFeatures<'a> {
             nv_cooperative_matrix2,
             // Properties
             long_vector_properties,
+            float_controls_properties,
         );
     }
 

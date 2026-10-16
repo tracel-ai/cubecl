@@ -10,7 +10,7 @@ use cubecl_core::{
             math::*,
             memory::{self, IndexOp},
         },
-        interfaces::{TypedExt, fast_math::forbids_contraction},
+        interfaces::TypedExt,
         prelude::*,
         types::{ArrayType, PointerType, scalar::Float64Type},
     },
@@ -66,7 +66,7 @@ macro_rules! float_operator {
         shared_op_with_out!($name, |op, ctx| {
             let lhs = op.lhs(ctx).name(ctx);
             let rhs = op.rhs(ctx).name(ctx);
-            match rounds_on_its_own(ctx, op.get_operation()) {
+            match op.get_operation().forbids_contraction(ctx) {
                 true => rounded_call(ctx, op.get_result(ctx), $rounded, $op, lhs, rhs),
                 false => format!("{lhs} {} {rhs}", $op),
             }
@@ -75,15 +75,9 @@ macro_rules! float_operator {
     };
 }
 
-/// Whether `op` prints as a call that never fuses. Complex values keep their operator: the
-/// `__fadd_rn` family has no complex overload.
-pub(crate) fn rounds_on_its_own(ctx: &Context, op: Ptr<Operation>) -> bool {
-    forbids_contraction(ctx, op) && !op.result(ctx).is_complex(ctx)
-}
-
 /// `lhs op rhs` as a call the compiler never fuses: `__fadd_rn` on CUDA, a helper compiled under
-/// `#pragma clang fp contract(off)` on HIP. Metal compiles with `MathMode::Safe`, which already
-/// forbids it. Half types arrive promoted to `f32` by `PromoteUnsupportedTypes`.
+/// `#pragma clang fp contract(off)` on HIP. Metal has no such call. Half types arrive promoted to
+/// `f32` by `PromoteUnsupportedTypes`.
 fn rounded_call(
     ctx: &Context,
     out: Value,
@@ -94,6 +88,7 @@ fn rounded_call(
 ) -> String {
     let double = out.scalar_ty(ctx).deref(ctx).is::<Float64Type>();
     match ctx.target() {
+        Target::Cuda if out.is_complex(ctx) => format!("cubecl_c{name}_rn({lhs}, {rhs})"),
         Target::Cuda if double => format!("__d{name}_rn({lhs}, {rhs})"),
         Target::Cuda => format!("__f{name}_rn({lhs}, {rhs})"),
         Target::Hip => format!("cubecl_{name}_rn({lhs}, {rhs})"),

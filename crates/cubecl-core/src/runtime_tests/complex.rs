@@ -152,6 +152,13 @@ pub fn kernel_complex_strict<C: ComplexCore>(output: &mut [C], lhs: &[C], rhs: &
     }
 }
 
+#[cube(launch_unchecked, fast_math = FastMath::none())]
+pub fn kernel_complex_strict_mul<C: ComplexCore>(output: &mut [C], lhs: &[C], rhs: &[C]) {
+    if ABSOLUTE_POS < output.len() {
+        output[ABSOLUTE_POS] = lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS];
+    }
+}
+
 #[cube(launch_unchecked)]
 pub fn kernel_complex_neg<C: ComplexCore>(output: &mut [C], input: &[C]) {
     if ABSOLUTE_POS < output.len() {
@@ -426,8 +433,8 @@ test_complex_binary_eq_op!(
         num_complex::Complex::new(3.0f32, 4.0f32),
     ],
     rhs: [
-        num_complex::Complex::new(1.0f32, 0.0f32),
-        num_complex::Complex::new(2.0f32, 0.0f32),
+        num_complex::Complex::new(0.5f32, 0.5f32),
+        num_complex::Complex::new(1.0f32, -1.0f32),
     ],
     expect: |lhs, rhs| lhs * rhs + lhs - lhs / rhs
 );
@@ -440,10 +447,28 @@ test_complex_binary_eq_op!(
         num_complex::Complex::new(3.0f64, 4.0f64),
     ],
     rhs: [
-        num_complex::Complex::new(1.0f64, 0.0f64),
-        num_complex::Complex::new(2.0f64, 0.0f64),
+        num_complex::Complex::new(0.5f64, 0.5f64),
+        num_complex::Complex::new(1.0f64, -1.0f64),
     ],
     expect: |lhs, rhs| lhs * rhs + lhs - lhs / rhs
+);
+// The square of `a + ci` has the real part `a² - c²`, where both squares round. Fusing either into
+// the subtraction keeps the bit it dropped.
+test_complex_binary_eq_op!(
+    test_complex_strict_mul_cf32,
+    kernel_complex_strict_mul,
+    num_complex::Complex<f32>,
+    lhs: [num_complex::Complex::new(1.0 + 2f32.powi(-12), 1.0 + 2f32.powi(-13))],
+    rhs: [num_complex::Complex::new(1.0 + 2f32.powi(-12), 1.0 + 2f32.powi(-13))],
+    expect: |lhs, rhs| lhs * rhs
+);
+test_complex_binary_eq_op!(
+    test_complex_strict_mul_cf64,
+    kernel_complex_strict_mul,
+    num_complex::Complex<f64>,
+    lhs: [num_complex::Complex::new(1.0 + 2f64.powi(-27), 1.0 + 2f64.powi(-28))],
+    rhs: [num_complex::Complex::new(1.0 + 2f64.powi(-27), 1.0 + 2f64.powi(-28))],
+    expect: |lhs, rhs| lhs * rhs
 );
 test_complex_binary_eq_op!(
     test_complex_add_cf32,
@@ -1269,6 +1294,22 @@ macro_rules! testgen_complex_core {
             fn test_complex_strict_cf64() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::complex::test_complex_strict_cf64::<TestRuntime>(
+                    client,
+                );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_strict_mul_cf32() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_strict_mul_cf32::<TestRuntime>(
+                    client,
+                );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_strict_mul_cf64() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_strict_mul_cf64::<TestRuntime>(
                     client,
                 );
             }

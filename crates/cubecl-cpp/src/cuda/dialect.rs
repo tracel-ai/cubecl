@@ -111,4 +111,17 @@ __device__ __host__ inline cuFloatComplex tanh(cuFloatComplex a) { const float x
 __device__ __host__ inline cuDoubleComplex tanh(cuDoubleComplex a) { const double x2=2.0*cuCreal(a), y2=2.0*cuCimag(a), d=cosh(x2)+cos(y2); return make_cuDoubleComplex(sinh(x2)/d,sin(y2)/d); }
 __device__ __host__ inline cuFloatComplex pow(cuFloatComplex a, cuFloatComplex b) { return exp(b*log(a)); }
 __device__ __host__ inline cuDoubleComplex pow(cuDoubleComplex a, cuDoubleComplex b) { return exp(b*log(a)); }
+#define CUBECL_ROUNDED_COMPLEX(C, R, make, re, im, abs, add, sub, mul, div) \
+__device__ inline C cubecl_cadd_rn(C a, C b) { return make(add(re(a), re(b)), add(im(a), im(b))); } \
+__device__ inline C cubecl_csub_rn(C a, C b) { return make(sub(re(a), re(b)), sub(im(a), im(b))); } \
+__device__ inline C cubecl_cmul_rn(C a, C b) { return make(sub(mul(re(a), re(b)), mul(im(a), im(b))), add(mul(re(a), im(b)), mul(im(a), re(b)))); } \
+__device__ inline C cubecl_cdiv_rn(C a, C b) { \
+    R oos = div(R(1), add(abs(re(b)), abs(im(b)))); \
+    R ars = mul(re(a), oos), ais = mul(im(a), oos), brs = mul(re(b), oos), bis = mul(im(b), oos); \
+    oos = div(R(1), add(mul(brs, brs), mul(bis, bis))); \
+    return make(mul(add(mul(ars, brs), mul(ais, bis)), oos), mul(sub(mul(ais, brs), mul(ars, bis)), oos)); \
+}
+CUBECL_ROUNDED_COMPLEX(cuFloatComplex, float, make_cuFloatComplex, cuCrealf, cuCimagf, fabsf, __fadd_rn, __fsub_rn, __fmul_rn, __fdiv_rn)
+CUBECL_ROUNDED_COMPLEX(cuDoubleComplex, double, make_cuDoubleComplex, cuCreal, cuCimag, fabs, __dadd_rn, __dsub_rn, __dmul_rn, __ddiv_rn)
+#undef CUBECL_ROUNDED_COMPLEX
 "#;

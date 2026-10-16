@@ -4,7 +4,7 @@
 use cubecl_core::ir::{
     NamedRewrite,
     dialect::{OperationPtrExt, general::CastOp},
-    interfaces::{ValueExt, fast_math::forbids_contraction},
+    interfaces::ValueExt,
     prelude::{Context, MatchRewriter, Operation, Ptr, Result},
     rewrite::MatchRewritePass,
     types::scalar::Float32Type,
@@ -114,7 +114,7 @@ impl MatchRewrite for PromoteUnsupportedTypes {
 /// add, sub, mul or div: `f32` holds more than twice a half's precision.
 fn promotes_half(ctx: &Context, op: Ptr<Operation>) -> bool {
     let promoted = op.impls::<dyn HalfPromotedOp>(ctx)
-        || (ctx.target() != Target::Metal && forbids_contraction(ctx, op));
+        || (ctx.target() != Target::Metal && op.forbids_contraction(ctx));
     promoted && op.result(ctx).is_half(ctx)
 }
 

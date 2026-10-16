@@ -1,7 +1,7 @@
 use cubecl_ir::{
     EnumSet, FastMath, NamedRewrite,
     dialect::math::{FAddOp, FMulOp, FNegOp, FSubOp, FmaOp},
-    interfaces::fast_math::{FastMathOp, op_fast_math},
+    interfaces::fast_math::FastMathOp,
     prelude::{Inserter as _, Rewriter as _, *},
     rewrite::MatchRewritePass,
 };
@@ -28,16 +28,12 @@ enum Negate {
 /// Fusing one that feeds anything else would leave it computed twice.
 fn lone_product(ctx: &Context, value: Value) -> Option<FMulOp> {
     let mul = value.defining_op()?.as_op::<FMulOp>(ctx)?;
-    (mul.get_result(ctx).num_uses(ctx) == 1 && contracts(ctx, &mul)).then_some(mul)
-}
-
-fn contracts(ctx: &Context, op: &dyn FastMathOp) -> bool {
-    op.allows(ctx, FastMath::AllowContraction.into())
+    (mul.get_result(ctx).num_uses(ctx) == 1 && mul.allows_contraction(ctx)).then_some(mul)
 }
 
 /// What the fused op allows: whatever both halves allow.
 fn fused_fast_math(ctx: &Context, mul: FMulOp, op: Ptr<Operation>) -> Option<EnumSet<FastMath>> {
-    [mul.fast_math(ctx), op_fast_math(ctx, op)]
+    [mul.fast_math(ctx), op.fast_math(ctx)]
         .into_iter()
         .flatten()
         .reduce(|product, consumer| product & consumer)
@@ -47,7 +43,7 @@ fn fused_fast_math(ctx: &Context, mul: FMulOp, op: Ptr<Operation>) -> Option<Enu
 /// `a * b + c`, `a * b - c` or `c - a * b`, in either operand order.
 fn as_fma(ctx: &Context, op: Ptr<Operation>) -> Option<(FMulOp, Value, Negate)> {
     if let Some(add) = op.as_op::<FAddOp>(ctx) {
-        if !contracts(ctx, &add) {
+        if !add.allows_contraction(ctx) {
             return None;
         }
         let (lhs, rhs) = (add.lhs(ctx), add.rhs(ctx));
@@ -57,7 +53,7 @@ fn as_fma(ctx: &Context, op: Ptr<Operation>) -> Option<(FMulOp, Value, Negate)> 
     }
 
     let sub = op.as_op::<FSubOp>(ctx)?;
-    if !contracts(ctx, &sub) {
+    if !sub.allows_contraction(ctx) {
         return None;
     }
     let (lhs, rhs) = (sub.lhs(ctx), sub.rhs(ctx));

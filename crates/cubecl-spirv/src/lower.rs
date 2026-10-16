@@ -1,5 +1,5 @@
 use cubecl_core::ir::{Scope, prelude::*, verify_op_succ};
-use cubecl_ir::{NamedRewrite, interfaces::fast_math::op_fast_math};
+use cubecl_ir::NamedRewrite;
 use pliron::derive::op_interface;
 
 #[op_interface]
@@ -28,7 +28,7 @@ impl MatchRewrite for LowerOpsSpirv {
         op: Ptr<Operation>,
     ) -> Result<()> {
         let dyn_op = op.dyn_op(ctx);
-        let fast_math = op_fast_math(ctx, op);
+        let fast_math = op.fast_math(ctx);
         let scope = Scope::from_context_and_inserter(ctx, rewriter);
         let lower = op_cast::<dyn LowerOp>(&*dyn_op).unwrap();
         let new_values = scope.with_fast_math(fast_math, |scope| lower.lower(scope));
