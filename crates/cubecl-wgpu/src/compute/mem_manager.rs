@@ -1,7 +1,7 @@
 //! A wgpu stream's memories: the main one every buffer a user allocates lives
 //! in, and the ones the stream keeps for its own reads and launches.
 
-use crate::{WgpuResource, WgpuStorage};
+use crate::{PrimaryMemoryMode, WgpuResource, WgpuStorage};
 use cubecl_core::{MemoryConfiguration, server::IoError};
 use cubecl_environment::sync::Arc;
 use cubecl_ir::MemoryDeviceProperties;
@@ -20,23 +20,46 @@ const UNIFORMS: &str = "Uniform GPU Memory";
 
 /// The memory every buffer a user allocates lives in, laid out as `config`
 /// says.
+///
+/// Under [`PrimaryMemoryMode::HostVisible`] the pool is laid out in exclusive
+/// pages — a mapped buffer is mapped whole, so two live allocations must not
+/// share one — and every buffer it allocates can be mapped by the host.
 pub(crate) fn main_memory(
     device: &wgpu::Device,
     properties: &MemoryDeviceProperties,
     config: MemoryConfiguration,
+    primary_memory: PrimaryMemoryMode,
     logger: Arc<ServerLogger>,
     use_vulkan_compiler: bool,
+    poison: crate::compute::device_poison::PoisonWatch,
 ) -> MemoryManagement<WgpuStorage> {
-    MemoryManagement::from_configuration(
-        WgpuStorage::new(
-            properties.alignment as usize,
-            device.clone(),
-            BufferUsages::STORAGE
-                | BufferUsages::COPY_SRC
-                | BufferUsages::COPY_DST
-                | BufferUsages::INDIRECT,
-            use_vulkan_compiler,
+    let usages = BufferUsages::STORAGE
+        | BufferUsages::COPY_SRC
+        | BufferUsages::COPY_DST
+        | BufferUsages::INDIRECT;
+    let (storage, config) = match primary_memory {
+        PrimaryMemoryMode::DeviceLocal => (
+            WgpuStorage::new(
+                properties.alignment as usize,
+                device.clone(),
+                usages,
+                use_vulkan_compiler,
+                poison,
+            ),
+            config,
         ),
+        PrimaryMemoryMode::HostVisible => (
+            WgpuStorage::new_with_host_visibility(
+                properties.alignment as usize,
+                device.clone(),
+                usages,
+                poison,
+            ),
+            MemoryConfiguration::ExclusivePages,
+        ),
+    };
+    MemoryManagement::from_configuration(
+        storage,
         properties,
         config,
         logger,
@@ -78,6 +101,7 @@ impl AuxiliaryMemory {
                 device.clone(),
                 BufferUsages::MAP_READ | BufferUsages::COPY_DST,
                 false,
+                crate::compute::device_poison::PoisonWatch::default(),
             ),
             properties,
             // A mapped buffer is mapped whole, so two reads cannot share one.
@@ -94,6 +118,7 @@ impl AuxiliaryMemory {
                 device.clone(),
                 BufferUsages::UNIFORM | BufferUsages::STORAGE | BufferUsages::COPY_DST,
                 use_vulkan_compiler,
+                crate::compute::device_poison::PoisonWatch::default(),
             ),
             properties,
             MemoryConfiguration::ExclusivePages,

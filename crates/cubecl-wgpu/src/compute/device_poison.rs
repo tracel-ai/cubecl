@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 
 /// How long one wait on the device blocks before it looks again.
 #[cfg(not(target_family = "wasm"))]
-const WAIT_SLICE: Duration = Duration::from_secs(1);
+pub(crate) const WAIT_SLICE: Duration = Duration::from_secs(1);
 
 /// How long a wait goes without progress before it probes the device with an empty submission.
 /// A driver that kills a hung context can leave its fences unsignaled for good, and report the

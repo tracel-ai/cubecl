@@ -41,6 +41,10 @@ pub struct WgpuGraph {
     /// The uniforms the capture window created (Vulkan address buffers),
     /// held so the uniforms pool cannot reuse them. Dropped with the graph.
     pub(crate) _uniforms: Vec<ManagedMemoryHandle>,
+    /// The GPU reservations the recorded tasks took: a graph references its
+    /// buffers until it is destroyed, so the host must not map one meanwhile.
+    /// Dropped with the graph.
+    pub(crate) _reservations: Vec<crate::GpuAccessToken>,
     /// Cross-stream input bindings the recorded tasks reference, pinned for
     /// the graph's lifetime instead of until the next submission, which is
     /// where [`WgpuStream::flush`](super::stream::WgpuStream::flush) releases
@@ -99,4 +103,7 @@ pub(crate) struct GraphRecording {
     /// Uniform slices created inside the window, held alive until
     /// `end_capture` hands them to the graph.
     pub(crate) uniform_pins: Vec<ManagedMemoryHandle>,
+    /// GPU reservations of the recorded tasks, handed to the graph at
+    /// `end_capture` (see [`WgpuGraph::_reservations`]).
+    pub(crate) reservations: Vec<crate::GpuAccessToken>,
 }

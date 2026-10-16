@@ -506,6 +506,26 @@ impl Client {
             .unwrap_or_resume()
     }
 
+    /// Runs a backend-specific operation on the device server.
+    ///
+    /// Modified from tensor4all/cubecl `ffc017d54` (MIT OR Apache-2.0) for
+    /// upstream's non-generic device server and panic propagation.
+    ///
+    /// This blocks until the closure returns, and the device server is already
+    /// borrowed for it: do not call this client's methods from inside. A
+    /// resource the closure reaches stays owned by the server — copy out what
+    /// has to outlive the call rather than holding it.
+    ///
+    /// Returns `None` when this client's server is a different type, so a
+    /// caller can tell an interop API the runtime does not offer from a
+    /// failure inside it. A panic in the closure resumes on the caller's
+    /// thread.
+    pub fn with_server<S: Server, T: Send>(&self, f: impl FnOnce(&mut S) -> T + Send) -> Option<T> {
+        self.device
+            .submit_blocking(move |server| (server as &mut dyn Any).downcast_mut::<S>().map(f))
+            .unwrap_or_resume()
+    }
+
     fn do_create_from_slices(
         &self,
         descriptors: Vec<MemoryLayoutDescriptor>,

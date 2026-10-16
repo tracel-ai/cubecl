@@ -76,25 +76,67 @@ impl<'a> ModuleSource<'a> {
     }
 }
 
+/// The features a device creation asks for under `primary_memory`.
+///
+/// `MAPPABLE_PRIMARY_BUFFERS` is what lets one buffer be both storage for a
+/// kernel and mappable by the host; it is the point of host-visible primary
+/// memory and a performance footgun anywhere else, so device-local memory asks
+/// for it to be left off even where the adapter reports it.
+///
+/// # Errors
+///
+/// [`crate::WgpuInitError::InvalidConfiguration`] when
+/// [`PrimaryMemoryMode::HostVisible`] was asked for but the adapter cannot give
+/// it. A device created without the feature cannot allocate the buffers the
+/// mode promises, so this fails before anything is registered.
+pub fn requested_features(
+    adapter: &Adapter,
+    primary_memory: crate::PrimaryMemoryMode,
+) -> Result<wgpu::Features, crate::WgpuInitError> {
+    let features = adapter.features();
+    match primary_memory {
+        crate::PrimaryMemoryMode::DeviceLocal => {
+            Ok(features.difference(wgpu::Features::MAPPABLE_PRIMARY_BUFFERS))
+        }
+        crate::PrimaryMemoryMode::HostVisible => {
+            if features.contains(wgpu::Features::MAPPABLE_PRIMARY_BUFFERS) {
+                Ok(features)
+            } else {
+                Err(crate::WgpuInitError::InvalidConfiguration {
+                    message: HOST_VISIBLE_PRIMARY_UNSUPPORTED.to_string(),
+                })
+            }
+        }
+    }
+}
+
+/// Why host-visible primary memory cannot be brought up on an adapter.
+pub(crate) const HOST_VISIBLE_PRIMARY_UNSUPPORTED: &str = "host-visible primary memory requires \
+    wgpu::Features::MAPPABLE_PRIMARY_BUFFERS, which the selected adapter does not support";
+
 /// Request a device, returning device creation failures.
 pub async fn try_request_device(
     adapter: &Adapter,
+    primary_memory: crate::PrimaryMemoryMode,
 ) -> Result<(Device, Queue), crate::WgpuInitError> {
-    if let Some(result) = request_vulkan_device(adapter).await? {
+    // Validate the feature request before any backend turns it into a device.
+    requested_features(adapter, primary_memory)?;
+    if let Some(result) = request_vulkan_device(adapter, primary_memory).await? {
         return Ok(result);
     }
-    if let Some(result) = request_metal_device(adapter).await? {
+    if let Some(result) = request_metal_device(adapter, primary_memory).await? {
         return Ok(result);
     }
-    wgsl::try_request_device(adapter).await
+    wgsl::try_request_device(adapter, primary_memory).await
 }
 
 #[cfg(feature = "spirv")]
 async fn request_vulkan_device(
     adapter: &Adapter,
+    primary_memory: crate::PrimaryMemoryMode,
 ) -> Result<Option<(Device, Queue)>, crate::WgpuInitError> {
     if is_vulkan(adapter) {
-        vulkan::try_request_vulkan_device(adapter).await
+        vulkan::try_request_vulkan_device(adapter, primary_memory).await
     } else {
         Ok(None)
     }
@@ -103,6 +145,7 @@ async fn request_vulkan_device(
 #[cfg(not(feature = "spirv"))]
 async fn request_vulkan_device(
     _adapter: &Adapter,
+    _primary_memory: crate::PrimaryMemoryMode,
 ) -> Result<Option<(Device, Queue)>, crate::WgpuInitError> {
     Ok(None)
 }
@@ -110,9 +153,12 @@ async fn request_vulkan_device(
 #[cfg(all(feature = "msl", target_os = "macos"))]
 async fn request_metal_device(
     adapter: &Adapter,
+    primary_memory: crate::PrimaryMemoryMode,
 ) -> Result<Option<(Device, Queue)>, crate::WgpuInitError> {
     if is_metal(adapter) {
-        metal::try_request_metal_device(adapter).await.map(Some)
+        metal::try_request_metal_device(adapter, primary_memory)
+            .await
+            .map(Some)
     } else {
         Ok(None)
     }
@@ -121,6 +167,7 @@ async fn request_metal_device(
 #[cfg(not(all(feature = "msl", target_os = "macos")))]
 async fn request_metal_device(
     _adapter: &Adapter,
+    _primary_memory: crate::PrimaryMemoryMode,
 ) -> Result<Option<(Device, Queue)>, crate::WgpuInitError> {
     Ok(None)
 }
