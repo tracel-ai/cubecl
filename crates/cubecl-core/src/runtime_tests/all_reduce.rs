@@ -1,31 +1,20 @@
+use super::collectives::{finish_within_limit, queue_alone};
 use crate::prelude::*;
 use alloc::vec::Vec;
-use core::time::Duration;
 use cubecl_common::device::{Device, DeviceId};
 use cubecl_runtime::{client::Client, runtime::Runtime};
-use std::sync::{
-    Mutex, PoisonError,
-    mpsc::{self, RecvTimeoutError},
-};
-
-/// Tests in one process share each device's communicators, which pair `all_reduce` calls in the
-/// order each device queues them, so the tests queue theirs one at a time.
-static COLLECTIVES: Mutex<()> = Mutex::new(());
-
-/// Devices whose communicators were queued in different orders hang rather than fail.
-const TIME_LIMIT: Duration = Duration::from_secs(60);
 
 const F32: cubecl_ir::ElemType = cubecl_ir::ElemType::Float(cubecl_ir::FloatKind::F32);
 
 pub fn test_all_reduce_sync_collective<R: Runtime>() {
-    let _collectives = COLLECTIVES.lock().unwrap_or_else(PoisonError::into_inner);
+    let _collectives = queue_alone();
     finish_within_limit(sync_collective::<R>);
 }
 
 /// Transfers between two devices, beside `all_reduce` calls queued over them device by device as
 /// a gradient sync does, keep one order on both devices, so neither hangs.
 pub fn test_all_reduce_beside_transfers<R: Runtime>() {
-    let _collectives = COLLECTIVES.lock().unwrap_or_else(PoisonError::into_inner);
+    let _collectives = queue_alone();
     finish_within_limit(beside_transfers::<R>);
 }
 
@@ -33,7 +22,7 @@ pub fn test_all_reduce_beside_transfers<R: Runtime>() {
 /// than its task queue holds before moving to the next device. It is a first use only when no
 /// test before it in the process set the group up.
 pub fn test_all_reduce_first_use_many_parts<R: Runtime>() {
-    let _collectives = COLLECTIVES.lock().unwrap_or_else(PoisonError::into_inner);
+    let _collectives = queue_alone();
     finish_within_limit(first_use_many_parts::<R>);
 }
 
@@ -41,26 +30,8 @@ pub fn test_all_reduce_first_use_many_parts<R: Runtime>() {
 /// `all_reduce` calls and the pipeline transfers between the groups in one order, whichever comes
 /// first on a rank, and so does a data parallel `all_reduce` over all four.
 pub fn test_all_reduce_tensor_and_pipeline<R: Runtime>() {
-    let _collectives = COLLECTIVES.lock().unwrap_or_else(PoisonError::into_inner);
+    let _collectives = queue_alone();
     finish_within_limit(tensor_and_pipeline::<R>);
-}
-
-fn finish_within_limit(test: fn()) {
-    let (finished, done) = mpsc::channel();
-    let test = std::thread::spawn(move || {
-        test();
-        let _ = finished.send(());
-    });
-    if let Err(RecvTimeoutError::Timeout) = done.recv_timeout(TIME_LIMIT) {
-        // A panic would leave the devices waiting on each other for every later test.
-        std::eprintln!(
-            "still running after {TIME_LIMIT:?}, most likely on devices waiting for each other"
-        );
-        std::process::abort();
-    }
-    if let Err(panic) = test.join() {
-        std::panic::resume_unwind(panic);
-    }
 }
 
 fn sync_collective<R: Runtime>() {
@@ -207,7 +178,7 @@ fn tensor_and_pipeline<R: Runtime>() {
                     let transfer = |client: &mut Client| {
                         let sent = [(100 * rank + round) as f32; 64];
                         let input = client.create_from_slice(f32::as_bytes(&sent));
-                        let output = client.to_client(input, &next_stage, F32);
+                        let output = client.to_client(input, &next_stage);
                         let received = next_stage.read_one_unchecked(output);
                         assert_eq!(
                             f32::from_bytes(&received),
@@ -284,7 +255,7 @@ fn beside_transfers<R: Runtime>() {
                 for round in 0..ROUNDS {
                     let expected = [(thread * ROUNDS + round) as f32; SIZE];
                     let input = source.create_from_slice(f32::as_bytes(&expected));
-                    let output = source.to_client(input, &destination, F32);
+                    let output = source.to_client(input, &destination);
                     let actual = destination.read_one_unchecked(output);
                     assert_eq!(f32::from_bytes(&actual), expected);
                 }
