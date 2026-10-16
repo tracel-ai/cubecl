@@ -225,14 +225,24 @@ impl DeviceService for CudaServer {
                 ComplexUsage::Core | ComplexUsage::Compare | ComplexUsage::Math,
             );
         }
+        // Shared memory takes the scalar atomics: PTX's vector atomics (`.v2`, `.v4`, `.v8`)
+        // address global memory only.
         if arch_version >= 60 {
             device_props.register_atomic_type_usage(
+                Type::atomic(ElemType::Float(FloatKind::F64)),
+                AtomicUsage::Add | AtomicUsage::LoadStore | AtomicUsage::Exchange,
+            );
+            device_props.register_shared_atomic_type_usage(
                 Type::atomic(ElemType::Float(FloatKind::F64)),
                 AtomicUsage::Add | AtomicUsage::LoadStore | AtomicUsage::Exchange,
             );
         }
         if arch_version >= 70 {
             device_props.register_atomic_type_usage(
+                Type::atomic(ElemType::Float(FloatKind::F16)),
+                AtomicUsage::Add,
+            );
+            device_props.register_shared_atomic_type_usage(
                 Type::atomic(ElemType::Float(FloatKind::F16)),
                 AtomicUsage::Add,
             );

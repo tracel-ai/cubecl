@@ -53,12 +53,15 @@ pub struct Types {
     pub semantic: BTreeSet<SemanticType>,
     /// Opaque types supported by this runtime.
     pub opaque: BTreeSet<OpaqueType>,
-    /// Supported vector types for atomic ops, only specific vectorizations for specific types are
-    /// supported here. Not all vector types are supported as scalars, i.e. Vulkan on Nvidia only
-    /// supports vectorized `f16`, not scalar. Only use the exact vectorizations registered here.
-    /// These may not be supported everywhere - in practice, f32 vectors are only supported in global
-    /// memory.
+    /// Supported vector types for atomic ops on global memory, only specific vectorizations for
+    /// specific types are supported here. Not all vector types are supported as scalars, i.e.
+    /// Vulkan on Nvidia only supports vectorized `f16`, not scalar. Only use the exact
+    /// vectorizations registered here.
     pub atomic: BTreeMap<Type, EnumSet<AtomicUsage>>,
+    /// Supported types for atomic ops on shared memory. Devices serve the two address spaces
+    /// separately: Metal and WGSL take float atomics on buffers only, and PTX's vector atomics
+    /// address global memory only.
+    pub shared_atomic: BTreeMap<Type, EnumSet<AtomicUsage>>,
     /// Types whose [`Conversion`](TypeUsage::Conversion) the compiler emulates in software, from
     /// their bits, rather than with an instruction of the device. A kernel that decodes such a
     /// type from its bits itself pays no more than the conversion would, and may move what the
@@ -342,10 +345,19 @@ impl Features {
         self.complex_usage(ty).contains(usage)
     }
 
-    /// Get the usages for an atomic type
+    /// Get the usages for an atomic type on global memory
     pub fn atomic_type_usage(&self, ty: Type) -> EnumSet<AtomicUsage> {
         self.types
             .atomic
+            .get(&ty)
+            .cloned()
+            .unwrap_or_else(EnumSet::empty)
+    }
+
+    /// Get the usages for an atomic type on shared memory
+    pub fn shared_atomic_type_usage(&self, ty: Type) -> EnumSet<AtomicUsage> {
+        self.types
+            .shared_atomic
             .get(&ty)
             .cloned()
             .unwrap_or_else(EnumSet::empty)

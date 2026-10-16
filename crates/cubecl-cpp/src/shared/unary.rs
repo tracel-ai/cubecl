@@ -1,6 +1,6 @@
 use cubecl_core::{
     self as cubecl,
-    frontend::polyfills::{erf, log1p, recip, to_degrees, to_radians},
+    frontend::polyfills::{cbrt, erf, inverse_cbrt, log1p, recip, to_degrees, to_radians},
     ir::{
         dialect::{
             atomic::AtomicLoadOp,
@@ -86,6 +86,8 @@ function!(ArcTanhOp, "atanh", no_half);
 // function!(FastCosOp, "__cosf", false);
 function!(SqrtOp, "sqrt", packable, no_msl_bfloat);
 function!(RsqrtOp, "rsqrt", packable, no_msl_bfloat);
+function!(CbrtOp, "cbrt", no_half);
+function!(RcbrtOp, "rcbrt", no_half);
 // function!(FastSqrt, "__fsqrt_rn", false);
 // function!(FastInverseSqrt, "__frsqrt_rn", false);
 function!(ExpOp, "exp", packable, no_msl_bfloat);
@@ -322,6 +324,10 @@ lower_unop!(TrailingZerosBitsOp, trailing_zeros, |_, ctx| {
     matches!(ctx.target(), Target::Cuda | Target::Hip)
 });
 lower_unop!(ErfOp, erf, |_, ctx| ctx.target() == Target::Metal);
+// MSL has no cube root. `rcbrt` is a CUDA extension HIP only declares for `double`, so a float
+// call there would go through `double`.
+lower_unop!(CbrtOp, cbrt, |_, ctx| ctx.target() == Target::Metal);
+lower_unop!(RcbrtOp, inverse_cbrt, |_, ctx| ctx.target() != Target::Cuda);
 /// CUDA has no conversion between `f16` and `bf16` and HIP's is ambiguous: both directions go
 /// through the `f32` that holds either exactly.
 #[op_interface_impl]
