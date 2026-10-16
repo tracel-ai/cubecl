@@ -669,6 +669,20 @@ impl<Marker: 'static> InverseSqrtNativeExpand for DynamicScalar<Marker> {
     }
 }
 
+impl<Marker: 'static> Cbrt for DynamicScalar<Marker> {}
+impl<Marker: 'static> CbrtNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_cbrt(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_cbrt(scope, input)
+    }
+}
+
+impl<Marker: 'static> InverseCbrt for DynamicScalar<Marker> {}
+impl<Marker: 'static> InverseCbrtNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_inverse_cbrt(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_inverse_cbrt(scope, input)
+    }
+}
+
 impl<Marker: 'static> Round for DynamicScalar<Marker> {}
 impl<Marker: 'static> RoundNativeExpand for DynamicScalar<Marker> {
     fn __expand_native_round(scope: &Scope, input: ExpandValue) -> ExpandValue {
