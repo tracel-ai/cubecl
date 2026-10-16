@@ -386,6 +386,9 @@ fn register_features(
     if let Some(largest) = heaps.iter().map(|heap| heap.size).max() {
         props.memory.set_max_memory(largest);
     }
+    // The compute units are hardware too, read here rather than with the properties
+    // `ExtendedFeatures` queries below: a device those checks decline still has them.
+    props.hardware.num_streaming_multiprocessors = compute_units(adapter);
 
     // Can't even query for required features without `PhysicalDeviceFeatures2`
     if ash.instance_api_version() < API_VERSION_1_1
@@ -497,6 +500,54 @@ fn register_features(
     }
 
     true
+}
+
+/// The device's compute units, as the vendor extension that states them reports: AMD's active
+/// compute units, NVIDIA's SMs, Arm's shader cores — the unit HIP and CUDA count as their
+/// multiprocessors. `None` where the device exposes none of them, since core Vulkan states no
+/// such count.
+fn compute_units(adapter: &vulkan::Adapter) -> Option<u32> {
+    let instance = adapter.shared_instance();
+    let capabilities = adapter.physical_device_capabilities();
+    // wgpu's instance only carries the core `get_physical_device_properties2`, which needs 1.1.
+    if instance.instance_api_version() < API_VERSION_1_1 {
+        return None;
+    }
+    // A structure is chained only where the device supports its extension: an unknown one in
+    // the chain is invalid usage, not an ignored entry.
+    let has_amd = capabilities.supports_extension(vk::AMD_SHADER_CORE_PROPERTIES2_NAME);
+    let has_nv = capabilities.supports_extension(vk::NV_SHADER_SM_BUILTINS_NAME);
+    let has_arm = capabilities.supports_extension(vk::ARM_SHADER_CORE_BUILTINS_NAME);
+    if !(has_amd || has_nv || has_arm) {
+        return None;
+    }
+    let mut amd = vk::PhysicalDeviceShaderCoreProperties2AMD::default();
+    let mut nv = vk::PhysicalDeviceShaderSMBuiltinsPropertiesNV::default();
+    let mut arm = vk::PhysicalDeviceShaderCoreBuiltinsPropertiesARM::default();
+    let mut properties = vk::PhysicalDeviceProperties2::default();
+    if has_amd {
+        properties = properties.push_next(&mut amd);
+    }
+    if has_nv {
+        properties = properties.push_next(&mut nv);
+    }
+    if has_arm {
+        properties = properties.push_next(&mut arm);
+    }
+    // SAFETY: the instance is 1.1, checked above, and every chained structure's extension is
+    // supported by this physical device.
+    unsafe {
+        instance
+            .raw_instance()
+            .get_physical_device_properties2(adapter.raw_physical_device(), &mut properties);
+    }
+    [
+        amd.active_compute_unit_count,
+        nv.shader_sm_count,
+        arm.shader_core_count,
+    ]
+    .into_iter()
+    .find(|&count| count > 0)
 }
 
 /// The device-local heaps, in the order the driver reports them. Empty when
