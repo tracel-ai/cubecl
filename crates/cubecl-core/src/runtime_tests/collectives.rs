@@ -78,9 +78,9 @@ pub fn test_a_refused_collective_queues_no_part<R: Runtime>() {
     finish_within_limit(refused_on_the_caller::<R>);
 }
 
-pub fn test_a_member_with_a_tainted_source_skips_the_collective_everywhere<R: Runtime>() {
+pub fn test_a_failed_part_breaks_its_group<R: Runtime>() {
     let _collectives = queue_alone();
-    finish_within_limit(tainted_member::<R>);
+    finish_within_limit(broken_group::<R>);
 }
 
 pub fn test_a_group_of_one_device_runs_its_collectives<R: Runtime>() {
@@ -377,44 +377,45 @@ fn refused_on_the_caller<R: Runtime>() {
     gather_every_member(&group);
 }
 
-fn tainted_member<R: Runtime>() {
-    let Some(group) = group::<R>() else {
+fn broken_group<R: Runtime>() {
+    // Alone in its group, so no peer is left waiting, on a device no other test groups alone.
+    let device_ids = R::enumerate_devices(0);
+    let [_, .., last] = device_ids.as_slice() else {
         return;
     };
-    let members = group.clients().len();
-    let tainted = members - 1;
-    let buffers: Vec<_> = group
-        .clients()
-        .iter()
-        .enumerate()
-        .map(|(member, client)| MemberBuffers {
-            src: from_values(client, &values(member, LEN)),
-            dst: unwritten(client, members * LEN),
-        })
-        .collect();
+    let Some(alone) = group_of::<R>(&[*last]) else {
+        return;
+    };
+    let client = &alone.clients()[0];
+    let gather = || MemberBuffers {
+        src: from_values(client, &values(0, LEN)),
+        dst: unwritten(client, LEN),
+    };
+    let tainted = gather();
     let reason = "the source's writer never ran";
     unsafe {
         stream_errors::rejected::launch_unchecked(
-            &group.clients()[tainted],
+            client,
             CubeCount::new_single(),
             CubeDim::new_1d(1),
-            BufferArg::from_raw_parts(buffers[tainted].src.clone(), 1),
+            BufferArg::from_raw_parts(tainted.src.clone(), 1),
             reason.to_string(),
         )
     };
-    let destinations = destinations(&buffers);
+    let failed = tainted.dst.clone();
+    alone.all_gather(vec![tainted]);
+    let clean = gather();
+    let refused = clean.dst.clone();
+    alone.all_gather(vec![clean]);
 
-    group.all_gather(buffers);
-
-    for (member, (client, destination)) in group.clients().iter().zip(destinations).enumerate() {
-        let error = client
-            .read_one(destination)
-            .expect_err("every member skips a collective one member refuses")
-            .to_string();
-        assert!(error.contains(reason), "member {member}: {error}");
+    for (part, dst) in [("failed", failed), ("next", refused)] {
+        let error = client.read_one(dst).expect_err(part).to_string();
+        assert!(error.contains(reason), "{part}: {error}");
     }
-    // Every member skipped its part, so the next collective pairs with the same one everywhere.
-    gather_every_member(&group);
+    // Only the group whose part failed is broken.
+    if let Some(group) = group::<R>() {
+        gather_every_member(&group);
+    }
 }
 
 fn one_member<R: Runtime>() {
@@ -464,7 +465,11 @@ fn odd_bytes<R: Runtime>() {
     }
 
     let src = group.clients()[0].create_from_slice(&bytes(0, 5));
-    let broadcast: Vec<_> = group.clients().iter().map(|client| client.empty(5)).collect();
+    let broadcast: Vec<_> = group
+        .clients()
+        .iter()
+        .map(|client| client.empty(5))
+        .collect();
     group.broadcast(src, broadcast.clone());
     for (member, dst) in broadcast.into_iter().enumerate() {
         assert_eq!(read(member, dst).to_vec(), bytes(0, 5), "member {member}");
@@ -482,7 +487,9 @@ fn odd_bytes<R: Runtime>() {
     let exchanged = destinations(&buffers);
     group.all_to_all(buffers);
     for (member, dst) in exchanged.into_iter().enumerate() {
-        let expected: Vec<u8> = (0..members).map(|from| bytes(from, members)[member]).collect();
+        let expected: Vec<u8> = (0..members)
+            .map(|from| bytes(from, members)[member])
+            .collect();
         assert_eq!(read(member, dst).to_vec(), expected, "member {member}");
     }
 }
@@ -689,8 +696,8 @@ macro_rules! testgen_collectives {
         }
 
         #[$crate::runtime_tests::test_log::test]
-        fn test_a_member_with_a_tainted_source_skips_the_collective_everywhere() {
-            cubecl_core::runtime_tests::collectives::test_a_member_with_a_tainted_source_skips_the_collective_everywhere::<
+        fn test_a_failed_part_breaks_its_group() {
+            cubecl_core::runtime_tests::collectives::test_a_failed_part_breaks_its_group::<
                 TestRuntime,
             >();
         }

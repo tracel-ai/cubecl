@@ -16,7 +16,7 @@ use cubecl_core::{
         BufferBinding, CollectiveBuffer, CommunicationId, ComputeWait, CopyDescriptor, Handle,
         KernelArguments, KernelResource, LaunchError, ProfileError, ProfilingToken,
         ReduceOperation, Reduction, ServerCommunication, ServerError, ServerUtilities,
-        TensorMapBinding, TensorMapMeta, Vote,
+        TensorMapBinding, TensorMapMeta,
     },
     zspace::SmallVec,
 };
@@ -442,7 +442,6 @@ impl ServerCommunication for CudaServer {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn all_reduce(
         &mut self,
         src: BufferBinding,
@@ -451,18 +450,29 @@ impl ServerCommunication for CudaServer {
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
         wait: ComputeWait,
-        vote: Vote,
     ) -> Result<(), ServerError> {
         let size = src.size_in_used();
         let checked = CollectiveBuffer::Destination
             .expect_size(&dst, size)
             .and_then(|()| Cuda::elements(reduction.dtype, size));
         let group = CommunicationId::from(device_ids);
-        self.settle_collective([src], dst, checked, vote, |server, [src], dst, elements| {
-            server.run_collective(stream_id, &group, [src, dst], wait, |comm, [src, dst], stream| {
-                Cuda::all_reduce(comm, src, dst, elements, reduction.op, stream)
-            })
-        })
+        self.settle_collective(
+            &group,
+            [src],
+            dst,
+            checked,
+            |server, [src], dst, elements| {
+                server.run_collective(
+                    stream_id,
+                    &group,
+                    [src, dst],
+                    wait,
+                    |comm, [src, dst], stream| {
+                        Cuda::all_reduce(comm, src, dst, elements, reduction.op, stream)
+                    },
+                )
+            },
+        )
     }
 
     fn all_gather(
@@ -471,22 +481,27 @@ impl ServerCommunication for CudaServer {
         dst: BufferBinding,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
-        vote: Vote,
     ) -> Result<(), ServerError> {
         let size = src.size_in_used();
         let checked = CollectiveBuffer::Destination
             .expect_size(&dst, size * device_ids.len() as u64)
             .and_then(|()| Cuda::elements(BYTES, size));
         let group = CommunicationId::from(device_ids);
-        self.settle_collective([src], dst, checked, vote, |server, [src], dst, elements| {
-            server.run_collective(
-                stream_id,
-                &group,
-                [src, dst],
-                ComputeWait::Now,
-                |comm, [src, dst], stream| Cuda::all_gather(comm, src, dst, elements, stream),
-            )
-        })
+        self.settle_collective(
+            &group,
+            [src],
+            dst,
+            checked,
+            |server, [src], dst, elements| {
+                server.run_collective(
+                    stream_id,
+                    &group,
+                    [src, dst],
+                    ComputeWait::Now,
+                    |comm, [src, dst], stream| Cuda::all_gather(comm, src, dst, elements, stream),
+                )
+            },
+        )
     }
 
     fn reduce_scatter(
@@ -496,24 +511,29 @@ impl ServerCommunication for CudaServer {
         reduction: Reduction,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
-        vote: Vote,
     ) -> Result<(), ServerError> {
         let size = dst.size_in_used();
         let checked = CollectiveBuffer::Source
             .expect_size(&src, size * device_ids.len() as u64)
             .and_then(|()| Cuda::elements(reduction.dtype, size));
         let group = CommunicationId::from(device_ids);
-        self.settle_collective([src], dst, checked, vote, |server, [src], dst, elements| {
-            server.run_collective(
-                stream_id,
-                &group,
-                [src, dst],
-                ComputeWait::Now,
-                |comm, [src, dst], stream| {
-                    Cuda::reduce_scatter(comm, src, dst, elements, reduction.op, stream)
-                },
-            )
-        })
+        self.settle_collective(
+            &group,
+            [src],
+            dst,
+            checked,
+            |server, [src], dst, elements| {
+                server.run_collective(
+                    stream_id,
+                    &group,
+                    [src, dst],
+                    ComputeWait::Now,
+                    |comm, [src, dst], stream| {
+                        Cuda::reduce_scatter(comm, src, dst, elements, reduction.op, stream)
+                    },
+                )
+            },
+        )
     }
 
     fn broadcast(
@@ -523,7 +543,6 @@ impl ServerCommunication for CudaServer {
         stream_id: StreamId,
         root: DeviceId,
         device_ids: Vec<DeviceId>,
-        vote: Vote,
     ) -> Result<(), ServerError> {
         let size = dst.size_in_used();
         let root_rank = self.collectives.rank(root, &device_ids);
@@ -533,7 +552,7 @@ impl ServerCommunication for CudaServer {
                 let checked = CollectiveBuffer::Source
                     .expect_size(&src, size)
                     .and(root_rank);
-                self.settle_collective([src], dst, checked, vote, |server, [src], dst, root| {
+                self.settle_collective(&group, [src], dst, checked, |server, [src], dst, root| {
                     server.run_collective(
                         stream_id,
                         &group,
@@ -547,7 +566,7 @@ impl ServerCommunication for CudaServer {
                 })
             }
             (None, false) => {
-                self.settle_collective([], dst, root_rank, vote, |server, [], dst, root| {
+                self.settle_collective(&group, [], dst, root_rank, |server, [], dst, root| {
                     server.run_collective(
                         stream_id,
                         &group,
@@ -568,7 +587,7 @@ impl ServerCommunication for CudaServer {
                     ),
                     backtrace: BackTrace::capture(),
                 });
-                self.settle_collective([], dst, refused, vote, |_, [], _, never| match never {})
+                self.settle_collective(&group, [], dst, refused, |_, [], _, never| match never {})
             }
         }
     }
@@ -579,7 +598,6 @@ impl ServerCommunication for CudaServer {
         dst: BufferBinding,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
-        vote: Vote,
     ) -> Result<(), ServerError> {
         let ranks = device_ids.len();
         let size = src.size_in_used();
@@ -588,12 +606,14 @@ impl ServerCommunication for CudaServer {
             .and_then(|()| match size.is_multiple_of(ranks as u64) {
                 true => Cuda::elements(BYTES, size / ranks as u64),
                 false => Err(ServerError::Generic {
-                    reason: format!("an all_to_all over {ranks} ranks splits {size} bytes unevenly"),
+                    reason: format!(
+                        "an all_to_all over {ranks} ranks splits {size} bytes unevenly"
+                    ),
                     backtrace: BackTrace::capture(),
                 }),
             });
         let group = CommunicationId::from(device_ids);
-        self.settle_collective([src], dst, checked, vote, |server, [src], dst, chunk| {
+        self.settle_collective(&group, [src], dst, checked, |server, [src], dst, chunk| {
             server.run_collective(
                 stream_id,
                 &group,
@@ -842,16 +862,16 @@ impl CudaServer {
         None
     }
 
-    /// Runs `collective`, which reads `reads` and writes `dst`, once every member agrees through
-    /// `vote`: a tainted read, a failed `checked` or another member's refusal leaves `dst`
-    /// carrying the failure, the only report a fire-and-forget submit keeps. A failure after the
-    /// vote, in staging or in the driver, still leaves the members that enqueued waiting.
+    /// Runs `collective` over `group`, which reads `reads` and writes `dst`, under the
+    /// tainted-buffer rules: a broken group, a tainted read, a failed `checked` or any later
+    /// refusal leaves `dst` carrying the failure, the only report a fire-and-forget submit keeps,
+    /// and breaks the group.
     fn settle_collective<const N: usize, Plan>(
         &mut self,
+        group: &CommunicationId,
         reads: [BufferBinding; N],
         dst: BufferBinding,
         checked: Result<Plan, ServerError>,
-        vote: Vote,
         collective: impl FnOnce(
             &mut Self,
             [BufferBinding; N],
@@ -860,9 +880,11 @@ impl CudaServer {
         ) -> Result<(), ServerError>,
     ) -> Result<(), ServerError> {
         let destination = dst.clone();
-        let verdict = self.streams.ensure_written(reads.iter()).and(checked);
-        let ran = vote
-            .cast(verdict)
+        let ran = self
+            .collectives
+            .ensure_intact(group)
+            .and_then(|()| self.streams.ensure_written(reads.iter()))
+            .and(checked)
             .and_then(|plan| collective(self, reads, dst, plan));
         match ran {
             Ok(()) => {
@@ -872,6 +894,7 @@ impl CudaServer {
                 Ok(())
             }
             Err(error) => {
+                self.collectives.mark_broken(group, error.clone());
                 self.taint_returned(error.clone(), &destination);
                 Err(error)
             }

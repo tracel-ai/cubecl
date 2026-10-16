@@ -8,7 +8,7 @@ use crate::{
         BufferBinding, Collective, CommunicationId, ComputeWait, CopyDescriptor, CubeCount, Handle,
         KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
         MemoryLayoutStrategy, ProfileError, ProfilingToken, ReduceOperation, Reduction, Server,
-        ServerError, ServerStorage, ServerUtilities, Vote,
+        ServerError, ServerStorage, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -1078,7 +1078,6 @@ impl Client {
             Reduction { dtype, op },
             device_ids,
             ComputeWait::AtSync,
-            Vote::alone(),
         );
     }
 
@@ -1105,22 +1104,21 @@ impl Client {
         reduction: Reduction,
         device_ids: Vec<DeviceId>,
         wait: ComputeWait,
-        vote: Vote,
     ) {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
         self.queue_collective(Collective::AllReduce, move |server, stream_id| {
-            server.all_reduce(src, dst, reduction, stream_id, device_ids, wait, vote)
+            server.all_reduce(src, dst, reduction, stream_id, device_ids, wait)
         });
     }
 
-    fn queue_all_gather(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>, vote: Vote) {
+    fn queue_all_gather(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>) {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
         self.queue_collective(Collective::AllGather, move |server, stream_id| {
-            server.all_gather(src, dst, stream_id, device_ids, vote)
+            server.all_gather(src, dst, stream_id, device_ids)
         });
     }
 
@@ -1130,13 +1128,12 @@ impl Client {
         dst: Handle,
         reduction: Reduction,
         device_ids: Vec<DeviceId>,
-        vote: Vote,
     ) {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
         self.queue_collective(Collective::ReduceScatter, move |server, stream_id| {
-            server.reduce_scatter(src, dst, reduction, stream_id, device_ids, vote)
+            server.reduce_scatter(src, dst, reduction, stream_id, device_ids)
         });
     }
 
@@ -1146,23 +1143,22 @@ impl Client {
         dst: Handle,
         root: DeviceId,
         device_ids: Vec<DeviceId>,
-        vote: Vote,
     ) {
         let (src, dst) = (src.map(Handle::binding), dst.binding());
         src.iter()
             .chain([&dst])
             .for_each(|binding| self.expect_local(binding));
         self.queue_collective(Collective::Broadcast, move |server, stream_id| {
-            server.broadcast(src, dst, stream_id, root, device_ids, vote)
+            server.broadcast(src, dst, stream_id, root, device_ids)
         });
     }
 
-    fn queue_all_to_all(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>, vote: Vote) {
+    fn queue_all_to_all(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>) {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
         self.queue_collective(Collective::AllToAll, move |server, stream_id| {
-            server.all_to_all(src, dst, stream_id, device_ids, vote)
+            server.all_to_all(src, dst, stream_id, device_ids)
         });
     }
 
@@ -1176,7 +1172,10 @@ impl Client {
         self.device.submit(move |server| {
             // The tainted destination is the report; an unwrap would only become a warning here.
             if let Err(err) = part(server, stream_id) {
-                log::error!("{collective} failed, and the destination carries the failure: {err}");
+                log::error!(
+                    "{collective} failed, so the peers that queued their part wait in it, and the \
+                     destination carries the failure: {err}"
+                );
             }
         });
     }

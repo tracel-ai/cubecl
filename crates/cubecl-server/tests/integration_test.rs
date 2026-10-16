@@ -256,7 +256,11 @@ fn a_client_group_refuses_buffers_of_the_wrong_size_on_the_caller() {
         group.all_gather(member_buffers(&group, 8, 8))
     });
     assert_refused("cannot reduce Bool", || {
-        group.all_reduce(member_buffers(&group, 8, 8), ElemType::Bool, ReduceOperation::Sum)
+        group.all_reduce(
+            member_buffers(&group, 8, 8),
+            ElemType::Bool,
+            ReduceOperation::Sum,
+        )
     });
     assert_refused("cannot cut 6 bytes into whole", || {
         group.all_reduce(member_buffers(&group, 6, 6), F32, ReduceOperation::Sum)
@@ -324,7 +328,11 @@ fn a_client_group_refuses_a_buffer_off_its_member_on_the_caller() {
 fn a_broadcast_refuses_a_source_on_no_member_on_the_caller() {
     let group = transported_group();
     let outsider = Client::load::<DummyServer<Transported>>(DeviceId::new(0, 2));
-    let dst = group.clients().iter().map(|client| client.empty(8)).collect();
+    let dst = group
+        .clients()
+        .iter()
+        .map(|client| client.empty(8))
+        .collect();
 
     assert_refused("no member's device", || {
         group.broadcast(outsider.empty(8), dst)
@@ -342,7 +350,13 @@ fn a_per_device_all_reduce_refuses_mismatched_buffers_on_the_caller() {
     });
     assert_refused("cannot cut 6 bytes into whole", || {
         let handle = client.empty(6);
-        client.all_reduce(handle.clone(), handle, F32, device_ids.clone(), ReduceOperation::Sum)
+        client.all_reduce(
+            handle.clone(),
+            handle,
+            F32,
+            device_ids.clone(),
+            ReduceOperation::Sum,
+        )
     });
 }
 

@@ -177,6 +177,8 @@ pub struct Collectives<D: CollectiveDriver> {
     /// This device, whose position in a sorted group is its rank.
     device: DeviceId,
     joined: HashMap<CommunicationId, D::Communicator>,
+    /// The groups whose part here failed, each with the failure that broke it.
+    broken: HashMap<CommunicationId, ServerError>,
 }
 
 impl<D: CollectiveDriver> core::fmt::Debug for Collectives<D> {
@@ -186,6 +188,7 @@ impl<D: CollectiveDriver> core::fmt::Debug for Collectives<D> {
         f.debug_struct("Collectives")
             .field("device", &self.device)
             .field("joined", &self.joined.len())
+            .field("broken", &self.broken.len())
             .finish()
     }
 }
@@ -196,6 +199,31 @@ impl<D: CollectiveDriver> Collectives<D> {
         Self {
             device,
             joined: HashMap::default(),
+            broken: HashMap::default(),
+        }
+    }
+
+    /// Records that this device's part of a collective over `group` failed with `cause`. Its
+    /// peers wait in that collective, and another one over the group would pair with theirs.
+    pub fn mark_broken(&mut self, group: &CommunicationId, cause: ServerError) {
+        self.broken.entry(group.clone()).or_insert(cause);
+    }
+
+    /// Refuses a collective over `group` once a part of one here has failed.
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::Generic`] naming the failure that broke the group.
+    pub fn ensure_intact(&self, group: &CommunicationId) -> Result<(), ServerError> {
+        match self.broken.get(group) {
+            None => Ok(()),
+            Some(cause) => Err(ServerError::Generic {
+                reason: format!(
+                    "an earlier collective over this group failed on this device, so its peers \
+                     wait in that one and this device runs no other over the group: {cause}"
+                ),
+                backtrace: BackTrace::capture(),
+            }),
         }
     }
 
