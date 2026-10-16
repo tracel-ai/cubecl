@@ -196,4 +196,27 @@ impl WgpuStorage {
     fn create_buffer(&self, desc: &wgpu::BufferDescriptor<'_>) -> Result<WgpuMemory, IoError> {
         Ok(WgpuMemory::new(self.device.create_buffer(desc), None))
     }
+
+    /// Bytes the device has left for the buffers this storage creates, when its driver says
+    /// so. `None` where it has no figure.
+    pub(crate) fn memory_available(&self) -> Option<u64> {
+        #[cfg(any(
+            feature = "spirv",
+            all(not(target_family = "wasm"), not(target_os = "macos"))
+        ))]
+        {
+            crate::backend::vulkan_memory::memory_available(
+                &self.device,
+                self.buffer_usages,
+                self.vk_storage,
+            )
+        }
+        #[cfg(not(any(
+            feature = "spirv",
+            all(not(target_family = "wasm"), not(target_os = "macos"))
+        )))]
+        {
+            None
+        }
+    }
 }
