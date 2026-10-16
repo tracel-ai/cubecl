@@ -252,7 +252,7 @@ impl<K: AutotuneKey> TuneCache<K> {
     }
 
     #[cfg(persistence)]
-    pub fn validate_checksum(&mut self, key: &K, checksum: &str) -> TuneCacheResult {
+    fn validate_checksum(&mut self, key: &K, checksum: &str) -> TuneCacheResult {
         let Some(val) = self.in_memory_cache.get_mut(key) else {
             return TuneCacheResult::Miss;
         };
@@ -339,7 +339,7 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// still records a hardware-valid result, so the whole cost of the race
     /// is one duplicate tune per switch. A key a `CompileOnly` override
     /// gathered for the old environment is dropped too, and its registration
-    /// settles as failed: the key is tuned, if at all, for the new
+    /// settles as abandoned: the key is tuned, if at all, for the new
     /// environment, under a registration of its own.
     pub(crate) fn reset_if_environment_switched(&mut self) {
         if !self.environment_switched() {
@@ -369,7 +369,7 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// under the tuner mutex.
     ///
     /// Returns how many entries the store delivered.
-    pub(crate) fn sync_persistent(&mut self) -> usize {
+    fn sync_persistent(&mut self) -> usize {
         if self.hydrated {
             return 0;
         }
@@ -395,7 +395,7 @@ impl<K: AutotuneKey> TuneCache<K> {
 
     /// What `key` resolves to under the set's `checksum`, once memory missed or held an
     /// unverified answer: the store's answers ingested, the one for `key` verified, and failing
-    /// that, an answer stored under `checksum` since this cache hydrated.
+    /// that, the store's answer under `checksum`.
     pub(crate) fn look_up(&mut self, key: &K, checksum: &str) -> TuneCacheResult {
         // Browser hydration is asynchronous, so persistent entries may have arrived after
         // construction.
@@ -408,8 +408,9 @@ impl<K: AutotuneKey> TuneCache<K> {
         }
     }
 
-    /// The answer stored for `key` under `checksum` since this cache hydrated: a device of the same
-    /// part tunes into the same table. A key a `CompileOnly` pass gathered here was measured all the
+    /// The answer the store holds for `key` under `checksum` and memory does not: one a device of
+    /// the same part stored since this cache hydrated, or one that hydration left behind an answer
+    /// under another candidate list. A key a `CompileOnly` pass gathered here was measured all the
     /// same, and settles as measured.
     fn read_through(&mut self, key: &K, checksum: &str) -> TuneCacheResult {
         let Some(persistent_cache) = self.persistent_cache.as_mut() else {

@@ -2,27 +2,31 @@ use alloc::string::{String, ToString};
 use core::fmt::{Display, Formatter};
 use cubecl_ir::DeviceProperties;
 
-/// The part a device is, never its index: `CUDA_VISIBLE_DEVICES` makes whichever card was pinned
-/// index 0, and identical cards differ in nothing else. What is measured on a device holds for
-/// every device of its part, and two cards this cannot separate are one part.
+/// The part a device is: what is measured on one device holds for every device of its part.
+///
+/// Where the card sits is left out on purpose. Identical cards differ in their index and their
+/// [`physical`](cubecl_ir::DeviceIdentity::physical) address alone, and are one part; the index is
+/// not even stable, since `CUDA_VISIBLE_DEVICES` makes whichever card was pinned index 0.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DevicePart {
     runtime: String,
     name: String,
     fingerprint: String,
-    memory: u64,
+    max_page_size: u64,
     parallelism: u32,
 }
 
 impl DevicePart {
-    /// The part of a device of `runtime` with `properties`.
+    /// The part of a device of `runtime` reporting `properties`: its name and compile target, the
+    /// largest allocation it takes and how many cores or multiprocessors it runs on, which tell
+    /// apart parts that share a name.
     pub fn new(runtime: &str, properties: &DeviceProperties) -> Self {
         let hardware = &properties.hardware;
         Self {
             runtime: runtime.to_string(),
             name: properties.identity.name.clone(),
             fingerprint: properties.identity.fingerprint.clone(),
-            memory: properties.memory.max_page_size,
+            max_page_size: properties.memory.max_page_size,
             parallelism: hardware
                 .num_cpu_cores
                 .or(hardware.num_streaming_multiprocessors)
@@ -41,7 +45,7 @@ impl Display for DevicePart {
             segment(&self.runtime),
             segment(&self.fingerprint),
             segment(&self.name),
-            self.memory,
+            self.max_page_size,
             self.parallelism
         )
     }
@@ -50,70 +54,47 @@ impl Display for DevicePart {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::string::ToString;
+    use alloc::vec;
 
-    fn part(
-        runtime: &str,
-        name: &str,
-        fingerprint: &str,
-        memory: u64,
-        parallelism: u32,
-    ) -> DevicePart {
-        DevicePart {
-            runtime: runtime.to_string(),
-            name: name.to_string(),
-            fingerprint: fingerprint.to_string(),
-            memory,
-            parallelism,
+    #[test]
+    fn every_field_tells_parts_apart() {
+        let part = rtx_2060();
+        let others = vec![
+            DevicePart {
+                runtime: "wgpu<spirv>".to_string(),
+                ..rtx_2060()
+            },
+            DevicePart {
+                name: "NVIDIA GeForce GTX 1660 SUPER".to_string(),
+                ..rtx_2060()
+            },
+            DevicePart {
+                fingerprint: "ptx_sm86".to_string(),
+                ..rtx_2060()
+            },
+            DevicePart {
+                max_page_size: 12 << 30,
+                ..rtx_2060()
+            },
+            DevicePart {
+                parallelism: 4,
+                ..rtx_2060()
+            },
+        ];
+
+        for other in others {
+            assert_ne!(part.to_string(), other.to_string(), "{other:?}");
         }
-    }
-
-    /// Two cards in one machine were served each other's peaks: pinning either
-    /// makes it index 0, and the index was all that told them apart.
-    #[test]
-    fn two_parts_of_one_architecture_are_two_parts() {
-        assert_ne!(
-            part("cuda", "NVIDIA GeForce RTX 2060", "ptx_sm75", 6 << 30, 30).to_string(),
-            part(
-                "cuda",
-                "NVIDIA GeForce GTX 1660 SUPER",
-                "ptx_sm75",
-                6 << 30,
-                22
-            )
-            .to_string(),
-        );
-    }
-
-    #[test]
-    fn a_machine_that_gains_memory_is_another_part() {
-        let xeon = "Intel(R) Xeon(R) CPU E5-2620 v4 @ 2.10GHz";
-
-        assert_ne!(
-            part("cpu", xeon, "cpu_x86_64", 32 << 30, 16).to_string(),
-            part("cpu", xeon, "cpu_x86_64", 64 << 30, 16).to_string(),
-        );
-    }
-
-    #[test]
-    fn a_container_given_fewer_cores_is_another_part() {
-        let xeon = "Intel(R) Xeon(R) CPU E5-2620 v4 @ 2.10GHz";
-
-        assert_ne!(
-            part("cpu", xeon, "cpu_x86_64", 64 << 30, 16).to_string(),
-            part("cpu", xeon, "cpu_x86_64", 64 << 30, 4).to_string(),
-        );
     }
 
     #[test]
     fn a_part_is_one_path_segment() {
-        let part = part(
-            "wgpu<spirv>",
-            "Intel(R) Arc(tm) B390 (PTL)",
-            "spirv_32902_45184",
-            1 << 31,
-            0,
-        )
+        let part = DevicePart {
+            runtime: "wgpu<spirv>".to_string(),
+            name: "Intel(R) Arc(tm) B390 (PTL)".to_string(),
+            fingerprint: "spirv_32902_45184".to_string(),
+            ..rtx_2060()
+        }
         .to_string();
 
         assert!(
@@ -121,5 +102,15 @@ mod tests {
                 .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
             "{part}"
         );
+    }
+
+    fn rtx_2060() -> DevicePart {
+        DevicePart {
+            runtime: "cuda".to_string(),
+            name: "NVIDIA GeForce RTX 2060".to_string(),
+            fingerprint: "ptx_sm75".to_string(),
+            max_page_size: 6 << 30,
+            parallelism: 30,
+        }
     }
 }

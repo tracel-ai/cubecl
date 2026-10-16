@@ -5,7 +5,9 @@ use crate::device::DevicePart;
 use crate::throughput::{ThroughputKey, ThroughputValue};
 #[cfg(persistence)]
 use alloc::format;
-use alloc::string::{String, ToString};
+#[cfg(persistence)]
+use alloc::string::String;
+use alloc::string::ToString;
 use alloc::sync::Arc;
 use cubecl_environment::collections::HashMap;
 use cubecl_environment::sync::Mutex;
@@ -14,7 +16,8 @@ use cubecl_environment::sync::Mutex;
 #[cfg(persistence)]
 const GENERATION: &str = "probe-v";
 
-static GLOBAL_CACHE: Mutex<Option<HashMap<String, Arc<Mutex<ThroughputCache>>>>> = Mutex::new(None);
+static GLOBAL_CACHE: Mutex<Option<HashMap<DevicePart, Arc<Mutex<ThroughputCache>>>>> =
+    Mutex::new(None);
 
 /// Caches the [`ThroughputValue`] for a given [`ThroughputKey`].
 ///
@@ -29,8 +32,7 @@ pub struct ThroughputCache {
 
 impl ThroughputCache {
     /// Gets or creates the global `ThroughputCache` for one part.
-    pub fn get_for_device(part: &DevicePart) -> Arc<Mutex<Self>> {
-        let name = part.to_string();
+    pub fn get_for_part(part: DevicePart) -> Arc<Mutex<Self>> {
         let mut cache_map = GLOBAL_CACHE.lock();
         let cache_map = cache_map.get_or_insert_with(HashMap::new);
 
@@ -38,8 +40,8 @@ impl ThroughputCache {
         drop_earlier_generations();
 
         cache_map
-            .entry(name.clone())
-            .or_insert_with(|| Arc::new(Mutex::new(Self::new(&name))))
+            .entry(part)
+            .or_insert_with_key(|part| Arc::new(Mutex::new(Self::new(&part.to_string()))))
             .clone()
     }
 

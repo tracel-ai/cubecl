@@ -241,8 +241,8 @@ impl<K: AutotuneKey> Tuner<K> {
         self.logger.clone()
     }
 
-    /// Check the cache, validate checksums if needed, and kick off a tuning job if the
-    /// key is a miss. Returns the resolved cache state.
+    /// Check the cache, read the store when memory holds no verified answer, and kick off a
+    /// tuning job if the key is still a miss. Returns the resolved cache state.
     pub fn check_tune<'a, F: TuneInputs, Out: AutotuneOutput, Id>(
         &self,
         key: &K,
@@ -258,9 +258,9 @@ impl<K: AutotuneKey> Tuner<K> {
         let compiling = ProcessMode::current() == ProcessMode::CompileOnly;
         // Where the key's tune was registered, if the override that gathered it registered it.
         let gathered;
-        // The set's checksum, once a lookup has computed it: every lookup that goes on to tune has.
+        // What the store is read under, and the answer stored under once tuned.
         #[cfg(persistence)]
-        let mut looked_up = None;
+        let set_checksum;
 
         {
             let mut cache = self.cache.lock();
@@ -274,18 +274,21 @@ impl<K: AutotuneKey> Tuner<K> {
                 return TuneCacheResult::Compiled;
             }
             let cur = cache.fastest(key);
+            if matches!(cur, TuneCacheResult::Hit { .. } | TuneCacheResult::Pending) {
+                return cur;
+            }
 
             #[cfg(persistence)]
-            let cur = match cur {
-                TuneCacheResult::Miss | TuneCacheResult::Unchecked => {
-                    let checksum = looked_up.insert(checksum());
-                    let mut log = self.logger.lock();
-                    if let AutotuneLogLevel::Full = log.log_level_autotune() {
-                        log.log_autotune(&format!("look up key={key}, checksum={checksum}"));
-                    }
-                    cache.look_up(key, checksum)
+            let cur = {
+                set_checksum = checksum();
+                let cur = cache.look_up(key, &set_checksum);
+                let mut log = self.logger.lock();
+                if let AutotuneLogLevel::Full = log.log_level_autotune() {
+                    log.log_autotune(&format!(
+                        "look up key={key}, checksum={set_checksum}: {cur:?}"
+                    ));
                 }
-                cur => cur,
+                cur
             };
 
             match cur {
@@ -343,7 +346,7 @@ impl<K: AutotuneKey> Tuner<K> {
             .collect();
 
         #[cfg(persistence)]
-        let checksum = looked_up.unwrap_or_else(|| tunables.compute_checksum());
+        let checksum = set_checksum;
 
         // After the fast path: a key with one candidate is answered, not
         // tuned, and leaves nothing to record.

@@ -115,9 +115,10 @@ where
     /// [`execute`](Self::execute).
     ///
     /// `operations` must be the set `id` executes, as [`init`](Self::init) returns it for the
-    /// initializer `execute` is handed: a result is an index into that set, kept per `id` in memory
-    /// and per [part](crate::device::DevicePart) on disk, so a set another initializer built under
-    /// the same `id` would map it onto another tunable.
+    /// initializer `execute` is handed: a result is an index into that set, so a set another
+    /// initializer built under the same `id` would map it onto another tunable. Results are kept
+    /// per `id` in memory, and shared on disk by every `id` of the same
+    /// [part](crate::device::DevicePart).
     ///
     /// It reads results and never produces one: it never starts a round, never waits on one in
     /// flight, never validates a persisted result, and never resets the tuner's cache after an
@@ -185,7 +186,7 @@ where
                 .entry(id.clone())
                 .or_insert_with(move || {
                     let name = self.name.replace("::", "-");
-                    Arc::new(Tuner::new(&name, &client.part()))
+                    Arc::new(Tuner::new(&name, &client.device_part()))
                 })
                 .clone()
         };

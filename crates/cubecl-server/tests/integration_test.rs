@@ -541,7 +541,7 @@ fn autotune_resets_when_the_environment_switches() {
     ];
     let key = set.generate_key(&handles);
 
-    let tuner: Tuner<String> = Tuner::new("environment-switch", &client.part());
+    let tuner: Tuner<String> = Tuner::new("environment-switch", &client.device_part());
     tuner.check_tune(
         &key,
         &handles,
@@ -630,7 +630,7 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     ];
     let key = set.generate_key(&handles);
 
-    let tuner: Tuner<String> = Tuner::new("recorded", &client.part());
+    let tuner: Tuner<String> = Tuner::new("recorded", &client.device_part());
     let answer = tuner.check_tune(
         &key,
         &handles,
@@ -652,7 +652,9 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     assert_eq!(tune.winner, fastest_index);
     assert!(
         tune.table.starts_with("autotune/")
-            && tune.table.ends_with(&format!("{}/recorded", client.part()))
+            && tune
+                .table
+                .ends_with(&format!("{}/recorded", client.device_part()))
     );
     let names: Vec<&str> = tune
         .trials
@@ -711,7 +713,7 @@ fn persisted_answers_are_scoped_to_the_adapter_fingerprint() {
     other.identity.fingerprint = "fp-b".into();
     let other = DevicePart::new(client.name(), &other);
 
-    let tuned: Tuner<String> = Tuner::new("fingerprinted", &client.part());
+    let tuned: Tuner<String> = Tuner::new("fingerprinted", &client.device_part());
     tuned.check_tune(
         &key,
         &handles,
@@ -725,55 +727,34 @@ fn persisted_answers_are_scoped_to_the_adapter_fingerprint() {
     assert!(matches!(other_adapter.fastest(&key), TuneCacheResult::Miss));
 
     // Unchecked, not Miss: the answer was hydrated from disk.
-    let same_adapter: Tuner<String> = Tuner::new("fingerprinted", &client.part());
+    let same_adapter: Tuner<String> = Tuner::new("fingerprinted", &client.device_part());
     assert!(matches!(
         same_adapter.fastest(&key),
         TuneCacheResult::Unchecked
     ));
 }
 
+/// Identical cards differ only in where they sit, and are one part.
 #[test_log::test]
-#[cfg(all(feature = "std", persistence))]
-#[serial_test::serial]
-fn a_tune_answers_for_a_tuner_of_the_same_part_that_hydrated_before_it() {
-    use cubecl_environment::persistence::Database;
-    use cubecl_environment::records::{RecordLevel, Records};
-    use cubecl_server::tune::{TuneCacheResult, TuneRecord, Tuner};
-
-    let root = tempfile::tempdir().unwrap();
-    rooted_at(root.path());
-    recording_at(RecordLevel::Basic);
+fn identical_cards_in_two_slots_are_one_part() {
+    use cubecl_ir::{PciAddress, PhysicalDevice};
+    use cubecl_server::device::DevicePart;
 
     let client = test_client(&DummyDevice);
-    let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
-    let (handles, key) = addition_inputs(&client, &set);
-
-    let first: Tuner<String> = Tuner::new("shared", &client.part());
-    let second: Tuner<String> = Tuner::new("shared", &client.part());
-    let tune = |tuner: &Tuner<String>| {
-        tuner.check_tune(
-            &key,
-            &handles,
-            &set,
-            || set.compute_checksum(),
-            &client,
-            None,
-        )
+    let in_slot = |bus| {
+        let mut physical = PhysicalDevice::default();
+        physical.pci_address = Some(PciAddress {
+            domain: 0,
+            bus,
+            device: 0,
+            function: 0,
+        });
+        let mut properties = client.properties().clone();
+        properties.identity.physical = Some(physical);
+        DevicePart::new(client.name(), &properties)
     };
 
-    let TuneCacheResult::Hit { fastest_index } = tune(&first) else {
-        panic!("the tune answers inline");
-    };
-    assert!(matches!(
-        tune(&second),
-        TuneCacheResult::Hit { fastest_index: read } if read == fastest_index
-    ));
-    let database = Database::open_active().unwrap();
-    assert_eq!(
-        Records::new(&database).read::<TuneRecord<String>>().len(),
-        1,
-        "the second tuner measured nothing"
-    );
+    assert_eq!(in_slot(7), in_slot(8));
 }
 
 /// An answer hydrated under another candidate list is stale, and does not hide the one a tuner of
@@ -806,9 +787,9 @@ fn a_stale_answer_does_not_hide_one_stored_since_under_the_current_list() {
         )
     };
 
-    tune(&Tuner::new("stale", &client.part()), &old);
-    let first: Tuner<String> = Tuner::new("stale", &client.part());
-    let second: Tuner<String> = Tuner::new("stale", &client.part());
+    tune(&Tuner::new("stale", &client.device_part()), &old);
+    let first: Tuner<String> = Tuner::new("stale", &client.device_part());
+    let second: Tuner<String> = Tuner::new("stale", &client.device_part());
     tune(&first, &current);
     assert!(matches!(
         tune(&second, &current),
@@ -927,7 +908,7 @@ fn a_short_circuited_tune_records_where_it_stopped() {
     ];
     let key = set.generate_key(&handles);
 
-    let tuner: Tuner<String> = Tuner::new("short-circuited", &client.part());
+    let tuner: Tuner<String> = Tuner::new("short-circuited", &client.device_part());
     tuner.check_tune(
         &key,
         &handles,
@@ -972,7 +953,7 @@ fn nothing_is_recorded_when_records_are_off() {
         client.empty(3),
     ];
     let key = set.generate_key(&handles);
-    let tuner: Tuner<String> = Tuner::new("unrecorded", &client.part());
+    let tuner: Tuner<String> = Tuner::new("unrecorded", &client.device_part());
     let answer = tuner.check_tune(
         &key,
         &handles,

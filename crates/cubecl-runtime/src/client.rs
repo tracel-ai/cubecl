@@ -1526,7 +1526,7 @@ impl Client {
     }
 
     /// The part this device is: what a measurement on it holds for.
-    pub fn part(&self) -> DevicePart {
+    pub fn device_part(&self) -> DevicePart {
         DevicePart::new(self.name(), self.properties())
     }
 
@@ -1869,7 +1869,7 @@ impl Client {
         key: ThroughputKey,
         probe: impl FnOnce() -> Result<ThroughputValue, ThroughputError> + Send,
     ) -> Result<ThroughputValue, ThroughputError> {
-        let cache = ThroughputCache::get_for_device(&self.part());
+        let cache = ThroughputCache::get_for_part(self.device_part());
         let mut throughputs = ThroughputBenchmarker::new(cache);
 
         if let Some(value) = throughputs.cached(key) {

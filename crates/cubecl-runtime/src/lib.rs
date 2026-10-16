@@ -39,7 +39,7 @@ pub mod throughput;
 /// Compute client module.
 pub mod client;
 
-/// The device type of each runtime.
+/// The device type of each runtime, and the part a device is.
 pub mod device;
 
 /// Autotune module
