@@ -1,4 +1,4 @@
-use super::{CaptureStatus, DeviceCaptures, Handle};
+use super::{CaptureStatus, DeviceCaptures, Handle, Vote};
 use crate::kernel::BufferIOAttr;
 use crate::{
     client::Client,
@@ -16,11 +16,7 @@ use crate::{
     storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
-use alloc::boxed::Box;
-use alloc::collections::BTreeSet;
-use alloc::string::String;
-use alloc::sync::Arc;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, collections::BTreeSet, string::String, sync::Arc, vec::Vec};
 use core::{
     fmt::{Debug, Display},
     hash::{BuildHasher, Hash},
@@ -148,7 +144,7 @@ pub struct ServerUtilities {
 }
 
 /// A runtime's transport between its devices, which moves any buffer as bytes.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct DeviceTransport {
     /// The element types it reduces.
     pub reduces: BTreeSet<ElemType>,
@@ -403,6 +399,26 @@ impl Display for CollectiveBuffer {
             Self::Source => "source",
             Self::Destination => "destination",
         })
+    }
+}
+
+impl CollectiveBuffer {
+    /// Refuses a collective whose buffer `binding` holds other than `needed` bytes.
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::Generic`] when the sizes differ.
+    pub fn expect_size(self, binding: &BufferBinding, needed: u64) -> Result<(), ServerError> {
+        let size = binding.size_in_used();
+        match size == needed {
+            true => Ok(()),
+            false => Err(ServerError::Generic {
+                reason: alloc::format!(
+                    "the collective's {self} holds {size} bytes where it needs {needed}"
+                ),
+                backtrace: BackTrace::capture(),
+            }),
+        }
     }
 }
 
@@ -949,6 +965,15 @@ pub enum ReduceOperation {
     Mean,
 }
 
+/// How a collective reduces its members' elements.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reduction {
+    /// The elements' type.
+    pub dtype: ElemType,
+    /// How they combine.
+    pub op: ReduceOperation,
+}
+
 /// Defines functions for optimized data transfer between servers, supporting custom communication
 /// mechanisms such as peer-to-peer communication or specialized implementations.
 ///
@@ -962,7 +987,8 @@ pub enum ReduceOperation {
 /// and taint the destination on the way out when the operation fails (as a
 /// failed [`launch`](Server::launch) does). Skipping either lets a
 /// collective reduce stale bytes across every device in the group, or leave a
-/// destination that reads back clean when nothing wrote it.
+/// destination that reads back clean when nothing wrote it. A refused source, and any other
+/// refusal before the driver enqueues, is cast in the collective's [`Vote`].
 ///
 /// The default methods are for a runtime with no transport between its devices:
 /// each returns [`ServerError::NoDeviceTransport`] before touching any buffer, so
@@ -1011,11 +1037,11 @@ pub trait ServerCommunication {
     ///
     /// * `src` - The data to be reduced.
     /// * `dst` - Where to write the result.
-    /// * `dtype` - The element type of the data being reduced
+    /// * `reduction` - The elements' type and how they combine.
     /// * `stream_id` - The data's stream id.
-    /// * `op` - The reduce's aggregation operation e.g. mean, sum, etc.
     /// * `device_ids` - The list of device ids from which to `all_reduce`.
     /// * `wait` - When the compute stream waits for it.
+    /// * `vote` - This device's say in whether every member runs its part.
     ///
     /// # Returns
     ///
@@ -1029,11 +1055,11 @@ pub trait ServerCommunication {
         &mut self,
         src: BufferBinding,
         dst: BufferBinding,
-        dtype: ElemType,
+        reduction: Reduction,
         stream_id: StreamId,
-        op: ReduceOperation,
         device_ids: Vec<DeviceId>,
         wait: ComputeWait,
+        vote: Vote,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::AllReduce))
     }
@@ -1051,6 +1077,7 @@ pub trait ServerCommunication {
         dst: BufferBinding,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
+        vote: Vote,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::AllGather))
     }
@@ -1066,10 +1093,10 @@ pub trait ServerCommunication {
         &mut self,
         src: BufferBinding,
         dst: BufferBinding,
-        dtype: ElemType,
+        reduction: Reduction,
         stream_id: StreamId,
-        op: ReduceOperation,
         device_ids: Vec<DeviceId>,
+        vote: Vote,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::ReduceScatter))
     }
@@ -1087,6 +1114,7 @@ pub trait ServerCommunication {
         stream_id: StreamId,
         root: DeviceId,
         device_ids: Vec<DeviceId>,
+        vote: Vote,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::Broadcast))
     }
@@ -1104,6 +1132,7 @@ pub trait ServerCommunication {
         dst: BufferBinding,
         stream_id: StreamId,
         device_ids: Vec<DeviceId>,
+        vote: Vote,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::AllToAll))
     }

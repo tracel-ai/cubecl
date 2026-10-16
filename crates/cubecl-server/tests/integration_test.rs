@@ -6,8 +6,8 @@ use cubecl_server::memory_management::MemoryScope;
 use cubecl_common::bytes::Bytes;
 use cubecl_common::device::{DeviceId, ServiceId};
 use cubecl_environment::stream::StreamId;
-use cubecl_ir::{ElemType, UIntKind};
-use cubecl_server::client::{Client, ClientGroup, ClientGroupError};
+use cubecl_ir::{ElemType, FloatKind, UIntKind};
+use cubecl_server::client::{Client, ClientGroup, ClientGroupError, MemberBuffers};
 use cubecl_server::server::{
     CubeCount, Handle, IoError, KernelArguments, Overlap, ReduceOperation, ServerError,
 };
@@ -242,6 +242,138 @@ fn a_client_group_needs_a_device_transport() {
 fn a_sync_collective_without_a_device_transport_waits_for_nothing() {
     let client = test_client(&DummyDevice);
     client.sync_collective();
+}
+
+const F32: ElemType = ElemType::Float(FloatKind::F32);
+
+#[test_log::test]
+fn a_client_group_refuses_buffers_of_the_wrong_size_on_the_caller() {
+    let group = transported_group();
+
+    assert!(group.reduces(F32));
+    assert!(!group.reduces(ElemType::Bool));
+    assert_refused("holds 8 bytes where it needs 16", || {
+        group.all_gather(member_buffers(&group, 8, 8))
+    });
+    assert_refused("cannot reduce Bool", || {
+        group.all_reduce(member_buffers(&group, 8, 8), ElemType::Bool, ReduceOperation::Sum)
+    });
+    assert_refused("cannot cut 6 bytes into whole", || {
+        group.all_reduce(member_buffers(&group, 6, 6), F32, ReduceOperation::Sum)
+    });
+    assert_refused("cannot split 9 bytes evenly", || {
+        group.reduce_scatter(member_buffers(&group, 9, 4), F32, ReduceOperation::Sum)
+    });
+    assert_refused("cannot split 9 bytes evenly", || {
+        group.all_to_all(member_buffers(&group, 9, 9))
+    });
+    assert_refused("takes one part each, not 1", || {
+        let client = &group.clients()[0];
+        group.broadcast(client.empty(8), vec![client.empty(8)])
+    });
+}
+
+#[test_log::test]
+fn a_client_group_refuses_overlapping_buffers_on_the_caller() {
+    let group = transported_group();
+    let overlapping = |src_of: fn(&Handle) -> Handle| -> Vec<MemberBuffers> {
+        group
+            .clients()
+            .iter()
+            .map(|client| {
+                let dst = client.empty(16);
+                MemberBuffers {
+                    src: src_of(&dst),
+                    dst,
+                }
+            })
+            .collect()
+    };
+
+    assert_refused("overlap (Partial)", || {
+        group.all_gather(overlapping(|dst| dst.clone().offset_end(8)))
+    });
+    assert_refused("overlap (Same)", || {
+        group.all_to_all(overlapping(|dst| dst.clone()))
+    });
+    assert_refused("overlap (Partial)", || {
+        let whole = group.clients()[0].empty(12);
+        let dst = group
+            .clients()
+            .iter()
+            .enumerate()
+            .map(|(member, client)| match member {
+                0 => whole.clone().offset_start(4),
+                _ => client.empty(8),
+            })
+            .collect();
+        group.broadcast(whole.offset_end(4), dst)
+    });
+}
+
+#[test_log::test]
+fn a_client_group_refuses_a_buffer_off_its_member_on_the_caller() {
+    let group = transported_group();
+    let mut buffers = member_buffers(&group, 8, 16);
+    buffers[0].src = group.clients()[1].empty(8);
+
+    assert_refused("member 0's buffer is on", || group.all_gather(buffers));
+}
+
+#[test_log::test]
+fn a_broadcast_refuses_a_source_on_no_member_on_the_caller() {
+    let group = transported_group();
+    let outsider = Client::load::<DummyServer<Transported>>(DeviceId::new(0, 2));
+    let dst = group.clients().iter().map(|client| client.empty(8)).collect();
+
+    assert_refused("no member's device", || {
+        group.broadcast(outsider.empty(8), dst)
+    });
+}
+
+#[test_log::test]
+fn a_per_device_all_reduce_refuses_mismatched_buffers_on_the_caller() {
+    let mut client = Client::load::<DummyServer<Transported>>(DeviceId::new(0, 0));
+    let device_ids = vec![DeviceId::new(0, 0), DeviceId::new(0, 1)];
+
+    assert_refused("destination holds 8 bytes where its source holds 4", || {
+        let (src, dst) = (client.empty(4), client.empty(8));
+        client.all_reduce(src, dst, F32, device_ids.clone(), ReduceOperation::Sum)
+    });
+    assert_refused("cannot cut 6 bytes into whole", || {
+        let handle = client.empty(6);
+        client.all_reduce(handle.clone(), handle, F32, device_ids.clone(), ReduceOperation::Sum)
+    });
+}
+
+/// Two clients of a runtime that claims a transport, so a collective reaches the caller's checks.
+fn transported_group() -> ClientGroup {
+    let clients = [0, 1]
+        .map(|index| Client::load::<DummyServer<Transported>>(DeviceId::new(0, index)))
+        .to_vec();
+    ClientGroup::new(clients).unwrap()
+}
+
+fn member_buffers(group: &ClientGroup, src: usize, dst: usize) -> Vec<MemberBuffers> {
+    group
+        .clients()
+        .iter()
+        .map(|client| MemberBuffers {
+            src: client.empty(src),
+            dst: client.empty(dst),
+        })
+        .collect()
+}
+
+fn assert_refused(reason: &str, collective: impl FnOnce()) {
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(collective))
+        .expect_err("the collective was accepted");
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .unwrap_or_default();
+    assert!(message.contains(reason), "{message}");
 }
 
 /// Two clients of different runtimes are the same type now, so nothing but

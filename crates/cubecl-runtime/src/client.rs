@@ -7,8 +7,8 @@ use crate::{
     server::{
         BufferBinding, Collective, CommunicationId, ComputeWait, CopyDescriptor, CubeCount, Handle,
         KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
-        MemoryLayoutStrategy, ProfileError, ProfilingToken, ReduceOperation, Server, ServerError,
-        ServerStorage, ServerUtilities,
+        MemoryLayoutStrategy, ProfileError, ProfilingToken, ReduceOperation, Reduction, Server,
+        ServerError, ServerStorage, ServerUtilities, Vote,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -1063,8 +1063,30 @@ impl Client {
         device_ids: Vec<DeviceId>,
         op: ReduceOperation,
     ) {
-        self.prepare_collective(Collective::AllReduce, device_ids.clone());
-        self.queue_all_reduce(src, dst, dtype, device_ids, op, ComputeWait::AtSync);
+        let collective = Collective::AllReduce;
+        let size = src.size_in_used();
+        Self::expect_whole_elements(collective, dtype, size);
+        let held = dst.size_in_used();
+        assert!(
+            held == size,
+            "{collective}'s destination holds {held} bytes where its source holds {size}"
+        );
+        self.prepare_collective(collective, device_ids.clone());
+        self.queue_all_reduce(
+            src,
+            dst,
+            Reduction { dtype, op },
+            device_ids,
+            ComputeWait::AtSync,
+            Vote::alone(),
+        );
+    }
+
+    fn expect_whole_elements(collective: Collective, dtype: ElemType, size: u64) {
+        assert!(
+            size.is_multiple_of(dtype.size() as u64),
+            "{collective} cannot cut {size} bytes into whole {dtype:?} elements"
+        );
     }
 
     /// Checks `collective` can run from here, and sets up the group over `device_ids`.
@@ -1080,25 +1102,25 @@ impl Client {
         &self,
         src: Handle,
         dst: Handle,
-        dtype: ElemType,
+        reduction: Reduction,
         device_ids: Vec<DeviceId>,
-        op: ReduceOperation,
         wait: ComputeWait,
+        vote: Vote,
     ) {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
         self.queue_collective(Collective::AllReduce, move |server, stream_id| {
-            server.all_reduce(src, dst, dtype, stream_id, op, device_ids, wait)
+            server.all_reduce(src, dst, reduction, stream_id, device_ids, wait, vote)
         });
     }
 
-    fn queue_all_gather(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>) {
+    fn queue_all_gather(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>, vote: Vote) {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
         self.queue_collective(Collective::AllGather, move |server, stream_id| {
-            server.all_gather(src, dst, stream_id, device_ids)
+            server.all_gather(src, dst, stream_id, device_ids, vote)
         });
     }
 
@@ -1106,15 +1128,15 @@ impl Client {
         &self,
         src: Handle,
         dst: Handle,
-        dtype: ElemType,
+        reduction: Reduction,
         device_ids: Vec<DeviceId>,
-        op: ReduceOperation,
+        vote: Vote,
     ) {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
         self.queue_collective(Collective::ReduceScatter, move |server, stream_id| {
-            server.reduce_scatter(src, dst, dtype, stream_id, op, device_ids)
+            server.reduce_scatter(src, dst, reduction, stream_id, device_ids, vote)
         });
     }
 
@@ -1124,22 +1146,23 @@ impl Client {
         dst: Handle,
         root: DeviceId,
         device_ids: Vec<DeviceId>,
+        vote: Vote,
     ) {
         let (src, dst) = (src.map(Handle::binding), dst.binding());
         src.iter()
             .chain([&dst])
             .for_each(|binding| self.expect_local(binding));
         self.queue_collective(Collective::Broadcast, move |server, stream_id| {
-            server.broadcast(src, dst, stream_id, root, device_ids)
+            server.broadcast(src, dst, stream_id, root, device_ids, vote)
         });
     }
 
-    fn queue_all_to_all(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>) {
+    fn queue_all_to_all(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>, vote: Vote) {
         let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
         self.queue_collective(Collective::AllToAll, move |server, stream_id| {
-            server.all_to_all(src, dst, stream_id, device_ids)
+            server.all_to_all(src, dst, stream_id, device_ids, vote)
         });
     }
 
@@ -1153,10 +1176,7 @@ impl Client {
         self.device.submit(move |server| {
             // The tainted destination is the report; an unwrap would only become a warning here.
             if let Err(err) = part(server, stream_id) {
-                log::error!(
-                    "{collective} failed, so the peers that queued their part wait for this one, \
-                     and the destination carries the failure: {err}"
-                );
+                log::error!("{collective} failed, and the destination carries the failure: {err}");
             }
         });
     }

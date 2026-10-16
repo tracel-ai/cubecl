@@ -10,7 +10,7 @@ use std::{collections::HashMap, sync::OnceLock};
 
 use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, UIntKind},
-    server::{CollectiveBuffer, CommunicationId, DeviceTransport, ReduceOperation, ServerError},
+    server::{CommunicationId, DeviceTransport, ReduceOperation, ServerError},
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::sync::Mutex;
@@ -36,8 +36,11 @@ fn to_nccl_op(op: ReduceOperation) -> cudarc::nccl::sys::ncclRedOp_t {
 /// What a collective that only moves data names its buffers as, whatever they hold.
 pub const BYTES: ElemType = ElemType::UInt(UIntKind::U8);
 
+/// NCCL 2.10.3, the first with bfloat16.
+const NCCL_BF16_VERSION: c_int = 21003;
+
 /// NCCL 2.29.2, whose FP8 `all_reduce` stopped failing to find an algorithm.
-const NCCL_FP8_REDUCTION: c_int = 22902;
+const NCCL_FP8_REDUCTION_VERSION: c_int = 22902;
 
 /// NCCL reduces FP8 only on Hopper and newer.
 const NCCL_FP8_REDUCTION_ARCH: u32 = 90;
@@ -75,7 +78,7 @@ pub struct Nccl {
 
 impl Nccl {
     /// The NCCL this process loads, for a device of `arch_version`, or `None` when none loads.
-    pub fn loaded(arch_version: u32) -> Option<Self> {
+    pub fn new(arch_version: u32) -> Option<Self> {
         // SAFETY: the call only tries to `dlopen` each candidate name.
         if !unsafe { cudarc::nccl::sys::is_culib_present() } {
             return None;
@@ -104,29 +107,11 @@ impl Nccl {
     fn reduces(&self, dtype: ElemType) -> bool {
         match dtype {
             ElemType::Float(FloatKind::E4M3 | FloatKind::E5M2) => {
-                self.version >= NCCL_FP8_REDUCTION && self.arch_version >= NCCL_FP8_REDUCTION_ARCH
+                self.version >= NCCL_FP8_REDUCTION_VERSION
+                    && self.arch_version >= NCCL_FP8_REDUCTION_ARCH
             }
+            ElemType::Float(FloatKind::BF16) => self.version >= NCCL_BF16_VERSION,
             dtype => nccl_dtype(dtype).is_some(),
-        }
-    }
-}
-
-impl GpuResource {
-    /// Refuses a collective whose `buffer` holds other than `needed` bytes.
-    ///
-    /// # Errors
-    ///
-    /// [`ServerError::Generic`] when the sizes differ.
-    pub fn expect_size(&self, buffer: CollectiveBuffer, needed: u64) -> Result<(), ServerError> {
-        match self.size == needed {
-            true => Ok(()),
-            false => Err(ServerError::Generic {
-                reason: format!(
-                    "the collective's {buffer} holds {} bytes where it needs {needed}",
-                    self.size
-                ),
-                backtrace: BackTrace::capture(),
-            }),
         }
     }
 }
@@ -436,15 +421,26 @@ mod tests {
     }
 
     #[test]
+    fn nccl_reduces_bf16_from_its_release() {
+        let bf16 = ElemType::Float(FloatKind::BF16);
+        let nccl = |version| Nccl {
+            version,
+            arch_version: 75,
+        };
+        assert!(nccl(NCCL_BF16_VERSION).reduces(bf16));
+        assert!(!nccl(NCCL_BF16_VERSION - 1).reduces(bf16));
+    }
+
+    #[test]
     fn nccl_reduces_fp8_from_its_fixed_release_on_hopper() {
         let fp8 = ElemType::Float(FloatKind::E4M3);
         let nccl = |version, arch_version| Nccl {
             version,
             arch_version,
         };
-        assert!(nccl(NCCL_FP8_REDUCTION, NCCL_FP8_REDUCTION_ARCH).reduces(fp8));
-        assert!(!nccl(NCCL_FP8_REDUCTION - 1, NCCL_FP8_REDUCTION_ARCH).reduces(fp8));
-        assert!(!nccl(NCCL_FP8_REDUCTION, 89).reduces(fp8));
+        assert!(nccl(NCCL_FP8_REDUCTION_VERSION, NCCL_FP8_REDUCTION_ARCH).reduces(fp8));
+        assert!(!nccl(NCCL_FP8_REDUCTION_VERSION - 1, NCCL_FP8_REDUCTION_ARCH).reduces(fp8));
+        assert!(!nccl(NCCL_FP8_REDUCTION_VERSION, 89).reduces(fp8));
     }
 
     #[test]

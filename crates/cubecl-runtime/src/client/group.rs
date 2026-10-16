@@ -2,7 +2,8 @@
 
 use super::{Client, PEER_ORDER};
 use crate::server::{
-    Collective, CollectiveBuffer, ComputeWait, Handle, Overlap, ReduceOperation, Server,
+    Agreement, Collective, CollectiveBuffer, ComputeWait, Handle, Overlap, ReduceOperation,
+    Reduction, Server, Vote,
 };
 use alloc::{collections::BTreeSet, vec::Vec};
 use cubecl_common::{device::DeviceId, device_handle::DeviceHandle};
@@ -12,18 +13,10 @@ use thiserror::Error;
 /// The clients of distinct devices of one runtime that run collectives together, for a caller
 /// holding every member's buffers.
 ///
-/// Member `i` is rank `i`, so the members are in ascending device order, the order a collective's
-/// ranks take. A collective queues every member's part before another group or a transfer queues
-/// anything, and each part makes its device's compute stream wait for it, so work queued after
-/// the call reads the result. Per-device `all_reduce` calls other threads queue are not ordered
-/// against it: on a device both use, the two collectives can wait on each other and hang.
-///
-/// Every member's buffers are checked before any part is queued, since a part one device refuses
-/// leaves the devices that queued theirs waiting on it. A source carrying a failure from earlier
-/// work is refused by its device alone, so the other members still wait.
-///
-/// Buffers move as raw bytes and split into chunks by bytes, so a pitched handle's row padding
-/// moves too and counts toward its chunks.
+/// Member `i` is rank `i`, in ascending device order. Work queued after a collective reads its
+/// result, but per-device `all_reduce` calls are not ordered against it, and on a device both use
+/// the two can hang. Buffers move as bytes, so a pitched handle's row padding counts toward its
+/// chunks.
 #[derive(Clone)]
 pub struct ClientGroup {
     clients: Vec<Client>,
@@ -145,21 +138,21 @@ impl ClientGroup {
         let collective = Collective::AllReduce;
         self.expect_reduces(collective, dtype);
         let src = self.expect_buffers(collective, &buffers, InPlace::Allowed);
-        Self::expect_whole_elements(collective, dtype, src);
+        Client::expect_whole_elements(collective, dtype, src);
         Self::expect_sizes(
             collective,
             CollectiveBuffer::Destination,
             buffers.iter().map(|it| &it.dst),
             src,
         );
-        self.queue(collective, buffers, |_, client, buffers, device_ids| {
+        self.queue(collective, buffers, |_, client, buffers, device_ids, vote| {
             client.queue_all_reduce(
                 buffers.src,
                 buffers.dst,
-                dtype,
+                Reduction { dtype, op },
                 device_ids,
-                op,
                 ComputeWait::Now,
+                vote,
             )
         });
     }
@@ -179,8 +172,8 @@ impl ClientGroup {
             buffers.iter().map(|it| &it.dst),
             src * members,
         );
-        self.queue(collective, buffers, |_, client, buffers, device_ids| {
-            client.queue_all_gather(buffers.src, buffers.dst, device_ids)
+        self.queue(collective, buffers, |_, client, buffers, device_ids, vote| {
+            client.queue_all_gather(buffers.src, buffers.dst, device_ids, vote)
         });
     }
 
@@ -199,15 +192,16 @@ impl ClientGroup {
         self.expect_reduces(collective, dtype);
         let src = self.expect_buffers(collective, &buffers, InPlace::Refused);
         let chunk = self.expect_chunks(collective, src);
-        Self::expect_whole_elements(collective, dtype, chunk);
+        Client::expect_whole_elements(collective, dtype, chunk);
         Self::expect_sizes(
             collective,
             CollectiveBuffer::Destination,
             buffers.iter().map(|it| &it.dst),
             chunk,
         );
-        self.queue(collective, buffers, |_, client, buffers, device_ids| {
-            client.queue_reduce_scatter(buffers.src, buffers.dst, dtype, device_ids, op)
+        self.queue(collective, buffers, |_, client, buffers, device_ids, vote| {
+            let reduction = Reduction { dtype, op };
+            client.queue_reduce_scatter(buffers.src, buffers.dst, reduction, device_ids, vote)
         });
     }
 
@@ -242,9 +236,9 @@ impl ClientGroup {
         );
 
         let root_id = self.device_ids[root];
-        self.queue(collective, dst, |member, client, dst, device_ids| {
+        self.queue(collective, dst, |member, client, dst, device_ids, vote| {
             let src = (member == root).then(|| src.clone());
-            client.queue_broadcast(src, dst, root_id, device_ids)
+            client.queue_broadcast(src, dst, root_id, device_ids, vote)
         });
     }
 
@@ -264,8 +258,8 @@ impl ClientGroup {
             buffers.iter().map(|it| &it.dst),
             src,
         );
-        self.queue(collective, buffers, |_, client, buffers, device_ids| {
-            client.queue_all_to_all(buffers.src, buffers.dst, device_ids)
+        self.queue(collective, buffers, |_, client, buffers, device_ids, vote| {
+            client.queue_all_to_all(buffers.src, buffers.dst, device_ids, vote)
         });
     }
 
@@ -304,13 +298,6 @@ impl ClientGroup {
             self.reduces(dtype),
             "{collective} on {} cannot reduce {dtype:?}",
             self.clients[0].name()
-        );
-    }
-
-    fn expect_whole_elements(collective: Collective, dtype: ElemType, size: u64) {
-        assert!(
-            size.is_multiple_of(dtype.size() as u64),
-            "{collective} cannot cut {size} bytes into whole {dtype:?} elements"
         );
     }
 
@@ -375,13 +362,16 @@ impl ClientGroup {
         &self,
         collective: Collective,
         parts: Vec<Part>,
-        mut queue_part: impl FnMut(usize, &Client, Part, Vec<DeviceId>),
+        mut queue_part: impl FnMut(usize, &Client, Part, Vec<DeviceId>, Vote),
     ) {
         // Outside the lock, which setting the group up takes itself.
         self.clients[0].prepare_collective(collective, self.device_ids.clone());
+        let votes = Agreement::new(self.clients.len()).votes();
+        // Each vote waits on its device thread for its peers', so every device takes parts in one order.
         let _order = PEER_ORDER.lock();
-        for (member, (client, part)) in self.clients.iter().zip(parts).enumerate() {
-            queue_part(member, client, part, self.device_ids.clone());
+        for (member, ((client, part), vote)) in self.clients.iter().zip(parts).zip(votes).enumerate()
+        {
+            queue_part(member, client, part, self.device_ids.clone(), vote);
         }
         // A part waits in its client's queue until flushed, and a member blocked reading its
         // result would wait on a peer whose part never reached the device.

@@ -440,7 +440,7 @@ impl DeviceService for CudaServer {
             logger,
             policy,
         );
-        utilities.device_transport = Nccl::loaded(arch_version)
+        utilities.device_transport = Nccl::new(arch_version)
             .map(|nccl| nccl.transport(utilities.properties.features.types.elem.keys().copied()));
 
         CudaServer::new(
