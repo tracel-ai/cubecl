@@ -74,6 +74,7 @@ log = { default-features = false, version = "^0.4.22" }
 
 tokio = { version = "^1.53.1", default-features = false }
 
+approx = { version = "^0.5.1", default-features = false }
 test-log = { version = "^0.2", default-features = false }
 
 tracing = { version = "^0.1.43", default-features = false }

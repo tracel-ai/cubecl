@@ -23,6 +23,7 @@ impl ToTokens for Launch {
         let aliases = self.create_type_alias();
         let dummy = self.create_dummy_kernel();
         let kernel = self.kernel_definition();
+        let harness = self.harness();
         let mut func = self.func.clone();
         func.sig.name = format_ident!("expand");
         let func = func.to_tokens_mut();
@@ -40,6 +41,7 @@ impl ToTokens for Launch {
                 #launch
                 #launch_unchecked
                 #dummy
+                #harness
             }
         };
 
