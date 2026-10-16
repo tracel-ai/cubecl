@@ -185,6 +185,11 @@ fn restrict_common(props: &mut DeviceProperties) {
         .types
         .atomic
         .retain(|ty, _| ty.elem_type() != BF16);
+    props
+        .features
+        .types
+        .shared_atomic
+        .retain(|ty, _| ty.elem_type() != BF16);
 
     // Complex arithmetic is lowered by the C++ backends, not by this one.
     props.features.types.complex.clear();
@@ -198,6 +203,11 @@ fn restrict_common(props: &mut DeviceProperties) {
         .features
         .types
         .atomic
+        .retain(|ty, _| ty.vector_size() == 1);
+    props
+        .features
+        .types
+        .shared_atomic
         .retain(|ty, _| ty.vector_size() == 1);
 }
 
