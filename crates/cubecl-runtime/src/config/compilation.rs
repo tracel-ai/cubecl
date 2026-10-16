@@ -1,3 +1,5 @@
+use cubecl_ir::interfaces::fast_math::DisabledFastMath;
+
 use super::logger::{LogLevel, LoggerConfig};
 
 /// Configuration for compilation settings in `CubeCL`.
@@ -25,6 +27,10 @@ pub struct CompilationConfig {
     /// memory: a batch holds every queued kernel's artifacts until it ends.
     #[serde(default)]
     pub parallelism: Option<usize>,
+    /// Fast-math optimizations no kernel may use, whatever it allows: `"all"`, or a list such as
+    /// `["allow-contraction"]`. It never grants one a kernel did not ask for.
+    #[serde(default)]
+    pub disabled_fast_math: DisabledFastMath,
 }
 
 impl CompilationConfig {
@@ -117,3 +123,45 @@ pub enum CompilationLogLevel {
 }
 
 impl LogLevel for CompilationLogLevel {}
+
+#[cfg(all(test, feature = "std"))]
+mod tests {
+    use super::*;
+    use cubecl_ir::{EnumSet, FastMath};
+
+    fn disabled(toml: &str) -> EnumSet<FastMath> {
+        toml::from_str::<CompilationConfig>(toml)
+            .unwrap()
+            .disabled_fast_math
+            .optimizations()
+    }
+
+    #[test]
+    fn disabled_fast_math_is_all_or_names() {
+        assert_eq!(disabled(""), FastMath::none());
+        assert_eq!(disabled(r#"disabled_fast_math = "all""#), FastMath::all());
+        assert_eq!(
+            disabled(r#"disabled_fast_math = ["not-nan", "unsigned-zero"]"#),
+            FastMath::NotNaN | FastMath::UnsignedZero
+        );
+        assert_eq!(
+            disabled(r#"disabled_fast_math = "not-nan, unsigned-zero""#),
+            FastMath::NotNaN | FastMath::UnsignedZero
+        );
+        assert!(toml::from_str::<CompilationConfig>(r#"disabled_fast_math = "some""#).is_err());
+        assert!(toml::from_str::<CompilationConfig>(r#"disabled_fast_math = ["fast"]"#).is_err());
+    }
+
+    /// `allow-transform` includes contraction, so it cannot outlive it.
+    #[test]
+    fn disabling_contraction_disables_transforms() {
+        assert_eq!(
+            disabled(r#"disabled_fast_math = ["allow-contraction"]"#),
+            FastMath::AllowContraction | FastMath::AllowTransform
+        );
+        assert_eq!(
+            disabled(r#"disabled_fast_math = ["allow-reassociation"]"#),
+            FastMath::AllowReassociation | FastMath::AllowTransform
+        );
+    }
+}

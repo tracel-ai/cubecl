@@ -5,7 +5,7 @@ use cubecl_core::ir::dialect::{
     general::{BoolAndOp, BoolNotOp, BoolOrOp},
     math::*,
 };
-use cubecl_core::ir::{EnumSet, FastMath};
+use cubecl_core::ir::{EnumSet, FastMath, interfaces::fast_math::DisabledFastMath};
 
 macro_rules! lower_unary_intrinsic_arith {
     ($cube_op:ty => $llvm_op:expr) => {
@@ -381,7 +381,10 @@ macro_rules! lower_float_bin_arith {
             ) -> Result<()> {
                 let lhs = self.lhs(ctx);
                 let rhs = self.rhs(ctx);
-                let flags = self.fast_math(ctx).map_or_else(|| $flags(ctx), llvm_fast_math);
+                let flags = match self.fast_math(ctx) {
+                    Some(fast_math) => llvm_fast_math(fast_math),
+                    None => without(ctx, $flags(ctx)),
+                };
                 let op = <$llvm_op>::new_with_fast_math_flags(ctx, lhs, rhs, flags);
                 rewriter.insert_op(ctx, &op);
                 rewriter.replace_operation_with_values(
@@ -397,6 +400,12 @@ macro_rules! lower_float_bin_arith {
 
 fn no_fast_math(_ctx: &Context) -> FastmathFlagsAttr {
     FastmathFlagsAttr::default()
+}
+
+/// `flags` less what the compilation disables.
+fn without(ctx: &Context, flags: FastmathFlagsAttr) -> FastmathFlagsAttr {
+    let disabled = llvm_fast_math(DisabledFastMath::of(ctx).optimizations());
+    FastmathFlagsAttr(flags.0.difference(disabled.0))
 }
 
 fn llvm_fast_math(fast_math: EnumSet<FastMath>) -> FastmathFlagsAttr {

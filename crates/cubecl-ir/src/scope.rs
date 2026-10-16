@@ -201,6 +201,7 @@ fn ty_key<T: 'static>(ctx: &Context) -> Option<AuxDataIndex> {
 
 pub trait ContextExt {
     fn aux_ty<T: Send + 'static>(&self) -> &T;
+    fn try_aux_ty<T: Send + 'static>(&self) -> Option<&T>;
     fn aux_ty_mut<T: Send + 'static>(&mut self) -> &mut T;
     fn set_aux_ty<T: Send + 'static>(&mut self, value: T);
     fn set_address_type(&mut self, addr: AddressType);
@@ -214,6 +215,10 @@ impl ContextExt for Context {
             .ok_or_else(|| format!("Key for {} should exist", type_name::<T>()))
             .unwrap();
         self.aux_data[key].downcast_ref().unwrap()
+    }
+
+    fn try_aux_ty<T: Send + 'static>(&self) -> Option<&T> {
+        self.aux_data[ty_key::<T>(self)?].downcast_ref()
     }
 
     #[track_caller]
