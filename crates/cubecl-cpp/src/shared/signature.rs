@@ -27,9 +27,7 @@ use pliron::{
 
 use crate::{
     shared::{
-        CompilationState, CppValue,
-        binary::rounds_on_its_own,
-        shared_op, shared_op_with_out,
+        CompilationState, CppValue, shared_op, shared_op_with_out,
         ty::{InfoStructType, TypeExtCPP, UniformPointerType},
         type_info_definition_sized,
     },
@@ -335,7 +333,7 @@ impl<T: CppTarget> Pass for CollectIncludesPass<T> {
 pub fn prints_rounded_arithmetic(ctx: &Context, module: Ptr<Operation>) -> bool {
     let mut found = false;
     visit_all_ops_with_interface::<dyn FastMathOp, _>(ctx, &mut found, module, |ctx, found, op| {
-        *found |= rounds_on_its_own(ctx, op.get_operation());
+        *found |= op.get_operation().forbids_contraction(ctx);
     });
     found
 }

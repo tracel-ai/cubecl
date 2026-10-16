@@ -2,7 +2,6 @@
 
 use crate::prelude::*;
 use cubecl_core::ir::{
-    FastMath,
     dialect::{
         branch::{RangeLoopOp, WhileOp},
         cmp::{FMaxOp, FMinOp},
@@ -129,7 +128,7 @@ fn promote(
     let narrow_ty = result.get_type(ctx);
     let wide_ty = widen_ty(ctx, narrow_ty);
 
-    let rounded = takes_rounded_operands(ctx, op);
+    let rounded = rounds_in_f16(ctx, op);
     let operands: Vec<Value> = op
         .operands(ctx)
         .into_iter()
@@ -151,15 +150,16 @@ fn promote(
 
     let narrowed = narrowed.get_result(ctx);
     result.replace_all_uses_with(ctx, &narrowed);
-    widened.insert(narrowed, wide_result);
+    if !rounded {
+        widened.insert(narrowed, wide_result);
+    }
     rewriter.erase_operation(ctx, op);
 }
 
-/// Whether `op` must see its operands as the f16 they round to. Carrying them in f32 is what
-/// contraction does, keeping a result's bits past its rounding.
-fn takes_rounded_operands(ctx: &Context, op: Ptr<Operation>) -> bool {
-    op_cast::<dyn FastMathOp>(&*op.dyn_op(ctx))
-        .is_some_and(|op| !op.allows(ctx, FastMath::AllowContraction.into()))
+/// Whether `op` must see its operands, and hand on its result, as the f16 they round to. Carrying
+/// them in f32 is what contraction does, keeping a result's bits past its rounding.
+fn rounds_in_f16(ctx: &Context, op: Ptr<Operation>) -> bool {
+    op_cast::<dyn FastMathOp>(&*op.dyn_op(ctx)).is_some_and(|op| !op.allows_contraction(ctx))
 }
 
 /// `value`, an f16, as an f32 read just before `user`.

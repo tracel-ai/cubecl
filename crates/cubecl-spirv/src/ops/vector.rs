@@ -1,6 +1,5 @@
 use cubecl_core::{self as cubecl, define_scalar, define_size, num_traits::One, prelude::*};
 use cubecl_ir::{
-    FastMath,
     dialect::vector,
     interfaces::{TypedExt, fast_math::FastMathOp},
     prelude::*,
@@ -164,20 +163,12 @@ lower_unop!(vector::FSumOp, f_vector_sum);
 
 // `OpDot`, `Length` and `Normalize` take no `NoContraction`, so a kernel that forbids contraction
 // spells them out in arithmetic that does.
-lower_binop!(vector::FDotOp, rounded_dot, |op, ctx| !contracts(ctx, op));
-lower_unop!(
-    vector::MagnitudeOp,
-    rounded_magnitude,
-    |op, ctx| !contracts(ctx, op)
-);
-lower_unop!(
-    vector::NormalizeOp,
-    rounded_normalize,
-    |op, ctx| !contracts(ctx, op)
-);
+lower_binop!(vector::FDotOp, rounded_dot, spelled_out);
+lower_unop!(vector::MagnitudeOp, rounded_magnitude, spelled_out);
+lower_unop!(vector::NormalizeOp, rounded_normalize, spelled_out);
 
-fn contracts(ctx: &Context, op: &dyn FastMathOp) -> bool {
-    op.allows(ctx, FastMath::AllowContraction.into())
+fn spelled_out(op: &impl FastMathOp, ctx: &Context) -> bool {
+    !op.allows_contraction(ctx)
 }
 
 #[cube]

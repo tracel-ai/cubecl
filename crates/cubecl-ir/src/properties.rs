@@ -621,6 +621,14 @@ impl FastMath {
             FastMath::ReducedPrecision => "reduced-precision",
         }
     }
+
+    /// The optimizations that allowing this one also allows.
+    pub fn includes(self) -> EnumSet<FastMath> {
+        match self {
+            FastMath::AllowTransform => FastMath::AllowContraction | FastMath::AllowReassociation,
+            _ => EnumSet::empty(),
+        }
+    }
 }
 
 impl fmt::Display for FastMath {
@@ -664,6 +672,83 @@ impl<'de> serde::Deserialize<'de> for FastMath {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let name = String::deserialize(deserializer)?;
         name.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+/// Fast-math optimizations no op may use, whatever its kernel allows. Written `all`, or as names
+/// such as `allow-contraction,not-nan`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisabledFastMath(EnumSet<FastMath>);
+
+impl DisabledFastMath {
+    /// Disabling an optimization also disables every one that includes it.
+    pub fn new(optimizations: EnumSet<FastMath>) -> Self {
+        let including = FastMath::all()
+            .iter()
+            .filter(|flag| !flag.includes().is_disjoint(optimizations));
+        Self(optimizations | including.collect::<EnumSet<_>>())
+    }
+
+    pub fn optimizations(self) -> EnumSet<FastMath> {
+        self.0
+    }
+}
+
+impl FromStr for DisabledFastMath {
+    type Err = UnknownFastMath;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let optimizations = match text.trim() {
+            "all" => FastMath::all(),
+            "" => FastMath::none(),
+            names => names
+                .split(',')
+                .map(|name| name.trim().parse())
+                .collect::<Result<_, _>>()?,
+        };
+        Ok(Self::new(optimizations))
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for DisabledFastMath {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self.0 == FastMath::all() {
+            true => serializer.serialize_str("all"),
+            false => serializer.collect_seq(self.0.iter()),
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for DisabledFastMath {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Written;
+
+        impl<'de> serde::de::Visitor<'de> for Written {
+            type Value = DisabledFastMath;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str(r#""all", or fast-math names such as ["allow-contraction"]"#)
+            }
+
+            fn visit_str<E: serde::de::Error>(self, text: &str) -> Result<Self::Value, E> {
+                text.parse().map_err(E::custom)
+            }
+
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut names: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut optimizations = FastMath::none();
+                while let Some(flag) = names.next_element::<FastMath>()? {
+                    optimizations |= flag;
+                }
+                Ok(DisabledFastMath::new(optimizations))
+            }
+        }
+
+        deserializer.deserialize_any(Written)
     }
 }
 

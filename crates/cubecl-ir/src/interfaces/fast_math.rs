@@ -1,7 +1,6 @@
 use core::fmt;
 
-use alloc::{string::String, vec::Vec};
-use core::str::FromStr;
+use alloc::string::String;
 use pliron::{
     combine::{Parser, many1, satisfy},
     dict_key, input_err,
@@ -11,11 +10,7 @@ use pliron::{
     printable::{self, Printable},
 };
 
-use crate::{
-    ContextExt, EnumSet, FastMath, UnknownFastMath,
-    dialect::math::{FAddOp, FDivOp, FMulOp, FSubOp},
-    prelude::*,
-};
+use crate::{ContextExt, EnumSet, FastMath, prelude::*};
 
 dict_key!(ATTR_KEY_FAST_MATH, "fast_math");
 
@@ -63,82 +58,6 @@ impl Parsable for FastMathAttr {
     }
 }
 
-/// Fast-math optimizations no op may use, whatever its kernel allows. Written `all`, or as names
-/// such as `allow-contraction,not-nan`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct DisabledFastMath(EnumSet<FastMath>);
-
-impl DisabledFastMath {
-    pub fn new(mut optimizations: EnumSet<FastMath>) -> Self {
-        // `AllowTransform` includes both, so disabling either takes it too.
-        if optimizations.contains(FastMath::AllowContraction)
-            || optimizations.contains(FastMath::AllowReassociation)
-        {
-            optimizations |= FastMath::AllowTransform;
-        }
-        Self(optimizations)
-    }
-
-    pub fn optimizations(self) -> EnumSet<FastMath> {
-        self.0
-    }
-
-    /// What the compilation `ctx` holds disables, which is nothing unless it was told otherwise.
-    pub fn of(ctx: &Context) -> Self {
-        ctx.try_aux_ty::<DisabledFastMath>()
-            .copied()
-            .unwrap_or_default()
-    }
-}
-
-impl FromStr for DisabledFastMath {
-    type Err = UnknownFastMath;
-
-    fn from_str(text: &str) -> core::result::Result<Self, Self::Err> {
-        let optimizations = match text.trim() {
-            "all" => FastMath::all(),
-            "" => FastMath::none(),
-            names => names
-                .split(',')
-                .map(|name| name.trim().parse())
-                .collect::<core::result::Result<_, _>>()?,
-        };
-        Ok(Self::new(optimizations))
-    }
-}
-
-#[cfg(feature = "serde")]
-impl serde::Serialize for DisabledFastMath {
-    fn serialize<S: serde::Serializer>(
-        &self,
-        serializer: S,
-    ) -> core::result::Result<S::Ok, S::Error> {
-        match self.0 == FastMath::all() {
-            true => serializer.serialize_str("all"),
-            false => serializer.collect_seq(self.0.iter()),
-        }
-    }
-}
-
-#[cfg(feature = "serde")]
-impl<'de> serde::Deserialize<'de> for DisabledFastMath {
-    fn deserialize<D: serde::Deserializer<'de>>(
-        deserializer: D,
-    ) -> core::result::Result<Self, D::Error> {
-        #[derive(serde::Deserialize)]
-        #[serde(untagged)]
-        enum Written {
-            Text(String),
-            List(Vec<FastMath>),
-        }
-
-        match Written::deserialize(deserializer)? {
-            Written::Text(text) => text.parse().map_err(serde::de::Error::custom),
-            Written::List(names) => Ok(Self::new(names.into_iter().collect())),
-        }
-    }
-}
-
 /// A float op whose result fast-math permissions may loosen.
 #[op_interface]
 pub trait FastMathOp {
@@ -151,14 +70,13 @@ pub trait FastMathOp {
             .get_operation()
             .get_attr::<FastMathAttr>(ctx, &ATTR_KEY_FAST_MATH)?
             .0;
-        Some(allowed - DisabledFastMath::of(ctx).optimizations())
+        Some(allowed - ctx.disabled_fast_math().optimizations())
     }
 
-    fn set_fast_math(&self, ctx: &Context, mut fast_math: EnumSet<FastMath>) {
-        // Passes ask for the specific permission, and `AllowTransform` includes these two.
-        if fast_math.contains(FastMath::AllowTransform) {
-            fast_math |= FastMath::AllowContraction | FastMath::AllowReassociation;
-        }
+    fn set_fast_math(&self, ctx: &Context, fast_math: EnumSet<FastMath>) {
+        // Passes ask for the specific permission, not for one that includes it.
+        let included = fast_math.iter().map(FastMath::includes);
+        let fast_math = included.fold(fast_math, |all, flags| all | flags);
         self.get_operation()
             .set_attr(ctx, &ATTR_KEY_FAST_MATH, FastMathAttr(fast_math));
     }
@@ -167,11 +85,15 @@ pub trait FastMathOp {
     /// about allows all that are not disabled, which is how cubecl's own passes treat every op by
     /// default.
     fn allows(&self, ctx: &Context, required: EnumSet<FastMath>) -> bool {
-        required.is_disjoint(DisabledFastMath::of(ctx).optimizations())
+        required.is_disjoint(ctx.disabled_fast_math().optimizations())
             && self
                 .get_operation()
                 .get_attr::<FastMathAttr>(ctx, &ATTR_KEY_FAST_MATH)
                 .is_none_or(|allowed| allowed.0.is_superset(required))
+    }
+
+    fn allows_contraction(&self, ctx: &Context) -> bool {
+        self.allows(ctx, FastMath::AllowContraction.into())
     }
 }
 
@@ -181,21 +103,4 @@ macro_rules! FastMathOp {
         #[::pliron::derive::op_interface_impl]
         impl $crate::interfaces::fast_math::FastMathOp for $ty {}
     )*};
-}
-
-/// The fast-math permissions on `op`, if it is a float op the kernel said something about.
-pub fn op_fast_math(ctx: &Context, op: Ptr<Operation>) -> Option<EnumSet<FastMath>> {
-    op_cast::<dyn FastMathOp>(&*op.dyn_op(ctx)).and_then(|op| op.fast_math(ctx))
-}
-
-/// Whether `op` is arithmetic a downstream compiler could fuse with its neighbours, in a kernel
-/// that forbids it.
-pub fn forbids_contraction(ctx: &Context, op: Ptr<Operation>) -> bool {
-    let fusable = op.is_op::<FAddOp>(ctx)
-        || op.is_op::<FSubOp>(ctx)
-        || op.is_op::<FMulOp>(ctx)
-        || op.is_op::<FDivOp>(ctx);
-    fusable
-        && op_cast::<dyn FastMathOp>(&*op.dyn_op(ctx))
-            .is_some_and(|op| !op.allows(ctx, FastMath::AllowContraction.into()))
 }

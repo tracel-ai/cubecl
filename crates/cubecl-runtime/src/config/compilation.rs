@@ -1,4 +1,4 @@
-use cubecl_ir::interfaces::fast_math::DisabledFastMath;
+use cubecl_ir::DisabledFastMath;
 
 use super::logger::{LogLevel, LoggerConfig};
 
@@ -127,6 +127,7 @@ impl LogLevel for CompilationLogLevel {}
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
+    use alloc::string::ToString;
     use cubecl_ir::{EnumSet, FastMath};
 
     fn disabled(toml: &str) -> EnumSet<FastMath> {
@@ -149,7 +150,17 @@ mod tests {
             FastMath::NotNaN | FastMath::UnsignedZero
         );
         assert!(toml::from_str::<CompilationConfig>(r#"disabled_fast_math = "some""#).is_err());
-        assert!(toml::from_str::<CompilationConfig>(r#"disabled_fast_math = ["fast"]"#).is_err());
+    }
+
+    #[test]
+    fn an_unknown_name_is_named_in_the_error() {
+        let error = toml::from_str::<CompilationConfig>(r#"disabled_fast_math = ["fast"]"#)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("not a fast-math optimization: fast"),
+            "{error}"
+        );
     }
 
     /// `allow-transform` includes contraction, so it cannot outlive it.

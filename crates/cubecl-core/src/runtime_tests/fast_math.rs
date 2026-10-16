@@ -1,6 +1,5 @@
 //! A kernel that allows no fast math gets each operation rounded on its own, on every backend
-//! that can say so. Only those whose default arithmetic is IEEE keep NaN, infinity and the sign of
-//! zero as well.
+//! that can say so, and keeps NaN, infinity and the sign of zero where the device can.
 
 use crate::{self as cubecl};
 use cubecl::prelude::*;
@@ -51,6 +50,23 @@ fn default_product_sum<F: Float, N: Size>(
     product_sum(a, b, c, output);
 }
 
+#[cube(fast_math = FastMath::none())]
+fn strict_product<F: Float, N: Size>(a: Vector<F, N>, b: Vector<F, N>) -> Vector<F, N> {
+    a * b
+}
+
+#[cube(launch_unchecked)]
+fn strict_product_default_sum<F: Float, N: Size>(
+    a: &[Vector<F, N>],
+    b: &[Vector<F, N>],
+    c: &[Vector<F, N>],
+    output: &mut [Vector<F, N>],
+) {
+    if ABSOLUTE_POS < output.len() {
+        output[ABSOLUTE_POS] = strict_product(a[ABSOLUTE_POS], b[ABSOLUTE_POS]) + c[ABSOLUTE_POS];
+    }
+}
+
 #[cube(launch_unchecked, fast_math = FastMath::AllowContraction.into())]
 fn contracting_product_sum<F: Float, N: Size>(
     a: &[Vector<F, N>],
@@ -76,6 +92,8 @@ fn transforming_product_sum<F: Float, N: Size>(
 pub enum ProductSum {
     /// Allows no fast math.
     Strict,
+    /// Multiplies in a function that allows no fast math, and adds in one that says nothing.
+    StrictProduct,
     /// Says nothing about fast math.
     Default,
     /// Allows contraction only.
@@ -96,6 +114,7 @@ pub fn product_sum_residue<F: Float + num_traits::Float + CubeElement>(
     let c = [-rounded; 4];
     let launch = match kernel {
         ProductSum::Strict => strict_product_sum::launch_unchecked::<F>,
+        ProductSum::StrictProduct => strict_product_default_sum::launch_unchecked::<F>,
         ProductSum::Default => default_product_sum::launch_unchecked::<F>,
         ProductSum::Contracting => contracting_product_sum::launch_unchecked::<F>,
         ProductSum::Transforming => transforming_product_sum::launch_unchecked::<F>,
@@ -127,23 +146,27 @@ fn assert_strict_rounds_each_operation<
     if !F::supported_uses(client).contains(TypeUsage::Arithmetic) {
         return;
     }
-    for vectorization in [1usize, 4] {
-        assert_eq!(
-            product_sum_residue::<F>(client, ProductSum::Strict, vectorization),
-            [F::zero(); 4],
-            "{} fused the product into the add at vectorization {vectorization}",
-            core::any::type_name::<F>(),
-        );
+    for kernel in [ProductSum::Strict, ProductSum::StrictProduct] {
+        for vectorization in [1usize, 4] {
+            assert_eq!(
+                product_sum_residue::<F>(client, kernel, vectorization),
+                [F::zero(); 4],
+                "{kernel:?} fused the {} product into the add at vectorization {vectorization}",
+                core::any::type_name::<F>(),
+            );
+        }
     }
 }
 
-/// WGSL cannot forbid one operation's contraction, so its own compiler may still fuse it.
-fn forbids_contraction(client: &Client) -> bool {
-    !client.name().starts_with("wgpu<wgsl")
+/// WGSL cannot forbid one operation's contraction, so its own compiler may still fuse it. Metal
+/// has no such call either, and nothing has checked what its compiler does.
+fn can_forbid_contraction(client: &Client) -> bool {
+    let name = client.name();
+    !(name.starts_with("wgpu<wgsl") || name == "wgpu<msl>" || name == "metal")
 }
 
 pub fn test_strict_rounds_each_operation<R: Runtime>(client: Client) {
-    if !forbids_contraction(&client) {
+    if !can_forbid_contraction(&client) {
         return;
     }
     assert_strict_rounds_each_operation::<half::f16>(&client);
@@ -162,7 +185,7 @@ fn strict_dot(a: &[Vector<f32, Const<2>>], b: &[Vector<f32, Const<2>>], output: 
 /// A dot product is a multiply-add per lane, so it fuses the same way. Each pair cancels the other
 /// lane's rounded square exactly, in both lane orders.
 pub fn test_strict_dot_rounds_each_operation<R: Runtime>(client: Client) {
-    if !forbids_contraction(&client) {
+    if !can_forbid_contraction(&client) {
         return;
     }
     let (near_one, rounded) = near_one::<f32>();
@@ -186,7 +209,7 @@ pub fn test_strict_dot_rounds_each_operation<R: Runtime>(client: Client) {
 
 /// Run under `disabled_fast_math = ["allow-contraction"]`: no kernel fuses, whatever it allows.
 pub fn test_disabled_contraction_reaches_every_kernel<R: Runtime>(client: Client) {
-    if !forbids_contraction(&client) {
+    if !can_forbid_contraction(&client) {
         return;
     }
     for kernel in [
@@ -215,6 +238,9 @@ fn strict_identities(input: &[f32], output: &mut [f32]) {
 }
 
 pub fn test_strict_keeps_nan_infinity_and_signed_zero<R: Runtime>(client: Client) {
+    if !client.properties().features.ieee_special_values {
+        return;
+    }
     let input = client.create_from_slice(f32::as_bytes(&[f32::INFINITY, -1.0, -0.0]));
     let output = client.empty(4 * size_of::<f32>());
     unsafe {
@@ -264,26 +290,7 @@ macro_rules! testgen_fast_math {
 
             add_test!(test_strict_rounds_each_operation);
             add_test!(test_strict_dot_rounds_each_operation);
-        }
-    };
-}
-
-/// For runtimes whose arithmetic is IEEE by default, where a NaN or a signed zero can only be lost
-/// to cubecl's own rewrites. Vulkan may assume neither exists.
-#[allow(missing_docs)]
-#[macro_export]
-macro_rules! testgen_fast_math_ieee {
-    () => {
-        mod fast_math_ieee {
-            use super::*;
-
-            #[$crate::runtime_tests::test_log::test]
-            fn test_strict_keeps_nan_infinity_and_signed_zero() {
-                let client = TestRuntime::client(&Default::default());
-                cubecl_core::runtime_tests::fast_math::test_strict_keeps_nan_infinity_and_signed_zero::<
-                    TestRuntime,
-                >(client);
-            }
+            add_test!(test_strict_keeps_nan_infinity_and_signed_zero);
         }
     };
 }

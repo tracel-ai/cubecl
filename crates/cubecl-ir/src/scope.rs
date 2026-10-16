@@ -42,7 +42,8 @@ use portable_atomic::AtomicUsize;
 use spin::LazyLock;
 
 use crate::{
-    AddressSpace, AddressType, DeviceProperties, ElemType, FastMath, TargetProperties, TypeHash,
+    AddressSpace, AddressType, DeviceProperties, DisabledFastMath, ElemType, FastMath,
+    TargetProperties, TypeHash,
     arena::DropBump,
     attributes::{
         ATTR_BUFFER_BINDING, ATTR_KEY_ARG_ATTRS, ATTR_TENSOR_MAP_BINDING, BoolAttr,
@@ -206,6 +207,8 @@ pub trait ContextExt {
     fn set_aux_ty<T: Send + 'static>(&mut self, value: T);
     fn set_address_type(&mut self, addr: AddressType);
     fn address_type(&self) -> AddressType;
+    /// What this compilation disables, which is nothing unless it was told otherwise.
+    fn disabled_fast_math(&self) -> DisabledFastMath;
 }
 
 impl ContextExt for Context {
@@ -251,6 +254,10 @@ impl ContextExt for Context {
     fn address_type(&self) -> AddressType {
         let key = self.aux_data_map[&ADDRESS_TYPE_KEY];
         *self.aux_data[key].downcast_ref::<AddressType>().unwrap()
+    }
+
+    fn disabled_fast_math(&self) -> DisabledFastMath {
+        self.try_aux_ty().copied().unwrap_or_default()
     }
 }
 

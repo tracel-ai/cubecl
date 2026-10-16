@@ -1,7 +1,7 @@
 //! `disabled_fast_math = ["allow-contraction"]`, which forbids contraction in every kernel,
 //! including one that never mentions fast math.
 
-use cubecl_core::ir::interfaces::fast_math::DisabledFastMath;
+use cubecl_core::ir::DisabledFastMath;
 use cubecl_core::prelude::*;
 use cubecl_core::runtime_tests::fast_math;
 use cubecl_cpu::CpuRuntime;
