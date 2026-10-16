@@ -29,8 +29,10 @@ use cubecl_core::{
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::{
+    FastMath,
     attributes::{ATTR_BUFFER_IO, BufferIOAttr, EntrypointInterface},
     dialect::{scf::BranchToSCFPass, ssa_matrix::MatrixToSSAPass},
+    interfaces::fast_math::{forbids_contraction, op_fast_math},
     prelude::{OperationPtrExt, SingleBlockRegionInterface, SymbolOpInterface},
     rewrite::{CanonicalizePass, visit_all_ops_of_type_mut},
     settings::{Dim3, KernelSettings},
@@ -67,15 +69,18 @@ use pliron::{
 use pliron_spirv::{
     PlironBuilder, ToSpirvOp,
     attrs::VerCapExtAttr,
-    decorations::{DecoratableOp, set_decoration_uniform, set_decoration_uniform_id},
+    decorations::{
+        DecoratableOp, set_decoration_fp_fast_math_mode, set_decoration_no_contraction,
+        set_decoration_uniform, set_decoration_uniform_id,
+    },
     ops::{EntryPointOp, ExecutionModeOp, SpirvModuleOp},
 };
 use rspirv::{
     binary::Assemble,
     dr::Module,
     spirv::{
-        AddressingModel, Capability, ExecutionMode, ExecutionModel, MemoryModel, Scope,
-        StorageClass,
+        AddressingModel, Capability, ExecutionMode, ExecutionModel, FPFastMathMode, MemoryModel,
+        Scope, StorageClass,
     },
 };
 use std::{fmt::Debug, sync::Arc};
@@ -389,6 +394,48 @@ fn declare_entry_point(ctx: &mut Context, module: SpirvModuleOp, shared_args: Ve
             execution_mode.get_operation().insert_at_front(block, ctx);
         },
     );
+}
+
+/// Carries the fast-math permissions of `cube_op` onto `op`, the SPIR-V it lowered to.
+///
+/// Forbidding is always `NoContraction`, which NVIDIA honors where it ignores an empty
+/// `FPFastMathMode`. That only grants, and needs `SPV_KHR_float_controls2`.
+pub(crate) fn decorate_fast_math(ctx: &Context, cube_op: Ptr<Operation>, op: Ptr<Operation>) {
+    let dyn_op = op.dyn_op(ctx);
+    let Some(decoratable) = op_cast::<dyn DecoratableOp>(&*dyn_op) else {
+        return;
+    };
+    if forbids_contraction(ctx, cube_op) {
+        set_decoration_no_contraction(decoratable, ctx);
+        return;
+    }
+
+    let float_controls2 = ctx
+        .aux_ty::<WgpuCompilationOptions>()
+        .vulkan
+        .supports_fp_fast_math;
+    let Some(fast_math) = op_fast_math(ctx, cube_op).filter(|_| float_controls2) else {
+        return;
+    };
+    let mode = fp_fast_math_mode(fast_math);
+    if !mode.difference(FPFastMathMode::ALLOW_CONTRACT).is_empty() {
+        set_decoration_fp_fast_math_mode(decoratable, ctx, mode.into());
+    }
+}
+
+fn fp_fast_math_mode(fast_math: EnumSet<FastMath>) -> FPFastMathMode {
+    fast_math.iter().fold(FPFastMathMode::NONE, |mode, flag| {
+        mode | match flag {
+            FastMath::NotNaN => FPFastMathMode::NOT_NAN,
+            FastMath::NotInf => FPFastMathMode::NOT_INF,
+            FastMath::UnsignedZero => FPFastMathMode::NSZ,
+            FastMath::AllowReciprocal => FPFastMathMode::ALLOW_RECIP,
+            FastMath::AllowContraction => FPFastMathMode::ALLOW_CONTRACT,
+            FastMath::AllowReassociation => FPFastMathMode::ALLOW_REASSOC,
+            FastMath::AllowTransform => FPFastMathMode::ALLOW_TRANSFORM,
+            FastMath::ReducedPrecision => FPFastMathMode::NONE,
+        }
+    })
 }
 
 pub(crate) fn decorate_uniform(ctx: &Context, op: Ptr<Operation>, uniformity: Option<UniformAttr>) {

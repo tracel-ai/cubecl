@@ -1,6 +1,7 @@
 use cubecl_ir::{
-    NamedRewrite,
+    EnumSet, FastMath, NamedRewrite,
     dialect::math::{FAddOp, FMulOp, FNegOp, FSubOp, FmaOp},
+    interfaces::fast_math::{FastMathOp, op_fast_math},
     prelude::{Inserter as _, Rewriter as _, *},
     rewrite::MatchRewritePass,
 };
@@ -22,18 +23,33 @@ enum Negate {
     Factor,
 }
 
-/// The product `value` defines, if this is its only use.
+/// The product `value` defines, if this is its only use and it may be contracted.
 ///
 /// Fusing one that feeds anything else would leave it computed twice.
 fn lone_product(ctx: &Context, value: Value) -> Option<FMulOp> {
     let mul = value.defining_op()?.as_op::<FMulOp>(ctx)?;
-    (mul.get_result(ctx).num_uses(ctx) == 1).then_some(mul)
+    (mul.get_result(ctx).num_uses(ctx) == 1 && contracts(ctx, &mul)).then_some(mul)
+}
+
+fn contracts(ctx: &Context, op: &dyn FastMathOp) -> bool {
+    op.allows(ctx, FastMath::AllowContraction.into())
+}
+
+/// What the fused op allows: whatever both halves allow.
+fn fused_fast_math(ctx: &Context, mul: FMulOp, op: Ptr<Operation>) -> Option<EnumSet<FastMath>> {
+    [mul.fast_math(ctx), op_fast_math(ctx, op)]
+        .into_iter()
+        .flatten()
+        .reduce(|product, consumer| product & consumer)
 }
 
 /// The product, what is added to it, and what needs negating, for an `op` of the form
 /// `a * b + c`, `a * b - c` or `c - a * b`, in either operand order.
 fn as_fma(ctx: &Context, op: Ptr<Operation>) -> Option<(FMulOp, Value, Negate)> {
     if let Some(add) = op.as_op::<FAddOp>(ctx) {
+        if !contracts(ctx, &add) {
+            return None;
+        }
         let (lhs, rhs) = (add.lhs(ctx), add.rhs(ctx));
         return lone_product(ctx, lhs)
             .map(|mul| (mul, rhs, Negate::Nothing))
@@ -41,6 +57,9 @@ fn as_fma(ctx: &Context, op: Ptr<Operation>) -> Option<(FMulOp, Value, Negate)> 
     }
 
     let sub = op.as_op::<FSubOp>(ctx)?;
+    if !contracts(ctx, &sub) {
+        return None;
+    }
     let (lhs, rhs) = (sub.lhs(ctx), sub.rhs(ctx));
     lone_product(ctx, lhs)
         .map(|mul| (mul, rhs, Negate::Addend))
@@ -78,6 +97,9 @@ impl MatchRewrite for InstCombine {
         }
 
         let fma = FmaOp::new(ctx, a, b, c);
+        if let Some(fast_math) = fused_fast_math(ctx, mul, op) {
+            fma.set_fast_math(ctx, fast_math);
+        }
         rewriter.insert_op(ctx, &fma);
         rewriter.replace_operation(ctx, op, fma.get_operation());
         rewriter.erase_operation(ctx, mul.get_operation());

@@ -29,38 +29,53 @@ fn fast_rsqrt<F: Float>(x: F) -> F {
 }
 ```
 
+### Strict Arithmetic
+
+`FastMath::none()` allows nothing: every operation rounds on its own, so a product is never fused
+into the add that consumes it, and nothing is assumed about `Inf`, `NaN` or the sign of zero. Use it
+where the arithmetic itself is the algorithm, as in compensated summation.
+
+```rust
+/// The error term of `a + b`, exact only if neither operation is fused or reassociated.
+#[cube(fast_math = FastMath::none())]
+fn two_sum<F: Float>(a: F, b: F) -> (F, F) {
+    let sum = a + b;
+    let b_virtual = sum - a;
+    let error = (a - (sum - b_virtual)) + (b - b_virtual);
+    (sum, error)
+}
+```
+
+A function that says nothing gets each backend's default, which usually allows contraction: CubeCL
+fuses a product into the add that consumes it, and so may the driver.
+
 ### Backend Implementation
 
 #### WGPU with Vulkan Compiler
 
-Vulkan supports each flag as a modifier for all floating point operations. The compiler applies all
-enabled flags, but the implementation is driver-specific.
+Forbidden contraction is `NoContraction` on each operation. Other permissions become
+`FPFastMathMode` where the device supports `SPV_KHR_float_controls2`. Vulkan may assume there is no
+`Inf`, `NaN` or signed zero whatever the flags say, so strict kernels on Vulkan are guaranteed only
+the rounding of each operation.
 
-#### CUDA/HIP
+#### CPU, and CUDA/HIP through LLVM
 
-These targets only expose specific intrinsics. These intrinsics are used when all their required
-flags are present. Only `f32` is supported for these intrinsics, other float types are not affected
-by math flags on CUDA/HIP. Note that some of these are guesswork, because CUDA lacks documentation
-on special value handling.
+The flags map to LLVM's fast-math flags on each operation.
 
-| CubeCL Function   | Intrinsic           | Required Flags                                                  |
-| ----------------- | ------------------- | --------------------------------------------------------------- |
-| `a / b`           | `__fdividef(a, b)`  | `AllowReciprocal \| ReducedPrecision \| UnsignedZero \| NotInf` |
-| `exp(a)`          | `__expf(a)`         | `ReducedPrecision \| NotNaN \| NotInf`                          |
-| `log(a)`          | `__logf(a)`         | `ReducedPrecision \| NotNaN \| NotInf`                          |
-| `sin(a)`          | `__sinf(a)`         | `ReducedPrecision \| NotNaN \| NotInf`                          |
-| `cos(a)`          | `__cosf(a)`         | `ReducedPrecision \| NotNaN \| NotInf`                          |
-| `tanh(a)`         | `__tanhf(a)`        | `ReducedPrecision \| NotNaN \| NotInf`                          |
-| `powf(a)`         | `__powf(a)`         | `ReducedPrecision \| NotNaN \| NotInf`                          |
-| `sqrt(a)`         | `__fsqrt_rn(a)`     | `ReducedPrecision \| NotNaN \| NotInf`                          |
-| `inverse_sqrt(a)` | `__frsqrt_rn(a)`    | `ReducedPrecision \| NotNaN \| NotInf`                          |
-| `recip(a)`        | `__frcp_rn(a)`      | `AllowReciprocal \| ReducedPrecision \| UnsignedZero \| NotInf` |
-| `normalize(a)`    | n/a (`__frsqrt_rn`) | `ReducedPrecision \| NotNaN \| NotInf`                          |
-| `magnitude(a)`    | n/a (`__fsqrt_rn`)  | `ReducedPrecision \| NotNaN \| NotInf`                          |
+#### CUDA/HIP C++
 
-#### Other Backends
+Forbidden contraction prints add, subtract, multiply and divide as `__fadd_rn` and its siblings on
+CUDA, and as helpers compiled under `#pragma clang fp contract(off)` on HIP. Half precision runs in
+`f32` for these, which rounds to the same result.
 
-Other backends currently don't support any of these optimizations.
+#### Metal
+
+Metal compiles with `MathMode::Safe`, so it never contracts on its own.
+
+#### WGSL
+
+WGSL has no way to forbid contraction for one operation. CubeCL does not fuse a strict kernel's
+operations, but the shader compiler may.
 
 ## FastDivmod
 

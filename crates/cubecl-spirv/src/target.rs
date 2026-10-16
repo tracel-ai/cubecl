@@ -22,7 +22,7 @@ use pliron::{
     std_deps::sync::LazyLock,
 };
 use pliron_spirv::{
-    decorations::{DecoratableOp, DecorationInfo},
+    decorations::{DecoratableOp, DecorationInfo, get_decoration_fp_fast_math_mode},
     interfaces::{VerCapExtOpInterface, VerCapExtTypeInterface},
     ops::{AddressOfOp, GlobalVariableOp, InBoundsAccessChainOp, LoadOp, SpirvModuleOp},
     types::{ArrayType, PointerType, RuntimeArrayType, StructType},
@@ -356,6 +356,12 @@ fn update_ver_cap_ext(ctx: &Context, module: &mut SpirvModuleOp, node: IRNode) {
                 for cap in custom.custom_capabilities(ctx) {
                     module.insert_capability(ctx, cap);
                 }
+            }
+            // Outside OpenCL kernels, `FPFastMathMode` only exists through float_controls2.
+            if let Some(decorated) = op_cast::<dyn DecoratableOp>(&*dyn_op)
+                && get_decoration_fp_fast_math_mode(decorated, ctx).is_some()
+            {
+                module.insert_capability(ctx, Capability::FloatControls2);
             }
             if let Some(ver_cap_ext) = op_cast(&*dyn_op) {
                 update_ver_cap_ext_op(ctx, module, ver_cap_ext);

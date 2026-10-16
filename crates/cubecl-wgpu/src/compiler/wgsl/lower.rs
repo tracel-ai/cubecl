@@ -1,4 +1,4 @@
-use cubecl_ir::{NamedRewrite, Scope, prelude::*};
+use cubecl_ir::{NamedRewrite, Scope, interfaces::fast_math::op_fast_math, prelude::*};
 
 #[op_interface]
 pub trait LowerOp {
@@ -26,9 +26,10 @@ impl MatchRewrite for LowerOpsWgsl {
         op: Ptr<Operation>,
     ) -> Result<()> {
         let dyn_op = op.dyn_op(ctx);
+        let fast_math = op_fast_math(ctx, op);
         let scope = Scope::from_context_and_inserter(ctx, rewriter);
         let lower = op_cast::<dyn LowerOp>(&*dyn_op).unwrap();
-        let new_values = lower.lower(&scope);
+        let new_values = scope.with_fast_math(fast_math, |scope| lower.lower(scope));
         rewriter.replace_operation_with_values(ctx, op, new_values);
 
         Ok(())

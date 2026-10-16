@@ -11,12 +11,13 @@ use pliron::{
 };
 
 use crate::{
-    CanMaterialize, Commutative, ConstantValue, NoMemoryEffect, NoSideEffects,
-    PropagatesUniformity, Pure,
+    CanMaterialize, Commutative, ConstantValue, FastMath, FastMathOp, NoMemoryEffect,
+    NoSideEffects, PropagatesUniformity, Pure,
     attributes::{BoolAttr, FloatAttr, IndexAttr, IntAttrExt},
     dialect::{pure_binop, pure_unop},
     interfaces::{
         Expression, ExpressionCanonicalize, ExpressionValue, TriviallyUnrollable, TypedExt,
+        fast_math::FastMathOp as _,
         side_effects::{ConditionallySpeculatable, Speculatability},
     },
     prelude::*,
@@ -265,14 +266,22 @@ const_eval!(FAddOp, {
 });
 simplify!(FAddOp, {
     |lhs, _| match lhs?.float_as_f64(ctx) {
-        Some(0.0) => Some(self.rhs(ctx)),
+        Some(zero) if zero == 0.0 && self.drops_zero(ctx, zero) => Some(self.rhs(ctx)),
         _ => None?,
     },
     |_, rhs| match rhs?.float_as_f64(ctx) {
-        Some(0.0) => Some(self.lhs(ctx)),
+        Some(zero) if zero == 0.0 && self.drops_zero(ctx, zero) => Some(self.lhs(ctx)),
         _ => None?,
     }
 });
+
+impl FAddOp {
+    /// Whether adding `zero` leaves every operand as it was: true of `-0`, and of `+0` only when
+    /// the sign of zero may be ignored, since `-0 + +0` is `+0`.
+    fn drops_zero(&self, ctx: &Context, zero: f64) -> bool {
+        zero.is_sign_negative() || self.allows(ctx, FastMath::UnsignedZero.into())
+    }
+}
 
 pure_binop!("math.saturating_s_add", SaturatingSAddOp);
 Commutative!(SaturatingSAddOp);
@@ -332,7 +341,10 @@ const_eval!(FSubOp, {
     // x - x -> 0. Only for one lane: `float_attr` carries no vectorization.
     custom: |_, _| {
         let result = self.get_result(ctx);
-        if self.lhs(ctx) == self.rhs(ctx) && result.vector_size(ctx) == 1 {
+        if self.lhs(ctx) == self.rhs(ctx)
+            && result.vector_size(ctx) == 1
+            && self.allows(ctx, FastMath::NotNaN | FastMath::NotInf)
+        {
             Some(float_attr(ctx, result.get_type(ctx), 0.0))
         } else {
             None
@@ -399,6 +411,9 @@ const_eval!(FMulOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs * rhs,
     // 0 * x -> 0; x * 0 -> 0
     custom: |lhs, rhs| {
+        if !self.allows(ctx, FastMath::NotNaN | FastMath::NotInf | FastMath::UnsignedZero) {
+            return None;
+        }
         let const_val = lhs.or(rhs)?;
         Some(match const_val.float_as_f64(ctx) {
             Some(0.0) => float_attr(ctx, const_val.get_type(ctx), 0.0),
@@ -514,6 +529,9 @@ const_eval!(FDivOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs / rhs,
     // 0 / x -> 0
     custom: |lhs, _| {
+        if !self.allows(ctx, FastMath::NotNaN | FastMath::UnsignedZero) {
+            return None;
+        }
         Some(match lhs?.float_as_f64(ctx) {
             Some(0.0) => float_attr(ctx, lhs?.get_type(ctx), 0.0),
             _ => None?
@@ -647,9 +665,14 @@ pure_binop!("math.f_rem", FRemOp);
 const_eval!(FRemOp, {
     [FloatAttr(f16, bf16, f32, f64)]: |lhs, rhs| lhs % rhs,
     // 0 % x -> 0
-    custom: |lhs, _| match lhs?.float_as_f64(ctx) {
-        Some(0.0) => Some(float_attr(ctx, lhs?.get_type(ctx), 0.0)),
-        _ => None
+    custom: |lhs, _| {
+        if !self.allows(ctx, FastMath::NotNaN | FastMath::UnsignedZero) {
+            return None;
+        }
+        match lhs?.float_as_f64(ctx) {
+            Some(0.0) => Some(float_attr(ctx, lhs?.get_type(ctx), 0.0)),
+            _ => None
+        }
     },
 });
 simplify!(FRemOp, {
@@ -701,9 +724,14 @@ pure_binop!("math.f_mod_floor", FModFloorOp);
 const_eval!(FModFloorOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs - (lhs / rhs).floor() * rhs,
     // 0 % x -> 0
-    custom: |lhs, _| match lhs?.float_as_f64(ctx) {
-        Some(0.0) => Some(float_attr(ctx, lhs?.get_type(ctx), 0.0)),
-        _ => None?
+    custom: |lhs, _| {
+        if !self.allows(ctx, FastMath::NotNaN | FastMath::UnsignedZero) {
+            return None;
+        }
+        match lhs?.float_as_f64(ctx) {
+            Some(0.0) => Some(float_attr(ctx, lhs?.get_type(ctx), 0.0)),
+            _ => None
+        }
     },
 });
 
@@ -842,6 +870,46 @@ fn dp4a_const(a: i32, b: i32, c: i32) -> i32 {
         acc.wrapping_add(byte(a, shift).wrapping_mul(byte(b, shift)))
     })
 }
+
+FastMathOp!(
+    FAddOp,
+    FSubOp,
+    FMulOp,
+    FDivOp,
+    FRemOp,
+    FModFloorOp,
+    FmaOp,
+    CAbsOp,
+    RecipOp,
+    SqrtOp,
+    RsqrtOp,
+    CbrtOp,
+    RcbrtOp,
+    ExpOp,
+    Expm1Op,
+    LogOp,
+    Log1pOp,
+    PowfOp,
+    PowiOp,
+    HypotOp,
+    RhypotOp,
+    SinOp,
+    CosOp,
+    TanOp,
+    SinhOp,
+    CoshOp,
+    TanhOp,
+    ArcSinOp,
+    ArcCosOp,
+    ArcTanOp,
+    ArcSinhOp,
+    ArcCoshOp,
+    ArcTanhOp,
+    ArcTan2Op,
+    DegreesOp,
+    RadiansOp,
+    ErfOp
+);
 
 #[cfg(test)]
 mod dp4a_tests {

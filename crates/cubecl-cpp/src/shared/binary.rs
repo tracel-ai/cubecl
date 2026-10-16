@@ -1,3 +1,4 @@
+use core::fmt::Display;
 use cubecl_core::{
     self as cubecl, define_scalar, define_size,
     frontend::polyfills::{expand_dp4a_polyfill, powi_int},
@@ -9,9 +10,9 @@ use cubecl_core::{
             math::*,
             memory::{self, IndexOp},
         },
-        interfaces::TypedExt,
+        interfaces::{TypedExt, fast_math::forbids_contraction},
         prelude::*,
-        types::{ArrayType, PointerType},
+        types::{ArrayType, PointerType, scalar::Float64Type},
     },
     prelude::*,
 };
@@ -59,15 +60,56 @@ macro_rules! operator {
     };
 }
 
+/// Float arithmetic, printed so the C++ compiler cannot fuse it when the kernel forbids that.
+macro_rules! float_operator {
+    ($name:ident, $op:expr, $rounded:literal) => {
+        shared_op_with_out!($name, |op, ctx| {
+            let lhs = op.lhs(ctx).name(ctx);
+            let rhs = op.rhs(ctx).name(ctx);
+            match rounds_on_its_own(ctx, op.get_operation()) {
+                true => rounded_call(ctx, op.get_result(ctx), $rounded, $op, lhs, rhs),
+                false => format!("{lhs} {} {rhs}", $op),
+            }
+        });
+        unrolling!($name);
+    };
+}
+
+/// Whether `op` prints as a call that never fuses. Complex values keep their operator: the
+/// `__fadd_rn` family has no complex overload.
+pub(crate) fn rounds_on_its_own(ctx: &Context, op: Ptr<Operation>) -> bool {
+    forbids_contraction(ctx, op) && !op.result(ctx).is_complex(ctx)
+}
+
+/// `lhs op rhs` as a call the compiler never fuses: `__fadd_rn` on CUDA, a helper compiled under
+/// `#pragma clang fp contract(off)` on HIP. Metal compiles with `MathMode::Safe`, which already
+/// forbids it. Half types arrive promoted to `f32` by `PromoteUnsupportedTypes`.
+fn rounded_call(
+    ctx: &Context,
+    out: Value,
+    name: &str,
+    op: &str,
+    lhs: impl Display,
+    rhs: impl Display,
+) -> String {
+    let double = out.scalar_ty(ctx).deref(ctx).is::<Float64Type>();
+    match ctx.target() {
+        Target::Cuda if double => format!("__d{name}_rn({lhs}, {rhs})"),
+        Target::Cuda => format!("__f{name}_rn({lhs}, {rhs})"),
+        Target::Hip => format!("cubecl_{name}_rn({lhs}, {rhs})"),
+        Target::Metal => format!("{lhs} {op} {rhs}"),
+    }
+}
+
 operator!(IAddOp, "+");
-operator!(FAddOp, "+");
+float_operator!(FAddOp, "+", "add");
 operator!(ISubOp, "-");
-operator!(FSubOp, "-");
+float_operator!(FSubOp, "-", "sub");
 operator!(SDivOp, "/");
 operator!(UDivOp, "/");
-operator!(FDivOp, "/");
+float_operator!(FDivOp, "/", "div");
 operator!(IMulOp, "*");
-operator!(FMulOp, "*");
+float_operator!(FMulOp, "*", "mul");
 operator!(IEqualOp, "==");
 operator!(FEqualOp, "==");
 operator!(BoolEqualOp, "==");
