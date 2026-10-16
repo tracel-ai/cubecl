@@ -1,5 +1,5 @@
 #[cfg(persistence)]
-use cubecl_environment::persistence::{Namespace, Store, StoreOptions};
+use cubecl_environment::persistence::{Namespace, Store, StoreError, StoreOptions};
 
 use crate::throughput::{ThroughputKey, ThroughputValue};
 use alloc::format;
@@ -72,11 +72,19 @@ impl ThroughputCache {
     ///
     /// Throughput measurements are nondeterministic, so a concurrent process (or an
     /// earlier run) may have recorded a different value for the same key; the cache
-    /// keeps the existing value in that case rather than failing.
+    /// keeps the existing value in that case rather than failing. A value the storage
+    /// refuses is still served for the rest of the run.
     pub fn insert(&mut self, key: ThroughputKey, value: ThroughputValue) {
         #[cfg(persistence)]
-        if let Err(err) = self.cache.insert(key, value) {
-            log::warn!("Concurrent throughput measurement, keeping the existing value: {err}");
+        match self.cache.insert(key, value) {
+            Ok(()) => {}
+            Err(err @ StoreError::Backend { .. }) => log::warn!(
+                "Throughput measurement could not be stored, it will be measured again next run: {}",
+                err.reason()
+            ),
+            Err(err) => {
+                log::warn!("Concurrent throughput measurement, keeping the existing value: {err}")
+            }
         }
 
         #[cfg(not(persistence))]
