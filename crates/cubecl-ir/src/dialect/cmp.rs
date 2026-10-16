@@ -620,6 +620,12 @@ const_eval!(BoolEqualOp, {
         false => None
     }
 });
+simplify!(BoolEqualOp, {
+    // true == x -> x
+    |lhs, _| lhs?.as_bool(ctx)?.then(|| self.rhs(ctx)),
+    // x == true -> x
+    |_, rhs| rhs?.as_bool(ctx)?.then(|| self.lhs(ctx))
+});
 
 cmp_binop!("cmp.i_not_equal", INotEqualOp);
 Commutative!(INotEqualOp);
@@ -651,6 +657,12 @@ const_eval!(BoolNotEqualOp, {
         true => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
         false => None
     }
+});
+simplify!(BoolNotEqualOp, {
+    // false != x -> x
+    |lhs, _| (!lhs?.as_bool(ctx)?).then(|| self.rhs(ctx)),
+    // x != false -> x
+    |_, rhs| (!rhs?.as_bool(ctx)?).then(|| self.lhs(ctx))
 });
 
 fn cmp_result_ty(ctx: &Context, lhs: &Value, _: &Value) -> TypeHandle {
