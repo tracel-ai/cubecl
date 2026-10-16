@@ -626,13 +626,9 @@ fn dominance_sort(
     ops.sort_by(|lhs, rhs| {
         let lhs_block_index = topo_block_indices[&lhs.deref(ctx).get_parent_block().unwrap()];
         let rhs_block_index = topo_block_indices[&rhs.deref(ctx).get_parent_block().unwrap()];
-        match lhs_block_index.cmp(&rhs_block_index) {
-            ord @ (Ordering::Less | Ordering::Greater) => ord,
-            Ordering::Equal => match dom_info.op_strictly_dominates_op(ctx, *lhs, *rhs) {
-                true => Ordering::Less,
-                false => Ordering::Greater,
-            },
-        }
+        lhs_block_index
+            .cmp(&rhs_block_index)
+            .then_with(|| block_order(ctx, *lhs, *rhs))
     });
 }
 
