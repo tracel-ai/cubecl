@@ -88,12 +88,13 @@ impl Statement {
                     DefineKind::Type => prelude_type("define_scalar"),
                     DefineKind::Size => prelude_type("define_size"),
                 };
-                // A type's definition lasts to the end of its block, a size's for good.
+                // A definition, of a type or a size, lasts to the end of its block.
+                let definition = format_ident!("__{}_definition", name.to_string().to_lowercase());
                 let register = match kind {
-                    DefineKind::Size => quote![{ scope.register_size::<#name>(#value); }],
+                    DefineKind::Size => {
+                        quote![let #definition = scope.define_size::<#name>(#value);]
+                    }
                     DefineKind::Type => {
-                        let definition =
-                            format_ident!("__{}_definition", name.to_string().to_lowercase());
                         quote![let #definition = scope.define_type::<#name>(#value);]
                     }
                 };

@@ -738,6 +738,19 @@ impl Scope {
         }
     }
 
+    /// `T` names `size` until the returned definition is dropped, which gives `T` back the size
+    /// it named before, if any: what a `size!` in a function re-entered on another size leaves
+    /// its outer call.
+    pub fn define_size<T: 'static>(&self, size: usize) -> SizeDefinition<'_> {
+        let before = self.resolve_size::<T>();
+        self.register_size::<T>(size);
+        SizeDefinition {
+            scope: self,
+            size: TypeId::of::<T>(),
+            before,
+        }
+    }
+
     /// Register the comptime size for the given generic size.
     pub fn register_size<T: 'static>(&self, size: usize) {
         let state = self.state_mut();
@@ -999,6 +1012,21 @@ impl Drop for TypeDefinition<'_> {
     fn drop(&mut self) {
         if let Some(before) = self.before {
             self.scope.state_mut().typemap.insert(self.ty, before);
+        }
+    }
+}
+
+/// A size's definition for a block, made by [`Scope::define_size`].
+pub struct SizeDefinition<'a> {
+    scope: &'a Scope,
+    size: TypeId,
+    before: Option<usize>,
+}
+
+impl Drop for SizeDefinition<'_> {
+    fn drop(&mut self) {
+        if let Some(before) = self.before {
+            self.scope.state_mut().sizemap.insert(self.size, before);
         }
     }
 }

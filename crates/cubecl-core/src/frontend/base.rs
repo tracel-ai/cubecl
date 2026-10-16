@@ -41,6 +41,8 @@ macro_rules! expand_assert {
     });
 }
 
+/// `let size!(N) = size;` defines a size `N` to the end of its block. A function re-entered on
+/// another size gives `N` back to its outer call when the inner one returns.
 #[macro_export]
 macro_rules! size {
     ($name: ident) => {
@@ -104,5 +106,31 @@ mod tests {
         ));
         let named = named_after_reentry::expand(&scope, 1);
         assert_eq!(named, ElemType::Float(FloatKind::F32));
+    }
+
+    /// What `N` sizes after the call one depth down has sized it again: two at the bottom, four
+    /// above it.
+    #[cube]
+    fn sized_after_reentry(#[comptime] depth: u32) -> comptime_type!(usize) {
+        let size!(N) = comptime!(match depth {
+            0 => 2usize,
+            _ => 4usize,
+        });
+        if comptime!(depth > 0) {
+            sized_after_reentry(comptime!(depth - 1));
+        }
+        intrinsic!(|scope| N::__expand_value(scope))
+    }
+
+    /// A size's definition lasts to the end of its block as a type's does: a function re-entered
+    /// on another size finds its own again when the inner call returns.
+    #[test]
+    fn a_size_lasts_to_the_end_of_its_block() {
+        let scope = Scope::root(KernelSettings::new(
+            Dim3::new_single(),
+            ExecutionMode::Checked,
+            AddressType::U32,
+        ));
+        assert_eq!(sized_after_reentry::expand(&scope, 1), 4);
     }
 }
