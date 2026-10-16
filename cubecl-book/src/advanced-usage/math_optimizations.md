@@ -49,6 +49,9 @@ fn two_sum<F: Float>(a: F, b: F) -> (F, F) {
 A function that says nothing gets each backend's default, which usually allows contraction: CubeCL
 fuses a product into the add that consumes it, and so may the driver.
 
+To take optimizations away from every kernel, including those in other crates, see
+`disabled_fast_math` in the [configuration](./config.md).
+
 ### Backend Implementation
 
 #### WGPU with Vulkan Compiler
