@@ -88,7 +88,7 @@ macro_rules! test_unary_impl {
         }),*],
         $epsilon:expr) => {
         pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: Client) {
-            #[cube(launch_unchecked, fast_math = FastMath::all())]
+            #[cube(launch_unchecked)]
             fn test_function<$float_type: Float, In: Size, Out: Size>(
                 input: &[Vector<$float_type, In>], output: &mut [Vector<$float_type, Out>]
             ) {

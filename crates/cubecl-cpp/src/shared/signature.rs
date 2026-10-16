@@ -5,9 +5,10 @@ use cubecl_core::ir::{
     attributes::{ATTR_BUFFER_IO, BufferIOAttr, FuncInterface, buffer_io_by_position},
     cube_op,
     dialect::OperationPtrExt,
+    interfaces::fast_math::FastMathOp,
     interfaces::{AlignedType, HasElementType},
     prelude::*,
-    rewrite::visit_all_ops_of_type,
+    rewrite::{visit_all_ops_of_type, visit_all_ops_with_interface},
     types::{ArrayType, PointerType, RuntimeArrayType, VectorType, scalar::IndexType},
 };
 use cubecl_opt::passes::alloc_shared_memory::AllocSharedOp;
@@ -26,7 +27,9 @@ use pliron::{
 
 use crate::{
     shared::{
-        CompilationState, CppValue, shared_op, shared_op_with_out,
+        CompilationState, CppValue,
+        binary::rounds_on_its_own,
+        shared_op, shared_op_with_out,
         ty::{InfoStructType, TypeExtCPP, UniformPointerType},
         type_info_definition_sized,
     },
@@ -50,6 +53,14 @@ pub struct DeclareComplexHelpersOp {}
 
 shared_op!(DeclareComplexHelpersOp, |_, _| {
     crate::cuda::dialect::COMPLEX_HELPERS.into()
+});
+
+#[cube_op(name = "cpp.declare_rounded_arithmetic")]
+#[result_ty(none)]
+pub struct DeclareRoundedArithmeticOp {}
+
+shared_op!(DeclareRoundedArithmeticOp, |_, _| {
+    crate::hip::dialect::ROUNDED_ARITHMETIC.into()
 });
 
 #[cube_op(name = "cpp.load_info")]
@@ -318,6 +329,15 @@ impl<T: CppTarget> Pass for CollectIncludesPass<T> {
         }
         Ok(res)
     }
+}
+
+/// Whether any op in `module` prints as one of HIP's rounded-arithmetic helpers.
+pub fn prints_rounded_arithmetic(ctx: &Context, module: Ptr<Operation>) -> bool {
+    let mut found = false;
+    visit_all_ops_with_interface::<dyn FastMathOp, _>(ctx, &mut found, module, |ctx, found, op| {
+        *found |= rounds_on_its_own(ctx, op.get_operation());
+    });
+    found
 }
 
 pub fn shared_memory_size(ctx: &Context, module: Ptr<Operation>) -> usize {

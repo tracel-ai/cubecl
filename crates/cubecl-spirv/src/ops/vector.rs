@@ -1,5 +1,10 @@
 use cubecl_core::{self as cubecl, define_scalar, define_size, num_traits::One, prelude::*};
-use cubecl_ir::{dialect::vector, interfaces::TypedExt, prelude::*};
+use cubecl_ir::{
+    FastMath,
+    dialect::vector,
+    interfaces::{TypedExt, fast_math::FastMathOp},
+    prelude::*,
+};
 use cubecl_opt::passes::uniformity::op_dyn_uniformity;
 use pliron_spirv::{
     ext::gl,
@@ -8,7 +13,7 @@ use pliron_spirv::{
 
 use crate::{
     decorate_uniform,
-    lower::lower_unop,
+    lower::{lower_binop, lower_unop},
     ops::{
         base::{binop_to_spirv_dialect, unop_to_spirv_dialect},
         to_spirv_dialect::ToSpirvDialectOp,
@@ -156,6 +161,45 @@ binop_to_spirv_dialect!(vector::FDotOp => ops::DotOp);
 
 lower_unop!(vector::ISumOp, i_vector_sum);
 lower_unop!(vector::FSumOp, f_vector_sum);
+
+// `OpDot`, `Length` and `Normalize` take no `NoContraction`, so a kernel that forbids contraction
+// spells them out in arithmetic that does.
+lower_binop!(vector::FDotOp, rounded_dot, |op, ctx| !contracts(ctx, op));
+lower_unop!(
+    vector::MagnitudeOp,
+    rounded_magnitude,
+    |op, ctx| !contracts(ctx, op)
+);
+lower_unop!(
+    vector::NormalizeOp,
+    rounded_normalize,
+    |op, ctx| !contracts(ctx, op)
+);
+
+fn contracts(ctx: &Context, op: &dyn FastMathOp) -> bool {
+    op.allows(ctx, FastMath::AllowContraction.into())
+}
+
+#[cube]
+fn rounded_dot<T: Float, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> T {
+    let products = lhs * rhs;
+    let mut out = products.extract(0usize);
+    #[unroll]
+    for i in 1..products.vector_size() {
+        out += products.extract(i);
+    }
+    out
+}
+
+#[cube]
+fn rounded_magnitude<T: Float, N: Size>(vector: Vector<T, N>) -> T {
+    rounded_dot(vector, vector).sqrt()
+}
+
+#[cube]
+fn rounded_normalize<T: Float, N: Size>(vector: Vector<T, N>) -> Vector<T, N> {
+    vector / Vector::new(rounded_magnitude(vector))
+}
 
 #[cube]
 fn i_vector_sum<T: Numeric, N: Size>(vector: Vector<T, N>) -> T {

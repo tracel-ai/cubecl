@@ -19,6 +19,7 @@ mod tests {
     cubecl_std::testgen_tensor_identity!([f16, bf16, f32, u32]);
     cubecl_std::testgen_quantized_view!(f32);
     cubecl_core::testgen_complex_validation!();
+    cubecl_core::testgen_fast_math_ieee!();
 
     #[cube(launch_unchecked)]
     fn transcendentals<N: Size>(

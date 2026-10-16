@@ -142,6 +142,16 @@ pub fn kernel_complex_div<C: ComplexCore>(output: &mut [C], lhs: &[C], rhs: &[C]
     }
 }
 
+/// Complex arithmetic in a kernel that allows no fast math, which must still compile everywhere
+/// complex does.
+#[cube(launch_unchecked, fast_math = FastMath::none())]
+pub fn kernel_complex_strict<C: ComplexCore>(output: &mut [C], lhs: &[C], rhs: &[C]) {
+    if ABSOLUTE_POS < output.len() {
+        let (lhs, rhs) = (lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
+        output[ABSOLUTE_POS] = lhs * rhs + lhs - lhs / rhs;
+    }
+}
+
 #[cube(launch_unchecked)]
 pub fn kernel_complex_neg<C: ComplexCore>(output: &mut [C], input: &[C]) {
     if ABSOLUTE_POS < output.len() {
@@ -407,6 +417,34 @@ macro_rules! test_complex_binary_bool_eq_op {
     };
 }
 
+test_complex_binary_eq_op!(
+    test_complex_strict_cf32,
+    kernel_complex_strict,
+    num_complex::Complex<f32>,
+    lhs: [
+        num_complex::Complex::new(1.0f32, 2.0f32),
+        num_complex::Complex::new(3.0f32, 4.0f32),
+    ],
+    rhs: [
+        num_complex::Complex::new(1.0f32, 0.0f32),
+        num_complex::Complex::new(2.0f32, 0.0f32),
+    ],
+    expect: |lhs, rhs| lhs * rhs + lhs - lhs / rhs
+);
+test_complex_binary_eq_op!(
+    test_complex_strict_cf64,
+    kernel_complex_strict,
+    num_complex::Complex<f64>,
+    lhs: [
+        num_complex::Complex::new(1.0f64, 2.0f64),
+        num_complex::Complex::new(3.0f64, 4.0f64),
+    ],
+    rhs: [
+        num_complex::Complex::new(1.0f64, 0.0f64),
+        num_complex::Complex::new(2.0f64, 0.0f64),
+    ],
+    expect: |lhs, rhs| lhs * rhs + lhs - lhs / rhs
+);
 test_complex_binary_eq_op!(
     test_complex_add_cf32,
     kernel_complex_add,
@@ -1217,6 +1255,22 @@ macro_rules! testgen_complex_core {
             fn test_complex_div_cf64() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::complex::test_complex_div_cf64::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_strict_cf32() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_strict_cf32::<TestRuntime>(
+                    client,
+                );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_strict_cf64() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_strict_cf64::<TestRuntime>(
+                    client,
+                );
             }
 
             #[$crate::runtime_tests::test_log::test]

@@ -23,6 +23,7 @@ pub mod control_flow;
 pub mod debug;
 pub mod different_rank;
 pub mod enums;
+pub mod fast_math;
 pub mod file;
 pub mod index;
 pub mod launch;
@@ -168,6 +169,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_tensor_indexing!();
         cubecl_core::testgen_debug!();
         cubecl_core::testgen_binary_untyped!();
+        cubecl_core::testgen_fast_math!();
         cubecl_core::testgen_cluster!();
 
         cubecl_core::testgen_enums!();
