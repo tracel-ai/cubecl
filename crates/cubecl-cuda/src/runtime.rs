@@ -1,6 +1,6 @@
 use crate::{
     compiler::{CudaBackend, CudaCompilationOptions},
-    compute::{CudaServer, context::CudaContext},
+    compute::{CudaServer, communication::Nccl, context::CudaContext},
     device::CudaDevice,
 };
 use cubecl_common::{
@@ -450,8 +450,8 @@ impl DeviceService for CudaServer {
             logger,
             policy,
         );
-        // SAFETY: the call only tries to `dlopen` each candidate name.
-        utilities.server_comm_enabled = unsafe { cudarc::nccl::sys::is_culib_present() };
+        utilities.device_transport = Nccl::new(arch_version)
+            .map(|nccl| nccl.transport(utilities.properties.features.types.elem.keys().copied()));
 
         CudaServer::new(
             cuda_ctx,

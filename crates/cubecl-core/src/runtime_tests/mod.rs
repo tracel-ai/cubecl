@@ -14,6 +14,7 @@ pub mod capture_status;
 pub mod cluster;
 pub mod cmma;
 pub mod cmma2;
+pub mod collectives;
 pub mod comparison;
 pub mod compile;
 pub mod complex;
@@ -174,6 +175,7 @@ macro_rules! testgen_untyped {
 
         cubecl_core::testgen_to_client!();
         cubecl_core::testgen_all_reduce!();
+        cubecl_core::testgen_collectives!();
 
         cubecl_core::testgen_control_flow!();
         cubecl_core::testgen_stream_errors!();
