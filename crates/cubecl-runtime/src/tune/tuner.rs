@@ -248,7 +248,6 @@ impl<K: AutotuneKey> Tuner<K> {
         key: &K,
         inputs: &F::At<'a>,
         tunables: &TunableSet<K, F, Out, Id>,
-        #[cfg_attr(not(persistence), allow(unused))] checksum: impl FnOnce() -> String + Send + Sync,
         client: &Client,
         mut log_context: Option<crate::tune::AutotuneLogContext>,
     ) -> TuneCacheResult
@@ -277,10 +276,15 @@ impl<K: AutotuneKey> Tuner<K> {
             if matches!(cur, TuneCacheResult::Hit { .. } | TuneCacheResult::Pending) {
                 return cur;
             }
+            // A key with one candidate is answered, not tuned: nothing to read or to store.
+            if tunables.autotunables().nth(1).is_none() {
+                cache.cache_insert(key.clone(), 0);
+                return TuneCacheResult::Hit { fastest_index: 0 };
+            }
 
             #[cfg(persistence)]
             let cur = {
-                set_checksum = checksum();
+                set_checksum = tunables.compute_checksum();
                 let cur = cache.look_up(key, &set_checksum);
                 let mut log = self.logger.lock();
                 if let AutotuneLogLevel::Full = log.log_level_autotune() {
@@ -299,19 +303,13 @@ impl<K: AutotuneKey> Tuner<K> {
                     gathered = cache.mark_pending(key.clone());
                 }
             }
-            // Scope the guard: the rest of this function re-locks `self.cache` (fast
-            // path insert, `process_request`), and the mutex is non-reentrant.
+            // Scope the guard: the rest of this function re-locks `self.cache`, and the mutex is
+            // non-reentrant.
         }
 
         log::info!("Tuning {key}");
 
         let autotunables = tunables.autotunables().collect::<Vec<_>>();
-
-        // Fast path: single tunable, no benchmarking needed.
-        if autotunables.len() == 1 {
-            self.cache.lock().cache_insert(key.clone(), 0);
-            return TuneCacheResult::Hit { fastest_index: 0 };
-        }
 
         // A `CompileOnly` override queues the candidates' kernels and measures nothing; the key
         // stays untuned for the pass that profiles it. Marked before the candidates run, so
@@ -348,8 +346,6 @@ impl<K: AutotuneKey> Tuner<K> {
         #[cfg(persistence)]
         let checksum = set_checksum;
 
-        // After the fast path: a key with one candidate is answered, not
-        // tuned, and leaves nothing to record.
         #[cfg(persistence)]
         let mut recording =
             crate::tune::record::TuneRecording::new(&self.cache.lock(), key, &checksum);

@@ -59,8 +59,11 @@ pub struct AutotuneStatistics {
     /// inside another key's candidates is not gathered: it registers if it is
     /// ever measured.
     pub registered: usize,
-    /// Tuned by measuring their candidates, here or on a device of the same part.
+    /// Tuned by measuring their candidates.
     pub measured: usize,
+    /// Answered from the persistent autotune cache instead: measured since this process read it,
+    /// by another device of the same part or another process sharing the cache.
+    pub loaded: usize,
     /// Every candidate failed: the pick was made unmeasured.
     pub failed: usize,
     /// Dropped before it settled: a candidate panicked, the device was lost
@@ -76,7 +79,7 @@ impl AutotuneStatistics {
     /// The keys done, however they ended: never more than
     /// [`registered`](Self::registered).
     pub fn settled(&self) -> usize {
-        self.measured + self.failed + self.abandoned
+        self.measured + self.loaded + self.failed + self.abandoned
     }
 }
 
@@ -174,8 +177,10 @@ pub enum KernelHandling {
 /// How a registered autotune key ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TuneOutcome {
-    /// Tuned by measuring its candidates, here or on a device of the same part.
+    /// Tuned by measuring its candidates.
     Measured,
+    /// Answered from the persistent autotune cache instead.
+    Loaded,
     /// Every candidate failed: the pick was made unmeasured.
     Failed,
     /// Dropped before it settled.
@@ -310,6 +315,7 @@ impl CollectorTallies {
             autotune: AutotuneStatistics {
                 registered: tunes.registered,
                 measured: tunes.settled[TuneOutcome::Measured.index()],
+                loaded: tunes.settled[TuneOutcome::Loaded.index()],
                 failed: tunes.settled[TuneOutcome::Failed.index()],
                 abandoned: tunes.settled[TuneOutcome::Abandoned.index()],
                 persisted: tunes.later[TuneOutcome::later_index(TunePick::Persisted)],
@@ -429,7 +435,7 @@ impl Outcome for KernelOutcome {
 
 impl Outcome for TuneOutcome {
     type Later = TunePick;
-    const OUTCOMES: usize = 3;
+    const OUTCOMES: usize = 4;
     const LATER: usize = 1;
     const ABANDONED: Self = Self::Abandoned;
 
@@ -438,6 +444,7 @@ impl Outcome for TuneOutcome {
             Self::Measured => 0,
             Self::Failed => 1,
             Self::Abandoned => 2,
+            Self::Loaded => 3,
         }
     }
 

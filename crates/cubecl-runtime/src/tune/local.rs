@@ -207,14 +207,8 @@ where
                 .expect("Should run when selected by autotune.");
         }
 
-        let fastest = tuner.check_tune::<I, Out, Id>(
-            &key,
-            &inputs,
-            &operations,
-            || operations.compute_checksum(),
-            client,
-            log_context,
-        );
+        let fastest =
+            tuner.check_tune::<I, Out, Id>(&key, &inputs, &operations, client, log_context);
 
         // Run the execution depending on the cache state.
         match fastest {

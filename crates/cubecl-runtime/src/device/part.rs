@@ -55,6 +55,11 @@ impl Display for DevicePart {
 mod tests {
     use super::*;
     use alloc::vec;
+    use cubecl_common::profile::TimingMethod;
+    use cubecl_ir::{
+        DeviceIdentity, HardwareProperties, MemoryDeviceProperties, PciAddress, PhysicalDevice,
+        VectorSize, features::Features,
+    };
 
     #[test]
     fn every_field_tells_parts_apart() {
@@ -102,6 +107,56 @@ mod tests {
                 .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
             "{part}"
         );
+    }
+
+    #[test]
+    fn identical_cards_in_two_slots_are_one_part() {
+        let in_slot = |bus| {
+            let mut physical = PhysicalDevice::default();
+            physical.pci_address = Some(PciAddress {
+                domain: 0,
+                bus,
+                device: 0,
+                function: 0,
+            });
+            let mut properties = l4();
+            properties.identity.physical = Some(physical);
+            DevicePart::new("cuda", &properties)
+        };
+
+        assert_eq!(in_slot(3), in_slot(4));
+    }
+
+    fn l4() -> DeviceProperties {
+        let hardware = HardwareProperties {
+            load_width: 128,
+            vector_register_count: None,
+            plane_size_min: 32,
+            plane_size_max: 32,
+            max_bindings: 32,
+            max_shared_memory_size: 101376,
+            max_cube_count: (u32::MAX, u16::MAX as u32, u16::MAX as u32),
+            max_units_per_cube: 1024,
+            max_cube_dim: (1024, 1024, 64),
+            num_streaming_multiprocessors: Some(58),
+            num_tensor_cores: None,
+            min_tensor_cores_dim: None,
+            num_cpu_cores: None,
+            last_level_cache_size: None,
+            max_vector_size: VectorSize::MAX,
+            cube_mma_reserved_shared_memory: 0,
+        };
+        DeviceProperties::new(
+            Features::default(),
+            MemoryDeviceProperties::new(5 << 30, 256),
+            hardware,
+            TimingMethod::Device,
+            DeviceIdentity {
+                name: "NVIDIA L4".to_string(),
+                fingerprint: "ptx_sm89".to_string(),
+                physical: None,
+            },
+        )
     }
 
     fn rtx_2060() -> DevicePart {

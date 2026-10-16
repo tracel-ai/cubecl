@@ -1,5 +1,5 @@
 //! The device type of each runtime, named without naming the runtime crate,
-//! and the [part](DevicePart) a device is.
+//! and the [part](crate::device::DevicePart) a device is.
 //!
 //! Each one is a value and nothing more — which GPU, which index, which kind of
 //! card — so they live here rather than in the runtime crates that act on them.

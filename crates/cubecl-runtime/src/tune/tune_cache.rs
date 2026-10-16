@@ -397,8 +397,7 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// unverified answer: the store's answers ingested, the one for `key` verified, and failing
     /// that, the store's answer under `checksum`.
     pub(crate) fn look_up(&mut self, key: &K, checksum: &str) -> TuneCacheResult {
-        // Browser hydration is asynchronous, so persistent entries may have arrived after
-        // construction.
+        // An environment switch left the cache unhydrated.
         if matches!(self.fastest(key), TuneCacheResult::Miss) {
             self.sync_persistent();
         }
@@ -408,10 +407,10 @@ impl<K: AutotuneKey> TuneCache<K> {
         }
     }
 
-    /// The answer the store holds for `key` under `checksum` and memory does not: one a device of
-    /// the same part stored since this cache hydrated, or one that hydration left behind an answer
-    /// under another candidate list. A key a `CompileOnly` pass gathered here was measured all the
-    /// same, and settles as measured.
+    /// The answer the store holds for `key` under `checksum` and memory does not: one another
+    /// device of the same part or another process sharing the store wrote since this cache
+    /// hydrated, or one that hydration left behind an answer under another candidate list. A key a
+    /// `CompileOnly` pass gathered here settles as loaded.
     fn read_through(&mut self, key: &K, checksum: &str) -> TuneCacheResult {
         let Some(persistent_cache) = self.persistent_cache.as_mut() else {
             return TuneCacheResult::Miss;
@@ -427,7 +426,7 @@ impl<K: AutotuneKey> TuneCache<K> {
             registration: Some(registration),
         }) = self.in_memory_cache.remove(key)
         {
-            registration.settle(TuneOutcome::Measured);
+            registration.settle(TuneOutcome::Loaded);
         }
         self.cache_insert(key.clone(), value.fastest_index);
         TuneCacheResult::Hit {
