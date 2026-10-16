@@ -459,10 +459,10 @@ mod shared_memory_tests {
     use super::CompilationOptions;
     use crate::MslCompiler;
 
-    /// Where the first of two arrays is freed, relative to the second's declaration.
+    /// How `two_arrays` frees its first array and waits for the cube before using its second.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     enum Freed {
-        Before,
+        Synced,
         DeclaredBeforeTheBarrier,
         Unsynced,
         InBranch,
@@ -478,7 +478,7 @@ mod shared_memory_tests {
         first[UNIT_POS as usize] = 1.0;
         sync_cube();
         match comptime!(freed) {
-            Freed::Before | Freed::DeclaredBeforeTheBarrier | Freed::Unsynced => unsafe {
+            Freed::Synced | Freed::DeclaredBeforeTheBarrier | Freed::Unsynced => unsafe {
                 first.free()
             },
             Freed::InBranch => {
@@ -493,7 +493,10 @@ mod shared_memory_tests {
             }
             Freed::Never => {}
         }
-        if comptime!(freed != Freed::Unsynced && freed != Freed::DeclaredBeforeTheBarrier) {
+        if comptime!(!matches!(
+            freed,
+            Freed::Unsynced | Freed::DeclaredBeforeTheBarrier
+        )) {
             sync_cube();
         }
         let mut second = Shared::<[f32]>::new_slice(256usize);
@@ -522,7 +525,7 @@ mod shared_memory_tests {
     /// not their sum.
     #[test]
     fn an_array_declared_after_a_free_reuses_its_bytes() {
-        assert_eq!(shared_bytes(Freed::Before), 1024);
+        assert_eq!(shared_bytes(Freed::Synced), 1024);
         assert_eq!(shared_bytes(Freed::Never), 2048);
     }
 
