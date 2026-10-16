@@ -36,6 +36,8 @@ std = [
     "cubecl-wgpu?/std",
 ]
 stdlib = ["cubecl-std"] # CubeCL standard library
+# Generate a `harness::<R>(..)` function for every pure cube function, for testing.
+harness = ["cubecl-core/harness"]
 template = ["cubecl-core/template"]
 
 exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
