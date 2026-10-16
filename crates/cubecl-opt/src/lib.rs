@@ -15,7 +15,11 @@ extern crate std;
 
 use core::ops::Range;
 
-use cubecl_ir::{AddressSpace, interfaces::TypedExt};
+use cubecl_ir::{
+    AddressSpace,
+    interfaces::{TypedExt, control_flow::SymbolOpInterface},
+    prelude::{IsTerminatorInterface, OperationPtrExt},
+};
 
 pub mod analyses;
 pub mod passes;
@@ -25,6 +29,7 @@ use hi_sparse_bitset::{Apply, BitSetInterface, ops};
 use pliron::{
     context::{Context, Ptr},
     operation::Operation,
+    opts::dce::SideEffects,
     r#type::TypeHandle,
     value::{Use, Value},
 };
@@ -102,4 +107,15 @@ pub(crate) fn operand_range_to_uses(
 ) -> SmallVec<[Use<Value>; 4]> {
     let op = op.deref(ctx);
     range.map(|idx| op.get_operand_as_use(idx)).collect()
+}
+
+pub fn would_op_be_trivially_dead(ctx: &Context, op: Ptr<Operation>) -> bool {
+    if op.impls::<dyn IsTerminatorInterface>(ctx) {
+        return false;
+    }
+    if op.impls::<dyn SymbolOpInterface>(ctx) {
+        return false;
+    }
+    op.cast::<dyn SideEffects>(ctx)
+        .is_some_and(|op| !op.has_side_effects(ctx))
 }

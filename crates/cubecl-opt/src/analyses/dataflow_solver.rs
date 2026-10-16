@@ -14,6 +14,7 @@ use foldhash::fast::FixedState;
 use pliron::{
     basic_block::BasicBlock,
     graph::HasLabel,
+    irbuild::inserter::OpInsertionPoint,
     linked_list::{ContainsLinkedList, LinkedList},
     operation::OpDbg,
     printable::Printable,
@@ -416,6 +417,16 @@ pub enum ProgramPoint {
     Operation(Ptr<Operation>),
     BeforeOpInBlock(Ptr<BasicBlock>, Ptr<Operation>),
     EndOfBlock(Ptr<BasicBlock>),
+}
+
+impl From<ProgramPoint> for OpInsertionPoint {
+    fn from(val: ProgramPoint) -> Self {
+        match val {
+            ProgramPoint::Operation(_) => OpInsertionPoint::Unset,
+            ProgramPoint::BeforeOpInBlock(_, op) => OpInsertionPoint::BeforeOperation(op),
+            ProgramPoint::EndOfBlock(block) => OpInsertionPoint::AtBlockEnd(block),
+        }
+    }
 }
 
 impl Printable for ProgramPoint {

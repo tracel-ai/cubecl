@@ -33,8 +33,8 @@ use crate::{
     interfaces::{
         CanonicalizeInterface,
         control_flow::{
-            InvocationBounds, RegionBranchOpInterface, RegionBranchTerminatorOpInterface,
-            RegionPredecessor, RegionSuccessor,
+            InvocationBounds, MutableRegionBranchTerminatorOpInterface, RegionBranchOpInterface,
+            RegionBranchTerminatorOpInterface, RegionPredecessor, RegionSuccessor,
         },
         memory_slot::{
             MemoryRegionPredecessor, MemorySSAContext, MemorySSARegionOpInterface, MemoryValue,
@@ -191,6 +191,13 @@ impl RegionBranchTerminatorOpInterface for ConditionOp {
             true => vec![after_region],
             false => vec![RegionSuccessor::AfterOp],
         }
+    }
+}
+
+#[op_interface_impl]
+impl MutableRegionBranchTerminatorOpInterface for ConditionOp {
+    fn add_successor_operand(&self, ctx: &mut Context, _: RegionSuccessor, value: Value) {
+        Operation::push_operand(self.get_operation(), ctx, value);
     }
 }
 

@@ -1,15 +1,19 @@
 use core::fmt;
 
-use alloc::{collections::VecDeque, format};
+use alloc::collections::VecDeque;
 use cubecl_environment::collections::HashMap;
 use cubecl_ir::{
-    dialect::{BlockPtrExt, RegionPtrExt},
-    interfaces::control_flow::RegionBranchOpInterface,
+    dialect::BlockPtrExt,
+    interfaces::{
+        MaterializableOp,
+        control_flow::{
+            MutableRegionBranchOpInterface, MutableRegionBranchTerminatorOpInterface,
+            RegionBranchOpInterface, RegionPredecessor, RegionSuccessor,
+        },
+    },
     prelude::*,
 };
-use derive_new::new;
 use hi_sparse_bitset::ops;
-use itertools::Itertools;
 use pliron::{
     basic_block::BasicBlock,
     graph::{
@@ -18,16 +22,16 @@ use pliron::{
     },
     linked_list::ContainsLinkedList,
     operation::OpDbg,
+    opts::dce::dce,
     printable::{self, Printable, indented_nl},
     region::Region,
-    utils::table::{HMap, IMap},
+    utils::table::IMap,
 };
-use smallvec::smallvec;
 
 use crate::{
     BitSetExt, SparseBitSet,
     analyses::dataflow_solver::{
-        DataflowSolver, ProgramPoint, SmallPtrVec,
+        DataflowSolver, ProgramPoint,
         pre::{
             AnticipatedMode, Available, InsertMode, compute_lcm_analyses,
             compute_pruned_insertion_points,
@@ -37,20 +41,196 @@ use crate::{
 };
 
 pub fn run_pre(
-    ctx: &Context,
+    ctx: &mut Context,
     op: Ptr<Operation>,
+    rewriter: &mut impl Rewriter,
     antic_mode: AnticipatedMode,
     insert_mode: InsertMode,
 ) -> Result<IRStatus> {
     let mut solver = compute_lcm_analyses(ctx, op, antic_mode)?;
     let insertions = compute_pruned_insertion_points(ctx, op, &mut solver, insert_mode)?;
 
+    let mut status = IRStatus::Unchanged;
     let antileaders = collect_antileaders(ctx, op, &solver, &insertions);
-    let leaders = compute_leaders(ctx, op, &solver, &insertions)?;
+    let leaders = &mut compute_leaders(ctx, op, &solver, &insertions)?;
 
-    std::println!("{}", leaders.disp(ctx));
+    status |= insert_expressions(ctx, &solver, insertions, &antileaders, leaders, rewriter);
+    status |= replace_redundant_values(ctx, &solver, op, leaders, rewriter);
 
-    todo!()
+    leaders.link_materialized(ctx);
+
+    status |= dce(op, ctx)?;
+
+    Ok(status)
+}
+
+type RegionMerge = (Ptr<Operation>, RegionSuccessor);
+
+#[derive(Default)]
+struct Leaders {
+    leaders: HashMap<ProgramPoint, HashMap<u64, Leader>>,
+    materialized: HashMap<Leader, Value>,
+    blocks_to_link: IMap<Ptr<BasicBlock>, Vec<(u64, Value)>>,
+    regions_to_link: IMap<RegionMerge, Vec<(u64, Value)>>,
+}
+
+impl Printable for Leaders {
+    fn fmt(
+        &self,
+        ctx: &Context,
+        state: &printable::State,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        f.write_str("leaders: {")?;
+        {
+            let _indent = state.indent();
+            for (point, leaders) in self.leaders.iter() {
+                write!(f, "{}{}: {{", indented_nl(state), point.disp(ctx))?;
+                {
+                    let _indent = state.indent();
+                    for (expr, leader) in leaders {
+                        write!(f, "{}e{expr}: {},", indented_nl(state), leader.disp(ctx))?;
+                    }
+                }
+                write!(f, "{}}},", indented_nl(state))?;
+            }
+        }
+        f.write_str("\n}\n")?;
+        f.write_str("materialized: {")?;
+        {
+            let _indent = state.indent();
+            for (leader, value) in self.materialized.iter() {
+                write!(
+                    f,
+                    "{}{}: {},",
+                    indented_nl(state),
+                    leader.disp(ctx),
+                    value.disp(ctx)
+                )?;
+            }
+        }
+        f.write_str("\n}")
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Leader {
+    Material(Value),
+    RegionArg(Ptr<Operation>, RegionSuccessor),
+    BlockArg(Ptr<BasicBlock>),
+    Insertion(ProgramPoint, u64),
+}
+
+impl Printable for Leader {
+    fn fmt(
+        &self,
+        ctx: &Context,
+        state: &printable::State,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        match self {
+            Leader::Material(value) => value.fmt(ctx, state, f),
+            Leader::RegionArg(op, region) => write!(
+                f,
+                "RegionArg({}, {})",
+                OpDbg { op: *op, ctx },
+                region.disp(ctx)
+            ),
+            Leader::BlockArg(block) => write!(f, "BlockArg({})", block.label(ctx)),
+            Leader::Insertion(point, expr) => write!(f, "Insertion({}, e{expr})", point.disp(ctx)),
+        }
+    }
+}
+
+impl Leaders {
+    fn materialize(
+        &mut self,
+        ctx: &mut Context,
+        at: &ProgramPoint,
+        expression: u64,
+        ty: TypeHandle,
+    ) -> Value {
+        self.try_materialize(ctx, at, expression, ty).unwrap()
+    }
+
+    fn try_materialize(
+        &mut self,
+        ctx: &mut Context,
+        at: &ProgramPoint,
+        expr: u64,
+        ty: TypeHandle,
+    ) -> Option<Value> {
+        let leader = self.leaders[at][&expr];
+        match leader {
+            Leader::Material(value) => Some(value),
+            _ if let Some(materialized) = self.materialized.get(&leader) => Some(*materialized),
+            Leader::RegionArg(region_op, successor) => {
+                // Should already be validated by analysis
+                let branch_op = region_op
+                    .cast::<dyn MutableRegionBranchOpInterface>(ctx)
+                    .unwrap();
+                let arg = branch_op.add_successor_input(ctx, successor, ty);
+                self.materialized.insert(leader, arg);
+                self.regions_to_link
+                    .entry((region_op, successor))
+                    .or_default()
+                    .push((expr, arg));
+                Some(arg)
+            }
+            Leader::BlockArg(block) => {
+                let idx = BasicBlock::push_argument(block, ctx, ty);
+                let arg = block.deref(ctx).get_argument(idx);
+                self.materialized.insert(leader, arg);
+                self.blocks_to_link
+                    .entry(block)
+                    .or_default()
+                    .push((expr, arg));
+                Some(arg)
+            }
+            Leader::Insertion(..) => None,
+        }
+    }
+
+    fn link_materialized(&mut self, ctx: &mut Context) {
+        while let Some((block, to_link)) = self.blocks_to_link.pop() {
+            for (expression, arg) in to_link {
+                let ty = arg.get_type(ctx);
+                for pred in block.uses(ctx) {
+                    let block = pred.user_op().deref(ctx).get_parent_block().unwrap();
+                    let at = ProgramPoint::at_block_end(ctx, block);
+                    let leader = self.materialize(ctx, &at, expression, ty);
+                    // Should be validated by analysis
+                    let branch = pred.user_op().cast::<dyn BranchOpInterface>(ctx).unwrap();
+                    branch.add_successor_operand(ctx, pred.find_index(ctx), leader);
+                }
+            }
+        }
+        while let Some(((op, successor), to_link)) = self.regions_to_link.pop() {
+            let region_op = op.cast::<dyn MutableRegionBranchOpInterface>(ctx).unwrap();
+            for (expression, arg) in to_link {
+                let ty = arg.get_type(ctx);
+                for predecessor in region_op.predecessors(ctx, successor) {
+                    match predecessor {
+                        RegionPredecessor::Parent => {
+                            let at = ProgramPoint::before_op(ctx, op);
+                            let leader = self.materialize(ctx, &at, expression, ty);
+                            region_op.add_entry_successor_operand(ctx, successor, leader);
+                        }
+                        RegionPredecessor::Terminator(term) => {
+                            let term = term.get_operation();
+                            let block = term.deref(ctx).get_parent_block().unwrap();
+                            let term = term
+                                .cast::<dyn MutableRegionBranchTerminatorOpInterface>(ctx)
+                                .unwrap();
+                            let at = ProgramPoint::at_block_end(ctx, block);
+                            let leader = self.materialize(ctx, &at, expression, ty);
+                            term.add_successor_operand(ctx, successor, leader);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn compute_leaders(
@@ -81,7 +261,8 @@ fn compute_op_leaders(
     };
 
     let before = ProgramPoint::before_op(ctx, op);
-    let after = ProgramPoint::at_block_end(ctx, block);
+    let after = ProgramPoint::after_op(ctx, op);
+    let block_end = ProgramPoint::at_block_end(ctx, block);
 
     if let Some(insertions) = insertions.get(&before) {
         let after = ProgramPoint::at_block_end(ctx, op.deref(ctx).get_parent_block().unwrap());
@@ -109,7 +290,7 @@ fn compute_op_leaders(
     let avail_after = available_at(solver, after).unwrap();
     let new_values: SparseBitSet = avail_after.difference(&avail_before).into();
 
-    let leaders_after = leaders.leaders.entry(after).or_default();
+    let leaders_after = leaders.leaders.entry(block_end).or_default();
 
     for result in op.deref(ctx).results() {
         let value = number_of_value(solver, result).unwrap();
@@ -122,7 +303,7 @@ fn compute_op_leaders(
         let new_value = new_value as u64;
         leaders_after
             .entry(new_value)
-            .or_insert(Leader::RegionResult(op));
+            .or_insert(Leader::RegionArg(op, RegionSuccessor::AfterOp));
     }
 }
 
@@ -154,6 +335,7 @@ fn compute_region_leaders(
     worklist.push_back(entry);
 
     while let Some(block) = worklist.pop_front() {
+        let start = ProgramPoint::at_block_start(ctx, block);
         let point = ProgramPoint::at_block_end(ctx, block);
 
         {
@@ -164,9 +346,15 @@ fn compute_region_leaders(
             }
 
             // Available values not transferred from a dominator need a block arg
-            for value in available_at(solver, point).unwrap().iter() {
+            for value in available_at(solver, start).unwrap().iter() {
                 let value = value as u64;
-                leaders.entry(value).or_insert(Leader::BlockArg(block));
+                if block.is_entry_block(ctx) {
+                    leaders
+                        .entry(value)
+                        .or_insert(Leader::RegionArg(parent, region.into()));
+                } else {
+                    leaders.entry(value).or_insert(Leader::BlockArg(block));
+                }
             }
         }
 
@@ -194,6 +382,101 @@ fn compute_region_leaders(
     }
 }
 
+fn insert_expressions(
+    ctx: &mut Context,
+    solver: &DataflowSolver,
+    mut insertions: IMap<ProgramPoint, SparseBitSet>,
+    antileaders: &HashMap<u64, Ptr<Operation>>,
+    leaders: &mut Leaders,
+    rewriter: &mut impl Rewriter,
+) -> IRStatus {
+    let status = match insertions.is_empty() {
+        true => IRStatus::Unchanged,
+        false => IRStatus::Changed,
+    };
+    while !insertions.is_empty() {
+        insertions.retain(|point, insertions| {
+            if let Some(prev) = point.prev_op(ctx)
+                && prev.impls::<dyn IsTerminatorInterface>(ctx)
+            {
+                rewriter.set_insertion_point_before_operation(prev);
+            } else {
+                rewriter.set_insertion_point((*point).into());
+            }
+
+            for expr in insertions.clone().into_iter().map(|it| it as u64) {
+                let antileader = antileaders[&expr];
+                if try_insert_expression(ctx, solver, *point, expr, antileader, leaders, rewriter) {
+                    insertions.remove(expr as usize);
+                }
+            }
+            !insertions.is_empty()
+        });
+    }
+    status
+}
+
+fn try_insert_expression(
+    ctx: &mut Context,
+    solver: &DataflowSolver,
+    point: ProgramPoint,
+    expression: u64,
+    antileader: Ptr<Operation>,
+    leaders: &mut Leaders,
+    rewriter: &mut impl Rewriter,
+) -> bool {
+    let mut operands = Vec::with_capacity(antileader.deref(ctx).get_num_operands());
+    for operand in antileader.operands(ctx) {
+        let expression = number_of_value(solver, operand).unwrap();
+        let Some(leader) = leaders.try_materialize(ctx, &point, expression, operand.get_type(ctx))
+        else {
+            return false;
+        };
+        operands.push(leader);
+    }
+    let result_ty = antileader.result_types(ctx);
+    let attributes = antileader.deref(ctx).attributes.clone();
+    // This shouldn't be a trait in the first place but I can't be bothered to convince the Pliron
+    // maintainer to make op info public right now, so just require this.
+    let materializable = antileader.cast::<dyn MaterializableOp>(ctx).unwrap();
+    let op = materializable.materialize(ctx, result_ty, operands, attributes);
+    rewriter.append_operation(ctx, op);
+    leaders
+        .materialized
+        .insert(Leader::Insertion(point, expression), op.result(ctx));
+    true
+}
+
+fn replace_redundant_values(
+    ctx: &mut Context,
+    solver: &DataflowSolver,
+    op: Ptr<Operation>,
+    leaders: &mut Leaders,
+    rewriter: &mut impl Rewriter,
+) -> IRStatus {
+    let mut status = IRStatus::Unchanged;
+    visit_all_values_mut(
+        ctx,
+        &mut (solver, leaders, rewriter, &mut status),
+        op,
+        |ctx, (solver, leaders, rewriter, status), value| {
+            let Some(block) = value.get_defining_block(ctx) else {
+                return;
+            };
+            let block_end = ProgramPoint::at_block_end(ctx, block);
+            let Some(expr) = number_of_value(solver, value) else {
+                return;
+            };
+            let leader = leaders.materialize(ctx, &block_end, expr, value.get_type(ctx));
+            if leader != value {
+                rewriter.replace_value_uses_with(ctx, value, leader);
+                **status |= IRStatus::Changed;
+            }
+        },
+    );
+    status
+}
+
 fn available_at(solver: &DataflowSolver, point: ProgramPoint) -> Option<SparseBitSet> {
     Some(
         solver
@@ -204,61 +487,6 @@ fn available_at(solver: &DataflowSolver, point: ProgramPoint) -> Option<SparseBi
             .initialized()?
             .clone(),
     )
-}
-
-#[derive(Default, Debug)]
-struct Leaders {
-    leaders: HashMap<ProgramPoint, HashMap<u64, Leader>>,
-    materialized: HashMap<Leader, Value>,
-}
-
-impl Printable for Leaders {
-    fn fmt(
-        &self,
-        ctx: &Context,
-        state: &printable::State,
-        f: &mut fmt::Formatter<'_>,
-    ) -> fmt::Result {
-        f.write_str("leaders: {")?;
-        {
-            let _indent = state.indent();
-            for (point, leaders) in self.leaders.iter() {
-                write!(f, "{}{}: {{", indented_nl(state), point.disp(ctx))?;
-                {
-                    let _indent = state.indent();
-                    for (expr, leader) in leaders {
-                        write!(f, "{}e{expr}: {},", indented_nl(state), leader.disp(ctx))?;
-                    }
-                }
-                write!(f, "{}}},", indented_nl(state))?;
-            }
-        }
-        f.write_str("\n}")
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-enum Leader {
-    Material(Value),
-    RegionResult(Ptr<Operation>),
-    BlockArg(Ptr<BasicBlock>),
-    Insertion(ProgramPoint, u64),
-}
-
-impl Printable for Leader {
-    fn fmt(
-        &self,
-        ctx: &Context,
-        state: &printable::State,
-        f: &mut fmt::Formatter<'_>,
-    ) -> fmt::Result {
-        match self {
-            Leader::Material(value) => value.fmt(ctx, state, f),
-            Leader::RegionResult(op) => write!(f, "RegionResult({})", OpDbg { op: *op, ctx }),
-            Leader::BlockArg(block) => write!(f, "BlockArg({})", block.label(ctx)),
-            Leader::Insertion(point, expr) => write!(f, "Insertion({}, e{expr})", point.disp(ctx)),
-        }
-    }
 }
 
 fn collect_antileaders(
@@ -295,7 +523,7 @@ fn collect_antileaders(
     antileaders
 }
 
-fn number_of_value(solver: &DataflowSolver, value: Value) -> Option<u64> {
+pub(crate) fn number_of_value(solver: &DataflowSolver, value: Value) -> Option<u64> {
     let value = solver.lookup_state::<ValueNumberLattice>(value)?;
     value.deref().value().value()
 }

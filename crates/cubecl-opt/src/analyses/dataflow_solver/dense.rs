@@ -10,8 +10,11 @@ use cubecl_ir::{
 };
 use derive_more::Deref;
 use pliron::{
-    basic_block::BasicBlock, graph::walkers::uninterruptible::immutable::walk_op,
-    linked_list::ContainsLinkedList, printable::Printable, symbol_table::SymbolTableCollection,
+    basic_block::BasicBlock,
+    graph::{ControlFlowGraph, walkers::uninterruptible::immutable::walk_op},
+    linked_list::ContainsLinkedList,
+    printable::Printable,
+    symbol_table::SymbolTableCollection,
     utils::table::ISet,
 };
 use smallvec::SmallVec;
@@ -140,6 +143,15 @@ pub trait DenseForwardDataflowAnalysis: Sized + 'static {
         let _ = (this, solver, ctx, op);
     }
 
+    fn visit_block(
+        this: &DenseForward<Self>,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        block: Ptr<BasicBlock>,
+    ) {
+        this.visit_block(solver, ctx, block);
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn visit_block_transfer(
         this: &DenseForward<Self>,
@@ -151,7 +163,7 @@ pub trait DenseForwardDataflowAnalysis: Sized + 'static {
         after: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) {
         let _ = (block, point);
-        Self::visit_control_flow_transfer(this, solver, ctx, predecessors, after);
+        Self::visit_control_flow_transfer(this, solver, ctx, point, predecessors, after);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -165,7 +177,7 @@ pub trait DenseForwardDataflowAnalysis: Sized + 'static {
         after: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) {
         let _ = (branch, point);
-        Self::visit_control_flow_transfer(this, solver, ctx, predecessors, after);
+        Self::visit_control_flow_transfer(this, solver, ctx, point, predecessors, after);
     }
 
     fn visit_callee_control_flow_transfer(
@@ -177,7 +189,9 @@ pub trait DenseForwardDataflowAnalysis: Sized + 'static {
         after: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) {
         let _ = callable;
-        Self::visit_control_flow_transfer(this, solver, ctx, predecessors, after);
+        let region = callable.callable_region(ctx).unwrap();
+        let point = ProgramPoint::at_block_start(ctx, region.entry_node(ctx).unwrap());
+        Self::visit_control_flow_transfer(this, solver, ctx, point, predecessors, after);
     }
 
     fn visit_return_control_flow_transfer(
@@ -189,16 +203,19 @@ pub trait DenseForwardDataflowAnalysis: Sized + 'static {
         after: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) {
         let _ = call;
-        Self::visit_control_flow_transfer(this, solver, ctx, predecessors, after);
+        let point = ProgramPoint::after_op(ctx, call.get_operation());
+        Self::visit_control_flow_transfer(this, solver, ctx, point, predecessors, after);
     }
 
     fn visit_control_flow_transfer(
         this: &DenseForward<Self>,
         solver: &DataflowSolver,
         ctx: &Context,
+        point: ProgramPoint,
         predecessors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
         after: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) {
+        let _ = point;
         for predecessor in predecessors {
             this.join(solver, ctx, after, predecessor);
         }
@@ -254,7 +271,7 @@ impl<T: DenseForwardDataflowAnalysis> DataflowAnalysis for DenseForward<T> {
 
         for region in root.deref(ctx).regions() {
             for block in region.deref(ctx).iter(ctx) {
-                self.visit_block(solver, ctx, block);
+                T::visit_block(self, solver, ctx, block);
                 for op in block.deref(ctx).iter(ctx) {
                     self.initialize(solver, ctx, op)?;
                 }
@@ -267,7 +284,7 @@ impl<T: DenseForwardDataflowAnalysis> DataflowAnalysis for DenseForward<T> {
         if let Some(op) = point.prev_op(ctx) {
             return self.process_operation(solver, ctx, op);
         }
-        self.visit_block(solver, ctx, point.block().unwrap());
+        T::visit_block(self, solver, ctx, point.block().unwrap());
         Ok(())
     }
 
