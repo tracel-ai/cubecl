@@ -2,7 +2,7 @@ use cubecl_ir::{dialect::BlockPtrExt, prelude::*};
 use pliron::{
     attribute::{AttrObj, attr_cast},
     builtin::attr_interfaces::MaterializableAttr,
-    irbuild::match_rewrite::apply_match_rewrite,
+    irbuild::match_rewrite::{RewriterOrder, apply_match_rewrite},
     linked_list::ContainsLinkedList,
     opts::constants::ConstFoldInterface,
     region::Region,
@@ -124,7 +124,12 @@ impl Pass for SCCPPass {
     ) -> Result<PassResult> {
         let mut res = PassResult::default();
         res.ir_changed |= sccp(op, ctx)?;
-        res.ir_changed |= apply_match_rewrite(ctx, &mut Canonicalize, Default::default(), op)?;
+        res.ir_changed |= apply_match_rewrite(
+            ctx,
+            &mut KeepLocation(&mut Canonicalize),
+            RewriterOrder::default(),
+            op,
+        )?;
         Ok(res)
     }
 }

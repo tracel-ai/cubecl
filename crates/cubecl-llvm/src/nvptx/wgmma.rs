@@ -317,10 +317,9 @@ pub(crate) fn wgmma(
     rw: &mut DialectConversionRewriter,
     operands_info: &OperandsInfo,
 ) -> Result<()> {
-    let loc = op.loc(ctx);
     match issue(op, ctx, rw, operands_info) {
         Ok(()) => Ok(()),
-        Err(err) => input_err!(loc, err),
+        Err(err) => input_err!(op.loc(ctx), err),
     }
 }
 

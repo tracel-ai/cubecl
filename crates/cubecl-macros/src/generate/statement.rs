@@ -10,10 +10,23 @@ use crate::{
     statement::{DefineKind, Statement},
 };
 
+/// Names the value of the variable `var` as `name` when its type implements `CubeDebug`. A value
+/// of any other type, for example a comptime enum, keeps no name, so it needs no `CubeDebug`.
+pub fn name_debug_var(name: &str, var: &TokenStream) -> TokenStream {
+    let debug_var = frontend_type("DebugVar");
+    let named = frontend_type("DebugVarNamed");
+    let unnamed = frontend_type("DebugVarUnnamed");
+    quote! {{
+        use #named as _;
+        use #unnamed as _;
+        (&#debug_var(&#var)).debug_var(scope, #name);
+    }}
+}
+
 impl Statement {
     pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
         match self {
-            Statement::Local { variable, init } => {
+            Statement::Local { variable, init, .. } => {
                 let name = &variable.name;
                 let is_mut = variable.is_mut_owned || init.as_deref().is_some_and(is_mut_owned);
                 let mutable = variable.is_mut_owned.then(|| quote![mut]);
@@ -60,10 +73,13 @@ impl Statement {
                     if is_mut || !is_const {
                         let name_str = name.to_string();
                         let init_var = if context.debug_symbols {
-                            let debug_var = frontend_type("debug_var_expand");
+                            let var = quote![__cube_var];
+                            let name_var = name_debug_var(&name_str, &var);
 
                             quote![
-                                #debug_var(scope, #name_str, #init)
+                                let #var #ty = #init;
+                                #name_var
+                                #var
                             ]
                         } else {
                             quote![#init]
@@ -102,6 +118,7 @@ impl Statement {
             Statement::Expression {
                 expression,
                 terminated,
+                ..
             } => {
                 let terminator = terminated.then(|| Token![;](Span::call_site()));
                 if let Some(as_const) = expression.as_const(context) {

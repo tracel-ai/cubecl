@@ -253,6 +253,8 @@ wgpu-hal = "^30.0.0"
 
 renderdoc = "0.12"
 
+md-5 = "0.11"
+
 # Build deps
 cc = "1.2"
 cfg_aliases = "0.2.2"
@@ -260,7 +262,13 @@ cfg_aliases = "0.2.2"
 [profile.dev.build-override]
 opt-level = 3
 
-# pliron-spirv pins upstream pliron; point it at the same pliron as the rest of the workspace.
-[patch."https://github.com/pliron-org/pliron.git"]
-pliron = { version = "0.19" }
-pliron-derive = { version = "0.19" }
+# `pliron-llvm` debug data (pliron-org/pliron#290 and #304) and the borrowed locations of
+# pliron-org/pliron#307 are merged but not released yet. The patch also gives `pliron-spirv` the
+# same `pliron`. `tracel-rspirv` 0.16.0 does not build with #307, so `pliron-spirv` and
+# `tracel-rspirv` come from the port on a fork until a release has it.
+[patch.crates-io]
+pliron = { git = "https://github.com/pliron-org/pliron", rev = "0abdb154de39cd4b8d892c1dda3d6e2da615a8d3" }
+pliron-derive = { git = "https://github.com/pliron-org/pliron", rev = "0abdb154de39cd4b8d892c1dda3d6e2da615a8d3" }
+pliron-llvm = { git = "https://github.com/pliron-org/pliron", rev = "0abdb154de39cd4b8d892c1dda3d6e2da615a8d3" }
+pliron-spirv = { git = "https://github.com/skewballfox/tracel-rspirv", rev = "825b10b8ee7dba83e2ea9bc421857839cdf4577b" }
+tracel-rspirv = { git = "https://github.com/skewballfox/tracel-rspirv", rev = "825b10b8ee7dba83e2ea9bc421857839cdf4577b" }

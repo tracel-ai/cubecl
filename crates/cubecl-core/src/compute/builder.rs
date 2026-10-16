@@ -1,5 +1,4 @@
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicI8, Ordering};
 use derive_more::Deref;
 use pliron::r#type::TypeHandle;
 
@@ -11,9 +10,7 @@ use cubecl_ir::{
     pliron::value::Value,
     settings::KernelSettings,
 };
-use cubecl_runtime::config::{
-    CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel,
-};
+use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
 
 /// Prepare a kernel to create a [`KernelDefinition`].
 #[derive(Deref)]
@@ -26,8 +23,6 @@ pub struct KernelBuilder {
     ext_meta_idx: usize,
     settings: KernelSettings,
 }
-
-static DEBUG: AtomicI8 = AtomicI8::new(-1);
 
 impl KernelBuilder {
     /// Register a scalar and return the [element](Value) to be used for kernel expansion.
@@ -88,6 +83,9 @@ impl KernelBuilder {
         for warning in self.scope.pop_warnings() {
             log::warn!("[{}] {warning}", self.settings.kernel_name);
         }
+        if let Some(debug) = self.scope.debug_state() {
+            debug.finish();
+        }
         let info = self.create_info();
         KernelIntegrator::new(KernelExpansion {
             scope: self.scope,
@@ -129,19 +127,9 @@ impl KernelBuilder {
     }
 
     pub fn new(mut settings: KernelSettings) -> Self {
-        let debug = DEBUG.load(Ordering::Relaxed);
-        let debug = if debug == -1 {
-            let val = match CubeClRuntimeConfig::get().compilation.logger.level {
-                CompilationLogLevel::Full => 1,
-                _ => 0,
-            };
-
-            DEBUG.store(val, Ordering::Relaxed);
-            val == 1
-        } else {
-            debug == 1
-        };
-        settings.debug_symbols |= debug;
+        settings.debug_info = CubeClRuntimeConfig::get()
+            .compilation
+            .resolve_debug_info(settings.debug_info);
 
         Self {
             scope: Scope::root(settings.clone()),

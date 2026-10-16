@@ -64,6 +64,18 @@ impl KernelArgs {
     pub fn is_launch(&self) -> bool {
         self.launch.is_present() || self.launch_unchecked.is_present()
     }
+
+    /// Whether the expansion records source locations. The kernel settings decide at run time
+    /// whether they are kept.
+    pub fn captures_locations(&self) -> bool {
+        self.debug_symbols.is_present() || !self.no_debug_symbols.is_present()
+    }
+
+    /// Whether the kernel asks for full debug data, whatever the cargo profile.
+    pub fn forces_full_debug_info(&self) -> bool {
+        self.debug_symbols.is_present()
+            || (cfg!(debug_symbols) && !self.no_debug_symbols.is_present())
+    }
 }
 
 #[derive(Clone)]
@@ -358,8 +370,7 @@ impl KernelFn {
         full_name: String,
         args: &KernelArgs,
     ) -> syn::Result<Self> {
-        let cfg_debug = cfg!(debug_symbols) && !args.no_debug_symbols.is_present();
-        let debug_symbols = cfg_debug || args.debug_symbols.is_present();
+        let debug_symbols = args.captures_locations();
 
         let span = Span::call_site();
         let sig = KernelSignature::from_signature(sig, args)?;
@@ -412,6 +423,7 @@ impl KernelFn {
                 let stmt = Statement::Expression {
                     expression: Box::new(expression),
                     terminated: false,
+                    span: None,
                 };
                 mappings.push(stmt);
             }
