@@ -412,8 +412,8 @@ pub fn recip<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
 pub fn cbrt<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
     let zero = Vector::<T, N>::zero();
     let mag = input.abs();
-    let approx = mag.powf(Vector::new(T::new(comptime!(1.0_f32 / 3.0_f32))));
-    let refined = (approx + approx + mag / (approx * approx)) / Vector::new(T::new(3.0_f32));
+    let approx = mag.powf(Vector::new(T::new(comptime!(1.0 / 3.0))));
+    let refined = (approx + approx + mag / (approx * approx)) / Vector::new(T::new(3.0));
     let root = select_many(mag.equal(&zero).or(mag.is_inf()), approx, refined);
     select_many(input.less_than(&zero), -root, root)
 }
