@@ -9,12 +9,14 @@ mod cpu;
 mod cuda;
 mod hip;
 mod metal;
+mod part;
 mod wgpu;
 
 pub use cpu::CpuDevice;
 pub use cuda::CudaDevice;
 pub use hip::AmdDevice;
 pub use metal::MetalDevice;
+pub use part::DevicePart;
 pub use wgpu::{WgpuBackend, WgpuDevice, WgpuDeviceKind};
 
 pub use cubecl_common::device::DeviceId;

@@ -1,13 +1,14 @@
 #[cfg(persistence)]
 use cubecl_environment::persistence::{Namespace, Store, StoreOptions};
 
+use crate::device::DevicePart;
 use crate::throughput::{ThroughputKey, ThroughputValue};
+#[cfg(persistence)]
 use alloc::format;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use cubecl_environment::collections::HashMap;
 use cubecl_environment::sync::Mutex;
-use cubecl_ir::{DeviceIdentity, DeviceProperties};
 
 /// The namespace segment naming which generation of probes wrote a value.
 #[cfg(persistence)]
@@ -27,18 +28,9 @@ pub struct ThroughputCache {
 }
 
 impl ThroughputCache {
-    /// Gets or creates the global `ThroughputCache` for one device.
-    pub fn get_for_device(runtime: &str, properties: &DeviceProperties) -> Arc<Mutex<Self>> {
-        let hardware = &properties.hardware;
-        let name = device_key(
-            runtime,
-            &properties.identity,
-            properties.memory.max_page_size,
-            hardware
-                .num_cpu_cores
-                .or(hardware.num_streaming_multiprocessors)
-                .unwrap_or(0),
-        );
+    /// Gets or creates the global `ThroughputCache` for one part.
+    pub fn get_for_device(part: &DevicePart) -> Arc<Mutex<Self>> {
+        let name = part.to_string();
         let mut cache_map = GLOBAL_CACHE.lock();
         let cache_map = cache_map.get_or_insert_with(HashMap::new);
 
@@ -87,26 +79,6 @@ impl ThroughputCache {
     pub fn get(&self, key: &ThroughputKey) -> Option<&ThroughputValue> {
         self.cache.get(key)
     }
-}
-
-/// The part, never the device index, which `CUDA_VISIBLE_DEVICES` makes 0 for
-/// whichever card was pinned. Two cards this cannot separate are one part, and
-/// share a peak.
-fn device_key(runtime: &str, identity: &DeviceIdentity, capacity: u64, parallelism: u32) -> String {
-    let DeviceIdentity {
-        name,
-        fingerprint,
-        physical: _,
-    } = identity;
-    // A namespace is a path, and a runtime names itself `wgpu<spirv>`.
-    let segment = |text: &str| text.replace(|c: char| !c.is_ascii_alphanumeric(), "-");
-
-    format!(
-        "{}_{}_{}_mem{capacity}_par{parallelism}",
-        segment(runtime),
-        segment(fingerprint),
-        segment(name)
-    )
 }
 
 /// Namespaces this build wrote under an earlier [`PROBE_VERSION`].
@@ -164,69 +136,6 @@ fn namespace(device_key: &str) -> Namespace {
 mod tests {
     use super::*;
     use alloc::string::ToString;
-
-    fn identity(name: &str, fingerprint: &str) -> DeviceIdentity {
-        DeviceIdentity {
-            name: name.to_string(),
-            fingerprint: fingerprint.to_string(),
-            physical: None,
-        }
-    }
-
-    /// Two cards in one machine were served each other's peaks: pinning either
-    /// makes it index 0, and the index was all that told them apart.
-    #[test]
-    fn two_parts_of_one_architecture_do_not_share_an_entry() {
-        let turing = |name: &str| identity(name, "ptx_sm75");
-
-        assert_ne!(
-            device_key("cuda", &turing("NVIDIA GeForce RTX 2060"), 6 << 30, 30),
-            device_key(
-                "cuda",
-                &turing("NVIDIA GeForce GTX 1660 SUPER"),
-                6 << 30,
-                22
-            ),
-        );
-    }
-
-    #[test]
-    fn a_machine_that_gains_memory_does_not_reuse_its_ceiling() {
-        let xeon = identity("Intel(R) Xeon(R) CPU E5-2620 v4 @ 2.10GHz", "cpu_x86_64");
-
-        assert_ne!(
-            device_key("cpu", &xeon, 32 << 30, 16),
-            device_key("cpu", &xeon, 64 << 30, 16),
-        );
-    }
-
-    #[test]
-    fn a_container_given_fewer_cores_does_not_reuse_the_host_ceiling() {
-        let xeon = identity("Intel(R) Xeon(R) CPU E5-2620 v4 @ 2.10GHz", "cpu_x86_64");
-
-        assert_ne!(
-            device_key("cpu", &xeon, 64 << 30, 16),
-            device_key("cpu", &xeon, 64 << 30, 4),
-        );
-    }
-
-    /// A device key is one segment of a path, so a runtime that names itself
-    /// `wgpu<spirv>` must not put brackets or a separator in it.
-    #[test]
-    fn a_device_key_is_one_path_segment() {
-        let key = device_key(
-            "wgpu<spirv>",
-            &identity("Intel(R) Arc(tm) B390 (PTL)", "spirv_32902_45184"),
-            1 << 31,
-            0,
-        );
-
-        assert!(
-            key.chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
-            "{key}"
-        );
-    }
 
     /// A build drops what its own earlier probes wrote and nothing else:
     /// another crate version may be in use, and a later probe version is

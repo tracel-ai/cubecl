@@ -17,6 +17,7 @@ use crate::client::Client;
 use crate::config::Logger;
 #[cfg(persistence)]
 use crate::config::autotune::AutotuneLogLevel;
+use crate::device::DevicePart;
 use crate::execution::{ProcessMode, TuneOutcome, TuneRegistration};
 use crate::server::LaunchError;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
@@ -203,11 +204,10 @@ impl<K: AutotuneKey> Tuner<K> {
     /// persistence is available (feature `persistence`: a file natively,
     /// OPFS in the browser).
     ///
-    /// Its results are stored under `hardware` and `fingerprint`, so tuners of devices that
-    /// name the same hardware share them.
-    pub fn new(name: &str, hardware: &str, fingerprint: &str) -> Self {
+    /// Its results are stored under `part`, which every device of that part shares.
+    pub fn new(name: &str, part: &DevicePart) -> Self {
         Self {
-            cache: Arc::new(Mutex::new(TuneCache::new(name, hardware, fingerprint))),
+            cache: Arc::new(Mutex::new(TuneCache::new(name, part))),
             logger: Arc::new(Mutex::new(Logger::new())),
         }
     }
@@ -258,6 +258,9 @@ impl<K: AutotuneKey> Tuner<K> {
         let compiling = ProcessMode::current() == ProcessMode::CompileOnly;
         // Where the key's tune was registered, if the override that gathered it registered it.
         let gathered;
+        // The set's checksum, once a lookup has computed it: every lookup that goes on to tune has.
+        #[cfg(persistence)]
+        let mut looked_up = None;
 
         {
             let mut cache = self.cache.lock();
@@ -272,32 +275,16 @@ impl<K: AutotuneKey> Tuner<K> {
             }
             let cur = cache.fastest(key);
 
-            // Browser hydration is asynchronous, so persistent entries may
-            // have arrived after construction. Ingest them before starting a
-            // redundant tune.
-            #[cfg(persistence)]
-            let cur = if matches!(cur, TuneCacheResult::Miss) {
-                cache.sync_persistent();
-                cache.fastest(key)
-            } else {
-                cur
-            };
-
             #[cfg(persistence)]
             let cur = match cur {
-                TuneCacheResult::Unchecked => {
+                TuneCacheResult::Miss | TuneCacheResult::Unchecked => {
+                    let checksum = looked_up.insert(checksum());
                     let mut log = self.logger.lock();
-                    let checksum = checksum();
                     if let AutotuneLogLevel::Full = log.log_level_autotune() {
-                        log.log_autotune(&format!(
-                            "validate checksum key={key}, checksum={checksum}"
-                        ));
+                        log.log_autotune(&format!("look up key={key}, checksum={checksum}"));
                     }
-                    cache.validate_checksum(key, &checksum)
+                    cache.look_up(key, checksum)
                 }
-                // Another device of the same hardware may have tuned the key since this cache
-                // hydrated.
-                TuneCacheResult::Miss => cache.read_through(key, &checksum()),
                 cur => cur,
             };
 
@@ -356,7 +343,7 @@ impl<K: AutotuneKey> Tuner<K> {
             .collect();
 
         #[cfg(persistence)]
-        let checksum = tunables.compute_checksum();
+        let checksum = looked_up.unwrap_or_else(|| tunables.compute_checksum());
 
         // After the fast path: a key with one candidate is answered, not
         // tuned, and leaves nothing to record.

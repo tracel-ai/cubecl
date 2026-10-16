@@ -1,5 +1,6 @@
 use crate::{
     config::{TypeNameFormatLevel, type_name_format},
+    device::DevicePart,
     id::{GraphId, KernelId},
     kernel::CubeKernel,
     logging::ProfileLevel,
@@ -1524,6 +1525,11 @@ impl Client {
         &self.utilities.properties.features
     }
 
+    /// The part this device is: what a measurement on it holds for.
+    pub fn part(&self) -> DevicePart {
+        DevicePart::new(self.name(), self.properties())
+    }
+
     /// The device properties, shared: what a kernel keeps to expand itself
     /// on the device thread without holding the client.
     pub fn properties_shared(&self) -> Arc<DeviceProperties> {
@@ -1863,7 +1869,7 @@ impl Client {
         key: ThroughputKey,
         probe: impl FnOnce() -> Result<ThroughputValue, ThroughputError> + Send,
     ) -> Result<ThroughputValue, ThroughputError> {
-        let cache = ThroughputCache::get_for_device(self.name(), self.properties());
+        let cache = ThroughputCache::get_for_device(&self.part());
         let mut throughputs = ThroughputBenchmarker::new(cache);
 
         if let Some(value) = throughputs.cached(key) {

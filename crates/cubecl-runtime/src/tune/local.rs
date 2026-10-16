@@ -2,52 +2,22 @@ use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneInputs, Tuner};
 #[cfg(feature = "autotune-checks")]
 use crate::tune::AutotuneLoggerExt;
 use crate::{client::Client, tune::TuneCacheResult};
+#[cfg(feature = "autotune-checks")]
 use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::{
     any::{Any, TypeId},
-    fmt::Display,
     hash::Hash,
 };
 use cubecl_environment::collections::HashMap;
 use cubecl_environment::sync::{Mutex, RwLock};
-use cubecl_ir::DeviceProperties;
 
 /// The tunable sets a [`LocalTuner`] has built, keyed by device as well as by
 /// initializer: a set is built from the device it will run on — its client, its
 /// hardware properties — so one device's set cannot answer for another's. See
 /// [`LocalTuner::init`].
 type Sets<ID> = RwLock<Option<HashMap<(TypeId, ID), Arc<dyn Any + Send + Sync>>>>;
-
-/// The hardware a device's tune results hold for: devices that name themselves alike and report
-/// the same features and hardware measure alike, so identical cards share one table rather than
-/// each tuning it again. The name alone is not enough, since distinct parts may share one.
-struct TunedHardware<'a> {
-    name: &'a str,
-    properties: u64,
-}
-
-impl<'a> TunedHardware<'a> {
-    fn of(properties: &'a DeviceProperties) -> Self {
-        Self {
-            name: &properties.identity.name,
-            properties: properties.checksum(),
-        }
-    }
-}
-
-impl Display for TunedHardware<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        // A `/` in the name would split the table's namespace segment.
-        write!(
-            f,
-            "{}-{:016x}",
-            self.name.replace('/', "-"),
-            self.properties
-        )
-    }
-}
 
 /// A local tuner allows to create a tuner for a specific key that can be different from the server
 /// key.
@@ -73,7 +43,7 @@ pub use local_tuner;
 impl<AK, ID> LocalTuner<AK, ID>
 where
     AK: AutotuneKey + 'static,
-    ID: Hash + PartialEq + Eq + Clone + Display,
+    ID: Hash + PartialEq + Eq + Clone,
 {
     /// Create a new local tuner.
     pub const fn new(name: &'static str) -> Self {
@@ -145,9 +115,9 @@ where
     /// [`execute`](Self::execute).
     ///
     /// `operations` must be the set `id` executes, as [`init`](Self::init) returns it for the
-    /// initializer `execute` is handed: a result is an index into that set, and results are kept
-    /// per `id` alone, so a set another initializer built under the same `id` would map it onto
-    /// another tunable.
+    /// initializer `execute` is handed: a result is an index into that set, kept per `id` in memory
+    /// and per [part](crate::device::DevicePart) on disk, so a set another initializer built under
+    /// the same `id` would map it onto another tunable.
     ///
     /// It reads results and never produces one: it never starts a round, never waits on one in
     /// flight, never validates a persisted result, and never resets the tuner's cache after an
@@ -215,13 +185,7 @@ where
                 .entry(id.clone())
                 .or_insert_with(move || {
                     let name = self.name.replace("::", "-");
-                    let properties = client.properties();
-                    let hardware = TunedHardware::of(properties).to_string();
-                    Arc::new(Tuner::new(
-                        &name,
-                        &hardware,
-                        &properties.identity.fingerprint,
-                    ))
+                    Arc::new(Tuner::new(&name, &client.part()))
                 })
                 .clone()
         };

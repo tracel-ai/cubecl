@@ -43,6 +43,16 @@ pub fn addition_set(
     }))
 }
 
+/// [`addition_set`] with a third candidate: the same key, under another candidate list.
+pub fn addition_set_with_another_candidate(
+    client: DummyClient,
+    shapes: Vec<Vec<usize>>,
+) -> TunableSet<String, Vec<Handle>, ()> {
+    let op_add =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+    addition_set(client, shapes).with(Tunable::new("add_again", move |inputs| op_add.run(inputs)))
+}
+
 /// What [`identified_addition_set`]'s tunables are identified by, and named by.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Addition {

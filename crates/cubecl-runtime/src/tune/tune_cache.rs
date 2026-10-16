@@ -9,6 +9,9 @@ use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOption
 use serde::{Deserialize, Serialize};
 
 use super::{AutotuneError, AutotuneKey, AutotuneOutcome};
+use crate::device::DevicePart;
+#[cfg(persistence)]
+use crate::execution::TuneOutcome;
 use crate::execution::TuneRegistration;
 use alloc::string::String;
 use cubecl_environment::collections::HashMap;
@@ -24,7 +27,8 @@ pub(crate) enum CacheEntry {
     /// miss to anything that tunes, and done to the next `CompileOnly` override. Never persisted.
     /// `registration` is the key's tune as the override that gathered it registered it, settled
     /// once its pick commits; `None` when it registered none. Replacing the entry other than
-    /// through [`TuneCache::mark_pending`] drops the registration, which counts it failed.
+    /// through [`TuneCache::mark_pending`] or [`TuneCache::look_up`] drops the registration, which
+    /// counts it abandoned.
     Compiled {
         registration: Option<TuneRegistration>,
     },
@@ -164,8 +168,7 @@ pub enum TuneCacheResult {
 impl<K: AutotuneKey> TuneCache<K> {
     pub(crate) fn new(
         #[cfg_attr(not(persistence), allow(unused_variables))] name: &str,
-        #[cfg_attr(not(persistence), allow(unused_variables))] hardware: &str,
-        #[cfg_attr(not(persistence), allow(unused_variables))] fingerprint: &str,
+        #[cfg_attr(not(persistence), allow(unused_variables))] part: &DevicePart,
     ) -> Self {
         #[cfg(persistence)]
         {
@@ -173,8 +176,7 @@ impl<K: AutotuneKey> TuneCache<K> {
             use alloc::format;
 
             let config = crate::config::CubeClRuntimeConfig::get();
-            let namespace =
-                Namespace::scoped("autotune", format!("{fingerprint}/{hardware}/{name}"));
+            let namespace = Namespace::scoped("autotune", format!("{part}/{name}"));
             let table = namespace.as_str().into();
 
             if config.autotune.disable_cache {
@@ -391,10 +393,25 @@ impl<K: AutotuneKey> TuneCache<K> {
         delivered
     }
 
-    /// The answer to `key` under `checksum` that another cache of this table stored since this one
-    /// hydrated, read from the store and kept. A device of the same hardware tunes into the same
-    /// table, so its answers serve here too.
-    pub(crate) fn read_through(&mut self, key: &K, checksum: &str) -> TuneCacheResult {
+    /// What `key` resolves to under the set's `checksum`, once memory missed or held an
+    /// unverified answer: the store's answers ingested, the one for `key` verified, and failing
+    /// that, an answer stored under `checksum` since this cache hydrated.
+    pub(crate) fn look_up(&mut self, key: &K, checksum: &str) -> TuneCacheResult {
+        // Browser hydration is asynchronous, so persistent entries may have arrived after
+        // construction.
+        if matches!(self.fastest(key), TuneCacheResult::Miss) {
+            self.sync_persistent();
+        }
+        match self.validate_checksum(key, checksum) {
+            TuneCacheResult::Miss => self.read_through(key, checksum),
+            cur => cur,
+        }
+    }
+
+    /// The answer stored for `key` under `checksum` since this cache hydrated: a device of the same
+    /// part tunes into the same table. A key a `CompileOnly` pass gathered here was measured all the
+    /// same, and settles as measured.
+    fn read_through(&mut self, key: &K, checksum: &str) -> TuneCacheResult {
         let Some(persistent_cache) = self.persistent_cache.as_mut() else {
             return TuneCacheResult::Miss;
         };
@@ -402,12 +419,19 @@ impl<K: AutotuneKey> TuneCache<K> {
             key: key.clone(),
             checksum: checksum.into(),
         };
-        let Some(value) = persistent_cache.get_mut(&stored) else {
+        let Some(value) = persistent_cache.remove(&stored) else {
             return TuneCacheResult::Miss;
         };
-        let fastest_index = value.fastest_index;
-        self.cache_insert(key.clone(), fastest_index);
-        TuneCacheResult::Hit { fastest_index }
+        if let Some(CacheEntry::Compiled {
+            registration: Some(registration),
+        }) = self.in_memory_cache.remove(key)
+        {
+            registration.settle(TuneOutcome::Measured);
+        }
+        self.cache_insert(key.clone(), value.fastest_index);
+        TuneCacheResult::Hit {
+            fastest_index: value.fastest_index,
+        }
     }
 
     /// The namespace the table is stored under.
@@ -438,7 +462,8 @@ impl<K: AutotuneKey> TuneCache<K> {
             } => log::warn!(
                 "Autotune the same function multiple times for key {key:?} => old {value_previous:?}, new {value_updated:?}"
             ),
-            // Another process sharing the cache root tuned this key first.
+            // Another process sharing the cache root, or another device of the same part, tuned
+            // this key first.
             // Routine with N training processes on a cold cache, and both
             // results are valid, so it stays quiet: warning here would
             // print a full result payload per key on every cold start.

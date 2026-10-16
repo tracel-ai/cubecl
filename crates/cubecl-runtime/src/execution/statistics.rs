@@ -59,7 +59,7 @@ pub struct AutotuneStatistics {
     /// inside another key's candidates is not gathered: it registers if it is
     /// ever measured.
     pub registered: usize,
-    /// Tuned by measuring their candidates.
+    /// Tuned by measuring their candidates, here or on a device of the same part.
     pub measured: usize,
     /// Every candidate failed: the pick was made unmeasured.
     pub failed: usize,
@@ -174,7 +174,7 @@ pub enum KernelHandling {
 /// How a registered autotune key ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TuneOutcome {
-    /// Tuned by measuring its candidates.
+    /// Tuned by measuring its candidates, here or on a device of the same part.
     Measured,
     /// Every candidate failed: the pick was made unmeasured.
     Failed,
