@@ -49,7 +49,6 @@ use crate::{
                 DenseBackwardDataflowAnalysis, DenseForwardDataflowAnalysis, DenseLattice,
                 LatticeValue,
             },
-            sccp::DummySparseConstantPropagation,
             speculatability::{NotSpeculatable, SpeculatableAnalysis},
             value_dependents::{DependentsLattice, ValueDependentsAnalysis},
             value_numbering::{ValueNumberLattice, ValueNumberingAnalysis},
@@ -64,73 +63,19 @@ use super::{
     dense::{DenseBackward, DenseForward},
 };
 
-/// Lazy Code Motion, best for CPU
-pub fn compute_lcm_analyses(ctx: &Context, op: Ptr<Operation>) -> Result<DataflowSolver> {
-    let mut solver = DataflowSolver::new(SolverConfig::default());
-    solver.load(DummySparseConstantPropagation);
-    solver.load(ComputesAnalysis);
-    solver.load(ValueDependentsAnalysis::default());
-    solver.initialize_and_run(ctx, op)?;
-
-    let finished_analyses = solver.loaded_analyses().to_vec();
-    let memory_kill_sets = collect_memory_kill_sets(ctx, &solver, op);
-
-    let should_init =
-        |analysis: &dyn DataflowAnalysis| !finished_analyses.contains(&analysis.type_id());
-
-    solver.load(AvailableAnalysis::default());
-    solver.load(AnticipatedBackwards::new(memory_kill_sets));
-    solver.initialize_filtered_and_run(ctx, op, should_init)?;
-
-    Ok(solver)
-}
-
-/// Speculative Code Motion, best for GPU because it moves expressions out of divergent
-/// branches if possible.
-pub fn compute_scm_analyses(ctx: &Context, op: Ptr<Operation>) -> Result<DataflowSolver> {
-    let mut solver = DataflowSolver::new(SolverConfig::default());
-    solver.load(DummySparseConstantPropagation);
-    solver.load(ComputesAnalysis);
-    solver.load(ValueDependentsAnalysis::default());
-    solver.load(DynamicUniformityAnalysis::default());
-    solver.initialize_and_run(ctx, op)?;
-
-    let finished_analyses = solver.loaded_analyses().to_vec();
-    let memory_kill_sets = collect_memory_kill_sets(ctx, &solver, op);
-
-    let should_init =
-        |analysis: &dyn DataflowAnalysis| !finished_analyses.contains(&analysis.type_id());
-
-    solver.load(SpeculatableAnalysis::default());
-    solver.load(AvailableAnalysis::default());
-    solver.load(AnticipatedBackwards::new(memory_kill_sets.clone()));
-    solver.initialize_filtered_and_run(ctx, op, should_init)?;
-
-    // Standard anticipated runs a most fixpoint starting with `U` and intersecting,
-    // so it cannot converge together with the speculative anticipated which runs a least fixpoint
-    // starting with ∅ and unioning. So we split it into the seed rounds that only seed speculative
-    // anticipation and then reset and re-run the standard anticipated with the speculatively
-    // transferred sets merged into the transfer function. This can require more than one iteration
-    // to converge because speculative expressions may become strictly anticipated in an outer branch
-    // and then become speculatively available on another edge.
-    let mut n_iters = 0;
-    let rerun_antic = |analysis: &dyn DataflowAnalysis| analysis.is::<AnticipatedAnalysis>();
-    while seed_speculative(ctx, &solver, op, &memory_kill_sets)? == ChangeResult::Changed {
-        solver.clear_states_of_type::<Anticipated>();
-        solver.initialize_filtered_and_run(ctx, op, rerun_antic)?;
-        // Safety shutoff because I don't have a mathematical proof of convergence
-        n_iters += 1;
-        if n_iters > 10 {
-            break;
-        }
-    }
-
-    Ok(solver)
+/// Mode for computing anticipated sets
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum AnticipatedMode {
+    /// Expressions are only anticipated if they're computed on all paths, should be used on CPU
+    Classical,
+    /// Speculative Code Motion, uses `Classical` for uniform branches but anticipates expressions
+    /// computed on *any* path for divergent branches, as long as they're speculatable.
+    Speculative,
 }
 
 /// Mode for computing insertions
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum InsertionMode {
+pub enum InsertMode {
     /// Lazy insertions minimize register lifetime but can cause divergence and code size to increase.
     /// Should probably be used on CPU.
     Lazy,
@@ -139,18 +84,67 @@ pub enum InsertionMode {
     Sparse,
 }
 
+pub fn compute_lcm_analyses(
+    ctx: &Context,
+    op: Ptr<Operation>,
+    mode: AnticipatedMode,
+) -> Result<DataflowSolver> {
+    let mut solver = DataflowSolver::new(SolverConfig::default());
+    solver.load(ComputesAnalysis);
+    solver.load(ValueDependentsAnalysis::default());
+    solver.initialize_and_run(ctx, op)?;
+
+    let finished_analyses = solver.loaded_analyses().to_vec();
+    let memory_kill_sets = collect_memory_kill_sets(ctx, &solver, op);
+
+    let should_init =
+        |analysis: &dyn DataflowAnalysis| !finished_analyses.contains(&analysis.type_id());
+
+    if mode == AnticipatedMode::Speculative {
+        solver.load(SpeculatableAnalysis::default());
+        solver.load(DynamicUniformityAnalysis::default());
+    }
+
+    solver.load(AvailableAnalysis::default());
+    solver.load(AnticipatedBackwards::new(memory_kill_sets.clone()));
+    solver.initialize_filtered_and_run(ctx, op, should_init)?;
+
+    if mode == AnticipatedMode::Speculative {
+        // Standard anticipated runs a most fixpoint starting with `U` and intersecting,
+        // so it cannot converge together with the speculative anticipated which runs a least fixpoint
+        // starting with ∅ and unioning. So we split it into the seed rounds that only seed speculative
+        // anticipation and then reset and re-run the standard anticipated with the speculatively
+        // transferred sets merged into the transfer function. This can require more than one iteration
+        // to converge because speculative expressions may become strictly anticipated in an outer branch
+        // and then become speculatively available on another edge.
+        let mut n_iters = 0;
+        let rerun_antic = |analysis: &dyn DataflowAnalysis| analysis.is::<AnticipatedAnalysis>();
+        while seed_speculative(ctx, &solver, op, &memory_kill_sets)? == ChangeResult::Changed {
+            solver.clear_states_of_type::<Anticipated>();
+            solver.initialize_filtered_and_run(ctx, op, rerun_antic)?;
+            // Safety shutoff because I don't have a mathematical proof of convergence
+            n_iters += 1;
+            if n_iters > 10 {
+                break;
+            }
+        }
+    }
+
+    Ok(solver)
+}
+
 pub fn compute_pruned_insertion_points(
     ctx: &Context,
     op: Ptr<Operation>,
     solver: &mut DataflowSolver,
-    mode: InsertionMode,
+    mode: InsertMode,
 ) -> Result<IMap<ProgramPoint, SparseBitSet>> {
     let finished_analyses = solver.loaded_analyses().to_vec();
     let should_init =
         |analysis: &dyn DataflowAnalysis| !finished_analyses.contains(&analysis.type_id());
 
     solver.load(InsertedAnalysis::default());
-    if mode == InsertionMode::Sparse {
+    if mode == InsertMode::Sparse {
         solver.load(SparseInsertedAnalysis::default());
     }
     solver.initialize_filtered_and_run(ctx, op, should_init)?;
@@ -168,18 +162,13 @@ pub fn compute_pruned_insertion_points(
     let mut out = IMap::default();
     let inserted = solver.states_of_type::<Inserted>();
     for inserted in inserted {
-        let mut point = inserted.deref().anchor();
+        let point = inserted.deref().anchor();
         let mut inserted = inserted.deref().value().0.clone();
         // Clean up inserts that were later made redundant
         if let Some(op) = point.prev_op(ctx)
             && let Some(avail) = solver.lookup_state::<Available>(ProgramPoint::before_op(ctx, op))
         {
             inserted = inserted.difference(avail.deref().value().0.unwrap()).into();
-        }
-        if let Some(op) = point.prev_op(ctx)
-            && op.impls::<dyn IsTerminatorInterface>(ctx)
-        {
-            point = ProgramPoint::before_op(ctx, op);
         }
         if !inserted.is_empty() {
             out.insert(point, inserted);
@@ -278,7 +267,7 @@ impl DataflowAnalysis for ComputesAnalysis {
 }
 
 #[derive(Deref, DerefMut, PartialEq, Eq, Default)]
-pub struct AvailableSet(MaybeUninitBitset);
+pub struct AvailableSet(pub MaybeUninitBitset);
 
 impl Printable for AvailableSet {
     fn fmt(&self, _: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -740,8 +729,6 @@ fn seed_speculative(
         memory_kill_sets,
     };
 
-    std::println!("Seeding speculative");
-
     let mut changed = ChangeResult::Unchanged;
     walk_op(
         ctx,
@@ -812,7 +799,6 @@ fn seed_speculative(
                 {
                     continue;
                 }
-                std::println!("Updating from {}", succ.disp(ctx));
                 **changed |= updater.update_from(ctx, solver, &spec_antic, succ_point);
             }
         },
@@ -932,7 +918,6 @@ impl InsertedForward {
 
             let computes = solver.get_or_create_mut::<Computes>(pred);
             solver.update_state(ctx, &computes, |it| it.join(&ComputesSet(insert.clone())));
-            std::println!("Joining compute at {} with {:?}", pred.disp(ctx), insert);
 
             let lattice = this.get_lattice_mut(solver, pred);
             solver.update_state(ctx, &lattice, |it| it.join(&InsertedSet(insert)));

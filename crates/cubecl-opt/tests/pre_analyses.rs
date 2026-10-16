@@ -10,8 +10,8 @@ use cubecl_opt::{
         AnalysisState, DataflowSolver, ProgramPoint, ReadRef,
         dense::{self, DenseLattice},
         pre::{
-            Anticipated, Available, Computes, InsertionMode, compute_lcm_analyses,
-            compute_pruned_insertion_points, compute_scm_analyses,
+            Anticipated, AnticipatedMode, Available, Computes, InsertMode, compute_lcm_analyses,
+            compute_pruned_insertion_points,
         },
     },
 };
@@ -71,7 +71,7 @@ fn run_pre_analyses_on_text(ctx: &mut Context, input: &str) -> Result<String> {
 
     verify_operation(op, ctx)?;
 
-    let solver = compute_lcm_analyses(ctx, op)?;
+    let solver = compute_lcm_analyses(ctx, op, AnticipatedMode::Classical)?;
     std::println!("{}", solver.disp(ctx));
 
     Ok(display_sets(ctx, &solver, op))
@@ -83,7 +83,7 @@ fn run_speculative_pre_analyses_on_text(ctx: &mut Context, input: &str) -> Resul
 
     verify_operation(op, ctx)?;
 
-    let solver = compute_scm_analyses(ctx, op)?;
+    let solver = compute_lcm_analyses(ctx, op, AnticipatedMode::Speculative)?;
     std::println!("{}", solver.disp(ctx));
 
     Ok(display_sorted_anticipated(ctx, &solver, op))
@@ -92,18 +92,15 @@ fn run_speculative_pre_analyses_on_text(ctx: &mut Context, input: &str) -> Resul
 fn run_insert_analyses_on_text(
     ctx: &mut Context,
     input: &str,
-    speculative: bool,
-    insert_mode: InsertionMode,
+    antic_mode: AnticipatedMode,
+    insert_mode: InsertMode,
 ) -> Result<String> {
     init_env_logger_for_tests!();
     let op = parse_from_str(spaced(Operation::top_level_parser()), ctx, input).expect_ok(ctx);
 
     verify_operation(op, ctx)?;
 
-    let mut solver = match speculative {
-        true => compute_scm_analyses(ctx, op)?,
-        false => compute_lcm_analyses(ctx, op)?,
-    };
+    let mut solver = compute_lcm_analyses(ctx, op, antic_mode)?;
     let insertion_points = compute_pruned_insertion_points(ctx, op, &mut solver, insert_mode)?;
     std::println!("{}\n", solver.disp(ctx));
 
@@ -1455,7 +1452,8 @@ fn insert_paper_example_lcm() -> Result<()> {
     let input = sscm_paper_example();
 
     let ctx = &mut Context::new();
-    let actual = run_insert_analyses_on_text(ctx, input, false, InsertionMode::Lazy)?;
+    let actual =
+        run_insert_analyses_on_text(ctx, input, AnticipatedMode::Classical, InsertMode::Lazy)?;
 
     // Should insert in `inner_else`
     expect![[r#"
@@ -1471,7 +1469,8 @@ fn insert_paper_example_scm() -> Result<()> {
     let input = sscm_paper_example();
 
     let ctx = &mut Context::new();
-    let actual = run_insert_analyses_on_text(ctx, input, false, InsertionMode::Sparse)?;
+    let actual =
+        run_insert_analyses_on_text(ctx, input, AnticipatedMode::Classical, InsertMode::Sparse)?;
 
     // Should insert in `outer_else` before the `scf.if`
     expect![[r#"
@@ -1487,11 +1486,12 @@ fn insert_paper_example_sscm() -> Result<()> {
     let input = sscm_paper_example();
 
     let ctx = &mut Context::new();
-    let actual = run_insert_analyses_on_text(ctx, input, true, InsertionMode::Sparse)?;
+    let actual =
+        run_insert_analyses_on_text(ctx, input, AnticipatedMode::Speculative, InsertMode::Sparse)?;
 
     // Should insert in `entry` before the `scf.if`
     expect![[r#"
-        ^entry_block2v1(result_v12 = scf.if outer_cond_v2 : builtin.integer i64 then {..} else {..}): {e8}
+        ^entry_block2v1(result_v12 = scf.if outer_cond_v2 : builtin.integer i64 then {..} else {..}): {e7}
     "#]]
     .assert_eq(&actual);
 
