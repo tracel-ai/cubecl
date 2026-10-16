@@ -134,6 +134,13 @@ macro_rules! ReturnLike {
         }
 
         #[::pliron::derive::op_interface_impl]
+        impl $crate::interfaces::control_flow::MutableRegionBranchTerminatorOpInterface for $ty {
+            fn add_successor_operand(&self, ctx: &mut Context, _: RegionSuccessor, value: Value) {
+                Operation::push_operand(self.get_operation(), ctx, value);
+            }
+        }
+
+        #[::pliron::derive::op_interface_impl]
         impl $crate::interfaces::uniformity::UniformRegionTerminatorOpInterface for $ty {
             fn successor_region_uniformity(
                 &self,

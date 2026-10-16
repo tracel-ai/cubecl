@@ -32,7 +32,7 @@ impl Printable for RegionPredecessor {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Debug)]
 pub enum RegionSuccessor {
     Region(Ptr<Region>),
     AfterOp,
@@ -449,6 +449,24 @@ pub fn all_region_predecessors(op: Ptr<Operation>, ctx: &Context) -> Vec<RegionP
     predecessors
 }
 
+#[op_interface]
+pub trait MutableRegionBranchOpInterface: RegionBranchOpInterface {
+    verify_op_succ!();
+
+    fn add_entry_successor_operand(
+        &self,
+        ctx: &mut Context,
+        successor: RegionSuccessor,
+        value: Value,
+    );
+    fn add_successor_input(
+        &self,
+        ctx: &mut Context,
+        successor: RegionSuccessor,
+        ty: TypeHandle,
+    ) -> Value;
+}
+
 /// This interface provides information for branching terminator operations
 /// in the presence of a parent `RegionBranchOpInterface` implementation. It
 /// acts as a marker for valid region branch points and specifies which
@@ -491,6 +509,8 @@ pub trait RegionBranchTerminatorOpInterface {
 }
 
 #[op_interface]
-pub trait HoistableRegionOpInterface {
+pub trait MutableRegionBranchTerminatorOpInterface: RegionBranchTerminatorOpInterface {
     verify_op_succ!();
+
+    fn add_successor_operand(&self, ctx: &mut Context, successor: RegionSuccessor, value: Value);
 }

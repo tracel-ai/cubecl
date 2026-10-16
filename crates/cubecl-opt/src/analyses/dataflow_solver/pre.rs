@@ -14,7 +14,7 @@ use cubecl_ir::{
     dialect::{BlockPtrExt, RegionPtrExt},
     interfaces::{
         control_flow::{
-            CallableOpInterface, HoistableRegionOpInterface, RegionBranchOpInterface,
+            CallableOpInterface, MutableRegionBranchOpInterface, RegionBranchOpInterface,
             RegionPredecessor, RegionSuccessor,
         },
         memory_slot::MemoryValue,
@@ -44,7 +44,7 @@ use crate::{
         MaybeUninitBitset,
         dataflow_solver::{
             DataflowAnalysis, ProgramPoint, SmallPtrVec, SolverConfig,
-            dead_code::{Executable, is_block_live},
+            dead_code::{Executable, PredecessorState, is_block_live},
             dense::{
                 DenseBackwardDataflowAnalysis, DenseForwardDataflowAnalysis, DenseLattice,
                 LatticeValue,
@@ -210,9 +210,9 @@ impl ComputesAnalysis {
         point: ProgramPoint,
         op: Ptr<Operation>,
     ) {
-        if op.impls::<dyn RegionBranchOpInterface>(ctx) {
-            return;
-        }
+        // if op.impls::<dyn RegionBranchOpInterface>(ctx) {
+        //     return;
+        // }
 
         let mut values = SparseBitSet::new();
         for res in op.deref(ctx).results() {
@@ -271,8 +271,13 @@ pub struct AvailableSet(pub MaybeUninitBitset);
 
 impl Printable for AvailableSet {
     fn fmt(&self, _: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let set = self.0.iter().map(|i| format!("e{i}")).join(", ");
-        write!(f, "Available({{{}}})", set)
+        match &self.0 {
+            MaybeUninitBitset::Uninitialized => write!(f, "Available(Uninitialized)"),
+            MaybeUninitBitset::Initialized(set) => {
+                let set = set.iter().map(|i| format!("e{i}")).join(", ");
+                write!(f, "Available({{{}}})", set)
+            }
+        }
     }
 }
 
@@ -338,6 +343,50 @@ impl DenseForwardDataflowAnalysis for AvailableForward {
         Ok(())
     }
 
+    fn visit_block(
+        this: &DenseForward<Self>,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        block: Ptr<BasicBlock>,
+    ) {
+        let point = ProgramPoint::at_block_start(ctx, block);
+        if !is_block_live::<AvailableAnalysis>(solver, ctx, point) {
+            return;
+        }
+
+        if block.is_entry_block(ctx) {
+            let parent_region = block.deref(ctx).get_parent_region().unwrap();
+            let parent_op = block.deref(ctx).get_parent_op(ctx).unwrap();
+
+            if parent_op.impls::<dyn RegionBranchOpInterface>(ctx) {
+                return this.visit_block(solver, ctx, block);
+            }
+
+            if let Some(callable) = parent_op.cast::<dyn CallableOpInterface>(ctx)
+                && callable.callable_region(ctx) == Some(parent_region)
+            {
+                let callsites = solver.get_or_create_for::<Self, PredecessorState>(
+                    point,
+                    ProgramPoint::after_op(ctx, parent_op),
+                );
+                if callsites.deref().all_predecessors_known() && solver.config().is_interprocedural
+                {
+                    return this.visit_block(solver, ctx, block);
+                }
+            }
+
+            let computes = solver.get_or_create_for::<AvailableAnalysis, Computes>(point, point);
+            let mut init = computes.deref().value().0.clone();
+            Self::extend_from_values(solver, point, &mut init, block.deref(ctx).arguments());
+            let available = this.get_lattice_mut(solver, point);
+            solver.update_state(ctx, &available, |it| {
+                it.join(&AvailableSet(MaybeUninitBitset::Initialized(init)))
+            });
+        } else {
+            this.visit_block(solver, ctx, block);
+        }
+    }
+
     fn visit_region_branch_control_flow_transfer(
         this: &DenseForward<Self>,
         solver: &DataflowSolver,
@@ -348,8 +397,8 @@ impl DenseForwardDataflowAnalysis for AvailableForward {
         after: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) {
         let branch_op = branch.get_operation();
-        if branch_op.impls::<dyn HoistableRegionOpInterface>(ctx) {
-            Self::visit_control_flow_transfer(this, solver, ctx, predecessors, after);
+        if branch_op.impls::<dyn MutableRegionBranchOpInterface>(ctx) {
+            Self::visit_control_flow_transfer(this, solver, ctx, point, predecessors, after);
         } else if branch_op.impls::<dyn IsolatedFromAboveInterface>(ctx)
             && point != ProgramPoint::after_op(ctx, branch_op)
         {
@@ -384,9 +433,17 @@ impl DenseForwardDataflowAnalysis for AvailableForward {
         _: &DenseForward<Self>,
         solver: &DataflowSolver,
         ctx: &Context,
+        point: ProgramPoint,
         predecessors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
         after: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) {
+        let mut extra = SparseBitSet::new();
+        if let Some(op) = point.prev_op(ctx) {
+            Self::extend_from_values(solver, point, &mut extra, op.deref(ctx).results());
+        } else if point.is_block_start(ctx) {
+            let block = point.block().unwrap();
+            Self::extend_from_values(solver, point, &mut extra, block.deref(ctx).arguments());
+        }
         for predecessor in predecessors {
             let pred = predecessor.deref();
             let MaybeUninitBitset::Initialized(pred) = &pred.value().0 else {
@@ -395,7 +452,7 @@ impl DenseForwardDataflowAnalysis for AvailableForward {
 
             let point = predecessor.deref().anchor();
             let computes = solver.get_or_create_for::<AvailableAnalysis, Computes>(point, point);
-            let union = pred.union(&computes.deref().value().0).into();
+            let union = pred.union(&computes.deref().value().0).union(&extra).into();
             solver.update_state(ctx, after, |it| it.join(&AvailableSet(union)));
         }
     }
@@ -962,7 +1019,7 @@ impl DenseForwardDataflowAnalysis for InsertedForward {
     ) {
         if branch
             .get_operation()
-            .impls::<dyn HoistableRegionOpInterface>(ctx)
+            .impls::<dyn MutableRegionBranchOpInterface>(ctx)
         {
             Self::insert_in_preds(this, ctx, solver, point, predecessors);
         }
@@ -973,6 +1030,7 @@ impl DenseForwardDataflowAnalysis for InsertedForward {
         _: &DenseForward<Self>,
         _: &DataflowSolver,
         _: &Context,
+        _: ProgramPoint,
         _: &[ReadRef<Inserted>],
         _: &WriteRef<Inserted>,
     ) {
@@ -1136,7 +1194,7 @@ impl DenseBackwardDataflowAnalysis for InsertedBackward {
 
         if branch
             .get_operation()
-            .impls::<dyn HoistableRegionOpInterface>(ctx)
+            .impls::<dyn MutableRegionBranchOpInterface>(ctx)
         {
             Self::insert_in_pred(solver, ctx, point, successors, before);
         }

@@ -40,7 +40,7 @@ use crate::{
     interfaces::{
         CanonicalizeInterface,
         control_flow::{
-            HoistableRegionOpInterface, InvocationBounds, RegionBranchOpInterface,
+            InvocationBounds, MutableRegionBranchOpInterface, RegionBranchOpInterface,
             RegionPredecessor, RegionSuccessor,
         },
         memory_slot::{
@@ -205,9 +205,6 @@ impl PromotableRegionOpInterface for IfOp {
 }
 
 #[op_interface_impl]
-impl HoistableRegionOpInterface for IfOp {}
-
-#[op_interface_impl]
 impl MemorySSARegionOpInterface for IfOp {
     fn setup_memory_ssa(
         &self,
@@ -308,6 +305,24 @@ impl RegionBranchOpInterface for IfOp {
         } else {
             vec![InvocationBounds::zero_or_one(); 2]
         }
+    }
+}
+
+#[op_interface_impl]
+impl MutableRegionBranchOpInterface for IfOp {
+    fn add_entry_successor_operand(&self, _: &mut Context, _: RegionSuccessor, _: Value) {
+        panic!("IfOp doesn't have entry successor operands")
+    }
+
+    fn add_successor_input(
+        &self,
+        ctx: &mut Context,
+        successor: RegionSuccessor,
+        ty: TypeHandle,
+    ) -> Value {
+        assert_eq!(successor, RegionSuccessor::AfterOp);
+        let res_idx = Operation::push_result(self.get_operation(), ctx, ty);
+        self.get_result(ctx, res_idx)
     }
 }
 
@@ -552,7 +567,22 @@ impl PromotableRegionOpInterface for SwitchOp {
 }
 
 #[op_interface_impl]
-impl HoistableRegionOpInterface for SwitchOp {}
+impl MutableRegionBranchOpInterface for SwitchOp {
+    fn add_entry_successor_operand(&self, _: &mut Context, _: RegionSuccessor, _: Value) {
+        panic!("SwitchOp doesn't have entry successor operands")
+    }
+
+    fn add_successor_input(
+        &self,
+        ctx: &mut Context,
+        successor: RegionSuccessor,
+        ty: TypeHandle,
+    ) -> Value {
+        assert_eq!(successor, RegionSuccessor::AfterOp);
+        let res_idx = Operation::push_result(self.get_operation(), ctx, ty);
+        self.get_operation().deref(ctx).get_result(res_idx)
+    }
+}
 
 #[op_interface_impl]
 impl MemorySSARegionOpInterface for SwitchOp {
@@ -1007,9 +1037,6 @@ impl PromotableRegionOpInterface for ForOp {
 }
 
 #[op_interface_impl]
-impl HoistableRegionOpInterface for ForOp {}
-
-#[op_interface_impl]
 impl MemorySSARegionOpInterface for ForOp {
     fn setup_memory_ssa(
         &self,
@@ -1301,9 +1328,6 @@ impl PromotableRegionOpInterface for WhileOp {
 }
 
 #[op_interface_impl]
-impl HoistableRegionOpInterface for WhileOp {}
-
-#[op_interface_impl]
 impl MemorySSARegionOpInterface for WhileOp {
     fn setup_memory_ssa(
         &self,
@@ -1394,6 +1418,38 @@ impl RegionBranchOpInterface for WhileOp {
             }
             RegionSuccessor::Region(_) => self.after_block(ctx).arguments(ctx),
             RegionSuccessor::AfterOp => self.results(ctx),
+        }
+    }
+}
+
+#[op_interface_impl]
+impl MutableRegionBranchOpInterface for WhileOp {
+    fn add_entry_successor_operand(&self, _: &mut Context, _: RegionSuccessor, _: Value) {
+        panic!("WhileOp doesn't have entry successor operands")
+    }
+
+    fn add_successor_input(
+        &self,
+        ctx: &mut Context,
+        successor: RegionSuccessor,
+        ty: TypeHandle,
+    ) -> Value {
+        match successor {
+            RegionSuccessor::Region(reg) if reg == self.before_region(ctx) => {
+                let arg_idx = BasicBlock::push_argument(self.before_block(ctx), ctx, ty);
+                self.before_block(ctx).deref(ctx).get_argument(arg_idx)
+            }
+            RegionSuccessor::Region(reg) if reg == self.after_region(ctx) => {
+                let arg_idx = BasicBlock::push_argument(self.after_block(ctx), ctx, ty);
+                self.after_block(ctx).deref(ctx).get_argument(arg_idx)
+            }
+            RegionSuccessor::Region(_) => {
+                unreachable!()
+            }
+            RegionSuccessor::AfterOp => {
+                let res_idx = Operation::push_result(self.get_operation(), ctx, ty);
+                self.get_operation().deref(ctx).get_result(res_idx)
+            }
         }
     }
 }

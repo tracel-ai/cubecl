@@ -40,6 +40,7 @@ pub trait BlockPtrExt: Sized {
     fn arguments(self, ctx: &Context) -> Vec<Value>;
     fn is_empty(&self, ctx: &Context) -> bool;
     fn is_entry_block(&self, ctx: &Context) -> bool;
+    fn is_exit_block(&self, ctx: &Context) -> bool;
     fn ops_with_interface<T: OpInterfaceMarker + ?Sized + 'static>(
         &self,
         ctx: &Context,
@@ -155,6 +156,12 @@ impl BlockPtrExt for Ptr<BasicBlock> {
         self.deref(ctx)
             .get_parent_region()
             .is_some_and(|region| region.deref(ctx).get_entry_block() == Some(*self))
+    }
+
+    fn is_exit_block(&self, ctx: &Context) -> bool {
+        self.deref(ctx)
+            .get_terminator(ctx)
+            .is_some_and(|it| it.deref(ctx).get_num_successors() == 0)
     }
 
     fn ops_with_interface<T: OpInterfaceMarker + ?Sized + 'static>(
