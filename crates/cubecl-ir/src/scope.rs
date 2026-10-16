@@ -725,6 +725,19 @@ impl Scope {
         self.state_mut().register_type::<T>(elem);
     }
 
+    /// `T` names `elem` until the returned definition is dropped, which gives `T` back the
+    /// element it named before, if any: what a `define!` in a function re-entered on another
+    /// element leaves its outer call.
+    pub fn define_type<T: 'static>(&self, elem: ElemType) -> TypeDefinition<'_> {
+        let before = self.resolve_type::<T>();
+        self.register_type::<T>(elem);
+        TypeDefinition {
+            scope: self,
+            ty: TypeId::of::<T>(),
+            before,
+        }
+    }
+
     /// Register the comptime size for the given generic size.
     pub fn register_size<T: 'static>(&self, size: usize) {
         let state = self.state_mut();
@@ -973,4 +986,19 @@ fn init_bool_flag(ctx: &mut Context, inserter: &mut dyn Inserter, name: &str) ->
     inserter.append_op(ctx, &flag);
     set_operation_result_name(ctx, flag.get_operation(), 0, Some(ident(name)));
     flag.get_result(ctx)
+}
+
+/// A type's definition for a block, made by [`Scope::define_type`].
+pub struct TypeDefinition<'a> {
+    scope: &'a Scope,
+    ty: TypeId,
+    before: Option<ElemType>,
+}
+
+impl Drop for TypeDefinition<'_> {
+    fn drop(&mut self) {
+        if let Some(before) = self.before {
+            self.scope.state_mut().typemap.insert(self.ty, before);
+        }
+    }
 }
