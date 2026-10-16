@@ -5,6 +5,7 @@ use cubecl_zspace::{Shape, Strides};
 
 use crate::{client::Client, server::ServerStorage};
 
+pub use crate::description::{DeviceDescription, DeviceKind};
 pub use cubecl_monitoring::{
     DevicePower, DeviceTemperature, DeviceUtilization, UtilizationUnavailable,
 };
@@ -76,12 +77,13 @@ pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
         !Self::enumerate_all_devices().is_empty()
     }
 
-    /// The name `device` reports (e.g. `NVIDIA GeForce RTX 5070`). Doesn't go through
-    /// the client to fetch that name.
+    /// Description of the device (name, kind, memory, card, architecture, driver) read from the
+    /// driver without starting a server.
     ///
-    /// Returns `None` when the runtime needs a client to get the name, the device is
-    /// the runtime's "you choose" device, or the machine has no such device.
-    fn name(_device: &Self::Device) -> Option<alloc::string::String> {
+    /// Returns `None` when the machine has no such device, the device is the runtime's "you
+    /// choose" device (which names no hardware until a server picks some), or the runtime
+    /// describes nothing without a server.
+    fn description(_device: &Self::Device) -> Option<DeviceDescription> {
         None
     }
 

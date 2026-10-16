@@ -45,7 +45,10 @@ use cubecl_monitoring::{
     gpu_utilization::CardCounters,
 };
 use cubecl_server::{
-    allocator::PitchedMemoryLayoutPolicy, driver::checked, logging::ServerLogger, runtime::Runtime,
+    allocator::PitchedMemoryLayoutPolicy,
+    driver::checked,
+    logging::ServerLogger,
+    runtime::{DeviceDescription, DeviceKind, Runtime},
 };
 use std::{
     ffi::CStr,
@@ -313,12 +316,22 @@ impl Runtime for HipRuntime {
         CardCounters::power(Self::client(device).properties().identity.physical.as_ref())
     }
 
-    fn name(device: &Self::Device) -> Option<String> {
+    fn description(device: &Self::Device) -> Option<DeviceDescription> {
         if !cubecl_hip_sys::is_available() {
             return None;
         }
-        let props = device_properties(device.index as i32).ok()?;
-        Some(marketing_name(&props))
+        let index = device.index as i32;
+        let props = device_properties(index).ok()?;
+        let kind = match props.integrated != 0 {
+            true => DeviceKind::Integrated,
+            false => DeviceKind::Discrete,
+        };
+        let mut description = DeviceDescription::new(marketing_name(&props), kind);
+        description.max_memory = Some(props.totalGlobalMem as u64);
+        description.physical = Some(physical_device(index, &props));
+        description.architecture = Some(arch_name(&props));
+        description.driver_version = driver_version();
+        Some(description)
     }
 }
 
@@ -337,6 +350,56 @@ fn device_properties(
         checked("hipGetDevicePropertiesR0600", status)?;
         Ok(props.assume_init())
     }
+}
+
+/// The full `gcnArchName` in `props`, target-feature suffix included.
+fn arch_name(props: &cubecl_hip_sys::hipDeviceProp_tR0600) -> String {
+    // SAFETY: the array is a null-terminated C string the driver wrote, copied
+    // out before `props` is released.
+    unsafe { CStr::from_ptr(props.gcnArchName.as_ptr()) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// The card behind the device at `index`, whose properties are `props`.
+#[cfg_attr(not(windows), expect(unused_variables))]
+fn physical_device(index: i32, props: &cubecl_hip_sys::hipDeviceProp_tR0600) -> PhysicalDevice {
+    let mut bus_id = [0u8; 32];
+    // SAFETY: the buffer outlives the call and its length travels with it.
+    let status = unsafe {
+        cubecl_hip_sys::hipDeviceGetPCIBusId(
+            bus_id.as_mut_ptr().cast(),
+            bus_id.len() as c_int,
+            index,
+        )
+    };
+    let mut physical = PhysicalDevice::default();
+    physical.pci_address = checked("hipDeviceGetPCIBusId", status)
+        .ok()
+        .and_then(|()| CStr::from_bytes_until_nul(&bus_id).ok())
+        .and_then(|id| id.to_str().ok()?.parse().ok());
+    physical.vendor = Some(PciVendor::Amd);
+    #[cfg(windows)]
+    {
+        let luid = props.luid.map(|byte| byte as u8);
+        // A zeroed LUID names no adapter.
+        physical.luid = (luid != [0; 8]).then(|| AdapterLuid::new(luid));
+    }
+    physical
+}
+
+/// The HIP driver's version, decoded from `10_000_000 * major + 100_000 * minor + patch`.
+fn driver_version() -> Option<String> {
+    let mut version: c_int = 0;
+    // SAFETY: `version` outlives the call, and is only read after it reported writing it.
+    let status = unsafe { cubecl_hip_sys::hipDriverGetVersion(&mut version) };
+    checked("hipDriverGetVersion", status).ok()?;
+    Some(format!(
+        "{}.{}.{}",
+        version / 10_000_000,
+        (version / 100_000) % 100,
+        version % 100_000
+    ))
 }
 
 /// The marketing name in `props`, lossily decoded: a driver returning
@@ -398,38 +461,9 @@ impl DeviceProbe {
         let props = device_properties(index)
             .unwrap_or_else(|err| panic!("the driver could not describe device {index}: {err}"));
 
-        // SAFETY: both arrays are null-terminated C strings written by the
-        // driver, and both are copied out before `props` goes out of scope.
-        let (arch_name, name) = unsafe {
-            (
-                CStr::from_ptr(props.gcnArchName.as_ptr())
-                    .to_string_lossy()
-                    .into_owned(),
-                marketing_name(&props),
-            )
-        };
-
-        let mut bus_id = [0u8; 32];
-        // SAFETY: the buffer outlives the call and its length travels with it.
-        let status = unsafe {
-            cubecl_hip_sys::hipDeviceGetPCIBusId(
-                bus_id.as_mut_ptr().cast(),
-                bus_id.len() as c_int,
-                index,
-            )
-        };
-        let mut physical = PhysicalDevice::default();
-        physical.pci_address = checked("hipDeviceGetPCIBusId", status)
-            .ok()
-            .and_then(|()| CStr::from_bytes_until_nul(&bus_id).ok())
-            .and_then(|id| id.to_str().ok()?.parse().ok());
-        physical.vendor = Some(PciVendor::Amd);
-        #[cfg(windows)]
-        {
-            let luid = props.luid.map(|byte| byte as u8);
-            // A zeroed LUID names no adapter.
-            physical.luid = (luid != [0; 8]).then(|| AdapterLuid::new(luid));
-        }
+        let arch_name = arch_name(&props);
+        let name = marketing_name(&props);
+        let physical = physical_device(index, &props);
 
         Self {
             arch_name,

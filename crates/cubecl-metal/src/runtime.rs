@@ -19,7 +19,7 @@ use cubecl_monitoring::{
     gpu_utilization::CardCounters,
 };
 use cubecl_server::allocator::ContiguousMemoryLayoutPolicy;
-use cubecl_server::runtime::Runtime;
+use cubecl_server::runtime::{DeviceDescription, DeviceKind, Runtime};
 use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLDevice, MTLGPUFamily};
 
@@ -71,9 +71,7 @@ impl DeviceService for MetalServer {
         // `MetalPipelines` builds the same `msl_{name}` namespace from the same
         // string.
         let device_name = metal_device.name().to_string();
-
-        let mut physical = PhysicalDevice::default();
-        physical.registry_entry_id = Some(RegistryEntryId::new(metal_device.registryID()));
+        let physical = physical_device(&metal_device);
 
         let mut device_props = DeviceProperties::new(
             Default::default(),
@@ -169,11 +167,25 @@ impl Runtime for MetalRuntime {
         CardCounters::power(Self::client(device).properties().identity.physical.as_ref())
     }
 
-    fn name(device: &Self::Device) -> Option<String> {
-        resolve(device)
-            .ok()
-            .map(|metal_device| metal_device.name().to_string())
+    fn description(device: &Self::Device) -> Option<DeviceDescription> {
+        let metal_device = resolve(device).ok()?;
+        let kind = match (*metal_device).hasUnifiedMemory() {
+            true => DeviceKind::Integrated,
+            false => DeviceKind::Discrete,
+        };
+        let mut description = DeviceDescription::new(metal_device.name().to_string(), kind);
+        // Metal states no total, only the working set it recommends staying under.
+        description.max_memory = Some((*metal_device).recommendedMaxWorkingSetSize());
+        description.physical = Some(physical_device(&metal_device));
+        Some(description)
     }
+}
+
+/// The card behind `metal_device`, found by its I/O Registry entry.
+fn physical_device(metal_device: &ProtocolObject<dyn MTLDevice>) -> PhysicalDevice {
+    let mut physical = PhysicalDevice::default();
+    physical.registry_entry_id = Some(RegistryEntryId::new(metal_device.registryID()));
+    physical
 }
 
 /// The Metal device `device` reports, or why it does not find one: the first

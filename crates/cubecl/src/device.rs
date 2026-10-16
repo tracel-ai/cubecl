@@ -21,7 +21,8 @@ pub use cubecl_runtime::device::{
 };
 
 pub use cubecl_runtime::runtime::{
-    DevicePower, DeviceTemperature, DeviceUtilization, UtilizationUnavailable,
+    DeviceDescription, DeviceKind, DevicePower, DeviceTemperature, DeviceUtilization,
+    UtilizationUnavailable,
 };
 
 /// A device of any runtime.
@@ -544,31 +545,34 @@ impl Device {
         }
     }
 
-    /// The name this device reports (e.g. `NVIDIA GeForce RTX 5070`). Doesn't go through
-    /// the client to fetch that name.
+    /// Description of this device (name, kind, memory, card, architecture, driver) read from
+    /// the driver without starting a server on it, so it costs no context and no device memory.
     ///
-    /// Returns `None` when the runtime needs a client to get the name, the device is
-    /// the runtime's "you choose" device, or the machine has no such device.
+    /// Returns `None` when the machine has no such device, the device is the runtime's "you
+    /// choose" device, the runtime describes nothing without a server, or the build does not
+    /// link the runtime.
     ///
     /// ```no_run
     /// use cubecl::Device;
     ///
     /// for device in Device::enumerate_all() {
-    ///     println!("{}", device.name().unwrap_or_default());
+    ///     if let Some(description) = device.description() {
+    ///         println!("{} ({:?})", description.name, description.kind);
+    ///     }
     /// }
     /// ```
-    pub fn name(&self) -> Option<alloc::string::String> {
+    pub fn description(&self) -> Option<DeviceDescription> {
         match *self {
             #[cfg(feature = "cuda")]
-            Self::Cuda(ref device) => cubecl_cuda::CudaRuntime::name(device),
+            Self::Cuda(ref device) => cubecl_cuda::CudaRuntime::description(device),
             #[cfg(feature = "hip")]
-            Self::Hip(ref device) => cubecl_hip::HipRuntime::name(device),
+            Self::Hip(ref device) => cubecl_hip::HipRuntime::description(device),
             #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
-            Self::Metal(ref device) => cubecl_metal::MetalRuntime::name(device),
+            Self::Metal(ref device) => cubecl_metal::MetalRuntime::description(device),
             #[cfg(feature = "wgpu")]
-            Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::name(device),
+            Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::description(device),
             #[cfg(feature = "cpu")]
-            Self::Cpu(ref device) => cubecl_cpu::CpuRuntime::name(device),
+            Self::Cpu(ref device) => cubecl_cpu::CpuRuntime::description(device),
             #[allow(unreachable_patterns)]
             _ => None,
         }

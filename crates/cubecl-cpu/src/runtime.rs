@@ -17,11 +17,11 @@ use cubecl_server::{
     allocator::ContiguousMemoryLayoutPolicy,
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
     logging::ServerLogger,
-    runtime::{DeviceUtilization, Runtime, UtilizationUnavailable},
+    runtime::{DeviceDescription, DeviceKind, DeviceUtilization, Runtime, UtilizationUnavailable},
 };
 use cubecl_std::tensor::is_contiguous;
 use std::sync::Arc;
-use sysinfo::{CpuRefreshKind, System};
+use sysinfo::{CpuRefreshKind, MemoryRefreshKind, System};
 
 #[derive(Default)]
 pub struct RuntimeOptions {
@@ -305,10 +305,16 @@ impl Runtime for CpuRuntime {
         ProcessorTimes::read_machine_wide()
     }
 
-    fn name(_device: &Self::Device) -> Option<String> {
+    /// The host's processors, as the operating system and LLVM report them.
+    fn description(_device: &Self::Device) -> Option<DeviceDescription> {
         let mut system = System::new();
         system.refresh_cpu_list(CpuRefreshKind::nothing());
-        Some(host_cpu_name(&system))
+        system.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
+        let mut description = DeviceDescription::new(host_cpu_name(&system), DeviceKind::Cpu);
+        description.max_memory = Some(system.total_memory());
+        // The CPU LLVM tunes the kernels for, the host's own.
+        description.architecture = Some(cubecl_llvm::host_cpu_target().0);
+        Some(description)
     }
 }
 
@@ -326,5 +332,21 @@ mod tests {
         );
         // Emulated or not, f16 keeps every usage: kernels in f16 still run.
         assert_eq!(client.properties().type_usage(f16), TypeUsage::all());
+    }
+
+    /// The host is described from what the system and LLVM report, the same name the server
+    /// reports once it starts.
+    #[test]
+    fn the_host_is_described_without_a_server() {
+        let description = CpuRuntime::description(&CpuDevice).expect("the host is a device");
+
+        assert_eq!(description.kind, DeviceKind::Cpu);
+        assert!(description.max_memory.is_some_and(|bytes| bytes > 0));
+        assert!(description.architecture.is_some_and(|cpu| !cpu.is_empty()));
+        assert_eq!(description.physical, None, "a CPU is no card");
+        assert_eq!(
+            description.name,
+            CpuRuntime::client(&CpuDevice).properties().identity.name
+        );
     }
 }
