@@ -120,10 +120,14 @@ impl MaybeUninitBitset {
     }
 
     #[track_caller]
-    fn unwrap(&self) -> &SparseBitSet {
+    pub fn unwrap(&self) -> &SparseBitSet {
+        self.initialized().unwrap()
+    }
+
+    pub fn initialized(&self) -> Option<&SparseBitSet> {
         match self {
-            MaybeUninitBitset::Uninitialized => panic!(),
-            MaybeUninitBitset::Initialized(bit_set) => bit_set,
+            MaybeUninitBitset::Uninitialized => None,
+            MaybeUninitBitset::Initialized(bit_set) => Some(bit_set),
         }
     }
 }
