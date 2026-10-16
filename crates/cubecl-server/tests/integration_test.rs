@@ -724,6 +724,50 @@ fn persisted_answers_are_scoped_to_the_adapter_fingerprint() {
     ));
 }
 
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn a_tune_answers_for_a_tuner_of_the_same_hardware_that_hydrated_before_it() {
+    use cubecl_environment::persistence::Database;
+    use cubecl_environment::records::{RecordLevel, Records};
+    use cubecl_server::tune::{TuneCacheResult, TuneRecord, Tuner};
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    recording_at(RecordLevel::Basic);
+
+    let client = test_client(&DummyDevice);
+    let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
+    let (handles, key) = addition_inputs(&client, &set);
+
+    let first: Tuner<String> = Tuner::new("shared", "hardware", "fp0");
+    let second: Tuner<String> = Tuner::new("shared", "hardware", "fp0");
+    let tune = |tuner: &Tuner<String>| {
+        tuner.check_tune(
+            &key,
+            &handles,
+            &set,
+            || set.compute_checksum(),
+            &client,
+            None,
+        )
+    };
+
+    let TuneCacheResult::Hit { fastest_index } = tune(&first) else {
+        panic!("the tune answers inline");
+    };
+    assert!(matches!(
+        tune(&second),
+        TuneCacheResult::Hit { fastest_index: read } if read == fastest_index
+    ));
+    let database = Database::open_active().unwrap();
+    assert_eq!(
+        Records::new(&database).read::<TuneRecord<String>>().len(),
+        1,
+        "the second tuner measured nothing"
+    );
+}
+
 /// A tune stopped by the short circuit records which candidate stopped it.
 #[test_log::test]
 #[cfg(all(feature = "std", persistence, not(target_family = "wasm")))]

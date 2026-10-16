@@ -164,7 +164,7 @@ pub enum TuneCacheResult {
 impl<K: AutotuneKey> TuneCache<K> {
     pub(crate) fn new(
         #[cfg_attr(not(persistence), allow(unused_variables))] name: &str,
-        #[cfg_attr(not(persistence), allow(unused_variables))] device_id: &str,
+        #[cfg_attr(not(persistence), allow(unused_variables))] hardware: &str,
         #[cfg_attr(not(persistence), allow(unused_variables))] fingerprint: &str,
     ) -> Self {
         #[cfg(persistence)]
@@ -174,7 +174,7 @@ impl<K: AutotuneKey> TuneCache<K> {
 
             let config = crate::config::CubeClRuntimeConfig::get();
             let namespace =
-                Namespace::scoped("autotune", format!("{fingerprint}/{device_id}/{name}"));
+                Namespace::scoped("autotune", format!("{fingerprint}/{hardware}/{name}"));
             let table = namespace.as_str().into();
 
             if config.autotune.disable_cache {
@@ -389,6 +389,25 @@ impl<K: AutotuneKey> TuneCache<K> {
         self.hydrated = true;
 
         delivered
+    }
+
+    /// The answer to `key` under `checksum` that another cache of this table stored since this one
+    /// hydrated, read from the store and kept. A device of the same hardware tunes into the same
+    /// table, so its answers serve here too.
+    pub(crate) fn read_through(&mut self, key: &K, checksum: &str) -> TuneCacheResult {
+        let Some(persistent_cache) = self.persistent_cache.as_mut() else {
+            return TuneCacheResult::Miss;
+        };
+        let stored = PersistentCacheKey {
+            key: key.clone(),
+            checksum: checksum.into(),
+        };
+        let Some(value) = persistent_cache.get_mut(&stored) else {
+            return TuneCacheResult::Miss;
+        };
+        let fastest_index = value.fastest_index;
+        self.cache_insert(key.clone(), fastest_index);
+        TuneCacheResult::Hit { fastest_index }
     }
 
     /// The namespace the table is stored under.

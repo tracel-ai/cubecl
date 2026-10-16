@@ -202,9 +202,12 @@ impl<K: AutotuneKey> Tuner<K> {
     /// Create a tuner. Its cache is seeded from the persistent cache when
     /// persistence is available (feature `persistence`: a file natively,
     /// OPFS in the browser).
-    pub fn new(name: &str, device_id: &str, fingerprint: &str) -> Self {
+    ///
+    /// Its results are stored under `hardware` and `fingerprint`, so tuners of devices that
+    /// name the same hardware share them.
+    pub fn new(name: &str, hardware: &str, fingerprint: &str) -> Self {
         Self {
-            cache: Arc::new(Mutex::new(TuneCache::new(name, device_id, fingerprint))),
+            cache: Arc::new(Mutex::new(TuneCache::new(name, hardware, fingerprint))),
             logger: Arc::new(Mutex::new(Logger::new())),
         }
     }
@@ -281,15 +284,21 @@ impl<K: AutotuneKey> Tuner<K> {
             };
 
             #[cfg(persistence)]
-            let cur = if matches!(cur, TuneCacheResult::Unchecked) {
-                let mut log = self.logger.lock();
-                let checksum = checksum();
-                if let AutotuneLogLevel::Full = log.log_level_autotune() {
-                    log.log_autotune(&format!("validate checksum key={key}, checksum={checksum}"));
+            let cur = match cur {
+                TuneCacheResult::Unchecked => {
+                    let mut log = self.logger.lock();
+                    let checksum = checksum();
+                    if let AutotuneLogLevel::Full = log.log_level_autotune() {
+                        log.log_autotune(&format!(
+                            "validate checksum key={key}, checksum={checksum}"
+                        ));
+                    }
+                    cache.validate_checksum(key, &checksum)
                 }
-                cache.validate_checksum(key, &checksum)
-            } else {
-                cur
+                // Another device of the same hardware may have tuned the key since this cache
+                // hydrated.
+                TuneCacheResult::Miss => cache.read_through(key, &checksum()),
+                cur => cur,
             };
 
             match cur {

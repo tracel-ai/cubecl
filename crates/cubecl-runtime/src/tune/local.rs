@@ -12,12 +12,42 @@ use core::{
 };
 use cubecl_environment::collections::HashMap;
 use cubecl_environment::sync::{Mutex, RwLock};
+use cubecl_ir::DeviceProperties;
 
 /// The tunable sets a [`LocalTuner`] has built, keyed by device as well as by
 /// initializer: a set is built from the device it will run on — its client, its
 /// hardware properties — so one device's set cannot answer for another's. See
 /// [`LocalTuner::init`].
 type Sets<ID> = RwLock<Option<HashMap<(TypeId, ID), Arc<dyn Any + Send + Sync>>>>;
+
+/// The hardware a device's tune results hold for: devices that name themselves alike and report
+/// the same features and hardware measure alike, so identical cards share one table rather than
+/// each tuning it again. The name alone is not enough, since distinct parts may share one.
+struct TunedHardware<'a> {
+    name: &'a str,
+    properties: u64,
+}
+
+impl<'a> TunedHardware<'a> {
+    fn of(properties: &'a DeviceProperties) -> Self {
+        Self {
+            name: &properties.identity.name,
+            properties: properties.checksum(),
+        }
+    }
+}
+
+impl Display for TunedHardware<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        // A `/` in the name would split the table's namespace segment.
+        write!(
+            f,
+            "{}-{:016x}",
+            self.name.replace('/', "-"),
+            self.properties
+        )
+    }
+}
 
 /// A local tuner allows to create a tuner for a specific key that can be different from the server
 /// key.
@@ -185,8 +215,13 @@ where
                 .entry(id.clone())
                 .or_insert_with(move || {
                     let name = self.name.replace("::", "-");
-                    let fingerprint = &client.properties().identity.fingerprint;
-                    Arc::new(Tuner::new(&name, &id.to_string(), fingerprint))
+                    let properties = client.properties();
+                    let hardware = TunedHardware::of(properties).to_string();
+                    Arc::new(Tuner::new(
+                        &name,
+                        &hardware,
+                        &properties.identity.fingerprint,
+                    ))
                 })
                 .clone()
         };
