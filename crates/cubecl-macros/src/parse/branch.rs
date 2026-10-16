@@ -11,7 +11,7 @@ use crate::{
         expression::{add_variables_from_pat, is_runtime_compatible_variant, unwrap_noop},
         helpers::is_comptime_attr,
     },
-    scope::Context,
+    scope::{ClosureScope, Context},
     statement::Statement,
 };
 
@@ -53,7 +53,9 @@ pub fn expand_for_loop(
             let var = &var.ident;
             body.stmts.insert(0, parse_quote![let mut #var = #var;]);
         }
-        Block::from_block(body, context)
+        context.in_closure_scope(ClosureScope::NestedWithoutValue, |context| {
+            Block::from_block(body, context)
+        })
     })?;
 
     Ok(Expression::ForLoop {
@@ -93,7 +95,11 @@ fn expand_for_in_loop(
 pub fn expand_while_loop(while_loop: ExprWhile, context: &mut Context) -> syn::Result<Expression> {
     let (cond, cond_scope) =
         context.in_scope(|ctx| Expression::from_expr(*while_loop.cond, ctx))?;
-    let (body, scope) = context.in_scope(|ctx| Block::from_block(while_loop.body, ctx))?;
+    let (body, scope) = context.in_scope(|ctx| {
+        ctx.in_closure_scope(ClosureScope::NestedWithoutValue, |ctx| {
+            Block::from_block(while_loop.body, ctx)
+        })
+    })?;
     Ok(Expression::WhileLoop {
         cond: Box::new(cond),
         cond_scope,
@@ -103,7 +109,11 @@ pub fn expand_while_loop(while_loop: ExprWhile, context: &mut Context) -> syn::R
 }
 
 pub fn expand_loop(loop_expr: ExprLoop, context: &mut Context) -> syn::Result<Expression> {
-    let (block, scope) = context.in_scope(|ctx| Block::from_block(loop_expr.body, ctx))?;
+    let (block, scope) = context.in_scope(|ctx| {
+        ctx.in_closure_scope(ClosureScope::NestedWithoutValue, |ctx| {
+            Block::from_block(loop_expr.body, ctx)
+        })
+    })?;
     Ok(Expression::Loop { block, scope })
 }
 
@@ -112,13 +122,41 @@ pub fn expand_if(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expressi
     let condition = Expression::from_expr(*if_expr.cond, context)
         .map_err(|_| syn::Error::new(span, "Unsupported if condition"))?;
 
-    let (then_block, _) = context.in_scope(|ctx| Block::from_block(if_expr.then_branch, ctx))?;
-    let else_branch = if let Some((_, else_branch)) = if_expr.else_branch {
-        let (expr, _) = context.in_scope(|ctx| Expression::from_expr(*else_branch, ctx))?;
-        Some(Box::new(expr))
-    } else {
-        None
+    let compute_branches = |context: &mut Context, closure_scope: ClosureScope| -> syn::Result<_> {
+        let (then_block, _) = context.in_scope(|ctx| {
+            ctx.in_closure_scope(closure_scope, |ctx| {
+                Block::from_block(if_expr.then_branch.clone(), ctx)
+            })
+        })?;
+        let else_branch = if let Some((_, else_branch)) = if_expr.else_branch.clone() {
+            let (expr, _) = context.in_scope(|ctx| {
+                ctx.in_closure_scope(closure_scope, |ctx| {
+                    Expression::from_expr(*else_branch, ctx)
+                })
+            })?;
+            Some(Box::new(expr))
+        } else {
+            None
+        };
+        Ok((then_block, else_branch))
     };
+
+    let closure_scope = match condition.is_const() {
+        true => context.current_closure_scope(),
+        false => ClosureScope::NestedWithoutValue,
+    };
+
+    let (then_block, else_branch) = compute_branches(context, closure_scope)?;
+
+    let has_result =
+        then_block.ret.is_some() && else_branch.as_ref().is_some_and(|it| it.needs_terminator());
+
+    // Need to compute to figure out if we have a result - if we do, recompute with the new closure scope
+    let (then_block, else_branch) = match has_result {
+        true => compute_branches(context, ClosureScope::NestedWithValue)?,
+        false => (then_block, else_branch),
+    };
+
     Ok(Expression::If {
         condition: Box::new(condition),
         then_block,
@@ -139,18 +177,43 @@ pub fn expand_if_let(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expr
     let runtime_branch =
         is_runtime_compatible_variant(&let_expr.pat) && !expr.is_const() && !is_comptime;
 
-    let (then_block, _) = context.in_scope(|ctx| {
-        if !expr.is_const() {
-            add_variables_from_pat(&let_expr.pat, ctx);
-        }
-        Block::from_block(if_expr.then_branch, ctx)
-    })?;
+    let compute_branches = |context: &mut Context, closure_scope: ClosureScope| -> syn::Result<_> {
+        let (then_block, _) = context.in_scope(|ctx| {
+            if !expr.is_const() {
+                add_variables_from_pat(&let_expr.pat, ctx);
+            }
+            ctx.in_closure_scope(closure_scope, |ctx| {
+                Block::from_block(if_expr.then_branch.clone(), ctx)
+            })
+        })?;
 
-    let else_branch = if let Some((_, else_branch)) = if_expr.else_branch {
-        let (expr, _) = context.in_scope(|ctx| Expression::from_expr(*else_branch, ctx))?;
-        Some(Box::new(expr))
-    } else {
-        None
+        let else_branch = if let Some((_, else_branch)) = if_expr.else_branch.clone() {
+            let (expr, _) = context.in_scope(|ctx| {
+                ctx.in_closure_scope(closure_scope, |ctx| {
+                    Expression::from_expr(*else_branch, ctx)
+                })
+            })?;
+            Some(Box::new(expr))
+        } else {
+            None
+        };
+        Ok((then_block, else_branch))
+    };
+
+    let closure_scope = match runtime_branch {
+        true => ClosureScope::NestedWithoutValue,
+        false => context.current_closure_scope(),
+    };
+
+    let (then_block, else_branch) = compute_branches(context, closure_scope)?;
+
+    let has_result =
+        then_block.ret.is_some() && else_branch.as_ref().is_some_and(|it| it.needs_terminator());
+
+    // Need to compute to figure out if we have a result - if we do, recompute with the new closure scope
+    let (then_block, else_branch) = match has_result && runtime_branch {
+        true => compute_branches(context, ClosureScope::NestedWithValue)?,
+        false => (then_block, else_branch),
     };
 
     let arm = MatchArm {
@@ -206,7 +269,7 @@ pub fn numeric_match(mat: ExprMatch, context: &mut Context) -> Option<Expression
     }
 
     fn parse_body(expr: Expr, context: &mut Context) -> Option<Block> {
-        match expr {
+        context.in_closure_scope(ClosureScope::NestedWithoutValue, |context| match expr {
             Expr::Block(block) => Block::from_block(block.block, context).ok(),
             expr => {
                 let expr = Expression::from_expr(expr, context).ok()?;
@@ -215,7 +278,7 @@ pub fn numeric_match(mat: ExprMatch, context: &mut Context) -> Option<Expression
                     inner: vec![],
                 })
             }
-        }
+        })
     }
 
     let value = Box::new(Expression::from_expr(*mat.expr, context).ok()?);

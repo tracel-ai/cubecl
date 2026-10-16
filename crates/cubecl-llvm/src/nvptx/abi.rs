@@ -1,16 +1,15 @@
 //! PTX kernel arguments.
 
 use crate::{
-    nvptx::builtins::NvptxSpecialRegisters,
+    nvptx::{address::NvptxSpace, builtins::NvptxSpecialRegisters},
     prelude::*,
     shared::{
         builtins::InsertGpuBuiltinsPass,
         metadata::{CtxGridConstants, rebuild_func_type},
     },
 };
+use cubecl_core::ir::attributes::ATTR_TENSOR_MAP_BINDING;
 use cubecl_opt::passes::alloc_shared_memory::AllocateSharedMemoryBlockPass;
-
-const GLOBAL_ADDRESS_SPACE: u32 = 1;
 
 #[derive(Debug, Default)]
 pub struct PtxKernelParams;
@@ -39,11 +38,19 @@ impl EntryArgLayout for PtxKernelParams {
             buffers.iter().map(|(i, p, _)| (*i, *p)).collect::<Vec<_>>()
         );
 
-        let global_ptr = LlvmPointerType::get(ctx, GLOBAL_ADDRESS_SPACE).into();
+        let global_ptr = NvptxSpace::Global.pointer_ty(ctx);
+        // A tensor map is passed by value, so its parameter is the generic address of the
+        // copy in the parameter space.
+        let generic_ptr = NvptxSpace::Generic.pointer_ty(ctx);
         let entry = func.get_entry_block(ctx);
         for (arg_idx, _, _) in buffers {
             let arg = entry.deref(ctx).get_argument(*arg_idx);
-            arg.set_type(ctx, global_ptr);
+            let ty = if func.has_arg_attr(ctx, *arg_idx, &ATTR_TENSOR_MAP_BINDING) {
+                generic_ptr
+            } else {
+                global_ptr
+            };
+            arg.set_type(ctx, ty);
         }
         // By-value metadata stays in the generic address space.
         let last = entry.deref(ctx).get_num_arguments() - 1;

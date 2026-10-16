@@ -197,7 +197,7 @@ impl AdaptiveMemory {
     /// new page.
     ///
     /// A plan whose copies fail is abandoned: every allocation stays where it
-    /// was, and the targets it reserved are freed.
+    /// was. Targets are freed only once the device is known to be done with them.
     pub fn relocate<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
@@ -218,8 +218,8 @@ impl AdaptiveMemory {
                 // flush: a reservation retried after this needs that room.
                 storage.flush();
             }
-            // Dropping the plan gave every target it reserved back. Settled
-            // as moving nothing, so a device that keeps refusing the copies
+            // No allocation moved; an inconclusive wait keeps the reservations alive.
+            // Settled as moving nothing, so a device that keeps refusing the copies
             // is not waited on again until the pools change.
             Err(err) => {
                 self.trigger.stalled(&self.arena.state());
@@ -268,8 +268,15 @@ impl core::fmt::Display for AdaptiveMemory {
 
 // The layout these tests drive is the `Adaptive` preset, which a build
 // refusing sub-slicing does not have.
+//
+// Serial with the tests that open a process mode override: one that discards
+// launches maps pages lazily, so the pages these tests reserve would hold no
+// device bytes and the memory pressure they measure would read as none.
 #[cfg(all(test, not(exclusive_memory_only)))]
+#[serial_test::serial(records)]
 mod tests {
+    // `serial_test`'s macro expands to `vec!`, which a `no_std` crate has to
+    // bring in itself.
     use crate::{
         logging::ServerLogger,
         memory_management::{
@@ -280,6 +287,7 @@ mod tests {
         server::{IoError, ServerError},
         storage::BytesStorage,
     };
+    use alloc::vec;
     use cubecl_environment::sync::Arc;
     use cubecl_ir::MemoryDeviceProperties;
 

@@ -1,4 +1,7 @@
-use crate::{AddressType, ElemType, OpaqueType, SemanticType, Type};
+use crate::{
+    AddressType, ElemType, OpaqueType, SemanticType, Type,
+    types::{LdMatrixForm, MatrixShape, StMatrixForm},
+};
 use alloc::collections::{BTreeMap, BTreeSet};
 
 use crate::EnumSetType;
@@ -56,6 +59,15 @@ pub struct Types {
     /// These may not be supported everywhere - in practice, f32 vectors are only supported in global
     /// memory.
     pub atomic: BTreeMap<Type, EnumSet<AtomicUsage>>,
+    /// Types whose [`Conversion`](TypeUsage::Conversion) the compiler emulates in software, from
+    /// their bits, rather than with an instruction of the device. A kernel that decodes such a
+    /// type from its bits itself pays no more than the conversion would, and may move what the
+    /// emulation spends into work it already does.
+    pub emulated_conversion: BTreeSet<ElemType>,
+    /// Types whose [`Arithmetic`](TypeUsage::Arithmetic) the device runs through a wider type,
+    /// for example `f16` computed in `f32` on a CPU without native `f16` instructions. The type
+    /// still works, but a caller that chooses a precision can prefer the wider type.
+    pub emulated_arithmetic: BTreeSet<ElemType>,
 }
 
 /// Matrix multiplication-related features
@@ -74,10 +86,18 @@ pub struct MatmulFeatures {
     /// Scaled MMA allows combining matrix multiplication with unscaling quantized values into a single
     /// instruction. Scales must fit a specific layout and block size.
     pub scaled_mma: BTreeSet<ScaledMmaConfig>,
+    /// Warpgroup MMA (Hopper's `wgmma.mma_async`): four planes multiply a tile of `B`, and
+    /// optionally `A`, read straight from shared memory through matrix descriptors, and
+    /// accumulate asynchronously in registers.
+    pub wgmma: BTreeSet<WgmmaConfig>,
     /// Types supported for ldmatrix, if any
     pub ldmatrix: BTreeSet<ElemType>,
     /// Types supported by stmatrix, if any
     pub stmatrix: BTreeSet<ElemType>,
+    /// Forms of ldmatrix the device executes, if any
+    pub ldmatrix_forms: BTreeSet<LdMatrixForm>,
+    /// Forms of stmatrix the device executes, if any
+    pub stmatrix_forms: BTreeSet<StMatrixForm>,
     /// Whether tensor addressing is supported for CMMA load/store
     pub cmma_tensor_addressing: bool,
 }
@@ -205,6 +225,52 @@ pub struct CubeMmaConfig {
     pub units_per_block: Option<u32>,
 }
 
+/// Shape and element types of a valid warpgroup MMA configuration.
+/// `m` and `k` are fixed by the element types, and `n` may be any multiple of `n_granularity` up
+/// to `n_max`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct WgmmaConfig {
+    /// The element types
+    pub elems: WgmmaElems,
+    /// The size of the matrix on the `m` dimension
+    pub m: u32,
+    /// The granularity of the matrix on the `n` dimension
+    pub n_granularity: u32,
+    /// The maximum value for `n`
+    pub n_max: u32,
+    /// The size of the matrix on the `k` dimension
+    pub k: u32,
+}
+
+impl WgmmaConfig {
+    /// Whether `n` is a valid size for this configuration.
+    pub fn supports_n(&self, n: u32) -> bool {
+        n > 0 && n.is_multiple_of(self.n_granularity) && n <= self.n_max
+    }
+
+    /// Whether this configuration multiplies `elems.a` by `elems.b` into `elems.cd` with
+    /// `shape`.
+    pub fn matches(&self, elems: WgmmaElems, shape: MatrixShape) -> bool {
+        self.elems == elems
+            && self.m as usize == shape.m
+            && self.k as usize == shape.k
+            && u32::try_from(shape.n).is_ok_and(|n| self.supports_n(n))
+    }
+}
+
+/// The element types of a warpgroup MMA.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct WgmmaElems {
+    /// Element of the A matrix
+    pub a: ElemType,
+    /// Element of the B matrix
+    pub b: ElemType,
+    /// Element of the C/D matrices
+    pub cd: ElemType,
+}
+
 /// Shape and element types of a valid block-scaled MMA configuration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -241,6 +307,18 @@ pub enum Tma {
 }
 
 impl Features {
+    /// Whether converting `ty` is emulated in software ([`Types::emulated_conversion`]).
+    pub fn conversion_is_emulated(&self, ty: ElemType) -> bool {
+        self.types.emulated_conversion.contains(&ty)
+    }
+
+    /// Whether arithmetic on `ty` is emulated through a wider type
+    /// ([`Types::emulated_arithmetic`]).
+    #[must_use]
+    pub fn arithmetic_is_emulated(&self, ty: ElemType) -> bool {
+        self.types.emulated_arithmetic.contains(&ty)
+    }
+
     /// Get the usages for a type
     pub fn type_usage(&self, ty: ElemType) -> EnumSet<TypeUsage> {
         self.types

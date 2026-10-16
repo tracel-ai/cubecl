@@ -41,6 +41,6 @@ fn write_empty_tensor_then_roundtrip() {
         empty.strides,
         4,
     );
-    let bytes = client.read_tensor(vec![descriptor]).remove(0);
+    let bytes = client.read_tensor(vec![descriptor]).unwrap().remove(0);
     assert!(bytes.is_empty());
 }

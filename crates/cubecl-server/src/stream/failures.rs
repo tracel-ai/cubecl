@@ -10,7 +10,7 @@
 
 use crate::id::KernelId;
 use crate::logging::ServerLogger;
-use crate::memory_management::{Claim, ErrorGraph, FailureId, Skipped};
+use crate::memory_management::{Claim, ErrorGraph, FailureId, ManagedMemoryHandle, Skipped};
 use crate::server::{BufferBinding, ServerError};
 use crate::stream::{ReadFailure, StreamFactory, StreamMemory, StreamPool, base};
 use alloc::sync::Arc;
@@ -122,7 +122,12 @@ pub trait FailureStore {
     ) -> Option<ReadFailure> {
         let (pool, failures) = self.parts();
         reads.find_map(|handle| {
-            let failure = pool.try_get(&handle.stream)?.failure(handle)?;
+            // A buffer that was never allocated has no slice to carry a failure: the reason
+            // it was not allocated is recorded on the graph instead.
+            let failure = match handle.memory.descriptor().is_allocated() {
+                true => pool.try_get(&handle.stream)?.failure(handle)?,
+                false => failures.graph.unallocated_failure(handle.memory.id())?,
+            };
             Some(ReadFailure {
                 failure,
                 needed: handle.memory.id(),
@@ -149,6 +154,13 @@ pub trait FailureStore {
     fn written<'a>(&mut self, written: impl Iterator<Item = &'a BufferBinding>) {
         let (pool, failures) = self.split();
         base::written(pool, written, &mut failures.graph);
+    }
+
+    /// Record `error` as the reason `memory` was never allocated, so reading that memory
+    /// reports that error.
+    fn fail_unallocated(&mut self, memory: &ManagedMemoryHandle, error: ServerError) {
+        let (_, failures) = self.split();
+        failures.graph.fail_unallocated(memory, error);
     }
 
     /// A skipped launch's outputs take the failure that stopped it: nothing
@@ -200,7 +212,7 @@ pub trait FailureStore {
     /// this failure, so a read of one of its buffers fails loudly instead of
     /// returning bytes nothing wrote.
     ///
-    /// An empty write set — a dry run, a launch writing nothing — claims
+    /// An empty write set — a discarded launch, a launch writing nothing — claims
     /// nothing and mints nothing.
     fn enter_write(&mut self, written: &[BufferBinding]) -> Option<FailureId> {
         if written.is_empty() {

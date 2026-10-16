@@ -31,8 +31,10 @@ use cubecl_core::{
         types::scalar::{Complex32Type, Complex64Type},
     },
     post_processing::{
+        bf16::LowerWideBf16CastPass,
         bitwise::PromoteBitwisePass,
         checked_io::{CheckedIo, CheckedIoPass},
+        fp4::{LowerFp4Cast, LowerFp4CastPass},
         minifloat::{Fp8Container, LowerMinifloatCast, LowerMinifloatCastPass},
         saturating::LowerSaturatingArithmeticPass,
     },
@@ -42,7 +44,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
-    sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
+    resolve_pending::ResolvePendingPass, sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::compiler::{CompilationError, Compiler};
 use pliron::{
@@ -235,12 +237,18 @@ where
 
         func_passes.add_pass(LowerInfoPass);
         func_passes.add_pass(SROAPass);
+        func_passes.add_pass(ResolvePendingPass);
         func_passes.add_pass(CheckedIoPass::new(CheckedIo::new(
             kernel.settings.execution_mode,
             kernel.settings.kernel_name,
         )));
         func_passes.add_pass(AllocateSharedMemoryBlockPass);
 
+        // The targets convert between `f32` and `bf16` natively, but HIP rounds twice from a
+        // source wider than `f32`. CUDA's scalar constructors (`__int2bfloat16_rn`,
+        // `__double2bfloat16`) round once, but its vector casts are unverified on hardware, so
+        // CUDA keeps the pass too: it only adds work to the rare cast from a wide source.
+        func_passes.add_pass(LowerWideBf16CastPass::default());
         // CUDA converts fp8 with cuda_fp8.h, which carries its own software path below sm_89.
         let native_fp8 = match T::target() {
             Target::Cuda => EnumSet::all(),
@@ -250,6 +258,13 @@ where
             native_fp8,
             Fp8Container::Bytes,
         )));
+        // CUDA converts fp4 with cuda_fp4.h. Metal decodes it through `f16` pairs.
+        if T::target() == Target::Metal {
+            func_passes.add_pass(LowerFp4CastPass::new(LowerFp4Cast::new(
+                true,
+                Fp8Container::Bytes,
+            )));
+        }
 
         // Shared lowerings can create ops that need target-specific lowerings, but target-specific
         // lowerings should take priority. So we just run the target-specific lowerings twice.

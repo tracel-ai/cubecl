@@ -13,7 +13,7 @@ use cubecl_common::format::format_str;
 use cubecl_environment::backtrace::BackTrace;
 
 use crate::{
-    compiler::{CompilationError, Compiler},
+    compiler::{CompilationError, CompilationRecording, Compiler},
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel},
     id::KernelId,
     server::CubeDim,
@@ -77,6 +77,21 @@ pub struct DebugInformation {
 }
 
 impl<C: Compiler> CompiledKernel<C> {
+    /// Expand `kernel` and compile its definition with `compile`, telling
+    /// `recording` the IR and the source: the lowering every backend does,
+    /// whatever compiler and options it lowers with.
+    pub fn lower(
+        kernel: &dyn CubeKernel,
+        recording: &mut CompilationRecording,
+        compile: impl FnOnce(KernelDefinition) -> Result<Self, CompilationError>,
+    ) -> Result<Self, CompilationError> {
+        let definition = define_kernel(kernel)?;
+        recording.defined(&definition);
+        let compiled = compile(definition)?;
+        recording.source(&compiled.source);
+        Ok(compiled)
+    }
+
     /// Compile `definition` with `compiler`, keeping `kernel`'s name as the
     /// debug name of the result.
     pub fn compile(

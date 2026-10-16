@@ -150,12 +150,12 @@ impl DeviceService for HipServer {
             cube_mma_reserved_shared_memory: 0,
         };
 
-        // The full `gcnArchName`, target-feature suffix included: HIP RTC gets
-        // no `--offload-arch`, so the code object it emits carries this exact
-        // string and a loader rejects it on a device that differs by so much as
-        // `xnack`. Built once here and handed to both the identity and the
-        // compilation cache, so the two can never disagree about what a kernel
-        // was built for.
+        // The full `gcnArchName`, target-feature suffix included: HIP RTC
+        // compiles for it as its `--offload-arch`, so the code object it emits
+        // carries this exact string and a loader rejects it on a device that
+        // differs by so much as `xnack`. Built once here and handed to both the
+        // identity and the compilation cache, so the two can never disagree
+        // about what a kernel was built for.
         let fingerprint = format!("hip-kernel_{}", probe.arch_name);
 
         let mut device_props = DeviceProperties::new(
@@ -207,6 +207,7 @@ impl DeviceService for HipServer {
                 amd_wmma: gfx.wmma(),
             },
             arch: Some(gfx),
+            target: probe.arch_name.clone(),
         };
         let hip_ctx = HipContext::new(comp_opts, device_props.clone(), fingerprint, backend);
         let logger = Arc::new(ServerLogger::default());
@@ -310,9 +311,10 @@ impl Runtime for HipRuntime {
 /// `init` — [`CStr::from_ptr`] hands out whatever lifetime is asked of it, so
 /// nothing would say so.
 struct DeviceProbe {
-    /// The full `gcnArchName`, target-feature suffix included. HIP RTC gets no
-    /// `--offload-arch`, so the code object it emits carries this exact string
-    /// and a loader rejects it on a device that differs by so much as `xnack`.
+    /// The full `gcnArchName`, target-feature suffix included. HIP RTC compiles
+    /// for it as its `--offload-arch`, so the code object it emits carries this
+    /// exact string and a loader rejects it on a device that differs by so much
+    /// as `xnack`.
     arch_name: String,
     /// The marketing name, lossily decoded: a driver returning something that
     /// is not UTF-8 must not take the runtime down over a display string.

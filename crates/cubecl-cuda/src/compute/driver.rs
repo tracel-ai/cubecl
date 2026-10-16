@@ -3,7 +3,8 @@
 //! they move in step with.
 
 use crate::compute::context::CudaContext;
-use crate::compute::events::Fence;
+use crate::compute::events::{Fence, driver_error, poisons_device};
+use crate::compute::modules::CudaCompiledKernel;
 use crate::compute::storage::cpu::PinnedMemoryStorage;
 use crate::compute::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::stream::{CudaStreamBackend, Stream};
@@ -65,6 +66,7 @@ impl Driver for Cuda {
     /// The driver takes an array of pointers to the arguments, so a tensor-map
     /// descriptor sits in it beside a buffer's device pointer.
     type LaunchArgs = [*mut c_void];
+    type Loaded = CudaCompiledKernel;
 
     unsafe fn pinned_bytes(
         binding: ManagedMemoryBinding,
@@ -195,16 +197,20 @@ impl Driver for Cuda {
                 queue,
             )
         }
-        .map_err(|err| IoError::Unknown {
-            description: alloc::format!("memcpy_dtod_async failed: {err}"),
-            backtrace: BackTrace::capture(),
+        .map_err(|err| match poisons_device(err.0) {
+            true => driver_error("memcpy_dtod_async", err).into(),
+            false => IoError::Unknown {
+                description: alloc::format!("memcpy_dtod_async failed: {err}"),
+                backtrace: BackTrace::capture(),
+            },
         })
     }
 
     fn launch(
         ctx: &mut CudaContext,
         stream: &mut Stream,
-        kernel: KernelId,
+        _id: &KernelId,
+        kernel: &CudaCompiledKernel,
         count: (u32, u32, u32),
         args: &mut [*mut c_void],
     ) -> Result<(), LaunchError> {
@@ -212,10 +218,10 @@ impl Driver for Cuda {
     }
 
     fn wait_outside_streams(ctx: &mut CudaContext) -> Result<(), ServerError> {
-        // Collectives run on their own stream, which compute streams only wait
-        // on at a collective sync: one still reading or writing an allocation
-        // has to finish before the allocation moves.
-        Fence::new(ctx.comm_stream).wait_sync()
+        // Collectives and transfers run on streams of their own: one still
+        // reading or writing an allocation has to finish before it moves.
+        Fence::new(ctx.comm_stream).wait_sync()?;
+        Fence::new(ctx.transfer_stream).wait_sync()
     }
 }
 
@@ -224,7 +230,16 @@ impl Driver for Cuda {
 /// The geometry is what makes one of these diagnosable: a refusal on a shape
 /// the driver will not take reads very differently from one on a shape it
 /// should have.
-fn copy_failed(op: &str, err: impl core::fmt::Display, layout: &CopyLayout<'_>) -> IoError {
+fn copy_failed(
+    op: &'static str,
+    err: cudarc::driver::DriverError,
+    layout: &CopyLayout<'_>,
+) -> IoError {
+    // A copy on a poisoned device fails, not because of its layout: report the poisoning,
+    // which is what the caller acts on.
+    if poisons_device(err.0) {
+        return driver_error(op, err).into();
+    }
     IoError::Unknown {
         description: format!(
             "CUDA {op} failed: {err}; shape {:?}, strides {:?}, elem_size {}, pitch {:?}",

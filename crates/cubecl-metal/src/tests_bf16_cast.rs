@@ -39,7 +39,7 @@ fn f32_to_bf16_cast_compiles_and_runs() {
     let output_handle = client.empty(len * core::mem::size_of::<bf16>());
 
     unsafe {
-        f32_to_bf16_cast::launch_unchecked::<R>(
+        f32_to_bf16_cast::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(len as u32),

@@ -11,7 +11,7 @@ use cubecl_common::{
 use cubecl_core::ir::AdapterLuid;
 use cubecl_core::{
     MemoryConfiguration,
-    cmma::MatrixLayout,
+    cmma::{LdMatrixForm, MatrixLayout, StMatrixForm},
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         ComplexKind, ContiguousElements, DeviceIdentity, DeviceProperties, ElemType, FloatKind,
@@ -26,7 +26,7 @@ use cubecl_core::{
 use cubecl_cpp::{
     cuda::{
         self,
-        arch::CudaArchitecture,
+        arch::{CudaArchitecture, CudaToolkitVersion},
         mma::{CudaCmmaCompiler, manual::contiguous_elements_cuda},
     },
     register_supported_types,
@@ -110,7 +110,8 @@ impl DeviceService for CudaServer {
         };
         let supported_cmma_combinations = CudaCmmaCompiler::Cpp.supported_cmma_combinations(&arch);
         let supported_mma_combinations = cuda::supported_mma_combinations(&arch);
-        let supported_scaled_mma_combinations = cuda::supported_scaled_mma_combinations(&arch);
+        let supported_scaled_mma_combinations =
+            cuda::supported_scaled_mma_combinations(&arch, CudaToolkitVersion(CUDA_VERSION));
 
         // SAFETY: `device_ptr` is a valid CUDA device. `primary_ctx::retain` returns the
         // primary context which is then set as current for the calling thread.
@@ -224,7 +225,6 @@ impl DeviceService for CudaServer {
                 ComplexUsage::Core | ComplexUsage::Compare | ComplexUsage::Math,
             );
         }
-        device_props.register_type_usage(ElemType::Float(FloatKind::TF32), TypeUsage::Conversion);
         if arch_version >= 60 {
             device_props.register_atomic_type_usage(
                 Type::atomic(ElemType::Float(FloatKind::F64)),
@@ -256,10 +256,17 @@ impl DeviceService for CudaServer {
                 .matmul
                 .ldmatrix
                 .insert(ElemType::Float(FloatKind::BF16));
+            device_props
+                .features
+                .matmul
+                .ldmatrix_forms
+                .insert(LdMatrixForm::M8N8B16);
             comp_opts.supports_features.fast_tanh = CUDA_VERSION >= 12080;
         }
 
         if arch_version >= 80 {
+            device_props
+                .register_type_usage(ElemType::Float(FloatKind::TF32), TypeUsage::Conversion);
             device_props.features.copy_async = true;
         }
 
@@ -279,6 +286,11 @@ impl DeviceService for CudaServer {
                 .matmul
                 .stmatrix
                 .insert(ElemType::Float(FloatKind::BF16));
+            device_props
+                .features
+                .matmul
+                .stmatrix_forms
+                .insert(StMatrixForm::M8N8B16);
 
             // bf16 add is only properly supported in sm_90+, even though most bf16 ops are supported
             // earlier. It's technically supported earlier but is missing the now-required `.noftz`
@@ -317,6 +329,23 @@ impl DeviceService for CudaServer {
                     AtomicUsage::LoadStore | AtomicUsage::Exchange | AtomicUsage::Add,
                 );
             }
+        }
+
+        // The PTX ISA also gives these forms to the `sm_100f` and `sm_110f` families; only the
+        // `sm_120f` family, where they were checked, is offered them.
+        if (120..130).contains(&arch_version) {
+            device_props.features.matmul.ldmatrix_forms.extend([
+                LdMatrixForm::M8N16B4x16P64,
+                LdMatrixForm::M8N16B6x16P32,
+                LdMatrixForm::M16N16B8,
+                LdMatrixForm::M16N16B4x16P64,
+                LdMatrixForm::M16N16B6x16P32,
+            ]);
+            device_props
+                .features
+                .matmul
+                .stmatrix_forms
+                .insert(StMatrixForm::M16N8B8);
         }
 
         if arch_version >= 100 {
@@ -374,7 +403,8 @@ impl DeviceService for CudaServer {
         // compile rather than a slower one.
         let backend = CudaBackend::default();
         if backend == CudaBackend::Llvm {
-            restrict_features(&mut device_props, GpuTarget::Nvptx);
+            let sm_arch = SmArch::new(arch_version, arch.tensor_cores);
+            restrict_features(&mut device_props, GpuTarget::Nvptx { arch: sm_arch });
         }
 
         let comp_opts = CudaCompilationOptions {
@@ -385,7 +415,12 @@ impl DeviceService for CudaServer {
         // The context is current (set above), so the stream lands on it.
         let comm_stream = crate::compute::stream::create_cuda_stream(
             CubeClRuntimeConfig::get().streaming.priority,
-        );
+        )
+        .expect("Can create the communication stream.");
+        let transfer_stream = crate::compute::stream::create_cuda_stream(
+            CubeClRuntimeConfig::get().streaming.priority,
+        )
+        .expect("Can create the transfer stream.");
         let cuda_ctx = CudaContext::new(
             comp_opts,
             device_props.clone(),
@@ -393,6 +428,7 @@ impl DeviceService for CudaServer {
             arch,
             backend,
             comm_stream,
+            transfer_stream,
         );
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);

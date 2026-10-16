@@ -1,6 +1,6 @@
+use crate::compute::status::checked;
 use cubecl_core::server::IoError;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_server::driver::checked;
 use cubecl_server::storage::{
     ComputeStorage, PINNED_MEMORY_ALIGNMENT, PinnedMemoryResource, StorageHandle, StorageId,
     StorageUtilization,

@@ -111,8 +111,8 @@ struct Factory {
 impl StreamFactory for Factory {
     type Stream = TestStream;
 
-    fn create(&mut self) -> Self::Stream {
-        TestStream {
+    fn create(&mut self) -> Result<Self::Stream, ServerError> {
+        Ok(TestStream {
             memory: MemoryManagement::from_configuration(
                 BytesStorage::default(),
                 &self.properties,
@@ -120,7 +120,7 @@ impl StreamFactory for Factory {
                 self.logger.clone(),
                 MemoryManagementOptions::new("property harness"),
             ),
-        }
+        })
     }
 }
 

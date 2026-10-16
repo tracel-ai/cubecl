@@ -1,6 +1,9 @@
 pub use crate::{
     shared::{
-        intrinsic::{call_op, i32_const_op, i32_ty},
+        intrinsic::{
+            Extension, call_intrinsic, call_op, call_void, i32_const_op, i32_ty, i64_ty, int_ty,
+            resize_int,
+        },
         lowering::TargetLowering,
         metadata::EntryArgLayout,
         polyfill::LowerOp,
@@ -13,8 +16,8 @@ pub use crate::{
             },
             insert::insert,
             ty::{
-                GEP_INDEX_WIDTH, cube_type_to_llvm, index_width, llvm_mangled_ty, scalar_alignment,
-                type_alignment,
+                GEP_INDEX_WIDTH, cube_origin, cube_pointee, cube_type_to_llvm, index_width,
+                llvm_mangled_ty, scalar_alignment, type_alignment,
             },
             vector::insert_splat,
         },
@@ -39,9 +42,9 @@ pub use pliron::{
     attribute::AttrObj,
     basic_block::BasicBlock,
     builtin::{
-        attributes::{FPDoubleAttr, FPHalfAttr, FPSingleAttr, IntegerAttr},
+        attributes::{FPBFloatAttr, FPDoubleAttr, FPHalfAttr, FPSingleAttr, IntegerAttr},
         ops::{ConstantOp, FuncOp, ModuleOp},
-        types::{FP16Type, FP32Type, FP64Type, FunctionType, IntegerType, Signedness},
+        types::{BF16Type, FP16Type, FP32Type, FP64Type, FunctionType, IntegerType, Signedness},
     },
     identifier::Identifier,
     input_err,

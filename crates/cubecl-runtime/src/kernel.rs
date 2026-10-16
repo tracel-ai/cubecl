@@ -5,7 +5,9 @@ use pliron::derive::format;
 use cubecl_ir::{ElemType, Scope, metadata::Info, pliron::value::Value, settings::KernelSettings};
 use serde::{Deserialize, Serialize};
 
+use crate::compiler::CompilationError;
 use crate::id::KernelId;
+use cubecl_environment::backtrace::BackTrace;
 
 /// Implement this trait to create a [kernel definition](KernelDefinition).
 pub trait KernelMetadata: core::any::Any + Send + Sync + 'static {
@@ -97,6 +99,9 @@ pub struct PrecompiledSource {
 /// Kernel that can be defined
 pub trait CubeKernel: KernelMetadata {
     /// Define the kernel for compilation
+    ///
+    /// A backend calls [`define_kernel`] rather than this, so a panic while expanding fails the
+    /// launch instead of leaving its outputs unwritten.
     fn define(&self) -> KernelDefinition;
 
     /// The kernel's own compiled source, for a hand-written kernel that
@@ -105,5 +110,41 @@ pub trait CubeKernel: KernelMetadata {
     /// `None`, the default, compiles what [`define`](Self::define) returns.
     fn source(&self) -> Option<PrecompiledSource> {
         None
+    }
+}
+
+/// `kernel`'s [definition](CubeKernel::define), or the panic its expansion raised, as a
+/// [`CompilationError`].
+///
+/// Expansion runs the kernel's own code, every assertion in it included, and a backend runs it
+/// on the device thread inside a launch nobody waits on. A panic there is caught by the device
+/// channel and only logged: the launch returns, its outputs are never written, and nothing marks
+/// them, so a later read hands back whatever the memory held before. As a [`CompilationError`]
+/// the panic takes the path a compiler's refusal takes, and the outputs carry the failure to
+/// whoever reads them; as [`ExpansionPanicked`](CompilationError::ExpansionPanicked) it is not
+/// a refusal, so a harness that skips refused kernels reports it instead.
+pub fn define_kernel<K: CubeKernel + ?Sized>(
+    kernel: &K,
+) -> Result<KernelDefinition, CompilationError> {
+    #[cfg(feature = "std")]
+    {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| kernel.define())).map_err(
+            |payload| {
+                let message = payload
+                    .downcast_ref::<&str>()
+                    .map(|message| String::from(*message))
+                    .or_else(|| payload.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| String::from("a panic with no message"));
+                CompilationError::ExpansionPanicked {
+                    kernel: kernel.name().into(),
+                    message,
+                    backtrace: BackTrace::capture(),
+                }
+            },
+        )
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        Ok(kernel.define())
     }
 }

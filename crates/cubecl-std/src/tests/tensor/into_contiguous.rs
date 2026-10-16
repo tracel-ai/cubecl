@@ -130,6 +130,52 @@ pub fn test_into_contiguous_packed_halving<R: Runtime>(device: &R::Device) {
     run_repack_case::<R>(device, &[8192, 32], 0, 8, 4);
 }
 
+/// A reshape that keeps the rank: the perpendicular kernel reads the input at the output's
+/// coordinates, so it can only express a change of layout, not a change of shape.
+pub fn test_into_contiguous_shape_mismatch<R: Runtime>(device: &R::Device) {
+    let client = R::client(device);
+    let dtype = f32::cube_type();
+
+    // [1, 2, 3] permuted by [2, 1, 0], reshaped to [1, 3, 2].
+    let shape = vec![3usize, 2, 1];
+    let strides = vec![1usize, 3, 6];
+    let num_elems = 6;
+
+    let data: Vec<f32> = (0..num_elems).map(|i| i as f32 + 1.0).collect();
+    let input = TensorHandle::new(
+        client.create_from_slice(f32::as_bytes(&data)),
+        shape.clone(),
+        strides.clone(),
+        dtype,
+    );
+    let out_shape = vec![1usize, 3, 2];
+    let output = TensorHandle::new_contiguous(
+        out_shape.clone(),
+        client.empty(num_elems * size_of::<f32>()),
+        dtype,
+    );
+    copy_into(&client, input.binding(), output.clone().binding(), dtype);
+
+    let bytes = client.read_one_unchecked_tensor(output.handle.clone().copy_descriptor(
+        output.shape().clone(),
+        output.strides().clone(),
+        size_of::<f32>(),
+    ));
+    let actual = f32::from_bytes(&bytes);
+
+    let in_strides = contiguous_strides(&shape);
+    let expected: Vec<f32> = (0..num_elems)
+        .map(|q| {
+            let src: usize = (0..shape.len())
+                .map(|d| (q / in_strides[d]) % shape[d] * strides[d])
+                .sum();
+            data[src]
+        })
+        .collect();
+
+    assert_eq!(actual, &expected[..]);
+}
+
 pub fn test_into_contiguous_rank_mismatch<R: Runtime>(device: &R::Device) {
     let client = R::client(device);
     let dtype = f32::cube_type();
@@ -188,6 +234,10 @@ fn run_permuted_case<R: Runtime, E: CubeElement + From<u8> + PartialEq>(
 ) {
     let client = R::client(device);
     let dtype = E::cube_type();
+    // WGSL has no `u8`.
+    if !client.properties().supports_type(dtype) {
+        return;
+    }
     let base_strides = contiguous_strides(base_shape);
     let num_elems: usize = base_shape.iter().product();
 
@@ -271,6 +321,30 @@ pub fn test_into_contiguous_permuted_sweep<R: Runtime>(device: &R::Device) {
             run_permuted_case::<R, u8>(device, shape, &perm);
             run_permuted_case::<R, u32>(device, shape, &perm);
         }
+    }
+}
+
+/// Shapes spanning several cubes of the GPU perpendicular kernel, with ragged edges on both
+/// transposed axes and batch axes on either side of them.
+pub fn test_into_contiguous_permuted_blocks<R: Runtime>(device: &R::Device) {
+    let shapes: &[&[usize]] = &[&[68, 100], &[3, 36, 68], &[2, 20, 12, 40]];
+
+    for shape in shapes {
+        for perm in permutations(shape.len()) {
+            run_permuted_case::<R, u8>(device, shape, &perm);
+            run_permuted_case::<R, u32>(device, shape, &perm);
+        }
+    }
+}
+
+/// Layouts at the edges of the perpendicular kernel: an empty tensor, and a size-1 axis with
+/// the same unit stride as the axis that can actually be vectorized.
+pub fn test_into_contiguous_permuted_edges<R: Runtime>(device: &R::Device) {
+    for perm in permutations(2) {
+        run_permuted_case::<R, u32>(device, &[0, 8], &perm);
+    }
+    for perm in permutations(3) {
+        run_permuted_case::<R, u32>(device, &[6, 8, 1], &perm);
     }
 }
 

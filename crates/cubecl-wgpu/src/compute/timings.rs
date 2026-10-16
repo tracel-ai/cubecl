@@ -9,6 +9,8 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
 use wgpu::{QUERY_SIZE, QuerySet, QuerySetDescriptor, QueryType};
 
+use crate::compute::device_poison::PoisonWatch;
+
 type QuerySetId = u64;
 
 /// Slot a profile's start timestamp is written to, once, by the pass that opens it.
@@ -80,23 +82,44 @@ impl TimestampQuerySetBudget {
     }
 }
 
-/// When a compute pass's timestamps can be resolved.
+/// Where a backend samples a compute pass's timestamps, which decides both when they can be
+/// resolved and what a window opened on the pass can hold besides its own work.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TimestampAvailability {
-    /// Once the command buffer holding the pass is submitted ahead of the resolve.
-    OnSubmission,
-    /// Only once the command buffer holding the pass has completed. Metal samples at stage
-    /// boundaries and writes the samples when the encoder retires: a resolve that runs earlier,
-    /// even from a later command buffer, reads zeros.
-    OnCompletion,
+pub enum TimestampSampling {
+    /// As commands of the stream. Vulkan writes a pass's begin at the bottom of the pipe, once
+    /// every command recorded before it has completed.
+    InCommandStream,
+    /// At the stage boundaries of the pass's encoder (Metal).
+    AtStageBoundaries,
 }
 
-impl TimestampAvailability {
+impl TimestampSampling {
     pub fn new(backend: wgpu::Backend) -> Self {
         match backend {
-            wgpu::Backend::Metal => Self::OnCompletion,
-            _ => Self::OnSubmission,
+            wgpu::Backend::Metal => Self::AtStageBoundaries,
+            _ => Self::InCommandStream,
         }
+    }
+
+    /// Whether a resolve has to wait for the command buffer holding the pass to complete, rather
+    /// than only follow it in submission order.
+    ///
+    /// Metal writes the samples when the encoder retires: a resolve that runs earlier, even from
+    /// a later command buffer, reads zeros.
+    pub fn resolves_after_completion(self) -> bool {
+        self == Self::AtStageBoundaries
+    }
+
+    /// Whether the queue has to be drained before a window opens, so the window times its own
+    /// work and nothing submitted before it.
+    ///
+    /// Metal samples a pass's begin when its encoder starts, and orders an encoder after earlier
+    /// work only through a buffer the two share. A pass that shares none starts beside whatever
+    /// is still running, so the window holds that work's tail, and its contention for the
+    /// device: a sample queued behind a read past the caches, which shares nothing with it by
+    /// design, was timed at three times its own duration.
+    pub fn drains_before_window(self) -> bool {
+        self == Self::AtStageBoundaries
     }
 }
 
@@ -178,7 +201,7 @@ pub struct QueryProfiler {
     counter_token: u64,
     counter_query_set: u64,
     cleanups: Vec<QuerySetId>,
-    availability: TimestampAvailability,
+    sampling: TimestampSampling,
     queue_period: f64,
     epoch_tick: u64,
     epoch_instant: Instant,
@@ -225,16 +248,11 @@ fn create_map_buffer(device: &wgpu::Device, count: u32) -> wgpu::Buffer {
 
 // Measure a timestamp to align the CPU & GPU timelines.
 #[cfg(feature = "profile-tracy")]
-fn get_cur_timestamp(queue: &wgpu::Queue, device: &wgpu::Device) -> u64 {
+fn get_cur_timestamp(queue: &wgpu::Queue, device: &wgpu::Device, poison: &PoisonWatch) -> u64 {
     // Make sure no work is outstanding.
 
     use wgpu::BufferAddress;
-    device
-        .poll(wgpu::PollType::Wait {
-            submission_index: None, // Wait for most recent
-            timeout: None,
-        })
-        .unwrap();
+    poison.wait_unless_lost(device, queue, None).unwrap();
 
     // Resolve a timestamp for the query set.
     let query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
@@ -275,14 +293,11 @@ fn get_cur_timestamp(queue: &wgpu::Queue, device: &wgpu::Device) -> u64 {
 
     let commands = [timestamp_encoder.finish(), copy_encoder.finish()];
 
-    queue.submit(commands);
+    let submission = queue.submit(commands);
     map_buffer.slice(..).map_async(wgpu::MapMode::Read, |_| ());
 
-    device
-        .poll(wgpu::PollType::Wait {
-            submission_index: None, // Wait for most recent
-            timeout: None,
-        })
+    poison
+        .wait_unless_lost(device, queue, Some(submission))
         .unwrap();
 
     let view = map_buffer.slice(..).get_mapped_range().unwrap();
@@ -296,11 +311,12 @@ impl QueryProfiler {
     pub fn new(
         queue: &wgpu::Queue,
         #[allow(unused)] device: &wgpu::Device,
+        #[allow(unused)] poison: &PoisonWatch,
         budget: Arc<TimestampQuerySetBudget>,
-        availability: TimestampAvailability,
+        sampling: TimestampSampling,
     ) -> Self {
         #[cfg(feature = "profile-tracy")]
-        let sync_timestamps = get_cur_timestamp(queue, device);
+        let sync_timestamps = get_cur_timestamp(queue, device, poison);
 
         #[cfg(not(feature = "profile-tracy"))]
         let sync_timestamps = 0;
@@ -312,7 +328,7 @@ impl QueryProfiler {
 
         Self {
             cleanups: Vec::new(),
-            availability,
+            sampling,
             counter_query_set: 0,
             counter_token: 0,
             query_sets: HashMap::new(),
@@ -374,15 +390,17 @@ impl QueryProfiler {
         }
     }
 
-    /// When the readback [`stop_profile_setup`](Self::stop_profile_setup) returns may run.
-    pub fn availability(&self) -> TimestampAvailability {
-        self.availability
+    /// Where this profiler's timestamps are sampled, which says when the readback
+    /// [`stop_profile_setup`](Self::stop_profile_setup) returns may run, and what has to be
+    /// drained before a window opens.
+    pub fn sampling(&self) -> TimestampSampling {
+        self.sampling
     }
 
     /// Stop the profiling on a device.
     ///
     /// Returns the readback of the window's timestamps, which the caller submits after the
-    /// command buffer holding the window's passes, once [`availability`](Self::availability)
+    /// command buffer holding the window's passes, once [`sampling`](Self::sampling)
     /// allows.
     pub fn stop_profile_setup(
         &mut self,
@@ -458,6 +476,7 @@ impl QueryProfiler {
         &self,
         map_buffer: Option<wgpu::Buffer>,
         poll_signal: Arc<()>,
+        poison: &PoisonWatch,
     ) -> Result<ProfileDuration, ProfileError> {
         if let Some(map_buffer) = map_buffer {
             let period = self.queue_period;
@@ -471,6 +490,7 @@ impl QueryProfiler {
             // drive. A map that never completes still releases it: dropping the
             // buffer aborts the map and calls this back.
             let (sender, rec) = cubecl_environment::future::channel::bounded(1);
+            poison.wake_on_loss(&sender);
             map_buffer
                 .slice(..)
                 .map_async(wgpu::MapMode::Read, move |v| {
@@ -481,10 +501,15 @@ impl QueryProfiler {
                 });
 
             Ok(ProfileDuration::new_device_time_maybe(async move {
-                rec.recv()
-                    .await
-                    .expect("Unable to receive buffer slice result.")
-                    .expect("Failed to map buffer");
+                match rec.recv().await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(err)) => {
+                        log::warn!("wgpu: a profile's timestamps could not be mapped ({err})");
+                        return None;
+                    }
+                    // Closed by a device loss, which the device-lost callback has logged.
+                    Err(_) => return None,
+                }
 
                 let binding = map_buffer.slice(..).get_mapped_range().unwrap();
                 let data: &[u64] = bytemuck::try_cast_slice(&binding).unwrap();

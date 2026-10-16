@@ -7,10 +7,13 @@ use cubecl_common::profile::{Instant, ProfileDuration, TimingMethod};
 
 use crate::client::Client;
 use crate::config::autotune::BenchConfig;
+use crate::server::ServerError;
 use crate::tune::Evictor;
+use crate::tune::patience::PatienceTable;
 use crate::tune::sampler::SampleSet;
 use crate::tune::{
-    AutotuneError, AutotuneOutcome, AutotuneOutput, AutotuneResult, TuneFn, TuneInputs, TunePlan,
+    AutotuneError, AutotuneOutcome, AutotuneOutput, AutotuneResult, Batch, TuneFn, TuneInputs,
+    TunePlan,
 };
 
 /// The outcome of benchmarking one batch of the [`TunePlan`].
@@ -23,12 +26,16 @@ pub(crate) struct BatchOutcome {
     /// The index the round robin picked, when it produced one. See [`Schedule::outcome`] for why
     /// the caller must not re-derive it by comparing the results.
     pub(crate) decided: Option<usize>,
+    /// The candidates never measured: skipped by their groups' patience, or not reached
+    /// before a short circuit.
+    pub(crate) unmeasured: Vec<usize>,
 }
 
 /// Round robin benchmarking with early elimination.
 ///
 /// A first pass gives each candidate one warmup and one sample, resolved inline so a candidate
-/// that already reaches the time limit can end the batch before the rest are compiled. After
+/// that already reaches the time limit can end the batch before the rest are compiled, and a
+/// group whose members stop improving on its leader can skip the rest of them. After
 /// that, every live candidate gets one sample per round and the whole round is resolved at once:
 /// resolving per sample would serialize a device round trip per measurement, which for short
 /// kernels costs more than the samples it saves.
@@ -56,7 +63,7 @@ impl Schedule<'_> {
     /// measurement.
     pub(crate) fn run_batch<'a, F: TuneInputs, Out: AutotuneOutput>(
         &mut self,
-        indices: Vec<usize>,
+        batch: Batch,
         autotunables: &[&TuneFn<F, Out>],
         inputs: <F as TuneInputs>::At<'a>,
         client: &Client,
@@ -64,11 +71,21 @@ impl Schedule<'_> {
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
-        let fallback = indices.clone();
+        let fallback = batch.indices();
         let run = || {
-            let _real_run = crate::dry_run::RealRun::new();
+            let measuring = crate::execution::StreamModeOverride::new(
+                crate::execution::StreamMode::Execute,
+                client,
+            );
 
-            cubecl_environment::future::block_on(self.drive(indices, autotunables, inputs, client))
+            let outcome = cubecl_environment::future::block_on(self.drive(
+                batch,
+                autotunables,
+                inputs,
+                client,
+            ));
+            core::mem::drop(measuring);
+            outcome
         };
 
         match client.clone().exclusive(run) {
@@ -88,13 +105,14 @@ impl Schedule<'_> {
                 short_circuit: None,
                 any_success: false,
                 decided: None,
+                unmeasured: Vec::new(),
             },
         }
     }
 
     async fn drive<'a, F: TuneInputs, Out: AutotuneOutput>(
         &mut self,
-        indices: Vec<usize>,
+        batch: Batch,
         autotunables: &[&TuneFn<F, Out>],
         inputs: <F as TuneInputs>::At<'a>,
         client: &Client,
@@ -104,9 +122,11 @@ impl Schedule<'_> {
     {
         let (min_samples, max_samples) = self.config.samples();
 
-        let mut candidates: Vec<Candidate> = indices
+        let mut patience = PatienceTable::new(&batch);
+        let mut candidates: Vec<Candidate> = batch
+            .entries
             .into_iter()
-            .map(|index| Candidate::new(index, autotunables[index].name.to_string()))
+            .map(|entry| Candidate::new(entry.index, autotunables[entry.index].name.to_string()))
             .collect();
 
         let mut short_circuit = None;
@@ -115,6 +135,11 @@ impl Schedule<'_> {
         // already hits the limit ends the batch before the remaining kernels are ever compiled.
         // This is the one place where paying a device round trip per sample is worth it.
         for slot in 0..candidates.len() {
+            if patience.skips(slot) {
+                candidates[slot].skip();
+                continue;
+            }
+
             let launched = self.track_steps.then(Instant::now);
             let operation = autotunables[candidates[slot].index];
             let hit = self
@@ -128,6 +153,13 @@ impl Schedule<'_> {
             if hit {
                 short_circuit = Some(candidates[slot].name.clone());
                 break;
+            }
+
+            let candidate = &candidates[slot];
+            if candidate.live
+                && let Some(best) = candidate.samples.best()
+            {
+                patience.record(slot, best);
             }
         }
 
@@ -236,6 +268,7 @@ impl Schedule<'_> {
         let mut results = Vec::with_capacity(candidates.len());
         let mut any_success = false;
         let mut decided: Option<(usize, u64)> = None;
+        let mut unmeasured = Vec::new();
 
         for candidate in candidates {
             if self.track_steps {
@@ -244,6 +277,9 @@ impl Schedule<'_> {
 
             let index = candidate.index;
             let survived = candidate.live;
+            if candidate.samples.is_empty() && candidate.error.is_none() {
+                unmeasured.push(index);
+            }
             let result = candidate.into_result();
 
             if let Ok(outcome) = result.outcome.as_ref() {
@@ -264,6 +300,7 @@ impl Schedule<'_> {
             short_circuit,
             any_success,
             decided: decided.map(|(index, _)| index),
+            unmeasured,
         }
     }
 
@@ -394,6 +431,10 @@ impl Schedule<'_> {
     }
 
     /// Walk the plan batch by batch until one produces a usable measurement.
+    ///
+    /// # Errors
+    ///
+    /// The device fault a sync reports once every candidate has failed: the device is lost.
     pub(crate) fn run_plan<'a, K, F, Out>(
         &mut self,
         key: &K,
@@ -402,7 +443,7 @@ impl Schedule<'_> {
         inputs: &<F as TuneInputs>::At<'a>,
         client: &Client,
         results: &mut [AutotuneResult],
-    ) -> PlanOutcome
+    ) -> Result<PlanOutcome, ServerError>
     where
         K: core::fmt::Debug,
         F: TuneInputs,
@@ -410,11 +451,18 @@ impl Schedule<'_> {
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
         let mut steps = Vec::new();
+        let mut retry = None;
 
         loop {
-            let indices = plan.next();
+            let batch = retry.take().unwrap_or_else(|| plan.next());
 
-            if indices.is_empty() {
+            if batch.is_empty() {
+                if let Err(err) = cubecl_environment::future::block_on(client.sync())
+                    && err.is_device_poisoned()
+                {
+                    return Err(err);
+                }
+
                 // Every candidate failed. A candidate that *executed* but
                 // could not be *measured* — `Unknown` wraps benchmark-harness
                 // failures like a profiling hiccup (timestamp query sets on a
@@ -439,11 +487,11 @@ impl Schedule<'_> {
                         "Autotune measured no candidate for key {key:?}; \
                          deciding candidate {index} unmeasured.\n - results: {results:?}"
                     );
-                    return PlanOutcome {
+                    return Ok(PlanOutcome {
                         steps,
                         short_circuit: None,
                         decided: Some(index),
-                    };
+                    });
                 }
 
                 panic!(
@@ -451,7 +499,7 @@ impl Schedule<'_> {
                 );
             }
 
-            let outcome = self.run_batch(indices, autotunables, inputs.clone(), client);
+            let outcome = self.run_batch(batch, autotunables, inputs.clone(), client);
 
             for (index, result) in outcome.results {
                 results[index] = result;
@@ -459,11 +507,17 @@ impl Schedule<'_> {
             steps.extend(outcome.steps);
 
             if outcome.any_success {
-                return PlanOutcome {
+                return Ok(PlanOutcome {
                     steps,
                     short_circuit: outcome.short_circuit,
                     decided: outcome.decided,
-                };
+                });
+            }
+
+            // Every candidate measured failed, so the ones their groups' patience skipped never
+            // had their chance: measure them before the plan moves on.
+            if !outcome.unmeasured.is_empty() {
+                retry = Some(Batch::unconditional(outcome.unmeasured));
             }
         }
     }
@@ -508,6 +562,12 @@ impl Candidate {
 
     fn fail(&mut self, error: AutotuneError) {
         self.error = Some(error);
+        self.live = false;
+    }
+
+    /// Leave it out of the batch before its first sample. With no samples and no error, it
+    /// comes out as [skipped](AutotuneError::Skip).
+    fn skip(&mut self) {
         self.live = false;
     }
 

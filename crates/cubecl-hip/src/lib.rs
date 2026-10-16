@@ -16,11 +16,11 @@ pub use runtime::HipRuntime;
 // open device 0.
 #[cfg(all(test, any(target_os = "linux", target_os = "windows")))]
 mod tests {
-    use half::f16;
+    use half::{bf16, f16};
     pub type TestRuntime = crate::HipRuntime;
 
     cubecl_std::testgen!();
-    cubecl_core::testgen_all!(f32: [f16, f32], i32: [i16, i32], u32: [u16, u32]);
+    cubecl_core::testgen_all!(f32: [f16, bf16, f32], i32: [i16, i32], u32: [u16, u32]);
     cubecl_core::testgen_complex_validation!();
     cubecl_core::testgen_launch_dynamic_count!();
     cubecl_core::testgen_profiling!();

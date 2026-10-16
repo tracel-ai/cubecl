@@ -16,9 +16,11 @@ use pliron::{
 
 use crate::compiler::wgsl::{
     lower::lower_binop,
-    to_wgsl::{AttrToWgsl, TypeExtWgsl, wgsl_op, wgsl_op_with_out},
+    to_wgsl::{AttrToWgsl, TypeExtWgsl, wasm_inventory_root, wgsl_op, wgsl_op_with_out},
     value::WgslValue,
 };
+
+wasm_inventory_root!(BoolAndOp);
 
 wgsl_op_with_out!(BoolAndOp; |op, ctx| {
     format!("{} && {}", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
@@ -178,7 +180,7 @@ fn unroll_bool_and<T: Scalar, N: Size>(
     let mut out = Vector::empty();
     #[unroll]
     for i in 0..lhs.vector_size() {
-        out.insert(i, lhs.extract(i) && rhs.extract(i));
+        out.insert(i, lhs.extract(i) & rhs.extract(i));
     }
     out
 }
@@ -192,7 +194,7 @@ fn unroll_bool_or<T: Scalar, N: Size>(
     let mut out = Vector::empty();
     #[unroll]
     for i in 0..lhs.vector_size() {
-        out.insert(i, lhs.extract(i) || rhs.extract(i));
+        out.insert(i, lhs.extract(i) | rhs.extract(i));
     }
     out
 }

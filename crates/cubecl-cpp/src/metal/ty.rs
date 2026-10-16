@@ -3,7 +3,10 @@ use cubecl_core::ir::{
     prelude::*,
     types::{
         AtomicType, PointerType,
-        scalar::{BFloat16Type, Float8E4M3Type, Float8E5M2Type, Float8E8M0Type, Float16Type},
+        scalar::{
+            BFloat16Type, Float4E2M1x2Type, Float8E4M3Type, Float8E5M2Type, Float8E8M0Type,
+            Float16Type,
+        },
     },
 };
 
@@ -29,6 +32,7 @@ metal_ty!(BFloat16Type, |_, _| "bfloat".into());
 metal_ty!(Float8E4M3Type, |_, _| "uint8_t".into());
 metal_ty!(Float8E5M2Type, |_, _| "uint8_t".into());
 metal_ty!(Float8E8M0Type, |_, _| "uint8_t".into());
+metal_ty!(Float4E2M1x2Type, |_, _| "uint8_t".into());
 
 metal_ty!(PointerType, |ty, ctx| format!(
     "{} {} {}*",

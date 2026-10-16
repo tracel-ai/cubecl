@@ -11,7 +11,7 @@ pub(super) fn supported_cmma_combinations_wmma(
 ) -> SupportedMmaCombinations {
     let mut result: SupportedMmaCombinations = vec![];
     if arch.get_version() >= WMMA_MINIMUM_VERSION && arch.tensor_cores {
-        let tdims = vec![(16, 16, 16), (32, 8, 16), (8, 32, 16)];
+        let tdims = [(16, 16, 16), (32, 8, 16), (8, 32, 16)];
         // Types fully supported.
         let types = vec![
             (
@@ -22,11 +22,6 @@ pub(super) fn supported_cmma_combinations_wmma(
             (
                 ElemType::Float(FloatKind::F16),
                 ElemType::Float(FloatKind::F16),
-                ElemType::Float(FloatKind::F32),
-            ),
-            (
-                ElemType::Float(FloatKind::BF16),
-                ElemType::Float(FloatKind::BF16),
                 ElemType::Float(FloatKind::F32),
             ),
             (
@@ -42,7 +37,7 @@ pub(super) fn supported_cmma_combinations_wmma(
         ];
         let combinations: SupportedMmaCombinations = types
             .into_iter()
-            .cartesian_product(tdims)
+            .cartesian_product(tdims.iter().copied())
             .map(|((a, b, c), (m, n, k))| MmaConfig {
                 a_type: a,
                 b_type: b,
@@ -53,7 +48,16 @@ pub(super) fn supported_cmma_combinations_wmma(
             })
             .collect();
         result.extend(combinations);
+        // `bf16` and TF32 WMMA arrive with Ampere.
         if arch.get_version() >= 80 {
+            result.extend(tdims.iter().map(|&(m, n, k)| MmaConfig {
+                a_type: ElemType::Float(FloatKind::BF16),
+                b_type: ElemType::Float(FloatKind::BF16),
+                cd_type: ElemType::Float(FloatKind::F32),
+                m,
+                n,
+                k,
+            }));
             result.push(MmaConfig {
                 a_type: ElemType::Float(FloatKind::TF32),
                 b_type: ElemType::Float(FloatKind::TF32),
@@ -65,4 +69,32 @@ pub(super) fn supported_cmma_combinations_wmma(
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::cuda::{arch::CudaArchitecture, mma::CudaCmmaCompiler};
+    use cubecl_core::ir::{ElemType, FloatKind};
+
+    fn offers_bf16(compiler: CudaCmmaCompiler, version: u32) -> bool {
+        let arch = CudaArchitecture {
+            version,
+            tensor_cores: true,
+        };
+        compiler
+            .supported_cmma_combinations(&arch)
+            .iter()
+            .any(|config| config.a_type == ElemType::Float(FloatKind::BF16))
+    }
+
+    /// `bf16` WMMA needs `sm_80`: offered on Volta or Turing, a kernel that trusts the feature
+    /// fails to compile instead of falling back.
+    #[test]
+    fn bf16_wmma_starts_at_ampere() {
+        for compiler in [CudaCmmaCompiler::Cpp, CudaCmmaCompiler::Ptx] {
+            assert!(!offers_bf16(compiler, 70), "{compiler:?}");
+            assert!(!offers_bf16(compiler, 75), "{compiler:?}");
+            assert!(offers_bf16(compiler, 80), "{compiler:?}");
+        }
+    }
 }

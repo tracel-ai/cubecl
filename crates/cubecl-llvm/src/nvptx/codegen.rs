@@ -5,13 +5,14 @@ use crate::{
         libdevice::{Libdevice, link_libdevice},
         printf::lower_printf_to_vprintf,
         ptx_version::PtxVersion,
+        tensor_map::TensorMapParams,
     },
     prelude::{BufferIOAttr, Context, ModuleOp},
     shared::{
         NvptxModule,
-        buffer_params::annotate_buffer_params,
+        buffer_params::{AtomicReads, annotate_buffer_params},
         llvm_module::{EntryFunction, LlvmModule, TargetMachine, TargetSpec},
-        llvm_options::set_llvm_option,
+        llvm_options::{read_llvm_options, set_llvm_option},
         math_library::redirect_intrinsics,
     },
 };
@@ -76,8 +77,12 @@ pub struct NvptxEntry {
     pub shared_memory_size: usize,
     /// Buffer access modes in binding order.
     pub io: Vec<BufferIOAttr>,
+    /// The global buffers the kernel's atomics read.
+    pub atomic_reads: AtomicReads,
     /// Metadata parameter layout.
     pub metadata: MetadataParams,
+    /// The parameters that are tensor maps.
+    pub tensor_maps: TensorMapParams,
 }
 
 pub fn emit_ptx(
@@ -134,10 +139,17 @@ fn finalize(
     let entry_fn = module.entry_point(entrypoint)?;
     entry_fn.set_calling_convention(PTX_KERNEL_CC);
     entry_fn.add_attributes(&attributes);
-    annotate_buffer_params(&entry_fn, &entry.io, entry.metadata.count());
+    annotate_buffer_params(
+        &entry_fn,
+        &entry.io,
+        &entry.atomic_reads,
+        entry.tensor_maps.bindings(),
+        entry.metadata.count(),
+    );
     if let MetadataParams::GridConstant { bytes, .. } = entry.metadata {
         mark_info_param_byval(&entry_fn, bytes);
     }
+    entry.tensor_maps.mark(&entry_fn);
     Ok(())
 }
 
@@ -165,6 +177,8 @@ fn compile(
     ptx_version: Option<PtxVersion>,
 ) -> Result<String, String> {
     init_nvptx();
+    // Instruction selection reads `ALLOW_FTZ_ATOMICS`.
+    let _options = read_llvm_options();
 
     let features = ptx_version
         .map(PtxVersion::target_feature)
@@ -179,7 +193,7 @@ fn compile(
 
     // SAFETY: the module is live for the call.
     unsafe { lower_to_device_libs(module.raw())? };
-    module.run_passes(PASS_PIPELINE, Some(&machine))?;
+    module.run_passes(PASS_PIPELINE, &machine)?;
     let bytes = machine.emit(module, LLVMCodeGenFileType::LLVMAssemblyFile)?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
@@ -249,10 +263,19 @@ entry:
   ret void
 }
 "#;
-        let ptx =
-            compile_to_ptx(ir, &SmArch::new(60, false), PtxVersion::for_driver(12080)).unwrap();
-        assert!(ptx.contains("atom.gpu.global.add.f32"), "{ptx}");
-        assert!(!ptx.contains(".cas."), "no CAS loop:\n{ptx}");
+        let check = || {
+            let ptx =
+                compile_to_ptx(ir, &SmArch::new(60, false), PtxVersion::for_driver(12080)).unwrap();
+            assert!(ptx.contains("atom.gpu.global.add.f32"), "{ptx}");
+            assert!(!ptx.contains(".cas."), "no CAS loop:\n{ptx}");
+        };
+        check();
+        // A link, even one that fails, sets LLVM's options back to their defaults.
+        #[cfg(feature = "amdgpu")]
+        {
+            let _ = crate::amdgpu::lld::link_relocatable(b"", "k");
+            check();
+        }
     }
 
     #[test]

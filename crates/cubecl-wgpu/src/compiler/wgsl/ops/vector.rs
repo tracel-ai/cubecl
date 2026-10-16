@@ -4,9 +4,11 @@ use itertools::Itertools;
 
 use crate::compiler::wgsl::{
     lower::lower_unop,
-    to_wgsl::{TypeExtWgsl, wgsl_op, wgsl_op_with_out},
+    to_wgsl::{TypeExtWgsl, wasm_inventory_root, wgsl_op, wgsl_op_with_out},
     value::WgslValue,
 };
+
+wasm_inventory_root!(CompositeConstructOp);
 
 wgsl_op_with_out!(CompositeConstructOp; |op, ctx| {
     assert!(op.result_type(ctx).is_vector(ctx));

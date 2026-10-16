@@ -340,11 +340,6 @@ pub(super) fn supported_cmma_combinations_ptx(arch: &CudaArchitecture) -> Suppor
                 gpu::ElemType::Float(gpu::FloatKind::F16),
                 gpu::ElemType::Float(gpu::FloatKind::F32),
             ),
-            (
-                gpu::ElemType::Float(gpu::FloatKind::BF16),
-                gpu::ElemType::Float(gpu::FloatKind::BF16),
-                gpu::ElemType::Float(gpu::FloatKind::F32),
-            ),
         ];
         let combinations: SupportedMmaCombinations = types
             .into_iter()
@@ -378,7 +373,16 @@ pub(super) fn supported_cmma_combinations_ptx(arch: &CudaArchitecture) -> Suppor
                 },
             ]);
         }
+        // `bf16` and TF32 WMMA arrive with Ampere.
         if arch.get_version() >= 80 {
+            result.push(MmaConfig {
+                a_type: gpu::ElemType::Float(gpu::FloatKind::BF16),
+                b_type: gpu::ElemType::Float(gpu::FloatKind::BF16),
+                cd_type: gpu::ElemType::Float(gpu::FloatKind::F32),
+                m: 16,
+                n: 16,
+                k: 16,
+            });
             result.push(MmaConfig {
                 a_type: gpu::ElemType::Float(gpu::FloatKind::TF32),
                 b_type: gpu::ElemType::Float(gpu::FloatKind::TF32),

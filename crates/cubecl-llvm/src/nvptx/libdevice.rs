@@ -20,10 +20,12 @@ impl MathLibrary for Libdevice {
         NO_LIBCALL.contains(&base)
     }
 
-    /// Libdevice supports f32 and f64; f16 calls use f32.
+    /// Libdevice supports f32 and f64; f16 and bf16 calls use f32.
     fn symbol(&self, base: &str, width: FloatWidth) -> Option<(String, FloatWidth)> {
         match width {
-            FloatWidth::F16 | FloatWidth::F32 => Some((format!("__nv_{base}f"), FloatWidth::F32)),
+            FloatWidth::F16 | FloatWidth::BF16 | FloatWidth::F32 => {
+                Some((format!("__nv_{base}f"), FloatWidth::F32))
+            }
             FloatWidth::F64 => Some((format!("__nv_{base}"), FloatWidth::F64)),
         }
     }

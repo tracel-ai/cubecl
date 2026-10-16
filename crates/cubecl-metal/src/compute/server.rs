@@ -18,10 +18,11 @@ use cubecl_core::{
 };
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
+use cubecl_server::compiler::ArtifactId;
 use cubecl_server::memory_management::Cleanup;
 use cubecl_server::memory_management::PageUpdate;
 use cubecl_server::{
-    dry_run::LaunchMode,
+    execution::LaunchMode,
     kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{
@@ -67,7 +68,11 @@ impl MetalServer {
         let mut compilation_options = cubecl_cpp::shared::CompilationOptions::default();
         // Metal honors per-op fast math via the `fast::` namespace (MSL 3+).
         compilation_options.supports_features.fast_math = true;
-        let context = MetalContext::new(device.clone(), compilation_options);
+        let context = MetalContext::new(
+            device.clone(),
+            (*utilities.properties).clone(),
+            compilation_options,
+        );
 
         let backend = MetalStreamBackend::new(device, mem_props, mem_config, logger.clone());
 
@@ -119,7 +124,11 @@ fn resolve_origin_resource(
 fn read_pitched(src: *const u8, shape: &[usize], strides: &[usize], elem_size: usize) -> Vec<u8> {
     let rank = shape.len();
     let total = shape.iter().product::<usize>() * elem_size;
-    if rank <= 1 {
+    if total == 0 {
+        return Vec::new();
+    }
+    let pitched = rank > 1 && strides[rank - 2] != *shape.last().unwrap_or(&1);
+    if !pitched {
         return unsafe { std::slice::from_raw_parts(src, total) }.to_vec();
     }
 
@@ -127,7 +136,7 @@ fn read_pitched(src: *const u8, shape: &[usize], strides: &[usize], elem_size: u
     let rows = shape[..rank - 1].iter().product::<usize>();
     let pitch = strides[rank - 2] * elem_size;
 
-    let mut out = vec![0u8; rows * width];
+    let mut out = vec![0u8; total];
     for row in 0..rows {
         let src_row = unsafe { std::slice::from_raw_parts(src.add(row * pitch), width) };
         out[row * width..(row + 1) * width].copy_from_slice(src_row);
@@ -138,8 +147,17 @@ fn read_pitched(src: *const u8, shape: &[usize], strides: &[usize], elem_size: u
 /// Writes packed bytes into a pitched row-major buffer — the inverse of [`read_pitched`].
 fn write_pitched(dst: *mut u8, data: &[u8], shape: &[usize], strides: &[usize], elem_size: usize) {
     let rank = shape.len();
-    if rank <= 1 {
-        unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len()) };
+    let total = shape.iter().product::<usize>() * elem_size;
+    if total == 0 {
+        return;
+    }
+    assert!(
+        data.len() >= total,
+        "input shorter than logical tensor bytes"
+    );
+    let pitched = rank > 1 && strides[rank - 2] != *shape.last().unwrap_or(&1);
+    if !pitched {
+        unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), dst, total) };
         return;
     }
 
@@ -198,19 +216,34 @@ impl Server for MetalServer {
         .into())
     }
 
-    fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
-        let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
+    fn initialize_memory(
+        &mut self,
+        memory: ManagedMemoryHandle,
+        size: u64,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        let mut resolved = self
+            .streams
+            .resolve(stream_id, std::iter::empty())
+            .expect("creating a Metal stream never fails");
         let cursor = resolved.cursor;
         Relocating(&mut resolved).relocate_when_wanted();
         let (stream, failures) = resolved.current_and_failures();
-        let reserved = stream
+        let allocated = stream
             .memory_management
             .reserve(size, PageUpdate::Allow, failures)
-            .expect("Failed to reserve memory");
-        stream
-            .memory_management
-            .bind(reserved, memory, cursor, failures)
-            .expect("Failed to bind memory");
+            .and_then(|reserved| {
+                stream
+                    .memory_management
+                    .bind(reserved, memory.clone(), cursor, failures)
+            });
+        if let Err(err) = allocated {
+            // Nothing to allocate: the buffer carries the error instead.
+            let err = ServerError::from(err);
+            failures.fail_unallocated(&memory, err.clone());
+            return Err(err);
+        }
+        Ok(())
     }
 
     fn read(
@@ -231,7 +264,8 @@ impl Server for MetalServer {
 
         let mut resolved = self
             .streams
-            .resolve(stream_id, descriptors.iter().map(|d| &d.handle));
+            .resolve(stream_id, descriptors.iter().map(|d| &d.handle))
+            .expect("creating a Metal stream never fails");
 
         // Flush, wait, then read.
         let (stream, failures) = resolved.current_and_failures();
@@ -247,6 +281,9 @@ impl Server for MetalServer {
                 let (resource, offset) = resolve_origin_resource(&mut resolved, &descriptor.handle)
                     .map_err(ServerError::from)?;
 
+                if descriptor.shape.iter().product::<usize>() * descriptor.elem_size == 0 {
+                    return Ok(Bytes::from_bytes_vec(Vec::new()));
+                }
                 let buffer = resource.inner();
                 let protocol_obj: &ProtocolObject<dyn MTLBuffer> = buffer.as_ref();
                 let base_ptr = protocol_obj.contents().as_ptr() as *const u8;
@@ -270,7 +307,8 @@ impl Server for MetalServer {
 
         let mut resolved = self
             .streams
-            .resolve(stream_id, descriptors.iter().map(|(d, _)| &d.handle));
+            .resolve(stream_id, descriptors.iter().map(|(d, _)| &d.handle))
+            .expect("creating a Metal stream never fails");
 
         let (stream, failures) = resolved.current_and_failures();
         let event = MetalStreamBackend::flush(stream, failures);
@@ -298,10 +336,14 @@ impl Server for MetalServer {
             ExecuteScope::over(self, stream_id, written).execute(|server| {
                 let mut resolved = server
                     .streams
-                    .resolve(stream_id, [&descriptor.handle].into_iter());
+                    .resolve(stream_id, [&descriptor.handle].into_iter())
+                    .expect("creating a Metal stream never fails");
                 let (resource, offset) = resolve_origin_resource(&mut resolved, &descriptor.handle)
                     .map_err(ServerError::Io)?;
 
+                if descriptor.shape.iter().product::<usize>() * descriptor.elem_size == 0 {
+                    return Ok(());
+                }
                 let buffer = resource.inner();
                 let protocol_obj: &ProtocolObject<dyn MTLBuffer> = buffer.as_ref();
                 let base_ptr = protocol_obj.contents().as_ptr() as *mut u8;
@@ -338,24 +380,22 @@ impl Server for MetalServer {
         // refuse every later launch that shares them, an autotune sweep
         // above all.
         //
-        // A dry run stages none either way. It was never going to write, so a
+        // A discarded launch stages none either way. It was never going to write, so a
         // failure in it leaves nothing stale, and tainting its buffers would
         // fail unrelated reads of memory the run deliberately left alone.
-        let kernel_id = kernel.id();
-        let compiled = (|| {
-            cubecl_server::validation::validate_cube_dim(&self.utilities.properties, &kernel_id)?;
-            cubecl_server::validation::validate_units(&self.utilities.properties, &kernel_id)?;
-            self.context.compile_kernel(
-                &kernel_id,
-                kernel,
-                self.utilities.properties.hardware.max_shared_memory_size,
-                self.utilities.logger.clone(),
-            )
-        })();
+        if launch_mode == LaunchMode::Queue {
+            self.context.queue(kernel);
+            return;
+        }
+        let id = ArtifactId {
+            kernel: kernel.id(),
+            variant: (),
+        };
+        let compiled = self.context.load(&*kernel, &id, &self.utilities.logger);
         let compiled = match compiled {
             Ok(compiled) => compiled,
             Err(err) => {
-                if !launch_mode.is_skipped() {
+                if !launch_mode.discards_launch() {
                     let mut written = self.write_set();
                     written.extend(bindings.buffers_written(None).cloned());
                     failed_writing(self, stream_id, written, ServerError::Launch(err));
@@ -365,9 +405,10 @@ impl Server for MetalServer {
                 return;
             }
         };
-        if launch_mode.is_skipped() {
+        if launch_mode.discards_launch() {
             return;
         }
+        let kernel_id = id.kernel;
         let io = compiled.io.clone();
 
         // The scope claims what the launch writes until the body proves the
@@ -415,7 +456,8 @@ impl Server for MetalServer {
                         DispatchInfo::Dynamic(binding) => Some(binding),
                         DispatchInfo::Static(..) => None,
                     }),
-            );
+            )
+            .expect("creating a Metal stream never fails");
 
             let mut resources = Vec::with_capacity(bindings.resources.len());
             let mut total_buffer_bytes: usize = 0;
@@ -560,7 +602,10 @@ impl Server for MetalServer {
         if let Err(err) = self.streams.ensure_written(handles.iter()) {
             return Box::pin(async move { Err(err) });
         }
-        let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
+        let mut resolved = self
+            .streams
+            .resolve(stream_id, std::iter::empty())
+            .expect("creating a Metal stream never fails");
         let (stream, failures) = resolved.current_and_failures();
         let fence = MetalStreamBackend::flush(stream, failures);
 
@@ -575,10 +620,17 @@ impl Server for MetalServer {
         self.streams.ensure_written(handles.iter())
     }
 
+    fn compile_queued(&mut self) {
+        self.context.compile_queued(&self.utilities.logger);
+    }
+
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         // A flush reports nothing: a failure lives on the buffers the work
         // left unwritten, and a read of one of them is what surfaces it.
-        let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
+        let mut resolved = self
+            .streams
+            .resolve(stream_id, std::iter::empty())
+            .expect("creating a Metal stream never fails");
         let (stream, failures) = resolved.current_and_failures();
         MetalStreamBackend::flush(stream, failures);
         Ok(())
@@ -592,6 +644,7 @@ impl Server for MetalServer {
         // Begin collecting this window's work-bearing command buffers on the stream.
         self.streams
             .resolve(stream_id, std::iter::empty())
+            .expect("creating a Metal stream never fails")
             .current()
             .profiling = Some(Vec::new());
         Ok(self.timestamps.start())
@@ -607,6 +660,7 @@ impl Server for MetalServer {
             // Drop any collected buffers so a retry can't accumulate stale work.
             self.streams
                 .resolve(stream_id, std::iter::empty())
+                .expect("creating a Metal stream never fails")
                 .current()
                 .profiling = None;
             self.timestamps.failure(&err);
@@ -619,6 +673,7 @@ impl Server for MetalServer {
         let buffers = self
             .streams
             .resolve(stream_id, std::iter::empty())
+            .expect("creating a Metal stream never fails")
             .current()
             .profiling
             .take()
@@ -667,6 +722,7 @@ impl Server for MetalServer {
         // `end_profile`: nothing is going to read these timestamps.
         self.streams
             .resolve(stream_id, std::iter::empty())
+            .expect("creating a Metal stream never fails")
             .current()
             .profiling = None;
         self.timestamps.abandon(token);
@@ -675,17 +731,23 @@ impl Server for MetalServer {
     fn memory_report(
         &mut self,
         stream_id: StreamId,
-    ) -> cubecl_server::memory_management::StreamMemoryReport {
-        let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
-        cubecl_server::memory_management::StreamMemoryReport {
+    ) -> Option<cubecl_server::memory_management::StreamMemoryReport> {
+        let mut resolved = self
+            .streams
+            .resolve(stream_id, std::iter::empty())
+            .expect("creating a Metal stream never fails");
+        Some(cubecl_server::memory_management::StreamMemoryReport {
             stream: stream_id,
             pools: resolved.current().memory_management.memory_report(),
             auxiliary: Vec::new(),
-        }
+        })
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
+        let mut resolved = self
+            .streams
+            .resolve(stream_id, std::iter::empty())
+            .expect("creating a Metal stream never fails");
         Relocating(&mut resolved).reclaim()
     }
 
@@ -694,7 +756,10 @@ impl Server for MetalServer {
         mode: cubecl_server::memory_management::MemoryAllocationMode,
         stream_id: StreamId,
     ) {
-        let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
+        let mut resolved = self
+            .streams
+            .resolve(stream_id, std::iter::empty())
+            .expect("creating a Metal stream never fails");
         resolved.current().memory_management.mode(mode);
     }
 }
@@ -764,18 +829,72 @@ mod pitched_tests {
 
     #[test]
     fn pitched_round_trip() {
-        // A [2, 3] tensor with a row pitch of 4 (one element of padding per row).
-        let shape = [2usize, 3];
-        let strides = [4usize, 1];
-        let packed = [10u8, 20, 30, 40, 50, 60];
+        // (shape, strides, element bytes): packed and pitched layouts.
+        let cases: &[(&[usize], &[usize], usize)] = &[
+            (&[6], &[1], 2),
+            (&[2, 3], &[3, 1], 2),
+            (&[2, 3, 1], &[3, 1, 1], 4), // Packed HWC1.
+            (&[2, 2, 3, 2], &[12, 6, 2, 1], 2),
+            (&[2, 3], &[4, 1], 2),
+            (&[2, 2, 3, 2], &[24, 12, 4, 1], 2),
+        ];
+        for &(shape, strides, elem_size) in cases {
+            let rank = shape.len();
+            let width = shape[rank - 1] * elem_size;
+            let rows = shape[..rank - 1].iter().product::<usize>();
+            let pitch = if rank == 1 {
+                width
+            } else {
+                strides[rank - 2] * elem_size
+            };
+            let total = rows * width;
+            // Extra input bytes must not be copied, even for a rank-one tensor.
+            let data: Vec<u8> = (0..total + 5).map(|i| i as u8).collect();
+            for offset in [0, 7] {
+                let mut buffer = vec![0xa5; offset + rows * pitch + 9];
+                let mut expected = buffer.clone();
+                for row in 0..rows {
+                    expected[offset + row * pitch..offset + row * pitch + width]
+                        .copy_from_slice(&data[row * width..(row + 1) * width]);
+                }
+                let dst = unsafe { buffer.as_mut_ptr().add(offset) };
+                write_pitched(dst, &data, shape, strides, elem_size);
+                assert_eq!(buffer, expected, "shape={shape:?}, offset={offset}");
+                let src = unsafe { buffer.as_ptr().add(offset) };
+                assert_eq!(read_pitched(src, shape, strides, elem_size), data[..total]);
+            }
+        }
+    }
 
-        let mut buffer = vec![0u8; 2 * 4];
-        write_pitched(buffer.as_mut_ptr(), &packed, &shape, &strides, 1);
-        // Rows land at offsets 0 and 4; the padding bytes (3, 7) stay zero.
-        assert_eq!(buffer, [10, 20, 30, 0, 40, 50, 60, 0]);
+    #[test]
+    fn short_input_panics_before_copy() {
+        for (shape, strides) in [
+            (&[6][..], &[1][..]),
+            (&[2, 3][..], &[3, 1][..]),
+            (&[2, 3][..], &[4, 1][..]),
+        ] {
+            let mut buffer = [0xa5; 16];
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                write_pitched(buffer.as_mut_ptr(), &[0; 5], shape, strides, 1);
+            }));
+            assert!(result.is_err());
+            assert_eq!(buffer, [0xa5; 16]);
+        }
+    }
 
-        let read_back = read_pitched(buffer.as_ptr(), &shape, &strides, 1);
-        assert_eq!(read_back, packed);
+    #[test]
+    fn empty_copies_accept_null_pointers() {
+        let cases: &[(&[usize], &[usize], usize)] = &[
+            (&[0], &[1], 1),
+            (&[0, 3], &[4, 1], 2),
+            (&[2, 0], &[0, 1], 2),
+            (&[2, 0, 3, 1], &[0, 3, 1, 1], 4),
+            (&[2, 3], &[3, 1], 0),
+        ];
+        for &(shape, strides, elem_size) in cases {
+            assert!(read_pitched(std::ptr::null(), shape, strides, elem_size).is_empty());
+            write_pitched(std::ptr::null_mut(), &[], shape, strides, elem_size);
+        }
     }
 }
 
@@ -791,7 +910,10 @@ impl ServerStorage for MetalServer {
         // filled reports the failure rather than handing back a pointer to
         // whatever was there before.
         self.streams.ensure_written([&binding].into_iter())?;
-        let mut resolved = self.streams.resolve(stream_id, std::iter::once(&binding));
+        let mut resolved = self
+            .streams
+            .resolve(stream_id, std::iter::once(&binding))
+            .expect("creating a Metal stream never fails");
         // Resolve from the binding's origin stream; see `resolve_origin_resource`.
         let stream = resolved.get(&binding.stream);
 

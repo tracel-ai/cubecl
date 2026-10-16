@@ -23,23 +23,31 @@ use crate::server::ServerError;
 /// `StreamBackend::flush`, which is handed a stream and nothing else, so there
 /// is no pool in reach without threading one through that trait. Pool these too
 /// once something else needs the same argument.
+///
+/// For a fence the driver refused to create or record, its stream is synchronized
+/// on the spot. Only when that fails too does the fence hold the error.
 pub struct EventFence<A: EventApi> {
-    event: Event<A>,
+    /// `None` when the fence was reached at creation.
+    event: Result<Option<Event<A>>, ServerError>,
 }
 
 impl<A: EventApi> EventFence<A> {
     /// Record a fence at the current position of `stream`.
     ///
-    /// # Panics
-    ///
-    /// A fence that never recorded cannot be waited on, and every caller takes
-    /// one by value expecting to be able to. There is no useful weaker answer
-    /// than failing here.
+    /// When the driver refuses the event, `stream` is synchronized instead, which
+    /// keeps every guarantee a fence gives.
     pub fn new(stream: A::Stream) -> Self {
-        let event = Event::new().expect("the fence needs an event");
-        event
-            .record(stream)
-            .expect("the fence needs its event recorded");
+        let event = match Event::new().and_then(|event| event.record(stream).map(|()| event)) {
+            Ok(event) => Ok(Some(event)),
+            Err(err) => {
+                log::warn!(
+                    "a fence could not be recorded, synchronizing its stream instead: {err}"
+                );
+                A::stream_synchronize(stream)
+                    .map(|()| None)
+                    .map_err(Into::into)
+            }
+        };
 
         Self { event }
     }
@@ -49,22 +57,32 @@ impl<A: EventApi> EventFence<A> {
     ///
     /// # Errors
     ///
-    /// The fault the wait reveals, when the stream itself failed.
+    /// Returns a [`ServerError`] if the driver refused to create or record the
+    /// fence, or if the device was already faulty.
     pub fn wait_sync(self) -> Result<(), ServerError> {
-        Ok(self.event.wait()?)
+        match self.event? {
+            Some(event) => Ok(event.wait()?),
+            None => Ok(()),
+        }
     }
 
     /// Make `stream` wait for this fence on the device, so work queued on it
-    /// afterwards runs behind the fenced stream's. Does not block the host.
+    /// afterwards runs behind the fenced stream's. Does not block the host,
+    /// unless the driver refuses the dependency: the host then waits for the
+    /// fence itself, which orders the work just the same.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// A refused dependency would let `stream` run ahead of work it must
-    /// follow, which is a wrong answer rather than a slow one.
-    pub fn wait_async(self, stream: A::Stream) {
-        self.event
-            .wait_async(stream)
-            .expect("the stream has to wait on the fence");
+    /// Returns a [`ServerError`] when the fenced stream's work failed.
+    pub fn wait_async(self, stream: A::Stream) -> Result<(), ServerError> {
+        let Some(event) = self.event? else {
+            return Ok(());
+        };
+        if let Err(err) = event.wait_async(stream) {
+            log::warn!("a stream could not be made to wait on a fence, waiting on the host: {err}");
+            event.wait()?;
+        }
+        Ok(())
     }
 }
 

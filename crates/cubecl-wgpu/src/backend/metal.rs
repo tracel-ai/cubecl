@@ -1,8 +1,8 @@
+use crate::compute::pipelines::MetadataLayout;
 use cubecl_core::{
     WgpuCompilationOptions,
     ir::{AddressType, UIntKind},
     prelude::Visibility,
-    server::KernelArguments,
 };
 use cubecl_cpp::{
     metal::{arch::MetalArchitecture, supported_cmma_combinations_metal},
@@ -17,7 +17,7 @@ use wgpu::{
     hal::{self, Adapter, metal},
 };
 
-pub fn bindings(repr: &MslComputeKernel, args: &KernelArguments) -> (Vec<Visibility>, usize) {
+pub fn bindings(repr: &MslComputeKernel, metadata: MetadataLayout) -> (Vec<Visibility>, usize) {
     let buffers = repr.buffers.iter().map(|it| {
         // When slices are shared, it needs to be read-write if ANY of the slices is read-write,
         // and since we can't be sure, we'll assume everything is read-write.
@@ -27,11 +27,11 @@ pub fn bindings(repr: &MslComputeKernel, args: &KernelArguments) -> (Vec<Visibil
             Visibility::ReadWrite
         }
     });
-    let uniform = args.info.dynamic_metadata_offset >= args.info.data.len();
-    let info_vis = (!args.info.data.is_empty()).then_some(match uniform {
-        true => Visibility::Uniform,
-        false => Visibility::Read,
-    });
+    let info_vis = match metadata {
+        MetadataLayout::Absent => None,
+        MetadataLayout::Static => Some(Visibility::Uniform),
+        MetadataLayout::Dynamic => Some(Visibility::Read),
+    };
     (buffers.chain(info_vis).collect(), 0)
 }
 
@@ -262,13 +262,19 @@ fn register_types(props: &mut DeviceProperties) {
         props.register_type_usage(ty, TypeUsage::all());
     }
 
-    // MSL has no fp8 type: the emitter stores these as `uint8_t` and converts in software,
+    // MSL has no fp8 or fp4 type: the emitter stores these as `uint8_t` and converts in software,
     // which is enough to hold them in buffers and cast them, not to compute in them.
-    for ty in [FloatKind::E4M3, FloatKind::E5M2, FloatKind::UE8M0] {
+    for ty in [
+        FloatKind::E4M3,
+        FloatKind::E5M2,
+        FloatKind::UE8M0,
+        FloatKind::E2M1x2,
+    ] {
         props.register_type_usage(
             ElemType::Float(ty),
             TypeUsage::Conversion | TypeUsage::Buffer,
         );
+        props.register_emulated_conversion(ElemType::Float(ty));
     }
 
     // MSL's 64-bit atomics exist only on Apple9 and later and only as min and max, so u64

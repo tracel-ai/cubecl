@@ -28,6 +28,7 @@ use cubecl_runtime::client::Client;
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::server::CubeCountSelection;
 pub use frontend::cmma;
+pub use frontend::wgmma;
 
 /// Cube Language Internal Representation.
 pub use cubecl_ir as ir;
@@ -45,7 +46,7 @@ pub use cubecl_macros::*;
 pub use cubecl_runtime::benchmark;
 pub use cubecl_runtime::client;
 pub use cubecl_runtime::compiler::{CompilationError, Compiler};
-pub use cubecl_runtime::kernel::{CubeKernel, PrecompiledSource};
+pub use cubecl_runtime::kernel::{CubeKernel, PrecompiledSource, define_kernel};
 pub use cubecl_runtime::memory_management::MemoryUsage;
 pub use cubecl_runtime::memory_management::{
     AuxiliaryMemoryReport, MemoryPoolKind, MemoryPoolReport, MemoryPoolsReport, MemoryReport,

@@ -16,14 +16,21 @@ pub trait Fence: Sized {
     /// The fault the wait reveals, when the stream itself failed.
     fn wait(self) -> Result<(), ServerError>;
 
-    /// [`wait`](Self::wait), ignoring a fault.
+    /// [`wait`](Self::wait).
     ///
     /// What the drop queue needs: it only has to know the device is done
-    /// reading the memory it is about to free, and a stream that faulted is
-    /// done either way. The fault reaches the caller through whatever it
-    /// touches next.
-    fn sync(self) {
-        let _ = self.wait();
+    /// reading the memory it is about to free. A poisoned device is done either
+    /// way, and the fault reaches the caller through whatever it touches next.
+    /// Any other failure leaves that unknown, so the memory must not be freed.
+    fn sync(self) -> bool {
+        match self.wait() {
+            Ok(()) => true,
+            Err(err) if err.is_device_poisoned() => true,
+            Err(err) => {
+                log::error!("a fence wait failed, keeping the memory it guards: {err}");
+                false
+            }
+        }
     }
 }
 
@@ -126,6 +133,14 @@ impl<F: Fence> PendingDropQueue<F> {
         self.flush(&factory);
     }
 
+    /// Free the pending bytes, or leak them when the device may still be reading them.
+    fn release_pending(&mut self, device_done: bool) {
+        match device_done {
+            true => self.pending.clear(),
+            false => core::mem::forget(core::mem::take(&mut self.pending)),
+        }
+    }
+
     /// Rotate the double-buffer and free any memory the device is done with.
     ///
     /// `factory` is called to produce a [`Fence`]. It should submit (or
@@ -142,8 +157,7 @@ impl<F: Fence> PendingDropQueue<F> {
         // Sync the fence from the previous flush and free the bytes it was
         // protecting.
         if let Some(event) = self.fence.take() {
-            event.sync();
-            self.pending.clear();
+            self.release_pending(event.sync());
         }
 
         // Safety net: if pending is somehow still populated (no prior fence),
@@ -151,8 +165,7 @@ impl<F: Fence> PendingDropQueue<F> {
         // be reading.
         if !self.pending.is_empty() {
             let event = factory();
-            event.sync();
-            self.pending.clear();
+            self.release_pending(event.sync());
         }
 
         // The current staged batch becomes the new pending batch.
@@ -367,5 +380,40 @@ mod tests {
         queue.flush(&factory);
         queue.flush(&factory);
         queue.flush(&factory);
+    }
+
+    /// A fence whose wait fails with `error`.
+    struct FailingFence(ServerError);
+
+    impl Fence for FailingFence {
+        fn wait(self) -> Result<(), ServerError> {
+            Err(self.0)
+        }
+    }
+
+    #[test]
+    fn memory_is_freed_only_once_the_device_is_done_with_it() {
+        let poisoned: ServerError = crate::driver::DevicePoison::new("status 700").into();
+        let other = ServerError::Generic {
+            reason: "the wait failed".into(),
+            backtrace: Default::default(),
+        };
+        let synced = Cell::new(0);
+
+        assert!(
+            MockFence {
+                sync_count: &synced
+            }
+            .sync(),
+            "a fence that was reached"
+        );
+        assert!(
+            FailingFence(poisoned).sync(),
+            "a poisoned device runs nothing anymore"
+        );
+        assert!(
+            !FailingFence(other).sync(),
+            "after any other failure, the device may still be reading the memory"
+        );
     }
 }

@@ -9,7 +9,7 @@ use pliron::{
     combine::{self, Parser, between, parser::char::spaces, token},
     common_traits::Named,
     identifier::Identifier,
-    indented_block, input_err,
+    input_err,
     irfmt::{
         self,
         parsers::{
@@ -28,7 +28,7 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    NoMemoryEffect,
+    NoMemoryEffect, Pure,
     attributes::{BoolAttr, IntegerVecAttr, ZeroAttr},
     prelude::*,
     types::scalar::BoolType,
@@ -97,7 +97,7 @@ impl BranchOp {
     verifier = "succ"
 )]
 #[op_interfaces(IsTerminatorInterface, NResultsInterface<0>, NSuccsInterface<2>)]
-#[op_traits(NoMemoryEffect)]
+#[op_traits(Pure)]
 pub struct BranchConditionalOp;
 impl BranchConditionalOp {
     /// Create a new [`BranchConditionalOp`].
@@ -266,7 +266,7 @@ impl BranchOpInterface for BranchConditionalOp {
     attributes = (cf_switch_case_values: IntegerVecAttr)
 )]
 #[op_interfaces(IsTerminatorInterface, NResultsInterface<0>)]
-#[op_traits(NoMemoryEffect)]
+#[op_traits(Pure)]
 pub struct SwitchOp;
 
 #[op_interface_impl]
@@ -378,11 +378,12 @@ impl Printable for SwitchOp {
         let cases = self.cases(ctx);
 
         write!(f, "{}[", indented_nl(state))?;
-        indented_block!(state, {
+        {
+            let _indent = state.indent();
             write!(f, "{}", indented_nl(state))?;
             list_with_sep(&cases, pliron::printable::ListSeparator::CharNewline(','))
                 .fmt(ctx, state, f)?;
-        });
+        }
         write!(f, "{}]", indented_nl(state))?;
 
         Ok(())

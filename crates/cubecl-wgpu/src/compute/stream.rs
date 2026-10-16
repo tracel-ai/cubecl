@@ -2,9 +2,10 @@ use super::{
     graph::{GraphRecording, ReplayDispatch, ReplayTask, WgpuGraph},
     mem_manager::{self, AuxiliaryMemory},
     poll::WgpuPoll,
-    timings::{QueryProfiler, TimestampAvailability, TimestampQuerySetBudget},
+    timings::{QueryProfiler, TimestampQuerySetBudget, TimestampSampling},
 };
 use crate::compute::copies::WgpuCopies;
+use crate::compute::device_poison::PoisonWatch;
 use crate::{
     WgpuResource, WgpuStorage,
     controller::WgpuAllocController,
@@ -56,7 +57,7 @@ enum Timings {
     /// stream that never profiles must not hold one another stream then cannot get.
     Unclaimed {
         budget: Arc<TimestampQuerySetBudget>,
-        availability: TimestampAvailability,
+        sampling: TimestampSampling,
     },
     // Boxed: `QueryProfiler` is much larger than `TimestampProfiler`
     // (clippy::large_enum_variant).
@@ -84,6 +85,8 @@ pub struct WgpuStream {
     /// The memories the stream keeps for its own reads and launches.
     pub auxiliary: AuxiliaryMemory,
     pub device: wgpu::Device,
+    /// Whether the device is poisoned, shared with every other stream on the device.
+    poison: PoisonWatch,
     compute_pass: Option<wgpu::ComputePass<'static>>,
     timings: Timings,
     tasks_count: usize,
@@ -152,7 +155,8 @@ impl RelocatableStream for WgpuStream {
     }
 
     fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
-        let mut copier = WgpuCopies::new(self.device.clone(), self.queue.clone());
+        let mut copier =
+            WgpuCopies::new(self.device.clone(), self.queue.clone(), self.poison.clone());
         self.memory.relocate(&mut copier, reason, failures);
     }
 
@@ -178,16 +182,17 @@ impl WgpuStream {
         memory_config: MemoryConfiguration,
         timing_method: TimingMethod,
         timing_budget: Arc<TimestampQuerySetBudget>,
-        timestamp_availability: TimestampAvailability,
+        timestamp_sampling: TimestampSampling,
         tasks_max: usize,
         logger: Arc<ServerLogger>,
         use_vulkan_compiler: bool,
         captures: &DeviceCaptures,
+        poison: PoisonWatch,
     ) -> Self {
         let timings = match timing_method {
             TimingMethod::Device => Timings::Unclaimed {
                 budget: timing_budget,
-                availability: timestamp_availability,
+                sampling: timestamp_sampling,
             },
             TimingMethod::System => Timings::system(),
         };
@@ -200,7 +205,7 @@ impl WgpuStream {
             }
         });
 
-        let poll = WgpuPoll::new(device.clone());
+        let poll = WgpuPoll::new(device.clone(), queue.clone(), poison.clone());
 
         let memory = mem_manager::main_memory(
             &device,
@@ -223,6 +228,7 @@ impl WgpuStream {
                 })
             },
             device,
+            poison,
             queue,
             tasks_count: 0,
             tasks_max,
@@ -415,10 +421,16 @@ impl WgpuStream {
         if let Err(err) = self.flush(stream_id) {
             return Box::pin(async move { Err(err) });
         }
+        // A poisoned device completes the copy as if it ran.
+        // Return the poisoning instead.
+        if let Err(err) = self.poison.check() {
+            return Box::pin(async move { Err(err) });
+        }
 
         for entry in staging_info.iter() {
             if let Some((staging, _binding, _size)) = entry {
                 let (sender, receiver) = cubecl_environment::future::channel::bounded(1);
+                self.poison.wake_on_loss(&sender);
                 staging
                     .buffer
                     .slice(..)
@@ -435,14 +447,28 @@ impl WgpuStream {
         }
 
         let poll = self.poll.start_polling();
+        let poison = self.poison.clone();
 
         Box::pin(async move {
             for receiver in callbacks.iter().flatten() {
-                receiver
-                    .recv()
-                    .await
-                    .expect("Unable to receive buffer slice result.")
-                    .expect("Failed to map buffer");
+                let mapped = receiver.recv().await;
+                // The device can be poisoned while the copy is in flight.
+                poison.check()?;
+                match mapped {
+                    Ok(Ok(())) => {}
+                    Ok(Err(err)) => {
+                        return Err(ServerError::Generic {
+                            reason: format!("the staging buffer could not be mapped: {err}"),
+                            backtrace: BackTrace::capture(),
+                        });
+                    }
+                    Err(_) => {
+                        return Err(ServerError::Generic {
+                            reason: "the staging buffer's map never completed".into(),
+                            backtrace: BackTrace::capture(),
+                        });
+                    }
+                }
             }
 
             // Can stop polling now.
@@ -472,19 +498,16 @@ impl WgpuStream {
     /// A stream claims a budget slot at its first window (lock-free); if none is free, it falls
     /// back to the system timer so the device never exceeds the hardware limit.
     fn claim_timings(&mut self) {
-        let Timings::Unclaimed {
-            budget,
-            availability,
-        } = &self.timings
-        else {
+        let Timings::Unclaimed { budget, sampling } = &self.timings else {
             return;
         };
         self.timings = match budget.try_acquire() {
             true => Timings::Device(Box::new(QueryProfiler::new(
                 &self.queue,
                 &self.device,
+                &self.poison,
                 budget.clone(),
-                *availability,
+                *sampling,
             ))),
             false => Timings::system(),
         };
@@ -500,10 +523,24 @@ impl WgpuStream {
 
     pub fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
         self.claim_timings();
-        if matches!(self.timings, Timings::System(_)) {
-            cubecl_environment::future::block_on(self.sync(stream_id))?;
-        } else {
-            self.flush(stream_id)?;
+        match &self.timings {
+            Timings::System(_) => cubecl_environment::future::block_on(self.sync(stream_id))?,
+            Timings::Device(query) if query.sampling().drains_before_window() => {
+                self.flush(stream_id)?;
+                // Waits like system timing's sync, for the reason `drains_before_window` gives:
+                // work still running when the window's first pass starts is timed as its own.
+                match self
+                    .poison
+                    .wait_unless_lost(&self.device, &self.queue, None)
+                {
+                    Ok(()) => {}
+                    Err(err) if self.poison.is_poisoned() => return Err(err),
+                    Err(err) => {
+                        log::warn!("waiting for the work ahead of a profiled window: {err}");
+                    }
+                }
+            }
+            Timings::Device(_) | Timings::Unclaimed { .. } => self.flush(stream_id)?,
         }
 
         match &mut self.timings {
@@ -581,13 +618,15 @@ impl WgpuStream {
                 match result {
                     Ok(_) => {
                         let map_buffer = readback.map(|readback| {
-                            if timing.availability() == TimestampAvailability::OnCompletion {
+                            if timing.sampling().resolves_after_completion() {
                                 // Blocks like system timing's sync at a window's end. Resolving
                                 // later without waiting is not an option: the window's query
                                 // sets return to the pool here, and a pass that reuses one
                                 // before the resolve runs would overwrite the window's ends.
                                 if let Err(err) =
-                                    self.device.poll(wgpu::PollType::wait_indefinitely())
+                                    self.poison
+                                        .wait_unless_lost(&self.device, &self.queue, None)
+                                    && !self.poison.is_poisoned()
                                 {
                                     log::warn!("waiting for a profiled window to complete: {err}");
                                 }
@@ -595,7 +634,7 @@ impl WgpuStream {
                             self.queue.submit([readback.commands]);
                             readback.map_buffer
                         });
-                        timing.stop_profile(map_buffer, poll)
+                        timing.stop_profile(map_buffer, poll, &self.poison)
                     }
                     Err(err) => {
                         // Dropped rather than mapped: the flush this window
@@ -637,15 +676,19 @@ impl WgpuStream {
         let queue = self.queue.clone();
         let error_future = error_scope.pop();
         let poll = self.poll.start_polling();
+        let poison = self.poison.clone();
 
         Box::pin(async move {
             let (sender, receiver) = cubecl_environment::future::channel::bounded::<()>(1);
+            poison.wake_on_loss(&sender);
             queue.on_submitted_work_done(move || {
                 // Signal that we're done.
                 let _ = sender.try_send(());
                 core::mem::drop(poll);
             });
             let _ = receiver.recv().await;
+
+            poison.check()?;
 
             if let Some(error) = error_future.await {
                 return Err(ServerError::Generic {
@@ -796,10 +839,11 @@ impl WgpuStream {
 
             // Wait for the GPU to finish processing these writes before continuing.
             #[cfg(not(target_family = "wasm"))]
-            if let Err(e) = self.device.poll(wgpu::PollType::Wait {
-                submission_index: Some(index),
-                timeout: None,
-            }) {
+            if let Err(e) = self
+                .poison
+                .wait_unless_lost(&self.device, &self.queue, Some(index))
+                && !self.poison.is_poisoned()
+            {
                 log::warn!("wgpu: write flush poll failed ({e})");
             }
 
@@ -867,8 +911,13 @@ impl WgpuStream {
             });
         }
 
-        self.submission_load
-            .regulate(&self.device, self.tasks_count, index);
+        self.submission_load.regulate(
+            &self.poison,
+            &self.device,
+            &self.queue,
+            self.tasks_count,
+            index,
+        );
 
         // The main pool's pages are cleaned up by the server before it
         // reserves, and only while no stream records.
@@ -1130,6 +1179,8 @@ impl WgpuStream {
 
 #[cfg(not(target_family = "wasm"))]
 mod __submission_load {
+    use crate::compute::device_poison::PoisonWatch;
+
     #[derive(Default, Debug)]
     pub enum SubmissionLoad {
         Init {
@@ -1143,7 +1194,9 @@ mod __submission_load {
     impl SubmissionLoad {
         pub fn regulate(
             &mut self,
+            poison: &PoisonWatch,
             device: &wgpu::Device,
+            queue: &wgpu::Queue,
             tasks_count: usize,
             mut index: wgpu::SubmissionIndex,
         ) {
@@ -1164,13 +1217,10 @@ mod __submission_load {
 
                     if *tasks_count_submitted >= MAX_TOTAL_TASKS {
                         core::mem::swap(last_index, &mut index);
-                        if let Err(e) = device.poll(wgpu::PollType::Wait {
-                            submission_index: Some(index),
-                            timeout: None,
-                        }) {
-                            log::warn!(
-                                "wgpu: requested wait timed out before the submission was completed during sync. ({e})"
-                            )
+                        if let Err(e) = poison.wait_unless_lost(device, queue, Some(index))
+                            && !poison.is_poisoned()
+                        {
+                            log::warn!("wgpu: waiting on a throttled submission failed ({e})")
                         }
                         *tasks_count_submitted = 0;
                     }
@@ -1188,13 +1238,17 @@ mod __submission_load {
 
 #[cfg(target_family = "wasm")]
 mod __submission_load_wasm {
+    use crate::compute::device_poison::PoisonWatch;
+
     #[derive(Default, Debug)]
     pub struct SubmissionLoad;
 
     impl SubmissionLoad {
         pub fn regulate(
             &mut self,
+            _poison: &PoisonWatch,
             _device: &wgpu::Device,
+            _queue: &wgpu::Queue,
             _tasks_count: usize,
             _index: wgpu::SubmissionIndex,
         ) {
