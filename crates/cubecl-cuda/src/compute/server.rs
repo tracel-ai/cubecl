@@ -874,8 +874,8 @@ impl CudaServer {
     ///
     /// # Errors
     ///
-    /// Bindings on different streams, a group never joined, a binding that names no live
-    /// allocation, a fence the driver refuses, and whatever `collective` returns.
+    /// A group never joined, a binding that names no live allocation, a fence the driver
+    /// refuses, and whatever `collective` returns.
     fn run_collective<const N: usize>(
         &mut self,
         stream_id: StreamId,
@@ -888,15 +888,6 @@ impl CudaServer {
             CUstream,
         ) -> Result<(), ServerError>,
     ) -> Result<(), ServerError> {
-        if bindings
-            .windows(2)
-            .any(|pair| pair[0].stream != pair[1].stream)
-        {
-            return Err(ServerError::Generic {
-                reason: "A collective's bindings should be on the same stream.".into(),
-                backtrace: BackTrace::capture(),
-            });
-        }
         let comm = *self.collectives.get(group)?;
         let comm_stream = self.comm_stream();
 

@@ -14,9 +14,9 @@ use thiserror::Error;
 ///
 /// Member `i` is rank `i`, so the members are in ascending device order, the order a collective's
 /// ranks take. A collective queues every member's part before another group or a transfer queues
-/// anything, and returns once each member's stream waits for its part. Per-device `all_reduce`
-/// calls other threads queue are not ordered against it, and two of its devices running
-/// collectives in different orders hang.
+/// anything, and each part makes its device's compute stream wait for it, so work queued after
+/// the call reads the result. Per-device `all_reduce` calls other threads queue are not ordered
+/// against it: on a device both use, the two collectives can wait on each other and hang.
 ///
 /// Every member's buffers are checked before any part is queued, since a part one device refuses
 /// leaves the devices that queued theirs waiting on it. A source carrying a failure from earlier
@@ -68,7 +68,7 @@ pub enum ClientGroupError {
 }
 
 /// Whether a collective may run with a member's source and destination on the same bytes.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 enum InPlace {
     Allowed,
     Refused,
@@ -112,7 +112,7 @@ impl ClientGroup {
                 runtime: first.name(),
             });
         };
-        // The members reduce together only the types every one of their devices reduces.
+        // NCCL refuses a reduction unless every member's device supports it.
         let mut reduces = transports[0].reduces.clone();
         for transport in &transports[1..] {
             reduces.retain(|dtype| transport.reduces.contains(dtype));
@@ -137,6 +137,10 @@ impl ClientGroup {
 
     /// Every member's `dst` receives every member's `src` reduced by `op`. A member's `src` may be
     /// its `dst`.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, buffers))
+    )]
     pub fn all_reduce(&self, buffers: Vec<MemberBuffers>, dtype: ElemType, op: ReduceOperation) {
         let collective = Collective::AllReduce;
         self.expect_reduces(collective, dtype);
@@ -148,7 +152,7 @@ impl ClientGroup {
             buffers.iter().map(|it| &it.dst),
             src,
         );
-        self.queue(collective, buffers, |client, buffers, device_ids| {
+        self.queue(collective, buffers, |_, client, buffers, device_ids| {
             client.queue_all_reduce(
                 buffers.src,
                 buffers.dst,
@@ -161,6 +165,10 @@ impl ClientGroup {
     }
 
     /// Every member's `dst` receives every member's `src`, concatenated in member order.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, buffers))
+    )]
     pub fn all_gather(&self, buffers: Vec<MemberBuffers>) {
         let collective = Collective::AllGather;
         let src = self.expect_buffers(collective, &buffers, InPlace::Refused);
@@ -171,12 +179,16 @@ impl ClientGroup {
             buffers.iter().map(|it| &it.dst),
             src * members,
         );
-        self.queue(collective, buffers, |client, buffers, device_ids| {
+        self.queue(collective, buffers, |_, client, buffers, device_ids| {
             client.queue_all_gather(buffers.src, buffers.dst, device_ids)
         });
     }
 
     /// Member `i`'s `dst` receives chunk `i` of every member's `src` reduced by `op`.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, buffers))
+    )]
     pub fn reduce_scatter(
         &self,
         buffers: Vec<MemberBuffers>,
@@ -194,13 +206,17 @@ impl ClientGroup {
             buffers.iter().map(|it| &it.dst),
             chunk,
         );
-        self.queue(collective, buffers, |client, buffers, device_ids| {
+        self.queue(collective, buffers, |_, client, buffers, device_ids| {
             client.queue_reduce_scatter(buffers.src, buffers.dst, dtype, device_ids, op)
         });
     }
 
     /// Every member's `dst` receives `src`, sent by the member whose device holds it. That
     /// member's `dst` may be `src`.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, src, dst))
+    )]
     pub fn broadcast(&self, src: Handle, dst: Vec<Handle>) {
         let collective = Collective::Broadcast;
         self.expect_parts(collective, dst.len());
@@ -226,19 +242,18 @@ impl ClientGroup {
         );
 
         let root_id = self.device_ids[root];
-        let mut src = Some(src);
-        let parts = dst.into_iter().enumerate().collect();
-        self.queue(collective, parts, |client, (member, dst), device_ids| {
-            let src = match member == root {
-                true => src.take(),
-                false => None,
-            };
+        self.queue(collective, dst, |member, client, dst, device_ids| {
+            let src = (member == root).then(|| src.clone());
             client.queue_broadcast(src, dst, root_id, device_ids)
         });
     }
 
     /// Member `i`'s `dst` receives chunk `i` of every member's `src`, concatenated in member
     /// order.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, buffers))
+    )]
     pub fn all_to_all(&self, buffers: Vec<MemberBuffers>) {
         let collective = Collective::AllToAll;
         let src = self.expect_buffers(collective, &buffers, InPlace::Refused);
@@ -249,7 +264,7 @@ impl ClientGroup {
             buffers.iter().map(|it| &it.dst),
             src,
         );
-        self.queue(collective, buffers, |client, buffers, device_ids| {
+        self.queue(collective, buffers, |_, client, buffers, device_ids| {
             client.queue_all_to_all(buffers.src, buffers.dst, device_ids)
         });
     }
@@ -309,8 +324,8 @@ impl ClientGroup {
         size / members
     }
 
-    /// Checks a member's source and destination are on its device and one stream, which the
-    /// device requires, and apart unless the collective runs in place on exactly the same bytes.
+    /// Checks a member's source and destination are on its device, and apart unless the
+    /// collective runs in place on exactly the same bytes.
     fn expect_member_buffers(
         &self,
         collective: Collective,
@@ -321,10 +336,6 @@ impl ClientGroup {
     ) {
         self.expect_on_member(member, src);
         self.expect_on_member(member, dst);
-        assert!(
-            src.stream == dst.stream,
-            "member {member}'s source and destination are on two streams"
-        );
         let overlap = src.overlap(dst);
         assert!(
             matches!(
@@ -364,13 +375,13 @@ impl ClientGroup {
         &self,
         collective: Collective,
         parts: Vec<Part>,
-        mut queue_part: impl FnMut(&Client, Part, Vec<DeviceId>),
+        mut queue_part: impl FnMut(usize, &Client, Part, Vec<DeviceId>),
     ) {
         // Outside the lock, which setting the group up takes itself.
         self.clients[0].prepare_collective(collective, self.device_ids.clone());
         let _order = PEER_ORDER.lock();
-        for (client, part) in self.clients.iter().zip(parts) {
-            queue_part(client, part, self.device_ids.clone());
+        for (member, (client, part)) in self.clients.iter().zip(parts).enumerate() {
+            queue_part(member, client, part, self.device_ids.clone());
         }
         // A part waits in its client's queue until flushed, and a member blocked reading its
         // result would wait on a peer whose part never reached the device.

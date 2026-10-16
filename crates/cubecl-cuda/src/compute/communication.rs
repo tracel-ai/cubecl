@@ -36,8 +36,8 @@ fn to_nccl_op(op: ReduceOperation) -> cudarc::nccl::sys::ncclRedOp_t {
 /// What a collective that only moves data names its buffers as, whatever they hold.
 pub const BYTES: ElemType = ElemType::UInt(UIntKind::U8);
 
-/// NCCL 2.24.3, the first release with the FP8 data types.
-const NCCL_FP8: c_int = 22403;
+/// NCCL 2.29.2, whose FP8 `all_reduce` stopped failing to find an algorithm.
+const NCCL_FP8_REDUCTION: c_int = 22902;
 
 /// NCCL reduces FP8 only on Hopper and newer.
 const NCCL_FP8_REDUCTION_ARCH: u32 = 90;
@@ -68,12 +68,12 @@ fn nccl_elements(dtype: ElemType, size: u64) -> Result<Elements<NcclDataType>, S
 
 /// The NCCL this process loads, which may predate types this crate names, and the device it
 /// runs on.
-pub struct NcclTarget {
+pub struct Nccl {
     version: c_int,
     arch_version: u32,
 }
 
-impl NcclTarget {
+impl Nccl {
     /// The NCCL this process loads, for a device of `arch_version`, or `None` when none loads.
     pub fn loaded(arch_version: u32) -> Option<Self> {
         // SAFETY: the call only tries to `dlopen` each candidate name.
@@ -104,7 +104,7 @@ impl NcclTarget {
     fn reduces(&self, dtype: ElemType) -> bool {
         match dtype {
             ElemType::Float(FloatKind::E4M3 | FloatKind::E5M2) => {
-                self.version >= NCCL_FP8 && self.arch_version >= NCCL_FP8_REDUCTION_ARCH
+                self.version >= NCCL_FP8_REDUCTION && self.arch_version >= NCCL_FP8_REDUCTION_ARCH
             }
             dtype => nccl_dtype(dtype).is_some(),
         }
@@ -425,7 +425,7 @@ mod tests {
 
     #[test]
     fn nccl_reduces_only_the_types_it_names() {
-        let nccl = NcclTarget {
+        let nccl = Nccl {
             version: 21800,
             arch_version: 75,
         };
@@ -436,15 +436,15 @@ mod tests {
     }
 
     #[test]
-    fn nccl_reduces_fp8_from_its_release_on_hopper() {
+    fn nccl_reduces_fp8_from_its_fixed_release_on_hopper() {
         let fp8 = ElemType::Float(FloatKind::E4M3);
-        let nccl = |version, arch_version| NcclTarget {
+        let nccl = |version, arch_version| Nccl {
             version,
             arch_version,
         };
-        assert!(nccl(NCCL_FP8, NCCL_FP8_REDUCTION_ARCH).reduces(fp8));
-        assert!(!nccl(NCCL_FP8 - 1, NCCL_FP8_REDUCTION_ARCH).reduces(fp8));
-        assert!(!nccl(NCCL_FP8, 89).reduces(fp8));
+        assert!(nccl(NCCL_FP8_REDUCTION, NCCL_FP8_REDUCTION_ARCH).reduces(fp8));
+        assert!(!nccl(NCCL_FP8_REDUCTION - 1, NCCL_FP8_REDUCTION_ARCH).reduces(fp8));
+        assert!(!nccl(NCCL_FP8_REDUCTION, 89).reduces(fp8));
     }
 
     #[test]

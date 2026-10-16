@@ -1,6 +1,6 @@
 use crate::{
     compiler::{CudaBackend, CudaCompilationOptions},
-    compute::{CudaServer, communication::NcclTarget, context::CudaContext},
+    compute::{CudaServer, communication::Nccl, context::CudaContext},
     device::CudaDevice,
 };
 use cubecl_common::{
@@ -440,7 +440,7 @@ impl DeviceService for CudaServer {
             logger,
             policy,
         );
-        utilities.device_transport = NcclTarget::loaded(arch_version)
+        utilities.device_transport = Nccl::loaded(arch_version)
             .map(|nccl| nccl.transport(utilities.properties.features.types.elem.keys().copied()));
 
         CudaServer::new(

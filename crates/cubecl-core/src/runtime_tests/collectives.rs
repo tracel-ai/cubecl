@@ -20,6 +20,7 @@ static COLLECTIVES: Mutex<()> = Mutex::new(());
 const TIME_LIMIT: Duration = Duration::from_secs(60);
 
 const F32: cubecl_ir::ElemType = cubecl_ir::ElemType::Float(cubecl_ir::FloatKind::F32);
+const I32: cubecl_ir::ElemType = cubecl_ir::ElemType::Int(cubecl_ir::IntKind::I32);
 
 /// Elements of each member's contribution, and of each chunk.
 const LEN: usize = 6;
@@ -42,7 +43,7 @@ pub fn test_reduce_scatter_gives_each_member_its_chunk<R: Runtime>() {
     finish_within_limit(reduce_scatter::<R>);
 }
 
-pub fn test_broadcast_in_place_copies_the_root_to_every_member<R: Runtime>() {
+pub fn test_broadcast_copies_the_root_to_every_member<R: Runtime>() {
     let _collectives = queue_alone();
     finish_within_limit(broadcast::<R>);
 }
@@ -55,6 +56,11 @@ pub fn test_all_to_all_exchanges_chunks_by_rank<R: Runtime>() {
 pub fn test_a_group_without_the_first_device_gathers<R: Runtime>() {
     let _collectives = queue_alone();
     finish_within_limit(later_devices::<R>);
+}
+
+pub fn test_a_group_takes_a_source_from_another_stream<R: Runtime>() {
+    let _collectives = queue_alone();
+    finish_within_limit(source_from_another_stream::<R>);
 }
 
 pub fn test_a_transfer_moves_bytes_of_any_type<R: Runtime>() {
@@ -136,6 +142,29 @@ fn all_reduce<R: Runtime>() {
             assert!((actual - mean).abs() <= mean * 1e-6, "member {member}");
         }
     }
+
+    let in_place: Vec<Handle> = group
+        .clients()
+        .iter()
+        .enumerate()
+        .map(|(member, client)| {
+            let values: Vec<i32> = values(member, LEN).iter().map(|it| *it as i32).collect();
+            client.create_from_slice(i32::as_bytes(&values))
+        })
+        .collect();
+    let buffers = in_place
+        .iter()
+        .map(|handle| MemberBuffers {
+            src: handle.clone(),
+            dst: handle.clone(),
+        })
+        .collect();
+    group.all_reduce(buffers, I32, ReduceOperation::Sum);
+    for (member, (client, handle)) in group.clients().iter().zip(in_place).enumerate() {
+        let actual = client.read_one(handle).unwrap();
+        let expected: Vec<i32> = summed.iter().map(|it| *it as i32).collect();
+        assert_eq!(i32::from_bytes(&actual), expected, "member {member}");
+    }
 }
 
 fn all_gather<R: Runtime>() {
@@ -192,8 +221,16 @@ fn broadcast<R: Runtime>() {
         .collect();
 
     group.broadcast(destinations[root].clone(), destinations.clone());
-
     assert_every_member_holds(&group, destinations, |_| values(root, LEN));
+
+    let src = from_values(&group.clients()[0], &values(0, LEN));
+    let destinations: Vec<_> = group
+        .clients()
+        .iter()
+        .map(|client| unwritten(client, LEN))
+        .collect();
+    group.broadcast(src, destinations.clone());
+    assert_every_member_holds(&group, destinations, |_| values(0, LEN));
 }
 
 fn all_to_all<R: Runtime>() {
@@ -225,6 +262,35 @@ fn all_to_all<R: Runtime>() {
     assert_every_member_holds(&group, destinations, |member| {
         (0..members).flat_map(|from| chunk(from, member)).collect()
     });
+}
+
+fn source_from_another_stream<R: Runtime>() {
+    let Some(group) = group::<R>() else {
+        return;
+    };
+    let members = group.clients().len();
+    let client = group.clients()[0].clone();
+    let elsewhere = std::thread::spawn(move || from_values(&client, &values(0, LEN)))
+        .join()
+        .unwrap();
+    let mut buffers: Vec<_> = group
+        .clients()
+        .iter()
+        .enumerate()
+        .map(|(member, client)| MemberBuffers {
+            src: from_values(client, &values(member, LEN)),
+            dst: unwritten(client, members * LEN),
+        })
+        .collect();
+    buffers[0].src = elsewhere;
+    let destinations = destinations(&buffers);
+
+    group.all_gather(buffers);
+
+    let expected: Vec<f32> = (0..members)
+        .flat_map(|member| values(member, LEN))
+        .collect();
+    assert_every_member_holds(&group, destinations, |_| expected.clone());
 }
 
 fn later_devices<R: Runtime>() {
@@ -306,14 +372,6 @@ fn mismatched_buffers<R: Runtime>() {
     assert!(!group.reduces(cubecl_ir::ElemType::Bool));
     refused("cannot reduce", &|| {
         group.all_reduce(gather(LEN), cubecl_ir::ElemType::Bool, ReduceOperation::Sum)
-    });
-    refused("two streams", &|| {
-        let mut two_streams = gather(members * LEN);
-        let client = group.clients()[0].clone();
-        two_streams[0].src = std::thread::spawn(move || from_values(&client, &values(0, LEN)))
-            .join()
-            .unwrap();
-        group.all_gather(two_streams)
     });
     refused("overlap", &|| {
         let overlapping = group
@@ -497,8 +555,15 @@ macro_rules! testgen_collectives {
         }
 
         #[$crate::runtime_tests::test_log::test]
-        fn test_broadcast_in_place_copies_the_root_to_every_member() {
-            cubecl_core::runtime_tests::collectives::test_broadcast_in_place_copies_the_root_to_every_member::<
+        fn test_broadcast_copies_the_root_to_every_member() {
+            cubecl_core::runtime_tests::collectives::test_broadcast_copies_the_root_to_every_member::<
+                TestRuntime,
+            >();
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_a_group_takes_a_source_from_another_stream() {
+            cubecl_core::runtime_tests::collectives::test_a_group_takes_a_source_from_another_stream::<
                 TestRuntime,
             >();
         }

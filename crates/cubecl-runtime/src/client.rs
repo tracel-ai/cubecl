@@ -40,7 +40,6 @@ use cubecl_common::profile::TimingMethod;
 /// halves, queues on every device in the order this hands out.
 static PEER_ORDER: Mutex<()> = Mutex::new(());
 
-/// The first device that appears more than once in `device_ids`.
 fn repeated_device(device_ids: &[DeviceId]) -> Option<DeviceId> {
     device_ids
         .iter()
@@ -1020,7 +1019,7 @@ impl Client {
     ///
     /// Call it once every device has queued its part of the `all_reduce` calls it waits for: a
     /// transfer from this device queued in between would wait on a part not queued yet. A
-    /// [`ClientGroup`]'s other collectives need none: each one's stream waits for it at once.
+    /// [`ClientGroup`]'s collectives need none: each one's stream waits for it at once.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn sync_collective(&self) {
         if DeviceHandle::<dyn Server>::is_blocking() {
@@ -1152,13 +1151,12 @@ impl Client {
     ) {
         let stream_id = self.stream_id();
         self.device.submit(move |server| {
-            // The report lives on the buffers: a refused or failed collective has
-            // tainted the destination, so the read that consumes it fails on
-            // the root cause. The log is the eager half of that report — an
-            // unwrap here would only be reduced to a warn by the channel's
-            // catch_unwind, with the taint doing the real work either way.
+            // The tainted destination is the report; an unwrap would only become a warning here.
             if let Err(err) = part(server, stream_id) {
-                log::error!("{collective} failed; the destination carries the failure: {err}");
+                log::error!(
+                    "{collective} failed, so the peers that queued their part wait for this one, \
+                     and the destination carries the failure: {err}"
+                );
             }
         });
     }
