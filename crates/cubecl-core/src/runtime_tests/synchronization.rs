@@ -207,7 +207,7 @@ pub fn test_workgroup_uniform_load_atomic<R: Runtime>(client: Client) {
     let ty = Type::atomic(u32::elem_type_native());
     if !client
         .properties()
-        .atomic_type_usage(ty)
+        .shared_atomic_type_usage(ty)
         .contains(AtomicUsage::LoadStore)
     {
         return;
