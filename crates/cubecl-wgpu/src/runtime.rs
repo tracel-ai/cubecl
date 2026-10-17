@@ -707,9 +707,8 @@ fn try_create_server<C: WgpuCompiler>(
 
     // The adapter's vendor/device pair, which is what `WgpuServer` keys its
     // SPIR-V store on. Reported unconditionally, even in a WGSL-only build that
-    // persists no compiled code: measurement caches (autotune, throughput) are
-    // namespaced by neither vendor nor device, so this string is the only thing
-    // that can tell one adapter's measurements from another's.
+    // persists no compiled code: the measurement caches (autotune, throughput)
+    // are named by it beside the adapter name, which alone is not an identity.
     let fingerprint = format!("spirv_{}_{}", adapter_info.vendor, adapter_info.device);
 
     let mut device_props = DeviceProperties::new(

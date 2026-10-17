@@ -55,14 +55,13 @@ impl CompilationStatistics {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AutotuneStatistics {
     /// Gathered by a [`CompileOnly`](super::ProcessMode::CompileOnly)
-    /// pass, or reached ungathered by a tune that measures. A key reached
-    /// inside another key's candidates is not gathered: it registers if it is
-    /// ever measured.
+    /// pass, or reached ungathered by a tune that measures or a read of the
+    /// persistent autotune cache. A key reached inside another key's
+    /// candidates is not gathered: it registers if it is ever measured or read.
     pub registered: usize,
     /// Tuned by measuring their candidates.
     pub measured: usize,
-    /// Answered from the persistent autotune cache instead: measured since this process read it,
-    /// by another device of the same part or another process sharing the cache.
+    /// Read from the persistent autotune cache instead of measured.
     pub loaded: usize,
     /// Every candidate failed: the pick was made unmeasured.
     pub failed: usize,
