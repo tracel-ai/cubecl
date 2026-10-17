@@ -4,7 +4,6 @@ use cubecl_core::{
     ir::{ElemType, UIntKind},
 };
 use cubecl_ir::{DeviceProperties, Type};
-use wgpu::Features;
 
 use crate::WgslCompiler;
 use crate::compute::pipelines::MetadataLayout;
@@ -35,14 +34,13 @@ pub fn bindings(
 /// Request a WGSL device, returning device creation failures.
 pub async fn try_request_device(
     adapter: &wgpu::Adapter,
+    primary_memory: crate::PrimaryMemoryMode,
 ) -> Result<(wgpu::Device, wgpu::Queue), crate::WgpuInitError> {
     let limits = adapter.limits();
     adapter
         .request_device(&wgpu::DeviceDescriptor {
             label: None,
-            required_features: adapter
-                .features()
-                .difference(Features::MAPPABLE_PRIMARY_BUFFERS),
+            required_features: crate::backend::requested_features(adapter, primary_memory)?,
             required_limits: limits,
             // The default is MemoryHints::Performance, which tries to do some bigger
             // block allocations. However, we already batch allocations, so we

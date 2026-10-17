@@ -5,7 +5,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_core::runtime_tests::capture_status;
 use cubecl_core::server::Handle;
-use cubecl_cuda::CudaRuntime;
+use cubecl_cuda::{CudaRuntime, ffi_interop::CudaServer};
+use cubecl_environment::stream::StreamId;
 use cubecl_server::runtime::Runtime;
 use std::sync::Mutex;
 
@@ -16,6 +17,33 @@ use std::sync::Mutex;
 /// per device, as in real use. Serialize the tests instead of relying on
 /// `--test-threads 1`.
 static CAPTURE_LOCK: Mutex<()> = Mutex::new(());
+
+#[test]
+fn raw_stream_is_stable_for_one_logical_stream() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = CudaRuntime::client(&Default::default());
+    let stream_id = StreamId::current();
+    let raw = || {
+        client
+            .with_server(move |server: &mut CudaServer| {
+                server.raw_stream(stream_id).map(|s| s as usize)
+            })
+            .expect("CUDA server must be available")
+            .expect("stream must be available")
+    };
+    assert_eq!(raw(), raw());
+}
+
+#[test]
+fn with_server_resumes_backend_panic() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = CudaRuntime::client(&Default::default());
+    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.with_server(|_: &mut CudaServer| panic!("backend closure failed"));
+    }));
+    assert!(caught.is_err());
+    assert!(client.with_server(|_: &mut CudaServer| ()).is_some());
+}
 
 #[cube(launch)]
 fn add_one(input: &[f32], output: &mut [f32]) {
