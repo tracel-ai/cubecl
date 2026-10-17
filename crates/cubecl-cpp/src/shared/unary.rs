@@ -101,6 +101,7 @@ function!(RoundOp, "rint", packable, no_msl_bfloat);
 // function!(FastTanhOp, "__tanhf", false);
 
 function!(ErfOp, "erf", no_half);
+function!(Log1pOp, "log1p", no_half);
 
 shared_op_with_out!(SAbsOp, |op, ctx| {
     format!("abs({})", op.input(ctx).name(ctx))
@@ -314,7 +315,7 @@ fn count_ones<T: Scalar, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {
 }
 
 lower_unop!(RecipOp, recip);
-lower_unop!(Log1pOp, log1p);
+lower_unop!(Log1pOp, log1p, |_, ctx| ctx.target() == Target::Metal);
 lower_unop!(DegreesOp, to_degrees);
 lower_unop!(RadiansOp, to_radians);
 lower_unop!(FindFirstSetOp, find_first_set, |_, ctx| {
@@ -398,5 +399,46 @@ impl LowerOp for AtomicUniformLoadOp {
         ));
         let ptr = self.ptr(scope.ctx());
         vec![scope.register_with_result(&AtomicLoadOp::new(scope.ctx_mut(), ptr))]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        shared::lowering::LowerOp,
+        shared::operation::OpToCPP,
+        target::{CtxTarget, Target},
+    };
+    use cubecl_core::ir::{ComplexKind, ConstantValue, ElemType, FloatKind};
+    use pliron::{attribute::boxed_attr_cast, builtin::ops::ConstantOp};
+
+    /// `log1p`'s native emission and whether this target needs the polyfill.
+    fn log1p(target: Target) -> (String, bool) {
+        let mut ctx = Context::new();
+        ctx.set_target(target);
+        let attr = ConstantValue::Float(1.0e-7).as_attribute(&ctx, ElemType::Float(FloatKind::F32));
+        let attr = boxed_attr_cast(attr).unwrap();
+        let input = ConstantOp::new(&mut ctx, attr).get_result(&ctx);
+        let op = Log1pOp::new(&mut ctx, input);
+        let should_lower = <Log1pOp as LowerOp<Shared>>::should_lower(&op, &ctx);
+        (OpToCPP::<Shared>::to_cpp(&op, &ctx), should_lower)
+    }
+
+    #[test]
+    fn log1p_is_emitted_natively_where_the_target_has_it() {
+        let (cpp, should_lower) = log1p(Target::Cuda);
+        assert!(cpp.contains("log1p("), "expected a native call, got {cpp}");
+        assert!(!cpp.contains(".ln()"), "expected no polyfill, got {cpp}");
+        assert!(!should_lower, "CUDA must not take the polyfill: {cpp}");
+    }
+
+    #[test]
+    fn log1p_keeps_the_polyfill_where_the_target_lacks_it() {
+        let (_, should_lower) = log1p(Target::Metal);
+        assert!(
+            should_lower,
+            "MSL has no log1p, so Metal needs the polyfill"
+        );
     }
 }
