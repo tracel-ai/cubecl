@@ -79,6 +79,9 @@ impl CudaContext {
 
     /// Switches the current CUDA context to this context.
     pub fn unsafe_set_current(&self) -> Result<(), DriverError> {
+        if cudarc::driver::result::ctx::get_current()? == Some(self.context) {
+            return Ok(());
+        }
         // SAFETY: `self.context` is a valid CUDA context obtained from `primary_ctx::retain`
         // during server initialization and remains valid for the server's lifetime.
         unsafe { cudarc::driver::result::ctx::set_current(self.context) }

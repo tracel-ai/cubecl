@@ -695,7 +695,8 @@ async fn open_database(location: &str) -> Result<turso::Database, turso::Error> 
     }
 
     turso::Builder::new_local(location)
-        .experimental_multiprocess_wal(true)
+        // Turso's Windows I/O backend does not support shared WAL coordination.
+        .experimental_multiprocess_wal(!cfg!(target_os = "windows"))
         .build()
         .await
 }
