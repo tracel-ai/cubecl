@@ -17,6 +17,7 @@ use crate::client::Client;
 use crate::config::Logger;
 #[cfg(persistence)]
 use crate::config::autotune::AutotuneLogLevel;
+use crate::device::DevicePart;
 use crate::execution::{ProcessMode, TuneOutcome, TuneRegistration};
 use crate::server::LaunchError;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
@@ -27,7 +28,7 @@ use super::{
 };
 
 #[derive(Debug)]
-/// Runs autotune benchmarks for a single device and caches the results.
+/// Runs autotune benchmarks for the devices of one part and caches the results.
 ///
 /// On wasm, [`check_tune`](Self::check_tune) spawns its work on the browser event loop; elsewhere
 /// it blocks inline. Either way the benchmarking itself is synchronous; only the
@@ -199,23 +200,23 @@ struct TuneRequest<K: AutotuneKey> {
 
 #[allow(clippy::new_without_default)]
 impl<K: AutotuneKey> Tuner<K> {
-    /// Create a tuner. Its cache is seeded from the persistent cache when
-    /// persistence is available (feature `persistence`: a file natively,
-    /// OPFS in the browser).
-    pub fn new(name: &str, device_id: &str, fingerprint: &str) -> Self {
+    /// Create a tuner. A key it has not settled is read from the persistent
+    /// cache when persistence is available (feature `persistence`: a file
+    /// natively, OPFS in the browser), in the table every device of `part`
+    /// shares.
+    pub fn new(name: &str, part: &DevicePart) -> Self {
         Self {
-            cache: Arc::new(Mutex::new(TuneCache::new(name, device_id, fingerprint))),
+            cache: Arc::new(Mutex::new(TuneCache::new(name, part))),
             logger: Arc::new(Mutex::new(Logger::new())),
         }
     }
 
     /// Fetch the fastest autotune operation index for an autotune key.
     ///
-    /// This resets the cache when the environment switched but does not
-    /// re-hydrate it from persistence, so right after a switch it reports a
-    /// [`Miss`](TuneCacheResult::Miss) even for keys the new environment has
-    /// cached. It is a fast-path probe: a miss here is expected to fall through
-    /// to [`check_tune`](Self::check_tune), which hydrates and resolves the
+    /// This never reads the persistent cache, so it reports a
+    /// [`Miss`](TuneCacheResult::Miss) for keys only the store holds. It is a
+    /// fast-path probe: a miss here is expected to fall through to
+    /// [`check_tune`](Self::check_tune), which reads the store and resolves the
     /// real state. Don't rely on it as a standalone "is this cached?" query.
     pub fn fastest(&self, key: &K) -> TuneCacheResult {
         #[cfg_attr(not(persistence), allow(unused_mut))]
@@ -227,7 +228,7 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 
     /// The index settled for `key`, reading only: never starts a round, never waits on one, never
-    /// validates a persisted result, and never resets the cache after an environment switch — it
+    /// reads the persistent cache, and never resets the cache after an environment switch. It
     /// reports nothing settled there instead, until the next [`check_tune`](Self::check_tune).
     pub(crate) fn settled(&self, key: &K) -> Option<usize> {
         self.cache.lock().settled(key)
@@ -238,14 +239,13 @@ impl<K: AutotuneKey> Tuner<K> {
         self.logger.clone()
     }
 
-    /// Check the cache, validate checksums if needed, and kick off a tuning job if the
-    /// key is a miss. Returns the resolved cache state.
+    /// Check the cache, read the store when memory holds no answer, and kick off a tuning job if
+    /// the key is still a miss. Returns the resolved cache state.
     pub fn check_tune<'a, F: TuneInputs, Out: AutotuneOutput, Id>(
         &self,
         key: &K,
         inputs: &F::At<'a>,
         tunables: &TunableSet<K, F, Out, Id>,
-        #[cfg_attr(not(persistence), allow(unused))] checksum: impl FnOnce() -> String + Send + Sync,
         client: &Client,
         mut log_context: Option<crate::tune::AutotuneLogContext>,
     ) -> TuneCacheResult
@@ -255,6 +255,8 @@ impl<K: AutotuneKey> Tuner<K> {
         let compiling = ProcessMode::current() == ProcessMode::CompileOnly;
         // Where the key's tune was registered, if the override that gathered it registered it.
         let gathered;
+        #[cfg(persistence)]
+        let checksum;
 
         {
             let mut cache = self.cache.lock();
@@ -262,57 +264,44 @@ impl<K: AutotuneKey> Tuner<K> {
             cache.reset_if_environment_switched();
             // A key a `CompileOnly` override already queued the candidates of answers at once,
             // once a switched environment has dropped the ones it queued for the old one: a
-            // walk reaches the same key at every layer, and a miss would hydrate the persistent
-            // cache and checksum the set again each time for a tune that will not run.
+            // walk reaches the same key at every layer, and a miss would checksum the set and
+            // read the store again each time for a tune that will not run.
             if compiling && cache.is_compiled(key) {
                 return TuneCacheResult::Compiled;
             }
             let cur = cache.fastest(key);
-
-            // Browser hydration is asynchronous, so persistent entries may
-            // have arrived after construction. Ingest them before starting a
-            // redundant tune.
-            #[cfg(persistence)]
-            let cur = if matches!(cur, TuneCacheResult::Miss) {
-                cache.sync_persistent();
-                cache.fastest(key)
-            } else {
-                cur
-            };
+            if matches!(cur, TuneCacheResult::Hit { .. } | TuneCacheResult::Pending) {
+                return cur;
+            }
+            // A key with one candidate is answered, not tuned: nothing to read or to store.
+            if tunables.autotunables().nth(1).is_none() {
+                cache.cache_insert(key.clone(), 0);
+                return TuneCacheResult::Hit { fastest_index: 0 };
+            }
 
             #[cfg(persistence)]
-            let cur = if matches!(cur, TuneCacheResult::Unchecked) {
+            {
+                checksum = tunables.compute_checksum();
+                let stored = cache.look_up(key, &checksum);
                 let mut log = self.logger.lock();
-                let checksum = checksum();
                 if let AutotuneLogLevel::Full = log.log_level_autotune() {
-                    log.log_autotune(&format!("validate checksum key={key}, checksum={checksum}"));
+                    log.log_autotune(&format!(
+                        "look up key={key}, checksum={checksum}: {stored:?}"
+                    ));
                 }
-                cache.validate_checksum(key, &checksum)
-            } else {
-                cur
-            };
-
-            match cur {
-                TuneCacheResult::Hit { .. }
-                | TuneCacheResult::Pending
-                | TuneCacheResult::Compiled => return cur,
-                TuneCacheResult::Miss | TuneCacheResult::Unchecked => {
-                    gathered = cache.mark_pending(key.clone());
+                if let TuneCacheResult::Hit { .. } = stored {
+                    return stored;
                 }
             }
-            // Scope the guard: the rest of this function re-locks `self.cache` (fast
-            // path insert, `process_request`), and the mutex is non-reentrant.
+
+            gathered = cache.mark_pending(key.clone());
+            // Scope the guard: the rest of this function re-locks `self.cache`, and the mutex is
+            // non-reentrant.
         }
 
         log::info!("Tuning {key}");
 
         let autotunables = tunables.autotunables().collect::<Vec<_>>();
-
-        // Fast path: single tunable, no benchmarking needed.
-        if autotunables.len() == 1 {
-            self.cache.lock().cache_insert(key.clone(), 0);
-            return TuneCacheResult::Hit { fastest_index: 0 };
-        }
 
         // A `CompileOnly` override queues the candidates' kernels and measures nothing; the key
         // stays untuned for the pass that profiles it. Marked before the candidates run, so
@@ -346,11 +335,6 @@ impl<K: AutotuneKey> Tuner<K> {
             })
             .collect();
 
-        #[cfg(persistence)]
-        let checksum = tunables.compute_checksum();
-
-        // After the fast path: a key with one candidate is answered, not
-        // tuned, and leaves nothing to record.
         #[cfg(persistence)]
         let mut recording =
             crate::tune::record::TuneRecording::new(&self.cache.lock(), key, &checksum);
@@ -485,13 +469,15 @@ impl<K: AutotuneKey> Tuner<K> {
             &mut job.results,
         ) {
             Ok(outcome) => outcome,
-            // Left pending, so callers run the first candidate that serves the problem and meet
-            // the loss in their own reads instead of in a winner measured on nothing.
+            // Answered pending, so this caller runs the first candidate that serves the problem
+            // and meets the loss in its own reads instead of in a winner measured on nothing. The
+            // key is left to the next caller: another device of the part may be healthy.
             Err(lost) => {
                 log::error!(
                     "Autotune of {} stopped, the device is lost: {lost}",
                     job.key
                 );
+                self.cache.lock().unmark_pending(&job.key);
                 return TuneCacheResult::Pending;
             }
         };

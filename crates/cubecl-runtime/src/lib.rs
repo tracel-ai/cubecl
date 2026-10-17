@@ -39,8 +39,11 @@ pub mod throughput;
 /// Compute client module.
 pub mod client;
 
-/// The device type of each runtime.
+/// The device type of each runtime, and the part a device is.
 pub mod device;
+
+#[cfg(persistence)]
+mod generation;
 
 /// Autotune module
 pub mod tune;
