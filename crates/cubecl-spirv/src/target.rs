@@ -83,12 +83,7 @@ impl ConvertArgsPass {
 
             if let Some(binding) = binding {
                 let io = io.expect("Buffers should have IO attribute");
-                let non_writable = !io.is_writable();
-                let non_readable = !io.is_readable();
-                buffers.insert(
-                    binding.buffer_pos,
-                    (*arg, buffer_ty(ctx, *arg), non_readable, non_writable),
-                );
+                buffers.insert(binding.buffer_pos, (*arg, buffer_ty(ctx, *arg, *io)));
             } else {
                 panic!("Expected all kernel inputs to be bindings")
             }
@@ -97,23 +92,15 @@ impl ConvertArgsPass {
         let mut addr_struct = StructType::default();
         addr_struct.decorate_type(DecorationInfo::unit(Decoration::Block));
 
-        for (i, (_, ty, non_readable, non_writable)) in buffers.iter().copied().enumerate() {
+        for (i, (_, ty)) in buffers.iter().copied().enumerate() {
             addr_struct.field_types.push(ty);
             addr_struct.offsets.push((i * size_of::<u64>()) as u32);
-            if non_readable {
-                addr_struct.decorate_member(i, DecorationInfo::unit(Decoration::NonReadable));
-            }
-            if non_writable {
-                addr_struct.decorate_member(i, DecorationInfo::unit(Decoration::NonWritable));
-            }
         }
 
         if info.has_info() {
             let offset = buffers.len() * size_of::<u64>();
             addr_struct.field_types.push(info_ty(ctx));
             addr_struct.offsets.push(offset as u32);
-            addr_struct
-                .decorate_member(buffers.len(), DecorationInfo::unit(Decoration::NonWritable));
         }
 
         let addr_struct = Type::instantiate(addr_struct, ctx).to_handle();
@@ -155,19 +142,25 @@ impl ConvertArgsPass {
     }
 }
 
-fn buffer_ty(ctx: &Context, buffer: Value) -> TypeHandle {
+fn buffer_ty(ctx: &Context, buffer: Value, io: BufferIOAttr) -> TypeHandle {
     let ty = buffer.element_ty(ctx);
     let ty_size = ty.size(ctx);
     let ty = ty_to_spirv_dialect_explicit_layout(ctx, ty);
     let array = RuntimeArrayType::get(ctx, ty, Some(ty_size as u32));
-    let struct_ = StructType::get(
-        ctx,
-        vec![array.into()],
-        vec![0],
-        vec![],
-        vec![DecorationInfo::unit(Decoration::Block)],
-    );
-    PointerType::get(ctx, struct_.into(), StorageClass::PhysicalStorageBuffer).into()
+
+    let mut struct_ = StructType::default();
+    struct_.decorate_type(DecorationInfo::unit(Decoration::Block));
+    struct_.field_types.push(array.into());
+    struct_.offsets.push(0);
+    if !io.is_readable() {
+        struct_.decorate_member(0, DecorationInfo::unit(Decoration::NonReadable));
+    }
+    if !io.is_writable() {
+        struct_.decorate_member(0, DecorationInfo::unit(Decoration::NonWritable));
+    }
+
+    let struct_ = Type::instantiate(struct_, ctx).to_handle();
+    PointerType::get(ctx, struct_, StorageClass::PhysicalStorageBuffer).into()
 }
 
 fn info_ty(ctx: &Context) -> TypeHandle {
@@ -202,6 +195,11 @@ fn info_ty(ctx: &Context) -> TypeHandle {
         let array = RuntimeArrayType::get(ctx, address_ty, Some(ty_size));
         struct_.field_types.push(array.into());
         struct_.offsets.push(info.dynamic_meta_offset as u32);
+    }
+
+    // Info is only ever read.
+    for i in 0..struct_.field_types.len() {
+        struct_.decorate_member(i, DecorationInfo::unit(Decoration::NonWritable));
     }
 
     let struct_ = Type::instantiate(struct_, ctx).to_handle();
