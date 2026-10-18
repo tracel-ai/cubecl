@@ -39,7 +39,7 @@ use crate::{
     attributes::{IndexAttr, ZeroAttr},
     dialect::{general::PoisonOp, math::index_attr, ptr_value_ty},
     interfaces::{
-        IndexableType, TriviallyUnrollable, TypedExt,
+        Deterministic, IndexableType, TriviallyUnrollable, TypedExt,
         aliasing::AliasingOp,
         memory_slot::{
             DeletionKind, DestructurableAccessorOpInterface, DestructurableConstructorOpInterface,
@@ -365,7 +365,7 @@ pub struct UnrelatedAllocInfo;
 
 #[cube_op(name = "memory.load")]
 #[result_ty(from_inputs = ptr_value_ty)]
-#[op_interfaces(OperandNOfType<0, PointerType>, TriviallyUnrollable)]
+#[op_interfaces(Deterministic, OperandNOfType<0, PointerType>, TriviallyUnrollable)]
 #[op_traits(CanMaterialize, NoSideEffects)]
 pub struct LoadOp {
     #[operand(ptr_read)]

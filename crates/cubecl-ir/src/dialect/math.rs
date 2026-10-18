@@ -16,7 +16,8 @@ use crate::{
     attributes::{BoolAttr, FloatAttr, IndexAttr, IntAttrExt},
     dialect::{pure_binop, pure_unop},
     interfaces::{
-        Expression, ExpressionCanonicalize, ExpressionValue, TriviallyUnrollable, TypedExt,
+        Deterministic, Expression, ExpressionCanonicalize, ExpressionValue, TriviallyUnrollable,
+        TypedExt,
         side_effects::{ConditionallySpeculatable, Speculatability},
     },
     prelude::*,
@@ -398,7 +399,12 @@ simplify!(FMulOp, {
 
 #[cube_op(name = "math.s_div")]
 #[result_ty(same_as = lhs)]
-#[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
+#[op_interfaces(
+    Deterministic,
+    SameOperandsType,
+    SameOperandsAndResultType,
+    TriviallyUnrollable
+)]
 #[op_traits(CanMaterialize, NoSideEffects, NoMemoryEffect, PropagatesUniformity)] // Not pure because divide by zero
 pub struct SDivOp {
     pub lhs: Value,
@@ -444,7 +450,12 @@ impl ConditionallySpeculatable for SDivOp {
 
 #[cube_op(name = "math.u_div")]
 #[result_ty(same_as = lhs)]
-#[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
+#[op_interfaces(
+    Deterministic,
+    SameOperandsType,
+    SameOperandsAndResultType,
+    TriviallyUnrollable
+)]
 #[op_traits(CanMaterialize, NoSideEffects, NoMemoryEffect, PropagatesUniformity)] // Not pure because divide by zero
 pub struct UDivOp {
     pub lhs: Value,
@@ -535,7 +546,12 @@ const_eval!(RhypotOp, {
 
 #[cube_op(name = "math.s_rem")]
 #[result_ty(same_as = lhs)]
-#[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
+#[op_interfaces(
+    Deterministic,
+    SameOperandsType,
+    SameOperandsAndResultType,
+    TriviallyUnrollable
+)]
 #[op_traits(CanMaterialize, NoSideEffects, NoMemoryEffect, PropagatesUniformity)] // Not pure because divide by zero
 pub struct SRemOp {
     pub lhs: Value,
@@ -577,7 +593,12 @@ impl ConditionallySpeculatable for SRemOp {
 
 #[cube_op(name = "math.u_rem")]
 #[result_ty(same_as = lhs)]
-#[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
+#[op_interfaces(
+    Deterministic,
+    SameOperandsType,
+    SameOperandsAndResultType,
+    TriviallyUnrollable
+)]
 #[op_traits(CanMaterialize, NoSideEffects, NoMemoryEffect, PropagatesUniformity)] // Not pure because divide by zero
 pub struct URemOp {
     pub lhs: Value,
@@ -627,7 +648,12 @@ const_eval!(FRemOp, {
 /// Division by zero and `MIN mod_floor -1` have no portable result or error guarantee.
 #[cube_op(name = "math.s_mod_floor")]
 #[result_ty(same_as = lhs)]
-#[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
+#[op_interfaces(
+    Deterministic,
+    SameOperandsType,
+    SameOperandsAndResultType,
+    TriviallyUnrollable
+)]
 #[op_traits(CanMaterialize, NoSideEffects, NoMemoryEffect, PropagatesUniformity)] // Not pure because divide by zero
 pub struct SModFloorOp {
     pub lhs: Value,

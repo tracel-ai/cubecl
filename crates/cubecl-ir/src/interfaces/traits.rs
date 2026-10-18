@@ -9,6 +9,9 @@ macro_rules! Pure {
         $crate::NoSideEffects!($ty);
         $crate::NoMemoryEffect!($ty);
         $crate::AlwaysSpeculatable!($ty);
+
+        #[::pliron::derive::op_interface_impl]
+        impl $crate::interfaces::Deterministic for $ty {}
     };
 }
 
