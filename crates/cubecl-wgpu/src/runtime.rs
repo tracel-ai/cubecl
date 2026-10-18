@@ -76,11 +76,10 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
         true
     }
 
+    /// The properties with no device to pick a compiler by. A server takes its own compiler's
+    /// ([`WgpuCompiler::target_properties`]), which differ under MSL.
     fn target_properties() -> TargetProperties {
-        TargetProperties {
-            // Values are irrelevant, since no wgsl backends currently support manual mma
-            mma: Default::default(),
-        }
+        TargetProperties::default()
     }
 
     fn enumerate_devices(type_id: u16) -> Vec<DeviceId> {
@@ -751,7 +750,8 @@ fn try_create_server<C: WgpuCompiler>(
         }
     })?;
 
-    C::init(setup.backend, &compilation_options).limit_properties(&mut device_props);
+    let compiler = C::init(setup.backend, &compilation_options);
+    compiler.limit_properties(&mut device_props);
 
     let logger = alloc::sync::Arc::new(ServerLogger::default());
     let name = runtime_name(setup.backend, &compilation_options);
@@ -762,7 +762,7 @@ fn try_create_server<C: WgpuCompiler>(
         ServiceId::of::<WgpuServer<C>>(device_id),
         name,
         device_props,
-        WgpuRuntime::<C>::target_properties(),
+        compiler.target_properties(),
         logger,
         allocator,
     );
