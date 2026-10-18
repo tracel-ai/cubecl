@@ -282,6 +282,48 @@ pub fn test_kernel_atomic_max_contention<R: Runtime, I: Numeric + CubeElement>(c
     assert_eq!(actual, &[I::from_int((n - 1) as i64)]);
 }
 
+#[cube(launch)]
+pub fn kernel_shared_atomic_add<I: Numeric>(output: &mut [I]) {
+    let sum = Shared::<[Atomic<I>]>::new_slice(1usize);
+    if UNIT_POS == 0 {
+        sum[0].store(I::from_int(0));
+    }
+    sync_cube();
+    sum[0].fetch_add(I::from_int(1));
+    sync_cube();
+    if UNIT_POS == 0 {
+        output[0] = sum[0].load();
+    }
+}
+
+/// Every unit of a cube adds into one cell of shared memory, run where the device reports the
+/// add on shared memory.
+pub fn test_shared_atomic_add<R: Runtime, I: Numeric + CubeElement>(client: Client) {
+    let ty = Type::atomic(I::elem_type_native());
+    let uses = AtomicUsage::Add | AtomicUsage::LoadStore;
+    if !client
+        .properties()
+        .shared_atomic_type_usage(ty)
+        .is_superset(uses)
+    {
+        println!("{ty} shared add not supported - skipped");
+        return;
+    }
+
+    let cube_dim = std::cmp::min(32u32, client.properties().hardware.max_cube_dim.0);
+    let handle = client.create_from_slice(I::as_bytes(&[I::from_int(0)]));
+
+    kernel_shared_atomic_add::launch::<I>(
+        &client,
+        CubeCount::new_single(),
+        CubeDim::new_1d(cube_dim),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
+    );
+
+    let actual = client.read_one_unchecked(handle);
+    assert_eq!(I::from_bytes(&actual), &[I::from_int(cube_dim as i64)]);
+}
+
 #[macro_export]
 macro_rules! testgen_atomic_int {
     () => {
@@ -366,6 +408,14 @@ macro_rules! testgen_atomic_int {
                 TestRuntime,
                 IntType,
             >(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_shared_atomic_add_int() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::atomic::test_shared_atomic_add::<TestRuntime, IntType>(
+                client,
+            );
         }
     };
 }
@@ -456,6 +506,14 @@ macro_rules! testgen_atomic_uint {
                 UintType,
             >(client);
         }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_shared_atomic_add_uint() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::atomic::test_shared_atomic_add::<TestRuntime, UintType>(
+                client,
+            );
+        }
     };
 }
 
@@ -516,5 +574,13 @@ macro_rules! testgen_atomic_float {
             test_atomic_max_float,
             cubecl_core::runtime_tests::atomic::NumericAtomicOp::Max
         );
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_shared_atomic_add_float() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::atomic::test_shared_atomic_add::<TestRuntime, FloatType>(
+                client,
+            );
+        }
     };
 }

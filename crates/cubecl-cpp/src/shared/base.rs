@@ -432,5 +432,115 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
             _ => AtomicUsage::Add | AtomicUsage::LoadStore | AtomicUsage::Exchange,
         };
         props.register_atomic_type_usage(Type::atomic(ty), usage);
+        props.register_shared_atomic_type_usage(Type::atomic(ty), usage);
+    }
+}
+
+#[cfg(test)]
+mod shared_memory_tests {
+    use cubecl_core::{
+        self as cubecl, Compiler,
+        compute::KernelBuilder,
+        ir::{
+            AddressType,
+            settings::{Dim3, ExecutionMode, KernelSettings},
+        },
+        prelude::*,
+    };
+
+    use super::CompilationOptions;
+    use crate::MslCompiler;
+
+    /// How `two_arrays` frees its first array and waits for the cube before using its second.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    enum Freed {
+        Synced,
+        DeclaredBeforeTheBarrier,
+        Unsynced,
+        InBranch,
+        InLoop,
+        Never,
+    }
+
+    /// Two arrays of a kilobyte each, the second declared after the first is freed where `freed`
+    /// says, and first written after a cube barrier unless it is unsynced.
+    #[cube]
+    fn two_arrays(#[comptime] freed: Freed) {
+        let mut first = Shared::<[f32]>::new_slice(256usize);
+        first[UNIT_POS as usize] = 1.0;
+        sync_cube();
+        match comptime!(freed) {
+            Freed::Synced | Freed::DeclaredBeforeTheBarrier | Freed::Unsynced => unsafe {
+                first.free()
+            },
+            Freed::InBranch => {
+                if UNIT_POS == 0 {
+                    unsafe { first.free() }
+                }
+            }
+            Freed::InLoop => {
+                for _ in 0..UNIT_POS {
+                    unsafe { first.free() }
+                }
+            }
+            Freed::Never => {}
+        }
+        if comptime!(!matches!(
+            freed,
+            Freed::Unsynced | Freed::DeclaredBeforeTheBarrier
+        )) {
+            sync_cube();
+        }
+        let mut second = Shared::<[f32]>::new_slice(256usize);
+        if comptime!(freed == Freed::DeclaredBeforeTheBarrier) {
+            sync_cube();
+        }
+        second[UNIT_POS as usize] = 2.0;
+    }
+
+    /// The shared memory `two_arrays` compiles to under `freed`.
+    fn shared_bytes(freed: Freed) -> usize {
+        let builder = KernelBuilder::new(KernelSettings::new(
+            Dim3::new_1d(256),
+            ExecutionMode::Checked,
+            AddressType::U32,
+        ));
+        two_arrays::expand(&builder.scope, freed);
+        MslCompiler::default()
+            .compile(builder.build(), &CompilationOptions::default())
+            .expect("the kernel compiles")
+            .shared_memory_size
+    }
+
+    /// An array declared after another is freed takes the freed one's bytes: a kernel that holds
+    /// its stages until its walk ends and its bounce windows after needs the larger of the two,
+    /// not their sum.
+    #[test]
+    fn an_array_declared_after_a_free_reuses_its_bytes() {
+        assert_eq!(shared_bytes(Freed::Synced), 1024);
+        assert_eq!(shared_bytes(Freed::Never), 2048);
+    }
+
+    /// What decides is the first use, not the declaration: an array declared before the barrier
+    /// but first written after it reuses the freed bytes too, as a kernel that opens its memory
+    /// and then waits for the cube does.
+    #[test]
+    fn the_barrier_comes_before_the_first_use() {
+        assert_eq!(shared_bytes(Freed::DeclaredBeforeTheBarrier), 1024);
+    }
+
+    /// A free that might not run, inside a branch, or that might run before a later use of the
+    /// same array, inside a loop, releases nothing: the two arrays could be live at once.
+    #[test]
+    fn a_free_in_a_branch_or_a_loop_releases_nothing() {
+        assert_eq!(shared_bytes(Freed::InBranch), 2048);
+        assert_eq!(shared_bytes(Freed::InLoop), 2048);
+    }
+
+    /// A free with no cube barrier after it releases nothing: one unit could write the new array
+    /// while another still reads the freed one.
+    #[test]
+    fn a_free_releases_only_past_a_barrier() {
+        assert_eq!(shared_bytes(Freed::Unsynced), 2048);
     }
 }

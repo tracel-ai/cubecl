@@ -281,7 +281,10 @@ fn register_types(props: &mut DeviceProperties) {
     // is left out: registering it made add, load and store return wrong values.
     for ty in [ElemType::Int(IntKind::I32), ElemType::UInt(UIntKind::U32)] {
         props.register_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
+        props.register_shared_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
     }
+    // MSL's float atomics take `device` pointers only: the compiler rejects one in
+    // `threadgroup` memory, so shared memory gets none.
     props.register_atomic_type_usage(
         Type::atomic(ElemType::Float(FloatKind::F32)),
         AtomicUsage::Add | AtomicUsage::LoadStore,

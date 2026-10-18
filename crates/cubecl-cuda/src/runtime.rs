@@ -1,6 +1,6 @@
 use crate::{
     compiler::{CudaBackend, CudaCompilationOptions},
-    compute::{CudaServer, context::CudaContext},
+    compute::{CudaServer, communication::Nccl, context::CudaContext},
     device::CudaDevice,
 };
 use cubecl_common::{
@@ -225,14 +225,24 @@ impl DeviceService for CudaServer {
                 ComplexUsage::Core | ComplexUsage::Compare | ComplexUsage::Math,
             );
         }
+        // Shared memory takes the scalar atomics: PTX's vector atomics (`.v2`, `.v4`, `.v8`)
+        // address global memory only.
         if arch_version >= 60 {
             device_props.register_atomic_type_usage(
+                Type::atomic(ElemType::Float(FloatKind::F64)),
+                AtomicUsage::Add | AtomicUsage::LoadStore | AtomicUsage::Exchange,
+            );
+            device_props.register_shared_atomic_type_usage(
                 Type::atomic(ElemType::Float(FloatKind::F64)),
                 AtomicUsage::Add | AtomicUsage::LoadStore | AtomicUsage::Exchange,
             );
         }
         if arch_version >= 70 {
             device_props.register_atomic_type_usage(
+                Type::atomic(ElemType::Float(FloatKind::F16)),
+                AtomicUsage::Add,
+            );
+            device_props.register_shared_atomic_type_usage(
                 Type::atomic(ElemType::Float(FloatKind::F16)),
                 AtomicUsage::Add,
             );
@@ -440,8 +450,8 @@ impl DeviceService for CudaServer {
             logger,
             policy,
         );
-        // SAFETY: the call only tries to `dlopen` each candidate name.
-        utilities.server_comm_enabled = unsafe { cudarc::nccl::sys::is_culib_present() };
+        utilities.device_transport = Nccl::new(arch_version)
+            .map(|nccl| nccl.transport(utilities.properties.features.types.elem.keys().copied()));
 
         CudaServer::new(
             cuda_ctx,

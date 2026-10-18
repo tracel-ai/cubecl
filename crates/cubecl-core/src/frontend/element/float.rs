@@ -45,6 +45,8 @@ pub trait Float:
     + ScalarRhypot
     + ScalarSqrt
     + ScalarInverseSqrt
+    + ScalarCbrt
+    + ScalarInverseCbrt
     + ScalarRound
     + ScalarFloor
     + ScalarCeil
