@@ -157,7 +157,14 @@ fn finalize(
     entry_fn.set_calling_convention(AMDGPU_KERNEL_CC);
     entry_fn.add_attributes(&attributes);
     require_work_group_size(&entry_fn, cube_dim);
-    annotate_buffer_params(&entry_fn, &entry.io, &entry.atomic_reads, METADATA_PARAMS);
+    // AMDGPU has no tensor maps.
+    annotate_buffer_params(
+        &entry_fn,
+        &entry.io,
+        &entry.atomic_reads,
+        &[],
+        METADATA_PARAMS,
+    );
     mark_atomics_device_local(&entry_fn);
     module.add_module_flag("amdhsa_code_object_version", CODE_OBJECT_VERSION);
     Ok(())
@@ -219,7 +226,7 @@ fn compile(
 
     // SAFETY: the module is live, stamped with the AMDGPU triple and layout.
     unsafe { lower_to_device_libs(module.raw(), arch)? };
-    module.run_passes(PASS_PIPELINE, Some(&machine))?;
+    module.run_passes(PASS_PIPELINE, &machine)?;
 
     // Emission consumes a module, so the assembly comes from a copy.
     let asm = if assembly == Assembly::Keep {

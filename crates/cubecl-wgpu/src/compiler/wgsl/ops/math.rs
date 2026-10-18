@@ -156,6 +156,8 @@ wgsl_op_with_out!(WgslTanhOp; |op, ctx| {
 lower_unop!(ErfOp, erf);
 lower_unop!(Log1pOp, log1p);
 lower_unop!(Expm1Op, expm1);
+lower_unop!(CbrtOp, cbrt);
+lower_unop!(RcbrtOp, inverse_cbrt);
 lower_unop!(RecipOp, recip);
 lower_unop!(IsNanOp, is_nan);
 lower_unop!(IsInfOp, is_inf);
@@ -210,7 +212,7 @@ fn simple_tanh<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
 
 #[cube]
 fn safe_tanh<T: Float, N: Size>(x: Vector<T, N>) -> Vector<T, N> {
-    let threshold = Vector::new(T::new(43.0_f32));
+    let threshold = Vector::new(T::new(43.0));
     select(x > threshold, Vector::one(), simple_tanh(x))
 }
 

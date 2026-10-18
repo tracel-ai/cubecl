@@ -9,8 +9,8 @@ pub fn sequence_for_loop<F: Float>(output: &mut [F]) {
     }
 
     let mut sequence = Sequence::<F>::new();
-    sequence.push(F::new(1f32));
-    sequence.push(F::new(4f32));
+    sequence.push(F::new(1.0));
+    sequence.push(F::new(4.0));
 
     for value in sequence {
         output[0] += value;
@@ -24,8 +24,8 @@ pub fn sequence_index<F: Float>(output: &mut [F]) {
     }
 
     let mut sequence = Sequence::<F>::new();
-    sequence.push(F::new(2f32));
-    sequence.push(F::new(4f32));
+    sequence.push(F::new(2.0));
+    sequence.push(F::new(4.0));
 
     output[0] += sequence[0];
     output[0] += *Sequence::<F>::index(&sequence, 1usize);

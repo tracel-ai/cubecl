@@ -5,10 +5,10 @@ use crate::{
     logging::ProfileLevel,
     memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
-        BufferBinding, Collective, CommunicationId, CopyDescriptor, CubeCount, Handle,
+        BufferBinding, Collective, CommunicationId, ComputeWait, CopyDescriptor, CubeCount, Handle,
         KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
-        MemoryLayoutStrategy, ProfileError, ProfilingToken, ReduceOperation, Server, ServerError,
-        ServerStorage, ServerUtilities,
+        MemoryLayoutStrategy, ProfileError, ProfilingToken, ReduceOperation, Reduction, Server,
+        ServerError, ServerStorage, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -18,8 +18,10 @@ use crate::{
 use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
 use core::any::{Any, TypeId};
 
+mod group;
 #[cfg(not(target_family = "wasm"))]
 mod lazy;
+
 use cubecl_common::{
     bytes::{AllocationProperty, Bytes},
     device::{DeviceId, ServiceId},
@@ -29,11 +31,21 @@ use cubecl_common::{
 use cubecl_environment::{backtrace::BackTrace, future::DynFut, stream::StreamId, sync::Mutex};
 use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, VectorSize, features::Features};
 use cubecl_zspace::Shape;
+pub use group::*;
 
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
 
-static TRANSFER_ORDER: Mutex<()> = Mutex::new(());
+/// Work that waits on the host for its peers, a communicator's setup and a transfer's two
+/// halves, queues on every device in the order this hands out.
+static PEER_ORDER: Mutex<()> = Mutex::new(());
+
+fn repeated_device(device_ids: &[DeviceId]) -> Option<DeviceId> {
+    device_ids
+        .iter()
+        .enumerate()
+        .find_map(|(i, id)| device_ids[..i].contains(id).then_some(*id))
+}
 
 /// The `Client` is the entry point to require tasks from the `Server`.
 /// It should be obtained for a specific device via the Compute struct.
@@ -41,6 +53,8 @@ pub struct Client {
     device: DeviceHandle<dyn Server>,
     utilities: Arc<ServerUtilities>,
     stream_id: Option<StreamId>,
+    /// Loads the client of another device of the same runtime.
+    load_peer: fn(DeviceId) -> Client,
 }
 
 /// A captured graph produced by [`Client::stop_capture`]: a recorded
@@ -191,6 +205,7 @@ impl Clone for Client {
             device: self.device.clone(),
             utilities: self.utilities.clone(),
             stream_id: self.stream_id,
+            load_peer: self.load_peer,
         }
     }
 }
@@ -219,6 +234,7 @@ impl Client {
             device: context,
             utilities,
             stream_id: None,
+            load_peer: Self::load::<S>,
         })
     }
 
@@ -237,6 +253,7 @@ impl Client {
             device: context,
             utilities,
             stream_id: None,
+            load_peer: Self::load::<S>,
         }
     }
 
@@ -906,18 +923,22 @@ impl Client {
     /// `src` must be this client's. The bytes go device to device when both
     /// clients are of the same runtime and it has a collective transport;
     /// otherwise, and always across runtimes, they go through the host.
+    ///
+    /// On CUDA, transfers run on a communicator and stream of their own, so neither waits in
+    /// NCCL's queue behind a collective; a stream [`sync_collective`](Self::sync_collective) made
+    /// wait on one still does.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst_server))
     )]
-    pub fn to_client(&mut self, src: Handle, dst_server: &Self, dtype: ElemType) -> Handle {
+    pub fn to_client(&mut self, src: Handle, dst_server: &Self) -> Handle {
         self.expect_local(&src.clone().binding());
         let shape = [src.size_in_used() as usize];
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
         let same_runtime = dst_server.service_id().service == self.service_id().service;
         if self.has_device_transport() && same_runtime {
-            self.to_client_tensor(src_descriptor, dst_server, dtype)
+            self.to_client_tensor(src_descriptor, dst_server)
         } else {
             let alloc_desc = MemoryLayoutDescriptor::new(
                 MemoryLayoutStrategy::Contiguous,
@@ -929,29 +950,53 @@ impl Client {
         }
     }
 
-    /// Perform an `all_reduce` operation on the given devices.
+    /// Sets up the group over `device_ids` on every one of its devices, unless it already is.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, device_ids))
     )]
-    pub fn ensure_init_collective(&mut self, device_ids: Vec<DeviceId>) {
+    pub fn ensure_init_collective(&self, device_ids: Vec<DeviceId>) {
         self.expect_device_transport(Collective::CommInit);
+        // Two ranks on one device wait on its server thread for each other, forever.
+        if let Some(repeated) = repeated_device(&device_ids) {
+            panic!(
+                "{repeated:?} appears twice among a collective's devices, which need one rank each"
+            );
+        }
         let comm_id = CommunicationId::from(device_ids.clone());
-        let is_comms_init = self.utilities.initialized_comms.read().contains(&comm_id);
-        if !is_comms_init {
-            self.device
+        if self.utilities.initialized_comms.read().contains(&comm_id) {
+            return;
+        }
+        // Each member's setup waits for the others', so none may wait in turn on work queued
+        // behind it, such as this caller's next part on its own device.
+        let _order = PEER_ORDER.lock();
+        if self.utilities.initialized_comms.read().contains(&comm_id) {
+            return;
+        }
+        let members: Vec<Self> = device_ids
+            .iter()
+            .map(|device| (self.load_peer)(*device))
+            .collect();
+        for member in &members {
+            let device_ids = device_ids.clone();
+            member
+                .device
                 .submit(move |server| server.comm_init(device_ids).unwrap());
-            let mut initialized_comms = self.utilities.initialized_comms.write();
-            initialized_comms.insert(comm_id);
-            // Flush immediately so other devices aren't blocked waiting on this initialization.
-            self.device.flush_queue();
+            member
+                .utilities
+                .initialized_comms
+                .write()
+                .insert(comm_id.clone());
+        }
+        for member in &members {
+            member.device.flush_queue();
         }
     }
 
     /// Whether this runtime moves data between its devices itself. Without it, `to_client`
     /// copies through the host and the collectives refuse.
     pub fn has_device_transport(&self) -> bool {
-        self.utilities.server_comm_enabled
+        self.utilities.device_transport.is_some()
     }
 
     /// Panics on the caller when the runtime has no device transport.
@@ -971,6 +1016,10 @@ impl Client {
     }
 
     /// Wait on the communication stream.
+    ///
+    /// Call it once every device has queued its part of the `all_reduce` calls it waits for: a
+    /// transfer from this device queued in between would wait on a part not queued yet. A
+    /// [`ClientGroup`]'s collectives need none: each one's stream waits for it at once.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn sync_collective(&self) {
         if DeviceHandle::<dyn Server>::is_blocking() {
@@ -997,6 +1046,11 @@ impl Client {
     }
 
     /// Perform an `all_reduce` operation on the given devices.
+    ///
+    /// Every device has to queue the `all_reduce` calls over a group in one order. Queue each
+    /// call on every device before the next: a device waiting in NCCL for its peers stops taking
+    /// work after about a thousand calls, or as soon as it relocates memory, and the thread
+    /// queueing them stops with it.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids, op))
@@ -1009,27 +1063,119 @@ impl Client {
         device_ids: Vec<DeviceId>,
         op: ReduceOperation,
     ) {
-        if DeviceHandle::<dyn Server>::is_blocking() {
-            panic!("Can't use `all_reduce` with a blocking device handle");
-        }
-        self.expect_device_transport(Collective::AllReduce);
+        let collective = Collective::AllReduce;
+        let size = src.size_in_used();
+        Self::expect_whole_elements(collective, dtype, size);
+        let held = dst.size_in_used();
+        assert!(
+            held == size,
+            "{collective}'s destination holds {held} bytes where its source holds {size}"
+        );
+        self.prepare_collective(collective, device_ids.clone());
+        self.queue_all_reduce(
+            src,
+            dst,
+            Reduction { dtype, op },
+            device_ids,
+            ComputeWait::AtSync,
+        );
+    }
 
-        let stream_id = self.stream_id();
-        let src = src.binding();
-        let dst = dst.binding();
+    fn expect_whole_elements(collective: Collective, dtype: ElemType, size: u64) {
+        assert!(
+            size.is_multiple_of(dtype.size() as u64),
+            "{collective} cannot cut {size} bytes into whole {dtype:?} elements"
+        );
+    }
+
+    /// Checks `collective` can run from here, and sets up the group over `device_ids`.
+    fn prepare_collective(&self, collective: Collective, device_ids: Vec<DeviceId>) {
+        if DeviceHandle::<dyn Server>::is_blocking() {
+            panic!("Can't use `{collective}` with a blocking device handle");
+        }
+        self.expect_device_transport(collective);
+        self.ensure_init_collective(device_ids);
+    }
+
+    fn queue_all_reduce(
+        &self,
+        src: Handle,
+        dst: Handle,
+        reduction: Reduction,
+        device_ids: Vec<DeviceId>,
+        wait: ComputeWait,
+    ) {
+        let (src, dst) = (src.binding(), dst.binding());
         self.expect_local(&src);
         self.expect_local(&dst);
+        self.queue_collective(Collective::AllReduce, move |server, stream_id| {
+            server.all_reduce(src, dst, reduction, stream_id, device_ids, wait)
+        });
+    }
 
-        self.ensure_init_collective(device_ids.clone());
+    fn queue_all_gather(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>) {
+        let (src, dst) = (src.binding(), dst.binding());
+        self.expect_local(&src);
+        self.expect_local(&dst);
+        self.queue_collective(Collective::AllGather, move |server, stream_id| {
+            server.all_gather(src, dst, stream_id, device_ids)
+        });
+    }
 
+    fn queue_reduce_scatter(
+        &self,
+        src: Handle,
+        dst: Handle,
+        reduction: Reduction,
+        device_ids: Vec<DeviceId>,
+    ) {
+        let (src, dst) = (src.binding(), dst.binding());
+        self.expect_local(&src);
+        self.expect_local(&dst);
+        self.queue_collective(Collective::ReduceScatter, move |server, stream_id| {
+            server.reduce_scatter(src, dst, reduction, stream_id, device_ids)
+        });
+    }
+
+    fn queue_broadcast(
+        &self,
+        src: Option<Handle>,
+        dst: Handle,
+        root: DeviceId,
+        device_ids: Vec<DeviceId>,
+    ) {
+        let (src, dst) = (src.map(Handle::binding), dst.binding());
+        src.iter()
+            .chain([&dst])
+            .for_each(|binding| self.expect_local(binding));
+        self.queue_collective(Collective::Broadcast, move |server, stream_id| {
+            server.broadcast(src, dst, stream_id, root, device_ids)
+        });
+    }
+
+    fn queue_all_to_all(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>) {
+        let (src, dst) = (src.binding(), dst.binding());
+        self.expect_local(&src);
+        self.expect_local(&dst);
+        self.queue_collective(Collective::AllToAll, move |server, stream_id| {
+            server.all_to_all(src, dst, stream_id, device_ids)
+        });
+    }
+
+    /// Queues this device's part of `collective`.
+    fn queue_collective(
+        &self,
+        collective: Collective,
+        part: impl FnOnce(&mut dyn Server, StreamId) -> Result<(), ServerError> + Send + 'static,
+    ) {
+        let stream_id = self.stream_id();
         self.device.submit(move |server| {
-            // The report lives on the buffers: a refused or failed reduce has
-            // tainted the destination, so the read that consumes it fails on
-            // the root cause. The log is the eager half of that report — an
-            // unwrap here would only be reduced to a warn by the channel's
-            // catch_unwind, with the taint doing the real work either way.
-            if let Err(err) = server.all_reduce(src, dst, dtype, stream_id, op, device_ids) {
-                log::error!("all_reduce failed; the destination carries the failure: {err}");
+            // The tainted destination is the report; an unwrap would only become a warning here.
+            if let Err(err) = part(server, stream_id) {
+                log::error!(
+                    "{collective} failed, so the peers that queued their part wait in it, and the \
+                     destination carries the failure: {err}"
+                );
             }
         });
     }
@@ -1045,7 +1191,6 @@ impl Client {
         &mut self,
         src_descriptor: CopyDescriptor,
         dst_server: &Self,
-        dtype: ElemType,
     ) -> Handle {
         self.expect_device_transport(Collective::Send);
         self.expect_local(&src_descriptor.handle);
@@ -1055,7 +1200,7 @@ impl Client {
         let device_id_src = self.device.device_id();
         let device_id_dst = dst_server.device.device_id();
 
-        let mut dst_server = dst_server.clone();
+        let dst_server = dst_server.clone();
         let handle = Handle::new(
             dst_server.service_id(),
             stream_id_dst,
@@ -1064,11 +1209,7 @@ impl Client {
         let handle_cloned = handle.clone();
 
         // NCCL pairs sends and recvs in the order each device queues them.
-        let _order = TRANSFER_ORDER.lock();
-
-        let device_ids = vec![device_id_src, device_id_dst];
-        self.ensure_init_collective(device_ids.clone());
-        dst_server.ensure_init_collective(device_ids);
+        let _order = PEER_ORDER.lock();
 
         self.device.submit(move |server_src| {
             // A refused send has no local buffer to answer for, so the log is
@@ -1077,7 +1218,7 @@ impl Client {
             // here, and cross-device failure propagation needs a design pass
             // of its own — so the wedge is named loudly rather than hidden
             // behind a swallowed unwrap.
-            if let Err(err) = server_src.send(src_descriptor, dtype, stream_id_src, device_id_dst) {
+            if let Err(err) = server_src.send(src_descriptor, stream_id_src, device_id_dst) {
                 log::error!(
                     "send to {device_id_dst:?} failed; the peer's recv is left waiting: {err}"
                 );
@@ -1087,20 +1228,15 @@ impl Client {
         dst_server.device.submit(move |server_dst| {
             // A failed recv taints the destination handle, so the read that
             // consumes this transfer fails on the cause.
-            if let Err(err) = server_dst.recv(handle_cloned, dtype, stream_id_dst, device_id_src) {
+            if let Err(err) = server_dst.recv(handle_cloned, stream_id_dst, device_id_src) {
                 log::error!(
                     "recv from {device_id_src:?} failed; the destination carries the failure: {err}"
                 );
-                return;
-            }
-            if let Err(err) = server_dst.sync_collective(stream_id_dst) {
-                log::error!("sync_collective failed: {err}");
             }
         });
 
-        // `ServerCommunication::send` and`ServerCommunication::recv` are blocking: they each wait for the corresponding recv/send
-        // call to be made. We flush the operations right away so that the neither server ends up in a deadlock.
-        // The actual data transfer is still executed asynchronously on the communication stream.
+        // On a pair's first transfer, the send and the recv each wait in the join for the other, so
+        // neither may sit in a queue behind work that waits on this thread.
         self.device.flush_queue();
         dst_server.device.flush_queue();
 

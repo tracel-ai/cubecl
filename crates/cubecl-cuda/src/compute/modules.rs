@@ -90,18 +90,29 @@ impl CompilationTarget for CudaModules {
         dump_ptx(&id.kernel, &artifact.ptx);
 
         let func_name = CString::new(artifact.entrypoint_name.clone()).unwrap();
-        // SAFETY: `ptx` is a valid null-terminated PTX binary from NVRTC. `func_name` is a
-        // null-terminated `CString` matching the kernel entry point in the compiled module.
+        // SAFETY: `cubin` is machine code a driver assembled for this device's architecture, and
+        // `ptx` a valid null-terminated PTX binary. `func_name` is a null-terminated `CString`
+        // matching the kernel entry point in the compiled module.
         let func = unsafe {
-            let module =
-                cudarc::driver::result::module::load_data(artifact.ptx.as_ptr() as *const _)
-                    .map_err(|err| match poisons_device(err.0) {
-                        true => driver_error("cuModuleLoadData", err).into(),
-                        false => CompilationError::Generic {
-                            reason: format!("Unable to load the PTX: {err}"),
-                            backtrace: BackTrace::capture(),
-                        },
-                    })?;
+            // The machine code a compiling thread assembled. A stored environment may carry
+            // machine code from a newer driver than this one, which refuses it: the PTX is
+            // then assembled here instead.
+            let module = cudarc::driver::result::module::load_data(
+                artifact.cubin.as_ptr() as *const std::ffi::c_void
+            )
+            .or_else(|err| match poisons_device(err.0) {
+                true => Err(err),
+                false => cudarc::driver::result::module::load_data(
+                    artifact.ptx.as_ptr() as *const std::ffi::c_void
+                ),
+            })
+            .map_err(|err| match poisons_device(err.0) {
+                true => driver_error("cuModuleLoadData", err).into(),
+                false => CompilationError::Generic {
+                    reason: format!("Unable to load the PTX: {err}"),
+                    backtrace: BackTrace::capture(),
+                },
+            })?;
 
             cudarc::driver::result::module::get_function(module, func_name).map_err(|err| {
                 CompilationError::Generic {

@@ -598,8 +598,11 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         props.register_type_usage(ty, TypeUsage::all());
     }
 
+    // The extension atomics below are the buffer ones: their shared-memory counterparts
+    // (`shaderSharedFloat32AtomicAdd`, ...) are features of their own, never enabled.
     for ty in default_atomic_types {
         props.register_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
+        props.register_shared_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
     }
 
     if ext_feat.core.shader_int64 == TRUE {

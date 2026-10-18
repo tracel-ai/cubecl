@@ -54,7 +54,7 @@ fn scale<F: Float, N: Size>(
     for offset in 0..vectors_per_unit {
         let index = first + offset;
         if index < input.len() {
-            output[index] = input[index] * Vector::new(F::new(comptime!(factor as f32)));
+            output[index] = input[index] * Vector::new(F::new(comptime!(factor as f64)));
         }
     }
 }

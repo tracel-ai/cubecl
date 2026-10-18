@@ -612,11 +612,15 @@ pub async fn try_init_setup_async<G: GraphicsApi>(
 /// The runtime name for `backend`, naming the compiler that serves it.
 ///
 /// Read from the same options [`AutoCompiler`] picks its compiler from, so a device that fell
-/// back to WGSL says so.
+/// back to WGSL says so, along with its API: DX12 and Vulkan on one card share a fingerprint.
 fn runtime_name(backend: wgpu::Backend, options: &WgpuCompilationOptions) -> &'static str {
     match backend {
         wgpu::Backend::Vulkan if options.supports_vulkan_compiler => "wgpu<spirv>",
         wgpu::Backend::Metal if options.supports_msl_compiler => "wgpu<msl>",
+        wgpu::Backend::Vulkan => "wgpu<wgsl-vulkan>",
+        wgpu::Backend::Metal => "wgpu<wgsl-metal>",
+        wgpu::Backend::Dx12 => "wgpu<wgsl-dx12>",
+        wgpu::Backend::Gl => "wgpu<wgsl-gl>",
         _ => "wgpu<wgsl>",
     }
 }
@@ -746,6 +750,8 @@ fn try_create_server<C: WgpuCompiler>(
             message: format!("failed to initialize the wgpu compiler: {err}"),
         }
     })?;
+
+    C::init(setup.backend, &compilation_options).limit_properties(&mut device_props);
 
     let logger = alloc::sync::Arc::new(ServerLogger::default());
     let name = runtime_name(setup.backend, &compilation_options);
@@ -1238,5 +1244,13 @@ mod device_tests {
 
             assert_eq!(<WgpuRuntime>::find_device(device.to_id()), Err(discrete));
         }
+    }
+
+    #[test]
+    fn wgsl_runtime_names_its_api() {
+        let wgsl = WgpuCompilationOptions::default();
+        let vulkan = runtime_name(wgpu::Backend::Vulkan, &wgsl);
+        assert_ne!(vulkan, runtime_name(wgpu::Backend::Gl, &wgsl));
+        assert_ne!(vulkan, runtime_name(wgpu::Backend::Dx12, &wgsl));
     }
 }

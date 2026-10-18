@@ -6,10 +6,10 @@ use cubecl_server::memory_management::MemoryScope;
 use cubecl_common::bytes::Bytes;
 use cubecl_common::device::{DeviceId, ServiceId};
 use cubecl_environment::stream::StreamId;
-use cubecl_ir::{ElemType, UIntKind};
-use cubecl_server::client::Client;
+use cubecl_ir::{ElemType, FloatKind, UIntKind};
+use cubecl_server::client::{Client, ClientGroup, ClientGroupError, MemberBuffers};
 use cubecl_server::server::{
-    CubeCount, Handle, IoError, KernelArguments, ReduceOperation, ServerError,
+    CubeCount, Handle, IoError, KernelArguments, Overlap, ReduceOperation, ServerError,
 };
 use cubecl_server::{
     local_tuner,
@@ -127,7 +127,7 @@ fn transferring_a_foreign_handle_to_another_client_panics() {
     let destination = client.clone();
     let handle = handle_of(ServiceId::of::<()>(DeviceId::new(0, 0)));
 
-    client.to_client(handle, &destination, ElemType::UInt(UIntKind::U8));
+    client.to_client(handle, &destination);
 }
 
 #[test_log::test]
@@ -137,7 +137,7 @@ fn a_transfer_between_devices_of_the_same_runtime_round_trips() {
     let bytes = [1u8, 2, 3, 4];
     let handle = source.create_from_slice(&bytes);
 
-    let transferred = source.to_client(handle, &destination, ElemType::UInt(UIntKind::U8));
+    let transferred = source.to_client(handle, &destination);
 
     assert_eq!(transferred.service, destination.service_id());
     assert_eq!(destination.read_one(transferred).unwrap().to_vec(), bytes);
@@ -152,7 +152,7 @@ fn a_transfer_without_a_device_transport_panics_on_the_caller() {
     assert!(!source.has_device_transport());
 
     let descriptor = handle.copy_descriptor([4].into(), [1].into(), 1);
-    source.to_client_tensor(descriptor, &destination, ElemType::UInt(UIntKind::U8));
+    source.to_client_tensor(descriptor, &destination);
 }
 
 #[test_log::test]
@@ -172,9 +172,222 @@ fn an_all_reduce_without_a_device_transport_panics_on_the_caller() {
 }
 
 #[test_log::test]
+fn a_client_group_refuses_devices_out_of_ascending_order() {
+    let clients = |indices: [u16; 2]| {
+        indices
+            .map(|index| Client::load::<DummyServer>(DeviceId::new(0, index)))
+            .to_vec()
+    };
+
+    for indices in [[1, 0], [0, 0]] {
+        assert!(
+            matches!(
+                ClientGroup::new(clients(indices)),
+                Err(ClientGroupError::NotAscending { .. })
+            ),
+            "{indices:?}"
+        );
+    }
+}
+
+#[test_log::test]
+fn handles_overlap_only_where_their_bytes_meet() {
+    let client = test_client(&DummyDevice);
+    let whole = client.empty(16);
+    let front = whole.clone().offset_end(8);
+    let back = whole.clone().offset_start(8);
+    let middle = whole.clone().offset_start(4).offset_end(4);
+
+    assert_eq!(whole.overlap(&whole.clone()), Overlap::Same);
+    assert_eq!(whole.overlap(&front), Overlap::Partial);
+    assert_eq!(middle.overlap(&back), Overlap::Partial);
+    assert_eq!(front.overlap(&back), Overlap::Disjoint);
+    assert_eq!(whole.overlap(&client.empty(16)), Overlap::Disjoint);
+}
+
+#[test_log::test]
+fn a_client_group_needs_a_client() {
+    assert!(matches!(
+        ClientGroup::new(Vec::new()),
+        Err(ClientGroupError::Empty)
+    ));
+}
+
+#[test_log::test]
+fn a_client_group_refuses_mixed_runtimes() {
+    let clients = vec![
+        Client::load::<DummyServer>(DeviceId::new(0, 0)),
+        Client::load::<DummyServer<Other>>(DeviceId::new(0, 1)),
+    ];
+
+    assert!(matches!(
+        ClientGroup::new(clients),
+        Err(ClientGroupError::MixedRuntimes)
+    ));
+}
+
+#[test_log::test]
+fn a_client_group_needs_a_device_transport() {
+    let clients = [0, 1]
+        .map(|index| Client::load::<DummyServer>(DeviceId::new(0, index)))
+        .to_vec();
+
+    assert!(matches!(
+        ClientGroup::new(clients),
+        Err(ClientGroupError::NoDeviceTransport { .. })
+    ));
+}
+
+#[test_log::test]
 fn a_sync_collective_without_a_device_transport_waits_for_nothing() {
     let client = test_client(&DummyDevice);
     client.sync_collective();
+}
+
+const F32: ElemType = ElemType::Float(FloatKind::F32);
+
+#[test_log::test]
+fn a_client_group_refuses_buffers_of_the_wrong_size_on_the_caller() {
+    let group = transported_group();
+
+    assert!(group.reduces(F32));
+    assert!(!group.reduces(ElemType::Bool));
+    assert_refused("holds 8 bytes where it needs 16", || {
+        group.all_gather(member_buffers(&group, 8, 8))
+    });
+    assert_refused("cannot reduce Bool", || {
+        group.all_reduce(
+            member_buffers(&group, 8, 8),
+            ElemType::Bool,
+            ReduceOperation::Sum,
+        )
+    });
+    assert_refused("cannot cut 6 bytes into whole", || {
+        group.all_reduce(member_buffers(&group, 6, 6), F32, ReduceOperation::Sum)
+    });
+    assert_refused("cannot split 9 bytes evenly", || {
+        group.reduce_scatter(member_buffers(&group, 9, 4), F32, ReduceOperation::Sum)
+    });
+    assert_refused("cannot split 9 bytes evenly", || {
+        group.all_to_all(member_buffers(&group, 9, 9))
+    });
+    assert_refused("takes one part each, not 1", || {
+        let client = &group.clients()[0];
+        group.broadcast(client.empty(8), vec![client.empty(8)])
+    });
+}
+
+#[test_log::test]
+fn a_client_group_refuses_overlapping_buffers_on_the_caller() {
+    let group = transported_group();
+    let overlapping = |src_of: fn(&Handle) -> Handle| -> Vec<MemberBuffers> {
+        group
+            .clients()
+            .iter()
+            .map(|client| {
+                let dst = client.empty(16);
+                MemberBuffers {
+                    src: src_of(&dst),
+                    dst,
+                }
+            })
+            .collect()
+    };
+
+    assert_refused("overlap (Partial)", || {
+        group.all_gather(overlapping(|dst| dst.clone().offset_end(8)))
+    });
+    assert_refused("overlap (Same)", || {
+        group.all_to_all(overlapping(|dst| dst.clone()))
+    });
+    assert_refused("overlap (Partial)", || {
+        let whole = group.clients()[0].empty(12);
+        let dst = group
+            .clients()
+            .iter()
+            .enumerate()
+            .map(|(member, client)| match member {
+                0 => whole.clone().offset_start(4),
+                _ => client.empty(8),
+            })
+            .collect();
+        group.broadcast(whole.offset_end(4), dst)
+    });
+}
+
+#[test_log::test]
+fn a_client_group_refuses_a_buffer_off_its_member_on_the_caller() {
+    let group = transported_group();
+    let mut buffers = member_buffers(&group, 8, 16);
+    buffers[0].src = group.clients()[1].empty(8);
+
+    assert_refused("member 0's buffer is on", || group.all_gather(buffers));
+}
+
+#[test_log::test]
+fn a_broadcast_refuses_a_source_on_no_member_on_the_caller() {
+    let group = transported_group();
+    let outsider = Client::load::<DummyServer<Transported>>(DeviceId::new(0, 2));
+    let dst = group
+        .clients()
+        .iter()
+        .map(|client| client.empty(8))
+        .collect();
+
+    assert_refused("no member's device", || {
+        group.broadcast(outsider.empty(8), dst)
+    });
+}
+
+#[test_log::test]
+fn a_per_device_all_reduce_refuses_mismatched_buffers_on_the_caller() {
+    let mut client = Client::load::<DummyServer<Transported>>(DeviceId::new(0, 0));
+    let device_ids = vec![DeviceId::new(0, 0), DeviceId::new(0, 1)];
+
+    assert_refused("destination holds 8 bytes where its source holds 4", || {
+        let (src, dst) = (client.empty(4), client.empty(8));
+        client.all_reduce(src, dst, F32, device_ids.clone(), ReduceOperation::Sum)
+    });
+    assert_refused("cannot cut 6 bytes into whole", || {
+        let handle = client.empty(6);
+        client.all_reduce(
+            handle.clone(),
+            handle,
+            F32,
+            device_ids.clone(),
+            ReduceOperation::Sum,
+        )
+    });
+}
+
+/// Two clients of a runtime that claims a transport, so a collective reaches the caller's checks.
+fn transported_group() -> ClientGroup {
+    let clients = [0, 1]
+        .map(|index| Client::load::<DummyServer<Transported>>(DeviceId::new(0, index)))
+        .to_vec();
+    ClientGroup::new(clients).unwrap()
+}
+
+fn member_buffers(group: &ClientGroup, src: usize, dst: usize) -> Vec<MemberBuffers> {
+    group
+        .clients()
+        .iter()
+        .map(|client| MemberBuffers {
+            src: client.empty(src),
+            dst: client.empty(dst),
+        })
+        .collect()
+}
+
+fn assert_refused(reason: &str, collective: impl FnOnce()) {
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(collective))
+        .expect_err("the collective was accepted");
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .unwrap_or_default();
+    assert!(message.contains(reason), "{message}");
 }
 
 /// Two clients of different runtimes are the same type now, so nothing but
@@ -187,7 +400,7 @@ fn a_transfer_across_runtimes_goes_through_the_host() {
     let bytes = [5u8, 6, 7, 8];
     let handle = source.create_from_slice(&bytes);
 
-    let transferred = source.to_client(handle, &destination, ElemType::UInt(UIntKind::U8));
+    let transferred = source.to_client(handle, &destination);
 
     assert_eq!(transferred.service, destination.service_id());
     assert_eq!(destination.read_one(transferred).unwrap().to_vec(), bytes);
@@ -541,7 +754,7 @@ fn autotune_resets_when_the_environment_switches() {
     ];
     let key = set.generate_key(&handles);
 
-    let tuner: Tuner<String> = Tuner::new("environment-switch", "device0");
+    let tuner: Tuner<String> = Tuner::new("environment-switch", "device0", "fp0");
     tuner.check_tune(
         &key,
         &handles,
@@ -630,7 +843,7 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     ];
     let key = set.generate_key(&handles);
 
-    let tuner: Tuner<String> = Tuner::new("recorded", "device0");
+    let tuner: Tuner<String> = Tuner::new("recorded", "device0", "fp0");
     let answer = tuner.check_tune(
         &key,
         &handles,
@@ -688,6 +901,42 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     assert_eq!(tunes[0].stamp.session, sessions[0].id);
 }
 
+/// A device id that resolves to another adapter must not read the first
+/// adapter's persisted answers.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn persisted_answers_are_scoped_to_the_adapter_fingerprint() {
+    use cubecl_server::tune::{TuneCacheResult, Tuner};
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+
+    let client = test_client(&DummyDevice);
+    let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
+    let (handles, key) = addition_inputs(&client, &set);
+
+    let tuned: Tuner<String> = Tuner::new("fingerprinted", "device0", "fp-a");
+    tuned.check_tune(
+        &key,
+        &handles,
+        &set,
+        || set.compute_checksum(),
+        &client,
+        None,
+    );
+
+    let other_adapter: Tuner<String> = Tuner::new("fingerprinted", "device0", "fp-b");
+    assert!(matches!(other_adapter.fastest(&key), TuneCacheResult::Miss));
+
+    // Unchecked, not Miss: the answer was hydrated from disk.
+    let same_adapter: Tuner<String> = Tuner::new("fingerprinted", "device0", "fp-a");
+    assert!(matches!(
+        same_adapter.fastest(&key),
+        TuneCacheResult::Unchecked
+    ));
+}
+
 /// A tune stopped by the short circuit records which candidate stopped it.
 #[test_log::test]
 #[cfg(all(feature = "std", persistence, not(target_family = "wasm")))]
@@ -711,7 +960,7 @@ fn a_short_circuited_tune_records_where_it_stopped() {
     ];
     let key = set.generate_key(&handles);
 
-    let tuner: Tuner<String> = Tuner::new("short-circuited", "device0");
+    let tuner: Tuner<String> = Tuner::new("short-circuited", "device0", "fp0");
     tuner.check_tune(
         &key,
         &handles,
@@ -756,7 +1005,7 @@ fn nothing_is_recorded_when_records_are_off() {
         client.empty(3),
     ];
     let key = set.generate_key(&handles);
-    let tuner: Tuner<String> = Tuner::new("unrecorded", "device0");
+    let tuner: Tuner<String> = Tuner::new("unrecorded", "device0", "fp0");
     let answer = tuner.check_tune(
         &key,
         &handles,

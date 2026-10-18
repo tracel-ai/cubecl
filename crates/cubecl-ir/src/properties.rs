@@ -474,9 +474,14 @@ impl DeviceProperties {
         self.features.supports_complex_usage(ty, usage)
     }
 
-    /// Get the usages for an atomic type
+    /// Get the usages for an atomic type on global memory
     pub fn atomic_type_usage(&self, ty: Type) -> EnumSet<AtomicUsage> {
         self.features.atomic_type_usage(ty)
+    }
+
+    /// Get the usages for an atomic type on shared memory
+    pub fn shared_atomic_type_usage(&self, ty: Type) -> EnumSet<AtomicUsage> {
+        self.features.shared_atomic_type_usage(ty)
     }
 
     /// Whether the type is supported in any way
@@ -494,9 +499,18 @@ impl DeviceProperties {
         self.features.types.address.insert(ty.into());
     }
 
-    /// Register an address type to the features
+    /// Register the usages of an atomic type on global memory
     pub fn register_atomic_type_usage(&mut self, ty: Type, uses: impl Into<EnumSet<AtomicUsage>>) {
         *self.features.types.atomic.entry(ty).or_default() |= uses.into();
+    }
+
+    /// Register the usages of an atomic type on shared memory
+    pub fn register_shared_atomic_type_usage(
+        &mut self,
+        ty: Type,
+        uses: impl Into<EnumSet<AtomicUsage>>,
+    ) {
+        *self.features.types.shared_atomic.entry(ty).or_default() |= uses.into();
     }
 
     /// Register a storage type to the features
@@ -513,6 +527,14 @@ impl DeviceProperties {
     /// [`Types::emulated_conversion`]: crate::Types::emulated_conversion
     pub fn register_emulated_conversion(&mut self, ty: impl Into<ElemType>) {
         self.features.types.emulated_conversion.insert(ty.into());
+    }
+
+    /// Register `ty`'s arithmetic as emulated through a wider type
+    /// ([`Types::emulated_arithmetic`]).
+    ///
+    /// [`Types::emulated_arithmetic`]: crate::Types::emulated_arithmetic
+    pub fn register_emulated_arithmetic(&mut self, ty: impl Into<ElemType>) {
+        self.features.types.emulated_arithmetic.insert(ty.into());
     }
 
     /// Register complex capability families for an element type.
