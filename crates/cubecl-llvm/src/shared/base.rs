@@ -35,7 +35,12 @@ use core::cell::RefCell;
 use cubecl_core::ir::nvidia::SmArch;
 use cubecl_core::{
     Compiler,
-    ir::{amd::GfxArch, dialect::scf::BranchToSCFPass, metadata::Info, rewrite::SimplifyOpsPass},
+    ir::{
+        amd::GfxArch,
+        dialect::scf::BranchToSCFPass,
+        metadata::Info,
+        rewrite::{CanonicalizePass, SimplifyOpsPass},
+    },
     post_processing::{
         bf16::LowerWideBf16CastPass,
         bitwise::PromoteBitwisePass,
@@ -440,6 +445,7 @@ fn lower(
     func_passes.add_pass(SCCPPass);
     func_passes.add_pass(SimpleCSEPass::with_memory());
     func_passes.add_pass(SimplifyOpsPass::default());
+    func_passes.add_pass(CanonicalizePass::default());
     func_passes.add_pass(PromoteBitwisePass);
     func_passes.add_pass(InstCombinePass::default());
     // LLVM converts between `f32` and `bfloat`; a wider source would round twice through `f32`.

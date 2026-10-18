@@ -1,18 +1,11 @@
 use cubecl_ir::{
     NamedRewrite,
-    dialect::{
-        cmp::{BoolEqualOp, BoolNotEqualOp},
-        general::BoolNotOp,
-        math::{FAddOp, FMulOp, FNegOp, FSubOp, FmaOp},
-    },
-    interfaces::ConstantAttr,
+    dialect::math::{FAddOp, FMulOp, FNegOp, FSubOp, FmaOp},
     prelude::{Inserter as _, Rewriter as _, *},
-    rewrite::{MatchRewritePass, const_operands},
+    rewrite::MatchRewritePass,
 };
-use pliron::attribute::attr_cast;
 
-/// Combine a product and the add or subtract that consumes it into a single FMA operation,
-/// and turn a bool compared against the constant that flips it into a plain negation.
+/// Combine a product and the add or subtract that consumes it into a single FMA operation.
 pub type InstCombinePass = MatchRewritePass<InstCombine>;
 
 #[derive(Default, Clone, Copy, NamedRewrite)]
@@ -54,36 +47,9 @@ fn as_fma(ctx: &Context, op: Ptr<Operation>) -> Option<(FMulOp, Value, Negate)> 
         .or_else(|| lone_product(ctx, rhs).map(|mul| (mul, lhs, Negate::Factor)))
 }
 
-/// The operand to negate, for an `op` of the form `x == false` or `x != true`, in either
-/// operand order.
-///
-/// The other constants leave `x` itself, which `SimplifyOps` folds.
-fn as_bool_not(ctx: &Context, op: Ptr<Operation>) -> Option<Value> {
-    let (lhs, rhs, negating) = if let Some(eq) = op.as_op::<BoolEqualOp>(ctx) {
-        (eq.lhs(ctx), eq.rhs(ctx), false)
-    } else {
-        let ne = op.as_op::<BoolNotEqualOp>(ctx)?;
-        (ne.lhs(ctx), ne.rhs(ctx), true)
-    };
-    let consts = const_operands(ctx, op);
-    let is_negating = |idx: usize| {
-        consts[idx]
-            .as_ref()
-            .and_then(|attr| attr_cast::<dyn ConstantAttr>(&**attr)?.as_bool(ctx))
-            == Some(negating)
-    };
-    if is_negating(1) {
-        Some(lhs)
-    } else if is_negating(0) {
-        Some(rhs)
-    } else {
-        None
-    }
-}
-
 impl MatchRewrite for InstCombine {
     fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
-        as_fma(ctx, op).is_some() || as_bool_not(ctx, op).is_some()
+        as_fma(ctx, op).is_some()
     }
 
     fn rewrite(
@@ -92,12 +58,6 @@ impl MatchRewrite for InstCombine {
         rewriter: &mut MatchRewriter,
         op: Ptr<Operation>,
     ) -> Result<()> {
-        if let Some(value) = as_bool_not(ctx, op) {
-            let not = BoolNotOp::new(ctx, value);
-            rewriter.insert_op(ctx, &not);
-            rewriter.replace_operation(ctx, op, not.get_operation());
-            return Ok(());
-        }
         let Some((mul, addend, negate)) = as_fma(ctx, op) else {
             return Ok(());
         };
