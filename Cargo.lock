@@ -3722,8 +3722,9 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "pliron"
-version = "0.19.0"
-source = "git+https://github.com/pliron-org/pliron?rev=0abdb154de39cd4b8d892c1dda3d6e2da615a8d3#0abdb154de39cd4b8d892c1dda3d6e2da615a8d3"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7395b93d3fc99ee1923027fedead143eb63e4c76b6f6f6d79ebfac6698956317"
 dependencies = [
  "awint",
  "combine",
@@ -3749,8 +3750,9 @@ dependencies = [
 
 [[package]]
 name = "pliron-derive"
-version = "0.19.0"
-source = "git+https://github.com/pliron-org/pliron?rev=0abdb154de39cd4b8d892c1dda3d6e2da615a8d3#0abdb154de39cd4b8d892c1dda3d6e2da615a8d3"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "245f8ea25d8ddcaf04e3342be709b4f257cef2c2c15b99d263955d6f073796cd"
 dependencies = [
  "combine",
  "convert_case 0.12.0",
@@ -3763,8 +3765,9 @@ dependencies = [
 
 [[package]]
 name = "pliron-llvm"
-version = "0.19.0"
-source = "git+https://github.com/pliron-org/pliron?rev=0abdb154de39cd4b8d892c1dda3d6e2da615a8d3#0abdb154de39cd4b8d892c1dda3d6e2da615a8d3"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b027d3174757ccc3a96ae971aa4e7904439a3082a3550bc01361369c3ab073f"
 dependencies = [
  "bitflags 2.13.2",
  "llvm-sys",
@@ -3776,7 +3779,7 @@ dependencies = [
 [[package]]
 name = "pliron-spirv"
 version = "0.16.0+sdk-1.4.357.0"
-source = "git+https://github.com/skewballfox/tracel-rspirv?rev=825b10b8ee7dba83e2ea9bc421857839cdf4577b#825b10b8ee7dba83e2ea9bc421857839cdf4577b"
+source = "git+https://github.com/tracel-ai/tracel-rspirv?rev=c585127b7e26830fb8ae0350b229cba289962111#c585127b7e26830fb8ae0350b229cba289962111"
 dependencies = [
  "derive-new",
  "derive_more",
@@ -4841,7 +4844,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
@@ -5216,7 +5219,7 @@ dependencies = [
 [[package]]
 name = "tracel-rspirv"
 version = "0.16.0+sdk-1.4.357.0"
-source = "git+https://github.com/skewballfox/tracel-rspirv?rev=825b10b8ee7dba83e2ea9bc421857839cdf4577b#825b10b8ee7dba83e2ea9bc421857839cdf4577b"
+source = "git+https://github.com/tracel-ai/tracel-rspirv?rev=c585127b7e26830fb8ae0350b229cba289962111#c585127b7e26830fb8ae0350b229cba289962111"
 dependencies = [
  "bitflags 2.13.2",
  "pliron",
