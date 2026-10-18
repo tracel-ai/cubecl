@@ -3,7 +3,7 @@ use core::fmt::{self, Debug};
 use crate::{
     CanMaterialize, ConstantValue, ElemType,
     dialect::synchronization::SyncScope,
-    interfaces::memory_slot::MemoryValue,
+    interfaces::{memory_slot::MemoryValue, side_effects::MemoryEffectsOp},
     prelude::*,
     types::{AtomicType, PointerType, VectorType, scalar::*},
 };
@@ -326,6 +326,13 @@ impl Debug for Expression {
             .field("mem_value", &self.mem_value)
             .finish()
     }
+}
+
+/// The op is deterministic given the operands, attributes, and memory state.
+/// This applies to most ops, but not things like plane ops that have hidden runtime state.
+#[op_interface]
+pub trait Deterministic: MemoryEffectsOp {
+    verify_op_succ!();
 }
 
 #[op_interface]
