@@ -343,6 +343,18 @@ pub fn namespaces() -> Vec<String> {
     }
 }
 
+/// Deletes every namespace in `namespaces`, compared as bytes, that the active environment holds
+/// durably. Nothing without a durable backend, for the reason [`namespaces`] gives.
+pub fn purge_range(namespaces: core::ops::Range<&str>) {
+    cfg_if::cfg_if! {
+        if #[cfg(any(native_cache, browser_cache))] {
+            super::turso::purge_range(namespaces)
+        } else {
+            let _ = namespaces;
+        }
+    }
+}
+
 /// The storage serving `namespace` in the active environment, degrading to
 /// process-wide memory when the database can't be opened.
 ///

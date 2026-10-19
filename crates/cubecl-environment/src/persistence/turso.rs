@@ -21,6 +21,7 @@ use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::future::Future;
+use core::ops::Range;
 
 use hashbrown::HashMap;
 use turso::transaction::TransactionBehavior;
@@ -86,6 +87,8 @@ const SCAN: &str = "SELECT key, value, origin FROM entries WHERE namespace = ?1"
 const PURGE: &str = "DELETE FROM entries WHERE namespace = ?1";
 
 const PURGE_KEY: &str = "DELETE FROM entries WHERE namespace = ?1 AND key = ?2";
+
+const PURGE_RANGE: &str = "DELETE FROM entries WHERE namespace >= ?1 AND namespace < ?2";
 
 const SUMMARY: &str = "SELECT namespace, COUNT(*), SUM(length(key) + length(value)) \
                        FROM entries GROUP BY namespace ORDER BY namespace";
@@ -342,6 +345,19 @@ impl Database {
         let _ = self.run("purge a key from", namespace, |connection| {
             drive(connection.execute(PURGE_KEY, (namespace, key.to_vec()))).map(|_| ())
         });
+    }
+
+    /// Deletes every entry of each namespace in `namespaces`, compared as bytes, with the same
+    /// failure contract as [`purge`](Self::purge).
+    pub fn purge_range(&self, namespaces: Range<&str>) {
+        let _ = self.run(
+            "purge the namespaces from",
+            namespaces.start,
+            |connection| {
+                drive(connection.execute(PURGE_RANGE, (namespaces.start, namespaces.end)))
+                    .map(|_| ())
+            },
+        );
     }
 
     /// Visits every entry of `namespace` with the [`Origin`] it was stored
@@ -872,6 +888,14 @@ pub(crate) fn namespaces() -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Deletes each namespace in `namespaces` from the active environment's database. Nothing when
+/// the database isn't open.
+pub(crate) fn purge_range(namespaces: Range<&str>) {
+    if let Some(database) = Database::open_active() {
+        database.purge_range(namespaces);
+    }
+}
+
 /// Entry count and total size per namespace of the database behind
 /// `connection`.
 pub(crate) fn summarize(
@@ -1342,5 +1366,22 @@ mod tests {
             Insertion::Conflict(bytes(b"first"))
         );
         assert_eq!(second.get(b"key"), Some(bytes(b"first")));
+    }
+
+    #[test_log::test]
+    #[cfg_attr(miri, ignore)]
+    fn a_range_purge_takes_its_start_and_stops_before_its_end() {
+        let dir = tempfile::tempdir().unwrap();
+        let database = Database::open_at(&dir.path().join("range.db"), Access::ReadWrite).unwrap();
+        for namespace in ["a/x", "b/", "b/y", "b0", "c/z"] {
+            database.insert(namespace, b"key", b"value", Origin::Local);
+        }
+
+        database.purge_range("b/".."b0");
+
+        assert_eq!(
+            database.namespaces(),
+            vec!["a/x".to_string(), "b0".to_string(), "c/z".to_string()]
+        );
     }
 }
