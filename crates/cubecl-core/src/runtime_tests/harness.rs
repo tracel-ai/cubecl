@@ -1,3 +1,7 @@
+// Cube functions index their slices and swap by hand, since they can't use
+// iterators or `mem::swap`.
+#![allow(clippy::needless_range_loop, clippy::manual_swap)]
+
 use cubecl_runtime::runtime::Runtime;
 
 use crate::{self as cubecl, prelude::*};
@@ -96,6 +100,46 @@ fn nested(x: u32) -> (u32, (u32, i32)) {
     (x, (x + 1, -1))
 }
 
+#[cube]
+fn sum(xs: &[u32]) -> u32 {
+    let mut total = 0u32;
+    for i in 0..xs.len() {
+        total += xs[i];
+    }
+    total
+}
+
+#[cube]
+fn dot<F: Float>(lhs: &[F], rhs: &[F]) -> F {
+    let mut total = F::new(0.0);
+    for i in 0..lhs.len() {
+        total += lhs[i] * rhs[i];
+    }
+    total
+}
+
+#[cube]
+fn fill(start: i32, out: &mut [i32]) {
+    for i in 0..out.len() {
+        out[i] = start + i32::cast_from(i);
+    }
+}
+
+#[cube]
+fn scale_into<F: Float>(xs: &[F], factor: F, out: &mut [F]) -> u32 {
+    for i in 0..xs.len() {
+        out[i] = xs[i] * factor;
+    }
+    u32::cast_from(xs.len())
+}
+
+#[cube]
+fn swap_firsts(lhs: &mut [u32], rhs: &mut [u32]) {
+    let first = lhs[0];
+    lhs[0] = rhs[0];
+    rhs[0] = first;
+}
+
 pub fn test_harness_scalar<R: Runtime>() {
     assert_eq!(double::harness::<R>(1), 2);
     assert_eq!(multiply_add::harness::<R>(-3, 4, 5), -7);
@@ -154,6 +198,34 @@ pub fn test_harness_cube_type<R: Runtime>() {
     );
 }
 
+/// A host slice goes up as a buffer of its length, and a mutable one comes
+/// back written, like the function ran on the host.
+pub fn test_harness_slice<R: Runtime>() {
+    assert_eq!(sum::harness::<R>(&[1, 2, 3, 4]), 10);
+    assert_eq!(
+        dot::harness::<R, f32>(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0]),
+        32.0
+    );
+
+    let mut out = [0; 4];
+    fill::harness::<R>(7, &mut out);
+    assert_eq!(out, [7, 8, 9, 10]);
+
+    let mut out = [0.0; 3];
+    assert_eq!(
+        scale_into::harness::<R, f32>(&[1.0, -2.0, 0.5], 2.0, &mut out),
+        3
+    );
+    assert_eq!(out, [2.0, -4.0, 1.0]);
+
+    let (mut lhs, mut rhs) = ([1, 2], [3, 4]);
+    swap_firsts::harness::<R>(&mut lhs, &mut rhs);
+    assert_eq!((lhs, rhs), ([3, 2], [1, 4]));
+
+    assert_eq!(sum::harness::<R>(&[]), 0);
+    fill::harness::<R>(7, &mut []);
+}
+
 pub fn test_harness_generic<R: Runtime>() {
     assert_eq!(scale::harness::<R, f32>(1.5, 4), 6.0);
     assert_eq!(truncate_add::harness::<R, f32, i32>(2.75, 3), 5);
@@ -189,6 +261,11 @@ macro_rules! testgen_harness {
             #[$crate::runtime_tests::test_log::test]
             fn harness_cube_type() {
                 cubecl_core::runtime_tests::harness::test_harness_cube_type::<TestRuntime>();
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn harness_slice() {
+                cubecl_core::runtime_tests::harness::test_harness_slice::<TestRuntime>();
             }
 
             #[$crate::runtime_tests::test_log::test]

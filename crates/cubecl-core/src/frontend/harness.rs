@@ -57,6 +57,17 @@ impl<T: CubePrimitive + CubeElement> HarnessOutput for T {
     }
 }
 
+/// Nothing to hand back, for a function that only writes into its slices.
+impl HarnessOutput for () {
+    type Out = ();
+
+    fn alloc(_client: &Client, _handles: &mut Vec<Handle>) {}
+
+    fn __expand_store(_scope: &Scope, _out: &mut (), _value: ()) {}
+
+    fn read(_bytes: &mut impl Iterator<Item = Bytes>) -> Self {}
+}
+
 macro_rules! harness_tuple {
     ($(($T:ident, $t:ident)),*) => {
         impl<$($T: HarnessOutput),*> HarnessOutput for ($($T,)*) {

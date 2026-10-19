@@ -1,8 +1,13 @@
-//! A `harness` function for every pure cube function: one whose parameters
-//! are all scalars, and that returns a scalar or a tuple of scalars. The
+//! A `harness` function for every harnessable cube function: one whose
+//! parameters are all scalars or slices of them, and that returns a scalar or
+//! a tuple of scalars, or nothing when it writes into a mutable slice. The
 //! harness launches the function on a single unit of the given runtime and
 //! hands its result back to the host, so a test can call `f::harness::<R>(1)`
 //! instead of writing a kernel, buffers and a read back by hand.
+//!
+//! A slice is uploaded from a host slice of the same type, and a mutable one
+//! is written back into it after the launch, as if the function ran on the
+//! host.
 //!
 //! With `#[cube(harness)]`, a function may also take and return cube types,
 //! which must derive `CubeHarness`. A macro can't tell a cube type from any
@@ -48,6 +53,9 @@ pub enum HarnessValue {
     Comptime(Type),
     /// A cube type, passed as its launch argument.
     Cube(Type),
+    /// A slice of scalars, uploaded to its own buffer, and written back to
+    /// the host when it's mutable.
+    Slice { elem: Type, mutable: bool },
 }
 
 pub struct HarnessPlan {
@@ -70,8 +78,8 @@ impl Launch {
                 .unwrap_or_else(|err| err.into_compile_error()),
             None if self.args.harness.is_present() => syn::Error::new_spanned(
                 &self.func.sig.name,
-                "a harness needs every parameter to be a scalar, a comptime scalar or a cube type, \
-                 and a return value of them or a tuple of them",
+                "a harness needs every parameter to be a scalar, a slice of scalars, a comptime \
+                 scalar or a cube type, and a return value of them or a tuple of them",
             )
             .into_compile_error(),
             None => TokenStream::new(),
@@ -79,7 +87,7 @@ impl Launch {
     }
 
     /// The plan for this function's harness, or `None` when the function
-    /// isn't pure.
+    /// isn't harnessable.
     pub fn harness_plan(&self) -> Option<HarnessPlan> {
         let sig = &self.func.sig;
         let allow_cube = self.args.harness.is_present();
@@ -151,6 +159,17 @@ impl Launch {
                     return None;
                 }
                 HarnessValue::Comptime(param.ty.clone())
+            } else if let Type::Reference(reference) = &param.ty {
+                let Type::Slice(slice) = &*reference.elem else {
+                    return None;
+                };
+                match classify(&slice.elem)? {
+                    HarnessValue::Scalar(_) | HarnessValue::Generic(_) => HarnessValue::Slice {
+                        elem: (*slice.elem).clone(),
+                        mutable: reference.mutability.is_some(),
+                    },
+                    _ => return None,
+                }
             } else {
                 classify(&param.ty)?
             };
@@ -169,7 +188,13 @@ impl Launch {
         let KernelReturns::ExpandType(returns) = &sig.returns else {
             return None;
         };
-        if !returnable(returns, &classify) {
+        // A function that returns nothing is only worth a harness when it
+        // writes into a slice the host gets back.
+        let writes_back = params
+            .iter()
+            .any(|(_, value)| matches!(value, HarnessValue::Slice { mutable: true, .. }));
+        let returns_unit = matches!(returns, Type::Tuple(tuple) if tuple.elems.is_empty());
+        if !(returns_unit && writes_back || returnable(returns, &classify)) {
             return None;
         }
 
@@ -182,6 +207,7 @@ impl Launch {
 
     fn harness_tokens(&self, plan: &HarnessPlan) -> syn::Result<TokenStream> {
         let input_scalar = prelude_type("InputScalar");
+        let buffer_arg = prelude_type("BufferArg");
         let cube_element = prelude_type("CubeElement");
         let launch_arg = prelude_type("LaunchArg");
         let harness_output = prelude_type("HarnessOutput");
@@ -216,6 +242,11 @@ impl Launch {
             match value {
                 HarnessValue::Scalar(ty) | HarnessValue::Cube(ty) => {
                     kernel_params.push(quote![#param: #ty]);
+                    call_args.push(quote![#param]);
+                }
+                HarnessValue::Slice { elem, mutable } => {
+                    let mutability = mutable.then(|| quote![mut]);
+                    kernel_params.push(quote![#param: &#mutability [#elem]]);
                     call_args.push(quote![#param]);
                 }
                 HarnessValue::Generic(ident) => {
@@ -255,6 +286,40 @@ impl Launch {
                 quote![#param: #ty]
             }
             HarnessValue::Generic(ident) => quote![#param: #ident],
+            HarnessValue::Slice { elem, mutable } => {
+                let mutability = mutable.then(|| quote![mut]);
+                quote![#param: &#mutability [#elem]]
+            }
+        });
+        let slice_handle = |param: &Ident| format_ident!("__harness_{param}");
+        let slices = plan
+            .params
+            .iter()
+            .filter_map(|(param, value)| match value {
+                HarnessValue::Slice { elem, mutable } => Some((param, elem, *mutable)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let uploads = slices.iter().map(|(param, elem, _)| {
+            let handle = slice_handle(param);
+            quote! {
+                let #handle = __client.create_from_slice(<#elem as #cube_element>::as_bytes(#param));
+            }
+        });
+        // A mutable slice is read back after the returned value, in the
+        // order of the parameters.
+        let write_backs = slices
+            .iter()
+            .filter(|(_, _, mutable)| *mutable)
+            .collect::<Vec<_>>();
+        let write_back_handles = write_backs.iter().map(|(param, _, _)| slice_handle(param));
+        let write_back = write_backs.iter().map(|(param, elem, _)| {
+            quote! {
+                let __written = __bytes.next().expect("a harness buffer for every mutable slice");
+                #param.copy_from_slice(
+                    &<#elem as #cube_element>::from_bytes(&__written)[..#param.len()],
+                );
+            }
         });
         let launch_args = plan.params.iter().map(|(param, value)| match value {
             HarnessValue::Generic(ident) => {
@@ -263,6 +328,12 @@ impl Launch {
             HarnessValue::Cube(ty) => quote! {
                 ::core::convert::Into::<<#ty as #launch_arg>::RuntimeArg>::into(#param)
             },
+            HarnessValue::Slice { .. } => {
+                let handle = slice_handle(param);
+                // SAFETY: the buffer was created from the slice, so it holds
+                // exactly its length.
+                quote![unsafe { #buffer_arg::from_raw_parts(#handle, #param.len()) }]
+            }
             HarnessValue::Scalar(_) | HarnessValue::Comptime(_) => quote![#param],
         });
         let cube_bounds = plan.params.iter().filter_map(|(_, value)| match value {
@@ -273,7 +344,8 @@ impl Launch {
         });
         let name_str = name.to_string();
         let doc = format!(
-            "Run [{name_str}()] on a single unit of the given runtime and return its result.\n\n\
+            "Run [{name_str}()] on a single unit of the given runtime and return its result, \
+             writing any mutable slice back.\n\n\
              # Panics\n\n\
              If the kernel fails to compile or run."
         );
@@ -286,7 +358,7 @@ impl Launch {
 
             #kernel
 
-            #[allow(dead_code, clippy::too_many_arguments)]
+            #[allow(dead_code, clippy::too_many_arguments, clippy::let_unit_value)]
             #[doc = #doc]
             pub fn harness<__R: #runtime, #(#generics),*>(#(#harness_params),*) -> #ret
             where
@@ -295,6 +367,8 @@ impl Launch {
                 let __client = <__R as #runtime>::client(&::core::default::Default::default());
                 let mut __handles = #core::__private::vec::Vec::new();
                 let __out = <#ret as #harness_output>::alloc(&__client, &mut __handles);
+                #(#uploads)*
+                #(__handles.push(#write_back_handles.clone());)*
                 #kernel_name::launch #turbofish(
                     &__client,
                     #cube_count::new_single(),
@@ -302,10 +376,13 @@ impl Launch {
                     #(#launch_args,)*
                     __out,
                 );
-                let __bytes = __client
+                let mut __bytes = __client
                     .read(__handles)
-                    .unwrap_or_else(|err| panic!("harness for `{}` failed: {err}", #name_str));
-                <#ret as #harness_output>::read(&mut __bytes.into_iter())
+                    .unwrap_or_else(|err| panic!("harness for `{}` failed: {err}", #name_str))
+                    .into_iter();
+                let __ret = <#ret as #harness_output>::read(&mut __bytes);
+                #(#write_back)*
+                __ret
             }
         })
     }
@@ -394,6 +471,44 @@ mod tests {
     }
 
     #[test]
+    fn slices_are_harnessable() {
+        let plan = plan(parse_quote! {
+            fn f<F: Float>(xs: &[F], ys: &'a [u32], out: &mut [i64]) -> F { xs[0] }
+        })
+        .unwrap();
+
+        assert_eq!(
+            plan.params
+                .iter()
+                .map(|(_, v)| v.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                HarnessValue::Slice {
+                    elem: parse_quote!(F),
+                    mutable: false
+                },
+                HarnessValue::Slice {
+                    elem: parse_quote!(u32),
+                    mutable: false
+                },
+                HarnessValue::Slice {
+                    elem: parse_quote!(i64),
+                    mutable: true
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn writing_into_a_slice_is_a_result() {
+        let fill = plan(parse_quote! { fn f(x: u32, out: &mut [u32]) {} }).unwrap();
+        assert_eq!(fill.returns, parse_quote!(()));
+
+        let explicit = plan(parse_quote! { fn f(out: &mut [f32]) -> () {} }).unwrap();
+        assert_eq!(explicit.returns, parse_quote!(()));
+    }
+
+    #[test]
     fn impure_functions_have_no_harness() {
         let impure: Vec<ItemFn> = vec![
             parse_quote! { fn f(x: u32) {} },
@@ -403,7 +518,13 @@ mod tests {
             parse_quote! { fn f(x: u32) -> (u32, ()) { (x, ()) } },
             parse_quote! { fn f(x: usize) -> u32 { 0 } },
             parse_quote! { fn f(x: &u32) -> u32 { 0 } },
-            parse_quote! { fn f(x: &[u32]) -> u32 { 0 } },
+            parse_quote! { fn f(x: &[u32]) {} },
+            parse_quote! { fn f(x: &[bool]) -> u32 { 0 } },
+            parse_quote! { fn f(x: &[usize]) -> u32 { 0 } },
+            parse_quote! { fn f(x: &[Point]) -> u32 { 0 } },
+            parse_quote! { fn f(x: &[[u32; 2]]) -> u32 { 0 } },
+            parse_quote! { fn f(x: &mut u32) {} },
+            parse_quote! { fn f(x: &mut [u32]) -> (u32, ()) { (0, ()) } },
             parse_quote! { fn f(x: Vector<f32, N>) -> f32 { 0 } },
             parse_quote! { fn f(p: Point) -> u32 { 0 } },
             parse_quote! { fn f(x: u32) -> Point { p } },
@@ -429,6 +550,7 @@ mod tests {
         // comptime cube types.
         let opted_in: Vec<ItemFn> = vec![
             parse_quote! { fn f(p: &Point) -> u32 { 0 } },
+            parse_quote! { fn f(p: &[Point]) -> u32 { 0 } },
             parse_quote! { fn f(#[comptime] c: MyConfig) -> u32 { 0 } },
             parse_quote! { fn f(p: Point) {} },
         ];
