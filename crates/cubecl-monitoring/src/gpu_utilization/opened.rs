@@ -1,5 +1,5 @@
 #[cfg(amdgpu_busy_percent)]
-use super::amdgpu_busy_percent::AmdgpuBusyPercentFile;
+use super::amdgpu_sysfs::AmdgpuSysfsFiles;
 #[cfg(gpu_engine_counters)]
 use super::gpu_engine_counters::GpuEngineCounters;
 #[cfg(intel_idle_residency)]
@@ -9,7 +9,9 @@ use super::io_accelerator::IoAcceleratorStatistics;
 #[cfg(nvml)]
 use super::nvml::NvmlUtilizationCounter;
 use super::source::UtilizationSource;
-use crate::utilization::{DeviceUtilization, UtilizationUnavailable};
+use crate::utilization::{
+    DevicePower, DeviceTemperature, DeviceUtilization, UtilizationUnavailable,
+};
 
 /// A device's counter once opened: a counter that would not open keeps the reason, so a device is
 /// only ever opened once.
@@ -18,7 +20,7 @@ pub enum OpenedCounter {
     #[cfg(nvml)]
     Nvml(NvmlUtilizationCounter),
     #[cfg(amdgpu_busy_percent)]
-    AmdgpuBusyPercentFile(AmdgpuBusyPercentFile),
+    AmdgpuSysfsFiles(AmdgpuSysfsFiles),
     #[cfg(intel_idle_residency)]
     IntelIdleResidencyFiles(IntelIdleResidencyFiles),
     #[cfg(gpu_engine_counters)]
@@ -36,9 +38,9 @@ impl OpenedCounter {
                 NvmlUtilizationCounter::new(pci_address).map(Self::Nvml)
             }
             #[cfg(amdgpu_busy_percent)]
-            UtilizationSource::AmdgpuBusyPercentFile(pci_address) => Ok(
-                Self::AmdgpuBusyPercentFile(AmdgpuBusyPercentFile::new(pci_address)),
-            ),
+            UtilizationSource::AmdgpuSysfsFiles(pci_address) => {
+                Ok(Self::AmdgpuSysfsFiles(AmdgpuSysfsFiles::new(pci_address)))
+            }
             #[cfg(intel_idle_residency)]
             UtilizationSource::IntelIdleResidencyFiles(pci_address) => {
                 IntelIdleResidencyFiles::new(pci_address).map(Self::IntelIdleResidencyFiles)
@@ -61,14 +63,44 @@ impl OpenedCounter {
             #[cfg(nvml)]
             Self::Nvml(counter) => counter.read(),
             #[cfg(amdgpu_busy_percent)]
-            Self::AmdgpuBusyPercentFile(file) => file.read(),
+            Self::AmdgpuSysfsFiles(file) => file.utilization(),
             #[cfg(intel_idle_residency)]
             Self::IntelIdleResidencyFiles(files) => files.read(),
             #[cfg(gpu_engine_counters)]
             Self::GpuEngineCounters(counters) => counters.read(),
             #[cfg(io_accelerator)]
-            Self::IoAcceleratorStatistics(statistics) => statistics.read(),
+            Self::IoAcceleratorStatistics(statistics) => statistics.utilization(),
             Self::Unavailable(reason) => Err(reason.clone()),
+        }
+    }
+
+    /// The card's temperature, from the counters that keep one.
+    pub fn temperature(&self) -> Result<DeviceTemperature, UtilizationUnavailable> {
+        match self {
+            #[cfg(nvml)]
+            Self::Nvml(counter) => counter.temperature(),
+            #[cfg(amdgpu_busy_percent)]
+            Self::AmdgpuSysfsFiles(file) => file.temperature(),
+            #[cfg(io_accelerator)]
+            Self::IoAcceleratorStatistics(statistics) => statistics.temperature(),
+            Self::Unavailable(reason) => Err(reason.clone()),
+            #[allow(unreachable_patterns)]
+            _ => Err(UtilizationUnavailable::NoSuchReading),
+        }
+    }
+
+    /// The card's power draw, from the counters that keep one.
+    pub fn power(&self) -> Result<DevicePower, UtilizationUnavailable> {
+        match self {
+            #[cfg(nvml)]
+            Self::Nvml(counter) => counter.power(),
+            #[cfg(amdgpu_busy_percent)]
+            Self::AmdgpuSysfsFiles(file) => file.power(),
+            #[cfg(io_accelerator)]
+            Self::IoAcceleratorStatistics(statistics) => statistics.power(),
+            Self::Unavailable(reason) => Err(reason.clone()),
+            #[allow(unreachable_patterns)]
+            _ => Err(UtilizationUnavailable::NoSuchReading),
         }
     }
 }
