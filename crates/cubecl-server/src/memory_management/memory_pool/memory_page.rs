@@ -17,10 +17,9 @@ use cubecl_environment::{backtrace::BackTrace, sync::Arc};
 pub struct MemoryPage {
     storage: StorageHandle,
     slices: Vec<Slice>,
-    /// This is a vector to be used temporary to store the updated slices.
-    ///
-    /// It avoids allocating a new vector all the time.
-    slices_tmp: Vec<Slice>,
+    /// The free runs the last [merge](Self::merge_free_runs) found, kept to
+    /// avoid allocating a new vector all the time.
+    free_runs: Vec<FreeRun>,
     /// Memory alignment.
     alignment: u64,
     location_base: MemoryLocation,
@@ -52,7 +51,7 @@ impl MemoryPage {
         let mut this = MemoryPage {
             storage: storage.clone(),
             slices: Vec::new(),
-            slices_tmp: Vec::new(),
+            free_runs: Vec::new(),
             alignment,
             location_base,
             mapped: matches!(mapping, PageMapping::Eager),
@@ -198,34 +197,57 @@ impl MemoryPage {
     /// you can call the [`Self::coalesce()`] function to merge those.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn try_reserve(&mut self, size: u64) -> Option<ManagedMemoryHandle> {
+        let effective_size = size + calculate_padding(size, self.alignment);
+        let index = self.slices.iter().position(|slice| {
+            slice.storage.utilization.size >= effective_size && slice.handle.is_free()
+        })?;
+
+        Some(self.reserve_at(index, size))
+    }
+
+    /// [Coalesces](Self::coalesce), then reserves a slice of the given size on
+    /// the first free slice that fits.
+    ///
+    /// Whether a slice is free is read once per slice, while merging; the
+    /// search that follows only visits the free slices the merge found.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, failures))
+    )]
+    pub fn reserve(&mut self, size: u64, failures: &mut ErrorGraph) -> Option<ManagedMemoryHandle> {
+        self.merge_free_runs(failures);
+
+        let effective_size = size + calculate_padding(size, self.alignment);
+        let index = self
+            .free_runs
+            .iter()
+            .map(|run| run.index)
+            .find(|&index| self.slices[index].storage.utilization.size >= effective_size)?;
+
+        Some(self.reserve_at(index, size))
+    }
+
+    /// Reserves `size` bytes on the free slice at `index`, which fits them,
+    /// splitting off what is left as a new free slice.
+    fn reserve_at(&mut self, index: usize, size: u64) -> ManagedMemoryHandle {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
+        let slice = &mut self.slices[index];
 
-        for (index, slice) in self.slices.iter_mut().enumerate() {
-            let can_use_slice =
-                slice.storage.utilization.size >= effective_size && slice.handle.is_free();
+        let can_be_split = slice.storage.utilization.size > effective_size;
+        let handle = slice.handle.clone();
+        let storage_old = slice.storage.clone();
 
-            if !can_use_slice {
-                continue;
-            }
+        // Updates the current storage utilization.
+        slice.storage.utilization.size = size;
+        slice.padding = padding;
 
-            let can_be_split = slice.storage.utilization.size > effective_size;
-            let handle = slice.handle.clone();
-            let storage_old = slice.storage.clone();
-
-            // Updates the current storage utilization.
-            slice.storage.utilization.size = size;
-            slice.padding = padding;
-
-            if can_be_split {
-                let new_slice = Slice::new(storage_old.offset_start(effective_size), 0);
-                self.add_new_slice(index, size, new_slice);
-            }
-
-            return Some(handle);
+        if can_be_split {
+            let new_slice = Slice::new(storage_old.offset_start(effective_size), 0);
+            self.insert_slice(index + 1, new_slice);
         }
 
-        None
+        handle
     }
 
     /// Gets the [storage handle](SliceHandle) with the correct offset and size using the slice
@@ -283,117 +305,112 @@ impl MemoryPage {
     /// decrement.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     pub fn coalesce(&mut self, failures: &mut ErrorGraph) {
-        self.slices_tmp.clear();
-        let mut job = self.memory_job();
-        let mut tasks = job.tasks.drain(..);
-
-        let mut task = match tasks.next() {
-            Some(task) => Some(task),
-            None => return,
-        };
-
-        let mut offset = 0;
-        let mut size = 0;
-
-        for (index, mut slice) in self.slices.drain(..).enumerate() {
-            let status = match &mut task {
-                Some(task) => task.on_coalesce(index),
-                None => MemoryTaskStatus::Ignoring,
-            };
-
-            match status {
-                MemoryTaskStatus::StartMerging => {
-                    offset = slice.storage.utilization.offset;
-                    size = slice.effective_size();
-                    slice.tainted.clear(failures);
-                }
-                MemoryTaskStatus::Merging => {
-                    size += slice.effective_size();
-                    slice.tainted.clear(failures);
-                }
-                MemoryTaskStatus::Ignoring => {
-                    let slice_pos_updated = self.slices_tmp.len();
-                    slice
-                        .handle
-                        .descriptor()
-                        .update_slice(slice_pos_updated as u32);
-                    self.slices_tmp.push(slice);
-                }
-                MemoryTaskStatus::Completed => {
-                    let slice_pos_updated = self.slices_tmp.len();
-                    size += slice.effective_size();
-                    slice.tainted.clear(failures);
-
-                    let mut storage = self.storage.clone();
-                    storage.utilization = StorageUtilization { offset, size };
-                    let page = Slice::new(storage, 0);
-                    let mut location = self.location_base;
-                    location.slice = slice_pos_updated as u32;
-                    page.descriptor().update_location(location);
-                    self.slices_tmp.push(page);
-                    task = tasks.next();
-                }
-            };
-        }
-
-        core::mem::swap(&mut self.slices, &mut self.slices_tmp);
+        self.merge_free_runs(failures);
     }
 
-    fn add_new_slice(
-        &mut self,
-        index_previous: usize,
-        reserved_size_previous: u64,
-        new_slice: Slice,
-    ) {
-        self.slices_tmp.clear();
-
-        let mut new_slice = Some(new_slice);
-
-        let mut index_current = 0;
-        for mut slice in self.slices.drain(..) {
-            if index_current == index_previous {
-                let slice_pos_updated = self.slices_tmp.len() as u32;
-                slice.storage.utilization.size = reserved_size_previous;
-                slice.handle.descriptor().update_slice(slice_pos_updated);
-                self.slices_tmp.push(slice);
-                index_current += 1;
-
-                // New slice
-                let slice_pos_updated = self.slices_tmp.len() as u32;
-                let new_slice = new_slice.take().unwrap();
-                let mut location = self.location_base;
-                location.slice = slice_pos_updated;
-                new_slice.descriptor().update_location(location);
-
-                self.slices_tmp.push(new_slice);
-                index_current += 1;
-            } else {
-                let slice_pos_updated = self.slices_tmp.len() as u32;
-                slice.handle.descriptor().update_slice(slice_pos_updated);
-                self.slices_tmp.push(slice);
-                index_current += 1;
-            }
-        }
-
-        core::mem::swap(&mut self.slices, &mut self.slices_tmp);
-    }
-
-    fn memory_job(&self) -> MemoryJob {
-        let mut job = MemoryJob::default();
-        let mut task = MemoryTask::default();
-
+    /// Merges every run of adjacent free slices into one, in place, and
+    /// records each run with the index of the slice it became in
+    /// [`free_runs`](Self::free_runs).
+    ///
+    /// Only the slices that move are renumbered: those before the first
+    /// merged run keep their index.
+    fn merge_free_runs(&mut self, failures: &mut ErrorGraph) {
+        self.free_runs.clear();
+        let mut current: Option<FreeRun> = None;
         for (index, slice) in self.slices.iter().enumerate() {
-            if slice.handle.is_free() {
-                task.size += slice.effective_size();
-                task.tag_coalesce(index);
-            } else {
-                task = job.add(task);
+            if slice.is_free() {
+                let run = current.get_or_insert(FreeRun {
+                    start: index,
+                    count: 0,
+                    size: 0,
+                    index,
+                });
+                run.count += 1;
+                run.size += slice.effective_size();
+            } else if let Some(run) = current.take() {
+                self.free_runs.push(run);
             }
         }
-        job.add(task);
+        self.free_runs.extend(current);
 
-        job
+        if self.free_runs.iter().all(|run| run.count == 1) {
+            return;
+        }
+
+        let storage = &self.storage;
+        let location_base = self.location_base;
+        let mut runs = self.free_runs.iter_mut().peekable();
+        let mut index = 0;
+        let mut kept = 0;
+
+        self.slices.retain_mut(|slice| {
+            let current = index;
+            index += 1;
+
+            let keep = match runs.peek_mut() {
+                Some(run) if run.count > 1 && current >= run.start => {
+                    slice.tainted.clear(failures);
+                    let first = current == run.start;
+                    if first {
+                        let mut merged = storage.clone();
+                        merged.utilization = StorageUtilization {
+                            offset: slice.storage.utilization.offset,
+                            size: run.size,
+                        };
+                        *slice = Slice::new(merged, 0);
+                        let mut location = location_base;
+                        location.slice = kept as u32;
+                        slice.descriptor().update_location(location);
+                        run.index = kept;
+                    }
+                    if current + 1 == run.start + run.count {
+                        runs.next();
+                    }
+                    first
+                }
+                run => {
+                    if let Some(run) = run.filter(|run| run.start == current) {
+                        run.index = kept;
+                        runs.next();
+                    }
+                    if kept != current {
+                        slice.descriptor().update_slice(kept as u32);
+                    }
+                    true
+                }
+            };
+
+            if keep {
+                kept += 1;
+            }
+            keep
+        });
     }
+
+    /// Inserts `slice` at `index`, renumbering the slices after it.
+    fn insert_slice(&mut self, index: usize, slice: Slice) {
+        let mut location = self.location_base;
+        location.slice = index as u32;
+        slice.descriptor().update_location(location);
+        self.slices.insert(index, slice);
+
+        for (position, slice) in self.slices.iter().enumerate().skip(index + 1) {
+            slice.descriptor().update_slice(position as u32);
+        }
+    }
+}
+
+/// A run of adjacent free slices on a [`MemoryPage`].
+#[derive(Debug, Clone, Copy)]
+struct FreeRun {
+    /// The index of its first slice, before merging.
+    start: usize,
+    /// How many slices it spans.
+    count: usize,
+    /// The bytes it spans, padding included.
+    size: u64,
+    /// The index of the slice it is, once merged.
+    index: usize,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -472,81 +489,6 @@ impl Display for MemoryPage {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(format_args!("{}", self.summary(true)))
     }
-}
-
-#[derive(Default, Debug, PartialEq, Eq)]
-struct MemoryJob {
-    tasks: Vec<MemoryTask>,
-}
-
-#[derive(Default, Debug, PartialEq, Eq)]
-/// The goal of the memory task is to gather contiguous slice indices that can be merged into a single slice.
-struct MemoryTask {
-    /// The first slice index to be merged.
-    start_index: usize,
-    /// The number of slices to be merged.
-    count: usize,
-    /// Which slice index is being merge right now.
-    cursor: usize,
-    /// The total size in bytes in the resulting merged slice.
-    size: u64,
-}
-
-impl MemoryTask {
-    /// Tells the task that the given slice index will be coalesced.
-    fn tag_coalesce(&mut self, index: usize) {
-        if self.count == 0 {
-            self.start_index = index;
-        }
-
-        debug_assert!(
-            self.start_index + self.count == index,
-            "Only contiguous index can be coalesced in a single task"
-        );
-
-        self.count += 1;
-    }
-    /// Tells the task that the given slice index is being coalesce.
-    fn on_coalesce(&mut self, index: usize) -> MemoryTaskStatus {
-        let index_current = self.start_index + self.cursor;
-
-        if index_current == index {
-            self.cursor += 1;
-            if self.cursor == 1 {
-                return MemoryTaskStatus::StartMerging;
-            }
-
-            if self.cursor == self.count {
-                return MemoryTaskStatus::Completed;
-            } else {
-                return MemoryTaskStatus::Merging;
-            }
-        }
-
-        MemoryTaskStatus::Ignoring
-    }
-}
-
-impl MemoryJob {
-    fn add(&mut self, mut task: MemoryTask) -> MemoryTask {
-        // A single index can't be merge with anything.
-        if task.count < 2 {
-            return MemoryTask::default();
-        }
-
-        let mut returned = MemoryTask::default();
-        core::mem::swap(&mut task, &mut returned);
-        self.tasks.push(returned);
-        task
-    }
-}
-
-#[derive(Debug)]
-enum MemoryTaskStatus {
-    Merging,
-    StartMerging,
-    Ignoring,
-    Completed,
 }
 
 #[cfg(test)]
@@ -629,26 +571,28 @@ mod tests {
     }
 
     #[test_log::test]
-    fn test_memory_job() {
+    fn test_reserve_merges_and_splits_in_place() {
         let mut page = new_memory_page(32 * MB);
-        let slice = page
-            .try_reserve(16 * MB)
-            .expect("Enough space to allocate a new slice");
+        let mut failures = ErrorGraph::default();
+        let [h0, h1, h2, h3, h4, h5, h6, h7] =
+            core::array::from_fn(|_| page.try_reserve(2 * MB).expect("Enough space"));
 
-        core::mem::drop(slice);
-        let job = page.memory_job();
+        // Free a run of two, a lone slice, and a run that reaches the free tail.
+        core::mem::drop((h1, h2, h4, h6, h7));
 
-        assert_eq!(
-            job,
-            MemoryJob {
-                tasks: vec![MemoryTask {
-                    start_index: 0,
-                    count: 2,
-                    cursor: 0,
-                    size: 32 * MB,
-                }]
-            }
-        );
+        // Merging the first run moves every slice after it back one index, and
+        // splitting it moves them forward again: each handle must follow.
+        let first = page
+            .reserve(3 * MB, &mut failures)
+            .expect("The 4 MB run fits");
+        // Too large for the run's remainder and the lone slice.
+        let tail = page.reserve(6 * MB, &mut failures).expect("The tail fits");
+
+        for (handle, offset) in [(&h0, 0), (&first, 2), (&h3, 6), (&h5, 10), (&tail, 12)] {
+            let slice = page.find(&handle.clone().binding()).unwrap();
+            assert_eq!(slice.handle.descriptor(), handle.descriptor());
+            assert_eq!(slice.storage.utilization.offset, offset * MB);
+        }
     }
 
     #[test_log::test]
