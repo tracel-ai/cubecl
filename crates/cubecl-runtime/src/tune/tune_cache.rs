@@ -5,7 +5,7 @@ use cubecl_common::device::ServiceId;
 #[cfg(persistence)]
 use cubecl_environment::persistence::StoreError;
 #[cfg(persistence)]
-use cubecl_environment::persistence::{CacheOption, Store, StoreOptions};
+use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOptions};
 #[cfg(serializable)]
 use serde::{Deserialize, Serialize};
 
@@ -22,7 +22,7 @@ use cubecl_environment::collections::HashMap;
 
 /// Bumped when tables are named another way, so the tables named the old way are purged.
 #[cfg(persistence)]
-static TABLES: NamespaceVersion = NamespaceVersion::new("autotune", "layout-v", 1);
+static TABLES: NamespaceVersion = NamespaceVersion::new(ROOT, LAYOUT_PREFIX, 1);
 
 #[derive(Debug)]
 pub(crate) enum CacheEntry {
@@ -156,6 +156,31 @@ pub enum TuneCacheResult {
     Miss,
 }
 
+/// The root of every tuner's table namespace.
+pub const ROOT: &str = "autotune";
+
+/// What the segment numbering a table layout starts with, as in `layout-v1`.
+pub const LAYOUT_PREFIX: &str = "layout-v";
+
+/// What names the table one tuner stores its answers in on one hardware.
+#[cfg(persistence)]
+#[derive(Clone, Copy, Debug)]
+pub struct TuneTableName<'a> {
+    /// The hardware the answers were measured on, as its [`HardwareIdentity`] displays.
+    pub hardware: &'a str,
+    /// The tuner, named by the code that declared it.
+    pub tuner: &'a str,
+}
+
+#[cfg(persistence)]
+impl TuneTableName<'_> {
+    /// `autotune/<version>/layout-v<layout>/<hardware>/<tuner>`.
+    pub fn namespace(&self) -> Namespace {
+        let Self { hardware, tuner } = self;
+        TABLES.namespace(&alloc::format!("{hardware}/{tuner}"))
+    }
+}
+
 impl<K: AutotuneKey> TuneCache<K> {
     pub(crate) fn new(
         #[cfg_attr(not(persistence), allow(unused_variables))] name: &str,
@@ -164,10 +189,14 @@ impl<K: AutotuneKey> TuneCache<K> {
         #[cfg(persistence)]
         {
             use crate::config::RuntimeConfig;
-            use alloc::format;
+            use alloc::string::ToString;
 
             let config = crate::config::CubeClRuntimeConfig::get();
-            let namespace = TABLES.namespace(&format!("{hardware}/{name}"));
+            let namespace = TuneTableName {
+                hardware: &hardware.to_string(),
+                tuner: name,
+            }
+            .namespace();
             let table = namespace.as_str().into();
 
             if config.autotune.disable_cache {
@@ -378,7 +407,7 @@ impl<K: AutotuneKey> TuneCache<K> {
                 log::debug!("Autotune result for key {key:?} was already stored concurrently")
             }
             StoreError::Backend { key, error } => log::warn!(
-                "Autotune result for key {key:?} could not be stored, it will be retuned: {error}"
+                "Autotune result for key {key:?} could not be stored, it will be re-tuned: {error}"
             ),
         }
         false

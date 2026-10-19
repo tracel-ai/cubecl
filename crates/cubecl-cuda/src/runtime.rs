@@ -1,6 +1,6 @@
 use crate::{
     compiler::{CudaBackend, CudaCompilationOptions},
-    compute::{CudaServer, context::CudaContext},
+    compute::{CudaServer, communication::Nccl, context::CudaContext},
     device::CudaDevice,
 };
 use cubecl_common::{
@@ -37,17 +37,21 @@ use cubecl_cpp::{
 };
 use cubecl_llvm::nvptx::ptx_version::PtxVersion;
 use cubecl_llvm::shared::lowered_features::{GpuTarget, restrict_features};
-use cubecl_monitoring::{DeviceUtilization, UtilizationUnavailable, gpu_utilization::CardCounters};
+use cubecl_monitoring::{
+    DevicePower, DeviceTemperature, DeviceUtilization, UtilizationUnavailable,
+    gpu_utilization::CardCounters,
+};
 use cubecl_server::{
     allocator::PitchedMemoryLayoutPolicy,
     config::{CubeClRuntimeConfig, RuntimeConfig},
     logging::ServerLogger,
-    runtime::Runtime,
+    runtime::{DeviceDescription, DeviceKind, Runtime},
 };
 #[cfg(windows)]
 use cudarc::driver::sys::cuDeviceGetLuid;
 use cudarc::driver::sys::{
-    CUDA_VERSION, CUdevice, cuDeviceGetPCIBusId, cuDeviceTotalMem_v2, cuDriverGetVersion,
+    CUDA_VERSION, CUdevice, CUdevice_attribute, cuDeviceGetPCIBusId, cuDeviceTotalMem_v2,
+    cuDriverGetVersion,
 };
 use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
 
@@ -450,8 +454,8 @@ impl DeviceService for CudaServer {
             logger,
             policy,
         );
-        // SAFETY: the call only tries to `dlopen` each candidate name.
-        utilities.server_comm_enabled = unsafe { cudarc::nccl::sys::is_culib_present() };
+        utilities.device_transport = Nccl::new(arch_version)
+            .map(|nccl| nccl.transport(utilities.properties.features.types.elem.keys().copied()));
 
         CudaServer::new(
             cuda_ctx,
@@ -524,7 +528,64 @@ impl Runtime for CudaRuntime {
     }
 
     fn utilization(device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
-        CardCounters::read(Self::client(device).properties().identity.physical.as_ref())
+        CardCounters::utilization(Self::client(device).properties().identity.physical.as_ref())
+    }
+
+    fn temperature(device: &Self::Device) -> Result<DeviceTemperature, UtilizationUnavailable> {
+        CardCounters::temperature(Self::client(device).properties().identity.physical.as_ref())
+    }
+
+    fn power(device: &Self::Device) -> Result<DevicePower, UtilizationUnavailable> {
+        CardCounters::power(Self::client(device).properties().identity.physical.as_ref())
+    }
+
+    fn description(device: &Self::Device) -> Option<DeviceDescription> {
+        // SAFETY: the call only tries to `dlopen` each candidate name; past it,
+        // the driver is loaded and initializing it cannot panic.
+        if !unsafe { cudarc::driver::sys::is_culib_present() } {
+            return None;
+        }
+        cudarc::driver::result::init().ok()?;
+        let handle = cudarc::driver::result::device::get(device.index as i32).ok()?;
+        // SAFETY: `handle` is a valid device the driver just handed out.
+        let attribute = |attribute| unsafe {
+            cudarc::driver::result::device::get_attribute(handle, attribute).ok()
+        };
+
+        let probe = DeviceProbe::of(handle);
+        let kind = match attribute(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_INTEGRATED) {
+            Some(1) => DeviceKind::Integrated,
+            _ => DeviceKind::Discrete,
+        };
+        let mut description = DeviceDescription::new(probe.name, kind);
+        description.physical = Some(probe.physical);
+        // SAFETY: `handle` is a valid device, and `bytes` is only read after the call
+        // reported writing it.
+        description.max_memory = unsafe {
+            let mut bytes = MaybeUninit::uninit();
+            cuDeviceTotalMem_v2(bytes.as_mut_ptr(), handle)
+                .result()
+                .ok()
+                .map(|()| bytes.assume_init() as u64)
+        };
+        description.architecture = match (
+            attribute(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR),
+            attribute(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR),
+        ) {
+            (Some(major), Some(minor)) => {
+                Some(SmArch::new((major * 10 + minor) as u32, false).target_cpu())
+            }
+            _ => None,
+        };
+        // SAFETY: `version` outlives the call, and is only read after it reported writing it.
+        description.driver_version = unsafe {
+            let mut version = 0;
+            cuDriverGetVersion(&mut version).result().ok().map(|()| {
+                // `1000 * major + 10 * minor`, as `CUDA_VERSION`.
+                format!("{}.{}", version / 1000, (version % 1000) / 10)
+            })
+        };
+        Some(description)
     }
 }
 

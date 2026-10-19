@@ -11,9 +11,12 @@ use cubecl_environment::collections::HashMap;
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::DeviceProperties;
 
+/// The root of every throughput table's namespace.
+pub const ROOT: &str = "throughput";
+
 #[cfg(persistence)]
 static PROBES: NamespaceVersion =
-    NamespaceVersion::new("throughput", "probe-v", crate::throughput::PROBE_VERSION);
+    NamespaceVersion::new(ROOT, "probe-v", crate::throughput::PROBE_VERSION);
 
 static GLOBAL_CACHE: Mutex<Option<HashMap<String, Arc<Mutex<ThroughputCache>>>>> = Mutex::new(None);
 

@@ -3,9 +3,12 @@ use alloc::string::{String, ToString};
 
 use cubecl_ir::PciAddress;
 use nvml_wrapper::Nvml;
+use nvml_wrapper::enum_wrappers::device::TemperatureSensor;
 use nvml_wrapper::error::NvmlError;
 
-use crate::utilization::{DeviceUtilization, UtilizationUnavailable};
+use crate::utilization::{
+    DevicePower, DeviceTemperature, DeviceUtilization, UtilizationUnavailable,
+};
 
 /// NVIDIA's management library, which loads at run time, so a build that reaches for it starts
 /// on a machine with no NVIDIA driver.
@@ -30,7 +33,28 @@ impl NvmlUtilizationCounter {
         self.nvml
             .device_by_pci_bus_id(self.pci_bus_id.as_str())
             .and_then(|device| device.utilization_rates())
-            .map(|utilization| DeviceUtilization::new(utilization.gpu as f32))
+            .map(|utilization| {
+                DeviceUtilization::new(utilization.gpu as f32)
+                    .with_memory_busy_percent(utilization.memory as f32)
+            })
+            .map_err(unavailability_from_nvml_error)
+    }
+
+    /// The GPU die's temperature.
+    pub fn temperature(&self) -> Result<DeviceTemperature, UtilizationUnavailable> {
+        self.nvml
+            .device_by_pci_bus_id(self.pci_bus_id.as_str())
+            .and_then(|device| device.temperature(TemperatureSensor::Gpu))
+            .map(|celsius| DeviceTemperature::new(celsius as f32))
+            .map_err(unavailability_from_nvml_error)
+    }
+
+    /// The board's power draw. A card with no power sensor is refused by the driver.
+    pub fn power(&self) -> Result<DevicePower, UtilizationUnavailable> {
+        self.nvml
+            .device_by_pci_bus_id(self.pci_bus_id.as_str())
+            .and_then(|device| device.power_usage())
+            .map(|milliwatts| DevicePower::new(milliwatts as f32 / 1000.0))
             .map_err(unavailability_from_nvml_error)
     }
 }
@@ -40,6 +64,8 @@ fn unavailability_from_nvml_error(error: NvmlError) -> UtilizationUnavailable {
         NvmlError::LibloadingError(_) | NvmlError::LibraryNotFound => {
             UtilizationUnavailable::DriverLibraryNotFound(error.to_string())
         }
+        // The card has no such sensor or counter, which is no failure of the query.
+        NvmlError::NotSupported => UtilizationUnavailable::NoSuchReading,
         _ => UtilizationUnavailable::QueryFailed(error.to_string()),
     }
 }
