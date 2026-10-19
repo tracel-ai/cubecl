@@ -16,11 +16,15 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 /// One environment open in the browser: its reports as last read, which tab
-/// shows, where it is scrolled, and which autotune key is selected or open.
+/// shows, where it is scrolled and panned, and which autotune key is
+/// selected or open.
 pub(crate) struct Viewer {
     path: PathBuf,
     tab: Tab,
     scroll: u16,
+    /// Columns the page is panned right by: a table wider than the panel is
+    /// cut at its edge, the rest of it reached by panning.
+    pan: u16,
     pages: Option<Pages>,
     keys: Selection,
     /// The key opened from the autotune list, rendered.
@@ -203,9 +207,25 @@ impl Page {
         )
     }
 
-    /// The page, scrolled.
-    fn scrolled(&self, scroll: u16) -> Paragraph<'_> {
-        Paragraph::new(self.0.clone()).scroll((scroll, 0))
+    /// The page, scrolled and panned.
+    fn scrolled(&self, scroll: u16, pan: u16) -> Paragraph<'_> {
+        Paragraph::new(self.0.clone()).scroll((scroll, pan))
+    }
+
+    /// The columns the widest of `rows` lines from `scroll` takes: what is
+    /// on screen, so a long line further down does not pan the table past
+    /// its edge.
+    fn width(&self, scroll: u16, rows: u16) -> u16 {
+        let widest = self
+            .0
+            .lines
+            .iter()
+            .skip(scroll.into())
+            .take(rows.into())
+            .map(Line::width)
+            .max()
+            .unwrap_or_default();
+        widest.try_into().unwrap_or(u16::MAX)
     }
 }
 
@@ -215,6 +235,7 @@ impl Viewer {
             path,
             tab: Tab::Summary,
             scroll: 0,
+            pan: 0,
             pages: None,
             keys: Selection::new(),
             detail: None,
@@ -250,6 +271,7 @@ impl Viewer {
     fn switch(&mut self, tab: Tab) {
         self.tab = tab;
         self.scroll = 0;
+        self.pan = 0;
         self.detail = None;
     }
 
@@ -267,6 +289,11 @@ impl Viewer {
         }
     }
 
+    /// Pan the page sideways; drawing stops it at the page's right edge.
+    pub(crate) fn pan_by(&mut self, columns: isize) {
+        self.pan = (self.pan as isize + columns).max(0) as u16;
+    }
+
     pub(crate) fn open_key(&mut self) {
         if self.tab != Tab::Autotune || self.detail.is_some() {
             return;
@@ -279,6 +306,7 @@ impl Viewer {
         if let Some(key) = key {
             self.detail = Some(Page::new(Text(key)));
             self.scroll = 0;
+            self.pan = 0;
         }
     }
 
@@ -286,6 +314,7 @@ impl Viewer {
     /// close backs out of the environment.
     pub(crate) fn close_key(&mut self) -> bool {
         self.scroll = 0;
+        self.pan = 0;
         self.detail.take().is_some()
     }
 
@@ -324,47 +353,47 @@ impl Viewer {
         );
 
         let block = panel(self.tab.title());
-        match (&self.pages, self.tab, &self.detail) {
-            (None, _, _) => frame.render_widget(
+        let page = match (&self.pages, self.tab, &self.detail) {
+            (Some(_), Tab::Autotune, Some(detail)) => Some(detail),
+            (Some(pages), tab, _) => pages.page(tab),
+            (None, _, _) => None,
+        };
+        // How far the lines on screen reach past the panel: panning stops
+        // there.
+        let inner = block.inner(body);
+        let hidden = page.map_or(0, |page| {
+            page.width(self.scroll, inner.height)
+                .saturating_sub(inner.width)
+        });
+        self.pan = self.pan.min(hidden);
+        match (&self.pages, page) {
+            (None, _) => frame.render_widget(
                 Paragraph::new("reading…")
                     .style(theme::label())
                     .block(block),
                 body,
             ),
-            (Some(_), Tab::Autotune, Some(detail)) => {
-                frame.render_widget(detail.scrolled(self.scroll).block(block), body)
+            (Some(_), Some(page)) => {
+                frame.render_widget(page.scrolled(self.scroll, self.pan).block(block), body)
             }
-            (Some(pages), Tab::Autotune, None) => self.keys.draw(
+            (Some(pages), None) => self.keys.draw(
                 frame,
                 body,
                 pages.keys.iter().map(KeyRow::item).collect(),
                 Some(block),
             ),
-            (Some(pages), tab, _) => {
-                if let Some(page) = pages.page(tab) {
-                    frame.render_widget(page.scrolled(self.scroll).block(block), body)
-                }
-            }
         }
 
         let back = match self.detail {
             Some(_) => "keys",
             None => "environments",
         };
-        frame.render_widget(
-            hints(
-                status,
-                &[
-                    ("←→", "tab"),
-                    ("↑↓", "move"),
-                    ("⏎", "open"),
-                    ("esc", back),
-                    ("r", "read"),
-                    ("q", "quit"),
-                ],
-            ),
-            footer,
-        );
+        let mut keys = vec![("←→", "tab"), ("↑↓", "move")];
+        if hidden > 0 {
+            keys.push(("h l", "pan"));
+        }
+        keys.extend([("⏎", "open"), ("esc", back), ("r", "read"), ("q", "quit")]);
+        frame.render_widget(hints(status, &keys), footer);
     }
 }
 
@@ -388,6 +417,16 @@ mod tests {
         assert_eq!(viewer.keys.index(), Some(0));
         viewer.move_by(5);
         assert_eq!(viewer.keys.index(), Some(0), "no keys read");
+    }
+
+    /// Panning stops at the widest line on screen, not the widest of the
+    /// page.
+    #[test]
+    fn a_page_is_as_wide_as_its_lines_on_screen() {
+        let page = Page::new("short\na much longer line\nmid line");
+        assert_eq!(page.width(0, 3), 18);
+        assert_eq!(page.width(2, 5), 8);
+        assert_eq!(page.width(9, 5), 0, "scrolled past the end");
     }
 
     /// The browser shows a report as a terminal paints it, not plainly.

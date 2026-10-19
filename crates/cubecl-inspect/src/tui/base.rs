@@ -2,7 +2,7 @@ use super::picker::Picker;
 use super::viewer::Viewer;
 use crate::report::Listing;
 use crate::{EnvironmentDirectory, InspectError};
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
+use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{DefaultTerminal, Frame};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime};
@@ -15,6 +15,9 @@ const REFRESH: Duration = Duration::from_secs(1);
 
 /// Rows a page key moves.
 const PAGE: u16 = 20;
+
+/// Columns a pan key moves.
+const PAN: u16 = 8;
 
 /// What the browser offers: the directories whose environments it lists to
 /// choose from, and the one it opens first.
@@ -62,6 +65,8 @@ enum Action {
     PreviousTab,
     Up(u16),
     Down(u16),
+    PanLeft(u16),
+    PanRight(u16),
     Open,
     Close,
     Refresh,
@@ -73,8 +78,13 @@ impl From<KeyEvent> for Action {
         if key.kind != KeyEventKind::Press {
             return Action::Nothing;
         }
+        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
         match key.code {
             KeyCode::Char('q') => Action::Quit,
+            KeyCode::Left if shift => Action::PanLeft(PAN),
+            KeyCode::Right if shift => Action::PanRight(PAN),
+            KeyCode::Char('h') => Action::PanLeft(PAN),
+            KeyCode::Char('l') => Action::PanRight(PAN),
             KeyCode::Tab | KeyCode::Right => Action::NextTab,
             KeyCode::BackTab | KeyCode::Left => Action::PreviousTab,
             KeyCode::Up | KeyCode::Char('k') => Action::Up(1),
@@ -136,6 +146,8 @@ impl Explorer {
             Action::PreviousTab => viewer.step_tab(-1),
             Action::Up(rows) => viewer.move_by(-(rows as isize)),
             Action::Down(rows) => viewer.move_by(rows as isize),
+            Action::PanLeft(columns) => viewer.pan_by(-(columns as isize)),
+            Action::PanRight(columns) => viewer.pan_by(columns as isize),
             Action::Open => viewer.open_key(),
             Action::Close => self.close(),
             Action::Refresh => self.read(),
@@ -156,6 +168,8 @@ impl Explorer {
             Action::Refresh => self.list(),
             Action::NextTab
             | Action::PreviousTab
+            | Action::PanLeft(_)
+            | Action::PanRight(_)
             | Action::Close
             | Action::Quit
             | Action::Nothing => {}
@@ -219,7 +233,6 @@ fn clock(time: SystemTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::crossterm::event::KeyModifiers;
     use std::path::Path;
 
     fn press(code: KeyCode) -> Action {
@@ -242,6 +255,12 @@ mod tests {
         assert_eq!(press(KeyCode::Char('q')), Action::Quit);
         assert_eq!(press(KeyCode::PageDown), Action::Down(PAGE));
         assert_eq!(press(KeyCode::Enter), Action::Open);
+        assert_eq!(press(KeyCode::Char('l')), Action::PanRight(PAN));
+        assert_eq!(
+            Action::from(KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT)),
+            Action::PanLeft(PAN)
+        );
+        assert_eq!(press(KeyCode::Left), Action::PreviousTab);
         assert_eq!(press(KeyCode::Char('x')), Action::Nothing);
     }
 
