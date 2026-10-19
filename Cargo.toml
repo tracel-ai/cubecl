@@ -121,6 +121,8 @@ js-sys = "0.3"
 parking_lot = { version = "0.12.5", default-features = false }
 sanitize-filename = "0.6"
 turso = { version = "0.8.2", default-features = false }
+# Turso's branches dependency uses a removed intrinsic on nightly without std.
+branches = { version = "0.4.6", default-features = false, features = ["std"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4.45"
 wasm-bindgen-test = "0.3"
@@ -219,7 +221,7 @@ llvm-sys = { version = "231", features = [
     "no-llvm-linking",
     "disable-alltargets-init",
 ] }
-tracel-llvm-bundler = "23.1.0-3"
+tracel-llvm-bundler = "23.1.0-4"
 # tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm.git", rev = "4769fd52f2205435134d6a3c606f94aad6876155" }
 # tracel-llvm-bundler = { path = "../tracel-llvm/crates/tracel-llvm-bundler" }
 
