@@ -469,16 +469,135 @@ fn a_lost_device_leaves_its_key_to_the_rest_of_its_part() {
     );
 }
 
+/// A tune that unwinds leaves its key to the next caller, as a lost device does.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn a_tune_that_unwinds_leaves_its_key_to_the_next_caller() {
+    use cubecl_server::tune::Tunable;
+    use std::sync::atomic::AtomicBool;
+
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("a_tune_that_unwinds_leaves_its_key_to_the_next_caller");
+    static PANICS: AtomicBool = AtomicBool::new(false);
+    #[cfg(persistence)]
+    let root = tempfile::tempdir().unwrap();
+    #[cfg(persistence)]
+    rooted_at(root.path());
+
+    let client = test_client(&DummyDevice);
+    let id = "test".to_string();
+    let set = TUNER.init(&id, || {
+        let client = test_client(&DummyDevice);
+        let slow = OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseAdditionSlowWrong),
+            client.clone(),
+        );
+        let add =
+            OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client);
+        TunableSet::<String, Vec<Handle>, ()>::new(
+            |_: &Vec<Handle>| "unwinds".to_string(),
+            |_: &String, inputs: &Vec<Handle>| {
+                assert!(
+                    !PANICS.load(Ordering::Relaxed),
+                    "the inputs fail to generate"
+                );
+                inputs.clone()
+            },
+        )
+        .with(Tunable::new("add_slow_wrong", move |inputs| {
+            slow.run(inputs)
+        }))
+        .with(Tunable::new("add", move |inputs| add.run(inputs)))
+    });
+    let (handles, _) = addition_inputs(&client, &set);
+    let out = handles[2].clone();
+
+    PANICS.store(true, Ordering::Relaxed);
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        TUNER.execute(&id, &client, set.clone(), handles.clone())
+    }));
+    PANICS.store(false, Ordering::Relaxed);
+    assert!(unwound.is_err(), "the tune unwound");
+
+    TUNER.execute(&id, &client, set, handles);
+    assert_eq!(
+        client.read_one(out).unwrap().to_vec(),
+        vec![4, 5, 6],
+        "tuned, rather than running the slow, wrong candidate as a pending key does"
+    );
+}
+
+/// Candidate lists whose names join into the same string are two lists, and never share a tuner.
+#[test_log::test]
+#[cfg(feature = "std")]
+#[serial_test::serial]
+fn lists_whose_names_join_alike_never_share_a_tuner() {
+    use cubecl_server::tune::{CloneInputGenerator, Tunable};
+
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("lists_whose_names_join_alike_never_share_a_tuner");
+    #[cfg(persistence)]
+    let root = tempfile::tempdir().unwrap();
+    #[cfg(persistence)]
+    rooted_at(root.path());
+
+    let (split_id, joined_id) = ("split".to_string(), "joined".to_string());
+    let split = TUNER.init(&split_id, || {
+        let client = test_client(&DummyDevice);
+        let slow = OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseAdditionSlowWrong),
+            client.clone(),
+        );
+        let add =
+            OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client);
+        TunableSet::<String, Vec<Handle>, ()>::new(
+            |_: &Vec<Handle>| "joined".to_string(),
+            CloneInputGenerator,
+        )
+        .with(Tunable::new("a", move |inputs| slow.run(inputs)))
+        .with(Tunable::new("bc", move |inputs| add.run(inputs)))
+    });
+    let joined = TUNER.init(&joined_id, || {
+        let add = OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseAddition),
+            test_client(&DummyDevice),
+        );
+        TunableSet::<String, Vec<Handle>, ()>::new(
+            |_: &Vec<Handle>| "joined".to_string(),
+            CloneInputGenerator,
+        )
+        .with(Tunable::new("abc", move |inputs| add.run(inputs)))
+    });
+    assert_ne!(split.compute_checksum(), joined.compute_checksum());
+
+    let client = test_client(&DummyDevice);
+    let (handles, _) = addition_inputs(&client, &split);
+    let out = handles[2].clone();
+    TUNER.execute(&split_id, &client, split, handles);
+    assert_eq!(
+        client.read_one(out).unwrap().to_vec(),
+        vec![4, 5, 6],
+        "the second candidate won"
+    );
+
+    // Sharing the split list's tuner, the joined list would be handed index 1 of a list of one.
+    let (handles, _) = addition_inputs(&client, &joined);
+    let out = handles[2].clone();
+    TUNER.execute(&joined_id, &client, joined, handles);
+    assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
+}
+
 /// A result belongs to the environment it was tuned under, and one only on disk has no fastest
-/// identity until an `execute` validates it: after a switch away the result is unreachable, and
+/// identity until an `execute` reads it: after a switch away the result is unreachable, and
 /// after the switch back it is found again once an `execute` has read it back — with no second
 /// round, since the slow tunable runs in the first round alone.
 #[test_log::test]
 #[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
-fn a_result_only_on_disk_has_a_fastest_identity_once_an_execute_validates_it() {
+fn a_result_only_on_disk_has_a_fastest_identity_once_an_execute_reads_it() {
     static TUNER: LocalTuner<String, String> =
-        local_tuner!("a_result_only_on_disk_has_a_fastest_identity_once_an_execute_validates_it");
+        local_tuner!("a_result_only_on_disk_has_a_fastest_identity_once_an_execute_reads_it");
     let (first, second) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     rooted_at(first.path());
 
@@ -504,7 +623,7 @@ fn a_result_only_on_disk_has_a_fastest_identity_once_an_execute_validates_it() {
     assert_eq!(
         fastest_identity(),
         None,
-        "a result only on disk, not yet validated"
+        "a result only on disk, not yet read"
     );
     TUNER.execute(&id, &client, set.clone(), handles);
     assert_eq!(fastest_identity(), Some(dummy::Addition::Correct));
@@ -513,7 +632,7 @@ fn a_result_only_on_disk_has_a_fastest_identity_once_an_execute_validates_it() {
     assert_eq!(
         slow_runs.load(Ordering::Relaxed),
         first_round,
-        "the persisted result is validated, not tuned again"
+        "the persisted result is read back, not tuned again"
     );
 }
 
@@ -1804,6 +1923,64 @@ fn a_compile_only_override_leaves_the_tune_to_the_next_pass() {
         "the tune gathered is the one measured, counted where it was gathered"
     );
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
+}
+
+/// Every card of a part queues a gathered key's candidates on itself, since a tune compiles only
+/// what its own card queued. The key is still one tune for the part, registered once.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn every_card_of_a_part_queues_a_gathered_key_on_itself() {
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("every_card_of_a_part_queues_a_gathered_key_on_itself");
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let uid = fresh_tune_key_uid();
+    let card = |index: u16| {
+        let client = Client::load::<DummyServer>(DeviceId::new(0, index));
+        let (calls, uid) = (calls.clone(), uid.clone());
+        let set = TUNER.init(&index.to_string(), move || {
+            dummy::addition_set_with_eviction(
+                Client::load::<DummyServer>(DeviceId::new(0, index)),
+                addition_shapes(),
+                uid.clone(),
+                calls.clone(),
+                Default::default(),
+                Default::default(),
+            )
+        });
+        let (handles, _) = addition_inputs(&client, &set);
+        move || TUNER.execute(&index.to_string(), &client, set.clone(), handles.clone())
+    };
+    let (first, second) = (card(0), card(1));
+    assert_eq!(
+        Client::load::<DummyServer>(DeviceId::new(0, 0)).device_part(),
+        Client::load::<DummyServer>(DeviceId::new(0, 1)).device_part(),
+        "the two cards are one part"
+    );
+
+    let collector = StatisticsCollector::new();
+    {
+        let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+        first();
+        let gathered = calls.load(Ordering::Relaxed);
+        second();
+        assert_eq!(
+            calls.load(Ordering::Relaxed),
+            2 * gathered,
+            "the second card ran every candidate, as the first did"
+        );
+        second();
+        assert_eq!(
+            calls.load(Ordering::Relaxed),
+            2 * gathered + 1,
+            "once queued on a card, the key runs only the candidate that launches"
+        );
+        core::mem::drop(compile);
+    }
+    assert_eq!(collector.statistics().autotune.registered, 1);
 }
 
 /// A key a `CompileOnly` pass reaches inside another key's candidates is not

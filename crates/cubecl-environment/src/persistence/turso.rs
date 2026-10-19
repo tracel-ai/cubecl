@@ -90,6 +90,8 @@ const PURGE_KEY: &str = "DELETE FROM entries WHERE namespace = ?1 AND key = ?2";
 const SUMMARY: &str = "SELECT namespace, COUNT(*), SUM(length(key) + length(value)) \
                        FROM entries GROUP BY namespace ORDER BY namespace";
 
+const NAMESPACES: &str = "SELECT DISTINCT namespace FROM entries ORDER BY namespace";
+
 type DatabaseResult = Result<Arc<turso::Database>, String>;
 
 enum DatabaseState {
@@ -420,10 +422,15 @@ impl Database {
 
     /// The names of every namespace this database holds.
     pub fn namespaces(&self) -> Vec<String> {
-        self.summary()
-            .into_iter()
-            .map(|summary| summary.namespace)
-            .collect()
+        self.run("list the namespaces of", "", |connection| {
+            let mut rows = drive(connection.query(NAMESPACES, ()))?;
+            let mut namespaces = Vec::new();
+            while let Some(row) = drive(rows.next())? {
+                namespaces.push(row.get(0)?);
+            }
+            Ok(namespaces)
+        })
+        .unwrap_or_default()
     }
 }
 
@@ -854,6 +861,14 @@ pub(crate) fn meta_set(
 pub(crate) fn summary() -> Vec<NamespaceSummary> {
     Database::open_active()
         .map(|database| database.summary())
+        .unwrap_or_default()
+}
+
+/// The names of every namespace of the active environment's database. Empty
+/// when the database isn't open.
+pub(crate) fn namespaces() -> Vec<String> {
+    Database::open_active()
+        .map(|database| database.namespaces())
         .unwrap_or_default()
 }
 

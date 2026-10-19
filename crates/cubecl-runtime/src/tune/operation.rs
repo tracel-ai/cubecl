@@ -137,11 +137,12 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
     /// Compute a checksum that invalidates outdated cached auto-tune results when the
     /// set of tunable names changes.
     pub fn compute_checksum(&self) -> String {
-        let mut checksum = String::new();
+        // Each name is hashed with its own terminator, so `["a", "bc"]` and `["abc"]` differ.
+        let mut hasher = StableHasher::new();
         for tune in &self.tunables {
-            checksum += &tune.function.name;
+            tune.function.name.hash(&mut hasher);
         }
-        format!("{:x}", StableHasher::hash_one(&checksum))
+        format!("{:x}", hasher.finalize())
     }
 
     /// Generate a key from a set of inputs

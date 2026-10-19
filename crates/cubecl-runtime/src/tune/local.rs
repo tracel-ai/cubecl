@@ -155,7 +155,8 @@ where
     /// `operations` must be the set `id` executes, as [`init`](Self::init) returns it for the
     /// initializer `execute` is handed: a result is an index into that set, so a set another
     /// initializer built under the same `id` would map it onto another tunable. Results are shared
-    /// by every `id` of the same [part](crate::device::DevicePart) executing the same candidates.
+    /// by every `id` of the same [part](crate::device::DevicePart) executing the same candidates,
+    /// from the first [`execute`](Self::execute) of each: an `id` that has not executed sees none.
     ///
     /// It reads results and never produces one: it never starts a round, never waits on one in
     /// flight, never reads the persistent cache, and never resets the tuner's cache after an

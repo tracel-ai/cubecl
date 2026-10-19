@@ -154,6 +154,7 @@ struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
     recording: crate::tune::record::TuneRecording<K>,
     /// Where the tune settles once its pick is committed.
     registration: Option<TuneRegistration>,
+    mark: PendingMark<K>,
 }
 
 impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
@@ -173,6 +174,7 @@ impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
             #[cfg(persistence)]
             recording: self.recording,
             registration: self.registration,
+            mark: self.mark,
         }
     }
 }
@@ -196,6 +198,21 @@ struct TuneRequest<K: AutotuneKey> {
     #[cfg(persistence)]
     recording: crate::tune::record::TuneRecording<K>,
     registration: Option<TuneRegistration>,
+    mark: PendingMark<K>,
+}
+
+/// A key [marked pending](TuneCache::mark_pending) for the tune holding this. Dropped before the
+/// tune settled the key, by a tune that unwinds or stops on a lost device, it unmarks the key so
+/// the next caller tunes it rather than every device of the part running a fallback for good.
+struct PendingMark<K: AutotuneKey> {
+    cache: Arc<Mutex<TuneCache<K>>>,
+    key: K,
+}
+
+impl<K: AutotuneKey> Drop for PendingMark<K> {
+    fn drop(&mut self) {
+        self.cache.lock().unmark_pending(&self.key);
+    }
 }
 
 #[allow(clippy::new_without_default)]
@@ -253,20 +270,21 @@ impl<K: AutotuneKey> Tuner<K> {
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
         let compiling = ProcessMode::current() == ProcessMode::CompileOnly;
-        // Where the key's tune was registered, if the override that gathered it registered it.
-        let gathered;
         #[cfg(persistence)]
         let checksum;
 
-        {
+        // Where the key's tune was registered, if the override that gathered it registered it.
+        let gathered = {
+            // Scoped: the rest of this function re-locks `self.cache`, and the mutex is
+            // non-reentrant.
             let mut cache = self.cache.lock();
             #[cfg(persistence)]
             cache.reset_if_environment_switched();
-            // A key a `CompileOnly` override already queued the candidates of answers at once,
-            // once a switched environment has dropped the ones it queued for the old one: a
-            // walk reaches the same key at every layer, and a miss would checksum the set and
+            // A key a `CompileOnly` override already queued the candidates of on this card answers
+            // at once, once a switched environment has dropped the ones it queued for the old one:
+            // a walk reaches the same key at every layer, and a miss would checksum the set and
             // read the store again each time for a tune that will not run.
-            if compiling && cache.is_compiled(key) {
+            if compiling && cache.is_compiled(key, client.service_id()) {
                 return TuneCacheResult::Compiled;
             }
             let cur = cache.fastest(key);
@@ -294,35 +312,44 @@ impl<K: AutotuneKey> Tuner<K> {
                 }
             }
 
-            gathered = cache.mark_pending(key.clone());
-            // Scope the guard: the rest of this function re-locks `self.cache`, and the mutex is
-            // non-reentrant.
-        }
+            // Marked before the candidates run, so one that panics leaves the key to the pass that
+            // profiles it rather than pending for good. Each card queues the candidates on itself,
+            // since a tune compiles only what its own card queued.
+            //
+            // Its tune is registered with the open override only when no other key's candidates
+            // reached it: the pass that profiles stops a plan at its first close-enough candidate,
+            // and may never run the one that reaches a key gathered inside it. Such a key is
+            // registered if it is ever measured, as an ungathered one is.
+            if compiling {
+                cache.mark_compiled(key.clone(), client.service_id(), || {
+                    if super::gathering::CandidateGathering::active() {
+                        None
+                    } else {
+                        TuneRegistration::register()
+                    }
+                });
+                None
+            } else {
+                cache.mark_pending(key.clone())
+            }
+        };
 
         log::info!("Tuning {key}");
 
         let autotunables = tunables.autotunables().collect::<Vec<_>>();
 
         // A `CompileOnly` override queues the candidates' kernels and measures nothing; the key
-        // stays untuned for the pass that profiles it. Marked before the candidates run, so
-        // one that panics leaves the key to that pass rather than pending for good.
-        //
-        // Its tune is registered with the open override only when no other key's candidates reached
-        // it: the pass that profiles stops a plan at its first close-enough candidate, and may
-        // never run the one that reaches a key gathered inside it. Such a key is registered if
-        // it is ever measured, as an ungathered one is.
+        // stays untuned for the pass that profiles it.
         if compiling {
-            let registration = if super::gathering::CandidateGathering::active() {
-                None
-            } else {
-                TuneRegistration::register()
-            };
-            self.cache.lock().mark_compiled(key.clone(), registration);
             let gathering = super::gathering::CandidateGathering::new();
             self.compile_plan(key, inputs, tunables, &autotunables);
             core::mem::drop(gathering);
             return TuneCacheResult::Compiled;
         }
+        let mark = PendingMark {
+            cache: self.cache.clone(),
+            key: key.clone(),
+        };
         // Sure to measure now: a tune registered nowhere yet registers with the override open.
         let registration = gathered.or_else(TuneRegistration::register);
 
@@ -390,6 +417,7 @@ impl<K: AutotuneKey> Tuner<K> {
             #[cfg(persistence)]
             recording,
             registration,
+            mark,
         };
 
         #[cfg(not(target_family = "wasm"))]
@@ -471,13 +499,13 @@ impl<K: AutotuneKey> Tuner<K> {
             Ok(outcome) => outcome,
             // Answered pending, so this caller runs the first candidate that serves the problem
             // and meets the loss in its own reads instead of in a winner measured on nothing. The
-            // key is left to the next caller: another device of the part may be healthy.
+            // dropped job leaves the key to the next caller: another device of the part may be
+            // healthy.
             Err(lost) => {
                 log::error!(
                     "Autotune of {} stopped, the device is lost: {lost}",
                     job.key
                 );
-                self.cache.lock().unmark_pending(&job.key);
                 return TuneCacheResult::Pending;
             }
         };
@@ -690,6 +718,7 @@ async fn process_request<K: AutotuneKey>(
         #[cfg(persistence)]
         recording,
         registration,
+        mark,
     } = request;
 
     // Resolved concurrently, and each benchmark timed individually rather than timing the loop:
@@ -801,6 +830,7 @@ async fn process_request<K: AutotuneKey>(
             log_context.as_ref(),
         );
     }
+    core::mem::drop(mark);
 
     TuneCacheResult::Hit { fastest_index }
 }

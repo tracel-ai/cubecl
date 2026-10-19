@@ -336,10 +336,7 @@ pub struct NamespaceSummary {
 pub fn namespaces() -> Vec<String> {
     cfg_if::cfg_if! {
         if #[cfg(any(native_cache, browser_cache))] {
-            super::turso::summary()
-                .into_iter()
-                .map(|summary| summary.namespace)
-                .collect()
+            super::turso::namespaces()
         } else {
             Vec::new()
         }

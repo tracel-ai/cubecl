@@ -1,6 +1,7 @@
-#[cfg(persistence)]
+use alloc::vec;
 use alloc::vec::Vec;
 
+use cubecl_common::device::ServiceId;
 #[cfg(persistence)]
 use cubecl_environment::persistence::StoreError;
 #[cfg(persistence)]
@@ -29,14 +30,15 @@ pub(crate) enum CacheEntry {
         fastest_index: usize,
     },
     Pending,
-    /// A `CompileOnly` override queued the kernels of the key's candidates and decided nothing: a
-    /// miss to anything that tunes, and done to the next `CompileOnly` override. Never persisted.
-    /// `registration` is the key's tune as the override that gathered it registered it, settled
-    /// once its pick commits; `None` when it registered none. Replacing the entry other than
-    /// through [`TuneCache::mark_pending`] or [`TuneCache::look_up`] drops the registration, which
-    /// counts it abandoned.
+    /// A `CompileOnly` override queued the kernels of the key's candidates on `services` and
+    /// decided nothing: a miss to anything that tunes, and done to the next `CompileOnly` override
+    /// on one of `services`. Never persisted. `registration` is the key's tune as the override that
+    /// gathered it first registered it, settled once its pick commits; `None` when it registered
+    /// none. Replacing the entry other than through [`TuneCache::mark_pending`] or
+    /// [`TuneCache::look_up`] drops the registration, which counts it abandoned.
     Compiled {
         registration: Option<TuneRegistration>,
+        services: Vec<ServiceId>,
     },
 }
 
@@ -234,7 +236,7 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// gathered it registered it.
     pub(crate) fn mark_pending(&mut self, key: K) -> Option<TuneRegistration> {
         match self.in_memory_cache.insert(key, CacheEntry::Pending) {
-            Some(CacheEntry::Compiled { registration }) => registration,
+            Some(CacheEntry::Compiled { registration, .. }) => registration,
             _ => None,
         }
     }
@@ -247,19 +249,34 @@ impl<K: AutotuneKey> TuneCache<K> {
         }
     }
 
-    /// Mark a key whose candidates' kernels a `CompileOnly` override queued, in place of the tune
-    /// it was [marked](Self::mark_pending) for: nothing was decided. `registration` is where
-    /// its tune was registered, if it was.
-    pub(crate) fn mark_compiled(&mut self, key: K, registration: Option<TuneRegistration>) {
-        self.in_memory_cache
-            .insert(key, CacheEntry::Compiled { registration });
+    /// Mark a key whose candidates' kernels a `CompileOnly` override is queueing on `service`, in
+    /// place of a tune: nothing is decided. The first service to queue them registers the key's
+    /// tune with `register`, and the others share that registration.
+    pub(crate) fn mark_compiled(
+        &mut self,
+        key: K,
+        service: ServiceId,
+        register: impl FnOnce() -> Option<TuneRegistration>,
+    ) {
+        if let Some(CacheEntry::Compiled { services, .. }) = self.in_memory_cache.get_mut(&key) {
+            services.push(service);
+            return;
+        }
+        self.in_memory_cache.insert(
+            key,
+            CacheEntry::Compiled {
+                registration: register(),
+                services: vec![service],
+            },
+        );
     }
 
-    /// Whether a `CompileOnly` override already queued the kernels of `key`'s candidates.
-    pub(crate) fn is_compiled(&self, key: &K) -> bool {
+    /// Whether a `CompileOnly` override already queued the kernels of `key`'s candidates on
+    /// `service`.
+    pub(crate) fn is_compiled(&self, key: &K, service: ServiceId) -> bool {
         matches!(
             self.in_memory_cache.get(key),
-            Some(CacheEntry::Compiled { .. })
+            Some(CacheEntry::Compiled { services, .. }) if services.contains(&service)
         )
     }
 
@@ -313,7 +330,7 @@ impl<K: AutotuneKey> TuneCache<K> {
             return TuneCacheResult::Miss;
         };
         let gathered = match self.in_memory_cache.remove(key) {
-            Some(CacheEntry::Compiled { registration }) => registration,
+            Some(CacheEntry::Compiled { registration, .. }) => registration,
             _ => None,
         };
         if let Some(registration) = gathered.or_else(TuneRegistration::register) {
