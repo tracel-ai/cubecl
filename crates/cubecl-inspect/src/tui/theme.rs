@@ -5,10 +5,12 @@
 
 use crate::palette::{self, Rgb};
 use crate::wordmark;
-use ratatui::layout::Rect;
+use ratatui::Frame;
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, HighlightSpacing, List, ListItem, Padding, Paragraph};
+use ratatui::widgets::{Block, HighlightSpacing, List, ListItem, ListState, Padding, Paragraph};
+use std::path::Path;
 
 pub(crate) const MUTED: Color = terminal(palette::MUTED);
 pub(crate) const RULE: Color = terminal(palette::RULE);
@@ -48,13 +50,45 @@ pub(crate) fn panel(title: &str) -> Block<'static> {
         .padding(Padding::horizontal(1))
 }
 
-/// A list whose selection is marked by an accent bar, the rows aligned
-/// whether selected or not.
-pub(crate) fn selectable(items: Vec<ListItem<'_>>) -> List<'_> {
-    List::new(items)
-        .highlight_style(selected())
-        .highlight_symbol(Span::styled("▌ ", Style::new().fg(ACCENT)))
-        .highlight_spacing(HighlightSpacing::Always)
+/// A list one row of which is selected, the selection kept on the list.
+pub(crate) struct Selection(ListState);
+
+impl Selection {
+    /// The first row selected.
+    pub(crate) fn new() -> Self {
+        Self(ListState::default().with_selected(Some(0)))
+    }
+
+    pub(crate) fn index(&self) -> Option<usize> {
+        self.0.selected()
+    }
+
+    /// Move the selection `rows` along a list of `len` rows, stopping at
+    /// either end.
+    pub(crate) fn move_by(&mut self, rows: isize, len: usize) {
+        let selected = self.0.selected().unwrap_or(0) as isize + rows;
+        let last = len.saturating_sub(1) as isize;
+        self.0.select(Some(selected.clamp(0, last) as usize));
+    }
+
+    /// Draw `items` in `area`, the selected row marked by an accent bar, the
+    /// rows aligned whether selected or not.
+    pub(crate) fn draw(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        items: Vec<ListItem<'_>>,
+        block: Option<Block<'_>>,
+    ) {
+        let mut list = List::new(items)
+            .highlight_style(selected())
+            .highlight_symbol(Span::styled("▌ ", Style::new().fg(ACCENT)))
+            .highlight_spacing(HighlightSpacing::Always);
+        if let Some(block) = block {
+            list = list.block(block);
+        }
+        frame.render_stateful_widget(list, area, &mut self.0);
+    }
 }
 
 /// The status bar: what happened last, then each key and what it does.
@@ -71,9 +105,18 @@ pub(crate) fn hints<'a>(status: &str, keys: &[(&'a str, &'a str)]) -> Line<'a> {
     Line::from(spans)
 }
 
+/// A path the way a person reads it: under the home directory, from `~`.
+pub(crate) fn shown(path: &Path) -> String {
+    match std::env::home_dir().and_then(|home| path.strip_prefix(home).ok().map(Path::to_path_buf))
+    {
+        Some(relative) => format!("~/{}", relative.display()),
+        None => path.display().to_string(),
+    }
+}
+
 /// The `CubeCL` wordmark, the mark in the accent, indented as the captions
 /// under it are.
-pub(crate) fn wordmark() -> Paragraph<'static> {
+fn wordmark() -> Paragraph<'static> {
     let art: Vec<Line> = wordmark::MARK
         .iter()
         .zip(wordmark::LETTERS)
@@ -102,7 +145,7 @@ impl Masthead {
     const PAGE_ROWS: u16 = 24;
 
     /// The masthead a screen of `area` has room for.
-    pub(crate) fn fitting(area: Rect) -> Self {
+    pub(crate) fn new(area: Rect) -> Self {
         let wide = area.width as usize >= Self::wordmark_width();
         let tall = area.height >= Self::Wordmark.height() + Self::PAGE_ROWS;
         match wide && tall {
@@ -119,6 +162,40 @@ impl Masthead {
         }
     }
 
+    /// Draw it in `area`, its caption naming what the screen shows.
+    pub(crate) fn draw<'a>(
+        self,
+        frame: &mut Frame,
+        area: Rect,
+        caption: impl IntoIterator<Item = Span<'a>>,
+    ) {
+        match self {
+            Self::Wordmark => {
+                let [_, brand, _, line] = Layout::vertical([
+                    Constraint::Length(1),
+                    Constraint::Length(wordmark::MARK.len() as u16),
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                ])
+                .areas(area);
+                frame.render_widget(wordmark(), brand);
+                let lead = [
+                    Span::raw("  "),
+                    Span::styled("ENVIRONMENT INSPECTOR", accent()),
+                    Span::styled("  ·  ", label()),
+                ];
+                frame.render_widget(Line::from_iter(lead.into_iter().chain(caption)), line);
+            }
+            Self::Line => {
+                let lead = [
+                    Span::styled(" CubeCL", accent()),
+                    Span::styled(" inspect  ", label()),
+                ];
+                frame.render_widget(Line::from_iter(lead.into_iter().chain(caption)), area);
+            }
+        }
+    }
+
     /// The columns the wordmark takes, its indent included.
     fn wordmark_width() -> usize {
         2 + wordmark::MARK[0].chars().count() + wordmark::LETTERS[0].chars().count()
@@ -131,7 +208,7 @@ mod tests {
 
     #[test]
     fn the_wordmark_shows_only_beside_a_page_worth_reading() {
-        let screen = |width, height| Masthead::fitting(Rect::new(0, 0, width, height));
+        let screen = |width, height| Masthead::new(Rect::new(0, 0, width, height));
         assert_eq!(screen(170, 50), Masthead::Wordmark);
         assert_eq!(screen(170, 30), Masthead::Line, "too short for both");
         assert_eq!(screen(60, 50), Masthead::Line, "too narrow for the letters");

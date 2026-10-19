@@ -6,7 +6,7 @@
 //! that answers *what does this file hold, and how was each autotune key
 //! decided?*
 //!
-//! Three layers, each usable without the one above:
+//! The layers, each usable without the ones above:
 //!
 //! - [`EnvironmentName`] resolves `--env` the way the runtime resolves its
 //!   own environment, from the configuration above the working directory.

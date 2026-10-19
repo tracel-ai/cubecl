@@ -6,9 +6,9 @@ use std::time::Duration;
 pub struct Text<'a, R>(pub &'a R);
 
 /// A byte count at the scale a person reads it.
-pub struct Bytes(pub u64);
+pub struct ByteSize(pub u64);
 
-impl fmt::Display for Bytes {
+impl fmt::Display for ByteSize {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         const UNITS: [&str; 4] = ["KiB", "MiB", "GiB", "TiB"];
 
@@ -42,7 +42,7 @@ impl fmt::Display for Micros {
     }
 }
 
-/// A build-scale duration: milliseconds, then seconds, then minutes.
+/// A session-scale duration: milliseconds, then seconds, then minutes.
 pub struct Wall(pub Duration);
 
 impl fmt::Display for Wall {
@@ -82,15 +82,45 @@ impl fmt::Display for Ratio {
     }
 }
 
+/// A fraction as a percentage, `-` when there is none: to the formatter's
+/// precision, whole percents by default.
+pub struct Percent(pub Option<f64>);
+
+impl Percent {
+    /// `part` over `whole`; none when the whole is empty.
+    pub fn new(part: u64, whole: u64) -> Self {
+        Self((whole > 0).then(|| part as f64 / whole as f64))
+    }
+}
+
+impl fmt::Display for Percent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            Some(fraction) => {
+                let digits = f.precision().unwrap_or(0);
+                write!(f, "{:.digits$}%", fraction * 100.0)
+            }
+            None => f.write_str("-"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn bytes_scale_to_the_largest_unit_under_1024() {
-        assert_eq!(Bytes(512).to_string(), "512 B");
-        assert_eq!(Bytes(1536).to_string(), "1.5 KiB");
-        assert_eq!(Bytes(5 * 1024 * 1024).to_string(), "5.0 MiB");
+        assert_eq!(ByteSize(512).to_string(), "512 B");
+        assert_eq!(ByteSize(1536).to_string(), "1.5 KiB");
+        assert_eq!(ByteSize(5 * 1024 * 1024).to_string(), "5.0 MiB");
+    }
+
+    #[test]
+    fn a_percent_takes_the_formatter_s_precision() {
+        assert_eq!(Percent(Some(0.25)).to_string(), "25%");
+        assert_eq!(format!("{:.1}", Percent::new(1, 3)), "33.3%");
+        assert_eq!(Percent::new(1, 0).to_string(), "-");
     }
 
     #[test]

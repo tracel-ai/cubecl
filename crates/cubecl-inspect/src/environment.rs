@@ -2,7 +2,7 @@ use cubecl_environment::config::RuntimeConfig;
 use cubecl_environment::environment;
 use cubecl_runtime::config::CubeClRuntimeConfig;
 use std::convert::Infallible;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 /// How a command line names an environment, resolved the way the runtime
@@ -70,6 +70,32 @@ impl EnvironmentDirectory {
             extension: environment::EXTENSION.to_string(),
         }
     }
+
+    /// The files its extension marks, read with or without its dot; none
+    /// when the directory does not exist — a machine that never built has no
+    /// environments.
+    pub(crate) fn files(&self) -> std::io::Result<Vec<PathBuf>> {
+        let entries = match std::fs::read_dir(&self.path) {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(err) => return Err(err),
+        };
+        let extension = self.extension.trim_start_matches('.');
+        Ok(entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some(extension))
+            .collect())
+    }
+}
+
+/// An environment's name: its file's stem, what `--env` takes to open it
+/// again.
+pub(crate) fn stem(path: &Path) -> String {
+    path.file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// Load the runtime's configuration, which is what points the environment at

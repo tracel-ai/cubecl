@@ -1,7 +1,10 @@
+use super::fields::Fields;
 use super::paint::Role;
 use super::table::{Align, Table};
-use super::{KeyText, Maybe, Micros, Ratio, Text, Wall};
-use crate::report::{AutotuneReport, CandidateOutcome, CandidateReport, Fate, TuneTrace, TunedKey};
+use super::{KeyText, Maybe, Micros, Percent, Ratio, Text, Wall};
+use crate::report::{
+    AutotuneReport, CandidateOutcome, CandidateReport, CandidateResult, Fate, TuneTrace, TunedKey,
+};
 use cubecl_server::tune::Placement;
 use std::fmt;
 
@@ -27,7 +30,7 @@ impl fmt::Display for Text<'_, AutotuneReport> {
                 key.table.tuner.clone(),
                 key.winner_name(),
                 Maybe(key.wall().map(Wall)).to_string(),
-                Maybe(key.compiling.map(Wall)).to_string(),
+                Maybe(key.tune.as_ref().map(|tune| Wall(tune.compiling))).to_string(),
                 Maybe(key.wasted().map(Wall)).to_string(),
                 key.measured().to_string(),
                 key.failed().to_string(),
@@ -58,7 +61,7 @@ impl fmt::Display for Text<'_, TunedKey> {
         let key = self.0;
         fmt::Display::fmt(&Header(key), f)?;
         writeln!(f)?;
-        match &key.trace {
+        match key.trace() {
             Some(_) if !key.plan().is_empty() => fmt::Display::fmt(&PlanOrder(key), f)?,
             Some(trace) => fmt::Display::fmt(&RunOrder(key, trace), f)?,
             None => fmt::Display::fmt(&Ranking(key), f)?,
@@ -73,50 +76,58 @@ struct Header<'a>(&'a TunedKey);
 impl fmt::Display for Header<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let key = self.0;
-        Role::Label.write(f, "id        ")?;
-        writeln!(f, "{}", key.id)?;
-        Role::Label.write(f, "tuner     ")?;
-        writeln!(
+        let fields = Fields::new(&[
+            "id", "tuner", "key", "checksum", "winner", "tuned", "roofline", "limit",
+        ]);
+        fields.line(f, "id", key.id)?;
+        fields.line(
             f,
-            "{} on {} (cubecl {})",
-            key.table.tuner, key.table.device, key.table.version
+            "tuner",
+            format_args!(
+                "{} on {} (cubecl {})",
+                key.table.tuner, key.table.device, key.table.version
+            ),
         )?;
-        Role::Label.write(f, "key       ")?;
-        writeln!(f, "{}", KeyText(&key.key))?;
-        Role::Label.write(f, "checksum  ")?;
-        writeln!(f, "{}", key.checksum)?;
-        Role::Label.write(f, "winner    ")?;
-        writeln!(
+        fields.line(f, "key", KeyText(&key.key))?;
+        fields.line(f, "checksum", &key.checksum)?;
+        fields.line(
             f,
-            "{} (#{}), margin {}",
-            key.winner_name(),
-            key.winner,
-            Ratio(key.margin())
+            "winner",
+            format_args!(
+                "{} (#{}), margin {}",
+                key.winner_name(),
+                key.winner,
+                Ratio(key.margin())
+            ),
         )?;
-        if let Some(trace) = &key.trace {
-            let record = &trace.record;
-            Role::Label.write(f, "tuned     ")?;
-            write!(
+        if let Some(tune) = &key.tune {
+            let (stamp, record) = (&tune.trace.stamp, &tune.trace.record);
+            let discarded = match record.launches_discarded {
+                true => ", with its launches discarded",
+                false => "",
+            };
+            fields.line(
                 f,
-                "in {} at +{:.1} s of session {}: {} compiling, {} wasted",
-                Wall(record.wall),
-                trace.stamp.offset.as_secs_f64(),
-                trace.stamp.session,
-                Wall(key.compiling.unwrap_or_default()),
-                Wall(key.wasted().unwrap_or_default())
+                "tuned",
+                format_args!(
+                    "in {} at +{:.1} s of session {}: {} compiling, {} wasted{discarded}",
+                    Wall(record.wall),
+                    stamp.offset.as_secs_f64(),
+                    stamp.session,
+                    Wall(tune.compiling),
+                    Wall(key.wasted().unwrap_or_default())
+                ),
             )?;
-            if record.launches_discarded {
-                write!(f, ", with its launches discarded")?;
-            }
-            writeln!(f)?;
         }
         if let Some(roofline) = key.roofline() {
-            Role::Label.write(f, "roofline  ")?;
-            writeln!(
+            fields.line(
                 f,
-                "{}, the winner at {} of it",
-                Micros(roofline),
-                Percent(key.efficiency())
+                "roofline",
+                format_args!(
+                    "{}, the winner at {} of it",
+                    Micros(roofline),
+                    Percent(key.efficiency())
+                ),
             )?;
         }
         if let Some(limit) = key.limit {
@@ -125,8 +136,7 @@ impl fmt::Display for Header<'_> {
                 Some(false) => "not met",
                 None => "-",
             };
-            Role::Label.write(f, "limit     ")?;
-            writeln!(f, "{} ({met})", Micros(limit))?;
+            fields.line(f, "limit", format_args!("{} ({met})", Micros(limit)))?;
         }
         Ok(())
     }
@@ -153,38 +163,41 @@ impl fmt::Display for PlanOrder<'_> {
         ])
         .paint(&["wall", "median"], Role::Measure);
         for planned in key.plan() {
-            let winner = planned.index == key.winner;
-            let result = key.result(&planned.name);
-            let fate = key.fate(planned);
-            let (ran, wall, status) = match fate {
-                Fate::Ran { order } => (
-                    format!("{}{}", order + 1, if winner { " *" } else { "  " }),
-                    Wall(key.trials()[order].wall).to_string(),
-                    match result.map(|result| &result.outcome) {
-                        Some(CandidateOutcome::Measured(_)) => "measured",
-                        Some(CandidateOutcome::Failed { .. }) => "failed",
-                        Some(CandidateOutcome::Skipped) | None => "-",
-                    },
-                ),
-                Fate::CutShort => ("-  ".to_string(), "-".to_string(), "cut short"),
-                Fate::NotReached => ("-  ".to_string(), "-".to_string(), "not reached"),
-                Fate::Excluded => ("-  ".to_string(), "-".to_string(), "excluded"),
+            let cells = ResultCells {
+                key,
+                result: key.result(&planned.name),
+                winner: planned.index == key.winner,
             };
-            let median = match result.map(|result| &result.outcome) {
-                Some(CandidateOutcome::Measured(computations)) => {
-                    Micros(computations.median).to_string()
-                }
-                _ => "-".to_string(),
+            let (ran, wall, status, role) = match key.fate(planned) {
+                Fate::Ran { order } => (
+                    format!("{}{}", order + 1, cells.marker()),
+                    Wall(key.trials()[order].wall).to_string(),
+                    cells.outcome(),
+                    cells.role(),
+                ),
+                Fate::CutShort => (
+                    "-  ".to_string(),
+                    "-".to_string(),
+                    "cut short",
+                    Some(Role::Idle),
+                ),
+                Fate::NotReached => (
+                    "-  ".to_string(),
+                    "-".to_string(),
+                    "not reached",
+                    Some(Role::Idle),
+                ),
+                Fate::Excluded => (
+                    "-  ".to_string(),
+                    "-".to_string(),
+                    "excluded",
+                    Some(Role::Idle),
+                ),
             };
             let placements = |cell: fn(&Placement) -> String| match planned.groups.as_slice() {
                 [] => "-".to_string(),
                 groups => groups.iter().map(cell).collect::<Vec<_>>().join(", "),
             };
-            let role = match fate {
-                Fate::Ran { .. } => Outcome::of(winner, result.map(|result| &result.outcome)),
-                Fate::CutShort | Fate::NotReached | Fate::Excluded => Outcome::NotMeasured,
-            }
-            .role();
             table.row_in(
                 role,
                 vec![
@@ -199,15 +212,14 @@ impl fmt::Display for PlanOrder<'_> {
                     placements(|placement| placement.priority.to_string()),
                     wall,
                     status.to_string(),
-                    median,
-                    Ratio(result.and_then(|result| key.slowdown(result))).to_string(),
+                    cells.median(),
+                    cells.slowdown(),
                 ],
             );
         }
         fmt::Display::fmt(&table, f)?;
         let stopper = key
-            .trace
-            .as_ref()
+            .trace()
             .and_then(|trace| trace.record.short_circuit.as_ref())
             .map(|stopper| format!("; the tune stopped once {stopper} met the limit"))
             .unwrap_or_default();
@@ -240,24 +252,20 @@ impl fmt::Display for RunOrder<'_> {
         .paint(&["wall", "median"], Role::Measure);
         for (order, trial) in trace.trials.iter().enumerate() {
             let result = key.result(&trial.name);
-            let winner = result.is_some_and(|result| result.index == Some(key.winner));
-            let marker = if winner { " *" } else { "  " };
-            let (outcome, median) = match result.map(|result| &result.outcome) {
-                Some(CandidateOutcome::Measured(computations)) => {
-                    ("measured", Micros(computations.median).to_string())
-                }
-                Some(CandidateOutcome::Failed { .. }) => ("failed", "-".to_string()),
-                Some(CandidateOutcome::Skipped) | None => ("-", "-".to_string()),
+            let cells = ResultCells {
+                key,
+                result,
+                winner: result.is_some_and(|result| result.index == Some(key.winner)),
             };
             table.row_in(
-                Outcome::of(winner, result.map(|result| &result.outcome)).role(),
+                cells.role(),
                 vec![
-                    format!("{}{marker}", order + 1),
+                    format!("{}{}", order + 1, cells.marker()),
                     trial.name.clone(),
                     Wall(trial.wall).to_string(),
-                    outcome.to_string(),
-                    median,
-                    Ratio(result.and_then(|result| key.slowdown(result))).to_string(),
+                    cells.outcome().to_string(),
+                    cells.median(),
+                    cells.slowdown(),
                 ],
             );
         }
@@ -301,26 +309,29 @@ impl fmt::Display for Ranking<'_> {
         ])
         .paint(&["median", "min", "max"], Role::Measure);
         for (rank, result) in key.results.iter().enumerate() {
-            let winner = result.index == Some(key.winner);
-            let marker = if winner { " *" } else { "  " };
-            let name = result.candidate.as_deref().unwrap_or("-");
+            let cells = ResultCells {
+                key,
+                result: Some(result),
+                winner: result.index == Some(key.winner),
+            };
             let mut row = vec![
-                format!("{}{marker}", rank + 1),
-                name.to_string(),
+                format!("{}{}", rank + 1, cells.marker()),
+                result.candidate.as_deref().unwrap_or("-").to_string(),
                 Maybe(result.index).to_string(),
+                cells.outcome().to_string(),
+                cells.median(),
             ];
             match &result.outcome {
                 CandidateOutcome::Measured(computations) => row.extend([
-                    "measured".to_string(),
-                    Micros(computations.median).to_string(),
                     Micros(computations.min).to_string(),
                     Micros(computations.max).to_string(),
                     computations.score().to_string(),
                 ]),
-                CandidateOutcome::Skipped => row.extend(unmeasured("skipped")),
-                CandidateOutcome::Failed { .. } => row.extend(unmeasured("failed")),
+                CandidateOutcome::Skipped | CandidateOutcome::Failed { .. } => {
+                    row.extend(["-".to_string(), "-".to_string(), "-".to_string()])
+                }
             }
-            table.row_in(Outcome::of(winner, Some(&result.outcome)).role(), row);
+            table.row_in(cells.role(), row);
         }
         fmt::Display::fmt(&table, f)?;
         Role::Note.write(
@@ -400,50 +411,54 @@ impl fmt::Display for Text<'_, CandidateReport> {
     }
 }
 
-/// How a candidate fared in one tune, as far as painting its row goes.
-enum Outcome {
-    Won,
-    Measured,
-    NotMeasured,
+/// What a candidate's result fills in the tables of one key's tune: how it
+/// ended, against the winner, and whether it is the winner.
+struct ResultCells<'a> {
+    key: &'a TunedKey,
+    /// `None` for a candidate the stored results do not name.
+    result: Option<&'a CandidateResult>,
+    winner: bool,
 }
 
-impl Outcome {
-    fn of(winner: bool, outcome: Option<&CandidateOutcome>) -> Self {
-        match (winner, outcome) {
-            (true, _) => Self::Won,
-            (false, Some(CandidateOutcome::Measured(_))) => Self::Measured,
-            (false, _) => Self::NotMeasured,
+impl ResultCells<'_> {
+    /// What follows its position: a star on the winner, the same width
+    /// elsewhere, so the column stays aligned.
+    fn marker(&self) -> &'static str {
+        match self.winner {
+            true => " *",
+            false => "  ",
         }
     }
 
-    fn role(self) -> Option<Role> {
-        match self {
-            Self::Won => Some(Role::Strong),
-            Self::Measured => None,
-            Self::NotMeasured => Some(Role::Idle),
+    fn outcome(&self) -> &'static str {
+        match self.result.map(|result| &result.outcome) {
+            Some(CandidateOutcome::Measured(_)) => "measured",
+            Some(CandidateOutcome::Skipped) => "skipped",
+            Some(CandidateOutcome::Failed { .. }) => "failed",
+            None => "-",
         }
     }
-}
 
-/// The trailing cells of a result nothing was measured for.
-fn unmeasured(outcome: &str) -> [String; 5] {
-    [
-        outcome.to_string(),
-        "-".to_string(),
-        "-".to_string(),
-        "-".to_string(),
-        "-".to_string(),
-    ]
-}
+    fn median(&self) -> String {
+        match self.result.map(|result| &result.outcome) {
+            Some(CandidateOutcome::Measured(computations)) => {
+                Micros(computations.median).to_string()
+            }
+            _ => "-".to_string(),
+        }
+    }
 
-/// A fraction as a percentage, `-` when there is none.
-struct Percent(Option<f64>);
+    /// Its score over the winner's.
+    fn slowdown(&self) -> String {
+        Ratio(self.result.and_then(|result| self.key.slowdown(result))).to_string()
+    }
 
-impl fmt::Display for Percent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.0 {
-            Some(fraction) => write!(f, "{:.0}%", fraction * 100.0),
-            None => f.write_str("-"),
+    /// The winner in bold, a candidate with nothing measured muted.
+    fn role(&self) -> Option<Role> {
+        match (self.winner, self.result.map(|result| &result.outcome)) {
+            (true, _) => Some(Role::Strong),
+            (false, Some(CandidateOutcome::Measured(_))) => None,
+            (false, _) => Some(Role::Idle),
         }
     }
 }

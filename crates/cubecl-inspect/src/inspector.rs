@@ -1,20 +1,16 @@
 use crate::report::{
-    AutotuneReport, AutotuneTable, CandidateResult, CompilationSpans, EnvironmentDiff, KernelHash,
-    KernelReport, KernelRow, KernelSelector, KeyId, Listing, MemorySnapshots, NamespaceRow,
-    SessionRow, SessionTimeline, StoredArtifacts, Summary, Timeline, TuneTrace, TunedKey,
-    Unreadable,
+    AutotuneReport, AutotuneTable, EnvironmentDiff, EnvironmentRecords, KernelHash, KernelReport,
+    KernelRow, KernelSelector, KeyId, Listing, MemorySnapshots, NamespaceRoot, SessionRow,
+    SessionTimeline, StoredArtifacts, Summary, Timeline, TunedKey, Unreadable,
 };
-use crate::{EnvironmentDirectory, InspectError};
+use crate::{EnvironmentDirectory, InspectError, environment};
 use cubecl_environment::bundle::{BundleManifest, ExportOptions, export};
 use cubecl_environment::collections::HashSet;
 use cubecl_environment::persistence::{Access, Database};
-use cubecl_environment::records;
-use cubecl_environment::records::{MarkRecord, Records, SessionId, Stamped};
-use cubecl_server::compiler::{CompilationBatchRecord, CompilationRecord, KernelCacheKey};
+use cubecl_environment::records::Records;
+use cubecl_server::compiler::KernelCacheKey;
 use cubecl_server::memory_management::MemoryRecord;
-use cubecl_server::tune::{PersistentCacheKey, PersistentCacheValue};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 /// One environment file, opened read-only: the reports are what it answers.
 ///
@@ -24,62 +20,6 @@ use std::time::Duration;
 pub struct Inspector {
     database: Database,
     path: PathBuf,
-}
-
-/// The namespace roots holding measurements and records rather than
-/// compiled artifacts.
-const MEASUREMENTS: [&str; 3] = [AutotuneTable::ROOT, "throughput", "records"];
-
-/// The build records of one file, read once per report.
-struct BuildRecords {
-    /// Oldest first, like every list here.
-    tunes: Vec<TuneTrace>,
-    compilations: Vec<Stamped<CompilationRecord>>,
-    batches: Vec<Stamped<CompilationBatchRecord>>,
-    marks: Vec<Stamped<MarkRecord>>,
-}
-
-impl BuildRecords {
-    fn new(database: &Database) -> Self {
-        let records = Records::new(database);
-        Self {
-            tunes: records.read(),
-            compilations: records.read(),
-            batches: records.read(),
-            marks: records.read(),
-        }
-    }
-
-    fn tunes_of(&self, session: SessionId) -> impl Iterator<Item = &TuneTrace> {
-        self.tunes
-            .iter()
-            .filter(move |trace| trace.stamp.session == session)
-    }
-
-    fn compilations_of(
-        &self,
-        session: SessionId,
-    ) -> impl Iterator<Item = &Stamped<CompilationRecord>> {
-        self.compilations
-            .iter()
-            .filter(move |trip| trip.stamp.session == session)
-    }
-
-    fn marks_of(&self, session: SessionId) -> impl Iterator<Item = &Stamped<MarkRecord>> {
-        self.marks
-            .iter()
-            .filter(move |mark| mark.stamp.session == session)
-    }
-
-    /// The stretches of `session`'s clock its compilations took.
-    fn compiling_of(&self, session: SessionId) -> CompilationSpans {
-        CompilationSpans::new(
-            self.batches
-                .iter()
-                .filter(|batch| batch.stamp.session == session),
-            self.compilations_of(session),
-        )
-    }
 }
 
 impl Inspector {
@@ -108,7 +48,7 @@ impl Inspector {
         &self.path
     }
 
-    /// Every environment file in `directories`, as one list, newest build
+    /// Every environment file in `directories`, as one list, newest
     /// first. A directory that does not exist holds none — a machine that
     /// never built has no environments — and one that cannot be read is
     /// listed as unreadable, beside what the others hold.
@@ -122,7 +62,7 @@ impl Inspector {
             unreadable: Vec::new(),
         };
         for directory in directories {
-            let files = match files(directory) {
+            let files = match directory.files() {
                 Ok(files) => files,
                 Err(err) => {
                     listing.unreadable.push(Unreadable {
@@ -143,14 +83,8 @@ impl Inspector {
             }
         }
         listing.environments.sort_by(|a, b| {
-            let created = |summary: &Summary| {
-                summary
-                    .manifest
-                    .as_ref()
-                    .and_then(|manifest| manifest.created_unix_secs)
-            };
-            created(b)
-                .cmp(&created(a))
+            b.created_unix_secs()
+                .cmp(&a.created_unix_secs())
                 .then_with(|| a.path.cmp(&b.path))
         });
         listing.unreadable.sort_by(|a, b| a.path.cmp(&b.path));
@@ -166,69 +100,19 @@ impl Inspector {
                 .database
                 .summary()
                 .into_iter()
-                .map(|summary| NamespaceRow {
-                    namespace: summary.namespace,
-                    entries: summary.entries,
-                    bytes: summary.bytes,
-                })
+                .map(Into::into)
                 .collect(),
-            sessions: self.sessions(),
+            sessions: self.records().sessions().map(SessionRow::new).collect(),
         }
-    }
-
-    /// Every session, with what it recorded folded in.
-    fn sessions(&self) -> Vec<SessionRow> {
-        let records = BuildRecords::new(&self.database);
-        Records::new(&self.database)
-            .sessions()
-            .into_iter()
-            .map(|session| {
-                let mut row = SessionRow {
-                    session,
-                    tunes: 0,
-                    tuning: Duration::ZERO,
-                    compilations: 0,
-                    compiling: Duration::ZERO,
-                    compiling_in_tunes: Duration::ZERO,
-                    span: Duration::ZERO,
-                };
-                let compiling = records.compiling_of(row.session.id);
-                for trace in records.tunes_of(row.session.id) {
-                    row.tunes += 1;
-                    row.tuning += trace.record.wall;
-                    row.compiling_in_tunes += compiling.during(trace);
-                    row.span = row.span.max(trace.stamp.offset + trace.record.wall);
-                }
-                row.compilations = records.compilations_of(row.session.id).count() as u64;
-                row.compiling = compiling.wall();
-                row.span = row.span.max(compiling.end());
-                // A phase after the last compile — a walk served from the
-                // store — still ran.
-                for mark in records.marks_of(row.session.id) {
-                    row.span = row.span.max(mark.stamp.offset + mark.record.wall);
-                }
-                row
-            })
-            .collect()
     }
 
     /// Each session's marks, with what was tuned and compiled inside them.
     pub fn timeline(&self) -> Timeline {
-        let records = BuildRecords::new(&self.database);
         Timeline {
-            sessions: Records::new(&self.database)
+            sessions: self
+                .records()
                 .sessions()
-                .into_iter()
-                .map(|session| {
-                    let compiling = records.compiling_of(session.id);
-                    SessionTimeline::new(
-                        session,
-                        &records.marks,
-                        &records.tunes,
-                        &records.compilations,
-                        &compiling,
-                    )
-                })
+                .map(SessionTimeline::new)
                 .collect(),
         }
     }
@@ -240,14 +124,13 @@ impl Inspector {
         }
     }
 
-    /// Every kernel the file's builds compiled or loaded.
+    /// Every kernel the file's sessions compiled or loaded.
     pub fn kernels(&self) -> KernelReport {
-        let trips: Vec<CompilationRecord> = BuildRecords::new(&self.database)
-            .compilations
-            .into_iter()
-            .map(|trip| trip.record)
-            .collect();
-        KernelReport::new(&trips, &self.stored_artifacts())
+        let records = self.records();
+        KernelReport::new(
+            records.compilations.iter().map(|trip| &trip.record),
+            &self.stored_artifacts(),
+        )
     }
 
     /// The one kernel instance `selector` names.
@@ -282,8 +165,7 @@ impl Inspector {
     fn stored_artifacts(&self) -> StoredArtifacts {
         let mut stored = StoredArtifacts::new();
         for namespace in self.database.namespaces() {
-            let root = namespace.split('/').next().unwrap_or_default();
-            if MEASUREMENTS.contains(&root) {
+            if !NamespaceRoot::new(&namespace).holds_artifacts() {
                 continue;
             }
             self.database.scan(&namespace, &mut |key, value| {
@@ -302,40 +184,21 @@ impl Inspector {
             keys: Vec::new(),
             undecoded: 0,
         };
-        let records = BuildRecords::new(&self.database);
         for namespace in self.database.namespaces() {
-            let Some(table) = AutotuneTable::parse(&namespace) else {
+            let Some(table) = AutotuneTable::new(&namespace) else {
                 continue;
             };
-            self.database
-                .scan(
-                    &namespace,
-                    &mut |key, value| match tuned_key(&namespace, &table, key, value) {
-                        Some(tuned) => report.keys.push(tuned),
-                        None => report.undecoded += 1,
-                    },
-                );
+            self.database.scan(
+                &namespace,
+                &mut |key, value| match TunedKey::new(&table, key, value) {
+                    Some(tuned) => report.keys.push(tuned),
+                    None => report.undecoded += 1,
+                },
+            );
         }
+        let records = self.records();
         for key in &mut report.keys {
-            // Oldest first, so the last match is the key's latest tune. A tune
-            // the table did not take answered its process alone, and says
-            // nothing of the answer stored.
-            key.trace = records
-                .tunes
-                .iter()
-                .rev()
-                .find(|trace| {
-                    let record = &trace.record;
-                    record.stored
-                        && record.table == key.table.namespace()
-                        && record.entry.checksum == key.checksum
-                        && record.entry.key == key.key
-                })
-                .cloned();
-            key.compiling = key
-                .trace
-                .as_ref()
-                .map(|trace| records.compiling_of(trace.stamp.session).during(trace));
+            key.tune = records.recorded_tune(key);
         }
         report
     }
@@ -385,26 +248,14 @@ impl Inspector {
         let manifest = BundleManifest::new(&self.database).ok();
         let options = ExportOptions {
             name: manifest.as_ref().map_or_else(
-                || {
-                    self.path
-                        .file_stem()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .into_owned()
-                },
+                || environment::stem(&self.path),
                 |manifest| manifest.name.clone(),
             ),
             environments: manifest
                 .map(|manifest| manifest.environments)
                 .unwrap_or_default(),
             // Every layout of records, not only the one this build reads.
-            excluded_namespaces: vec![
-                records::ROOT
-                    .split('/')
-                    .next()
-                    .unwrap_or(records::ROOT)
-                    .to_string(),
-            ],
+            excluded_namespaces: vec![NamespaceRoot::records().as_str().to_string()],
             ..Default::default()
         };
         export(&[&self.path], out, &options).map_err(|err| InspectError::Export {
@@ -422,43 +273,16 @@ impl Inspector {
             .find(|key| key.id == id)
             .ok_or(InspectError::UnknownKey(id))
     }
-}
 
-/// The files of `directory` its extension marks, read with or without its
-/// dot; none when the directory does not exist.
-fn files(directory: &EnvironmentDirectory) -> std::io::Result<Vec<PathBuf>> {
-    let entries = match std::fs::read_dir(&directory.path) {
-        Ok(entries) => entries,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(err) => return Err(err),
-    };
-    let extension = directory.extension.trim_start_matches('.');
-    Ok(entries
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some(extension))
-        .collect())
-}
-
-/// A stored entry of `table`, decoded; `None` when either half does not
-/// decode.
-fn tuned_key(namespace: &str, table: &AutotuneTable, key: &[u8], value: &[u8]) -> Option<TunedKey> {
-    let stored: PersistentCacheKey<ciborium::Value> = ciborium::from_reader(key).ok()?;
-    let value: PersistentCacheValue = ciborium::from_reader(value).ok()?;
-    Some(TunedKey {
-        id: KeyId::new(namespace, key),
-        table: table.clone(),
-        key: stored.key,
-        checksum: stored.checksum,
-        winner: value.fastest_index,
-        results: value
-            .results
-            .into_iter()
-            .map(CandidateResult::new)
-            .collect(),
-        bounds: value.bounds,
-        limit: value.limit,
-        trace: None,
-        compiling: None,
-    })
+    /// The file's records, read whole.
+    fn records(&self) -> EnvironmentRecords {
+        let records = Records::new(&self.database);
+        EnvironmentRecords {
+            sessions: records.sessions(),
+            tunes: records.read(),
+            compilations: records.read(),
+            batches: records.read(),
+            marks: records.read(),
+        }
+    }
 }

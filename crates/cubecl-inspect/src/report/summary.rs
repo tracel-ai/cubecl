@@ -1,6 +1,7 @@
-use super::AutotuneTable;
+use super::{AutotuneTable, SessionRecords};
 use cubecl_environment::bundle::BundleManifest;
-use cubecl_environment::records::Session;
+use cubecl_environment::persistence::NamespaceSummary;
+use cubecl_environment::records::{self, Session};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -16,8 +17,8 @@ pub struct Summary {
     /// one, which carries no manifest.
     pub manifest: Option<BundleManifest>,
     pub namespaces: Vec<NamespaceRow>,
-    /// The processes that changed the file, oldest first — its builds, a
-    /// warm-up that found everything done leaving none.
+    /// The processes that changed the file, oldest first; a warm-up that
+    /// found everything done leaves none.
     pub sessions: Vec<SessionRow>,
 }
 
@@ -52,22 +53,58 @@ pub struct NamespaceRow {
     pub bytes: u64,
 }
 
+/// The first segment of a namespace: who wrote it — `autotune`, a backend's
+/// compiler, an application.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NamespaceRoot<'a>(&'a str);
+
+impl<'a> NamespaceRoot<'a> {
+    pub fn new(namespace: &'a str) -> Self {
+        Self(namespace.split('/').next().unwrap_or_default())
+    }
+
+    /// The root of the records, which every layout of them shares.
+    pub fn records() -> Self {
+        Self::new(records::ROOT)
+    }
+
+    pub fn as_str(self) -> &'a str {
+        self.0
+    }
+
+    /// Whether the namespace may hold compiled artifacts: everything but the
+    /// measurements and the records cubecl keeps beside them.
+    pub fn holds_artifacts(self) -> bool {
+        ![AutotuneTable::ROOT, "throughput", Self::records().0].contains(&self.0)
+    }
+}
+
 impl NamespaceRow {
-    /// The first segment: who wrote the namespace — `autotune`, a backend's
-    /// compiler, an application.
-    pub fn root(&self) -> &str {
-        self.namespace.split('/').next().unwrap_or_default()
+    pub fn root(&self) -> NamespaceRoot<'_> {
+        NamespaceRoot::new(&self.namespace)
+    }
+}
+
+impl From<NamespaceSummary> for NamespaceRow {
+    fn from(summary: NamespaceSummary) -> Self {
+        Self {
+            namespace: summary.namespace,
+            entries: summary.entries,
+            bytes: summary.bytes,
+        }
     }
 }
 
 impl Summary {
     /// The file's name: what `--env` takes to open it again.
     pub fn stem(&self) -> String {
-        self.path
-            .file_stem()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned()
+        crate::environment::stem(&self.path)
+    }
+
+    /// When the manifest says the environment was built; `None` for a live
+    /// one.
+    pub fn created_unix_secs(&self) -> Option<u64> {
+        self.manifest.as_ref()?.created_unix_secs
     }
 
     /// What the manifest calls the environment, when it says more than the
@@ -82,13 +119,12 @@ impl Summary {
     pub fn roots(&self) -> Vec<NamespaceRow> {
         let mut roots = BTreeMap::<&str, NamespaceRow>::new();
         for namespace in &self.namespaces {
-            let root = roots
-                .entry(namespace.root())
-                .or_insert_with(|| NamespaceRow {
-                    namespace: namespace.root().to_string(),
-                    entries: 0,
-                    bytes: 0,
-                });
+            let root = namespace.root().as_str();
+            let root = roots.entry(root).or_insert_with(|| NamespaceRow {
+                namespace: root.to_string(),
+                entries: 0,
+                bytes: 0,
+            });
             root.entries += namespace.entries;
             root.bytes += namespace.bytes;
         }
@@ -104,13 +140,39 @@ impl Summary {
     pub fn autotune_keys(&self) -> u64 {
         self.namespaces
             .iter()
-            .filter(|row| row.root() == AutotuneTable::ROOT)
+            .filter(|row| row.root().as_str() == AutotuneTable::ROOT)
             .map(|row| row.entries)
             .sum()
     }
 }
 
 impl SessionRow {
+    /// What one session's `records` add up to.
+    pub fn new(records: SessionRecords<'_>) -> Self {
+        let compiling = records.compiling();
+        let mut row = Self {
+            session: records.session().clone(),
+            tunes: 0,
+            tuning: Duration::ZERO,
+            compilations: records.compilations().count() as u64,
+            compiling: compiling.wall(),
+            compiling_in_tunes: Duration::ZERO,
+            span: compiling.end(),
+        };
+        for trace in records.tunes() {
+            row.tunes += 1;
+            row.tuning += trace.record.wall;
+            row.compiling_in_tunes += compiling.during(trace);
+            row.span = row.span.max(trace.stamp.offset + trace.record.wall);
+        }
+        // A phase after the last compile — a walk served from the store —
+        // still ran.
+        for mark in records.marks() {
+            row.span = row.span.max(mark.stamp.offset + mark.record.wall);
+        }
+        row
+    }
+
     /// The span less the tunes and the compilations outside them: loading,
     /// running, everything the records do not name.
     pub fn other(&self) -> Duration {
@@ -124,7 +186,7 @@ impl SessionRow {
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Listing {
     pub directories: Vec<PathBuf>,
-    /// Newest build first, whichever directory holds it.
+    /// Newest first, whichever directory holds it.
     pub environments: Vec<Summary>,
     /// The files that could not be read, and why.
     pub unreadable: Vec<Unreadable>,

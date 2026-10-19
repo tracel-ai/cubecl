@@ -1,3 +1,4 @@
+use super::fields::Fields;
 use super::paint::Role;
 use super::table::{Align, Table};
 use super::{KeyText, Ratio, Text, Wall};
@@ -11,10 +12,9 @@ impl fmt::Display for Text<'_, EnvironmentDiff> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let diff = self.0;
         let count = |change| diff.with(change).count();
-        Role::Label.write(f, "before  ")?;
-        writeln!(f, "{}", diff.before.display())?;
-        Role::Label.write(f, "after   ")?;
-        writeln!(f, "{}", diff.after.display())?;
+        let fields = Fields::new(&["before", "after"]);
+        fields.line(f, "before", diff.before.display())?;
+        fields.line(f, "after", diff.after.display())?;
         writeln!(
             f,
             "{} keys: {} added, {} removed, {} winners changed ({} under a changed candidate list), {} kept",

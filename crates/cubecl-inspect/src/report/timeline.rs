@@ -1,12 +1,11 @@
-use super::{CompilationSpans, TuneTrace};
-use cubecl_environment::records::{MarkRecord, Session, Stamp, Stamped};
-use cubecl_server::compiler::CompilationRecord;
-use cubecl_server::memory_management::MemoryRecord;
+use super::SessionRecords;
+use cubecl_environment::records::{Session, Stamp};
 use serde::Serialize;
+use std::ops::Range;
 use std::time::Duration;
 
 /// The marks each session placed, in order, with the tuning and compiling
-/// that happened inside each: where a build's time went, phase by phase.
+/// that happened inside each: where a session's time went, phase by phase.
 #[derive(Clone, Debug, Serialize)]
 pub struct Timeline {
     pub sessions: Vec<SessionTimeline>,
@@ -49,35 +48,19 @@ pub struct SlowTune {
     pub wall: Duration,
 }
 
-/// Every memory snapshot the file's sessions recorded, in the order they were
-/// taken.
-#[derive(Clone, Debug, Serialize)]
-pub struct MemorySnapshots {
-    pub snapshots: Vec<Stamped<MemoryRecord>>,
-}
-
 impl Span {
-    /// Whether `stamp` was taken inside this span, on its session's clock.
-    fn contains(&self, stamp: &Stamp) -> bool {
-        stamp.session == self.stamp.session
-            && (self.stamp.offset..self.stamp.offset + self.wall).contains(&stamp.offset)
+    /// The stretch of its session's clock it covers.
+    fn window(&self) -> Range<Duration> {
+        self.stamp.offset..self.stamp.offset + self.wall
     }
 }
 
 impl SessionTimeline {
-    /// Lay `marks` out for `session`, folding in the `tunes` and
-    /// `compilations` stamped inside each, and the time the session's
-    /// `compiling` took inside each.
-    pub fn new(
-        session: Session,
-        marks: &[Stamped<MarkRecord>],
-        tunes: &[TuneTrace],
-        compilations: &[Stamped<CompilationRecord>],
-        compiling: &CompilationSpans,
-    ) -> Self {
-        let mut spans: Vec<Span> = marks
-            .iter()
-            .filter(|mark| mark.stamp.session == session.id)
+    /// Lay out the session's marks, folding in the tunes and compilations
+    /// stamped inside each, and the time its compiling took inside each.
+    pub fn new(records: SessionRecords<'_>) -> Self {
+        let mut spans: Vec<Span> = records
+            .marks()
             .map(|mark| Span {
                 stamp: mark.stamp,
                 label: mark.record.label.clone(),
@@ -94,18 +77,19 @@ impl SessionTimeline {
         // encloses the other.
         spans.sort_by_key(|span| (span.stamp.offset, std::cmp::Reverse(span.wall)));
         for index in 0..spans.len() {
-            let stamp = spans[index].stamp;
+            let start = spans[index].stamp.offset;
             spans[index].depth = spans[..index]
                 .iter()
-                .filter(|outer| outer.contains(&stamp))
+                .filter(|outer| outer.window().contains(&start))
                 .count();
         }
+        let compiling = records.compiling();
         for span in &mut spans {
-            let inside: Vec<&TuneTrace> = tunes
-                .iter()
-                .filter(|tune| span.contains(&tune.stamp))
-                .collect();
-            for tune in inside {
+            let window = span.window();
+            for tune in records
+                .tunes()
+                .filter(|tune| window.contains(&tune.stamp.offset))
+            {
                 span.tunes += 1;
                 span.tuning += tune.record.wall;
                 if span
@@ -120,12 +104,15 @@ impl SessionTimeline {
                     });
                 }
             }
-            span.compilations = compilations
-                .iter()
-                .filter(|trip| span.contains(&trip.stamp))
+            span.compilations = records
+                .compilations()
+                .filter(|trip| window.contains(&trip.stamp.offset))
                 .count() as u64;
-            span.compiling = compiling.within(span.stamp.offset..span.stamp.offset + span.wall);
+            span.compiling = compiling.within(window);
         }
-        Self { session, spans }
+        Self {
+            session: records.session().clone(),
+            spans,
+        }
     }
 }

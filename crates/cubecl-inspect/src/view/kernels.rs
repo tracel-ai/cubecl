@@ -1,6 +1,7 @@
+use super::fields::Fields;
 use super::paint::Role;
 use super::table::{Align, Table};
-use super::{Bytes, Maybe, Text, Wall};
+use super::{ByteSize, Maybe, Text, Wall};
 use crate::report::{KernelReport, KernelRow};
 use std::fmt;
 
@@ -25,7 +26,7 @@ impl fmt::Display for Text<'_, KernelReport> {
                 family.loaded.to_string(),
                 Wall(family.compiling).to_string(),
                 Wall(family.loading).to_string(),
-                Bytes(family.bytes).to_string(),
+                ByteSize(family.bytes).to_string(),
             ]);
         }
         fmt::Display::fmt(&families, f)?;
@@ -48,7 +49,7 @@ impl fmt::Display for Text<'_, KernelReport> {
                 row.compiled.to_string(),
                 row.loaded.to_string(),
                 Wall(row.compiling).to_string(),
-                Maybe(row.bytes.map(Bytes)).to_string(),
+                Maybe(row.bytes.map(ByteSize)).to_string(),
             ]);
         }
         writeln!(f)?;
@@ -62,7 +63,7 @@ impl fmt::Display for Text<'_, KernelReport> {
         if report.unrecorded > 0 {
             write!(
                 f,
-                "; {} more stored by builds that recorded nothing",
+                "; {} more stored while nothing was recorded",
                 report.unrecorded
             )?;
         }
@@ -73,44 +74,42 @@ impl fmt::Display for Text<'_, KernelReport> {
 impl fmt::Display for Text<'_, KernelRow> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let row = self.0;
-        Role::Label.write(f, "id         ")?;
-        writeln!(f, "{}", row.id)?;
-        Role::Label.write(f, "build      ")?;
-        writeln!(f, "{}", row.build)?;
-        Role::Label.write(f, "kernel     ")?;
-        writeln!(f, "{}", row.kernel)?;
+        let fields = Fields::new(&[
+            "id", "build", "kernel", "stored", "compiled", "ir", "source",
+        ]);
+        fields.line(f, "id", row.id)?;
+        fields.line(f, "build", row.build)?;
+        fields.line(f, "kernel", &row.kernel)?;
         if let Some(bytes) = row.bytes {
-            Role::Label.write(f, "stored     ")?;
-            writeln!(f, "{}", Bytes(bytes))?;
+            fields.line(f, "stored", ByteSize(bytes))?;
         }
-        Role::Label.write(f, "compiled   ")?;
-        writeln!(
+        fields.line(
             f,
-            "{} times in {}, loaded {} times in {}",
-            row.compiled,
-            Wall(row.compiling),
-            row.loaded,
-            Wall(row.loading)
+            "compiled",
+            format_args!(
+                "{} times in {}, loaded {} times in {}",
+                row.compiled,
+                Wall(row.compiling),
+                row.loaded,
+                Wall(row.loading)
+            ),
         )?;
-        match &row.ir {
-            Some(ir) => {
+        match (&row.ir, row.compiled) {
+            (Some(ir), _) => {
                 writeln!(f)?;
                 Role::Title.write(f, "ir")?;
                 writeln!(f, "\n{}", ir.trim_end())?;
             }
-            None => {
-                Role::Label.write(f, "ir         ")?;
-                match row.compiled {
-                    0 => writeln!(
-                        f,
-                        "not recorded (a kernel loaded from the store is not defined again)"
-                    )?,
-                    _ => writeln!(
-                        f,
-                        "not recorded (`[environment.records] level = \"full\"` keeps a fresh compile's)"
-                    )?,
-                }
-            }
+            (None, 0) => fields.line(
+                f,
+                "ir",
+                "not recorded (a kernel loaded from the store is not defined again)",
+            )?,
+            (None, _) => fields.line(
+                f,
+                "ir",
+                "not recorded (`[environment.records] level = \"full\"` keeps a fresh compile's)",
+            )?,
         }
         match &row.source {
             Some(source) => {
@@ -118,13 +117,11 @@ impl fmt::Display for Text<'_, KernelRow> {
                 Role::Title.write(f, "source")?;
                 writeln!(f, "\n{source}")
             }
-            None => {
-                Role::Label.write(f, "source     ")?;
-                writeln!(
-                    f,
-                    "not recorded (`[environment.records] level = \"full\"` keeps it)"
-                )
-            }
+            None => fields.line(
+                f,
+                "source",
+                "not recorded (`[environment.records] level = \"full\"` keeps it)",
+            ),
         }
     }
 }

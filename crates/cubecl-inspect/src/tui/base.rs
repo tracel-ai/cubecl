@@ -4,7 +4,7 @@ use crate::report::Listing;
 use crate::{EnvironmentDirectory, InspectError, Inspector};
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{DefaultTerminal, Frame};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime};
 
 /// How long the loop waits for a key before looking at the file again.
@@ -197,15 +197,6 @@ impl Explorer {
     }
 }
 
-/// A path the way a person reads it: under the home directory, from `~`.
-pub(crate) fn shown(path: &Path) -> String {
-    match std::env::home_dir().and_then(|home| path.strip_prefix(home).ok().map(Path::to_path_buf))
-    {
-        Some(relative) => format!("~/{}", relative.display()),
-        None => path.display().to_string(),
-    }
-}
-
 /// A wall-clock time of day, UTC, to the second.
 fn clock(time: SystemTime) -> String {
     let secs = time
@@ -224,6 +215,7 @@ fn clock(time: SystemTime) -> String {
 mod tests {
     use super::*;
     use ratatui::crossterm::event::KeyModifiers;
+    use std::path::Path;
 
     fn press(code: KeyCode) -> Action {
         Action::from(KeyEvent::new(code, KeyModifiers::NONE))

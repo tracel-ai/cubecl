@@ -78,7 +78,7 @@ impl AutotuneTable {
     }
 
     /// The table a namespace names, or `None` when it is not an autotune one.
-    pub fn parse(namespace: &str) -> Option<Self> {
+    pub fn new(namespace: &str) -> Option<Self> {
         let mut segments = namespace.splitn(4, '/');
         if segments.next()? != Self::ROOT {
             return None;
@@ -112,7 +112,7 @@ mod tests {
     #[test]
     fn a_table_parses_from_its_namespace() {
         assert_eq!(
-            AutotuneTable::parse("autotune/0.11.0/device-32-0-hip/matmul-tune-gemm"),
+            AutotuneTable::new("autotune/0.11.0/device-32-0-hip/matmul-tune-gemm"),
             Some(AutotuneTable {
                 tuner: "matmul-tune-gemm".to_string(),
                 device: "device-32-0-hip".to_string(),
@@ -120,8 +120,8 @@ mod tests {
             })
         );
         let namespace = "autotune/0.11.0/device-32-0-hip/matmul-tune-gemm";
-        let table = AutotuneTable::parse(namespace).expect("parses");
+        let table = AutotuneTable::new(namespace).expect("parses");
         assert_eq!(table.namespace(), namespace);
-        assert_eq!(AutotuneTable::parse("hip/0.11.0/gfx1151"), None);
+        assert_eq!(AutotuneTable::new("hip/0.11.0/gfx1151"), None);
     }
 }

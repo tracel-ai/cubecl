@@ -1,14 +1,13 @@
 //! The environments to choose from, under the wordmark.
 
-use super::base::shown;
-use super::theme::{self, hints, panel, selectable};
+use super::theme::{self, Masthead, Selection, hints, panel, shown};
+use crate::EnvironmentDirectory;
 use crate::report::Listing;
 use crate::view::Table;
-use crate::{EnvironmentDirectory, wordmark};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{ListItem, ListState, Paragraph};
+use ratatui::widgets::{ListItem, Paragraph};
 use std::path::{Path, PathBuf};
 
 /// The environments to choose from, as last listed.
@@ -16,7 +15,7 @@ pub(crate) struct Picker {
     /// The listing table's column names.
     header: String,
     choices: Vec<Choice>,
-    selection: ListState,
+    selection: Selection,
     /// Files found that could not be opened.
     unreadable: usize,
 }
@@ -46,7 +45,7 @@ impl Picker {
         Self {
             header,
             choices,
-            selection: ListState::default().with_selected(Some(0)),
+            selection: Selection::new(),
             unreadable: listing.unreadable.len(),
         }
     }
@@ -54,17 +53,14 @@ impl Picker {
     /// The file of the environment selected, when there is one.
     pub(crate) fn selected(&self) -> Option<&Path> {
         self.selection
-            .selected()
+            .index()
             .and_then(|index| self.choices.get(index))
             .map(|choice| choice.path.as_path())
     }
 
     /// Move the selection, kept on the list.
     pub(crate) fn move_by(&mut self, rows: isize) {
-        let selected = self.selection.selected().unwrap_or(0) as isize + rows;
-        let last = self.choices.len().saturating_sub(1) as isize;
-        self.selection
-            .select(Some(selected.clamp(0, last) as usize));
+        self.selection.move_by(rows, self.choices.len());
     }
 
     pub(crate) fn status(&self) -> String {
@@ -84,36 +80,29 @@ impl Picker {
         directories: &[EnvironmentDirectory],
         status: &str,
     ) {
-        let [_, brand, _, caption, _, body, footer] = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(wordmark::MARK.len() as u16),
-            Constraint::Length(1),
-            Constraint::Length(1),
+        let masthead = Masthead::Wordmark;
+        let [header, _, body, footer] = Layout::vertical([
+            Constraint::Length(masthead.height()),
             Constraint::Length(1),
             Constraint::Fill(1),
             Constraint::Length(1),
         ])
         .areas(frame.area());
 
-        frame.render_widget(theme::wordmark(), brand);
-
         let searched: Vec<String> = directories
             .iter()
             .map(|directory| shown(&directory.path))
             .collect();
-        frame.render_widget(
-            Line::from(vec![
-                Span::raw("  "),
-                Span::styled("ENVIRONMENT INSPECTOR", theme::accent()),
-                Span::styled(format!("  ·  {}", searched.join("  ·  ")), theme::label()),
-            ]),
-            caption,
+        masthead.draw(
+            frame,
+            header,
+            [Span::styled(searched.join("  ·  "), theme::label())],
         );
 
         let block = panel("environments");
         if self.choices.is_empty() {
             frame.render_widget(
-                Paragraph::new("no environment here yet: a build writes one")
+                Paragraph::new("no environment here yet: a session writes one")
                     .style(theme::label())
                     .block(block),
                 body,
@@ -132,7 +121,7 @@ impl Picker {
                 .iter()
                 .map(|choice| ListItem::new(choice.row.as_str()))
                 .collect();
-            frame.render_stateful_widget(selectable(items), rows, &mut self.selection);
+            self.selection.draw(frame, rows, items, None);
         }
 
         frame.render_widget(

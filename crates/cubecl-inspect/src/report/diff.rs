@@ -8,11 +8,11 @@ use std::time::Duration;
 /// other lacks, and where they answer the same key differently.
 ///
 /// A key is matched by its tuner, its device and its value — not by the
-/// cubecl version in its namespace, so two builds a version apart still
-/// compare. A file that answers one key under several versions answers it
-/// with its newest. Winners that differ between two builds of the same settings are
-/// the run-to-run variance that makes a loaded file compile kernels its build
-/// never did.
+/// cubecl version in its namespace, so two environments a version apart
+/// still compare. A file that answers one key under several versions answers it
+/// with its newest. Winners that differ between two environments filled with the same
+/// settings are the run-to-run variance that makes a loaded file compile
+/// kernels its own sessions never did.
 #[derive(Clone, Debug, Serialize)]
 pub struct EnvironmentDiff {
     pub before: PathBuf,

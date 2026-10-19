@@ -1,5 +1,5 @@
 use ciborium::Value;
-use std::fmt::{self, Write as _};
+use std::fmt;
 
 /// A decoded autotune key on one line: `field=value` pairs, a nested struct's
 /// fields prefixed with its own name, an enum as `Variant(value)`.
@@ -66,17 +66,7 @@ fn scalar(value: &Value) -> String {
         }
         Value::Map(entries) => match variant(entries) {
             Some((name, inner)) => format!("{name}({})", scalar(inner)),
-            None => {
-                let mut text = String::from("{");
-                let mut fields = Vec::new();
-                flatten(value, "", &mut fields);
-                for (index, (path, field)) in fields.iter().enumerate() {
-                    let separator = if index == 0 { "" } else { " " };
-                    let _ = write!(text, "{separator}{path}={field}");
-                }
-                text.push('}');
-                text
-            }
+            None => format!("{{{}}}", KeyText(value)),
         },
         Value::Bytes(bytes) => format!("<{} bytes>", bytes.len()),
         Value::Tag(_, inner) => scalar(inner),

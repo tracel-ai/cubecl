@@ -34,7 +34,7 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    /// Every environment file in a directory, newest build first.
+    /// Every environment file in a directory, newest first.
     #[command(alias = "ls")]
     List {
         /// The directory holding the files: the runtime's root by default.
@@ -45,8 +45,8 @@ enum Command {
         extension: Option<String>,
     },
     /// Browse the environments and their reports in the terminal, read
-    /// again whenever the file changes: open one beside a build to watch the
-    /// build fill it.
+    /// again whenever the file changes: open one beside a running session to
+    /// watch it fill the file.
     Tui,
     #[command(flatten)]
     Inspect(Inspection),

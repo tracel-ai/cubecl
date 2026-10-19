@@ -10,8 +10,10 @@
 mod autotune;
 mod base;
 mod diff;
+mod fields;
 mod kernels;
 mod key;
+mod memory;
 mod paint;
 mod summary;
 mod table;

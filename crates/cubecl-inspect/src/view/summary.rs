@@ -1,6 +1,7 @@
+use super::fields::Fields;
 use super::paint::Role;
 use super::table::{Align, Table};
-use super::{Bytes, Maybe, Text, Wall};
+use super::{ByteSize, Maybe, Text, Wall};
 use crate::report::{Listing, Summary};
 use cubecl_environment::bundle::BundleManifest;
 use std::fmt;
@@ -8,29 +9,32 @@ use std::fmt;
 impl fmt::Display for Text<'_, Summary> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let summary = self.0;
+        let fields = Fields::new(&["name", "environment", "built", "entries"]);
         if let Some(name) = summary.name() {
-            Role::Label.write(f, "name         ")?;
-            writeln!(f, "{name}")?;
+            fields.line(f, "name", name)?;
         }
-        Role::Label.write(f, "environment  ")?;
-        writeln!(
+        fields.line(
             f,
-            "{} ({})",
-            summary.path.display(),
-            Bytes(summary.file_bytes)
+            "environment",
+            format_args!(
+                "{} ({})",
+                summary.path.display(),
+                ByteSize(summary.file_bytes)
+            ),
         )?;
-        Role::Label.write(f, "built        ")?;
         match &summary.manifest {
-            Some(manifest) => writeln!(f, "{}", Built(manifest))?,
-            None => writeln!(f, "- (a live environment carries no manifest)")?,
+            Some(manifest) => fields.line(f, "built", Built(manifest))?,
+            None => fields.line(f, "built", "- (a live environment carries no manifest)")?,
         }
-        Role::Label.write(f, "entries      ")?;
-        writeln!(
+        fields.line(
             f,
-            "{} in {} namespaces, {} autotune keys",
-            summary.entries(),
-            summary.namespaces.len(),
-            summary.autotune_keys()
+            "entries",
+            format_args!(
+                "{} in {} namespaces, {} autotune keys",
+                summary.entries(),
+                summary.namespaces.len(),
+                summary.autotune_keys()
+            ),
         )?;
 
         if !summary.sessions.is_empty() {
@@ -77,7 +81,7 @@ impl fmt::Display for Text<'_, Summary> {
             roots.row(vec![
                 root.namespace,
                 root.entries.to_string(),
-                Bytes(root.bytes).to_string(),
+                ByteSize(root.bytes).to_string(),
             ]);
         }
         writeln!(f)?;
@@ -92,7 +96,7 @@ impl fmt::Display for Text<'_, Summary> {
             namespaces.row(vec![
                 namespace.namespace.clone(),
                 namespace.entries.to_string(),
-                Bytes(namespace.bytes).to_string(),
+                ByteSize(namespace.bytes).to_string(),
             ]);
         }
         writeln!(f)?;
@@ -141,12 +145,7 @@ impl From<&[Summary]> for Table {
             let manifest = summary.manifest.as_ref();
             table.row(vec![
                 summary.stem(),
-                Maybe(
-                    manifest
-                        .and_then(|manifest| manifest.created_unix_secs)
-                        .map(UnixTime),
-                )
-                .to_string(),
+                Maybe(summary.created_unix_secs().map(UnixTime)).to_string(),
                 Maybe(manifest.map(|manifest| &manifest.cubecl_version)).to_string(),
                 manifest
                     .map(devices)
@@ -154,7 +153,7 @@ impl From<&[Summary]> for Table {
                     .unwrap_or_else(|| "-".to_string()),
                 summary.autotune_keys().to_string(),
                 summary.entries().to_string(),
-                Bytes(summary.file_bytes).to_string(),
+                ByteSize(summary.file_bytes).to_string(),
                 Maybe(summary.name()).to_string(),
             ]);
         }

@@ -4,15 +4,15 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::time::Duration;
 
-/// Every kernel the environment's builds compiled or loaded, and what that
+/// Every kernel the environment's sessions compiled or loaded, and what that
 /// cost, per instance and per kernel type.
 #[derive(Clone, Debug, Serialize)]
 pub struct KernelReport {
     pub kernels: Vec<KernelRow>,
     /// The instances folded by kernel type, costliest first.
     pub families: Vec<FamilyRow>,
-    /// Artifacts the file stores with no recorded trip: compiled by a build
-    /// that recorded nothing.
+    /// Artifacts the file stores with no recorded trip: compiled while
+    /// nothing was recorded.
     pub unrecorded: u64,
 }
 
@@ -20,15 +20,49 @@ pub struct KernelReport {
 /// with their size.
 pub type StoredArtifacts = BTreeMap<KernelCacheKey, u64>;
 
-/// A stable handle on one kernel instance: the hash of its id that names its
-/// artifact in the compilation store.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct KernelHash(pub u128);
+/// A 128-bit hash naming part of a kernel's artifact, written once for every
+/// such hash so they all print, serialize and match alike: twelve hex digits
+/// in text, enough to tell a file's kernels apart and short enough to type;
+/// in full in JSON; matched by a prefix of the hex, the way a command line
+/// names one.
+macro_rules! artifact_hash {
+    ($(#[$doc:meta])* $name:ident) => {
+        $(#[$doc])*
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        pub struct $name(pub u128);
 
-/// The hash of the build that compiled or loaded a kernel instance: with the
-/// [`KernelHash`], what names its artifact.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct BuildHash(pub u128);
+        impl $name {
+            /// Whether the hash's hex rendering starts with `prefix`.
+            pub fn matches(&self, prefix: &str) -> bool {
+                format!("{:032x}", self.0).starts_with(&prefix.to_ascii_lowercase())
+            }
+        }
+
+        impl fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "{}", &format!("{:032x}", self.0)[..12])
+            }
+        }
+
+        impl Serialize for $name {
+            fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.collect_str(&format_args!("{:032x}", self.0))
+            }
+        }
+    };
+}
+
+artifact_hash!(
+    /// A stable handle on one kernel instance: the hash of its id that names
+    /// its artifact in the compilation store.
+    KernelHash
+);
+
+artifact_hash!(
+    /// The hash of the build that compiled or loaded a kernel instance: with
+    /// the [`KernelHash`], what names its artifact.
+    BuildHash
+);
 
 /// What a command line names one kernel instance by: a prefix of its id and,
 /// when several builds recorded it, a prefix of the build's.
@@ -86,50 +120,6 @@ pub enum KernelOrder {
     Name,
 }
 
-impl KernelHash {
-    /// Whether the hash's hex rendering starts with `prefix`, the way a
-    /// command line names an instance.
-    pub fn matches(&self, prefix: &str) -> bool {
-        hex_matches(self.0, prefix)
-    }
-}
-
-impl BuildHash {
-    /// See [`KernelHash::matches`].
-    pub fn matches(&self, prefix: &str) -> bool {
-        hex_matches(self.0, prefix)
-    }
-}
-
-/// Twelve hex digits: enough to tell a file's kernels apart, short enough to
-/// type.
-impl fmt::Display for KernelHash {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", &format!("{:032x}", self.0)[..12])
-    }
-}
-
-/// See the [`KernelHash`] rendering.
-impl fmt::Display for BuildHash {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", &format!("{:032x}", self.0)[..12])
-    }
-}
-
-/// In full, so a JSON reader has the whole hash.
-impl Serialize for KernelHash {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_str(&format_args!("{:032x}", self.0))
-    }
-}
-
-/// See the [`KernelHash`] serialization.
-impl Serialize for BuildHash {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_str(&format_args!("{:032x}", self.0))
-    }
-}
-
 impl KernelSelector<'_> {
     /// Whether `row` is an instance this names.
     pub fn selects(&self, row: &KernelRow) -> bool {
@@ -147,10 +137,6 @@ impl fmt::Display for KernelSelector<'_> {
         }
         Ok(())
     }
-}
-
-fn hex_matches(hash: u128, prefix: &str) -> bool {
-    format!("{hash:032x}").starts_with(&prefix.to_ascii_lowercase())
 }
 
 impl KernelRow {
@@ -184,7 +170,10 @@ fn short_name(kernel: &str) -> &str {
 impl KernelReport {
     /// Fold the recorded trips by instance, sized from the artifacts the
     /// file `stored`.
-    pub fn new(trips: &[CompilationRecord], stored: &StoredArtifacts) -> Self {
+    pub fn new<'a>(
+        trips: impl IntoIterator<Item = &'a CompilationRecord>,
+        stored: &StoredArtifacts,
+    ) -> Self {
         let mut rows = BTreeMap::<KernelCacheKey, KernelRow>::new();
         for trip in trips {
             let row = rows.entry(trip.key).or_insert_with(|| KernelRow {

@@ -1,18 +1,16 @@
 //! One environment open in the browser: its reports, a tab each, read again
 //! whenever the file changes.
 
-use super::base::shown;
-use super::theme::{self, Masthead, hints, panel, selectable};
+use super::theme::{self, Masthead, Selection, hints, panel, shown};
 use crate::report::{AutotuneReport, CandidateReport, KeyOrder};
 use crate::view::{KeyText, Maybe, Text, Wall};
-use crate::wordmark;
-use crate::{InspectError, Inspector};
+use crate::{InspectError, Inspector, environment};
 use ansi_to_tui::IntoText as _;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, ListItem, ListState, Padding, Paragraph, Tabs};
+use ratatui::widgets::{Block, ListItem, Padding, Paragraph, Tabs};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -24,7 +22,7 @@ pub(crate) struct Viewer {
     tab: Tab,
     scroll: u16,
     pages: Option<Pages>,
-    keys: ListState,
+    keys: Selection,
     /// The key opened from the autotune list, rendered.
     detail: Option<Page>,
     /// What the file looked like when last read.
@@ -71,8 +69,8 @@ enum Tab {
     Memory,
 }
 
-/// The file and its write-ahead log, by size and modification time: a build
-/// writes to the log first, so the log is what moves while it runs.
+/// The file and its write-ahead log, by size and modification time: a
+/// session writes to the log first, so the log is what moves while it runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Fingerprint([(u64, Option<SystemTime>); 2]);
 
@@ -108,7 +106,7 @@ impl Tab {
 }
 
 impl Fingerprint {
-    fn of(path: &Path) -> Self {
+    fn new(path: &Path) -> Self {
         let stat = |path: &Path| {
             std::fs::metadata(path).map_or((0, None), |meta| (meta.len(), meta.modified().ok()))
         };
@@ -168,13 +166,13 @@ impl Pages {
         let summary = inspector.summary();
         Self {
             name: summary.name().map(str::to_string),
-            summary: Page::of(Text(&summary)),
-            timeline: Page::of(Text(&inspector.timeline())),
-            candidates: Page::of(Text(&CandidateReport::from(&autotune))),
+            summary: Page::new(Text(&summary)),
+            timeline: Page::new(Text(&inspector.timeline())),
+            candidates: Page::new(Text(&CandidateReport::from(&autotune))),
             keys: KeyRow::all(&autotune),
             autotune,
-            kernels: Page::of(Text(&inspector.kernels())),
-            memory: Page::of(Text(&inspector.memory())),
+            kernels: Page::new(Text(&inspector.kernels())),
+            memory: Page::new(Text(&inspector.memory())),
         }
     }
 
@@ -195,7 +193,7 @@ impl Page {
     /// `report` in its painted form. Painting writes only the escape codes
     /// the roles use, so the conversion cannot fail on them; were it to,
     /// the page falls back to the plain form rather than showing nothing.
-    fn of(report: impl fmt::Display) -> Self {
+    fn new(report: impl fmt::Display) -> Self {
         let painted = format!("{report:#}");
         Self(
             painted
@@ -218,7 +216,7 @@ impl Viewer {
             tab: Tab::Summary,
             scroll: 0,
             pages: None,
-            keys: ListState::default().with_selected(Some(0)),
+            keys: Selection::new(),
             detail: None,
             seen: None,
         }
@@ -227,14 +225,14 @@ impl Viewer {
     /// Read every report again. A file mid-write that cannot be read keeps
     /// the previous reading on screen; the error says why.
     pub(crate) fn read(&mut self) -> Result<(), InspectError> {
-        self.seen = Some(Fingerprint::of(&self.path));
+        self.seen = Some(Fingerprint::new(&self.path));
         self.pages = Some(Pages::read(&Inspector::open(&self.path)?));
         Ok(())
     }
 
     /// Whether the file moved since it was last read.
     pub(crate) fn changed(&self) -> bool {
-        self.seen != Some(Fingerprint::of(&self.path))
+        self.seen != Some(Fingerprint::new(&self.path))
     }
 
     /// The path of the environment open: what a test of the browser's
@@ -263,10 +261,7 @@ impl Viewer {
                 .pages
                 .as_ref()
                 .map_or(0, |pages| pages.autotune.keys.len());
-            let selected = self.keys.selected().unwrap_or(0) as isize + rows;
-            self.keys.select(Some(
-                selected.clamp(0, count.saturating_sub(1) as isize) as usize
-            ));
+            self.keys.move_by(rows, count);
         } else {
             self.scroll = (self.scroll as isize + rows).max(0) as u16;
         }
@@ -279,10 +274,10 @@ impl Viewer {
         let key = self
             .pages
             .as_ref()
-            .zip(self.keys.selected())
+            .zip(self.keys.index())
             .and_then(|(pages, index)| pages.autotune.keys.get(index));
         if let Some(key) = key {
-            self.detail = Some(Page::of(Text(key)));
+            self.detail = Some(Page::new(Text(key)));
             self.scroll = 0;
         }
     }
@@ -295,7 +290,7 @@ impl Viewer {
     }
 
     pub(crate) fn draw(&mut self, frame: &mut Frame, status: &str) {
-        let masthead = Masthead::fitting(frame.area());
+        let masthead = Masthead::new(frame.area());
         let [header, tabs, body, footer] = Layout::vertical([
             Constraint::Length(masthead.height()),
             Constraint::Length(2),
@@ -307,7 +302,7 @@ impl Viewer {
         let built_for = self.pages.as_ref().and_then(|pages| pages.name.as_deref());
         let environment = [
             Some(Span::styled(
-                name(&self.path),
+                environment::stem(&self.path),
                 Style::new().add_modifier(Modifier::BOLD),
             )),
             built_for.map(|built_for| Span::raw(format!("  {built_for}"))),
@@ -315,37 +310,8 @@ impl Viewer {
                 format!("  {}", shown(&self.path)),
                 theme::label(),
             )),
-        ]
-        .into_iter()
-        .flatten();
-        match masthead {
-            Masthead::Wordmark => {
-                let [_, brand, _, caption] = Layout::vertical([
-                    Constraint::Length(1),
-                    Constraint::Length(wordmark::MARK.len() as u16),
-                    Constraint::Length(1),
-                    Constraint::Length(1),
-                ])
-                .areas(header);
-                frame.render_widget(theme::wordmark(), brand);
-                let lead = [
-                    Span::raw("  "),
-                    Span::styled("ENVIRONMENT INSPECTOR", theme::accent()),
-                    Span::styled("  ·  ", theme::label()),
-                ];
-                frame.render_widget(
-                    Line::from_iter(lead.into_iter().chain(environment)),
-                    caption,
-                );
-            }
-            Masthead::Line => {
-                let lead = [
-                    Span::styled(" CubeCL", theme::accent()),
-                    Span::styled(" inspect  ", theme::label()),
-                ];
-                frame.render_widget(Line::from_iter(lead.into_iter().chain(environment)), header);
-            }
-        }
+        ];
+        masthead.draw(frame, header, environment.into_iter().flatten());
         frame.render_widget(
             Tabs::new(Tab::ALL.map(Tab::title))
                 .select(self.tab.index())
@@ -368,10 +334,11 @@ impl Viewer {
             (Some(_), Tab::Autotune, Some(detail)) => {
                 frame.render_widget(detail.scrolled(self.scroll).block(block), body)
             }
-            (Some(pages), Tab::Autotune, None) => frame.render_stateful_widget(
-                selectable(pages.keys.iter().map(KeyRow::item).collect()).block(block),
+            (Some(pages), Tab::Autotune, None) => self.keys.draw(
+                frame,
                 body,
-                &mut self.keys,
+                pages.keys.iter().map(KeyRow::item).collect(),
+                Some(block),
             ),
             (Some(pages), tab, _) => {
                 if let Some(page) = pages.page(tab) {
@@ -401,14 +368,6 @@ impl Viewer {
     }
 }
 
-/// An environment's file name, which is its name.
-fn name(path: &Path) -> String {
-    path.file_stem()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .into_owned()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -426,9 +385,9 @@ mod tests {
         let mut viewer = Viewer::new(PathBuf::from("missing.cubecl"));
         viewer.switch(Tab::Autotune);
         viewer.move_by(-5);
-        assert_eq!(viewer.keys.selected(), Some(0));
+        assert_eq!(viewer.keys.index(), Some(0));
         viewer.move_by(5);
-        assert_eq!(viewer.keys.selected(), Some(0), "no keys read");
+        assert_eq!(viewer.keys.index(), Some(0), "no keys read");
     }
 
     /// The browser shows a report as a terminal paints it, not plainly.
@@ -442,7 +401,7 @@ mod tests {
             }
         }
 
-        let Page(text) = Page::of(Titled);
+        let Page(text) = Page::new(Titled);
         let span = &text.lines[0].spans[0];
         assert_eq!(span.content, "tuned");
         assert!(span.style.add_modifier.contains(Modifier::BOLD));

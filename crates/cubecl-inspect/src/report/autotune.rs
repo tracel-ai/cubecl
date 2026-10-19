@@ -2,7 +2,8 @@ use super::{AutotuneTable, KeyId};
 use cubecl_environment::records::Stamped;
 use cubecl_server::benchmark::BenchmarkComputations;
 use cubecl_server::tune::{
-    AutotuneError, AutotuneResult, Bounds, PlannedCandidate, Trial, TuneRecord,
+    AutotuneError, AutotuneResult, Bounds, PersistentCacheKey, PersistentCacheValue,
+    PlannedCandidate, Trial, TuneRecord,
 };
 use serde::Serialize;
 use std::time::Duration;
@@ -45,14 +46,21 @@ pub struct TunedKey {
     pub bounds: Option<Bounds>,
     /// The time budget the tune ran under, when it had one.
     pub limit: Option<Duration>,
-    /// The last recorded tune of this key: the trials in the order they ran,
-    /// with their walls. `None` for an environment built before cubecl
-    /// recorded its tunes.
-    pub trace: Option<TuneTrace>,
-    /// The part of the tune's wall spent compiling: the recorded compilations
-    /// of its session that started while it ran. `None` when the tune was not
-    /// recorded.
-    pub compiling: Option<Duration>,
+    /// The last recorded tune of this key. `None` for an environment built
+    /// before cubecl recorded its tunes.
+    ///
+    /// Flattened, so a JSON reader finds `trace` and `compiling` on the key.
+    #[serde(flatten)]
+    pub tune: Option<RecordedTune>,
+}
+
+/// A key's last recorded tune, and the part of it spent compiling.
+#[derive(Clone, Debug, Serialize)]
+pub struct RecordedTune {
+    /// The trials in the order they ran, with their walls.
+    pub trace: TuneTrace,
+    /// The recorded compilations of its session that started while it ran.
+    pub compiling: Duration,
 }
 
 /// One candidate's part in a tune.
@@ -127,6 +135,28 @@ fn failure(error: AutotuneError) -> (Option<String>, CandidateOutcome) {
 }
 
 impl TunedKey {
+    /// A stored entry of `table`, decoded; `None` when either half does not
+    /// decode. The [tune](Self::tune) is left for the records to fill.
+    pub fn new(table: &AutotuneTable, key: &[u8], value: &[u8]) -> Option<Self> {
+        let stored: PersistentCacheKey<ciborium::Value> = ciborium::from_reader(key).ok()?;
+        let value: PersistentCacheValue = ciborium::from_reader(value).ok()?;
+        Some(Self {
+            id: KeyId::new(&table.namespace(), key),
+            table: table.clone(),
+            key: stored.key,
+            checksum: stored.checksum,
+            winner: value.fastest_index,
+            results: value
+                .results
+                .into_iter()
+                .map(CandidateResult::new)
+                .collect(),
+            bounds: value.bounds,
+            limit: value.limit,
+            tune: None,
+        })
+    }
+
     /// The winner's own result. `None` when the winner was picked with nothing
     /// measured — the tune ran but its samples could not be timed.
     pub fn winning(&self) -> Option<&CandidateResult> {
@@ -194,21 +224,24 @@ impl TunedKey {
 
     /// From the cache miss to the answer, when the tune was recorded.
     pub fn wall(&self) -> Option<Duration> {
-        self.trace.as_ref().map(|trace| trace.record.wall)
+        self.trace().map(|trace| trace.record.wall)
+    }
+
+    /// How the tune went, when it was recorded.
+    pub fn trace(&self) -> Option<&TuneTrace> {
+        self.tune.as_ref().map(|tune| &tune.trace)
     }
 
     /// The trials in the order they ran, when the tune was recorded.
     pub fn trials(&self) -> &[Trial] {
-        self.trace
-            .as_ref()
+        self.trace()
             .map_or(&[], |trace| trace.record.trials.as_slice())
     }
 
     /// Every candidate in the order the tune's plan released them, when the
     /// tune was recorded by a cubecl that keeps its plan.
     pub fn plan(&self) -> &[PlannedCandidate] {
-        self.trace
-            .as_ref()
+        self.trace()
             .map_or(&[], |trace| trace.record.plan.as_slice())
     }
 
@@ -248,7 +281,7 @@ impl TunedKey {
     /// and candidates that ran more than [`WASTE_THRESHOLD`] times the
     /// winner's score. `None` when the tune was not recorded.
     pub fn wasted(&self) -> Option<Duration> {
-        self.trace.as_ref()?;
+        self.tune.as_ref()?;
         Some(
             self.trials()
                 .iter()

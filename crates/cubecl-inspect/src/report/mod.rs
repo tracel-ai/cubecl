@@ -7,6 +7,8 @@ mod compiling;
 mod diff;
 mod kernels;
 mod key;
+mod memory;
+mod records;
 mod summary;
 mod timeline;
 
@@ -16,5 +18,7 @@ pub use compiling::*;
 pub use diff::*;
 pub use kernels::*;
 pub use key::*;
+pub use memory::*;
+pub use records::*;
 pub use summary::*;
 pub use timeline::*;

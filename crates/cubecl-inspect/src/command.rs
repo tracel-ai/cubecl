@@ -24,13 +24,13 @@ pub enum Inspection {
     /// Every tuned key: its winner, how many candidates raced, how close it
     /// was.
     Autotune(AutotuneArgs),
-    /// Every kernel the builds compiled or loaded, per type and per
+    /// Every kernel the sessions compiled or loaded, per type and per
     /// instance, and what that cost.
     Kernels(KernelArgs),
     /// The spans each session marked, in order, with the tuning and
-    /// compiling inside each: where a build's time went, phase by phase.
+    /// compiling inside each: where a session's time went, phase by phase.
     Timeline,
-    /// Every memory snapshot the builds recorded: each pool's pages against
+    /// Every memory snapshot the sessions recorded: each pool's pages against
     /// its peak, padding, and largest allocation.
     Memory,
     /// This environment's autotune answers against another's: keys added

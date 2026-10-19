@@ -178,7 +178,7 @@ fn fixture(dir: &Path) -> PathBuf {
             limit: None,
         },
     );
-    // The build that tuned the m=64 key recorded it: the winner first, then
+    // The session that tuned the m=64 key recorded it: the winner first, then
     // the candidate that lost by 4x, then the one that failed.
     let session = Session {
         id: SessionId(7),
@@ -242,7 +242,7 @@ fn fixture(dir: &Path) -> PathBuf {
         Origin::Local,
     );
 
-    // The same build compiled `Matmul` inside that tune, then loaded it again
+    // The same session compiled `Matmul` inside that tune, then loaded it again
     // from the store after it; `Norm` was compiled after, and never stored.
     let compilation =
         |seq: u64, offset_ms, kernel: &str, id, outcome: (CompilationOutcome, Duration)| {
@@ -299,7 +299,7 @@ fn fixture(dir: &Path) -> PathBuf {
         Origin::Local,
     );
 
-    // The build marked its walk, and inside it the turn that ran the tune;
+    // The session marked its walk, and inside it the turn that ran the tune;
     // after the walk, it snapshot its pools.
     let mark = |label: &str, wall_ms| MarkRecord {
         label: label.to_string(),
@@ -589,7 +589,7 @@ fn a_recorded_tune_joins_its_key_in_the_order_it_ran() {
     let traced: Vec<_> = report
         .keys
         .iter()
-        .filter(|key| key.trace.is_some())
+        .filter(|key| key.tune.is_some())
         .collect();
     assert_eq!(traced.len(), 1, "only the m=64 key was recorded");
     let key = traced[0];
@@ -614,7 +614,7 @@ fn a_recorded_plan_says_what_became_of_each_candidate() {
     let key = report
         .keys
         .iter()
-        .find(|key| key.trace.is_some())
+        .find(|key| key.tune.is_some())
         .expect("the m=64 key was recorded");
 
     let fates: Vec<(&str, Fate)> = key
@@ -642,8 +642,8 @@ fn keys_sort_slowest_tune_first() {
         .autotune();
 
     report.sort(KeyOrder::Wall);
-    assert!(report.keys[0].trace.is_some());
-    assert!(report.keys[1..].iter().all(|key| key.trace.is_none()));
+    assert!(report.keys[0].tune.is_some());
+    assert!(report.keys[1..].iter().all(|key| key.tune.is_none()));
 }
 
 #[test]
@@ -730,7 +730,7 @@ fn a_stripped_copy_keeps_the_caches_and_drops_the_records() {
         stripped
             .namespaces
             .iter()
-            .all(|row| row.root() != "records")
+            .all(|row| row.root().as_str() != "records")
     );
     assert_eq!(
         stripped.autotune_keys(),
@@ -752,9 +752,12 @@ fn a_tune_owns_the_compilations_that_started_inside_it() {
     let traced = report
         .keys
         .iter()
-        .find(|key| key.trace.is_some())
+        .find(|key| key.tune.is_some())
         .expect("the recorded key");
-    assert_eq!(traced.compiling, Some(Duration::from_millis(80)));
+    assert_eq!(
+        traced.tune.as_ref().map(|tune| tune.compiling),
+        Some(Duration::from_millis(80))
+    );
 }
 
 #[test]
@@ -875,7 +878,7 @@ fn a_tune_the_table_did_not_take_is_not_the_keys_trace() {
     }
     let report = Inspector::open(&path).expect("opens").autotune();
 
-    let traced = report.keys.iter().filter(|key| key.trace.is_some()).count();
+    let traced = report.keys.iter().filter(|key| key.tune.is_some()).count();
     assert_eq!(traced, 1, "only the m=64 tune was stored");
 }
 
@@ -917,7 +920,7 @@ fn memory_snapshots_read_back_in_order() {
     assert_eq!(snapshot.report.streams[0].pools.persistent.pages_peak, 2);
 }
 
-/// A second build of the fixture: the m=128 key answered by the other
+/// A second environment beside the fixture: the m=128 key answered by the other
 /// candidate, the norm key gone, and a key the first never tuned.
 fn rebuilt(dir: &Path) -> PathBuf {
     let path = dir.join("rebuilt");
@@ -1064,7 +1067,7 @@ fn pruning_keeps_the_newest_sessions_records() {
             .autotune()
             .keys
             .iter()
-            .all(|key| key.trace.is_none())
+            .all(|key| key.tune.is_none())
     );
     assert!(inspector.kernels().kernels.is_empty());
     assert_eq!(summary.autotune_keys(), 4, "the caches are untouched");
