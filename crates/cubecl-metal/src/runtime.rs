@@ -11,8 +11,12 @@ use cubecl_core::{
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_cpp::{
-    metal::{arch::MetalArchitecture, supported_cmma_combinations_metal},
-    shared::register_wmma_features,
+    metal::{
+        arch::MetalArchitecture,
+        mma::{mma_properties_metal, supported_mma_combinations_metal},
+        supported_cmma_combinations_metal,
+    },
+    shared::{register_mma_features, register_wmma_features},
 };
 use cubecl_monitoring::{
     DevicePower, DeviceTemperature, DeviceUtilization, UtilizationUnavailable,
@@ -120,7 +124,7 @@ impl Runtime for MetalRuntime {
 
     fn target_properties() -> TargetProperties {
         TargetProperties {
-            mma: Default::default(),
+            mma: mma_properties_metal(),
         }
     }
 
@@ -271,10 +275,13 @@ fn register_types(props: &mut DeviceProperties) {
     );
 }
 
-/// Register WMMA (`simdgroup_matrix`) features for Metal.
+/// Register the `simdgroup_matrix` features for Metal: as a cooperative matrix, and as a
+/// manual MMA over each lane's registers.
 fn register_wmma(props: &mut DeviceProperties) {
     let combinations = supported_cmma_combinations_metal(&MetalArchitecture::Metal3);
     register_wmma_features(combinations, props);
+    let combinations = supported_mma_combinations_metal(&MetalArchitecture::Metal3);
+    register_mma_features(combinations, props);
 }
 
 fn ensure_metal3(device: &ProtocolObject<dyn MTLDevice>) {

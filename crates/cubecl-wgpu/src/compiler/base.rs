@@ -10,7 +10,7 @@ use cubecl_core::{
 #[cfg(feature = "msl")]
 use cubecl_cpp::shared::MslComputeKernel;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_ir::DeviceProperties;
+use cubecl_ir::{DeviceProperties, TargetProperties};
 use cubecl_server::compiler::CompilationError;
 use derive_more::derive::From;
 use thiserror::Error;
@@ -192,6 +192,16 @@ impl WgpuCompiler for AutoCompiler {
         }
     }
 
+    fn target_properties(&self) -> TargetProperties {
+        match self {
+            AutoCompiler::Wgsl(compiler) => compiler.target_properties(),
+            #[cfg(feature = "spirv")]
+            AutoCompiler::SpirV(compiler) => compiler.target_properties(),
+            #[cfg(feature = "msl")]
+            AutoCompiler::Msl(compiler) => compiler.target_properties(),
+        }
+    }
+
     #[cfg(feature = "msl")]
     fn validate_runtime(
         backend: wgpu::Backend,
@@ -340,6 +350,12 @@ impl WgpuCompiler for MslCompiler {
         Self::default()
     }
 
+    fn target_properties(&self) -> TargetProperties {
+        TargetProperties {
+            mma: cubecl_cpp::metal::mma::mma_properties_metal(),
+        }
+    }
+
     fn compile_kernel(
         &mut self,
         kernel: &dyn CubeKernel,
@@ -484,6 +500,13 @@ pub trait WgpuCompiler: Compiler<Representation: Send> {
     /// Narrow the device's `properties` to what this compiler's kernels can reach. Most
     /// compilers reach the device's own limits and leave them as they are.
     fn limit_properties(&self, _properties: &mut DeviceProperties) {}
+
+    /// What a kernel reads of this compiler's target as it expands: how a manual MMA's
+    /// registers map onto its matrices. Only MSL lowers a manual MMA; the others keep the
+    /// defaults, which nothing reads.
+    fn target_properties(&self) -> TargetProperties {
+        TargetProperties::default()
+    }
 
     /// Validate that the compiled representation fits within the device's resource limits.
     ///
