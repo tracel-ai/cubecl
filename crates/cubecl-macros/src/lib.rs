@@ -20,7 +20,8 @@ use crate::{
         into_runtime::generate_into_runtime,
     },
     parse::{
-        cube_type::generate_cube_type, derive_expand::generate_derive_expand,
+        cube_type::{generate_cube_harness, generate_cube_type},
+        derive_expand::generate_derive_expand,
         helpers::ReplaceDefines,
     },
 };
@@ -140,6 +141,31 @@ pub fn module_derive_cube_launch(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(CubeType, attributes(cube, expand))]
 pub fn module_derive_cube_type(input: TokenStream) -> TokenStream {
     gen_cube_type(input, false)
+}
+
+/// Derive macro to let a cube type cross between the host and a cube
+/// function's `harness`, as an input or an output. The type must also derive
+/// `CubeType` and `CubeLaunch`.
+///
+/// Like the harnesses, only emits anything when the `harness` feature is
+/// enabled.
+#[proc_macro_derive(CubeHarness, attributes(cube, launch))]
+pub fn module_derive_cube_harness(input: TokenStream) -> TokenStream {
+    if !cfg!(feature = "harness") {
+        return TokenStream::new();
+    }
+
+    let parsed = syn::parse(input);
+
+    let input = match &parsed {
+        Ok(val) => val,
+        Err(err) => return err.to_compile_error().into(),
+    };
+
+    match generate_cube_harness(input) {
+        Ok(val) => val.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
 }
 
 fn gen_cube_type(input: TokenStream, with_launch: bool) -> TokenStream {

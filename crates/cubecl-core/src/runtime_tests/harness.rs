@@ -43,6 +43,59 @@ fn wrap(x: i32) -> (i32,) {
     (x + 1,)
 }
 
+#[derive(CubeType, CubeLaunch, CubeHarness, Clone, Copy, Debug, PartialEq)]
+pub struct Point<F: Float> {
+    x: F,
+    y: F,
+}
+
+#[derive(CubeType, CubeLaunch, CubeHarness, Clone, Copy, Debug, PartialEq)]
+pub struct Segment<F: Float> {
+    start: Point<F>,
+    end: Point<F>,
+    id: u32,
+}
+
+#[derive(CubeType, CubeLaunch, CubeHarness, Clone, Copy, Debug, PartialEq)]
+pub struct Pair {
+    a: u32,
+    b: i32,
+}
+
+#[cube(harness)]
+fn swap<F: Float>(p: Point<F>) -> Point<F> {
+    Point::<F> { x: p.y, y: p.x }
+}
+
+#[cube(harness)]
+fn midpoint<F: Float>(segment: Segment<F>) -> (Point<F>, u32) {
+    let x = (segment.start.x + segment.end.x) / F::new(2.0);
+    let y = (segment.start.y + segment.end.y) / F::new(2.0);
+    (Point::<F> { x, y }, segment.id)
+}
+
+#[cube(harness)]
+fn translate<F: Float>(p: Point<F>, dx: F, #[comptime] times: u32) -> Point<F> {
+    Point::<F> {
+        x: p.x + dx * F::cast_from(times),
+        y: p.y,
+    }
+}
+
+#[cube(harness)]
+fn flip(pair: Pair) -> (Pair, i32) {
+    let flipped = Pair {
+        a: pair.a + 1,
+        b: -pair.b,
+    };
+    (flipped, i32::cast_from(pair.a) + pair.b)
+}
+
+#[cube]
+fn nested(x: u32) -> (u32, (u32, i32)) {
+    (x, (x + 1, -1))
+}
+
 pub fn test_harness_scalar<R: Runtime>() {
     assert_eq!(double::harness::<R>(1), 2);
     assert_eq!(multiply_add::harness::<R>(-3, 4, 5), -7);
@@ -66,6 +119,39 @@ pub fn test_harness_outputs<R: Runtime>() {
     assert_eq!(div_rem::harness::<R>(17, 5), (3, 2));
     assert_eq!(split::harness::<R, f32>(3.25), (0.25, 3, 6));
     assert_eq!(wrap::harness::<R>(-8), (-7,));
+}
+
+/// Tuples nest, since every value is read back through `HarnessOutput`.
+pub fn test_harness_nested<R: Runtime>() {
+    assert_eq!(nested::harness::<R>(4), (4, (5, -1)));
+}
+
+/// Cube types cross both ways, nested in each other and in tuples.
+pub fn test_harness_cube_type<R: Runtime>() {
+    assert_eq!(
+        swap::harness::<R, f32>(Point { x: 1.0, y: 2.0 }),
+        Point { x: 2.0, y: 1.0 }
+    );
+
+    let segment = Segment {
+        start: Point { x: 0.0, y: 2.0 },
+        end: Point { x: 4.0, y: 6.0 },
+        id: 7,
+    };
+    assert_eq!(
+        midpoint::harness::<R, f32>(segment),
+        (Point { x: 2.0, y: 4.0 }, 7)
+    );
+
+    assert_eq!(
+        translate::harness::<R, f32>(Point { x: 1.0, y: 5.0 }, 0.5, 4),
+        Point { x: 3.0, y: 5.0 }
+    );
+
+    assert_eq!(
+        flip::harness::<R>(Pair { a: 2, b: 3 }),
+        (Pair { a: 3, b: -3 }, 5)
+    );
 }
 
 pub fn test_harness_generic<R: Runtime>() {
@@ -93,6 +179,16 @@ macro_rules! testgen_harness {
             #[$crate::runtime_tests::test_log::test]
             fn harness_outputs() {
                 cubecl_core::runtime_tests::harness::test_harness_outputs::<TestRuntime>();
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn harness_nested() {
+                cubecl_core::runtime_tests::harness::test_harness_nested::<TestRuntime>();
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn harness_cube_type() {
+                cubecl_core::runtime_tests::harness::test_harness_cube_type::<TestRuntime>();
             }
 
             #[$crate::runtime_tests::test_log::test]

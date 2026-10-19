@@ -30,6 +30,9 @@ pub(crate) struct KernelArgs {
     pub create_dummy_kernel: Flag,
     /// Generate expansion only, for expanding existing types
     pub expand_only: Flag,
+    /// A promise that the function's cube types derive `CubeHarness`, which a macro can't check, so
+    /// they may cross to and from its harness. Functions of only scalars get a harness without it.
+    pub harness: Flag,
     pub cluster_dim: Option<Expr>,
     pub src_file: Option<LitStr>,
     /// Base traits for a split expand trait
