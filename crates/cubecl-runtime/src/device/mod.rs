@@ -1,5 +1,5 @@
 //! The device type of each runtime, named without naming the runtime crate,
-//! and the [part](crate::device::DevicePart) a device is.
+//! and [which hardware](crate::device::HardwareIdentity) a device is.
 //!
 //! Each one is a value and nothing more: which GPU, which index, which kind of
 //! card. So they live here rather than in the runtime crates that act on them,
@@ -8,16 +8,16 @@
 
 mod cpu;
 mod cuda;
+mod hardware_identity;
 mod hip;
 mod metal;
-mod part;
 mod wgpu;
 
 pub use cpu::CpuDevice;
 pub use cuda::CudaDevice;
+pub use hardware_identity::HardwareIdentity;
 pub use hip::AmdDevice;
 pub use metal::MetalDevice;
-pub use part::DevicePart;
 pub use wgpu::{WgpuBackend, WgpuDevice, WgpuDeviceKind};
 
 pub use cubecl_common::device::DeviceId;

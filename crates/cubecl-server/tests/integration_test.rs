@@ -436,14 +436,14 @@ fn a_tune_on_a_lost_device_settles_nothing() {
     );
 }
 
-/// A card lost while it tunes a key leaves the key to the healthy cards of its part, which would
+/// A card lost while it tunes a key leaves the key to the healthy cards of the same hardware, which would
 /// otherwise run an untuned candidate for the rest of the process.
 #[test_log::test]
 #[cfg(feature = "std")]
 #[serial_test::serial]
-fn a_lost_device_leaves_its_key_to_the_rest_of_its_part() {
+fn a_lost_device_leaves_its_key_to_the_healthy_cards() {
     static TUNER: LocalTuner<String, String> =
-        local_tuner!("a_lost_device_leaves_its_key_to_the_rest_of_its_part");
+        local_tuner!("a_lost_device_leaves_its_key_to_the_healthy_cards");
     #[cfg(persistence)]
     let root = tempfile::tempdir().unwrap();
     #[cfg(persistence)]
@@ -693,7 +693,7 @@ fn autotune_resets_when_the_environment_switches() {
     ];
     let key = set.generate_key(&handles);
 
-    let tuner: Tuner<String> = Tuner::new("environment-switch", &client.device_part());
+    let tuner: Tuner<String> = Tuner::new("environment-switch", &client.hardware_identity());
     tuner.check_tune(&key, &handles, &set, &client, None);
     assert!(matches!(tuner.fastest(&key), TuneCacheResult::Hit { .. }));
 
@@ -760,7 +760,7 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     ];
     let key = set.generate_key(&handles);
 
-    let tuner: Tuner<String> = Tuner::new("recorded", &client.device_part());
+    let tuner: Tuner<String> = Tuner::new("recorded", &client.hardware_identity());
     let answer = tuner.check_tune(&key, &handles, &set, &client, None);
     let TuneCacheResult::Hit { fastest_index } = answer else {
         panic!("the tune answers inline: {answer:?}");
@@ -777,7 +777,7 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
         tune.table.starts_with("autotune/")
             && tune
                 .table
-                .ends_with(&format!("{}/recorded", client.device_part()))
+                .ends_with(&format!("{}/recorded", client.hardware_identity()))
     );
     let names: Vec<&str> = tune
         .trials
@@ -822,7 +822,7 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
 #[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
 fn persisted_answers_are_scoped_to_the_adapter_fingerprint() {
-    use cubecl_server::device::DevicePart;
+    use cubecl_server::device::HardwareIdentity;
     use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
     use cubecl_server::tune::Tuner;
 
@@ -832,19 +832,20 @@ fn persisted_answers_are_scoped_to_the_adapter_fingerprint() {
     let client = test_client(&DummyDevice);
     let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
     let (handles, key) = addition_inputs(&client, &set);
-    let tune = |part: &DevicePart| {
-        Tuner::<String>::new("fingerprinted", part).check_tune(&key, &handles, &set, &client, None)
+    let tune = |hardware: &HardwareIdentity| {
+        Tuner::<String>::new("fingerprinted", hardware)
+            .check_tune(&key, &handles, &set, &client, None)
     };
 
     let mut other = client.properties().clone();
     other.identity.fingerprint = "fp-b".into();
-    let other = DevicePart::new(client.name(), &other);
+    let other = HardwareIdentity::new(client.name(), &other);
 
-    tune(&client.device_part());
+    tune(&client.hardware_identity());
     let collector = StatisticsCollector::new();
     let counted = ProcessModeOverride::new(ProcessMode::Execute, &collector);
     tune(&other);
-    tune(&client.device_part());
+    tune(&client.hardware_identity());
     core::mem::drop(counted);
 
     let autotune = collector.statistics().autotune;
@@ -860,7 +861,7 @@ fn persisted_answers_are_scoped_to_the_adapter_fingerprint() {
 #[test_log::test]
 #[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
-fn a_tuner_reads_what_another_of_its_part_stored_after_it_opened() {
+fn a_tuner_reads_what_another_of_the_same_hardware_stored_after_it_opened() {
     use cubecl_environment::persistence::Database;
     use cubecl_environment::records::{RecordLevel, Records};
     use cubecl_server::tune::{TuneCacheResult, TuneRecord, Tuner};
@@ -872,8 +873,8 @@ fn a_tuner_reads_what_another_of_its_part_stored_after_it_opened() {
     let client = test_client(&DummyDevice);
     let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
     let (handles, key) = addition_inputs(&client, &set);
-    let first: Tuner<String> = Tuner::new("shared", &client.device_part());
-    let second: Tuner<String> = Tuner::new("shared", &client.device_part());
+    let first: Tuner<String> = Tuner::new("shared", &client.hardware_identity());
+    let second: Tuner<String> = Tuner::new("shared", &client.hardware_identity());
 
     let TuneCacheResult::Hit { fastest_index } =
         first.check_tune(&key, &handles, &set, &client, None)
@@ -912,7 +913,7 @@ fn a_tuner_reads_only_the_answer_to_its_candidate_list() {
         dummy::addition_set_with_another_candidate(test_client(&DummyDevice), addition_shapes());
     let (handles, key) = addition_inputs(&client, &old);
     let tune = |set: &TunableSet<String, Vec<Handle>, ()>| {
-        Tuner::<String>::new("lists", &client.device_part())
+        Tuner::<String>::new("lists", &client.hardware_identity())
             .check_tune(&key, &handles, set, &client, None)
     };
 
@@ -932,10 +933,11 @@ fn a_tuner_reads_only_the_answer_to_its_candidate_list() {
 #[test_log::test]
 #[cfg(feature = "std")]
 #[serial_test::serial]
-fn devices_of_one_part_share_a_tuner() {
+fn devices_of_the_same_hardware_share_a_tuner() {
     use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
 
-    static TUNER: LocalTuner<String, String> = local_tuner!("devices_of_one_part_share_a_tuner");
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("devices_of_the_same_hardware_share_a_tuner");
     #[cfg(persistence)]
     let root = tempfile::tempdir().unwrap();
     #[cfg(persistence)]
@@ -976,7 +978,7 @@ fn a_gathered_key_another_process_stored_settles_as_loaded() {
     let client = test_client(&DummyDevice);
     let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
     let (handles, key) = addition_inputs(&client, &set);
-    let gathering: Tuner<String> = Tuner::new("gathered", &client.device_part());
+    let gathering: Tuner<String> = Tuner::new("gathered", &client.hardware_identity());
     let tune = |tuner: &Tuner<String>| tuner.check_tune(&key, &handles, &set, &client, None);
 
     let collector = StatisticsCollector::new();
@@ -986,7 +988,7 @@ fn a_gathered_key_another_process_stored_settles_as_loaded() {
     }
     let reader = collector.reader();
     drop(collector);
-    tune(&Tuner::new("gathered", &client.device_part()));
+    tune(&Tuner::new("gathered", &client.hardware_identity()));
     tune(&gathering);
 
     let autotune = reader.statistics().autotune;
@@ -1024,7 +1026,7 @@ fn a_short_circuited_tune_records_where_it_stopped() {
     ];
     let key = set.generate_key(&handles);
 
-    let tuner: Tuner<String> = Tuner::new("short-circuited", &client.device_part());
+    let tuner: Tuner<String> = Tuner::new("short-circuited", &client.hardware_identity());
     tuner.check_tune(&key, &handles, &set, &client, None);
 
     let database = Database::open_active().unwrap();
@@ -1062,7 +1064,7 @@ fn nothing_is_recorded_when_records_are_off() {
         client.empty(3),
     ];
     let key = set.generate_key(&handles);
-    let tuner: Tuner<String> = Tuner::new("unrecorded", &client.device_part());
+    let tuner: Tuner<String> = Tuner::new("unrecorded", &client.hardware_identity());
     let answer = tuner.check_tune(&key, &handles, &set, &client, None);
     recording_at(RecordLevel::Basic);
 
@@ -1925,16 +1927,17 @@ fn a_compile_only_override_leaves_the_tune_to_the_next_pass() {
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 
-/// Every card of a part queues a gathered key's candidates on itself, since a tune compiles only
-/// what its own card queued. The key is still one tune for the part, registered once.
+/// Every card of the same hardware queues a gathered key's candidates on itself, since a tune
+/// compiles only what its own card queued. The key is still one tune for all of them, registered
+/// once.
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::serial]
-fn every_card_of_a_part_queues_a_gathered_key_on_itself() {
+fn every_card_of_the_same_hardware_queues_a_gathered_key_on_itself() {
     use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
 
     static TUNER: LocalTuner<String, String> =
-        local_tuner!("every_card_of_a_part_queues_a_gathered_key_on_itself");
+        local_tuner!("every_card_of_the_same_hardware_queues_a_gathered_key_on_itself");
 
     let calls = Arc::new(AtomicUsize::new(0));
     let uid = fresh_tune_key_uid();
@@ -1956,9 +1959,9 @@ fn every_card_of_a_part_queues_a_gathered_key_on_itself() {
     };
     let (first, second) = (card(0), card(1));
     assert_eq!(
-        Client::load::<DummyServer>(DeviceId::new(0, 0)).device_part(),
-        Client::load::<DummyServer>(DeviceId::new(0, 1)).device_part(),
-        "the two cards are one part"
+        Client::load::<DummyServer>(DeviceId::new(0, 0)).hardware_identity(),
+        Client::load::<DummyServer>(DeviceId::new(0, 1)).hardware_identity(),
+        "the two cards are the same hardware"
     );
 
     let collector = StatisticsCollector::new();

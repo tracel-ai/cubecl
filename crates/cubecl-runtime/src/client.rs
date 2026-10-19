@@ -1,6 +1,6 @@
 use crate::{
     config::{TypeNameFormatLevel, type_name_format},
-    device::DevicePart,
+    device::HardwareIdentity,
     id::{GraphId, KernelId},
     kernel::CubeKernel,
     logging::ProfileLevel,
@@ -1525,9 +1525,9 @@ impl Client {
         &self.utilities.properties.features
     }
 
-    /// The part this device is: what a measurement on it holds for.
-    pub fn device_part(&self) -> DevicePart {
-        DevicePart::new(self.name(), self.properties())
+    /// Which hardware this device is: what a measurement on it holds for.
+    pub fn hardware_identity(&self) -> HardwareIdentity {
+        HardwareIdentity::new(self.name(), self.properties())
     }
 
     /// The device properties, shared: what a kernel keeps to expand itself

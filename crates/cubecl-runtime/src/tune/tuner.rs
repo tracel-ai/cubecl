@@ -17,7 +17,7 @@ use crate::client::Client;
 use crate::config::Logger;
 #[cfg(persistence)]
 use crate::config::autotune::AutotuneLogLevel;
-use crate::device::DevicePart;
+use crate::device::HardwareIdentity;
 use crate::execution::{ProcessMode, TuneOutcome, TuneRegistration};
 use crate::server::LaunchError;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
@@ -28,7 +28,7 @@ use super::{
 };
 
 #[derive(Debug)]
-/// Runs autotune benchmarks for the devices of one part and caches the results.
+/// Runs autotune benchmarks for the devices of the same hardware and caches the results.
 ///
 /// On wasm, [`check_tune`](Self::check_tune) spawns its work on the browser event loop; elsewhere
 /// it blocks inline. Either way the benchmarking itself is synchronous; only the
@@ -203,7 +203,7 @@ struct TuneRequest<K: AutotuneKey> {
 
 /// A key [marked pending](TuneCache::mark_pending) for the tune holding this. Dropped before the
 /// tune settled the key, by a tune that unwinds or stops on a lost device, it unmarks the key so
-/// the next caller tunes it rather than every device of the part running a fallback for good.
+/// the next caller tunes it rather than every device of that hardware running a fallback for good.
 struct PendingMark<K: AutotuneKey> {
     cache: Arc<Mutex<TuneCache<K>>>,
     key: K,
@@ -219,11 +219,11 @@ impl<K: AutotuneKey> Drop for PendingMark<K> {
 impl<K: AutotuneKey> Tuner<K> {
     /// Create a tuner. A key it has not settled is read from the persistent
     /// cache when persistence is available (feature `persistence`: a file
-    /// natively, OPFS in the browser), in the table every device of `part`
+    /// natively, OPFS in the browser), in the table every device of `hardware`
     /// shares.
-    pub fn new(name: &str, part: &DevicePart) -> Self {
+    pub fn new(name: &str, hardware: &HardwareIdentity) -> Self {
         Self {
-            cache: Arc::new(Mutex::new(TuneCache::new(name, part))),
+            cache: Arc::new(Mutex::new(TuneCache::new(name, hardware))),
             logger: Arc::new(Mutex::new(Logger::new())),
         }
     }
@@ -499,7 +499,7 @@ impl<K: AutotuneKey> Tuner<K> {
             Ok(outcome) => outcome,
             // Answered pending, so this caller runs the first candidate that serves the problem
             // and meets the loss in its own reads instead of in a winner measured on nothing. The
-            // dropped job leaves the key to the next caller: another device of the part may be
+            // dropped job leaves the key to the next caller: another device of the same hardware may be
             // healthy.
             Err(lost) => {
                 log::error!(

@@ -1,9 +1,9 @@
 #[cfg(persistence)]
 use cubecl_environment::persistence::{Store, StoreOptions};
 
-use crate::device::DevicePart;
+use crate::device::HardwareIdentity;
 #[cfg(persistence)]
-use crate::generation::Generation;
+use crate::namespace_version::NamespaceVersion;
 use crate::throughput::{ThroughputKey, ThroughputValue};
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -12,8 +12,8 @@ use cubecl_environment::sync::Mutex;
 use cubecl_ir::DeviceProperties;
 
 #[cfg(persistence)]
-static PROBES: Generation =
-    Generation::new("throughput", "probe-v", crate::throughput::PROBE_VERSION);
+static PROBES: NamespaceVersion =
+    NamespaceVersion::new("throughput", "probe-v", crate::throughput::PROBE_VERSION);
 
 static GLOBAL_CACHE: Mutex<Option<HashMap<String, Arc<Mutex<ThroughputCache>>>>> = Mutex::new(None);
 
@@ -31,9 +31,9 @@ pub struct ThroughputCache {
 impl ThroughputCache {
     /// Gets or creates the global `ThroughputCache` for one device.
     pub fn get_for_device(runtime: &str, properties: &DeviceProperties) -> Arc<Mutex<Self>> {
-        // A memory ceiling moves with the installed capacity, which the part leaves out.
-        let name =
-            DevicePart::new(runtime, properties).name_with_memory(properties.memory.max_page_size);
+        // A memory ceiling moves with the installed capacity, which the identity leaves out.
+        let name = HardwareIdentity::new(runtime, properties)
+            .name_with_memory(properties.memory.max_page_size);
         let mut cache_map = GLOBAL_CACHE.lock();
         let cache_map = cache_map.get_or_insert_with(HashMap::new);
 

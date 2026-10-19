@@ -1,7 +1,7 @@
 use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneInputs, Tuner};
 #[cfg(feature = "autotune-checks")]
 use crate::tune::AutotuneLoggerExt;
-use crate::{client::Client, device::DevicePart, tune::TuneCacheResult};
+use crate::{client::Client, device::HardwareIdentity, tune::TuneCacheResult};
 use alloc::string::String;
 #[cfg(feature = "autotune-checks")]
 use alloc::string::ToString;
@@ -28,22 +28,23 @@ pub struct LocalTuner<AK: AutotuneKey, ID> {
     sets: Sets<ID>,
 }
 
-/// The tuners a [`LocalTuner`] opened. An id keeps the tuner of its part and of the first candidate
-/// list it executed, so ids of one part running one list tune a key once for all of them.
+/// The tuners a [`LocalTuner`] opened. An id keeps the tuner of its hardware and of the first
+/// candidate list it executed, so ids of the same hardware running one list tune a key once for all
+/// of them.
 struct Tuners<AK: AutotuneKey, ID> {
     by_id: HashMap<ID, Arc<Tuner<AK>>>,
-    by_part: HashMap<(DevicePart, String), Arc<Tuner<AK>>>,
+    by_hardware: HashMap<(HardwareIdentity, String), Arc<Tuner<AK>>>,
 }
 
 impl<AK: AutotuneKey, ID: Hash + Eq + Clone> Tuners<AK, ID> {
     fn new() -> Self {
         Self {
             by_id: HashMap::new(),
-            by_part: HashMap::new(),
+            by_hardware: HashMap::new(),
         }
     }
 
-    /// The tuner `id` executes `operations` on, opened by the first id of its part to execute
+    /// The tuner `id` executes `operations` on, opened by the first id of its hardware to execute
     /// the same candidate list.
     fn get_or_open<I: TuneInputs, Out, Id>(
         &mut self,
@@ -56,9 +57,11 @@ impl<AK: AutotuneKey, ID: Hash + Eq + Clone> Tuners<AK, ID> {
             return tuner.clone();
         }
         let tuner = self
-            .by_part
-            .entry((client.device_part(), operations.compute_checksum()))
-            .or_insert_with_key(|(part, _)| Arc::new(Tuner::new(&name.replace("::", "-"), part)))
+            .by_hardware
+            .entry((client.hardware_identity(), operations.compute_checksum()))
+            .or_insert_with_key(|(hardware, _)| {
+                Arc::new(Tuner::new(&name.replace("::", "-"), hardware))
+            })
             .clone();
         self.by_id.insert(id.clone(), tuner.clone());
         tuner
@@ -155,7 +158,7 @@ where
     /// `operations` must be the set `id` executes, as [`init`](Self::init) returns it for the
     /// initializer `execute` is handed: a result is an index into that set, so a set another
     /// initializer built under the same `id` would map it onto another tunable. Results are shared
-    /// by every `id` of the same [part](crate::device::DevicePart) executing the same candidates,
+    /// by every `id` of the same [hardware](crate::device::HardwareIdentity) executing the same candidates,
     /// from the first [`execute`](Self::execute) of each: an `id` that has not executed sees none.
     ///
     /// It reads results and never produces one: it never starts a round, never waits on one in

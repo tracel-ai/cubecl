@@ -10,19 +10,19 @@ use cubecl_environment::persistence::{CacheOption, Store, StoreOptions};
 use serde::{Deserialize, Serialize};
 
 use super::{AutotuneError, AutotuneKey, AutotuneOutcome};
-use crate::device::DevicePart;
+use crate::device::HardwareIdentity;
 #[cfg(persistence)]
 use crate::execution::TuneOutcome;
 use crate::execution::TuneRegistration;
 #[cfg(persistence)]
-use crate::generation::Generation;
+use crate::namespace_version::NamespaceVersion;
 #[cfg(persistence)]
 use alloc::string::String;
 use cubecl_environment::collections::HashMap;
 
 /// Bumped when tables are named another way, so the tables named the old way are purged.
 #[cfg(persistence)]
-static TABLES: Generation = Generation::new("autotune", "layout-v", 1);
+static TABLES: NamespaceVersion = NamespaceVersion::new("autotune", "layout-v", 1);
 
 #[derive(Debug)]
 pub(crate) enum CacheEntry {
@@ -159,7 +159,7 @@ pub enum TuneCacheResult {
 impl<K: AutotuneKey> TuneCache<K> {
     pub(crate) fn new(
         #[cfg_attr(not(persistence), allow(unused_variables))] name: &str,
-        #[cfg_attr(not(persistence), allow(unused_variables))] part: &DevicePart,
+        #[cfg_attr(not(persistence), allow(unused_variables))] hardware: &HardwareIdentity,
     ) -> Self {
         #[cfg(persistence)]
         {
@@ -167,7 +167,7 @@ impl<K: AutotuneKey> TuneCache<K> {
             use alloc::format;
 
             let config = crate::config::CubeClRuntimeConfig::get();
-            let namespace = TABLES.namespace(&format!("{part}/{name}"));
+            let namespace = TABLES.namespace(&format!("{hardware}/{name}"));
             let table = namespace.as_str().into();
 
             if config.autotune.disable_cache {
