@@ -20,6 +20,8 @@ impl HardwareIdentity {
     /// The hardware of a device of `runtime` reporting `properties`. Its core or multiprocessor
     /// count tells apart hardware that shares a name.
     pub fn new(runtime: &str, properties: &DeviceProperties) -> Self {
+        // Every field named, so a field added to `DeviceIdentity` is placed here or left out on
+        // purpose.
         let DeviceIdentity {
             name,
             fingerprint,

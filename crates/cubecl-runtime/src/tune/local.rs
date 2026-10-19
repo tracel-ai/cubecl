@@ -33,14 +33,23 @@ pub struct LocalTuner<AK: AutotuneKey, ID> {
 /// of them.
 struct Tuners<AK: AutotuneKey, ID> {
     by_id: HashMap<ID, Arc<Tuner<AK>>>,
-    by_hardware: HashMap<(HardwareIdentity, String), Arc<Tuner<AK>>>,
+    opened: HashMap<TunerIdentity, Arc<Tuner<AK>>>,
+}
+
+/// Which tuner a device's executes reach: one per hardware and candidate list.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct TunerIdentity {
+    hardware: HardwareIdentity,
+    /// The candidate list's [`compute_checksum`](TunableSet::compute_checksum): each device builds
+    /// its own list, and one of the same hardware may build another.
+    checksum: String,
 }
 
 impl<AK: AutotuneKey, ID: Hash + Eq + Clone> Tuners<AK, ID> {
     fn new() -> Self {
         Self {
             by_id: HashMap::new(),
-            by_hardware: HashMap::new(),
+            opened: HashMap::new(),
         }
     }
 
@@ -56,11 +65,15 @@ impl<AK: AutotuneKey, ID: Hash + Eq + Clone> Tuners<AK, ID> {
         if let Some(tuner) = self.by_id.get(id) {
             return tuner.clone();
         }
+        let identity = TunerIdentity {
+            hardware: client.hardware_identity(),
+            checksum: operations.compute_checksum(),
+        };
         let tuner = self
-            .by_hardware
-            .entry((client.hardware_identity(), operations.compute_checksum()))
-            .or_insert_with_key(|(hardware, _)| {
-                Arc::new(Tuner::new(&name.replace("::", "-"), hardware))
+            .opened
+            .entry(identity)
+            .or_insert_with_key(|identity| {
+                Arc::new(Tuner::new(&name.replace("::", "-"), &identity.hardware))
             })
             .clone();
         self.by_id.insert(id.clone(), tuner.clone());

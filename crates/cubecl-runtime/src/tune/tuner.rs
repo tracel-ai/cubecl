@@ -274,7 +274,8 @@ impl<K: AutotuneKey> Tuner<K> {
         let checksum;
 
         // Where the key's tune was registered, if the override that gathered it registered it.
-        let gathered = {
+        let mut gathered = None;
+        let mark = {
             // Scoped: the rest of this function re-locks `self.cache`, and the mutex is
             // non-reentrant.
             let mut cache = self.cache.lock();
@@ -330,7 +331,13 @@ impl<K: AutotuneKey> Tuner<K> {
                 });
                 None
             } else {
-                cache.mark_pending(key.clone())
+                gathered = cache.mark_pending(key.clone());
+                // Made last under the lock: no gap follows the mark, and the guard, whose drop takes
+                // this lock, can never drop while it is held.
+                Some(PendingMark {
+                    cache: self.cache.clone(),
+                    key: key.clone(),
+                })
             }
         };
 
@@ -340,15 +347,11 @@ impl<K: AutotuneKey> Tuner<K> {
 
         // A `CompileOnly` override queues the candidates' kernels and measures nothing; the key
         // stays untuned for the pass that profiles it.
-        if compiling {
+        let Some(mark) = mark else {
             let gathering = super::gathering::CandidateGathering::new();
             self.compile_plan(key, inputs, tunables, &autotunables);
             core::mem::drop(gathering);
             return TuneCacheResult::Compiled;
-        }
-        let mark = PendingMark {
-            cache: self.cache.clone(),
-            key: key.clone(),
         };
         // Sure to measure now: a tune registered nowhere yet registers with the override open.
         let registration = gathered.or_else(TuneRegistration::register);
