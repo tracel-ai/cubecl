@@ -14,7 +14,8 @@ use std::str::FromStr;
 pub enum EnvironmentName {
     /// The one the runtime runs in.
     Active,
-    /// A file, named by its path.
+    /// A file, named by its path: absolute once read from a command line,
+    /// so it names the same file from any working directory.
     Path(PathBuf),
     /// A named environment: `<root>/<name>.db`.
     Named(String),
@@ -54,7 +55,7 @@ impl FromStr for EnvironmentName {
         Ok(if name == Self::ACTIVE {
             Self::Active
         } else if path.exists() {
-            Self::Path(path)
+            Self::Path(std::path::absolute(&path).unwrap_or(path))
         } else {
             Self::Named(name.to_string())
         })

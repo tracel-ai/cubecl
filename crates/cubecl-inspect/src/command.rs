@@ -38,6 +38,7 @@ pub enum Inspection {
     /// and gone, winners that changed, and how each tune's wall moved.
     Diff {
         /// The environment compared against, taken as the later one.
+        #[arg(value_parser = absolute)]
         other: PathBuf,
     },
     /// Drop the records of every session but the newest, in place.
@@ -51,6 +52,7 @@ pub enum Inspection {
     /// goes.
     Strip {
         /// Where the copy goes.
+        #[arg(value_parser = absolute)]
         out: PathBuf,
     },
 }
@@ -203,6 +205,16 @@ impl ValueEnum for KernelOrder {
             Self::Name => PossibleValue::new("name").help("By kernel type"),
         })
     }
+}
+
+/// A path as a command line gives it, made absolute: it names the same file
+/// once the binary has moved into a project to read its configuration.
+///
+/// # Errors
+///
+/// When the working directory cannot be read to resolve a relative path.
+pub fn absolute(text: &str) -> std::io::Result<PathBuf> {
+    std::path::absolute(text)
 }
 
 /// Whether text written to standard output is painted: on a terminal, unless

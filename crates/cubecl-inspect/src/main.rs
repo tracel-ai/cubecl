@@ -17,10 +17,16 @@ use std::process::ExitCode;
     before_help = command::wordmark()
 )]
 struct Cli {
+    /// The project whose `cubecl.toml` or `burn.toml` says where its
+    /// environments live: the working directory by default. Paths given on
+    /// the command line are still read from where it runs.
+    #[arg(long, short = 'C', global = true, value_name = "DIR")]
+    project: Option<PathBuf>,
+
     /// Which environment: `active` (the one the runtime runs in, the
     /// default), a file's path, or a name, read as `<root>/<name>.db` under
     /// the root `[cubecl.environment]` sets in the `cubecl.toml` or
-    /// `burn.toml` above the working directory. `tui` without it starts on
+    /// `burn.toml` above the project. `tui` without it starts on
     /// the list of environments.
     #[arg(long, global = true, value_name = "ENV")]
     env: Option<EnvironmentName>,
@@ -38,6 +44,7 @@ enum Command {
     #[command(alias = "ls")]
     List {
         /// The directory holding the files: the runtime's root by default.
+        #[arg(value_parser = command::absolute)]
         directory: Option<PathBuf>,
         /// The extension that marks an environment file, without its dot:
         /// the runtime's by default.
@@ -64,6 +71,12 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<(), String> {
+    // The runtime finds its configuration and its `target/` from the working
+    // directory, so reading a project's is running from it.
+    if let Some(project) = &cli.project {
+        std::env::set_current_dir(project)
+            .map_err(|err| format!("cannot enter {}: {err}", project.display()))?;
+    }
     match cli.command {
         Command::List {
             directory,
