@@ -47,9 +47,14 @@ impl Table {
         }
     }
 
-    /// Write `column` once per run of equal values instead of on every row.
-    pub(crate) fn group(mut self, column: usize) -> Self {
-        self.grouped = Some(column);
+    /// Write the column named `header` once per run of equal values instead
+    /// of on every row.
+    pub(crate) fn group(mut self, header: &str) -> Self {
+        self.grouped = self
+            .columns
+            .iter()
+            .position(|column| column.header == header);
+        debug_assert!(self.grouped.is_some(), "no column named {header}");
         self
     }
 

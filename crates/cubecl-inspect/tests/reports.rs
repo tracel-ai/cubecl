@@ -513,7 +513,7 @@ fn a_listing_reads_every_file_and_names_the_unreadable() {
     std::fs::write(dir.path().join("broken.cubecl"), b"not a database").expect("writes");
     std::fs::write(dir.path().join("notes.txt"), b"ignored").expect("writes");
 
-    let listing = Inspector::list(&[saved(dir.path())]);
+    let listing = cubecl_inspect::list(&[saved(dir.path())]);
     assert_eq!(listing.environments.len(), 1);
     assert_eq!(listing.unreadable.len(), 1);
 }
@@ -527,7 +527,7 @@ fn a_listing_spans_directories() {
     fixture(first.path());
     fixture(second.path());
 
-    let listing = Inspector::list(&[saved(first.path()), saved(second.path())]);
+    let listing = cubecl_inspect::list(&[saved(first.path()), saved(second.path())]);
 
     assert_eq!(listing.directories.len(), 2);
     assert_eq!(listing.environments.len(), 2);
@@ -543,7 +543,7 @@ fn an_extension_reads_with_or_without_its_dot() {
         path: dir.path().to_path_buf(),
         extension: ".cubecl".to_string(),
     };
-    assert_eq!(Inspector::list(&[dotted]).environments.len(), 1);
+    assert_eq!(cubecl_inspect::list(&[dotted]).environments.len(), 1);
 }
 
 /// A directory that cannot be read is named in the listing, and the others
@@ -555,7 +555,7 @@ fn an_unreadable_directory_is_listed_beside_the_others() {
     // A file where a directory is expected: reading it fails.
     let not_a_directory = dir.path().join("fixture.cubecl");
 
-    let listing = Inspector::list(&[saved(&not_a_directory), saved(dir.path())]);
+    let listing = cubecl_inspect::list(&[saved(&not_a_directory), saved(dir.path())]);
 
     assert_eq!(listing.environments.len(), 1);
     assert_eq!(listing.unreadable.len(), 1);
@@ -565,7 +565,7 @@ fn an_unreadable_directory_is_listed_beside_the_others() {
 #[test]
 fn a_missing_directory_lists_nothing() {
     let dir = tempfile::tempdir().expect("a temp dir");
-    let listing = Inspector::list(&[saved(&dir.path().join("never-built"))]);
+    let listing = cubecl_inspect::list(&[saved(&dir.path().join("never-built"))]);
     assert!(listing.environments.is_empty());
     assert!(listing.unreadable.is_empty());
 }

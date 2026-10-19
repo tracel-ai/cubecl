@@ -11,7 +11,8 @@
 //! - [`EnvironmentName`] resolves `--env` the way the runtime resolves its
 //!   own environment, from the configuration above the working directory.
 //! - [`Inspector`] opens a file read-only and produces [reports](report): plain
-//!   serializable values, which is what tests pin.
+//!   serializable values, which is what tests pin. [`list`] lists the
+//!   environment files of some directories, a summary each.
 //! - [`view`] renders a report as text.
 //! - [`command`] is the command line both front doors share: the
 //!   `cubecl-inspect` binary, and any application that wraps it and resolves
@@ -22,6 +23,7 @@
 mod environment;
 mod error;
 mod inspector;
+mod listing;
 mod palette;
 mod wordmark;
 
@@ -34,3 +36,4 @@ pub mod view;
 pub use environment::{EnvironmentDirectory, EnvironmentName};
 pub use error::InspectError;
 pub use inspector::Inspector;
+pub use listing::list;

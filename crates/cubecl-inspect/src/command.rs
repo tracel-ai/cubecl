@@ -8,8 +8,9 @@ use crate::report::{
 };
 use crate::view::Text;
 use crate::{InspectError, Inspector, palette, wordmark};
+use clap::builder::PossibleValue;
 use clap::builder::styling::{Color, Style, Styles};
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 use serde::Serialize;
 use std::fmt::Display;
 use std::io::{IsTerminal as _, Write as _};
@@ -54,6 +55,8 @@ pub enum Inspection {
     },
 }
 
+/// What `autotune` reads: the keys, one key, or the candidates across them,
+/// filtered and ordered as asked.
 #[derive(Args, Debug, Clone)]
 pub struct AutotuneArgs {
     #[command(subcommand)]
@@ -66,6 +69,7 @@ pub struct AutotuneArgs {
     pub tuner: Option<String>,
 }
 
+/// What `kernels` reads: every instance, or one, ordered as asked.
 #[derive(Args, Debug, Clone)]
 pub struct KernelArgs {
     #[command(subcommand)]
@@ -75,6 +79,7 @@ pub struct KernelArgs {
     pub sort: KernelOrder,
 }
 
+/// The views of `kernels` beside its list.
 #[derive(Subcommand, Debug, Clone)]
 pub enum KernelView {
     /// One instance: what it is, what it cost, and its source when recorded.
@@ -88,6 +93,7 @@ pub enum KernelView {
     },
 }
 
+/// The views of `autotune` beside its list.
 #[derive(Subcommand, Debug, Clone)]
 pub enum AutotuneView {
     /// One key: every candidate's result, ranked, with the winner marked.
@@ -157,6 +163,41 @@ pub fn wordmark() -> String {
         .map(|(mark, letters)| format!("{accent}{mark}{accent:#}{letters}"))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// The orders as `--sort` spells them. Implemented here rather than derived
+/// on the report, which stays a plain value no command line shapes.
+impl ValueEnum for KeyOrder {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[Self::Wall, Self::Trials, Self::Margin, Self::Table]
+    }
+
+    fn to_possible_value(&self) -> Option<PossibleValue> {
+        Some(match self {
+            Self::Wall => PossibleValue::new("wall").help(
+                "Slowest tune first; the keys whose tune was not recorded after them, most candidates measured first",
+            ),
+            Self::Trials => PossibleValue::new("trials").help("Most candidates measured first"),
+            Self::Margin => PossibleValue::new("margin")
+                .help("Widest margin first: the races whose answer was never in doubt"),
+            Self::Table => PossibleValue::new("table").help("Grouped by tuner, as the file stores them"),
+        })
+    }
+}
+
+/// See the [`KeyOrder`] implementation.
+impl ValueEnum for KernelOrder {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[Self::Compile, Self::Size, Self::Name]
+    }
+
+    fn to_possible_value(&self) -> Option<PossibleValue> {
+        Some(match self {
+            Self::Compile => PossibleValue::new("compile").help("Costliest to compile first"),
+            Self::Size => PossibleValue::new("size").help("Largest artifact first"),
+            Self::Name => PossibleValue::new("name").help("By kernel type"),
+        })
+    }
 }
 
 /// Whether text written to standard output is painted: on a terminal, unless

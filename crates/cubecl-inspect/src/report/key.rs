@@ -50,6 +50,18 @@ impl Serialize for KeyId {
     }
 }
 
+/// A decoded key's canonical rendering: what matches one key across the
+/// records and the files that carry it, since `ciborium::Value` is neither
+/// `Ord` nor `Hash`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CanonicalKey(String);
+
+impl CanonicalKey {
+    pub fn new(key: &ciborium::Value) -> Self {
+        Self(format!("{key:?}"))
+    }
+}
+
 /// One autotune table: the namespace cubecl stores a tuner's results in,
 /// as the runtime's `TuneTableName` writes it,
 /// `autotune/<cubecl version>/<fingerprint>/<device>/<tuner>`, or as cubecl

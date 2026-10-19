@@ -1,4 +1,4 @@
-use super::{AutotuneReport, TunedKey};
+use super::{AutotuneReport, CanonicalKey, TunedKey};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -20,6 +20,19 @@ pub struct EnvironmentDiff {
     pub after: PathBuf,
     /// Every key either side answers, in table order.
     pub keys: Vec<KeyDiff>,
+}
+
+/// The two environments a diff compares, by name, so they cannot be passed
+/// the wrong way around.
+pub struct Comparison<'a> {
+    pub before: DiffSide<'a>,
+    pub after: DiffSide<'a>,
+}
+
+/// One environment of a [`Comparison`]: its file and its autotune answers.
+pub struct DiffSide<'a> {
+    pub path: PathBuf,
+    pub autotune: &'a AutotuneReport,
 }
 
 /// One key, as each side answers it.
@@ -99,8 +112,7 @@ struct Identity {
     tuner: String,
     device: String,
     fingerprint: Option<String>,
-    /// The key's canonical rendering: `ciborium::Value` is not `Ord`.
-    key: String,
+    key: CanonicalKey,
 }
 
 impl From<&TunedKey> for Identity {
@@ -109,13 +121,14 @@ impl From<&TunedKey> for Identity {
             tuner: key.table.tuner.clone(),
             device: key.table.device.clone(),
             fingerprint: key.table.fingerprint.clone(),
-            key: format!("{:?}", key.key),
+            key: CanonicalKey::new(&key.key),
         }
     }
 }
 
 impl EnvironmentDiff {
-    pub fn new(before: (PathBuf, &AutotuneReport), after: (PathBuf, &AutotuneReport)) -> Self {
+    pub fn new(comparison: Comparison<'_>) -> Self {
+        let Comparison { before, after } = comparison;
         let mut keys = BTreeMap::<Identity, KeyDiff>::new();
         let blank = |key: &TunedKey| KeyDiff {
             tuner: key.table.tuner.clone(),
@@ -124,19 +137,19 @@ impl EnvironmentDiff {
             before: None,
             after: None,
         };
-        for key in newest(before.1).into_values() {
+        for key in newest(before.autotune).into_values() {
             keys.entry(Identity::from(key))
                 .or_insert_with(|| blank(key))
                 .before = Some(Answer::from(key));
         }
-        for key in newest(after.1).into_values() {
+        for key in newest(after.autotune).into_values() {
             keys.entry(Identity::from(key))
                 .or_insert_with(|| blank(key))
                 .after = Some(Answer::from(key));
         }
         Self {
-            before: before.0,
-            after: after.0,
+            before: before.path,
+            after: after.path,
             keys: keys.into_values().collect(),
         }
     }

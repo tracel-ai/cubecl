@@ -75,7 +75,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 extension: extension.unwrap_or(runtime.extension),
             };
             cli.output
-                .print(&Inspector::list(&[directory]))
+                .print(&cubecl_inspect::list(&[directory]))
                 .map_err(|err| err.to_string())
         }
         Command::Tui => tui::run(Browsing {

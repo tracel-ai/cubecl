@@ -1,6 +1,6 @@
 use cubecl_server::compiler::{CompilationOutcome, CompilationRecord, KernelCacheKey};
 use serde::{Serialize, Serializer};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::time::Duration;
 
@@ -72,6 +72,22 @@ pub struct KernelSelector<'a> {
     pub build: Option<&'a str>,
 }
 
+/// How the instances a [`KernelSelector`] picks answer it.
+///
+/// A kernel is recorded once per build that compiled or loaded it, so after
+/// a rebuild its id alone names several instances: the selector's build
+/// names one of them.
+#[derive(Clone, Debug)]
+pub enum KernelMatch {
+    /// No instance's id starts with the selector's.
+    Unknown,
+    One(KernelRow),
+    /// One kernel, recorded by several builds.
+    SeveralBuilds(Vec<KernelRow>),
+    /// Instances of this many kernels: the id needs more of its digits.
+    SeveralKernels(usize),
+}
+
 /// One kernel instance as one build recorded it, its trips folded.
 #[derive(Clone, Debug, Serialize)]
 pub struct KernelRow {
@@ -109,7 +125,7 @@ pub struct FamilyRow {
 }
 
 /// The orders a [`KernelReport`] lists its kernels in.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum KernelOrder {
     /// Costliest to compile first.
     #[default]
@@ -118,6 +134,23 @@ pub enum KernelOrder {
     Size,
     /// By kernel type.
     Name,
+}
+
+impl KernelMatch {
+    /// The instances of `rows` that `selector` names.
+    pub fn new(selector: KernelSelector<'_>, rows: impl IntoIterator<Item = KernelRow>) -> Self {
+        let mut rows: Vec<KernelRow> = rows
+            .into_iter()
+            .filter(|row| selector.selects(row))
+            .collect();
+        let kernels: BTreeSet<KernelHash> = rows.iter().map(|row| row.id).collect();
+        match (rows.len(), kernels.len()) {
+            (0, _) => Self::Unknown,
+            (1, _) => Self::One(rows.remove(0)),
+            (_, 1) => Self::SeveralBuilds(rows),
+            (_, kernels) => Self::SeveralKernels(kernels),
+        }
+    }
 }
 
 impl KernelSelector<'_> {
@@ -260,5 +293,42 @@ impl KernelReport {
     /// Everything compiling cost, over every instance.
     pub fn compiling(&self) -> Duration {
         self.kernels.iter().map(|row| row.compiling).sum()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A prefix that names one kernel twice, once per build, asks for the
+    /// build; one that names two kernels asks for more of the id.
+    #[test]
+    fn a_selector_matches_one_instance_or_says_what_it_lacks() {
+        let rows = [row(0xab01, 1), row(0xab01, 2), row(0xcd02, 1)];
+        let select = |id, build| KernelMatch::new(KernelSelector { id, build }, rows.clone());
+        let full = format!("{:032x}", 0xab01u128);
+        let one = format!("{:032x}", 1u128);
+
+        assert!(matches!(select("ff", None), KernelMatch::Unknown));
+        assert!(
+            matches!(select(&full, Some(&one)), KernelMatch::One(row) if row.build == BuildHash(1))
+        );
+        assert!(matches!(select(&full, None), KernelMatch::SeveralBuilds(rows) if rows.len() == 2));
+        assert!(matches!(select("", None), KernelMatch::SeveralKernels(2)));
+    }
+
+    fn row(id: u128, build: u128) -> KernelRow {
+        KernelRow {
+            id: KernelHash(id),
+            build: BuildHash(build),
+            kernel: "kernel".to_string(),
+            ir: None,
+            bytes: None,
+            compiled: 1,
+            loaded: 0,
+            compiling: Duration::ZERO,
+            loading: Duration::ZERO,
+            source: None,
+        }
     }
 }

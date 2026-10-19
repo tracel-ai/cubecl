@@ -1,7 +1,7 @@
 use super::picker::Picker;
 use super::viewer::Viewer;
 use crate::report::Listing;
-use crate::{EnvironmentDirectory, InspectError, Inspector};
+use crate::{EnvironmentDirectory, InspectError};
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{DefaultTerminal, Frame};
 use std::path::PathBuf;
@@ -159,7 +159,7 @@ impl Explorer {
 
     /// Read the directories into the list again.
     fn list(&mut self) {
-        self.picker = Picker::new(&Inspector::list(&self.directories));
+        self.picker = Picker::new(&crate::list(&self.directories));
         self.status = self.picker.status();
     }
 

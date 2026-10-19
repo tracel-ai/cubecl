@@ -385,7 +385,7 @@ impl fmt::Display for Text<'_, CandidateReport> {
             ("wall", Align::Right),
         ])
         .paint(&["wall"], Role::Measure)
-        .group(0);
+        .group("tuner");
         for row in &self.0.candidates {
             let role = match (row.won, row.measured) {
                 (1.., _) => Some(Role::Strong),

@@ -1,11 +1,10 @@
 use crate::report::{
-    AutotuneReport, AutotuneTable, EnvironmentDiff, EnvironmentRecords, KernelHash, KernelReport,
-    KernelRow, KernelSelector, KeyId, Listing, MemorySnapshots, NamespaceRoot, SessionRow,
-    SessionTimeline, StoredArtifacts, Summary, Timeline, TunedKey, Unreadable,
+    AutotuneReport, AutotuneTable, Comparison, DiffSide, EnvironmentDiff, EnvironmentRecords,
+    KernelMatch, KernelReport, KernelRow, KernelSelector, KeyId, MemorySnapshots, NamespaceRoot,
+    SessionRow, SessionTimeline, StoredArtifacts, Summary, Timeline, TuneIndex, TunedKey,
 };
-use crate::{EnvironmentDirectory, InspectError, environment};
+use crate::{InspectError, environment};
 use cubecl_environment::bundle::{BundleManifest, ExportOptions, export};
-use cubecl_environment::collections::HashSet;
 use cubecl_environment::persistence::{Access, Database};
 use cubecl_environment::records::Records;
 use cubecl_server::compiler::KernelCacheKey;
@@ -20,6 +19,8 @@ use std::path::{Path, PathBuf};
 pub struct Inspector {
     database: Database,
     path: PathBuf,
+    /// Read once, on open: every report that folds them shares the reading.
+    records: EnvironmentRecords,
 }
 
 impl Inspector {
@@ -41,54 +42,15 @@ impl Inspector {
         // Refused unless the file is an environment at this build's schema:
         // anything else would read as an empty one.
         let database = Database::open_at(&path, Access::ReadOnly).map_err(refused)?;
-        Ok(Self { database, path })
+        Ok(Self {
+            records: records(&database),
+            database,
+            path,
+        })
     }
 
     pub fn path(&self) -> &Path {
         &self.path
-    }
-
-    /// Every environment file in `directories`, as one list, newest
-    /// first. A directory that does not exist holds none — a machine that
-    /// never built has no environments — and one that cannot be read is
-    /// listed as unreadable, beside what the others hold.
-    pub fn list(directories: &[EnvironmentDirectory]) -> Listing {
-        let mut listing = Listing {
-            directories: directories
-                .iter()
-                .map(|directory| directory.path.clone())
-                .collect(),
-            environments: Vec::new(),
-            unreadable: Vec::new(),
-        };
-        for directory in directories {
-            let files = match directory.files() {
-                Ok(files) => files,
-                Err(err) => {
-                    listing.unreadable.push(Unreadable {
-                        path: directory.path.clone(),
-                        reason: err.to_string(),
-                    });
-                    continue;
-                }
-            };
-            for path in files {
-                match Self::open(&path) {
-                    Ok(inspector) => listing.environments.push(inspector.summary()),
-                    Err(err) => listing.unreadable.push(Unreadable {
-                        path,
-                        reason: err.to_string(),
-                    }),
-                }
-            }
-        }
-        listing.environments.sort_by(|a, b| {
-            b.created_unix_secs()
-                .cmp(&a.created_unix_secs())
-                .then_with(|| a.path.cmp(&b.path))
-        });
-        listing.unreadable.sort_by(|a, b| a.path.cmp(&b.path));
-        listing
     }
 
     pub fn summary(&self) -> Summary {
@@ -102,18 +64,14 @@ impl Inspector {
                 .into_iter()
                 .map(Into::into)
                 .collect(),
-            sessions: self.records().sessions().map(SessionRow::new).collect(),
+            sessions: self.records.sessions().map(SessionRow::new).collect(),
         }
     }
 
     /// Each session's marks, with what was tuned and compiled inside them.
     pub fn timeline(&self) -> Timeline {
         Timeline {
-            sessions: self
-                .records()
-                .sessions()
-                .map(SessionTimeline::new)
-                .collect(),
+            sessions: self.records.sessions().map(SessionTimeline::new).collect(),
         }
     }
 
@@ -126,34 +84,27 @@ impl Inspector {
 
     /// Every kernel the file's sessions compiled or loaded.
     pub fn kernels(&self) -> KernelReport {
-        let records = self.records();
         KernelReport::new(
-            records.compilations.iter().map(|trip| &trip.record),
+            self.records.compilations.iter().map(|trip| &trip.record),
             &self.stored_artifacts(),
         )
     }
 
     /// The one kernel instance `selector` names.
     ///
-    /// A kernel is recorded once per build that compiled or loaded it, so
-    /// after a rebuild its id alone names several: the selector's build
-    /// names one of them.
+    /// # Errors
+    ///
+    /// When it names none, or several: the error says what the selector
+    /// lacks.
     pub fn kernel(&self, selector: KernelSelector<'_>) -> Result<KernelRow, InspectError> {
-        let mut matches: Vec<KernelRow> = self
-            .kernels()
-            .kernels
-            .into_iter()
-            .filter(|row| selector.selects(row))
-            .collect();
-        let kernels: HashSet<KernelHash> = matches.iter().map(|row| row.id).collect();
-        match (matches.len(), kernels.len()) {
-            (0, _) => Err(InspectError::UnknownKernel(selector.to_string())),
-            (1, _) => Ok(matches.remove(0)),
-            (_, 1) => Err(InspectError::AmbiguousBuild {
+        match KernelMatch::new(selector, self.kernels().kernels) {
+            KernelMatch::One(row) => Ok(row),
+            KernelMatch::Unknown => Err(InspectError::UnknownKernel(selector.to_string())),
+            KernelMatch::SeveralBuilds(rows) => Err(InspectError::AmbiguousBuild {
                 kernel: selector.to_string(),
-                builds: matches.iter().map(|row| row.build.to_string()).collect(),
+                builds: rows.iter().map(|row| row.build.to_string()).collect(),
             }),
-            (_, count) => Err(InspectError::AmbiguousKernel {
+            KernelMatch::SeveralKernels(count) => Err(InspectError::AmbiguousKernel {
                 prefix: selector.to_string(),
                 count,
             }),
@@ -196,25 +147,32 @@ impl Inspector {
                 },
             );
         }
-        let records = self.records();
+        let tunes = TuneIndex::new(&self.records);
         for key in &mut report.keys {
-            key.tune = records.recorded_tune(key);
+            key.tune = tunes.recorded_tune(key);
         }
         report
     }
 
     /// This file's autotune answers against `other`'s, this one before.
     pub fn diff(&self, other: &Inspector) -> EnvironmentDiff {
-        EnvironmentDiff::new(
-            (self.path.clone(), &self.autotune()),
-            (other.path.clone(), &other.autotune()),
-        )
+        EnvironmentDiff::new(Comparison {
+            before: DiffSide {
+                path: self.path.clone(),
+                autotune: &self.autotune(),
+            },
+            after: DiffSide {
+                path: other.path.clone(),
+                autotune: &other.autotune(),
+            },
+        })
     }
 
     /// Drop the records of every session but the newest `keep`, in place,
     /// and summarize what is left.
     ///
-    /// The one write this type makes, through a connection of its own. A
+    /// The one write this type makes to its own file, through a connection
+    /// of its own. A
     /// read-write open migrates a file of another schema by dropping its
     /// entries; this one cannot, because [`open`](Self::open) refused any
     /// file this build's cubecl did not write.
@@ -222,7 +180,7 @@ impl Inspector {
     /// Takes the inspector, whose read-only handle has to be closed first: a
     /// file open for reading in this process cannot be written by it.
     pub fn prune(self, keep: usize) -> Result<Summary, InspectError> {
-        let Self { database, path } = self;
+        let Self { database, path, .. } = self;
         let refused = |reason: String| InspectError::Prune {
             path: path.clone(),
             reason,
@@ -273,16 +231,16 @@ impl Inspector {
             .find(|key| key.id == id)
             .ok_or(InspectError::UnknownKey(id))
     }
+}
 
-    /// The file's records, read whole.
-    fn records(&self) -> EnvironmentRecords {
-        let records = Records::new(&self.database);
-        EnvironmentRecords {
-            sessions: records.sessions(),
-            tunes: records.read(),
-            compilations: records.read(),
-            batches: records.read(),
-            marks: records.read(),
-        }
+/// The file's records, read whole.
+fn records(database: &Database) -> EnvironmentRecords {
+    let records = Records::new(database);
+    EnvironmentRecords {
+        sessions: records.sessions(),
+        tunes: records.read(),
+        compilations: records.read(),
+        batches: records.read(),
+        marks: records.read(),
     }
 }

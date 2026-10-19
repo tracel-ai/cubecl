@@ -12,11 +12,6 @@ use std::time::Duration;
 /// its type, like [`TunedKey::key`].
 pub type TuneTrace = Stamped<TuneRecord<ciborium::Value>>;
 
-/// A candidate that ran more than this many times the winner's score lost
-/// clearly enough that the time it took is counted as
-/// [wasted](TunedKey::wasted).
-pub const WASTE_THRESHOLD: f64 = 2.0;
-
 /// Every autotune key an environment holds an answer for.
 #[derive(Clone, Debug, Serialize)]
 pub struct AutotuneReport {
@@ -135,6 +130,11 @@ fn failure(error: AutotuneError) -> (Option<String>, CandidateOutcome) {
 }
 
 impl TunedKey {
+    /// A candidate that ran more than this many times the winner's score
+    /// lost clearly enough that the time it took is counted as
+    /// [wasted](Self::wasted).
+    pub const WASTE_THRESHOLD: f64 = 2.0;
+
     /// A stored entry of `table`, decoded; `None` when either half does not
     /// decode. The [tune](Self::tune) is left for the records to fill.
     pub fn new(table: &AutotuneTable, key: &[u8], value: &[u8]) -> Option<Self> {
@@ -278,7 +278,7 @@ impl TunedKey {
     }
 
     /// The wall of the trials that bought nothing: candidates that failed,
-    /// and candidates that ran more than [`WASTE_THRESHOLD`] times the
+    /// and candidates that ran more than [`WASTE_THRESHOLD`](Self::WASTE_THRESHOLD) times the
     /// winner's score. `None` when the tune was not recorded.
     pub fn wasted(&self) -> Option<Duration> {
         self.tune.as_ref()?;
@@ -291,7 +291,7 @@ impl TunedKey {
                             CandidateOutcome::Failed { .. } => true,
                             CandidateOutcome::Measured(_) => self
                                 .slowdown(result)
-                                .is_some_and(|slowdown| slowdown > WASTE_THRESHOLD),
+                                .is_some_and(|slowdown| slowdown > Self::WASTE_THRESHOLD),
                             CandidateOutcome::Skipped => false,
                         })
                 })
@@ -331,7 +331,7 @@ pub enum Fate {
 }
 
 /// The orders an [`AutotuneReport`] lists its keys in.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum KeyOrder {
     /// Slowest tune first; the keys whose tune was not recorded after them,
     /// most candidates measured first.
