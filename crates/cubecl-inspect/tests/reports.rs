@@ -24,8 +24,8 @@ use cubecl_server::tune::{
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-const GEMM: &str = "autotune/0.11.0/hip-0/matmul-tune-gemm";
-const NORM: &str = "autotune/0.11.0/hip-0/rms-norm";
+const GEMM: &str = "autotune/0.11.0/hip-kernel_gfx1151/hip-0/matmul-tune-gemm";
+const NORM: &str = "autotune/0.11.0/hip-kernel_gfx1151/hip-0/rms-norm";
 const MATMUL: u128 = 0xabcd_ef01_2345_6789_abcd_ef01_2345_6789;
 
 /// A tuner's key: what cubecl's `PersistentCacheKey` serializes to.
@@ -1008,7 +1008,7 @@ fn a_diff_reads_a_keys_newest_version() {
     {
         let database = Database::open_at(&path, Access::ReadWrite).expect("opens");
         database.insert(
-            "autotune/0.9.0/hip-0/matmul-tune-gemm",
+            "autotune/0.9.0/hip-kernel_gfx1151/hip-0/matmul-tune-gemm",
             &cbor(&StoredKey {
                 key: GemmKey {
                     m: 64,

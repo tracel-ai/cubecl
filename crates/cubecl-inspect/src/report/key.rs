@@ -51,6 +51,9 @@ impl Serialize for KeyId {
 }
 
 /// One autotune table: the namespace cubecl stores a tuner's results in,
+/// as the runtime's `TuneTableName` writes it,
+/// `autotune/<cubecl version>/<fingerprint>/<device>/<tuner>`, or as cubecl
+/// wrote it before it keyed tables on the fingerprint,
 /// `autotune/<cubecl version>/<device>/<tuner>`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 pub struct AutotuneTable {
@@ -58,35 +61,50 @@ pub struct AutotuneTable {
     pub tuner: String,
     /// The device the results were measured on.
     pub device: String,
+    /// The adapter and API the device resolved to; `None` for a table
+    /// written before cubecl recorded it.
+    pub fingerprint: Option<String>,
     /// The cubecl version that wrote them.
     pub version: String,
 }
 
 impl AutotuneTable {
     /// The namespace's root.
-    pub const ROOT: &str = "autotune";
+    pub const ROOT: &str = cubecl_runtime::tune::ROOT;
 
     /// The namespace the table is stored under.
     pub fn namespace(&self) -> String {
-        format!(
-            "{}/{}/{}/{}",
-            Self::ROOT,
-            self.version,
-            self.device,
-            self.tuner
-        )
+        let Self {
+            tuner,
+            device,
+            fingerprint,
+            version,
+        } = self;
+        match fingerprint {
+            Some(fingerprint) => format!("{}/{version}/{fingerprint}/{device}/{tuner}", Self::ROOT),
+            None => format!("{}/{version}/{device}/{tuner}", Self::ROOT),
+        }
     }
 
     /// The table a namespace names, or `None` when it is not an autotune one.
+    ///
+    /// The version is read from the front, the tuner and the device from the
+    /// back, and the fingerprint is what lies between: a fingerprint built
+    /// from an adapter's name may hold a `/`, a tuner's name and a device id
+    /// never do.
     pub fn new(namespace: &str) -> Option<Self> {
-        let mut segments = namespace.splitn(4, '/');
-        if segments.next()? != Self::ROOT {
-            return None;
-        }
+        let rest = namespace.strip_prefix(Self::ROOT)?.strip_prefix('/')?;
+        let (version, rest) = rest.split_once('/')?;
+        let (rest, tuner) = rest.rsplit_once('/')?;
+        let (fingerprint, device) = match rest.rsplit_once('/') {
+            Some((fingerprint, device)) => (Some(fingerprint.to_string()), device),
+            None => (None, rest),
+        };
         Some(Self {
-            version: segments.next()?.to_string(),
-            device: segments.next()?.to_string(),
-            tuner: segments.next()?.to_string(),
+            tuner: tuner.to_string(),
+            device: device.to_string(),
+            fingerprint,
+            version: version.to_string(),
         })
     }
 }
@@ -109,19 +127,43 @@ mod tests {
         assert_ne!(KeyId::new("ab", b"c"), KeyId::new("a", b"bc"));
     }
 
+    /// What the runtime writes is what the reader parses: the two sides of
+    /// one layout, in two crates.
     #[test]
-    fn a_table_parses_from_its_namespace() {
+    fn a_table_parses_from_the_namespace_the_runtime_writes() {
+        let namespace = cubecl_runtime::tune::TuneTableName {
+            fingerprint: "NVIDIA GeForce RTX 3080/PCIe/SSE2",
+            device_id: "DeviceId(type=0, index=0)",
+            tuner: "matmul-tune-gemm",
+        }
+        .namespace();
+        let table = AutotuneTable::new(namespace.as_str()).expect("parses");
+        assert_eq!(table.tuner, "matmul-tune-gemm");
+        assert_eq!(table.device, "DeviceId(type=0, index=0)");
         assert_eq!(
-            AutotuneTable::new("autotune/0.11.0/device-32-0-hip/matmul-tune-gemm"),
+            table.fingerprint.as_deref(),
+            Some("NVIDIA GeForce RTX 3080/PCIe/SSE2")
+        );
+        assert_eq!(table.namespace(), namespace.as_str());
+    }
+
+    /// A table written before cubecl keyed tables on the fingerprint still
+    /// reads, without one.
+    #[test]
+    fn a_table_without_a_fingerprint_still_parses() {
+        let namespace = "autotune/0.11.0/device-32-0-hip/matmul-tune-gemm";
+        assert_eq!(
+            AutotuneTable::new(namespace),
             Some(AutotuneTable {
                 tuner: "matmul-tune-gemm".to_string(),
                 device: "device-32-0-hip".to_string(),
+                fingerprint: None,
                 version: "0.11.0".to_string(),
             })
         );
-        let namespace = "autotune/0.11.0/device-32-0-hip/matmul-tune-gemm";
         let table = AutotuneTable::new(namespace).expect("parses");
         assert_eq!(table.namespace(), namespace);
         assert_eq!(AutotuneTable::new("hip/0.11.0/gfx1151"), None);
+        assert_eq!(AutotuneTable::new("autotune/0.11.0/gemm"), None);
     }
 }

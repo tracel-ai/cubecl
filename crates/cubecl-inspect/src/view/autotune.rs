@@ -84,8 +84,11 @@ impl fmt::Display for Header<'_> {
             f,
             "tuner",
             format_args!(
-                "{} on {} (cubecl {})",
-                key.table.tuner, key.table.device, key.table.version
+                "{} on {}{} (cubecl {})",
+                key.table.tuner,
+                key.table.device,
+                Via(key.table.fingerprint.as_deref()),
+                key.table.version
             ),
         )?;
         fields.line(f, "key", KeyText(&key.key))?;
@@ -408,6 +411,19 @@ impl fmt::Display for Text<'_, CandidateReport> {
              wall: compiling and benchmarking it, over the recorded tunes;\n\
              a candidate that won is bold, one never measured is muted.")?;
         writeln!(f)
+    }
+}
+
+/// ` via <fingerprint>` when the table names the adapter and API the device
+/// resolved to, nothing when it predates them.
+struct Via<'a>(Option<&'a str>);
+
+impl fmt::Display for Via<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            Some(fingerprint) => write!(f, " via {fingerprint}"),
+            None => Ok(()),
+        }
     }
 }
 

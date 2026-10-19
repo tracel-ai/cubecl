@@ -7,7 +7,8 @@ use std::time::Duration;
 /// Two environments' autotune answers, key by key: what one has that the
 /// other lacks, and where they answer the same key differently.
 ///
-/// A key is matched by its tuner, its device and its value — not by the
+/// A key is matched by its tuner, its device, the adapter and API the device
+/// resolved to, and its value — not by the
 /// cubecl version in its namespace, so two environments a version apart
 /// still compare. A file that answers one key under several versions answers it
 /// with its newest. Winners that differ between two environments filled with the same
@@ -97,6 +98,7 @@ impl KeyDiff {
 struct Identity {
     tuner: String,
     device: String,
+    fingerprint: Option<String>,
     /// The key's canonical rendering: `ciborium::Value` is not `Ord`.
     key: String,
 }
@@ -106,6 +108,7 @@ impl From<&TunedKey> for Identity {
         Self {
             tuner: key.table.tuner.clone(),
             device: key.table.device.clone(),
+            fingerprint: key.table.fingerprint.clone(),
             key: format!("{:?}", key.key),
         }
     }

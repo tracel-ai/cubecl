@@ -75,7 +75,12 @@ impl<'a> NamespaceRoot<'a> {
     /// Whether the namespace may hold compiled artifacts: everything but the
     /// measurements and the records cubecl keeps beside them.
     pub fn holds_artifacts(self) -> bool {
-        ![AutotuneTable::ROOT, "throughput", Self::records().0].contains(&self.0)
+        ![
+            AutotuneTable::ROOT,
+            cubecl_runtime::throughput::ROOT,
+            Self::records().0,
+        ]
+        .contains(&self.0)
     }
 }
 

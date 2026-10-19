@@ -10,6 +10,9 @@ use cubecl_environment::sync::Mutex;
 use cubecl_ir::{DeviceIdentity, DeviceProperties};
 
 /// The namespace segment naming which generation of probes wrote a value.
+/// The root of every throughput table's namespace.
+pub const ROOT: &str = "throughput";
+
 #[cfg(persistence)]
 const GENERATION: &str = "probe-v";
 
@@ -139,7 +142,7 @@ fn drop_earlier_generations() {
         return;
     }
 
-    let scope = String::from(Namespace::scoped("throughput", "").as_str());
+    let scope = String::from(Namespace::scoped(ROOT, "").as_str());
     let current = crate::throughput::PROBE_VERSION;
 
     for candidate in cubecl_environment::persistence::namespaces() {
@@ -152,7 +155,7 @@ fn drop_earlier_generations() {
 #[cfg(persistence)]
 fn namespace(device_key: &str) -> Namespace {
     Namespace::scoped(
-        "throughput",
+        ROOT,
         format!(
             "{GENERATION}{}/{device_key}",
             crate::throughput::PROBE_VERSION
