@@ -22,6 +22,8 @@ mod tests {
     cubecl_std::testgen!();
     cubecl_core::testgen_all!(f32: [f16, bf16, f32], i32: [i16, i32], u32: [u16, u32]);
     cubecl_core::testgen_complex_validation!();
+    cubecl_core::testgen_completion!();
+    cubecl_core::testgen_completion_boundary!();
     cubecl_core::testgen_launch_dynamic_count!();
     cubecl_core::testgen_profiling!();
     cubecl_core::testgen_profiling_nested!();

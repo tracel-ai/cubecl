@@ -9,7 +9,7 @@
 use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::modules::HipCompiledKernel;
 use crate::compute::{Captures, Window};
-use crate::compute::{Command, context::HipContext, stream::HipStreamBackend};
+use crate::compute::{Command, context::HipContext, events::Hip, stream::HipStreamBackend};
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::server::{DeviceCaptures, ServerStorage};
 use cubecl_core::{
@@ -26,6 +26,7 @@ use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_server::command::{DeviceStream, Refused};
 use cubecl_server::compiler::ArtifactId;
+use cubecl_server::device_events::EventCompletion;
 use cubecl_server::metadata_cache::Lookup;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
@@ -34,7 +35,7 @@ use cubecl_server::{
     kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, StreamMemoryReport},
-    server::Server,
+    server::{BackendCompletion, Server},
     storage::{ComputeStorage, ManagedResource},
     stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
 };
@@ -220,6 +221,26 @@ impl Server for HipServer {
 
     fn compile_queued(&mut self) {
         self.ctx.compile_queued(&self.streams.logger);
+    }
+
+    fn completion(
+        &mut self,
+        stream_id: StreamId,
+    ) -> Result<Box<dyn BackendCompletion>, ServerError> {
+        let mut streams = self.streams.resolve(stream_id, [].into_iter())?;
+        let stream = streams.current();
+
+        // A recording stream's event would become a graph node rather than a
+        // boundary in the stream's work, so there is nothing meaningful to wait
+        // on afterwards.
+        if stream.capturing.is_recording() {
+            return Err(ServerError::graph_state(
+                "completion: a capture window records launches only, so a completion has no \
+                 recorded form",
+            ));
+        }
+
+        Ok(Box::new(EventCompletion::<Hip>::record(stream.sys)?))
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {

@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 
 use super::graph::WgpuGraph;
 use super::storage::{WgpuResource, WgpuStorage};
+use super::stream::WgpuSubmission;
 use crate::WgpuCompiler;
 use crate::compute::artifact::WgpuArtifactCompiler;
 use crate::compute::pipelines::{MetadataLayout, WgpuPipelines};
@@ -44,7 +45,7 @@ use cubecl_server::{
     kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::MemoryAllocationMode,
-    server::Server,
+    server::{BackendCompletion, Server},
     storage::ManagedResource,
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
     stream::{ExecuteScope, FailureStore, StreamCapture, WriteScoped, failed_writing},
@@ -217,6 +218,34 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             info: bindings.info,
             compiler_info,
         })
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl<C: WgpuCompiler> WgpuServer<C> {
+    /// Submit `stream_id`'s queued work and return the exact completion of that
+    /// submission.
+    ///
+    /// The stream's scheduled work runs and its queue is sealed before this
+    /// returns, and the submission that seals it is captured here. A later
+    /// [`WgpuSubmission::wait`] therefore covers that work, but not later
+    /// submissions.
+    ///
+    /// # Errors
+    ///
+    /// Fails while `stream_id` records a software graph: recorded launches do
+    /// not execute, so there is no submission whose completion would mean
+    /// anything.
+    pub(crate) fn submit_stream_completion(
+        &mut self,
+        stream_id: StreamId,
+    ) -> Result<WgpuSubmission, ServerError> {
+        self.scheduler
+            .stream(&stream_id)
+            .reject_while_recording("completion")?;
+        self.scheduler.execute_streams(vec![stream_id]);
+        let stream = self.scheduler.stream(&stream_id);
+        Ok(stream.seal_submission())
     }
 }
 
@@ -533,6 +562,21 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
 
     fn compile_queued(&mut self) {
         self.pipelines.compile_queued(&self.scheduler.logger);
+    }
+
+    fn completion(
+        &mut self,
+        stream_id: StreamId,
+    ) -> Result<Box<dyn BackendCompletion>, ServerError> {
+        #[cfg(not(target_family = "wasm"))]
+        {
+            Ok(Box::new(self.submit_stream_completion(stream_id)?))
+        }
+        #[cfg(target_family = "wasm")]
+        {
+            let _ = stream_id;
+            Err(ServerError::unsupported("completion"))
+        }
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {

@@ -91,6 +91,8 @@ mod tests {
     #[cfg(feature = "cpp")]
     cubecl_core::testgen_complex_math!();
     cubecl_core::testgen_complex_validation!();
+    cubecl_core::testgen_completion!();
+    cubecl_core::testgen_completion_boundary!();
     cubecl_core::testgen_profiling!();
     cubecl_core::testgen_profiling_nested!();
 }

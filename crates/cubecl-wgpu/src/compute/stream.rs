@@ -20,7 +20,10 @@ use cubecl_common::{
 };
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
-    server::{BufferBinding, DeviceCaptures, IoError, ProfileError, ProfilingToken, ServerError},
+    server::{
+        BackendCompletion, BufferBinding, DeviceCaptures, IoError, ProfileError, ProfilingToken,
+        ServerError,
+    },
     zspace::Shape,
 };
 use cubecl_environment::backtrace::BackTrace;
@@ -119,6 +122,54 @@ pub struct WgpuStream {
     /// The launches recorded since `begin_capture`, drained into a
     /// [`WgpuGraph`] at `end_capture`.
     recording: GraphRecording,
+}
+
+/// Completion handle for one native wgpu queue submission.
+///
+/// The submission index is captured when the stream is sealed, so this names
+/// the work submitted by that call and not whatever is submitted before it is
+/// waited on.
+#[cfg(not(target_family = "wasm"))]
+#[derive(Clone, Debug)]
+pub(crate) struct WgpuSubmission {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    poison: PoisonWatch,
+    index: wgpu::SubmissionIndex,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl BackendCompletion for WgpuSubmission {
+    fn is_complete(&self) -> Result<bool, ServerError> {
+        self.poison.check()?;
+        // A zero timeout asks the device once and returns at once. The index is
+        // part of the wait, so another stream's later submission cannot answer
+        // for this one.
+        let polled = self.device.poll(wgpu::PollType::Wait {
+            submission_index: Some(self.index.clone()),
+            timeout: Some(core::time::Duration::ZERO),
+        });
+        // Polling is what delivers a device-loss callback, so a poll that
+        // returned success may still have poisoned the device. Check before
+        // reading the result, or the first query after `Device::destroy`
+        // reports a boundary on a device that no longer exists.
+        self.poison.check()?;
+        match polled {
+            Ok(status) => Ok(status.wait_finished()),
+            Err(wgpu::PollError::Timeout) => Ok(false),
+            Err(err) => Err(ServerError::Generic {
+                reason: format!("wgpu: querying a submission failed ({err})"),
+                backtrace: BackTrace::capture(),
+            }),
+        }
+    }
+
+    fn wait(&self) -> Result<(), ServerError> {
+        // Polled in slices so a lost device is noticed between them rather than
+        // waiting on a completion that will never arrive.
+        self.poison
+            .wait_unless_lost(&self.device, &self.queue, Some(self.index.clone()))
+    }
 }
 
 impl StreamMemory for WgpuStream {
@@ -867,7 +918,7 @@ impl WgpuStream {
     /// scheduler aligning streams. Whatever is queued stays queued, for the
     /// flush of the stream that owns it.
     pub fn submit(&mut self) {
-        self.submit_tasks();
+        let _ = self.submit_tasks();
         self.collect_validation_errors();
     }
 
@@ -880,10 +931,43 @@ impl WgpuStream {
         Ok(())
     }
 
-    fn submit_tasks(&mut self) {
+    /// Submit this stream's queued work and pending queue writes, and return a
+    /// handle on the submission that seals them.
+    ///
+    /// The submission index is captured here, not when it is waited on, so the
+    /// handle names the work submitted by this call and not whatever is
+    /// submitted before it is waited on.
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn seal_submission(&mut self) -> WgpuSubmission {
+        let index = match self.submit_tasks() {
+            Some(index) => index,
+            None => {
+                // The task queue is empty, but `write_buffer` stages its copies
+                // in the queue and only a `submit` flushes them. An empty
+                // submission seals those writes, and gives an otherwise idle
+                // stream a submission to name.
+                self.pending_write_count = 0;
+                self.queue.submit(core::iter::empty())
+            }
+        };
+
+        WgpuSubmission {
+            device: self.device.clone(),
+            queue: self.queue.clone(),
+            poison: self.poison.clone(),
+            index,
+        }
+    }
+
+    /// Submit the queued work, returning the submission that carries it.
+    ///
+    /// `None` means the task queue was empty, so nothing was submitted; the
+    /// pending `write_buffer` copies are still where `write_to_buffer` staged
+    /// them, in the queue rather than the encoder.
+    fn submit_tasks(&mut self) -> Option<wgpu::SubmissionIndex> {
         if self.tasks_count == 0 {
             self.shared_bindings.clear();
-            return;
+            return None;
         }
 
         // End the current compute pass.
@@ -916,7 +1000,7 @@ impl WgpuStream {
             &self.device,
             &self.queue,
             self.tasks_count,
-            index,
+            index.clone(),
         );
 
         // The main pool's pages are cleaned up by the server before it
@@ -934,6 +1018,7 @@ impl WgpuStream {
 
         self.tasks_count = 0;
         self.pending_write_count = 0;
+        Some(index)
     }
 
     /// Drain the driver's validation canary into the log.

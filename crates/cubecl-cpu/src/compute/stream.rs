@@ -6,7 +6,10 @@ use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
     MemoryConfiguration,
     ir::MemoryDeviceProperties,
-    server::{BufferBinding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError},
+    server::{
+        BackendCompletion, BufferBinding, CopyDescriptor, IoError, ProfileError, ProfilingToken,
+        ServerError,
+    },
 };
 use cubecl_environment::stream::StreamId;
 use cubecl_server::memory_management::relocation::{
@@ -38,6 +41,40 @@ pub struct CpuStream {
     threadpool: &'static spin::Mutex<Threadpool>,
     next_counter_step: u64,
     atomic_counter: Arc<CachePadded<AtomicU64>>,
+}
+
+/// A boundary on a CPU stream's work, recorded as the counter value its queued
+/// kernels will reach when they finish.
+#[derive(Debug)]
+pub(crate) struct CpuCompletion {
+    target: u64,
+    counter: Arc<CachePadded<AtomicU64>>,
+}
+
+impl BackendCompletion for CpuCompletion {
+    fn is_complete(&self) -> Result<bool, ServerError> {
+        Ok(self.counter.load(std::sync::atomic::Ordering::Acquire) >= self.target)
+    }
+
+    fn wait(&self) -> Result<(), ServerError> {
+        wait_for_counter(&self.counter, self.target);
+        Ok(())
+    }
+}
+
+/// Wait until `counter` has reached `target`, spinning briefly and then
+/// yielding so a busy worker still gets scheduled.
+fn wait_for_counter(counter: &CachePadded<AtomicU64>, target: u64) {
+    const SPINS_BEFORE_YIELD: u32 = 1_000;
+    let mut spins = 0u32;
+    while counter.load(std::sync::atomic::Ordering::Acquire) < target {
+        spins += 1;
+        if spins < SPINS_BEFORE_YIELD {
+            std::hint::spin_loop();
+        } else {
+            std::thread::yield_now();
+        }
+    }
 }
 
 impl StreamMemory for CpuStream {
@@ -180,22 +217,17 @@ impl CpuStream {
     /// scheduler aligning streams. Whatever is queued stays queued, for the
     /// flush of the stream that owns it.
     pub fn submit(&mut self) {
-        // Spin briefly, then yield between polls: the client is not pinned,
-        // and a pure spin parked on a worker's logical CPU keeps that worker
-        // off it until the next timer tick (~3 ms unit-start stalls).
-        const SPINS_BEFORE_YIELD: u32 = 1_000;
-        let mut spins = 0u32;
-        while self
-            .atomic_counter
-            .load(std::sync::atomic::Ordering::Acquire)
-            != self.next_counter_step
-        {
-            spins += 1;
-            if spins < SPINS_BEFORE_YIELD {
-                std::hint::spin_loop();
-            } else {
-                std::thread::yield_now();
-            }
+        wait_for_counter(&self.atomic_counter, self.next_counter_step);
+    }
+
+    /// Record a boundary at the kernels this stream has queued so far.
+    ///
+    /// The counter value is what those kernels reach when they finish; the
+    /// work itself keeps running on the threadpool.
+    pub(crate) fn completion(&self) -> CpuCompletion {
+        CpuCompletion {
+            target: self.next_counter_step,
+            counter: self.atomic_counter.clone(),
         }
     }
 

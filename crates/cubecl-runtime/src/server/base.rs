@@ -472,6 +472,16 @@ pub enum ServerError {
         backtrace: BackTrace,
     },
 
+    /// The backend does not implement the requested operation.
+    #[error("The {operation} operation is not supported by this backend\nBacktrace:\n{backtrace}")]
+    UnsupportedOperation {
+        /// The operation the caller asked for.
+        operation: String,
+        /// The backtrace for this error.
+        #[cfg_attr(serializable, serde(skip))]
+        backtrace: BackTrace,
+    },
+
     /// A handle from one service was handed to a client of another: memory
     /// coordinates mean nothing there, so nothing was run.
     #[error("A handle of {handle} was used on {client}\nBacktrace:\n{backtrace}")]
@@ -657,6 +667,30 @@ impl ServerError {
     pub fn graph_capture_unsupported() -> Self {
         Self::graph_state("graph capture is not supported by this backend")
     }
+
+    /// The error a backend returns for an operation it does not implement.
+    pub fn unsupported(operation: impl Into<String>) -> Self {
+        Self::UnsupportedOperation {
+            operation: operation.into(),
+            backtrace: BackTrace::capture(),
+        }
+    }
+}
+
+/// The completion of the work a backend had submitted to a stream when the
+/// boundary was recorded.
+///
+/// Returned by [`Server::completion`] and held by the client's completion
+/// handle. The boundary is fixed when the server records it: later work on the
+/// stream is not part of it. Both methods may be called repeatedly and from
+/// several threads.
+pub trait BackendCompletion: Send + Sync {
+    /// Whether the device has passed the boundary. Non-blocking: `Ok(false)`
+    /// means the work is still in flight, not that it failed.
+    fn is_complete(&self) -> Result<bool, ServerError>;
+
+    /// Block until the device has passed the boundary.
+    fn wait(&self) -> Result<(), ServerError>;
 }
 
 /// The compute server is responsible for handling resources and computations over resources.
@@ -738,6 +772,22 @@ pub trait Server:
         handles: Vec<BufferBinding>,
         stream_id: StreamId,
     ) -> Result<(), ServerError>;
+
+    /// Record a completion boundary at the work `stream_id` has submitted so
+    /// far, and return a handle on it.
+    ///
+    /// The boundary is fixed here, so later work submitted to the stream is not
+    /// part of it. Recording it is non-blocking; the returned handle's
+    /// [`wait`](BackendCompletion::wait) is what waits. A backend that cannot
+    /// record one returns an unsupported-operation error, which the client's
+    /// completion handle reports from its own `is_complete` and `wait`.
+    fn completion(
+        &mut self,
+        stream_id: StreamId,
+    ) -> Result<Box<dyn BackendCompletion>, ServerError> {
+        let _ = stream_id;
+        Err(ServerError::unsupported("completion"))
+    }
 
     /// Executes the `kernel` over the given memory `handles`.
     ///

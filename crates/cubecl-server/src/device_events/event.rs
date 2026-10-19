@@ -24,6 +24,17 @@ impl<A: EventApi> Event<A> {
         })
     }
 
+    /// Create an event for synchronization only, with timing disabled.
+    ///
+    /// # Errors
+    ///
+    /// [`DriverError`] when the driver refuses it.
+    pub fn new_sync() -> Result<Self, DriverError> {
+        Ok(Self {
+            sys: A::event_create_sync()?,
+        })
+    }
+
     /// Enqueue the timestamp on `stream`, returning once it is queued.
     ///
     /// # Errors
@@ -40,6 +51,15 @@ impl<A: EventApi> Event<A> {
     /// [`DriverError`], the fault the wait revealed on the stream.
     pub fn wait(&self) -> Result<(), DriverError> {
         A::event_wait(&self.sys)
+    }
+
+    /// Whether the device has reached this event, without blocking.
+    ///
+    /// # Errors
+    ///
+    /// [`DriverError`] when the event is invalid or its stream failed.
+    pub fn is_complete(&self) -> Result<bool, DriverError> {
+        A::event_query(&self.sys)
     }
 
     /// Make `stream` wait for this event on the device, without blocking here.

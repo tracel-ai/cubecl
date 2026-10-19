@@ -8,11 +8,13 @@
 //! [`EventProfiler`] are written once above them.
 
 mod base;
+mod completion;
 mod event;
 mod fence;
 mod profiler;
 
 pub use base::*;
+pub use completion::*;
 pub use event::*;
 pub use fence::*;
 pub use profiler::*;

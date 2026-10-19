@@ -293,6 +293,23 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         }
     }
 
+    /// Run the tasks queued on `stream_id` without the backend flush that
+    /// follows a normal execution.
+    ///
+    /// For a caller recording a completion boundary: the tasks are on the
+    /// backend's queue, and the boundary it records is what waits for them.
+    /// Only this stream is drained; its cross-stream dependencies were already
+    /// aligned when each task was registered.
+    pub fn execute_stream_nowait(&mut self, stream_id: StreamId) {
+        let index = self.pool.stream_index(&stream_id);
+        // SAFETY: `stream_index` keeps the index within the regular streams.
+        let stream = unsafe { self.pool.get_mut_index(index) };
+        let tasks = stream.flush();
+        for task in tasks {
+            B::enqueue(task, &mut stream.stream, self.failures.graph_mut());
+        }
+    }
+
     /// Aligns streams by flushing tasks from streams that conflict with the given bindings.
     pub(crate) fn align_streams(&mut self, stream_id: StreamId, args_streams: &[StreamId]) {
         let mut to_flush = Vec::new();

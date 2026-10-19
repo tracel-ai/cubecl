@@ -54,6 +54,34 @@ impl EventApi for Hip {
         Ok(HipEvent(sys))
     }
 
+    fn event_create_sync() -> Result<Self::Event, DriverError> {
+        let mut sys: hipEvent_t = core::ptr::null_mut();
+
+        // SAFETY: `sys` is a valid out-pointer, and the status is checked
+        // before the handle it writes is used. `hipEventDisableTiming` is
+        // exactly right for a completion boundary: it is queried and waited
+        // on, never read back as a timestamp.
+        let status = unsafe {
+            cubecl_hip_sys::hipEventCreateWithFlags(&mut sys, cubecl_hip_sys::hipEventDisableTiming)
+        };
+        checked("hipEventCreateWithFlags", status)?;
+
+        Ok(HipEvent(sys))
+    }
+
+    fn event_query(event: &Self::Event) -> Result<bool, DriverError> {
+        // SAFETY: the event is live for as long as `event`.
+        let status = unsafe { cubecl_hip_sys::hipEventQuery(event.0) };
+        match status {
+            cubecl_hip_sys::hipError_t_hipSuccess => Ok(true),
+            cubecl_hip_sys::hipError_t_hipErrorNotReady => Ok(false),
+            status => {
+                checked("hipEventQuery", status)?;
+                Ok(false)
+            }
+        }
+    }
+
     fn event_destroy(event: &mut Self::Event) -> Result<(), DriverError> {
         // SAFETY: the handle was created in `event_create` and this consumes
         // the only owner of it.

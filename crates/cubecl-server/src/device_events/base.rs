@@ -45,6 +45,24 @@ pub trait EventApi: Send + Sync + 'static {
     /// device is already in trouble or out of resources.
     fn event_create() -> Result<Self::Event, DriverError>;
 
+    /// Create an event for synchronization only, with timing disabled.
+    ///
+    /// A completion boundary is queried or waited on and never read back, and
+    /// the driver charges a timestamp write for an event that keeps it.
+    ///
+    /// # Errors
+    ///
+    /// The same as [`event_create`](Self::event_create).
+    fn event_create_sync() -> Result<Self::Event, DriverError>;
+
+    /// Whether the device has reached `event`, without blocking.
+    ///
+    /// # Errors
+    ///
+    /// [`DriverError`] when the event is invalid or its stream failed. A
+    /// boundary that has not been reached is `Ok(false)`, not an error.
+    fn event_query(event: &Self::Event) -> Result<bool, DriverError>;
+
     /// Release an event. Called from the event's own `Drop`.
     ///
     /// # Errors

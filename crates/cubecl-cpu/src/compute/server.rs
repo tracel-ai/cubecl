@@ -13,8 +13,9 @@ use cubecl_core::{
     CompilationError, CubeCount, MemoryConfiguration,
     ir::MemoryDeviceProperties,
     server::{
-        BufferBinding, CopyDescriptor, IoError, KernelArguments, KernelResource, LaunchError,
-        ProfileError, ProfilingToken, Server, ServerCommunication, ServerError, ServerUtilities,
+        BackendCompletion, BufferBinding, CopyDescriptor, IoError, KernelArguments, KernelResource,
+        LaunchError, ProfileError, ProfilingToken, Server, ServerCommunication, ServerError,
+        ServerUtilities,
     },
     zspace::{Shape, Strides, strides},
 };
@@ -472,6 +473,18 @@ impl Server for CpuServer {
 
     fn compile_queued(&mut self) {
         self.kernels.compile_queued(&self.scheduler.logger);
+    }
+
+    fn completion(
+        &mut self,
+        stream_id: StreamId,
+    ) -> Result<Box<dyn BackendCompletion>, ServerError> {
+        // Queue the tasks registered so far, then record the counter they reach
+        // when they finish. The work keeps running on the threadpool; this call
+        // only fixes the boundary, so later work is not part of it.
+        self.scheduler.execute_stream_nowait(stream_id);
+        let stream = self.scheduler.stream(&stream_id);
+        Ok(Box::new(stream.completion()))
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {

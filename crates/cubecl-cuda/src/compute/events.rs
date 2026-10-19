@@ -51,6 +51,26 @@ impl EventApi for Cuda {
         Ok(CudaEvent(sys))
     }
 
+    fn event_create_sync() -> Result<Self::Event, DriverError> {
+        // `CU_EVENT_DISABLE_TIMING` is exactly right for a completion boundary:
+        // it is queried and waited on, never read back as a timestamp.
+        let sys = named(
+            "cuEventCreate",
+            event::create(CUevent_flags::CU_EVENT_DISABLE_TIMING),
+        )?;
+
+        Ok(CudaEvent(sys))
+    }
+
+    fn event_query(event: &Self::Event) -> Result<bool, DriverError> {
+        // SAFETY: the event is live for as long as `event`.
+        match unsafe { event::query(event.0) } {
+            Ok(()) => Ok(true),
+            Err(err) if err.0 == CUresult::CUDA_ERROR_NOT_READY => Ok(false),
+            Err(err) => Err(driver_error("cuEventQuery", err)),
+        }
+    }
+
     fn event_destroy(event: &mut Self::Event) -> Result<(), DriverError> {
         // SAFETY: the handle was created in `event_create` and this consumes
         // the only owner of it.

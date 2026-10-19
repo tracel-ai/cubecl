@@ -18,10 +18,12 @@ use crate::{
 use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
 use core::any::{Any, TypeId};
 
+mod completion;
 mod group;
 #[cfg(not(target_family = "wasm"))]
 mod lazy;
 
+pub use completion::Completion;
 use cubecl_common::{
     bytes::{AllocationProperty, Bytes},
     device::{DeviceId, ServiceId},
@@ -1475,6 +1477,17 @@ impl Client {
         self.device
             .submit_blocking(move |server| server.check(bindings, stream_id))
             .unwrap_or_resume()
+    }
+
+    /// A handle on the work submitted to this client's stream so far.
+    ///
+    /// Non-blocking: the boundary is queued on the device thread like a launch,
+    /// and until it is recorded the handle reports that it is not complete.
+    /// Work submitted after this call is not part of the handle, so a long
+    /// launch issued later cannot delay it. The handle can be waited on
+    /// repeatedly and from several threads at once; see [`Completion`].
+    pub fn completion(&self) -> Completion {
+        Completion::new(self)
     }
 
     /// Flush all outstanding commands.

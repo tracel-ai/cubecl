@@ -17,6 +17,7 @@ pub mod cmma2;
 pub mod collectives;
 pub mod comparison;
 pub mod compile;
+pub mod completion;
 pub mod complex;
 pub mod const_match;
 pub mod control_flow;

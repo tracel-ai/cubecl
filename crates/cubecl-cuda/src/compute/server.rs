@@ -2,7 +2,10 @@ use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::driver::Cuda;
 use crate::compute::modules::CudaCompiledKernel;
 use crate::compute::{
-    Captures, Command, Window, communication::BYTES, context::CudaContext, events::Fence,
+    Captures, Command, Window,
+    communication::BYTES,
+    context::CudaContext,
+    events::{Cuda as CudaEventApi, Fence},
     stream::CudaStreamBackend,
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
@@ -25,6 +28,7 @@ use cubecl_environment::future::{self, DynFut};
 use cubecl_environment::stream::StreamId;
 use cubecl_server::command::{CollectiveDriver, Collectives, DeviceStream, Refused};
 use cubecl_server::compiler::ArtifactId;
+use cubecl_server::device_events::EventCompletion;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
     execution::LaunchMode,
@@ -32,7 +36,7 @@ use cubecl_server::{
     kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, StreamMemoryReport},
-    server::Server,
+    server::{BackendCompletion, Server},
     storage::{ComputeStorage, ManagedResource},
     stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
 };
@@ -262,6 +266,29 @@ impl Server for CudaServer {
 
     fn compile_queued(&mut self) {
         self.ctx.compile_queued(&self.streams.logger);
+    }
+
+    fn completion(
+        &mut self,
+        stream_id: StreamId,
+    ) -> Result<Box<dyn BackendCompletion>, ServerError> {
+        self.unsafe_set_current();
+        let mut streams = self.streams.resolve(stream_id, [].into_iter())?;
+        let stream = streams.current();
+
+        // A recording stream's event would become a graph node rather than a
+        // boundary in the stream's work, so there is nothing meaningful to wait
+        // on afterwards.
+        if stream.capturing.is_recording() {
+            return Err(ServerError::graph_state(
+                "completion: a capture window records launches only, so a completion has no \
+                 recorded form",
+            ));
+        }
+
+        Ok(Box::new(EventCompletion::<CudaEventApi>::record(
+            stream.sys,
+        )?))
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
