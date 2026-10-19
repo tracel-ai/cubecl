@@ -220,7 +220,7 @@ llvm-sys = { version = "231", features = [
     "no-llvm-linking",
     "disable-alltargets-init",
 ] }
-tracel-llvm-bundler = "23.1.0-3"
+tracel-llvm-bundler = "23.1.0-4"
 # tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm.git", rev = "4769fd52f2205435134d6a3c606f94aad6876155" }
 # tracel-llvm-bundler = { path = "../tracel-llvm/crates/tracel-llvm-bundler" }
 
