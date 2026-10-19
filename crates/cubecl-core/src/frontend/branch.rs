@@ -740,6 +740,39 @@ pub struct WhileBuilder {
     cond_scope: Scope,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cubecl_ir::{
+        AddressType,
+        settings::{Dim3, ExecutionMode, KernelSettings},
+    };
+
+    #[test]
+    fn while_condition_reloads_mutable_flag_inside_loop() {
+        let scope = Scope::root(KernelSettings::new(
+            Dim3::new_1d(1),
+            ExecutionMode::Unchecked,
+            AddressType::U32,
+        ));
+        let mut flag = true.__expand_runtime_method(&scope).init_mut(&scope);
+        let builder = WhileBuilder::new(&scope, |_| flag);
+        let condition_block = builder.while_op.before_block(scope.ctx());
+        builder.with_body(&scope, |body| {
+            flag.__expand_assign_method(body, false.into());
+        });
+
+        let ctx = scope.ctx();
+        let condition = condition_block.deref(ctx).get_terminator(ctx).unwrap();
+        let flag_read = condition.deref(ctx).get_operand(0);
+        assert_eq!(
+            flag_read.get_defining_block(ctx),
+            Some(condition_block),
+            "the condition must reload the flag each iteration, not before entering the loop",
+        );
+    }
+}
+
 impl WhileBuilder {
     pub fn new(scope: &Scope, mut cond: impl FnMut(&Scope) -> NativeExpand<bool>) -> Self {
         let while_op = WhileOp::new(scope.ctx_mut());
@@ -778,7 +811,8 @@ impl WhileBuilder {
             cond = binary_expand(&cond_scope, cond, return_flag, BoolAndOp::new);
         }
 
-        cond_scope.register(&ConditionOp::new(scope.ctx_mut(), cond.read_value(scope)));
+        let cond = cond.read_value(&cond_scope);
+        cond_scope.register(&ConditionOp::new(scope.ctx_mut(), cond));
 
         scope.register(&while_op);
     }
@@ -839,7 +873,8 @@ pub(crate) fn register_range_loop<I: Int>(scope: &Scope, for_op: &RangeLoopOp, b
         cond = binary_expand(&cond_scope, cond, inv_return_flag, BoolAndOp::new);
     }
 
-    cond_scope.register(&ConditionOp::new(scope.ctx_mut(), cond.read_value(scope)));
+    let cond = cond.read_value(&cond_scope);
+    cond_scope.register(&ConditionOp::new(scope.ctx_mut(), cond));
 
     rewriter.erase_region(ctx, while_op.after_region(ctx));
     Region::move_to_op(for_op.get_region(ctx), while_op.get_operation(), ctx);
