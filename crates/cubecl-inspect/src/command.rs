@@ -118,6 +118,11 @@ impl Output {
     /// Write `report` to standard output, painted when that is a terminal
     /// and `NO_COLOR` is unset. A closed pipe — `| head` — ends the write
     /// quietly rather than as an error.
+    ///
+    /// # Errors
+    ///
+    /// When standard output refuses the write, or the report does not
+    /// serialize as JSON.
     pub fn print<R>(&self, report: &R) -> Result<(), InspectError>
     where
         R: Serialize,
@@ -208,8 +213,16 @@ fn paints() -> bool {
 }
 
 impl Inspection {
+    /// Read this out of `inspector` and write it to `output`.
+    ///
     /// Takes the inspector because [`Prune`](Self::Prune) closes it: its
     /// file cannot be written while it is open for reading.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the inspection's report says it could not produce: a key or
+    /// kernel the file does not hold, a `diff` against a file that does not
+    /// open, a `prune` or `strip` that cannot write.
     pub fn run(&self, inspector: Inspector, output: Output) -> Result<(), InspectError> {
         match self {
             Self::Summary => output.print(&inspector.summary()),

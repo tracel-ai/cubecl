@@ -1,7 +1,7 @@
 use super::fields::Fields;
 use super::paint::Role;
 use super::table::{Align, Table};
-use super::{KeyText, Maybe, Micros, Percent, Ratio, Text, Wall};
+use super::{KeyText, Maybe, Micros, Percent, Ratio, Text, Via, Wall};
 use crate::report::{
     AutotuneReport, CandidateOutcome, CandidateReport, CandidateResult, Fate, TuneTrace, TunedKey,
 };
@@ -408,19 +408,6 @@ fn not_run(outcome: &'static str) -> (String, String, &'static str, Option<Role>
         outcome,
         Some(Role::Idle),
     )
-}
-
-/// ` via <fingerprint>` when the table names the adapter and API the device
-/// resolved to, nothing when it predates them.
-struct Via<'a>(Option<&'a str>);
-
-impl fmt::Display for Via<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.0 {
-            Some(fingerprint) => write!(f, " via {fingerprint}"),
-            None => Ok(()),
-        }
-    }
 }
 
 /// What a candidate's result fills in the tables of one key's tune: how it

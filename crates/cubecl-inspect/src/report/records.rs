@@ -5,7 +5,8 @@ use cubecl_server::memory_management::MemoryRecord;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// Every record one environment file holds, each list oldest first: what
-/// the reports that account for its sessions' time are folded from.
+/// the reports of its sessions — their time, their kernels, their memory —
+/// are folded from.
 #[derive(Clone, Debug, Default)]
 pub struct EnvironmentRecords {
     /// The processes that changed the file.
@@ -14,6 +15,7 @@ pub struct EnvironmentRecords {
     pub compilations: Vec<Stamped<CompilationRecord>>,
     pub batches: Vec<Stamped<CompilationBatchRecord>>,
     pub marks: Vec<Stamped<MarkRecord>>,
+    /// The memory snapshots the sessions took.
     pub memory: Vec<Stamped<MemoryRecord>>,
 }
 

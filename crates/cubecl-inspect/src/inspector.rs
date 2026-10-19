@@ -23,6 +23,12 @@ pub struct Inspector {
 }
 
 impl Inspector {
+    /// Open the file at `path` and read its records.
+    ///
+    /// # Errors
+    ///
+    /// [`InspectError::Open`] when the file is missing, or is not an
+    /// environment at the schema this build reads.
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, InspectError> {
         let path = path.into();
         // A read-only open of a missing file fails too, but with the engine's
@@ -178,6 +184,12 @@ impl Inspector {
     ///
     /// Takes the inspector, whose read-only handle has to be closed first: a
     /// file open for reading in this process cannot be written by it.
+    ///
+    /// # Errors
+    ///
+    /// [`InspectError::Prune`] when the file cannot be opened for writing,
+    /// such as one in a read-only directory; [`InspectError::Open`] when the
+    /// pruned file cannot be read back.
     pub fn prune(self, keep: usize) -> Result<Summary, InspectError> {
         let Self { database, path, .. } = self;
         let refused = |reason: String| InspectError::Prune {
@@ -201,6 +213,11 @@ impl Inspector {
     /// Write a copy of the file to `out` without its records — the account
     /// of how it was built, which a distributed environment has no use for —
     /// and summarize the copy.
+    ///
+    /// # Errors
+    ///
+    /// [`InspectError::Export`] when the copy cannot be written to `out`;
+    /// [`InspectError::Open`] when it cannot be read back.
     pub fn strip(&self, out: &Path) -> Result<Summary, InspectError> {
         let manifest = BundleManifest::new(&self.database).ok();
         let options = ExportOptions {
@@ -223,6 +240,10 @@ impl Inspector {
     }
 
     /// The one key `id` names.
+    ///
+    /// # Errors
+    ///
+    /// [`InspectError::UnknownKey`] when no key of the file carries `id`.
     pub fn autotune_key(&self, id: KeyId) -> Result<TunedKey, InspectError> {
         self.autotune()
             .keys

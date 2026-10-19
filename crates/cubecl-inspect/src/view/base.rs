@@ -105,6 +105,19 @@ impl fmt::Display for Percent {
     }
 }
 
+/// ` via <fingerprint>` when the table names the adapter and API the device
+/// resolved to, nothing when it predates them.
+pub struct Via<'a>(pub Option<&'a str>);
+
+impl fmt::Display for Via<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            Some(fingerprint) => write!(f, " via {fingerprint}"),
+            None => Ok(()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

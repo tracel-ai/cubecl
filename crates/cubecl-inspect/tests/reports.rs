@@ -882,6 +882,48 @@ fn a_tune_the_table_did_not_take_is_not_the_keys_trace() {
     assert_eq!(traced, 1, "only the m=64 tune was stored");
 }
 
+/// A key tuned twice, both answers stored, joins its later tune: the
+/// records' order is what says which tune the stored answer came from.
+#[test]
+fn a_key_tuned_twice_joins_its_latest_tune() {
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let path = fixture(dir.path());
+    {
+        let database = Database::open_at(&path, Access::ReadWrite).expect("opens");
+        insert_record(
+            &database,
+            9,
+            5_000,
+            TuneRecord {
+                table: GEMM.to_string(),
+                entry: PersistentCacheKey {
+                    key: GemmKey {
+                        m: 64,
+                        elem: Elem::Float("F16"),
+                    },
+                    checksum: "list-a".to_string(),
+                },
+                winner: 1,
+                trials: Vec::new(),
+                short_circuit: None,
+                wall: Duration::from_millis(900),
+                launches_discarded: false,
+                stored: true,
+                plan: Vec::new(),
+            },
+        );
+    }
+    let report = Inspector::open(&path).expect("opens").autotune();
+
+    let traced: Vec<_> = report
+        .keys
+        .iter()
+        .filter(|key| key.tune.is_some())
+        .collect();
+    assert_eq!(traced.len(), 1, "both tunes answer the m=64 key");
+    assert_eq!(traced[0].wall(), Some(Duration::from_millis(900)));
+}
+
 #[test]
 fn a_timeline_nests_marks_and_counts_what_ran_inside_them() {
     let dir = tempfile::tempdir().expect("a temp dir");
@@ -991,6 +1033,49 @@ fn a_diff_names_what_was_added_removed_and_answered_differently() {
         cubecl_inspect::view::KeyText(&changed.key).to_string(),
         "m=128 elem=Float(F16)"
     );
+}
+
+/// The same key answered for another adapter is another key: the diff keeps
+/// the two apart, and its text says which adapter each answers for.
+#[test]
+fn a_diff_tells_apart_keys_of_two_adapters() {
+    use cubecl_inspect::report::KeyChange;
+    use cubecl_inspect::view::Text;
+
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let before = Inspector::open(fixture(dir.path())).expect("opens");
+    let other = dir.path().join("other-adapter");
+    std::fs::create_dir(&other).expect("a dir");
+    let path = fixture(&other);
+    {
+        let database = Database::open_at(&path, Access::ReadWrite).expect("opens");
+        database.insert(
+            "autotune/0.11.0/ptx_sm80/hip-0/matmul-tune-gemm",
+            &cbor(&StoredKey {
+                key: GemmKey {
+                    m: 64,
+                    elem: Elem::Float("F16"),
+                },
+                checksum: "list-a",
+            }),
+            &cbor(&PersistentCacheValue {
+                fastest_index: 0,
+                results: vec![measured("naive", 0, 10), measured("tiled", 1, 40)],
+                bounds: None,
+                limit: None,
+            }),
+            Origin::Local,
+        );
+    }
+    let diff = before.diff(&Inspector::open(&path).expect("opens"));
+
+    let added: Vec<_> = diff.with(KeyChange::Added).collect();
+    assert_eq!(added.len(), 1);
+    assert_eq!(added[0].fingerprint.as_deref(), Some("ptx_sm80"));
+    assert_eq!(diff.with(KeyChange::WinnerChanged).count(), 0);
+    let text = Text(&diff).to_string();
+    assert!(text.contains("hip-0 via ptx_sm80"), "{text}");
+    assert!(text.contains("hip-0 via hip-kernel_gfx1151"), "{text}");
 }
 
 /// A file one cubecl version apart from itself answers a key twice; the

@@ -26,6 +26,11 @@ pub struct Browsing {
 }
 
 /// Browse until the user quits.
+///
+/// # Errors
+///
+/// When the terminal cannot be drawn to or read from. A file that cannot be
+/// read is not one: the browser says so and keeps the last reading.
 pub fn run(browsing: Browsing) -> Result<(), InspectError> {
     let mut explorer = Explorer::new(browsing);
     let mut terminal = ratatui::init();
