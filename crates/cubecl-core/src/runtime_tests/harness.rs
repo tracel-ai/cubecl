@@ -22,6 +22,27 @@ fn truncate_add<F: Float, I: Int>(x: F, y: I) -> I {
     I::cast_from(x) + y
 }
 
+#[cube]
+fn answer() -> u32 {
+    42
+}
+
+#[cube]
+fn div_rem(a: u32, b: u32) -> (u32, u32) {
+    (a / b, a % b)
+}
+
+#[cube]
+fn split<F: Float>(x: F) -> (F, i32, u32) {
+    let whole = F::floor(x);
+    (x - whole, i32::cast_from(whole), u32::cast_from(whole) * 2)
+}
+
+#[cube]
+fn wrap(x: i32) -> (i32,) {
+    (x + 1,)
+}
+
 pub fn test_harness_scalar<R: Runtime>() {
     assert_eq!(double::harness::<R>(1), 2);
     assert_eq!(multiply_add::harness::<R>(-3, 4, 5), -7);
@@ -36,6 +57,15 @@ pub fn test_harness_block_scoped<R: Runtime>() {
     }
 
     assert_eq!(negate::harness::<R>(3), -3);
+}
+
+/// The number of inputs and outputs don't have to match, and the outputs of a
+/// tuple don't have to share a type.
+pub fn test_harness_outputs<R: Runtime>() {
+    assert_eq!(answer::harness::<R>(), 42);
+    assert_eq!(div_rem::harness::<R>(17, 5), (3, 2));
+    assert_eq!(split::harness::<R, f32>(3.25), (0.25, 3, 6));
+    assert_eq!(wrap::harness::<R>(-8), (-7,));
 }
 
 pub fn test_harness_generic<R: Runtime>() {
@@ -58,6 +88,11 @@ macro_rules! testgen_harness {
             #[$crate::runtime_tests::test_log::test]
             fn harness_block_scoped() {
                 cubecl_core::runtime_tests::harness::test_harness_block_scoped::<TestRuntime>();
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn harness_outputs() {
+                cubecl_core::runtime_tests::harness::test_harness_outputs::<TestRuntime>();
             }
 
             #[$crate::runtime_tests::test_log::test]

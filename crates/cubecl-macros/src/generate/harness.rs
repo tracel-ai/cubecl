@@ -1,8 +1,8 @@
 //! A `harness` function for every pure cube function: one whose parameters
-//! and return value are all scalars. The harness launches the function on a
-//! single unit of the given runtime and hands its result back to the host, so
-//! a test can call `f::harness::<R>(1)` instead of writing a kernel, buffers
-//! and a read back by hand.
+//! are all scalars, and that returns a scalar or a tuple of scalars. The
+//! harness launches the function on a single unit of the given runtime and
+//! hands its result back to the host, so a test can call `f::harness::<R>(1)`
+//! instead of writing a kernel, buffers and a read back by hand.
 //!
 //! Only emitted when the `harness` feature is enabled.
 
@@ -44,10 +44,28 @@ pub enum HarnessValue {
     Comptime(Type),
 }
 
+/// What the function hands back, each value read back from its own buffer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HarnessReturns {
+    /// A single scalar.
+    Value(HarnessValue),
+    /// A tuple of scalars, of any length but zero.
+    Tuple(Vec<HarnessValue>),
+}
+
+impl HarnessReturns {
+    pub fn values(&self) -> &[HarnessValue] {
+        match self {
+            HarnessReturns::Value(value) => core::slice::from_ref(value),
+            HarnessReturns::Tuple(values) => values,
+        }
+    }
+}
+
 pub struct HarnessPlan {
     pub generics: Vec<(Ident, Ident)>,
     pub params: Vec<(Ident, HarnessValue)>,
-    pub returns: HarnessValue,
+    pub returns: HarnessReturns,
 }
 
 impl Launch {
@@ -141,7 +159,12 @@ impl Launch {
         let KernelReturns::ExpandType(returns) = &sig.returns else {
             return None;
         };
-        let returns = classify(returns)?;
+        let returns = match returns {
+            Type::Tuple(tuple) if !tuple.elems.is_empty() => {
+                HarnessReturns::Tuple(tuple.elems.iter().map(classify).collect::<Option<_>>()?)
+            }
+            ty => HarnessReturns::Value(classify(ty)?),
+        };
 
         Some(HarnessPlan {
             generics,
@@ -167,9 +190,26 @@ impl Launch {
             true => quote![],
             false => quote![::<#(#generic_names),*>],
         };
-        let ret = match &plan.returns {
+        let value_ty = |value: &HarnessValue| match value {
             HarnessValue::Scalar(ty) | HarnessValue::Comptime(ty) => quote![#ty],
             HarnessValue::Generic(ident) => quote![#ident],
+        };
+
+        // Every returned value gets its own single element buffer, since the
+        // values of a tuple don't have to share a type.
+        let out_tys = plan
+            .returns
+            .values()
+            .iter()
+            .map(value_ty)
+            .collect::<Vec<_>>();
+        let out_names = (0..out_tys.len())
+            .map(|i| format_ident!("__harness_out_{i}"))
+            .collect::<Vec<_>>();
+        let out_indices = (0..out_tys.len()).map(syn::Index::from).collect::<Vec<_>>();
+        let ret = match &plan.returns {
+            HarnessReturns::Value(_) => quote![#(#out_tys)*],
+            HarnessReturns::Tuple(_) => quote![(#(#out_tys,)*)],
         };
 
         // The kernel calls the function through a path the cube parser turns
@@ -193,9 +233,17 @@ impl Launch {
                 }
             }
         }
+        let call = quote![__harness_call #turbofish(#(#call_args),*)];
+        let store = match &plan.returns {
+            HarnessReturns::Value(_) => quote![#(#out_names[0] = #call;)*],
+            HarnessReturns::Tuple(_) => quote! {
+                let __harness_ret = #call;
+                #(#out_names[0] = __harness_ret.#out_indices;)*
+            },
+        };
         let kernel: ItemFn = parse_quote! {
-            fn #kernel_name #generics(#(#kernel_params,)* __harness_out: &mut [#ret]) {
-                __harness_out[0] = __harness_call #turbofish(#(#call_args),*);
+            fn #kernel_name #generics(#(#kernel_params,)* #(#out_names: &mut [#out_tys]),*) {
+                #store
             }
         };
         let kernel_args = KernelArgs {
@@ -221,6 +269,14 @@ impl Launch {
             }
             _ => quote![#param],
         });
+        let read_back = out_tys
+            .iter()
+            .zip(out_indices.iter())
+            .map(|(ty, index)| quote![<#ty as #cube_element>::from_bytes(&__bytes[#index])[0]]);
+        let result = match &plan.returns {
+            HarnessReturns::Value(_) => quote![#(#read_back)*],
+            HarnessReturns::Tuple(_) => quote![(#(#read_back,)*)],
+        };
         let name_str = name.to_string();
         let doc = format!(
             "Run [{name_str}()] on a single unit of the given runtime and return its result.\n\n\
@@ -240,19 +296,19 @@ impl Launch {
             #[doc = #doc]
             pub fn harness<__R: #runtime, #(#harness_generics),*>(#(#harness_params),*) -> #ret {
                 let __client = <__R as #runtime>::client(&::core::default::Default::default());
-                let __out = __client.empty(::core::mem::size_of::<#ret>());
+                #(let #out_names = __client.empty(::core::mem::size_of::<#out_tys>());)*
                 #kernel_name::launch #turbofish(
                     &__client,
                     #cube_count::new_single(),
                     #cube_dim::new_single(),
                     #(#launch_args,)*
-                    // SAFETY: `__out` holds exactly one element.
-                    unsafe { #buffer_arg::from_raw_parts(__out.clone(), 1) },
+                    // SAFETY: each output buffer holds exactly one element.
+                    #(unsafe { #buffer_arg::from_raw_parts(#out_names.clone(), 1) },)*
                 );
                 let __bytes = __client
-                    .read_one(__out)
+                    .read([#(#out_names),*].into())
                     .unwrap_or_else(|err| panic!("harness for `{}` failed: {err}", #name_str));
-                <#ret as #cube_element>::from_bytes(&__bytes)[0]
+                #result
             }
         })
     }
@@ -278,7 +334,10 @@ mod tests {
         .unwrap();
 
         assert!(plan.generics.is_empty());
-        assert_eq!(plan.returns, HarnessValue::Scalar(parse_quote!(f32)));
+        assert_eq!(
+            plan.returns,
+            HarnessReturns::Value(HarnessValue::Scalar(parse_quote!(f32)))
+        );
         assert_eq!(
             plan.params
                 .iter()
@@ -301,8 +360,35 @@ mod tests {
         .unwrap();
 
         assert_eq!(plan.generics.len(), 2);
-        assert_eq!(plan.returns, HarnessValue::Generic(parse_quote!(F)));
+        assert_eq!(
+            plan.returns,
+            HarnessReturns::Value(HarnessValue::Generic(parse_quote!(F)))
+        );
         assert_eq!(plan.params[1].1, HarnessValue::Generic(parse_quote!(I)));
+    }
+
+    #[test]
+    fn tuple_returns_are_pure() {
+        let triple = plan(parse_quote! {
+            fn f<F: Float>(x: F) -> (F, u32, i64) { (x, 0, 0) }
+        })
+        .unwrap();
+
+        assert_eq!(
+            triple.returns,
+            HarnessReturns::Tuple(vec![
+                HarnessValue::Generic(parse_quote!(F)),
+                HarnessValue::Scalar(parse_quote!(u32)),
+                HarnessValue::Scalar(parse_quote!(i64)),
+            ])
+        );
+
+        let single = plan(parse_quote! { fn f() -> (u32,) { (0,) } }).unwrap();
+        assert!(single.params.is_empty());
+        assert_eq!(
+            single.returns,
+            HarnessReturns::Tuple(vec![HarnessValue::Scalar(parse_quote!(u32))])
+        );
     }
 
     #[test]
@@ -311,6 +397,8 @@ mod tests {
             parse_quote! { fn f(x: u32) {} },
             parse_quote! { fn f(x: bool) -> u32 { 0 } },
             parse_quote! { fn f(x: u32) -> bool { true } },
+            parse_quote! { fn f(x: u32) -> (u32, bool) { (x, true) } },
+            parse_quote! { fn f(x: u32) -> (u32, (u32, u32)) { (x, (x, x)) } },
             parse_quote! { fn f(x: usize) -> u32 { 0 } },
             parse_quote! { fn f(x: &u32) -> u32 { 0 } },
             parse_quote! { fn f(x: &[u32]) -> u32 { 0 } },
@@ -339,7 +427,7 @@ mod tests {
     #[test]
     fn harness_expansion_is_deterministic() {
         let item: ItemFn = parse_quote! {
-            fn f<F: Float, I: Int>(x: F, y: I, z: u32, #[comptime] c: u32) -> F { x }
+            fn f<F: Float, I: Int>(x: F, y: I, z: u32, #[comptime] c: u32) -> (F, I) { (x, y) }
         };
         let expand = || {
             let launch = Launch::from_item_fn(item.clone(), KernelArgs::default()).unwrap();
