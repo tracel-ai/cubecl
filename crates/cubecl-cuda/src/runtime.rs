@@ -279,8 +279,12 @@ impl DeviceService for CudaServer {
         }
 
         if arch_version >= 80 {
-            device_props
-                .register_type_usage(ElemType::Float(FloatKind::TF32), TypeUsage::Conversion);
+            // TF32 lives in memory as a 32-bit float, so a TF32 buffer is storable: the
+            // buffer check refuses element types a backend does not register for it.
+            device_props.register_type_usage(
+                ElemType::Float(FloatKind::TF32),
+                TypeUsage::Conversion | TypeUsage::Buffer,
+            );
             device_props.features.copy_async = true;
         }
 
