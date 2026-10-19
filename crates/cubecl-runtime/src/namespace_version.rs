@@ -75,6 +75,7 @@ fn past(prefix: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
 
     #[test]
     fn only_this_crate_version_s_earlier_layouts_are_dropped() {
@@ -118,6 +119,42 @@ mod tests {
         assert!(!stale(
             "autotune/0.11.0/layout-v12/cuda_ptx-sm89_l4_par58/matmul"
         ));
+    }
+
+    #[test]
+    #[cfg(persistence)]
+    #[serial_test::serial]
+    fn dropping_earlier_layouts_leaves_every_other_namespace_in_the_store() {
+        use crate::config::RuntimeConfig;
+        use cubecl_environment::{bytes::Bytes, persistence};
+
+        let root = tempfile::tempdir().unwrap();
+        let _ = crate::config::CubeClRuntimeConfig::get();
+        cubecl_environment::environment::set_root(root.path());
+        let scope = Namespace::scoped("purge-test", "").as_str().to_string();
+        let at = |path: &str| format!("{scope}{path}");
+        let stale = [at("cuda_dev0/matmul"), at("layout-v1/cuda_l4/matmul")];
+        let mut kept = vec![
+            at("layout-v2/cuda_l4/matmul"),
+            at("layout-v3/cuda_l4/matmul"),
+            "purge-test/0.10.0/cuda_dev0/matmul".to_string(),
+            "kernels/0.11.0/ptx_sm89".to_string(),
+        ];
+        for namespace in stale.iter().chain(&kept) {
+            persistence::open(namespace).insert(
+                b"key",
+                Bytes::from_bytes_vec(vec![1]),
+                persistence::Origin::Local,
+            );
+        }
+
+        NamespaceVersion::new("purge-test", "layout-v", 2).drop_earlier();
+
+        let mut left = persistence::namespaces();
+        left.retain(|namespace| stale.contains(namespace) || kept.contains(namespace));
+        left.sort();
+        kept.sort();
+        assert_eq!(left, kept);
     }
 
     #[test]
