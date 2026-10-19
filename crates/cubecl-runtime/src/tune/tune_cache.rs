@@ -161,6 +161,37 @@ pub enum TuneCacheResult {
     Miss,
 }
 
+/// The root of every tuner's table namespace.
+pub const ROOT: &str = "autotune";
+
+/// What names the table one tuner stores its answers in on one device.
+///
+/// The table is keyed on the fingerprint as well as the device id: one id
+/// can resolve to another adapter or API, whose answers would not hold.
+#[cfg(persistence)]
+#[derive(Clone, Copy, Debug)]
+pub struct TuneTableName<'a> {
+    /// The adapter and API the device resolved to.
+    pub fingerprint: &'a str,
+    /// The device the answers were measured on.
+    pub device_id: &'a str,
+    /// The tuner, named by the code that declared it.
+    pub tuner: &'a str,
+}
+
+#[cfg(persistence)]
+impl TuneTableName<'_> {
+    /// `autotune/<version>/<fingerprint>/<device id>/<tuner>`.
+    pub fn namespace(&self) -> Namespace {
+        let Self {
+            fingerprint,
+            device_id,
+            tuner,
+        } = self;
+        Namespace::scoped(ROOT, alloc::format!("{fingerprint}/{device_id}/{tuner}"))
+    }
+}
+
 impl<K: AutotuneKey> TuneCache<K> {
     pub(crate) fn new(
         #[cfg_attr(not(persistence), allow(unused_variables))] name: &str,
@@ -170,11 +201,14 @@ impl<K: AutotuneKey> TuneCache<K> {
         #[cfg(persistence)]
         {
             use crate::config::RuntimeConfig;
-            use alloc::format;
 
             let config = crate::config::CubeClRuntimeConfig::get();
-            let namespace =
-                Namespace::scoped("autotune", format!("{fingerprint}/{device_id}/{name}"));
+            let namespace = TuneTableName {
+                fingerprint,
+                device_id,
+                tuner: name,
+            }
+            .namespace();
             let table = namespace.as_str().into();
 
             if config.autotune.disable_cache {

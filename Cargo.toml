@@ -38,6 +38,7 @@ cubecl-cpu = { path = "crates/cubecl-cpu", version = "0.11.0", default-features 
 cubecl-cuda = { path = "crates/cubecl-cuda", version = "0.11.0", default-features = false }
 cubecl-environment = { path = "crates/cubecl-environment", version = "0.11.0", default-features = false }
 cubecl-hip = { path = "crates/cubecl-hip", version = "0.11.0", default-features = false }
+cubecl-inspect = { path = "crates/cubecl-inspect", version = "0.11.0", default-features = false }
 cubecl-ir = { path = "crates/cubecl-ir", version = "0.11.0", default-features = false }
 cubecl-llvm = { path = "crates/cubecl-llvm", version = "0.11.0", default-features = false }
 cubecl-macros = { path = "crates/cubecl-macros", version = "0.11.0", default-features = false }
