@@ -61,17 +61,6 @@ impl Tally {
         }
     }
 
-    /// The tally of `candidate` of `tuner`, started if there is none.
-    fn of<'a>(
-        tallies: &'a mut BTreeMap<(String, String), Tally>,
-        tuner: &str,
-        candidate: &str,
-    ) -> &'a mut Tally {
-        tallies
-            .entry((tuner.to_string(), candidate.to_string()))
-            .or_insert_with(|| Self::new(tuner, candidate))
-    }
-
     fn finish(self) -> CandidateRow {
         let compared = self.compared;
         CandidateRow {
@@ -81,19 +70,37 @@ impl Tally {
     }
 }
 
+/// The tallies of a report, one per candidate of each tuner.
+#[derive(Default)]
+struct TallyMap(BTreeMap<(String, String), Tally>);
+
+impl TallyMap {
+    /// The tally of `candidate` of `tuner`, started if there is none.
+    fn entry(&mut self, tuner: &str, candidate: &str) -> &mut Tally {
+        self.0
+            .entry((tuner.to_string(), candidate.to_string()))
+            .or_insert_with(|| Tally::new(tuner, candidate))
+    }
+
+    /// Every tally's row, by tuner then candidate.
+    fn finish(self) -> Vec<CandidateRow> {
+        self.0.into_values().map(Tally::finish).collect()
+    }
+}
+
 impl From<&AutotuneReport> for CandidateReport {
     fn from(report: &AutotuneReport) -> Self {
-        let mut tallies = BTreeMap::<(String, String), Tally>::new();
+        let mut tallies = TallyMap::default();
         for key in &report.keys {
             for trial in key.trials() {
-                let tally = Tally::of(&mut tallies, &key.table.tuner, &trial.name);
+                let tally = tallies.entry(&key.table.tuner, &trial.name);
                 *tally.row.wall.get_or_insert_default() += trial.wall;
             }
             for result in &key.results {
                 let Some(candidate) = &result.candidate else {
                     continue;
                 };
-                let tally = Tally::of(&mut tallies, &key.table.tuner, candidate);
+                let tally = tallies.entry(&key.table.tuner, candidate);
                 let row = &mut tally.row;
                 match &result.outcome {
                     CandidateOutcome::Measured(_) => row.measured += 1,
@@ -110,7 +117,7 @@ impl From<&AutotuneReport> for CandidateReport {
             }
         }
 
-        let mut candidates: Vec<CandidateRow> = tallies.into_values().map(Tally::finish).collect();
+        let mut candidates = tallies.finish();
         candidates.sort_by(|a, b| {
             a.tuner
                 .cmp(&b.tuner)

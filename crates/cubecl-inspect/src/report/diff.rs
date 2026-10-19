@@ -40,6 +40,8 @@ pub struct DiffSide<'a> {
 pub struct KeyDiff {
     pub tuner: String,
     pub device: String,
+    /// The adapter and API the device resolved to, when the tables say.
+    pub fingerprint: Option<String>,
     pub key: ciborium::Value,
     pub before: Option<Answer>,
     pub after: Option<Answer>,
@@ -133,6 +135,7 @@ impl EnvironmentDiff {
         let blank = |key: &TunedKey| KeyDiff {
             tuner: key.table.tuner.clone(),
             device: key.table.device.clone(),
+            fingerprint: key.table.fingerprint.clone(),
             key: key.key.clone(),
             before: None,
             after: None,

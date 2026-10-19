@@ -8,7 +8,6 @@ use cubecl_environment::bundle::{BundleManifest, ExportOptions, export};
 use cubecl_environment::persistence::{Access, Database};
 use cubecl_environment::records::Records;
 use cubecl_server::compiler::KernelCacheKey;
-use cubecl_server::memory_management::MemoryRecord;
 use std::path::{Path, PathBuf};
 
 /// One environment file, opened read-only: the reports are what it answers.
@@ -19,7 +18,7 @@ use std::path::{Path, PathBuf};
 pub struct Inspector {
     database: Database,
     path: PathBuf,
-    /// Read once, on open: every report that folds them shares the reading.
+    /// Read once, on open: every report reads the file as it was then.
     records: EnvironmentRecords,
 }
 
@@ -78,7 +77,7 @@ impl Inspector {
     /// Every memory snapshot the file's sessions recorded.
     pub fn memory(&self) -> MemorySnapshots {
         MemorySnapshots {
-            snapshots: Records::new(&self.database).read::<MemoryRecord>(),
+            snapshots: self.records.memory.clone(),
         }
     }
 
@@ -242,5 +241,6 @@ fn records(database: &Database) -> EnvironmentRecords {
         compilations: records.read(),
         batches: records.read(),
         marks: records.read(),
+        memory: records.read(),
     }
 }

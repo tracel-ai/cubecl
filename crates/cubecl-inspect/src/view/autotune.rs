@@ -178,24 +178,9 @@ impl fmt::Display for PlanOrder<'_> {
                     cells.outcome(),
                     cells.role(),
                 ),
-                Fate::CutShort => (
-                    "-  ".to_string(),
-                    "-".to_string(),
-                    "cut short",
-                    Some(Role::Idle),
-                ),
-                Fate::NotReached => (
-                    "-  ".to_string(),
-                    "-".to_string(),
-                    "not reached",
-                    Some(Role::Idle),
-                ),
-                Fate::Excluded => (
-                    "-  ".to_string(),
-                    "-".to_string(),
-                    "excluded",
-                    Some(Role::Idle),
-                ),
+                Fate::CutShort => not_run("cut short"),
+                Fate::NotReached => not_run("not reached"),
+                Fate::Excluded => not_run("excluded"),
             };
             let placements = |cell: fn(&Placement) -> String| match planned.groups.as_slice() {
                 [] => "-".to_string(),
@@ -412,6 +397,17 @@ impl fmt::Display for Text<'_, CandidateReport> {
              a candidate that won is bold, one never measured is muted.")?;
         writeln!(f)
     }
+}
+
+/// The cells a planned candidate that never ran fills before its result's:
+/// no position and no wall, `outcome` saying why, the row muted.
+fn not_run(outcome: &'static str) -> (String, String, &'static str, Option<Role>) {
+    (
+        "-  ".to_string(),
+        "-".to_string(),
+        outcome,
+        Some(Role::Idle),
+    )
 }
 
 /// ` via <fingerprint>` when the table names the adapter and API the device

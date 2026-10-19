@@ -1,6 +1,7 @@
 use super::{CanonicalKey, CompilationSpans, RecordedTune, TuneTrace, TunedKey};
 use cubecl_environment::records::{MarkRecord, Session, SessionId, Stamped};
 use cubecl_server::compiler::{CompilationBatchRecord, CompilationRecord};
+use cubecl_server::memory_management::MemoryRecord;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// Every record one environment file holds, each list oldest first: what
@@ -13,6 +14,7 @@ pub struct EnvironmentRecords {
     pub compilations: Vec<Stamped<CompilationRecord>>,
     pub batches: Vec<Stamped<CompilationBatchRecord>>,
     pub marks: Vec<Stamped<MarkRecord>>,
+    pub memory: Vec<Stamped<MemoryRecord>>,
 }
 
 /// One session's share of the [`EnvironmentRecords`]: every list, filtered to the
