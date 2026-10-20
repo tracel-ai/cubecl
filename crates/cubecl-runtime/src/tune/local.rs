@@ -237,21 +237,26 @@ where
             .get_or_insert_with(Tuners::new)
             .get_or_open(id, self.name, client, &operations);
 
-        #[allow(unused_mut)]
-        let mut log_context = crate::tune::AutotuneLogContext::new(&mut tuner.logger().lock());
-
-        #[cfg(feature = "autotune-checks")]
-        log_context.set_checks(|| self.checks::<I, Out, Id>(&operations, &inputs));
-
         // Fast path: a cached hit skips straight to the fastest operation.
         // `fastest` also resets the tuner cache if the environment switched, so
         // a miss here falls through to `check_tune`, which reads the store.
         if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
+            // `autotune-checks` cross-checks the candidates of every launch, a hit's included.
+            #[cfg(feature = "autotune-checks")]
+            crate::tune::AutotuneLogContext::new(&mut tuner.logger().lock())
+                .set_checks(|| self.checks::<I, Out, Id>(&operations, &inputs));
             return operations
                 .fastest(fastest_index)
                 .execute(inputs)
                 .expect("Should run when selected by autotune.");
         }
+
+        // Built after the fast path: a hit logs nothing, so it takes no logger lock.
+        #[allow(unused_mut)]
+        let mut log_context = crate::tune::AutotuneLogContext::new(&mut tuner.logger().lock());
+
+        #[cfg(feature = "autotune-checks")]
+        log_context.set_checks(|| self.checks::<I, Out, Id>(&operations, &inputs));
 
         let fastest =
             tuner.check_tune::<I, Out, Id>(&key, &inputs, &operations, client, log_context);

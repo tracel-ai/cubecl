@@ -20,7 +20,7 @@ use crate::namespace_version::NamespaceVersion;
 use alloc::string::String;
 use cubecl_environment::collections::HashMap;
 
-/// Bumped when tables are named another way, so the tables named the old way are purged.
+/// Bumped when tables are named another way.
 #[cfg(persistence)]
 static TABLES: NamespaceVersion = NamespaceVersion::new(ROOT, LAYOUT_PREFIX, 1);
 
@@ -121,6 +121,8 @@ pub(crate) struct TuneCache<K> {
     /// lookup: tuned picks and in-flight tunes. Cleared when the environment
     /// switches.
     in_memory_cache: HashMap<K, CacheEntry>,
+    /// The cards a tune found lost. Kept across environment switches: a card stays lost.
+    lost: Vec<ServiceId>,
     /// Write-through persistence, or `None` when the persistent cache is
     /// disabled, so no cache file is ever touched. Lazy: an entry is read
     /// when [`Self::in_memory_cache`] misses, then lives there.
@@ -146,7 +148,7 @@ pub enum TuneCacheResult {
     },
     /// A tuning job is in flight for this key — the worker hasn't published a result yet.
     /// Callers that see this fall through to running the operation rather than blocking on
-    /// the in-flight job. A tune stopped on a lost device answers this too, once.
+    /// the in-flight job. A card a tune found lost answers this for every key it has not settled.
     Pending,
     /// A [`CompileOnly`](crate::execution::ProcessMode::CompileOnly) override queued the kernels of
     /// the key's candidates, and measured and decided nothing. Callers run the first candidate that
@@ -202,19 +204,20 @@ impl<K: AutotuneKey> TuneCache<K> {
             if config.autotune.disable_cache {
                 return TuneCache {
                     in_memory_cache: HashMap::new(),
+                    lost: Vec::new(),
                     persistent_cache: None,
                     table,
                     generation: cubecl_environment::environment::generation(),
                 };
             }
 
-            TABLES.drop_earlier();
             // Sampled before the store opens, so a switch landing in between
             // reads as "rebuild", never as "this state belongs to the new
             // environment".
             let generation = cubecl_environment::environment::generation();
             TuneCache {
                 in_memory_cache: HashMap::new(),
+                lost: Vec::new(),
                 persistent_cache: Some(Store::new(
                     StoreOptions::new()
                         .storage(namespace)
@@ -229,6 +232,7 @@ impl<K: AutotuneKey> TuneCache<K> {
         {
             TuneCache {
                 in_memory_cache: HashMap::new(),
+                lost: Vec::new(),
             }
         }
     }
@@ -309,6 +313,16 @@ impl<K: AutotuneKey> TuneCache<K> {
         )
     }
 
+    pub(crate) fn mark_lost(&mut self, service: ServiceId) {
+        if !self.lost.contains(&service) {
+            self.lost.push(service);
+        }
+    }
+
+    pub(crate) fn is_lost(&self, service: ServiceId) -> bool {
+        self.lost.contains(&service)
+    }
+
     pub(crate) fn cache_insert(&mut self, key: K, fastest_index: usize) {
         self.in_memory_cache
             .insert(key, CacheEntry::Done { fastest_index });
@@ -335,6 +349,11 @@ impl<K: AutotuneKey> TuneCache<K> {
         log::debug!("Environment switched, resetting the autotune cache");
         self.generation = cubecl_environment::environment::generation();
         self.in_memory_cache.clear();
+    }
+
+    /// The environment generation this cache was built under, or last reset to.
+    pub(crate) fn generation(&self) -> u32 {
+        self.generation
     }
 
     /// Whether the environment switched since this cache was built. Never with persistence

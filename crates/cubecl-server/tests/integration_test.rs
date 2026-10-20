@@ -663,23 +663,74 @@ fn a_lost_device_leaves_its_key_to_the_healthy_cards() {
     rooted_at(root.path());
 
     let client = test_client(&DummyDevice);
+    let healthy_client = Client::load::<DummyServer>(DeviceId::new(0, 1));
     let (lost, healthy) = ("lost".to_string(), "healthy".to_string());
     let lost_set = TUNER.init(&lost, identified_addition_initializer(Default::default()));
-    let healthy_set = TUNER.init(
-        &healthy,
-        identified_addition_initializer(Default::default()),
-    );
+    let healthy_set = TUNER.init(&healthy, || {
+        dummy::identified_addition_set(
+            Client::load::<DummyServer>(DeviceId::new(0, 1)),
+            addition_shapes(),
+            Default::default(),
+        )
+    });
     let (handles, key) = addition_inputs(&client, &lost_set);
+    let (healthy_handles, _) = addition_inputs(&healthy_client, &healthy_set);
 
     POISONED.store(true, Ordering::Relaxed);
-    TUNER.execute(&lost, &client, lost_set, handles.clone());
+    TUNER.execute(&lost, &client, lost_set.clone(), handles);
     POISONED.store(false, Ordering::Relaxed);
-    TUNER.execute(&healthy, &client, healthy_set.clone(), handles);
+    TUNER.execute(
+        &healthy,
+        &healthy_client,
+        healthy_set.clone(),
+        healthy_handles,
+    );
 
     assert_eq!(
         TUNER.fastest_identity(&healthy, &healthy_set, &key),
         Some(dummy::Addition::Correct)
     );
+    assert_eq!(
+        TUNER.fastest_identity(&lost, &lost_set, &key),
+        Some(dummy::Addition::Correct),
+        "the healthy card's pick is the one tuner both cards share"
+    );
+}
+
+#[test_log::test]
+#[cfg(feature = "std")]
+#[serial_test::serial]
+fn a_lost_card_tunes_no_key_again() {
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("a_lost_card_tunes_no_key_again");
+    #[cfg(persistence)]
+    let root = tempfile::tempdir().unwrap();
+    #[cfg(persistence)]
+    rooted_at(root.path());
+
+    let client = test_client(&DummyDevice);
+    let id = "test".to_string();
+    let lost_on = TUNER.init(&id, identified_addition_initializer(Default::default()));
+    let other_key = TUNER.init(&id, || {
+        dummy::identified_addition_set(
+            test_client(&DummyDevice),
+            vec![vec![1, 16], vec![1, 16], vec![1, 16]],
+            Default::default(),
+        )
+    });
+    let (handles, key) = addition_inputs(&client, &lost_on);
+    assert_ne!(other_key.generate_key(&handles), key);
+
+    POISONED.store(true, Ordering::Relaxed);
+    TUNER.execute(&id, &client, lost_on, handles.clone());
+    let collector = StatisticsCollector::new();
+    let counted = ProcessModeOverride::new(ProcessMode::Execute, &collector);
+    TUNER.execute(&id, &client, other_key, handles);
+    core::mem::drop(counted);
+    POISONED.store(false, Ordering::Relaxed);
+
+    assert_eq!(collector.statistics().autotune.registered, 0);
 }
 
 /// A tune that unwinds leaves its key to the next caller, as a lost device does.
@@ -2189,6 +2240,8 @@ fn every_card_of_the_same_hardware_queues_a_gathered_key_on_itself() {
             "the second card ran every candidate, as the first did"
         );
         second();
+        // `autotune-checks` runs every tunable on every `execute`, round or not.
+        #[cfg(not(feature = "autotune-checks"))]
         assert_eq!(
             calls.load(Ordering::Relaxed),
             2 * gathered + 1,

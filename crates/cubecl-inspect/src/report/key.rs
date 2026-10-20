@@ -76,13 +76,39 @@ pub struct AutotuneTable {
     /// The hardware the results were measured on, or the device for a table
     /// named before cubecl named tables by hardware.
     pub device: String,
-    /// The adapter and API the device resolved to; `None` for a table named
-    /// by hardware, or written before cubecl recorded it.
-    pub fingerprint: Option<String>,
-    /// The layout of a table named by hardware.
-    pub layout: Option<u32>,
+    /// Which of cubecl's layouts names the table.
+    pub naming: TableNaming,
     /// The cubecl version that wrote them.
     pub version: String,
+}
+
+/// How a table's namespace names where its results were measured.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+pub enum TableNaming {
+    /// `layout-v<layout>/<hardware>`, shared by every device of the hardware.
+    Hardware { layout: u32 },
+    /// `<fingerprint>/<device>`: the device, after the adapter and API it resolved to.
+    Fingerprinted { fingerprint: String },
+    /// `<device>`, before cubecl recorded the fingerprint.
+    Device,
+}
+
+impl TableNaming {
+    /// The adapter and API the device resolved to, when the table names it.
+    pub fn fingerprint(&self) -> Option<&str> {
+        match self {
+            Self::Fingerprinted { fingerprint } => Some(fingerprint),
+            Self::Hardware { .. } | Self::Device => None,
+        }
+    }
+
+    /// The layout number of a table named by hardware.
+    pub fn layout(&self) -> Option<u32> {
+        match self {
+            Self::Hardware { layout } => Some(*layout),
+            Self::Fingerprinted { .. } | Self::Device => None,
+        }
+    }
 }
 
 impl AutotuneTable {
@@ -94,19 +120,18 @@ impl AutotuneTable {
         let Self {
             tuner,
             device,
-            fingerprint,
-            layout,
+            naming,
             version,
         } = self;
-        match (layout, fingerprint) {
-            (Some(layout), _) => format!(
+        match naming {
+            TableNaming::Hardware { layout } => format!(
                 "{}/{version}/{LAYOUT_PREFIX}{layout}/{device}/{tuner}",
                 Self::ROOT
             ),
-            (None, Some(fingerprint)) => {
+            TableNaming::Fingerprinted { fingerprint } => {
                 format!("{}/{version}/{fingerprint}/{device}/{tuner}", Self::ROOT)
             }
-            (None, None) => format!("{}/{version}/{device}/{tuner}", Self::ROOT),
+            TableNaming::Device => format!("{}/{version}/{device}/{tuner}", Self::ROOT),
         }
     }
 
@@ -124,18 +149,22 @@ impl AutotuneTable {
             let layout = layout.strip_prefix(LAYOUT_PREFIX)?.parse().ok()?;
             Some((layout, hardware))
         });
-        let (device, fingerprint, layout) = match by_hardware {
-            Some((layout, hardware)) => (hardware, None, Some(layout)),
+        let (device, naming) = match by_hardware {
+            Some((layout, hardware)) => (hardware, TableNaming::Hardware { layout }),
             None => match rest.rsplit_once('/') {
-                Some((fingerprint, device)) => (device, Some(fingerprint.to_string()), None),
-                None => (rest, None, None),
+                Some((fingerprint, device)) => (
+                    device,
+                    TableNaming::Fingerprinted {
+                        fingerprint: fingerprint.to_string(),
+                    },
+                ),
+                None => (rest, TableNaming::Device),
             },
         };
         Some(Self {
             tuner: tuner.to_string(),
             device: device.to_string(),
-            fingerprint,
-            layout,
+            naming,
             version: version.to_string(),
         })
     }
@@ -171,8 +200,7 @@ mod tests {
         let table = AutotuneTable::new(namespace.as_str()).expect("parses");
         assert_eq!(table.tuner, "matmul-tune-gemm");
         assert_eq!(table.device, "cuda_ptx-sm89_NVIDIA-L4_par58");
-        assert_eq!(table.fingerprint, None);
-        assert!(table.layout.is_some());
+        assert!(matches!(table.naming, TableNaming::Hardware { .. }));
         assert_eq!(table.namespace(), namespace.as_str());
     }
 
@@ -182,10 +210,9 @@ mod tests {
         let table = AutotuneTable::new(namespace).expect("parses");
         assert_eq!(table.device, "DeviceId(type=0, index=0)");
         assert_eq!(
-            table.fingerprint.as_deref(),
+            table.naming.fingerprint(),
             Some("NVIDIA GeForce RTX 3080/PCIe/SSE2")
         );
-        assert_eq!(table.layout, None);
         assert_eq!(table.namespace(), namespace);
     }
 
@@ -199,8 +226,7 @@ mod tests {
             Some(AutotuneTable {
                 tuner: "matmul-tune-gemm".to_string(),
                 device: "device-32-0-hip".to_string(),
-                fingerprint: None,
-                layout: None,
+                naming: TableNaming::Device,
                 version: "0.11.0".to_string(),
             })
         );

@@ -19,7 +19,7 @@ use crate::config::Logger;
 use crate::config::autotune::AutotuneLogLevel;
 use crate::device::HardwareIdentity;
 use crate::execution::{ProcessMode, TuneOutcome, TuneRegistration};
-use crate::server::LaunchError;
+use crate::server::{LaunchError, ServerError};
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
 use cubecl_environment::config::RuntimeConfig;
 
@@ -207,11 +207,19 @@ struct TuneRequest<K: AutotuneKey> {
 struct PendingMark<K: AutotuneKey> {
     cache: Arc<Mutex<TuneCache<K>>>,
     key: K,
+    /// The cache's generation when marked: once a switch reset it, the key may be a newer tune's.
+    #[cfg(persistence)]
+    generation: u32,
 }
 
 impl<K: AutotuneKey> Drop for PendingMark<K> {
     fn drop(&mut self) {
-        self.cache.lock().unmark_pending(&self.key);
+        let mut cache = self.cache.lock();
+        #[cfg(persistence)]
+        if cache.generation() != self.generation {
+            return;
+        }
+        cache.unmark_pending(&self.key);
     }
 }
 
@@ -292,6 +300,10 @@ impl<K: AutotuneKey> Tuner<K> {
             if matches!(cur, TuneCacheResult::Hit { .. } | TuneCacheResult::Pending) {
                 return cur;
             }
+            // Every candidate would meet the loss: the key is left to a healthy card.
+            if cache.is_lost(client.service_id()) {
+                return TuneCacheResult::Pending;
+            }
             // A key with one candidate is answered, not tuned: nothing to read or to store.
             if tunables.autotunables().nth(1).is_none() {
                 cache.cache_insert(key.clone(), 0);
@@ -337,6 +349,8 @@ impl<K: AutotuneKey> Tuner<K> {
                 Some(PendingMark {
                     cache: self.cache.clone(),
                     key: key.clone(),
+                    #[cfg(persistence)]
+                    generation: cache.generation(),
                 })
             }
         };
@@ -500,17 +514,7 @@ impl<K: AutotuneKey> Tuner<K> {
             &mut job.results,
         ) {
             Ok(outcome) => outcome,
-            // Answered pending, so this caller runs the first candidate that serves the problem
-            // and meets the loss in its own reads instead of in a winner measured on nothing. The
-            // dropped job leaves the key to the next caller: another device of the same hardware may be
-            // healthy.
-            Err(lost) => {
-                log::error!(
-                    "Autotune of {} stopped, the device is lost: {lost}",
-                    job.key
-                );
-                return TuneCacheResult::Pending;
-            }
+            Err(lost) => return self.stop_on_lost_card(&job.key, client, lost),
         };
 
         for (name, duration) in outcome.steps {
@@ -527,6 +531,16 @@ impl<K: AutotuneKey> Tuner<K> {
 
     /// Benchmark every candidate with a fixed sample count, resolving the samples afterwards.
     /// This is the only strategy available on wasm, where nothing can be awaited inline.
+    /// Answered pending, so the caller runs the first candidate that serves the problem and meets
+    /// the loss in its own reads. The card is answered so for every key from now on, and the
+    /// dropped job leaves this one to another card of the same hardware, which may be healthy.
+    #[cfg(not(target_family = "wasm"))]
+    fn stop_on_lost_card(&self, key: &K, client: &Client, lost: ServerError) -> TuneCacheResult {
+        log::error!("Autotune of {key} stopped, the device is lost: {lost}");
+        self.cache.lock().mark_lost(client.service_id());
+        TuneCacheResult::Pending
+    }
+
     fn tune_fixed_samples<'i, F: TuneInputs, Out: AutotuneOutput>(
         &self,
         mut job: TuneJob<'_, 'i, K, F, Out>,
@@ -552,6 +566,12 @@ impl<K: AutotuneKey> Tuner<K> {
             let batch = job.plan.next();
 
             if batch.is_empty() {
+                #[cfg(not(target_family = "wasm"))]
+                if let Err(lost) = cubecl_environment::future::block_on(client.sync())
+                    && lost.is_device_poisoned()
+                {
+                    return self.stop_on_lost_card(&job.key, client, lost);
+                }
                 let key = &job.key;
                 panic!(
                     "Can't execute the autotune plan for key: {key:?}\n - plan: {:?}\n - results: {:?}",

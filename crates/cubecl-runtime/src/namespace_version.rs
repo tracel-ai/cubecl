@@ -8,7 +8,7 @@ use cubecl_environment::persistence::Namespace;
 /// The version a scope's namespaces carry, as a numbered layout of what is stored under it.
 ///
 /// The crate version in a namespace does not move when a layout changes inside a release, so the
-/// layout carries a number of its own, and namespaces under an earlier one are dropped.
+/// layout carries a number of its own.
 pub(crate) struct NamespaceVersion {
     scope: &'static str,
     marker: &'static str,
@@ -103,21 +103,21 @@ mod tests {
 
     #[test]
     fn a_layout_number_is_dropped_whole_and_alone() {
-        let tables = NamespaceVersion::new("autotune", "layout-v", 11);
-        let earlier = tables.earlier("autotune/0.11.0/");
+        let tables = NamespaceVersion::new("tables", "layout-v", 11);
+        let earlier = tables.earlier("tables/0.11.0/");
         let stale = |ns: &str| earlier.iter().any(|range| range.contains(&ns.to_string()));
 
         assert!(stale(
-            "autotune/0.11.0/layout-v1/cuda_ptx-sm89_l4_par58/matmul"
+            "tables/0.11.0/layout-v1/cuda_ptx-sm89_l4_par58/matmul"
         ));
         assert!(stale(
-            "autotune/0.11.0/layout-v10/cuda_ptx-sm89_l4_par58/matmul"
+            "tables/0.11.0/layout-v10/cuda_ptx-sm89_l4_par58/matmul"
         ));
         assert!(!stale(
-            "autotune/0.11.0/layout-v11/cuda_ptx-sm89_l4_par58/matmul"
+            "tables/0.11.0/layout-v11/cuda_ptx-sm89_l4_par58/matmul"
         ));
         assert!(!stale(
-            "autotune/0.11.0/layout-v12/cuda_ptx-sm89_l4_par58/matmul"
+            "tables/0.11.0/layout-v12/cuda_ptx-sm89_l4_par58/matmul"
         ));
     }
 
