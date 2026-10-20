@@ -14,6 +14,7 @@ mod fields;
 mod kernels;
 mod key;
 mod memory;
+mod overview;
 mod paint;
 mod summary;
 mod table;

@@ -22,10 +22,10 @@ impl fmt::Display for Text<'_, KernelReport> {
             families.row(vec![
                 family.short_name().to_string(),
                 family.instances.to_string(),
-                family.compiled.to_string(),
-                family.loaded.to_string(),
-                Wall(family.compiling).to_string(),
-                Wall(family.loading).to_string(),
+                family.cost.compiled.to_string(),
+                family.cost.loaded.to_string(),
+                Wall(family.cost.compiling).to_string(),
+                Wall(family.cost.loading).to_string(),
                 ByteSize(family.bytes).to_string(),
             ]);
         }
@@ -46,9 +46,9 @@ impl fmt::Display for Text<'_, KernelReport> {
                 row.id.to_string(),
                 row.build.to_string(),
                 row.short_name().to_string(),
-                row.compiled.to_string(),
-                row.loaded.to_string(),
-                Wall(row.compiling).to_string(),
+                row.cost.compiled.to_string(),
+                row.cost.loaded.to_string(),
+                Wall(row.cost.compiling).to_string(),
                 Maybe(row.bytes.map(ByteSize)).to_string(),
             ]);
         }
@@ -88,13 +88,13 @@ impl fmt::Display for Text<'_, KernelRow> {
             "compiled",
             format_args!(
                 "{} times in {}, loaded {} times in {}",
-                row.compiled,
-                Wall(row.compiling),
-                row.loaded,
-                Wall(row.loading)
+                row.cost.compiled,
+                Wall(row.cost.compiling),
+                row.cost.loaded,
+                Wall(row.cost.loading)
             ),
         )?;
-        match (&row.ir, row.compiled) {
+        match (&row.ir, row.cost.compiled) {
             (Some(ir), _) => {
                 writeln!(f)?;
                 Role::Title.write(f, "ir")?;

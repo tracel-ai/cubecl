@@ -6,9 +6,9 @@ use cubecl_environment::persistence::{Access, Database, Origin};
 use cubecl_environment::records::{self, MarkRecord, Record, Session, SessionId, Stamp, Stamped};
 use cubecl_environment::stream::StreamId;
 use cubecl_inspect::report::{
-    CandidateOutcome, CandidateReport, Fate, KernelSelector, KeyId, KeyOrder,
+    CandidateOutcome, CandidateReport, Fate, KernelSelector, KeyId, KeyOrder, Overview,
 };
-use cubecl_inspect::{EnvironmentDirectory, InspectError, Inspector};
+use cubecl_inspect::{EnvironmentDirectory, EnvironmentFile, InspectError, Inspector};
 use cubecl_server::benchmark::BenchmarkComputations;
 use cubecl_server::compiler::{
     CompilationBatchRecord, CompilationOutcome, CompilationRecord, KernelCacheKey,
@@ -646,6 +646,47 @@ fn keys_sort_slowest_tune_first() {
     assert!(report.keys[1..].iter().all(|key| key.tune.is_none()));
 }
 
+/// An overview writes the JSON its report writes, and lists the keys in
+/// the order the command line does by default.
+#[test]
+fn an_overview_is_its_report() {
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let inspector = Inspector::open(fixture(dir.path())).expect("opens");
+    let mut autotune = inspector.autotune();
+    autotune.sort(KeyOrder::default());
+
+    assert_eq!(
+        json(&inspector.overview(Overview::Autotune)),
+        json(&autotune)
+    );
+    assert_eq!(
+        json(&inspector.overview(Overview::Summary)),
+        json(&inspector.summary())
+    );
+}
+
+/// The fields a build's walk reads out of `summary --json` and
+/// `autotune --json` stay where it reads them.
+#[test]
+fn the_json_a_walk_reads_keeps_its_shape() {
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let inspector = Inspector::open(fixture(dir.path())).expect("opens");
+    let summary = json(&inspector.overview(Overview::Summary));
+    let autotune = json(&inspector.overview(Overview::Autotune));
+
+    let session = &summary["sessions"][0];
+    assert!(session["tuning"]["secs"].is_u64());
+    assert!(session["compiling"]["secs"].is_u64());
+    let slowest = &autotune["keys"][0];
+    assert!(slowest["trace"]["record"]["wall"]["secs"].is_u64());
+    assert!(slowest["table"]["tuner"].is_string());
+    assert!(!slowest["key"].is_null());
+}
+
+fn json(report: &impl serde::Serialize) -> serde_json::Value {
+    serde_json::to_value(report).expect("serializes")
+}
+
 #[test]
 fn candidates_carry_the_wall_they_cost() {
     let dir = tempfile::tempdir().expect("a temp dir");
@@ -677,11 +718,14 @@ fn the_summary_folds_each_session_s_tunes() {
         session.session.label.as_deref(),
         Some("models build fixture")
     );
-    assert_eq!(session.tunes, 1);
-    assert_eq!(session.tuning, Duration::from_millis(500));
-    assert_eq!(session.compilations, 3);
-    assert_eq!(session.compiling, Duration::from_millis(105));
-    assert_eq!(session.compiling_in_tunes, Duration::from_millis(80));
+    assert_eq!(session.activity.tunes, 1);
+    assert_eq!(session.activity.tuning, Duration::from_millis(500));
+    assert_eq!(session.activity.compilations, 3);
+    assert_eq!(session.activity.compiling, Duration::from_millis(105));
+    assert_eq!(
+        session.activity.compiling_in_tunes,
+        Duration::from_millis(80)
+    );
     // The walk ends at 1 s + 3 s, after the last compile's 3.1 s + 20 ms.
     assert_eq!(session.span, Duration::from_millis(4000));
     assert_eq!(session.other(), Duration::from_millis(4000 - 500 - 25));
@@ -707,21 +751,24 @@ fn batches_count_their_wall_not_their_kernels_work() {
 
     let inspector = Inspector::open(path).expect("opens");
     let session = &inspector.summary().sessions[0];
-    assert_eq!(session.compilations, 3);
-    assert_eq!(session.compiling, Duration::from_millis(1_095));
-    assert_eq!(session.compiling_in_tunes, Duration::from_millis(90));
+    assert_eq!(session.activity.compilations, 3);
+    assert_eq!(session.activity.compiling, Duration::from_millis(1_095));
+    assert_eq!(
+        session.activity.compiling_in_tunes,
+        Duration::from_millis(90)
+    );
     assert_eq!(session.span, Duration::from_millis(4_100));
 
     let timeline = inspector.timeline();
     let turn = &timeline.sessions[0].spans[1];
-    assert_eq!(turn.compiling, Duration::from_millis(90));
+    assert_eq!(turn.activity.compiling, Duration::from_millis(90));
 }
 
 #[test]
 fn a_stripped_copy_keeps_the_caches_and_drops_the_records() {
     let dir = tempfile::tempdir().expect("a temp dir");
-    let inspector = Inspector::open(fixture(dir.path())).expect("opens");
-    let stripped = inspector
+    let file = EnvironmentFile::open(fixture(dir.path())).expect("opens");
+    let stripped = file
         .strip(&dir.path().join("stripped.cubecl"))
         .expect("strips");
 
@@ -734,7 +781,7 @@ fn a_stripped_copy_keeps_the_caches_and_drops_the_records() {
     );
     assert_eq!(
         stripped.autotune_keys(),
-        inspector.summary().autotune_keys()
+        file.inspect().summary().autotune_keys()
     );
     assert_eq!(
         stripped.manifest.expect("an export carries one").name,
@@ -769,8 +816,8 @@ fn kernels_fold_their_trips_and_carry_their_stored_size() {
     assert_eq!(report.kernels.len(), 2);
     let matmul = &report.kernels[0];
     assert_eq!(matmul.short_name(), "Matmul");
-    assert_eq!((matmul.compiled, matmul.loaded), (1, 1));
-    assert_eq!(matmul.compiling, Duration::from_millis(80));
+    assert_eq!((matmul.cost.compiled, matmul.cost.loaded), (1, 1));
+    assert_eq!(matmul.cost.compiling, Duration::from_millis(80));
     assert_eq!(matmul.bytes, Some(64));
     assert_eq!(matmul.ir.as_deref(), Some("kernels::Matmul<f16> ir"));
     assert_eq!(report.kernels[1].bytes, None, "never stored");
@@ -837,7 +884,7 @@ fn a_kernel_two_builds_recorded_is_picked_by_its_build() {
             build: Some(&format!("{:032x}", 2u128)),
         })
         .expect("the build names one");
-    assert_eq!(rebuilt.compiling, Duration::from_millis(90));
+    assert_eq!(rebuilt.cost.compiling, Duration::from_millis(90));
     // Three rows, two kernels: the count is of kernels.
     assert!(matches!(
         inspector.kernel(id("")),
@@ -940,11 +987,11 @@ fn a_timeline_nests_marks_and_counts_what_ran_inside_them() {
     assert_eq!(shape, vec![("walk", 0), ("turn 0", 1)]);
 
     let (walk, turn) = (&spans[0], &spans[1]);
-    assert_eq!((walk.tunes, walk.compilations), (1, 3));
-    assert_eq!(walk.compiling, Duration::from_millis(105));
-    assert_eq!((turn.tunes, turn.compilations), (1, 1));
-    assert_eq!(turn.compiling, Duration::from_millis(80));
-    let slowest = turn.slowest.as_ref().expect("the tune inside it");
+    assert_eq!((walk.activity.tunes, walk.activity.compilations), (1, 3));
+    assert_eq!(walk.activity.compiling, Duration::from_millis(105));
+    assert_eq!((turn.activity.tunes, turn.activity.compilations), (1, 1));
+    assert_eq!(turn.activity.compiling, Duration::from_millis(80));
+    let slowest = turn.activity.slowest.as_ref().expect("the tune inside it");
     assert_eq!(slowest.wall, Duration::from_millis(500));
     assert_eq!(slowest.table, GEMM);
 }
@@ -1139,7 +1186,7 @@ fn pruning_keeps_the_newest_sessions_records() {
             Origin::Local,
         );
     }
-    let summary = Inspector::open(&path)
+    let summary = EnvironmentFile::open(&path)
         .expect("opens")
         .prune(1)
         .expect("prunes");
@@ -1169,7 +1216,7 @@ fn pruning_a_shipped_file_keeps_it_out_of_wal() {
         .into_standalone()
         .expect("ships");
 
-    Inspector::open(&path)
+    EnvironmentFile::open(&path)
         .expect("opens")
         .prune(0)
         .expect("prunes");

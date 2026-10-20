@@ -13,7 +13,7 @@ use std::time::Duration;
 pub type TuneTrace = Stamped<TuneRecord<ciborium::Value>>;
 
 /// Every autotune key an environment holds an answer for.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct AutotuneReport {
     pub keys: Vec<TunedKey>,
     /// Entries of an autotune namespace that did not decode as a tuned key: a
@@ -82,7 +82,7 @@ pub enum CandidateOutcome {
 
 impl CandidateResult {
     /// What a stored result says, named and classified.
-    pub fn new(result: AutotuneResult) -> Self {
+    pub(crate) fn new(result: AutotuneResult) -> Self {
         match result.outcome {
             Ok(outcome) => Self {
                 candidate: Some(outcome.name),
@@ -137,7 +137,7 @@ impl TunedKey {
 
     /// A stored entry of `table`, decoded; `None` when either half does not
     /// decode. The [tune](Self::tune) is left for the records to fill.
-    pub fn new(table: &AutotuneTable, key: &[u8], value: &[u8]) -> Option<Self> {
+    pub(crate) fn new(table: &AutotuneTable, key: &[u8], value: &[u8]) -> Option<Self> {
         let stored: PersistentCacheKey<ciborium::Value> = ciborium::from_reader(key).ok()?;
         let value: PersistentCacheValue = ciborium::from_reader(value).ok()?;
         Some(Self {

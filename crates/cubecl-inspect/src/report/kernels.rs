@@ -2,6 +2,7 @@ use cubecl_server::compiler::{CompilationOutcome, CompilationRecord, KernelCache
 use serde::{Serialize, Serializer};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::ops::AddAssign;
 use std::time::Duration;
 
 /// Every kernel the environment's sessions compiled or loaded, and what that
@@ -18,7 +19,7 @@ pub struct KernelReport {
 
 /// The artifacts a file's compilation store holds, by the key naming each,
 /// with their size.
-pub type StoredArtifacts = BTreeMap<KernelCacheKey, u64>;
+pub(crate) type StoredArtifacts = BTreeMap<KernelCacheKey, u64>;
 
 /// A 128-bit hash naming part of a kernel's artifact, written once for every
 /// such hash so they all print, serialize and match alike: twelve hex digits
@@ -78,7 +79,7 @@ pub struct KernelSelector<'a> {
 /// a rebuild its id alone names several instances: the selector's build
 /// names one of them.
 #[derive(Clone, Debug)]
-pub enum KernelMatch {
+pub(crate) enum KernelMatch {
     /// No instance's id starts with the selector's.
     Unknown,
     One(KernelRow),
@@ -100,14 +101,10 @@ pub struct KernelRow {
     pub ir: Option<String>,
     /// The size of its artifact in the store, when the file holds one.
     pub bytes: Option<u64>,
-    /// Times it was compiled fresh.
-    pub compiled: u64,
-    /// Times it was loaded from the store.
-    pub loaded: u64,
-    /// Compiling it, over every fresh compile.
-    pub compiling: Duration,
-    /// Loading it, over every store load.
-    pub loading: Duration,
+    /// Flattened, so a JSON reader finds `compiled` and `compiling` on the
+    /// row.
+    #[serde(flatten)]
+    pub cost: CompilationCost,
     /// The source, when a record kept it.
     pub source: Option<String>,
 }
@@ -117,11 +114,24 @@ pub struct KernelRow {
 pub struct FamilyRow {
     pub kernel: String,
     pub instances: u64,
-    pub compiled: u64,
-    pub loaded: u64,
-    pub compiling: Duration,
-    pub loading: Duration,
+    /// Flattened, like [`KernelRow::cost`].
+    #[serde(flatten)]
+    pub cost: CompilationCost,
     pub bytes: u64,
+}
+
+/// What obtaining kernels cost: how often each was compiled fresh or loaded
+/// from the store, and the time each took.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct CompilationCost {
+    /// Times compiled fresh.
+    pub compiled: u64,
+    /// Times loaded from the store.
+    pub loaded: u64,
+    /// Compiling, over every fresh compile.
+    pub compiling: Duration,
+    /// Loading, over every store load.
+    pub loading: Duration,
 }
 
 /// The orders a [`KernelReport`] lists its kernels in.
@@ -138,7 +148,10 @@ pub enum KernelOrder {
 
 impl KernelMatch {
     /// The instances of `rows` that `selector` names.
-    pub fn new(selector: KernelSelector<'_>, rows: impl IntoIterator<Item = KernelRow>) -> Self {
+    pub(crate) fn new(
+        selector: KernelSelector<'_>,
+        rows: impl IntoIterator<Item = KernelRow>,
+    ) -> Self {
         let mut rows: Vec<KernelRow> = rows
             .into_iter()
             .filter(|row| selector.selects(row))
@@ -188,6 +201,33 @@ impl KernelRow {
     }
 }
 
+impl CompilationCost {
+    /// Count one trip that ended in `outcome` after `work`.
+    pub(crate) fn record(&mut self, outcome: CompilationOutcome, work: Duration) {
+        match outcome {
+            CompilationOutcome::Compiled => {
+                self.compiled += 1;
+                self.compiling += work;
+            }
+            // Moved under this key from the artifact another key stored:
+            // obtained from the store, like a load, without compiling.
+            CompilationOutcome::Loaded | CompilationOutcome::Rekeyed => {
+                self.loaded += 1;
+                self.loading += work;
+            }
+        }
+    }
+}
+
+impl AddAssign for CompilationCost {
+    fn add_assign(&mut self, other: Self) {
+        self.compiled += other.compiled;
+        self.loaded += other.loaded;
+        self.compiling += other.compiling;
+        self.loading += other.loading;
+    }
+}
+
 impl FamilyRow {
     /// See [`KernelRow::short_name`].
     pub fn short_name(&self) -> &str {
@@ -203,7 +243,7 @@ fn short_name(kernel: &str) -> &str {
 impl KernelReport {
     /// Fold the recorded trips by instance, sized from the artifacts the
     /// file `stored`.
-    pub fn new<'a>(
+    pub(crate) fn new<'a>(
         trips: impl IntoIterator<Item = &'a CompilationRecord>,
         stored: &StoredArtifacts,
     ) -> Self {
@@ -215,24 +255,10 @@ impl KernelReport {
                 kernel: trip.kernel.clone(),
                 ir: None,
                 bytes: stored.get(&trip.key).copied(),
-                compiled: 0,
-                loaded: 0,
-                compiling: Duration::ZERO,
-                loading: Duration::ZERO,
+                cost: CompilationCost::default(),
                 source: None,
             });
-            match trip.outcome {
-                CompilationOutcome::Compiled => {
-                    row.compiled += 1;
-                    row.compiling += trip.work;
-                }
-                // Moved under this key from the artifact another key stored:
-                // obtained from the store, like a load, without compiling.
-                CompilationOutcome::Loaded | CompilationOutcome::Rekeyed => {
-                    row.loaded += 1;
-                    row.loading += trip.work;
-                }
-            }
+            row.cost.record(trip.outcome, trip.work);
             if trip.ir.is_some() {
                 row.ir.clone_from(&trip.ir);
             }
@@ -250,21 +276,20 @@ impl KernelReport {
                 .or_insert_with(|| FamilyRow {
                     kernel: row.kernel.clone(),
                     instances: 0,
-                    compiled: 0,
-                    loaded: 0,
-                    compiling: Duration::ZERO,
-                    loading: Duration::ZERO,
+                    cost: CompilationCost::default(),
                     bytes: 0,
                 });
             family.instances += 1;
-            family.compiled += row.compiled;
-            family.loaded += row.loaded;
-            family.compiling += row.compiling;
-            family.loading += row.loading;
+            family.cost += row.cost;
             family.bytes += row.bytes.unwrap_or_default();
         }
         let mut families: Vec<FamilyRow> = families.into_values().collect();
-        families.sort_by(|a, b| b.compiling.cmp(&a.compiling).then(a.kernel.cmp(&b.kernel)));
+        families.sort_by(|a, b| {
+            b.cost
+                .compiling
+                .cmp(&a.cost.compiling)
+                .then(a.kernel.cmp(&b.kernel))
+        });
 
         let mut report = Self {
             kernels,
@@ -278,9 +303,12 @@ impl KernelReport {
     /// Put the kernels in `order`.
     pub fn sort(&mut self, order: KernelOrder) {
         match order {
-            KernelOrder::Compile => self
-                .kernels
-                .sort_by(|a, b| b.compiling.cmp(&a.compiling).then(a.key().cmp(&b.key()))),
+            KernelOrder::Compile => self.kernels.sort_by(|a, b| {
+                b.cost
+                    .compiling
+                    .cmp(&a.cost.compiling)
+                    .then(a.key().cmp(&b.key()))
+            }),
             KernelOrder::Size => self
                 .kernels
                 .sort_by(|a, b| b.bytes.cmp(&a.bytes).then(a.key().cmp(&b.key()))),
@@ -292,7 +320,7 @@ impl KernelReport {
 
     /// Everything compiling cost, over every instance.
     pub fn compiling(&self) -> Duration {
-        self.kernels.iter().map(|row| row.compiling).sum()
+        self.kernels.iter().map(|row| row.cost.compiling).sum()
     }
 }
 
@@ -324,10 +352,10 @@ mod tests {
             kernel: "kernel".to_string(),
             ir: None,
             bytes: None,
-            compiled: 1,
-            loaded: 0,
-            compiling: Duration::ZERO,
-            loading: Duration::ZERO,
+            cost: CompilationCost {
+                compiled: 1,
+                ..CompilationCost::default()
+            },
             source: None,
         }
     }

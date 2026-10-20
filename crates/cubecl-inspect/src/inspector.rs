@@ -1,20 +1,18 @@
+use crate::records::{EnvironmentRecords, TuneIndex};
 use crate::report::{
-    AutotuneReport, AutotuneTable, Comparison, DiffSide, EnvironmentDiff, EnvironmentRecords,
-    KernelMatch, KernelReport, KernelRow, KernelSelector, KeyId, MemorySnapshots, NamespaceRoot,
-    SessionRow, SessionTimeline, StoredArtifacts, Summary, Timeline, TuneIndex, TunedKey,
+    AutotuneReport, AutotuneTable, CandidateReport, Comparison, DiffSide, EnvironmentDiff,
+    KernelMatch, KernelReport, KernelRow, KernelSelector, KeyId, KeyOrder, MemorySnapshots,
+    NamespaceRoot, Overview, OverviewReport, SessionRow, SessionTimeline, StoredArtifacts, Summary,
+    Timeline, TunedKey,
 };
-use crate::{InspectError, environment};
-use cubecl_environment::bundle::{BundleManifest, ExportOptions, export};
-use cubecl_environment::persistence::{Access, Database};
-use cubecl_environment::records::Records;
+use crate::{EnvironmentFile, InspectError};
+use cubecl_environment::bundle::BundleManifest;
+use cubecl_environment::persistence::Database;
 use cubecl_server::compiler::KernelCacheKey;
 use std::path::{Path, PathBuf};
 
-/// One environment file, opened read-only: the reports are what it answers.
-///
-/// Read-only is what makes it safe to point at an environment a running
-/// process is writing: the database is shared through WAL, and nothing here
-/// writes, migrates or checkpoints it.
+/// One [environment file](EnvironmentFile), its records read: the reports
+/// are what it answers.
 pub struct Inspector {
     database: Database,
     path: PathBuf,
@@ -23,35 +21,22 @@ pub struct Inspector {
 }
 
 impl Inspector {
-    /// Open the file at `path` and read its records.
+    /// Open the file at `path` and read its records: an
+    /// [`EnvironmentFile`], [inspected](EnvironmentFile::inspect).
     ///
     /// # Errors
     ///
-    /// [`InspectError::Open`] when the file is missing, or is not an
-    /// environment at the schema this build reads.
+    /// See [`EnvironmentFile::open`].
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, InspectError> {
-        let path = path.into();
-        // A read-only open of a missing file fails too, but with the engine's
-        // own message, which does not say whether the file is missing or
-        // unreadable.
-        if !path.is_file() {
-            return Err(InspectError::Open {
-                path,
-                reason: "no such file".to_string(),
-            });
-        }
-        let refused = |reason: String| InspectError::Open {
-            path: path.clone(),
-            reason,
-        };
-        // Refused unless the file is an environment at this build's schema:
-        // anything else would read as an empty one.
-        let database = Database::open_at(&path, Access::ReadOnly).map_err(refused)?;
-        Ok(Self {
-            records: records(&database),
+        EnvironmentFile::open(path).map(EnvironmentFile::inspect)
+    }
+
+    pub(crate) fn new(database: Database, path: PathBuf, records: EnvironmentRecords) -> Self {
+        Self {
             database,
             path,
-        })
+            records,
+        }
     }
 
     pub fn path(&self) -> &Path {
@@ -70,6 +55,24 @@ impl Inspector {
                 .map(Into::into)
                 .collect(),
             sessions: self.records.sessions().map(SessionRow::new).collect(),
+        }
+    }
+
+    /// The report `overview` names, in its default order.
+    pub fn overview(&self, overview: Overview) -> OverviewReport {
+        match overview {
+            Overview::Summary => OverviewReport::Summary(self.summary()),
+            Overview::Timeline => OverviewReport::Timeline(self.timeline()),
+            Overview::Autotune => {
+                let mut report = self.autotune();
+                report.sort(KeyOrder::default());
+                OverviewReport::Autotune(report)
+            }
+            Overview::Candidates => {
+                OverviewReport::Candidates(CandidateReport::from(&self.autotune()))
+            }
+            Overview::Kernels => OverviewReport::Kernels(self.kernels()),
+            Overview::Memory => OverviewReport::Memory(self.memory()),
         }
     }
 
@@ -173,72 +176,6 @@ impl Inspector {
         })
     }
 
-    /// Drop the records of every session but the newest `keep`, in place,
-    /// and summarize what is left.
-    ///
-    /// The one write this type makes to its own file, through a connection
-    /// of its own. A
-    /// read-write open migrates a file of another schema by dropping its
-    /// entries; this one cannot, because [`open`](Self::open) refused any
-    /// file this build's cubecl did not write.
-    ///
-    /// Takes the inspector, whose read-only handle has to be closed first: a
-    /// file open for reading in this process cannot be written by it.
-    ///
-    /// # Errors
-    ///
-    /// [`InspectError::Prune`] when the file cannot be opened for writing,
-    /// such as one in a read-only directory; [`InspectError::Open`] when the
-    /// pruned file cannot be read back.
-    pub fn prune(self, keep: usize) -> Result<Summary, InspectError> {
-        let Self { database, path, .. } = self;
-        let refused = |reason: String| InspectError::Prune {
-            path: path.clone(),
-            reason,
-        };
-        // A read-write open switches the file to WAL for good. A file that was
-        // not in WAL — shipped, meant for a read-only directory — is shipped
-        // again, as `strip` leaves one.
-        let shipped = database.is_standalone();
-        drop(database);
-        let writable = Database::open_at(&path, Access::ReadWrite).map_err(refused)?;
-        Records::new(&writable).prune(keep);
-        match shipped {
-            true => writable.into_standalone().map_err(refused)?,
-            false => drop(writable),
-        }
-        Ok(Self::open(path)?.summary())
-    }
-
-    /// Write a copy of the file to `out` without its records — the account
-    /// of how it was built, which a distributed environment has no use for —
-    /// and summarize the copy.
-    ///
-    /// # Errors
-    ///
-    /// [`InspectError::Export`] when the copy cannot be written to `out`;
-    /// [`InspectError::Open`] when it cannot be read back.
-    pub fn strip(&self, out: &Path) -> Result<Summary, InspectError> {
-        let manifest = BundleManifest::new(&self.database).ok();
-        let options = ExportOptions {
-            name: manifest.as_ref().map_or_else(
-                || environment::stem(&self.path),
-                |manifest| manifest.name.clone(),
-            ),
-            environments: manifest
-                .map(|manifest| manifest.environments)
-                .unwrap_or_default(),
-            // Every layout of records, not only the one this build reads.
-            excluded_namespaces: vec![NamespaceRoot::records().as_str().to_string()],
-            ..Default::default()
-        };
-        export(&[&self.path], out, &options).map_err(|err| InspectError::Export {
-            path: out.to_path_buf(),
-            reason: err.to_string(),
-        })?;
-        Ok(Self::open(out)?.summary())
-    }
-
     /// The one key `id` names.
     ///
     /// # Errors
@@ -250,18 +187,5 @@ impl Inspector {
             .into_iter()
             .find(|key| key.id == id)
             .ok_or(InspectError::UnknownKey(id))
-    }
-}
-
-/// The file's records, read whole.
-fn records(database: &Database) -> EnvironmentRecords {
-    let records = Records::new(database);
-    EnvironmentRecords {
-        sessions: records.sessions(),
-        tunes: records.read(),
-        compilations: records.read(),
-        batches: records.read(),
-        marks: records.read(),
-        memory: records.read(),
     }
 }

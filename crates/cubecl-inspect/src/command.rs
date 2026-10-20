@@ -1,13 +1,13 @@
 //! The command line: what to read out of an environment ([`Inspection`]), how
 //! a report is written ([`Output`]), and the help's look. The binary resolves
-//! `--env` to a file and hands the [`Inspection`] an [`Inspector`]; a program
+//! `--env` to a file and hands the [`Inspection`] an [`EnvironmentFile`]; a program
 //! that finds its environments another way can do the same.
 
 use crate::report::{
     AutotuneReport, CandidateReport, KernelOrder, KernelSelector, KeyId, KeyOrder,
 };
 use crate::view::Text;
-use crate::{InspectError, Inspector, palette, wordmark};
+use crate::{EnvironmentFile, InspectError, Inspector, palette, wordmark};
 use clap::builder::PossibleValue;
 use clap::builder::styling::{Color, Style, Styles};
 use clap::{Args, Subcommand, ValueEnum};
@@ -225,26 +225,27 @@ fn paints() -> bool {
 }
 
 impl Inspection {
-    /// Read this out of `inspector` and write it to `output`.
+    /// Read this out of `file`, or rewrite it, and write the report to
+    /// `output`.
     ///
-    /// Takes the inspector because [`Prune`](Self::Prune) closes it: its
-    /// file cannot be written while it is open for reading.
+    /// Takes the file because [`Prune`](Self::Prune) closes it: it cannot be
+    /// written while it is open for reading.
     ///
     /// # Errors
     ///
     /// Whatever the inspection's report says it could not produce: a key or
     /// kernel the file does not hold, a `diff` against a file that does not
     /// open, a `prune` or `strip` that cannot write.
-    pub fn run(&self, inspector: Inspector, output: Output) -> Result<(), InspectError> {
+    pub fn run(&self, file: EnvironmentFile, output: Output) -> Result<(), InspectError> {
         match self {
-            Self::Summary => output.print(&inspector.summary()),
-            Self::Autotune(args) => args.run(&inspector, output),
-            Self::Kernels(args) => args.run(&inspector, output),
-            Self::Timeline => output.print(&inspector.timeline()),
-            Self::Memory => output.print(&inspector.memory()),
-            Self::Diff { other } => output.print(&inspector.diff(&Inspector::open(other)?)),
-            Self::Prune { keep } => output.print(&inspector.prune(*keep)?),
-            Self::Strip { out } => output.print(&inspector.strip(out)?),
+            Self::Summary => output.print(&file.inspect().summary()),
+            Self::Autotune(args) => args.run(&file.inspect(), output),
+            Self::Kernels(args) => args.run(&file.inspect(), output),
+            Self::Timeline => output.print(&file.inspect().timeline()),
+            Self::Memory => output.print(&file.inspect().memory()),
+            Self::Diff { other } => output.print(&file.inspect().diff(&Inspector::open(other)?)),
+            Self::Prune { keep } => output.print(&file.prune(*keep)?),
+            Self::Strip { out } => output.print(&file.strip(out)?),
         }
     }
 }

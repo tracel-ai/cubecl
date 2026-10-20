@@ -54,10 +54,10 @@ impl Serialize for KeyId {
 /// records and the files that carry it, since `ciborium::Value` is neither
 /// `Ord` nor `Hash`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct CanonicalKey(String);
+pub(crate) struct CanonicalKey(String);
 
 impl CanonicalKey {
-    pub fn new(key: &ciborium::Value) -> Self {
+    pub(crate) fn new(key: &ciborium::Value) -> Self {
         Self(format!("{key:?}"))
     }
 }
