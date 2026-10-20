@@ -852,6 +852,68 @@ fn lists_whose_names_join_alike_never_share_a_tuner() {
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 
+#[test_log::test]
+#[cfg(feature = "std")]
+#[serial_test::serial]
+fn a_second_list_one_device_runs_never_answers_another_device() {
+    use cubecl_server::tune::{CloneInputGenerator, Tunable};
+
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("a_second_list_one_device_runs_never_answers_another_device");
+    #[cfg(persistence)]
+    let root = tempfile::tempdir().unwrap();
+    #[cfg(persistence)]
+    rooted_at(root.path());
+
+    fn split(key: &'static str) -> TunableSet<String, Vec<Handle>, ()> {
+        let client = test_client(&DummyDevice);
+        let slow = OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseAdditionSlowWrong),
+            client.clone(),
+        );
+        let add =
+            OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client);
+        TunableSet::<String, Vec<Handle>, ()>::new(
+            move |_: &Vec<Handle>| key.to_string(),
+            CloneInputGenerator,
+        )
+        .with(Tunable::new("a", move |inputs| slow.run(inputs)))
+        .with(Tunable::new("bc", move |inputs| add.run(inputs)))
+    }
+
+    fn joined(key: &'static str) -> TunableSet<String, Vec<Handle>, ()> {
+        let add = OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseAddition),
+            test_client(&DummyDevice),
+        );
+        TunableSet::<String, Vec<Handle>, ()>::new(
+            move |_: &Vec<Handle>| key.to_string(),
+            CloneInputGenerator,
+        )
+        .with(Tunable::new("abc", move |inputs| add.run(inputs)))
+    }
+
+    let client = test_client(&DummyDevice);
+    let (first, second) = ("first".to_string(), "second".to_string());
+    let first_split = TUNER.init(&first, || split("a key"));
+    let first_joined = TUNER.init(&first, || joined("another key"));
+    let second_split = TUNER.init(&second, || split("another key"));
+
+    let (handles, _) = addition_inputs(&client, &first_split);
+    TUNER.execute(&first, &client, first_split, handles);
+    let (handles, _) = addition_inputs(&client, &first_joined);
+    TUNER.execute(&first, &client, first_joined, handles);
+
+    let (handles, _) = addition_inputs(&client, &second_split);
+    let out = handles[2].clone();
+    TUNER.execute(&second, &client, second_split, handles);
+    assert_eq!(
+        client.read_one(out).unwrap().to_vec(),
+        vec![4, 5, 6],
+        "tuned on its own list, not handed index 0 of the joined list"
+    );
+}
+
 /// A result belongs to the environment it was tuned under, and one only on disk has no fastest
 /// identity until an `execute` reads it: after a switch away the result is unreachable, and
 /// after the switch back it is found again once an `execute` has read it back — with no second

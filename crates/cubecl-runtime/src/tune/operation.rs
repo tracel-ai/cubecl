@@ -45,6 +45,8 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
 /// tunables it is given: `()` for tunables built by [`Tunable::new`], named and nothing more.
 pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static, Id = ()> {
     tunables: Vec<Tunable<K, F, Output, Id>>,
+    /// Kept in step with `tunables`: every launch looks its tuner up by it.
+    checksum: String,
     key_gen: Arc<dyn KeyGenerator<K, F> + Send + Sync>,
     input_gen: Arc<dyn InputGenerator<K, F> + Send + Sync>,
     bounds_gen: Option<Arc<dyn BoundsGenerator<K, F> + Send + Sync>>,
@@ -55,14 +57,17 @@ pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static, Id = ()> {
 impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output, Id> {
     /// Create a tunable set from a key generator and an input generator.
     pub fn new(key_gen: impl KeyGenerator<K, F>, input_gen: impl InputGenerator<K, F>) -> Self {
-        Self {
+        let mut set = Self {
             tunables: Default::default(),
+            checksum: String::new(),
             input_gen: Arc::new(input_gen),
             key_gen: Arc::new(key_gen),
             bounds_gen: None,
             eviction: None,
             short_circuit: true,
-        }
+        };
+        set.checksum = set.compute_checksum();
+        set
     }
 
     /// Shorthand for [`new`](Self::new) with a [`CloneInputGenerator`](super::CloneInputGenerator): benchmarks run
@@ -84,6 +89,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
     /// Register a tunable with this tunable set.
     pub fn with(mut self, tunable: Tunable<K, F, Output, Id>) -> Self {
         self.tunables.push(tunable);
+        self.checksum = self.compute_checksum();
         self
     }
 
@@ -143,6 +149,11 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
             tune.function.name.hash(&mut hasher);
         }
         format!("{:x}", hasher.finalize())
+    }
+
+    /// The [checksum](Self::compute_checksum) of this set, without hashing the names again.
+    pub(crate) fn checksum(&self) -> &str {
+        &self.checksum
     }
 
     /// Generate a key from a set of inputs

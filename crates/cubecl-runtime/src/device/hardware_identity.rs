@@ -6,8 +6,8 @@ use cubecl_ir::{DeviceIdentity, DeviceProperties};
 /// Which hardware a device is: its [`DeviceIdentity`] without the card it sits in, so what is
 /// measured on one device holds for every device of the same hardware.
 ///
-/// Its slot is left out, since `CUDA_VISIBLE_DEVICES` renumbers cards, and so is its memory, which
-/// a cgroup limit or ECC moves without changing which kernel wins.
+/// Its memory is left out too, since a cgroup limit or ECC moves it without changing which kernel
+/// wins.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct HardwareIdentity {
     runtime: String,

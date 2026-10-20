@@ -19,7 +19,9 @@ use crate::config::Logger;
 use crate::config::autotune::AutotuneLogLevel;
 use crate::device::HardwareIdentity;
 use crate::execution::{ProcessMode, TuneOutcome, TuneRegistration};
-use crate::server::{LaunchError, ServerError};
+use crate::server::LaunchError;
+#[cfg(not(target_family = "wasm"))]
+use crate::server::ServerError;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
 use cubecl_environment::config::RuntimeConfig;
 
@@ -529,11 +531,10 @@ impl<K: AutotuneKey> Tuner<K> {
         cubecl_environment::future::block_on(process_request(request, &self.cache, &self.logger))
     }
 
-    /// Benchmark every candidate with a fixed sample count, resolving the samples afterwards.
-    /// This is the only strategy available on wasm, where nothing can be awaited inline.
     /// Answered pending, so the caller runs the first candidate that serves the problem and meets
-    /// the loss in its own reads. The card is answered so for every key from now on, and the
-    /// dropped job leaves this one to another card of the same hardware, which may be healthy.
+    /// the loss in its own reads. The card is answered so for every key of this candidate list
+    /// from now on, and the dropped job leaves this one to another card of the same hardware,
+    /// which may be healthy.
     #[cfg(not(target_family = "wasm"))]
     fn stop_on_lost_card(&self, key: &K, client: &Client, lost: ServerError) -> TuneCacheResult {
         log::error!("Autotune of {key} stopped, the device is lost: {lost}");
@@ -541,6 +542,8 @@ impl<K: AutotuneKey> Tuner<K> {
         TuneCacheResult::Pending
     }
 
+    /// Benchmark every candidate with a fixed sample count, resolving the samples afterwards.
+    /// This is the only strategy available on wasm, where nothing can be awaited inline.
     fn tune_fixed_samples<'i, F: TuneInputs, Out: AutotuneOutput>(
         &self,
         mut job: TuneJob<'_, 'i, K, F, Out>,
