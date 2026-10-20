@@ -2,7 +2,6 @@ use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneInputs, Tuner};
 #[cfg(feature = "autotune-checks")]
 use crate::tune::AutotuneLoggerExt;
 use crate::{client::Client, device::HardwareIdentity, tune::TuneCacheResult};
-use alloc::string::String;
 #[cfg(feature = "autotune-checks")]
 use alloc::string::ToString;
 use alloc::sync::Arc;
@@ -33,7 +32,7 @@ pub struct LocalTuner<AK: AutotuneKey, ID> {
 /// all of them.
 struct Tuners<AK: AutotuneKey, ID> {
     /// An id's tuners, by the checksum of the list each runs.
-    by_id: HashMap<ID, HashMap<String, Arc<Tuner<AK>>>>,
+    by_id: HashMap<ID, HashMap<u64, Arc<Tuner<AK>>>>,
     opened: HashMap<TunerIdentity, Arc<Tuner<AK>>>,
 }
 
@@ -41,9 +40,9 @@ struct Tuners<AK: AutotuneKey, ID> {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct TunerIdentity {
     hardware: HardwareIdentity,
-    /// The candidate list's [`compute_checksum`](TunableSet::compute_checksum): each device builds
-    /// its own list, and one of the same hardware may build another.
-    checksum: String,
+    /// The low half of the candidate list's [`compute_checksum`](TunableSet::compute_checksum): each
+    /// device builds its own list, and one of the same hardware may build another.
+    checksum: u64,
 }
 
 impl<AK: AutotuneKey, ID: Hash + Eq + Clone> Tuners<AK, ID> {
@@ -64,12 +63,12 @@ impl<AK: AutotuneKey, ID: Hash + Eq + Clone> Tuners<AK, ID> {
         operations: &TunableSet<AK, I, Out, Id>,
     ) -> Arc<Tuner<AK>> {
         let checksum = operations.checksum();
-        if let Some(tuner) = self.by_id.get(id).and_then(|lists| lists.get(checksum)) {
+        if let Some(tuner) = self.by_id.get(id).and_then(|lists| lists.get(&checksum)) {
             return tuner.clone();
         }
         let identity = TunerIdentity {
             hardware: client.hardware_identity(),
-            checksum: checksum.into(),
+            checksum,
         };
         let tuner = self
             .opened
@@ -81,7 +80,7 @@ impl<AK: AutotuneKey, ID: Hash + Eq + Clone> Tuners<AK, ID> {
         self.by_id
             .entry(id.clone())
             .or_default()
-            .insert(checksum.into(), tuner.clone());
+            .insert(checksum, tuner.clone());
         tuner
     }
 }
@@ -196,7 +195,7 @@ where
             .as_ref()?
             .by_id
             .get(id)?
-            .get(operations.checksum())?
+            .get(&operations.checksum())?
             .clone();
         let fastest_index = tuner.settled(key)?;
         Some(operations.identity(fastest_index).clone())
