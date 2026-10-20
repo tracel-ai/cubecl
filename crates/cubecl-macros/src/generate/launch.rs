@@ -142,7 +142,8 @@ impl Launch {
         let kernel_generics = kernel_generics.split_for_impl();
         let kernel_generics = kernel_generics.1.as_turbofish();
         let comptime_args = self.comptime_params().map(|it| &it.name);
-        let (setup, args) = self.launcher_setup(execution_mode, quote![__client.properties()]);
+        let (setup, args) =
+            self.launcher_setup(execution_mode, quote![__client.properties_shared()]);
 
         quote! {
             #setup
@@ -158,7 +159,7 @@ impl Launch {
     /// The statements every launch-shaped function opens with: `__settings`,
     /// a `launcher` whose scope has the generic types registered, and one
     /// `comp_arg_*` local per runtime argument. `device_properties` is the
-    /// `&DeviceProperties` expression the scope reads, since the real launch
+    /// `Arc<DeviceProperties>` expression the scope shares, since the real launch
     /// has a client and the dummy kernel has the properties in hand.
     ///
     /// Returned with the argument list the kernel's constructor takes, so the
@@ -241,7 +242,7 @@ impl Launch {
             let comptime_args = self.launch_args();
             let comptime_names = self.comptime_params().map(|it| &it.name);
             let (setup, args) =
-                self.launcher_setup(ExecutionMode::Checked, quote![&__device_properties]);
+                self.launcher_setup(ExecutionMode::Checked, quote![__device_properties.clone()]);
 
             let address_type = match self.args.address_type {
                 AddressType::Dynamic => quote![__address_type: #address_type,],
