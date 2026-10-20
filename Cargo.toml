@@ -236,8 +236,8 @@ cudarc = { version = "0.19.6", features = [
 ], default-features = false } # CubeCL-CUDA
 
 # CubeCL-SPIR-V
-pliron-spirv = "0.16.0"
-rspirv = { version = "0.16.0", package = "tracel-rspirv" }
+pliron-spirv = "0.17.0"
+rspirv = { version = "0.17.0", package = "tracel-rspirv" }
 # pliron-spirv = { package = "pliron-spirv", path = "../tracel-rspirv/pliron-spirv" }
 # rspirv = { package = "tracel-rspirv", path = "../tracel-rspirv/rspirv" }
 # pliron-spirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "77996f97565f9a980d10d8fae9a56a60cb149614" }
@@ -264,9 +264,3 @@ cfg_aliases = "0.2.2"
 
 [profile.dev.build-override]
 opt-level = 3
-
-# The `pliron-spirv` and `tracel-rspirv` 0.16.0 releases use `pliron` 0.19. Their main branch
-# uses `pliron` 0.20, so they come from there until a release has it.
-[patch.crates-io]
-pliron-spirv = { git = "https://github.com/tracel-ai/tracel-rspirv", rev = "c585127b7e26830fb8ae0350b229cba289962111" }
-tracel-rspirv = { git = "https://github.com/tracel-ai/tracel-rspirv", rev = "c585127b7e26830fb8ae0350b229cba289962111" }
