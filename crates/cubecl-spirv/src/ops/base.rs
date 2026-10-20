@@ -14,6 +14,7 @@ macro_rules! unop_to_spirv_dialect {
                 let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
                 let new_op = <$new_ty>::new(ctx, out_ty, inp, $($extra),*);
                 crate::compiler::decorate_uniform(ctx, new_op.get_operation(), uniformity);
+                crate::compiler::decorate_no_contraction(ctx, op, new_op.get_operation());
                 rewriter.append_op(ctx, &new_op);
                 rewriter.replace_operation(ctx, op, new_op.get_operation());
 
@@ -41,6 +42,7 @@ macro_rules! binop_to_spirv_dialect {
                 let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
                 let new_op = <$new_ty>::new(ctx, out_ty, lhs, rhs, $($extra),*);
                 crate::compiler::decorate_uniform(ctx, new_op.get_operation(), uniformity);
+                crate::compiler::decorate_no_contraction(ctx, op, new_op.get_operation());
                 rewriter.append_op(ctx, &new_op);
                 rewriter.replace_operation(ctx, op, new_op.get_operation());
 
