@@ -693,7 +693,7 @@ fn registers_of(
             let word = word_ty(ctx);
             let elem_bits = if elem.deref(ctx).is::<FP32Type>() {
                 32
-            } else if elem.deref(ctx).is::<BF16Type>() {
+            } else if elem.deref(ctx).is::<BF16Type>() || elem.deref(ctx).is::<FP16Type>() {
                 16
             } else {
                 elem.size_bits(ctx)

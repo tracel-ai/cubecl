@@ -404,3 +404,49 @@ pub(crate) fn tile_product_kernel<
         k,
     )
 }
+
+/// Each lane stores two registers of F pairs to shared memory with stmatrix, two 8x8 tiles
+/// of 16-bit elements, then copies the tiles out.
+#[cube(launch)]
+fn tile_store<F: Float>(input: &[Vector<F, Const<2>>], output: &mut [F]) {
+    let def = cmma::MmaDefinition::<F, F, F>::new(16usize, 8usize, 16usize);
+    let lane = UNIT_POS_PLANE as usize;
+
+    let mut registers = Array::<Vector<F, Const<2>>>::new(2usize);
+    registers[0] = input[lane * 2];
+    registers[1] = input[lane * 2 + 1];
+
+    let mut stage = Shared::new_aligned_slice(128usize, 16usize);
+    let row = lane % 16;
+    let destination = &mut stage[row * 8..row * 8 + 8];
+    def.store_matrix(
+        destination,
+        &registers,
+        cmma::MatrixIdent::Accumulator,
+        2usize,
+        false,
+    );
+    sync_cube();
+
+    for i in 0..4usize {
+        output[lane * 4 + i] = stage[lane * 4 + i];
+    }
+}
+
+/// Two stmatrix tiles of 16-bit F elements.
+pub(crate) fn tile_store_kernel<F: Float + cubecl_core::CubeElement>() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    let mut props = (*device_properties(32)).clone();
+    props.features.matmul.stmatrix.insert(F::cube_type());
+    tile_store::TileStore::<F>::new(
+        settings,
+        Arc::new(props),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}

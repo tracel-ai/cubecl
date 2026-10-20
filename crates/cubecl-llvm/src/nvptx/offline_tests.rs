@@ -2,7 +2,7 @@
 
 use crate::shared::offline_kernels::{
     Wait, bf16_math_kernel, keep_largest_kernel, plane_moves_kernel, relay_kernel, scale_kernel,
-    strided_walk_kernel, tally_kernel, tile_product_kernel,
+    strided_walk_kernel, tally_kernel, tile_product_kernel, tile_store_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{PlironArtifact, PlironCompiler, PlironOptions, nvptx::ptx_version::PtxVersion};
@@ -65,6 +65,18 @@ fn bf16_tiles_multiply_on_the_tensor_cores() {
         let ptx = ptx_of(tile_product_kernel::<half::bf16, f32>((m, n, k)), 80);
         let mma = format!("wmma.mma.sync.aligned.row.col.m{m}n{n}k{k}.f32.bf16.bf16.f32");
         assert!(ptx.contains(&mma), "{ptx}");
+    }
+}
+
+/// stmatrix moves 16-bit elements packed two to a 32-bit register, whatever their type:
+/// Hopper and later advertise it for both f16 and bf16.
+#[test]
+fn half_tiles_store_with_stmatrix() {
+    for ptx in [
+        ptx_of(tile_store_kernel::<half::f16>(), 90),
+        ptx_of(tile_store_kernel::<half::bf16>(), 90),
+    ] {
+        assert!(ptx.contains("stmatrix.sync.aligned.m8n8.x2"), "{ptx}");
     }
 }
 
