@@ -48,7 +48,7 @@ use pliron::{
     basic_block::BasicBlock,
     builtin::{
         op_interfaces::OneRegionInterface,
-        ops::{FuncOp, ModuleOp},
+        ops::{ConstantOp, FuncOp, ModuleOp},
     },
     context::{Context, Ptr},
     identifier::Identifier,
@@ -312,6 +312,7 @@ impl SpirvCompiler {
 
         let (shared_size, shared_args) = lower_shared(ctx, spirv_module);
         declare_entry_point(ctx, spirv_module, shared_args);
+        hoist_constants(ctx, spirv_module);
 
         // Make sure this is the last pass so it catches all ops
         OpPass::<SpirvModuleOp, CollectVerCapExtPass>::default()
@@ -357,6 +358,35 @@ fn insert_spirv_module(ctx: &mut Context, module: ModuleOp) -> SpirvModuleOp {
     );
     spirv_module.set_attr_spirv_module_vce(ctx, vce);
     spirv_module
+}
+
+/// Moves each constant to the start of its function's entry block. A SPIR-V constant is a global,
+/// so the builder gives it the ID of the first equal constant it emitted. A use that it emits
+/// before the constant, such as a phi on a loop's back edge, has a new ID that nothing defines.
+fn hoist_constants(ctx: &mut Context, module: SpirvModuleOp) {
+    let mut funcs = vec![];
+    visit_all_ops_of_type_mut::<FuncOp, _>(
+        ctx,
+        &mut funcs,
+        module.get_operation(),
+        |_, funcs, func| {
+            funcs.push(func);
+        },
+    );
+    for func in funcs {
+        let entry = func.get_entry_block(ctx);
+        let mut constants = vec![];
+        visit_all_ops_of_type::<ConstantOp, _>(
+            ctx,
+            &mut constants,
+            func.get_operation(),
+            |_, constants, constant| constants.push(constant.get_operation()),
+        );
+        for constant in constants {
+            constant.unlink(ctx);
+            constant.insert_at_front(entry, ctx);
+        }
+    }
 }
 
 fn declare_entry_point(ctx: &mut Context, module: SpirvModuleOp, shared_args: Vec<Identifier>) {
