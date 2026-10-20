@@ -6,8 +6,8 @@ use pliron::{
 use pliron_spirv::{
     ops::{
         CompositeConstructOp, ShiftRightLogicalOp,
-        khr::{CooperativeMatrixLoadOp, CooperativeMatrixMulAddOp, CooperativeMatrixStoreOp},
         ext::{CooperativeMatrixConvertUseOp, CooperativeMatrixPerElementOpOp},
+        khr::{CooperativeMatrixLoadOp, CooperativeMatrixMulAddOp, CooperativeMatrixStoreOp},
     },
     types::{PointerType, khr::CooperativeMatrixType},
 };
