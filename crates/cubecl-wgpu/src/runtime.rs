@@ -14,12 +14,15 @@ use cubecl_core::server::ServerUtilities;
 use cubecl_core::zspace::{Shape, Strides};
 use cubecl_environment::{future, sync::Mutex};
 use cubecl_ir::{DeviceIdentity, DeviceProperties, HardwareProperties, MemoryDeviceProperties};
-use cubecl_monitoring::{DeviceUtilization, UtilizationUnavailable, gpu_utilization::CardCounters};
+use cubecl_monitoring::{
+    DevicePower, DeviceTemperature, DeviceUtilization, UtilizationUnavailable,
+    gpu_utilization::CardCounters,
+};
 use cubecl_server::allocator::ContiguousMemoryLayoutPolicy;
 #[cfg(not(feature = "vulkan-validate"))]
 use cubecl_server::logging::ProfileLevel;
 pub use cubecl_server::memory_management::MemoryConfiguration;
-use cubecl_server::runtime::Runtime;
+use cubecl_server::runtime::{DeviceDescription, DeviceKind, Runtime};
 use cubecl_server::{client::Client, logging::ServerLogger};
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 
@@ -76,11 +79,10 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
         true
     }
 
+    /// The properties with no device to pick a compiler by. A server takes its own compiler's
+    /// ([`WgpuCompiler::target_properties`]), which differ under MSL.
     fn target_properties() -> TargetProperties {
-        TargetProperties {
-            // Values are irrelevant, since no wgsl backends currently support manual mma
-            mma: Default::default(),
-        }
+        TargetProperties::default()
     }
 
     fn enumerate_devices(type_id: u16) -> Vec<DeviceId> {
@@ -150,7 +152,45 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
     }
 
     fn utilization(device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
-        CardCounters::read(Self::client(device).properties().identity.physical.as_ref())
+        CardCounters::utilization(Self::client(device).properties().identity.physical.as_ref())
+    }
+
+    fn temperature(device: &Self::Device) -> Result<DeviceTemperature, UtilizationUnavailable> {
+        CardCounters::temperature(Self::client(device).properties().identity.physical.as_ref())
+    }
+
+    fn power(device: &Self::Device) -> Result<DevicePower, UtilizationUnavailable> {
+        CardCounters::power(Self::client(device).properties().identity.physical.as_ref())
+    }
+
+    /// The adapter description, from the list its graphics API enumerates: the one `request_adapter` would
+    /// select, in the order `enumerate_devices` lists them. It reports no memory size.
+    fn description(device: &Self::Device) -> Option<DeviceDescription> {
+        #[cfg(target_family = "wasm")]
+        {
+            let _ = device;
+            None
+        }
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let (kind, index) = match device.kind {
+                WgpuDeviceKind::DiscreteGpu(index) => (wgpu::DeviceType::DiscreteGpu, index),
+                WgpuDeviceKind::IntegratedGpu(index) => (wgpu::DeviceType::IntegratedGpu, index),
+                WgpuDeviceKind::VirtualGpu(index) => (wgpu::DeviceType::VirtualGpu, index),
+                WgpuDeviceKind::Other(index) => (wgpu::DeviceType::Other, index),
+                WgpuDeviceKind::Cpu => (wgpu::DeviceType::Cpu, 0),
+                // The adapter it lands on is chosen at creation.
+                WgpuDeviceKind::DefaultDevice | WgpuDeviceKind::Existing(_) => return None,
+            };
+            let (api, _) = settle(device.backend)?;
+            probe_with(api, |adapters| {
+                let adapter = adapters
+                    .iter()
+                    .filter(|adapter| adapter.get_info().device_type == kind)
+                    .nth(index)?;
+                Some(describe_adapter(adapter))
+            })
+        }
     }
 }
 
@@ -231,15 +271,49 @@ static INSTANCES: Mutex<Vec<(wgpu::Backend, wgpu::Instance)>> = Mutex::new(Vec::
 /// The adapters `backend` has on this machine, asked through an instance limited to it.
 #[cfg(not(target_family = "wasm"))]
 fn probe(backend: wgpu::Backend) -> Vec<wgpu::AdapterInfo> {
+    probe_with(backend, |adapters| {
+        adapters.iter().map(wgpu::Adapter::get_info).collect()
+    })
+}
+
+/// What `adapter` says about its hardware.
+#[cfg(not(target_family = "wasm"))]
+fn describe_adapter(adapter: &wgpu::Adapter) -> DeviceDescription {
+    let info = adapter.get_info();
+    let kind = match info.device_type {
+        wgpu::DeviceType::DiscreteGpu => DeviceKind::Discrete,
+        wgpu::DeviceType::IntegratedGpu => DeviceKind::Integrated,
+        wgpu::DeviceType::VirtualGpu => DeviceKind::Virtual,
+        wgpu::DeviceType::Cpu => DeviceKind::Cpu,
+        wgpu::DeviceType::Other => DeviceKind::Other,
+    };
+    let mut description = DeviceDescription::new(info.name.clone(), kind);
+    description.physical = backend::physical_device(adapter, &info);
+    // The driver's name and its own version string, e.g. `NVIDIA` and `580.82.09`; either can
+    // be empty.
+    let driver = [info.driver.trim(), info.driver_info.trim()]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    description.driver_version = (!driver.is_empty()).then_some(driver);
+    description
+}
+
+/// What `inspect` makes of the adapters `backend` has on this machine.
+///
+/// The adapters are only lent: each keeps the instance it came from alive, and that instance
+/// has to be dropped here, under the [`INSTANCES`] lock.
+#[cfg(not(target_family = "wasm"))]
+fn probe_with<R>(backend: wgpu::Backend, inspect: impl FnOnce(&[wgpu::Adapter]) -> R) -> R {
     let _instances = INSTANCES.lock();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: backend.into(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
-    future::block_on(instance.enumerate_adapters(backend.into()))
-        .iter()
-        .map(wgpu::Adapter::get_info)
-        .collect()
+    inspect(&future::block_on(
+        instance.enumerate_adapters(backend.into()),
+    ))
 }
 
 /// The graphics API a device on `backend` comes up on.
@@ -751,7 +825,8 @@ fn try_create_server<C: WgpuCompiler>(
         }
     })?;
 
-    C::init(setup.backend, &compilation_options).limit_properties(&mut device_props);
+    let compiler = C::init(setup.backend, &compilation_options);
+    compiler.limit_properties(&mut device_props);
 
     let logger = alloc::sync::Arc::new(ServerLogger::default());
     let name = runtime_name(setup.backend, &compilation_options);
@@ -762,7 +837,7 @@ fn try_create_server<C: WgpuCompiler>(
         ServiceId::of::<WgpuServer<C>>(device_id),
         name,
         device_props,
-        WgpuRuntime::<C>::target_properties(),
+        compiler.target_properties(),
         logger,
         allocator,
     );
