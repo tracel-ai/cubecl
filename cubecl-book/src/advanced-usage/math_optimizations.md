@@ -49,11 +49,12 @@ fn two_sum<F: Float>(a: F, b: F) -> (F, F) {
 Rounding is kept on every backend below except WGSL and Metal. `Inf`, `NaN` and signed zero are
 kept where `client.properties().features.ieee_special_values` is true.
 
-A function that says nothing gets each backend's default, which usually allows contraction: CubeCL
-fuses a product into the add that consumes it, and so may the driver. A function that gives a set
-gets exactly that set, so `FastMath::NotNaN.into()` alone also forbids contraction and can run
-slower than saying nothing. Operations CubeCL expands into several, such as `exp` on the CPU, carry
-the flags of the function they appear in.
+A kernel that says nothing gets each backend's default, which usually allows contraction: CubeCL
+fuses a product into the add that consumes it, and so may the driver. A function that says nothing
+gets its caller's set. A function that gives a set gets exactly that set, so
+`FastMath::NotNaN.into()` alone also forbids contraction and can run slower than saying nothing.
+Operations CubeCL expands into several, such as `exp` on the CPU, carry the flags of the function
+they appear in.
 
 To take optimizations away from every kernel, including those in other crates, see
 `disabled_fast_math` in the [configuration](./config.md).
@@ -81,7 +82,7 @@ as `exp` and vector reductions take none, so `ReducedPrecision` has no effect.
 Forbidden contraction prints add, subtract, multiply and divide as `__fadd_rn` and its siblings on
 CUDA, complex numbers and complex `powf` included, and as helpers compiled under
 `#pragma clang fp contract(off)` on HIP. `mod_floor` is written out in those. Half precision runs in
-`f32` for these, which rounds to the same result. No other flag has an effect.
+`f32` for these, which rounds to the same result. No other flag reaches the C++ compiler.
 
 #### Metal
 

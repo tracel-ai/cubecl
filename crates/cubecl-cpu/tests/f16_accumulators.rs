@@ -29,7 +29,7 @@ fn an_accumulator_keeps_adding_past_the_f16_step_size() {
 /// where reading the f32 leaves `1`.
 #[test]
 fn a_strict_operation_reads_the_rounded_accumulator() {
-    let difference = chains::accumulated_less_strictly::<f16>(&client(), 2048.0, 1.0, 1001, 3048.0);
+    let difference = chains::accumulated_minus_strict::<f16>(&client(), 2048.0, 1.0, 1001, 3048.0);
     assert_eq!(difference.to_f32(), 0.0);
 }
 

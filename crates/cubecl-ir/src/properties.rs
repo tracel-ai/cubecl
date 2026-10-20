@@ -168,16 +168,17 @@ impl MemoryDeviceProperties {
 ///
 /// `name` and `fingerprint` answer different questions and must not be confused. `name`
 /// is for people: it names the physical part, and two machines holding the same
-/// part report the same name. `fingerprint` is for correctness: it is verbatim
-/// the string this runtime passes to
-/// [`compilation_store`](../../cubecl_runtime/compiler/fn.compilation_store.html),
-/// which is what puts a compiled artifact out of reach of a machine that cannot
-/// run it.
+/// part report the same name. `fingerprint` is for correctness: it is the
+/// namespace
+/// [`compilation_store`](../../cubecl_runtime/compiler/fn.compilation_store.html)
+/// opens for this runtime's target, which is what puts a compiled artifact out
+/// of reach of a machine that cannot run it.
 ///
 /// Reporting the fingerprint here rather than recomputing it is the whole
-/// point: a backend derives it once and hands it to both consumers, so the
-/// identity a bundle is stamped with and the namespace its kernels live under
-/// cannot drift apart.
+/// point: a backend hands one target to both consumers, which extend it by the
+/// same compilation config, so the identity a bundle is stamped with and the
+/// namespace its kernels live under cannot drift apart. Passing the fingerprint
+/// itself to `compilation_store` would extend it twice.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct DeviceIdentity {
     /// The device as it names itself — `AMD Radeon 8060S Graphics`,
@@ -185,8 +186,8 @@ pub struct DeviceIdentity {
     /// and no compiled artifact may be keyed to it.
     pub name: String,
     /// What this runtime compiles *for* — `hip-kernel_gfx1151`, `ptx_sm90`.
-    /// Verbatim the `compilation_store` fingerprint, so a namespace read back
-    /// out of a bundle compares against it directly.
+    /// The `compilation_store` namespace, so a namespace read back out of a
+    /// bundle compares against it directly.
     pub fingerprint: String,
     /// The card behind the device, `None` for a device that is no card: a CPU, or a software
     /// rasterizer.

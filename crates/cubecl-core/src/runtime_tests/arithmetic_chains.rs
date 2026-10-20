@@ -51,7 +51,7 @@ fn strict_difference<F: Float>(lhs: F, rhs: F) -> F {
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_accumulate_less_strictly<F: Float>(input: &[F], output: &mut [F], steps: usize) {
+pub fn kernel_accumulate_minus_strict<F: Float>(input: &[F], output: &mut [F], steps: usize) {
     let mut total = input[0];
     for _ in 0..steps {
         total += input[1];
@@ -219,7 +219,7 @@ pub fn accumulated<F: Float + CubeElement>(
 }
 
 /// `accumulated`, less `subtrahend` in a function that allows no fast math.
-pub fn accumulated_less_strictly<F: Float + CubeElement>(
+pub fn accumulated_minus_strict<F: Float + CubeElement>(
     client: &Client,
     start: f64,
     step: f64,
@@ -231,7 +231,7 @@ pub fn accumulated_less_strictly<F: Float + CubeElement>(
         &[F::new(start), F::new(step), F::new(subtrahend)],
         1,
         |input, output| unsafe {
-            kernel_accumulate_less_strictly::launch_unchecked::<F>(
+            kernel_accumulate_minus_strict::launch_unchecked::<F>(
                 client,
                 CubeCount::new_single(),
                 CubeDim::new_1d(1),

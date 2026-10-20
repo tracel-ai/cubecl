@@ -87,6 +87,7 @@ use std::{fmt::Debug, sync::Arc};
 
 pub struct KernelInfo {
     pub cube_dim: Dim3,
+    pub may_use_float_controls2: bool,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -130,6 +131,7 @@ impl Compiler for SpirvCompiler {
         ctx.set_aux_ty::<WgpuCompilationOptions>(*compilation_options);
         ctx.set_aux_ty::<KernelInfo>(KernelInfo {
             cube_dim: value.settings.cube_dim,
+            may_use_float_controls2: compilation_options.vulkan.supports_fp_fast_math,
         });
 
         let (module, bindings, io, shared_size) = self.compile_kernel(
@@ -271,9 +273,7 @@ impl SpirvCompiler {
         let preserved_widths = ieee_special_value_widths(ctx, module_op);
         // NVIDIA ignores `NoContraction` in a module that uses float_controls2.
         if module_op.contains_forbidden_contraction(ctx) {
-            ctx.aux_ty_mut::<WgpuCompilationOptions>()
-                .vulkan
-                .supports_fp_fast_math = false;
+            ctx.aux_ty_mut::<KernelInfo>().may_use_float_controls2 = false;
         }
 
         let bindings = (0..entry.deref(ctx).get_num_arguments()).map(|i| {
@@ -471,7 +471,7 @@ pub(crate) fn decorate_fast_math(ctx: &Context, cube_op: Ptr<Operation>, op: Ptr
     let vulkan = ctx.aux_ty::<WgpuCompilationOptions>().vulkan;
     let widths = float_widths(ctx, cube_op);
     let mut mode = fp_fast_math_mode(fast_math_op.permitted(ctx));
-    if !vulkan.supports_fp_fast_math
+    if !ctx.aux_ty::<KernelInfo>().may_use_float_controls2
         || widths.is_empty()
         || mode == fp_fast_math_mode(FastMath::all())
     {

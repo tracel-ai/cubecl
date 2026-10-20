@@ -342,6 +342,45 @@ pub fn test_strict_mod_floor_rounds_each_operation<R: Runtime>(client: Client) {
     assert_eq!(f32::from_bytes(&actual), [0.5]);
 }
 
+#[cube(launch_unchecked, fast_math = FastMath::none())]
+fn strict_vector_sum_and_dot(input: &[Vector<f32, Const<2>>], output: &mut [f32]) {
+    output[0] = input[0].vector_sum();
+    output[1] = Vector::dot(input[0], input[1]);
+}
+
+/// A lane sum that starts from `+0` turns `-0 + -0` into `+0`.
+pub fn test_strict_vector_sum_and_dot_keep_negative_zero<R: Runtime>(client: Client) {
+    if !client.properties().features.ieee_special_values {
+        return;
+    }
+    let input = client.create_from_slice(f32::as_bytes(&[-0.0, -0.0, 1.0, 1.0]));
+    let output = client.empty(2 * size_of::<f32>());
+    unsafe {
+        strict_vector_sum_and_dot::launch_unchecked(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(1),
+            BufferArg::from_raw_parts(input, 2),
+            BufferArg::from_raw_parts(output.clone(), 2),
+        )
+    };
+
+    let actual = client.read_one_unchecked(output);
+    let actual = f32::from_bytes(&actual);
+    assert_eq!(
+        actual[0].to_bits(),
+        (-0.0f32).to_bits(),
+        "vector_sum([-0, -0]) is -0, got {}",
+        actual[0]
+    );
+    assert_eq!(
+        actual[1].to_bits(),
+        (-0.0f32).to_bits(),
+        "dot([-0, -0], [1, 1]) is -0, got {}",
+        actual[1]
+    );
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_fast_math {
@@ -364,6 +403,7 @@ macro_rules! testgen_fast_math {
             add_test!(test_strict_keeps_nan_infinity_and_signed_zero);
             add_test!(test_strict_keeps_special_values_without_arithmetic);
             add_test!(test_strict_mod_floor_rounds_each_operation);
+            add_test!(test_strict_vector_sum_and_dot_keep_negative_zero);
         }
     };
 }
