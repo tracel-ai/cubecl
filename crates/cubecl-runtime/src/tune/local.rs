@@ -39,7 +39,8 @@ struct DeviceTuning<AK: AutotuneKey> {
 
 /// What a device holds for one candidate list.
 struct ListTuning<AK: AutotuneKey> {
-    /// Padded: other lookups read this node while this device locks it on every launch.
+    /// Padded: every launch on this device writes the lock, and the allocation beside it may be
+    /// another device's.
     picks: CachePadded<Mutex<Picks<AK>>>,
 }
 

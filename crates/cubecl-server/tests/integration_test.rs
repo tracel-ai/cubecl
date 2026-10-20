@@ -999,6 +999,101 @@ fn an_execute_after_a_switch_tunes_in_the_new_environment() {
 }
 
 #[test_log::test]
+// `autotune-checks` also runs every candidate outside the tune, so the gate would hold the wrong run.
+#[cfg(all(feature = "std", persistence, not(feature = "autotune-checks")))]
+#[serial_test::serial]
+fn a_tune_begun_before_a_switch_leaves_the_key_to_the_new_environment() {
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("a_tune_begun_before_a_switch_leaves_the_key_to_the_new_environment");
+    let (first, second) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    rooted_at(first.path());
+
+    let gate = Arc::new(Gate {
+        passed: std::sync::atomic::AtomicBool::new(false),
+        barrier: std::sync::Barrier::new(2),
+    });
+    let (stale, fresh) = ("stale".to_string(), "fresh".to_string());
+    let stale_client = test_client(&DummyDevice);
+    let fresh_client = Client::load::<DummyServer>(DeviceId::new(0, 1));
+    let stale_set = TUNER.init(&stale, {
+        let gate = gate.clone();
+        move || {
+            one_winner_set(
+                test_client(&DummyDevice),
+                dummy::Addition::Correct,
+                Some(gate.clone()),
+            )
+        }
+    });
+    let fresh_set = TUNER.init(&fresh, || {
+        one_winner_set(
+            Client::load::<DummyServer>(DeviceId::new(0, 1)),
+            dummy::Addition::SlowAndWrong,
+            None,
+        )
+    });
+    let (stale_handles, key) = addition_inputs(&stale_client, &stale_set);
+    let (fresh_handles, _) = addition_inputs(&fresh_client, &fresh_set);
+
+    std::thread::scope(|scope| {
+        let tuning =
+            scope.spawn(|| TUNER.execute(&stale, &stale_client, stale_set.clone(), stale_handles));
+        gate.barrier.wait();
+        cubecl_environment::environment::set_root(second.path());
+        TUNER.execute(&fresh, &fresh_client, fresh_set.clone(), fresh_handles);
+        gate.barrier.wait();
+        tuning.join().unwrap();
+    });
+
+    assert_eq!(
+        TUNER.fastest_identity(&fresh, &fresh_set, &key),
+        Some(dummy::Addition::Correct),
+        "the tune begun under the first environment overwrote the second's pick"
+    );
+}
+
+/// Holds a candidate's first run until the test has passed it twice.
+#[cfg(all(feature = "std", persistence, not(feature = "autotune-checks")))]
+struct Gate {
+    passed: std::sync::atomic::AtomicBool,
+    barrier: std::sync::Barrier,
+}
+
+/// An addition set whose `failing` candidate errors, so its tune has one winner. With a `gate`, the
+/// other candidate's first run waits at it.
+#[cfg(all(feature = "std", persistence, not(feature = "autotune-checks")))]
+fn one_winner_set(
+    client: DummyClient,
+    failing: dummy::Addition,
+    gate: Option<Arc<Gate>>,
+) -> TunableSet<String, Vec<Handle>, (), dummy::Addition> {
+    let candidate = move |identity: dummy::Addition, gate: Option<Arc<Gate>>| {
+        let op = OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseAddition),
+            client.clone(),
+        );
+        cubecl_server::tune::Tunable::identified(identity, move |inputs: Vec<Handle>| {
+            if identity == failing {
+                return Err("fails on this card".to_string());
+            }
+            if let Some(gate) = &gate
+                && !gate.passed.swap(true, Ordering::Relaxed)
+            {
+                gate.barrier.wait();
+                gate.barrier.wait();
+            }
+            op.run(inputs)
+        })
+    };
+    TunableSet::new(
+        |_: &Vec<Handle>| "one-winner".to_string(),
+        cubecl_server::tune::CloneInputGenerator,
+    )
+    .with(candidate(dummy::Addition::Correct, gate.clone()))
+    .with(candidate(dummy::Addition::SlowAndWrong, gate))
+}
+
+#[test_log::test]
 #[cfg(feature = "std")]
 #[serial_test::serial]
 fn a_cleared_tuner_settles_its_keys_again() {
