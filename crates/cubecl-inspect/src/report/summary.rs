@@ -1,4 +1,4 @@
-use super::{AutotuneTable, SessionRecords};
+use super::{Activity, AutotuneTable};
 use cubecl_environment::bundle::BundleManifest;
 use cubecl_environment::persistence::NamespaceSummary;
 use cubecl_environment::records::{self, Session};
@@ -26,18 +26,10 @@ pub struct Summary {
 #[derive(Clone, Debug, Serialize)]
 pub struct SessionRow {
     pub session: Session,
-    /// Keys it tuned.
-    pub tunes: u64,
-    /// The walls of those tunes, summed.
-    pub tuning: Duration,
-    /// Kernels it compiled or loaded.
-    pub compilations: u64,
-    /// The time those took: a batch compiled on several threads takes its
-    /// wall, not the sum of its kernels' work.
-    pub compiling: Duration,
-    /// The part of [`compiling`](Self::compiling) that happened inside a
-    /// tune, and so is also part of [`tuning`](Self::tuning).
-    pub compiling_in_tunes: Duration,
+    /// Flattened, so a JSON reader finds `tuning` and `compiling` on the
+    /// session.
+    #[serde(flatten)]
+    pub activity: Activity,
     /// From the session's start to the end of its last recorded span: a floor
     /// on how long the process ran, since nothing records its exit.
     pub span: Duration,
@@ -152,38 +144,12 @@ impl Summary {
 }
 
 impl SessionRow {
-    /// What one session's `records` add up to.
-    pub fn new(records: SessionRecords<'_>) -> Self {
-        let compiling = records.compiling();
-        let mut row = Self {
-            session: records.session().clone(),
-            tunes: 0,
-            tuning: Duration::ZERO,
-            compilations: records.compilations().count() as u64,
-            compiling: compiling.wall(),
-            compiling_in_tunes: Duration::ZERO,
-            span: compiling.end(),
-        };
-        for trace in records.tunes() {
-            row.tunes += 1;
-            row.tuning += trace.record.wall;
-            row.compiling_in_tunes += compiling.during(trace);
-            row.span = row.span.max(trace.stamp.offset + trace.record.wall);
-        }
-        // A phase after the last compile — a walk served from the store —
-        // still ran.
-        for mark in records.marks() {
-            row.span = row.span.max(mark.stamp.offset + mark.record.wall);
-        }
-        row
-    }
-
     /// The span less the tunes and the compilations outside them: loading,
     /// running, everything the records do not name.
     pub fn other(&self) -> Duration {
         self.span
-            .saturating_sub(self.tuning)
-            .saturating_sub(self.compiling.saturating_sub(self.compiling_in_tunes))
+            .saturating_sub(self.activity.tuning)
+            .saturating_sub(self.activity.compiling_outside_tunes())
     }
 }
 

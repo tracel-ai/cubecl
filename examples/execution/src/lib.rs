@@ -319,7 +319,7 @@ impl std::fmt::Display for Summary {
         } = self.0;
         write!(
             f,
-            "kernels {}/{} ({} compiled, {} loaded, {} failed) · tunes {}/{} ({} measured, {} failed)",
+            "kernels {}/{} ({} compiled, {} loaded, {} failed) · tunes {}/{} ({} measured, {} loaded, {} failed)",
             compilation.settled(),
             compilation.registered,
             compilation.compiled,
@@ -328,6 +328,7 @@ impl std::fmt::Display for Summary {
             autotune.settled(),
             autotune.registered,
             autotune.measured,
+            autotune.loaded,
             autotune.failed,
         )
     }
