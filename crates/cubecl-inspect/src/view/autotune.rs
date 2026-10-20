@@ -87,7 +87,7 @@ impl fmt::Display for Header<'_> {
                 "{} on {}{} (cubecl {})",
                 key.table.tuner,
                 key.table.device,
-                Via(key.table.fingerprint.as_deref()),
+                Via(key.table.naming.fingerprint()),
                 key.table.version
             ),
         )?;

@@ -1,13 +1,13 @@
 use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneInputs, Tuner};
 #[cfg(feature = "autotune-checks")]
 use crate::tune::AutotuneLoggerExt;
-use crate::{client::Client, tune::TuneCacheResult};
+use crate::{client::Client, device::HardwareIdentity, tune::TuneCacheResult};
+#[cfg(feature = "autotune-checks")]
 use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::{
     any::{Any, TypeId},
-    fmt::Display,
     hash::Hash,
 };
 use cubecl_environment::collections::HashMap;
@@ -22,9 +22,67 @@ type Sets<ID> = RwLock<Option<HashMap<(TypeId, ID), Arc<dyn Any + Send + Sync>>>
 /// A local tuner allows to create a tuner for a specific key that can be different from the server
 /// key.
 pub struct LocalTuner<AK: AutotuneKey, ID> {
-    state: Mutex<Option<HashMap<ID, Arc<Tuner<AK>>>>>,
+    state: Mutex<Option<Tuners<AK, ID>>>,
     name: &'static str,
     sets: Sets<ID>,
+}
+
+/// The tuners a [`LocalTuner`] opened. An id keeps a tuner per candidate list it executed, shared
+/// with the ids of its hardware, so ids of the same hardware running one list tune a key once for
+/// all of them.
+struct Tuners<AK: AutotuneKey, ID> {
+    /// An id's tuners, by the checksum of the list each runs.
+    by_id: HashMap<ID, HashMap<u64, Arc<Tuner<AK>>>>,
+    opened: HashMap<TunerIdentity, Arc<Tuner<AK>>>,
+}
+
+/// Which tuner a device's executes reach: one per hardware and candidate list.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct TunerIdentity {
+    hardware: HardwareIdentity,
+    /// The low half of the candidate list's [`compute_checksum`](TunableSet::compute_checksum): each
+    /// device builds its own list, and one of the same hardware may build another.
+    checksum: u64,
+}
+
+impl<AK: AutotuneKey, ID: Hash + Eq + Clone> Tuners<AK, ID> {
+    fn new() -> Self {
+        Self {
+            by_id: HashMap::new(),
+            opened: HashMap::new(),
+        }
+    }
+
+    /// The tuner `id` executes `operations` on, opened by the first id of its hardware to execute
+    /// the same candidate list.
+    fn get_or_open<I: TuneInputs, Out, Id>(
+        &mut self,
+        id: &ID,
+        name: &str,
+        client: &Client,
+        operations: &TunableSet<AK, I, Out, Id>,
+    ) -> Arc<Tuner<AK>> {
+        let checksum = operations.checksum();
+        if let Some(tuner) = self.by_id.get(id).and_then(|lists| lists.get(&checksum)) {
+            return tuner.clone();
+        }
+        let identity = TunerIdentity {
+            hardware: client.hardware_identity(),
+            checksum,
+        };
+        let tuner = self
+            .opened
+            .entry(identity)
+            .or_insert_with_key(|identity| {
+                Arc::new(Tuner::new(&name.replace("::", "-"), &identity.hardware))
+            })
+            .clone();
+        self.by_id
+            .entry(id.clone())
+            .or_default()
+            .insert(checksum, tuner.clone());
+        tuner
+    }
 }
 
 /// Create a local tuner with the provided name.
@@ -43,7 +101,7 @@ pub use local_tuner;
 impl<AK, ID> LocalTuner<AK, ID>
 where
     AK: AutotuneKey + 'static,
-    ID: Hash + PartialEq + Eq + Clone + Display,
+    ID: Hash + PartialEq + Eq + Clone,
 {
     /// Create a new local tuner.
     pub const fn new(name: &'static str) -> Self {
@@ -111,17 +169,16 @@ where
 
     /// What the fastest tunable in `operations` for `key` on `id` is
     /// [identified](super::Tunable::identified) by: `None` until a result for the key is
-    /// settled — tuned by a round in this process, or read back from disk and validated by an
+    /// settled, tuned by a round in this process or read back from disk by an
     /// [`execute`](Self::execute).
     ///
-    /// `operations` must be the set `id` executes, as [`init`](Self::init) returns it for the
-    /// initializer `execute` is handed: a result is an index into that set, and results are kept
-    /// per `id` alone, so a set another initializer built under the same `id` would map it onto
-    /// another tunable.
+    /// Results are shared by every `id` of the same [hardware](crate::device::HardwareIdentity)
+    /// executing the same candidates, from the first [`execute`](Self::execute) of each: an `id`
+    /// that has not executed `operations` sees none.
     ///
     /// It reads results and never produces one: it never starts a round, never waits on one in
-    /// flight, never validates a persisted result, and never resets the tuner's cache after an
-    /// environment switch — it reports nothing settled there until the next `execute`.
+    /// flight, never reads the persistent cache, and never resets the tuner's cache after an
+    /// environment switch. It reports nothing settled there until the next `execute`.
     pub fn fastest_identity<I, Out, Id>(
         &self,
         id: &ID,
@@ -132,16 +189,21 @@ where
         I: TuneInputs,
         Id: Clone,
     {
-        let tuner = self.state.lock().as_ref()?.get(id)?.clone();
+        let tuner = self
+            .state
+            .lock()
+            .as_ref()?
+            .by_id
+            .get(id)?
+            .get(&operations.checksum())?
+            .clone();
         let fastest_index = tuner.settled(key)?;
         Some(operations.identity(fastest_index).clone())
     }
 
     /// Clear the autotune state.
     pub fn clear(&self) {
-        if let Some(s) = self.state.lock().as_mut() {
-            s.clear()
-        }
+        self.state.lock().take();
     }
 
     #[cfg(feature = "autotune-checks")]
@@ -178,43 +240,39 @@ where
     {
         let key = operations.generate_key(&inputs);
 
-        let tuner = {
-            let mut state_lock = self.state.lock();
-            let state_map = state_lock.get_or_insert_with(|| HashMap::new());
-            state_map
-                .entry(id.clone())
-                .or_insert_with(move || {
-                    let name = self.name.replace("::", "-");
-                    let fingerprint = &client.properties().identity.fingerprint;
-                    Arc::new(Tuner::new(&name, &id.to_string(), fingerprint))
-                })
-                .clone()
-        };
-
-        #[allow(unused_mut)]
-        let mut log_context = crate::tune::AutotuneLogContext::new(&mut tuner.logger().lock());
-
-        #[cfg(feature = "autotune-checks")]
-        log_context.set_checks(|| self.checks::<I, Out, Id>(&operations, &inputs));
+        let tuner = self
+            .state
+            .lock()
+            .get_or_insert_with(Tuners::new)
+            .get_or_open(id, self.name, client, &operations);
 
         // Fast path: a cached hit skips straight to the fastest operation.
         // `fastest` also resets the tuner cache if the environment switched, so
-        // a miss here falls through to `check_tune`, which re-hydrates.
+        // a miss here falls through to `check_tune`, which reads the store.
         if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
+            // `autotune-checks` cross-checks the candidates of every launch, a hit's included.
+            // Bound first, so the logger guard drops before the checks run every candidate.
+            #[cfg(feature = "autotune-checks")]
+            {
+                let mut log_context =
+                    crate::tune::AutotuneLogContext::new(&mut tuner.logger().lock());
+                log_context.set_checks(|| self.checks::<I, Out, Id>(&operations, &inputs));
+            }
             return operations
                 .fastest(fastest_index)
                 .execute(inputs)
                 .expect("Should run when selected by autotune.");
         }
 
-        let fastest = tuner.check_tune::<I, Out, Id>(
-            &key,
-            &inputs,
-            &operations,
-            || operations.compute_checksum(),
-            client,
-            log_context,
-        );
+        // Built after the fast path: a hit logs nothing, so it takes no logger lock.
+        #[allow(unused_mut)]
+        let mut log_context = crate::tune::AutotuneLogContext::new(&mut tuner.logger().lock());
+
+        #[cfg(feature = "autotune-checks")]
+        log_context.set_checks(|| self.checks::<I, Out, Id>(&operations, &inputs));
+
+        let fastest =
+            tuner.check_tune::<I, Out, Id>(&key, &inputs, &operations, client, log_context);
 
         // Run the execution depending on the cache state.
         match fastest {
@@ -222,7 +280,7 @@ where
                 .fastest(fastest_index)
                 .execute(inputs)
                 .expect("Should run when selected by autotune."),
-            TuneCacheResult::Unchecked | TuneCacheResult::Miss => {
+            TuneCacheResult::Miss => {
                 panic!(
                     "Somehow we STILL didn't check a tuning checksum or start tuning, something has gone wrong."
                 )
