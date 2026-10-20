@@ -81,7 +81,6 @@ pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
         ElemType::Int(IntKind::I32),
         ElemType::Float(FloatKind::F32),
         ElemType::Float(FloatKind::Flex32),
-        ElemType::Bool,
     ];
 
     let supported_atomic_types = [ElemType::Int(IntKind::I32), ElemType::UInt(UIntKind::U32)];
@@ -89,6 +88,11 @@ pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
     for ty in supported_types {
         props.register_type_usage(ty, TypeUsage::all())
     }
+
+    // A `bool` element is usable as a value but not storable on this path: WGSL
+    // has no host-shareable `bool` buffer. Claiming `Buffer` would let the
+    // backend declare one; the builder records a validation error instead.
+    props.register_type_usage(ElemType::Bool, TypeUsage::all() - TypeUsage::Buffer);
 
     // Converted through the software polyfill, packed four to a u32. Buffers of fp8 do work at
     // any multiple of four lanes, but `TypeUsage` is per element type and cannot say "buffer,

@@ -626,6 +626,21 @@ mod tests {
     use alloc::string::ToString;
 
     #[test]
+    fn a_type_usable_as_a_value_is_not_necessarily_storable() {
+        let mut features = crate::features::Features::default();
+        features
+            .types
+            .elem
+            .insert(ElemType::Float(crate::FloatKind::F32), TypeUsage::all());
+        features
+            .types
+            .elem
+            .insert(ElemType::Bool, TypeUsage::all() - TypeUsage::Buffer);
+        assert!(features.supports_buffer(ElemType::Float(crate::FloatKind::F32)));
+        assert!(!features.supports_buffer(ElemType::Bool));
+    }
+
+    #[test]
     fn a_device_without_a_fixed_register_set_has_no_budget() {
         assert_eq!(VectorRegisters::new(&hardware(128, None), 4), None);
     }

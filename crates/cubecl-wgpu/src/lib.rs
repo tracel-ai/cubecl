@@ -136,7 +136,8 @@ fn double(@builtin(global_invocation_id) id: vec3<u32>) {
             }
         }
 
-        /// No cast at all, so only the WGSL type printer ever sees the fp8.
+        /// No cast at all: the fp8 is in the buffers themselves, which a device that cannot
+        /// store E4M3 refuses before the WGSL type printer sees the lanes.
         #[cube(launch_unchecked)]
         fn copy_fp8<N: Size>(input: &[Vector<e4m3, N>], out: &mut [Vector<e4m3, N>]) {
             if ABSOLUTE_POS < input.len() {
@@ -144,14 +145,18 @@ fn double(@builtin(global_invocation_id) id: vec3<u32>) {
             }
         }
 
-        fn assert_rejected(client: &Client, out: Handle) {
+        /// The packing rule the WGSL printer reports for two fp8 lanes.
+        const PACKING: &str = "fp8 on WGSL is packed 4 lanes to a u32";
+
+        /// `reasons` are the refusals the caller may see, any one of which is enough.
+        fn assert_rejected(client: &Client, out: Handle, reasons: &[&str]) {
             let err = client
                 .read_one(out)
                 .expect_err("two fp8 lanes have no WGSL representation, the launch must fail")
                 .to_string();
             assert!(
-                err.contains("fp8 on WGSL is packed 4 lanes to a u32"),
-                "the packing rule has to be in the error the caller sees, got: {err}"
+                reasons.iter().any(|reason| err.contains(reason)),
+                "the reason has to be in the error the caller sees, got: {err}"
             );
         }
 
@@ -170,7 +175,7 @@ fn double(@builtin(global_invocation_id) id: vec3<u32>) {
                     BufferArg::from_raw_parts(out.clone(), 16),
                 )
             };
-            assert_rejected(&client, out);
+            assert_rejected(&client, out, &[PACKING]);
         }
 
         #[test]
@@ -188,7 +193,13 @@ fn double(@builtin(global_invocation_id) id: vec3<u32>) {
                     BufferArg::from_raw_parts(out.clone(), 32),
                 )
             };
-            assert_rejected(&client, out);
+            // The buffers themselves are fp8 here, and a device that cannot store an E4M3
+            // buffer refuses the kernel on that before the printer reaches the lanes.
+            assert_rejected(
+                &client,
+                out,
+                &[PACKING, "this device cannot store a buffer of Float(E4M3)"],
+            );
         }
     }
 
