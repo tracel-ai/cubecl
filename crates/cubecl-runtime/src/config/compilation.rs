@@ -1,3 +1,4 @@
+use alloc::{format, string::String};
 use cubecl_ir::DisabledFastMath;
 
 use super::logger::{LogLevel, LoggerConfig};
@@ -46,6 +47,16 @@ impl CompilationConfig {
         let threads = 1;
 
         threads.max(1)
+    }
+
+    /// `target`, what a runtime compiles for, extended by the settings here that change every
+    /// kernel it compiles.
+    pub fn fingerprint(&self, target: &str) -> String {
+        let disabled = self.disabled_fast_math.optimizations();
+        match disabled.is_empty() {
+            true => String::from(target),
+            false => format!("{target}-disabled_fast_math_{:x}", disabled.as_u64()),
+        }
     }
 }
 

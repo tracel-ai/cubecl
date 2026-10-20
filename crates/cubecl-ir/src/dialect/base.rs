@@ -5,6 +5,7 @@ use crate::{
     dialect::math::{FAddOp, FDivOp, FMulOp, FSubOp},
     interfaces::fast_math::FastMathOp,
     prelude::*,
+    rewrite::visit_all_ops_with_interface,
     types::{AtomicType, PointerType},
 };
 
@@ -40,6 +41,8 @@ pub trait OperationPtrExt: Sized {
     /// Whether this is arithmetic a downstream compiler could fuse with its neighbours, in a
     /// kernel that forbids it.
     fn forbids_contraction(self, ctx: &Context) -> bool;
+    /// Whether this op, or one nested in it, [forbids contraction](Self::forbids_contraction).
+    fn contains_forbidden_contraction(self, ctx: &Context) -> bool;
 
     fn is_ancestor_of(self, ctx: &Context, other: Ptr<Operation>) -> bool;
 }
@@ -136,6 +139,18 @@ impl OperationPtrExt for Ptr<Operation> {
         fusable
             && op_cast::<dyn FastMathOp>(&*self.dyn_op(ctx))
                 .is_some_and(|op| !op.allows_contraction(ctx))
+    }
+    fn contains_forbidden_contraction(self, ctx: &Context) -> bool {
+        let mut found = false;
+        visit_all_ops_with_interface::<dyn FastMathOp, _>(
+            ctx,
+            &mut found,
+            self,
+            |ctx, found, op| {
+                *found |= op.get_operation().forbids_contraction(ctx);
+            },
+        );
+        found
     }
 
     fn is_ancestor_of(self, ctx: &Context, mut child: Ptr<Operation>) -> bool {

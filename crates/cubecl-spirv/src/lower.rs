@@ -1,5 +1,5 @@
 use cubecl_core::ir::{Scope, prelude::*, verify_op_succ};
-use cubecl_ir::NamedRewrite;
+use cubecl_ir::{NamedRewrite, interfaces::fast_math::FastMathOp};
 use pliron::derive::op_interface;
 
 #[op_interface]
@@ -101,6 +101,11 @@ macro_rules! lower_binop {
     };
 }
 pub(crate) use lower_binop;
+
+/// Whether `op` is written out in arithmetic that each carries `NoContraction`.
+pub(crate) fn spelled_out(op: &impl FastMathOp, ctx: &Context) -> bool {
+    !op.allows_contraction(ctx)
+}
 
 pub(crate) fn closure_inference_hack<T, R>(
     val: &T,

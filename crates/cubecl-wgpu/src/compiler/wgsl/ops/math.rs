@@ -196,7 +196,7 @@ impl LowerOp for SModFloorOp {
         )]
     }
 }
-lower_binop!(FModFloorOp, f_mod_floor);
+lower_binop!(FModFloorOp, float_mod_floor);
 
 lower_unop!(TanhOp, safe_tanh, |_, _| cfg!(target_os = "macos"));
 
@@ -263,11 +263,6 @@ fn abs_and_inf_bits<F: Float, N: Size>(x: Vector<F, N>) -> (Vector<UInt, N>, Vec
     let inf_bits = Vector::new(UInt::from_int(inf_bits));
     let abs_bits = bits & Vector::new(UInt::from_int(abs_mask));
     (abs_bits, inf_bits)
-}
-
-#[cube]
-fn f_mod_floor<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> Vector<F, N> {
-    lhs - rhs * (lhs / rhs).floor()
 }
 
 #[op_interface_impl]

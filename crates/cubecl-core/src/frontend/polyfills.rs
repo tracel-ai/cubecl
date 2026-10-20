@@ -48,6 +48,12 @@ fn signed_mod_floor<I: Int, N: Size>(lhs: Vector<I, N>, rhs: Vector<I, N>) -> Ve
     remainder + select_many(adjust, rhs, zero)
 }
 
+/// Floor modulo, spelled out so each operation carries the fast-math permissions of its scope.
+#[cube]
+pub fn float_mod_floor<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> Vector<F, N> {
+    lhs - rhs * (lhs / rhs).floor()
+}
+
 /// Lower NaN-preserving clamp to the corresponding binary operations.
 pub fn expand_clamp_nan(scope: &Scope, input: Value, min: Value, max: Value) -> Value {
     use cubecl_ir::dialect::cmp::{FMaxNanOp, FMinNanOp};

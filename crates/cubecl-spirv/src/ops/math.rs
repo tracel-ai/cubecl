@@ -7,7 +7,7 @@ use pliron_spirv::{
 
 use crate::{
     decorate_uniform,
-    lower::{LowerOp, lower_binop, lower_unop},
+    lower::{LowerOp, lower_binop, lower_unop, spelled_out},
     ops::{
         base::{binop_to_spirv_dialect, ternop_to_spirv_dialect, unop_to_spirv_dialect},
         to_spirv_dialect::ToSpirvDialectOp,
@@ -32,6 +32,9 @@ binop_to_spirv_dialect!(math::URemOp => ops::UModOp);
 binop_to_spirv_dialect!(math::FRemOp => ops::FRemOp);
 lower_binop!(math::SModFloorOp, signed_mod_floor);
 binop_to_spirv_dialect!(math::FModFloorOp => ops::FModOp);
+// `OpFMod` takes its precision from its formula, which a driver may fuse inside the one
+// instruction.
+lower_binop!(math::FModFloorOp, float_mod_floor, spelled_out);
 
 // Vulkan only defines OpSRem/OpSMod for negative operands when maintenance8 is
 // enabled. Reconstruct the truncating remainder using integer arithmetic so

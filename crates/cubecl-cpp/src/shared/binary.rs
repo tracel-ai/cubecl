@@ -1,7 +1,7 @@
 use core::fmt::Display;
 use cubecl_core::{
     self as cubecl, define_scalar, define_size,
-    frontend::polyfills::{expand_dp4a_polyfill, powi_int},
+    frontend::polyfills::{expand_dp4a_polyfill, float_mod_floor, powi_int},
     ir::{
         dialect::{
             bitwise::*,
@@ -10,7 +10,7 @@ use cubecl_core::{
             math::*,
             memory::{self, IndexOp},
         },
-        interfaces::TypedExt,
+        interfaces::{TypedExt, fast_math::FastMathOp},
         prelude::*,
         types::{ArrayType, PointerType, scalar::Float64Type},
     },
@@ -249,6 +249,10 @@ macro_rules! lower_target_binop {
 }
 pub(crate) use lower_target_binop;
 
+lower_binop!(FModFloorOp, float_mod_floor, |op, ctx| {
+    !op.allows_contraction(ctx)
+});
+
 #[cube]
 fn min_bf16<T: Numeric, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T, N> {
     let lhs = Vector::<f32, N>::cast_from(lhs);
@@ -436,7 +440,13 @@ impl LowerOp for FClampNanOp {
 }
 
 shared_op_with_out!(PowfOp, |op, ctx| {
-    format!("pow({}, {})", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
+    let lhs = op.lhs(ctx).name(ctx);
+    let rhs = op.rhs(ctx).name(ctx);
+    let complex = op.get_result(ctx).is_complex(ctx);
+    match ctx.target() == Target::Cuda && complex && !op.allows_contraction(ctx) {
+        true => format!("cubecl_cpow_rn({lhs}, {rhs})"),
+        false => format!("pow({lhs}, {rhs})"),
+    }
 });
 unrolling!(PowfOp);
 no_half!(PowfOp);

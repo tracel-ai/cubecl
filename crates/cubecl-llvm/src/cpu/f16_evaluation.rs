@@ -459,10 +459,19 @@ fn loop_depth(ctx: &Context, op: Ptr<Operation>) -> usize {
     depth
 }
 
+/// A cast to f32 that an f16 held in f32 can stand in for: one no strict op reads, since a
+/// strict op must see the f16 its operand rounds to.
 fn is_widening(ctx: &Context, op: Ptr<Operation>) -> bool {
-    op.is_op::<CastOp>(ctx)
-        && is_f16(ctx, op.operand(ctx, 0))
-        && scalar_is::<Float32Type>(ctx, op.deref(ctx).get_result(0))
+    if !op.is_op::<CastOp>(ctx) {
+        return false;
+    }
+    let wide = op.deref(ctx).get_result(0);
+    is_f16(ctx, op.operand(ctx, 0))
+        && scalar_is::<Float32Type>(ctx, wide)
+        && !wide
+            .uses(ctx)
+            .iter()
+            .any(|r#use| rounds_in_f16(ctx, r#use.user_op()))
 }
 
 fn widen_ty(ctx: &mut Context, ty: TypeHandle) -> TypeHandle {

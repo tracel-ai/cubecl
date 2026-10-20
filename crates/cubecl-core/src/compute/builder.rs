@@ -6,7 +6,7 @@ use pliron::r#type::TypeHandle;
 use crate::{KernelExpansion, KernelIntegrator, prelude::KernelDefinition};
 use alloc::collections::BTreeMap;
 use cubecl_ir::{
-    ContextExt, DeviceProperties, ElemType, Scope, TargetProperties,
+    DeviceProperties, ElemType, Scope, TargetProperties,
     metadata::{INFO_ALIGN, Info, Metadata, SizedInfoField},
     pliron::value::Value,
     settings::KernelSettings,
@@ -143,12 +143,8 @@ impl KernelBuilder {
         };
         settings.debug_symbols |= debug;
 
-        let scope = Scope::root(settings.clone());
-        let disabled = CubeClRuntimeConfig::get().compilation.disabled_fast_math;
-        scope.ctx_mut().set_aux_ty(disabled);
-
         Self {
-            scope,
+            scope: Scope::root(settings.clone()),
             scalars: Default::default(),
             settings,
             buffer_idx: 0,

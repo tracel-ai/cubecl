@@ -45,6 +45,20 @@ pub fn kernel_accumulate<F: Float>(input: &[F], output: &mut [F], steps: usize) 
     output[0] = total;
 }
 
+#[cube(fast_math = FastMath::none())]
+fn strict_difference<F: Float>(lhs: F, rhs: F) -> F {
+    lhs - rhs
+}
+
+#[cube(launch_unchecked)]
+pub fn kernel_accumulate_less_strictly<F: Float>(input: &[F], output: &mut [F], steps: usize) {
+    let mut total = input[0];
+    for _ in 0..steps {
+        total += input[1];
+    }
+    output[0] = strict_difference::<F>(total, input[2]);
+}
+
 #[cube(launch_unchecked)]
 pub fn kernel_accumulate_vector<F: Float, N: Size>(
     input: &[Vector<F, N>],
@@ -193,6 +207,31 @@ pub fn accumulated<F: Float + CubeElement>(
         1,
         |input, output| unsafe {
             kernel_accumulate::launch_unchecked::<F>(
+                client,
+                CubeCount::new_single(),
+                CubeDim::new_1d(1),
+                input,
+                output,
+                steps,
+            )
+        },
+    )[0]
+}
+
+/// `accumulated`, less `subtrahend` in a function that allows no fast math.
+pub fn accumulated_less_strictly<F: Float + CubeElement>(
+    client: &Client,
+    start: f64,
+    step: f64,
+    steps: usize,
+    subtrahend: f64,
+) -> F {
+    run(
+        client,
+        &[F::new(start), F::new(step), F::new(subtrahend)],
+        1,
+        |input, output| unsafe {
+            kernel_accumulate_less_strictly::launch_unchecked::<F>(
                 client,
                 CubeCount::new_single(),
                 CubeDim::new_1d(1),

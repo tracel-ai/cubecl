@@ -81,15 +81,18 @@ pub trait FastMathOp {
             .set_attr(ctx, &ATTR_KEY_FAST_MATH, FastMathAttr(fast_math));
     }
 
-    /// Whether this op allows every optimization in `required`. An op the kernel said nothing
-    /// about allows all that are not disabled, which is how cubecl's own passes treat every op by
-    /// default.
+    /// The optimizations this op may use. An op the kernel said nothing about may use all that
+    /// are not disabled, which is how cubecl's own passes treat every op by default.
+    fn permitted(&self, ctx: &Context) -> EnumSet<FastMath> {
+        let allowed = self
+            .get_operation()
+            .get_attr::<FastMathAttr>(ctx, &ATTR_KEY_FAST_MATH)
+            .map_or(FastMath::all(), |allowed| allowed.0);
+        allowed - ctx.disabled_fast_math().optimizations()
+    }
+
     fn allows(&self, ctx: &Context, required: EnumSet<FastMath>) -> bool {
-        required.is_disjoint(ctx.disabled_fast_math().optimizations())
-            && self
-                .get_operation()
-                .get_attr::<FastMathAttr>(ctx, &ATTR_KEY_FAST_MATH)
-                .is_none_or(|allowed| allowed.0.is_superset(required))
+        self.permitted(ctx).is_superset(required)
     }
 
     fn allows_contraction(&self, ctx: &Context) -> bool {

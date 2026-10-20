@@ -271,6 +271,77 @@ pub fn test_strict_keeps_nan_infinity_and_signed_zero<R: Runtime>(client: Client
     );
 }
 
+#[allow(clippy::eq_op)]
+#[cube(launch_unchecked, fast_math = FastMath::none())]
+fn strict_without_arithmetic(input: &[f32], output: &mut [f32]) {
+    let nan = input[0];
+    let zero = input[1];
+    output[0] = select(nan == nan, 1.0f32, 0.0f32);
+    output[1] = select(nan.is_nan(), 1.0f32, 0.0f32);
+    output[2] = -zero;
+}
+
+/// A strict kernel keeps NaN and the sign of zero through comparisons and negation too, which
+/// have no arithmetic to fuse and so asked for nothing on their own.
+pub fn test_strict_keeps_special_values_without_arithmetic<R: Runtime>(client: Client) {
+    if !client.properties().features.ieee_special_values {
+        return;
+    }
+    let input = client.create_from_slice(f32::as_bytes(&[f32::NAN, 0.0]));
+    let output = client.empty(3 * size_of::<f32>());
+    unsafe {
+        strict_without_arithmetic::launch_unchecked(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(1),
+            BufferArg::from_raw_parts(input, 2),
+            BufferArg::from_raw_parts(output.clone(), 3),
+        )
+    };
+
+    let actual = client.read_one_unchecked(output);
+    let actual = f32::from_bytes(&actual);
+    assert_eq!(actual[0], 0.0, "NaN == NaN is false");
+    assert_eq!(actual[1], 1.0, "NaN is NaN");
+    assert_eq!(
+        actual[2].to_bits(),
+        (-0.0f32).to_bits(),
+        "-(+0) is -0, got {}",
+        actual[2]
+    );
+}
+
+#[cube(launch_unchecked, fast_math = FastMath::none())]
+fn strict_mod_floor(lhs: &[f32], rhs: &[f32], output: &mut [f32]) {
+    if ABSOLUTE_POS < output.len() {
+        output[ABSOLUTE_POS] = lhs[ABSOLUTE_POS].mod_floor(rhs[ABSOLUTE_POS]);
+    }
+}
+
+/// `mod_floor` is a multiply-subtract, so it fuses the same way. With `y = 1 + 2⁻¹²` the quotient
+/// of `x = 4098.5` floors to `4097`, whose product with `y` is `4098 + 2⁻¹²`: rounded on its own
+/// it is `4098`, leaving `0.5`, and fused it leaves `0.5 - 2⁻¹²`.
+pub fn test_strict_mod_floor_rounds_each_operation<R: Runtime>(client: Client) {
+    if !can_forbid_contraction(&client) {
+        return;
+    }
+    let (near_one, _) = near_one::<f32>();
+    let output = client.empty(size_of::<f32>());
+    unsafe {
+        strict_mod_floor::launch_unchecked(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(1),
+            BufferArg::from_raw_parts(client.create_from_slice(f32::as_bytes(&[4098.5])), 1),
+            BufferArg::from_raw_parts(client.create_from_slice(f32::as_bytes(&[near_one])), 1),
+            BufferArg::from_raw_parts(output.clone(), 1),
+        )
+    };
+
+    let actual = client.read_one_unchecked(output);
+    assert_eq!(f32::from_bytes(&actual), [0.5]);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_fast_math {
@@ -291,6 +362,8 @@ macro_rules! testgen_fast_math {
             add_test!(test_strict_rounds_each_operation);
             add_test!(test_strict_dot_rounds_each_operation);
             add_test!(test_strict_keeps_nan_infinity_and_signed_zero);
+            add_test!(test_strict_keeps_special_values_without_arithmetic);
+            add_test!(test_strict_mod_floor_rounds_each_operation);
         }
     };
 }

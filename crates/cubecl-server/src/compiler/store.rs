@@ -34,17 +34,7 @@ pub fn compilation_store<K: StoreKey, V: StoreValue>(
         if !compilation.cache {
             return None;
         }
-
-        // Disabling fast math changes the code every kernel compiles to.
-        let disabled = compilation.disabled_fast_math.optimizations();
-        let fingerprint = match disabled.is_empty() {
-            true => alloc::string::String::from(fingerprint.as_ref()),
-            false => alloc::format!(
-                "{}-disabled_fast_math_{:x}",
-                fingerprint.as_ref(),
-                disabled.as_u64()
-            ),
-        };
+        let fingerprint = compilation.fingerprint(fingerprint.as_ref());
 
         Some(Store::new(
             StoreOptions::new()

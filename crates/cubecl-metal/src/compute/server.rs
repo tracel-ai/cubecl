@@ -66,7 +66,6 @@ impl MetalServer {
         let logger = utilities.logger.clone();
 
         let mut compilation_options = cubecl_cpp::shared::CompilationOptions::default();
-        // Metal honors per-op fast math via the `fast::` namespace (MSL 3+).
         compilation_options.supports_features.fast_math = true;
         let context = MetalContext::new(
             device.clone(),

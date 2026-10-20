@@ -62,10 +62,14 @@ To take optimizations away from every kernel, including those in other crates, s
 
 #### WGPU with Vulkan Compiler
 
-Forbidden contraction is `NoContraction` on each operation. Other permissions become
-`FPFastMathMode` where the device supports `SPV_KHR_float_controls2`. A kernel with an operation
-that may assume nothing about `Inf`, `NaN` or signed zero asks for `SignedZeroInfNanPreserve` at
-each float width the device can preserve; without it, Vulkan may assume they never occur.
+Forbidden contraction is `NoContraction` on add, subtract, multiply and divide, and `mod_floor`,
+`dot`, `magnitude` and `normalize` are written out in those. Where the device supports
+`SPV_KHR_float_controls2`, every other operation allowed less than everything carries its
+`FPFastMathMode`, since Vulkan lets an undecorated one assume anything. NVIDIA ignores
+`NoContraction` in a kernel that uses that extension, so a kernel that forbids contraction anywhere
+uses `NoContraction` alone. A kernel with a float operation that may assume nothing about `Inf`,
+`NaN` or signed zero, a comparison or `max` included, asks for `SignedZeroInfNanPreserve` at each
+float width the device can preserve; without it, Vulkan may assume they never occur.
 
 #### CPU, and CUDA/HIP through LLVM
 
@@ -75,9 +79,9 @@ as `exp` and vector reductions take none, so `ReducedPrecision` has no effect.
 #### CUDA/HIP C++
 
 Forbidden contraction prints add, subtract, multiply and divide as `__fadd_rn` and its siblings on
-CUDA, complex numbers included, and as helpers compiled under `#pragma clang fp contract(off)` on
-HIP. Half precision runs in `f32` for these, which rounds to the same result. No other flag has an
-effect.
+CUDA, complex numbers and complex `powf` included, and as helpers compiled under
+`#pragma clang fp contract(off)` on HIP. `mod_floor` is written out in those. Half precision runs in
+`f32` for these, which rounds to the same result. No other flag has an effect.
 
 #### Metal
 

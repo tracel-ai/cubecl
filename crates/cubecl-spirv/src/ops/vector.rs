@@ -1,9 +1,5 @@
 use cubecl_core::{self as cubecl, define_scalar, define_size, num_traits::One, prelude::*};
-use cubecl_ir::{
-    dialect::vector,
-    interfaces::{TypedExt, fast_math::FastMathOp},
-    prelude::*,
-};
+use cubecl_ir::{dialect::vector, interfaces::TypedExt, prelude::*};
 use cubecl_opt::passes::uniformity::op_dyn_uniformity;
 use pliron_spirv::{
     ext::gl,
@@ -12,7 +8,7 @@ use pliron_spirv::{
 
 use crate::{
     decorate_uniform,
-    lower::{lower_binop, lower_unop},
+    lower::{lower_binop, lower_unop, spelled_out},
     ops::{
         base::{binop_to_spirv_dialect, unop_to_spirv_dialect},
         to_spirv_dialect::ToSpirvDialectOp,
@@ -166,10 +162,6 @@ lower_unop!(vector::FSumOp, f_vector_sum);
 lower_binop!(vector::FDotOp, rounded_dot, spelled_out);
 lower_unop!(vector::MagnitudeOp, rounded_magnitude, spelled_out);
 lower_unop!(vector::NormalizeOp, rounded_normalize, spelled_out);
-
-fn spelled_out(op: &impl FastMathOp, ctx: &Context) -> bool {
-    !op.allows_contraction(ctx)
-}
 
 #[cube]
 fn rounded_dot<T: Float, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> T {

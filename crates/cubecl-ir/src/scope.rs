@@ -181,6 +181,7 @@ impl GlobalState {
 }
 
 dict_key!(ADDRESS_TYPE_KEY, "kernel_address_type");
+dict_key!(DISABLED_FAST_MATH_KEY, "disabled_fast_math");
 
 static TY_IDENTS: LazyLock<Mutex<HashMap<TypeId, Identifier>>> = LazyLock::new(Default::default);
 
@@ -202,11 +203,11 @@ fn ty_key<T: 'static>(ctx: &Context) -> Option<AuxDataIndex> {
 
 pub trait ContextExt {
     fn aux_ty<T: Send + 'static>(&self) -> &T;
-    fn try_aux_ty<T: Send + 'static>(&self) -> Option<&T>;
     fn aux_ty_mut<T: Send + 'static>(&mut self) -> &mut T;
     fn set_aux_ty<T: Send + 'static>(&mut self, value: T);
     fn set_address_type(&mut self, addr: AddressType);
     fn address_type(&self) -> AddressType;
+    fn set_disabled_fast_math(&mut self, disabled: DisabledFastMath);
     /// What this compilation disables, which is nothing unless it was told otherwise.
     fn disabled_fast_math(&self) -> DisabledFastMath;
 }
@@ -218,10 +219,6 @@ impl ContextExt for Context {
             .ok_or_else(|| format!("Key for {} should exist", type_name::<T>()))
             .unwrap();
         self.aux_data[key].downcast_ref().unwrap()
-    }
-
-    fn try_aux_ty<T: Send + 'static>(&self) -> Option<&T> {
-        self.aux_data[ty_key::<T>(self)?].downcast_ref()
     }
 
     #[track_caller]
@@ -256,8 +253,21 @@ impl ContextExt for Context {
         *self.aux_data[key].downcast_ref::<AddressType>().unwrap()
     }
 
+    fn set_disabled_fast_math(&mut self, disabled: DisabledFastMath) {
+        if let Some(key) = self.aux_data_map.get(&DISABLED_FAST_MATH_KEY).copied() {
+            *self.aux_data.get_mut(key).unwrap() = Box::new(disabled);
+        } else {
+            let key = self.aux_data.insert(Box::new(disabled));
+            self.aux_data_map
+                .insert(DISABLED_FAST_MATH_KEY.clone(), key);
+        }
+    }
+
     fn disabled_fast_math(&self) -> DisabledFastMath {
-        self.try_aux_ty().copied().unwrap_or_default()
+        self.aux_data_map
+            .get(&DISABLED_FAST_MATH_KEY)
+            .and_then(|&key| self.aux_data[key].downcast_ref().copied())
+            .unwrap_or_default()
     }
 }
 
@@ -573,8 +583,8 @@ impl Scope {
     /// Register an [`Instruction`] into the scope.
     pub fn register(&self, op: &dyn Op) {
         let ctx = self.ctx();
-        if let Some(fast_math) = self.state().modes.fast_math
-            && let Some(op) = op_cast::<dyn FastMathOp>(op)
+        if let Some(op) = op_cast::<dyn FastMathOp>(op)
+            && let Some(fast_math) = self.state().modes.fast_math
         {
             op.set_fast_math(ctx, fast_math);
         }

@@ -11,7 +11,7 @@ use crate::{
         signature::{
             CollectIncludesPass, DeclareComplexHelpersOp, DeclareInfoTypeOp,
             DeclareRoundedArithmeticOp, DeclareVectorTypesPass, buffer_io, buffers,
-            prints_rounded_arithmetic, shared_memory_size,
+            shared_memory_size,
         },
         unroll::CppUnrollPass,
     },
@@ -24,6 +24,7 @@ use core::marker::PhantomData;
 use cubecl_core::{
     ir::{
         AddressType, ContextExt, DeviceProperties, ElemType, FloatKind, IntKind, Type, UIntKind,
+        dialect::OperationPtrExt,
         features::{AtomicUsage, EnumSet, TypeUsage},
         interfaces::TypedExt,
         metadata::Info,
@@ -313,7 +314,7 @@ where
 
         passes.run(module_op, &mut ctx, &mut analyses)?;
 
-        if T::target() == Target::Hip && prints_rounded_arithmetic(&ctx, module_op) {
+        if T::target() == Target::Hip && module_op.contains_forbidden_contraction(&ctx) {
             DeclareRoundedArithmeticOp::new(&mut ctx)
                 .get_operation()
                 .insert_before(&ctx, entry_func.get_operation());

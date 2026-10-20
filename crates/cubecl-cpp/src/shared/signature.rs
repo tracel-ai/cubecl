@@ -5,10 +5,9 @@ use cubecl_core::ir::{
     attributes::{ATTR_BUFFER_IO, BufferIOAttr, FuncInterface, buffer_io_by_position},
     cube_op,
     dialect::OperationPtrExt,
-    interfaces::fast_math::FastMathOp,
     interfaces::{AlignedType, HasElementType},
     prelude::*,
-    rewrite::{visit_all_ops_of_type, visit_all_ops_with_interface},
+    rewrite::visit_all_ops_of_type,
     types::{ArrayType, PointerType, RuntimeArrayType, VectorType, scalar::IndexType},
 };
 use cubecl_opt::passes::alloc_shared_memory::AllocSharedOp;
@@ -327,15 +326,6 @@ impl<T: CppTarget> Pass for CollectIncludesPass<T> {
         }
         Ok(res)
     }
-}
-
-/// Whether any op in `module` prints as one of HIP's rounded-arithmetic helpers.
-pub fn prints_rounded_arithmetic(ctx: &Context, module: Ptr<Operation>) -> bool {
-    let mut found = false;
-    visit_all_ops_with_interface::<dyn FastMathOp, _>(ctx, &mut found, module, |ctx, found, op| {
-        *found |= op.get_operation().forbids_contraction(ctx);
-    });
-    found
 }
 
 pub fn shared_memory_size(ctx: &Context, module: Ptr<Operation>) -> usize {

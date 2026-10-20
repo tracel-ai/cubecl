@@ -120,7 +120,8 @@ __device__ inline C cubecl_cdiv_rn(C a, C b) { \
     R ars = mul(re(a), oos), ais = mul(im(a), oos), brs = mul(re(b), oos), bis = mul(im(b), oos); \
     oos = div(R(1), add(mul(brs, brs), mul(bis, bis))); \
     return make(mul(add(mul(ars, brs), mul(ais, bis)), oos), mul(sub(mul(ais, brs), mul(ars, bis)), oos)); \
-}
+} \
+__device__ inline C cubecl_cpow_rn(C a, C b) { return exp(cubecl_cmul_rn(b, log(a))); }
 CUBECL_ROUNDED_COMPLEX(cuFloatComplex, float, make_cuFloatComplex, cuCrealf, cuCimagf, fabsf, __fadd_rn, __fsub_rn, __fmul_rn, __fdiv_rn)
 CUBECL_ROUNDED_COMPLEX(cuDoubleComplex, double, make_cuDoubleComplex, cuCreal, cuCimag, fabs, __dadd_rn, __dsub_rn, __dmul_rn, __ddiv_rn)
 #undef CUBECL_ROUNDED_COMPLEX

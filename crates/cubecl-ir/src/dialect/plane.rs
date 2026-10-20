@@ -96,7 +96,9 @@ crate::FastMathOp!(
     ExclusiveFSumOp,
     FProdOp,
     InclusiveFProdOp,
-    ExclusiveFProdOp
+    ExclusiveFProdOp,
+    FMinOp,
+    FMaxOp
 );
 
 #[cube_op(name = "plane.ballot")]

@@ -269,6 +269,12 @@ impl SpirvCompiler {
 
         passes.run(module_op, ctx, &mut analyses)?;
         let preserved_widths = ieee_special_value_widths(ctx, module_op);
+        // NVIDIA ignores `NoContraction` in a module that uses float_controls2.
+        if module_op.contains_forbidden_contraction(ctx) {
+            ctx.aux_ty_mut::<WgpuCompilationOptions>()
+                .vulkan
+                .supports_fp_fast_math = false;
+        }
 
         let bindings = (0..entry.deref(ctx).get_num_arguments()).map(|i| {
             let io = entry_func.get_arg_attr::<BufferIOAttr>(ctx, i, &ATTR_BUFFER_IO);
@@ -414,42 +420,40 @@ fn declare_entry_point(
 /// The float widths in `module` with an op that may assume nothing about NaN, infinity or the
 /// sign of zero, and that the device can keep IEEE. The mode covers the whole entry point.
 fn ieee_special_value_widths(ctx: &Context, module: Ptr<Operation>) -> Vec<u32> {
-    let vulkan = ctx.aux_ty::<WgpuCompilationOptions>().vulkan;
     let mut widths = Vec::new();
     visit_all_ops_with_interface::<dyn FastMathOp, _>(
         ctx,
         &mut widths,
         module,
         |ctx, widths, op| {
-            let scalar = op
-                .get_operation()
-                .opt_result(ctx)
-                .and_then(|result| result.try_get_scalar_elem_ty(ctx));
             let assumptions = FastMath::NotNaN | FastMath::NotInf | FastMath::UnsignedZero;
-            if let Some(scalar) = scalar
-                && scalar.is_float(ctx)
-                && !op.allows(ctx, assumptions)
-            {
-                widths.push(scalar.size_bits(ctx) as u32);
+            if !op.allows(ctx, assumptions) {
+                widths.extend(float_widths(ctx, op.get_operation()));
             }
         },
     );
+    let vulkan = ctx.aux_ty::<WgpuCompilationOptions>().vulkan;
     widths.sort_unstable();
     widths.dedup();
-    widths.retain(|width| match width {
-        16 => vulkan.supports_signed_zero_inf_nan_preserve_f16,
-        32 => vulkan.supports_signed_zero_inf_nan_preserve_f32,
-        64 => vulkan.supports_signed_zero_inf_nan_preserve_f64,
-        _ => false,
-    });
+    widths.retain(|&width| vulkan.preserves_special_values(width));
     widths
+}
+
+/// The widths of the floats `op` reads or writes.
+fn float_widths(ctx: &Context, op: Ptr<Operation>) -> Vec<u32> {
+    let op = op.deref(ctx);
+    op.operands()
+        .chain(op.results())
+        .filter_map(|value| value.try_get_scalar_elem_ty(ctx))
+        .filter(|scalar| scalar.is_float(ctx))
+        .map(|scalar| scalar.size_bits(ctx) as u32)
+        .collect()
 }
 
 /// Carries the fast-math permissions of `cube_op` onto `op`, the SPIR-V it lowered to.
 ///
-/// Forbidding contraction is always `NoContraction`, which NVIDIA honors where it ignores an
-/// empty `FPFastMathMode`. That needs `SPV_KHR_float_controls2`, and only an op allowed more than
-/// contraction gets one.
+/// Forbidding contraction is `NoContraction`, since NVIDIA ignores an empty `FPFastMathMode`.
+/// Under `float_controls2` an undecorated op allows everything, so an op allowed less says so.
 pub(crate) fn decorate_fast_math(ctx: &Context, cube_op: Ptr<Operation>, op: Ptr<Operation>) {
     let dyn_op = op.dyn_op(ctx);
     let Some(decoratable) = op_cast::<dyn DecoratableOp>(&*dyn_op) else {
@@ -460,17 +464,27 @@ pub(crate) fn decorate_fast_math(ctx: &Context, cube_op: Ptr<Operation>, op: Ptr
         return;
     }
 
-    let float_controls2 = ctx
-        .aux_ty::<WgpuCompilationOptions>()
-        .vulkan
-        .supports_fp_fast_math;
-    let Some(fast_math) = cube_op.fast_math(ctx).filter(|_| float_controls2) else {
+    let cube_dyn_op = cube_op.dyn_op(ctx);
+    let Some(fast_math_op) = op_cast::<dyn FastMathOp>(&*cube_dyn_op) else {
         return;
     };
-    let mode = fp_fast_math_mode(fast_math);
-    if !mode.difference(FPFastMathMode::ALLOW_CONTRACT).is_empty() {
-        set_decoration_fp_fast_math_mode(decoratable, ctx, mode.into());
+    let vulkan = ctx.aux_ty::<WgpuCompilationOptions>().vulkan;
+    let widths = float_widths(ctx, cube_op);
+    let mut mode = fp_fast_math_mode(fast_math_op.permitted(ctx));
+    if !vulkan.supports_fp_fast_math
+        || widths.is_empty()
+        || mode == fp_fast_math_mode(FastMath::all())
+    {
+        return;
     }
+    // Vulkan rejects a mode that keeps special values the device cannot.
+    if widths
+        .iter()
+        .any(|&width| !vulkan.preserves_special_values(width))
+    {
+        mode |= FPFastMathMode::NOT_NAN | FPFastMathMode::NOT_INF | FPFastMathMode::NSZ;
+    }
+    set_decoration_fp_fast_math_mode(decoratable, ctx, mode.into());
 }
 
 fn fp_fast_math_mode(fast_math: EnumSet<FastMath>) -> FPFastMathMode {

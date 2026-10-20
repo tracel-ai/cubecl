@@ -653,6 +653,21 @@ const_eval!(BoolNotEqualOp, {
     }
 });
 
+crate::FastMathOp!(
+    FMinOp,
+    FMaxOp,
+    FClampOp,
+    FMinNanOp,
+    FMaxNanOp,
+    FClampNanOp,
+    FLessThanOp,
+    FGreaterThanOp,
+    FLessThanOrEqualOp,
+    FGreaterThanOrEqualOp,
+    FEqualOp,
+    FNotEqualOp
+);
+
 fn cmp_result_ty(ctx: &Context, lhs: &Value, _: &Value) -> TypeHandle {
     let vectorization = lhs.vector_size(ctx);
     let bool = BoolType::get(ctx).into();
