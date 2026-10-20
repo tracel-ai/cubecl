@@ -2,9 +2,7 @@ use crate::{
     CollectVerCapExtPass, ConvertArgsPass, PARAMS_NAME, SpirvKernel,
     lower::LowerOpsSpirvPass,
     ops::{
-        branch::BranchToSpirvConversionPass,
-        builtin::{BUILTINS_NAME, LowerBuiltinsPass},
-        memory::lower_shared,
+        branch::BranchToSpirvConversionPass, builtin::LowerBuiltinsPass, memory::lower_shared,
         to_spirv_dialect::ToSpirvDialectPass,
     },
     params_storage_class,
@@ -32,7 +30,7 @@ use cubecl_ir::{
     attributes::{ATTR_BUFFER_IO, BufferIOAttr, EntrypointInterface},
     dialect::{scf::BranchToSCFPass, ssa_matrix::MatrixToSSAPass},
     prelude::{OperationPtrExt, SingleBlockRegionInterface, SymbolOpInterface},
-    rewrite::{CanonicalizePass, visit_all_ops_of_type_mut},
+    rewrite::{CanonicalizePass, visit_all_ops_of_type, visit_all_ops_of_type_mut},
     settings::{Dim3, KernelSettings},
 };
 use cubecl_opt::passes::{
@@ -68,7 +66,7 @@ use pliron_spirv::{
     PlironBuilder, ToSpirvOp,
     attrs::VerCapExtAttr,
     decorations::{DecoratableOp, set_decoration_uniform, set_decoration_uniform_id},
-    ops::{EntryPointOp, ExecutionModeOp, SpirvModuleOp},
+    ops::{EntryPointOp, ExecutionModeOp, GlobalVariableOp, SpirvModuleOp},
 };
 use rspirv::{
     binary::Assemble,
@@ -363,17 +361,26 @@ fn insert_spirv_module(ctx: &mut Context, module: ModuleOp) -> SpirvModuleOp {
 
 fn declare_entry_point(ctx: &mut Context, module: SpirvModuleOp, shared_args: Vec<Identifier>) {
     let op = module.get_operation();
+    // The builtins are the `Input` variables (see `LowerBuiltinsPass`).
+    let mut inputs = vec![];
+    visit_all_ops_of_type::<GlobalVariableOp, _>(ctx, &mut inputs, op, |ctx, inputs, var| {
+        let storage_class = var.get_attr_spirv_global_variable_storage_class(ctx);
+        if storage_class.is_some_and(|class| class.0 == StorageClass::Input) {
+            inputs.push(var.get_symbol_name(ctx));
+        }
+    });
     visit_all_ops_of_type_mut::<FuncOp, _>(
         ctx,
-        &mut (module, shared_args),
+        &mut (module, shared_args, inputs),
         op,
-        |ctx, (module, shared_args), func| {
+        |ctx, (module, shared_args, inputs), func| {
             let Some(entry) = func.get_entrypoint_abi(ctx) else {
                 return;
             };
             let block = module.get_body(ctx, 0);
             let func_name = func.get_symbol_name(ctx);
-            let mut interface = vec![PARAMS_NAME.clone(), BUILTINS_NAME.clone()];
+            let mut interface = vec![PARAMS_NAME.clone()];
+            interface.extend(inputs.clone());
             interface.extend(shared_args.clone());
             let entry_point = EntryPointOp::new(
                 ctx,
