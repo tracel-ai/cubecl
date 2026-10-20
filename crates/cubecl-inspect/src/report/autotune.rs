@@ -8,9 +8,10 @@ use cubecl_server::tune::{
 use serde::Serialize;
 use std::time::Duration;
 
-/// How a tune went, as the environment recorded it: the key decoded without
-/// its type, like [`TunedKey::key`].
-pub type TuneTrace = Stamped<TuneRecord<ciborium::Value>>;
+/// How a tune went, as the environment recorded it, its key decoded without
+/// its type, like [`TunedKey::key`]: what reads any tuner's record without
+/// knowing its key.
+pub type UntypedTuneRecord = TuneRecord<ciborium::Value>;
 
 /// Every autotune key an environment holds an answer for.
 #[derive(Clone, Debug, Default, Serialize)]
@@ -53,7 +54,7 @@ pub struct TunedKey {
 #[derive(Clone, Debug, Serialize)]
 pub struct RecordedTune {
     /// The trials in the order they ran, with their walls.
-    pub trace: TuneTrace,
+    pub trace: Stamped<UntypedTuneRecord>,
     /// The recorded compilations of its session that started while it ran.
     pub compiling: Duration,
 }
@@ -228,7 +229,7 @@ impl TunedKey {
     }
 
     /// How the tune went, when it was recorded.
-    pub fn trace(&self) -> Option<&TuneTrace> {
+    pub fn trace(&self) -> Option<&Stamped<UntypedTuneRecord>> {
         self.tune.as_ref().map(|tune| &tune.trace)
     }
 

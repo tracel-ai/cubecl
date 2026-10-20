@@ -1,6 +1,6 @@
 use super::{EnvironmentRecords, SessionRecords};
-use crate::report::{CanonicalKey, RecordedTune, TuneTrace, TunedKey};
-use cubecl_environment::records::SessionId;
+use crate::report::{CanonicalKey, RecordedTune, TunedKey, UntypedTuneRecord};
+use cubecl_environment::records::{SessionId, Stamped};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// The tunes of a file that its tables took, by the key each answers, with
@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 pub struct TuneIndex<'a> {
     /// A key's latest stored tune, by its table's namespace, its checksum and
     /// the key itself.
-    tunes: HashMap<(&'a str, &'a str, CanonicalKey), &'a TuneTrace>,
+    tunes: HashMap<(&'a str, &'a str, CanonicalKey), &'a Stamped<UntypedTuneRecord>>,
     /// The sessions that ran one, for the compiling inside it.
     sessions: BTreeMap<SessionId, SessionRecords<'a>>,
 }

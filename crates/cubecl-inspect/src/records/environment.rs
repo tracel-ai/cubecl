@@ -1,5 +1,5 @@
 use super::SessionRecords;
-use crate::report::TuneTrace;
+use crate::report::UntypedTuneRecord;
 use cubecl_environment::persistence::Database;
 use cubecl_environment::records::{MarkRecord, Records, Session, Stamped};
 use cubecl_server::compiler::{CompilationBatchRecord, CompilationRecord};
@@ -12,7 +12,7 @@ use cubecl_server::memory_management::MemoryRecord;
 pub struct EnvironmentRecords {
     /// The processes that changed the file.
     pub sessions: Vec<Session>,
-    pub tunes: Vec<TuneTrace>,
+    pub tunes: Vec<Stamped<UntypedTuneRecord>>,
     pub compilations: Vec<Stamped<CompilationRecord>>,
     pub batches: Vec<Stamped<CompilationBatchRecord>>,
     pub marks: Vec<Stamped<MarkRecord>>,

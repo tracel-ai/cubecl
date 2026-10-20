@@ -1,4 +1,4 @@
-use crate::report::TuneTrace;
+use crate::report::UntypedTuneRecord;
 use cubecl_environment::records::Stamped;
 use cubecl_server::compiler::{CompilationBatchRecord, CompilationRecord};
 use std::ops::RangeBounds;
@@ -52,7 +52,7 @@ impl CompilationSpans {
     /// The time the compilations that started during `tune` took: the tuner
     /// waits on the server while it compiles, so a compilation stamped inside
     /// the tune's span on the same session clock is the tune's.
-    pub fn during(&self, tune: &TuneTrace) -> Duration {
+    pub fn during(&self, tune: &Stamped<UntypedTuneRecord>) -> Duration {
         let start = tune.stamp.offset;
         self.within(&(start..start + tune.record.wall))
     }

@@ -1,5 +1,5 @@
 use super::{CompilationSpans, EnvironmentRecords};
-use crate::report::{Activity, SessionRow, SessionTimeline, SlowTune, Span, TuneTrace};
+use crate::report::{Activity, SessionRow, SessionTimeline, SlowTune, Span, UntypedTuneRecord};
 use cubecl_environment::records::{MarkRecord, Session, SessionId, Stamped};
 use cubecl_server::compiler::CompilationRecord;
 use std::ops::RangeBounds;
@@ -32,7 +32,7 @@ impl<'a> SessionRecords<'a> {
         self.session
     }
 
-    pub fn tunes(&self) -> impl Iterator<Item = &'a TuneTrace> {
+    pub fn tunes(&self) -> impl Iterator<Item = &'a Stamped<UntypedTuneRecord>> {
         stamped_by(&self.records.tunes, self.session.id)
     }
 
