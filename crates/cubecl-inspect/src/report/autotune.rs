@@ -117,6 +117,7 @@ fn failure(error: AutotuneError) -> (Option<String>, CandidateOutcome) {
     match error {
         AutotuneError::Skip { name } => (Some(name), CandidateOutcome::Skipped),
         AutotuneError::Unknown { name, err } => (Some(name), failed(err)),
+        AutotuneError::Rejected { name, reason } => (Some(name), failed(reason)),
         AutotuneError::InvalidSamples { name } => {
             (Some(name), failed("all samples are invalid".to_string()))
         }
