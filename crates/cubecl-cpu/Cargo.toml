@@ -58,7 +58,7 @@ cubecl-server = { workspace = true, features = [
 cubecl-std = { workspace = true }
 
 bytemuck = { workspace = true }
-crossbeam-utils = "0.8.21"
+crossbeam-utils = { workspace = true, features = ["std"] }
 derive-new = { workspace = true }
 log = { workspace = true }
 pliron = { workspace = true, features = ["std"] }

@@ -84,3 +84,7 @@ name = "dynamic"
 [[bench]]
 harness = false
 name = "write_scope"
+
+[[bench]]
+harness = false
+name = "tune_hit"

@@ -1,39 +1,24 @@
+use super::append_only::AppendOnlyMap;
 use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneInputs, Tuner};
 #[cfg(feature = "autotune-checks")]
 use crate::tune::AutotuneLoggerExt;
 use crate::{client::Client, device::HardwareIdentity, tune::TuneCacheResult};
 #[cfg(feature = "autotune-checks")]
 use alloc::string::ToString;
-use alloc::sync::Arc;
-use alloc::vec::Vec;
-use core::{
-    any::{Any, TypeId},
-    hash::Hash,
-};
-use cubecl_environment::collections::HashMap;
-use cubecl_environment::sync::{Mutex, RwLock};
-
-/// The tunable sets a [`LocalTuner`] has built, keyed by device as well as by
-/// initializer: a set is built from the device it will run on — its client, its
-/// hardware properties — so one device's set cannot answer for another's. See
-/// [`LocalTuner::init`].
-type Sets<ID> = RwLock<Option<HashMap<(TypeId, ID), Arc<dyn Any + Send + Sync>>>>;
+use alloc::{sync::Arc, vec::Vec};
+use core::any::{Any, TypeId};
+use crossbeam_utils::CachePadded;
+use cubecl_environment::{collections::HashMap, environment, sync::Mutex};
 
 /// A local tuner allows to create a tuner for a specific key that can be different from the server
 /// key.
+///
+/// A hit touches only its own device's state, so devices driven from their own threads never wait
+/// on one another.
 pub struct LocalTuner<AK: AutotuneKey, ID> {
-    state: Mutex<Option<Tuners<AK, ID>>>,
+    devices: AppendOnlyMap<ID, DeviceTuning<AK>>,
+    opened: Mutex<Option<HashMap<TunerIdentity, Arc<Tuner<AK>>>>>,
     name: &'static str,
-    sets: Sets<ID>,
-}
-
-/// The tuners a [`LocalTuner`] opened. An id keeps a tuner per candidate list it executed, shared
-/// with the ids of its hardware, so ids of the same hardware running one list tune a key once for
-/// all of them.
-struct Tuners<AK: AutotuneKey, ID> {
-    /// An id's tuners, by the checksum of the list each runs.
-    by_id: HashMap<ID, HashMap<u64, Arc<Tuner<AK>>>>,
-    opened: HashMap<TunerIdentity, Arc<Tuner<AK>>>,
 }
 
 /// Which tuner a device's executes reach: one per hardware and candidate list.
@@ -45,43 +30,91 @@ struct TunerIdentity {
     checksum: u64,
 }
 
-impl<AK: AutotuneKey, ID: Hash + Eq + Clone> Tuners<AK, ID> {
+/// What a [`LocalTuner`] holds for one device id.
+struct DeviceTuning<AK: AutotuneKey> {
+    sets: AppendOnlyMap<TypeId, Arc<dyn Any + Send + Sync>>,
+    /// By the low half of each list's checksum: a pick is an index into the list it was tuned for.
+    lists: AppendOnlyMap<u64, ListTuning<AK>>,
+}
+
+/// What a device holds for one candidate list.
+struct ListTuning<AK: AutotuneKey> {
+    /// Padded: other lookups read this node while this device locks it on every launch.
+    picks: CachePadded<Mutex<Picks<AK>>>,
+}
+
+/// The picks a device read from its tuner, served without the tuner's lock, which every device of
+/// the hardware shares.
+struct Picks<AK: AutotuneKey> {
+    /// `None` until the list's first execute, and again after a [`clear`](LocalTuner::clear).
+    tuner: Option<Arc<Tuner<AK>>>,
+    by_key: HashMap<AK, usize>,
+    /// The environment [generation](environment::generation) `by_key` was read under.
+    generation: u32,
+}
+
+impl<AK: AutotuneKey> DeviceTuning<AK> {
     fn new() -> Self {
         Self {
-            by_id: HashMap::new(),
-            opened: HashMap::new(),
+            sets: AppendOnlyMap::new(),
+            lists: AppendOnlyMap::new(),
         }
     }
 
-    /// The tuner `id` executes `operations` on, opened by the first id of its hardware to execute
-    /// the same candidate list.
-    fn get_or_open<I: TuneInputs, Out, Id>(
-        &mut self,
-        id: &ID,
-        name: &str,
-        client: &Client,
-        operations: &TunableSet<AK, I, Out, Id>,
-    ) -> Arc<Tuner<AK>> {
-        let checksum = operations.checksum();
-        if let Some(tuner) = self.by_id.get(id).and_then(|lists| lists.get(&checksum)) {
-            return tuner.clone();
+    fn list(&self, checksum: u64) -> &ListTuning<AK> {
+        self.lists.get_or_insert_with(&checksum, ListTuning::new)
+    }
+
+    fn clear(&self) {
+        for (_, list) in self.lists.iter() {
+            list.clear();
         }
-        let identity = TunerIdentity {
-            hardware: client.hardware_identity(),
-            checksum,
-        };
-        let tuner = self
-            .opened
-            .entry(identity)
-            .or_insert_with_key(|identity| {
-                Arc::new(Tuner::new(&name.replace("::", "-"), &identity.hardware))
-            })
-            .clone();
-        self.by_id
-            .entry(id.clone())
-            .or_default()
-            .insert(checksum, tuner.clone());
-        tuner
+    }
+}
+
+impl<AK: AutotuneKey> ListTuning<AK> {
+    fn new() -> Self {
+        Self {
+            picks: CachePadded::new(Mutex::new(Picks {
+                tuner: None,
+                by_key: HashMap::new(),
+                generation: environment::generation(),
+            })),
+        }
+    }
+
+    fn pick(&self, key: &AK) -> Option<usize> {
+        let mut picks = self.picks.lock();
+        let generation = environment::generation();
+        if picks.generation != generation {
+            picks.generation = generation;
+            picks.by_key.clear();
+        }
+        picks.by_key.get(key).copied()
+    }
+
+    /// Keep the pick `tuner` answered for `key` under `generation`, unless a switch or a
+    /// [`clear`](LocalTuner::clear) has since made it another environment's or another tuner's.
+    fn keep_pick(&self, tuner: &Arc<Tuner<AK>>, generation: u32, key: AK, fastest_index: usize) {
+        let mut picks = self.picks.lock();
+        let same_tuner = picks
+            .tuner
+            .as_ref()
+            .is_some_and(|kept| Arc::ptr_eq(kept, tuner));
+        if same_tuner && picks.generation == generation && environment::generation() == generation {
+            picks.by_key.insert(key, fastest_index);
+        }
+    }
+
+    /// The tuner this list executes on, opened by `open` on its first execute.
+    fn tuner(&self, open: impl FnOnce() -> Arc<Tuner<AK>>) -> Arc<Tuner<AK>> {
+        self.picks.lock().tuner.get_or_insert_with(open).clone()
+    }
+
+    fn clear(&self) {
+        let mut picks = self.picks.lock();
+        picks.tuner = None;
+        picks.by_key.clear();
     }
 }
 
@@ -101,14 +134,14 @@ pub use local_tuner;
 impl<AK, ID> LocalTuner<AK, ID>
 where
     AK: AutotuneKey + 'static,
-    ID: Hash + PartialEq + Eq + Clone,
+    ID: PartialEq + Eq + Clone,
 {
     /// Create a new local tuner.
     pub const fn new(name: &'static str) -> Self {
         Self {
-            state: Mutex::new(None),
+            devices: AppendOnlyMap::new(),
+            opened: Mutex::new(None),
             name,
-            sets: RwLock::new(None),
         }
     }
 
@@ -133,38 +166,14 @@ where
         I: TuneInputs,
         Out: AutotuneOutput,
     {
-        let key = (TypeId::of::<F>(), id.clone());
-        let sets = self.sets.read();
-
         static DOWNCAST_ERROR: &str = "Local tuner only support one set of tunable that must work on the same input and output declared with the init function.";
 
-        if let Some(sets) = sets.as_ref()
-            && let Some(set) = sets.get(&key)
-        {
-            return set.clone().downcast().expect(DOWNCAST_ERROR);
-        };
-
-        core::mem::drop(sets);
-
-        let mut sets = self.sets.write();
-
-        if let Some(sets) = sets.as_ref()
-            && let Some(set) = sets.get(&key)
-        {
-            return set.clone().downcast().expect(DOWNCAST_ERROR);
-        };
-
-        let content = Arc::new(init_set());
-
-        if let Some(sets) = sets.as_mut() {
-            sets.insert(key, content.clone());
-        } else {
-            let mut map = HashMap::<(TypeId, ID), Arc<dyn Any + Send + Sync>>::new();
-            map.insert(key, content.clone());
-            *sets = Some(map);
-        };
-
-        content
+        let set: Arc<dyn Any + Send + Sync> = self
+            .device(id)
+            .sets
+            .get_or_insert_with(&TypeId::of::<F>(), || Arc::new(init_set()))
+            .clone();
+        set.downcast().expect(DOWNCAST_ERROR)
     }
 
     /// What the fastest tunable in `operations` for `key` on `id` is
@@ -190,20 +199,52 @@ where
         Id: Clone,
     {
         let tuner = self
-            .state
-            .lock()
-            .as_ref()?
-            .by_id
+            .devices
             .get(id)?
+            .lists
             .get(&operations.checksum())?
-            .clone();
+            .picks
+            .lock()
+            .tuner
+            .clone()?;
         let fastest_index = tuner.settled(key)?;
         Some(operations.identity(fastest_index).clone())
     }
 
     /// Clear the autotune state.
     pub fn clear(&self) {
-        self.state.lock().take();
+        self.opened.lock().take();
+        for (_, device) in self.devices.iter() {
+            device.clear();
+        }
+    }
+
+    fn device(&self, id: &ID) -> &DeviceTuning<AK> {
+        self.devices.get_or_insert_with(id, DeviceTuning::new)
+    }
+
+    /// The tuner of `client`'s hardware for `operations`, opened by the first device of that
+    /// hardware to execute the same candidate list.
+    fn open<I: TuneInputs, Out, Id>(
+        &self,
+        client: &Client,
+        operations: &TunableSet<AK, I, Out, Id>,
+    ) -> Arc<Tuner<AK>> {
+        let identity = TunerIdentity {
+            hardware: client.hardware_identity(),
+            checksum: operations.checksum(),
+        };
+        self.opened
+            .lock()
+            .get_or_insert_with(HashMap::new)
+            .entry(identity)
+            .or_insert_with_key(|identity| {
+                Arc::new(Tuner::new(
+                    &self.name.replace("::", "-"),
+                    &identity.hardware,
+                ))
+            })
+            .clone()
     }
 
     #[cfg(feature = "autotune-checks")]
@@ -239,21 +280,14 @@ where
         Id: Send + Sync,
     {
         let key = operations.generate_key(&inputs);
+        let list = self.device(id).list(operations.checksum());
 
-        let tuner = self
-            .state
-            .lock()
-            .get_or_insert_with(Tuners::new)
-            .get_or_open(id, self.name, client, &operations);
-
-        // Fast path: a cached hit skips straight to the fastest operation.
-        // `fastest` also resets the tuner cache if the environment switched, so
-        // a miss here falls through to `check_tune`, which reads the store.
-        if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
+        if let Some(fastest_index) = list.pick(&key) {
             // `autotune-checks` cross-checks the candidates of every launch, a hit's included.
             // Bound first, so the logger guard drops before the checks run every candidate.
             #[cfg(feature = "autotune-checks")]
             {
+                let tuner = list.tuner(|| self.open(client, &operations));
                 let mut log_context =
                     crate::tune::AutotuneLogContext::new(&mut tuner.logger().lock());
                 log_context.set_checks(|| self.checks::<I, Out, Id>(&operations, &inputs));
@@ -264,7 +298,9 @@ where
                 .expect("Should run when selected by autotune.");
         }
 
-        // Built after the fast path: a hit logs nothing, so it takes no logger lock.
+        let tuner = list.tuner(|| self.open(client, &operations));
+        let generation = environment::generation();
+
         #[allow(unused_mut)]
         let mut log_context = crate::tune::AutotuneLogContext::new(&mut tuner.logger().lock());
 
@@ -276,10 +312,13 @@ where
 
         // Run the execution depending on the cache state.
         match fastest {
-            TuneCacheResult::Hit { fastest_index } => operations
-                .fastest(fastest_index)
-                .execute(inputs)
-                .expect("Should run when selected by autotune."),
+            TuneCacheResult::Hit { fastest_index } => {
+                list.keep_pick(&tuner, generation, key, fastest_index);
+                operations
+                    .fastest(fastest_index)
+                    .execute(inputs)
+                    .expect("Should run when selected by autotune.")
+            }
             TuneCacheResult::Miss => {
                 panic!(
                     "Somehow we STILL didn't check a tuning checksum or start tuning, something has gone wrong."

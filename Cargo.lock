@@ -1411,6 +1411,7 @@ dependencies = [
  "bytemuck",
  "cfg-if",
  "cfg_aliases",
+ "crossbeam-utils",
  "cubecl-common",
  "cubecl-environment",
  "cubecl-ir",

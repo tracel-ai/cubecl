@@ -54,6 +54,7 @@ cubecl-wgpu = { path = "crates/cubecl-wgpu", version = "0.11.0", default-feature
 cubecl-zspace = { path = "crates/cubecl-zspace", version = "0.11.0", default-features = false }
 
 bitflags = { version = "2.13.1", features = ["serde"] }
+crossbeam-utils = { version = "0.8.21", default-features = false }
 derive-new = { version = "0.7.0", default-features = false }
 derive_more = { version = "2", default-features = false, features = [
     "not",
