@@ -64,7 +64,8 @@ impl Inspector {
     ///
     /// The autotune tables are read once for the two reports that answer
     /// from them, so the candidates tally the keys the autotune report lists
-    /// even while a session writes the file.
+    /// even while a session writes the file; see [`Overview`] for what the
+    /// others share.
     pub fn overview(&self) -> Overview {
         let mut autotune = self.autotune();
         autotune.sort(KeyOrder::default());

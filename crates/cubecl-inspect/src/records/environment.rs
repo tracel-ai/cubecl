@@ -1,7 +1,7 @@
-use super::SessionRecords;
+use super::{CompilationSpans, SessionRecords};
 use crate::report::UntypedTuneRecord;
 use cubecl_environment::persistence::Database;
-use cubecl_environment::records::{MarkRecord, Records, Session, Stamped};
+use cubecl_environment::records::{MarkRecord, Records, Session, SessionId, Stamped};
 use cubecl_server::compiler::{CompilationBatchRecord, CompilationRecord};
 use cubecl_server::memory_management::MemoryRecord;
 
@@ -39,5 +39,18 @@ impl EnvironmentRecords {
         self.sessions
             .iter()
             .map(|session| SessionRecords::new(session, self))
+    }
+
+    /// The stretches of `session`'s clock its compilations took: read by its
+    /// id, so a session whose row was pruned while it ran still has them.
+    pub fn compiling(&self, session: SessionId) -> CompilationSpans {
+        CompilationSpans::new(
+            self.batches
+                .iter()
+                .filter(|batch| batch.stamp.session == session),
+            self.compilations
+                .iter()
+                .filter(|trip| trip.stamp.session == session),
+        )
     }
 }

@@ -769,9 +769,11 @@ fn batches_count_their_wall_not_their_kernels_work() {
 fn a_stripped_copy_keeps_the_caches_and_drops_the_records() {
     let dir = tempfile::tempdir().expect("a temp dir");
     let file = EnvironmentFile::open(fixture(dir.path())).expect("opens");
-    let stripped = file
-        .strip(&dir.path().join("stripped.cubecl"))
-        .expect("strips");
+    let stripped = Inspector::new(
+        file.strip(&dir.path().join("stripped.cubecl"))
+            .expect("strips"),
+    )
+    .summary();
 
     assert!(stripped.sessions.is_empty());
     assert!(
@@ -806,6 +808,56 @@ fn a_tune_owns_the_compilations_that_started_inside_it() {
         traced.tune.as_ref().map(|tune| tune.compiling),
         Some(Duration::from_millis(80))
     );
+}
+
+/// A tune stamped by a session the file lists no row for, as one pruned
+/// while it ran leaves, still joins its key.
+#[test]
+fn a_tune_of_an_unlisted_session_joins_its_key() {
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let path = fixture(dir.path());
+    {
+        let database = Database::open_at(&path, Access::ReadWrite).expect("opens");
+        let unlisted = Stamped {
+            stamp: Stamp {
+                session: SessionId(9),
+                seq: 0,
+                offset: Duration::from_secs(1),
+            },
+            record: TuneRecord {
+                table: GEMM.to_string(),
+                entry: PersistentCacheKey {
+                    key: GemmKey {
+                        m: 64,
+                        elem: Elem::Float("F16"),
+                    },
+                    checksum: "list-a".to_string(),
+                },
+                winner: 1,
+                trials: Vec::new(),
+                short_circuit: None,
+                wall: Duration::from_millis(40),
+                launches_discarded: false,
+                stored: true,
+                plan: Vec::new(),
+            },
+        };
+        database.insert(
+            &TuneRecord::<()>::namespace(),
+            &cbor(&(9u64, 0u64)),
+            &cbor(&unlisted),
+            Origin::Local,
+        );
+    }
+
+    let report = Inspector::open(&path).expect("opens").autotune();
+    let tune = report
+        .keys
+        .iter()
+        .find_map(|key| key.tune.as_ref())
+        .expect("the recorded key");
+    assert_eq!(tune.trace.stamp.session, SessionId(9));
+    assert_eq!(tune.compiling, Duration::ZERO);
 }
 
 #[test]
@@ -995,6 +1047,37 @@ fn a_timeline_nests_marks_and_counts_what_ran_inside_them() {
     let slowest = turn.activity.slowest.as_ref().expect("the tune inside it");
     assert_eq!(slowest.wall, Duration::from_millis(500));
     assert_eq!(slowest.table, GEMM);
+}
+
+/// A mark that ends while a tune it opened still runs counts only the
+/// compiling inside it, in the tune's share as in its own.
+#[test]
+fn a_mark_counts_only_the_compiling_inside_it() {
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let path = fixture(dir.path());
+    {
+        let database = Database::open_at(&path, Access::ReadWrite).expect("opens");
+        // Opens beside the tune, at 2 s, and ends before it compiles, at 2.1 s.
+        insert_record(
+            &database,
+            30,
+            1_950,
+            MarkRecord {
+                label: "short".to_string(),
+                wall: Duration::from_millis(100),
+            },
+        );
+    }
+
+    let timeline = Inspector::open(&path).expect("opens").timeline();
+    let short = timeline.sessions[0]
+        .spans
+        .iter()
+        .find(|span| span.label == "short")
+        .expect("the short mark");
+    assert_eq!(short.activity.tunes, 1);
+    assert_eq!(short.activity.compiling, Duration::ZERO);
+    assert_eq!(short.activity.compiling_in_tunes, Duration::ZERO);
 }
 
 #[test]
@@ -1187,10 +1270,13 @@ fn pruning_keeps_the_newest_sessions_records() {
             Origin::Local,
         );
     }
-    let summary = EnvironmentFile::open(&path)
-        .expect("opens")
-        .prune(1)
-        .expect("prunes");
+    let summary = Inspector::new(
+        EnvironmentFile::open(&path)
+            .expect("opens")
+            .prune(1)
+            .expect("prunes"),
+    )
+    .summary();
     let inspector = Inspector::open(&path).expect("reopens");
 
     let sessions: Vec<SessionId> = summary.sessions.iter().map(|row| row.session.id).collect();

@@ -2,7 +2,7 @@ use super::{CompilationSpans, EnvironmentRecords};
 use crate::report::{Activity, SessionRow, SessionTimeline, SlowTune, Span, UntypedTuneRecord};
 use cubecl_environment::records::{MarkRecord, Session, SessionId, Stamped};
 use cubecl_server::compiler::CompilationRecord;
-use std::ops::RangeBounds;
+use std::ops::Range;
 use std::time::Duration;
 
 /// One session's share of the [`EnvironmentRecords`]: every list, filtered to
@@ -19,10 +19,7 @@ impl<'a> SessionRecords<'a> {
     /// The records of `records` that `session` stamped.
     pub fn new(session: &'a Session, records: &'a EnvironmentRecords) -> Self {
         Self {
-            compiling: CompilationSpans::new(
-                stamped_by(&records.batches, session.id),
-                stamped_by(&records.compilations, session.id),
-            ),
+            compiling: records.compiling(session.id),
             session,
             records,
         }
@@ -50,8 +47,8 @@ impl<'a> SessionRecords<'a> {
     }
 
     /// The tunes and compilations that started inside `window` of the
-    /// session's clock, and what they took; `..` for the whole session.
-    pub fn activity(&self, window: impl RangeBounds<Duration>) -> Activity {
+    /// session's clock, and what they took.
+    pub fn activity(&self, window: Range<Duration>) -> Activity {
         let mut activity = Activity {
             compilations: self
                 .compilations()
@@ -66,7 +63,12 @@ impl<'a> SessionRecords<'a> {
         {
             activity.tunes += 1;
             activity.tuning += tune.record.wall;
-            activity.compiling_in_tunes += self.compiling.during(tune);
+            // A tune may run past the window: only its compiling inside the
+            // window is part of the window's.
+            let tune_end = tune.stamp.offset + tune.record.wall;
+            activity.compiling_in_tunes += self
+                .compiling
+                .within(&(tune.stamp.offset..tune_end.min(window.end)));
             if activity
                 .slowest
                 .as_ref()
@@ -101,7 +103,7 @@ impl From<&SessionRecords<'_>> for SessionRow {
             .unwrap_or_default();
         Self {
             session: records.session.clone(),
-            activity: records.activity(..),
+            activity: records.activity(Duration::ZERO..Duration::MAX),
             span,
         }
     }

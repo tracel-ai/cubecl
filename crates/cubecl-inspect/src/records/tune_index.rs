@@ -1,4 +1,4 @@
-use super::{EnvironmentRecords, SessionRecords};
+use super::{CompilationSpans, EnvironmentRecords};
 use crate::report::{CanonicalKey, RecordedTune, TunedKey, UntypedTuneRecord};
 use cubecl_environment::records::{SessionId, Stamped};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -10,8 +10,8 @@ pub struct TuneIndex<'a> {
     /// A key's latest stored tune, by its table's namespace, its checksum and
     /// the key itself.
     tunes: HashMap<(&'a str, &'a str, CanonicalKey), &'a Stamped<UntypedTuneRecord>>,
-    /// The sessions that ran one, for the compiling inside it.
-    sessions: BTreeMap<SessionId, SessionRecords<'a>>,
+    /// The compiling of each session that ran one.
+    compiling: BTreeMap<SessionId, CompilationSpans>,
 }
 
 impl<'a> TuneIndex<'a> {
@@ -30,12 +30,11 @@ impl<'a> TuneIndex<'a> {
             tunes.insert(entry, trace);
         }
         let tuned: BTreeSet<SessionId> = tunes.values().map(|trace| trace.stamp.session).collect();
-        let sessions = records
-            .sessions()
-            .filter(|session| tuned.contains(&session.session().id))
-            .map(|session| (session.session().id, session))
+        let compiling = tuned
+            .into_iter()
+            .map(|session| (session, records.compiling(session)))
             .collect();
-        Self { tunes, sessions }
+        Self { tunes, compiling }
     }
 
     /// The last tune recorded of `key` that its table took, with the
@@ -49,9 +48,7 @@ impl<'a> TuneIndex<'a> {
         );
         let trace = *self.tunes.get(&entry)?;
         Some(RecordedTune {
-            compiling: self.sessions[&trace.stamp.session]
-                .compiling()
-                .during(trace),
+            compiling: self.compiling[&trace.stamp.session].during(trace),
             trace: trace.clone(),
         })
     }

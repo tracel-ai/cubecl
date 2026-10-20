@@ -1,13 +1,13 @@
-use crate::report::{NamespaceRoot, Summary};
-use crate::{InspectError, Inspector, environment};
+use crate::report::NamespaceRoot;
+use crate::{InspectError, environment};
 use cubecl_environment::bundle::{BundleManifest, ExportOptions, export};
 use cubecl_environment::persistence::{Access, Database};
 use cubecl_environment::records::Records;
 use std::path::{Path, PathBuf};
 
 /// One environment file, opened read-only and checked to be one this build
-/// reads: what an [`Inspector`] reads the reports of, and what is
-/// [pruned](Self::prune) or [stripped](Self::strip).
+/// reads: what an [`Inspector`](crate::Inspector) reads the reports of, and
+/// what is [pruned](Self::prune) or [stripped](Self::strip).
 ///
 /// Read-only is what makes it safe to point at an environment a running
 /// process is writing: the database is shared through WAL, and nothing but
@@ -53,7 +53,7 @@ impl EnvironmentFile {
     }
 
     /// Drop the records of every session but the newest `keep`, in place,
-    /// and summarize what is left.
+    /// and open what is left.
     ///
     /// Takes the file, whose read-only handle has to be closed first: a file
     /// open for reading in this process cannot be written by it. The write
@@ -66,8 +66,8 @@ impl EnvironmentFile {
     ///
     /// [`InspectError::Prune`] when the file cannot be opened for writing,
     /// such as one in a read-only directory; [`InspectError::Open`] when the
-    /// pruned file cannot be read back.
-    pub fn prune(self, keep: usize) -> Result<Summary, InspectError> {
+    /// pruned file cannot be opened again.
+    pub fn prune(self, keep: usize) -> Result<Self, InspectError> {
         let Self { database, path } = self;
         let refused = |reason: String| InspectError::Prune {
             path: path.clone(),
@@ -84,18 +84,18 @@ impl EnvironmentFile {
             true => writable.into_standalone().map_err(refused)?,
             false => drop(writable),
         }
-        Ok(Inspector::open(path)?.summary())
+        Self::open(path)
     }
 
     /// Write a copy of the file to `out` without its records — the account
     /// of how it was built, which a distributed environment has no use for —
-    /// and summarize the copy.
+    /// and open the copy.
     ///
     /// # Errors
     ///
     /// [`InspectError::Export`] when the copy cannot be written to `out`;
-    /// [`InspectError::Open`] when it cannot be read back.
-    pub fn strip(&self, out: &Path) -> Result<Summary, InspectError> {
+    /// [`InspectError::Open`] when it cannot be opened.
+    pub fn strip(&self, out: &Path) -> Result<Self, InspectError> {
         let manifest = BundleManifest::new(&self.database).ok();
         let options = ExportOptions {
             name: manifest.as_ref().map_or_else(
@@ -113,6 +113,6 @@ impl EnvironmentFile {
             path: out.to_path_buf(),
             reason: err.to_string(),
         })?;
-        Ok(Inspector::open(out)?.summary())
+        Self::open(out)
     }
 }
