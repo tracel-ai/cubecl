@@ -11,12 +11,19 @@ use cubecl_core::{
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_cpp::{
-    metal::{arch::MetalArchitecture, supported_cmma_combinations_metal},
-    shared::register_wmma_features,
+    metal::{
+        arch::MetalArchitecture,
+        mma::{mma_properties_metal, supported_mma_combinations_metal},
+        supported_cmma_combinations_metal,
+    },
+    shared::{register_mma_features, register_wmma_features},
 };
-use cubecl_monitoring::{DeviceUtilization, UtilizationUnavailable, gpu_utilization::CardCounters};
+use cubecl_monitoring::{
+    DevicePower, DeviceTemperature, DeviceUtilization, UtilizationUnavailable,
+    gpu_utilization::CardCounters,
+};
 use cubecl_server::allocator::ContiguousMemoryLayoutPolicy;
-use cubecl_server::runtime::Runtime;
+use cubecl_server::runtime::{DeviceDescription, DeviceKind, Runtime};
 use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLDevice, MTLGPUFamily};
 
@@ -27,37 +34,7 @@ pub struct MetalRuntime;
 impl DeviceService for MetalServer {
     fn init(device_id: DeviceId) -> Self {
         let device = MetalDevice::from_id(device_id);
-        let metal_device = match device {
-            MetalDevice::DefaultDevice => {
-                crate::device::default_device().expect("No Metal device found")
-            }
-            MetalDevice::DiscreteGpu(idx) => {
-                let devices = crate::device::all_devices();
-                devices
-                    .into_iter()
-                    .filter(
-                        |d: &objc2::rc::Retained<ProtocolObject<dyn objc2_metal::MTLDevice>>| {
-                            !(**d).hasUnifiedMemory()
-                        },
-                    )
-                    .nth(idx)
-                    .expect("Discrete GPU not found")
-            }
-            MetalDevice::IntegratedGpu(idx) => {
-                let devices = crate::device::all_devices();
-                devices
-                    .into_iter()
-                    .filter(
-                        |d: &objc2::rc::Retained<ProtocolObject<dyn objc2_metal::MTLDevice>>| {
-                            (**d).hasUnifiedMemory()
-                        },
-                    )
-                    .nth(idx)
-                    .expect("Integrated GPU not found")
-            }
-            MetalDevice::Existing(id) => crate::device::get_existing_device(id)
-                .expect("Existing device not found. Use register_device() first."),
-        };
+        let metal_device = resolve(&device).unwrap_or_else(|missing| panic!("{missing}"));
 
         ensure_metal3(&metal_device);
 
@@ -98,9 +75,7 @@ impl DeviceService for MetalServer {
         // `MetalPipelines` builds the same `msl_{name}` namespace from the same
         // string.
         let device_name = metal_device.name().to_string();
-
-        let mut physical = PhysicalDevice::default();
-        physical.registry_entry_id = Some(RegistryEntryId::new(metal_device.registryID()));
+        let physical = physical_device(&metal_device);
 
         let mut device_props = DeviceProperties::new(
             Default::default(),
@@ -149,7 +124,7 @@ impl Runtime for MetalRuntime {
 
     fn target_properties() -> TargetProperties {
         TargetProperties {
-            mma: Default::default(),
+            mma: mma_properties_metal(),
         }
     }
 
@@ -185,7 +160,62 @@ impl Runtime for MetalRuntime {
     }
 
     fn utilization(device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
-        CardCounters::read(Self::client(device).properties().identity.physical.as_ref())
+        CardCounters::utilization(Self::client(device).properties().identity.physical.as_ref())
+    }
+
+    fn temperature(device: &Self::Device) -> Result<DeviceTemperature, UtilizationUnavailable> {
+        CardCounters::temperature(Self::client(device).properties().identity.physical.as_ref())
+    }
+
+    fn power(device: &Self::Device) -> Result<DevicePower, UtilizationUnavailable> {
+        CardCounters::power(Self::client(device).properties().identity.physical.as_ref())
+    }
+
+    fn description(device: &Self::Device) -> Option<DeviceDescription> {
+        let metal_device = resolve(device).ok()?;
+        let kind = match (*metal_device).hasUnifiedMemory() {
+            true => DeviceKind::Integrated,
+            false => DeviceKind::Discrete,
+        };
+        let mut description = DeviceDescription::new(metal_device.name().to_string(), kind);
+        // Metal states no total, only the working set it recommends staying under.
+        description.max_memory = Some((*metal_device).recommendedMaxWorkingSetSize());
+        description.physical = Some(physical_device(&metal_device));
+        Some(description)
+    }
+}
+
+/// The card behind `metal_device`, found by its I/O Registry entry.
+fn physical_device(metal_device: &ProtocolObject<dyn MTLDevice>) -> PhysicalDevice {
+    let mut physical = PhysicalDevice::default();
+    physical.registry_entry_id = Some(RegistryEntryId::new(metal_device.registryID()));
+    physical
+}
+
+/// The Metal device `device` reports, or why it does not find one: the first
+/// of its class, discrete or integrated (`hasUnifiedMemory`), counted as
+/// `enumerate_devices` counts them.
+fn resolve(
+    device: &MetalDevice,
+) -> Result<objc2::rc::Retained<ProtocolObject<dyn MTLDevice>>, &'static str> {
+    let nth_of_class = |unified: bool, index: usize| {
+        crate::device::all_devices()
+            .into_iter()
+            .filter(|metal_device| (**metal_device).hasUnifiedMemory() == unified)
+            .nth(index)
+    };
+    match *device {
+        MetalDevice::DefaultDevice => {
+            crate::device::default_device().ok_or("No Metal device found")
+        }
+        MetalDevice::DiscreteGpu(index) => {
+            nth_of_class(false, index).ok_or("Discrete GPU not found")
+        }
+        MetalDevice::IntegratedGpu(index) => {
+            nth_of_class(true, index).ok_or("Integrated GPU not found")
+        }
+        MetalDevice::Existing(id) => crate::device::get_existing_device(id)
+            .ok_or("Existing device not found. Use register_device() first."),
     }
 }
 
@@ -245,10 +275,13 @@ fn register_types(props: &mut DeviceProperties) {
     );
 }
 
-/// Register WMMA (`simdgroup_matrix`) features for Metal.
+/// Register the `simdgroup_matrix` features for Metal: as a cooperative matrix, and as a
+/// manual MMA over each lane's registers.
 fn register_wmma(props: &mut DeviceProperties) {
     let combinations = supported_cmma_combinations_metal(&MetalArchitecture::Metal3);
     register_wmma_features(combinations, props);
+    let combinations = supported_mma_combinations_metal(&MetalArchitecture::Metal3);
+    register_mma_features(combinations, props);
 }
 
 fn ensure_metal3(device: &ProtocolObject<dyn MTLDevice>) {

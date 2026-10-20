@@ -5,8 +5,11 @@ use cubecl_core::{
     prelude::Visibility,
 };
 use cubecl_cpp::{
-    metal::{arch::MetalArchitecture, supported_cmma_combinations_metal},
-    shared::{MslComputeKernel, register_wmma_features},
+    metal::{
+        arch::MetalArchitecture, mma::supported_mma_combinations_metal,
+        supported_cmma_combinations_metal,
+    },
+    shared::{MslComputeKernel, register_mma_features, register_wmma_features},
 };
 use cubecl_ir::{
     DeviceProperties, Type,
@@ -291,9 +294,13 @@ fn register_types(props: &mut DeviceProperties) {
     );
 }
 
+/// The `simdgroup_matrix` as a cooperative matrix, and as a manual MMA over each lane's
+/// registers.
 fn register_cmma(props: &mut DeviceProperties) {
     let combinations = supported_cmma_combinations_metal(&MetalArchitecture::Metal3);
     register_wmma_features(combinations, props);
+    let combinations = supported_mma_combinations_metal(&MetalArchitecture::Metal3);
+    register_mma_features(combinations, props);
 }
 
 #[cfg(all(test, target_vendor = "apple"))]

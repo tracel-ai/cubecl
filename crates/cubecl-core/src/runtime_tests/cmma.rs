@@ -1438,6 +1438,108 @@ pub fn test_cmma_manual<
     }
 }
 
+/// Each operand of a manual MMA is laid out as [`MmaDefinition::position_of_nth`] says, on the
+/// device the test runs on, checked one operand at a time.
+///
+/// An identity times numbered cells hands back the right operand's cells, numbered cells times an
+/// identity the left operand's, and a zero product the accumulator's, so an operand whose layout
+/// disagrees with the others' fails its own launch. A layout wrong in every operand alike can map
+/// the identity onto itself and pass all three; the product [`test_cmma_manual`] checks fails it.
+/// What no product can tell apart is a relabeling of the rows and the columns of every operand by
+/// one permutation, which a kernel reading and writing its operands through `position_of_nth`
+/// never sees either.
+pub fn test_cmma_manual_places_every_cell<
+    R: Runtime,
+    A: CubeElement + Scalar + NumCast,
+    B: CubeElement + Scalar + NumCast,
+    CD: CubeElement + Numeric,
+>(
+    client: Client,
+    cube_dimensions: CubeDim,
+    (m, n, k): (usize, usize, usize),
+) {
+    if !client.features().matmul.mma.contains(&MmaConfig {
+        a_type: A::cube_type(),
+        b_type: B::cube_type(),
+        cd_type: CD::cube_type(),
+        m: m as u32,
+        n: n as u32,
+        k: k as u32,
+    }) {
+        println!(
+            "Skipping test for a: {:?} b: {:?}, cd: {:?}, m: {m}, n: {n}, k: {k}",
+            A::cube_type(),
+            B::cube_type(),
+            CD::cube_type()
+        );
+        return;
+    }
+    assert!(
+        m == k && k == n,
+        "an identity factor needs a square product"
+    );
+
+    // Cell `(row, col)` of a `rows x cols` matrix holds `row * cols + col + 1`, so no two cells
+    // share a value and none is zero.
+    let numbered = |rows: usize, cols: usize| -> Vec<i64> {
+        (0..rows * cols).map(|cell| cell as i64 + 1).collect()
+    };
+    let identity = |size: usize| -> Vec<i64> {
+        (0..size * size)
+            .map(|cell| match cell / size == cell % size {
+                true => 1,
+                false => 0,
+            })
+            .collect()
+    };
+    let zeros = |rows: usize, cols: usize| vec![0i64; rows * cols];
+
+    let product = |lhs: &[i64], rhs: &[i64], acc: &[i64]| -> Vec<i64> {
+        let lhs: Vec<A> = lhs.iter().map(|value| A::from(*value).unwrap()).collect();
+        let rhs: Vec<B> = rhs.iter().map(|value| B::from(*value).unwrap()).collect();
+        let acc: Vec<CD> = acc.iter().map(|value| CD::from_int(*value)).collect();
+        let lhs = client.create_from_slice(A::as_bytes(&lhs));
+        let rhs = client.create_from_slice(B::as_bytes(&rhs));
+        let acc = client.create_from_slice(CD::as_bytes(&acc));
+        let out = client.empty(m * n * size_of::<CD>());
+        unsafe {
+            kernel_manual::launch::<A, B, CD>(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                cube_dimensions,
+                TensorArg::from_raw_parts(lhs, [k, 1].into(), [m, k].into()),
+                TensorArg::from_raw_parts(rhs, [n, 1].into(), [k, n].into()),
+                TensorArg::from_raw_parts(acc, [n, 1].into(), [m, n].into()),
+                TensorArg::from_raw_parts(out.clone(), [n, 1].into(), [m, n].into()),
+                m,
+                n,
+                k,
+            )
+        };
+        let out = client.read_one_unchecked(out);
+        CD::from_bytes(&out)
+            .iter()
+            .map(|value| value.to_i64().unwrap())
+            .collect()
+    };
+
+    assert_eq!(
+        product(&identity(m), &numbered(k, n), &zeros(m, n)),
+        numbered(k, n),
+        "the right operand's cells"
+    );
+    assert_eq!(
+        product(&numbered(m, k), &identity(k), &zeros(m, n)),
+        numbered(m, k),
+        "the left operand's cells"
+    );
+    assert_eq!(
+        product(&zeros(m, k), &zeros(k, n), &numbered(m, n)),
+        numbered(m, n),
+        "the accumulator's cells"
+    );
+}
+
 /// An FP8 manual MMA on operands scattered over signs and magnitudes matches an f64 CPU product.
 pub fn test_cmma_manual_fp8_matches_cpu_reference<
     R: Runtime,
@@ -2737,6 +2839,45 @@ macro_rules! testgen_cmma {
             test::<f16, f16, f32>(16, 16, 16);
             // bf16 is broken in general right now, it generates a conflicting `__bf16_2` type
             //test::<bf16, bf16, f32>(16, 16, 16);
+
+            // Metal
+            test::<f16, f16, f32>(8, 8, 8);
+            test::<f16, f16, f16>(8, 8, 8);
+            test::<bf16, bf16, bf16>(8, 8, 8);
+            test::<f32, f32, f32>(8, 8, 8);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_cmma_manual_places_every_cell() {
+            use cubecl_common::*;
+            use cubecl_core::num_traits::cast::NumCast;
+            use half::{bf16, f16};
+
+            fn test<
+                A: CubeElement + Scalar + NumCast,
+                B: CubeElement + Scalar + NumCast,
+                CD: CubeElement + Numeric,
+            >(
+                size: usize,
+            ) {
+                let client = TestRuntime::client(&Default::default());
+                let cube_dimensions = cube_dim::<TestRuntime>(&client);
+                cubecl_core::runtime_tests::cmma::test_cmma_manual_places_every_cell::<
+                    TestRuntime,
+                    A,
+                    B,
+                    CD,
+                >(client, cube_dimensions, (size, size, size))
+            }
+
+            // HIP
+            test::<f16, f16, f32>(16);
+
+            // Metal
+            test::<f16, f16, f32>(8);
+            test::<f16, f16, f16>(8);
+            test::<bf16, bf16, bf16>(8);
+            test::<f32, f32, f32>(8);
         }
 
         #[$crate::runtime_tests::test_log::test]
