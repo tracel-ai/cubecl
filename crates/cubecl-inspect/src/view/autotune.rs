@@ -3,8 +3,10 @@ use super::paint::Role;
 use super::table::{Align, Table};
 use super::{KeyText, Maybe, Micros, Percent, Ratio, Text, Via, Wall};
 use crate::report::{
-    AutotuneReport, CandidateOutcome, CandidateReport, CandidateResult, Fate, TuneTrace, TunedKey,
+    AutotuneReport, CandidateOutcome, CandidateReport, CandidateResult, Fate, TunedKey,
+    UntypedTuneRecord,
 };
+use cubecl_environment::records::Stamped;
 use cubecl_server::tune::Placement;
 use std::fmt;
 
@@ -87,7 +89,7 @@ impl fmt::Display for Header<'_> {
                 "{} on {}{} (cubecl {})",
                 key.table.tuner,
                 key.table.device,
-                Via(key.table.fingerprint.as_deref()),
+                Via(key.table.naming.fingerprint()),
                 key.table.version
             ),
         )?;
@@ -224,7 +226,7 @@ impl fmt::Display for PlanOrder<'_> {
 }
 
 /// A recorded tune: the trials in the order they ran, then what never ran.
-struct RunOrder<'a>(&'a TunedKey, &'a TuneTrace);
+struct RunOrder<'a>(&'a TunedKey, &'a Stamped<UntypedTuneRecord>);
 
 impl fmt::Display for RunOrder<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

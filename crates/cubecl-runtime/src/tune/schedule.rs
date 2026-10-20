@@ -472,9 +472,12 @@ impl Schedule<'_> {
                 // dead tune poisons every stream sharing it, and the decided
                 // kernel executes for real right after — if it truly cannot
                 // run, that failure surfaces there, exactly as a measured
-                // winner's would. Only launch failures and manual skips say
-                // the kernel itself is unusable; when nothing else remains,
-                // there is genuinely no kernel to run.
+                // winner's would. Only launch failures, manual skips and
+                // rejections — a candidate whose own function returned an
+                // error, so nothing ran — say the kernel itself is unusable:
+                // deciding a rejection would run it for real and fail the same
+                // way. When nothing else remains, there is genuinely no kernel
+                // to run.
                 let executed_unmeasured = results.iter().position(|result| {
                     matches!(
                         &result.outcome,

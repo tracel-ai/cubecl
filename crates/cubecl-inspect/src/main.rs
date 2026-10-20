@@ -3,7 +3,7 @@
 use clap::{Parser, Subcommand};
 use cubecl_inspect::command::{self, Inspection, Output};
 use cubecl_inspect::tui::{self, Browsing};
-use cubecl_inspect::{EnvironmentDirectory, EnvironmentName, InspectError, Inspector};
+use cubecl_inspect::{EnvironmentDirectory, EnvironmentFile, EnvironmentName, InspectError};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -98,8 +98,8 @@ fn run(cli: Cli) -> Result<(), String> {
         .map_err(|err| err.to_string()),
         Command::Inspect(inspection) => {
             let name = cli.env.unwrap_or(EnvironmentName::Active);
-            Inspector::open(name.resolve())
-                .and_then(|inspector| inspection.run(inspector, cli.output))
+            EnvironmentFile::open(name.resolve())
+                .and_then(|file| inspection.run(file, cli.output))
                 .map_err(|err: InspectError| err.to_string())
         }
     }

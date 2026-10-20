@@ -2,7 +2,7 @@
 //! whenever the file changes.
 
 use super::theme::{self, Masthead, Selection, hints, panel, shown};
-use crate::report::{AutotuneReport, CandidateReport, KeyOrder};
+use crate::report::{AutotuneReport, Overview};
 use crate::view::{KeyText, Maybe, Text, Wall};
 use crate::{InspectError, Inspector, environment};
 use ansi_to_tui::IntoText as _;
@@ -33,8 +33,8 @@ pub(crate) struct Viewer {
     seen: Option<Fingerprint>,
 }
 
-/// The reports, rendered for their tabs; the autotune one kept whole, since
-/// its keys are selectable.
+/// The [`Overview`]'s reports, rendered for their tabs; the autotune one
+/// kept whole, since its keys are selectable.
 struct Pages {
     /// What the manifest calls the environment, when it says more than the
     /// file's name.
@@ -63,6 +63,7 @@ struct KeyRow {
     key: String,
 }
 
+/// One report of the [`Overview`], a tab each.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Tab {
     Summary,
@@ -103,6 +104,7 @@ impl Tab {
         Self::ALL.iter().position(|tab| *tab == self).unwrap_or(0)
     }
 
+    /// The tab `by` steps along, wrapping at either end.
     fn step(self, by: isize) -> Self {
         let count = Self::ALL.len() as isize;
         Self::ALL[(self.index() as isize + by).rem_euclid(count) as usize]
@@ -164,19 +166,26 @@ impl KeyRow {
 }
 
 impl Pages {
-    fn read(inspector: &Inspector) -> Self {
-        let mut autotune = inspector.autotune();
-        autotune.sort(KeyOrder::Wall);
-        let summary = inspector.summary();
+    /// Render `overview`, every report of it: a report added to it is a
+    /// field this destructuring names, or the build fails.
+    fn new(overview: Overview) -> Self {
+        let Overview {
+            summary,
+            timeline,
+            autotune,
+            candidates,
+            kernels,
+            memory,
+        } = overview;
         Self {
             name: summary.name().map(str::to_string),
             summary: Page::new(Text(&summary)),
-            timeline: Page::new(Text(&inspector.timeline())),
-            candidates: Page::new(Text(&CandidateReport::from(&autotune))),
+            timeline: Page::new(Text(&timeline)),
             keys: KeyRow::all(&autotune),
             autotune,
-            kernels: Page::new(Text(&inspector.kernels())),
-            memory: Page::new(Text(&inspector.memory())),
+            candidates: Page::new(Text(&candidates)),
+            kernels: Page::new(Text(&kernels)),
+            memory: Page::new(Text(&memory)),
         }
     }
 
@@ -247,7 +256,7 @@ impl Viewer {
     /// the previous reading on screen; the error says why.
     pub(crate) fn read(&mut self) -> Result<(), InspectError> {
         self.seen = Some(Fingerprint::new(&self.path));
-        self.pages = Some(Pages::read(&Inspector::open(&self.path)?));
+        self.pages = Some(Pages::new(Inspector::open(&self.path)?.overview()));
         Ok(())
     }
 

@@ -33,12 +33,12 @@ impl fmt::Display for Text<'_, Timeline> {
             ])
             .paint(&["wall", "tuning", "compiling"], Role::Measure);
             for span in &session.spans {
-                let slowest = span.slowest.as_ref().map(|slowest| {
+                let slowest = span.activity.slowest.as_ref().map(|slowest| {
                     let tuner = AutotuneTable::new(&slowest.table)
                         .map_or_else(|| slowest.table.clone(), |table| table.tuner);
                     format!("{} {tuner} {}", Wall(slowest.wall), KeyText(&slowest.key))
                 });
-                let role = match (span.depth, span.tunes + span.compilations) {
+                let role = match (span.depth, span.activity.tunes + span.activity.compilations) {
                     (0, _) => Some(Role::Strong),
                     (_, 0) => Some(Role::Idle),
                     _ => None,
@@ -49,10 +49,10 @@ impl fmt::Display for Text<'_, Timeline> {
                         format!("+{:.1} s", span.stamp.offset.as_secs_f64()),
                         format!("{}{}", "  ".repeat(span.depth), span.label),
                         Wall(span.wall).to_string(),
-                        span.tunes.to_string(),
-                        Wall(span.tuning).to_string(),
-                        span.compilations.to_string(),
-                        Wall(span.compiling).to_string(),
+                        span.activity.tunes.to_string(),
+                        Wall(span.activity.tuning).to_string(),
+                        span.activity.compilations.to_string(),
+                        Wall(span.activity.compiling).to_string(),
                         Maybe(slowest).to_string(),
                     ],
                 );
