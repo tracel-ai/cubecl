@@ -2,7 +2,7 @@
 //! whenever the file changes.
 
 use super::theme::{self, Masthead, Selection, hints, panel, shown};
-use crate::report::{AutotuneReport, Overview, OverviewReport};
+use crate::report::{AutotuneReport, Overview};
 use crate::view::{KeyText, Maybe, Text, Wall};
 use crate::{InspectError, Inspector, environment};
 use ansi_to_tui::IntoText as _;
@@ -20,7 +20,7 @@ use std::time::SystemTime;
 /// selected or open.
 pub(crate) struct Viewer {
     path: PathBuf,
-    tab: Overview,
+    tab: Tab,
     scroll: u16,
     /// Columns the page is panned right by: a table wider than the panel is
     /// cut at its edge, the rest of it reached by panning.
@@ -33,19 +33,21 @@ pub(crate) struct Viewer {
     seen: Option<Fingerprint>,
 }
 
-/// The overviews, rendered for their tabs; the autotune one kept whole,
-/// since its keys are selectable.
+/// The [`Overview`]'s reports, rendered for their tabs; the autotune one
+/// kept whole, since its keys are selectable.
 struct Pages {
     /// What the manifest calls the environment, when it says more than the
     /// file's name.
     name: Option<String>,
-    /// Each overview's page, by its place among the tabs; `None` for the
-    /// autotune one, drawn as a list of its keys.
-    pages: [Option<Page>; Overview::ALL.len()],
+    summary: Page,
+    timeline: Page,
     autotune: AutotuneReport,
     /// The autotune keys as rows, in the report's order: formatted once a
     /// reading rather than on every frame the list is drawn.
     keys: Vec<KeyRow>,
+    candidates: Page,
+    kernels: Page,
+    memory: Page,
 }
 
 /// A report as a tab shows it: painted the way a terminal paints it, once a
@@ -61,10 +63,53 @@ struct KeyRow {
     key: String,
 }
 
+/// One report of the [`Overview`], a tab each.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Tab {
+    Summary,
+    Timeline,
+    Autotune,
+    Candidates,
+    Kernels,
+    Memory,
+}
+
 /// The file and its write-ahead log, by size and modification time: a
 /// session writes to the log first, so the log is what moves while it runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Fingerprint([(u64, Option<SystemTime>); 2]);
+
+impl Tab {
+    const ALL: [Tab; 6] = [
+        Tab::Summary,
+        Tab::Timeline,
+        Tab::Autotune,
+        Tab::Candidates,
+        Tab::Kernels,
+        Tab::Memory,
+    ];
+
+    fn title(self) -> &'static str {
+        match self {
+            Tab::Summary => "summary",
+            Tab::Timeline => "timeline",
+            Tab::Autotune => "autotune",
+            Tab::Candidates => "candidates",
+            Tab::Kernels => "kernels",
+            Tab::Memory => "memory",
+        }
+    }
+
+    fn index(self) -> usize {
+        Self::ALL.iter().position(|tab| *tab == self).unwrap_or(0)
+    }
+
+    /// The tab `by` steps along, wrapping at either end.
+    fn step(self, by: isize) -> Self {
+        let count = Self::ALL.len() as isize;
+        Self::ALL[(self.index() as isize + by).rem_euclid(count) as usize]
+    }
+}
 
 impl Fingerprint {
     fn new(path: &Path) -> Self {
@@ -121,35 +166,38 @@ impl KeyRow {
 }
 
 impl Pages {
-    fn read(inspector: &Inspector) -> Self {
-        let mut name = None;
-        let mut autotune = AutotuneReport::default();
-        let pages = inspector.overviews().map(|(_, report)| match report {
-            OverviewReport::Autotune(report) => {
-                autotune = report;
-                None
-            }
-            report => {
-                if let OverviewReport::Summary(summary) = &report {
-                    name = summary.name().map(str::to_string);
-                }
-                Some(Page::new(Text(&report)))
-            }
-        });
+    /// Render `overview`, every report of it: a report added to it is a
+    /// field this destructuring names, or the build fails.
+    fn new(overview: Overview) -> Self {
+        let Overview {
+            summary,
+            timeline,
+            autotune,
+            candidates,
+            kernels,
+            memory,
+        } = overview;
         Self {
-            name,
-            pages,
+            name: summary.name().map(str::to_string),
+            summary: Page::new(Text(&summary)),
+            timeline: Page::new(Text(&timeline)),
             keys: KeyRow::all(&autotune),
             autotune,
+            candidates: Page::new(Text(&candidates)),
+            kernels: Page::new(Text(&kernels)),
+            memory: Page::new(Text(&memory)),
         }
     }
 
-    /// The page a tab shows.
-    fn page(&self, tab: Overview) -> Option<&Page> {
+    /// The page a tab shows; `None` for the autotune tab, drawn as a list.
+    fn page(&self, tab: Tab) -> Option<&Page> {
         match tab {
-            // Drawn as a list of its keys, which are selectable.
-            Overview::Autotune => None,
-            tab => self.pages[index(tab)].as_ref(),
+            Tab::Summary => Some(&self.summary),
+            Tab::Timeline => Some(&self.timeline),
+            Tab::Candidates => Some(&self.candidates),
+            Tab::Kernels => Some(&self.kernels),
+            Tab::Memory => Some(&self.memory),
+            Tab::Autotune => None,
         }
     }
 }
@@ -194,7 +242,7 @@ impl Viewer {
     pub(crate) fn new(path: PathBuf) -> Self {
         Self {
             path,
-            tab: Overview::Summary,
+            tab: Tab::Summary,
             scroll: 0,
             pan: 0,
             pages: None,
@@ -208,7 +256,7 @@ impl Viewer {
     /// the previous reading on screen; the error says why.
     pub(crate) fn read(&mut self) -> Result<(), InspectError> {
         self.seen = Some(Fingerprint::new(&self.path));
-        self.pages = Some(Pages::read(&Inspector::open(&self.path)?));
+        self.pages = Some(Pages::new(Inspector::open(&self.path)?.overview()));
         Ok(())
     }
 
@@ -226,10 +274,10 @@ impl Viewer {
 
     /// Move to the tab `by` steps along, wrapping at either end.
     pub(crate) fn step_tab(&mut self, by: isize) {
-        self.switch(step(self.tab, by));
+        self.switch(self.tab.step(by));
     }
 
-    fn switch(&mut self, tab: Overview) {
+    fn switch(&mut self, tab: Tab) {
         self.tab = tab;
         self.scroll = 0;
         self.pan = 0;
@@ -238,7 +286,7 @@ impl Viewer {
 
     /// Scroll a page, or move the selection in the key list.
     pub(crate) fn move_by(&mut self, rows: isize) {
-        let selecting = self.tab == Overview::Autotune && self.detail.is_none();
+        let selecting = self.tab == Tab::Autotune && self.detail.is_none();
         if selecting {
             let count = self
                 .pages
@@ -256,7 +304,7 @@ impl Viewer {
     }
 
     pub(crate) fn open_key(&mut self) {
-        if self.tab != Overview::Autotune || self.detail.is_some() {
+        if self.tab != Tab::Autotune || self.detail.is_some() {
             return;
         }
         let key = self
@@ -303,8 +351,8 @@ impl Viewer {
         ];
         masthead.draw(frame, header, environment.into_iter().flatten());
         frame.render_widget(
-            Tabs::new(Overview::ALL.map(Overview::name))
-                .select(index(self.tab))
+            Tabs::new(Tab::ALL.map(Tab::title))
+                .select(self.tab.index())
                 .style(theme::label())
                 .highlight_style(theme::accent().add_modifier(Modifier::UNDERLINED))
                 .divider(Span::styled("·", theme::rule()))
@@ -313,9 +361,9 @@ impl Viewer {
             tabs,
         );
 
-        let block = panel(self.tab.name());
+        let block = panel(self.tab.title());
         let page = match (&self.pages, self.tab, &self.detail) {
-            (Some(_), Overview::Autotune, Some(detail)) => Some(detail),
+            (Some(_), Tab::Autotune, Some(detail)) => Some(detail),
             (Some(pages), tab, _) => pages.page(tab),
             (None, _, _) => None,
         };
@@ -358,36 +406,22 @@ impl Viewer {
     }
 }
 
-/// Where `overview` sits among the tabs.
-fn index(overview: Overview) -> usize {
-    Overview::ALL
-        .iter()
-        .position(|tab| *tab == overview)
-        .unwrap_or(0)
-}
-
-/// The tab `by` steps along from `overview`, wrapping at either end.
-fn step(overview: Overview, by: isize) -> Overview {
-    let count = Overview::ALL.len() as isize;
-    Overview::ALL[(index(overview) as isize + by).rem_euclid(count) as usize]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn tabs_wrap_both_ways() {
-        assert_eq!(step(Overview::Summary, -1), Overview::Memory);
-        assert_eq!(step(Overview::Memory, 1), Overview::Summary);
-        assert_eq!(step(Overview::Timeline, 1), Overview::Autotune);
+        assert_eq!(Tab::Summary.step(-1), Tab::Memory);
+        assert_eq!(Tab::Memory.step(1), Tab::Summary);
+        assert_eq!(Tab::Timeline.step(1), Tab::Autotune);
     }
 
     /// The selection stays on the list, whatever the key asks.
     #[test]
     fn the_selection_is_clamped_to_the_keys() {
         let mut viewer = Viewer::new(PathBuf::from("missing.cubecl"));
-        viewer.switch(Overview::Autotune);
+        viewer.switch(Tab::Autotune);
         viewer.move_by(-5);
         assert_eq!(viewer.keys.index(), Some(0));
         viewer.move_by(5);

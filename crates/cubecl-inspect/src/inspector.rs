@@ -2,8 +2,8 @@ use crate::records::{EnvironmentRecords, TuneIndex};
 use crate::report::{
     AutotuneReport, AutotuneTable, CandidateReport, Comparison, DiffSide, EnvironmentDiff,
     KernelMatch, KernelReport, KernelRow, KernelSelector, KeyId, KeyOrder, MemorySnapshots,
-    NamespaceRoot, Overview, OverviewReport, SessionRow, SessionTimeline, StoredArtifacts, Summary,
-    Timeline, TunedKey,
+    NamespaceRoot, Overview, SessionRow, SessionTimeline, StoredArtifacts, Summary, Timeline,
+    TunedKey,
 };
 use crate::{EnvironmentFile, InspectError};
 use cubecl_environment::bundle::BundleManifest;
@@ -60,37 +60,22 @@ impl Inspector {
         }
     }
 
-    /// The report `overview` names, in its default order.
-    pub fn overview(&self, overview: Overview) -> OverviewReport {
-        match overview {
-            Overview::Summary => OverviewReport::Summary(self.summary()),
-            Overview::Timeline => OverviewReport::Timeline(self.timeline()),
-            Overview::Autotune => OverviewReport::Autotune(self.autotune_in_default_order()),
-            Overview::Candidates => {
-                OverviewReport::Candidates(CandidateReport::from(&self.autotune()))
-            }
-            Overview::Kernels => OverviewReport::Kernels(self.kernels()),
-            Overview::Memory => OverviewReport::Memory(self.memory()),
-        }
-    }
-
-    /// Every overview, in [`Overview::ALL`]'s order.
+    /// Every report a reader takes in before selecting anything.
     ///
-    /// The autotune tables are read once for the two overviews that answer
+    /// The autotune tables are read once for the two reports that answer
     /// from them, so the candidates tally the keys the autotune report lists
     /// even while a session writes the file.
-    pub fn overviews(&self) -> [(Overview, OverviewReport); Overview::ALL.len()] {
-        let autotune = self.autotune_in_default_order();
-        Overview::ALL.map(|overview| {
-            let report = match overview {
-                Overview::Autotune => OverviewReport::Autotune(autotune.clone()),
-                Overview::Candidates => {
-                    OverviewReport::Candidates(CandidateReport::from(&autotune))
-                }
-                overview => self.overview(overview),
-            };
-            (overview, report)
-        })
+    pub fn overview(&self) -> Overview {
+        let mut autotune = self.autotune();
+        autotune.sort(KeyOrder::default());
+        Overview {
+            summary: self.summary(),
+            timeline: self.timeline(),
+            candidates: CandidateReport::from(&autotune),
+            autotune,
+            kernels: self.kernels(),
+            memory: self.memory(),
+        }
     }
 
     /// Each session's marks, with what was tuned and compiled inside them.
@@ -210,12 +195,5 @@ impl Inspector {
             .into_iter()
             .find(|key| key.id == id)
             .ok_or(InspectError::UnknownKey(id))
-    }
-
-    /// The keys in the order the command line lists them by default.
-    fn autotune_in_default_order(&self) -> AutotuneReport {
-        let mut report = self.autotune();
-        report.sort(KeyOrder::default());
-        report
     }
 }

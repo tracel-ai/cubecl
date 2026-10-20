@@ -6,7 +6,7 @@ use cubecl_environment::persistence::{Access, Database, Origin};
 use cubecl_environment::records::{self, MarkRecord, Record, Session, SessionId, Stamp, Stamped};
 use cubecl_environment::stream::StreamId;
 use cubecl_inspect::report::{
-    CandidateOutcome, CandidateReport, Fate, KernelSelector, KeyId, KeyOrder, Overview,
+    CandidateOutcome, CandidateReport, Fate, KernelSelector, KeyId, KeyOrder,
 };
 use cubecl_inspect::{EnvironmentDirectory, EnvironmentFile, InspectError, Inspector};
 use cubecl_server::benchmark::BenchmarkComputations;
@@ -646,23 +646,22 @@ fn keys_sort_slowest_tune_first() {
     assert!(report.keys[1..].iter().all(|key| key.tune.is_none()));
 }
 
-/// An overview writes the JSON its report writes, and lists the keys in
-/// the order the command line does by default.
+/// An overview lists the keys in the order the command line does by
+/// default, and tallies its candidates from those keys.
 #[test]
-fn an_overview_is_its_report() {
+fn an_overview_holds_every_report_from_one_reading() {
     let dir = tempfile::tempdir().expect("a temp dir");
     let inspector = Inspector::open(fixture(dir.path())).expect("opens");
+    let overview = inspector.overview();
     let mut autotune = inspector.autotune();
     autotune.sort(KeyOrder::default());
 
+    assert_eq!(json(&overview.autotune), json(&autotune));
     assert_eq!(
-        json(&inspector.overview(Overview::Autotune)),
-        json(&autotune)
+        json(&overview.candidates),
+        json(&CandidateReport::from(&overview.autotune))
     );
-    assert_eq!(
-        json(&inspector.overview(Overview::Summary)),
-        json(&inspector.summary())
-    );
+    assert_eq!(json(&overview.summary), json(&inspector.summary()));
 }
 
 /// The fields a build's walk reads out of `summary --json` and
@@ -670,9 +669,11 @@ fn an_overview_is_its_report() {
 #[test]
 fn the_json_a_walk_reads_keeps_its_shape() {
     let dir = tempfile::tempdir().expect("a temp dir");
-    let inspector = Inspector::open(fixture(dir.path())).expect("opens");
-    let summary = json(&inspector.overview(Overview::Summary));
-    let autotune = json(&inspector.overview(Overview::Autotune));
+    let overview = Inspector::open(fixture(dir.path()))
+        .expect("opens")
+        .overview();
+    let summary = json(&overview.summary);
+    let autotune = json(&overview.autotune);
 
     let session = &summary["sessions"][0];
     assert!(session["tuning"]["secs"].is_u64());
