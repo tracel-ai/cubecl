@@ -26,9 +26,7 @@ export_tests = [
     "test-log/trace",
     "test-log/log",
     "std",
-    "harness",
 ]
-harness = ["cubecl-macros/harness"]
 nvidia = ["cubecl-ir/nvidia"]
 persistence = ["cubecl-runtime/persistence"]
 std = ["cubecl-runtime/std", "pliron/std", "cubecl-environment/std"]

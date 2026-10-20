@@ -1,9 +1,10 @@
-//! A `harness` function for every harnessable cube function: one whose
-//! parameters are all scalars or slices of them, and that returns a scalar or
-//! a tuple of scalars, or nothing when it writes into a mutable slice. The
-//! harness launches the function on a single unit of the given runtime and
-//! hands its result back to the host, so a test can call `f::harness::<R>(1)`
-//! instead of writing a kernel, buffers and a read back by hand.
+//! A `harness` function for every cube function marked `#[cube_harness]`,
+//! whose parameters must all be scalars, slices or arrays of them, or cube
+//! types, and that returns them or a tuple of them, or nothing when it writes
+//! into a mutable slice. The harness launches the function on a single unit of
+//! the given runtime and hands its result back to the host, so a test can call
+//! `f::harness::<R>(1)` instead of writing a kernel, buffers and a read back by
+//! hand.
 //!
 //! A slice is uploaded from a host slice of the same type, and a mutable one
 //! is written back into it after the launch, as if the function ran on the
@@ -14,11 +15,14 @@
 //! only known once the kernel is expanded, so a harness returning one expands
 //! its kernel first to learn the length, and only then allocates its buffer.
 //!
-//! With `#[cube(harness)]`, a function may also take and return cube types,
-//! which must derive `CubeHarness`. A macro can't tell a cube type from any
-//! other path, so these are opt in.
+//! A function may also take and return cube types, which must derive
+//! `CubeHarness`. A macro can't tell a cube type from any other path, so any
+//! path that isn't a scalar is taken for one, and the bound on it reports a
+//! type that isn't.
 //!
-//! Only emitted when the `harness` feature is enabled.
+//! Being a separate attribute, a harness is only emitted where it's asked for,
+//! and can be gated like any attribute, usually with
+//! `#[cfg_attr(test, cube_harness)]`.
 
 use darling::util::Flag;
 use proc_macro2::TokenStream;
@@ -105,7 +109,7 @@ fn array_elem(ty: &Type) -> Option<&Type> {
 
 impl Launch {
     pub fn harness(&self) -> TokenStream {
-        if !cfg!(feature = "harness") {
+        if !self.args.harness.is_present() {
             return TokenStream::new();
         }
 
@@ -113,13 +117,12 @@ impl Launch {
             Some(plan) => self
                 .harness_tokens(&plan)
                 .unwrap_or_else(|err| err.into_compile_error()),
-            None if self.args.harness.is_present() => syn::Error::new_spanned(
+            None => syn::Error::new_spanned(
                 &self.func.sig.name,
                 "a harness needs every parameter to be a scalar, a slice or array of scalars, a \
                  comptime scalar or a cube type, and a return value of them or a tuple of them",
             )
             .into_compile_error(),
-            None => TokenStream::new(),
         }
     }
 
@@ -127,7 +130,6 @@ impl Launch {
     /// isn't harnessable.
     pub fn harness_plan(&self) -> Option<HarnessPlan> {
         let sig = &self.func.sig;
-        let allow_cube = self.args.harness.is_present();
 
         if self.args.is_launch()
             || self.args.expand_only.is_present()
@@ -176,12 +178,15 @@ impl Launch {
                 return None;
             }
             let last = path.path.segments.last()?;
-            if last.arguments.is_none()
-                && RUNTIME_SCALARS.contains(&last.ident.to_string().as_str())
-            {
+            let name = last.ident.to_string();
+            if last.arguments.is_none() && RUNTIME_SCALARS.contains(&name.as_str()) {
                 return Some(HarnessValue::Scalar(ty.clone()));
             }
-            allow_cube.then(|| HarnessValue::Cube(ty.clone()))
+            // Caught here rather than as a cube type, for a clearer error.
+            if COMPTIME_SCALARS.contains(&name.as_str()) {
+                return None;
+            }
+            Some(HarnessValue::Cube(ty.clone()))
         };
 
         let mut params = Vec::new();
@@ -530,14 +535,10 @@ mod tests {
     use crate::parse::kernel::from_tokens;
     use quote::ToTokens;
 
-    fn plan_with(item: ItemFn, args: TokenStream) -> Option<HarnessPlan> {
-        Launch::from_item_fn(item, from_tokens(args).unwrap())
+    fn plan(item: ItemFn) -> Option<HarnessPlan> {
+        Launch::from_item_fn(item, KernelArgs::default())
             .unwrap()
             .harness_plan()
-    }
-
-    fn plan(item: ItemFn) -> Option<HarnessPlan> {
-        plan_with(item, quote![])
     }
 
     #[test]
@@ -594,13 +595,11 @@ mod tests {
     }
 
     #[test]
-    fn cube_types_are_opt_in() {
-        let item: ItemFn = parse_quote! {
+    fn cube_types_are_harnessable() {
+        let plan = plan(parse_quote! {
             fn f<F: Float>(p: Point<F>, x: F) -> (Point<F>, u32) { (p, 0) }
-        };
-        assert!(plan(item.clone()).is_none());
-
-        let plan = plan_with(item, quote![harness]).unwrap();
+        })
+        .unwrap();
         assert_eq!(plan.params[0].1, HarnessValue::Cube(parse_quote!(Point<F>)));
         assert_eq!(plan.params[1].1, HarnessValue::Generic(parse_quote!(F)));
         assert_eq!(plan.returns, parse_quote!((Point<F>, u32)));
@@ -682,18 +681,16 @@ mod tests {
             parse_quote! { fn f(x: &[usize]) -> u32 { 0 } },
             parse_quote! { fn f(x: &[Point]) -> u32 { 0 } },
             parse_quote! { fn f(x: &[[u32; 2]]) -> u32 { 0 } },
+            parse_quote! { fn f(p: &Point) -> u32 { 0 } },
             parse_quote! { fn f(x: &mut u32) {} },
             parse_quote! { fn f(x: &mut [u32]) -> (u32, ()) { (0, ()) } },
             parse_quote! { fn f(x: Array<bool>) -> u32 { 0 } },
             parse_quote! { fn f(x: Array<Point>) -> u32 { 0 } },
-            parse_quote! { fn f(x: Array) -> u32 { 0 } },
             parse_quote! { fn f(x: &Array<u32>) -> u32 { 0 } },
             parse_quote! { fn f(x: u32) -> Array<bool> { 0 } },
             parse_quote! { fn f(x: u32) -> Array<Point> { 0 } },
             parse_quote! { fn f(x: u32) -> (u32, Array<usize>) { 0 } },
-            parse_quote! { fn f(x: Vector<f32, N>) -> f32 { 0 } },
-            parse_quote! { fn f(p: Point) -> u32 { 0 } },
-            parse_quote! { fn f(x: u32) -> Point { p } },
+            parse_quote! { fn f(p: Point) {} },
             parse_quote! { fn f<N: Size>(x: u32) -> u32 { 0 } },
             parse_quote! { fn f<F: Float + CubeElement>(x: F) -> F { x } },
             parse_quote! { fn f<F: Float>(x: F) -> F where F: Copy { x } },
@@ -711,24 +708,6 @@ mod tests {
         )
         .unwrap();
         assert!(launch.harness_plan().is_none());
-
-        // Opting in only lets cube types through, never references or
-        // comptime cube types.
-        let opted_in: Vec<ItemFn> = vec![
-            parse_quote! { fn f(p: &Point) -> u32 { 0 } },
-            parse_quote! { fn f(p: &[Point]) -> u32 { 0 } },
-            parse_quote! { fn f(p: Array<Point>) -> u32 { 0 } },
-            parse_quote! { fn f(p: Point) -> Array<Point> { 0 } },
-            parse_quote! { fn f(#[comptime] c: MyConfig) -> u32 { 0 } },
-            parse_quote! { fn f(p: Point) {} },
-        ];
-        for item in opted_in {
-            let source = item.to_token_stream().to_string();
-            assert!(
-                plan_with(item, quote![harness]).is_none(),
-                "`{source}` shouldn't have a harness"
-            );
-        }
     }
 
     // The harness kernel goes through the same expansion as the function, so

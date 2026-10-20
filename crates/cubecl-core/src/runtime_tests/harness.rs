@@ -7,42 +7,50 @@ use cubecl_runtime::runtime::Runtime;
 
 use crate::{self as cubecl, prelude::*};
 
+#[cube_harness]
 #[cube]
 fn double(x: u32) -> u32 {
     x * 2
 }
 
+#[cube_harness]
 #[cube]
 fn multiply_add(a: i32, b: i32, c: i32) -> i32 {
     a * b + c
 }
 
+#[cube_harness]
 #[cube]
 fn scale<F: Float>(x: F, #[comptime] factor: u32) -> F {
     x * F::cast_from(factor)
 }
 
+#[cube_harness]
 #[cube]
 fn truncate_add<F: Float, I: Int>(x: F, y: I) -> I {
     I::cast_from(x) + y
 }
 
+#[cube_harness]
 #[cube]
 fn answer() -> u32 {
     42
 }
 
+#[cube_harness]
 #[cube]
 fn div_rem(a: u32, b: u32) -> (u32, u32) {
     (a / b, a % b)
 }
 
+#[cube_harness]
 #[cube]
 fn split<F: Float>(x: F) -> (F, i32, u32) {
     let whole = F::floor(x);
     (x - whole, i32::cast_from(whole), u32::cast_from(whole) * 2)
 }
 
+#[cube_harness]
 #[cube]
 fn wrap(x: i32) -> (i32,) {
     (x + 1,)
@@ -67,19 +75,22 @@ pub struct Pair {
     b: i32,
 }
 
-#[cube(harness)]
+#[cube_harness]
+#[cube]
 fn swap<F: Float>(p: Point<F>) -> Point<F> {
     Point::<F> { x: p.y, y: p.x }
 }
 
-#[cube(harness)]
+#[cube_harness]
+#[cube]
 fn midpoint<F: Float>(segment: Segment<F>) -> (Point<F>, u32) {
     let x = (segment.start.x + segment.end.x) / F::new(2.0);
     let y = (segment.start.y + segment.end.y) / F::new(2.0);
     (Point::<F> { x, y }, segment.id)
 }
 
-#[cube(harness)]
+#[cube_harness]
+#[cube]
 fn translate<F: Float>(p: Point<F>, dx: F, #[comptime] times: u32) -> Point<F> {
     Point::<F> {
         x: p.x + dx * F::cast_from(times),
@@ -87,7 +98,8 @@ fn translate<F: Float>(p: Point<F>, dx: F, #[comptime] times: u32) -> Point<F> {
     }
 }
 
-#[cube(harness)]
+#[cube_harness]
+#[cube]
 fn flip(pair: Pair) -> (Pair, i32) {
     let flipped = Pair {
         a: pair.a + 1,
@@ -96,11 +108,13 @@ fn flip(pair: Pair) -> (Pair, i32) {
     (flipped, i32::cast_from(pair.a) + pair.b)
 }
 
+#[cube_harness]
 #[cube]
 fn nested(x: u32) -> (u32, (u32, i32)) {
     (x, (x + 1, -1))
 }
 
+#[cube_harness]
 #[cube]
 fn sum(xs: &[u32]) -> u32 {
     let mut total = 0u32;
@@ -110,6 +124,7 @@ fn sum(xs: &[u32]) -> u32 {
     total
 }
 
+#[cube_harness]
 #[cube]
 fn dot<F: Float>(lhs: &[F], rhs: &[F]) -> F {
     let mut total = F::new(0.0);
@@ -119,6 +134,7 @@ fn dot<F: Float>(lhs: &[F], rhs: &[F]) -> F {
     total
 }
 
+#[cube_harness]
 #[cube]
 fn fill(start: i32, out: &mut [i32]) {
     for i in 0..out.len() {
@@ -126,6 +142,7 @@ fn fill(start: i32, out: &mut [i32]) {
     }
 }
 
+#[cube_harness]
 #[cube]
 fn scale_into<F: Float>(xs: &[F], factor: F, out: &mut [F]) -> u32 {
     for i in 0..xs.len() {
@@ -134,6 +151,7 @@ fn scale_into<F: Float>(xs: &[F], factor: F, out: &mut [F]) -> u32 {
     u32::cast_from(xs.len())
 }
 
+#[cube_harness]
 #[cube]
 fn mean<F: Float>(xs: Array<F>) -> F {
     let mut total = F::new(0.0);
@@ -144,6 +162,7 @@ fn mean<F: Float>(xs: Array<F>) -> F {
 }
 
 /// Arrays of different types and lengths, around a scalar.
+#[cube_harness]
 #[cube]
 fn weighted_sum<F: Float>(xs: Array<F>, scale: F, weights: Array<u32>) -> F {
     let mut total = F::new(0.0);
@@ -153,6 +172,7 @@ fn weighted_sum<F: Float>(xs: Array<F>, scale: F, weights: Array<u32>) -> F {
     total * scale
 }
 
+#[cube_harness]
 #[cube]
 fn doubled<F: Float>(xs: Array<F>) -> Array<F> {
     let mut out = Array::new(xs.len());
@@ -163,6 +183,7 @@ fn doubled<F: Float>(xs: Array<F>) -> Array<F> {
 }
 
 /// An array whose length isn't any input's.
+#[cube_harness]
 #[cube]
 fn tens(#[comptime] n: usize) -> Array<u32> {
     let mut out = Array::new(n);
@@ -174,6 +195,7 @@ fn tens(#[comptime] n: usize) -> Array<u32> {
 
 /// Arrays of different lengths and types, around a scalar and in a nested
 /// tuple.
+#[cube_harness]
 #[cube]
 fn stats(xs: Array<i32>) -> (Array<i32>, u32, (Array<u8>,)) {
     let mut prefix = Array::new(xs.len());
@@ -191,7 +213,8 @@ fn stats(xs: Array<i32>) -> (Array<i32>, u32, (Array<u8>,)) {
     (prefix, u32::cast_from(xs.len()), (signs,))
 }
 
-#[cube(harness)]
+#[cube_harness]
+#[cube]
 fn scaled<F: Float>(p: Point<F>, xs: Array<F>, out: &mut [F]) -> Array<F> {
     let mut scaled = Array::new(xs.len());
     for i in 0..xs.len() {
@@ -201,6 +224,7 @@ fn scaled<F: Float>(p: Point<F>, xs: Array<F>, out: &mut [F]) -> Array<F> {
     scaled
 }
 
+#[cube_harness]
 #[cube]
 fn swap_firsts(lhs: &mut [u32], rhs: &mut [u32]) {
     let first = lhs[0];
@@ -216,6 +240,7 @@ pub fn test_harness_scalar<R: Runtime>() {
 /// A function in a block isn't reachable by path from its own module, so the
 /// harness must not name it through `super`.
 pub fn test_harness_block_scoped<R: Runtime>() {
+    #[cube_harness]
     #[cube]
     fn negate(x: i32) -> i32 {
         -x

@@ -24,8 +24,6 @@ workspace = true
 [features]
 debug_symbols = []
 default = []
-# Generate a `harness` function for every pure cube function, see `generate/harness.rs`.
-harness = []
 std = []
 
 tracing = []
