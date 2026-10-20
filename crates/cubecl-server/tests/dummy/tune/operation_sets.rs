@@ -360,6 +360,34 @@ pub fn addition_set_with_rejected_candidate(
     .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
 }
 
+/// [`addition_set_with_rejected_candidate`], where the rejection also stops the device from
+/// profiling: the rejecting candidate's function runs and rejects the problem, then the correct
+/// `add` runs unmeasured, the way a round goes when memory runs out partway through it. A round
+/// over it measures nothing, so the tuner has to decide on something it did not time.
+pub fn addition_set_rejected_then_unmeasured(
+    client: DummyClient,
+    shapes: Vec<Vec<usize>>,
+    uid: String,
+) -> TestSet {
+    let op_add =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+
+    TestSet::new(
+        move |_input: &Vec<Handle>| {
+            format!(
+                "add_rejected_unmeasured-{uid}-{}",
+                log_shape_input_key(&shapes)
+            )
+        },
+        CloneInputGenerator,
+    )
+    .with(Tunable::new("add_rejected", move |_inputs| {
+        crate::dummy::REFUSE_PROFILES.store(true, Ordering::Relaxed);
+        Result::<(), String>::Err("unsupported by this device".to_string())
+    }))
+    .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
+}
+
 /// Addition set with one candidate that sleeps per element, far enough behind the other two to be
 /// eliminated on the numbers. Three candidates because the survivor floor keeps two alive no
 /// matter what, so a two-candidate set can never eliminate anything.

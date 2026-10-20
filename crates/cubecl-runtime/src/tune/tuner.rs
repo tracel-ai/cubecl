@@ -71,6 +71,18 @@ pub enum AutotuneError {
         /// The unknown error,
         err: String,
     },
+    /// The tunable's own function returned an error, so it queued no work for this problem:
+    /// it does not serve these inputs, or failed before launching. Unlike
+    /// [`Unknown`](Self::Unknown), which the harness reports around work that was queued (a
+    /// profile it could not take or resolve, an execution that failed, memory that ran out),
+    /// this says nothing ran — so it is never a kernel to fall back on.
+    #[display("{name}: Rejected the problem.\n{reason}")]
+    Rejected {
+        /// The name of the tunable.
+        name: String,
+        /// What its function returned.
+        reason: String,
+    },
     /// All samples are invalid.
     #[display("{name}: All samples are invalid.")]
     InvalidSamples {
