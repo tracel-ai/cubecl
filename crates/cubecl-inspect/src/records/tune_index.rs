@@ -1,4 +1,4 @@
-use super::{CompilationSpans, EnvironmentRecords};
+use super::{CompilationSpans, EnvironmentRecords, StampedRecords};
 use crate::report::{CanonicalKey, RecordedTune, TunedKey, UntypedTuneRecord};
 use cubecl_environment::records::{SessionId, Stamped};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -32,7 +32,7 @@ impl<'a> TuneIndex<'a> {
         let tuned: BTreeSet<SessionId> = tunes.values().map(|trace| trace.stamp.session).collect();
         let compiling = tuned
             .into_iter()
-            .map(|session| (session, records.compiling(session)))
+            .map(|session| (session, StampedRecords::new(records, session).compiling))
             .collect();
         Self { tunes, compiling }
     }

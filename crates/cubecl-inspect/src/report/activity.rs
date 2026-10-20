@@ -14,8 +14,9 @@ pub struct Activity {
     /// The time those took: a batch compiled on several threads takes its
     /// wall, not the sum of its kernels' work.
     pub compiling: Duration,
-    /// The part of [`compiling`](Self::compiling) that happened inside a
-    /// tune, and so is also part of [`tuning`](Self::tuning).
+    /// The part of [`compiling`](Self::compiling) that happened inside the
+    /// tunes that started in this stretch, counted once however many of them
+    /// overlap, and so also part of [`tuning`](Self::tuning).
     pub compiling_in_tunes: Duration,
     /// The longest tune.
     pub slowest: Option<SlowTune>,

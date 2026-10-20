@@ -237,17 +237,26 @@ impl Inspection {
     /// kernel the file does not hold, a `diff` against a file that does not
     /// open, a `prune` or `strip` that cannot write.
     pub fn run(&self, file: EnvironmentFile, output: Output) -> Result<(), InspectError> {
+        // A rewrite reports on the file it leaves.
+        let inspector = Inspector::new(match self {
+            Self::Prune { keep } => file.prune(*keep)?,
+            Self::Strip { out } => file.strip(out)?,
+            Self::Summary
+            | Self::Autotune(_)
+            | Self::Kernels(_)
+            | Self::Timeline
+            | Self::Memory
+            | Self::Diff { .. } => file,
+        });
         match self {
-            Self::Summary => output.print(&Inspector::new(file).summary()),
-            Self::Autotune(args) => args.run(&Inspector::new(file), output),
-            Self::Kernels(args) => args.run(&Inspector::new(file), output),
-            Self::Timeline => output.print(&Inspector::new(file).timeline()),
-            Self::Memory => output.print(&Inspector::new(file).memory()),
-            Self::Diff { other } => {
-                output.print(&Inspector::new(file).diff(&Inspector::open(other)?))
+            Self::Summary | Self::Prune { .. } | Self::Strip { .. } => {
+                output.print(&inspector.summary())
             }
-            Self::Prune { keep } => output.print(&Inspector::new(file.prune(*keep)?).summary()),
-            Self::Strip { out } => output.print(&Inspector::new(file.strip(out)?).summary()),
+            Self::Autotune(args) => args.run(&inspector, output),
+            Self::Kernels(args) => args.run(&inspector, output),
+            Self::Timeline => output.print(&inspector.timeline()),
+            Self::Memory => output.print(&inspector.memory()),
+            Self::Diff { other } => output.print(&inspector.diff(&Inspector::open(other)?)),
         }
     }
 }

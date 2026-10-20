@@ -1,7 +1,7 @@
 use crate::report::UntypedTuneRecord;
 use cubecl_environment::records::Stamped;
 use cubecl_server::compiler::{CompilationBatchRecord, CompilationRecord};
-use std::ops::RangeBounds;
+use std::ops::{Range, RangeBounds};
 use std::time::Duration;
 
 /// Compilations of one session, as the stretches of its clock they took:
@@ -45,6 +45,16 @@ impl CompilationSpans {
         self.spans
             .iter()
             .filter(|(start, _)| window.contains(start))
+            .map(|&(_, wall)| wall)
+            .sum()
+    }
+
+    /// The time the compilations that started inside any of `windows` took,
+    /// each counted once however many of them it is inside.
+    pub fn within_any(&self, windows: &[Range<Duration>]) -> Duration {
+        self.spans
+            .iter()
+            .filter(|(start, _)| windows.iter().any(|window| window.contains(start)))
             .map(|&(_, wall)| wall)
             .sum()
     }
@@ -95,6 +105,22 @@ mod tests {
         let spans = CompilationSpans::new(&[], &trips);
         assert_eq!(spans.within(&..), Duration::from_secs(35));
         assert_eq!(spans.end(), Duration::from_secs(35));
+    }
+
+    /// A compilation inside two overlapping windows counts once.
+    #[test]
+    fn a_compilation_inside_overlapping_windows_counts_once() {
+        let trips = [trip(1, 10), trip(5, 20)];
+        let spans = CompilationSpans::new(&[], &trips);
+        let second = |start, end| Duration::from_secs(start)..Duration::from_secs(end);
+        assert_eq!(
+            spans.within_any(&[second(0, 4), second(0, 3)]),
+            Duration::from_secs(10)
+        );
+        assert_eq!(
+            spans.within_any(&[second(0, 2), second(4, 6)]),
+            Duration::from_secs(30)
+        );
     }
 
     fn stamp(start: u64) -> Stamp {

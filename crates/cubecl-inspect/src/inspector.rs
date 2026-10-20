@@ -1,9 +1,8 @@
-use crate::records::{EnvironmentRecords, TuneIndex};
+use crate::records::{EnvironmentRecords, SessionRecords, TuneIndex};
 use crate::report::{
     AutotuneReport, AutotuneTable, CandidateReport, Comparison, DiffSide, EnvironmentDiff,
     KernelMatch, KernelReport, KernelRow, KernelSelector, KeyId, KeyOrder, MemorySnapshots,
-    NamespaceRoot, Overview, SessionRow, SessionTimeline, StoredArtifacts, Summary, Timeline,
-    TunedKey,
+    NamespaceRoot, Overview, SessionRow, StoredArtifacts, Summary, Timeline, TunedKey,
 };
 use crate::{EnvironmentFile, InspectError};
 use cubecl_environment::bundle::BundleManifest;
@@ -41,23 +40,7 @@ impl Inspector {
     }
 
     pub fn summary(&self) -> Summary {
-        Summary {
-            path: self.file.path().to_path_buf(),
-            file_bytes: std::fs::metadata(self.file.path()).map_or(0, |meta| meta.len()),
-            manifest: BundleManifest::new(self.file.database()).ok(),
-            namespaces: self
-                .file
-                .database()
-                .summary()
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-            sessions: self
-                .records
-                .sessions()
-                .map(|session| SessionRow::from(&session))
-                .collect(),
-        }
+        self.summary_of(&self.sessions())
     }
 
     /// Every report a reader takes in before selecting anything.
@@ -69,9 +52,11 @@ impl Inspector {
     pub fn overview(&self) -> Overview {
         let mut autotune = self.autotune();
         autotune.sort(KeyOrder::default());
+        // Laid out once for the two reports folded from them.
+        let sessions = self.sessions();
         Overview {
-            summary: self.summary(),
-            timeline: self.timeline(),
+            summary: self.summary_of(&sessions),
+            timeline: Timeline::from(sessions.as_slice()),
             candidates: CandidateReport::from(&autotune),
             autotune,
             kernels: self.kernels(),
@@ -81,13 +66,7 @@ impl Inspector {
 
     /// Each session's marks, with what was tuned and compiled inside them.
     pub fn timeline(&self) -> Timeline {
-        Timeline {
-            sessions: self
-                .records
-                .sessions()
-                .map(|session| SessionTimeline::from(&session))
-                .collect(),
-        }
+        Timeline::from(self.sessions().as_slice())
     }
 
     /// Every memory snapshot the file's sessions recorded.
@@ -146,10 +125,7 @@ impl Inspector {
     /// Every tuned key, in the order the file stores them, each with the
     /// record of its last tune when there is one.
     pub fn autotune(&self) -> AutotuneReport {
-        let mut report = AutotuneReport {
-            keys: Vec::new(),
-            undecoded: 0,
-        };
+        let mut report = AutotuneReport::default();
         for namespace in self.file.database().namespaces() {
             let Some(table) = AutotuneTable::new(&namespace) else {
                 continue;
@@ -196,5 +172,27 @@ impl Inspector {
             .into_iter()
             .find(|key| key.id == id)
             .ok_or(InspectError::UnknownKey(id))
+    }
+
+    /// Each session the file lists, with the records it stamped.
+    fn sessions(&self) -> Vec<SessionRecords<'_>> {
+        self.records.sessions().collect()
+    }
+
+    /// The file's summary, its sessions' rows folded from `sessions`.
+    fn summary_of(&self, sessions: &[SessionRecords<'_>]) -> Summary {
+        Summary {
+            path: self.file.path().to_path_buf(),
+            file_bytes: std::fs::metadata(self.file.path()).map_or(0, |meta| meta.len()),
+            manifest: BundleManifest::new(self.file.database()).ok(),
+            namespaces: self
+                .file
+                .database()
+                .summary()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            sessions: sessions.iter().map(SessionRow::from).collect(),
+        }
     }
 }

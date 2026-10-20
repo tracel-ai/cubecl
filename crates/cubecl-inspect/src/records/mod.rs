@@ -5,9 +5,11 @@
 mod compiling;
 mod environment;
 mod session;
+mod stamped;
 mod tune_index;
 
 pub use compiling::CompilationSpans;
 pub use environment::EnvironmentRecords;
 pub use session::SessionRecords;
+pub use stamped::StampedRecords;
 pub use tune_index::TuneIndex;
