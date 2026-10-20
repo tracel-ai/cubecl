@@ -188,6 +188,33 @@ where
     scope.register_with_result(&operation).into()
 }
 
+/// The float type of a complex value's components, vectorized to match the value.
+pub(crate) fn complex_components(scope: &Scope, input: ExpandValue) -> [ExpandValue; 2] {
+    let value = input.read_value(scope);
+    let scalar = if value
+        .scalar_ty(scope.ctx())
+        .deref(scope.ctx())
+        .is::<Complex64Type>()
+    {
+        FloatKind::F64
+    } else {
+        FloatKind::F32
+    }
+    .to_type(scope.ctx());
+    let re = complex_component(scope, value.into(), scalar, |ctx, input, ty| {
+        CRealOp::new(ctx, ty, input)
+    });
+    let im = complex_component(scope, value.into(), scalar, |ctx, input, ty| {
+        CImagOp::new(ctx, ty, input)
+    });
+    [re, im]
+}
+
+/// Constructs a complex value from its separately expanded components.
+pub(crate) fn complex_construct(scope: &Scope, re: ExpandValue, im: ExpandValue) -> ExpandValue {
+    binary_expand(scope, re, im, ComplexConstructOp::new)
+}
+
 macro_rules! impl_complex_unary {
     ($primitive:ty, $trait:ident, $native:ident, $method:ident, $op:ty, $name:literal) => {
         impl $trait for $primitive {}
