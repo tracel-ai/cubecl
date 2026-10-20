@@ -1,5 +1,4 @@
 use super::{Activity, AutotuneTable};
-use crate::records::SessionRecords;
 use cubecl_environment::bundle::BundleManifest;
 use cubecl_environment::persistence::NamespaceSummary;
 use cubecl_environment::records::{self, Session};
@@ -145,28 +144,6 @@ impl Summary {
 }
 
 impl SessionRow {
-    /// What one session's `records` add up to.
-    pub(crate) fn new(records: SessionRecords<'_>) -> Self {
-        let tunes = records
-            .tunes()
-            .map(|trace| trace.stamp.offset + trace.record.wall);
-        // A phase after the last compile — a walk served from the store —
-        // still ran.
-        let marks = records
-            .marks()
-            .map(|mark| mark.stamp.offset + mark.record.wall);
-        let span = tunes
-            .chain(marks)
-            .chain([records.compiling().end()])
-            .max()
-            .unwrap_or_default();
-        Self {
-            session: records.session().clone(),
-            activity: records.activity(..),
-            span,
-        }
-    }
-
     /// The span less the tunes and the compilations outside them: loading,
     /// running, everything the records do not name.
     pub fn other(&self) -> Duration {

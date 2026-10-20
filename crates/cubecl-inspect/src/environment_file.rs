@@ -1,4 +1,3 @@
-use crate::records::EnvironmentRecords;
 use crate::report::{NamespaceRoot, Summary};
 use crate::{InspectError, Inspector, environment};
 use cubecl_environment::bundle::{BundleManifest, ExportOptions, export};
@@ -7,8 +6,8 @@ use cubecl_environment::records::Records;
 use std::path::{Path, PathBuf};
 
 /// One environment file, opened read-only and checked to be one this build
-/// reads: what is [inspected](Self::inspect), [pruned](Self::prune) or
-/// [stripped](Self::strip).
+/// reads: what an [`Inspector`] reads the reports of, and what is
+/// [pruned](Self::prune) or [stripped](Self::strip).
 ///
 /// Read-only is what makes it safe to point at an environment a running
 /// process is writing: the database is shared through WAL, and nothing but
@@ -48,10 +47,9 @@ impl EnvironmentFile {
         &self.path
     }
 
-    /// Read the file's records, for its reports.
-    pub fn inspect(self) -> Inspector {
-        let records = EnvironmentRecords::new(&self.database);
-        Inspector::new(self.database, self.path, records)
+    /// The database the file holds, open read-only.
+    pub fn database(&self) -> &Database {
+        &self.database
     }
 
     /// Drop the records of every session but the newest `keep`, in place,

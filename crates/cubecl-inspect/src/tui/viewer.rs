@@ -39,8 +39,9 @@ struct Pages {
     /// What the manifest calls the environment, when it says more than the
     /// file's name.
     name: Option<String>,
-    /// Every overview but the autotune one, rendered.
-    pages: Vec<(Overview, Page)>,
+    /// Each overview's page, by its place among the tabs; `None` for the
+    /// autotune one, drawn as a list of its keys.
+    pages: [Option<Page>; Overview::ALL.len()],
     autotune: AutotuneReport,
     /// The autotune keys as rows, in the report's order: formatted once a
     /// reading rather than on every frame the list is drawn.
@@ -121,36 +122,35 @@ impl KeyRow {
 
 impl Pages {
     fn read(inspector: &Inspector) -> Self {
-        let mut pages = Self {
-            name: None,
-            pages: Vec::new(),
-            autotune: AutotuneReport::default(),
-            keys: Vec::new(),
-        };
-        for overview in Overview::ALL {
-            match inspector.overview(overview) {
-                // Drawn as a list, not a page.
-                OverviewReport::Autotune(report) => {
-                    pages.keys = KeyRow::all(&report);
-                    pages.autotune = report;
-                }
-                report => {
-                    if let OverviewReport::Summary(summary) = &report {
-                        pages.name = summary.name().map(str::to_string);
-                    }
-                    pages.pages.push((overview, Page::new(Text(&report))));
-                }
+        let mut name = None;
+        let mut autotune = AutotuneReport::default();
+        let pages = inspector.overviews().map(|(_, report)| match report {
+            OverviewReport::Autotune(report) => {
+                autotune = report;
+                None
             }
+            report => {
+                if let OverviewReport::Summary(summary) = &report {
+                    name = summary.name().map(str::to_string);
+                }
+                Some(Page::new(Text(&report)))
+            }
+        });
+        Self {
+            name,
+            pages,
+            keys: KeyRow::all(&autotune),
+            autotune,
         }
-        pages
     }
 
-    /// The page a tab shows; `None` for the autotune tab, drawn as a list.
+    /// The page a tab shows.
     fn page(&self, tab: Overview) -> Option<&Page> {
-        self.pages
-            .iter()
-            .find(|(overview, _)| *overview == tab)
-            .map(|(_, page)| page)
+        match tab {
+            // Drawn as a list of its keys, which are selectable.
+            Overview::Autotune => None,
+            tab => self.pages[index(tab)].as_ref(),
+        }
     }
 }
 

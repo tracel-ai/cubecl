@@ -238,12 +238,14 @@ impl Inspection {
     /// open, a `prune` or `strip` that cannot write.
     pub fn run(&self, file: EnvironmentFile, output: Output) -> Result<(), InspectError> {
         match self {
-            Self::Summary => output.print(&file.inspect().summary()),
-            Self::Autotune(args) => args.run(&file.inspect(), output),
-            Self::Kernels(args) => args.run(&file.inspect(), output),
-            Self::Timeline => output.print(&file.inspect().timeline()),
-            Self::Memory => output.print(&file.inspect().memory()),
-            Self::Diff { other } => output.print(&file.inspect().diff(&Inspector::open(other)?)),
+            Self::Summary => output.print(&Inspector::new(file).summary()),
+            Self::Autotune(args) => args.run(&Inspector::new(file), output),
+            Self::Kernels(args) => args.run(&Inspector::new(file), output),
+            Self::Timeline => output.print(&Inspector::new(file).timeline()),
+            Self::Memory => output.print(&Inspector::new(file).memory()),
+            Self::Diff { other } => {
+                output.print(&Inspector::new(file).diff(&Inspector::open(other)?))
+            }
             Self::Prune { keep } => output.print(&file.prune(*keep)?),
             Self::Strip { out } => output.print(&file.strip(out)?),
         }

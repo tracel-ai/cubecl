@@ -17,7 +17,9 @@ pub use autotune::*;
 pub use candidates::*;
 pub use diff::*;
 pub use kernels::*;
-pub use key::*;
+pub use key::{AutotuneTable, KeyId};
+// Matches keys across the records and the files; no report carries one.
+pub(crate) use key::CanonicalKey;
 pub use memory::*;
 pub use overview::*;
 pub use summary::*;

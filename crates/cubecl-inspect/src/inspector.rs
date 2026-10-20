@@ -7,54 +7,56 @@ use crate::report::{
 };
 use crate::{EnvironmentFile, InspectError};
 use cubecl_environment::bundle::BundleManifest;
-use cubecl_environment::persistence::Database;
 use cubecl_server::compiler::KernelCacheKey;
 use std::path::{Path, PathBuf};
 
 /// One [environment file](EnvironmentFile), its records read: the reports
 /// are what it answers.
 pub struct Inspector {
-    database: Database,
-    path: PathBuf,
+    file: EnvironmentFile,
     /// Read once, on open: every report reads the file as it was then.
     records: EnvironmentRecords,
 }
 
 impl Inspector {
-    /// Open the file at `path` and read its records: an
-    /// [`EnvironmentFile`], [inspected](EnvironmentFile::inspect).
+    /// Read the records of `file`.
+    pub fn new(file: EnvironmentFile) -> Self {
+        Self {
+            records: EnvironmentRecords::new(file.database()),
+            file,
+        }
+    }
+
+    /// Open the file at `path` and read its records.
     ///
     /// # Errors
     ///
     /// See [`EnvironmentFile::open`].
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, InspectError> {
-        EnvironmentFile::open(path).map(EnvironmentFile::inspect)
-    }
-
-    pub(crate) fn new(database: Database, path: PathBuf, records: EnvironmentRecords) -> Self {
-        Self {
-            database,
-            path,
-            records,
-        }
+        EnvironmentFile::open(path).map(Self::new)
     }
 
     pub fn path(&self) -> &Path {
-        &self.path
+        self.file.path()
     }
 
     pub fn summary(&self) -> Summary {
         Summary {
-            path: self.path.clone(),
-            file_bytes: std::fs::metadata(&self.path).map_or(0, |meta| meta.len()),
-            manifest: BundleManifest::new(&self.database).ok(),
+            path: self.file.path().to_path_buf(),
+            file_bytes: std::fs::metadata(self.file.path()).map_or(0, |meta| meta.len()),
+            manifest: BundleManifest::new(self.file.database()).ok(),
             namespaces: self
-                .database
+                .file
+                .database()
                 .summary()
                 .into_iter()
                 .map(Into::into)
                 .collect(),
-            sessions: self.records.sessions().map(SessionRow::new).collect(),
+            sessions: self
+                .records
+                .sessions()
+                .map(|session| SessionRow::from(&session))
+                .collect(),
         }
     }
 
@@ -63,11 +65,7 @@ impl Inspector {
         match overview {
             Overview::Summary => OverviewReport::Summary(self.summary()),
             Overview::Timeline => OverviewReport::Timeline(self.timeline()),
-            Overview::Autotune => {
-                let mut report = self.autotune();
-                report.sort(KeyOrder::default());
-                OverviewReport::Autotune(report)
-            }
+            Overview::Autotune => OverviewReport::Autotune(self.autotune_in_default_order()),
             Overview::Candidates => {
                 OverviewReport::Candidates(CandidateReport::from(&self.autotune()))
             }
@@ -76,10 +74,33 @@ impl Inspector {
         }
     }
 
+    /// Every overview, in [`Overview::ALL`]'s order.
+    ///
+    /// The autotune tables are read once for the two overviews that answer
+    /// from them, so the candidates tally the keys the autotune report lists
+    /// even while a session writes the file.
+    pub fn overviews(&self) -> [(Overview, OverviewReport); Overview::ALL.len()] {
+        let autotune = self.autotune_in_default_order();
+        Overview::ALL.map(|overview| {
+            let report = match overview {
+                Overview::Autotune => OverviewReport::Autotune(autotune.clone()),
+                Overview::Candidates => {
+                    OverviewReport::Candidates(CandidateReport::from(&autotune))
+                }
+                overview => self.overview(overview),
+            };
+            (overview, report)
+        })
+    }
+
     /// Each session's marks, with what was tuned and compiled inside them.
     pub fn timeline(&self) -> Timeline {
         Timeline {
-            sessions: self.records.sessions().map(SessionTimeline::new).collect(),
+            sessions: self
+                .records
+                .sessions()
+                .map(|session| SessionTimeline::from(&session))
+                .collect(),
         }
     }
 
@@ -123,11 +144,11 @@ impl Inspector {
     /// namespace that is not a measurement, read as a compilation store.
     fn stored_artifacts(&self) -> StoredArtifacts {
         let mut stored = StoredArtifacts::new();
-        for namespace in self.database.namespaces() {
+        for namespace in self.file.database().namespaces() {
             if !NamespaceRoot::new(&namespace).holds_artifacts() {
                 continue;
             }
-            self.database.scan(&namespace, &mut |key, value| {
+            self.file.database().scan(&namespace, &mut |key, value| {
                 if let Ok(key) = ciborium::from_reader::<KernelCacheKey, _>(key) {
                     stored.insert(key, value.len() as u64);
                 }
@@ -143,17 +164,19 @@ impl Inspector {
             keys: Vec::new(),
             undecoded: 0,
         };
-        for namespace in self.database.namespaces() {
+        for namespace in self.file.database().namespaces() {
             let Some(table) = AutotuneTable::new(&namespace) else {
                 continue;
             };
-            self.database.scan(
-                &namespace,
-                &mut |key, value| match TunedKey::new(&table, key, value) {
-                    Some(tuned) => report.keys.push(tuned),
-                    None => report.undecoded += 1,
-                },
-            );
+            self.file
+                .database()
+                .scan(
+                    &namespace,
+                    &mut |key, value| match TunedKey::new(&table, key, value) {
+                        Some(tuned) => report.keys.push(tuned),
+                        None => report.undecoded += 1,
+                    },
+                );
         }
         let tunes = TuneIndex::new(&self.records);
         for key in &mut report.keys {
@@ -166,11 +189,11 @@ impl Inspector {
     pub fn diff(&self, other: &Inspector) -> EnvironmentDiff {
         EnvironmentDiff::new(Comparison {
             before: DiffSide {
-                path: self.path.clone(),
+                path: self.file.path().to_path_buf(),
                 autotune: &self.autotune(),
             },
             after: DiffSide {
-                path: other.path.clone(),
+                path: other.file.path().to_path_buf(),
                 autotune: &other.autotune(),
             },
         })
@@ -187,5 +210,12 @@ impl Inspector {
             .into_iter()
             .find(|key| key.id == id)
             .ok_or(InspectError::UnknownKey(id))
+    }
+
+    /// The keys in the order the command line lists them by default.
+    fn autotune_in_default_order(&self) -> AutotuneReport {
+        let mut report = self.autotune();
+        report.sort(KeyOrder::default());
+        report
     }
 }

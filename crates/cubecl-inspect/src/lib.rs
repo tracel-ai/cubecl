@@ -12,7 +12,7 @@
 //!   own environment, from the configuration above the working directory.
 //! - [`EnvironmentFile`] opens a file read-only, checked to be one this build
 //!   reads, and prunes or strips its records.
-//! - [`Inspector`] is a file whose records were read, and produces
+//! - [`Inspector`] holds a file whose records it read, and produces
 //!   [reports](report): plain serializable values, which is what tests pin. [`list`] lists the
 //!   environment files of some directories, a summary each.
 //! - [`view`] renders a report as text.

@@ -82,7 +82,7 @@ pub enum CandidateOutcome {
 
 impl CandidateResult {
     /// What a stored result says, named and classified.
-    pub(crate) fn new(result: AutotuneResult) -> Self {
+    pub fn new(result: AutotuneResult) -> Self {
         match result.outcome {
             Ok(outcome) => Self {
                 candidate: Some(outcome.name),
@@ -137,7 +137,7 @@ impl TunedKey {
 
     /// A stored entry of `table`, decoded; `None` when either half does not
     /// decode. The [tune](Self::tune) is left for the records to fill.
-    pub(crate) fn new(table: &AutotuneTable, key: &[u8], value: &[u8]) -> Option<Self> {
+    pub fn new(table: &AutotuneTable, key: &[u8], value: &[u8]) -> Option<Self> {
         let stored: PersistentCacheKey<ciborium::Value> = ciborium::from_reader(key).ok()?;
         let value: PersistentCacheValue = ciborium::from_reader(value).ok()?;
         Some(Self {

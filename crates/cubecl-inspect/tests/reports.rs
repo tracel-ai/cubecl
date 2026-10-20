@@ -781,7 +781,7 @@ fn a_stripped_copy_keeps_the_caches_and_drops_the_records() {
     );
     assert_eq!(
         stripped.autotune_keys(),
-        file.inspect().summary().autotune_keys()
+        Inspector::new(file).summary().autotune_keys()
     );
     assert_eq!(
         stripped.manifest.expect("an export carries one").name,

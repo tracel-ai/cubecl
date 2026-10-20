@@ -24,15 +24,15 @@ pub struct EnvironmentDiff {
 
 /// The two environments a diff compares, by name, so they cannot be passed
 /// the wrong way around.
-pub(crate) struct Comparison<'a> {
-    pub(crate) before: DiffSide<'a>,
-    pub(crate) after: DiffSide<'a>,
+pub struct Comparison<'a> {
+    pub before: DiffSide<'a>,
+    pub after: DiffSide<'a>,
 }
 
 /// One environment of a [`Comparison`]: its file and its autotune answers.
-pub(crate) struct DiffSide<'a> {
-    pub(crate) path: PathBuf,
-    pub(crate) autotune: &'a AutotuneReport,
+pub struct DiffSide<'a> {
+    pub path: PathBuf,
+    pub autotune: &'a AutotuneReport,
 }
 
 /// One key, as each side answers it.
@@ -129,7 +129,7 @@ impl From<&TunedKey> for Identity {
 }
 
 impl EnvironmentDiff {
-    pub(crate) fn new(comparison: Comparison<'_>) -> Self {
+    pub fn new(comparison: Comparison<'_>) -> Self {
         let Comparison { before, after } = comparison;
         let mut keys = BTreeMap::<Identity, KeyDiff>::new();
         let blank = |key: &TunedKey| KeyDiff {

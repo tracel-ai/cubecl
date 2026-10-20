@@ -14,7 +14,7 @@ use std::time::Duration;
 /// recorded batches has none: each of its kernels compiled alone, so a
 /// kernel's work is the time it took.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct CompilationSpans {
+pub struct CompilationSpans {
     /// Each stretch's start on the session clock, and its wall.
     spans: Vec<(Duration, Duration)>,
 }
@@ -22,7 +22,7 @@ pub(crate) struct CompilationSpans {
 impl CompilationSpans {
     /// The stretches of one session's `batches`, or of its `trips` when it
     /// recorded no batch.
-    pub(crate) fn new<'a>(
+    pub fn new<'a>(
         batches: impl IntoIterator<Item = &'a Stamped<CompilationBatchRecord>>,
         trips: impl IntoIterator<Item = &'a Stamped<CompilationRecord>>,
     ) -> Self {
@@ -41,7 +41,7 @@ impl CompilationSpans {
 
     /// The time the compilations that started inside `window` took; `..`
     /// for every one.
-    pub(crate) fn within(&self, window: &impl RangeBounds<Duration>) -> Duration {
+    pub fn within(&self, window: &impl RangeBounds<Duration>) -> Duration {
         self.spans
             .iter()
             .filter(|(start, _)| window.contains(start))
@@ -52,13 +52,13 @@ impl CompilationSpans {
     /// The time the compilations that started during `tune` took: the tuner
     /// waits on the server while it compiles, so a compilation stamped inside
     /// the tune's span on the same session clock is the tune's.
-    pub(crate) fn during(&self, tune: &TuneTrace) -> Duration {
+    pub fn during(&self, tune: &TuneTrace) -> Duration {
         let start = tune.stamp.offset;
         self.within(&(start..start + tune.record.wall))
     }
 
     /// When the last compilation ended, on the session clock.
-    pub(crate) fn end(&self) -> Duration {
+    pub fn end(&self) -> Duration {
         self.spans
             .iter()
             .map(|&(start, wall)| start + wall)

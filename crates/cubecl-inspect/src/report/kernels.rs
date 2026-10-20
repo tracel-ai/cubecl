@@ -19,7 +19,7 @@ pub struct KernelReport {
 
 /// The artifacts a file's compilation store holds, by the key naming each,
 /// with their size.
-pub(crate) type StoredArtifacts = BTreeMap<KernelCacheKey, u64>;
+pub type StoredArtifacts = BTreeMap<KernelCacheKey, u64>;
 
 /// A 128-bit hash naming part of a kernel's artifact, written once for every
 /// such hash so they all print, serialize and match alike: twelve hex digits
@@ -79,7 +79,7 @@ pub struct KernelSelector<'a> {
 /// a rebuild its id alone names several instances: the selector's build
 /// names one of them.
 #[derive(Clone, Debug)]
-pub(crate) enum KernelMatch {
+pub enum KernelMatch {
     /// No instance's id starts with the selector's.
     Unknown,
     One(KernelRow),
@@ -148,10 +148,7 @@ pub enum KernelOrder {
 
 impl KernelMatch {
     /// The instances of `rows` that `selector` names.
-    pub(crate) fn new(
-        selector: KernelSelector<'_>,
-        rows: impl IntoIterator<Item = KernelRow>,
-    ) -> Self {
+    pub fn new(selector: KernelSelector<'_>, rows: impl IntoIterator<Item = KernelRow>) -> Self {
         let mut rows: Vec<KernelRow> = rows
             .into_iter()
             .filter(|row| selector.selects(row))
@@ -203,7 +200,7 @@ impl KernelRow {
 
 impl CompilationCost {
     /// Count one trip that ended in `outcome` after `work`.
-    pub(crate) fn record(&mut self, outcome: CompilationOutcome, work: Duration) {
+    pub fn record(&mut self, outcome: CompilationOutcome, work: Duration) {
         match outcome {
             CompilationOutcome::Compiled => {
                 self.compiled += 1;
@@ -243,7 +240,7 @@ fn short_name(kernel: &str) -> &str {
 impl KernelReport {
     /// Fold the recorded trips by instance, sized from the artifacts the
     /// file `stored`.
-    pub(crate) fn new<'a>(
+    pub fn new<'a>(
         trips: impl IntoIterator<Item = &'a CompilationRecord>,
         stored: &StoredArtifacts,
     ) -> Self {

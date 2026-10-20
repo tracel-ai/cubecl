@@ -1,10 +1,13 @@
-//! The records of one environment file, read whole and joined: what the
-//! [reports](crate::report) are folded from. Nothing here is a report.
+//! The records of one environment file, read whole, joined, and folded into
+//! the [reports](crate::report) of its sessions and its keys. The reports
+//! never reach back in here.
 
 mod compiling;
 mod environment;
+mod session;
 mod tune_index;
 
-pub(crate) use compiling::CompilationSpans;
-pub(crate) use environment::{EnvironmentRecords, SessionRecords};
-pub(crate) use tune_index::TuneIndex;
+pub use compiling::CompilationSpans;
+pub use environment::EnvironmentRecords;
+pub use session::SessionRecords;
+pub use tune_index::TuneIndex;

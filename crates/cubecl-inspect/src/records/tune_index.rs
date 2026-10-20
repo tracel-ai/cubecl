@@ -1,5 +1,4 @@
-use super::CompilationSpans;
-use super::EnvironmentRecords;
+use super::{EnvironmentRecords, SessionRecords};
 use crate::report::{CanonicalKey, RecordedTune, TuneTrace, TunedKey};
 use cubecl_environment::records::SessionId;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -7,15 +6,16 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 /// The tunes of a file that its tables took, by the key each answers, with
 /// the compiling of every session that ran one: built once, so joining each
 /// key to its tune is a lookup rather than a scan of every record.
-pub(crate) struct TuneIndex<'a> {
+pub struct TuneIndex<'a> {
     /// A key's latest stored tune, by its table's namespace, its checksum and
     /// the key itself.
     tunes: HashMap<(&'a str, &'a str, CanonicalKey), &'a TuneTrace>,
-    compiling: BTreeMap<SessionId, CompilationSpans>,
+    /// The sessions that ran one, for the compiling inside it.
+    sessions: BTreeMap<SessionId, SessionRecords<'a>>,
 }
 
 impl<'a> TuneIndex<'a> {
-    pub(crate) fn new(records: &'a EnvironmentRecords) -> Self {
+    pub fn new(records: &'a EnvironmentRecords) -> Self {
         let mut tunes = HashMap::new();
         // Oldest first, so a later tune of a key replaces the earlier: the
         // index keeps each key's latest. A tune the table did not take
@@ -29,18 +29,18 @@ impl<'a> TuneIndex<'a> {
             );
             tunes.insert(entry, trace);
         }
-        let sessions: BTreeSet<SessionId> =
-            tunes.values().map(|trace| trace.stamp.session).collect();
-        let compiling = sessions
-            .into_iter()
-            .map(|session| (session, records.compiling(session)))
+        let tuned: BTreeSet<SessionId> = tunes.values().map(|trace| trace.stamp.session).collect();
+        let sessions = records
+            .sessions()
+            .filter(|session| tuned.contains(&session.session().id))
+            .map(|session| (session.session().id, session))
             .collect();
-        Self { tunes, compiling }
+        Self { tunes, sessions }
     }
 
     /// The last tune recorded of `key` that its table took, with the
     /// compiling inside it; `None` when there is none.
-    pub(crate) fn recorded_tune(&self, key: &TunedKey) -> Option<RecordedTune> {
+    pub fn recorded_tune(&self, key: &TunedKey) -> Option<RecordedTune> {
         let table = key.table.namespace();
         let entry = (
             table.as_str(),
@@ -49,7 +49,9 @@ impl<'a> TuneIndex<'a> {
         );
         let trace = *self.tunes.get(&entry)?;
         Some(RecordedTune {
-            compiling: self.compiling[&trace.stamp.session].during(trace),
+            compiling: self.sessions[&trace.stamp.session]
+                .compiling()
+                .during(trace),
             trace: trace.clone(),
         })
     }
