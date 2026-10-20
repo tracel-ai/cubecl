@@ -116,6 +116,83 @@ binop_to_spirv_dialect!(math::ArcTan2Op => gl::Atan2Op);
 unop_to_spirv_dialect!(math::DegreesOp => gl::DegreesOp);
 unop_to_spirv_dialect!(math::RadiansOp => gl::RadiansOp);
 
+// GLSL.std.450 defines its trigonometric, exponential and power instructions only for 16- and
+// 32-bit floats. A driver can accept them on f64 and return wrong values, so an f64 operation
+// runs in f32 and widens the result: it has f32 precision and range.
+macro_rules! f64_through_f32 {
+    ($ty: ty, $($operand: ident),+) => {
+        #[op_interface_impl]
+        impl LowerOp for $ty {
+            fn should_lower(&self, ctx: &Context) -> bool {
+                self.get_result(ctx).scalar_ty(ctx).is_float64(ctx)
+            }
+
+            fn lower(&self, scope: &Scope) -> Vec<Value> {
+                define_scalar!(T);
+                define_size!(S);
+                let ctx = scope.ctx();
+                let uniformity = op_dyn_uniformity(ctx, self.get_operation());
+                $(let $operand = self.$operand(ctx);)+
+                scope.register_value_type::<T, S>(self.get_result(ctx));
+                $(let $operand = narrow_f64::expand::<T, S>(scope, $operand.into()).read_value(scope);)+
+                let op = <$ty>::new(scope.ctx_mut(), $($operand),+);
+                decorate_uniform(scope.ctx(), op.get_operation(), uniformity);
+                let value = scope.register_with_result(&op);
+                vec![widen_f64::expand::<T, S>(scope, value.into()).read_value(scope)]
+            }
+        }
+    };
+}
+
+f64_through_f32!(math::SinOp, input);
+f64_through_f32!(math::CosOp, input);
+f64_through_f32!(math::TanOp, input);
+f64_through_f32!(math::SinhOp, input);
+f64_through_f32!(math::CoshOp, input);
+f64_through_f32!(math::TanhOp, input);
+f64_through_f32!(math::ArcSinOp, input);
+f64_through_f32!(math::ArcCosOp, input);
+f64_through_f32!(math::ArcTanOp, input);
+f64_through_f32!(math::ArcSinhOp, input);
+f64_through_f32!(math::ArcCoshOp, input);
+f64_through_f32!(math::ArcTanhOp, input);
+f64_through_f32!(math::ArcTan2Op, lhs, rhs);
+f64_through_f32!(math::ExpOp, input);
+f64_through_f32!(math::LogOp, input);
+f64_through_f32!(SimplePowOp, base, exp);
+
+#[cube]
+fn narrow_f64<F: Float, N: Size>(x: Vector<F, N>) -> Vector<f32, N> {
+    Vector::cast_from(x)
+}
+
+#[cube]
+fn widen_f64<F: Float, N: Size>(x: Vector<f32, N>) -> Vector<F, N> {
+    Vector::cast_from(x)
+}
+
+// The conversion between degrees and radians is a multiplication, which f64 has, so it keeps
+// f64 precision.
+lower_unop!(math::DegreesOp, degrees_f64, |op, ctx| {
+    op.get_result(ctx).scalar_ty(ctx).is_float64(ctx)
+});
+lower_unop!(math::RadiansOp, radians_f64, |op, ctx| {
+    op.get_result(ctx).scalar_ty(ctx).is_float64(ctx)
+});
+
+const DEGREES_PER_RADIAN: f64 = 180.0 / core::f64::consts::PI;
+const RADIANS_PER_DEGREE: f64 = core::f64::consts::PI / 180.0;
+
+#[cube]
+fn degrees_f64<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
+    x * Vector::new(F::new(DEGREES_PER_RADIAN))
+}
+
+#[cube]
+fn radians_f64<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
+    x * Vector::new(F::new(RADIANS_PER_DEGREE))
+}
+
 unop_to_spirv_dialect!(math::SqrtOp => gl::SqrtOp);
 unop_to_spirv_dialect!(math::RsqrtOp => gl::InverseSqrtOp);
 

@@ -207,6 +207,15 @@ mod tests_spirv {
     cubecl_std::testgen_tensor_identity!([f16, flex32, f32, u32]);
     cubecl_std::testgen_quantized_view!(f16);
     cubecl_core::testgen_profiling!();
+
+    /// The GLSL.std.450 math that is not defined for f64 runs in f32.
+    mod f64_math {
+        use super::*;
+        type FloatType = f64;
+
+        cubecl_core::testgen_unary!();
+        cubecl_core::testgen_binary!();
+    }
 }
 
 #[cfg(all(test, feature = "msl"))]
