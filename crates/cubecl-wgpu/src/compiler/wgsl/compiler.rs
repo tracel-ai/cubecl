@@ -30,7 +30,7 @@ use cubecl_ir::{
         opts::{dce::DCEPass, mem2reg::Mem2RegPass},
     },
     prelude::{AnalysisManager, NestedOpsPass, Op, OpPass, PMConfig, Pass, Passes},
-    rewrite::SimplifyOpsPass,
+    rewrite::{CanonicalizePass, SimplifyOpsPass},
     settings::Dim3,
 };
 use cubecl_opt::passes::{
@@ -176,6 +176,7 @@ impl WgslCompiler {
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(SimpleCSEPass::with_memory());
         func_passes.add_pass(SimplifyOpsPass::default());
+        func_passes.add_pass(CanonicalizePass::default());
         func_passes.add_pass(DCEPass);
 
         passes.add_pass(NestedOpsPass::new(func_passes));
