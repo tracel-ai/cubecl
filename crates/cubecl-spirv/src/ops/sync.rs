@@ -38,8 +38,12 @@ impl ToSpirvDialectOp for SyncOp {
             }
         };
         let semantics = match scope {
-            SyncScope::Plane => MemorySemantics::ACQUIRE_RELEASE | MemorySemantics::SUBGROUP_MEMORY,
-            SyncScope::Cube => MemorySemantics::ACQUIRE_RELEASE | MemorySemantics::WORKGROUP_MEMORY,
+            // Vulkan has no subgroup storage class, and an acquire-release barrier needs one that
+            // Vulkan supports (VUID-StandaloneSpirv-MemorySemantics-10870). A plane shares memory
+            // through the workgroup's, as the cube does.
+            SyncScope::Plane | SyncScope::Cube => {
+                MemorySemantics::ACQUIRE_RELEASE | MemorySemantics::WORKGROUP_MEMORY
+            }
             // Under the Vulkan memory model a barrier orders, but only availability and visibility
             // operations carry one workgroup's plain writes to another at device scope.
             SyncScope::Device => {
