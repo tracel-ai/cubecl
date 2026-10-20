@@ -7,7 +7,8 @@
 //!
 //! A slice is uploaded from a host slice of the same type, and a mutable one
 //! is written back into it after the launch, as if the function ran on the
-//! host.
+//! host. An `Array` is uploaded from a host slice too, and copied into an
+//! array of its length in the kernel, since an array's length is comptime.
 //!
 //! With `#[cube(harness)]`, a function may also take and return cube types,
 //! which must derive `CubeHarness`. A macro can't tell a cube type from any
@@ -18,7 +19,9 @@
 use darling::util::Flag;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn::{GenericParam, Ident, ItemFn, Type, TypeParamBound, parse_quote};
+use syn::{
+    GenericArgument, GenericParam, Ident, ItemFn, PathArguments, Type, TypeParamBound, parse_quote,
+};
 
 use crate::{
     parse::{
@@ -56,6 +59,9 @@ pub enum HarnessValue {
     /// A slice of scalars, uploaded to its own buffer, and written back to
     /// the host when it's mutable.
     Slice { elem: Type, mutable: bool },
+    /// An array of scalars, uploaded from a host slice to its own buffer, and
+    /// copied into an array of the slice's length in the kernel.
+    Array(Type),
 }
 
 pub struct HarnessPlan {
@@ -64,6 +70,24 @@ pub struct HarnessPlan {
     /// A value or a tuple of them, possibly nested, read back through its
     /// `HarnessOutput` impl.
     pub returns: Type,
+}
+
+/// The element type of an `Array<T>`.
+fn array_elem(ty: &Type) -> Option<&Type> {
+    let Type::Path(path) = ty else {
+        return None;
+    };
+    let last = path.path.segments.last()?;
+    if path.qself.is_some() || last.ident != "Array" {
+        return None;
+    }
+    let PathArguments::AngleBracketed(args) = &last.arguments else {
+        return None;
+    };
+    match args.args.iter().collect::<Vec<_>>()[..] {
+        [GenericArgument::Type(elem)] => Some(elem),
+        _ => None,
+    }
 }
 
 impl Launch {
@@ -78,8 +102,8 @@ impl Launch {
                 .unwrap_or_else(|err| err.into_compile_error()),
             None if self.args.harness.is_present() => syn::Error::new_spanned(
                 &self.func.sig.name,
-                "a harness needs every parameter to be a scalar, a slice of scalars, a comptime \
-                 scalar or a cube type, and a return value of them or a tuple of them",
+                "a harness needs every parameter to be a scalar, a slice or array of scalars, a \
+                 comptime scalar or a cube type, and a return value of them or a tuple of them",
             )
             .into_compile_error(),
             None => TokenStream::new(),
@@ -133,6 +157,11 @@ impl Launch {
             {
                 return Some(HarnessValue::Generic(ident.clone()));
             }
+            // An array is a container, not a cube type, and only crosses as a
+            // parameter.
+            if array_elem(ty).is_some() {
+                return None;
+            }
             let last = path.path.segments.last()?;
             if last.arguments.is_none()
                 && RUNTIME_SCALARS.contains(&last.ident.to_string().as_str())
@@ -168,6 +197,13 @@ impl Launch {
                         elem: (*slice.elem).clone(),
                         mutable: reference.mutability.is_some(),
                     },
+                    _ => return None,
+                }
+            } else if let Some(elem) = array_elem(&param.ty) {
+                match classify(elem)? {
+                    HarnessValue::Scalar(_) | HarnessValue::Generic(_) => {
+                        HarnessValue::Array(elem.clone())
+                    }
                     _ => return None,
                 }
             } else {
@@ -208,6 +244,7 @@ impl Launch {
     fn harness_tokens(&self, plan: &HarnessPlan) -> syn::Result<TokenStream> {
         let input_scalar = prelude_type("InputScalar");
         let buffer_arg = prelude_type("BufferArg");
+        let array_type = prelude_type("Array");
         let cube_element = prelude_type("CubeElement");
         let launch_arg = prelude_type("LaunchArg");
         let harness_output = prelude_type("HarnessOutput");
@@ -236,7 +273,9 @@ impl Launch {
         // The kernel calls the function through a path the cube parser turns
         // into a call to this module's `expand`. `super::expand` can't be used
         // directly, since the parser would append another `::expand`.
+        let array_len = |param: &Ident| format_ident!("__harness_{param}_len");
         let mut kernel_params = Vec::new();
+        let mut kernel_stmts = Vec::new();
         let mut call_args = Vec::new();
         for (param, value) in plan.params.iter() {
             match value {
@@ -248,6 +287,19 @@ impl Launch {
                     let mutability = mutable.then(|| quote![mut]);
                     kernel_params.push(quote![#param: &#mutability [#elem]]);
                     call_args.push(quote![#param]);
+                }
+                HarnessValue::Array(elem) => {
+                    let len = array_len(param);
+                    let array = format_ident!("__harness_{param}_array");
+                    kernel_params.push(quote![#param: &[#elem]]);
+                    kernel_params.push(quote![#[comptime] #len: usize]);
+                    kernel_stmts.push(quote! {
+                        let mut #array = #array_type::<#elem>::new(#len);
+                        for __i in 0..#len {
+                            #array[__i] = #param[__i];
+                        }
+                    });
+                    call_args.push(quote![#array]);
                 }
                 HarnessValue::Generic(ident) => {
                     kernel_params.push(quote![#param: #input_scalar]);
@@ -264,6 +316,7 @@ impl Launch {
                 #(#kernel_params,)*
                 mut __harness_out: <#ret as #harness_output>::Out,
             ) {
+                #(#kernel_stmts)*
                 let __harness_ret = __harness_call #turbofish(#(#call_args),*);
                 intrinsic!(|scope| <#ret as #harness_output>::__expand_store(
                     scope,
@@ -286,6 +339,7 @@ impl Launch {
                 quote![#param: #ty]
             }
             HarnessValue::Generic(ident) => quote![#param: #ident],
+            HarnessValue::Array(elem) => quote![#param: &[#elem]],
             HarnessValue::Slice { elem, mutable } => {
                 let mutability = mutable.then(|| quote![mut]);
                 quote![#param: &#mutability [#elem]]
@@ -297,6 +351,7 @@ impl Launch {
             .iter()
             .filter_map(|(param, value)| match value {
                 HarnessValue::Slice { elem, mutable } => Some((param, elem, *mutable)),
+                HarnessValue::Array(elem) => Some((param, elem, false)),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -333,6 +388,11 @@ impl Launch {
                 // SAFETY: the buffer was created from the slice, so it holds
                 // exactly its length.
                 quote![unsafe { #buffer_arg::from_raw_parts(#handle, #param.len()) }]
+            }
+            HarnessValue::Array(_) => {
+                let handle = slice_handle(param);
+                // SAFETY: as for a slice. The length is also the array's.
+                quote![unsafe { #buffer_arg::from_raw_parts(#handle, #param.len()) }, #param.len()]
             }
             HarnessValue::Scalar(_) | HarnessValue::Comptime(_) => quote![#param],
         });
@@ -500,6 +560,17 @@ mod tests {
     }
 
     #[test]
+    fn arrays_are_harnessable() {
+        let plan = plan(parse_quote! {
+            fn f<F: Float>(xs: Array<F>, ys: cubecl::prelude::Array<u32>) -> F { xs[0] }
+        })
+        .unwrap();
+
+        assert_eq!(plan.params[0].1, HarnessValue::Array(parse_quote!(F)));
+        assert_eq!(plan.params[1].1, HarnessValue::Array(parse_quote!(u32)));
+    }
+
+    #[test]
     fn writing_into_a_slice_is_a_result() {
         let fill = plan(parse_quote! { fn f(x: u32, out: &mut [u32]) {} }).unwrap();
         assert_eq!(fill.returns, parse_quote!(()));
@@ -525,6 +596,11 @@ mod tests {
             parse_quote! { fn f(x: &[[u32; 2]]) -> u32 { 0 } },
             parse_quote! { fn f(x: &mut u32) {} },
             parse_quote! { fn f(x: &mut [u32]) -> (u32, ()) { (0, ()) } },
+            parse_quote! { fn f(x: Array<bool>) -> u32 { 0 } },
+            parse_quote! { fn f(x: Array<Point>) -> u32 { 0 } },
+            parse_quote! { fn f(x: Array) -> u32 { 0 } },
+            parse_quote! { fn f(x: &Array<u32>) -> u32 { 0 } },
+            parse_quote! { fn f(x: u32) -> Array<u32> { 0 } },
             parse_quote! { fn f(x: Vector<f32, N>) -> f32 { 0 } },
             parse_quote! { fn f(p: Point) -> u32 { 0 } },
             parse_quote! { fn f(x: u32) -> Point { p } },
@@ -551,6 +627,8 @@ mod tests {
         let opted_in: Vec<ItemFn> = vec![
             parse_quote! { fn f(p: &Point) -> u32 { 0 } },
             parse_quote! { fn f(p: &[Point]) -> u32 { 0 } },
+            parse_quote! { fn f(p: Array<Point>) -> u32 { 0 } },
+            parse_quote! { fn f(p: Point) -> Array<u32> { 0 } },
             parse_quote! { fn f(#[comptime] c: MyConfig) -> u32 { 0 } },
             parse_quote! { fn f(p: Point) {} },
         ];

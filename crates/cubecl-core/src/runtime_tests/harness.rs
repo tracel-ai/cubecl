@@ -134,6 +134,25 @@ fn scale_into<F: Float>(xs: &[F], factor: F, out: &mut [F]) -> u32 {
 }
 
 #[cube]
+fn mean<F: Float>(xs: Array<F>) -> F {
+    let mut total = F::new(0.0);
+    for i in 0..xs.len() {
+        total += xs[i];
+    }
+    total / F::cast_from(xs.len())
+}
+
+/// Arrays of different types and lengths, around a scalar.
+#[cube]
+fn weighted_sum<F: Float>(xs: Array<F>, scale: F, weights: Array<u32>) -> F {
+    let mut total = F::new(0.0);
+    for i in 0..xs.len() {
+        total += xs[i] * F::cast_from(weights[i]);
+    }
+    total * scale
+}
+
+#[cube]
 fn swap_firsts(lhs: &mut [u32], rhs: &mut [u32]) {
     let first = lhs[0];
     lhs[0] = rhs[0];
@@ -195,6 +214,16 @@ pub fn test_harness_cube_type<R: Runtime>() {
     assert_eq!(
         flip::harness::<R>(Pair { a: 2, b: 3 }),
         (Pair { a: 3, b: -3 }, 5)
+    );
+}
+
+/// An array goes up as a host slice, and is copied into an array of its length
+/// in the kernel.
+pub fn test_harness_array<R: Runtime>() {
+    assert_eq!(mean::harness::<R, f32>(&[1.0, 2.0, 3.0, 4.0]), 2.5);
+    assert_eq!(
+        weighted_sum::harness::<R, f32>(&[1.0, 2.0], 0.5, &[3, 4]),
+        5.5
     );
 }
 
@@ -266,6 +295,11 @@ macro_rules! testgen_harness {
             #[$crate::runtime_tests::test_log::test]
             fn harness_slice() {
                 cubecl_core::runtime_tests::harness::test_harness_slice::<TestRuntime>();
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn harness_array() {
+                cubecl_core::runtime_tests::harness::test_harness_array::<TestRuntime>();
             }
 
             #[$crate::runtime_tests::test_log::test]
