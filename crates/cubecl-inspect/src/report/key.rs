@@ -1,3 +1,4 @@
+use cubecl_runtime::tune::LAYOUT_PREFIX;
 use serde::{Serialize, Serializer};
 use std::fmt;
 use std::str::FromStr;
@@ -64,20 +65,50 @@ impl CanonicalKey {
 
 /// One autotune table: the namespace cubecl stores a tuner's results in,
 /// as the runtime's `TuneTableName` writes it,
-/// `autotune/<cubecl version>/<fingerprint>/<device>/<tuner>`, or as cubecl
-/// wrote it before it keyed tables on the fingerprint,
-/// `autotune/<cubecl version>/<device>/<tuner>`.
+/// `autotune/<cubecl version>/layout-v<layout>/<hardware>/<tuner>`, or as
+/// cubecl wrote it before it named tables by hardware,
+/// `autotune/<cubecl version>/<fingerprint>/<device>/<tuner>`, and before it
+/// keyed them on the fingerprint, `autotune/<cubecl version>/<device>/<tuner>`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 pub struct AutotuneTable {
     /// The tuner, named by the code that declared it.
     pub tuner: String,
-    /// The device the results were measured on.
+    /// The hardware the results were measured on, or the device for a table
+    /// named before cubecl named tables by hardware.
     pub device: String,
-    /// The adapter and API the device resolved to; `None` for a table
-    /// written before cubecl recorded it.
-    pub fingerprint: Option<String>,
+    /// Which of cubecl's layouts names the table.
+    pub naming: TableNaming,
     /// The cubecl version that wrote them.
     pub version: String,
+}
+
+/// How a table's namespace names where its results were measured.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+pub enum TableNaming {
+    /// `layout-v<layout>/<hardware>`, shared by every device of the hardware.
+    Hardware { layout: u32 },
+    /// `<fingerprint>/<device>`: the device, after the adapter and API it resolved to.
+    Fingerprinted { fingerprint: String },
+    /// `<device>`, before cubecl recorded the fingerprint.
+    Device,
+}
+
+impl TableNaming {
+    /// The adapter and API the device resolved to, when the table names it.
+    pub fn fingerprint(&self) -> Option<&str> {
+        match self {
+            Self::Fingerprinted { fingerprint } => Some(fingerprint),
+            Self::Hardware { .. } | Self::Device => None,
+        }
+    }
+
+    /// The layout number of a table named by hardware.
+    pub fn layout(&self) -> Option<u32> {
+        match self {
+            Self::Hardware { layout } => Some(*layout),
+            Self::Fingerprinted { .. } | Self::Device => None,
+        }
+    }
 }
 
 impl AutotuneTable {
@@ -89,12 +120,18 @@ impl AutotuneTable {
         let Self {
             tuner,
             device,
-            fingerprint,
+            naming,
             version,
         } = self;
-        match fingerprint {
-            Some(fingerprint) => format!("{}/{version}/{fingerprint}/{device}/{tuner}", Self::ROOT),
-            None => format!("{}/{version}/{device}/{tuner}", Self::ROOT),
+        match naming {
+            TableNaming::Hardware { layout } => format!(
+                "{}/{version}/{LAYOUT_PREFIX}{layout}/{device}/{tuner}",
+                Self::ROOT
+            ),
+            TableNaming::Fingerprinted { fingerprint } => {
+                format!("{}/{version}/{fingerprint}/{device}/{tuner}", Self::ROOT)
+            }
+            TableNaming::Device => format!("{}/{version}/{device}/{tuner}", Self::ROOT),
         }
     }
 
@@ -108,14 +145,26 @@ impl AutotuneTable {
         let rest = namespace.strip_prefix(Self::ROOT)?.strip_prefix('/')?;
         let (version, rest) = rest.split_once('/')?;
         let (rest, tuner) = rest.rsplit_once('/')?;
-        let (fingerprint, device) = match rest.rsplit_once('/') {
-            Some((fingerprint, device)) => (Some(fingerprint.to_string()), device),
-            None => (None, rest),
+        let by_hardware = rest.split_once('/').and_then(|(layout, hardware)| {
+            let layout = layout.strip_prefix(LAYOUT_PREFIX)?.parse().ok()?;
+            Some((layout, hardware))
+        });
+        let (device, naming) = match by_hardware {
+            Some((layout, hardware)) => (hardware, TableNaming::Hardware { layout }),
+            None => match rest.rsplit_once('/') {
+                Some((fingerprint, device)) => (
+                    device,
+                    TableNaming::Fingerprinted {
+                        fingerprint: fingerprint.to_string(),
+                    },
+                ),
+                None => (rest, TableNaming::Device),
+            },
         };
         Some(Self {
             tuner: tuner.to_string(),
             device: device.to_string(),
-            fingerprint,
+            naming,
             version: version.to_string(),
         })
     }
@@ -144,19 +193,27 @@ mod tests {
     #[test]
     fn a_table_parses_from_the_namespace_the_runtime_writes() {
         let namespace = cubecl_runtime::tune::TuneTableName {
-            fingerprint: "NVIDIA GeForce RTX 3080/PCIe/SSE2",
-            device_id: "DeviceId(type=0, index=0)",
+            hardware: "cuda_ptx-sm89_NVIDIA-L4_par58",
             tuner: "matmul-tune-gemm",
         }
         .namespace();
         let table = AutotuneTable::new(namespace.as_str()).expect("parses");
         assert_eq!(table.tuner, "matmul-tune-gemm");
+        assert_eq!(table.device, "cuda_ptx-sm89_NVIDIA-L4_par58");
+        assert!(matches!(table.naming, TableNaming::Hardware { .. }));
+        assert_eq!(table.namespace(), namespace.as_str());
+    }
+
+    #[test]
+    fn a_table_named_by_device_and_fingerprint_still_parses() {
+        let namespace = "autotune/0.11.0/NVIDIA GeForce RTX 3080/PCIe/SSE2/DeviceId(type=0, index=0)/matmul-tune-gemm";
+        let table = AutotuneTable::new(namespace).expect("parses");
         assert_eq!(table.device, "DeviceId(type=0, index=0)");
         assert_eq!(
-            table.fingerprint.as_deref(),
+            table.naming.fingerprint(),
             Some("NVIDIA GeForce RTX 3080/PCIe/SSE2")
         );
-        assert_eq!(table.namespace(), namespace.as_str());
+        assert_eq!(table.namespace(), namespace);
     }
 
     /// A table written before cubecl keyed tables on the fingerprint still
@@ -169,7 +226,7 @@ mod tests {
             Some(AutotuneTable {
                 tuner: "matmul-tune-gemm".to_string(),
                 device: "device-32-0-hip".to_string(),
-                fingerprint: None,
+                naming: TableNaming::Device,
                 version: "0.11.0".to_string(),
             })
         );

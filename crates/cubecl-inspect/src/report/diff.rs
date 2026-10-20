@@ -122,7 +122,7 @@ impl From<&TunedKey> for Identity {
         Self {
             tuner: key.table.tuner.clone(),
             device: key.table.device.clone(),
-            fingerprint: key.table.fingerprint.clone(),
+            fingerprint: key.table.naming.fingerprint().map(String::from),
             key: CanonicalKey::new(&key.key),
         }
     }
@@ -135,7 +135,7 @@ impl EnvironmentDiff {
         let blank = |key: &TunedKey| KeyDiff {
             tuner: key.table.tuner.clone(),
             device: key.table.device.clone(),
-            fingerprint: key.table.fingerprint.clone(),
+            fingerprint: key.table.naming.fingerprint().map(String::from),
             key: key.key.clone(),
             before: None,
             after: None,
@@ -163,16 +163,17 @@ impl EnvironmentDiff {
     }
 }
 
-/// Each key of `report` once: when several cubecl versions answer it, the
-/// newest's answer, versions compared by number rather than as text, where
-/// `0.9` would pass `0.10`.
+/// Each key of `report` once: when several cubecl versions or table layouts
+/// answer it, the newest's answer, versions compared by number rather than as
+/// text, where `0.9` would pass `0.10`.
 fn newest(report: &AutotuneReport) -> BTreeMap<Identity, &TunedKey> {
+    let recency = |key: &TunedKey| (version(&key.table.version), key.table.naming.layout());
     let mut newest = BTreeMap::<Identity, &TunedKey>::new();
     for key in &report.keys {
         newest
             .entry(Identity::from(key))
             .and_modify(|kept| {
-                if version(&key.table.version) > version(&kept.table.version) {
+                if recency(key) > recency(kept) {
                     *kept = key;
                 }
             })
