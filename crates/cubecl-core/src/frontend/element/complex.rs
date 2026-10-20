@@ -31,7 +31,7 @@ use crate::{
     },
     prelude::{
         CubeDebug, CubePrimitive, CubeType, IntoExpand, IntoRuntime, KernelBuilder, KernelLauncher,
-        LaunchArg, NativeAssign, NativeExpand, Scalar, impl_scalar_launch,
+        LaunchArg, NativeAssign, NativeExpand, ReadValue, Scalar, impl_scalar_launch,
     },
     unexpanded,
 };
@@ -61,6 +61,18 @@ pub trait ComplexCore:
     + 'static
 {
     type FloatElem: Scalar;
+
+    /// Constructs a complex value from its real and imaginary components.
+    fn construct(_re: Self::FloatElem, _im: Self::FloatElem) -> Self {
+        unexpanded!()
+    }
+
+    #[doc(hidden)]
+    fn __expand_construct(
+        scope: &Scope,
+        re: NativeExpand<Self::FloatElem>,
+        im: NativeExpand<Self::FloatElem>,
+    ) -> NativeExpand<Self>;
 
     fn conj(self) -> Self {
         unexpanded!()
@@ -276,6 +288,23 @@ macro_rules! impl_complex {
 
         impl ComplexCore for $primitive {
             type FloatElem = $float;
+
+            fn __expand_construct(
+                scope: &Scope,
+                re: NativeExpand<$float>,
+                im: NativeExpand<$float>,
+            ) -> NativeExpand<Self> {
+                require_complex_usage(
+                    scope,
+                    Self::elem_type_native(),
+                    ComplexUsage::Core,
+                    "construct",
+                );
+                let re = re.read_value(scope);
+                let im = im.read_value(scope);
+                let op = ComplexConstructOp::new(scope.ctx_mut(), re, im);
+                scope.register_with_result(&op).into()
+            }
         }
         impl ComplexCompare for $primitive {}
         impl ComplexMath for $primitive {}

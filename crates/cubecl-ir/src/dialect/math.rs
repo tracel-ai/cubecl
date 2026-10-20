@@ -1,3 +1,4 @@
+use alloc::string::{String, ToString};
 use core::ops::Neg;
 
 use cubecl_macros_internal::{const_eval, cube_op, simplify};
@@ -7,8 +8,12 @@ use num_traits::Float;
 use pliron::{
     attribute::AttrObj,
     builtin::{attributes::IntegerAttr, types::IntegerType},
+    printable::Printable,
+    r#type::TypeHandle,
     utils::apint::{APInt, bw},
+    verify_err,
 };
+use thiserror::Error;
 
 use crate::{
     CanMaterialize, Commutative, ConstantValue, NoMemoryEffect, NoSideEffects,
@@ -20,7 +25,10 @@ use crate::{
         side_effects::{ConditionallySpeculatable, Speculatability},
     },
     prelude::*,
-    types::{VectorType, scalar::BoolType},
+    types::{
+        VectorType,
+        scalar::{BoolType, Complex32Type, Complex64Type, Float32Type, Float64Type},
+    },
 };
 
 pure_unop!("math.s_abs", SAbsOp);
@@ -57,6 +65,65 @@ pub struct CRealOp {
 #[op_traits(Pure, CanMaterialize)]
 pub struct CImagOp {
     pub input: Value,
+}
+
+#[cube_op(name = "math.complex_construct", verifier = "custom")]
+#[result_ty(from_inputs = complex_construct_ty)]
+#[op_interfaces(SameOperandsType, TriviallyUnrollable)]
+#[op_traits(Pure, CanMaterialize)]
+pub struct ComplexConstructOp {
+    pub re: Value,
+    pub im: Value,
+}
+
+impl Verify for ComplexConstructOp {
+    fn verify(&self, ctx: &Context) -> Result<()> {
+        let loc = self.loc(ctx);
+        let re = self.re(ctx);
+        let component = re.scalar_ty(ctx).deref(ctx);
+        if !component.is::<Float32Type>() && !component.is::<Float64Type>() {
+            return verify_err!(
+                loc,
+                ComplexConstructOpError::UnsupportedComponentType(component.disp(ctx).to_string())
+            );
+        }
+
+        let expected = complex_construct_ty(ctx, &re, &self.im(ctx));
+        let actual = self.result_type(ctx);
+        if actual != expected {
+            return verify_err!(
+                loc,
+                ComplexConstructOpError::ResultTypeMismatch(
+                    expected.disp(ctx).to_string(),
+                    actual.disp(ctx).to_string()
+                )
+            );
+        }
+        Ok(())
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum ComplexConstructOpError {
+    #[error("[ComplexConstructOp]: components must be f32 or f64, got {_0}")]
+    UnsupportedComponentType(String),
+    #[error("[ComplexConstructOp]: expected result type {_0}, got {_1}")]
+    ResultTypeMismatch(String, String),
+}
+
+/// The complex type whose components are `re` and `im`, vectorized to match them.
+fn complex_construct_ty(ctx: &Context, re: &Value, _im: &Value) -> TypeHandle {
+    let complex: TypeHandle = if re.scalar_ty(ctx).deref(ctx).is::<Float64Type>() {
+        Complex64Type::get(ctx).into()
+    } else {
+        Complex32Type::get(ctx).into()
+    };
+    let vector_size = re.vector_size(ctx);
+    if vector_size == 1 {
+        complex
+    } else {
+        VectorType::get(ctx, complex, vector_size).into()
+    }
 }
 
 pure_unop!("math.exp", ExpOp);
