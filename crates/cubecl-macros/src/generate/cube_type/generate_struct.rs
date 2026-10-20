@@ -362,7 +362,7 @@ impl CubeTypeStruct {
         let output_where = bounded_where_clause(
             &self.generics,
             self.fields.iter().cloned(),
-            |ty| quote![#ty: #harness_output],
+            |ty| quote![#ty: #harness_output<Host = #ty>],
         );
         let launch_generics = Generics {
             where_clause: self.launch_arg_where(),
@@ -377,12 +377,14 @@ impl CubeTypeStruct {
         Ok(quote! {
             impl #generics #harness_output for #name #generic_names #output_where {
                 type Out = (#(<#tys as #harness_output>::Out,)*);
+                type Host = Self;
 
                 fn alloc(
                     client: &#client,
+                    lens: &mut impl ::core::iter::Iterator<Item = usize>,
                     handles: &mut #core::__private::vec::Vec<#core::server::Handle>,
                 ) -> <Self::Out as #launch_arg>::RuntimeArg {
-                    (#(<#tys as #harness_output>::alloc(client, handles),)*)
+                    (#(<#tys as #harness_output>::alloc(client, lens, handles),)*)
                 }
 
                 fn __expand_store(
@@ -394,9 +396,12 @@ impl CubeTypeStruct {
                     #(<#tys as #harness_output>::__expand_store(scope, #outs, value.#names);)*
                 }
 
-                fn read(bytes: &mut impl ::core::iter::Iterator<Item = #core::bytes::Bytes>) -> Self {
+                fn read(
+                    bytes: &mut impl ::core::iter::Iterator<Item = #core::bytes::Bytes>,
+                    lens: &mut impl ::core::iter::Iterator<Item = usize>,
+                ) -> Self {
                     Self {
-                        #(#names: <#tys as #harness_output>::read(bytes),)*
+                        #(#names: <#tys as #harness_output>::read(bytes, lens),)*
                     }
                 }
             }

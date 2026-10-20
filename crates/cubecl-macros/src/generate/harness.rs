@@ -10,6 +10,10 @@
 //! host. An `Array` is uploaded from a host slice too, and copied into an
 //! array of its length in the kernel, since an array's length is comptime.
 //!
+//! A returned `Array` comes back as a `Vec`. Its length is comptime too, and
+//! only known once the kernel is expanded, so a harness returning one expands
+//! its kernel first to learn the length, and only then allocates its buffer.
+//!
 //! With `#[cube(harness)]`, a function may also take and return cube types,
 //! which must derive `CubeHarness`. A macro can't tell a cube type from any
 //! other path, so these are opt in.
@@ -70,6 +74,15 @@ pub struct HarnessPlan {
     /// A value or a tuple of them, possibly nested, read back through its
     /// `HarnessOutput` impl.
     pub returns: Type,
+}
+
+/// Whether a return type holds an `Array`, whose length the harness only
+/// learns by expanding its kernel.
+fn returns_array(ty: &Type) -> bool {
+    match ty {
+        Type::Tuple(tuple) => tuple.elems.iter().any(returns_array),
+        ty => array_elem(ty).is_some(),
+    }
 }
 
 /// The element type of an `Array<T>`.
@@ -157,8 +170,8 @@ impl Launch {
             {
                 return Some(HarnessValue::Generic(ident.clone()));
             }
-            // An array is a container, not a cube type, and only crosses as a
-            // parameter.
+            // An array is a container, not a cube type, and is classified by
+            // its element where it can cross.
             if array_elem(ty).is_some() {
                 return None;
             }
@@ -217,7 +230,13 @@ impl Launch {
                 Type::Tuple(tuple) => {
                     !tuple.elems.is_empty() && tuple.elems.iter().all(|ty| returnable(ty, classify))
                 }
-                ty => classify(ty).is_some(),
+                ty => match array_elem(ty) {
+                    Some(elem) => matches!(
+                        classify(elem),
+                        Some(HarnessValue::Scalar(_) | HarnessValue::Generic(_))
+                    ),
+                    None => classify(ty).is_some(),
+                },
             }
         }
 
@@ -248,6 +267,9 @@ impl Launch {
         let cube_element = prelude_type("CubeElement");
         let launch_arg = prelude_type("LaunchArg");
         let harness_output = prelude_type("HarnessOutput");
+        let store_output = prelude_type("__expand_store_output");
+        let output_lens = prelude_type("__output_lens");
+        let cube_kernel = prelude_type("CubeKernel");
         let cube_count = prelude_type("CubeCount");
         let cube_dim = prelude_type("CubeDim");
         let runtime = core_type("__private");
@@ -318,15 +340,20 @@ impl Launch {
             ) {
                 #(#kernel_stmts)*
                 let __harness_ret = __harness_call #turbofish(#(#call_args),*);
-                intrinsic!(|scope| <#ret as #harness_output>::__expand_store(
+                intrinsic!(|scope| #store_output::<#ret>(
                     scope,
                     &mut __harness_out,
                     __harness_ret,
                 ));
             }
         };
+        let probe = returns_array(ret);
         let kernel_args = KernelArgs {
             launch: Flag::present(),
+            create_dummy_kernel: match probe {
+                true => Flag::present(),
+                false => Flag::default(),
+            },
             debug_symbols: self.args.debug_symbols,
             no_debug_symbols: self.args.no_debug_symbols,
             src_file: self.args.src_file.clone(),
@@ -376,32 +403,74 @@ impl Launch {
                 );
             }
         });
-        let launch_args = plan.params.iter().map(|(param, value)| match value {
-            HarnessValue::Generic(ident) => {
-                quote![#input_scalar::new(#param, <#ident as #cube_element>::cube_type())]
-            }
-            HarnessValue::Cube(ty) => quote! {
-                ::core::convert::Into::<<#ty as #launch_arg>::RuntimeArg>::into(#param)
-            },
-            HarnessValue::Slice { .. } => {
-                let handle = slice_handle(param);
-                // SAFETY: the buffer was created from the slice, so it holds
-                // exactly its length.
-                quote![unsafe { #buffer_arg::from_raw_parts(#handle, #param.len()) }]
-            }
-            HarnessValue::Array(_) => {
-                let handle = slice_handle(param);
-                // SAFETY: as for a slice. The length is also the array's.
-                quote![unsafe { #buffer_arg::from_raw_parts(#handle, #param.len()) }, #param.len()]
-            }
-            HarnessValue::Scalar(_) | HarnessValue::Comptime(_) => quote![#param],
-        });
+        // The arguments are built twice when the kernel is expanded first, so
+        // the probe takes a clone of every handle and cube type.
+        let launch_args = |probe: bool| {
+            let clone = probe.then(|| quote![.clone()]);
+            plan.params
+                .iter()
+                .map(|(param, value)| match value {
+                    HarnessValue::Generic(ident) => {
+                        quote![#input_scalar::new(#param, <#ident as #cube_element>::cube_type())]
+                    }
+                    HarnessValue::Cube(ty) => quote! {
+                        ::core::convert::Into::<<#ty as #launch_arg>::RuntimeArg>::into(#param #clone)
+                    },
+                    HarnessValue::Slice { .. } => {
+                        let handle = slice_handle(param);
+                        // SAFETY: the buffer was created from the slice, so it
+                        // holds exactly its length.
+                        quote![unsafe { #buffer_arg::from_raw_parts(#handle #clone, #param.len()) }]
+                    }
+                    HarnessValue::Array(_) => {
+                        let handle = slice_handle(param);
+                        // SAFETY: as for a slice. The length is also the array's.
+                        quote! {
+                            unsafe { #buffer_arg::from_raw_parts(#handle #clone, #param.len()) },
+                            #param.len()
+                        }
+                    }
+                    HarnessValue::Scalar(_) | HarnessValue::Comptime(_) => quote![#param],
+                })
+                .collect::<Vec<_>>()
+        };
         let cube_bounds = plan.params.iter().filter_map(|(_, value)| match value {
             HarnessValue::Cube(ty) => {
-                Some(quote![<#ty as #launch_arg>::RuntimeArg: ::core::convert::From<#ty>])
+                let clone = probe.then(|| quote![#ty: ::core::clone::Clone,]);
+                Some(quote! {
+                    #clone
+                    <#ty as #launch_arg>::RuntimeArg: ::core::convert::From<#ty>
+                })
             }
             _ => None,
         });
+        // The probe expands the kernel with a placeholder output, the same
+        // way a launch would, to learn the returned arrays' lengths.
+        let lens = match probe {
+            true => {
+                let probe_args = launch_args(true);
+                quote! {
+                    let __lens = {
+                        let __out = <#ret as #harness_output>::alloc(
+                            &__client,
+                            &mut ::core::iter::repeat(1),
+                            &mut #core::__private::vec::Vec::new(),
+                        );
+                        let __kernel = #kernel_name::create_dummy_kernel #turbofish(
+                            __client.properties_shared(),
+                            __client.target_properties_shared(),
+                            #cube_count::new_single(),
+                            #cube_dim::new_single(),
+                            #(#probe_args,)*
+                            __out,
+                        );
+                        #output_lens(&#cube_kernel::define(&__kernel))
+                    };
+                }
+            }
+            false => quote![let __lens = #core::__private::vec::Vec::<usize>::new();],
+        };
+        let launch_args = launch_args(false);
         let name_str = name.to_string();
         let doc = format!(
             "Run [{name_str}()] on a single unit of the given runtime and return its result, \
@@ -420,14 +489,21 @@ impl Launch {
 
             #[allow(dead_code, clippy::too_many_arguments, clippy::let_unit_value)]
             #[doc = #doc]
-            pub fn harness<__R: #runtime, #(#generics),*>(#(#harness_params),*) -> #ret
+            pub fn harness<__R: #runtime, #(#generics),*>(
+                #(#harness_params),*
+            ) -> <#ret as #harness_output>::Host
             where
                 #(#cube_bounds,)*
             {
                 let __client = <__R as #runtime>::client(&::core::default::Default::default());
-                let mut __handles = #core::__private::vec::Vec::new();
-                let __out = <#ret as #harness_output>::alloc(&__client, &mut __handles);
                 #(#uploads)*
+                #lens
+                let mut __handles = #core::__private::vec::Vec::new();
+                let __out = <#ret as #harness_output>::alloc(
+                    &__client,
+                    &mut __lens.iter().copied(),
+                    &mut __handles,
+                );
                 #(__handles.push(#write_back_handles.clone());)*
                 #kernel_name::launch #turbofish(
                     &__client,
@@ -440,7 +516,7 @@ impl Launch {
                     .read(__handles)
                     .unwrap_or_else(|err| panic!("harness for `{}` failed: {err}", #name_str))
                     .into_iter();
-                let __ret = <#ret as #harness_output>::read(&mut __bytes);
+                let __ret = <#ret as #harness_output>::read(&mut __bytes, &mut __lens.iter().copied());
                 #(#write_back)*
                 __ret
             }
@@ -571,6 +647,18 @@ mod tests {
     }
 
     #[test]
+    fn arrays_are_returnable() {
+        let plan = plan(parse_quote! {
+            fn f<F: Float>(xs: Array<F>) -> (Array<F>, u32, (Array<u8>,)) { (xs, 0, (xs,)) }
+        })
+        .unwrap();
+
+        assert_eq!(plan.returns, parse_quote!((Array<F>, u32, (Array<u8>,))));
+        assert!(returns_array(&plan.returns));
+        assert!(!returns_array(&parse_quote!((u32, (f32,)))));
+    }
+
+    #[test]
     fn writing_into_a_slice_is_a_result() {
         let fill = plan(parse_quote! { fn f(x: u32, out: &mut [u32]) {} }).unwrap();
         assert_eq!(fill.returns, parse_quote!(()));
@@ -600,7 +688,9 @@ mod tests {
             parse_quote! { fn f(x: Array<Point>) -> u32 { 0 } },
             parse_quote! { fn f(x: Array) -> u32 { 0 } },
             parse_quote! { fn f(x: &Array<u32>) -> u32 { 0 } },
-            parse_quote! { fn f(x: u32) -> Array<u32> { 0 } },
+            parse_quote! { fn f(x: u32) -> Array<bool> { 0 } },
+            parse_quote! { fn f(x: u32) -> Array<Point> { 0 } },
+            parse_quote! { fn f(x: u32) -> (u32, Array<usize>) { 0 } },
             parse_quote! { fn f(x: Vector<f32, N>) -> f32 { 0 } },
             parse_quote! { fn f(p: Point) -> u32 { 0 } },
             parse_quote! { fn f(x: u32) -> Point { p } },
@@ -628,7 +718,7 @@ mod tests {
             parse_quote! { fn f(p: &Point) -> u32 { 0 } },
             parse_quote! { fn f(p: &[Point]) -> u32 { 0 } },
             parse_quote! { fn f(p: Array<Point>) -> u32 { 0 } },
-            parse_quote! { fn f(p: Point) -> Array<u32> { 0 } },
+            parse_quote! { fn f(p: Point) -> Array<Point> { 0 } },
             parse_quote! { fn f(#[comptime] c: MyConfig) -> u32 { 0 } },
             parse_quote! { fn f(p: Point) {} },
         ];

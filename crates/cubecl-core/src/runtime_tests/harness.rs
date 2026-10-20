@@ -2,6 +2,7 @@
 // iterators or `mem::swap`.
 #![allow(clippy::needless_range_loop, clippy::manual_swap)]
 
+use alloc::vec;
 use cubecl_runtime::runtime::Runtime;
 
 use crate::{self as cubecl, prelude::*};
@@ -153,6 +154,54 @@ fn weighted_sum<F: Float>(xs: Array<F>, scale: F, weights: Array<u32>) -> F {
 }
 
 #[cube]
+fn doubled<F: Float>(xs: Array<F>) -> Array<F> {
+    let mut out = Array::new(xs.len());
+    for i in 0..xs.len() {
+        out[i] = xs[i] * F::new(2.0);
+    }
+    out
+}
+
+/// An array whose length isn't any input's.
+#[cube]
+fn tens(#[comptime] n: usize) -> Array<u32> {
+    let mut out = Array::new(n);
+    for i in 0..n {
+        out[i] = u32::cast_from(i) * 10;
+    }
+    out
+}
+
+/// Arrays of different lengths and types, around a scalar and in a nested
+/// tuple.
+#[cube]
+fn stats(xs: Array<i32>) -> (Array<i32>, u32, (Array<u8>,)) {
+    let mut prefix = Array::new(xs.len());
+    let mut total = 0i32;
+    for i in 0..xs.len() {
+        total += xs[i];
+        prefix[i] = total;
+    }
+    let len = xs.len();
+    let mut signs = Array::new(comptime!(len + 1));
+    for i in 0..xs.len() {
+        signs[i] = u8::cast_from(xs[i] < 0);
+    }
+    signs[xs.len()] = 9u8;
+    (prefix, u32::cast_from(xs.len()), (signs,))
+}
+
+#[cube(harness)]
+fn scaled<F: Float>(p: Point<F>, xs: Array<F>, out: &mut [F]) -> Array<F> {
+    let mut scaled = Array::new(xs.len());
+    for i in 0..xs.len() {
+        scaled[i] = xs[i] * p.x;
+        out[i] = xs[i] * p.y;
+    }
+    scaled
+}
+
+#[cube]
 fn swap_firsts(lhs: &mut [u32], rhs: &mut [u32]) {
     let first = lhs[0];
     lhs[0] = rhs[0];
@@ -225,6 +274,29 @@ pub fn test_harness_array<R: Runtime>() {
         weighted_sum::harness::<R, f32>(&[1.0, 2.0], 0.5, &[3, 4]),
         5.5
     );
+}
+
+/// A returned array comes back as a `Vec` of the length the kernel gave it, on
+/// its own, in tuples, next to a cube type and a written back slice.
+pub fn test_harness_array_return<R: Runtime>() {
+    assert_eq!(
+        doubled::harness::<R, f32>(&[1.0, -2.0, 3.5]),
+        [2.0, -4.0, 7.0]
+    );
+    assert_eq!(tens::harness::<R>(4), [0, 10, 20, 30]);
+    assert_eq!(tens::harness::<R>(0), vec![0u32; 0]);
+    assert_eq!(
+        stats::harness::<R>(&[3, -1, 4]),
+        (vec![3, 2, 6], 3, (vec![0, 1, 0, 9],))
+    );
+
+    let mut out = [0.0; 2];
+    let p = Point { x: 2.0, y: 3.0 };
+    assert_eq!(
+        scaled::harness::<R, f32>(p, &[1.0, 4.0], &mut out),
+        [2.0, 8.0]
+    );
+    assert_eq!(out, [3.0, 12.0]);
 }
 
 /// A host slice goes up as a buffer of its length, and a mutable one comes
@@ -300,6 +372,11 @@ macro_rules! testgen_harness {
             #[$crate::runtime_tests::test_log::test]
             fn harness_array() {
                 cubecl_core::runtime_tests::harness::test_harness_array::<TestRuntime>();
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn harness_array_return() {
+                cubecl_core::runtime_tests::harness::test_harness_array_return::<TestRuntime>();
             }
 
             #[$crate::runtime_tests::test_log::test]
