@@ -21,8 +21,8 @@
 //! ```
 
 use super::{
-    AccessError, AccessPolicy, AllocationController, AllocationProperty, Bytes, SplitError,
-    default_controller::{MAX_ALIGN, NativeAllocationController},
+    AccessError, AccessPolicy, AllocationController, AllocationError, AllocationProperty, Bytes,
+    SplitError, base::copy_like, default_controller::MAX_ALIGN,
 };
 use crate::sync::Arc;
 use alloc::boxed::Box;
@@ -64,15 +64,14 @@ impl SharedAllocationController {
         &self.inner[self.offset..self.offset + self.len]
     }
 
-    /// Copy the shared view into a private, writable native allocation on first call.
-    /// Called lazily on first mutable access (copy-on-write).
+    /// Copy the shared view into a private, writable allocation on first call, in the same
+    /// memory as the inner bytes. Called lazily on first mutable access (copy-on-write).
     fn init_mutable(&self) -> &dyn AllocationController {
         &**self.controller.call_once(|| {
             // Allocate with `MAX_ALIGN` to keep the data usable for any element type.
-            Box::new(
-                NativeAllocationController::alloc_with_data(self.view(), MAX_ALIGN)
-                    .expect("failed to allocate copy-on-write buffer for shared bytes"),
-            ) as Box<dyn AllocationController>
+            copy_like(self, self.view(), MAX_ALIGN).unwrap_or_else(|err| {
+                panic!("failed to allocate copy-on-write buffer for shared bytes: {err}")
+            })
         })
     }
 }
@@ -181,6 +180,15 @@ impl AllocationController for SharedAllocationController {
             self.offset,
             self.len,
         )))
+    }
+
+    // Copies stay in the memory of the inner bytes, for example the same arena.
+    fn alloc_like(
+        &self,
+        capacity: usize,
+        align: usize,
+    ) -> Option<Result<Box<dyn AllocationController>, AllocationError>> {
+        self.inner.controller().alloc_like(capacity, align)
     }
 
     unsafe fn copy_into(&self, buf: &mut [u8]) {

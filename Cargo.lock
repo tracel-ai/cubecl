@@ -1165,6 +1165,7 @@ dependencies = [
 name = "cubecl-environment"
 version = "0.11.0"
 dependencies = [
+ "allocator-api2 0.2.21",
  "async-channel",
  "backtrace",
  "branches",
