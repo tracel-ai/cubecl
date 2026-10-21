@@ -127,6 +127,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         device: wgpu::Device,
         queue: wgpu::Queue,
         tasks_max: usize,
+        host_visible: bool,
         backend: wgpu::Backend,
         timing_method: TimingMethod,
         utilities: ServerUtilities,
@@ -139,6 +140,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             queue.clone(),
             memory_properties,
             memory_config,
+            host_visible,
             timing_method,
             backend,
             tasks_max,
@@ -302,6 +304,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
 
         let mut streams = vec![stream_id];
         let mut resources = Vec::with_capacity(descriptors.len());
+        let mut bindings = Vec::with_capacity(descriptors.len());
         for desc in descriptors {
             if contiguous_strides(&desc.shape) != desc.strides {
                 return Box::pin(async {
@@ -315,6 +318,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 streams.push(desc.handle.stream);
             }
             let stream = self.scheduler.stream(&desc.handle.stream);
+            bindings.push(desc.handle.clone());
             let resource = match stream.resource(desc.handle) {
                 Ok(val) => val,
                 Err(err) => return Box::pin(async move { Err(err.into()) }),
@@ -323,6 +327,14 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         }
 
         self.scheduler.execute_streams(streams);
+
+        // The writes enqueued above include ones the queue path can reject while
+        // it runs, and a rejection taints its destination. Ask again now that
+        // they have run, or this read would hand back bytes a refused write left
+        // alone.
+        if let Err(err) = self.scheduler.ensure_written(bindings.iter()) {
+            return Box::pin(async move { Err(err) });
+        }
 
         let stream = self.scheduler.stream(&stream_id);
         stream.read_resources(resources, stream_id)
@@ -389,6 +401,47 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 let handle = desc.handle.clone();
                 let stream = server.scheduler.stream(&owner);
                 let resource = stream.resource(desc.handle).map_err(ServerError::Io)?;
+
+                // Checked here, against the resource the write will land in, and
+                // not when the stream executes the task: this scope names the
+                // stream that *owns* the allocation, so a rejection taints the
+                // memory whose bytes a later read would otherwise hand back
+                // unchanged. A rejection raised while the task executes would
+                // taint the caller's memory instead, and would land after this
+                // scope had already cleared the destination — a correct write
+                // queued behind a rejected one could never recover it.
+                //
+                // A write larger than the logical resource must never reach the
+                // physical buffer: on a shared page the overflow would land in a
+                // neighbour's bytes.
+                if data.len() as u64 > resource.size {
+                    return Err(ServerError::Validation {
+                        message: format!(
+                            "write of {} bytes exceeds the {}-byte resource",
+                            data.len(),
+                            resource.size
+                        ),
+                        backtrace: BackTrace::capture(),
+                    });
+                }
+                // A partial write has to be `COPY_BUFFER_ALIGNMENT`-aligned to be
+                // writable at all: below the boundary the staged path pads and
+                // would zero the tail, and the mapped one is a shortcut the write
+                // cannot rely on (a busy device, a device-local pool).
+                if (data.len() as u64) < resource.size
+                    && !(data.len() as u64).is_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT)
+                {
+                    return Err(ServerError::Validation {
+                        message: format!(
+                            "unaligned partial write of {} bytes into a {}-byte resource \
+                             cannot be written without changing the untouched tail",
+                            data.len(),
+                            resource.size
+                        ),
+                        backtrace: BackTrace::capture(),
+                    });
+                }
+
                 let task = ScheduleTask::Write {
                     data,
                     buffer: resource,
@@ -855,5 +908,391 @@ impl<C: WgpuCompiler> ServerStorage for WgpuServer<C> {
             binding.offset_start,
             binding.offset_end,
         )?)
+    }
+}
+
+/// The default-path write checks: what the server refuses to hand the queue, and
+/// what a refused write leaves for the next read. They hold on either
+/// primary-memory placement.
+#[cfg(all(test, not(target_family = "wasm")))]
+mod write_checks {
+    use crate::WgpuRuntime;
+    use cubecl_common::bytes::Bytes;
+    use cubecl_core::prelude::Client;
+    use cubecl_server::runtime::Runtime;
+
+    fn client() -> Client {
+        WgpuRuntime::<crate::AutoCompiler>::client(&Default::default())
+    }
+
+    #[test]
+    fn a_write_larger_than_the_resource_is_rejected() {
+        let client = client();
+        let handle = client.create_from_slice(&[1u8; 16]);
+
+        client.write(&handle, Bytes::from_bytes_vec(vec![7; 32]));
+
+        let error = client
+            .read_one(handle)
+            .expect_err("an oversized write must not reach the buffer")
+            .to_string();
+        assert!(
+            error.contains("exceeds the 16-byte resource"),
+            "the rejection has to name the logical size, got: {error}"
+        );
+    }
+
+    #[test]
+    fn an_unaligned_partial_write_is_refused() {
+        let client = client();
+        let handle = client.create_from_slice(&[1u8; 16]);
+
+        client.write(&handle, Bytes::from_bytes_vec(vec![9]));
+
+        let error = client
+            .read_one(handle)
+            .expect_err("no write path preserves an untouched unaligned tail")
+            .to_string();
+        assert!(
+            error.contains("unaligned partial write"),
+            "the refusal has to name the unaligned partial write, got: {error}"
+        );
+    }
+
+    #[test]
+    fn an_aligned_partial_write_leaves_the_tail_alone() {
+        let client = client();
+        let handle = client.create_from_slice(&[1u8; 16]);
+
+        client.write(&handle, Bytes::from_bytes_vec(vec![9; 8]));
+
+        let bytes = client.read_one(handle).expect("the write landed");
+        assert_eq!(&bytes[..8], &[9; 8]);
+        assert_eq!(
+            &bytes[8..],
+            &[1; 8],
+            "an aligned partial write must not pad over the untouched tail"
+        );
+    }
+
+    /// A write issued from another logical stream lands in a buffer this stream
+    /// owns, and its rejection has to taint that buffer: the owner's read would
+    /// otherwise hand back the bytes the write never wrote.
+    #[test]
+    fn a_rejected_write_taints_the_stream_that_owns_the_buffer() {
+        use cubecl_environment::config::RuntimeConfig;
+        use cubecl_environment::stream::StreamId;
+
+        let client = client();
+        let handle = client.create_from_slice(&[1u8; 16]);
+        let _ = client.read_one(handle.clone()).expect("created");
+
+        // A logical stream that folds onto a *different* pooled stream, so the
+        // write really executes somewhere other than the owner. With one pooled
+        // stream every write is the owner's own, and the distinction is moot.
+        let max_streams = cubecl_server::config::CubeClRuntimeConfig::get()
+            .streaming
+            .max_streams as u64;
+        if max_streams < 2 {
+            eprintln!("skipping the cross-stream rejection: one pooled stream");
+            return;
+        }
+        let other = StreamId {
+            value: StreamId::current().value + 1,
+        };
+        other.executes(|| client.write(&handle, Bytes::from_bytes_vec(vec![7; 32])));
+
+        let error = client
+            .read_one(handle)
+            .expect_err("the owner's read has to fail on the rejection")
+            .to_string();
+        assert!(
+            error.contains("exceeds the 16-byte resource"),
+            "the owner has to be told why, got: {error}"
+        );
+    }
+
+    /// A rejected write must not take a correct replacement with it: the second
+    /// write's scope clears the claim the rejection left on the destination.
+    #[test]
+    fn a_valid_write_behind_a_rejected_one_recovers_the_destination() {
+        let client = client();
+        let handle = client.create_from_slice(&[1u8; 16]);
+
+        client.write(&handle, Bytes::from_bytes_vec(vec![7; 32]));
+        client.write(&handle, Bytes::from_bytes_vec(vec![5; 16]));
+
+        assert_eq!(
+            &client.read_one(handle).expect("the second write landed")[..],
+            &[5; 16]
+        );
+    }
+}
+
+/// Host-visible primary memory: what a read and a write of that pool do, and
+/// what they leave the rest of the stream free to do.
+#[cfg(all(test, not(target_family = "wasm")))]
+mod host_visible_tests {
+    use super::*;
+    use crate::PrimaryMemoryMode;
+    use crate::runtime::test_client_on_cpu;
+    use cubecl_core as cubecl;
+    use cubecl_core::MemoryScope;
+
+    /// Adds one to every element, so a read proves the launch's write landed.
+    #[cube(launch)]
+    fn increment(values: &mut [u32]) {
+        if ABSOLUTE_POS < values.len() {
+            values[ABSOLUTE_POS] += 1;
+        }
+    }
+
+    fn client_or_skip(primary_memory: PrimaryMemoryMode, purpose: &str) -> Option<Client> {
+        match test_client_on_cpu(primary_memory) {
+            Some(client) => Some(client),
+            None => {
+                eprintln!("skipping {purpose}: no CPU adapter with the requested primary memory");
+                None
+            }
+        }
+    }
+
+    /// The staging pool's reserved bytes, which is what a read or a write that
+    /// went through the queue would have to grow.
+    fn staging_bytes(client: &Client) -> u64 {
+        client
+            .memory_report(MemoryScope::CurrentStream)
+            .streams
+            .iter()
+            .flat_map(|stream| &stream.auxiliary)
+            .filter(|memory| memory.name.contains("Staging"))
+            .map(|memory| memory.pools.usage().bytes_reserved)
+            .sum()
+    }
+
+    #[test]
+    fn a_host_visible_read_copies_out_without_staging() {
+        let Some(client) = client_or_skip(PrimaryMemoryMode::HostVisible, "host-visible read")
+        else {
+            return;
+        };
+        assert!(
+            client.properties().memory.host_visible_primary(),
+            "the client has to report the placement it was brought up with"
+        );
+
+        let handle = client.create_from_slice(u32::as_bytes(&[1, 2, 3, 4]));
+        let before = staging_bytes(&client);
+        let bytes = client
+            .read_one(handle.clone())
+            .expect("the read maps the buffer");
+        assert_eq!(u32::from_bytes(&bytes), &[1, 2, 3, 4]);
+        assert_eq!(
+            staging_bytes(&client),
+            before,
+            "a host-visible read copies out of the allocation, not through staging"
+        );
+
+        // The read copied, so mutating it cannot reach the allocation.
+        let mut bytes = bytes;
+        bytes[0] = 42;
+        drop(bytes);
+        assert_eq!(
+            u32::from_bytes(&client.read_one(handle).unwrap()),
+            &[1, 2, 3, 4],
+            "a read has to copy: the bytes the caller holds are its own"
+        );
+    }
+
+    #[test]
+    fn an_idle_host_visible_write_lands_without_staging() {
+        let Some(client) = client_or_skip(PrimaryMemoryMode::HostVisible, "host-visible write")
+        else {
+            return;
+        };
+
+        let handle = client.create_from_slice(&[0u8; 16]);
+        let before = staging_bytes(&client);
+
+        client.write(&handle, Bytes::from_bytes_vec(vec![7; 16]));
+        assert_eq!(
+            &client.read_one(handle).unwrap()[..],
+            &[7; 16],
+            "the write landed"
+        );
+        assert_eq!(
+            staging_bytes(&client),
+            before,
+            "an idle whole-buffer write does not allocate a staging buffer"
+        );
+    }
+
+    #[test]
+    fn a_partial_host_visible_write_preserves_the_other_bytes() {
+        let Some(client) = client_or_skip(PrimaryMemoryMode::HostVisible, "partial host write")
+        else {
+            return;
+        };
+
+        let handle = client.create_from_slice(&[1u8; 16]);
+
+        client.write(&handle, Bytes::from_bytes_vec(vec![9; 4]));
+        let bytes = client.read_one(handle).expect("the write landed");
+        assert_eq!(&bytes[..4], &[9; 4]);
+        assert_eq!(&bytes[4..], &[1; 12]);
+    }
+
+    /// The write path refuses a partial write below the copy boundary whichever
+    /// path it would have taken: mapping it in place is only a shortcut, and a
+    /// device-local pool cannot map it at all. The outcome may not depend on
+    /// whether the device happened to be idle.
+    #[test]
+    fn an_unaligned_host_visible_write_is_refused() {
+        let Some(client) = client_or_skip(PrimaryMemoryMode::HostVisible, "unaligned host write")
+        else {
+            return;
+        };
+
+        let handle = client.create_from_slice(&[1u8; 16]);
+
+        client.write(&handle, Bytes::from_bytes_vec(vec![9]));
+
+        let error = client
+            .read_one(handle)
+            .expect_err("no write path preserves an untouched unaligned tail")
+            .to_string();
+        assert!(
+            error.contains("unaligned partial write"),
+            "the refusal has to name the unaligned partial write, got: {error}"
+        );
+    }
+
+    /// A write that arrives behind queued work takes the queue's copy, and still
+    /// lands: the fallback has to be a slower path, not a lost write.
+    #[test]
+    fn a_host_visible_write_behind_queued_work_still_lands() {
+        let Some(client) = client_or_skip(PrimaryMemoryMode::HostVisible, "busy host write") else {
+            return;
+        };
+
+        let handle = client.create_from_slice(&[0u8; 16]);
+        const ELEMENTS: usize = 1 << 22;
+        let busy = client.empty(ELEMENTS * core::mem::size_of::<u32>());
+        // The write's own `submit` puts this launch on the queue just before the
+        // write decides how to copy itself.
+        increment::launch(
+            &client,
+            CubeCount::Static(1 << 14, 1, 1),
+            CubeDim::new_1d(256),
+            unsafe { BufferArg::from_raw_parts(busy.clone(), ELEMENTS) },
+        );
+
+        client.write(&handle, Bytes::from_bytes_vec(vec![7; 16]));
+
+        assert_eq!(
+            &client.read_one(handle).unwrap()[..],
+            &[7; 16],
+            "a write behind queued work still lands"
+        );
+        assert_eq!(
+            u32::from_bytes(&client.read_one(busy).unwrap())[..4],
+            [1, 1, 1, 1],
+            "the launch that made the device busy ran"
+        );
+    }
+
+    /// Two tensors that share one pooled page, read in one batch. A read that
+    /// held the page while the caller used the bytes could not serve this.
+    #[test]
+    fn a_batched_read_of_two_tensors_on_one_page_works() {
+        let Some(client) =
+            client_or_skip(PrimaryMemoryMode::HostVisible, "batched host-visible read")
+        else {
+            return;
+        };
+
+        let a = client.create_from_slice(u32::as_bytes(&[1, 2, 3, 4]));
+        let b = client.create_from_slice(u32::as_bytes(&[5, 6, 7, 8]));
+
+        let reads = client
+            .read(vec![a.clone(), b.clone()])
+            .expect("the batch read");
+        assert_eq!(u32::from_bytes(&reads[0]), &[1, 2, 3, 4]);
+        assert_eq!(u32::from_bytes(&reads[1]), &[5, 6, 7, 8]);
+
+        // And the same page is usable again straight away.
+        let again = client.read(vec![a, b]).expect("the second batch read");
+        assert_eq!(u32::from_bytes(&again[0]), &[1, 2, 3, 4]);
+        assert_eq!(u32::from_bytes(&again[1]), &[5, 6, 7, 8]);
+    }
+
+    /// A launch on a buffer next to one that was just read. The read copied out
+    /// and unmapped before it returned, so the neighbour is the device's again.
+    #[test]
+    fn a_launch_on_a_neighbour_of_a_just_read_tensor_works() {
+        let Some(client) = client_or_skip(PrimaryMemoryMode::HostVisible, "neighbour launch")
+        else {
+            return;
+        };
+
+        let read = client.create_from_slice(u32::as_bytes(&[1, 2, 3, 4]));
+        let neighbour = client.create_from_slice(u32::as_bytes(&[10, 20, 30, 40]));
+
+        let held = client.read_one(read.clone()).expect("the read copies out");
+        increment::launch(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(4),
+            unsafe { BufferArg::from_raw_parts(neighbour.clone(), 4) },
+        );
+        assert_eq!(
+            u32::from_bytes(&client.read_one(neighbour).unwrap()),
+            &[11, 21, 31, 41],
+            "a launch next to a read tensor still runs"
+        );
+        // The bytes the caller held are still the ones it read.
+        assert_eq!(u32::from_bytes(&held), &[1, 2, 3, 4]);
+    }
+
+    /// Two threads reading tensors that share one page at the same time. wgpu
+    /// allows one mapping per buffer, so a read that finds another one live waits
+    /// for its copy-out and retries; neither read may fail.
+    #[test]
+    fn concurrent_reads_of_one_page_both_succeed() {
+        let Some(client) = client_or_skip(PrimaryMemoryMode::HostVisible, "concurrent reads")
+        else {
+            return;
+        };
+
+        let a = client.create_from_slice(u32::as_bytes(&[1, 2, 3, 4]));
+        let b = client.create_from_slice(u32::as_bytes(&[5, 6, 7, 8]));
+        // Warm the page up so both tensors live on it and neither read is the
+        // first one the device has ever served.
+        let _ = client.read(vec![a.clone(), b.clone()]).unwrap();
+
+        std::thread::scope(|scope| {
+            for (handle, expected) in [(a, [1, 2, 3, 4]), (b, [5, 6, 7, 8])] {
+                let client = client.clone();
+                scope.spawn(move || {
+                    for _ in 0..16 {
+                        let bytes = client
+                            .read_one(handle.clone())
+                            .expect("a concurrent read of one page");
+                        assert_eq!(u32::from_bytes(&bytes), &expected);
+                    }
+                });
+            }
+        });
+    }
+
+    #[test]
+    fn a_device_local_client_does_not_claim_host_visibility() {
+        let Some(client) =
+            client_or_skip(PrimaryMemoryMode::DeviceLocal, "device-local capability")
+        else {
+            return;
+        };
+
+        assert!(!client.properties().memory.host_visible_primary());
     }
 }

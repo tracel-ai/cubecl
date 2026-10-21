@@ -50,9 +50,10 @@ impl<C> Clone for WgpuRuntime<C> {
 impl<C: WgpuCompiler> DeviceService for WgpuServer<C> {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
         let device = WgpuDevice::from_id(device_id);
-        let setup =
-            future::block_on(try_create_setup(&device)).expect("Unable to acquire wgpu device");
-        try_create_server(setup, RuntimeOptions::default(), device_id, device.backend)
+        let options = RuntimeOptions::default();
+        let setup = future::block_on(try_create_setup(&device, options.primary_memory))
+            .expect("Unable to acquire wgpu device");
+        try_create_server(setup, options, device_id, device.backend)
             .expect("Unable to initialize wgpu runtime")
     }
 
@@ -406,12 +407,111 @@ pub enum WgpuInitError {
     },
 }
 
+/// Whether an adapter's memory is the host's own: an integrated GPU, or a CPU
+/// (software) adapter.
+///
+/// A discrete GPU's `MAPPABLE_PRIMARY_BUFFERS` works, but every map of its pool
+/// is a round trip over the bus, so it is not a placement this runtime picks for
+/// itself.
+pub(crate) fn shares_host_memory(device_type: wgpu::DeviceType) -> bool {
+    matches!(
+        device_type,
+        wgpu::DeviceType::IntegratedGpu | wgpu::DeviceType::Cpu
+    )
+}
+
+/// Where the runtime's primary memory — the pool every buffer a user allocates
+/// lives in — is placed.
+///
+/// "Host-visible" means the pool's buffers are created so the host can map them
+/// (they are storage buffers the host maps on demand). On such a pool a read is
+/// a map, a copy into `Bytes`, and an unmap, and a write into an idle buffer is
+/// a host copy in place instead of a copy through a staging buffer. `read` means
+/// the same thing either way; only the bytes' trip changes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PrimaryMemoryMode {
+    /// Pick per adapter: host-visible primary memory when the device can map it
+    /// and shares its memory with the host, device-local otherwise.
+    ///
+    /// In particular a discrete GPU, whose maps are round trips over the bus,
+    /// and the native Vulkan compiler, which owns its own mapping, both stay
+    /// device-local. This is the default.
+    #[default]
+    Auto,
+    /// Always allocate primary memory in device-local buffers, as WGPU does by
+    /// default.
+    DeviceLocal,
+    /// Require primary memory in buffers the host can map.
+    ///
+    /// Initialization fails if the adapter cannot map its primary buffers, or if
+    /// the native Vulkan compiler would own the pool.
+    HostVisible,
+}
+
+impl PrimaryMemoryMode {
+    /// The placement this mode asks for on a device that reports `features` and
+    /// an adapter with `adapter_info`.
+    ///
+    /// This is the one place `MAPPABLE_PRIMARY_BUFFERS` becomes a placement
+    /// decision:
+    ///
+    /// - `DeviceLocal` never maps the pool, and asks for the feature to be left
+    ///   off, because a mappable primary pool that nothing maps is a
+    ///   performance footgun.
+    /// - `Auto` maps it only where mapping is free: the device was created with
+    ///   the feature, the adapter's memory *is* the host's (an integrated GPU or
+    ///   a CPU adapter), and no compiler that owns a persistent mapping is in
+    ///   charge. On a discrete GPU the feature works but every map is a round
+    ///   trip over the bus, so `Auto` keeps its buffers device-local.
+    /// - `HostVisible` maps it or fails.
+    pub(crate) fn resolve(
+        self,
+        features: wgpu::Features,
+        adapter_info: &wgpu::AdapterInfo,
+        native_vulkan_allocator: bool,
+    ) -> Result<bool, WgpuInitError> {
+        let mappable = features.contains(wgpu::Features::MAPPABLE_PRIMARY_BUFFERS);
+        let host_visible = match self {
+            Self::DeviceLocal => false,
+            Self::Auto => {
+                mappable && shares_host_memory(adapter_info.device_type) && !native_vulkan_allocator
+            }
+            Self::HostVisible => true,
+        };
+        if host_visible && !mappable {
+            return Err(WgpuInitError::InvalidConfiguration {
+                message: "host-visible primary memory requires a device created with \
+                    wgpu::Features::MAPPABLE_PRIMARY_BUFFERS, which the selected adapter does not \
+                    support"
+                    .into(),
+            });
+        }
+        // The native Vulkan allocator hands out device addresses from its own
+        // persistent mapping; a host-visible pool maps through wgpu instead and
+        // carries no address.
+        //
+        // ponytail: this could fall back to WGSL on Vulkan rather than refuse, but
+        // that silently changes the compiler the properties were registered for.
+        // Revisit when the native allocator can express wgpu's map calls.
+        if host_visible && native_vulkan_allocator {
+            return Err(WgpuInitError::InvalidConfiguration {
+                message: "host-visible primary memory is unavailable with the native Vulkan \
+                    compiler; use a WGSL device on Vulkan instead"
+                    .into(),
+            });
+        }
+        Ok(host_visible)
+    }
+}
+
 /// The values that control how a WGPU Runtime will perform its calculations.
 pub struct RuntimeOptions {
     /// Control the amount of compute tasks to be aggregated into a single GPU command.
     pub tasks_max: usize,
     /// Configures the memory management.
     pub memory_config: MemoryConfiguration,
+    /// Where primary-memory allocations are placed.
+    pub primary_memory: PrimaryMemoryMode,
 }
 
 impl Default for RuntimeOptions {
@@ -447,6 +547,7 @@ impl RuntimeOptions {
         let options = Self {
             tasks_max,
             memory_config: MemoryConfiguration::default(),
+            primary_memory: PrimaryMemoryMode::default(),
         };
         options.validate()?;
         Ok(options)
@@ -670,7 +771,7 @@ pub async fn try_init_setup_async<G: GraphicsApi>(
     }
     let mut selected = device.clone();
     selected.backend = requested_backend;
-    let setup = try_create_setup(&selected).await?;
+    let setup = try_create_setup(&selected, options.primary_memory).await?;
     let server = try_create_server::<AutoCompiler>(
         setup.clone(),
         options,
@@ -810,6 +911,14 @@ fn try_create_server<C: WgpuCompiler>(
 
     backend::register_features(&setup.adapter, &mut device_props, &mut compilation_options);
 
+    // Which compiler serves the device is only known now, and it is the last
+    // input the primary-memory placement needs.
+    let host_visible = options.primary_memory.resolve(
+        setup.device.features(),
+        &adapter_info,
+        compilation_options.supports_vulkan_compiler,
+    )?;
+
     #[cfg(any(feature = "spirv", feature = "msl"))]
     if compilation_options.supports_vulkan_compiler || compilation_options.supports_msl_compiler {
         device_props
@@ -826,6 +935,8 @@ fn try_create_server<C: WgpuCompiler>(
 
     let compiler = C::init(setup.backend, &compilation_options);
     compiler.limit_properties(&mut device_props);
+
+    device_props.memory.set_host_visible_primary(host_visible);
 
     let logger = alloc::sync::Arc::new(ServerLogger::default());
     let name = runtime_name(setup.backend, &compilation_options);
@@ -847,6 +958,7 @@ fn try_create_server<C: WgpuCompiler>(
         setup.device.clone(),
         setup.queue,
         options.tasks_max,
+        host_visible,
         setup.backend,
         time_measurement,
         utilities,
@@ -855,7 +967,10 @@ fn try_create_server<C: WgpuCompiler>(
 }
 
 /// Acquire an adapter and device without blocking the caller's executor.
-async fn try_create_setup(device: &WgpuDevice) -> Result<WgpuSetup, WgpuInitError> {
+pub(crate) async fn try_create_setup(
+    device: &WgpuDevice,
+    primary_memory: PrimaryMemoryMode,
+) -> Result<WgpuSetup, WgpuInitError> {
     // Validate overrides before touching the graphics APIs. They choose hardware, not
     // the graphics API or the registration key the caller selected.
     let override_device = match device.kind {
@@ -928,7 +1043,7 @@ async fn try_create_setup(device: &WgpuDevice) -> Result<WgpuSetup, WgpuInitErro
         message: "no adapter found on the requested graphics API".into(),
     })?;
     let (instance, adapter) = request_adapter(device, backend).await?;
-    let (device, queue) = backend::try_request_device(&adapter).await?;
+    let (device, queue) = backend::try_request_device(&adapter, primary_memory).await?;
     Ok(WgpuSetup {
         instance,
         adapter,
@@ -1130,15 +1245,166 @@ fn try_device_override() -> Result<Option<WgpuDeviceKind>, WgpuInitError> {
         })
 }
 
+/// A client on the CPU (software) adapter, with its own device id so tests do
+/// not collide in the global registry. `None` when the machine has no CPU
+/// adapter or it cannot provide the requested primary memory.
+#[cfg(all(test, not(target_family = "wasm")))]
+pub(crate) fn test_client_on_cpu(primary_memory: PrimaryMemoryMode) -> Option<Client> {
+    use core::sync::atomic::{AtomicU16, Ordering};
+
+    static NEXT: AtomicU16 = AtomicU16::new(1);
+
+    let selector = WgpuDevice::new(WgpuDeviceKind::Cpu);
+    let setup = future::block_on(try_create_setup(&selector, primary_memory)).ok()?;
+    let device_id = DeviceId::new(u16::MAX, NEXT.fetch_add(1, Ordering::Relaxed));
+    let options = RuntimeOptions {
+        primary_memory,
+        ..RuntimeOptions::default()
+    };
+    let server =
+        try_create_server::<AutoCompiler>(setup, options, device_id, WgpuBackend::Auto).ok()?;
+    Client::try_init(device_id, server).ok()
+}
+
 #[cfg(all(test, not(target_family = "wasm")))]
 mod device_tests {
     use super::*;
+
+    /// The placement rule, checked without a device: `Auto` maps the pool only
+    /// where mapping is free.
+    mod primary_memory {
+        use super::*;
+
+        const MAPPABLE: wgpu::Features = wgpu::Features::MAPPABLE_PRIMARY_BUFFERS;
+
+        fn maps_the_pool(
+            mode: PrimaryMemoryMode,
+            features: wgpu::Features,
+            device_type: wgpu::DeviceType,
+            native_vulkan_allocator: bool,
+        ) -> Result<bool, WgpuInitError> {
+            mode.resolve(
+                features,
+                &wgpu::AdapterInfo::new(device_type, wgpu::Backend::Vulkan),
+                native_vulkan_allocator,
+            )
+        }
+
+        #[test]
+        fn auto_maps_the_pool_of_a_device_that_shares_its_memory_with_the_host() {
+            for device_type in [wgpu::DeviceType::IntegratedGpu, wgpu::DeviceType::Cpu] {
+                assert!(
+                    maps_the_pool(PrimaryMemoryMode::Auto, MAPPABLE, device_type, false)
+                        .expect("a mappable adapter"),
+                    "{device_type:?} shares its memory with the host"
+                );
+            }
+        }
+
+        #[test]
+        fn auto_leaves_a_discrete_gpu_device_local() {
+            // The feature works there, but every map is a round trip over the bus.
+            assert!(
+                !maps_the_pool(
+                    PrimaryMemoryMode::Auto,
+                    MAPPABLE,
+                    wgpu::DeviceType::DiscreteGpu,
+                    false
+                )
+                .expect("a mappable adapter")
+            );
+        }
+
+        #[test]
+        fn auto_leaves_an_adapter_without_the_feature_device_local() {
+            assert!(
+                !maps_the_pool(
+                    PrimaryMemoryMode::Auto,
+                    wgpu::Features::empty(),
+                    wgpu::DeviceType::IntegratedGpu,
+                    false
+                )
+                .expect("no feature asked for is no error")
+            );
+        }
+
+        #[test]
+        fn auto_leaves_the_native_vulkan_allocators_pool_device_local() {
+            // That compiler owns a persistent mapping, so `Auto` must not take the
+            // pool away from it: a default runtime would otherwise fail to start.
+            assert!(
+                !maps_the_pool(
+                    PrimaryMemoryMode::Auto,
+                    MAPPABLE,
+                    wgpu::DeviceType::IntegratedGpu,
+                    true
+                )
+                .expect("an automatic choice is never an error")
+            );
+        }
+
+        #[test]
+        fn device_local_never_maps_the_pool() {
+            assert!(
+                !maps_the_pool(
+                    PrimaryMemoryMode::DeviceLocal,
+                    MAPPABLE,
+                    wgpu::DeviceType::IntegratedGpu,
+                    false
+                )
+                .expect("asking for nothing cannot fail")
+            );
+        }
+
+        #[test]
+        fn host_visible_is_refused_where_it_cannot_be_honoured() {
+            assert!(
+                maps_the_pool(
+                    PrimaryMemoryMode::HostVisible,
+                    wgpu::Features::empty(),
+                    wgpu::DeviceType::IntegratedGpu,
+                    false
+                )
+                .is_err(),
+                "an adapter without the feature cannot map the pool"
+            );
+            assert!(
+                maps_the_pool(
+                    PrimaryMemoryMode::HostVisible,
+                    MAPPABLE,
+                    wgpu::DeviceType::IntegratedGpu,
+                    true
+                )
+                .is_err(),
+                "the native Vulkan compiler owns its own mapping"
+            );
+            assert!(
+                maps_the_pool(
+                    PrimaryMemoryMode::HostVisible,
+                    MAPPABLE,
+                    wgpu::DeviceType::DiscreteGpu,
+                    false
+                )
+                .expect("an explicit request is honoured wherever it can be"),
+                "a discrete GPU can map its pool when a caller asks for it"
+            );
+        }
+    }
+
+    #[test]
+    fn runtime_options_default_to_detecting_primary_memory() {
+        assert_eq!(
+            RuntimeOptions::default().primary_memory,
+            PrimaryMemoryMode::Auto
+        );
+    }
 
     #[test]
     #[ignore = "requires a native Vulkan adapter (software adapters are supported)"]
     fn fallible_import_preserves_api_selection_and_unique_ids() {
         let selector = WgpuDevice::default().on(WgpuBackend::Vulkan);
-        let setup = future::block_on(try_create_setup(&selector)).unwrap();
+        let setup =
+            future::block_on(try_create_setup(&selector, PrimaryMemoryMode::DeviceLocal)).unwrap();
 
         assert!(matches!(
             try_init_device_with_api::<crate::Metal>(setup.clone(), RuntimeOptions::default()),
@@ -1146,7 +1412,8 @@ mod device_tests {
         ));
 
         let automatic = try_init_device(setup, RuntimeOptions::default()).unwrap();
-        let setup = future::block_on(try_create_setup(&selector)).unwrap();
+        let setup =
+            future::block_on(try_create_setup(&selector, PrimaryMemoryMode::DeviceLocal)).unwrap();
         let explicit = init_device_with_api::<crate::Vulkan>(setup, RuntimeOptions::default());
         assert_ne!(automatic.to_id(), explicit.to_id());
     }
@@ -1156,7 +1423,8 @@ mod device_tests {
     #[ignore = "requires a native Vulkan adapter (software adapters are supported)"]
     fn compiler_validation_returns_an_initialization_error() {
         let selector = WgpuDevice::default().on(WgpuBackend::Vulkan);
-        let setup = future::block_on(try_create_setup(&selector)).unwrap();
+        let setup =
+            future::block_on(try_create_setup(&selector, PrimaryMemoryMode::DeviceLocal)).unwrap();
 
         // An explicit MSL compiler still rejects Vulkan, through a recoverable error.
         assert!(matches!(

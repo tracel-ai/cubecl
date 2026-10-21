@@ -86,6 +86,8 @@ pub struct WgpuStreamFactory {
     queue: wgpu::Queue,
     memory_properties: MemoryDeviceProperties,
     memory_config: MemoryConfiguration,
+    /// Whether the main pool is host-visible, decided once at server init.
+    host_visible: bool,
     timing_method: TimingMethod,
     /// Per-device budget of live timestamp query sets, shared by every stream it creates.
     timing_budget: Arc<TimestampQuerySetBudget>,
@@ -112,6 +114,7 @@ impl StreamFactory for WgpuStreamFactory {
             self.queue.clone(),
             self.memory_properties.clone(),
             gpu_config,
+            self.host_visible,
             self.timing_method,
             self.timing_budget.clone(),
             self.timestamp_sampling,
@@ -132,6 +135,7 @@ impl ScheduledWgpuBackend {
         queue: wgpu::Queue,
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
+        host_visible: bool,
         timing_method: TimingMethod,
         backend: wgpu::Backend,
         tasks_max: usize,
@@ -153,6 +157,7 @@ impl ScheduledWgpuBackend {
                 queue,
                 memory_properties,
                 memory_config,
+                host_visible,
                 timing_method,
                 timing_budget,
                 timestamp_sampling: TimestampSampling::new(backend),
