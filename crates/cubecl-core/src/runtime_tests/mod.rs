@@ -23,6 +23,7 @@ pub mod control_flow;
 pub mod debug;
 pub mod different_rank;
 pub mod enums;
+pub mod external_op;
 pub mod file;
 pub mod index;
 pub mod launch;

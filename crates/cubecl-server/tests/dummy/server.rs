@@ -22,9 +22,9 @@ use cubecl_server::{
         Claim, ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement,
     },
     server::{
-        BufferBinding, CopyDescriptor, CubeCount, DeviceTransport, Handle, KernelArguments,
-        KernelResource, ProfileError, ProfilingToken, Server, ServerCommunication, ServerError,
-        ServerUtilities,
+        BufferBinding, CopyDescriptor, CubeCount, DeviceTransport, ExternalOpCallback, Handle,
+        KernelArguments, KernelResource, ProfileError, ProfilingToken, Server, ServerCommunication,
+        ServerError, ServerUtilities,
     },
     storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
     timestamp_profiler::TimestampProfiler,
@@ -333,6 +333,16 @@ impl<M: Marker> Server for DummyServer<M> {
         // buffers the launch left unwritten. There is no device fault here,
         // so nothing is left for a flush to say.
         Ok(())
+    }
+
+    fn external_op(
+        &mut self,
+        _reads: Vec<BufferBinding>,
+        writes: Vec<BufferBinding>,
+        _op: ExternalOpCallback,
+        _stream_id: StreamId,
+    ) {
+        self.taint(ServerError::external_op_unsupported(), writes.iter());
     }
 
     fn check(
