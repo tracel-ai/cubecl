@@ -464,7 +464,7 @@ impl ToSpirvCFDialect for branch::UnreachableOp {
     }
 }
 
-pub type BranchToSpirvConversionPass = DialectConversionPass<BranchToSpirvConversion>;
+pub type SCFToSpirvConversionPass = DialectConversionPass<BranchToSpirvConversion>;
 
 #[derive(Default, NamedRewrite)]
 pub struct BranchToSpirvConversion;

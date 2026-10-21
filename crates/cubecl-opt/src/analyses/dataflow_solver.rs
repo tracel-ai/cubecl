@@ -7,7 +7,6 @@ use core::{
 };
 
 use alloc::{boxed::Box, collections::VecDeque, rc::Rc, vec::Vec};
-use cubecl_environment::collections::HashMap;
 use cubecl_ir::prelude::*;
 use downcast_rs::{Downcast, impl_downcast};
 use foldhash::fast::FixedState;
@@ -128,7 +127,7 @@ mod solver {
         }
     }
 
-    type AnalysisStates = HashMap<(u64, TypeId), StateEntry>;
+    type AnalysisStates = IMap<(u64, TypeId), StateEntry>;
     type StateEntry = Rc<RefCell<dyn PrintableState>>;
 
     pub struct DataflowSolver {

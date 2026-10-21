@@ -360,7 +360,7 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
         op: Ptr<Operation>,
     ) -> Result<()> {
         let point = ProgramPoint::after_op(ctx, op);
-        if !is_block_live::<Self>(solver, ctx, point) {
+        if !is_block_live::<Self>(solver, point) {
             return Ok(());
         }
 
@@ -389,7 +389,7 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
 
     pub fn visit_block(&self, solver: &DataflowSolver, ctx: &Context, block: Ptr<BasicBlock>) {
         let point = ProgramPoint::at_block_start(ctx, block);
-        if !is_block_live::<Self>(solver, ctx, point) {
+        if !is_block_live::<Self>(solver, point) {
             return;
         }
 
@@ -661,7 +661,7 @@ pub trait DenseBackwardDataflowAnalysis: Sized + 'static {
         successors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
         before: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) -> Result<()> {
-        let _ = (block, point);
+        let _ = block;
         Self::visit_control_flow_transfer(this, solver, ctx, point, successors, before)
     }
 
@@ -688,7 +688,7 @@ pub trait DenseBackwardDataflowAnalysis: Sized + 'static {
         successors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
         before: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) -> Result<()> {
-        let _ = (branch, region_from, point);
+        let _ = (branch, region_from);
         Self::visit_control_flow_transfer(this, solver, ctx, point, successors, before)
     }
 
@@ -876,7 +876,7 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
         op: Ptr<Operation>,
     ) -> Result<()> {
         let point = ProgramPoint::before_op(ctx, op);
-        if !is_block_live::<Self>(solver, ctx, point) {
+        if !is_block_live::<Self>(solver, point) {
             return Ok(());
         }
 
@@ -908,7 +908,7 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
         block: Ptr<BasicBlock>,
     ) -> Result<()> {
         let point = ProgramPoint::at_block_end(ctx, block);
-        if !is_block_live::<Self>(solver, ctx, point) {
+        if !is_block_live::<Self>(solver, point) {
             return Ok(());
         }
 
@@ -945,7 +945,7 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
         let parent_op = block.deref(ctx).get_parent_op(ctx).unwrap();
 
         let point = ProgramPoint::at_block_end(ctx, block);
-        if !is_block_live::<Self>(solver, ctx, point) {
+        if !is_block_live::<Self>(solver, point) {
             return Ok(true);
         }
 
@@ -1041,7 +1041,7 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
                 RegionSuccessor::Region(successor_region) => {
                     let successor_block = successor_region.deref(ctx).get_entry_block().unwrap();
                     let successor_point = ProgramPoint::at_block_start(ctx, successor_block);
-                    if !is_block_live::<Self>(solver, ctx, successor_point) {
+                    if !is_block_live::<Self>(solver, successor_point) {
                         continue;
                     }
                     self.get_lattice_for(solver, point, successor_point)

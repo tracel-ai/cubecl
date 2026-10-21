@@ -39,7 +39,7 @@ use crate::{
     attributes::{IndexAttr, ZeroAttr},
     dialect::{general::PoisonOp, math::index_attr, ptr_value_ty},
     interfaces::{
-        Deterministic, IndexableType, TriviallyUnrollable, TypedExt,
+        Deterministic, IndexableType, TrivialOp, TriviallyUnrollable, TypedExt,
         aliasing::AliasingOp,
         memory_slot::{
             DeletionKind, DestructurableAccessorOpInterface, DestructurableConstructorOpInterface,
@@ -271,7 +271,7 @@ fn variable_ptr_ty(
     format = "$0 `[` $1 `]` opt_attr($checked, $UnitAttr) ` : ` type($0)"
 )]
 #[result_ty(from_inputs = |ctx, base, _| indexed_ptr_ty(ctx, base))]
-#[op_interfaces(OperandNOfType<0, PointerType>, OperandNOfType<1, IndexType>)]
+#[op_interfaces(OperandNOfType<0, PointerType>, OperandNOfType<1, IndexType>, TrivialOp)]
 #[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct IndexOp {
     pub base: Value,

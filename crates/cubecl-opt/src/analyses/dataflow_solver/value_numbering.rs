@@ -268,7 +268,7 @@ impl DataflowAnalysis for ValueNumberingAnalysis {
             root,
             |ctx, (this, solver), value| {
                 let point = ProgramPoint::after_value(ctx, value);
-                if !is_block_live::<Self>(solver, ctx, point) {
+                if !is_block_live::<Self>(solver, point) {
                     return;
                 }
                 this.update_value(solver, ctx, point, value);

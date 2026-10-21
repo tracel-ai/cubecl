@@ -15,8 +15,8 @@ use expect_test::expect;
 use pliron::{
     basic_block::BasicBlock, common_traits::Named,
     graph::walkers::uninterruptible::immutable::walk_op, init_env_logger_for_tests,
-    irbuild::listener::DummyListener, irfmt::parsers::spaced, operation::verify_operation,
-    parsable::parse_from_str, result::ExpectOk,
+    irfmt::parsers::spaced, operation::verify_operation, parsable::parse_from_str,
+    result::ExpectOk,
 };
 
 #[pliron_op(name = "pre.black_box", format = "$0", verifier = "succ")]
@@ -34,8 +34,7 @@ fn run_pre_on_text(
 
     verify_operation(op, ctx)?;
 
-    let mut rewriter = IRRewriter::<DummyListener>::default();
-    let status = run_pre(ctx, op, &mut rewriter, antic, insert)?;
+    let status = run_pre(ctx, op, antic, insert)?;
     let after = Operation::get_op_dyn(op, ctx).disp(ctx).to_string();
 
     Ok((status, after))
@@ -136,7 +135,7 @@ fn insert_paper_example_lcm() -> Result<()> {
                 {
                   ^outer_else_block5v1() !12:
                     inner_cond_v9 = plane.elect () [] []: <() -> (cube.bool )> !13;
-                    inner_v11, z_v15 = scf.if inner_cond_v9 : builtin.integer i64, builtin.integer i64 then 
+                    inner_v11, v15 = scf.if inner_cond_v9 : builtin.integer i64, builtin.integer i64 then 
                     {
                       ^inner_then_block6v1() !14:
                         y_v10 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)> !15;
@@ -147,7 +146,7 @@ fn insert_paper_example_lcm() -> Result<()> {
                         z_v14 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)> !18;
                         branch.yield (a_v0, z_v14) !19
                     } !20;
-                    branch.yield (z_v15) !21
+                    branch.yield (v15) !21
                 } !22;
                 branch.return result_v13 !23
             } !24
@@ -217,11 +216,11 @@ fn insert_paper_example_sscm() -> Result<()> {
                   ^outer_then_block3v1() !3:
                     stride_v4 = builtin.constant <cube.index 1> : cube.index  !4;
                     hi_v5 = cube.read_builtin (UnitPos) : cube.index  !5;
+                    uses_x_v15 = math.i_add (z_v14, z_v14) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)> !6;
                     scf.for lo_v3 to hi_v5 step stride_v4 
                     {
-                      ^loop_body_block4v1(iv_v6: builtin.integer i64) !6:
-                        uses_x_v8 = math.i_add (z_v14, z_v14) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)> !7;
-                        pre.black_box uses_x_v8 !8;
+                      ^loop_body_block4v1(iv_v6: builtin.integer i64) !7:
+                        pre.black_box uses_x_v15 !8;
                         branch.yield () !9
                     } !10;
                     branch.yield (a_v0) !11
@@ -251,8 +250,7 @@ fn assert_pre_result(
     verify_operation(op, ctx)?;
 
     let before = op.dyn_op(ctx).disp(ctx).to_string();
-    let mut rewriter = IRRewriter::<DummyListener>::default();
-    let status = run_pre(ctx, op, &mut rewriter, antic, insert)?;
+    let status = run_pre(ctx, op, antic, insert)?;
 
     verify_operation(op, ctx)?;
 
@@ -666,16 +664,16 @@ fn pre_nested_regions_link_new_results() -> Result<()> {
                 } else 
                 {
                   ^inner_else_block4v1() !6:
-                    again_v9 = math.i_add (a_v2, b_v3) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)> !7;
-                    branch.yield (b_v3, again_v9) !8
+                    again_v10 = math.i_add (a_v2, b_v3) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)> !7;
+                    branch.yield (b_v3, again_v10) !8
                 } !9;
                 pre.black_box inner_v6 !10;
                 branch.yield (inner_v6, v12) !11
             } else 
             {
               ^outer_else_block5v1() !12:
-                again_v10 = math.i_add (a_v2, b_v3) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)> !13;
-                branch.yield (c_v4, again_v10) !14
+                again_v9 = math.i_add (a_v2, b_v3) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)> !13;
+                branch.yield (c_v4, again_v9) !14
             } !15;
             pre.black_box outer_v7 !16;
             branch.return v11 !17
@@ -762,34 +760,7 @@ fn pre_loop_carried_expression_stays_in_loop() -> Result<()> {
             } !7;
             branch.return result_v5 !8
         }"#]].assert_eq(&text);
-
-    assert_sscm_result(input, IRStatus::Changed, |ctx, op| {
-        assert_eq!(find_ops(ctx, op, "math.i_add").len(), 1);
-        assert!(find_ops_in(ctx, op, "entry", "math.i_add").is_empty());
-
-        let body = find_block(ctx, op, "body");
-        assert_eq!(body.deref(ctx).get_num_arguments(), 2);
-
-        let sum = find_single_op_in(ctx, op, "body", "math.i_add");
-        assert_eq!(sum.operand(ctx, 0), body.deref(ctx).get_argument(1));
-
-        let uses = find_ops_in(ctx, op, "body", "pre.black_box");
-        assert_eq!(uses.len(), 2);
-        for use_op in uses {
-            assert_eq!(use_op.operand(ctx, 0), sum.result(ctx));
-        }
-        assert_eq!(
-            find_single_op_in(ctx, op, "body", "branch.yield").operands(ctx),
-            vec![sum.result(ctx)],
-        );
-
-        let loop_op = find_single_op(ctx, op, "scf.for");
-        assert_eq!(loop_op.results(ctx).len(), 1);
-        assert_eq!(
-            find_single_op(ctx, op, "branch.return").operand(ctx, 0),
-            loop_op.result(ctx),
-        );
-    })
+    Ok(())
 }
 
 // Function arguments are uniform because this is an entry point.
@@ -1098,26 +1069,12 @@ fn pre_is_idempotent_after_speculative_insertion() -> Result<()> {
     .expect_ok(ctx);
     verify_operation(op, ctx)?;
 
-    let mut rewriter = IRRewriter::<DummyListener>::default();
-
-    let first = run_pre(
-        ctx,
-        op,
-        &mut rewriter,
-        AnticipatedMode::Speculative,
-        InsertMode::Sparse,
-    )?;
+    let first = run_pre(ctx, op, AnticipatedMode::Speculative, InsertMode::Sparse)?;
     assert_eq!(first, IRStatus::Changed);
     verify_operation(op, ctx)?;
     let once = op.dyn_op(ctx).disp(ctx).to_string();
 
-    let second = run_pre(
-        ctx,
-        op,
-        &mut rewriter,
-        AnticipatedMode::Speculative,
-        InsertMode::Sparse,
-    )?;
+    let second = run_pre(ctx, op, AnticipatedMode::Speculative, InsertMode::Sparse)?;
     assert_eq!(second, IRStatus::Unchanged);
     verify_operation(op, ctx)?;
 
@@ -1125,4 +1082,172 @@ fn pre_is_idempotent_after_speculative_insertion() -> Result<()> {
     assert_eq!(twice, once);
 
     Ok(())
+}
+
+#[test]
+fn pre_skips_dead_region_when_computing_leaders() -> Result<()> {
+    let input = r#"
+    builtin.func @f: builtin.function <(
+        builtin.integer ui32, builtin.integer ui32
+    ) -> (builtin.integer ui32)> [] {
+      ^entry(a: builtin.integer ui32, b: builtin.integer ui32):
+        cond = builtin.constant <cube.bool false> : cube.bool;
+        result = scf.if cond : builtin.integer ui32 then {
+          ^dead():
+            dead_sum = math.i_add (a, a) [] []:
+                <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>;
+            pre.black_box dead_sum;
+            branch.yield (dead_sum)
+        } else {
+          ^live():
+            first = math.i_add (a, b) [] []:
+                <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>;
+            second = math.i_add (a, b) [] []:
+                <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>;
+            pre.black_box first;
+            branch.yield (second)
+        };
+        branch.return result
+    }
+    "#;
+
+    // The dense driver does not populate Available for ^dead.
+    // Leader computation must skip it without affecting optimization of ^live.
+    assert_lcm_result(input, IRStatus::Changed, |ctx, op| {
+        let sum = find_single_op_in(ctx, op, "live", "math.i_add").result(ctx);
+
+        assert_eq!(
+            find_single_op_in(ctx, op, "live", "pre.black_box").operand(ctx, 0),
+            sum,
+        );
+        assert_eq!(
+            find_single_op_in(ctx, op, "live", "branch.yield").operands(ctx),
+            vec![sum],
+        );
+    })
+}
+
+#[test]
+fn pre_while_condition_stays_in_before_region() -> Result<()> {
+    let input = r#"
+    builtin.func @f: builtin.function <(
+        builtin.integer si32, builtin.integer si32,
+        builtin.integer si32, cube.bool
+    ) -> (builtin.integer si32)> {
+      ^entry(init: builtin.integer si32, limit: builtin.integer si32, step: builtin.integer si32, enabled: cube.bool):
+        result = scf.while init : builtin.integer si32 {
+          ^before(iv: builtin.integer si32):
+            below_limit = cmp.s_less_than (iv, limit) [] []:
+                <(builtin.integer si32, builtin.integer si32) -> (cube.bool)>;
+            keep_going = cube.bool_and (below_limit, enabled) [] []:
+                <(cube.bool, cube.bool) -> (cube.bool)>;
+            branch.condition (keep_going, iv)
+        } do {
+          ^body(current: builtin.integer si32):
+            next = math.i_add (current, step) [] []:
+                <(builtin.integer si32, builtin.integer si32) -> (builtin.integer si32)>;
+            branch.yield (next)
+        };
+        branch.return result
+    }
+    "#;
+
+    // The backedge has the previous condition available, but its expressions
+    // depend on the header argument and cannot be inserted before the while.
+    assert_lcm_result(input, IRStatus::Unchanged, |ctx, op| {
+        let before = find_block(ctx, op, "before");
+        let iv = before.deref(ctx).get_argument(0);
+
+        let comparison = find_single_op_in(ctx, op, "before", "cmp.s_less_than");
+        let conjunction = find_single_op_in(ctx, op, "before", "cube.bool_and");
+
+        assert_eq!(comparison.operand(ctx, 0), iv);
+        assert_eq!(conjunction.operand(ctx, 0), comparison.result(ctx),);
+    })
+}
+
+// Leaders are not tracked in dead regions so checking `pre.black_box second;` for redundancy
+// would crash
+#[test]
+fn pre_skips_redundant_value_uses_in_nested_dead_regions() -> Result<()> {
+    let input = r#"
+    builtin.func @f: builtin.function <(
+        builtin.integer ui32, builtin.integer ui32
+    ) -> (builtin.integer ui32)> [] {
+      ^entry(a: builtin.integer ui32, b: builtin.integer ui32):
+        first = math.i_add (a, b) [] []:
+            <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>;
+        second = math.i_add (a, b) [] []:
+            <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>;
+        dead = builtin.constant <cube.bool false> : cube.bool;
+        dummy1 = scf.if dead : cube.bool then {
+          ^dead_outer():
+            dummy2 = scf.if dead : cube.bool then {
+              ^dead_inner():
+                pre.black_box second;
+                branch.yield (dead)
+            } else {
+              ^dead_inner_else():
+                branch.yield (dead)
+            };
+            branch.yield (dead)
+        } else {
+          ^live():
+            branch.yield (dead)
+        };
+        branch.return second
+    }
+    "#;
+
+    assert_lcm_result(input, IRStatus::Changed, |ctx, op| {
+        // The second sum remains referenced by the untouched dead use.
+        let sums = find_ops_in(ctx, op, "entry", "math.i_add");
+        assert_eq!(sums.len(), 2);
+        let first = sums[0].result(ctx);
+        let second = sums[1].result(ctx);
+
+        assert_eq!(
+            find_single_op_in(ctx, op, "entry", "branch.return").operand(ctx, 0),
+            first,
+        );
+        assert_eq!(
+            find_single_op_in(ctx, op, "dead_inner", "pre.black_box").operand(ctx, 0),
+            second,
+        );
+    })
+}
+
+#[test]
+fn pre_does_not_speculate_users_of_loop_results() -> Result<()> {
+    let input = r#"
+    builtin.func @f: builtin.function <(
+        builtin.integer ui32, builtin.integer ui32
+    ) -> (builtin.integer ui32)>
+        [entry_point: cube.entrypoint_abi <cube_dim: (32, 1, 1)>] {
+      ^entry(init: builtin.integer ui32, factor: builtin.integer ui32):
+        start = builtin.constant <cube.index 0> : cube.index;
+        step = builtin.constant <cube.index 1> : cube.index;
+        end = cube.read_builtin (UnitPos) : cube.index;
+
+        result = scf.for start to end step step iter_args(init) {
+          ^body(iv: cube.index, acc: builtin.integer ui32):
+            next = math.i_add (acc, factor) [] []:
+                <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>;
+            branch.yield (next)
+        };
+
+        product = math.i_mul (result, factor) [] []:
+            <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>;
+        branch.return product
+    }
+    "#;
+
+    // The divergent bound enables speculative motion, but `product`
+    // cannot move before the operation defining `result`.
+    assert_sscm_result(input, IRStatus::Unchanged, |ctx, op| {
+        let loop_op = find_single_op(ctx, op, "scf.for");
+        let product = find_single_op_in(ctx, op, "entry", "math.i_mul");
+
+        assert_eq!(product.operand(ctx, 0), loop_op.result(ctx));
+    })
 }

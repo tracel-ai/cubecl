@@ -60,6 +60,7 @@ use crate::{
         },
         memory_ssa::MemorySSA,
     },
+    reduce_bitset,
 };
 
 use super::{
@@ -68,7 +69,7 @@ use super::{
 };
 
 /// Mode for computing anticipated sets
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AnticipatedMode {
     /// Expressions are only anticipated if they're computed on all paths, should be used on CPU
     Classical,
@@ -78,7 +79,7 @@ pub enum AnticipatedMode {
 }
 
 /// Mode for computing insertions
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum InsertMode {
     /// Lazy insertions minimize register lifetime but can cause divergence and code size to increase.
     /// Should probably be used on CPU.
@@ -93,10 +94,17 @@ pub fn compute_lcm_analyses(
     op: Ptr<Operation>,
     mode: AnticipatedMode,
 ) -> Result<DataflowSolver> {
+    // Value numbering is somewhat unstable because of how expressions interact with changing merge
+    // values. So we run it to convergence first.
     let mut solver = DataflowSolver::new(SolverConfig::default());
+    solver.load(ValueNumberingAnalysis::default());
+    solver.initialize_and_run(ctx, op)?;
+
     solver.load(ComputesAnalysis);
     solver.load(ValueDependentsAnalysis::default());
-    solver.initialize_and_run(ctx, op)?;
+    solver.initialize_filtered_and_run(ctx, op, |analysis| {
+        analysis.is::<ComputesAnalysis>() || analysis.is::<ValueDependentsAnalysis>()
+    })?;
 
     let finished_analyses = solver.loaded_analyses().to_vec();
     let memory_kill_sets = collect_memory_kill_sets(ctx, &solver, op);
@@ -153,11 +161,6 @@ pub fn compute_pruned_insertion_points(
         solver.load(InsertedSparse::new(insert_changed.clone()));
     }
     solver.initialize_filtered_and_run(ctx, op, should_init)?;
-
-    // Remove dependents from computes, so we can resubscribe only the available ones
-    for computes in solver.states_of_type::<Computes>() {
-        computes.deref().clear_dependents();
-    }
 
     while insert_changed.get() == ChangeResult::Changed {
         insert_changed.set(ChangeResult::Unchanged);
@@ -221,10 +224,6 @@ impl ComputesAnalysis {
         point: ProgramPoint,
         op: Ptr<Operation>,
     ) {
-        // if op.impls::<dyn RegionBranchOpInterface>(ctx) {
-        //     return;
-        // }
-
         let mut values = SparseBitSet::new();
         for res in op.deref(ctx).results() {
             let value = solver.get_or_create_for::<Self, ValueNumberLattice>(point, res);
@@ -260,7 +259,7 @@ impl DataflowAnalysis for ComputesAnalysis {
                     return;
                 };
                 let point = ProgramPoint::after_op(ctx, op);
-                if !is_block_live::<Self>(solver, ctx, point) {
+                if !is_block_live::<Self>(solver, point) {
                     return;
                 }
                 this.update_op(solver, ctx, point, op);
@@ -338,6 +337,7 @@ impl DenseForwardDataflowAnalysis for AvailableForward {
     ) -> Result<()> {
         let point = ProgramPoint::after_op(ctx, op);
         let computes = solver.get_or_create_for::<AvailableAnalysis, Computes>(point, point);
+        let inserted = solver.get_or_create_for::<AvailableAnalysis, Inserted>(point, point);
 
         if after == before {
             Self::set_to_entry_state(this, solver, ctx, after);
@@ -349,7 +349,10 @@ impl DenseForwardDataflowAnalysis for AvailableForward {
             return Ok(());
         };
 
-        let union = before.union(&computes.deref().value().0).into();
+        let union = before
+            .union(&computes.deref().value().0)
+            .union(&inserted.deref().value().0)
+            .into();
         solver.update_state(ctx, after, |it| it.join(&AvailableSet(union)));
         Ok(())
     }
@@ -361,7 +364,7 @@ impl DenseForwardDataflowAnalysis for AvailableForward {
         block: Ptr<BasicBlock>,
     ) {
         let point = ProgramPoint::at_block_start(ctx, block);
-        if !is_block_live::<AvailableAnalysis>(solver, ctx, point) {
+        if !is_block_live::<AvailableAnalysis>(solver, point) {
             return;
         }
 
@@ -387,7 +390,13 @@ impl DenseForwardDataflowAnalysis for AvailableForward {
             }
 
             let computes = solver.get_or_create_for::<AvailableAnalysis, Computes>(point, point);
-            let mut init = computes.deref().value().0.clone();
+            let inserted = solver.get_or_create_for::<AvailableAnalysis, Inserted>(point, point);
+            let mut init = computes
+                .deref()
+                .value()
+                .0
+                .union(&inserted.deref().value().0)
+                .into();
             Self::extend_from_values(solver, point, &mut init, block.deref(ctx).arguments());
             let available = this.get_lattice_mut(solver, point);
             solver.update_state(ctx, &available, |it| {
@@ -463,7 +472,12 @@ impl DenseForwardDataflowAnalysis for AvailableForward {
 
             let point = predecessor.deref().anchor();
             let computes = solver.get_or_create_for::<AvailableAnalysis, Computes>(point, point);
-            let union = pred.union(&computes.deref().value().0).union(&extra).into();
+            let inserted = solver.get_or_create_for::<AvailableAnalysis, Inserted>(point, point);
+            let union = pred
+                .union(&computes.deref().value().0)
+                .union(&inserted.deref().value().0)
+                .union(&extra)
+                .into();
             solver.update_state(ctx, after, |it| it.join(&AvailableSet(union)));
         }
     }
@@ -578,20 +592,26 @@ pub(super) fn op_transitive_kill_set(
     computes: &ReadRef<Computes>,
     values: impl Iterator<Item = Value>,
 ) -> SparseBitSet {
+    let mut res = values_transitive_kill_set(solver, values);
+    res.unite(&computes.deref().value().0);
+    res
+}
+
+pub(super) fn values_transitive_kill_set(
+    solver: &DataflowSolver,
+    values: impl Iterator<Item = Value>,
+) -> SparseBitSet {
     // Really annoying workaround because `Ref` does not implement `Clone` for collision
     // reasons, but that makes `Chain` not `Clone` and `reduce` requires `Clone`...
     let dependents = values
         .filter_map(|res| solver.lookup_state::<DependentsLattice>(res))
         .collect::<SmallVec<[_; 4]>>();
-    let mut dependents = dependents
+    let dependents = dependents
         .iter()
         .map(|it| Ref::map(it.deref(), |it| &it.value().0))
         .collect::<SmallVec<[_; 4]>>();
-    dependents.push(Ref::map(computes.deref(), |it| &it.value().0));
 
-    hi_sparse_bitset::reduce(hi_sparse_bitset::ops::Or, dependents.iter().map(|it| &**it))
-        .map(Into::into)
-        .unwrap_or_default()
+    reduce_bitset(ops::Or, dependents.iter().map(|it| &**it)).unwrap_or_default()
 }
 
 #[derive(Deref, DerefMut, PartialEq, Eq, Default)]
@@ -709,10 +729,12 @@ impl DenseBackwardDataflowAnalysis for AnticipatedBackwards {
                 Some(op) => memory_ssa.op_memory_def(op),
                 None => memory_ssa.block_memory_def(point.block().unwrap()),
             };
+            let arg_kills = successor_args_kill(ctx, solver, point);
             let succ = succ.deref();
             let MaybeUninitBitset::Initialized(succ) = &succ.value().0 else {
                 continue;
             };
+            let succ = succ.difference(&arg_kills);
             if let Some(def) = def
                 && let Some(kill_set) = this.memory_kill_sets.get(&def)
             {
@@ -739,6 +761,19 @@ impl DenseBackwardDataflowAnalysis for AnticipatedBackwards {
     }
 }
 
+fn successor_args_kill(
+    ctx: &Context,
+    solver: &DataflowSolver,
+    after: ProgramPoint,
+) -> SparseBitSet {
+    if let Some(op) = after.prev_op(ctx) {
+        values_transitive_kill_set(solver, op.deref(ctx).results())
+    } else {
+        let block = after.block().unwrap();
+        values_transitive_kill_set(solver, block.deref(ctx).arguments())
+    }
+}
+
 fn seed_speculative(
     ctx: &Context,
     solver: &DataflowSolver,
@@ -759,11 +794,14 @@ fn seed_speculative(
             succ_point: ProgramPoint,
         ) -> ChangeResult {
             let not_speculatable = solver.lookup_state::<NotSpeculatable>(succ_point).unwrap();
+            let arg_kills = successor_args_kill(ctx, solver, succ_point);
             let not_speculatable = not_speculatable.deref();
             let antic = solver.lookup_state::<Anticipated>(succ_point).unwrap();
             let antic = antic.deref();
             let antic = antic.value().0.unwrap();
-            let spec_antic_succ = antic.difference(&not_speculatable.value().0);
+            let spec_antic_succ = antic
+                .difference(&not_speculatable.value().0)
+                .difference(&arg_kills);
 
             let def = match succ_point.is_block_start(ctx) {
                 true => self
@@ -810,8 +848,7 @@ fn seed_speculative(
             let Some(block) = op.deref(ctx).get_parent_block() else {
                 return;
             };
-            let executable =
-                solver.lookup_state::<Executable>(ProgramPoint::at_block_start(ctx, block).into());
+            let executable = solver.lookup_state::<Executable>(block.into());
             if let Some(executable) = executable
                 && !executable.deref().is_live()
             {
@@ -824,7 +861,7 @@ fn seed_speculative(
                 let spec_antic = solver.get_or_create_mut::<SpeculativelyAnticipated>(before);
                 for succ in op.deref(ctx).successors() {
                     let succ_point = ProgramPoint::at_block_start(ctx, succ);
-                    let executable = solver.lookup_state::<Executable>(succ_point.into());
+                    let executable = solver.lookup_state::<Executable>(succ.into());
                     if let Some(executable) = executable
                         && !executable.deref().is_live()
                     {
@@ -834,34 +871,35 @@ fn seed_speculative(
                 }
                 return;
             }
-            let (before, successors) = if let Some(region_op) =
+            let (region_op, before, successors) = if let Some(region_op) =
                 op.cast::<dyn UniformRegionOpInterface>(ctx)
                 && is_region_op_divergent(ctx, solver, &*region_op)
             {
                 let before = ProgramPoint::before_op(ctx, op);
                 let successors = region_op.successor_regions(ctx, RegionPredecessor::Parent);
-                (before, successors)
+                (op, before, successors)
             } else if let Some(term) = op.cast::<dyn UniformRegionTerminatorOpInterface>(ctx)
                 && is_region_terminator_divergent(ctx, solver, &*term)
             {
+                let region_op = term.get_operation().deref(ctx).get_parent_op(ctx).unwrap();
                 let before = ProgramPoint::after_op(ctx, op);
                 let successors = term.all_successor_regions(ctx);
-                (before, successors)
+                (region_op, before, successors)
             } else {
                 return;
             };
 
             let spec_antic = solver.get_or_create_mut::<SpeculativelyAnticipated>(before);
             for succ in successors {
-                let succ_point = match succ {
+                let (succ_point, cfg_anchor) = match succ {
                     RegionSuccessor::Region(region) if let Some(entry) = region.entry_node(ctx) => {
-                        ProgramPoint::at_block_start(ctx, entry)
+                        (ProgramPoint::at_block_start(ctx, entry), entry.into())
                     }
                     RegionSuccessor::Region(_) | RegionSuccessor::AfterOp => {
-                        ProgramPoint::after_op(ctx, op)
+                        (ProgramPoint::after_op(ctx, op), region_op.into())
                     }
                 };
-                let executable = solver.lookup_state::<Executable>(succ_point.into());
+                let executable = solver.lookup_state::<Executable>(cfg_anchor);
                 if let Some(executable) = executable
                     && !executable.deref().is_live()
                 {
@@ -991,7 +1029,7 @@ impl InsertedLazy {
         let avail = solver.get_or_create_for::<InsertedAnalysis, Available>(point, point);
         let antic = solver.get_or_create_for::<InsertedAnalysis, Anticipated>(point, point);
         let available_anywhere: SparseBitSet =
-            hi_sparse_bitset::reduce(ops::Or, available_preds.iter().map(|it| &**it))
+            reduce_bitset(ops::Or, available_preds.iter().map(|it| &**it))
                 .unwrap()
                 .intersection(antic.deref().value().0.unwrap())
                 .difference(avail.deref().value().0.unwrap())
@@ -1016,9 +1054,6 @@ impl InsertedLazy {
         }
 
         for (pred, inserted) in new_inserted {
-            let computes = solver.get_or_create_mut::<Computes>(pred);
-            solver.update_state(ctx, &computes, |it| it.join(&ComputesSet(inserted.clone())));
-
             let lattice = this.get_lattice_mut(solver, pred);
             this.update_inserted(ctx, solver, &lattice, inserted);
         }
@@ -1147,19 +1182,15 @@ impl InsertedSparse {
             .map(|it| Ref::map(it.deref(), |it| &it.value().0))
             .collect::<SmallVec<[_; 4]>>();
         let computed_any_succs =
-            hi_sparse_bitset::reduce(ops::Or, successors.iter().map(Deref::deref)).unwrap();
+            reduce_bitset(ops::Or, successors.iter().map(Deref::deref)).unwrap();
         let new_insert: SparseBitSet = computed_any_succs
             .intersection(antic.deref().value().0.unwrap())
             .difference(avail.deref().value().0.unwrap())
             .into();
 
         let insert = solver.get_or_create_mut::<Inserted>(point);
-        let computes = solver.get_or_create_mut::<Computes>(point);
 
         self.update_inserted(ctx, solver, &insert, &new_insert);
-        solver.update_state(ctx, &computes, |it| {
-            it.join(&ComputesSet(new_insert.clone()))
-        });
         solver.update_state(ctx, before, |it| {
             it.meet(&ComputedOnImmediateEdge(new_insert))
         });
@@ -1181,11 +1212,14 @@ impl DenseBackwardDataflowAnalysis for InsertedSparse {
         let after_op = ProgramPoint::after_op(ctx, op);
         let computes =
             solver.get_or_create_for::<SparseInsertedAnalysis, Computes>(before_op, after_op);
+        let inserted =
+            solver.get_or_create_for::<SparseInsertedAnalysis, Inserted>(before_op, after_op);
         let before_val = after
             .deref()
             .value()
             .0
             .union(&computes.deref().value().0)
+            .union(&inserted.deref().value().0)
             .into();
         solver.update_state(ctx, before, |it| {
             it.meet(&ComputedOnImmediateEdge(before_val))

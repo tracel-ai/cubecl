@@ -1,7 +1,10 @@
 use cubecl_ir::{
     NoSideEffects,
     dialect::memory::AddressSpaceAttr,
-    interfaces::side_effects::{MemoryEffect, MemoryEffectsOp},
+    interfaces::{
+        Deterministic,
+        side_effects::{MemoryEffect, MemoryEffectsOp},
+    },
     prelude::*,
 };
 use cubecl_opt::analyses::dataflow_solver::{
@@ -40,6 +43,7 @@ impl MemoryEffectsOp for MemoryDefInSpaceOp {
     verifier = "succ",
     attributes = (use_address_space: AddressSpaceAttr)
 )]
+#[op_interfaces(Deterministic)]
 #[op_traits(NoSideEffects)]
 pub struct MemoryUseInSpaceOp;
 

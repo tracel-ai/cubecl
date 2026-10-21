@@ -18,7 +18,7 @@ use crate::{
     analyses::dataflow_solver::{
         ChangeResult, DataflowSolver, ProgramPoint, ReadRef, WriteRef,
         dense::{DenseBackward, DenseBackwardDataflowAnalysis, DenseLattice, LatticeValue},
-        pre::{Computes, op_transitive_kill_set},
+        pre::{Computes, op_transitive_kill_set, values_transitive_kill_set},
     },
 };
 
@@ -86,6 +86,29 @@ impl DenseBackwardDataflowAnalysis for SpeculatableBackward {
         solver.update_state(ctx, before, |before| {
             before.meet(&NotSpeculatableSet(before_set))
         });
+        Ok(())
+    }
+
+    fn visit_control_flow_transfer(
+        _: &DenseBackward<Self>,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        _: ProgramPoint,
+        successors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
+        before: &WriteRef<DenseLattice<Self::LatticeValue>>,
+    ) -> Result<()> {
+        for successor in successors {
+            let anchor = successor.deref().anchor();
+            let mut succ_not_speculatable = successor.deref().value().0.clone();
+            if anchor.is_block_start(ctx) {
+                let block = anchor.block().unwrap().deref(ctx);
+                let args = block.arguments();
+                succ_not_speculatable.unite(&values_transitive_kill_set(solver, args));
+            }
+            solver.update_state(ctx, before, |it| {
+                it.meet(&NotSpeculatableSet(succ_not_speculatable))
+            });
+        }
         Ok(())
     }
 

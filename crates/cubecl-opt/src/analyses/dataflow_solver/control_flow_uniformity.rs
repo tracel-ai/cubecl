@@ -147,8 +147,7 @@ impl BlockUniformityAnalysis {
 
         for region in op.regions(ctx) {
             for block in region.deref(ctx).iter(ctx) {
-                let executable = solver
-                    .get_or_create::<Executable>(ProgramPoint::at_block_start(ctx, block).into());
+                let executable = solver.get_or_create::<Executable>(block.into());
                 executable.deref().block_content_subscribe::<Self>();
                 let uniformity = solver.get_or_create::<BlockUniformity>(block);
                 uniformity.deref().block_content_subscribe::<Self>();
@@ -245,7 +244,7 @@ impl BlockUniformityAnalysis {
                     let entry = region.deref(ctx).get_entry_block()?;
                     let executable = solver.get_or_create_for::<Self, Executable>(
                         ProgramPoint::after_op(ctx, op),
-                        ProgramPoint::at_block_start(ctx, entry).into(),
+                        entry.into(),
                     );
                     match executable.deref().is_live() {
                         true => Some((Some(entry), uniformity)),
