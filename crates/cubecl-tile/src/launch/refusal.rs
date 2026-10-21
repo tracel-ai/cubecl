@@ -130,6 +130,15 @@ pub enum Refusal {
     /// An indexed operand under a nest that cuts the axis its entry places: a coordinate is the
     /// table's to state, and a run is placed whole before any level cuts it.
     IndexedAxisCut(Axis),
+    /// [`codebook`](crate::TileArgLaunch::codebook) on values not stored as indices
+    /// ([`Field::Index`](crate::Field::Index)).
+    CodebookOfValuesNotIndices,
+    /// [`codebook`](crate::TileArgLaunch::codebook) with a table that is not a plain one-dim
+    /// buffer read one value a line.
+    CodebookTableNotPlain,
+    /// [`codebook`](crate::TileArgLaunch::codebook) with a table of `entries`, fewer than the
+    /// `2^bits` the indices name.
+    CodebookTableShort { entries: usize, bits: usize },
 }
 
 impl Display for Refusal {
@@ -274,6 +283,21 @@ impl Display for Refusal {
                 f,
                 "Arg::paged: a page table is resolved a line at a time, so a packed operand or a \
                  delivery that moves runs has no reading through it"
+            ),
+            Refusal::CodebookOfValuesNotIndices => write!(
+                f,
+                "TileArgLaunch::codebook: a codebook is read through values stored as indices \
+                 (`Field::Index`)"
+            ),
+            Refusal::CodebookTableNotPlain => write!(
+                f,
+                "TileArgLaunch::codebook: the table is a plain one-dim buffer, one value a line"
+            ),
+            Refusal::CodebookTableShort { entries, bits } => write!(
+                f,
+                "TileArgLaunch::codebook: {bits}-bit indices name {} entries; the table holds \
+                 {entries}",
+                1usize << bits
             ),
             Refusal::IndexTableNotU32 => write!(
                 f,

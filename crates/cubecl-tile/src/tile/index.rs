@@ -19,15 +19,16 @@ use crate::*;
 pub enum Indexing {
     /// The entry is the operand's coordinate along `axis`, which no level may cut: each row's
     /// expert, keyed by the row; each tile's group, keyed by the row axis a level cuts in tiles.
-    /// The axis is one wide below it, so a contraction sees one slab. An entry past the axis reads
-    /// the last coordinate, unless the operand checks the axis with [`Boundary::Zero`], where it
-    /// reads zero.
+    /// The axis is one wide below it, so a contraction sees one slab. An entry past the axis
+    /// names nothing: the tile holds nothing to walk ([`Region::walk_within`]), and a read of it
+    /// outside a walk reads the last coordinate, unless the operand checks the axis with
+    /// [`Boundary::Zero`], where it reads zero.
     Coordinate(Axis),
     /// The entry is where the operand's run along `axis` ends, and the one before it along the
     /// key where it starts (`0` for the first): each group's rows packed end to end, the table
     /// their cumulative ends. The operand reads zero past the run, and a walk over its window
     /// along `axis` steps the run alone where the axis is dynamic. A run that ends before it
-    /// starts is empty. No level at or above the key's may cut `axis`.
+    /// starts is empty, and holds nothing to walk. No level at or above the key's may cut `axis`.
     Run(Axis),
 }
 
@@ -242,8 +243,9 @@ fn first_entry() -> u32 {
 impl Tile {
     /// Whether the entry this tile's table placed it with names a coordinate of the axis it
     /// places, or a run of at least one row: `false` for an entry past a stack of slabs, as a
-    /// padding row's route or a padding tile's group names. A kernel skips such a tile's work
-    /// rather than read a clamped slab. `true` for a tile with no table, or none read yet.
+    /// padding row's route or a padding tile's group names. Such a tile holds nothing, so a walk
+    /// within it ([`Region::walk_within`]) takes no step. `true` for a tile with no table, or none
+    /// read yet.
     pub fn entry_in_range(&self) -> bool {
         cubecl::unexpanded!()
     }
@@ -406,10 +408,12 @@ impl Tile {
 }
 
 impl Region {
-    /// The regions of the level below this one, over the runs `tile` holds: along a dynamic axis
-    /// an index placed a run of `tile` along ([`Indexing::Run`]), the run's tiles alone; along every
-    /// other, this region's box. What a cube walks its group's rows by, every operand it holds
-    /// windowed by the same regions.
+    /// The regions of the level below this one, over what `tile` holds: along a dynamic axis an
+    /// index placed a run of `tile` along ([`Indexing::Run`]), the run's tiles alone; along every
+    /// other, this region's box. A tile whose entry names nothing, a coordinate past its axis or
+    /// an empty run, holds nothing, and the walk takes no step. What a cube walks its group's rows
+    /// by, every operand it holds windowed by the same regions, and what a routine walks an
+    /// indexed operand by, so a tile a padding row or a padding tile names does no work.
     pub fn walk_within(&self, _tile: &Tile) -> Walk {
         cubecl::unexpanded!()
     }
@@ -432,8 +436,19 @@ impl RegionExpand {
         let level = self.path.next();
         let mut walk = Walk::__expand_of(scope, &sized, level.clone(), self.clone());
         walk.run = run.filter(|&axis| level.axes() == [axis] && !level.is_reversed(axis));
-        walk
+        // A walk stepping the run itself is as long as the run, empty for an empty one.
+        match (tile.read_entry_in_range(), walk.run) {
+            (Some(in_range), None) => over_what_is_held::expand(scope, walk, in_range),
+            _ => walk,
+        }
     }
+}
+
+/// `walk`, a fresh one, over all its regions, or none where the tile walked holds nothing.
+#[cube]
+fn over_what_is_held(walk: Walk, in_range: bool) -> Walk {
+    let steps = select(in_range, walk.total(), 0usize);
+    walk.range(0usize, steps)
 }
 
 /// `space` with the runtime size of its dynamic axis at `p` set to `extent`.
@@ -452,6 +467,18 @@ fn with_extent(space: &Space, #[comptime] p: usize, extent: usize) -> Space {
 }
 
 impl TileExpand {
+    /// Whether the entry this tile's table placed it with names something, where it holds a
+    /// table it has read.
+    fn read_entry_in_range(&self) -> Option<NativeExpand<bool>> {
+        match &self.kind {
+            TileKindExpand::Memory(MemoryExpand {
+                index: ComptimeOptionExpand::Some(table),
+                ..
+            }) if table.placed => Some(table.in_range.clone()),
+            _ => None,
+        }
+    }
+
     /// The axis an index placed a run of this tile along, where it holds one.
     pub(crate) fn run_axis(&self) -> Option<Axis> {
         match &self.kind {

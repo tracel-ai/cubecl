@@ -21,7 +21,6 @@ use cubecl_tile::layout::PhysicalAxisMap;
 use cubecl_tile::layout::Scale;
 use cubecl_tile::ops::matmul::LoadMethod;
 use cubecl_tile::ops::matmul::MmaIo;
-use cubecl_tile::space::Coords;
 use cubecl_tile::*;
 use cubecl_tile::{kind::Boundary, launch::BoundaryPolicy};
 
@@ -1098,34 +1097,6 @@ fn conv1d_launched_masked_overhang() {
 
 // ---- runtime coefficients --------------------------------------------------
 
-/// [`conv_kernel`] with the input's stride and dilation arriving as runtime scalars rather than
-/// baked into its projection: the two `Scale::Dynamic` coefficients ride the tile.
-#[cube(launch)]
-fn conv_kernel_dynamic(
-    input: &TileArg<'_>,
-    weight: &TileArg<'_>,
-    out: &TileArg<'_>,
-    stride: u32,
-    dilation: u32,
-    space: Partitioning,
-    #[comptime] level: Level,
-) {
-    // In `Projection::dynamic_scale_index` order: physical axis 0's terms, `OH` then `RH`.
-    let mut coefficients = Coords::<u32>::new();
-    coefficients.push(stride);
-    coefficients.push(dilation);
-
-    let input = input.tile_gathered(&space, coefficients, Coords::new());
-    let weight = weight.tile(&space);
-    let out = out.tile(&space);
-    for region in space.over(&level) {
-        let mut out_region = out
-            .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
-        out_region.mm(&input.at(&region), &weight.at(&region));
-    }
-}
-
 impl Conv1d {
     /// [`check`](Conv1d::check) with both coefficients `Dynamic`, so the same convolution runs off
     /// a kernel that was compiled without knowing either. Their bounds are the exact values here,
@@ -1174,11 +1145,12 @@ impl Conv1d {
             .zeros()
             .generate_without_host_data();
 
-        conv_kernel_dynamic::launch(
+        conv_kernel::launch(
             &client,
             launcher.cube_count(),
             launcher.cube_dim(),
-            TileArgLaunch::new(in_handle.binding().into_tensor_arg(), f32_ty, 1, in_spec),
+            TileArgLaunch::new(in_handle.binding().into_tensor_arg(), f32_ty, 1, in_spec)
+                .runtime_map(vec![self.stride as u32, self.dilation as u32], Vec::new()),
             TileArgLaunch::new(
                 w_handle.binding().into_tensor_arg(),
                 f32_ty,
@@ -1191,8 +1163,7 @@ impl Conv1d {
                 1,
                 TileSpec::direct(&[OH, CO]),
             ),
-            self.stride as u32,
-            self.dilation as u32,
+            REGISTER_BLOCK,
             launcher.partitioning_arg(),
             launcher.partitioning().level(0),
         );
@@ -1241,124 +1212,6 @@ fn conv1d_dynamic_strided_and_dilated() {
         dilation: 2,
     }
     .check_dynamic(2, 2);
-}
-
-/// [`conv_kernel`] with the input's padding arriving as a runtime scalar: the `Offset::Dynamic`
-/// rides the tile as a signed value, while the stride and the dilation stay comptime.
-#[cube(launch)]
-fn conv_kernel_dynamic_padding(
-    input: &TileArg<'_>,
-    weight: &TileArg<'_>,
-    out: &TileArg<'_>,
-    offset: i32,
-    space: Partitioning,
-    #[comptime] level: Level,
-) {
-    let mut offsets = Coords::<i32>::new();
-    offsets.push(offset);
-
-    let input = input.tile_gathered(&space, Coords::new(), offsets);
-    let weight = weight.tile(&space);
-    let out = out.tile(&space);
-    for region in space.over(&level) {
-        let mut out_region = out
-            .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
-        out_region.mm(&input.at(&region), &weight.at(&region));
-    }
-}
-
-/// [`conv_kernel_dynamic_padding`] with the input and the weight staged into shared memory: a
-/// dynamic offset stages, since the compaction drops it.
-#[cube(launch)]
-fn conv_kernel_dynamic_padding_smem(
-    input: &TileArg<'_>,
-    weight: &TileArg<'_>,
-    out: &TileArg<'_>,
-    offset: i32,
-    space: Partitioning,
-    #[comptime] level: Level,
-) {
-    let mut offsets = Coords::<i32>::new();
-    offsets.push(offset);
-
-    let input = input.tile_gathered(&space, Coords::new(), offsets);
-    let weight = weight.tile(&space);
-    let out = out.tile(&space);
-    let walk = space.over(&level);
-    let mut stages = Stages::smem(&walk, &input, &weight, StageStorage::Strided, 1usize, None);
-    stages.pipelined(walk, |slot, region| {
-        let mut out_region = out
-            .at(region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
-        slot.consume(|input, weight| {
-            out_region.mm(input, weight);
-        });
-    });
-}
-
-/// [`conv_kernel_dynamic`] with the padding runtime too: nothing of the input's affine map is
-/// known when the kernel is compiled.
-#[cube(launch)]
-fn conv_kernel_all_dynamic(
-    input: &TileArg<'_>,
-    weight: &TileArg<'_>,
-    out: &TileArg<'_>,
-    stride: u32,
-    dilation: u32,
-    offset: i32,
-    space: Partitioning,
-    #[comptime] level: Level,
-) {
-    let mut coefficients = Coords::<u32>::new();
-    coefficients.push(stride);
-    coefficients.push(dilation);
-    let mut offsets = Coords::<i32>::new();
-    offsets.push(offset);
-
-    let input = input.tile_gathered(&space, coefficients, offsets);
-    let weight = weight.tile(&space);
-    let out = out.tile(&space);
-    for region in space.over(&level) {
-        let mut out_region = out
-            .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
-        out_region.mm(&input.at(&region), &weight.at(&region));
-    }
-}
-
-/// [`conv_kernel_all_dynamic`] with the input and the weight staged into shared memory: the
-/// stage carries the runtime coefficients as its own map.
-#[cube(launch)]
-fn conv_kernel_all_dynamic_smem(
-    input: &TileArg<'_>,
-    weight: &TileArg<'_>,
-    out: &TileArg<'_>,
-    stride: u32,
-    dilation: u32,
-    offset: i32,
-    space: Partitioning,
-    #[comptime] level: Level,
-) {
-    let mut coefficients = Coords::<u32>::new();
-    coefficients.push(stride);
-    coefficients.push(dilation);
-    let mut offsets = Coords::<i32>::new();
-    offsets.push(offset);
-
-    let input = input.tile_gathered(&space, coefficients, offsets);
-    let weight = weight.tile(&space);
-    let out = out.tile(&space);
-    let walk = space.over(&level);
-    let mut stages = Stages::smem(&walk, &input, &weight, StageStorage::Strided, 1usize, None);
-    stages.pipelined(walk, |slot, region| {
-        let mut out_region = out
-            .at(region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
-        slot.consume(|input, weight| {
-            out_region.mm(input, weight);
-        });
-    });
 }
 
 impl Conv1d {
@@ -1459,52 +1312,35 @@ impl Conv1d {
         let out_spec = TileSpec::direct(&[OH, CO]).boundary(BoundaryPolicy::Every(Boundary::Zero));
         let cube_count = launcher.cube_count();
         let cube_dim = launcher.cube_dim();
-        match (dynamic_scales, staged) {
-            (true, false) => conv_kernel_all_dynamic::launch(
+        let coefficients = match dynamic_scales {
+            true => vec![self.stride as u32, self.dilation as u32],
+            false => Vec::new(),
+        };
+        let in_arg = TileArgLaunch::new(in_binding.into_tensor_arg(), f32_ty, 1, in_spec)
+            .runtime_map(coefficients, vec![offset]);
+        let w_arg = TileArgLaunch::new(w_binding.into_tensor_arg(), f32_ty, 1, w_spec);
+        let out_arg = TileArgLaunch::new(out_binding.into_tensor_arg(), f32_ty, 1, out_spec);
+        match staged {
+            false => conv_kernel::launch(
                 &client,
                 cube_count,
                 cube_dim,
-                TileArgLaunch::new(in_binding.into_tensor_arg(), f32_ty, 1, in_spec),
-                TileArgLaunch::new(w_binding.into_tensor_arg(), f32_ty, 1, w_spec),
-                TileArgLaunch::new(out_binding.into_tensor_arg(), f32_ty, 1, out_spec),
-                self.stride as u32,
-                self.dilation as u32,
-                offset,
+                in_arg,
+                w_arg,
+                out_arg,
+                REGISTER_BLOCK,
                 launcher.partitioning_arg(),
                 launcher.partitioning().level(0),
             ),
-            (true, true) => conv_kernel_all_dynamic_smem::launch(
+            true => conv_kernel_smem::launch(
                 &client,
                 cube_count,
                 cube_dim,
-                TileArgLaunch::new(in_binding.into_tensor_arg(), f32_ty, 1, in_spec),
-                TileArgLaunch::new(w_binding.into_tensor_arg(), f32_ty, 1, w_spec),
-                TileArgLaunch::new(out_binding.into_tensor_arg(), f32_ty, 1, out_spec),
-                self.stride as u32,
-                self.dilation as u32,
-                offset,
-                launcher.partitioning_arg(),
-                launcher.partitioning().level(0),
-            ),
-            (false, false) => conv_kernel_dynamic_padding::launch(
-                &client,
-                cube_count,
-                cube_dim,
-                TileArgLaunch::new(in_binding.into_tensor_arg(), f32_ty, 1, in_spec),
-                TileArgLaunch::new(w_binding.into_tensor_arg(), f32_ty, 1, w_spec),
-                TileArgLaunch::new(out_binding.into_tensor_arg(), f32_ty, 1, out_spec),
-                offset,
-                launcher.partitioning_arg(),
-                launcher.partitioning().level(0),
-            ),
-            (false, true) => conv_kernel_dynamic_padding_smem::launch(
-                &client,
-                cube_count,
-                cube_dim,
-                TileArgLaunch::new(in_binding.into_tensor_arg(), f32_ty, 1, in_spec),
-                TileArgLaunch::new(w_binding.into_tensor_arg(), f32_ty, 1, w_spec),
-                TileArgLaunch::new(out_binding.into_tensor_arg(), f32_ty, 1, out_spec),
-                offset,
+                in_arg,
+                w_arg,
+                out_arg,
+                REGISTER_BLOCK,
+                1,
                 launcher.partitioning_arg(),
                 launcher.partitioning().level(0),
             ),
@@ -2550,53 +2386,17 @@ fn resize1d_staged_vectorized() {
     );
 }
 
-/// A rational gathered operand whose divisor and offset arrive at runtime.
+/// [`conv_kernel`] with the gathered input copied into a stage per region: a stage of an input
+/// with a runtime map is born with its dynamic coefficients before any fill addresses it.
 #[cube(launch)]
-fn conv_kernel_rational_dynamic(
+fn conv_kernel_input_staged(
     input: &TileArg<'_>,
     weight: &TileArg<'_>,
     out: &TileArg<'_>,
-    divisor: u32,
-    offset: i32,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
-    // The one carried coefficient is the divisor: both scales are Static, so it is the whole
-    // carrier (`Projection::dynamic_divisor_index` puts it at 0).
-    let mut coefficients = Coords::<u32>::new();
-    coefficients.push(divisor);
-    let mut offsets = Coords::<i32>::new();
-    offsets.push(offset);
-
-    let input = input.tile_gathered(&space, coefficients, offsets);
-    let weight = weight.tile(&space);
-    let out = out.tile(&space);
-    for region in space.over(&level) {
-        let mut out_region = out
-            .at(&region)
-            .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
-        out_region.mm(&input.at(&region), &weight.at(&region));
-    }
-}
-
-/// [`conv_kernel_rational_dynamic`] with the gathered input staged per region: the stage is born
-/// with dynamic coefficients before any fill addresses it.
-#[cube(launch)]
-fn conv_kernel_rational_dynamic_staged(
-    input: &TileArg<'_>,
-    weight: &TileArg<'_>,
-    out: &TileArg<'_>,
-    divisor: u32,
-    offset: i32,
-    space: Partitioning,
-    #[comptime] level: Level,
-) {
-    let mut coefficients = Coords::<u32>::new();
-    coefficients.push(divisor);
-    let mut offsets = Coords::<i32>::new();
-    offsets.push(offset);
-
-    let input = input.tile_gathered(&space, coefficients, offsets);
+    let input = input.tile(&space);
     let weight = weight.tile(&space);
     let out = out.tile(&space);
     let mut stage = input.stage(comptime!(level.clone()), StageStorage::Strided);
@@ -2667,52 +2467,44 @@ fn check_resize1d_rational_dynamic(staged: bool) {
         .zeros()
         .generate_without_host_data();
 
-    if staged {
-        conv_kernel_rational_dynamic_staged::launch(
+    // The one carried coefficient is the divisor: both scales are Static, so it is the whole
+    // carrier (`Projection::dynamic_divisor_index` puts it at 0).
+    let input = TileArgLaunch::new(in_handle.binding().into_tensor_arg(), f32_ty, 1, in_spec)
+        .runtime_map(vec![resize.divisor as u32], vec![resize.offset as i32]);
+    let weight = TileArgLaunch::new(
+        w_handle.binding().into_tensor_arg(),
+        f32_ty,
+        1,
+        TileSpec::direct(&[RH, CI, CO]),
+    );
+    let out = TileArgLaunch::new(
+        out_handle.clone().binding().into_tensor_arg(),
+        f32_ty,
+        1,
+        TileSpec::direct(&[OH, CO]).boundary(BoundaryPolicy::Every(Boundary::Zero)),
+    );
+    match staged {
+        true => conv_kernel_input_staged::launch(
             &client,
             launcher.cube_count(),
             launcher.cube_dim(),
-            TileArgLaunch::new(in_handle.binding().into_tensor_arg(), f32_ty, 1, in_spec),
-            TileArgLaunch::new(
-                w_handle.binding().into_tensor_arg(),
-                f32_ty,
-                1,
-                TileSpec::direct(&[RH, CI, CO]),
-            ),
-            TileArgLaunch::new(
-                out_handle.clone().binding().into_tensor_arg(),
-                f32_ty,
-                1,
-                TileSpec::direct(&[OH, CO]).boundary(BoundaryPolicy::Every(Boundary::Zero)),
-            ),
-            resize.divisor as u32,
-            resize.offset as i32,
+            input,
+            weight,
+            out,
             launcher.partitioning_arg(),
             launcher.partitioning().level(0),
-        );
-    } else {
-        conv_kernel_rational_dynamic::launch(
+        ),
+        false => conv_kernel::launch(
             &client,
             launcher.cube_count(),
             launcher.cube_dim(),
-            TileArgLaunch::new(in_handle.binding().into_tensor_arg(), f32_ty, 1, in_spec),
-            TileArgLaunch::new(
-                w_handle.binding().into_tensor_arg(),
-                f32_ty,
-                1,
-                TileSpec::direct(&[RH, CI, CO]),
-            ),
-            TileArgLaunch::new(
-                out_handle.clone().binding().into_tensor_arg(),
-                f32_ty,
-                1,
-                TileSpec::direct(&[OH, CO]).boundary(BoundaryPolicy::Every(Boundary::Zero)),
-            ),
-            resize.divisor as u32,
-            resize.offset as i32,
+            input,
+            weight,
+            out,
+            REGISTER_BLOCK,
             launcher.partitioning_arg(),
             launcher.partitioning().level(0),
-        );
+        ),
     }
 
     let got = HostData::from_tensor_handle(&client, out_handle, HostDataType::F32);

@@ -3009,23 +3009,15 @@ fn a_copy_of_scaled_packed_fields_decodes_them() {
     }
 }
 
-/// The table a looked-up operand indexes: its one axis, the positions.
+/// The axis of a codebook's table: its positions, outside the kernel's space.
 const TBL: Axis = Axis(6);
 
-/// `output = table[input] ⊗ scales`: the codebook decode, stated at the copy.
+/// `output = table[input] ⊗ scales`, the input bound under its codebook and its scales.
 #[cube(launch)]
-fn looked_up_copy(
-    input: &TileArg<'_>,
-    table: &TileArg<'_>,
-    scales: &TileArg<'_>,
-    output: &TileArg<'_>,
-    space: Partitioning,
-) {
+fn looked_up_copy(input: &TileArg<'_>, output: &TileArg<'_>, space: Partitioning) {
     let input = input.tile(&space);
-    let table = table.tile(&space);
-    let scales = scales.tile(&space);
     let mut output = output.tile(&space);
-    output.dequantize_from(&input.lookup(&table).mul(&scales));
+    output.dequantize_from(&input);
 }
 
 /// Eight-bit indices into a table of 256 entries, scaled per block of sixteen: each field names
@@ -3093,7 +3085,7 @@ fn check_looked_up_copy(bits: usize, width: usize) {
         .zeros()
         .generate_without_host_data();
 
-    let space = Space::new(&[(M, rows), (KB, blocks), (KI, block), (TBL, entries)]);
+    let space = Space::new(&[(M, rows), (KB, blocks), (KI, block)]);
     let projection = Projection::new(
         &[M, KB, KI],
         &[
@@ -3101,28 +3093,30 @@ fn check_looked_up_copy(bits: usize, width: usize) {
             PhysicalAxisMap::disjoint(&[(KB, block), (KI, 1)]),
         ],
     );
+    let input = TileArgLaunch::new(
+        input.binding().into_tensor_arg(),
+        u32::elem_type_native(),
+        1,
+        TileSpec::new(projection.clone()).packed(Field::Index { bits }),
+    )
+    .codebook(TileArgLaunch::new(
+        table_t.binding().into_tensor_arg(),
+        f32::elem_type_native(),
+        1,
+        TileSpec::direct(&[TBL]),
+    ))
+    .expect("a plain table of an entry per index")
+    .scales(TileArgLaunch::new(
+        scales_t.binding().into_tensor_arg(),
+        f32::elem_type_native(),
+        1,
+        TileSpec::new(projection.scales_per(KB)),
+    ));
     looked_up_copy::launch(
         &client,
         CubeCount::new_single(),
         CubeDim::new_single(),
-        TileArgLaunch::new(
-            input.binding().into_tensor_arg(),
-            u32::elem_type_native(),
-            1,
-            TileSpec::new(projection.clone()).packed(Field::Index { bits }),
-        ),
-        TileArgLaunch::new(
-            table_t.binding().into_tensor_arg(),
-            f32::elem_type_native(),
-            1,
-            TileSpec::direct(&[TBL]),
-        ),
-        TileArgLaunch::new(
-            scales_t.binding().into_tensor_arg(),
-            f32::elem_type_native(),
-            1,
-            TileSpec::new(projection.scales_per(KB)),
-        ),
+        input,
         TileArgLaunch::new(
             output.clone().binding().into_tensor_arg(),
             dtype,

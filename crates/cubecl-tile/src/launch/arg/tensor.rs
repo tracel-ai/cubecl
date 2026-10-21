@@ -1,5 +1,6 @@
 //! An operand as a single launch argument: its values, a buffer or a TMA tensor map, its comptime
-//! [`TileSpec`], the element it serves them at, and the scales its values are read under, each a
+//! [`TileSpec`], the element it serves them at, the runtime half of its projection, and what its
+//! values are read through: the table they index and the scales they are under, each a
 //! [`TileArg`] of its own.
 
 use std::marker::PhantomData;
@@ -31,6 +32,11 @@ use crate::*;
 /// carry their block scales, which carry the per-tensor scale. A plain level holding `u32` is words
 /// of block scales, which only the block-scaled instruction reads; any other, a packed one
 /// included, is scales read as numbers.
+///
+/// Values stored as indices ([`Field::Index`]) read through the table they index, their codebook
+/// ([`TileArgLaunch::codebook`]); a gather's runtime coefficients and offsets
+/// ([`TileArgLaunch::runtime_map`]) ride the argument too. A kernel serves every operand the same
+/// way, with [`tile`](TileArg::tile).
 pub struct TileArg<'a> {
     pub spec: TileSpec,
     /// The element the buffer holds.
@@ -58,17 +64,6 @@ impl TileArg<'_> {
         unexpanded!()
     }
 
-    /// [`tile`](TileArg::tile) for a partly runtime gather map, its dynamic values in
-    /// [`GlobalOperand::gathered`]'s order. Only a buffer is gathered.
-    pub fn tile_gathered(
-        &self,
-        _partitioning: &Partitioning,
-        _coefficients: Coords<u32>,
-        _offsets: Coords<i32>,
-    ) -> Tile {
-        unexpanded!()
-    }
-
     /// The buffer as lines of `V` of `E`, which must be the element it holds and the width it is
     /// bound at: what a write that adds into a line reads and writes it as. A launch that bound
     /// the buffer at another element is refused as the kernel expands.
@@ -77,21 +72,9 @@ impl TileArg<'_> {
     }
 }
 
-/// A buffer of values, served at `E`.
+/// A buffer of values, served at `E`, its projection's runtime half `coefficients` and `offsets`.
 #[cube]
 fn buffer_tile<E: Numeric>(
-    tensor: &Tensor<E>,
-    partitioning: &Partitioning,
-    #[comptime] spec: TileSpec,
-) -> Tile {
-    let space = comptime!(partitioning.clone());
-    GlobalOperand::tensor(tensor, comptime!(space.space().clone()), spec)
-        .tile::<E>(comptime!(space.levels().to_vec()))
-}
-
-/// [`buffer_tile`] through a partly runtime gather map.
-#[cube]
-fn gathered_tile<E: Numeric>(
     tensor: &Tensor<E>,
     partitioning: &Partitioning,
     coefficients: Coords<u32>,
@@ -107,6 +90,17 @@ fn gathered_tile<E: Numeric>(
         offsets,
     )
     .tile::<E>(comptime!(space.levels().to_vec()))
+}
+
+/// A codebook's table, `entries` long along its one axis, outside the kernel's space.
+#[cube]
+fn table_tile<E: Numeric>(
+    tensor: &Tensor<E>,
+    #[comptime] entries: usize,
+    #[comptime] spec: TileSpec,
+) -> Tile {
+    let space = comptime!(Space::new(&[(spec.axes()[0], entries)]));
+    GlobalOperand::tensor(tensor, comptime!(space.clone()), spec).tile::<E>(comptime!(Vec::new()))
 }
 
 /// [`buffer_tile`] over a pool of pages, read as the sequences `table` names.
@@ -156,6 +150,10 @@ pub struct TileArgExpand<'a> {
     scale: Option<Box<TileArgExpand<'static>>>,
     /// The table that places the values' windows, and what its entry places ([`Indexing`]).
     index: Option<(Box<TileArgExpand<'static>>, Indexing)>,
+    /// The table the values index, where they are stored as indices.
+    codebook: Option<Box<TileArgExpand<'static>>>,
+    /// The projection's dynamic coefficients and divisors, then its dynamic offsets.
+    runtime_map: (CoordsExpand<u32>, CoordsExpand<i32>),
 }
 
 /// The device side of the values: a buffer, kept also as it was declared for
@@ -182,34 +180,8 @@ impl<'a> TileArgExpand<'a> {
         partitioning: &PartitioningExpand,
     ) -> TileExpand {
         let values = self.values_tile(scope, partitioning);
+        let values = self.looking_up(scope, values);
         let values = self.indexing(scope, values, partitioning);
-        self.scaling(scope, values, partitioning)
-    }
-
-    pub fn __expand_tile_gathered_method(
-        &self,
-        scope: &Scope,
-        partitioning: &PartitioningExpand,
-        coefficients: CoordsExpand<u32>,
-        offsets: CoordsExpand<i32>,
-    ) -> TileExpand {
-        let ValuesExpand::Tensor { tensor, meta, .. } = &self.values else {
-            panic!("TileArg::tile_gathered: a gather reads a buffer; a tensor map lands boxes")
-        };
-        assert!(self.index.is_none(), "{}", Refusal::IndexOfAStatedLayout);
-        let _held = scope.define_type::<Held>(self.element);
-        let tensor = scope.create_kernel_ref(TensorExpand::<Held>::__expand_from_parts(
-            *meta,
-            tensor.expand.into(),
-        ));
-        let values = gathered_tile::expand::<Held>(
-            scope,
-            tensor,
-            partitioning,
-            coefficients,
-            offsets,
-            self.spec.clone(),
-        );
         self.scaling(scope, values, partitioning)
     }
 
@@ -279,7 +251,15 @@ impl<'a> TileArgExpand<'a> {
                     *meta,
                     tensor.expand.into(),
                 ));
-                buffer_tile::expand::<Held>(scope, tensor, partitioning, self.spec.clone())
+                let (coefficients, offsets) = self.runtime_map.clone();
+                buffer_tile::expand::<Held>(
+                    scope,
+                    tensor,
+                    partitioning,
+                    coefficients,
+                    offsets,
+                    self.spec.clone(),
+                )
             }
             ValuesExpand::TensorMap { map, layout } => tensor_map_tile::expand::<Held>(
                 scope,
@@ -289,6 +269,29 @@ impl<'a> TileArgExpand<'a> {
                 self.spec.clone(),
             ),
         }
+    }
+
+    /// `values` read through the table they index, where they are stored as indices.
+    fn looking_up(&self, scope: &Scope, values: TileExpand) -> TileExpand {
+        let Some(table) = &self.codebook else {
+            return values;
+        };
+        let ValuesExpand::Tensor { tensor, meta, .. } = &table.values else {
+            unreachable!("TileArgLaunch::codebook binds a buffer")
+        };
+        let Packing::Packed {
+            field: Field::Index { bits },
+        } = self.spec.packing
+        else {
+            unreachable!("TileArgLaunch::codebook binds values stored as indices")
+        };
+        let _held = scope.define_type::<Held>(table.element);
+        let entries = scope.create_kernel_ref(TensorExpand::<Held>::__expand_from_parts(
+            *meta,
+            tensor.expand.into(),
+        ));
+        let table = table_tile::expand::<Held>(scope, entries, 1 << bits, table.spec.clone());
+        values.__expand_lookup_method(scope, &table)
     }
 
     /// `values` carrying the table that places their windows, where the operand has one: read at
@@ -354,6 +357,8 @@ pub struct TileArgLaunch {
     element: ElemType,
     scale: Option<Box<TileArgLaunch>>,
     index: Option<(Box<TileArgLaunch>, Indexing)>,
+    codebook: Option<Box<TileArgLaunch>>,
+    runtime_map: (Vec<u32>, Vec<i32>),
 }
 
 /// The host side of the values: a tensor and the width it is bound at, or a tensor map, boxed for
@@ -399,7 +404,53 @@ impl TileArgLaunch {
             element,
             scale: None,
             index: None,
+            codebook: None,
+            runtime_map: (Vec::new(), Vec::new()),
         }
+    }
+
+    /// These values, stored as indices ([`Field::Index`]), read as the entries of `table` they
+    /// name: a plain one-dim buffer of at least an entry per index, read one value a line.
+    ///
+    /// # Errors
+    ///
+    /// The [`Refusal`] for values not stored as indices, or a table that is not a plain one-dim
+    /// buffer holding an entry for every index.
+    pub fn codebook(mut self, table: TileArgLaunch) -> Result<Self, Refusal> {
+        let Packing::Packed {
+            field: Field::Index { bits },
+        } = self.spec.packing
+        else {
+            return Err(Refusal::CodebookOfValuesNotIndices);
+        };
+        let ValuesLaunch::Tensor { tensor, width } = &table.values else {
+            return Err(Refusal::CodebookTableNotPlain);
+        };
+        let plain = *width == 1
+            && tensor.shape().len() == 1
+            && table.spec.axes().len() == 1
+            && table.spec.packing == Packing::Plain
+            && table.scale.is_none()
+            && table.index.is_none()
+            && table.codebook.is_none();
+        if !plain {
+            return Err(Refusal::CodebookTableNotPlain);
+        }
+        let entries = tensor.shape()[0];
+        if entries < 1 << bits {
+            return Err(Refusal::CodebookTableShort { entries, bits });
+        }
+        self.codebook = Some(Box::new(table));
+        Ok(self)
+    }
+
+    /// These values read through their projection's runtime half: a value for each of its
+    /// dynamic coefficients and divisors (`Scale::Dynamic`, `Divisor::Dynamic`), physical axis
+    /// major, each axis's divisor last, and for each of its dynamic offsets (`Offset::Dynamic`).
+    /// Only how many there are is checked, as the kernel expands.
+    pub fn runtime_map(mut self, coefficients: Vec<u32>, offsets: Vec<i32>) -> Self {
+        self.runtime_map = (coefficients, offsets);
+        self
     }
 
     /// These values under `scale`, outside the scales they carry already: words of block scales
@@ -470,6 +521,9 @@ pub struct TileArgCompilationArg {
     element: ElemType,
     scale: Option<Box<TileArgCompilationArg>>,
     index: Option<(Box<TileArgCompilationArg>, Indexing)>,
+    codebook: Option<Box<TileArgCompilationArg>>,
+    /// How many dynamic coefficients and offsets the runtime map holds.
+    runtime_map: (usize, usize),
 }
 
 /// What the values compile to: a buffer's and the width it is bound at, or a tensor map's layout.
@@ -497,6 +551,8 @@ impl LaunchArg for TileArg<'static> {
             element,
             scale,
             index,
+            codebook,
+            runtime_map: (coefficients, offsets),
         } = arg;
         let values = match values {
             ValuesLaunch::Tensor { tensor, width } => {
@@ -524,12 +580,21 @@ impl LaunchArg for TileArg<'static> {
         let scale = scale.map(|level| Box::new(TileArg::register(*level, launcher)));
         let index = index
             .map(|(table, indexing)| (Box::new(TileArg::register(*table, launcher)), indexing));
+        let codebook = codebook.map(|table| Box::new(TileArg::register(*table, launcher)));
+        for coefficient in &coefficients {
+            coefficient.register(launcher);
+        }
+        for offset in &offsets {
+            offset.register(launcher);
+        }
         TileArgCompilationArg {
             values,
             spec,
             element,
             scale,
             index,
+            codebook,
+            runtime_map: (coefficients.len(), offsets.len()),
         }
     }
 
@@ -581,12 +646,33 @@ impl LaunchArg for TileArg<'static> {
             .index
             .as_ref()
             .map(|(table, indexing)| (Box::new(TileArg::expand(table, builder)), indexing.clone()));
+        let codebook = arg
+            .codebook
+            .as_ref()
+            .map(|table| Box::new(TileArg::expand(table, builder)));
+        let (coefficients, offsets) = arg.runtime_map;
+        let mut runtime_map = (
+            Coords::<u32>::__expand_new(&builder.scope),
+            Coords::<i32>::__expand_new(&builder.scope),
+        );
+        for _ in 0..coefficients {
+            let coefficient = u32::expand_scalar(builder);
+            runtime_map
+                .0
+                .__expand_push_method(&builder.scope, coefficient);
+        }
+        for _ in 0..offsets {
+            let offset = i32::expand_scalar(builder);
+            runtime_map.1.__expand_push_method(&builder.scope, offset);
+        }
         TileArgExpand {
             values,
             spec: arg.spec.clone(),
             element: arg.element,
             scale,
             index,
+            codebook,
+            runtime_map,
         }
     }
 }
@@ -646,6 +732,8 @@ mod tests {
             element: ElemType::Float(FloatKind::F32),
             scale: None,
             index: None,
+            codebook: None,
+            runtime_map: (0, 0),
         };
         TileArg::expand(&arg, builder)
     }
@@ -682,6 +770,8 @@ mod tests {
             element: u32::elem_type_native(),
             scale: None,
             index: None,
+            codebook: None,
+            runtime_map: (0, 0),
         };
         TileArg::expand(&arg, builder)
     }

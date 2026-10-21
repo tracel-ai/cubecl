@@ -36,6 +36,9 @@ const ROUTES: [u32; ROWS] = [2, 0, 2, 1];
 
 const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
 
+/// The steps of `K` a walking kernel takes: two of them over the features.
+const K_STEP: usize = 2;
+
 /// `x[m, k]`.
 fn activations() -> Vec<f32> {
     (0..ROWS * FEATURES).map(|i| (i % 5) as f32).collect()
@@ -163,28 +166,37 @@ fn indexed_staged_matmul_kernel(
     });
 }
 
-/// [`indexed_matmul_kernel`] that skips a step whose entry names no slab: what a grouped product
-/// does with a padding tile, which it would otherwise contract against a clamped slab.
+/// [`indexed_matmul_kernel`] summing each tile of rows over the steps of `K` its weights hold
+/// ([`Region::walk_within`]), as a routine walks its operands: a tile whose entry names no slab
+/// holds none, and its rows drain the empty sum, with no branch in the kernel.
 #[cube(launch)]
-fn indexed_skipping_matmul_kernel(
+fn indexed_walking_matmul_kernel<E: Numeric>(
     x: &TileArg<'_>,
     w: &TileArg<'_>,
     out: &TileArg<'_>,
     space: Partitioning,
     #[comptime] rows: Level,
+    #[define(E)] _dtype: ElemType,
 ) {
     let x = x.tile(&space);
     let w = w.tile(&space);
     let out = out.tile(&space);
 
     for tile in space.over(&rows) {
-        let w_t = w.at(&tile);
-        if w_t.entry_in_range() {
-            let mut o = out
-                .at(&tile)
-                .accumulating(REGISTER_BLOCK, Semiring::SUM_PROD);
-            o.mm(&x.at(&tile), &w_t);
+        let (o, x_t, w_t) = (out.at(&tile), x.at(&tile), w.at(&tile));
+        let mut sum = o.accumulator::<E>(
+            &x_t,
+            &w_t,
+            comptime!(Instruction::Registers {
+                config: REGISTER_BLOCK
+            }),
+            Semiring::SUM_PROD,
+        );
+        sum.zero();
+        for k_step in tile.walk_within(&w_t) {
+            sum.mma(&x_t.at(&k_step), &w_t.at(&k_step));
         }
+        sum.drained_into(&o);
     }
 }
 
@@ -193,8 +205,8 @@ fn indexed_skipping_matmul_kernel(
 enum Reading {
     InPlace,
     Staged,
-    /// In place, skipping a step whose entry names no slab.
-    Skipping,
+    /// In place, a step of `K` at a time within what the weights hold.
+    Walking,
 }
 
 /// The rows in tiles of `tile`, the weights `[EXPERT, K, N]` keyed by the row tile: `entries`
@@ -205,7 +217,15 @@ fn run(entries: &[u32], tile: usize, weights_spec: TileSpec, reading: Reading) -
         &client,
         Partitioning::new(
             Space::new(&[(M, ROWS), (N, FEATURES), (K, FEATURES), (EXPERT, EXPERTS)]),
-            Levels::leaf(&[(M, tile)]).walk_every(&[M]).build(),
+            match reading {
+                Reading::InPlace | Reading::Staged => {
+                    Levels::leaf(&[(M, tile)]).walk_every(&[M]).build()
+                }
+                Reading::Walking => Levels::leaf(&[(M, tile), (K, K_STEP)])
+                    .walk_every(&[K])
+                    .walk_every(&[M])
+                    .build(),
+            },
         ),
         Form::Static,
     );
@@ -249,7 +269,7 @@ fn run(entries: &[u32], tile: usize, weights_spec: TileSpec, reading: Reading) -
             launcher.partitioning_arg(),
             level,
         ),
-        Reading::Skipping => indexed_skipping_matmul_kernel::launch(
+        Reading::Walking => indexed_walking_matmul_kernel::launch(
             &client,
             count,
             dim,
@@ -258,6 +278,7 @@ fn run(entries: &[u32], tile: usize, weights_spec: TileSpec, reading: Reading) -
             o,
             launcher.partitioning_arg(),
             level,
+            f32_ty,
         ),
     }
 
@@ -298,15 +319,24 @@ fn a_route_past_the_last_expert_reads_zero_where_the_operand_checks_it() {
     assert_cells(&got, &want, "checked");
 }
 
-/// A kernel asks the tile whether its entry named a slab, and skips the row that names none: the
-/// row keeps the value the output was filled with, every other row its product.
+/// A row whose route names no expert holds nothing: the walk over its steps of `K` takes none,
+/// so it drains zeros rather than the clamped slab's product, every other row its own.
 #[test]
-fn a_kernel_skips_the_row_whose_route_names_no_expert() {
+fn a_row_whose_route_names_no_expert_holds_nothing_to_walk() {
     let routes = [99, 0, 2, 1];
-    let got = run(&routes, 1, weights_spec(), Reading::Skipping);
-    let mut want = expected(|m| routes[m] as usize, &weights());
-    want[0] = vec![-1.0; FEATURES];
-    assert_cells(&got, &want, "skipped");
+    let got = run(&routes, 1, weights_spec(), Reading::Walking);
+    let want = expected(|m| routes[m] as usize, &weights());
+    assert_cells(&got, &want, "routed, walked");
+}
+
+/// A padding tile of rows, whose group names no slab, holds nothing either: the grouped product
+/// needs no branch to skip it.
+#[test]
+fn a_tile_whose_group_names_no_slab_holds_nothing_to_walk() {
+    let groups = [99u32, 2];
+    let got = run(&groups, 2, weights_spec(), Reading::Walking);
+    let want = expected(|m| groups[m / 2] as usize, &weights());
+    assert_cells(&got, &want, "grouped, walked");
 }
 
 /// One entry a tile of two rows: each tile's group, the same kernel as routed rows. Tile 0 reads

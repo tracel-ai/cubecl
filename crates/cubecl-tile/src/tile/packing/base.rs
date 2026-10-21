@@ -28,7 +28,8 @@ pub enum Field {
     Quant(QuantValue),
     Fp8(Fp8Format),
     Float(FloatKind),
-    /// An index `bits` wide into a table ([`Tile::lookup`](crate::Tile::lookup)), read as raw bits.
+    /// An index `bits` wide into a table, its codebook
+    /// ([`TileArgLaunch::codebook`](crate::TileArgLaunch::codebook)), read as raw bits.
     Index {
         bits: usize,
     },

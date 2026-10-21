@@ -203,8 +203,8 @@ impl TileInputBuilder {
     /// quantized tensor is one thing (data + scales + scheme). Untiled only: packed storage
     /// has no physically tiled layout.
     ///
-    /// The kernel meets the two as operands of their own ([`values_arg`], [`scales_arg`]) and
-    /// states the decode where it happens: `w.mul(&scales)`.
+    /// The launch binds the two as one operand, [`values_arg`] under its scales
+    /// ([`scales_arg`]), and the kernel states the decode where it happens.
     ///
     /// [`values_arg`]: QuantizedTileInput::values_arg
     /// [`scales_arg`]: QuantizedTileInput::scales_arg
