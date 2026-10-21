@@ -532,10 +532,10 @@ const_eval!(FDivOp, {
         if !self.allows(ctx, FastMath::NotNaN | FastMath::UnsignedZero) {
             return None;
         }
-        Some(match lhs?.float_as_f64(ctx) {
-            Some(0.0) => float_attr(ctx, lhs?.get_type(ctx), 0.0),
-            _ => None?
-        })
+        match lhs?.float_as_f64(ctx) {
+            Some(0.0) => Some(float_attr(ctx, lhs?.get_type(ctx), 0.0)),
+            _ => None
+        }
     },
 });
 simplify!(FDivOp, {
@@ -717,7 +717,7 @@ impl ConditionallySpeculatable for SModFloorOp {
 pure_binop!("math.f_mod_floor", FModFloorOp);
 const_eval!(FModFloorOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs - (lhs / rhs).floor() * rhs,
-    // 0 % x -> 0
+    // 0 mod_floor x -> 0
     custom: |lhs, _| {
         if !self.allows(ctx, FastMath::NotNaN | FastMath::UnsignedZero) {
             return None;

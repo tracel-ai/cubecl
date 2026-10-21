@@ -49,8 +49,8 @@ __builtin_amdgcn_wave_barrier();\n"
     .into()
 });
 
-/// What `__fadd_rn` and its siblings are on CUDA. HIP's own versions are a plain operator, which
-/// clang still fuses under the `-ffp-contract=fast-honor-pragmas` cubecl-hip compiles with.
+/// HIP's stand-in for CUDA's `__fadd_rn` family: HIP's own `__fadd_rn` is a plain `+`, which clang
+/// still fuses under the `-ffp-contract=fast-honor-pragmas` cubecl-hip compiles with.
 pub(crate) const ROUNDED_ARITHMETIC: &str = r#"
 template <typename T> __device__ __forceinline__ T cubecl_add_rn(T a, T b) {
 #pragma clang fp contract(off)

@@ -66,7 +66,7 @@ macro_rules! float_operator {
         shared_op_with_out!($name, |op, ctx| {
             let lhs = op.lhs(ctx).name(ctx);
             let rhs = op.rhs(ctx).name(ctx);
-            match op.get_operation().forbids_contraction(ctx) {
+            match op.get_operation().is_unfused_arithmetic(ctx) {
                 true => rounded_call(ctx, op.get_result(ctx), $rounded, $op, lhs, rhs),
                 false => format!("{lhs} {} {rhs}", $op),
             }

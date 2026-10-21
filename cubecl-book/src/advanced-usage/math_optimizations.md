@@ -50,11 +50,26 @@ Rounding is kept on every backend below except WGSL and Metal. `Inf`, `NaN` and 
 kept where `client.properties().features.ieee_special_values` is true.
 
 A kernel that says nothing gets each backend's default, which usually allows contraction: CubeCL
-fuses a product into the add that consumes it, and so may the driver. A function that says nothing
+fuses a product into the add that consumes it, and so may the driver. CubeCL's own folds may also
+ignore `Inf`, `NaN` and signed zero there, turning `0 * x` into `0`. A function that says nothing
 gets its caller's set. A function that gives a set gets exactly that set, so
 `FastMath::NotNaN.into()` alone also forbids contraction and can run slower than saying nothing.
 Operations CubeCL expands into several, such as `exp` on the CPU, carry the flags of the function
 they appear in.
+
+A set can forbid only some optimizations. Here a product may still fuse into the add that consumes
+it, but the `-inf` a mask adds is kept, since `NotInf` is not in the set:
+
+```rust
+/// A masked attention score: fused where it pays, but a masked score stays `-inf`.
+#[cube(fast_math = FastMath::AllowContraction | FastMath::AllowReassociation)]
+fn masked_score<F: Float>(query: F, key: F, mask: F) -> F {
+    query * key + mask
+}
+```
+
+`AllowTransform` includes contraction and reassociation, so a set that forbids either must leave it
+out as well: `FastMath::all() - FastMath::AllowContraction` still contracts.
 
 ### Backend Implementation
 

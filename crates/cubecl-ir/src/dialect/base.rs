@@ -5,7 +5,6 @@ use crate::{
     dialect::math::{FAddOp, FDivOp, FMulOp, FSubOp},
     interfaces::fast_math::FastMathOp,
     prelude::*,
-    rewrite::visit_all_ops_with_interface,
     types::{AtomicType, PointerType},
 };
 
@@ -40,9 +39,7 @@ pub trait OperationPtrExt: Sized {
     fn fast_math(self, ctx: &Context) -> Option<EnumSet<FastMath>>;
     /// Whether this is arithmetic a downstream compiler could fuse with its neighbours, in a
     /// kernel that forbids it.
-    fn forbids_contraction(self, ctx: &Context) -> bool;
-    /// Whether this op, or one nested in it, [forbids contraction](Self::forbids_contraction).
-    fn contains_forbidden_contraction(self, ctx: &Context) -> bool;
+    fn is_unfused_arithmetic(self, ctx: &Context) -> bool;
 
     fn is_ancestor_of(self, ctx: &Context, other: Ptr<Operation>) -> bool;
 }
@@ -129,28 +126,18 @@ impl OperationPtrExt for Ptr<Operation> {
         panic!("Op is not contained in any module")
     }
     fn fast_math(self, ctx: &Context) -> Option<EnumSet<FastMath>> {
-        op_cast::<dyn FastMathOp>(&*self.dyn_op(ctx)).and_then(|op| op.fast_math(ctx))
+        self.cast::<dyn FastMathOp>(ctx)
+            .and_then(|op| op.fast_math(ctx))
     }
-    fn forbids_contraction(self, ctx: &Context) -> bool {
+    fn is_unfused_arithmetic(self, ctx: &Context) -> bool {
         let fusable = self.is_op::<FAddOp>(ctx)
             || self.is_op::<FSubOp>(ctx)
             || self.is_op::<FMulOp>(ctx)
             || self.is_op::<FDivOp>(ctx);
         fusable
-            && op_cast::<dyn FastMathOp>(&*self.dyn_op(ctx))
+            && self
+                .cast::<dyn FastMathOp>(ctx)
                 .is_some_and(|op| !op.allows_contraction(ctx))
-    }
-    fn contains_forbidden_contraction(self, ctx: &Context) -> bool {
-        let mut found = false;
-        visit_all_ops_with_interface::<dyn FastMathOp, _>(
-            ctx,
-            &mut found,
-            self,
-            |ctx, found, op| {
-                *found |= op.get_operation().forbids_contraction(ctx);
-            },
-        );
-        found
     }
 
     fn is_ancestor_of(self, ctx: &Context, mut child: Ptr<Operation>) -> bool {

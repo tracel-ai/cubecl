@@ -414,8 +414,7 @@ fn llvm_fast_math(fast_math: EnumSet<FastMath>) -> FastmathFlagsAttr {
                     FastMath::AllowReciprocal => FastmathFlags::ARCP,
                     FastMath::AllowContraction => FastmathFlags::CONTRACT,
                     FastMath::AllowReassociation => FastmathFlags::REASSOC,
-                    // Always stored with the contraction and reassociation it includes.
-                    FastMath::AllowTransform => FastmathFlags::empty(),
+                    FastMath::AllowTransform => FastmathFlags::CONTRACT | FastmathFlags::REASSOC,
                     FastMath::ReducedPrecision => FastmathFlags::AFN,
                 }
         });

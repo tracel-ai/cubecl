@@ -486,7 +486,7 @@ fn float_widths(ctx: &Context, op: Ptr<Operation>) -> Vec<u32> {
 
 /// Carries the fast-math permissions of `cube_op` onto `op`, the SPIR-V it lowered to.
 pub(crate) fn decorate_fast_math(ctx: &Context, cube_op: Ptr<Operation>, op: Ptr<Operation>) {
-    if !cube_op.forbids_contraction(ctx) {
+    if !cube_op.is_unfused_arithmetic(ctx) {
         return;
     }
     if let Some(decoratable) = op_cast::<dyn DecoratableOp>(&*op.dyn_op(ctx)) {

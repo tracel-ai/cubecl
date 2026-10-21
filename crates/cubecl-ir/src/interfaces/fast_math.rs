@@ -51,14 +51,14 @@ impl Parsable for FastMathAttr {
         for name in names {
             match name.parse() {
                 Ok(flag) => flags.insert(flag),
-                Err(err) => return input_err!(loc, "{err}")?,
+                Err(err) => return input_err!(loc, "{err}").into_parse_result(),
             };
         }
         Ok(FastMathAttr(flags)).into_parse_result()
     }
 }
 
-/// A float op whose result fast-math permissions may loosen.
+/// A float op that carries the fast-math permissions its kernel allowed.
 #[op_interface]
 pub trait FastMathOp {
     verify_op_succ!();
