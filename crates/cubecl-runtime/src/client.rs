@@ -5,11 +5,12 @@ use crate::{
     kernel::CubeKernel,
     logging::ProfileLevel,
     memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
+    runtime::NativeRuntime,
     server::{
-        BufferBinding, Collective, CommunicationId, ComputeWait, CopyDescriptor, CubeCount, Handle,
-        KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
-        MemoryLayoutStrategy, ProfileError, ProfilingToken, ReduceOperation, Reduction, Server,
-        ServerError, ServerStorage, ServerUtilities,
+        BufferBinding, Collective, CommunicationId, ComputeWait, CopyDescriptor, CubeCount,
+        ExternalContext, ExternalOpCallback, Handle, KernelArguments, KernelResource, MemoryLayout,
+        MemoryLayoutDescriptor, MemoryLayoutStrategy, ProfileError, ProfilingToken,
+        ReduceOperation, Reduction, Server, ServerError, ServerStorage, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -198,6 +199,25 @@ fn as_server<S: Server>(state: &mut dyn Any) -> &mut dyn Server {
     state
         .downcast_mut::<S>()
         .expect("State type mismatch in the device registry")
+}
+
+/// The typed half of an external operation, as the object-safe closure the
+/// server calls.
+///
+/// The client has already checked that `R` is this server's runtime and that
+/// every binding is local; the downcast is the last step, on the device thread
+/// where the context was built.
+fn external_op_bridge<R, F>(op: F) -> ExternalOpCallback
+where
+    R: NativeRuntime,
+    F: FnOnce(&mut ExternalContext<R>) -> Result<(), ServerError> + Send + 'static,
+{
+    Box::new(move |context: &mut dyn Any| {
+        let context = context
+            .downcast_mut::<ExternalContext<R>>()
+            .expect("the client checked the runtime, so this is the server's context type");
+        op(context)
+    })
 }
 
 impl Clone for Client {
@@ -1450,6 +1470,93 @@ impl Client {
     #[track_caller]
     pub fn launch(&self, kernel: Box<dyn CubeKernel>, count: CubeCount, bindings: KernelArguments) {
         unsafe { self.launch_inner(kernel, count, bindings, self.stream_id()) }
+    }
+
+    /// Queue `op` behind the work already queued on this client's stream, like
+    /// a launch. It is queued rather than run to completion: a blocking
+    /// transport may submit it inline, while the threaded transports return
+    /// once the device thread has accepted it.
+    ///
+    /// The operation receives an [`ExternalContext`] carrying this runtime's
+    /// native stream ([`NativeRuntime::NativeStream`]) and its bindings in the
+    /// backend's own terms, with their sizes, reads then writes, in that order.
+    /// A handle may appear in both lists, for an in-place operation. The server
+    /// orders it against the buffers' streams exactly as it would a launch, so
+    /// cross-stream dependencies resolve by buffer ownership. The bindings and
+    /// every owner registered with [`ExternalContext::retain`] stay alive until
+    /// the work queued on the stream has completed, whatever the operation
+    /// returns.
+    ///
+    /// # Errors
+    ///
+    /// A failure is not returned here: it is recorded on `writes`, exactly like
+    /// a failed launch, and surfaces at the next read, [`check`](Self::check) or
+    /// [`sync_buffers`](Self::sync_buffers) of those buffers — not at plain
+    /// [`sync`](Self::sync), which reports only device faults. A panic in `op`
+    /// is caught on the device thread and settled the same way. An operation
+    /// with no `writes` has nowhere to report a failure; ordering-only uses
+    /// should declare an output.
+    ///
+    /// `R` must be this client's runtime: a mismatch leaves the error on the
+    /// local `writes` and runs nothing. Only a runtime that implements
+    /// [`NativeRuntime`] can ask for an external operation at all, so a backend
+    /// without the native types refuses it at compile time. The same goes for a
+    /// handle that belongs to another device. An external operation is refused
+    /// while the stream records a graph, because it is not replayable work: the
+    /// refusal dooms the capture.
+    pub fn external_op<R: NativeRuntime>(
+        &self,
+        reads: &[Handle],
+        writes: &[Handle],
+        op: impl FnOnce(&mut ExternalContext<R>) -> Result<(), ServerError> + Send + 'static,
+    ) {
+        let stream_id = self.stream_id();
+        let mut read_bindings = Vec::with_capacity(reads.len());
+        let mut write_bindings = Vec::with_capacity(writes.len());
+        let mut invalid = None;
+
+        for handle in reads {
+            let binding = handle.clone().binding();
+            match self.local(&binding) {
+                Ok(()) => read_bindings.push(binding),
+                Err(err) => invalid = invalid.or(Some(err)),
+            }
+        }
+        for handle in writes {
+            let binding = handle.clone().binding();
+            match self.local(&binding) {
+                // Only a local write can carry the refusal. A foreign one is
+                // not this server's to taint, and reporting it here would need
+                // a buffer this device cannot reach.
+                Ok(()) => write_bindings.push(binding),
+                Err(err) => invalid = invalid.or(Some(err)),
+            }
+        }
+
+        if let Some(err) = invalid {
+            let refuse = Box::new(move |_context: &mut dyn Any| Err(err));
+            self.device.submit(move |server| {
+                server.external_op(Vec::new(), write_bindings, refuse, stream_id)
+            });
+            return;
+        }
+
+        if !self.is_service::<R::Server>() {
+            let err = ServerError::ServiceMismatch {
+                client: format!("{}", self.service_id()),
+                requested: String::from(core::any::type_name::<R::Server>()),
+                backtrace: BackTrace::capture(),
+            };
+            let refuse = Box::new(move |_context: &mut dyn Any| Err(err));
+            self.device.submit(move |server| {
+                server.external_op(Vec::new(), write_bindings, refuse, stream_id)
+            });
+            return;
+        }
+
+        let op = external_op_bridge::<R, _>(op);
+        self.device
+            .submit(move |server| server.external_op(read_bindings, write_bindings, op, stream_id));
     }
 
     /// Whether the bytes behind `handles` can be trusted, right now and with

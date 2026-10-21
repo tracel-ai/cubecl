@@ -24,6 +24,7 @@ use crate::server::{BufferBinding, CopyDescriptor, Handle, IoError, LaunchError,
 use crate::storage::ManagedResource;
 use crate::stream::ResolvedStreams;
 use crate::stream::TouchedPage;
+use crate::stream::{EventStreamBackend, GcTask};
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -169,6 +170,24 @@ impl<'a, D: Driver> Command<'a, D> {
         }
         let signal = stream.signal();
         stream.drop_queue().flush(|| D::Stream::fence(signal));
+    }
+
+    /// Keep `value` alive until every command already enqueued on the current
+    /// stream has completed.
+    ///
+    /// This is the deferred-release path the cross-stream binding pins use:
+    /// it records one fence on the stream and hands the owner to the device's
+    /// GC thread, which drops it after waiting. An external operation hands
+    /// over the bindings it used and the owners registered on its
+    /// [`ExternalContext`](crate::server::ExternalContext) as one such owner.
+    ///
+    /// A capture never reaches this: an external operation is refused while
+    /// the stream records, because the fence it would record has no recorded
+    /// form. Callers therefore do not have to repeat the capture guard here.
+    pub fn defer_release<T: Send + 'static>(&mut self, value: T) {
+        let (stream, failures) = self.streams.current_and_failures();
+        let event = D::Backend::flush(stream, failures);
+        self.streams.gc(GcTask::new(value, event));
     }
 
     /// Set the [`MemoryAllocationMode`] for the current stream.
