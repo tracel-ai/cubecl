@@ -6,7 +6,7 @@ use syn::{Generics, Ident, Type, Visibility, WhereClause, parse_quote};
 use crate::{
     generate::bounded_where_clause,
     parse::cube_type::{CubeTypeStruct, TypeField},
-    paths::prelude_type,
+    paths::{core_path, prelude_type},
 };
 
 impl CubeTypeStruct {
@@ -391,6 +391,101 @@ impl CubeTypeStruct {
         }
 
         generics
+    }
+
+    /// The `HarnessOutput` impl, built from each field's own, and the
+    /// conversion from the struct to its launch argument that a harness
+    /// takes it as an input with.
+    pub fn generate_harness(&self) -> syn::Result<TokenStream> {
+        if let Some(field) = self.fields.iter().find(|field| field.comptime.is_present()) {
+            return Err(syn::Error::new_spanned(
+                field.ident.as_ref().unwrap(),
+                "`CubeHarness` doesn't support comptime fields, since they can't be read back",
+            ));
+        }
+
+        let harness_output = prelude_type("HarnessOutput");
+        let launch_arg = prelude_type("LaunchArg");
+        let cube_type = prelude_type("CubeType");
+        let client = prelude_type("Client");
+        let scope = prelude_type("Scope");
+        let core = core_path();
+        let gate = self.harness.clone().unwrap_or_default().attr();
+
+        let name = &self.ident;
+        let name_launch = &self.name_launch;
+        let names = self
+            .fields
+            .iter()
+            .map(|field| field.ident.as_ref().unwrap())
+            .collect::<Vec<_>>();
+        let tys = self
+            .fields
+            .iter()
+            .map(|field| &field.ty)
+            .collect::<Vec<_>>();
+        let outs = (0..names.len())
+            .map(|i| format_ident!("__out_{i}"))
+            .collect::<Vec<_>>();
+
+        let (generics, generic_names, _) = self.generics.split_for_impl();
+        let output_where = bounded_where_clause(
+            &self.generics,
+            self.fields.iter().cloned(),
+            |ty| quote![#ty: #harness_output<Host = #ty>],
+        );
+        let launch_generics = Generics {
+            where_clause: self.launch_arg_where(),
+            ..self.generics.clone()
+        };
+        let from_where = bounded_where_clause(
+            &launch_generics,
+            self.fields.iter().cloned(),
+            |ty| quote![<#ty as #launch_arg>::RuntimeArg: ::core::convert::From<#ty>],
+        );
+
+        Ok(quote! {
+            #gate
+            impl #generics #harness_output for #name #generic_names #output_where {
+                type Out = (#(<#tys as #harness_output>::Out,)*);
+                type Host = Self;
+
+                fn alloc(
+                    client: &#client,
+                    lens: &mut impl ::core::iter::Iterator<Item = usize>,
+                    handles: &mut #core::__private::vec::Vec<#core::server::Handle>,
+                ) -> <Self::Out as #launch_arg>::RuntimeArg {
+                    (#(<#tys as #harness_output>::alloc(client, lens, handles),)*)
+                }
+
+                fn __expand_store(
+                    scope: &#scope,
+                    out: &mut <Self::Out as #cube_type>::ExpandType,
+                    value: <Self as #cube_type>::ExpandType,
+                ) {
+                    let (#(#outs,)*) = out;
+                    #(<#tys as #harness_output>::__expand_store(scope, #outs, value.#names);)*
+                }
+
+                fn read(
+                    bytes: &mut impl ::core::iter::Iterator<Item = #core::bytes::Bytes>,
+                    lens: &mut impl ::core::iter::Iterator<Item = usize>,
+                ) -> Self {
+                    Self {
+                        #(#names: <#tys as #harness_output>::read(bytes, lens),)*
+                    }
+                }
+            }
+
+            #gate
+            impl #generics ::core::convert::From<#name #generic_names> for #name_launch #generic_names #from_where {
+                fn from(value: #name #generic_names) -> Self {
+                    Self {
+                        #(#names: ::core::convert::Into::into(value.#names),)*
+                    }
+                }
+            }
+        })
     }
 
     fn launch_arg_where(&self) -> Option<WhereClause> {
