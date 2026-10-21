@@ -341,6 +341,7 @@ impl CubeTypeStruct {
         let client = prelude_type("Client");
         let scope = prelude_type("Scope");
         let core = core_path();
+        let gate = self.harness.clone().unwrap_or_default().attr();
 
         let name = &self.ident;
         let name_launch = &self.name_launch;
@@ -375,6 +376,7 @@ impl CubeTypeStruct {
         );
 
         Ok(quote! {
+            #gate
             impl #generics #harness_output for #name #generic_names #output_where {
                 type Out = (#(<#tys as #harness_output>::Out,)*);
                 type Host = Self;
@@ -406,6 +408,7 @@ impl CubeTypeStruct {
                 }
             }
 
+            #gate
             impl #generics ::core::convert::From<#name #generic_names> for #name_launch #generic_names #from_where {
                 fn from(value: #name #generic_names) -> Self {
                     Self {

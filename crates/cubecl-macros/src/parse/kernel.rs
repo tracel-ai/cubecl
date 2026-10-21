@@ -16,7 +16,7 @@ use syn::{
     punctuated::Punctuated, visit_mut::VisitMut,
 };
 
-use super::desugar::Desugar;
+use super::{desugar::Desugar, harness::HarnessGate};
 
 #[derive(Default, FromMeta, Clone)]
 pub(crate) struct KernelArgs {
@@ -30,9 +30,8 @@ pub(crate) struct KernelArgs {
     pub create_dummy_kernel: Flag,
     /// Generate expansion only, for expanding existing types
     pub expand_only: Flag,
-    /// Generate a harness, set by `#[cube_harness]` rather than parsed from `#[cube(..)]`.
-    #[darling(skip)]
-    pub harness: Flag,
+    /// Generate a harness, gated by `cfg(test)` unless another gate is given.
+    pub harness: Option<HarnessGate>,
     pub cluster_dim: Option<Expr>,
     pub src_file: Option<LitStr>,
     /// Base traits for a split expand trait

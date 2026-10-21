@@ -1,4 +1,4 @@
-//! A `harness` function for every cube function marked `#[cube_harness]`,
+//! A `harness` function for every cube function marked `#[cube(harness)]`,
 //! whose parameters must all be scalars, slices or arrays of them, or cube
 //! types, and that returns them or a tuple of them, or nothing when it writes
 //! into a mutable slice. The harness launches the function on a single unit of
@@ -20,9 +20,9 @@
 //! path that isn't a scalar is taken for one, and the bound on it reports a
 //! type that isn't.
 //!
-//! Being a separate attribute, a harness is only emitted where it's asked for,
-//! and can be gated like any attribute, usually with
-//! `#[cfg_attr(test, cube_harness)]`.
+//! The harness is only compiled in tests unless another gate is given, with
+//! `harness(cfg(<predicate>))` or `harness(always)`. A function that isn't
+//! harnessable is reported whatever the gate.
 
 use darling::util::Flag;
 use proc_macro2::TokenStream;
@@ -33,6 +33,7 @@ use syn::{
 
 use crate::{
     parse::{
+        harness::HarnessGate,
         kernel::{KernelArgs, KernelBody, Launch},
         signature::KernelReturns,
     },
@@ -109,13 +110,13 @@ fn array_elem(ty: &Type) -> Option<&Type> {
 
 impl Launch {
     pub fn harness(&self) -> TokenStream {
-        if !self.args.harness.is_present() {
+        let Some(gate) = &self.args.harness else {
             return TokenStream::new();
-        }
+        };
 
         match self.harness_plan() {
             Some(plan) => self
-                .harness_tokens(&plan)
+                .harness_tokens(&plan, gate)
                 .unwrap_or_else(|err| err.into_compile_error()),
             None => syn::Error::new_spanned(
                 &self.func.sig.name,
@@ -265,7 +266,7 @@ impl Launch {
         })
     }
 
-    fn harness_tokens(&self, plan: &HarnessPlan) -> syn::Result<TokenStream> {
+    fn harness_tokens(&self, plan: &HarnessPlan, gate: &HarnessGate) -> syn::Result<TokenStream> {
         let input_scalar = prelude_type("InputScalar");
         let buffer_arg = prelude_type("BufferArg");
         let array_type = prelude_type("Array");
@@ -484,14 +485,19 @@ impl Launch {
              If the kernel fails to compile or run."
         );
 
+        let gate = gate.attr();
+
         Ok(quote! {
+            #gate
             #[doc(hidden)]
             pub mod __harness_call {
                 pub use super::expand;
             }
 
+            #gate
             #kernel
 
+            #gate
             #[allow(dead_code, clippy::too_many_arguments, clippy::let_unit_value)]
             #[doc = #doc]
             pub fn harness<__R: #runtime, #(#generics),*>(
@@ -720,7 +726,10 @@ mod tests {
         let expand = || {
             let launch = Launch::from_item_fn(item.clone(), KernelArgs::default()).unwrap();
             let plan = launch.harness_plan().unwrap();
-            launch.harness_tokens(&plan).unwrap().to_string()
+            launch
+                .harness_tokens(&plan, &HarnessGate::Always)
+                .unwrap()
+                .to_string()
         };
 
         let first = expand();
