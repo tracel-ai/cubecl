@@ -7,7 +7,7 @@ use super::{
 use crate::compute::copies::WgpuCopies;
 use crate::compute::device_poison::PoisonWatch;
 use crate::{
-    WgpuResource, WgpuStorage,
+    WgpuResource, WgpuStorage, WriteTarget,
     controller::WgpuAllocController,
     schedule::{Addresses, ScheduleTask},
 };
@@ -180,6 +180,7 @@ impl WgpuStream {
         queue: wgpu::Queue,
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
+        host_visible: bool,
         timing_method: TimingMethod,
         timing_budget: Arc<TimestampQuerySetBudget>,
         timestamp_sampling: TimestampSampling,
@@ -211,6 +212,7 @@ impl WgpuStream {
             &device,
             &memory_properties,
             memory_config,
+            host_visible,
             logger.clone(),
             use_vulkan_compiler,
         );
@@ -370,6 +372,12 @@ impl WgpuStream {
 
     /// Read multiple buffers lazily to [Bytes], potentially using pinned memory.
     ///
+    /// A descriptor naming a host-visible primary buffer is copied out of its own
+    /// allocation when the stream has nothing queued and the device is idle;
+    /// every other descriptor is copied through the stream's staging buffers,
+    /// which the queue orders. Both are the same `Bytes` to the caller: a read
+    /// copies, so nothing the caller is handed points into device memory.
+    ///
     /// # Arguments
     ///
     /// * `self` - The current stream.
@@ -384,33 +392,67 @@ impl WgpuStream {
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         self.compute_pass = None;
-        let mut staging_info = Vec::with_capacity(descriptors.len());
-        let mut callbacks = Vec::with_capacity(descriptors.len());
+        // A mapped read is not ordered by the queue, so it needs a stream with
+        // nothing queued and a device with nothing in flight. Anything else keeps
+        // the staging copy, which the queue orders. A wasm device maps nothing, so
+        // it always takes the staging path.
+        //
+        // The device is asked at most once per batch, and only when a host-visible
+        // descriptor makes the answer matter: a batch of device-local reads takes
+        // the staging path without polling at all.
+        #[cfg(not(target_family = "wasm"))]
+        let mut device_idle: Option<bool> = None;
+
+        // One result slot per descriptor, in order. A host-visible read fills its
+        // slot here; a staged one names its slot in `staging`.
+        let mut results: Vec<Option<Bytes>> = Vec::with_capacity(descriptors.len());
+        let mut staging = Vec::new();
 
         for (resource, shape, elem_size) in descriptors {
             let size = shape.iter().product::<usize>() * elem_size;
 
             // Zero-sized resources don't need a GPU copy.
             if resource.size == 0 {
-                staging_info.push(None);
+                results.push(None);
                 continue;
+            }
+
+            // Copying out of the allocation itself skips the staging buffer the
+            // copy would otherwise need. A mapping that does not complete is a
+            // lost shortcut, not a failed read: it falls through to staging.
+            #[cfg(not(target_family = "wasm"))]
+            if resource.is_host_visible()
+                && self.tasks_count == 0
+                && self.pending_write_count == 0
+                && *device_idle.get_or_insert_with(|| self.queue_is_idle())
+            {
+                match resource.read_host_visible(&self.device, size) {
+                    Ok(bytes) => {
+                        results.push(Some(Bytes::from_bytes_vec(bytes)));
+                        continue;
+                    }
+                    Err(err) => {
+                        log::warn!("wgpu: reading a host-visible buffer in place failed ({err})");
+                    }
+                }
             }
 
             // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
             // memory is 32 bytes aligned (see WgpuStorage).
             let align = wgpu::COPY_BUFFER_ALIGNMENT;
             let aligned_len = resource.size.div_ceil(align) * align;
-            let (staging, binding) = self.auxiliary.reserve_staging(aligned_len).unwrap();
+            let (staging_resource, binding) = self.auxiliary.reserve_staging(aligned_len).unwrap();
 
             self.tasks_count += 1;
             self.encoder.copy_buffer_to_buffer(
                 &resource.buffer,
                 resource.offset,
-                &staging.buffer,
+                &staging_resource.buffer,
                 0,
                 aligned_len,
             );
-            staging_info.push(Some((staging, binding, size)));
+            staging.push((results.len(), staging_resource, binding, size));
+            results.push(None);
         }
 
         // Flush all commands to the queue, so GPU gets started on copying to the
@@ -427,30 +469,28 @@ impl WgpuStream {
             return Box::pin(async move { Err(err) });
         }
 
-        for entry in staging_info.iter() {
-            if let Some((staging, _binding, _size)) = entry {
-                let (sender, receiver) = cubecl_environment::future::channel::bounded(1);
-                self.poison.wake_on_loss(&sender);
-                staging
-                    .buffer
-                    .slice(..)
-                    .map_async(wgpu::MapMode::Read, move |v| {
-                        // This might fail if the channel is closed (eg. the future is dropped).
-                        // This is fine, just means results aren't needed anymore.
-                        let _ = sender.try_send(v);
-                    });
-
-                callbacks.push(Some(receiver));
-            } else {
-                callbacks.push(None);
-            }
+        let mut callbacks = Vec::with_capacity(staging.len());
+        for (_, staging_resource, _, _) in staging.iter() {
+            let (sender, receiver) = cubecl_environment::future::channel::bounded(1);
+            self.poison.wake_on_loss(&sender);
+            staging_resource
+                .buffer
+                .slice(..)
+                .map_async(wgpu::MapMode::Read, move |v| {
+                    // This might fail if the channel is closed (eg. the future is dropped).
+                    // This is fine, just means results aren't needed anymore.
+                    let _ = sender.try_send(v);
+                });
+            callbacks.push(receiver);
         }
 
         let poll = self.poll.start_polling();
         let poison = self.poison.clone();
 
         Box::pin(async move {
-            for receiver in callbacks.iter().flatten() {
+            for ((index, staging_resource, binding, size), receiver) in
+                staging.into_iter().zip(callbacks)
+            {
                 let mapped = receiver.recv().await;
                 // The device can be poisoned while the copy is in flight.
                 poison.check()?;
@@ -469,28 +509,19 @@ impl WgpuStream {
                         });
                     }
                 }
+                let controller =
+                    Box::new(WgpuAllocController::init(binding, staging_resource.buffer));
+                // SAFETY: The binding has initialized memory for at least `size` bytes.
+                results[index] = Some(unsafe { Bytes::from_controller(controller, size) });
             }
 
             // Can stop polling now.
             core::mem::drop(poll);
 
-            let result = {
-                staging_info
-                    .into_iter()
-                    .map(|entry| {
-                        if let Some((staging, binding, size)) = entry {
-                            let controller =
-                                Box::new(WgpuAllocController::init(binding, staging.buffer));
-                            // SAFETY: The binding has initialized memory for at least `size` bytes.
-                            unsafe { Bytes::from_controller(controller, size) }
-                        } else {
-                            Bytes::from_bytes_vec(vec![])
-                        }
-                    })
-                    .collect()
-            };
-
-            Ok(result)
+            Ok(results
+                .into_iter()
+                .map(|bytes| bytes.unwrap_or_else(|| Bytes::from_bytes_vec(vec![])))
+                .collect())
         })
     }
 
@@ -743,40 +774,66 @@ impl WgpuStream {
     /// Not ordered by the queue, so call it only after a submit, never for uniforms.
     #[cfg(not(target_family = "wasm"))]
     fn write_mapped(&mut self, resource: &WgpuResource, data: &[u8]) -> bool {
-        let Some(host_ptr) = resource.host_ptr else {
-            return false;
-        };
         // The copy below is unchecked; the queue path validates.
         if data.len() as u64 > resource.size {
             return false;
         }
-
-        // A pooled range may have belonged to a tensor whose kernels are still running, so
-        // the copy needs an idle queue. Never drain one to get it: the stall costs a
-        // pipelined loop the CPU/GPU overlap it lives on, and it buys nothing on a bulk
-        // upload, which finds the queue idle anyway because nothing is queued behind what
-        // it is loading. So take the mapping when the queue is already free, and leave the
-        // write to the queue when it is not.
-        match self.device.poll(wgpu::PollType::Poll) {
-            Ok(status) if status.wait_finished() => {}
-            Ok(_) => return false,
-            Err(e) => {
-                log::warn!("wgpu: poll before a mapped write failed ({e})");
-                return false;
+        let target = resource.write_target();
+        // Neither in-place path is ordered by the queue, so both need a device
+        // with nothing in flight. A busy one leaves the copy to the queue rather
+        // than draining it: the staged write lands either way, and a drain would
+        // stall every stream behind one upload.
+        if !target.in_place_now(self.queue_is_idle()) {
+            return false;
+        }
+        match target {
+            WriteTarget::Mapped => match resource.write_host_visible(data, &self.device) {
+                Ok(()) => true,
+                Err(err) => {
+                    // Staging is always correct, so a mapping that did not
+                    // complete is a lost shortcut, not a failed write.
+                    log::warn!("wgpu: in-place write into a host-visible buffer failed ({err})");
+                    false
+                }
+            },
+            WriteTarget::Pointer(host_ptr) => {
+                // SAFETY: The range is in bounds and the queue is idle.
+                unsafe {
+                    let dst = host_ptr.0.as_ptr().add(resource.offset as usize);
+                    core::ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len());
+                }
+                true
             }
+            // `in_place_now` refused it, so this is not reached.
+            WriteTarget::QueueOnly => false,
         }
-
-        // SAFETY: The range is in bounds and the queue is idle.
-        unsafe {
-            let dst = host_ptr.0.as_ptr().add(resource.offset as usize);
-            core::ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len());
-        }
-        true
     }
 
     #[cfg(target_family = "wasm")]
     fn write_mapped(&mut self, _resource: &WgpuResource, _data: &[u8]) -> bool {
         false
+    }
+
+    /// A pooled range may have belonged to a tensor whose kernels are still running, so
+    /// a mapped write needs an idle queue. Never drain one to get it: the stall costs a
+    /// pipelined loop the CPU/GPU overlap it lives on, and it buys nothing on a bulk
+    /// upload, which finds the queue idle anyway because nothing is queued behind what
+    /// it is loading. So take the mapping when the queue is already free, and leave the
+    /// write to the queue when it is not.
+    ///
+    /// This is the device's idleness, not one buffer's: wgpu exposes no per-buffer
+    /// query, and a poll that says the device is idle is the strongest signal
+    /// available that the range is not being read or written right now.
+    #[cfg(not(target_family = "wasm"))]
+    fn queue_is_idle(&self) -> bool {
+        match self.device.poll(wgpu::PollType::Poll) {
+            Ok(status) if status.wait_finished() => true,
+            Ok(_) => false,
+            Err(e) => {
+                log::warn!("wgpu: poll before a mapped write failed ({e})");
+                false
+            }
+        }
     }
 
     // Nb: this function submits a command to the _queue_ not to the encoder,

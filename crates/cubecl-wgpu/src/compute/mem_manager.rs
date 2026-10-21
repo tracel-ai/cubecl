@@ -20,23 +20,37 @@ const UNIFORMS: &str = "Uniform GPU Memory";
 
 /// The memory every buffer a user allocates lives in, laid out as `config`
 /// says.
+///
+/// A host-visible pool adds `MAP_READ | MAP_WRITE` to every allocation, which is
+/// what makes an idle write and a read happen on the allocation itself instead of
+/// through a staging buffer.
 pub(crate) fn main_memory(
     device: &wgpu::Device,
     properties: &MemoryDeviceProperties,
     config: MemoryConfiguration,
+    host_visible: bool,
     logger: Arc<ServerLogger>,
     use_vulkan_compiler: bool,
 ) -> MemoryManagement<WgpuStorage> {
-    MemoryManagement::from_configuration(
-        WgpuStorage::new(
+    let usages = BufferUsages::STORAGE
+        | BufferUsages::COPY_SRC
+        | BufferUsages::COPY_DST
+        | BufferUsages::INDIRECT;
+    let storage = match host_visible {
+        false => WgpuStorage::new(
             properties.alignment as usize,
             device.clone(),
-            BufferUsages::STORAGE
-                | BufferUsages::COPY_SRC
-                | BufferUsages::COPY_DST
-                | BufferUsages::INDIRECT,
+            usages,
             use_vulkan_compiler,
         ),
+        true => WgpuStorage::new_with_host_visibility(
+            properties.alignment as usize,
+            device.clone(),
+            usages,
+        ),
+    };
+    MemoryManagement::from_configuration(
+        storage,
         properties,
         config,
         logger,

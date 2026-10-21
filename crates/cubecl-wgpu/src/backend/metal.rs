@@ -50,10 +50,18 @@ pub async fn request_metal_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgp
 pub async fn try_request_metal_device(
     adapter: &wgpu::Adapter,
 ) -> Result<(wgpu::Device, wgpu::Queue), crate::WgpuInitError> {
+    // A bare device request brings up device-local primary memory: mapping the
+    // pool is a server placement decision, and this returns no server.
+    try_request_metal_device_with(adapter, crate::PrimaryMemoryMode::DeviceLocal).await
+}
+
+/// Request a native Metal device for a runtime with the given primary memory.
+pub(crate) async fn try_request_metal_device_with(
+    adapter: &wgpu::Adapter,
+    primary_memory: crate::PrimaryMemoryMode,
+) -> Result<(wgpu::Device, wgpu::Queue), crate::WgpuInitError> {
     let limits = adapter.limits();
-    let features = adapter
-        .features()
-        .difference(Features::MAPPABLE_PRIMARY_BUFFERS);
+    let features = crate::backend::requested_features(adapter, primary_memory);
     unsafe {
         let hal_adapter = adapter.as_hal::<hal::api::Metal>().ok_or_else(|| {
             crate::WgpuInitError::InvalidConfiguration {

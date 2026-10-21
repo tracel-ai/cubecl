@@ -76,25 +76,54 @@ impl<'a> ModuleSource<'a> {
     }
 }
 
+/// The features a device creation asks for under `primary_memory`.
+///
+/// `MAPPABLE_PRIMARY_BUFFERS` is what lets one buffer be both storage for a
+/// kernel and mappable by the host. It is a performance footgun when nothing
+/// maps the pool, so it is only asked for where mapping it is possible at all:
+/// an explicit `HostVisible` request, or an `Auto` one on an adapter whose memory
+/// is the host's. Whether the pool is *actually* mapped is decided at server
+/// init, once the compiler is known too — see `PrimaryMemoryMode::resolve`. A
+/// `HostVisible` request the adapter cannot serve is reported there as well.
+pub fn requested_features(
+    adapter: &Adapter,
+    primary_memory: crate::PrimaryMemoryMode,
+) -> wgpu::Features {
+    let features = adapter.features();
+    let wants_mappable = match primary_memory {
+        crate::PrimaryMemoryMode::DeviceLocal => false,
+        crate::PrimaryMemoryMode::HostVisible => true,
+        crate::PrimaryMemoryMode::Auto => {
+            crate::runtime::shares_host_memory(adapter.get_info().device_type)
+        }
+    };
+    match wants_mappable {
+        true => features,
+        false => features.difference(wgpu::Features::MAPPABLE_PRIMARY_BUFFERS),
+    }
+}
+
 /// Request a device, returning device creation failures.
 pub async fn try_request_device(
     adapter: &Adapter,
+    primary_memory: crate::PrimaryMemoryMode,
 ) -> Result<(Device, Queue), crate::WgpuInitError> {
-    if let Some(result) = request_vulkan_device(adapter).await? {
+    if let Some(result) = request_vulkan_device(adapter, primary_memory).await? {
         return Ok(result);
     }
-    if let Some(result) = request_metal_device(adapter).await? {
+    if let Some(result) = request_metal_device(adapter, primary_memory).await? {
         return Ok(result);
     }
-    wgsl::try_request_device(adapter).await
+    wgsl::try_request_device(adapter, primary_memory).await
 }
 
 #[cfg(feature = "spirv")]
 async fn request_vulkan_device(
     adapter: &Adapter,
+    primary_memory: crate::PrimaryMemoryMode,
 ) -> Result<Option<(Device, Queue)>, crate::WgpuInitError> {
     if is_vulkan(adapter) {
-        vulkan::try_request_vulkan_device(adapter).await
+        vulkan::try_request_vulkan_device_with(adapter, primary_memory).await
     } else {
         Ok(None)
     }
@@ -103,6 +132,7 @@ async fn request_vulkan_device(
 #[cfg(not(feature = "spirv"))]
 async fn request_vulkan_device(
     _adapter: &Adapter,
+    _primary_memory: crate::PrimaryMemoryMode,
 ) -> Result<Option<(Device, Queue)>, crate::WgpuInitError> {
     Ok(None)
 }
@@ -110,9 +140,12 @@ async fn request_vulkan_device(
 #[cfg(all(feature = "msl", target_os = "macos"))]
 async fn request_metal_device(
     adapter: &Adapter,
+    primary_memory: crate::PrimaryMemoryMode,
 ) -> Result<Option<(Device, Queue)>, crate::WgpuInitError> {
     if is_metal(adapter) {
-        metal::try_request_metal_device(adapter).await.map(Some)
+        metal::try_request_metal_device_with(adapter, primary_memory)
+            .await
+            .map(Some)
     } else {
         Ok(None)
     }
@@ -121,6 +154,7 @@ async fn request_metal_device(
 #[cfg(not(all(feature = "msl", target_os = "macos")))]
 async fn request_metal_device(
     _adapter: &Adapter,
+    _primary_memory: crate::PrimaryMemoryMode,
 ) -> Result<Option<(Device, Queue)>, crate::WgpuInitError> {
     Ok(None)
 }
