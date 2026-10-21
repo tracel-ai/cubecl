@@ -565,6 +565,138 @@ impl Bytes {
         Ok(bytes)
     }
 
+    /// Creates empty bytes with `capacity` bytes of memory from the global allocator.
+    ///
+    /// Write the data into [`Self::spare_capacity_mut`], then call [`Self::set_len`]. Unlike
+    /// [`Self::with_capacity_in`], [`Self::try_into_vec`] can return this memory as a `Vec`
+    /// without a copy, if `align` is the alignment of the element type.
+    ///
+    /// # Errors
+    ///
+    /// - [`AllocationError::UnsupportedOperation`] when `align` is larger than 16 bytes.
+    /// - [`AllocationError::OutOfMemory`] when `capacity` is too large for a layout.
+    ///
+    /// When the global allocator has no memory, the program aborts, as with `Vec`.
+    pub fn with_capacity(capacity: usize, align: usize) -> Result<Self, AllocationError> {
+        let controller = NativeAllocationController::alloc_with_capacity(
+            Global,
+            capacity.next_multiple_of(align),
+            align,
+        )?;
+
+        Ok(Self {
+            controller: Box::new(controller),
+            len: 0,
+        })
+    }
+
+    /// Creates bytes that hold `f(0)`, `f(1)`, ..., `f(n - 1)`, in memory from `allocator`.
+    ///
+    /// The elements are written once, without zeroing the memory first. The alignment is the
+    /// alignment of `E`. See [`Self::with_capacity_in`] for the behaviour of the memory.
+    ///
+    /// # Errors
+    ///
+    /// The same as [`Self::with_capacity_in`]. A size that overflows `usize` is
+    /// [`AllocationError::OutOfMemory`].
+    pub fn from_fn_in<E, F>(
+        allocator: &'static dyn BufferAllocator,
+        n: usize,
+        f: F,
+    ) -> Result<Self, AllocationError>
+    where
+        E: bytemuck::NoUninit,
+        F: FnMut(usize) -> E,
+    {
+        let size = n
+            .checked_mul(size_of::<E>())
+            .ok_or(AllocationError::OutOfMemory)?;
+        let mut bytes = Self::with_capacity_in(allocator, size, align_of::<E>())?;
+        bytes.write_from_fn(n, f);
+        Ok(bytes)
+    }
+
+    /// Creates bytes that hold `f(0)`, `f(1)`, ..., `f(n - 1)`, in memory from the global
+    /// allocator.
+    ///
+    /// The result is the same as [`Self::from_elems`] of the collected elements, without the
+    /// intermediate `Vec`.
+    ///
+    /// # Panics
+    ///
+    /// When the size overflows `usize`, or when the alignment of `E` is larger than 16 bytes.
+    pub fn from_fn<E, F>(n: usize, f: F) -> Self
+    where
+        E: bytemuck::NoUninit,
+        F: FnMut(usize) -> E,
+    {
+        let size = n.checked_mul(size_of::<E>()).expect("size overflows usize");
+        let mut bytes = Self::with_capacity(size, align_of::<E>())
+            .unwrap_or_else(|err| panic!("failed to allocate {size} bytes: {err}"));
+        bytes.write_from_fn(n, f);
+        bytes
+    }
+
+    /// Writes `f(0)`, ..., `f(n - 1)` after `len`, and adds them to `len`.
+    ///
+    /// The spare capacity must hold `n` elements, and `len` must be zero, so that the elements
+    /// are aligned.
+    fn write_from_fn<E, F>(&mut self, n: usize, mut f: F)
+    where
+        E: bytemuck::NoUninit,
+        F: FnMut(usize) -> E,
+    {
+        debug_assert_eq!(self.len, 0, "the elements must start at an aligned offset");
+        let spare = self.spare_capacity_mut();
+        assert!(
+            spare.len() >= n * size_of::<E>(),
+            "the spare capacity is too small"
+        );
+        let ptr = spare.as_mut_ptr().cast::<E>();
+        debug_assert!(
+            ptr.is_aligned(),
+            "the memory is not aligned for the element type"
+        );
+        for i in 0..n {
+            // SAFETY: The spare capacity holds `n` elements, and the pointer is aligned to `E`.
+            // When `f` panics, `len` does not change, and `E` is `Copy`, so nothing leaks.
+            unsafe { ptr.add(i).write(f(i)) };
+        }
+        // SAFETY: The first `n * size_of::<E>()` bytes are now initialized.
+        unsafe { self.set_len(n * size_of::<E>()) };
+    }
+
+    /// The uninitialized memory after the data: the bytes from `len` to the capacity.
+    ///
+    /// Write data here, then call [`Self::set_len`] to make it part of the bytes. If the memory
+    /// is still shared, this copies it first (copy-on-write).
+    ///
+    /// # Panics
+    ///
+    /// When the memory is not accessible from the host.
+    pub fn spare_capacity_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+        let len = self.len;
+        // SAFETY: The bytes after `len` are not part of the initialized data, so writes of
+        // uninitialized values there do not break the invariant of `Bytes`.
+        let memory = unsafe { self.memory_mut_default() };
+        &mut memory[len..]
+    }
+
+    /// Sets the length of the data.
+    ///
+    /// # Safety
+    ///
+    /// - `len` must not be larger than [`Self::capacity`].
+    /// - The first `len` bytes must be initialized, for example by writes to
+    ///   [`Self::spare_capacity_mut`].
+    pub unsafe fn set_len(&mut self, len: usize) {
+        debug_assert!(
+            len <= self.capacity(),
+            "the length must not be larger than the capacity"
+        );
+        self.len = len;
+    }
+
     /// The controller of the allocation.
     pub(crate) fn controller(&self) -> &dyn AllocationController {
         &*self.controller

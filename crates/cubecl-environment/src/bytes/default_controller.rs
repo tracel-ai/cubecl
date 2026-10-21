@@ -33,6 +33,9 @@ pub(crate) trait Provider: BufferAllocator + Copy + 'static {
 #[derive(Clone, Copy)]
 pub(crate) struct Global;
 
+/// The global allocator as a `'static` value, for APIs that take `&'static dyn BufferAllocator`.
+pub(crate) static GLOBAL: Global = Global;
+
 impl Provider for Global {
     const DETACHABLE: bool = true;
     const PROPERTY: AllocationProperty = AllocationProperty::Native;
@@ -257,7 +260,7 @@ fn layout(size: usize, align: usize) -> Result<Layout, AllocationError> {
 }
 
 /// A pointer for an allocation of zero bytes.
-fn dangling(align: usize) -> NonNull<u8> {
+pub(crate) fn dangling(align: usize) -> NonNull<u8> {
     // [buffer alloc]: The current docs of Vec::from_raw_parts(ptr, ...) say:
     //   > ptr must have been allocated using the global allocator
     // Yet, an empty Vec is guaranteed to not allocate (it is even illegal! to allocate with a zero-sized layout)

@@ -213,9 +213,14 @@ pub(crate) type AllocatorController = Controller<&'static dyn BufferAllocator>;
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
-    use crate::bytes::{Bytes, SplitPolicy, default_controller::MAX_ALIGN};
+    use crate::bytes::{Bytes, ScratchBuffer, SplitPolicy, default_controller::MAX_ALIGN};
     use alloc::boxed::Box;
     use core::sync::atomic::{AtomicUsize, Ordering};
+    #[cfg(feature = "dyn-stack")]
+    use {
+        crate::bytes::DynStackAllocator,
+        dyn_stack::{MemStack, StackReq, mem::MemBuffer},
+    };
 
     /// Counts the calls that reach it, and refuses allocations above `limit` live bytes.
     struct Counting {
@@ -452,5 +457,132 @@ mod tests {
             assert_eq!(core::slice::from_raw_parts(ptr.as_ptr(), 4), &[1, 2, 3, 4]);
             arena.deallocate(ptr, new);
         }
+    }
+
+    #[test_log::test]
+    fn from_fn_in_writes_each_element_into_the_allocator() {
+        let arena = Counting::leak(usize::MAX);
+        let bytes = Bytes::from_fn_in(arena, 5, |i| u32::try_from(i * 10).unwrap()).unwrap();
+        assert_eq!(bytes.align(), align_of::<u32>());
+        assert_eq!(bytes.len(), 20);
+        assert_eq!(
+            bytemuck::cast_slice::<u8, u32>(&bytes),
+            &[0, 10, 20, 30, 40]
+        );
+        assert_eq!(arena.counts(), (1, 0, 0));
+        let bytes = bytes.try_into_vec::<u32>().unwrap_err();
+        drop(bytes);
+        assert_eq!(arena.live(), 0);
+    }
+
+    #[test_log::test]
+    fn from_fn_without_an_allocator_becomes_a_vec_without_a_copy() {
+        let bytes = Bytes::from_fn(4, |i| f32::from(u8::try_from(i).unwrap()));
+        let ptr = bytes.as_ptr();
+        let vec = bytes.try_into_vec::<f32>().unwrap();
+        assert_eq!(vec, [0.0, 1.0, 2.0, 3.0]);
+        assert_eq!(vec.as_ptr().cast::<u8>(), ptr);
+    }
+
+    #[test_log::test]
+    fn spare_capacity_and_set_len_write_an_output_in_place() {
+        let arena = Counting::leak(usize::MAX);
+        let mut bytes = Bytes::with_capacity_in(arena, 6, 2).unwrap();
+        let spare = bytes.spare_capacity_mut();
+        assert_eq!(spare.len(), 6);
+        // Write in any order, as a scatter or a gather does.
+        for i in (0..6).rev() {
+            spare[i].write(u8::try_from(i).unwrap());
+        }
+        // SAFETY: The first 6 bytes are initialized.
+        unsafe { bytes.set_len(6) };
+        assert_eq!(&bytes[..], &[0, 1, 2, 3, 4, 5]);
+        assert!(bytes.spare_capacity_mut().is_empty());
+        assert_eq!(arena.counts(), (1, 0, 0));
+    }
+
+    #[test_log::test]
+    fn spare_capacity_of_global_memory_becomes_a_vec() {
+        let mut bytes = Bytes::with_capacity(8, 4).unwrap();
+        for (i, byte) in bytes.spare_capacity_mut().iter_mut().enumerate() {
+            byte.write(u8::try_from(i).unwrap());
+        }
+        // SAFETY: The 8 bytes of capacity are initialized.
+        unsafe { bytes.set_len(8) };
+        // The alignment of the memory is the alignment of `u32`.
+        let vec = bytes.try_into_vec::<u32>().unwrap();
+        assert_eq!(
+            vec,
+            [
+                u32::from_ne_bytes([0, 1, 2, 3]),
+                u32::from_ne_bytes([4, 5, 6, 7])
+            ]
+        );
+    }
+
+    #[test_log::test]
+    fn scratch_buffer_has_any_alignment_and_frees_on_drop() {
+        let arena = Counting::leak(usize::MAX);
+        let layout = Layout::from_size_align(256, 64).unwrap();
+        let mut scratch = ScratchBuffer::new_in(arena, layout).unwrap();
+        let memory = scratch.as_uninit_mut();
+        assert_eq!(memory.len(), 256);
+        assert_eq!(memory.as_ptr().align_offset(64), 0);
+        assert_eq!(scratch.layout(), layout);
+        assert_eq!(arena.counts(), (1, 0, 0));
+        drop(scratch);
+        assert_eq!(arena.counts(), (1, 0, 1));
+
+        let empty = ScratchBuffer::new_in(arena, Layout::from_size_align(0, 64).unwrap());
+        assert!(empty.unwrap().as_uninit_mut().is_empty());
+        assert_eq!(arena.counts(), (1, 0, 1));
+
+        let mut global = ScratchBuffer::new(layout);
+        assert_eq!(global.as_uninit_mut().as_ptr().align_offset(64), 0);
+    }
+
+    #[test_log::test]
+    fn scratch_buffer_reports_an_exhausted_allocator() {
+        let arena = Counting::leak(16);
+        let layout = Layout::from_size_align(32, 8).unwrap();
+        assert_eq!(
+            ScratchBuffer::new_in(arena, layout).unwrap_err(),
+            AllocationError::OutOfMemory
+        );
+    }
+
+    #[cfg(feature = "dyn-stack")]
+    #[test_log::test]
+    fn dyn_stack_buffers_come_from_the_allocator() {
+        let arena = Counting::leak(usize::MAX);
+        // The packing buffers of a matrix multiplication, aligned for SIMD.
+        let req = StackReq::new_aligned::<f32>(100, 64).and(StackReq::new_aligned::<f32>(50, 64));
+        let mut buffer = MemBuffer::new_in(req, DynStackAllocator(arena as &dyn BufferAllocator));
+        assert_eq!(arena.counts(), (1, 0, 0));
+
+        let stack = MemStack::new(&mut buffer);
+        let (lhs, stack) = stack.make_aligned_uninit::<f32>(100, 64);
+        let (rhs, _) = stack.make_aligned_uninit::<f32>(50, 64);
+        assert_eq!((lhs.len(), rhs.len()), (100, 50));
+        assert_eq!(lhs.as_ptr().align_offset(64), 0);
+        drop(buffer);
+        assert_eq!(arena.counts(), (1, 0, 1));
+        assert_eq!(arena.live(), 0);
+    }
+
+    #[cfg(feature = "dyn-stack")]
+    #[test_log::test]
+    fn a_scratch_buffer_can_back_a_dyn_stack() {
+        let arena = Counting::leak(usize::MAX);
+        let req = StackReq::new_aligned::<f32>(64, 64);
+        let mut scratch = ScratchBuffer::new_in(arena, req.layout().unwrap()).unwrap();
+        // Use the same buffer for each call: only one allocation.
+        for _ in 0..3 {
+            let stack = MemStack::new(scratch.as_uninit_mut());
+            let (packed, _) =
+                stack.make_aligned_with::<f32>(64, 64, |i| f32::from(u8::try_from(i).unwrap()));
+            assert_eq!(packed[63], 63.0);
+        }
+        assert_eq!(arena.counts(), (1, 0, 0));
     }
 }
