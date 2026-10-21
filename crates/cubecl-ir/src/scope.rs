@@ -4,7 +4,7 @@ use crate::{
     interfaces::control_flow::{SymbolOpInterface, SymbolVisibility},
     rewrite::op_insertion_point_in_block,
 };
-use alloc::{boxed::Box, format, rc::Rc, string::String, vec, vec::Vec};
+use alloc::{boxed::Box, format, rc::Rc, string::String, sync::Arc, vec, vec::Vec};
 use core::{
     any::{TypeId, type_name},
     cell::{Ref, RefCell, RefMut, UnsafeCell},
@@ -165,7 +165,7 @@ pub struct GlobalState {
     pub sizemap: Sizes,
     pub modes: InstructionModes,
     pub target_properties: TargetProperties,
-    pub device_properties: Option<Rc<DeviceProperties>>,
+    pub device_properties: Option<Arc<DeviceProperties>>,
 }
 
 unsafe impl Send for GlobalState {}
@@ -418,9 +418,10 @@ pub struct InstructionModes {
 }
 
 impl Scope {
-    /// Set the device properties.
-    pub fn device_properties(&self, properties: &DeviceProperties) {
-        self.state_mut().device_properties = Some(Rc::new(properties.clone()));
+    /// Set the device properties, shared with the client that holds them: a launch sets them
+    /// every time, so they are never copied.
+    pub fn device_properties(&self, properties: Arc<DeviceProperties>) {
+        self.state_mut().device_properties = Some(properties);
     }
 
     #[track_caller]

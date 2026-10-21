@@ -291,7 +291,7 @@ impl Launch {
             let __name = <Self as #kernel_metadata>::id(self).entrypoint_name(&self.settings.kernel_name);
             let mut builder = #kernel_builder::new(self.settings.clone().kernel_name(__name));
             builder.runtime_properties(self.target_properties.as_ref().clone());
-            builder.device_properties(&self.device_properties);
+            builder.device_properties(self.device_properties.clone());
 
             #register_type
             #io_map
