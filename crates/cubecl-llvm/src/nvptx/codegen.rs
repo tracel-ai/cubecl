@@ -101,6 +101,7 @@ pub fn emit_ptx(
     entry: NvptxEntry,
     debug_info: DebugInfo,
 ) -> Result<NvptxModule, String> {
+    let eff_arch = effective_arch(arch, ptx_version);
     let llvm_ctx = LLVMContext::default();
     let converted =
         convert_module(ctx, &llvm_ctx, module, debug_info, false).map_err(|err| err.to_string())?;
@@ -108,9 +109,9 @@ pub fn emit_ptx(
     let ir = name_inlined_functions(directives_only(converted.to_string(), debug_info));
     let module = LlvmModule::new(&ir)?;
     check_debug_info(&module, entrypoint, debug_info);
-    finalize(&module, entrypoint, arch, &entry)?;
+    finalize(&module, entrypoint, &eff_arch, &entry)?;
     let ir = module.print();
-    let ptx = compile(module, arch, ptx_version)?;
+    let ptx = compile(module, &eff_arch, ptx_version)?;
 
     let dump = KernelDump::new(entrypoint);
     dump.write("nvptx.ll", || &ir);
@@ -166,6 +167,31 @@ fn name_inlined_functions(ir: String) -> String {
         }
     }
     named
+}
+
+/// Minimum PTX ISA version required by LLVM for `arch_version` (`sm_103a` / `sm_121a` require PTX 8.8).
+fn min_ptx_for_arch(arch_version: u32) -> u32 {
+    match arch_version {
+        103 | 121 => 88,
+        101 | 120 => 87,
+        100 => 86,
+        90..=99 => 80,
+        _ => 63,
+    }
+}
+
+/// When `ptx_version` is older than the minimum PTX version LLVM requires for a minor capability
+/// (e.g. B300 `sm_103a` requires `ptx88`, while a CUDA 12.8 driver selects `ptx87`), step down to
+/// the major family target (`sm_100a`) instead of triggering an LLVM `report_fatal_error` abort.
+fn effective_arch(arch: &SmArch, ptx_version: Option<PtxVersion>) -> SmArch {
+    if let Some(ptx) = ptx_version
+        && ptx.number() < min_ptx_for_arch(arch.version())
+        && arch.version() > 90
+        && !arch.version().is_multiple_of(10)
+    {
+        return SmArch::new((arch.version() / 10) * 10, arch.tensor_cores());
+    }
+    *arch
 }
 
 /// Stamps the target and the entry point's calling convention and attributes on `module`.
@@ -230,13 +256,14 @@ fn compile(
     init_nvptx();
     // Instruction selection reads `ALLOW_FTZ_ATOMICS`.
     let _options = read_llvm_options();
+    let eff_arch = effective_arch(arch, ptx_version);
 
     let features = ptx_version
         .map(PtxVersion::target_feature)
         .unwrap_or_default();
     let machine = TargetMachine::new(&TargetSpec {
         triple: TRIPLE,
-        cpu: &arch.target_cpu(),
+        cpu: &eff_arch.target_cpu(),
         features: &features,
         reloc: LLVMRelocMode::LLVMRelocDefault,
         code_model: LLVMCodeModel::LLVMCodeModelDefault,
@@ -344,6 +371,45 @@ entry:
             ptx.contains(".version 9.3"),
             "an unknown version is ignored, not refused:\n{ptx}"
         );
+    }
+
+    #[test]
+    fn blackwell_b200_and_b300_reach_tensor_core_instructions() {
+        let ir = r#"
+declare i32 @llvm.nvvm.ldmatrix.sync.aligned.m8n8.x1.b16(ptr addrspace(3))
+declare { float, float, float, float } @llvm.nvvm.mma.m16n8k8.row.col.f32.f32(<2 x half>, <2 x half>, <2 x half>, float, float, float, float)
+define void @k(ptr addrspace(1) %out, ptr addrspace(3) %tile, <2 x half> %a) {
+entry:
+  %b = call i32 @llvm.nvvm.ldmatrix.sync.aligned.m8n8.x1.b16(ptr addrspace(3) %tile)
+  %bh = bitcast i32 %b to <2 x half>
+  %d = call { float, float, float, float } @llvm.nvvm.mma.m16n8k8.row.col.f32.f32(<2 x half> %a, <2 x half> %a, <2 x half> %bh, float 0.0, float 0.0, float 0.0, float 0.0)
+  %d0 = extractvalue { float, float, float, float } %d, 0
+  store float %d0, ptr addrspace(1) %out
+  ret void
+}
+"#;
+        // On CUDA 12.9+ / 13.x (ptx88+), B300 targets native `.target sm_103a`
+        for arch_ver in [100, 103] {
+            let ptx_version = PtxVersion::for_driver(12090);
+            let ptx = compile_to_ptx(ir, &SmArch::new(arch_ver, true), ptx_version).unwrap();
+            assert!(
+                ptx.contains(&format!(".target sm_{arch_ver}a")),
+                "sm_{arch_ver}a target missing:\n{ptx}"
+            );
+            assert!(
+                ptx.contains("ldmatrix.sync.aligned"),
+                "sm_{arch_ver}a ldmatrix:\n{ptx}"
+            );
+            assert!(
+                ptx.contains("mma.sync.aligned.m16n8k8"),
+                "sm_{arch_ver}a mma:\n{ptx}"
+            );
+        }
+        // On CUDA 12.8 (ptx87), B300 (103) gracefully targets `.target sm_100a` without aborting
+        let ptx_12_8 =
+            compile_to_ptx(ir, &SmArch::new(103, true), PtxVersion::for_driver(12080)).unwrap();
+        assert!(ptx_12_8.contains(".target sm_100a"), "{ptx_12_8}");
+        assert!(ptx_12_8.contains("mma.sync.aligned.m16n8k8"), "{ptx_12_8}");
     }
 
     fn compile_to_ptx(

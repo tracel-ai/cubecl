@@ -312,6 +312,36 @@ impl CudaArtifactCompiler {
                     backtrace: BackTrace::capture(),
                 })?;
             if cudarc::nvrtc::result::compile_program(program, &options).is_err() {
+                // On newer minor architectures (e.g. B300 sm_103a running on a CUDA 12.8 NVRTC
+                // that only knows sm_100a), retry once with the major architecture target.
+                if self.arch.version > 90 && !self.arch.version.is_multiple_of(10) {
+                    let major_arch =
+                        format!("--gpu-architecture=sm_{}a", (self.arch.version / 10) * 10);
+                    let mut fallback_opts =
+                        vec![major_arch.as_str(), include_option.as_str(), "-lineinfo"];
+                    if cccl_include_path.exists() {
+                        fallback_opts.push(&cccl_include_option);
+                    }
+                    let fallback_prog =
+                        cudarc::nvrtc::result::create_program(c_source.as_c_str(), None).map_err(
+                            |err| CompilationError::Generic {
+                                reason: format!("{err}"),
+                                backtrace: BackTrace::capture(),
+                            },
+                        )?;
+                    if cudarc::nvrtc::result::compile_program(fallback_prog, &fallback_opts).is_ok()
+                    {
+                        let _ = cudarc::nvrtc::result::destroy_program(program);
+                        return cudarc::nvrtc::result::get_ptx(fallback_prog).map_err(|err| {
+                            CompilationError::Generic {
+                                reason: format!("{err}"),
+                                backtrace: BackTrace::capture(),
+                            }
+                        });
+                    }
+                    let _ = cudarc::nvrtc::result::destroy_program(fallback_prog);
+                }
+
                 let log_raw = cudarc::nvrtc::result::get_program_log(program).map_err(|err| {
                     CompilationError::Generic {
                         reason: format!("{err}"),
