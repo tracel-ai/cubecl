@@ -187,7 +187,13 @@ impl KernelId {
         self.address_type.hash(&mut hasher);
         self.cube_dim.hash(&mut hasher);
         self.mode.hash(&mut hasher);
-        self.info.hash(&mut hasher);
+        match &self.info {
+            None => 0isize.hash(&mut hasher),
+            Some(info) => {
+                1isize.hash(&mut hasher);
+                info.stable_hash(&mut hasher);
+            }
+        }
 
         hasher.finalize()
     }
@@ -235,6 +241,12 @@ impl core::fmt::Debug for Info {
 }
 
 impl Info {
+    /// Feeds `state` the value's stable hash, the same across runs.
+    fn stable_hash(&self, state: &mut StableHasher) {
+        self.value.dyn_type_id().hash(state);
+        state.write_u128(self.value.dyn_hash_one());
+    }
+
     fn new<T: 'static + PartialEq + Eq + Hash + core::fmt::Debug + Send + Sync>(id: T) -> Self {
         Self {
             value: Arc::new(id),
@@ -268,6 +280,8 @@ pub(crate) struct Info {
 }
 impl Eq for Info {}
 
+/// Hashed with the caller's hasher: a compilation cache looks a kernel up by its id on every
+/// launch, and only a key kept between runs needs the stable hash ([`Info::stable_hash`]).
 impl Hash for Info {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.value.dyn_type_id().hash(state);
@@ -288,9 +302,8 @@ impl<T: 'static + PartialEq + Eq + Hash + core::fmt::Debug + Send + Sync> DynKey
         TypeId::of::<T>()
     }
 
-    fn dyn_hash(&self, state: &mut dyn Hasher) {
-        let hash = self.dyn_hash_one();
-        state.write_u128(hash);
+    fn dyn_hash(&self, mut state: &mut dyn Hasher) {
+        self.hash(&mut state);
     }
 
     fn dyn_hash_one(&self) -> StableHash {
