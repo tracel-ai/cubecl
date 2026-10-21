@@ -16,6 +16,8 @@ use std::{
 
 use custom_channel::DeviceClient;
 
+use super::placement::SharedCacheCpus;
+
 // For debugging and benchmarking.
 //
 // use normal_channel::DeviceClient;
@@ -451,7 +453,10 @@ impl DeviceRunner {
     /// client together with the thread's join handle.
     pub fn start(runner_id: RunnerId) -> RunnerEntry {
         let (sender_init, recv_init) = oneshot::channel();
+        // Read here, on the thread that starts the device and goes on issuing its launches.
+        let shared_cache = SharedCacheCpus::of_current_thread();
         let (client, thread) = DeviceClient::new(runner_id, move || {
+            shared_cache.keep_current_thread();
             SERVER_THREAD.with_borrow_mut(|cell| *cell = Some(runner_id));
             sender_init.send(()).unwrap();
         });
