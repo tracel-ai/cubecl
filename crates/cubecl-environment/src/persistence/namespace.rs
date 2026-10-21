@@ -1,7 +1,8 @@
 use alloc::string::{String, ToString};
 
 /// Where a [`Store`](super::Store)'s entries live inside an environment: a
-/// `/`-separated location such as `autotune/0.11.0/cuda-0/matmul`.
+/// `/`-separated location such as
+/// `autotune/0.11.0/layout-v1/cuda_ptx-sm89_NVIDIA-L4_par58/matmul`.
 ///
 /// The middle segment is this build's version, and the constructors inject it
 /// unconditionally: it is what makes entries written by one cubecl invisible

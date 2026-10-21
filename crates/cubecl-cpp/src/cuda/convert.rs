@@ -83,19 +83,21 @@ impl LowerOp<Cuda> for CastOp {
     }
 }
 
-/// fp8 must convert straight from its source: an f16 detour rounds twice.
+/// fp8 must convert straight from its source: an f16 detour rounds twice. e8m0 converts from
+/// bf16, f32 and f64 alone ([`e8m0_source_prefix`]), so an f16 one goes through f32 first.
 fn encodes_directly(ctx: &Context, input: Value, out_ty: TypeHandle) -> bool {
     if !is_fp8(ctx, out_ty) {
         return intermediate_for_ty(ctx, out_ty) == input.get_type(ctx);
     }
     let scalar = input.get_type(ctx).scalar_ty(ctx);
-    scalar.is_float16(ctx)
+    let e8m0 = out_ty.scalar_ty(ctx).deref(ctx).is::<Float8E8M0Type>();
+    (scalar.is_float16(ctx) && !e8m0)
         || scalar.is_bfloat16(ctx)
         || scalar.is_float32(ctx)
         || scalar.is_float64(ctx)
 }
 
-/// `is_float8` also covers e8m0, which only ever converts from bf16.
+/// `is_float8` also covers e8m0.
 fn is_fp8(ctx: &Context, ty: TypeHandle) -> bool {
     Fp8Format::of_type(ctx, ty.scalar_ty(ctx)).is_some()
 }
@@ -191,7 +193,7 @@ fn cast_half_to_minifloat(ctx: &Context, input: Value, out_ty: TypeHandle) -> St
     let in_val = input.name(ctx);
     let fp8_source = || fp8_source_prefix(ctx, input);
     match_ty!((out_ty.deref(ctx)) {
-        Float8E8M0Type => format!("__nv_cvt_bfloat16raw_to_e8m0({in_val}, __NV_NOSAT, cudaRoundPosInf)"),
+        Float8E8M0Type => format!("__nv_cvt_{}_to_e8m0({in_val}, __NV_NOSAT, cudaRoundPosInf)", e8m0_source_prefix(ctx, input)),
         Float8E8M0x2Type => format!("__nv_cvt_bfloat162raw_to_e8m0x2({in_val}, __NV_NOSAT, cudaRoundPosInf)"),
         Float8E4M3Type => format!("__nv_cvt_{}_to_fp8({in_val}, __NV_SATFINITE, __NV_E4M3)", fp8_source()),
         Float8E4M3x2Type => format!("__nv_cvt_{}_to_fp8x2({in_val}, __NV_SATFINITE, __NV_E4M3)", fp8_source()),
@@ -204,6 +206,20 @@ fn cast_half_to_minifloat(ctx: &Context, input: Value, out_ty: TypeHandle) -> St
         Float4E2M1Type => format!("__nv_cvt_halfraw_to_fp4({in_val}, __NV_E2M1, cudaRoundNearest)"),
         Float4E2M1x2Type => format!("__nv_cvt_halfraw2_to_fp4x2({in_val}, __NV_E2M1, cudaRoundNearest)"),;
         _ => panic!("Unsupported type {}", out_ty.deref(ctx).display(ctx))
+    })
+}
+
+/// e8m0 converts from a bf16, an f32 or an f64 scalar, each through a converter of its own.
+fn e8m0_source_prefix(ctx: &Context, input: Value) -> &'static str {
+    let ty = input.get_type(ctx);
+    match_ty!((ty.deref(ctx)) {
+        BFloat16Type => "bfloat16raw",
+        Float32Type => "float",
+        Float64Type => "double",;
+        _ => panic!(
+            "e8m0 converts from a bf16, f32 or f64 scalar, got {}",
+            ty.deref(ctx).display(ctx)
+        )
     })
 }
 
@@ -251,6 +267,25 @@ mod tests {
             .unwrap()
             .1
             .replace(&input_name, "input")
+    }
+
+    /// e8m0 converts through the converter its source has: an f32 scale is no bf16, which nvrtc
+    /// refuses to read one as.
+    #[test]
+    fn e8m0_converts_through_its_sources_converter() {
+        let e8m0 = || ElemType::Float(FloatKind::UE8M0);
+        assert_eq!(
+            cast(ConstantValue::Float(2.0), FloatKind::F32.into(), e8m0()),
+            "__nv_cvt_float_to_e8m0(input, __NV_NOSAT, cudaRoundPosInf);\n"
+        );
+        assert_eq!(
+            cast(ConstantValue::Float(2.0), FloatKind::F64.into(), e8m0()),
+            "__nv_cvt_double_to_e8m0(input, __NV_NOSAT, cudaRoundPosInf);\n"
+        );
+        assert_eq!(
+            cast(ConstantValue::Float(2.0), FloatKind::BF16.into(), e8m0()),
+            "__nv_cvt_bfloat16raw_to_e8m0(input, __NV_NOSAT, cudaRoundPosInf);\n"
+        );
     }
 
     #[test]

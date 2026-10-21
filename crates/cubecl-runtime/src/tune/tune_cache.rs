@@ -1,6 +1,7 @@
-#[cfg(persistence)]
+use alloc::vec;
 use alloc::vec::Vec;
 
+use cubecl_common::device::ServiceId;
 #[cfg(persistence)]
 use cubecl_environment::persistence::StoreError;
 #[cfg(persistence)]
@@ -9,33 +10,36 @@ use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOption
 use serde::{Deserialize, Serialize};
 
 use super::{AutotuneError, AutotuneKey, AutotuneOutcome};
+use crate::device::HardwareIdentity;
+#[cfg(persistence)]
+use crate::execution::TuneOutcome;
 use crate::execution::TuneRegistration;
+#[cfg(persistence)]
+use crate::namespace_version::NamespaceVersion;
+#[cfg(persistence)]
 use alloc::string::String;
 use cubecl_environment::collections::HashMap;
+
+/// Bumped when tables are named another way.
+#[cfg(persistence)]
+static TABLES: NamespaceVersion = NamespaceVersion::new(ROOT, LAYOUT_PREFIX, 1);
 
 #[derive(Debug)]
 pub(crate) enum CacheEntry {
     Done {
-        checksum: ChecksumState,
         fastest_index: usize,
     },
     Pending,
-    /// A `CompileOnly` override queued the kernels of the key's candidates and decided nothing: a
-    /// miss to anything that tunes, and done to the next `CompileOnly` override. Never persisted.
-    /// `registration` is the key's tune as the override that gathered it registered it, settled
-    /// once its pick commits; `None` when it registered none. Replacing the entry other than
-    /// through [`TuneCache::mark_pending`] drops the registration, which counts it failed.
+    /// A `CompileOnly` override queued the kernels of the key's candidates on `services` and
+    /// decided nothing: a miss to anything that tunes, and done to the next `CompileOnly` override
+    /// on one of `services`. Never persisted. `registration` is the key's tune as the override that
+    /// gathered it first registered it, settled once its pick commits; `None` when it registered
+    /// none. Replacing the entry other than through [`TuneCache::mark_pending`] or
+    /// [`TuneCache::look_up`] drops the registration, which counts it abandoned.
     Compiled {
         registration: Option<TuneRegistration>,
+        services: Vec<ServiceId>,
     },
-}
-
-#[derive(Debug)]
-#[allow(dead_code)] // Some variants are not created when the cache isn't saved.
-pub(crate) enum ChecksumState {
-    Match,
-    NoMatch,
-    ToBeVerified(String),
 }
 
 /// Persistent cache key
@@ -51,7 +55,7 @@ pub struct PersistentCacheKey<K> {
 
 /// Persistent cache entry
 ///
-/// Only [`fastest_index`](Self::fastest_index) is read back: hydration seeds the in-memory cache
+/// Only [`fastest_index`](Self::fastest_index) is read back: a look-up seeds the in-memory cache
 /// from it and nothing else. Everything below it is stored so a cache entry can be inspected after
 /// the fact — why a kernel won, against which measurements, and under which bounds — which is the
 /// question that cannot be answered from a live process once tuning is over. That is also why the
@@ -114,25 +118,20 @@ impl PartialEq for AutotuneResult {
 #[derive(Debug)]
 pub(crate) struct TuneCache<K> {
     /// The single in-memory home of tuning state, keyed for the per-launch
-    /// lookup: tuned picks, in-flight tunes and checksum verdicts. Hydrated
-    /// from the store, which retains nothing itself, and rebuilt when the
-    /// environment switches.
+    /// lookup: tuned picks and in-flight tunes. Cleared when the environment
+    /// switches.
     in_memory_cache: HashMap<K, CacheEntry>,
+    /// The cards a tune found lost. Kept across environment switches: a card stays lost.
+    lost: Vec<ServiceId>,
     /// Write-through persistence, or `None` when the persistent cache is
-    /// disabled, so no cache file is ever touched. Lazy: entries live in
-    /// [`Self::in_memory_cache`] once hydrated, not here.
+    /// disabled, so no cache file is ever touched. Lazy: an entry is read
+    /// when [`Self::in_memory_cache`] misses, then lives there.
     #[cfg(persistence)]
     persistent_cache: Option<Store<PersistentCacheKey<K>, PersistentCacheValue>>,
     /// The namespace the table is stored under, whether or not it is
     /// persisted: what a [record](super::TuneRecord) names it by.
     #[cfg(persistence)]
     table: String,
-    /// Whether everything the store holds has been ingested into
-    /// [`Self::in_memory_cache`]. What makes an ordinary miss cost a bool
-    /// check rather than a walk; `false` until the first sync, and again
-    /// after an environment switch.
-    #[cfg(persistence)]
-    hydrated: bool,
     /// The environment generation [`Self::in_memory_cache`] was built under;
     /// see [`cubecl_environment::environment::generation`].
     #[cfg(persistence)]
@@ -147,11 +146,9 @@ pub enum TuneCacheResult {
         /// The index of the fastest operation to execute.
         fastest_index: usize,
     },
-    /// The operation might be cached, but we don't know yet whether the checksum is valid.
-    Unchecked,
     /// A tuning job is in flight for this key — the worker hasn't published a result yet.
     /// Callers that see this fall through to running the operation rather than blocking on
-    /// the in-flight job. A tune stopped on a lost device leaves its key here for good.
+    /// the in-flight job. A card a tune found lost answers this for every key it has not settled.
     Pending,
     /// A [`CompileOnly`](crate::execution::ProcessMode::CompileOnly) override queued the kernels of
     /// the key's candidates, and measured and decided nothing. Callers run the first candidate that
@@ -164,48 +161,41 @@ pub enum TuneCacheResult {
 /// The root of every tuner's table namespace.
 pub const ROOT: &str = "autotune";
 
-/// What names the table one tuner stores its answers in on one device.
-///
-/// The table is keyed on the fingerprint as well as the device id: one id
-/// can resolve to another adapter or API, whose answers would not hold.
+/// What the segment numbering a table layout starts with, as in `layout-v1`.
+pub const LAYOUT_PREFIX: &str = "layout-v";
+
+/// What names the table one tuner stores its answers in on one hardware.
 #[cfg(persistence)]
 #[derive(Clone, Copy, Debug)]
 pub struct TuneTableName<'a> {
-    /// The adapter and API the device resolved to.
-    pub fingerprint: &'a str,
-    /// The device the answers were measured on.
-    pub device_id: &'a str,
+    /// The hardware the answers were measured on, as its [`HardwareIdentity`] displays.
+    pub hardware: &'a str,
     /// The tuner, named by the code that declared it.
     pub tuner: &'a str,
 }
 
 #[cfg(persistence)]
 impl TuneTableName<'_> {
-    /// `autotune/<version>/<fingerprint>/<device id>/<tuner>`.
+    /// `autotune/<version>/layout-v<layout>/<hardware>/<tuner>`.
     pub fn namespace(&self) -> Namespace {
-        let Self {
-            fingerprint,
-            device_id,
-            tuner,
-        } = self;
-        Namespace::scoped(ROOT, alloc::format!("{fingerprint}/{device_id}/{tuner}"))
+        let Self { hardware, tuner } = self;
+        TABLES.namespace(&alloc::format!("{hardware}/{tuner}"))
     }
 }
 
 impl<K: AutotuneKey> TuneCache<K> {
     pub(crate) fn new(
         #[cfg_attr(not(persistence), allow(unused_variables))] name: &str,
-        #[cfg_attr(not(persistence), allow(unused_variables))] device_id: &str,
-        #[cfg_attr(not(persistence), allow(unused_variables))] fingerprint: &str,
+        #[cfg_attr(not(persistence), allow(unused_variables))] hardware: &HardwareIdentity,
     ) -> Self {
         #[cfg(persistence)]
         {
             use crate::config::RuntimeConfig;
+            use alloc::string::ToString;
 
             let config = crate::config::CubeClRuntimeConfig::get();
             let namespace = TuneTableName {
-                fingerprint,
-                device_id,
+                hardware: &hardware.to_string(),
                 tuner: name,
             }
             .namespace();
@@ -214,9 +204,9 @@ impl<K: AutotuneKey> TuneCache<K> {
             if config.autotune.disable_cache {
                 return TuneCache {
                     in_memory_cache: HashMap::new(),
+                    lost: Vec::new(),
                     persistent_cache: None,
                     table,
-                    hydrated: true,
                     generation: cubecl_environment::environment::generation(),
                 };
             }
@@ -225,89 +215,42 @@ impl<K: AutotuneKey> TuneCache<K> {
             // reads as "rebuild", never as "this state belongs to the new
             // environment".
             let generation = cubecl_environment::environment::generation();
-            let mut cache = TuneCache {
+            TuneCache {
                 in_memory_cache: HashMap::new(),
+                lost: Vec::new(),
                 persistent_cache: Some(Store::new(
                     StoreOptions::new()
                         .storage(namespace)
                         .cache(CacheOption::Lazy),
                 )),
                 table,
-                hydrated: false,
                 generation,
-            };
-            log::info!("Load autotune cache ...");
-            let loaded = cache.sync_persistent();
-            log::info!("Loaded {loaded} autotune cached entries");
-
-            cache
+            }
         }
 
         #[cfg(not(persistence))]
         {
             TuneCache {
                 in_memory_cache: HashMap::new(),
+                lost: Vec::new(),
             }
         }
     }
 
     pub fn fastest(&self, key: &K) -> TuneCacheResult {
-        let Some(val) = self.in_memory_cache.get(key) else {
-            return TuneCacheResult::Miss;
-        };
-
-        let (checksum, fastest_index) = match val {
-            CacheEntry::Done {
-                checksum,
-                fastest_index,
-            } => (checksum, fastest_index),
-            CacheEntry::Pending => return TuneCacheResult::Pending,
-            // Nothing was decided: a tune of the key is still owed.
-            CacheEntry::Compiled { .. } => return TuneCacheResult::Miss,
-        };
-
-        if cfg!(persistence) {
-            match checksum {
-                ChecksumState::ToBeVerified(..) => TuneCacheResult::Unchecked, // Don't know yet.
-                ChecksumState::NoMatch => TuneCacheResult::Miss,               // Can't use this.
-                ChecksumState::Match => TuneCacheResult::Hit {
-                    fastest_index: *fastest_index,
-                },
-            }
-        } else {
-            // Clippy;
-            let _ = checksum;
-            TuneCacheResult::Hit {
+        match self.in_memory_cache.get(key) {
+            Some(CacheEntry::Done { fastest_index }) => TuneCacheResult::Hit {
                 fastest_index: *fastest_index,
-            }
+            },
+            Some(CacheEntry::Pending) => TuneCacheResult::Pending,
+            // Nothing was decided: a tune of the key is still owed.
+            Some(CacheEntry::Compiled { .. }) | None => TuneCacheResult::Miss,
         }
     }
 
-    #[cfg(persistence)]
-    pub fn validate_checksum(&mut self, key: &K, checksum: &str) -> TuneCacheResult {
-        let Some(val) = self.in_memory_cache.get_mut(key) else {
-            return TuneCacheResult::Miss;
-        };
-
-        if let CacheEntry::Done {
-            checksum: checksum_state,
-            ..
-        } = val
-            && let ChecksumState::ToBeVerified(checksum_expected) = checksum_state
-        {
-            if checksum_expected == checksum {
-                *checksum_state = ChecksumState::Match;
-            } else {
-                *checksum_state = ChecksumState::NoMatch;
-            }
-        }
-
-        self.fastest(key)
-    }
-
-    /// The index settled for `key`, reading only: `None` for anything but a verified result, and
+    /// The index settled for `key`, reading only: `None` for anything but a settled result, and
     /// for every key once the environment has switched away from the one this cache was built
-    /// under — the reset that switch owes is left to the next lookup that tunes.
+    /// under. The reset that switch owes is left to the next lookup that tunes.
     pub(crate) fn settled(&self, key: &K) -> Option<usize> {
         #[cfg(persistence)]
         if self.environment_switched() {
@@ -316,10 +259,7 @@ impl<K: AutotuneKey> TuneCache<K> {
 
         match self.fastest(key) {
             TuneCacheResult::Hit { fastest_index } => Some(fastest_index),
-            TuneCacheResult::Unchecked
-            | TuneCacheResult::Pending
-            | TuneCacheResult::Compiled
-            | TuneCacheResult::Miss => None,
+            TuneCacheResult::Pending | TuneCacheResult::Compiled | TuneCacheResult::Miss => None,
         }
     }
 
@@ -329,49 +269,77 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// gathered it registered it.
     pub(crate) fn mark_pending(&mut self, key: K) -> Option<TuneRegistration> {
         match self.in_memory_cache.insert(key, CacheEntry::Pending) {
-            Some(CacheEntry::Compiled { registration }) => registration,
+            Some(CacheEntry::Compiled { registration, .. }) => registration,
             _ => None,
         }
     }
 
-    /// Mark a key whose candidates' kernels a `CompileOnly` override queued, in place of the tune
-    /// it was [marked](Self::mark_pending) for: nothing was decided. `registration` is where
-    /// its tune was registered, if it was.
-    pub(crate) fn mark_compiled(&mut self, key: K, registration: Option<TuneRegistration>) {
-        self.in_memory_cache
-            .insert(key, CacheEntry::Compiled { registration });
+    /// Drop the [mark](Self::mark_pending) of a tune that stopped before it settled, so the next
+    /// caller tunes the key.
+    pub(crate) fn unmark_pending(&mut self, key: &K) {
+        if let Some(CacheEntry::Pending) = self.in_memory_cache.get(key) {
+            self.in_memory_cache.remove(key);
+        }
     }
 
-    /// Whether a `CompileOnly` override already queued the kernels of `key`'s candidates.
-    pub(crate) fn is_compiled(&self, key: &K) -> bool {
+    /// Mark a key whose candidates' kernels a `CompileOnly` override is queueing on `service`, in
+    /// place of a tune: nothing is decided. The first service to queue them registers the key's
+    /// tune with `register`, and the others share that registration.
+    pub(crate) fn mark_compiled(
+        &mut self,
+        key: K,
+        service: ServiceId,
+        register: impl FnOnce() -> Option<TuneRegistration>,
+    ) {
+        if let Some(CacheEntry::Compiled { services, .. }) = self.in_memory_cache.get_mut(&key) {
+            services.push(service);
+            return;
+        }
+        self.in_memory_cache.insert(
+            key,
+            CacheEntry::Compiled {
+                registration: register(),
+                services: vec![service],
+            },
+        );
+    }
+
+    /// Whether a `CompileOnly` override already queued the kernels of `key`'s candidates on
+    /// `service`.
+    pub(crate) fn is_compiled(&self, key: &K, service: ServiceId) -> bool {
         matches!(
             self.in_memory_cache.get(key),
-            Some(CacheEntry::Compiled { .. })
+            Some(CacheEntry::Compiled { services, .. }) if services.contains(&service)
         )
     }
 
+    pub(crate) fn mark_lost(&mut self, service: ServiceId) {
+        if !self.lost.contains(&service) {
+            self.lost.push(service);
+        }
+    }
+
+    pub(crate) fn is_lost(&self, service: ServiceId) -> bool {
+        self.lost.contains(&service)
+    }
+
     pub(crate) fn cache_insert(&mut self, key: K, fastest_index: usize) {
-        self.in_memory_cache.insert(
-            key,
-            CacheEntry::Done {
-                checksum: ChecksumState::Match,
-                fastest_index,
-            },
-        );
+        self.in_memory_cache
+            .insert(key, CacheEntry::Done { fastest_index });
     }
 }
 
 #[cfg(persistence)]
 impl<K: AutotuneKey> TuneCache<K> {
     /// Drops tuning state belonging to a previous environment, so a switch
-    /// re-hydrates and re-tunes rather than serving the old environment's
-    /// picks. One relaxed atomic load when nothing switched.
+    /// reads the new environment's store and tunes rather than serving the
+    /// old environment's picks. One relaxed atomic load when nothing switched.
     ///
     /// In-flight tunes are dropped with everything else: their completion
     /// still records a hardware-valid result, so the whole cost of the race
     /// is one duplicate tune per switch. A key a `CompileOnly` override
     /// gathered for the old environment is dropped too, and its registration
-    /// settles as failed: the key is tuned, if at all, for the new
+    /// settles as abandoned: the key is tuned, if at all, for the new
     /// environment, under a registration of its own.
     pub(crate) fn reset_if_environment_switched(&mut self) {
         if !self.environment_switched() {
@@ -381,7 +349,11 @@ impl<K: AutotuneKey> TuneCache<K> {
         log::debug!("Environment switched, resetting the autotune cache");
         self.generation = cubecl_environment::environment::generation();
         self.in_memory_cache.clear();
-        self.hydrated = false;
+    }
+
+    /// The environment generation this cache was built under, or last reset to.
+    pub(crate) fn generation(&self) -> u32 {
+        self.generation
     }
 
     /// Whether the environment switched since this cache was built. Never with persistence
@@ -392,37 +364,30 @@ impl<K: AutotuneKey> TuneCache<K> {
             && cubecl_environment::environment::generation() != self.generation
     }
 
-    /// Ingest everything the persistent store holds into the in-memory cache,
-    /// as unverified entries.
-    ///
-    /// Runs at construction, and again whenever `hydrated` fell back to
-    /// `false` after an environment switch. Once hydrated, a miss costs one
-    /// bool check here — never a walk, and never a rescan of the database
-    /// under the tuner mutex.
-    ///
-    /// Returns how many entries the store delivered.
-    pub(crate) fn sync_persistent(&mut self) -> usize {
-        if self.hydrated {
-            return 0;
-        }
-
+    /// The store's answer for `key` under the set's `checksum`, read once memory missed. A miss
+    /// costs one read of the store, under the tuner mutex, and a key read counts as loaded.
+    pub(crate) fn look_up(&mut self, key: &K, checksum: &str) -> TuneCacheResult {
         let Some(persistent_cache) = self.persistent_cache.as_mut() else {
-            return 0;
+            return TuneCacheResult::Miss;
         };
-
-        let mut delivered = 0;
-        persistent_cache.scan(|key, value| {
-            delivered += 1;
-            self.in_memory_cache
-                .entry(key.key)
-                .or_insert(CacheEntry::Done {
-                    checksum: ChecksumState::ToBeVerified(key.checksum),
-                    fastest_index: value.fastest_index,
-                });
-        });
-        self.hydrated = true;
-
-        delivered
+        let stored = PersistentCacheKey {
+            key: key.clone(),
+            checksum: checksum.into(),
+        };
+        let Some(value) = persistent_cache.remove(&stored) else {
+            return TuneCacheResult::Miss;
+        };
+        let gathered = match self.in_memory_cache.remove(key) {
+            Some(CacheEntry::Compiled { registration, .. }) => registration,
+            _ => None,
+        };
+        if let Some(registration) = gathered.or_else(TuneRegistration::register) {
+            registration.settle(TuneOutcome::Loaded);
+        }
+        self.cache_insert(key.clone(), value.fastest_index);
+        TuneCacheResult::Hit {
+            fastest_index: value.fastest_index,
+        }
     }
 
     /// The namespace the table is stored under.

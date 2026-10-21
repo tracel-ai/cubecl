@@ -1,9 +1,10 @@
 use cubecl_ir::{
     EnumSet, FastMath, NamedRewrite,
     dialect::math::{FAddOp, FMulOp, FNegOp, FSubOp, FmaOp},
-    interfaces::fast_math::FastMathOp,
+    interfaces::{TypedExt as _, fast_math::FastMathOp},
     prelude::{Inserter as _, Rewriter as _, *},
     rewrite::MatchRewritePass,
+    types::scalar::{Complex32Type, Complex64Type},
 };
 
 /// Combine a product and the add or subtract that consumes it into a single FMA operation.
@@ -42,24 +43,32 @@ fn fused_fast_math(ctx: &Context, mul: FMulOp, op: Ptr<Operation>) -> Option<Enu
 /// The product, what is added to it, and what needs negating, for an `op` of the form
 /// `a * b + c`, `a * b - c` or `c - a * b`, in either operand order.
 fn as_fma(ctx: &Context, op: Ptr<Operation>) -> Option<(FMulOp, Value, Negate)> {
-    if let Some(add) = op.as_op::<FAddOp>(ctx) {
+    let candidate = if let Some(add) = op.as_op::<FAddOp>(ctx) {
         if !add.allows_contraction(ctx) {
             return None;
         }
         let (lhs, rhs) = (add.lhs(ctx), add.rhs(ctx));
-        return lone_product(ctx, lhs)
+        lone_product(ctx, lhs)
             .map(|mul| (mul, rhs, Negate::Nothing))
-            .or_else(|| lone_product(ctx, rhs).map(|mul| (mul, lhs, Negate::Nothing)));
-    }
+            .or_else(|| lone_product(ctx, rhs).map(|mul| (mul, lhs, Negate::Nothing)))
+    } else {
+        let sub = op.as_op::<FSubOp>(ctx)?;
+        if !sub.allows_contraction(ctx) {
+            return None;
+        }
+        let (lhs, rhs) = (sub.lhs(ctx), sub.rhs(ctx));
+        lone_product(ctx, lhs)
+            .map(|mul| (mul, rhs, Negate::Addend))
+            .or_else(|| lone_product(ctx, rhs).map(|mul| (mul, lhs, Negate::Factor)))
+    }?;
 
-    let sub = op.as_op::<FSubOp>(ctx)?;
-    if !sub.allows_contraction(ctx) {
-        return None;
-    }
-    let (lhs, rhs) = (sub.lhs(ctx), sub.rhs(ctx));
-    lone_product(ctx, lhs)
-        .map(|mul| (mul, rhs, Negate::Addend))
-        .or_else(|| lone_product(ctx, rhs).map(|mul| (mul, lhs, Negate::Factor)))
+    // `fma` exists for real scalars and real vectors: the backends emit the
+    // target's native call (or a vectorized one), and there is no complex
+    // overload — a complex FMA does not compile. Test the *scalar* type, since a
+    // complex vector's own type is a vector, not a complex scalar.
+    let scalar = candidate.0.lhs(ctx).scalar_ty(ctx);
+    let scalar = scalar.deref(ctx);
+    (!scalar.is::<Complex32Type>() && !scalar.is::<Complex64Type>()).then_some(candidate)
 }
 
 impl MatchRewrite for InstCombine {

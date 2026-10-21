@@ -25,6 +25,7 @@ pub mod different_rank;
 pub mod enums;
 pub mod fast_math;
 pub mod file;
+pub mod harness;
 pub mod index;
 pub mod launch;
 pub mod metadata;
@@ -173,6 +174,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_cluster!();
 
         cubecl_core::testgen_enums!();
+        cubecl_core::testgen_harness!();
         cubecl_core::testgen_comparison!();
 
         cubecl_core::testgen_to_client!();

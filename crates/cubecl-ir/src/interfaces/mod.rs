@@ -337,6 +337,11 @@ pub trait ConstantAttr: TypedAttrInterface {
     fn float_as_f64(&self, _ctx: &Context) -> Option<f64> {
         None
     }
+    /// The value of a scalar bool constant, without the panic `as_const_val` has for a zero of an
+    /// unsupported type such as a vector.
+    fn as_bool(&self, _ctx: &Context) -> Option<bool> {
+        None
+    }
 }
 
 #[macro_export]

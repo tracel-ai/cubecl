@@ -675,12 +675,6 @@ const_eval!(FRemOp, {
         }
     },
 });
-simplify!(FRemOp, {
-    |_, rhs| match rhs?.float_as_f64(ctx) {
-        Some(1.0) => Some(self.lhs(ctx)),
-        _ => None?,
-    }
-});
 
 /// Signed floor modulo. A nonzero result has the same sign as the divisor.
 /// Division by zero and `MIN mod_floor -1` have no portable result or error guarantee.

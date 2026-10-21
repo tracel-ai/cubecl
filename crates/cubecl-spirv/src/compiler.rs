@@ -2,9 +2,7 @@ use crate::{
     CollectVerCapExtPass, ConvertArgsPass, PARAMS_NAME, SpirvKernel,
     lower::LowerOpsSpirvPass,
     ops::{
-        branch::BranchToSpirvConversionPass,
-        builtin::{BUILTINS_NAME, LowerBuiltinsPass},
-        memory::lower_shared,
+        branch::BranchToSpirvConversionPass, builtin::LowerBuiltinsPass, memory::lower_shared,
         to_spirv_dialect::ToSpirvDialectPass,
     },
     params_storage_class,
@@ -34,7 +32,10 @@ use cubecl_ir::{
     dialect::{scf::BranchToSCFPass, ssa_matrix::MatrixToSSAPass},
     interfaces::{TypedExt, fast_math::FastMathOp},
     prelude::{OperationPtrExt, SingleBlockRegionInterface, SymbolOpInterface},
-    rewrite::{CanonicalizePass, visit_all_ops_of_type_mut, visit_all_ops_with_interface},
+    rewrite::{
+        CanonicalizePass, visit_all_ops_of_type, visit_all_ops_of_type_mut,
+        visit_all_ops_with_interface,
+    },
     settings::{Dim3, KernelSettings},
 };
 use cubecl_opt::passes::{
@@ -52,7 +53,7 @@ use pliron::{
     basic_block::BasicBlock,
     builtin::{
         op_interfaces::OneRegionInterface,
-        ops::{FuncOp, ModuleOp},
+        ops::{ConstantOp, FuncOp, ModuleOp},
     },
     context::{Context, Ptr},
     identifier::Identifier,
@@ -73,7 +74,7 @@ use pliron_spirv::{
         DecoratableOp, set_decoration_no_contraction, set_decoration_uniform,
         set_decoration_uniform_id,
     },
-    ops::{EntryPointOp, ExecutionModeOp, SpirvModuleOp},
+    ops::{EntryPointOp, ExecutionModeOp, GlobalVariableOp, SpirvModuleOp},
 };
 use rspirv::{
     binary::Assemble,
@@ -320,6 +321,7 @@ impl SpirvCompiler {
 
         let (shared_size, shared_args) = lower_shared(ctx, spirv_module);
         declare_entry_point(ctx, spirv_module, shared_args, preserved_widths);
+        hoist_constants(ctx, spirv_module);
 
         // Make sure this is the last pass so it catches all ops
         OpPass::<SpirvModuleOp, CollectVerCapExtPass>::default()
@@ -367,6 +369,35 @@ fn insert_spirv_module(ctx: &mut Context, module: ModuleOp) -> SpirvModuleOp {
     spirv_module
 }
 
+/// Moves each constant to the start of its function's entry block. A SPIR-V constant is a global,
+/// so the builder gives it the ID of the first equal constant it emitted. A use that it emits
+/// before the constant, such as a phi on a loop's back edge, has a new ID that nothing defines.
+fn hoist_constants(ctx: &mut Context, module: SpirvModuleOp) {
+    let mut funcs = vec![];
+    visit_all_ops_of_type_mut::<FuncOp, _>(
+        ctx,
+        &mut funcs,
+        module.get_operation(),
+        |_, funcs, func| {
+            funcs.push(func);
+        },
+    );
+    for func in funcs {
+        let entry = func.get_entry_block(ctx);
+        let mut constants = vec![];
+        visit_all_ops_of_type::<ConstantOp, _>(
+            ctx,
+            &mut constants,
+            func.get_operation(),
+            |_, constants, constant| constants.push(constant.get_operation()),
+        );
+        for constant in constants {
+            constant.unlink(ctx);
+            constant.insert_at_front(entry, ctx);
+        }
+    }
+}
+
 fn declare_entry_point(
     ctx: &mut Context,
     module: SpirvModuleOp,
@@ -374,17 +405,26 @@ fn declare_entry_point(
     preserved_widths: Vec<u32>,
 ) {
     let op = module.get_operation();
+    // The builtins are the `Input` variables (see `LowerBuiltinsPass`).
+    let mut inputs = vec![];
+    visit_all_ops_of_type::<GlobalVariableOp, _>(ctx, &mut inputs, op, |ctx, inputs, var| {
+        let storage_class = var.get_attr_spirv_global_variable_storage_class(ctx);
+        if storage_class.is_some_and(|class| class.0 == StorageClass::Input) {
+            inputs.push(var.get_symbol_name(ctx));
+        }
+    });
     visit_all_ops_of_type_mut::<FuncOp, _>(
         ctx,
-        &mut (module, shared_args, preserved_widths),
+        &mut (module, shared_args, inputs, preserved_widths),
         op,
-        |ctx, (module, shared_args, preserved_widths), func| {
+        |ctx, (module, shared_args, inputs, preserved_widths), func| {
             let Some(entry) = func.get_entrypoint_abi(ctx) else {
                 return;
             };
             let block = module.get_body(ctx, 0);
             let func_name = func.get_symbol_name(ctx);
-            let mut interface = vec![PARAMS_NAME.clone(), BUILTINS_NAME.clone()];
+            let mut interface = vec![PARAMS_NAME.clone()];
+            interface.extend(inputs.clone());
             interface.extend(shared_args.clone());
             let entry_point = EntryPointOp::new(
                 ctx,

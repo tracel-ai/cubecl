@@ -1,6 +1,7 @@
 use cubecl_macros_internal::{const_eval, cube_op, simplify};
 use half::{bf16, f16};
 use pliron::{
+    attribute::attr_cast,
     builtin::{attributes::IntegerAttr, types::IntegerType},
     r#type::TypeHandle,
 };
@@ -8,11 +9,13 @@ use pliron::{
 use crate::{
     CanMaterialize, Commutative, ConstantValue, PropagatesUniformity, Pure,
     attributes::{BoolAttr, FloatAttr, IndexAttr, IntAttrExt},
-    dialect::{base::pure_binop, math::int_attr},
+    dialect::{base::pure_binop, general::BoolNotOp, math::int_attr},
     interfaces::{
-        Expression, ExpressionCanonicalize, ExpressionValue, TriviallyUnrollable, TypedExt,
+        CanonicalizeInterface, ConstantAttr, Expression, ExpressionCanonicalize, ExpressionValue,
+        TriviallyUnrollable, TypedExt,
     },
     prelude::*,
+    rewrite::const_operands,
     types::{VectorType, scalar::BoolType},
 };
 
@@ -620,6 +623,12 @@ const_eval!(BoolEqualOp, {
         false => None
     }
 });
+simplify!(BoolEqualOp, {
+    // true == x -> x
+    |lhs, _| lhs?.as_bool(ctx)?.then(|| self.rhs(ctx)),
+    // x == true -> x
+    |_, rhs| rhs?.as_bool(ctx)?.then(|| self.lhs(ctx))
+});
 
 cmp_binop!("cmp.i_not_equal", INotEqualOp);
 Commutative!(INotEqualOp);
@@ -652,6 +661,61 @@ const_eval!(BoolNotEqualOp, {
         false => None
     }
 });
+simplify!(BoolNotEqualOp, {
+    // false != x -> x
+    |lhs, _| (!lhs?.as_bool(ctx)?).then(|| self.rhs(ctx)),
+    // x != false -> x
+    |_, rhs| (!rhs?.as_bool(ctx)?).then(|| self.lhs(ctx))
+});
+
+/// Replace `op`, a comparison of two bools, with a negation of the operand compared against
+/// `negating`, in either operand order.
+///
+/// So `x == false` and `x != true` become `!x`. The other constants leave `x` itself, which
+/// `SimplifyOps` folds.
+fn canonicalize_bool_cmp(
+    ctx: &mut Context,
+    rewriter: &mut MatchRewriter,
+    op: Ptr<Operation>,
+    [lhs, rhs]: [Value; 2],
+    negating: bool,
+) {
+    let consts = const_operands(ctx, op);
+    let is_negating = |idx: usize| {
+        consts[idx]
+            .as_ref()
+            .and_then(|attr| attr_cast::<dyn ConstantAttr>(&**attr)?.as_bool(ctx))
+            == Some(negating)
+    };
+    let value = if is_negating(1) {
+        lhs
+    } else if is_negating(0) {
+        rhs
+    } else {
+        return;
+    };
+    let not = BoolNotOp::new(ctx, value);
+    rewriter.insert_op(ctx, &not);
+    rewriter.replace_operation(ctx, op, not.get_operation());
+}
+
+#[op_interface_impl]
+impl CanonicalizeInterface for BoolEqualOp {
+    fn canonicalize(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()> {
+        let operands = [self.lhs(ctx), self.rhs(ctx)];
+        canonicalize_bool_cmp(ctx, rewriter, self.get_operation(), operands, false);
+        Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl CanonicalizeInterface for BoolNotEqualOp {
+    fn canonicalize(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()> {
+        let operands = [self.lhs(ctx), self.rhs(ctx)];
+        canonicalize_bool_cmp(ctx, rewriter, self.get_operation(), operands, true);
+        Ok(())
+    }
+}
 
 crate::FastMathOp!(
     FMinOp,
