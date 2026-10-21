@@ -4,7 +4,7 @@ use darling::{
 };
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
-use syn::{DeriveInput, Index, Path, WhereClause};
+use syn::{DeriveInput, Index, WhereClause};
 
 use crate::{
     generate::bounded_where_clause,
@@ -16,13 +16,18 @@ impl ToTokens for Assign {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let assign = prelude_type("Assign");
         let runtime_assign = prelude_type("RuntimeAssign");
+        let into_expand = prelude_type("IntoExpand");
         let scope = prelude_type("Scope");
 
         let name = &self.ident;
         let expand_name = format_ident!("{name}Expand");
         let (generics, generic_names, _) = self.generics.split_for_impl();
-        let where_clause = self.where_clause(&assign);
-        let where_clause_init = self.where_clause(&runtime_assign);
+        let where_clause = self.where_clause(|_| quote![#assign]);
+        // `RuntimeAssign: IntoExpand`, so the bound also brings in an `IntoExpand` that shadows the
+        // real impl and leaves `Expand` unnormalized. `CubeType` already guarantees
+        // `Expand = ExpandType`, so stating it narrows nothing.
+        let where_clause_init =
+            self.where_clause(|expand| quote![#runtime_assign + #into_expand<Expand = #expand>]);
 
         let init_mut_body = match &self.data {
             Data::Enum(_) if self.runtime_variants.is_present() => {
@@ -228,7 +233,7 @@ impl Assign {
         }
     }
 
-    fn where_clause(&self, trait_: &Path) -> Option<WhereClause> {
+    fn where_clause(&self, bound: impl Fn(&TokenStream) -> TokenStream) -> Option<WhereClause> {
         let cube_type = prelude_type("CubeType");
 
         let fields: Vec<_> = match &self.data {
@@ -244,11 +249,11 @@ impl Assign {
                 .cloned()
                 .collect(),
         };
-        bounded_where_clause(
-            &self.generics,
-            fields,
-            |param| quote!(<#param as #cube_type>::ExpandType: #trait_),
-        )
+        bounded_where_clause(&self.generics, fields, |param| {
+            let expand = quote!(<#param as #cube_type>::ExpandType);
+            let bound = bound(&expand);
+            quote!(#expand: #bound)
+        })
     }
 }
 
