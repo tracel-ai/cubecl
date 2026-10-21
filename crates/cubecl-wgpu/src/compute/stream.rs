@@ -784,8 +784,8 @@ impl WgpuStream {
     // Any buffer which has outstanding (not yet flushed) compute work should
     // NOT be copied to.
     fn write_to_buffer(&mut self, resource: &WgpuResource, data: &[u8]) {
-        // Nothing to write for zero-sized resources.
-        if resource.size == 0 {
+        // Nothing to write for zero-sized resources or an empty write.
+        if resource.size == 0 || data.is_empty() {
             return;
         }
 
@@ -795,10 +795,13 @@ impl WgpuStream {
         let copy_align = wgpu::COPY_BUFFER_ALIGNMENT;
         let size = resource.size.next_multiple_of(copy_align);
 
-        if size == data.len() as u64 {
+        if size == data.len() as u64 || (data.len() as u64).is_multiple_of(copy_align) {
             // write_buffer is the recommended way to write this data, as:
             // - On WebGPU, from WASM, this can save a copy to the JS memory.
             // - On devices with unified memory, this could skip the staging buffer entirely.
+            //
+            // It also writes exactly `data.len()` bytes, which is what keeps a
+            // partial aligned write from disturbing the rest of the resource.
             self.queue
                 .write_buffer(&resource.buffer, resource.offset, data);
         } else {
