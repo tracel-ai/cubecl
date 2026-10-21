@@ -1475,7 +1475,10 @@ impl Client {
     /// Queue `op` behind the work already queued on this client's stream, like
     /// a launch. It is queued rather than run to completion: a blocking
     /// transport may submit it inline, while the threaded transports return
-    /// once the device thread has accepted it.
+    /// once the device thread has accepted it. The task is flushed to the
+    /// device thread before this returns, so the operation starts even when the
+    /// caller then waits for it from another thread without making another
+    /// call into the device.
     ///
     /// The operation receives an [`ExternalContext`] carrying this runtime's
     /// native stream ([`NativeRuntime::NativeStream`]) and its bindings in the
@@ -1538,6 +1541,7 @@ impl Client {
             self.device.submit(move |server| {
                 server.external_op(Vec::new(), write_bindings, refuse, stream_id)
             });
+            self.device.flush_queue();
             return;
         }
 
@@ -1551,12 +1555,17 @@ impl Client {
             self.device.submit(move |server| {
                 server.external_op(Vec::new(), write_bindings, refuse, stream_id)
             });
+            self.device.flush_queue();
             return;
         }
 
         let op = external_op_bridge::<R, _>(op);
         self.device
             .submit(move |server| server.external_op(read_bindings, write_bindings, op, stream_id));
+        // A launch can sit in the client's queue until the next blocking call,
+        // but the operation has no next call to rely on: the caller may only
+        // wait for the callback it just submitted, as the retention tests do.
+        self.device.flush_queue();
     }
 
     /// Whether the bytes behind `handles` can be trusted, right now and with
