@@ -114,7 +114,7 @@ impl GenericAnalysis {
         launch: bool,
     ) -> TokenStream {
         let mut output = quote![];
-        let self_ = has_self.then(|| quote![self.]);
+        let self_ = has_self.then(|| quote![self.info.]);
 
         for (
             ident,

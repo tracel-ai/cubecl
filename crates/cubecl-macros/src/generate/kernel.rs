@@ -219,7 +219,7 @@ impl Launch {
             let ty = anon_lifetime_to_static(ty);
 
             quote! {
-                let mut #ident = <#ty as #launch_arg>::expand(&self.#ident.dynamic_cast(), &mut builder);
+                let mut #ident = <#ty as #launch_arg>::expand(&self.info.#ident.dynamic_cast(), &mut builder);
             }
         };
         for param in self.runtime_params() {
@@ -256,7 +256,7 @@ impl Launch {
         let args = self.func.sig.parameters.iter().map(|it| {
             let name = &it.name;
             match it.is_const {
-                true => quote![self.#name.clone()],
+                true => quote![self.info.#name.clone()],
                 false => {
                     let mut mapped = it.ty.clone();
                     match map_type_normalized(&mut mapped, &|_| parse_quote![#name]) {
@@ -411,7 +411,6 @@ impl Launch {
                 .as_ref()
                 .map(|_| quote![__ty: ::core::marker::PhantomData]);
             let (compilation_args, args) = self.compilation_args_def();
-            let info_names = param_names.clone().into_iter().chain(args.clone());
 
             let info_ty_name = format_ident!("{kernel_name}Info");
             let info_ty = self.info_ty(&info_ty_name);
@@ -433,9 +432,8 @@ impl Launch {
                     settings: #kernel_settings,
                     device_properties: #private::Arc<#device_properties>,
                     target_properties: #private::Arc<#target_properties>,
-                    #(#compilation_args,)*
-                    #(#const_params,)*
-                    #phantom_data
+                    /// The compilation arguments, shared with the kernel's id.
+                    info: #private::Arc<#info_ty_name #generic_names>,
                 }
 
                 #info_ty
@@ -452,9 +450,11 @@ impl Launch {
                             settings: #settings,
                             device_properties,
                             target_properties,
-                            #(#args,)*
-                            #(#param_names,)*
-                            #phantom_data_init
+                            info: #private::Arc::new(#info_ty_name #info_generics {
+                                #(#args,)*
+                                #(#param_names,)*
+                                #phantom_data_init
+                            }),
                         }
                     }
                 }
@@ -469,10 +469,7 @@ impl Launch {
                             .address_type(address_type)
                             .cube_dim(self.settings.cube_dim.clone())
                             .mode(self.settings.execution_mode)
-                            .info(#info_ty_name #info_generics {
-                                #(#info_names: self.#info_names.clone(),)*
-                                #phantom_data_init
-                            })
+                            .shared_info(self.info.clone())
                     }
 
                     fn address_type(&self) -> #elem_ty {

@@ -208,10 +208,19 @@ impl KernelId {
     /// The information is used to differentiate kernels of the same kind but with different
     /// configurations, which affect the generated code.
     pub fn info<I: 'static + PartialEq + Eq + Hash + core::fmt::Debug + Send + Sync>(
-        mut self,
+        self,
         info: I,
     ) -> Self {
-        self.info = Some(Info::new(info));
+        self.shared_info(Arc::new(info))
+    }
+
+    /// Add information to the [kernel id](KernelId) that the kernel shares with it, so building
+    /// the id on every launch copies none of it.
+    pub fn shared_info<I: 'static + PartialEq + Eq + Hash + core::fmt::Debug + Send + Sync>(
+        mut self,
+        info: Arc<I>,
+    ) -> Self {
+        self.info = Some(Info { value: info });
         self
     }
 
@@ -245,12 +254,6 @@ impl Info {
     fn stable_hash(&self, state: &mut StableHasher) {
         self.value.dyn_type_id().hash(state);
         state.write_u128(self.value.dyn_hash_one());
-    }
-
-    fn new<T: 'static + PartialEq + Eq + Hash + core::fmt::Debug + Send + Sync>(id: T) -> Self {
-        Self {
-            value: Arc::new(id),
-        }
     }
 }
 
