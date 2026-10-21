@@ -147,6 +147,7 @@ impl SparseForwardDataflowAnalysis for ValueClasses {
             this.set_all_to_entry_states(solver, ctx, results);
             return Ok(());
         }
+
         let is_deterministic = op.impls::<dyn Deterministic>(ctx);
         let has_side_effects = op
             .cast::<dyn SideEffects>(ctx)
@@ -197,7 +198,7 @@ impl SparseForwardDataflowAnalysis for ValueClasses {
         expression.mem_value = mem_val;
 
         let value = ValueClass::Expression(expression);
-        solver.update_state(ctx, result, |it| it.join(&value));
+        solver.update_state(ctx, result, |it| it.set(value));
 
         Ok(())
     }

@@ -7,9 +7,13 @@
 //!   Inf. Process. 28 (2020): 302-309.](https://doi.org/10.2197/ipsjjip.28.302)
 //!
 
-use core::{cell::Ref, fmt, ops::Deref};
+use core::{
+    cell::{Cell, Ref},
+    fmt,
+    ops::Deref,
+};
 
-use alloc::format;
+use alloc::{format, rc::Rc};
 use cubecl_ir::{
     dialect::{BlockPtrExt, RegionPtrExt},
     interfaces::{
@@ -143,21 +147,28 @@ pub fn compute_pruned_insertion_points(
     let should_init =
         |analysis: &dyn DataflowAnalysis| !finished_analyses.contains(&analysis.type_id());
 
-    solver.load(InsertedAnalysis::default());
+    let insert_changed = Rc::new(Cell::new(ChangeResult::Unchanged));
+    solver.load(InsertedLazy::new(insert_changed.clone()));
     if mode == InsertMode::Sparse {
-        solver.load(SparseInsertedAnalysis::default());
+        solver.load(InsertedSparse::new(insert_changed.clone()));
     }
     solver.initialize_filtered_and_run(ctx, op, should_init)?;
 
-    // Rerun available because it can't grow but we need to prune based on new availability facts
-    // post insertion
-    let rerun_avail = |analysis: &dyn DataflowAnalysis| analysis.is::<AvailableAnalysis>();
-    // Don't want to rerun other stuff
+    // Remove dependents from computes, so we can resubscribe only the available ones
     for computes in solver.states_of_type::<Computes>() {
         computes.deref().clear_dependents();
     }
-    solver.clear_states_of_type::<Available>();
-    solver.initialize_filtered_and_run(ctx, op, rerun_avail)?;
+
+    while insert_changed.get() == ChangeResult::Changed {
+        insert_changed.set(ChangeResult::Unchanged);
+        // Rerun available because it can't grow but we need to prune based on new availability facts
+        // post insertion
+        let reinit_avail = |analysis: &dyn DataflowAnalysis| analysis.is::<AvailableAnalysis>();
+        solver.clear_states_of_type::<Available>();
+        solver.initialize_filtered_and_run(ctx, op, reinit_avail)?;
+        // Only run after avail has reconverged
+        solver.initialize_filtered_and_run(ctx, op, should_init)?;
+    }
 
     let mut out = IMap::default();
     let inserted = solver.states_of_type::<Inserted>();
@@ -927,18 +938,38 @@ impl LatticeValue for InsertedSet {
 }
 
 pub type Inserted = DenseLattice<InsertedSet>;
-pub type InsertedAnalysis = DenseForward<InsertedForward>;
+pub type InsertedAnalysis = DenseForward<InsertedLazy>;
 
-#[derive(Default)]
-pub struct InsertedForward;
+pub struct InsertedLazy {
+    changed: Rc<Cell<ChangeResult>>,
+}
 
-impl InsertedForward {
+impl InsertedLazy {
+    pub fn new(changed: Rc<Cell<ChangeResult>>) -> InsertedAnalysis {
+        DenseForward::new(Self { changed })
+    }
+
+    fn update_inserted(
+        &self,
+        ctx: &Context,
+        solver: &DataflowSolver,
+        state: &WriteRef<DenseLattice<InsertedSet>>,
+        new_insert: SparseBitSet,
+    ) {
+        solver.update_state(ctx, state, |it| {
+            let changed = it.join(&InsertedSet(new_insert));
+            self.changed.update(|it| it | changed);
+            changed
+        });
+    }
+
     fn insert_in_preds(
         this: &InsertedAnalysis,
         ctx: &Context,
         solver: &DataflowSolver,
         point: ProgramPoint,
         predecessors: &[ReadRef<Inserted>],
+        is_immutable_region_op: bool,
     ) {
         if predecessors.len() <= 1 {
             return;
@@ -966,6 +997,8 @@ impl InsertedForward {
                 .difference(avail.deref().value().0.unwrap())
                 .into();
 
+        let mut new_inserted = SmallVec::<[_; 4]>::new();
+
         for (&pred, available) in predecessors.iter().zip(available_preds) {
             let antic_pred = solver.get_or_create_for::<InsertedAnalysis, Anticipated>(point, pred);
             let insert: SparseBitSet = available_anywhere
@@ -973,16 +1006,26 @@ impl InsertedForward {
                 .difference(&*available)
                 .into();
 
+            if is_immutable_region_op && pred.is_block_end(ctx) {
+                return;
+            }
+
+            if !insert.is_empty() {
+                new_inserted.push((pred, insert));
+            }
+        }
+
+        for (pred, inserted) in new_inserted {
             let computes = solver.get_or_create_mut::<Computes>(pred);
-            solver.update_state(ctx, &computes, |it| it.join(&ComputesSet(insert.clone())));
+            solver.update_state(ctx, &computes, |it| it.join(&ComputesSet(inserted.clone())));
 
             let lattice = this.get_lattice_mut(solver, pred);
-            solver.update_state(ctx, &lattice, |it| it.join(&InsertedSet(insert)));
+            this.update_inserted(ctx, solver, &lattice, inserted);
         }
     }
 }
 
-impl DenseForwardDataflowAnalysis for InsertedForward {
+impl DenseForwardDataflowAnalysis for InsertedLazy {
     type LatticeValue = InsertedSet;
 
     fn visit_operation(
@@ -1005,7 +1048,7 @@ impl DenseForwardDataflowAnalysis for InsertedForward {
         predecessors: &[ReadRef<Inserted>],
         _: &WriteRef<Inserted>,
     ) {
-        Self::insert_in_preds(this, ctx, solver, point, predecessors);
+        Self::insert_in_preds(this, ctx, solver, point, predecessors, false);
     }
 
     fn visit_region_branch_control_flow_transfer(
@@ -1017,12 +1060,10 @@ impl DenseForwardDataflowAnalysis for InsertedForward {
         predecessors: &[ReadRef<Inserted>],
         _: &WriteRef<Inserted>,
     ) {
-        if branch
+        let immutable = !branch
             .get_operation()
-            .impls::<dyn MutableRegionBranchOpInterface>(ctx)
-        {
-            Self::insert_in_preds(this, ctx, solver, point, predecessors);
-        }
+            .impls::<dyn MutableRegionBranchOpInterface>(ctx);
+        Self::insert_in_preds(this, ctx, solver, point, predecessors, immutable);
     }
 
     // Unhandled only
@@ -1064,14 +1105,34 @@ impl LatticeValue for ComputedOnImmediateEdge {
     }
 }
 
-pub type SparseInsertedAnalysis = DenseBackward<InsertedBackward>;
+pub type SparseInsertedAnalysis = DenseBackward<InsertedSparse>;
 
 // Approximation of sparse code motion
-#[derive(Default)]
-pub struct InsertedBackward;
+pub struct InsertedSparse {
+    changed: Rc<Cell<ChangeResult>>,
+}
 
-impl InsertedBackward {
+impl InsertedSparse {
+    pub fn new(changed: Rc<Cell<ChangeResult>>) -> SparseInsertedAnalysis {
+        DenseBackward::new(Self { changed })
+    }
+
+    fn update_inserted(
+        &self,
+        ctx: &Context,
+        solver: &DataflowSolver,
+        state: &WriteRef<DenseLattice<InsertedSet>>,
+        new_insert: &SparseBitSet,
+    ) {
+        solver.update_state(ctx, state, |it| {
+            let changed = it.join(&InsertedSet(new_insert.clone()));
+            self.changed.update(|it| it | changed);
+            changed
+        });
+    }
+
     fn insert_in_pred(
+        &self,
         solver: &DataflowSolver,
         ctx: &Context,
         point: ProgramPoint,
@@ -1095,7 +1156,7 @@ impl InsertedBackward {
         let insert = solver.get_or_create_mut::<Inserted>(point);
         let computes = solver.get_or_create_mut::<Computes>(point);
 
-        solver.update_state(ctx, &insert, |it| it.join(&InsertedSet(new_insert.clone())));
+        self.update_inserted(ctx, solver, &insert, &new_insert);
         solver.update_state(ctx, &computes, |it| {
             it.join(&ComputesSet(new_insert.clone()))
         });
@@ -1105,7 +1166,7 @@ impl InsertedBackward {
     }
 }
 
-impl DenseBackwardDataflowAnalysis for InsertedBackward {
+impl DenseBackwardDataflowAnalysis for InsertedSparse {
     type LatticeValue = ComputedOnImmediateEdge;
 
     fn visit_operation(
@@ -1153,7 +1214,7 @@ impl DenseBackwardDataflowAnalysis for InsertedBackward {
             return Ok(());
         }
 
-        Self::insert_in_pred(solver, ctx, point, successors, before);
+        this.insert_in_pred(solver, ctx, point, successors, before);
         Ok(())
     }
 
@@ -1192,11 +1253,11 @@ impl DenseBackwardDataflowAnalysis for InsertedBackward {
             return Ok(());
         }
 
-        if branch
-            .get_operation()
-            .impls::<dyn MutableRegionBranchOpInterface>(ctx)
+        let branch_op = branch.get_operation();
+        if point == ProgramPoint::before_op(ctx, branch_op)
+            || branch_op.impls::<dyn MutableRegionBranchOpInterface>(ctx)
         {
-            Self::insert_in_pred(solver, ctx, point, successors, before);
+            this.insert_in_pred(solver, ctx, point, successors, before);
         }
         Ok(())
     }
