@@ -1,3 +1,5 @@
+#![deny(unused_lifetimes)]
+
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_core::ir::{
@@ -26,7 +28,7 @@ pub struct Wrapper<T: CubeType> {
 
 #[derive(CubeType)]
 pub struct MixedFields {
-    // Repeated concrete types must share the generated dereference bound.
+    // Repeated concrete types must remain valid.
     pub first: f32,
     pub second: f32,
     #[cube(comptime)]
@@ -37,6 +39,37 @@ pub struct MixedFields {
 #[derive(CubeType)]
 pub struct NonDerefField {
     pub values: Box<[f32]>,
+}
+
+type ScalarAlias = f32;
+type BufferAlias = Box<[f32]>;
+
+#[derive(CubeType, Clone, Copy)]
+pub struct AliasedFields {
+    pub first: f32,
+    pub second: ScalarAlias,
+    pub third: core::primitive::f32,
+}
+
+#[cube]
+impl AliasedFields {
+    pub fn copy(&self) -> Self {
+        *self
+    }
+}
+
+#[derive(CubeType)]
+pub struct AliasedNonDerefFields {
+    pub first: Box<[f32]>,
+    pub second: BufferAlias,
+}
+
+// The generated bound must not shadow existing lifetimes or require 'static data.
+#[derive(CubeType)]
+pub struct BorrowedFields<'__cube_deref> {
+    pub value: f32,
+    #[cube(comptime)]
+    pub label: &'__cube_deref str,
 }
 
 #[test]
@@ -76,4 +109,47 @@ fn deref_nested_structs_and_comptime_fields() {
     assert_eq!(copy.value.label, "test");
     assert!(!copy.value.first.value(&scope).is_ptr(scope.ctx()));
     assert!(!copy.value.second.value(&scope).is_ptr(scope.ctx()));
+}
+
+#[test]
+fn deref_aliased_fields() {
+    let scope = Scope::root(KernelSettings::new(
+        Dim3::new_single(),
+        ExecutionMode::Checked,
+        AddressType::U32,
+    ));
+    let original = AliasedFieldsExpand {
+        first: 1.0f32.into_expand(&scope).into_mut(&scope),
+        second: 2.0f32.into_expand(&scope).into_mut(&scope),
+        third: 3.0f32.into_expand(&scope).into_mut(&scope),
+    };
+    let copy = original.__expand_copy_method(&scope);
+
+    for (original, copy) in [
+        (original.first, copy.first),
+        (original.second, copy.second),
+        (original.third, copy.third),
+    ] {
+        assert!(original.value(&scope).is_ptr(scope.ctx()));
+        assert!(!copy.value(&scope).is_ptr(scope.ctx()));
+        assert_ne!(original.expand, copy.expand);
+    }
+}
+
+#[test]
+fn deref_borrowed_comptime_field() {
+    let scope = Scope::root(KernelSettings::new(
+        Dim3::new_single(),
+        ExecutionMode::Checked,
+        AddressType::U32,
+    ));
+    let label = String::from("borrowed");
+    let original = BorrowedFieldsExpand {
+        value: 1.0f32.into_expand(&scope).into_mut(&scope),
+        label: &label,
+    };
+    let copy = original.__expand_deref_method(&scope);
+
+    assert_eq!(copy.label, label);
+    assert!(!copy.value.value(&scope).is_ptr(scope.ctx()));
 }

@@ -1,4 +1,3 @@
-use darling::usage::{GenericsExt, Purpose, UsesTypeParams};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{Generics, Ident, Type, Visibility, WhereClause, parse_quote};
@@ -90,6 +89,7 @@ impl CubeTypeStruct {
         let (_, type_generics, _) = self.generics.split_for_impl();
 
         quote! {
+            #[allow(unused_lifetimes)]
             impl #impl_generics #deref for #name #type_generics #where_clause {
                 type Target = Self;
 
@@ -352,9 +352,14 @@ impl CubeTypeStruct {
         let cube_type = prelude_type("CubeType");
         let deref = prelude_type("DerefExpand");
         let mut generics = self.generics.clone();
-        let type_params = generics.declared_type_params();
-        let opts = Purpose::BoundImpl.into();
-        let mut field_types = Vec::new();
+        let mut lifetime = format_ident!("__cube_deref");
+        while generics
+            .lifetimes()
+            .any(|param| param.lifetime.ident == lifetime)
+        {
+            lifetime = format_ident!("{lifetime}_");
+        }
+        let lifetime = syn::Lifetime::new(&format!("'{lifetime}"), lifetime.span());
 
         for field in self
             .fields
@@ -362,32 +367,13 @@ impl CubeTypeStruct {
             .filter(|field| !field.comptime.is_present())
         {
             let ty = &field.ty;
-            if field_types.contains(ty) {
-                continue;
-            }
-            // Keep existing associated-type equalities intact for generic fields.
-            if !field.uses_type_params(&opts, &type_params).is_empty() {
-                let expand_type = quote!(<#ty as #cube_type>::ExpandType);
-                generics
-                    .make_where_clause()
-                    .predicates
-                    .push(parse_quote!(#expand_type: #deref<Target = #expand_type>));
-                field_types.push(ty.clone());
-                continue;
-            }
-            let mut param = format_ident!("__CubeDerefField{}", field_types.len());
-            while generics.type_params().any(|it| it.ident == param)
-                || generics.const_params().any(|it| it.ident == param)
-            {
-                param = format_ident!("{param}_");
-            }
-            field_types.push(ty.clone());
-            generics.params.push(parse_quote!(#param));
-            // Name the expanded field type so this impl remains conditional even for
-            // concrete fields whose expanded types do not implement DerefExpand.
-            let predicates = &mut generics.make_where_clause().predicates;
-            predicates.push(parse_quote!(#ty: #cube_type<ExpandType = #param>));
-            predicates.push(parse_quote!(#param: #deref<Target = #param>));
+            let expand_type = quote!(<#ty as #cube_type>::ExpandType);
+            // The intentionally unused higher-ranked lifetime defers checking concrete
+            // bounds until this impl is used. This keeps non-dereferenceable fields valid
+            // without introducing associated-type equalities that conflict for aliases.
+            generics.make_where_clause().predicates.push(parse_quote!(
+                for<#lifetime> #expand_type: #deref<Target = #expand_type>
+            ));
         }
 
         generics
