@@ -131,14 +131,14 @@ mod launch {
                             let divisor = divisor.to_u32().unwrap();
                             let (shift, multiplier) = find_params_u32(divisor);
 
-                            let multiplier = I::from_int(multiplier as i64);
+                            let multiplier = I::from_int_128(multiplier as i128);
                             (shift, multiplier)
                         }
                         8 => {
                             let divisor = divisor.to_u64().unwrap();
                             let (shift, multiplier) = find_params_u64(divisor);
 
-                            let multiplier = I::from_int(multiplier as i64);
+                            let multiplier = I::from_int_128(multiplier as i128);
                             (shift, multiplier)
                         }
                         _ => panic!("unsupported type size for FastDivmod"),

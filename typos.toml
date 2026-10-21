@@ -18,6 +18,7 @@ UE4M3 = "UE4M3"
 UE8M0 = "UE8M0"
 arange = "arange"
 cpy = "cpy"         # Shorthand for "copy" (CUDA_MEMCPY2D_st locals).
+ratatui = "ratatui" # The terminal UI crate `cubecl-inspect`'s browser is built on.
 ue4m3 = "ue4m3"
 ue8m0 = "ue8m0"
 ue8m0x2 = "ue8m0x2"

@@ -7,12 +7,13 @@
 //! entries are faulted in one key at a time.
 //!
 //! Every cache is identified by a [`Namespace`], a `/`-separated string such
-//! as `autotune/0.11.0/cuda-0/matmul`. All the namespaces of an environment
-//! share one database file and are told apart by a column rather than by a
-//! directory tree. Entries are therefore looked up per key, and shipping a
-//! subset of them is a query away (see [`crate::bundle`]). Platforms with shared
-//! WAL support let several processes share a root. Windows uses exclusive
-//! process locks and falls back to memory while another process holds the file.
+//! as `autotune/0.11.0/layout-v1/cuda_ptx-sm89_NVIDIA-L4_par58/matmul`. All
+//! the namespaces of an environment share one database file and are told apart
+//! by a column rather than by a directory tree. Entries are looked up per key,
+//! and shipping a subset of them is a query away (see [`crate::bundle`]).
+//! Platforms with shared WAL support let several processes share a root.
+//! Windows uses exclusive process locks and falls back to memory while another
+//! process holds the file.
 
 /// The writable half of persistence: where a namespace's entries live.
 pub mod storage;
