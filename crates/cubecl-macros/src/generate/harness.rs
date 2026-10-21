@@ -28,7 +28,8 @@ use darling::util::Flag;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
-    GenericArgument, GenericParam, Ident, ItemFn, PathArguments, Type, TypeParamBound, parse_quote,
+    GenericArgument, GenericParam, Ident, ItemFn, PathArguments, Type, TypeParamBound,
+    WherePredicate, parse_quote,
 };
 
 use crate::{
@@ -137,9 +138,33 @@ impl Launch {
             || self.func.context.is_intrinsic
             || sig.receiver_arg.is_some()
             || sig.scope_lifetime.is_some()
-            || sig.generics.where_clause.is_some()
             || !matches!(self.func.body, KernelBody::Block(_))
         {
+            return None;
+        }
+
+        // `where F: Float` is the same as an inline `F: Float`, so a predicate
+        // on a bare generic is folded into its bounds. No other predicate is
+        // supported.
+        let mut where_bounds = Vec::new();
+        for predicate in sig.generics.where_clause.iter().flat_map(|w| &w.predicates) {
+            let WherePredicate::Type(predicate) = predicate else {
+                return None;
+            };
+            let Type::Path(ty) = &predicate.bounded_ty else {
+                return None;
+            };
+            if predicate.lifetimes.is_some() || ty.qself.is_some() {
+                return None;
+            }
+            where_bounds.push((ty.path.get_ident()?, &predicate.bounds));
+        }
+        let is_type_param = |ident: &Ident| {
+            sig.generics
+                .type_params()
+                .any(|param| &param.ident == ident)
+        };
+        if !where_bounds.iter().all(|(ident, _)| is_type_param(ident)) {
             return None;
         }
 
@@ -148,10 +173,20 @@ impl Launch {
             let GenericParam::Type(param) = param else {
                 return None;
             };
-            if !param.attrs.is_empty() || param.default.is_some() || param.bounds.len() != 1 {
+            let bounds = param
+                .bounds
+                .iter()
+                .chain(
+                    where_bounds
+                        .iter()
+                        .filter(|(ident, _)| *ident == &param.ident)
+                        .flat_map(|(_, bounds)| bounds.iter()),
+                )
+                .collect::<Vec<_>>();
+            if !param.attrs.is_empty() || param.default.is_some() {
                 return None;
             }
-            let Some(TypeParamBound::Trait(bound)) = param.bounds.first() else {
+            let [TypeParamBound::Trait(bound)] = bounds[..] else {
                 return None;
             };
             let bound = bound.path.get_ident()?;
@@ -583,6 +618,23 @@ mod tests {
     }
 
     #[test]
+    fn where_bounds_are_inline_bounds() {
+        let plan = plan(parse_quote! {
+            fn f<F, I>(x: F, y: I) -> (F, I) where F: Float, I: Int { (x, y) }
+        })
+        .unwrap();
+
+        assert_eq!(
+            plan.generics,
+            vec![
+                (parse_quote!(F), parse_quote!(Float)),
+                (parse_quote!(I), parse_quote!(Int)),
+            ]
+        );
+        assert_eq!(plan.params[0].1, HarnessValue::Generic(parse_quote!(F)));
+    }
+
+    #[test]
     fn tuple_returns_are_pure() {
         let returns = |item: ItemFn| plan(item).unwrap().returns;
 
@@ -700,6 +752,11 @@ mod tests {
             parse_quote! { fn f<N: Size>(x: u32) -> u32 { 0 } },
             parse_quote! { fn f<F: Float + CubeElement>(x: F) -> F { x } },
             parse_quote! { fn f<F: Float>(x: F) -> F where F: Copy { x } },
+            parse_quote! { fn f<F>(x: F) -> F where F: Float + CubeElement { x } },
+            parse_quote! { fn f<F>(x: F) -> F where F: Float, F: Copy { x } },
+            parse_quote! { fn f<F: Float>(x: F) -> F where F::Expand: Clone { x } },
+            parse_quote! { fn f<F: Float>(x: F) -> F where u32: Copy { x } },
+            parse_quote! { fn f<F>(x: F) -> F where for<'a> F: Float { x } },
             parse_quote! { fn f<T: CubePrimitive>(x: T) -> T { x } },
             parse_quote! { fn f(#[comptime] c: MyConfig) -> u32 { 0 } },
         ];

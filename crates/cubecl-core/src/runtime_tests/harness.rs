@@ -31,6 +31,15 @@ fn truncate_add<F: Float, I: Int>(x: F, y: I) -> I {
 }
 
 #[cube(harness(always))]
+fn truncate_sub<F, I>(x: F, y: I) -> I
+where
+    F: Float,
+    I: Int,
+{
+    I::cast_from(x) - y
+}
+
+#[cube(harness(always))]
 fn answer() -> u32 {
     42
 }
@@ -336,6 +345,7 @@ pub fn test_harness_slice<R: Runtime>() {
 pub fn test_harness_generic<R: Runtime>() {
     assert_eq!(scale::harness::<R, f32>(1.5, 4), 6.0);
     assert_eq!(truncate_add::harness::<R, f32, i32>(2.75, 3), 5);
+    assert_eq!(truncate_sub::harness::<R, f32, i32>(2.75, 3), -1);
 }
 
 #[allow(missing_docs)]
