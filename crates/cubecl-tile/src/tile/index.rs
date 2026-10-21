@@ -474,7 +474,7 @@ impl TileExpand {
             TileKindExpand::Memory(MemoryExpand {
                 index: ComptimeOptionExpand::Some(table),
                 ..
-            }) if table.placed => Some(table.in_range.clone()),
+            }) if table.placed => Some(table.in_range),
             _ => None,
         }
     }

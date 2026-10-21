@@ -23,7 +23,7 @@ const CUBES_PER_GRID_DIMENSION: usize = 65_535;
 ///
 /// Every plane the launch spawns walks one tile, as every plane of a cube level's cube does: a
 /// plane past the last tile, of a block the edge cuts short or of a cube past the last block,
-/// walks one past the grid, which the binding masks ([`overruns`](PlaneOrder::overruns)). So the
+/// walks one past the grid, which the binding masks (`PlaneOrder::overruns`). So the
 /// planes of a cube all reach any barrier one of them meets.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct PlaneOrder {
