@@ -8,14 +8,11 @@
 //! example in `clone`, `split` or copy-on-write, the copy also comes from that allocator.
 
 use super::{
-    AccessError, AccessPolicy, AllocationController, AllocationError, AllocationProperty,
-    default_controller::MAX_ALIGN,
+    AllocationError, AllocationProperty,
+    default_controller::{Controller, Provider},
 };
-use alloc::boxed::Box;
 use core::{
     alloc::{GlobalAlloc, Layout},
-    mem::MaybeUninit,
-    num::NonZeroUsize,
     ptr::NonNull,
 };
 
@@ -180,134 +177,44 @@ unsafe impl<A: allocator_api2::alloc::Allocator + Send + Sync> BufferAllocator
     }
 }
 
-/// Allocation controller whose memory comes from a [`BufferAllocator`].
-///
-/// SAFETY:
-///  - If `size > 0`, `ptr` points to an allocation of `allocator` with layout `size` and
-///    `align`.
-///  - If `size == 0`, `ptr` is dangling and aligned to `align`, and no memory is allocated.
-///  - [`try_detach`](AllocationController::try_detach) always returns `None`. A `Vec` releases
-///    its memory with the global allocator, so this memory must never become a `Vec`.
-pub(crate) struct AllocatorController {
-    allocator: &'static dyn BufferAllocator,
-    ptr: NonNull<u8>,
-    size: usize,
-    align: usize,
-}
-
-impl AllocatorController {
-    /// Allocates `capacity` uninitialized bytes from `allocator`.
-    pub(crate) fn alloc_with_capacity(
-        allocator: &'static dyn BufferAllocator,
-        capacity: usize,
-        align: usize,
-    ) -> Result<Self, AllocationError> {
-        let layout = layout(capacity, align)?;
-        let ptr = if capacity == 0 {
-            dangling(align)
-        } else {
-            allocator.allocate(layout)?
-        };
-        debug_assert!(
-            ptr.as_ptr().align_offset(align) == 0,
-            "the allocator returned a pointer that is not aligned"
-        );
-
-        Ok(Self {
-            allocator,
-            ptr,
-            size: capacity,
-            align,
-        })
+// SAFETY: A shared reference gives the guarantees of the allocator that it points to.
+unsafe impl<A: BufferAllocator + ?Sized> BufferAllocator for &A {
+    fn allocate(&self, layout: Layout) -> Result<NonNull<u8>, AllocationError> {
+        (**self).allocate(layout)
     }
 
-    fn layout(&self) -> Layout {
-        // SAFETY: The size and the alignment come from a valid layout.
-        unsafe { Layout::from_size_align_unchecked(self.size, self.align) }
-    }
-}
-
-/// Makes the layout of an allocation, with the alignment limit of [`Bytes`](super::Bytes).
-fn layout(size: usize, align: usize) -> Result<Layout, AllocationError> {
-    if align > MAX_ALIGN {
-        return Err(AllocationError::UnsupportedOperation);
-    }
-    Layout::from_size_align(size, align).map_err(|_| AllocationError::OutOfMemory)
-}
-
-/// A pointer for an allocation of zero bytes.
-fn dangling(align: usize) -> NonNull<u8> {
-    NonNull::without_provenance(NonZeroUsize::new(align).expect("alignment is never zero"))
-}
-
-impl AllocationController for AllocatorController {
-    fn alloc_align(&self) -> usize {
-        self.align
+    unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+        // SAFETY: The caller gives the guarantees of `BufferAllocator::deallocate`.
+        unsafe { (**self).deallocate(ptr, layout) }
     }
 
-    fn property(&self) -> AllocationProperty {
-        AllocationProperty::Other
-    }
-
-    // The memory is always host-resident: the policy never forces a copy here.
-    fn memory(&self, _policy: AccessPolicy) -> Result<&[MaybeUninit<u8>], AccessError> {
-        // SAFETY: Per type invariants, `ptr` is valid for `size` bytes.
-        Ok(unsafe { core::slice::from_raw_parts(self.ptr.as_ptr().cast(), self.size) })
-    }
-
-    unsafe fn memory_mut(
-        &mut self,
-        _policy: AccessPolicy,
-    ) -> Result<&mut [MaybeUninit<u8>], AccessError> {
-        // SAFETY: Per type invariants, `ptr` is valid for `size` bytes, and `&mut self` is
-        // exclusive.
-        Ok(unsafe { core::slice::from_raw_parts_mut(self.ptr.as_ptr().cast(), self.size) })
-    }
-
-    fn grow(&mut self, size: usize, align: usize) -> Result<(), AllocationError> {
-        // Don't let the data become less aligned.
-        let align = align.max(self.align);
-        let new = layout(size.next_multiple_of(align), align)?;
-        let ptr = if self.size == 0 {
-            self.allocator.allocate(new)?
-        } else {
-            // SAFETY: Per type invariants, `ptr` comes from `allocator` with this layout, and
-            // `Bytes` only grows to a larger size.
-            unsafe { self.allocator.grow(self.ptr, self.layout(), new)? }
-        };
-
-        self.ptr = ptr;
-        self.size = new.size();
-        self.align = new.align();
-        Ok(())
-    }
-
-    fn alloc_like(
+    unsafe fn grow(
         &self,
-        capacity: usize,
-        align: usize,
-    ) -> Option<Result<Box<dyn AllocationController>, AllocationError>> {
-        Some(
-            Self::alloc_with_capacity(self.allocator, capacity, align)
-                .map(|controller| Box::new(controller) as Box<dyn AllocationController>),
-        )
+        ptr: NonNull<u8>,
+        old: Layout,
+        new: Layout,
+    ) -> Result<NonNull<u8>, AllocationError> {
+        // SAFETY: The caller gives the guarantees of `BufferAllocator::grow`.
+        unsafe { (**self).grow(ptr, old, new) }
     }
 }
 
-impl Drop for AllocatorController {
-    fn drop(&mut self) {
-        if self.size != 0 {
-            // SAFETY: Per type invariants, `ptr` comes from `allocator` with this layout.
-            unsafe { self.allocator.deallocate(self.ptr, self.layout()) }
-        }
-    }
+// Memory from an allocator of the application never becomes a `Vec`, because a `Vec` releases
+// its memory with the global allocator.
+impl Provider for &'static dyn BufferAllocator {
+    const DETACHABLE: bool = false;
+    const PROPERTY: AllocationProperty = AllocationProperty::Other;
 }
+
+/// Allocation controller whose memory comes from a [`BufferAllocator`].
+pub(crate) type AllocatorController = Controller<&'static dyn BufferAllocator>;
 
 // The tests need std (the system allocator and test_log).
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
-    use crate::bytes::{Bytes, SplitPolicy};
+    use crate::bytes::{Bytes, SplitPolicy, default_controller::MAX_ALIGN};
+    use alloc::boxed::Box;
     use core::sync::atomic::{AtomicUsize, Ordering};
 
     /// Counts the calls that reach it, and refuses allocations above `limit` live bytes.

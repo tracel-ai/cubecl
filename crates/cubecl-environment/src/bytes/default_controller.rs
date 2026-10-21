@@ -1,10 +1,13 @@
-//! Module that defines an allocation based on the [alloc crate](alloc).
+//! Module that defines an allocation controller over a [`BufferAllocator`], and the default
+//! provider that uses the [alloc crate](alloc).
 
-use crate::bytes::{AccessError, AccessPolicy, AllocationController, AllocationError};
+use crate::bytes::{
+    AccessError, AccessPolicy, AllocationController, AllocationError, BufferAllocator,
+};
 use alloc::alloc::Layout;
+use alloc::boxed::Box;
 use alloc::vec::Vec;
-use bytemuck::Contiguous;
-use core::{alloc::LayoutError, marker::PhantomData, mem::MaybeUninit, ptr::NonNull};
+use core::{mem::MaybeUninit, num::NonZeroUsize, ptr::NonNull};
 
 use super::AllocationProperty;
 
@@ -12,89 +15,190 @@ use super::AllocationProperty;
 /// the bytes are always over-aligned when deserializing to `MAX_ALIGN`.
 pub const MAX_ALIGN: usize = core::mem::align_of::<u128>();
 
-/// Represents a single contiguous memory allocation.
+/// Where the memory of a [`Controller`] comes from.
 ///
-/// The allocation can be manipulated using the [`AllocationController`],
-/// though some operations, such as [grow](AllocationController::grow), may not be supported by all
-/// implementations.
-struct Allocation<'a> {
-    /// Points to the beginning of the allocation.
-    /// Must be valid for the lifetime of the allocation.
-    ptr: NonNull<u8>,
-    /// The number of bytes allocated. Nb not all bytes are initialized.
-    size: usize,
-    /// The memory alignment of the allocation
-    align: usize,
-    /// The lifetime this allocation is valid for.
-    _lifetime: PhantomData<&'a ()>,
+/// Only this crate implements the trait.
+pub(crate) trait Provider: BufferAllocator + Copy + 'static {
+    /// Whether the memory may become a `Vec`. Only memory from the global allocator may,
+    /// because a `Vec` releases its memory with the global allocator.
+    const DETACHABLE: bool;
+    /// The property that the controller reports.
+    const PROPERTY: AllocationProperty;
 }
 
-impl<'a> Allocation<'a> {
-    /// Create a new allocation for the given pointer, size, and alignment.
-    ///
-    /// # Safety
-    ///
-    /// - Ptr must not be used elsewhere.
-    /// - Ptr must be valid for at least the lifetime of `'a`
-    /// - The allocation must have the alignment specified by `align`
-    /// - The allocation must be at least `size` bytes long
-    pub unsafe fn new_init(ptr: NonNull<u8>, size: usize, align: usize) -> Self {
-        debug_assert!(
-            align <= MAX_ALIGN,
-            "alignment exceeds maximum supported alignment"
-        );
-        debug_assert!(
-            ptr.as_ptr().align_offset(align.into_integer()) == 0,
-            "pointer is not properly aligned"
-        );
+/// The global allocator of the [alloc crate](alloc).
+///
+/// Like `Vec`, it aborts through [`handle_alloc_error`](alloc::alloc::handle_alloc_error) when
+/// the global allocator has no memory, and never returns an error.
+#[derive(Clone, Copy)]
+pub(crate) struct Global;
 
-        Self {
-            ptr,
-            size,
-            align,
-            _lifetime: PhantomData,
-        }
+impl Provider for Global {
+    const DETACHABLE: bool = true;
+    const PROPERTY: AllocationProperty = AllocationProperty::Native;
+}
+
+// SAFETY: The global allocator gives the guarantees of `BufferAllocator`.
+unsafe impl BufferAllocator for Global {
+    fn allocate(&self, layout: Layout) -> Result<NonNull<u8>, AllocationError> {
+        // SAFETY: `BufferAllocator::allocate` never receives a layout of zero size.
+        let ptr = unsafe { alloc::alloc::alloc(layout) };
+        Ok(NonNull::new(ptr).unwrap_or_else(|| alloc::alloc::handle_alloc_error(layout)))
     }
 
-    fn dangling(align: usize) -> Allocation<'a> {
-        let ptr = core::ptr::null_mut::<u8>().wrapping_add(align);
-        Self {
-            ptr: NonNull::new(ptr).unwrap(),
-            size: 0,
-            align,
-            _lifetime: PhantomData,
-        }
+    unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+        // SAFETY: `ptr` comes from a Vec or from `allocate`/`grow`, with this layout.
+        unsafe { alloc::alloc::dealloc(ptr.as_ptr(), layout) }
     }
+
+    unsafe fn grow(
+        &self,
+        ptr: NonNull<u8>,
+        old: Layout,
+        new: Layout,
+    ) -> Result<NonNull<u8>, AllocationError> {
+        let realloc = |ptr: NonNull<u8>, old: Layout| {
+            // SAFETY:
+            // - ptr comes from a Vec or from `allocate`/`grow`, with layout `old`.
+            // - new.size() is not 0, since it is at least old.size() which is non-zero.
+            let ptr = unsafe { alloc::alloc::realloc(ptr.as_ptr(), old, new.size()) };
+            // SAFETY: The size comes from a valid layout, and the alignment from another.
+            let layout = unsafe { Layout::from_size_align_unchecked(new.size(), old.align()) };
+            (layout, NonNull::new(ptr))
+        };
+        if new.align() == old.align() {
+            // happy path. We can just realloc.
+            let (layout, ptr) = realloc(ptr, old);
+            return Ok(ptr.unwrap_or_else(|| alloc::alloc::handle_alloc_error(layout)));
+        }
+        // [buffer grow]: alloc::realloc can *not* change the alignment of the allocation's layout.
+        // The unstable Allocator::{grow,shrink} API changes this, but might take a while to make it
+        // into alloc::GlobalAlloc.
+        //
+        // As such, we can not request a specific alignment. But most allocators will give us the required
+        // alignment "for free". Hence, we speculatively avoid a mem-copy by using realloc.
+        //
+        // If in the future requesting an alignment change for an existing is available, this can be removed.
+        let mut old_buffer = ptr;
+        let mut old_layout = old;
+        if alignment_assumption::speculate() {
+            // If realloc fails, the later alloc will likely too, but don't report this yet
+            if let (layout, Some(buffer)) = realloc(ptr, old) {
+                if buffer.align_offset(new.align()) == 0 {
+                    return Ok(buffer);
+                }
+                // Speculating hasn't succeeded, but access now has to go through the reallocated buffer
+                alignment_assumption::report_violation();
+                old_buffer = buffer;
+                old_layout = layout;
+            }
+        }
+        // realloc but change alignment. This requires a mem copy as pointed out above
+        let new_buffer = self.allocate(new)?;
+        // SAFETY: two different memory allocations, and old buffer's size is not larger than new.size()
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                old_buffer.as_ptr(),
+                new_buffer.as_ptr(),
+                old_layout.size(),
+            );
+            self.deallocate(old_buffer, old_layout);
+        }
+        Ok(new_buffer)
+    }
+}
+
+/// Whether the global allocator returns more alignment than it is asked for, on a `realloc`.
+/// Only [`Global`] uses it, so a custom allocator never changes it.
+#[cfg(target_has_atomic = "8")]
+mod alignment_assumption {
+    use crate::sync::{AtomicBool, Ordering};
+    static SPECULATE: AtomicBool = AtomicBool::new(true);
+    pub fn speculate() -> bool {
+        // We load and store with relaxed order, since worst case this leads to a few more memcopies
+        SPECULATE.load(Ordering::Relaxed)
+    }
+    pub fn report_violation() {
+        SPECULATE.store(false, Ordering::Relaxed);
+    }
+}
+#[cfg(not(target_has_atomic = "8"))]
+mod alignment_assumption {
+    // On these platforms we don't speculate, and take the hit of performance
+    pub fn speculate() -> bool {
+        false
+    }
+    pub fn report_violation() {}
+}
+
+/// Allocation controller whose memory comes from a [`Provider`].
+///
+/// SAFETY:
+///  - If `size > 0`, `ptr` points to a valid allocation of `provider` with layout `size` and
+///    `align`. Not all bytes are initialized.
+///  - If `size == 0`, `ptr` is aligned to `align` and dangling, and no memory is allocated.
+///    `ptr` is further suitable to be used as the argument for `Vec::from_raw_parts`, see
+///    [`Controller::from_elems`].
+///  - [`try_detach`](AllocationController::try_detach) returns the memory only when
+///    [`Provider::DETACHABLE`] is `true`.
+pub(crate) struct Controller<P: Provider> {
+    provider: P,
+    ptr: NonNull<u8>,
+    size: usize,
+    align: usize,
 }
 
 /// Allocation controller using the 'native' rust [alloc crate](alloc).
-///
-/// SAFETY:
-///  - If `layout.size() > 0`, `ptr` points to a valid allocation from the global allocator
-///    of the specified layout. The first `len` bytes are initialized.
-///  - If `layout.size() == 0`, `ptr` is aligned to `layout.align()` and `len` is 0.
-///    `ptr` is further suitable to be used as the argument for `Vec::from_raw_parts` see [buffer alloc]
-///    for more details.
-pub(crate) struct NativeAllocationController<'a> {
-    allocation: Allocation<'a>,
-}
+pub(crate) type NativeAllocationController = Controller<Global>;
 
-impl<'a> NativeAllocationController<'a> {
-    pub(crate) fn alloc_with_data(data: &[u8], align: usize) -> Result<Self, LayoutError> {
+impl<P: Provider> Controller<P> {
+    /// Allocates `capacity` uninitialized bytes from `provider`.
+    ///
+    /// `capacity` must be a multiple of `align`.
+    pub(crate) fn alloc_with_capacity(
+        provider: P,
+        capacity: usize,
+        align: usize,
+    ) -> Result<Self, AllocationError> {
         debug_assert!(
-            align <= MAX_ALIGN,
-            "alignment exceeds maximum supported alignment"
+            capacity.is_multiple_of(align),
+            "capacity must be a multiple of alignment"
         );
 
+        let layout = layout(capacity, align)?;
+        let ptr = if capacity == 0 {
+            dangling(align)
+        } else {
+            provider.allocate(layout)?
+        };
+        debug_assert!(
+            ptr.as_ptr().align_offset(align) == 0,
+            "pointer is not properly aligned"
+        );
+
+        Ok(Self {
+            provider,
+            ptr,
+            size: capacity,
+            align,
+        })
+    }
+
+    /// Copies `data` into new memory from `provider`, aligned to `align`.
+    pub(crate) fn alloc_with_data(
+        provider: P,
+        data: &[u8],
+        align: usize,
+    ) -> Result<Self, AllocationError> {
         // Round up capacity to next multiple of alignment
-        let capacity = data.len().next_multiple_of(align.into_integer());
-        let mut controller = Self::alloc_with_capacity(capacity, align)?;
+        let capacity = data.len().next_multiple_of(align);
+        let mut controller = Self::alloc_with_capacity(provider, capacity, align)?;
         // See also #![feature(maybe_uninit_write_slice)], which would replace this with safe code
         // SAFETY: reinterpreting the slice as a MaybeUninit<u8>, and only reading from it.
         unsafe {
             controller
                 .memory_mut(AccessPolicy::default())
-                .expect("native allocation is always host-resident")[..data.len()]
+                .expect("controller memory is always host-resident")[..data.len()]
                 .copy_from_slice(core::slice::from_raw_parts(
                     data.as_ptr().cast(),
                     data.len(),
@@ -103,28 +207,14 @@ impl<'a> NativeAllocationController<'a> {
         Ok(controller)
     }
 
-    pub(crate) fn alloc_with_capacity(capacity: usize, align: usize) -> Result<Self, LayoutError> {
-        debug_assert!(
-            align <= MAX_ALIGN,
-            "alignment exceeds maximum supported alignment"
-        );
-        debug_assert!(
-            capacity.is_multiple_of(align.into_integer()),
-            "capacity must be a multiple of alignment"
-        );
-
-        let layout = Layout::from_size_align(capacity, align.into_integer())?;
-        let ptr = buffer_alloc(layout);
-
-        // SAFETY:
-        // - The pointer is valid until the controller is deallocated.
-        // - The pointer was allocated with the given layout.
-        let allocation = unsafe { Allocation::new_init(ptr, layout.size(), layout.align()) };
-
-        // The allocation was done with the core allocator.
-        Ok(Self { allocation })
+    fn layout(&self) -> Layout {
+        // SAFETY: The size and the alignment come from a valid layout.
+        unsafe { Layout::from_size_align_unchecked(self.size, self.align) }
     }
+}
 
+impl NativeAllocationController {
+    /// Adopts the buffer of `elems`, without a copy.
     pub(crate) fn from_elems<E>(elems: Vec<E>) -> Self
     where
         E: bytemuck::NoUninit + Send + Sync,
@@ -143,66 +233,90 @@ impl<'a> NativeAllocationController<'a> {
         // We now have one contiguous slice of data to pass to Layout::for_value.
         let data = elems.spare_capacity_mut();
         let layout = Layout::for_value(data);
-        let ptr = NonNull::new(elems.as_mut_ptr() as *mut u8).unwrap();
+        // An empty Vec does not allocate, and its dangling pointer is aligned to `E`: that is the
+        // same pointer that `dangling` makes.
+        let ptr = NonNull::new(elems.as_mut_ptr().cast::<u8>()).unwrap();
 
-        // SAFETY:
-        // - The pointer is valid as long as the controller is alive and not dealloced.
-        // - The allocation was done with the size and layout of the data.
-        let alloc = unsafe { Allocation::new_init(ptr, layout.size(), layout.align()) };
-
-        Self { allocation: alloc }
+        // The pointer is valid as long as the controller is alive and not dealloced, and the
+        // allocation was done by the global allocator with the size and layout of the data.
+        Self {
+            provider: Global,
+            ptr,
+            size: layout.size(),
+            align: layout.align(),
+        }
     }
 }
 
-impl AllocationController for NativeAllocationController<'_> {
+/// Makes the layout of an allocation, with the alignment limit of [`Bytes`](super::Bytes).
+fn layout(size: usize, align: usize) -> Result<Layout, AllocationError> {
+    if align > MAX_ALIGN {
+        return Err(AllocationError::UnsupportedOperation);
+    }
+    Layout::from_size_align(size, align).map_err(|_| AllocationError::OutOfMemory)
+}
+
+/// A pointer for an allocation of zero bytes.
+fn dangling(align: usize) -> NonNull<u8> {
+    // [buffer alloc]: The current docs of Vec::from_raw_parts(ptr, ...) say:
+    //   > ptr must have been allocated using the global allocator
+    // Yet, an empty Vec is guaranteed to not allocate (it is even illegal! to allocate with a zero-sized layout)
+    // Hence, we slightly re-interpret the above to only needing to hold if `capacity > 0`. Still, the pointer
+    // must be non-zero. So in case we need a pointer for an empty vec, use a correctly aligned, dangling one.
+    NonNull::without_provenance(NonZeroUsize::new(align).expect("alignment is never zero"))
+}
+
+impl<P: Provider> AllocationController for Controller<P> {
     fn grow(&mut self, size: usize, align: usize) -> Result<(), AllocationError> {
         debug_assert!(
             align <= MAX_ALIGN,
             "alignment exceeds maximum supported alignment"
         );
         debug_assert!(
-            size > self.allocation.size,
+            size > self.size,
             "new size must be larger than current size"
         );
 
-        let Ok(new_layout) = Layout::from_size_align(size, align) else {
-            return Err(AllocationError::OutOfMemory);
+        // Don't let data become less aligned
+        let align = align.max(self.align);
+        let new = layout(size.next_multiple_of(align), align)?;
+        let ptr = if self.size == 0 {
+            self.provider.allocate(new)?
+        } else {
+            // SAFETY: Per type invariants, `ptr` comes from `provider` with this layout, and
+            // the new size is larger.
+            unsafe { self.provider.grow(self.ptr, self.layout(), new)? }
         };
 
-        // SAFETY: Check done before.
-        let old_layout = unsafe {
-            Layout::from_size_align_unchecked(self.allocation.size, self.allocation.align)
-        };
-        let (layout, ptr) = buffer_grow(old_layout, self.allocation.ptr, new_layout);
-
-        // SAFETY:
-        // - The ptr is valid for 'a lifetime as we own the binding for 'a.
-        // - We allocated with the size and align of the layout.
-        self.allocation = unsafe { Allocation::new_init(ptr, layout.size(), layout.align()) };
-
+        self.ptr = ptr;
+        self.size = new.size();
+        self.align = new.align();
         Ok(())
     }
 
     fn property(&self) -> AllocationProperty {
-        AllocationProperty::Native
+        P::PROPERTY
     }
 
-    // SAFETY: Per type invariants, we only take in memory allocated with the rust core allocator.
+    // SAFETY: Per type invariants, only memory from the global allocator is detachable.
     fn try_detach(&mut self) -> Option<NonNull<u8>> {
-        let ptr = self.allocation.ptr;
-        self.allocation = Allocation::dangling(self.allocation.align);
+        if !P::DETACHABLE {
+            return None;
+        }
+        let ptr = self.ptr;
+        self.ptr = dangling(self.align);
+        self.size = 0;
         Some(ptr)
     }
 
     fn alloc_align(&self) -> usize {
-        self.allocation.align
+        self.align
     }
 
-    // Native memory is always host-resident: the policy never forces a copy here.
+    // The memory is always host-resident: the policy never forces a copy here.
     fn memory(&self, _policy: AccessPolicy) -> Result<&[MaybeUninit<u8>], AccessError> {
-        Ok(unsafe {
-            core::slice::from_raw_parts(self.allocation.ptr.as_ptr().cast(), self.allocation.size)
-        })
+        // SAFETY: Per type invariants, `ptr` is valid for `size` bytes.
+        Ok(unsafe { core::slice::from_raw_parts(self.ptr.as_ptr().cast(), self.size) })
     }
 
     /// # Safety
@@ -215,157 +329,29 @@ impl AllocationController for NativeAllocationController<'_> {
         // - Ptr is valid per type invariants.
         // - Size is valid per type invariants.
         // - Caller promises that only initialized memory is written to this slice.
-        Ok(unsafe {
-            core::slice::from_raw_parts_mut(
-                self.allocation.ptr.as_ptr().cast(),
-                self.allocation.size,
-            )
-        })
+        Ok(unsafe { core::slice::from_raw_parts_mut(self.ptr.as_ptr().cast(), self.size) })
+    }
+
+    // Copies stay in the memory of `provider`.
+    fn alloc_like(
+        &self,
+        capacity: usize,
+        align: usize,
+    ) -> Option<Result<Box<dyn AllocationController>, AllocationError>> {
+        Some(
+            Self::alloc_with_capacity(self.provider, capacity, align)
+                .map(|controller| Box::new(controller) as Box<dyn AllocationController>),
+        )
     }
 }
 
-impl Drop for NativeAllocationController<'_> {
+impl<P: Provider> Drop for Controller<P> {
     fn drop(&mut self) {
-        let layout = unsafe {
-            Layout::from_size_align_unchecked(self.allocation.size, self.allocation.align)
-        };
-        buffer_dealloc(layout, self.allocation.ptr.cast());
-    }
-}
-
-// Allocate a pointer that can be passed to Vec::from_raw_parts
-fn buffer_alloc(layout: Layout) -> NonNull<u8> {
-    // [buffer alloc]: The current docs of Vec::from_raw_parts(ptr, ...) say:
-    //   > ptr must have been allocated using the global allocator
-    // Yet, an empty Vec is guaranteed to not allocate (it is even illegal! to allocate with a zero-sized layout)
-    // Hence, we slightly re-interpret the above to only needing to hold if `capacity > 0`. Still, the pointer
-    // must be non-zero. So in case we need a pointer for an empty vec, use a correctly aligned, dangling one.
-    if layout.size() == 0 {
-        // we would use NonNull:dangling() but we don't have a concrete type for the requested alignment
-        let ptr = core::ptr::null_mut::<u8>().wrapping_add(layout.align());
-        NonNull::new(ptr).unwrap()
-    } else {
-        // SAFETY: layout has non-zero size.
-        let ptr = unsafe { alloc::alloc::alloc(layout) };
-        NonNull::new(ptr.cast()).unwrap_or_else(|| alloc::alloc::handle_alloc_error(layout))
-    }
-}
-
-// Deallocate a buffer of a Vec
-fn buffer_dealloc(layout: Layout, buffer: NonNull<u8>) {
-    if layout.size() != 0 {
-        // SAFETY: buffer comes from a Vec or from [`buffer_alloc`/`buffer_grow`].
-        // The layout is the same as per type-invariants
-        unsafe {
-            alloc::alloc::dealloc(buffer.as_ptr().cast(), layout);
-        }
-    } else {
-        // An empty Vec does not allocate, hence nothing to dealloc
-        expect_dangling(layout.align(), buffer.cast());
-    }
-}
-
-// Grow the buffer while keeping alignment
-fn buffer_grow(
-    old_layout: Layout,
-    buffer: NonNull<u8>,
-    min_layout: Layout,
-) -> (Layout, NonNull<u8>) {
-    let new_align = min_layout.align().max(old_layout.align()); // Don't let data become less aligned
-    let new_size = min_layout.size().next_multiple_of(new_align);
-    if new_size > isize::MAX as usize {
-        alloc_overflow();
-    }
-
-    assert!(new_size > old_layout.size(), "size must actually grow");
-    if old_layout.size() == 0 {
-        expect_dangling(old_layout.align(), buffer);
-        let new_layout = Layout::from_size_align(new_size, new_align).unwrap();
-        let buffer = buffer_alloc(new_layout);
-        return (new_layout, buffer);
-    };
-    let realloc = || {
-        let new_layout = Layout::from_size_align(new_size, old_layout.align()).unwrap();
-        // SAFETY:
-        // - buffer comes from a Vec or from [`buffer_alloc`/`buffer_grow`].
-        // - old_layout is the same as with which the pointer was allocated
-        // - new_size is not 0, since it is larger than old_layout.size() which is non-zero
-        // - size constitutes a valid layout
-        let ptr = unsafe { alloc::alloc::realloc(buffer.as_ptr(), old_layout, new_layout.size()) };
-        (new_layout, ptr)
-    };
-    if new_align == old_layout.align() {
-        // happy path. We can just realloc.
-        let (new_layout, ptr) = realloc();
-        let buffer = NonNull::new(ptr);
-        let buffer = buffer.unwrap_or_else(|| alloc::alloc::handle_alloc_error(new_layout));
-        return (new_layout, buffer);
-    }
-    // [buffer grow]: alloc::realloc can *not* change the alignment of the allocation's layout.
-    // The unstable Allocator::{grow,shrink} API changes this, but might take a while to make it
-    // into alloc::GlobalAlloc.
-    //
-    // As such, we can not request a specific alignment. But most allocators will give us the required
-    // alignment "for free". Hence, we speculatively avoid a mem-copy by using realloc.
-    //
-    // If in the future requesting an alignment change for an existing is available, this can be removed.
-    #[cfg(target_has_atomic = "8")]
-    mod alignment_assumption {
-        use crate::sync::{AtomicBool, Ordering};
-        static SPECULATE: AtomicBool = AtomicBool::new(true);
-        pub fn speculate() -> bool {
-            // We load and store with relaxed order, since worst case this leads to a few more memcopies
-            SPECULATE.load(Ordering::Relaxed)
-        }
-        pub fn report_violation() {
-            SPECULATE.store(false, Ordering::Relaxed)
+        if self.size != 0 {
+            // SAFETY: Per type invariants, `ptr` comes from `provider` with this layout.
+            unsafe { self.provider.deallocate(self.ptr, self.layout()) }
         }
     }
-    #[cfg(not(target_has_atomic = "8"))]
-    mod alignment_assumption {
-        // On these platforms we don't speculate, and take the hit of performance
-        pub fn speculate() -> bool {
-            false
-        }
-        pub fn report_violation() {}
-    }
-    // reminder: old_layout.align() < new_align
-    let mut old_buffer = buffer;
-    let mut old_layout = old_layout;
-    if alignment_assumption::speculate() {
-        let (realloc_layout, ptr) = realloc();
-        if let Some(buffer) = NonNull::new(ptr) {
-            if buffer.align_offset(new_align) == 0 {
-                return (realloc_layout, buffer);
-            }
-            // Speculating hasn't succeeded, but access now has to go through the reallocated buffer
-            alignment_assumption::report_violation();
-            old_buffer = buffer.cast();
-            old_layout = realloc_layout;
-        } else {
-            // If realloc fails, the later alloc will likely too, but don't report this yet
-        }
-    }
-    // realloc but change alignment. This requires a mem copy as pointed out above
-    let new_layout = Layout::from_size_align(new_size, new_align).unwrap();
-    let new_buffer = buffer_alloc(new_layout);
-    // SAFETY: two different memory allocations, and old buffer's size is smaller than new_size
-    unsafe {
-        core::ptr::copy_nonoverlapping(
-            old_buffer.as_ptr(),
-            new_buffer.as_ptr().cast(),
-            old_layout.size(),
-        );
-    }
-    buffer_dealloc(old_layout, old_buffer);
-    (new_layout, new_buffer)
-}
-
-fn expect_dangling(align: usize, buffer: NonNull<u8>) {
-    debug_assert!(
-        buffer.as_ptr().wrapping_sub(align).is_null(),
-        "expected a nullptr for size 0"
-    );
 }
 
 #[cold]
@@ -382,7 +368,7 @@ mod tests {
 
     #[test_log::test]
     fn test_core_allocation_controller_alloc_with_capacity() {
-        let controller = NativeAllocationController::alloc_with_capacity(64, 8).unwrap();
+        let controller = NativeAllocationController::alloc_with_capacity(Global, 64, 8).unwrap();
         assert_eq!(controller.alloc_align(), 8);
         assert_eq!(
             controller.memory(AccessPolicy::default()).unwrap().len(),
@@ -393,7 +379,7 @@ mod tests {
     #[test_log::test]
     fn test_core_allocation_controller_alloc_with_data() {
         let data = b"hello world test"; // 16 bytes to be multiple of 8
-        let controller = NativeAllocationController::alloc_with_data(data, 8).unwrap();
+        let controller = NativeAllocationController::alloc_with_data(Global, data, 8).unwrap();
         assert_eq!(controller.alloc_align(), 8);
         assert!(controller.memory(AccessPolicy::default()).unwrap().len() >= data.len());
         assert_eq!(
@@ -423,7 +409,8 @@ mod tests {
 
     #[test_log::test]
     fn test_core_allocation_controller_grow() {
-        let mut controller = NativeAllocationController::alloc_with_capacity(32, 8).unwrap();
+        let mut controller =
+            NativeAllocationController::alloc_with_capacity(Global, 32, 8).unwrap();
         let old_memory_len = controller.memory(AccessPolicy::default()).unwrap().len();
 
         controller.grow(64, 8).unwrap();
@@ -434,28 +421,35 @@ mod tests {
     }
 
     #[test_log::test]
-    fn test_buffer_alloc_zero_size() {
-        let layout = Layout::from_size_align(0, 8).unwrap();
-        let ptr = buffer_alloc(layout);
-        assert_eq!(ptr.as_ptr().align_offset(8), 0);
-        buffer_dealloc(layout, ptr);
+    fn test_alloc_zero_size() {
+        let controller = NativeAllocationController::alloc_with_capacity(Global, 0, 8).unwrap();
+        assert_eq!(controller.ptr.as_ptr().align_offset(8), 0);
     }
 
     #[test_log::test]
-    fn test_buffer_grow_from_zero() {
-        let old_layout = Layout::from_size_align(0, 8).unwrap();
-        let buffer = buffer_alloc(old_layout);
-        let min_layout = Layout::from_size_align(64, 8).unwrap();
-        let (new_layout, new_buffer) = buffer_grow(old_layout, buffer, min_layout);
-        assert!(new_layout.size() >= 64);
-        assert_eq!(new_layout.align(), 8);
-        buffer_dealloc(new_layout, new_buffer);
+    fn test_grow_from_zero() {
+        let mut controller = NativeAllocationController::alloc_with_capacity(Global, 0, 8).unwrap();
+        controller.grow(64, 8).unwrap();
+        assert!(controller.capacity() >= 64);
+        assert_eq!(controller.alloc_align(), 8);
+    }
+
+    #[test_log::test]
+    fn test_grow_to_larger_alignment() {
+        let mut controller =
+            NativeAllocationController::alloc_with_data(Global, b"abcd", 1).unwrap();
+        controller.grow(32, MAX_ALIGN).unwrap();
+        assert_eq!(controller.alloc_align(), MAX_ALIGN);
+        assert_eq!(controller.ptr.as_ptr().align_offset(MAX_ALIGN), 0);
+        let memory = controller.memory(AccessPolicy::default()).unwrap();
+        let memory = unsafe { core::slice::from_raw_parts(memory.as_ptr().cast::<u8>(), 4) };
+        assert_eq!(memory, b"abcd");
     }
 
     #[test_log::test]
     fn test_memory_access() {
         let data = b"test data"; // 9 bytes, will be rounded up to 16 for 8-byte alignment
-        let controller = NativeAllocationController::alloc_with_data(data, 8).unwrap();
+        let controller = NativeAllocationController::alloc_with_data(Global, data, 8).unwrap();
 
         let memory = controller.memory(AccessPolicy::default()).unwrap();
         assert!(memory.len() >= data.len());
@@ -467,7 +461,8 @@ mod tests {
 
     #[test_log::test]
     fn test_memory_mut_access() {
-        let mut controller = NativeAllocationController::alloc_with_capacity(16, 8).unwrap();
+        let mut controller =
+            NativeAllocationController::alloc_with_capacity(Global, 16, 8).unwrap();
         unsafe {
             let memory = controller.memory_mut(AccessPolicy::default()).unwrap();
             assert_eq!(memory.len(), 16);
@@ -486,6 +481,6 @@ mod tests {
     #[test_log::test]
     #[should_panic(expected = "capacity must be a multiple of alignment")]
     fn test_debug_assert_capacity_alignment_mismatch() {
-        let _ = NativeAllocationController::alloc_with_capacity(33, 8);
+        let _ = NativeAllocationController::alloc_with_capacity(Global, 33, 8);
     }
 }

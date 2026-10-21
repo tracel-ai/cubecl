@@ -3,13 +3,12 @@
 use crate::bytes::{
     AccessError, AccessPolicy, BufferAllocator, Reader, Writer,
     allocator::AllocatorController,
-    default_controller::{self, NativeAllocationController},
+    default_controller::{self, Global, NativeAllocationController},
     shared_arc::SharedAllocationController,
 };
 use crate::sync::Arc;
 use alloc::{boxed::Box, vec::Vec};
 use core::{
-    alloc::LayoutError,
     mem::MaybeUninit,
     ops::{Deref, DerefMut},
     ptr::NonNull,
@@ -235,9 +234,8 @@ pub(crate) fn alloc_like(
     let capacity = capacity.next_multiple_of(align);
     match source.alloc_like(capacity, align) {
         Some(controller) => controller,
-        None => NativeAllocationController::alloc_with_capacity(capacity, align)
-            .map(|controller| Box::new(controller) as Box<dyn AllocationController>)
-            .map_err(|_| AllocationError::OutOfMemory),
+        None => NativeAllocationController::alloc_with_capacity(Global, capacity, align)
+            .map(|controller| Box::new(controller) as Box<dyn AllocationController>),
     }
 }
 
@@ -794,8 +792,8 @@ impl Bytes {
     }
 
     /// Copy an existing slice of data into Bytes that are aligned to `align`
-    fn try_from_data(align: usize, data: &[u8]) -> Result<Self, LayoutError> {
-        let controller = NativeAllocationController::alloc_with_data(data, align)?;
+    fn try_from_data(align: usize, data: &[u8]) -> Result<Self, AllocationError> {
+        let controller = NativeAllocationController::alloc_with_data(Global, data, align)?;
 
         Ok(Self {
             controller: Box::new(controller),
@@ -807,7 +805,7 @@ impl Bytes {
     /// into a fresh controller if not. We check the controller's reported alignment
     /// (not the raw pointer) because downstream callers such as `try_into_vec::<E>`
     /// depend on `alloc_align()` matching the element alignment.
-    fn try_enforce_runtime_align(&mut self, align: usize) -> Result<(), LayoutError> {
+    fn try_enforce_runtime_align(&mut self, align: usize) -> Result<(), AllocationError> {
         if self.controller.alloc_align() >= align {
             return Ok(());
         }
