@@ -8,8 +8,8 @@
 //! ran about 60% slower when the scheduler happened to place them apart. The scheduler may
 //! also move the issuing thread at any time, so the server follows it: the issuing thread
 //! states the CPU it runs on each time it hands over a full buffer of tasks
-//! ([`current_cpu`]), and the server moves to that CPU's cache when it is not already under it
-//! ([`ServerPlacement::follow`]).
+//! ([`current_cpu`]), and the server moves to that CPU's cache once the issuer has settled
+//! there ([`ServerPlacement::follow`]).
 
 /// The CPU the calling thread runs on; [`UNKNOWN_CPU`] where the system does not say.
 pub(crate) fn current_cpu() -> u32 {
@@ -27,34 +27,98 @@ pub(crate) fn current_cpu() -> u32 {
 /// What [`current_cpu`] answers where the system does not say.
 pub(crate) const UNKNOWN_CPU: u32 = u32::MAX;
 
-/// The last-level cache a device's server thread is kept under, if any yet.
+/// Buffers in a row an issuer fills from one other last-level cache before the server moves
+/// there. Several threads may issue a device's launches from different caches, each now and
+/// then; moving on every buffer would chase each of them in turn, a migration every time.
+const SETTLED_BUFFERS: u32 = 8;
+
+/// The last-level cache a device's server thread is kept under, and where the issuer has been
+/// filling its buffers from instead, if anywhere.
 #[derive(Default)]
 pub(crate) struct ServerPlacement {
-    #[cfg(target_os = "linux")]
-    domain: Option<usize>,
+    /// The cache domain the server is kept under; `None` until the first buffer.
+    kept: Option<usize>,
+    /// A domain other than `kept` the last buffers came from, and how many in a row.
+    elsewhere: Option<(usize, u32)>,
 }
 
 impl ServerPlacement {
-    /// Keeps the calling thread, the server, under `issuer_cpu`'s last-level cache, moving it
-    /// only when that cache is not the one it is kept under already. A no-op on a CPU with one
-    /// last-level cache over the CPUs the process may use, for an unknown CPU, and on systems
-    /// this is not written for.
+    /// Keeps the calling thread, the server, under `issuer_cpu`'s last-level cache: at once for
+    /// the first buffer, and once [`SETTLED_BUFFERS`] in a row came from a cache other than the
+    /// one it is kept under after that. A no-op on a CPU with one last-level cache over the
+    /// CPUs the process may use, for an unknown CPU, and on systems this is not written for.
     pub(crate) fn follow(&mut self, issuer_cpu: u32) {
         #[cfg(target_os = "linux")]
         {
             let Some(domains) = linux::CacheDomains::get() else {
                 return;
             };
-            let Some(domain) = domains.of_cpu(issuer_cpu) else {
-                return;
-            };
-            if self.domain != Some(domain) {
+            if let Some(domain) = domains
+                .of_cpu(issuer_cpu)
+                .and_then(|domain| self.settle(domain))
+            {
                 domains.keep_current_thread(domain);
-                self.domain = Some(domain);
             }
         }
         #[cfg(not(target_os = "linux"))]
         let _ = issuer_cpu;
+    }
+
+    /// Notes that a buffer came from `domain`, and answers the domain the server moves to, if
+    /// it moves.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    fn settle(&mut self, domain: usize) -> Option<usize> {
+        let moves = match (self.kept, self.elsewhere) {
+            (None, _) => true,
+            (Some(kept), _) if kept == domain => {
+                self.elsewhere = None;
+                false
+            }
+            (Some(_), Some((other, buffers))) if other == domain => {
+                self.elsewhere = Some((domain, buffers + 1));
+                buffers + 1 >= SETTLED_BUFFERS
+            }
+            (Some(_), _) => {
+                self.elsewhere = Some((domain, 1));
+                SETTLED_BUFFERS <= 1
+            }
+        };
+        moves.then(|| {
+            self.kept = Some(domain);
+            self.elsewhere = None;
+            domain
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_first_buffer_places_the_server() {
+        assert_eq!(ServerPlacement::default().settle(3), Some(3));
+    }
+
+    #[test]
+    fn issuers_taking_turns_from_two_caches_leave_the_server_where_it_is() {
+        let mut placement = ServerPlacement::default();
+        placement.settle(1);
+        for _ in 0..100 {
+            assert_eq!(placement.settle(3), None);
+            assert_eq!(placement.settle(1), None);
+        }
+    }
+
+    #[test]
+    fn an_issuer_settled_under_another_cache_draws_the_server_there() {
+        let mut placement = ServerPlacement::default();
+        placement.settle(1);
+        for _ in 1..SETTLED_BUFFERS {
+            assert_eq!(placement.settle(3), None);
+        }
+        assert_eq!(placement.settle(3), Some(3));
+        assert_eq!(placement.settle(3), None);
     }
 }
 
