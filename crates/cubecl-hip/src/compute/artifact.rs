@@ -213,6 +213,8 @@ fn compile_to_binary(source: &str, target: &str) -> Result<Vec<i8>, CompilationE
     // needed for rocWMMA extension to compile
     let cpp_std_option = c"--std=c++17";
     let optimization_level = c"-O3";
+    // The rounded arithmetic helpers forbid contraction with a pragma, which `fast` ignores.
+    let fp_contract_option = c"-ffp-contract=fast-honor-pragmas";
     let target_option = CString::new(format!("--offload-arch={target}")).map_err(|err| {
         CompilationError::Generic {
             reason: format!("The HIP target is not a valid C string: {err}"),
@@ -223,6 +225,7 @@ fn compile_to_binary(source: &str, target: &str) -> Result<Vec<i8>, CompilationE
         cpp_std_option.as_ptr(),
         include_option.as_ptr(),
         optimization_level.as_ptr(),
+        fp_contract_option.as_ptr(),
     ];
     // Options built by hand, with no device probed, name no target: HIP RTC
     // then compiles for the calling thread's current device.

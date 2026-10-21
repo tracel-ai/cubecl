@@ -2,13 +2,10 @@ use alloc::string::String;
 use core::hash::Hash;
 use pliron::derive::format;
 
-use cubecl_ir::{
-    ContextExt, ElemType, Scope, metadata::Info, pliron::value::Value, settings::KernelSettings,
-};
+use cubecl_ir::{ElemType, Scope, metadata::Info, pliron::value::Value, settings::KernelSettings};
 use serde::{Deserialize, Serialize};
 
 use crate::compiler::CompilationError;
-use crate::config::{CubeClRuntimeConfig, RuntimeConfig};
 use crate::id::KernelId;
 #[cfg(feature = "std")]
 use cubecl_environment::backtrace::BackTrace;
@@ -127,18 +124,9 @@ pub trait CubeKernel: KernelMetadata {
 /// the panic takes the path a compiler's refusal takes, and the outputs carry the failure to
 /// whoever reads them; as [`ExpansionPanicked`](CompilationError::ExpansionPanicked) it is not
 /// a refusal, so a harness that skips refused kernels reports it instead.
-///
-/// The definition carries the configured `disabled_fast_math`, however its body was built.
 pub fn define_kernel<K: CubeKernel + ?Sized>(
     kernel: &K,
 ) -> Result<KernelDefinition, CompilationError> {
-    let definition = expand(kernel)?;
-    let disabled = CubeClRuntimeConfig::get().compilation.disabled_fast_math;
-    definition.body.ctx_mut().set_disabled_fast_math(disabled);
-    Ok(definition)
-}
-
-fn expand<K: CubeKernel + ?Sized>(kernel: &K) -> Result<KernelDefinition, CompilationError> {
     #[cfg(feature = "std")]
     {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| kernel.define())).map_err(

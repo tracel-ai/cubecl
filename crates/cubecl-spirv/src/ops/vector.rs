@@ -165,13 +165,7 @@ lower_unop!(vector::NormalizeOp, rounded_normalize, spelled_out);
 
 #[cube]
 fn rounded_dot<T: Float, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> T {
-    let products = lhs * rhs;
-    let mut out = products.extract(0usize);
-    #[unroll]
-    for i in 1..products.vector_size() {
-        out += products.extract(i);
-    }
-    out
+    i_vector_sum(lhs * rhs)
 }
 
 #[cube]

@@ -10,7 +10,7 @@ use pliron::{
     printable::{self, Printable},
 };
 
-use crate::{ContextExt, EnumSet, FastMath, prelude::*};
+use crate::{EnumSet, FastMath, prelude::*};
 
 dict_key!(ATTR_KEY_FAST_MATH, "fast_math");
 
@@ -63,14 +63,11 @@ impl Parsable for FastMathAttr {
 pub trait FastMathOp {
     verify_op_succ!();
 
-    /// The optimizations the kernel allowed this op and the compilation did not disable, or
-    /// `None` when the kernel said nothing.
+    /// The optimizations the kernel allowed this op, or `None` when the kernel said nothing.
     fn fast_math(&self, ctx: &Context) -> Option<EnumSet<FastMath>> {
-        let allowed = self
-            .get_operation()
-            .get_attr::<FastMathAttr>(ctx, &ATTR_KEY_FAST_MATH)?
-            .0;
-        Some(allowed - ctx.disabled_fast_math().optimizations())
+        self.get_operation()
+            .get_attr::<FastMathAttr>(ctx, &ATTR_KEY_FAST_MATH)
+            .map(|allowed| allowed.0)
     }
 
     fn set_fast_math(&self, ctx: &Context, fast_math: EnumSet<FastMath>) {
@@ -81,14 +78,10 @@ pub trait FastMathOp {
             .set_attr(ctx, &ATTR_KEY_FAST_MATH, FastMathAttr(fast_math));
     }
 
-    /// The optimizations this op may use. An op the kernel said nothing about may use all that
-    /// are not disabled, which is how cubecl's own passes treat every op by default.
+    /// The optimizations this op may use. An op the kernel said nothing about may use all of
+    /// them, which is how cubecl's own passes treat every op by default.
     fn permitted(&self, ctx: &Context) -> EnumSet<FastMath> {
-        let allowed = self
-            .get_operation()
-            .get_attr::<FastMathAttr>(ctx, &ATTR_KEY_FAST_MATH)
-            .map_or(FastMath::all(), |allowed| allowed.0);
-        allowed - ctx.disabled_fast_math().optimizations()
+        self.fast_math(ctx).unwrap_or(FastMath::all())
     }
 
     fn allows(&self, ctx: &Context, required: EnumSet<FastMath>) -> bool {

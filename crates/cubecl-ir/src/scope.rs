@@ -42,8 +42,7 @@ use portable_atomic::AtomicUsize;
 use spin::LazyLock;
 
 use crate::{
-    AddressSpace, AddressType, DeviceProperties, DisabledFastMath, ElemType, FastMath,
-    TargetProperties, TypeHash,
+    AddressSpace, AddressType, DeviceProperties, ElemType, FastMath, TargetProperties, TypeHash,
     arena::DropBump,
     attributes::{
         ATTR_BUFFER_BINDING, ATTR_KEY_ARG_ATTRS, ATTR_TENSOR_MAP_BINDING, BoolAttr,
@@ -181,7 +180,6 @@ impl GlobalState {
 }
 
 dict_key!(ADDRESS_TYPE_KEY, "kernel_address_type");
-dict_key!(DISABLED_FAST_MATH_KEY, "disabled_fast_math");
 
 static TY_IDENTS: LazyLock<Mutex<HashMap<TypeId, Identifier>>> = LazyLock::new(Default::default);
 
@@ -207,9 +205,6 @@ pub trait ContextExt {
     fn set_aux_ty<T: Send + 'static>(&mut self, value: T);
     fn set_address_type(&mut self, addr: AddressType);
     fn address_type(&self) -> AddressType;
-    fn set_disabled_fast_math(&mut self, disabled: DisabledFastMath);
-    /// What this compilation disables, which is nothing unless it was told otherwise.
-    fn disabled_fast_math(&self) -> DisabledFastMath;
 }
 
 impl ContextExt for Context {
@@ -251,23 +246,6 @@ impl ContextExt for Context {
     fn address_type(&self) -> AddressType {
         let key = self.aux_data_map[&ADDRESS_TYPE_KEY];
         *self.aux_data[key].downcast_ref::<AddressType>().unwrap()
-    }
-
-    fn set_disabled_fast_math(&mut self, disabled: DisabledFastMath) {
-        if let Some(key) = self.aux_data_map.get(&DISABLED_FAST_MATH_KEY).copied() {
-            *self.aux_data.get_mut(key).unwrap() = Box::new(disabled);
-        } else {
-            let key = self.aux_data.insert(Box::new(disabled));
-            self.aux_data_map
-                .insert(DISABLED_FAST_MATH_KEY.clone(), key);
-        }
-    }
-
-    fn disabled_fast_math(&self) -> DisabledFastMath {
-        self.aux_data_map
-            .get(&DISABLED_FAST_MATH_KEY)
-            .and_then(|&key| self.aux_data[key].downcast_ref().copied())
-            .unwrap_or_default()
     }
 }
 

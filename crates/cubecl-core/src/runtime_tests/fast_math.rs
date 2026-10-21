@@ -40,16 +40,6 @@ fn strict_product_sum<F: Float, N: Size>(
     product_sum(a, b, c, output);
 }
 
-#[cube(launch_unchecked)]
-fn default_product_sum<F: Float, N: Size>(
-    a: &[Vector<F, N>],
-    b: &[Vector<F, N>],
-    c: &[Vector<F, N>],
-    output: &mut [Vector<F, N>],
-) {
-    product_sum(a, b, c, output);
-}
-
 #[cube(fast_math = FastMath::none())]
 fn strict_product<F: Float, N: Size>(a: Vector<F, N>, b: Vector<F, N>) -> Vector<F, N> {
     a * b
@@ -67,26 +57,6 @@ fn strict_product_default_sum<F: Float, N: Size>(
     }
 }
 
-#[cube(launch_unchecked, fast_math = FastMath::AllowContraction.into())]
-fn contracting_product_sum<F: Float, N: Size>(
-    a: &[Vector<F, N>],
-    b: &[Vector<F, N>],
-    c: &[Vector<F, N>],
-    output: &mut [Vector<F, N>],
-) {
-    product_sum(a, b, c, output);
-}
-
-#[cube(launch_unchecked, fast_math = FastMath::AllowTransform.into())]
-fn transforming_product_sum<F: Float, N: Size>(
-    a: &[Vector<F, N>],
-    b: &[Vector<F, N>],
-    c: &[Vector<F, N>],
-    output: &mut [Vector<F, N>],
-) {
-    product_sum(a, b, c, output);
-}
-
 /// Which of the kernels computing `a * b + c` to run.
 #[derive(Clone, Copy, Debug)]
 pub enum ProductSum {
@@ -94,12 +64,6 @@ pub enum ProductSum {
     Strict,
     /// Multiplies in a function that allows no fast math, and adds in one that says nothing.
     StrictProduct,
-    /// Says nothing about fast math.
-    Default,
-    /// Allows contraction only.
-    Contracting,
-    /// Allows every transformation, contraction included.
-    Transforming,
 }
 
 /// `near_one² - rounded` in each lane of four, through `kernel` at `vectorization`: zero when the
@@ -115,9 +79,6 @@ pub fn product_sum_residue<F: Float + num_traits::Float + CubeElement>(
     let launch = match kernel {
         ProductSum::Strict => strict_product_sum::launch_unchecked::<F>,
         ProductSum::StrictProduct => strict_product_default_sum::launch_unchecked::<F>,
-        ProductSum::Default => default_product_sum::launch_unchecked::<F>,
-        ProductSum::Contracting => contracting_product_sum::launch_unchecked::<F>,
-        ProductSum::Transforming => transforming_product_sum::launch_unchecked::<F>,
     };
 
     let output = client.empty(a.len() * size_of::<F>());
@@ -205,24 +166,6 @@ pub fn test_strict_dot_rounds_each_operation<R: Runtime>(client: Client) {
 
     let actual = client.read_one_unchecked(output);
     assert_eq!(f32::from_bytes(&actual), [0.0; 2]);
-}
-
-/// Run under `disabled_fast_math = ["allow-contraction"]`: no kernel fuses, whatever it allows.
-pub fn test_disabled_contraction_reaches_every_kernel<R: Runtime>(client: Client) {
-    if !can_forbid_contraction(&client) {
-        return;
-    }
-    for kernel in [
-        ProductSum::Default,
-        ProductSum::Contracting,
-        ProductSum::Transforming,
-    ] {
-        assert_eq!(
-            product_sum_residue::<f32>(&client, kernel, 1),
-            [0.0; 4],
-            "{kernel:?} was fused"
-        );
-    }
 }
 
 #[allow(clippy::eq_op)]

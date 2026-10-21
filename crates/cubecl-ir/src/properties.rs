@@ -168,17 +168,16 @@ impl MemoryDeviceProperties {
 ///
 /// `name` and `fingerprint` answer different questions and must not be confused. `name`
 /// is for people: it names the physical part, and two machines holding the same
-/// part report the same name. `fingerprint` is for correctness: it is the
-/// namespace
-/// [`compilation_store`](../../cubecl_runtime/compiler/fn.compilation_store.html)
-/// opens for this runtime's target, which is what puts a compiled artifact out
-/// of reach of a machine that cannot run it.
+/// part report the same name. `fingerprint` is for correctness: it is verbatim
+/// the string this runtime passes to
+/// [`compilation_store`](../../cubecl_runtime/compiler/fn.compilation_store.html),
+/// which is what puts a compiled artifact out of reach of a machine that cannot
+/// run it.
 ///
 /// Reporting the fingerprint here rather than recomputing it is the whole
-/// point: a backend hands one target to both consumers, which extend it by the
-/// same compilation config, so the identity a bundle is stamped with and the
-/// namespace its kernels live under cannot drift apart. Passing the fingerprint
-/// itself to `compilation_store` would extend it twice.
+/// point: a backend derives it once and hands it to both consumers, so the
+/// identity a bundle is stamped with and the namespace its kernels live under
+/// cannot drift apart.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct DeviceIdentity {
     /// The device as it names itself — `AMD Radeon 8060S Graphics`,
@@ -186,8 +185,8 @@ pub struct DeviceIdentity {
     /// and no compiled artifact may be keyed to it.
     pub name: String,
     /// What this runtime compiles *for* — `hip-kernel_gfx1151`, `ptx_sm90`.
-    /// The `compilation_store` namespace, so a namespace read back out of a
-    /// bundle compares against it directly.
+    /// Verbatim the `compilation_store` fingerprint, so a namespace read back
+    /// out of a bundle compares against it directly.
     pub fingerprint: String,
     /// The card behind the device, `None` for a device that is no card: a CPU, or a software
     /// rasterizer.
@@ -575,6 +574,7 @@ impl DeviceProperties {
 
 /// Unchecked optimizations for float operations. May cause precision differences, or undefined
 /// behaviour if the relevant conditions are not followed.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, EnumSetType)]
 pub enum FastMath {
     /// Assume values are never `NaN`. If they are, the result is considered undefined behaviour.
@@ -603,13 +603,14 @@ impl FastMath {
         EnumSet::all()
     }
 
-    /// Strict IEEE arithmetic: every operation rounds on its own, with nothing contracted,
-    /// reassociated or assumed about its operands.
+    /// No optimization: each operation rounds on its own, with nothing contracted, reassociated
+    /// or assumed about its operands. An operation keeps its backend's precision, which on Vulkan
+    /// is not correctly rounded for division, square root and remainder.
     pub const fn none() -> EnumSet<FastMath> {
         EnumSet::empty()
     }
 
-    /// The name a configuration file or an environment variable gives it.
+    /// The name it goes by in printed IR.
     pub const fn name(self) -> &'static str {
         match self {
             FastMath::NotNaN => "not-nan",
@@ -658,98 +659,6 @@ impl FromStr for FastMath {
             .iter()
             .find(|flag| flag.name() == name)
             .ok_or_else(|| UnknownFastMath(String::from(name)))
-    }
-}
-
-#[cfg(feature = "serde")]
-impl serde::Serialize for FastMath {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.name())
-    }
-}
-
-#[cfg(feature = "serde")]
-impl<'de> serde::Deserialize<'de> for FastMath {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let name = String::deserialize(deserializer)?;
-        name.parse().map_err(serde::de::Error::custom)
-    }
-}
-
-/// Fast-math optimizations no op may use, whatever its kernel allows. Written `all`, or as names
-/// such as `allow-contraction,not-nan`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct DisabledFastMath(EnumSet<FastMath>);
-
-impl DisabledFastMath {
-    /// Disabling an optimization also disables every one that includes it.
-    pub fn new(optimizations: EnumSet<FastMath>) -> Self {
-        let including = FastMath::all()
-            .iter()
-            .filter(|flag| !flag.includes().is_disjoint(optimizations));
-        Self(optimizations | including.collect::<EnumSet<_>>())
-    }
-
-    pub fn optimizations(self) -> EnumSet<FastMath> {
-        self.0
-    }
-}
-
-impl FromStr for DisabledFastMath {
-    type Err = UnknownFastMath;
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        let optimizations = match text.trim() {
-            "all" => FastMath::all(),
-            "" => FastMath::none(),
-            names => names
-                .split(',')
-                .map(|name| name.trim().parse())
-                .collect::<Result<_, _>>()?,
-        };
-        Ok(Self::new(optimizations))
-    }
-}
-
-#[cfg(feature = "serde")]
-impl serde::Serialize for DisabledFastMath {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self.0 == FastMath::all() {
-            true => serializer.serialize_str("all"),
-            false => serializer.collect_seq(self.0.iter()),
-        }
-    }
-}
-
-#[cfg(feature = "serde")]
-impl<'de> serde::Deserialize<'de> for DisabledFastMath {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct Written;
-
-        impl<'de> serde::de::Visitor<'de> for Written {
-            type Value = DisabledFastMath;
-
-            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str(r#""all", or fast-math names such as ["allow-contraction"]"#)
-            }
-
-            fn visit_str<E: serde::de::Error>(self, text: &str) -> Result<Self::Value, E> {
-                text.parse().map_err(E::custom)
-            }
-
-            fn visit_seq<A: serde::de::SeqAccess<'de>>(
-                self,
-                mut names: A,
-            ) -> Result<Self::Value, A::Error> {
-                let mut optimizations = FastMath::none();
-                while let Some(flag) = names.next_element::<FastMath>()? {
-                    optimizations |= flag;
-                }
-                Ok(DisabledFastMath::new(optimizations))
-            }
-        }
-
-        deserializer.deserialize_any(Written)
     }
 }
 

@@ -459,10 +459,10 @@ fn loop_depth(ctx: &Context, op: Ptr<Operation>) -> usize {
     depth
 }
 
-/// A cast to f32 that an f16 held in f32 can stand in for: one no strict op reads, since a
-/// strict op must see the f16 its operand rounds to.
+/// A cast to f32 that an f16 held in f32 can stand in for: one that is not strict and that no
+/// strict op reads, since a strict op must see the f16 its operand rounds to.
 fn is_widening(ctx: &Context, op: Ptr<Operation>) -> bool {
-    if !op.is_op::<CastOp>(ctx) {
+    if !op.is_op::<CastOp>(ctx) || rounds_in_f16(ctx, op) {
         return false;
     }
     let wide = op.deref(ctx).get_result(0);

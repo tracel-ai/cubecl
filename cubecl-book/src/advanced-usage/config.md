@@ -105,19 +105,12 @@ own and `chain` elsewhere.
 - `chain`: round where a value is stored or read by anything but arithmetic.
 - `accumulators`: also hold a private f16 variable in f32 where that removes converts.
 
-**Disabled fast math** (`disabled_fast_math`): fast-math optimizations no kernel may use, whatever
-its `#[cube(fast_math = ...)]` allows, including kernels that never mention fast math. It never
-grants one. `"all"`, or a list of `not-nan`, `not-inf`, `unsigned-zero`, `allow-reciprocal`,
-`allow-contraction`, `allow-reassociation`, `allow-transform` and `reduced-precision`. See
-[Math Optimizations](./math_optimizations.md).
-
 **Example:**
 
 ```toml
 [compilation]
 logger = { level = "basic", file = "cubecl.log", append = true }
 f16_evaluation = "chain"
-disabled_fast_math = ["allow-contraction"]
 ```
 
 ### Streaming
@@ -208,8 +201,6 @@ CubeCL supports several environment variables to override configuration at runti
   - `"full"`/`"3"`
 - `CUBECL_CPU_F16_EVAL`: Sets `compilation.f16_evaluation`.
   - `"per-operation"`, `"chain"`, `"accumulators"`
-- `CUBECL_DISABLED_FAST_MATH`: Sets `compilation.disabled_fast_math`.
-  - `"all"`, or comma-separated names such as `"allow-contraction,not-nan"`
 - `CUBECL_ENVIRONMENT`: Sets `environment.name`, the environment to activate.
 - `CUBECL_ENVIRONMENT_RECORDS`: Sets `environment.records.level`, how much the
   environment records of its own build.

@@ -70,8 +70,8 @@ use pliron_spirv::{
     PlironBuilder, ToSpirvOp,
     attrs::VerCapExtAttr,
     decorations::{
-        DecoratableOp, set_decoration_fp_fast_math_mode, set_decoration_no_contraction,
-        set_decoration_uniform, set_decoration_uniform_id,
+        DecoratableOp, set_decoration_no_contraction, set_decoration_uniform,
+        set_decoration_uniform_id,
     },
     ops::{EntryPointOp, ExecutionModeOp, SpirvModuleOp},
 };
@@ -79,15 +79,14 @@ use rspirv::{
     binary::Assemble,
     dr::Module,
     spirv::{
-        AddressingModel, Capability, ExecutionMode, ExecutionModel, FPFastMathMode, MemoryModel,
-        Scope, StorageClass,
+        AddressingModel, Capability, ExecutionMode, ExecutionModel, MemoryModel, Scope,
+        StorageClass,
     },
 };
 use std::{fmt::Debug, sync::Arc};
 
 pub struct KernelInfo {
     pub cube_dim: Dim3,
-    pub may_use_float_controls2: bool,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -131,7 +130,6 @@ impl Compiler for SpirvCompiler {
         ctx.set_aux_ty::<WgpuCompilationOptions>(*compilation_options);
         ctx.set_aux_ty::<KernelInfo>(KernelInfo {
             cube_dim: value.settings.cube_dim,
-            may_use_float_controls2: compilation_options.vulkan.supports_fp_fast_math,
         });
 
         let (module, bindings, io, shared_size) = self.compile_kernel(
@@ -271,10 +269,6 @@ impl SpirvCompiler {
 
         passes.run(module_op, ctx, &mut analyses)?;
         let preserved_widths = ieee_special_value_widths(ctx, module_op);
-        // NVIDIA ignores `NoContraction` in a module that uses float_controls2.
-        if module_op.contains_forbidden_contraction(ctx) {
-            ctx.aux_ty_mut::<KernelInfo>().may_use_float_controls2 = false;
-        }
 
         let bindings = (0..entry.deref(ctx).get_num_arguments()).map(|i| {
             let io = entry_func.get_arg_attr::<BufferIOAttr>(ctx, i, &ATTR_BUFFER_IO);
@@ -451,55 +445,13 @@ fn float_widths(ctx: &Context, op: Ptr<Operation>) -> Vec<u32> {
 }
 
 /// Carries the fast-math permissions of `cube_op` onto `op`, the SPIR-V it lowered to.
-///
-/// Forbidding contraction is `NoContraction`, since NVIDIA ignores an empty `FPFastMathMode`.
-/// Under `float_controls2` an undecorated op allows everything, so an op allowed less says so.
 pub(crate) fn decorate_fast_math(ctx: &Context, cube_op: Ptr<Operation>, op: Ptr<Operation>) {
-    let dyn_op = op.dyn_op(ctx);
-    let Some(decoratable) = op_cast::<dyn DecoratableOp>(&*dyn_op) else {
+    if !cube_op.forbids_contraction(ctx) {
         return;
-    };
-    if cube_op.forbids_contraction(ctx) {
+    }
+    if let Some(decoratable) = op_cast::<dyn DecoratableOp>(&*op.dyn_op(ctx)) {
         set_decoration_no_contraction(decoratable, ctx);
-        return;
     }
-
-    let cube_dyn_op = cube_op.dyn_op(ctx);
-    let Some(fast_math_op) = op_cast::<dyn FastMathOp>(&*cube_dyn_op) else {
-        return;
-    };
-    let vulkan = ctx.aux_ty::<WgpuCompilationOptions>().vulkan;
-    let widths = float_widths(ctx, cube_op);
-    let mut mode = fp_fast_math_mode(fast_math_op.permitted(ctx));
-    if !ctx.aux_ty::<KernelInfo>().may_use_float_controls2
-        || widths.is_empty()
-        || mode == fp_fast_math_mode(FastMath::all())
-    {
-        return;
-    }
-    // Vulkan rejects a mode that keeps special values the device cannot.
-    if widths
-        .iter()
-        .any(|&width| !vulkan.preserves_special_values(width))
-    {
-        mode |= FPFastMathMode::NOT_NAN | FPFastMathMode::NOT_INF | FPFastMathMode::NSZ;
-    }
-    set_decoration_fp_fast_math_mode(decoratable, ctx, mode.into());
-}
-
-fn fp_fast_math_mode(fast_math: EnumSet<FastMath>) -> FPFastMathMode {
-    fast_math.iter().fold(FPFastMathMode::NONE, |mode, flag| {
-        mode | match flag {
-            FastMath::NotNaN => FPFastMathMode::NOT_NAN,
-            FastMath::NotInf => FPFastMathMode::NOT_INF,
-            FastMath::UnsignedZero => FPFastMathMode::NSZ,
-            FastMath::AllowReciprocal => FPFastMathMode::ALLOW_RECIP,
-            FastMath::AllowContraction => FPFastMathMode::ALLOW_CONTRACT,
-            FastMath::AllowReassociation => FPFastMathMode::ALLOW_REASSOC,
-            FastMath::AllowTransform => FPFastMathMode::ALLOW_TRANSFORM,
-            FastMath::ReducedPrecision => FPFastMathMode::NONE,
-        }
-    })
 }
 
 pub(crate) fn decorate_uniform(ctx: &Context, op: Ptr<Operation>, uniformity: Option<UniformAttr>) {

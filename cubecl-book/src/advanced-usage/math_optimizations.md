@@ -56,21 +56,17 @@ gets its caller's set. A function that gives a set gets exactly that set, so
 Operations CubeCL expands into several, such as `exp` on the CPU, carry the flags of the function
 they appear in.
 
-To take optimizations away from every kernel, including those in other crates, see
-`disabled_fast_math` in the [configuration](./config.md).
-
 ### Backend Implementation
 
 #### WGPU with Vulkan Compiler
 
 Forbidden contraction is `NoContraction` on add, subtract, multiply and divide, and `mod_floor`,
-`dot`, `magnitude` and `normalize` are written out in those. Where the device supports
-`SPV_KHR_float_controls2`, every other operation allowed less than everything carries its
-`FPFastMathMode`, since Vulkan lets an undecorated one assume anything. NVIDIA ignores
-`NoContraction` in a kernel that uses that extension, so a kernel that forbids contraction anywhere
-uses `NoContraction` alone. A kernel with a float operation that may assume nothing about `Inf`,
-`NaN` or signed zero, a comparison or `max` included, asks for `SignedZeroInfNanPreserve` at each
-float width the device can preserve; without it, Vulkan may assume they never occur.
+`dot`, `magnitude` and `normalize` are written out in those. No other flag reaches the driver, so an
+operation that allows contraction may also be reassociated. A kernel with a float operation that may
+assume nothing about `Inf`, `NaN` or signed zero, a comparison or `max` included, asks for
+`SignedZeroInfNanPreserve` at each float width the device can preserve; without it, Vulkan may
+assume they never occur. Division, square root and remainder keep Vulkan's precision, which is not
+correctly rounded.
 
 #### CPU, and CUDA/HIP through LLVM
 

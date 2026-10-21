@@ -170,17 +170,6 @@ impl RuntimeConfig for CubeClRuntimeConfig {
             }
         }
 
-        if let Ok(val) = std::env::var("CUBECL_DISABLED_FAST_MATH") {
-            match val.parse() {
-                Ok(disabled) => self.compilation.disabled_fast_math = disabled,
-                // Loud where the other variables are quiet: ignoring it leaves fast math on.
-                Err(err) => {
-                    log::warn!("CUBECL_DISABLED_FAST_MATH ignored: {err}");
-                    std::eprintln!("cubecl config: CUBECL_DISABLED_FAST_MATH ignored: {err}");
-                }
-            }
-        }
-
         if let Some(enabled) = env_bool("CUBECL_THROUGHPUT_CACHE") {
             self.throughput.disable_cache = !enabled;
         }

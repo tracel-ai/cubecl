@@ -183,14 +183,11 @@ impl ServerUtilities {
     pub fn init(
         service: ServiceId,
         name: &'static str,
-        mut properties: DeviceProperties,
+        properties: DeviceProperties,
         target_properties: TargetProperties,
         logger: Arc<ServerLogger>,
         allocator: impl MemoryLayoutPolicy,
     ) -> (Self, DeviceCaptures) {
-        let compilation = &CubeClRuntimeConfig::get().compilation;
-        let identity = &mut properties.identity;
-        identity.fingerprint = compilation.fingerprint(&identity.fingerprint);
         let captures = DeviceCaptures::default();
         // Start a tracy client if needed.
         #[cfg(feature = "profile-tracy")]
@@ -219,7 +216,7 @@ impl ServerUtilities {
             epoch_time: cubecl_environment::time::Instant::now(),
             layout_policy: Box::new(allocator),
             device_transport: None,
-            check_mode: compilation.check_mode,
+            check_mode: CubeClRuntimeConfig::get().compilation.check_mode,
             initialized_comms: RwLock::new(HashSet::default()),
             captures: captures.status(),
         };

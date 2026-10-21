@@ -383,7 +383,7 @@ macro_rules! lower_float_bin_arith {
                 let rhs = self.rhs(ctx);
                 let flags = match self.fast_math(ctx) {
                     Some(fast_math) => llvm_fast_math(fast_math),
-                    None => without(ctx, $flags(ctx)),
+                    None => $flags(ctx),
                 };
                 let op = <$llvm_op>::new_with_fast_math_flags(ctx, lhs, rhs, flags);
                 rewriter.insert_op(ctx, &op);
@@ -400,12 +400,6 @@ macro_rules! lower_float_bin_arith {
 
 fn no_fast_math(_ctx: &Context) -> FastmathFlagsAttr {
     FastmathFlagsAttr::default()
-}
-
-/// `flags` less what the compilation disables.
-fn without(ctx: &Context, flags: FastmathFlagsAttr) -> FastmathFlagsAttr {
-    let disabled = llvm_fast_math(ctx.disabled_fast_math().optimizations());
-    FastmathFlagsAttr(flags.0.difference(disabled.0))
 }
 
 fn llvm_fast_math(fast_math: EnumSet<FastMath>) -> FastmathFlagsAttr {

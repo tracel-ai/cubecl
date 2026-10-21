@@ -30,11 +30,9 @@ pub fn compilation_store<K: StoreKey, V: StoreValue>(
     {
         use crate::config::RuntimeConfig;
 
-        let compilation = &crate::config::CubeClRuntimeConfig::get().compilation;
-        if !compilation.cache {
+        if !crate::config::CubeClRuntimeConfig::get().compilation.cache {
             return None;
         }
-        let fingerprint = compilation.fingerprint(fingerprint.as_ref());
 
         Some(Store::new(
             StoreOptions::new()

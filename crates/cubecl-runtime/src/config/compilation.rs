@@ -1,6 +1,3 @@
-use alloc::{format, string::String};
-use cubecl_ir::DisabledFastMath;
-
 use super::logger::{LogLevel, LoggerConfig};
 
 /// Configuration for compilation settings in `CubeCL`.
@@ -28,10 +25,6 @@ pub struct CompilationConfig {
     /// memory: a batch holds every queued kernel's artifacts until it ends.
     #[serde(default)]
     pub parallelism: Option<usize>,
-    /// Fast-math optimizations no kernel may use, whatever it allows: `"all"`, or a list such as
-    /// `["allow-contraction"]`. It never grants one a kernel did not ask for.
-    #[serde(default)]
-    pub disabled_fast_math: DisabledFastMath,
 }
 
 impl CompilationConfig {
@@ -47,16 +40,6 @@ impl CompilationConfig {
         let threads = 1;
 
         threads.max(1)
-    }
-
-    /// `target`, what a runtime compiles for, extended by the settings here that change every
-    /// kernel it compiles.
-    pub fn fingerprint(&self, target: &str) -> String {
-        let disabled = self.disabled_fast_math.optimizations();
-        match disabled.is_empty() {
-            true => String::from(target),
-            false => format!("{target}-disabled_fast_math_{:x}", disabled.as_u64()),
-        }
     }
 }
 
@@ -134,56 +117,3 @@ pub enum CompilationLogLevel {
 }
 
 impl LogLevel for CompilationLogLevel {}
-
-#[cfg(all(test, feature = "std"))]
-mod tests {
-    use super::*;
-    use alloc::string::ToString;
-    use cubecl_ir::{EnumSet, FastMath};
-
-    fn disabled(toml: &str) -> EnumSet<FastMath> {
-        toml::from_str::<CompilationConfig>(toml)
-            .unwrap()
-            .disabled_fast_math
-            .optimizations()
-    }
-
-    #[test]
-    fn disabled_fast_math_is_all_or_names() {
-        assert_eq!(disabled(""), FastMath::none());
-        assert_eq!(disabled(r#"disabled_fast_math = "all""#), FastMath::all());
-        assert_eq!(
-            disabled(r#"disabled_fast_math = ["not-nan", "unsigned-zero"]"#),
-            FastMath::NotNaN | FastMath::UnsignedZero
-        );
-        assert_eq!(
-            disabled(r#"disabled_fast_math = "not-nan, unsigned-zero""#),
-            FastMath::NotNaN | FastMath::UnsignedZero
-        );
-        assert!(toml::from_str::<CompilationConfig>(r#"disabled_fast_math = "some""#).is_err());
-    }
-
-    #[test]
-    fn an_unknown_name_is_named_in_the_error() {
-        let error = toml::from_str::<CompilationConfig>(r#"disabled_fast_math = ["fast"]"#)
-            .unwrap_err()
-            .to_string();
-        assert!(
-            error.contains("not a fast-math optimization: fast"),
-            "{error}"
-        );
-    }
-
-    /// `allow-transform` includes contraction, so it cannot outlive it.
-    #[test]
-    fn disabling_contraction_disables_transforms() {
-        assert_eq!(
-            disabled(r#"disabled_fast_math = ["allow-contraction"]"#),
-            FastMath::AllowContraction | FastMath::AllowTransform
-        );
-        assert_eq!(
-            disabled(r#"disabled_fast_math = ["allow-reassociation"]"#),
-            FastMath::AllowReassociation | FastMath::AllowTransform
-        );
-    }
-}
