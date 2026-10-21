@@ -8,16 +8,19 @@ use cubecl_core::{
         bitwise::{BitwiseNotOp, FindFirstSetOp},
         cmp::{FClampOp, SClampOp, UClampOp},
         math::{
-            ArcCoshOp, ArcSinhOp, ArcTanhOp, CbrtOp, CosOp, DegreesOp, Dp4aOp, ErfOp, ExpOp,
-            Expm1Op, FModFloorOp, HypotOp, Log1pOp, LogOp, PowiOp, RadiansOp, RcbrtOp, RecipOp,
-            RhypotOp, RsqrtOp, SModFloorOp, SMulHiOp, SNegOp, SinOp, TanhOp, UMulHiOp,
+            ArcCosDegreesOp, ArcCoshOp, ArcSinDegreesOp, ArcSinhOp, ArcTan2DegreesOp,
+            ArcTanDegreesOp, ArcTanhOp, CbrtOp, CosDegreesOp, CosOp, DegreesOp, Dp4aOp, ErfOp,
+            ExpOp, Expm1Op, FModFloorOp, HypotOp, Log1pOp, LogOp, PowiOp, RadiansOp, RcbrtOp,
+            RecipOp, RhypotOp, RsqrtOp, SModFloorOp, SMulHiOp, SNegOp, SinDegreesOp, SinOp,
+            TanDegreesOp, TanhOp, UMulHiOp,
         },
         vector::{FDotOp, MagnitudeOp, NormalizeOp, SDotOp, UDotOp},
     },
     prelude::{
         polyfills::{
-            cbrt, erf, expand_dp4a_polyfill, expand_himul_sim, expand_s_himul_64,
-            expand_u_himul_64, expm1, inverse_cbrt, log1p, powi_int, recip, to_degrees, to_radians,
+            acosd, asind, atan2d, atand, cbrt, cosd, erf, expand_dp4a_polyfill, expand_himul_sim,
+            expand_s_himul_64, expand_u_himul_64, expm1, inverse_cbrt, log1p, powi_int, recip,
+            sind, tand, to_degrees, to_radians,
         },
         *,
     },
@@ -91,6 +94,7 @@ macro_rules! lower_binary_math_arith {
 
 lower_binary_math_arith!(HypotOp => hypot);
 lower_binary_math_arith!(RhypotOp => rhypot);
+lower_binary_math_arith!(ArcTan2DegreesOp => atan2d);
 
 #[cube]
 fn dot<T: Numeric, N: Size>(rhs: Vector<T, N>, lhs: Vector<T, N>) -> T {
@@ -161,6 +165,12 @@ lower_unary_math_arith!(ArcTanhOp => arc_tanh);
 
 lower_unary_math_arith!(DegreesOp => to_degrees);
 lower_unary_math_arith!(RadiansOp => to_radians);
+lower_unary_math_arith!(SinDegreesOp => sind);
+lower_unary_math_arith!(CosDegreesOp => cosd);
+lower_unary_math_arith!(TanDegreesOp => tand);
+lower_unary_math_arith!(ArcSinDegreesOp => asind);
+lower_unary_math_arith!(ArcCosDegreesOp => acosd);
+lower_unary_math_arith!(ArcTanDegreesOp => atand);
 lower_unary_math_arith!(Log1pOp => log1p);
 lower_unary_math_arith!(Expm1Op => expm1);
 

@@ -1,6 +1,6 @@
 use cubecl_core::{
     self as cubecl, define_scalar, define_size,
-    frontend::polyfills::{expand_dp4a_polyfill, powi_int},
+    frontend::polyfills::{atan2d, expand_dp4a_polyfill, powi_int},
     ir::{
         dialect::{
             bitwise::*,
@@ -452,6 +452,7 @@ shared_op_with_out!(ArcTan2Op, |op, ctx| {
 });
 unrolling!(ArcTan2Op);
 no_half!(ArcTan2Op);
+lower_binop!(ArcTan2DegreesOp, atan2d);
 
 shared_op_with_out!(HypotOp, |op, ctx| {
     let lhs = op.lhs(ctx);
