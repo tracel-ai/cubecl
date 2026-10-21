@@ -177,6 +177,12 @@ impl DeviceService for CudaServer {
                 get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT).unwrap() as u32,
             );
             let num_tensor_cores = tensor_cores_per_sm(&arch);
+            // `None` rather than `Some(0)` where the driver reports no L2, as the field asks.
+            let last_level_cache_size =
+                get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE)
+                    .ok()
+                    .and_then(|bytes| usize::try_from(bytes).ok())
+                    .filter(|&bytes| bytes > 0);
 
             comp_opts.warp_size = warp_size as usize;
 
@@ -198,7 +204,7 @@ impl DeviceService for CudaServer {
                     Some(8)
                 },
                 num_cpu_cores: None,
-                last_level_cache_size: None,
+                last_level_cache_size,
                 max_vector_size: VectorSize::MAX,
                 cube_mma_reserved_shared_memory: 0,
             }
