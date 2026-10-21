@@ -10,6 +10,7 @@ pub mod cube_type;
 pub mod derive_expand;
 pub mod desugar;
 pub mod expression;
+pub mod harness;
 pub mod helpers;
 pub mod into_runtime;
 pub mod kernel;
