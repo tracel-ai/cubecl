@@ -1,50 +1,127 @@
-//! Where a device's server thread runs: beside the thread that started it.
+//! Where a device's server thread runs: under the same last-level cache as the thread issuing
+//! its launches.
 //!
 //! Every launch crosses from the thread that issues it to the device's server thread through
 //! shared memory, hundreds of times a step on a decode path. On a CPU whose cores are split
-//! between several last-level caches (AMD's chiplets, Intel's tiles), two threads on cores
-//! under different caches pay a cross-cache transfer for each of those crossings; on a 6-cache
-//! EPYC this made a decode step about 60% slower, depending only on where the scheduler happened
-//! to place the two threads. Keeping the server on the cores that share the starting thread's
-//! last-level cache keeps the crossings inside one cache.
+//! between several last-level caches (AMD's chiplets, Intel's tiles), two threads under
+//! different caches pay a cross-cache transfer on each of those crossings, and a decode step
+//! ran about 60% slower when the scheduler happened to place them apart. The scheduler may
+//! also move the issuing thread at any time, so the server follows it: the issuing thread
+//! states the CPU it runs on each time it hands over a full buffer of tasks
+//! ([`current_cpu`]), and the server moves to that CPU's cache when it is not already under it
+//! ([`ServerPlacement::follow`]).
 
-/// The CPUs sharing a last-level cache with the CPU a thread runs on, among the CPUs the process
-/// may run on. Empty where the answer would not narrow anything: one cache over every allowed
-/// CPU, a topology the system does not report, or an operating system this is not written for.
-pub(crate) struct SharedCacheCpus {
+/// The CPU the calling thread runs on; [`UNKNOWN_CPU`] where the system does not say.
+pub(crate) fn current_cpu() -> u32 {
     #[cfg(target_os = "linux")]
-    cpus: Option<linux::CpuSet>,
+    {
+        // SAFETY: `sched_getcpu` takes no arguments.
+        u32::try_from(unsafe { libc::sched_getcpu() }).unwrap_or(UNKNOWN_CPU)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        UNKNOWN_CPU
+    }
 }
 
-impl SharedCacheCpus {
-    /// The CPUs sharing the calling thread's last-level cache.
-    pub(crate) fn of_current_thread() -> Self {
-        Self {
-            #[cfg(target_os = "linux")]
-            cpus: linux::shared_last_level_cache(),
-        }
-    }
+/// What [`current_cpu`] answers where the system does not say.
+pub(crate) const UNKNOWN_CPU: u32 = u32::MAX;
 
-    /// Keeps the calling thread on these CPUs; a no-op where they are empty or the system
-    /// refuses.
-    pub(crate) fn keep_current_thread(&self) {
+/// The last-level cache a device's server thread is kept under, if any yet.
+#[derive(Default)]
+pub(crate) struct ServerPlacement {
+    #[cfg(target_os = "linux")]
+    domain: Option<usize>,
+}
+
+impl ServerPlacement {
+    /// Keeps the calling thread, the server, under `issuer_cpu`'s last-level cache, moving it
+    /// only when that cache is not the one it is kept under already. A no-op on a CPU with one
+    /// last-level cache over the CPUs the process may use, for an unknown CPU, and on systems
+    /// this is not written for.
+    pub(crate) fn follow(&mut self, issuer_cpu: u32) {
         #[cfg(target_os = "linux")]
-        if let Some(cpus) = &self.cpus {
-            cpus.keep_current_thread();
+        {
+            let Some(domains) = linux::CacheDomains::get() else {
+                return;
+            };
+            let Some(domain) = domains.of_cpu(issuer_cpu) else {
+                return;
+            };
+            if self.domain != Some(domain) {
+                domains.keep_current_thread(domain);
+                self.domain = Some(domain);
+            }
         }
+        #[cfg(not(target_os = "linux"))]
+        let _ = issuer_cpu;
     }
 }
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use std::{fs, string::String, vec::Vec};
+    use std::{fs, path::Path, string::String, sync::OnceLock, vec::Vec};
+
+    /// The CPUs the process may run on, grouped by the last-level cache they share.
+    pub(super) struct CacheDomains {
+        /// Each CPU's domain, by CPU number; `None` for a CPU the process may not run on.
+        of_cpu: Vec<Option<usize>>,
+        /// Each domain's CPUs.
+        cpus: Vec<CpuSet>,
+    }
+
+    impl CacheDomains {
+        /// The domains, read once; `None` where there is only one or the system does not say.
+        ///
+        /// Read on the first call, before any thread is moved: the allowed CPUs are the
+        /// process's, not those of a server already kept under one cache.
+        pub(super) fn get() -> Option<&'static Self> {
+            static DOMAINS: OnceLock<Option<CacheDomains>> = OnceLock::new();
+            DOMAINS.get_or_init(Self::read).as_ref()
+        }
+
+        fn read() -> Option<Self> {
+            let allowed = CpuSet::allowed()?;
+            let mut of_cpu = Vec::new();
+            let mut cpus: Vec<CpuSet> = Vec::new();
+            // Each domain's lowest CPU, which names it in sysfs's lists.
+            let mut lowest_cpus: Vec<usize> = Vec::new();
+            for cpu in (0..libc::CPU_SETSIZE as usize).filter(|&cpu| allowed.contains(cpu)) {
+                let lowest = *last_level_cache_cpus(cpu)?.iter().min()?;
+                let domain = match lowest_cpus.iter().position(|&known| known == lowest) {
+                    Some(domain) => domain,
+                    None => {
+                        lowest_cpus.push(lowest);
+                        cpus.push(CpuSet::empty());
+                        cpus.len() - 1
+                    }
+                };
+                cpus[domain].insert(cpu);
+                of_cpu.resize(of_cpu.len().max(cpu + 1), None);
+                of_cpu[cpu] = Some(domain);
+            }
+            (cpus.len() > 1).then_some(Self { of_cpu, cpus })
+        }
+
+        /// The domain of `cpu`, if the process may run on it.
+        pub(super) fn of_cpu(&self, cpu: u32) -> Option<usize> {
+            *self.of_cpu.get(cpu as usize)?
+        }
+
+        /// Keeps the calling thread on `domain`'s CPUs. A refusal leaves the thread where it
+        /// may already run, which is correct, only slower.
+        pub(super) fn keep_current_thread(&self, domain: usize) {
+            let set = &self.cpus[domain].0;
+            // SAFETY: `set` is a valid `cpu_set_t` of the size passed.
+            let kept = unsafe { libc::sched_setaffinity(0, size_of::<libc::cpu_set_t>(), set) };
+            if kept != 0 {
+                log::debug!("The device server stays where it is: sched_setaffinity refused");
+            }
+        }
+    }
 
     /// A set of CPUs as the kernel's affinity calls take it.
-    pub(super) struct CpuSet(libc::cpu_set_t);
-
-    // SAFETY: a `cpu_set_t` is a plain bit array.
-    unsafe impl Send for CpuSet {}
-    unsafe impl Sync for CpuSet {}
+    struct CpuSet(libc::cpu_set_t);
 
     impl CpuSet {
         fn empty() -> Self {
@@ -61,46 +138,22 @@ mod linux {
             (read == 0).then_some(set)
         }
 
+        /// Whether `cpu`, below `CPU_SETSIZE`, is in the set.
         fn contains(&self, cpu: usize) -> bool {
-            // SAFETY: `CPU_ISSET` reads one bit, and `cpu` is bounds-checked below by the
-            // caller's range over `CPU_SETSIZE`.
+            // SAFETY: `CPU_ISSET` reads one bit of a valid set.
             unsafe { libc::CPU_ISSET(cpu, &self.0) }
         }
 
+        /// Adds `cpu`, below `CPU_SETSIZE`.
         fn insert(&mut self, cpu: usize) {
-            // SAFETY: as in `contains`.
+            // SAFETY: `CPU_SET` writes one bit of a valid set.
             unsafe { libc::CPU_SET(cpu, &mut self.0) }
         }
-
-        fn len(&self) -> usize {
-            // SAFETY: `CPU_COUNT` reads the whole set.
-            unsafe { libc::CPU_COUNT(&self.0) as usize }
-        }
-
-        pub(super) fn keep_current_thread(&self) {
-            // SAFETY: `self.0` is a valid `cpu_set_t` of the size passed. A refusal leaves the
-            // thread where it may already run, which is correct, only slower.
-            let kept = unsafe { libc::sched_setaffinity(0, size_of::<libc::cpu_set_t>(), &self.0) };
-            if kept != 0 {
-                log::debug!("The device server stays unpinned: sched_setaffinity refused");
-            }
-        }
     }
 
-    /// The allowed CPUs sharing the last-level cache of the CPU the calling thread runs on, or
-    /// `None` where that narrows nothing or the topology is not reported.
-    pub(super) fn shared_last_level_cache() -> Option<CpuSet> {
-        // SAFETY: `sched_getcpu` takes no arguments.
-        let cpu = usize::try_from(unsafe { libc::sched_getcpu() }).ok()?;
-        let allowed = CpuSet::allowed()?;
-        let mut shared = CpuSet::empty();
-        for listed in last_level_cache_cpus(cpu)? {
-            if listed < libc::CPU_SETSIZE as usize && allowed.contains(listed) {
-                shared.insert(listed);
-            }
-        }
-        (shared.len() > 0 && shared.len() < allowed.len()).then_some(shared)
-    }
+    // SAFETY: a `cpu_set_t` is a plain bit array.
+    unsafe impl Send for CpuSet {}
+    unsafe impl Sync for CpuSet {}
 
     /// The CPUs sharing `cpu`'s highest-level cache, as sysfs lists them.
     fn last_level_cache_cpus(cpu: usize) -> Option<Vec<usize>> {
@@ -120,7 +173,7 @@ mod linux {
         cpu_list(&read_trimmed(&last.join("shared_cpu_list"))?)
     }
 
-    fn read_trimmed(path: &std::path::Path) -> Option<String> {
+    fn read_trimmed(path: &Path) -> Option<String> {
         fs::read_to_string(path).ok().map(|text| text.trim().into())
     }
 
@@ -150,6 +203,18 @@ mod linux {
             );
             assert_eq!(cpu_list("5"), Some(std::vec![5]));
             assert_eq!(cpu_list("0-x"), None);
+        }
+
+        #[test]
+        fn every_allowed_cpu_lies_in_its_own_domain() {
+            let Some(domains) = CacheDomains::get() else {
+                return;
+            };
+            let allowed = CpuSet::allowed().unwrap();
+            for cpu in (0..libc::CPU_SETSIZE as usize).filter(|&cpu| allowed.contains(cpu)) {
+                let domain = domains.of_cpu(cpu as u32).unwrap();
+                assert!(domains.cpus[domain].contains(cpu));
+            }
         }
     }
 }
