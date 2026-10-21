@@ -3,9 +3,9 @@ use core::fmt;
 use alloc::collections::VecDeque;
 use cubecl_environment::collections::HashMap;
 use cubecl_ir::{
-    dialect::BlockPtrExt,
+    dialect::{BlockPtrExt, general::PoisonOp},
     interfaces::{
-        MaterializableOp,
+        ConstantLike, MaterializableOp, TrivialOp,
         control_flow::{
             MutableRegionBranchOpInterface, MutableRegionBranchTerminatorOpInterface,
             RegionBranchOpInterface, RegionPredecessor, RegionSuccessor,
@@ -13,7 +13,7 @@ use cubecl_ir::{
     },
     prelude::*,
 };
-use hi_sparse_bitset::ops;
+use hi_sparse_bitset::{cache::DynamicCache, ops};
 use itertools::Itertools;
 use pliron::{
     basic_block::BasicBlock,
@@ -21,6 +21,7 @@ use pliron::{
         ControlFlowGraph, HasLabel, dominance::DomInfo,
         walkers::uninterruptible::immutable::walk_op,
     },
+    irbuild::listener::DummyListener,
     linked_list::ContainsLinkedList,
     operation::OpDbg,
     opts::dce::dce,
@@ -33,6 +34,7 @@ use crate::{
     BitSetExt, SparseBitSet,
     analyses::dataflow_solver::{
         DataflowSolver, ProgramPoint,
+        dead_code::{CFGEdge, ControlFlowAnchor, Executable},
         pre::{
             AnticipatedMode, Available, InsertMode, compute_lcm_analyses,
             compute_pruned_insertion_points,
@@ -42,13 +44,45 @@ use crate::{
     would_op_be_trivially_dead,
 };
 
+pub struct LCMPre;
+pub struct SSCMPre;
+
+#[pass_name]
+impl Pass for LCMPre {
+    fn run(
+        &mut self,
+        op: Ptr<Operation>,
+        ctx: &mut Context,
+        _: &mut AnalysisManager,
+    ) -> Result<PassResult> {
+        let mut res = PassResult::default();
+        res.ir_changed |= run_pre(ctx, op, AnticipatedMode::Classical, InsertMode::Lazy)?;
+        Ok(res)
+    }
+}
+
+#[pass_name]
+impl Pass for SSCMPre {
+    fn run(
+        &mut self,
+        op: Ptr<Operation>,
+        ctx: &mut Context,
+        _: &mut AnalysisManager,
+    ) -> Result<PassResult> {
+        let mut res = PassResult::default();
+        res.ir_changed |= run_pre(ctx, op, AnticipatedMode::Speculative, InsertMode::Sparse)?;
+        Ok(res)
+    }
+}
+
 pub fn run_pre(
     ctx: &mut Context,
     op: Ptr<Operation>,
-    rewriter: &mut impl Rewriter,
     antic_mode: AnticipatedMode,
     insert_mode: InsertMode,
 ) -> Result<IRStatus> {
+    let rewriter = &mut IRRewriter::<DummyListener>::default();
+
     let mut solver = compute_lcm_analyses(ctx, op, antic_mode)?;
     let insertions = compute_pruned_insertion_points(ctx, op, &mut solver, insert_mode)?;
 
@@ -59,7 +93,7 @@ pub fn run_pre(
     status |= insert_expressions(ctx, &solver, insertions, &antileaders, leaders, rewriter);
     status |= replace_redundant_values(ctx, &solver, op, leaders);
 
-    leaders.link_materialized(ctx);
+    leaders.link_materialized(ctx, &solver);
 
     status |= dce(op, ctx)?;
 
@@ -70,6 +104,7 @@ type RegionMerge = (Ptr<Operation>, RegionSuccessor);
 
 #[derive(Default)]
 struct Leaders {
+    constant_like: HashMap<u64, Ptr<Operation>>,
     leaders: HashMap<ProgramPoint, HashMap<u64, Leader>>,
     materialized: HashMap<(u64, Leader), Value>,
     blocks_to_link: IMap<Ptr<BasicBlock>, Vec<(u64, Value)>>,
@@ -198,11 +233,35 @@ impl Leaders {
         expr: u64,
         ty: TypeHandle,
     ) -> Option<Value> {
+        // This crashes on purpose, if a leader is missing that's a miscompilation and should not be
+        // silently ignored.
         let leader = self.leaders[at][&expr];
         match leader {
             Leader::Material(value) => Some(value),
             _ if let Some(materialized) = self.materialized.get(&(expr, leader)) => {
                 Some(*materialized)
+            }
+            Leader::Insertion(..) => None,
+            _ if let Some(op) = self.constant_like.get(&expr) => {
+                let const_like = op.cast::<dyn ConstantLike>(ctx).unwrap();
+                let attrs = op.deref(ctx).attributes.clone();
+                let op = const_like.materialize(ctx, op.result_types(ctx), vec![], attrs);
+                match &leader {
+                    Leader::Material(_) | Leader::Insertion(_) => unreachable!(),
+                    Leader::RegionArg(region_op, RegionSuccessor::AfterOp) => {
+                        op.insert_after(ctx, *region_op);
+                    }
+                    Leader::RegionArg(_, RegionSuccessor::Region(region)) => {
+                        let entry = region.entry_node(ctx)?;
+                        op.insert_at_front(entry, ctx);
+                    }
+                    Leader::BlockArg(block) => {
+                        op.insert_at_front(*block, ctx);
+                    }
+                }
+                let res = op.deref(ctx).get_result(0);
+                self.materialized.insert((expr, leader), res);
+                Some(res)
             }
             Leader::RegionArg(region_op, successor) => {
                 // Should already be validated by analysis
@@ -227,20 +286,28 @@ impl Leaders {
                     .push((expr, arg));
                 Some(arg)
             }
-            Leader::Insertion(..) => None,
         }
     }
 
-    fn link_materialized(&mut self, ctx: &mut Context) {
+    fn link_materialized(&mut self, ctx: &mut Context, solver: &DataflowSolver) {
         while let Some((block, to_link)) = self.blocks_to_link.pop() {
             for (expression, arg) in to_link {
                 let ty = arg.get_type(ctx);
                 for pred in block.uses(ctx) {
-                    let block = pred.user_op().deref(ctx).get_parent_block().unwrap();
-                    let at = ProgramPoint::at_block_end(ctx, block);
-                    let leader = self.materialize(ctx, &at, expression, ty);
+                    let pred_op = pred.user_op();
+                    let pred_block = pred_op.deref(ctx).get_parent_block().unwrap();
+
+                    let leader = if is_live(solver, CFGEdge::new(pred_block, block)) {
+                        let at = ProgramPoint::at_block_end(ctx, pred_block);
+                        self.materialize(ctx, &at, expression, ty)
+                    } else {
+                        let poison = PoisonOp::new(ctx, ty);
+                        poison.get_operation().insert_before(ctx, pred_op);
+                        poison.get_result(ctx)
+                    };
+
                     // Should be validated by analysis
-                    let branch = pred.user_op().cast::<dyn BranchOpInterface>(ctx).unwrap();
+                    let branch = pred_op.cast::<dyn BranchOpInterface>(ctx).unwrap();
                     branch.add_successor_operand(ctx, pred.find_index(ctx), leader);
                 }
             }
@@ -259,11 +326,19 @@ impl Leaders {
                         RegionPredecessor::Terminator(term) => {
                             let term = term.get_operation();
                             let block = term.deref(ctx).get_parent_block().unwrap();
+
+                            let leader = if is_live(solver, block) {
+                                let at = ProgramPoint::at_block_end(ctx, block);
+                                self.materialize(ctx, &at, expression, ty)
+                            } else {
+                                let poison = PoisonOp::new(ctx, ty);
+                                poison.get_operation().insert_before(ctx, term);
+                                poison.get_result(ctx)
+                            };
+
                             let term = term
                                 .cast::<dyn MutableRegionBranchTerminatorOpInterface>(ctx)
                                 .unwrap();
-                            let at = ProgramPoint::at_block_end(ctx, block);
-                            let leader = self.materialize(ctx, &at, expression, ty);
                             term.add_successor_operand(ctx, successor, leader);
                         }
                     }
@@ -359,6 +434,14 @@ fn compute_op_leaders(
         if new_values.contains(value as usize) {
             leaders_after.insert(value, Leader::Material(result));
         }
+        if op.impls::<dyn TrivialOp>(ctx)
+            && !matches!(leaders_after.get(&value), Some(Leader::Material(_)))
+        {
+            leaders_after.insert(value, Leader::Material(result));
+        }
+        if op.impls::<dyn ConstantLike>(ctx) {
+            leaders.constant_like.insert(value, op);
+        }
     }
 
     for new_value in new_values.iter() {
@@ -399,6 +482,11 @@ fn compute_region_leaders(
     while let Some(block) = worklist.pop_front() {
         let start = ProgramPoint::at_block_start(ctx, block);
         let point = ProgramPoint::at_block_end(ctx, block);
+
+        // Dead blocks are not analyzed so just skip
+        if !is_live(solver, block) {
+            continue;
+        };
 
         {
             let leaders = leaders.leaders.entry(point).or_default();
@@ -498,8 +586,7 @@ fn try_insert_expression(
     }
     let result_ty = antileader.result_types(ctx);
     let attributes = antileader.deref(ctx).attributes.clone();
-    // This shouldn't be a trait in the first place but I can't be bothered to convince the Pliron
-    // maintainer to make op info public right now, so just require this.
+    // There's an outstanding upstream PR that makes this unnecessary, but it's needed for now.
     let materializable = antileader.cast::<dyn MaterializableOp>(ctx).unwrap();
     let op = materializable.materialize(ctx, result_ty, operands, attributes);
     rewriter.append_operation(ctx, op);
@@ -530,8 +617,11 @@ fn replace_redundant_values(
                     continue;
                 }
                 let Some(block) = user.deref(ctx).get_parent_block() else {
-                    return;
+                    continue;
                 };
+                if !is_live(solver, block) {
+                    continue;
+                }
                 let block_end = ProgramPoint::at_block_end(ctx, block);
                 let leader = leaders.materialize(ctx, &block_end, expr, value.get_type(ctx));
                 if leader != value {
@@ -542,6 +632,13 @@ fn replace_redundant_values(
         },
     );
     status
+}
+
+fn is_live(solver: &DataflowSolver, point: impl Into<ControlFlowAnchor>) -> bool {
+    let Some(executable) = solver.lookup_state::<Executable>(point.into()) else {
+        return true;
+    };
+    executable.deref().is_live()
 }
 
 fn available_at(solver: &DataflowSolver, point: ProgramPoint) -> Option<SparseBitSet> {
@@ -562,9 +659,10 @@ fn collect_antileaders(
     solver: &DataflowSolver,
     insertions: &IMap<ProgramPoint, SparseBitSet>,
 ) -> HashMap<u64, Ptr<Operation>> {
-    let required_antileaders: SparseBitSet = hi_sparse_bitset::reduce(ops::Or, insertions.values())
-        .map(Into::into)
-        .unwrap_or_default();
+    let required_antileaders: SparseBitSet =
+        hi_sparse_bitset::reduce_w_cache(ops::Or, insertions.values(), DynamicCache)
+            .map(Into::into)
+            .unwrap_or_default();
 
     let mut antileaders = HashMap::new();
     walk_op(

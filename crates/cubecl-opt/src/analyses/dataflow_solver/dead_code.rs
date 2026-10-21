@@ -1,4 +1,4 @@
-use core::{any::TypeId, cell::RefCell, hash::Hash};
+use core::{any::TypeId, cell::RefCell, fmt::Display, hash::Hash};
 
 use alloc::string::ToString;
 use cubecl_environment::collections::HashMap;
@@ -67,7 +67,8 @@ impl Printable for CFGEdge {
 
 #[derive(PartialEq, Eq, Hash, From, Clone)]
 pub enum ControlFlowAnchor {
-    ProgramPoint(ProgramPoint),
+    Block(Ptr<BasicBlock>),
+    AfterOp(Ptr<Operation>),
     Edge(CFGEdge),
 }
 
@@ -79,9 +80,8 @@ impl Printable for ControlFlowAnchor {
         f: &mut core::fmt::Formatter<'_>,
     ) -> core::fmt::Result {
         match self {
-            ControlFlowAnchor::ProgramPoint(program_point) => {
-                Printable::fmt(program_point, ctx, state, f)
-            }
+            ControlFlowAnchor::Block(block) => Printable::fmt(&block.label(ctx), ctx, state, f),
+            ControlFlowAnchor::AfterOp(op) => OpDbg { op: *op, ctx }.fmt(f),
             ControlFlowAnchor::Edge(edge) => Printable::fmt(edge, ctx, state, f),
         }
     }
@@ -133,16 +133,11 @@ impl Executable {
     }
 }
 
-pub fn is_block_live<A: 'static>(
-    solver: &DataflowSolver,
-    ctx: &Context,
-    point: ProgramPoint,
-) -> bool {
+pub fn is_block_live<A: 'static>(solver: &DataflowSolver, point: ProgramPoint) -> bool {
     let Some(block) = point.block() else {
         return true;
     };
-    let executable = solver
-        .get_or_create_for::<A, Executable>(point, ProgramPoint::at_block_start(ctx, block).into());
+    let executable = solver.get_or_create_for::<A, Executable>(point, block.into());
     executable.deref().is_live()
 }
 
@@ -170,19 +165,17 @@ impl AnalysisState for Executable {
         }
 
         match &self.anchor {
-            ControlFlowAnchor::ProgramPoint(point) => {
-                if point.is_block_start(ctx) {
-                    let block = point.block().unwrap();
-                    for analysis in self.subscribers.borrow().iter() {
-                        solver.enqueue((ProgramPoint::at_block_start(ctx, block), *analysis));
-                    }
-                    for analysis in self.subscribers.borrow().iter() {
-                        for op in block.deref(ctx).iter(ctx) {
-                            solver.enqueue((ProgramPoint::after_op(ctx, op), *analysis));
-                        }
+            &ControlFlowAnchor::Block(block) => {
+                for analysis in self.subscribers.borrow().iter() {
+                    solver.enqueue((ProgramPoint::at_block_start(ctx, block), *analysis));
+                }
+                for analysis in self.subscribers.borrow().iter() {
+                    for op in block.deref(ctx).iter(ctx) {
+                        solver.enqueue((ProgramPoint::after_op(ctx, op), *analysis));
                     }
                 }
             }
+            ControlFlowAnchor::AfterOp(_) => {}
             ControlFlowAnchor::Edge(edge) => {
                 for analysis in self.subscribers.borrow().iter() {
                     solver.enqueue((ProgramPoint::at_block_start(ctx, edge.to), *analysis));
@@ -391,9 +384,8 @@ impl DeadCodeAnalysis {
             || op.impls::<dyn CallOpInterface>(ctx)
         {
             if let Some(block) = op.deref(ctx).get_parent_block() {
-                let point = ProgramPoint::at_block_start(ctx, block);
                 solver
-                    .get_or_create::<Executable>(point.into())
+                    .get_or_create::<Executable>(block.into())
                     .deref()
                     .block_content_subscribe::<Self>();
             }
@@ -420,8 +412,7 @@ impl DeadCodeAnalysis {
         from: Ptr<BasicBlock>,
         to: Ptr<BasicBlock>,
     ) {
-        let state =
-            solver.get_or_create_mut::<Executable>(ProgramPoint::at_block_start(ctx, to).into());
+        let state = solver.get_or_create_mut::<Executable>(to.into());
         solver.update_state(ctx, &state, |it| it.set_to_live());
         let edge_state = solver.get_or_create_mut::<Executable>(CFGEdge::new(from, to).into());
         solver.update_state(ctx, &edge_state, |it| it.set_to_live());
@@ -437,8 +428,7 @@ impl DeadCodeAnalysis {
             let Some(entry) = region.deref(ctx).get_entry_block() else {
                 continue;
             };
-            let state = solver
-                .get_or_create_mut::<Executable>(ProgramPoint::at_block_start(ctx, entry).into());
+            let state = solver.get_or_create_mut::<Executable>(entry.into());
             solver.update_state(ctx, &state, |it| it.set_to_live());
         }
     }
@@ -564,20 +554,24 @@ impl DeadCodeAnalysis {
             // The successor can be either an entry block or an operation to resume
             // after.
             // Skip empty regions — they have no entry block to mark executable.
-            let point = match successor {
+            let (point, anchor) = match successor {
                 RegionSuccessor::Region(region) if let Some(entry) = region.entry_node(ctx) => {
-                    ProgramPoint::at_block_start(ctx, entry)
+                    let point = ProgramPoint::at_block_start(ctx, entry);
+                    let anchor = ControlFlowAnchor::Block(entry);
+                    (point, anchor)
                 }
                 RegionSuccessor::Region(_) => {
                     continue;
                 }
                 RegionSuccessor::AfterOp => {
-                    ProgramPoint::after_op(ctx, region_branch_op.get_operation())
+                    let point = ProgramPoint::after_op(ctx, region_branch_op.get_operation());
+                    let anchor = ControlFlowAnchor::AfterOp(region_branch_op.get_operation());
+                    (point, anchor)
                 }
             };
 
             // Mark the entry block as executable.
-            let state = solver.get_or_create_mut::<Executable>(point.into());
+            let state = solver.get_or_create_mut::<Executable>(anchor);
             solver.update_state(ctx, &state, |it| it.set_to_live());
 
             // Add the region branch predecessor.
@@ -646,8 +640,7 @@ impl DataflowAnalysis for DeadCodeAnalysis {
             let Some(entry) = region.entry_node(ctx) else {
                 continue;
             };
-            let state = solver
-                .get_or_create_mut::<Executable>(ProgramPoint::at_block_start(ctx, entry).into());
+            let state = solver.get_or_create_mut::<Executable>(entry.into());
             solver.update_state(ctx, &state, |it| it.set_to_live());
         }
 
@@ -669,7 +662,7 @@ impl DataflowAnalysis for DeadCodeAnalysis {
         // If the parent block is not executable, there is nothing to do.
         if let Some(block) = op.deref(ctx).get_parent_block()
             && !solver
-                .get_or_create::<Executable>(ProgramPoint::at_block_start(ctx, block).into())
+                .get_or_create::<Executable>(block.into())
                 .deref()
                 .is_live()
         {

@@ -1,5 +1,5 @@
 use pliron::{
-    builtin::ops::{FuncOp, ModuleOp},
+    builtin::ops::{ConstantOp, FuncOp, ModuleOp},
     dict_key,
 };
 
@@ -7,6 +7,14 @@ use pliron::{
 macro_rules! Pure {
     ($ty: ty) => {
         $crate::NoSideEffects!($ty);
+        $crate::PureBase!($ty);
+    };
+}
+
+/// Pure without side effects because they're usually already implemented for upstream ops
+#[macro_export]
+macro_rules! PureBase {
+    ($ty: ty) => {
         $crate::NoMemoryEffect!($ty);
         $crate::AlwaysSpeculatable!($ty);
 
@@ -14,6 +22,8 @@ macro_rules! Pure {
         impl $crate::interfaces::Deterministic for $ty {}
     };
 }
+
+PureBase!(ConstantOp);
 
 #[macro_export]
 macro_rules! CanMaterialize {
@@ -23,8 +33,8 @@ macro_rules! CanMaterialize {
             fn materialize(
                 &self,
                 ctx: &mut pliron::context::Context,
-                result_ty: Vec<pliron::r#type::TypeHandle>,
-                operands: Vec<Value>,
+                result_ty: pliron::alloc::vec::Vec<pliron::r#type::TypeHandle>,
+                operands: pliron::alloc::vec::Vec<pliron::value::Value>,
                 attributes: pliron::attribute::AttributeDict,
             ) -> pliron::context::Ptr<pliron::operation::Operation> {
                 use pliron::op::Op;
@@ -33,7 +43,7 @@ macro_rules! CanMaterialize {
                     Self::get_concrete_op_info(),
                     result_ty,
                     operands,
-                    vec![],
+                    pliron::alloc::vec![],
                     0,
                 );
                 op.deref_mut(ctx).attributes = attributes;
@@ -42,6 +52,8 @@ macro_rules! CanMaterialize {
         }
     };
 }
+
+CanMaterialize!(ConstantOp);
 
 #[macro_export]
 macro_rules! NoMemoryEffect {

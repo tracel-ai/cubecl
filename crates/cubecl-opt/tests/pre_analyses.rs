@@ -1,7 +1,10 @@
 use cubecl_ir::{
     NoSideEffects,
     dialect::memory::AddressSpaceAttr,
-    interfaces::side_effects::{MemoryEffect, MemoryEffectsOp},
+    interfaces::{
+        Deterministic,
+        side_effects::{MemoryEffect, MemoryEffectsOp},
+    },
     prelude::*,
 };
 use cubecl_opt::{
@@ -54,6 +57,7 @@ impl MemoryEffectsOp for MemoryDefInSpaceOp {
     verifier = "succ",
     attributes = (use_address_space: AddressSpaceAttr)
 )]
+#[op_interfaces(Deterministic)]
 #[op_traits(NoSideEffects)]
 pub struct MemoryUseInSpaceOp;
 
@@ -292,15 +296,16 @@ fn pre_basic() -> Result<()> {
 
     expect![[r#"
         computes:
+        block_start(^entry_block1v1): Computes({})
         ab_v2 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e2})
         ab2_v3 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e2})
         branch.return ab2_v3: Computes({})
 
         available:
-        block_start(^entry_block1v1): Available({})
-        ab_v2 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e2})
-        ab2_v3 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e2})
-        branch.return ab2_v3: Available({e2})
+        block_start(^entry_block1v1): Available({e0, e1})
+        ab_v2 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2})
+        ab2_v3 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2})
+        branch.return ab2_v3: Available({e0, e1, e2})
 
         anticipated:
         block_end(^entry_block1v1): Anticipated({})
@@ -338,6 +343,7 @@ fn pre_basic_dependencies() -> Result<()> {
     // already computed in the forward direction must still be represented correctly.
     expect![[r#"
         computes:
+        block_start(^entry_block1v1): Computes({})
         ab_v3 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e3})
         abc_v4 = math.i_add (ab_v3, c_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e4})
         ab2_v5 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e3})
@@ -345,12 +351,12 @@ fn pre_basic_dependencies() -> Result<()> {
         branch.return abc2_v6: Computes({})
 
         available:
-        block_start(^entry_block1v1): Available({})
-        ab_v3 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e3})
-        abc_v4 = math.i_add (ab_v3, c_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e3, e4})
-        ab2_v5 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e3, e4})
-        abc2_v6 = math.i_add (ab2_v5, c_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e3, e4})
-        branch.return abc2_v6: Available({e3, e4})
+        block_start(^entry_block1v1): Available({e0, e1, e2})
+        ab_v3 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3})
+        abc_v4 = math.i_add (ab_v3, c_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3, e4})
+        ab2_v5 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3, e4})
+        abc2_v6 = math.i_add (ab2_v5, c_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3, e4})
+        branch.return abc2_v6: Available({e0, e1, e2, e3, e4})
 
         anticipated:
         block_end(^entry_block1v1): Anticipated({})
@@ -388,17 +394,18 @@ fn pre_non_commutative_expressions() -> Result<()> {
     // immediately before it; the two operand orderings must remain distinct.
     expect![[r#"
         computes:
+        block_start(^entry_block1v1): Computes({})
         ab_v2 = math.u_div (a_v0, b_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e2})
         ba_v3 = math.u_div (b_v1, a_v0) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e3})
         ab2_v4 = math.u_div (a_v0, b_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e2})
         branch.return ab2_v4: Computes({})
 
         available:
-        block_start(^entry_block1v1): Available({})
-        ab_v2 = math.u_div (a_v0, b_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e2})
-        ba_v3 = math.u_div (b_v1, a_v0) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e2, e3})
-        ab2_v4 = math.u_div (a_v0, b_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e2, e3})
-        branch.return ab2_v4: Available({e2, e3})
+        block_start(^entry_block1v1): Available({e0, e1})
+        ab_v2 = math.u_div (a_v0, b_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2})
+        ba_v3 = math.u_div (b_v1, a_v0) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3})
+        ab2_v4 = math.u_div (a_v0, b_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3})
+        branch.return ab2_v4: Available({e0, e1, e2, e3})
 
         anticipated:
         block_end(^entry_block1v1): Anticipated({})
@@ -444,6 +451,7 @@ fn pre_branch_convergence() -> Result<()> {
     // and remain anticipated through the merge computation.
     expect![[r#"
         computes:
+        block_start(^entry_block1v1): Computes({})
         cf.branch_conditional if cond_v0 ^left_block4v1() else ^right_block5v1(): Computes({})
         left_sum_v3 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e3})
         cf.branch ^merge_block3v3(): Computes({})
@@ -453,17 +461,17 @@ fn pre_branch_convergence() -> Result<()> {
         branch.return merge_sum_v5: Computes({})
 
         available:
-        block_start(^entry_block1v1): Available({})
-        cf.branch_conditional if cond_v0 ^left_block4v1() else ^right_block5v1(): Available({})
-        block_start(^left_block4v1): Available({})
-        left_sum_v3 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e3})
-        cf.branch ^merge_block3v3(): Available({e3})
-        block_start(^right_block5v1): Available({})
-        right_sum_v4 = math.i_add (b_v2, a_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e3})
-        cf.branch ^merge_block3v3(): Available({e3})
-        block_start(^merge_block3v3): Available({e3})
-        merge_sum_v5 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e3})
-        branch.return merge_sum_v5: Available({e3})
+        block_start(^entry_block1v1): Available({e0, e1, e2})
+        cf.branch_conditional if cond_v0 ^left_block4v1() else ^right_block5v1(): Available({e0, e1, e2})
+        block_start(^left_block4v1): Available({e0, e1, e2})
+        left_sum_v3 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3})
+        cf.branch ^merge_block3v3(): Available({e0, e1, e2, e3})
+        block_start(^right_block5v1): Available({e0, e1, e2})
+        right_sum_v4 = math.i_add (b_v2, a_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3})
+        cf.branch ^merge_block3v3(): Available({e0, e1, e2, e3})
+        block_start(^merge_block3v3): Available({e0, e1, e2, e3})
+        merge_sum_v5 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3})
+        branch.return merge_sum_v5: Available({e0, e1, e2, e3})
 
         anticipated:
         block_end(^merge_block3v3): Anticipated({})
@@ -514,6 +522,7 @@ fn pre_partial_redundancy() -> Result<()> {
     // merge computation is reached from either predecessor without an intervening kill.
     expect![[r#"
         computes:
+        block_start(^entry_block1v1): Computes({})
         cf.branch_conditional if cond_v0 ^left_block4v1() else ^right_block5v1(): Computes({})
         left_sum_v3 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e3})
         cf.branch ^merge_block3v3(): Computes({})
@@ -522,16 +531,16 @@ fn pre_partial_redundancy() -> Result<()> {
         branch.return merge_sum_v4: Computes({})
 
         available:
-        block_start(^entry_block1v1): Available({})
-        cf.branch_conditional if cond_v0 ^left_block4v1() else ^right_block5v1(): Available({})
-        block_start(^left_block4v1): Available({})
-        left_sum_v3 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e3})
-        cf.branch ^merge_block3v3(): Available({e3})
-        block_start(^right_block5v1): Available({})
-        cf.branch ^merge_block3v3(): Available({})
-        block_start(^merge_block3v3): Available({})
-        merge_sum_v4 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e3})
-        branch.return merge_sum_v4: Available({e3})
+        block_start(^entry_block1v1): Available({e0, e1, e2})
+        cf.branch_conditional if cond_v0 ^left_block4v1() else ^right_block5v1(): Available({e0, e1, e2})
+        block_start(^left_block4v1): Available({e0, e1, e2})
+        left_sum_v3 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3})
+        cf.branch ^merge_block3v3(): Available({e0, e1, e2, e3})
+        block_start(^right_block5v1): Available({e0, e1, e2})
+        cf.branch ^merge_block3v3(): Available({e0, e1, e2})
+        block_start(^merge_block3v3): Available({e0, e1, e2})
+        merge_sum_v4 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3})
+        branch.return merge_sum_v4: Available({e0, e1, e2, e3})
 
         anticipated:
         block_end(^merge_block3v3): Anticipated({})
@@ -585,6 +594,7 @@ fn pre_distinct_branch_expressions() -> Result<()> {
     // and remain so in the entry.
     expect![[r#"
         computes:
+        block_start(^entry_block1v1): Computes({})
         cf.branch_conditional if cond_v0 ^left_block4v1() else ^right_block5v1(): Computes({})
         left_ab_v4 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e4})
         left_ac_v5 = math.i_add (a_v1, c_v3) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e5})
@@ -597,20 +607,20 @@ fn pre_distinct_branch_expressions() -> Result<()> {
         branch.return merge_ab_v8: Computes({})
 
         available:
-        block_start(^entry_block1v1): Available({})
-        cf.branch_conditional if cond_v0 ^left_block4v1() else ^right_block5v1(): Available({})
-        block_start(^left_block4v1): Available({})
-        left_ab_v4 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e4})
-        left_ac_v5 = math.i_add (a_v1, c_v3) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e4, e5})
-        cf.branch ^merge_block3v3(): Available({e4, e5})
-        block_start(^right_block5v1): Available({})
-        right_ab_v6 = math.i_add (b_v2, a_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e4})
-        right_ac_v7 = math.i_add (c_v3, a_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e4, e5})
-        cf.branch ^merge_block3v3(): Available({e4, e5})
-        block_start(^merge_block3v3): Available({e4, e5})
-        merge_ab_v8 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e4, e5})
-        merge_ac_v9 = math.i_add (a_v1, c_v3) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e4, e5})
-        branch.return merge_ab_v8: Available({e4, e5})
+        block_start(^entry_block1v1): Available({e0, e1, e2, e3})
+        cf.branch_conditional if cond_v0 ^left_block4v1() else ^right_block5v1(): Available({e0, e1, e2, e3})
+        block_start(^left_block4v1): Available({e0, e1, e2, e3})
+        left_ab_v4 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3, e4})
+        left_ac_v5 = math.i_add (a_v1, c_v3) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3, e4, e5})
+        cf.branch ^merge_block3v3(): Available({e0, e1, e2, e3, e4, e5})
+        block_start(^right_block5v1): Available({e0, e1, e2, e3})
+        right_ab_v6 = math.i_add (b_v2, a_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3, e4})
+        right_ac_v7 = math.i_add (c_v3, a_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3, e4, e5})
+        cf.branch ^merge_block3v3(): Available({e0, e1, e2, e3, e4, e5})
+        block_start(^merge_block3v3): Available({e0, e1, e2, e3, e4, e5})
+        merge_ab_v8 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3, e4, e5})
+        merge_ac_v9 = math.i_add (a_v1, c_v3) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3, e4, e5})
+        branch.return merge_ab_v8: Available({e0, e1, e2, e3, e4, e5})
 
         anticipated:
         block_end(^merge_block3v3): Anticipated({})
@@ -658,6 +668,7 @@ fn pre_memory_no_alias() -> Result<()> {
     // Local definitions because neither definition kills that expression.
     expect![[r#"
         computes:
+        block_start(^entry_block1v1): Computes({})
         b_v1 = pre.memory_use Shared:builtin.integer ui32: Computes({e1})
         c_v2 = pre.memory_def Local:builtin.integer ui32: Computes({e2})
         b2_v3 = pre.memory_use Shared:builtin.integer ui32: Computes({e1})
@@ -666,13 +677,13 @@ fn pre_memory_no_alias() -> Result<()> {
         branch.return a_v0: Computes({})
 
         available:
-        block_start(^entry_block1v1): Available({})
-        b_v1 = pre.memory_use Shared:builtin.integer ui32: Available({e1})
-        c_v2 = pre.memory_def Local:builtin.integer ui32: Available({e1, e2})
-        b2_v3 = pre.memory_use Shared:builtin.integer ui32: Available({e1, e2})
-        d_v4 = pre.memory_def Local:builtin.integer ui32: Available({e1, e2, e3})
-        b3_v5 = pre.memory_use Shared:builtin.integer ui32: Available({e1, e2, e3})
-        branch.return a_v0: Available({e1, e2, e3})
+        block_start(^entry_block1v1): Available({e0})
+        b_v1 = pre.memory_use Shared:builtin.integer ui32: Available({e0, e1})
+        c_v2 = pre.memory_def Local:builtin.integer ui32: Available({e0, e1, e2})
+        b2_v3 = pre.memory_use Shared:builtin.integer ui32: Available({e0, e1, e2})
+        d_v4 = pre.memory_def Local:builtin.integer ui32: Available({e0, e1, e2, e3})
+        b3_v5 = pre.memory_use Shared:builtin.integer ui32: Available({e0, e1, e2, e3})
+        branch.return a_v0: Available({e0, e1, e2, e3})
 
         anticipated:
         block_end(^entry_block1v1): Anticipated({})
@@ -713,6 +724,7 @@ fn pre_memory_clobber() -> Result<()> {
     // anticipated set must not incorrectly propagate backward across that Shared def.
     expect![[r#"
         computes:
+        block_start(^entry_block1v1): Computes({})
         b_v1 = pre.memory_use Shared:builtin.integer ui32: Computes({e1})
         c_v2 = pre.memory_def Shared:builtin.integer ui32: Computes({e2})
         b2_v3 = pre.memory_use Shared:builtin.integer ui32: Computes({e3})
@@ -721,13 +733,13 @@ fn pre_memory_clobber() -> Result<()> {
         branch.return a_v0: Computes({})
 
         available:
-        block_start(^entry_block1v1): Available({})
-        b_v1 = pre.memory_use Shared:builtin.integer ui32: Available({e1})
-        c_v2 = pre.memory_def Shared:builtin.integer ui32: Available({e1, e2})
-        b2_v3 = pre.memory_use Shared:builtin.integer ui32: Available({e1, e2, e3})
-        d_v4 = pre.memory_def Shared:builtin.integer ui32: Available({e1, e2, e3, e4})
-        b3_v5 = pre.memory_use Shared:builtin.integer ui32: Available({e1, e2, e3, e4, e5})
-        branch.return a_v0: Available({e1, e2, e3, e4, e5})
+        block_start(^entry_block1v1): Available({e0})
+        b_v1 = pre.memory_use Shared:builtin.integer ui32: Available({e0, e1})
+        c_v2 = pre.memory_def Shared:builtin.integer ui32: Available({e0, e1, e2})
+        b2_v3 = pre.memory_use Shared:builtin.integer ui32: Available({e0, e1, e2, e3})
+        d_v4 = pre.memory_def Shared:builtin.integer ui32: Available({e0, e1, e2, e3, e4})
+        b3_v5 = pre.memory_use Shared:builtin.integer ui32: Available({e0, e1, e2, e3, e4, e5})
+        branch.return a_v0: Available({e0, e1, e2, e3, e4, e5})
 
         anticipated:
         block_end(^entry_block1v1): Anticipated({})
@@ -771,6 +783,7 @@ fn pre_memory_clobber_with_dependents() -> Result<()> {
     // of those values remain anticipated immediately before `c`.
     expect![[r#"
         computes:
+        block_start(^entry_block1v1): Computes({})
         c_v1 = pre.memory_def Shared:builtin.integer ui32: Computes({e1})
         b_v2 = pre.memory_use Shared:builtin.integer ui32: Computes({e2})
         direct_v3 = math.i_add (b_v2, a_v0) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e3})
@@ -778,12 +791,12 @@ fn pre_memory_clobber_with_dependents() -> Result<()> {
         branch.return indirect_v4: Computes({})
 
         available:
-        block_start(^entry_block1v1): Available({})
-        c_v1 = pre.memory_def Shared:builtin.integer ui32: Available({e1})
-        b_v2 = pre.memory_use Shared:builtin.integer ui32: Available({e1, e2})
-        direct_v3 = math.i_add (b_v2, a_v0) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e1, e2, e3})
-        indirect_v4 = math.i_add (direct_v3, a_v0) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e1, e2, e3, e4})
-        branch.return indirect_v4: Available({e1, e2, e3, e4})
+        block_start(^entry_block1v1): Available({e0})
+        c_v1 = pre.memory_def Shared:builtin.integer ui32: Available({e0, e1})
+        b_v2 = pre.memory_use Shared:builtin.integer ui32: Available({e0, e1, e2})
+        direct_v3 = math.i_add (b_v2, a_v0) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3})
+        indirect_v4 = math.i_add (direct_v3, a_v0) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3, e4})
+        branch.return indirect_v4: Available({e0, e1, e2, e3, e4})
 
         anticipated:
         block_end(^entry_block1v1): Anticipated({})
@@ -831,26 +844,28 @@ fn pre_region_result_convergence() -> Result<()> {
     // and therefore survive the backward meet across the region control-flow join.
     expect![[r#"
         computes:
+        block_start(^entry_block1v1): Computes({})
         ab_v3 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e3})
         then_sum_v4 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e3})
         branch.yield (then_sum_v4): Computes({})
         else_sum_v5 = math.i_add (b_v2, a_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e3})
         branch.yield (else_sum_v5): Computes({})
+        result_v6 = scf.if cond_v0 : builtin.integer ui32 then {..} else {..}: Computes({e3})
         after_v7 = math.i_add (result_v6, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e4})
         branch.return after_v7: Computes({})
 
         available:
-        block_start(^entry_block1v1): Available({})
-        ab_v3 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e3})
-        block_start(^then_block2v1): Available({e3})
-        then_sum_v4 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e3})
-        branch.yield (then_sum_v4): Available({e3})
-        block_start(^else_block3v1): Available({e3})
-        else_sum_v5 = math.i_add (b_v2, a_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e3})
-        branch.yield (else_sum_v5): Available({e3})
-        result_v6 = scf.if cond_v0 : builtin.integer ui32 then {..} else {..}: Available({e3})
-        after_v7 = math.i_add (result_v6, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e3, e4})
-        branch.return after_v7: Available({e3, e4})
+        block_start(^entry_block1v1): Available({e0, e1, e2})
+        ab_v3 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3})
+        block_start(^then_block2v1): Available({e0, e1, e2, e3})
+        then_sum_v4 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3})
+        branch.yield (then_sum_v4): Available({e0, e1, e2, e3})
+        block_start(^else_block3v1): Available({e0, e1, e2, e3})
+        else_sum_v5 = math.i_add (b_v2, a_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3})
+        branch.yield (else_sum_v5): Available({e0, e1, e2, e3})
+        result_v6 = scf.if cond_v0 : builtin.integer ui32 then {..} else {..}: Available({e0, e1, e2, e3})
+        after_v7 = math.i_add (result_v6, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3, e4})
+        branch.return after_v7: Available({e0, e1, e2, e3, e4})
 
         anticipated:
         block_end(^entry_block1v1): Anticipated({})
@@ -892,19 +907,21 @@ fn pre_loop_propagates_from_immediate_dominator() -> Result<()> {
     // the loop.
     expect![[r#"
         computes:
+        block_start(^entry_block1v1): Computes({})
         value_before_v5 = math.i_add (a_v3, b_v4) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Computes({e6})
         branch.yield (): Computes({})
+        scf.for start_v0 to end_v1 step step_v2 {..}: Computes({})
         value_after_v7 = math.i_sub (a_v3, b_v4) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Computes({e7})
         branch.return : Computes({})
 
         available:
-        block_start(^entry_block1v1): Available({})
-        value_before_v5 = math.i_add (a_v3, b_v4) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Available({e6})
-        block_start(^body_block2v1): Available({e6})
-        branch.yield (): Available({e6})
-        scf.for start_v0 to end_v1 step step_v2 {..}: Available({e6})
-        value_after_v7 = math.i_sub (a_v3, b_v4) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Available({e6, e7})
-        branch.return : Available({e6, e7})
+        block_start(^entry_block1v1): Available({e0, e1, e2, e3, e4})
+        value_before_v5 = math.i_add (a_v3, b_v4) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Available({e0, e1, e2, e3, e4, e6})
+        block_start(^body_block2v1): Available({e0, e1, e2, e3, e4, e5, e6})
+        branch.yield (): Available({e0, e1, e2, e3, e4, e5, e6})
+        scf.for start_v0 to end_v1 step step_v2 {..}: Available({e0, e1, e2, e3, e4, e6})
+        value_after_v7 = math.i_sub (a_v3, b_v4) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Available({e0, e1, e2, e3, e4, e6, e7})
+        branch.return : Available({e0, e1, e2, e3, e4, e6, e7})
 
         anticipated:
         block_end(^entry_block1v1): Anticipated({})
@@ -952,24 +969,26 @@ fn pre_region_result_distinct_values() -> Result<()> {
     // backward meet at the region boundary.
     expect![[r#"
         computes:
+        block_start(^entry_block1v1): Computes({})
         ab_v3 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e3})
         branch.yield (ab_v3): Computes({})
         aa_v4 = math.i_add (a_v1, a_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e4})
         branch.yield (aa_v4): Computes({})
+        result_v5 = scf.if cond_v0 : builtin.integer ui32 then {..} else {..}: Computes({e5})
         after_v6 = math.i_add (result_v5, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e6})
         branch.return after_v6: Computes({})
 
         available:
-        block_start(^entry_block1v1): Available({})
-        block_start(^then_block2v1): Available({})
-        ab_v3 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e3})
-        branch.yield (ab_v3): Available({e3})
-        block_start(^else_block3v1): Available({})
-        aa_v4 = math.i_add (a_v1, a_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e4})
-        branch.yield (aa_v4): Available({e4})
-        result_v5 = scf.if cond_v0 : builtin.integer ui32 then {..} else {..}: Available({})
-        after_v6 = math.i_add (result_v5, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e6})
-        branch.return after_v6: Available({e6})
+        block_start(^entry_block1v1): Available({e0, e1, e2})
+        block_start(^then_block2v1): Available({e0, e1, e2})
+        ab_v3 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e3})
+        branch.yield (ab_v3): Available({e0, e1, e2, e3})
+        block_start(^else_block3v1): Available({e0, e1, e2})
+        aa_v4 = math.i_add (a_v1, a_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e4})
+        branch.yield (aa_v4): Available({e0, e1, e2, e4})
+        result_v5 = scf.if cond_v0 : builtin.integer ui32 then {..} else {..}: Available({e0, e1, e2, e5})
+        after_v6 = math.i_add (result_v5, b_v2) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e5, e6})
+        branch.return after_v6: Available({e0, e1, e2, e5, e6})
 
         anticipated:
         block_end(^entry_block1v1): Anticipated({})
@@ -1026,30 +1045,32 @@ fn pre_region_memory_clobber() -> Result<()> {
     // branches, `dependent` should be killed when reaching `def` inside the `scf.if`.
     expect![[r#"
         computes:
+        block_start(^entry_block1v1): Computes({})
         before_v2 = pre.memory_use Shared:builtin.integer ui32: Computes({e2})
         def_v3 = pre.memory_def Shared:builtin.integer ui32: Computes({e3})
         inside_v4 = pre.memory_use Shared:builtin.integer ui32: Computes({e4})
         branch.yield (inside_v4): Computes({})
         other_v5 = pre.memory_use Shared:builtin.integer ui32: Computes({e2})
         branch.yield (other_v5): Computes({})
+        result_v6 = scf.if cond_v0 : builtin.integer ui32 then {..} else {..}: Computes({e6})
         dependent_v7 = math.i_add (result_v6, a_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Computes({e7})
         after_v8 = pre.memory_use Shared:builtin.integer ui32: Computes({e5})
         branch.return result_v6: Computes({})
 
         available:
-        block_start(^entry_block1v1): Available({})
-        before_v2 = pre.memory_use Shared:builtin.integer ui32: Available({e2})
-        block_start(^then_block2v1): Available({e2})
-        def_v3 = pre.memory_def Shared:builtin.integer ui32: Available({e2, e3})
-        inside_v4 = pre.memory_use Shared:builtin.integer ui32: Available({e2, e3, e4})
-        branch.yield (inside_v4): Available({e2, e3, e4})
-        block_start(^else_block3v1): Available({e2})
-        other_v5 = pre.memory_use Shared:builtin.integer ui32: Available({e2})
-        branch.yield (other_v5): Available({e2})
-        result_v6 = scf.if cond_v0 : builtin.integer ui32 then {..} else {..}: Available({e2})
-        dependent_v7 = math.i_add (result_v6, a_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e2, e7})
-        after_v8 = pre.memory_use Shared:builtin.integer ui32: Available({e2, e5, e7})
-        branch.return result_v6: Available({e2, e5, e7})
+        block_start(^entry_block1v1): Available({e0, e1})
+        before_v2 = pre.memory_use Shared:builtin.integer ui32: Available({e0, e1, e2})
+        block_start(^then_block2v1): Available({e0, e1, e2})
+        def_v3 = pre.memory_def Shared:builtin.integer ui32: Available({e0, e1, e2, e3})
+        inside_v4 = pre.memory_use Shared:builtin.integer ui32: Available({e0, e1, e2, e3, e4})
+        branch.yield (inside_v4): Available({e0, e1, e2, e3, e4})
+        block_start(^else_block3v1): Available({e0, e1, e2})
+        other_v5 = pre.memory_use Shared:builtin.integer ui32: Available({e0, e1, e2})
+        branch.yield (other_v5): Available({e0, e1, e2})
+        result_v6 = scf.if cond_v0 : builtin.integer ui32 then {..} else {..}: Available({e0, e1, e2, e6})
+        dependent_v7 = math.i_add (result_v6, a_v1) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>: Available({e0, e1, e2, e6, e7})
+        after_v8 = pre.memory_use Shared:builtin.integer ui32: Available({e0, e1, e2, e5, e6, e7})
+        branch.return result_v6: Available({e0, e1, e2, e5, e6, e7})
 
         anticipated:
         block_end(^entry_block1v1): Anticipated({})
@@ -1211,19 +1232,19 @@ fn scm_speculative_seed_external_fixpoint() -> Result<()> {
         branch.yield (inner_v6): Anticipated({})
         block_end(^inner_then_block5v1): Anticipated({})
         branch.yield (value_v5): Anticipated({})
-        value_v5 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Anticipated({e4})
+        value_v5 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Anticipated({e5})
         block_end(^inner_else_block6v1): Anticipated({})
         branch.yield (a_v0): Anticipated({})
-        inner_v6 = scf.if inner_cond_v4 : builtin.integer i64 then {..} else {..}: Anticipated({e4})
-        inner_cond_v4 = plane.elect () [] []: <() -> (cube.bool )>: Anticipated({e3, e4})
+        inner_v6 = scf.if inner_cond_v4 : builtin.integer i64 then {..} else {..}: Anticipated({e5})
+        inner_cond_v4 = plane.elect () [] []: <() -> (cube.bool )>: Anticipated({e4, e5})
         block_end(^uniform_else_block7v1): Anticipated({})
         branch.yield (fallback_value_v7): Anticipated({})
-        fallback_value_v7 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Anticipated({e4})
-        middle_v8 = scf.if uniform_cond_v2 : builtin.integer i64 then {..} else {..}: Anticipated({e4})
+        fallback_value_v7 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Anticipated({e5})
+        middle_v8 = scf.if uniform_cond_v2 : builtin.integer i64 then {..} else {..}: Anticipated({e5})
         block_end(^outer_else_block8v1): Anticipated({})
         branch.yield (a_v0): Anticipated({})
-        result_v9 = scf.if outer_cond_v3 : builtin.integer i64 then {..} else {..}: Anticipated({e4})
-        outer_cond_v3 = plane.elect () [] []: <() -> (cube.bool )>: Anticipated({e3, e4})
+        result_v9 = scf.if outer_cond_v3 : builtin.integer i64 then {..} else {..}: Anticipated({e5})
+        outer_cond_v3 = plane.elect () [] []: <() -> (cube.bool )>: Anticipated({e3, e5})
         builtin.func @f: builtin.function <(builtin.integer i64, builtin.integer i64, cube.bool ) -> ()> 
           [entry_point: cube.entrypoint_abi <cube_dim: (1, 1, 1)>]{..}: Anticipated({})
     "#]].assert_eq(&actual);
@@ -1457,7 +1478,7 @@ fn insert_paper_example_lcm() -> Result<()> {
 
     // Should insert in `inner_else`
     expect![[r#"
-        ^inner_else_block7v1(branch.yield (a_v0)): {e8}
+        block_end(^inner_else_block7v1): e7
     "#]]
     .assert_eq(&actual);
 
@@ -1474,7 +1495,7 @@ fn insert_paper_example_scm() -> Result<()> {
 
     // Should insert in `outer_else` before the `scf.if`
     expect![[r#"
-        ^outer_else_block5v1(inner_v10 = scf.if inner_cond_v8 : builtin.integer i64 then {..} else {..}): {e8}
+        ^outer_else_block5v1(inner_v10 = scf.if inner_cond_v8 : builtin.integer i64 then {..} else {..}): {e7}
     "#]]
     .assert_eq(&actual);
 

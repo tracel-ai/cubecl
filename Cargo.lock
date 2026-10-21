@@ -3926,9 +3926,9 @@ dependencies = [
 
 [[package]]
 name = "pliron-spirv"
-version = "0.16.0+sdk-1.4.357.0"
+version = "0.16.1+sdk-1.4.357.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bf161ba39ae0577f141933d3213bbb2fe255442c8528fd5caf4b5706e63c09a"
+checksum = "ae0a48754284b6cd23479c3736f328e7443aa1ca06db82d07ee6afeeb3c3ea47"
 dependencies = [
  "derive-new",
  "derive_more",
@@ -5481,9 +5481,9 @@ dependencies = [
 
 [[package]]
 name = "tracel-rspirv"
-version = "0.16.0+sdk-1.4.357.0"
+version = "0.16.1+sdk-1.4.357.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66a203420d85384f39eccada940df9c747ef36ddf59e64230f5251cfb76fb331"
+checksum = "a2ebd25bf60a2d8ffe3ce759a7118bdd5b1eb365210c2366272bc1ec98c8c341"
 dependencies = [
  "bitflags 2.13.1",
  "pliron",

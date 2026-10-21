@@ -25,7 +25,12 @@ pub mod analyses;
 pub mod passes;
 pub mod scoped_map;
 
-use hi_sparse_bitset::{Apply, BitSetInterface, ops};
+use hi_sparse_bitset::{
+    Apply, BitSetInterface,
+    cache::{DynamicCache, ReduceCache},
+    config::Config,
+    ops::{self, BitSetOp},
+};
 use pliron::{
     context::{Context, Ptr},
     operation::Operation,
@@ -36,6 +41,20 @@ use pliron::{
 use smallvec::SmallVec;
 
 pub type SparseBitSet = hi_sparse_bitset::BitSet<hi_sparse_bitset::config::_128bit>;
+
+pub fn reduce_bitset<Conf, Op, I>(op: Op, bitsets: I) -> Option<hi_sparse_bitset::BitSet<Conf>>
+where
+    Conf: Config,
+    Op: BitSetOp,
+    I: ExactSizeIterator + Clone,
+    I::Item: BitSetInterface<Conf = Conf>,
+{
+    if bitsets.len() <= <Conf::DefaultCache as ReduceCache>::MAX_LEN {
+        hi_sparse_bitset::reduce(op, bitsets).map(Into::into)
+    } else {
+        hi_sparse_bitset::reduce_w_cache(op, bitsets, DynamicCache).map(Into::into)
+    }
+}
 
 pub(crate) trait BitSetExt: BitSetInterface {
     #[inline]

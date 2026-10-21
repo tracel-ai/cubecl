@@ -1020,6 +1020,7 @@ pub fn test_dp4a<R: Runtime>(client: Client) {
 /// `v % 1.0` is `0.5` for `2.5` (not `v`), `v - v` is `NaN` for `NaN` and
 /// infinity (not `+0`), `0.0 / v` is `NaN` for `v = 0`, and `v * 0.0` keeps the
 /// sign of `v`.
+#[allow(clippy::eq_op)]
 pub fn test_ieee_constant_folds<R: Runtime>(client: Client) {
     #[cube(launch_unchecked)]
     fn folds<F: Float>(x: &[F], out: &mut [F]) {
