@@ -1048,6 +1048,7 @@ dependencies = [
  "float8",
  "half",
  "hashbrown 0.17.1",
+ "libc",
  "log",
  "num-traits",
  "portable-atomic",

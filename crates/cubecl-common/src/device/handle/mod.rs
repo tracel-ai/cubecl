@@ -9,6 +9,9 @@ use core::any::Any;
 #[allow(dead_code)]
 mod channel;
 
+#[cfg(feature = "std")]
+mod placement;
+
 #[allow(dead_code)]
 mod mutex;
 

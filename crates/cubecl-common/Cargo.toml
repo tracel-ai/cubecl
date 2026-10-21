@@ -61,6 +61,9 @@ xxhash-rust = { workspace = true, features = [
     "const_xxh3",
 ], optional = true }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { workspace = true }
+
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }
 
