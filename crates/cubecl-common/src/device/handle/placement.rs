@@ -206,6 +206,24 @@ mod linux {
         }
 
         #[test]
+        fn a_server_that_follows_a_cpu_is_kept_under_its_cache() {
+            let Some(domains) = CacheDomains::get() else {
+                return;
+            };
+            std::thread::spawn(move || {
+                let cpu = super::super::current_cpu();
+                super::super::ServerPlacement::default().follow(cpu);
+                let domain = domains.of_cpu(cpu).unwrap();
+                let kept = CpuSet::allowed().unwrap();
+                for other in 0..libc::CPU_SETSIZE as usize {
+                    assert_eq!(kept.contains(other), domains.cpus[domain].contains(other));
+                }
+            })
+            .join()
+            .unwrap();
+        }
+
+        #[test]
         fn every_allowed_cpu_lies_in_its_own_domain() {
             let Some(domains) = CacheDomains::get() else {
                 return;
