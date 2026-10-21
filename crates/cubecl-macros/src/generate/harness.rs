@@ -121,8 +121,15 @@ impl Launch {
                 .unwrap_or_else(|err| err.into_compile_error()),
             None => syn::Error::new_spanned(
                 &self.func.sig.name,
-                "a harness needs every parameter to be a scalar, a slice or array of scalars, a \
-                 comptime scalar or a cube type, and a return value of them or a tuple of them",
+                "a harness can't be generated for this function. Every parameter must be one of:\n\
+                 - a scalar, or a `#[comptime]` scalar\n\
+                 - a generic scalar, with a single `Float`, `Int` or `Numeric` bound, inline or \
+                 in a `where` clause\n\
+                 - a slice `&[T]` or `&mut [T]` of scalars\n\
+                 - an `Array<T>` of scalars\n\
+                 - a cube type deriving `CubeHarness`\n\
+                 and the function must return them, a tuple of them, or nothing when it writes \
+                 into a mutable slice",
             )
             .into_compile_error(),
         }
