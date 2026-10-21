@@ -24,3 +24,13 @@ pub fn generate_cube_type(input: &DeriveInput, with_launch: bool) -> syn::Result
 
     Ok(cube_type.generate(with_launch))
 }
+
+pub fn generate_cube_harness(input: &DeriveInput) -> syn::Result<TokenStream> {
+    match CubeType::from_derive_input(input)? {
+        CubeType::Struct(data) => data.generate_harness(),
+        CubeType::Enum(_) => Err(syn::Error::new_spanned(
+            &input.ident,
+            "`CubeHarness` only supports structs",
+        )),
+    }
+}

@@ -2,7 +2,7 @@ use darling::{FromDeriveInput, FromField, ast::Data, uses_type_params, util::Fla
 use quote::format_ident;
 use syn::{Attribute, Generics, Ident, Type, Visibility};
 
-use crate::generate::RuntimeField;
+use crate::{generate::RuntimeField, parse::harness::HarnessGate};
 
 #[derive(FromDeriveInput, Debug)]
 #[darling(
@@ -25,6 +25,8 @@ pub struct CubeTypeStruct {
     pub vis: Visibility,
     pub skip_bounds: Flag,
     pub derive: Option<syn::Meta>,
+    /// The gate of the `CubeHarness` impls, by `cfg(test)` when absent.
+    pub harness: Option<HarnessGate>,
 }
 
 #[derive(FromField, Clone, Debug)]
