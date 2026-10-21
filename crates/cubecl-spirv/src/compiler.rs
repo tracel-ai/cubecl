@@ -451,8 +451,8 @@ fn declare_entry_point(
     );
 }
 
-/// The float widths in `module` with an op that may assume nothing about NaN, infinity or the
-/// sign of zero, and that the device can keep IEEE. The mode covers the whole entry point.
+/// The float widths in `module` with an op that must keep NaN, infinity or the sign of zero, and
+/// that the device can keep IEEE. The mode covers the whole entry point.
 fn ieee_special_value_widths(ctx: &Context, module: Ptr<Operation>) -> Vec<u32> {
     let mut widths = Vec::new();
     visit_all_ops_with_interface::<dyn FastMathOp, _>(

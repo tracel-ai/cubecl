@@ -157,8 +157,8 @@ binop_to_spirv_dialect!(vector::FDotOp => ops::DotOp);
 lower_unop!(vector::ISumOp, i_vector_sum);
 lower_unop!(vector::FSumOp, f_vector_sum);
 
-// `OpDot`, `Length` and `Normalize` take no `NoContraction`, so a kernel that forbids contraction
-// spells them out in arithmetic that does.
+// `NoContraction` does not reach the multiply-adds inside `OpDot`, `Length` and `Normalize`, so a
+// kernel that forbids contraction spells them out.
 lower_binop!(vector::FDotOp, rounded_dot, spelled_out);
 lower_unop!(vector::MagnitudeOp, rounded_magnitude, spelled_out);
 lower_unop!(vector::NormalizeOp, rounded_normalize, spelled_out);

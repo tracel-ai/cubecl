@@ -62,8 +62,8 @@ they appear in.
 
 Forbidden contraction is `NoContraction` on add, subtract, multiply and divide, and `mod_floor`,
 `dot`, `magnitude` and `normalize` are written out in those. No other flag reaches the driver, so an
-operation that allows contraction may also be reassociated. A kernel with a float operation that may
-assume nothing about `Inf`, `NaN` or signed zero, a comparison or `max` included, asks for
+operation that allows contraction may also be reassociated. A kernel with a float operation that
+must keep `Inf`, `NaN` or signed zero, a comparison or `max` included, asks for
 `SignedZeroInfNanPreserve` at each float width the device can preserve; without it, Vulkan may
 assume they never occur. Division, square root and remainder keep Vulkan's precision, which is not
 correctly rounded.
