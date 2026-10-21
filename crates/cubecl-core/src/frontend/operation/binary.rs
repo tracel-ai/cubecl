@@ -556,6 +556,9 @@ impl_binary_func!(f16, bf16, flex32, tf32, f32, f64; Rhypot, rhypot, RhypotOp);
 define_binary_func!(ArcTan2, atan2);
 impl_binary_func!(f16, bf16, flex32, tf32, f32, f64; ArcTan2, atan2, ArcTan2Op);
 
+define_binary_func!(ArcTan2Degrees, atan2d);
+impl_binary_func!(f16, bf16, flex32, tf32, f32, f64; ArcTan2Degrees, atan2d, ArcTan2DegreesOp);
+
 define_binary_func!(ModFloor, mod_floor);
 impl_binary_func!(i8, i16, i32, i64, isize; ModFloor, mod_floor, SModFloorOp);
 impl_binary_func!(u8, u16, u32, u64, usize; ModFloor, mod_floor, URemOp);
