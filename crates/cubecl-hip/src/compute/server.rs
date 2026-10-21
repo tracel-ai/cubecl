@@ -31,7 +31,7 @@ use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
     execution::LaunchMode,
     id::GraphId,
-    kernel::CubeKernel,
+    kernel::{CubeKernel, IdentifiedKernel},
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, StreamMemoryReport},
     server::Server,
@@ -142,7 +142,7 @@ impl Server for HipServer {
 
     unsafe fn launch(
         &mut self,
-        kernel: Box<dyn CubeKernel>,
+        kernel: IdentifiedKernel,
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
@@ -152,8 +152,9 @@ impl Server for HipServer {
             self.ctx.queue_kernel(kernel);
             return;
         }
+        let (kernel, kernel_id) = kernel.into_parts();
         let id = ArtifactId {
-            kernel: kernel.id(),
+            kernel: kernel_id,
             variant: (),
         };
         let Some(loaded) = self.load_or_fail(kernel, &id, &bindings, stream_id, launch_mode) else {

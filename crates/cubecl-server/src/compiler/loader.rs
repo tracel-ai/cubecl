@@ -13,7 +13,7 @@ use super::{
     CompilationRecording, CompilationTarget, VariantOf,
 };
 use crate::config::RuntimeConfig;
-use crate::kernel::CubeKernel;
+use crate::kernel::{CubeKernel, IdentifiedKernel};
 use crate::logging::ServerLogger;
 use crate::server::LaunchError;
 
@@ -177,9 +177,10 @@ impl<T: CompilationTarget> KernelLoader<T> {
     /// The queue does not compile on its own when it grows: one phase over
     /// everything queued lasts about as long as its slowest kernel, where
     /// two phases would each wait on theirs.
-    pub fn enqueue(&mut self, kernel: Box<dyn CubeKernel>, variant: VariantOf<T>) {
+    pub fn enqueue(&mut self, kernel: IdentifiedKernel, variant: VariantOf<T>) {
+        let (kernel, kernel_id) = kernel.into_parts();
         let id = ArtifactId {
-            kernel: kernel.id(),
+            kernel: kernel_id,
             variant,
         };
         if self.loaded.contains(&id) || self.queue.contains(&id) {
@@ -820,7 +821,7 @@ mod tests {
         let mut loader = loader(8);
         let logger = ServerLogger::default();
         for number in 0..3 {
-            loader.enqueue(Box::new(Numbered(number)), ());
+            loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(number))), ());
         }
         assert_eq!(
             loader.target.compiler.lowered(),
@@ -850,14 +851,14 @@ mod tests {
 
         let mut loader = loader(2);
         let logger = ServerLogger::default();
-        loader.enqueue(Box::new(Numbered(9)), ());
+        loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(9))), ());
         let collector = StatisticsCollector::new();
         let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
         for number in 0..5 {
-            loader.enqueue(Box::new(Numbered(number)), ());
+            loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(number))), ());
         }
         // Queued twice, registered once.
-        loader.enqueue(Box::new(Numbered(0)), ());
+        loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(0))), ());
         core::mem::drop(compile);
         let queued = collector.statistics().compilation;
         assert_eq!((queued.registered, queued.settled()), (5, 0));
@@ -910,7 +911,7 @@ mod tests {
         loader.target.compiler.failing = Some(1);
         let logger = ServerLogger::default();
         for number in 0..3 {
-            loader.enqueue(Box::new(Numbered(number)), ());
+            loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(number))), ());
         }
         loader.load(&Numbered(3), &id(3), &logger).unwrap();
         assert_eq!(counted(&collector), (4, 3, 0, 1, 0));
@@ -942,7 +943,7 @@ mod tests {
             loader.target.compiler.shared_source = true;
             loader.target.compiler.refusing = refusing;
             for number in 0..3 {
-                loader.enqueue(Box::new(Numbered(number)), ());
+                loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(number))), ());
             }
             let _ = loader.load(&Numbered(3), &id(3), &logger);
             assert_eq!(counted(&collector), expected, "refusing: {refusing}");
@@ -967,7 +968,7 @@ mod tests {
         loader.target.rejecting = Some(1);
         let logger = ServerLogger::default();
         for number in 0..3 {
-            loader.enqueue(Box::new(Numbered(number)), ());
+            loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(number))), ());
         }
         loader.load(&Numbered(3), &id(3), &logger).unwrap();
         assert_eq!(loader.get(&id(1)), None);
@@ -993,7 +994,7 @@ mod tests {
         loader.target.compiler.panicking = Some(2);
         let logger = ServerLogger::default();
         for number in 0..4 {
-            loader.enqueue(Box::new(Numbered(number)), ());
+            loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(number))), ());
         }
         let _ = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
             let _ = loader.load(&Numbered(4), &id(4), &logger);
@@ -1017,7 +1018,7 @@ mod tests {
         let mut loader = loader(8);
         let logger = ServerLogger::default();
         for number in 0..3 {
-            loader.enqueue(Box::new(Numbered(number)), ());
+            loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(number))), ());
         }
         loader.compile_queued(&logger);
         assert_eq!(loader.target.compiler.lowered(), 3);
@@ -1037,7 +1038,7 @@ mod tests {
         let mut loader = loader(2);
         let logger = ServerLogger::default();
         for number in 0..5 {
-            loader.enqueue(Box::new(Numbered(number)), ());
+            loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(number))), ());
         }
         assert_eq!(loader.target.compiler.lowered(), 0, "the queue waits");
         loader.load(&Numbered(5), &id(5), &logger).unwrap();
@@ -1054,9 +1055,9 @@ mod tests {
     fn a_kernel_compiles_once() {
         let mut loader = loader(8);
         let logger = ServerLogger::default();
-        loader.enqueue(Box::new(Numbered(0)), ());
+        loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(0))), ());
         loader.load(&Numbered(0), &id(0), &logger).unwrap();
-        loader.enqueue(Box::new(Numbered(0)), ());
+        loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(0))), ());
         loader.load(&Numbered(0), &id(0), &logger).unwrap();
         assert_eq!(loader.target.compiler.lowered(), 1);
     }
@@ -1071,7 +1072,7 @@ mod tests {
         loader.target.compiler.failing = Some(1);
         let logger = ServerLogger::default();
         for number in 0..3 {
-            loader.enqueue(Box::new(Numbered(number)), ());
+            loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(number))), ());
         }
         loader.load(&Numbered(3), &id(3), &logger).unwrap();
         assert_eq!(loader.get(&id(0)), Some(&0));
@@ -1101,9 +1102,9 @@ mod tests {
         let mut loader = loader(8);
         loader.target.compiler.failing = Some(1);
         let logger = ServerLogger::default();
-        loader.enqueue(Box::new(Numbered(1)), ());
+        loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(1))), ());
         loader.load(&Numbered(0), &id(0), &logger).unwrap();
-        loader.enqueue(Box::new(Numbered(2)), ());
+        loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(2))), ());
         loader.load(&Numbered(0), &id(0), &logger).unwrap();
         assert_eq!(loader.target.compiler.lowered(), 3);
 
@@ -1119,12 +1120,12 @@ mod tests {
         let mut loader = loader(8);
         loader.target.compiler.failing = Some(1);
         let logger = ServerLogger::default();
-        loader.enqueue(Box::new(Numbered(1)), ());
+        loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(1))), ());
         loader.load(&Numbered(0), &id(0), &logger).unwrap();
         assert_eq!(loader.get(&id(1)), None);
 
         loader.target.compiler.failing = None;
-        loader.enqueue(Box::new(Numbered(1)), ());
+        loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(1))), ());
         loader.compile_queued(&logger);
         assert_eq!(loader.get(&id(1)), Some(&1));
     }
@@ -1138,7 +1139,7 @@ mod tests {
         loader.target.compiler.panicking = Some(2);
         let logger = ServerLogger::default();
         for number in 0..4 {
-            loader.enqueue(Box::new(Numbered(number)), ());
+            loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(number))), ());
         }
         let panic = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
             let _ = loader.load(&Numbered(4), &id(4), &logger);
@@ -1177,7 +1178,7 @@ mod tests {
         loader.target.compiler.shared_source = true;
         let logger = ServerLogger::default();
         for number in 0..3 {
-            loader.enqueue(Box::new(Numbered(number)), ());
+            loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(number))), ());
         }
         loader.load(&Numbered(3), &id(3), &logger).unwrap();
 
@@ -1211,7 +1212,7 @@ mod tests {
         loader.target.compiler.refusing = true;
         let logger = ServerLogger::default();
         for number in 0..3 {
-            loader.enqueue(Box::new(Numbered(number)), ());
+            loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(number))), ());
         }
         assert!(loader.load(&Numbered(3), &id(3), &logger).is_err());
         assert_eq!(loader.target.compiler.finalized.load(Ordering::Relaxed), 1);
@@ -1229,7 +1230,7 @@ mod tests {
         loader.target.compiler.slow = true;
         let logger = ServerLogger::default();
         for number in 0..3 {
-            loader.enqueue(Box::new(Numbered(number)), ());
+            loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(number))), ());
         }
         loader.load(&Numbered(3), &id(3), &logger).unwrap();
         let lowered = loader.target.compiler.lowered_on.lock().unwrap().clone();
@@ -1246,7 +1247,7 @@ mod tests {
         let mut loader = loader(8);
         let logger = ServerLogger::default();
         loader.load(&Numbered(0), &id(0), &logger).unwrap();
-        loader.enqueue(Box::new(Numbered(1)), ());
+        loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(1))), ());
         loader.load(&Numbered(0), &id(0), &logger).unwrap();
         assert_eq!(loader.get(&id(1)), Some(&1));
     }
@@ -1260,7 +1261,7 @@ mod tests {
         loader.target.compiler.shared_source = true;
         let logger = ServerLogger::default();
         for number in 0..4 {
-            loader.enqueue(Box::new(Numbered(number)), ());
+            loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(number))), ());
         }
         loader.load(&Numbered(4), &id(4), &logger).unwrap();
         assert_eq!(loader.target.compiler.finalized.load(Ordering::Relaxed), 1);
@@ -1279,7 +1280,7 @@ mod tests {
         loader.target.by_source.insert("shared".into(), 99);
         let logger = ServerLogger::default();
         for number in 0..2 {
-            loader.enqueue(Box::new(Numbered(number)), ());
+            loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(number))), ());
         }
         loader.load(&Numbered(2), &id(2), &logger).unwrap();
         assert_eq!(loader.target.compiler.finalized.load(Ordering::Relaxed), 0);
@@ -1301,7 +1302,7 @@ mod tests {
         loader.target.compiler.shared_source = true;
         let logger = ServerLogger::default();
         for number in 0..3 {
-            loader.enqueue(Box::new(Numbered(number)), ());
+            loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(number))), ());
         }
         loader.load(&Numbered(3), &id(3), &logger).unwrap();
         assert_eq!(loader.target.compiler.finalized.load(Ordering::Relaxed), 4);
@@ -1315,7 +1316,7 @@ mod tests {
         loader.target.compiler.slow = true;
         let logger = ServerLogger::default();
         for number in 0..8 {
-            loader.enqueue(Box::new(Numbered(number)), ());
+            loader.enqueue(IdentifiedKernel::new(Box::new(Numbered(number))), ());
         }
         loader.load(&Numbered(8), &id(8), &logger).unwrap();
         let threads = loader.target.compiler.threads.lock().unwrap().len();

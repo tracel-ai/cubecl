@@ -41,7 +41,7 @@ use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
     execution::LaunchMode,
     id::GraphId,
-    kernel::CubeKernel,
+    kernel::IdentifiedKernel,
     logging::ServerLogger,
     memory_management::MemoryAllocationMode,
     server::Server,
@@ -411,7 +411,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
 
     unsafe fn launch(
         &mut self,
-        kernel: Box<dyn CubeKernel>,
+        kernel: IdentifiedKernel,
         count: CubeCount,
         args: KernelArguments,
         stream_id: StreamId,
@@ -434,8 +434,9 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             self.pipelines.enqueue(kernel, layout);
             return;
         }
+        let (kernel, kernel_id) = kernel.into_parts();
         let id = ArtifactId {
-            kernel: kernel.id(),
+            kernel: kernel_id,
             variant: layout,
         };
         let loaded = self.pipelines.load(&*kernel, &id, &self.scheduler.logger);

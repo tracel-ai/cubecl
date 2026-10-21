@@ -6,7 +6,7 @@ use crate::{
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::BoundsCheckMode},
     execution::LaunchMode,
     id::GraphId,
-    kernel::CubeKernel,
+    kernel::IdentifiedKernel,
     logging::ServerLogger,
     memory_management::{
         ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode, StreamMemoryReport,
@@ -756,7 +756,7 @@ pub trait Server:
     /// When executing with mode [`ExecutionMode::Unchecked`], out-of-bound reads and writes can happen.
     unsafe fn launch(
         &mut self,
-        kernel: Box<dyn CubeKernel>,
+        kernel: IdentifiedKernel,
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,

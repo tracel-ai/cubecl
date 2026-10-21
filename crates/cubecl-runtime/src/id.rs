@@ -237,6 +237,7 @@ impl core::fmt::Debug for Info {
 impl Info {
     fn new<T: 'static + PartialEq + Eq + Hash + core::fmt::Debug + Send + Sync>(id: T) -> Self {
         Self {
+            hash: id.dyn_hash_one(),
             value: Arc::new(id),
         }
     }
@@ -250,28 +251,30 @@ impl Info {
 trait DynKey: core::fmt::Debug + Send + Sync {
     fn dyn_type_id(&self) -> TypeId;
     fn dyn_eq(&self, other: &dyn DynKey) -> bool;
-    fn dyn_hash(&self, state: &mut dyn Hasher);
     fn dyn_hash_one(&self) -> StableHash;
     fn as_any(&self) -> &dyn Any;
 }
 
 impl PartialEq for Info {
     fn eq(&self, other: &Self) -> bool {
-        self.value.dyn_eq(other.value.as_ref())
+        Arc::ptr_eq(&self.value, &other.value)
+            || (self.hash == other.hash && self.value.dyn_eq(other.value.as_ref()))
     }
 }
 
-/// Extra information
+/// Extra information, with its hash taken once when it is built: a launch looks its kernel up
+/// by it, and hashing the whole value again on every launch costs the thread that issues them.
 #[derive(Clone)]
 pub(crate) struct Info {
     value: Arc<dyn DynKey>,
+    hash: StableHash,
 }
 impl Eq for Info {}
 
 impl Hash for Info {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.value.dyn_type_id().hash(state);
-        self.value.dyn_hash(state)
+        state.write_u128(self.hash);
     }
 }
 
@@ -286,11 +289,6 @@ impl<T: 'static + PartialEq + Eq + Hash + core::fmt::Debug + Send + Sync> DynKey
 
     fn dyn_type_id(&self) -> TypeId {
         TypeId::of::<T>()
-    }
-
-    fn dyn_hash(&self, state: &mut dyn Hasher) {
-        let hash = self.dyn_hash_one();
-        state.write_u128(hash);
     }
 
     fn dyn_hash_one(&self) -> StableHash {

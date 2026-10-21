@@ -24,7 +24,7 @@ use cubecl_environment::stream::StreamId;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
     execution::LaunchMode,
-    kernel::CubeKernel,
+    kernel::IdentifiedKernel,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode},
     storage::{BytesStorage, ComputeStorage, ManagedResource},
@@ -344,7 +344,7 @@ impl Server for CpuServer {
 
     unsafe fn launch(
         &mut self,
-        kernel: Box<dyn CubeKernel>,
+        kernel: IdentifiedKernel,
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
@@ -390,8 +390,9 @@ impl Server for CpuServer {
             self.kernels.enqueue(kernel, alignment);
             return;
         }
+        let (kernel, kernel_id) = kernel.into_parts();
         let id = ArtifactId {
-            kernel: kernel.id(),
+            kernel: kernel_id,
             variant: alignment,
         };
         let loaded = match self

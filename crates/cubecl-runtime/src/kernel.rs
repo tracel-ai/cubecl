@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use alloc::string::String;
 use core::hash::Hash;
 use pliron::derive::format;
@@ -111,6 +112,39 @@ pub trait CubeKernel: KernelMetadata {
     /// `None`, the default, compiles what [`define`](Self::define) returns.
     fn source(&self) -> Option<PrecompiledSource> {
         None
+    }
+}
+
+/// A kernel launched, with its [id](KernelMetadata::id) built once where the launch is issued.
+///
+/// The device thread looks the compiled kernel up by its id on every launch. Built there, the id
+/// would be copied out of the kernel's arguments and hashed on the thread every launch waits on;
+/// built here, on the issuing thread, the device thread only reads it.
+pub struct IdentifiedKernel {
+    kernel: Box<dyn CubeKernel>,
+    id: KernelId,
+}
+
+impl IdentifiedKernel {
+    /// `kernel`, with its id.
+    pub fn new(kernel: Box<dyn CubeKernel>) -> Self {
+        let id = kernel.id();
+        Self { kernel, id }
+    }
+
+    /// The kernel.
+    pub fn kernel(&self) -> &dyn CubeKernel {
+        self.kernel.as_ref()
+    }
+
+    /// The kernel's id.
+    pub fn id(&self) -> &KernelId {
+        &self.id
+    }
+
+    /// The kernel and its id, apart.
+    pub fn into_parts(self) -> (Box<dyn CubeKernel>, KernelId) {
+        (self.kernel, self.id)
     }
 }
 

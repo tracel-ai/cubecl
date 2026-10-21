@@ -8,7 +8,7 @@ use cubecl_core::{ir::DeviceProperties, prelude::*};
 use cubecl_cpp::cuda::arch::CudaArchitecture;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_server::compiler::{ArtifactId, KernelLoader};
-use cubecl_server::kernel::CubeKernel;
+use cubecl_server::kernel::{CubeKernel, IdentifiedKernel};
 use cubecl_server::logging::ServerLogger;
 use cudarc::driver::DriverError;
 use cudarc::driver::sys::{CUctx_st, CUfunction_attribute, CUstream};
@@ -102,7 +102,7 @@ impl CudaContext {
 
     /// Queues `kernel` to be compiled with others, by the next kernel
     /// loaded for a launch.
-    pub fn queue_kernel(&mut self, kernel: Box<dyn CubeKernel>) {
+    pub fn queue_kernel(&mut self, kernel: IdentifiedKernel) {
         self.kernels.enqueue(kernel, ());
     }
 

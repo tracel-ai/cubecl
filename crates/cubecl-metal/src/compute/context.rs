@@ -6,7 +6,7 @@ use cubecl_core::ir::DeviceProperties;
 use cubecl_core::prelude::KernelId;
 use cubecl_core::server::LaunchError;
 use cubecl_server::compiler::{ArtifactId, KernelLoader};
-use cubecl_server::kernel::CubeKernel;
+use cubecl_server::kernel::{CubeKernel, IdentifiedKernel};
 use cubecl_server::logging::ServerLogger;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
@@ -48,7 +48,7 @@ impl MetalContext {
 
     /// Queues `kernel` to be compiled with others, by the next pipeline
     /// loaded for a launch.
-    pub fn queue(&mut self, kernel: Box<dyn CubeKernel>) {
+    pub fn queue(&mut self, kernel: IdentifiedKernel) {
         self.kernels.enqueue(kernel, ());
     }
 }

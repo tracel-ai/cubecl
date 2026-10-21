@@ -23,7 +23,7 @@ use cubecl_server::memory_management::Cleanup;
 use cubecl_server::memory_management::PageUpdate;
 use cubecl_server::{
     execution::LaunchMode,
-    kernel::CubeKernel,
+    kernel::IdentifiedKernel,
     logging::ServerLogger,
     memory_management::{
         ManagedMemoryHandle,
@@ -363,7 +363,7 @@ impl Server for MetalServer {
 
     unsafe fn launch(
         &mut self,
-        kernel: Box<dyn CubeKernel>,
+        kernel: IdentifiedKernel,
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
@@ -387,8 +387,9 @@ impl Server for MetalServer {
             self.context.queue(kernel);
             return;
         }
+        let (kernel, kernel_id) = kernel.into_parts();
         let id = ArtifactId {
-            kernel: kernel.id(),
+            kernel: kernel_id,
             variant: (),
         };
         let compiled = self.context.load(&*kernel, &id, &self.utilities.logger);

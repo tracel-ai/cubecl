@@ -16,7 +16,7 @@ use cubecl_server::server::ServerStorage;
 use cubecl_server::{
     allocator::ContiguousMemoryLayoutPolicy,
     id::KernelId,
-    kernel::{CubeKernel, KernelMetadata},
+    kernel::{CubeKernel, IdentifiedKernel, KernelMetadata},
     logging::ServerLogger,
     memory_management::{
         Claim, ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement,
@@ -240,13 +240,13 @@ impl<M: Marker> Server for DummyServer<M> {
 
     unsafe fn launch(
         &mut self,
-        kernel: Box<dyn CubeKernel>,
+        kernel: IdentifiedKernel,
         _count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
         launch_mode: cubecl_server::execution::LaunchMode,
     ) {
-        let kernel = (&*kernel as &dyn core::any::Any)
+        let kernel = (kernel.kernel() as &dyn core::any::Any)
             .downcast_ref::<KernelTask>()
             .expect("the dummy server only runs its own kernels");
         let kernel = match kernel.kernel.compilation_error() {

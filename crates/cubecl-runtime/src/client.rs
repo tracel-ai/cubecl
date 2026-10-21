@@ -2,7 +2,7 @@ use crate::{
     config::{TypeNameFormatLevel, type_name_format},
     device::HardwareIdentity,
     id::{GraphId, KernelId},
-    kernel::CubeKernel,
+    kernel::{CubeKernel, IdentifiedKernel},
     logging::ProfileLevel,
     memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
@@ -1275,7 +1275,10 @@ impl Client {
             });
         }
 
-        crate::launched::note(|| kernel.id());
+        // Built here, on the issuing thread, so the device thread finds the compiled kernel
+        // without building it again.
+        let kernel = IdentifiedKernel::new(kernel);
+        crate::launched::note(|| kernel.id().clone());
 
         // Decided here, where the launch is issued, from the stream it goes
         // out on: the server receives the verdict, not what decided it.
@@ -1294,7 +1297,7 @@ impl Client {
         // launch to what caused it is the whole reason the hook is here rather
         // than beside the logger's aggregation.
         if crate::logging::is_observing() {
-            crate::logging::notify_launch(kernel.name());
+            crate::logging::notify_launch(kernel.kernel().name());
         }
 
         // An observer asking for timing gets the profiled path even with the
@@ -1309,7 +1312,7 @@ impl Client {
                 let utilities = self.utilities.clone();
                 self.device.submit(move |state| {
                     let execution_info = if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                        Some(profile_label(kernel.name(), &kernel.id()))
+                        Some(profile_label(kernel.kernel().name(), kernel.id()))
                     } else {
                         None
                     };
@@ -1324,8 +1327,8 @@ impl Client {
                 });
             }
             level => {
-                let name = kernel.name();
-                let kernel_id = kernel.id();
+                let name = kernel.kernel().name();
+                let kernel_id = kernel.id().clone();
                 let context = self.device.clone();
                 // The arguments travel through a slot the profiled closure
                 // empties, because a profile can be refused — a graph capture
@@ -1372,7 +1375,7 @@ impl Client {
                             // unobserved run would have.
                             Some((kernel, count, bindings)) => {
                                 let utilities = self.utilities.clone();
-                                let kernel_id = kernel.id();
+                                let kernel_id = kernel.id().clone();
                                 self.device.submit(move |state| {
                                     issued.apply(|| unsafe {
                                         state.launch(
