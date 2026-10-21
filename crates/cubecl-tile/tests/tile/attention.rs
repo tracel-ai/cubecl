@@ -1,7 +1,7 @@
 //! The attention fold end-to-end on tiles under the hardware instruction: the general contraction
 //! on a plane-resident accumulator, interleaved with the softmax step and its row rescale, the
-//! walk owned by the kernel. The software leaves and the split and streamed folds are the client's
-//! (metabolic's), and are tested there.
+//! walk owned by the kernel. The software leaves and the split and streamed folds belong to the
+//! client downstream, and are tested there.
 //!
 //! GQA rides the axes: `q` stacks its group over the same query block (group-major rows), `k`/`v`
 //! omit the group axis, and the probe's `q_rows` maps rows back to query positions for the causal
