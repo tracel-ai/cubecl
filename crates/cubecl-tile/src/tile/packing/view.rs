@@ -7,7 +7,9 @@ use cubecl::ir::FloatKind;
 use cubecl::ir::VectorSize;
 use cubecl::ir::types::Fp8Format;
 use cubecl::post_processing::fp4::{e2m1_words_to_f16, e2m1_words_to_f16_placed};
-use cubecl::post_processing::minifloat::{fp8_bits_to_f32, ue8m0_bits_to_f32};
+use cubecl::post_processing::minifloat::{
+    fp8_bits_to_f32, fp8_words_to_f16, fp8_words_to_f16_placed, ue8m0_bits_to_f32,
+};
 use cubecl::prelude::barrier::Barrier;
 use cubecl::quant::scheme::QuantValue;
 use cubecl_std::quant::fp4::e2m1_packed_bits_to_float;
@@ -36,6 +38,9 @@ pub(crate) fn unpack_line<F: Numeric, NQ: Size, NF: Size>(
             unpack_e2m1_line::<F, NQ, NF>(words, comptime!(FieldDecode::Placed { lifted }))
         }
         FieldDecode::Byte(format) => unpack_byte_line::<F, NQ, NF>(words, format),
+        FieldDecode::PlacedByte { format, lifted } => {
+            unpack_placed_byte_line::<F, NQ, NF>(words, format, lifted)
+        }
         FieldDecode::Bits(kind) => unpack_float_line::<F, NQ, NF>(words, kind),
     }
 }
@@ -230,6 +235,40 @@ fn unpack_byte_line<F: Numeric, NQ: Size, NF: Size>(
                 _ => fp8_bits_to_f32::<Const<1>>(byte, format),
             };
             out.insert(base + j, F::cast_from(value.extract(0usize)));
+        }
+    }
+    out
+}
+
+/// The 8-bit float codes, four a word, decoded from each word's bits as `f16` pairs: lifted to
+/// their values, or, where `lifted` is false, each placed
+/// [`fp8_f16_lift`](cubecl::post_processing::minifloat::fp8_f16_lift) short of its value, for a
+/// reader whose factor carries the lift. A word whose line takes fewer of its fields keeps the
+/// first.
+#[cube]
+fn unpack_placed_byte_line<F: Numeric, NQ: Size, NF: Size>(
+    words: Vector<u32, NQ>,
+    #[comptime] format: Fp8Format,
+    #[comptime] lifted: bool,
+) -> Vector<F, NF> {
+    let nq = NQ::value();
+    let nf = NF::value();
+    let fields = comptime!(fields_per_word(nq, nf, 8));
+
+    let mut out = Vector::<F, NF>::empty();
+    #[unroll]
+    for w in 0..words.vector_size() {
+        let word = Vector::<u32, Const<1>>::new(words.extract(w));
+        let values = if comptime!(lifted) {
+            Vector::<F, Const<4>>::cast_from(fp8_words_to_f16::<Const<1>, Const<4>>(word, format))
+        } else {
+            Vector::<F, Const<4>>::cast_from(fp8_words_to_f16_placed::<Const<1>, Const<4>>(
+                word, format,
+            ))
+        };
+        #[unroll]
+        for j in 0..fields {
+            out.insert(w * fields + j, values.extract(j));
         }
     }
     out
