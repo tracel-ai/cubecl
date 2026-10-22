@@ -411,7 +411,7 @@ impl Projection {
         if self.composition() == Composition::Overlapping {
             return true;
         }
-        by_stride(geometry).windows(2).all(|pair| {
+        geometry.addressing_dims_by_stride().windows(2).all(|pair| {
             let (_, (_, stride)) = pair[0];
             let (_, (finer_extent, finer_stride)) = pair[1];
             stride >= finer_extent * finer_stride
@@ -420,7 +420,8 @@ impl Projection {
 
     /// The buffer's contiguous dim — the innermost unit-strided one.
     fn unit_dim(&self, geometry: &Geometry) -> Option<usize> {
-        by_stride(geometry)
+        geometry
+            .addressing_dims_by_stride()
             .into_iter()
             .filter(|&(_, (_, stride))| stride == 1)
             .map(|(dim, _)| dim)
@@ -486,22 +487,6 @@ impl Projection {
     pub(crate) fn has_dynamic_scales(&self) -> bool {
         self.axis_maps().any(|m| m.has_dynamic_scale())
     }
-}
-
-/// The dims with extent above one and non-zero stride, as `(index, (extent, stride))`.
-fn addressing_dims(geometry: &Geometry) -> SmallVec<[(usize, (usize, usize)); Space::MAX_RANK]> {
-    geometry
-        .dims()
-        .enumerate()
-        .filter(|&(_, (extent, stride))| extent > 1 && stride > 0)
-        .collect()
-}
-
-/// The addressing dims, coarsest stride first.
-fn by_stride(geometry: &Geometry) -> SmallVec<[(usize, (usize, usize)); Space::MAX_RANK]> {
-    let mut dims = addressing_dims(geometry);
-    dims.sort_by_key(|&(_, (_, stride))| core::cmp::Reverse(stride));
-    dims
 }
 
 #[cfg(test)]

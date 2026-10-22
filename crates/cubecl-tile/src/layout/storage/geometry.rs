@@ -6,7 +6,7 @@ use core::fmt::{self, Display, Formatter};
 
 use cubecl::zspace::{SmallVec, Tiling};
 
-use crate::{Axis, StoragePartitioning, TileMisfit};
+use crate::{Axis, Space, StoragePartitioning, TileMisfit};
 
 use crate::Coords;
 
@@ -180,6 +180,20 @@ impl Geometry {
             }
         }
         extents
+    }
+
+    /// The dims with extent above one and non-zero stride, as `(index, (extent, stride))`,
+    /// coarsest stride first.
+    pub(crate) fn addressing_dims_by_stride(
+        &self,
+    ) -> SmallVec<[(usize, (usize, usize)); Space::MAX_RANK]> {
+        let mut dims: SmallVec<[(usize, (usize, usize)); Space::MAX_RANK]> = self
+            .dims()
+            .enumerate()
+            .filter(|&(_, (extent, stride))| extent > 1 && stride > 0)
+            .collect();
+        dims.sort_by_key(|&(_, (_, stride))| core::cmp::Reverse(stride));
+        dims
     }
 }
 
