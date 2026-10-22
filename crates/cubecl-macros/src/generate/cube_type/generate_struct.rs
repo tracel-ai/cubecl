@@ -1,11 +1,11 @@
 use proc_macro2::TokenStream;
-use quote::quote;
-use syn::{Ident, Type, Visibility, WhereClause};
+use quote::{format_ident, quote};
+use syn::{Generics, Ident, Type, Visibility, WhereClause, parse_quote};
 
 use crate::{
     generate::bounded_where_clause,
     parse::cube_type::{CubeTypeStruct, TypeField},
-    paths::prelude_type,
+    paths::{core_path, prelude_type},
 };
 
 impl CubeTypeStruct {
@@ -23,12 +23,14 @@ impl CubeTypeStruct {
         } else {
             let expand_ty = self.expand_ty();
             let clone_impl = self.clone_expand();
+            let deref_impl = self.deref_expand();
             let cube_type_impl = self.cube_type_impl();
             let expand_type_impl = self.expand_type_impl();
 
             quote! {
                 #expand_ty
                 #clone_impl
+                #deref_impl
                 #cube_type_impl
                 #expand_type_impl
             }
@@ -71,6 +73,28 @@ impl CubeTypeStruct {
                     Self {
                         #(#fields),*
                     }
+                }
+            }
+        }
+    }
+
+    fn deref_expand(&self) -> TokenStream {
+        let deref = prelude_type("DerefExpand");
+        let scope = prelude_type("Scope");
+        let name = &self.name_expand;
+        let generics = self.deref_generics();
+        let fields = self.fields.iter().map(TypeField::deref_field);
+
+        let (impl_generics, _, where_clause) = generics.split_for_impl();
+        let (_, type_generics, _) = self.generics.split_for_impl();
+
+        quote! {
+            #[allow(unused_lifetimes)]
+            impl #impl_generics #deref for #name #type_generics #where_clause {
+                type Target = Self;
+
+                fn __expand_deref_method(&self, scope: &#scope) -> Self {
+                    Self { #(#fields,)* }
                 }
             }
         }
@@ -324,6 +348,132 @@ impl CubeTypeStruct {
         }
     }
 
+    fn deref_generics(&self) -> Generics {
+        let cube_type = prelude_type("CubeType");
+        let deref = prelude_type("DerefExpand");
+        let mut generics = self.generics.clone();
+        let mut lifetime = format_ident!("__cube_deref");
+        while generics
+            .lifetimes()
+            .any(|param| param.lifetime.ident == lifetime)
+        {
+            lifetime = format_ident!("{lifetime}_");
+        }
+        let lifetime = syn::Lifetime::new(&format!("'{lifetime}"), lifetime.span());
+
+        for field in self
+            .fields
+            .iter()
+            .filter(|field| !field.comptime.is_present())
+        {
+            let ty = &field.ty;
+            let expand_type = quote!(<#ty as #cube_type>::ExpandType);
+            // The intentionally unused higher-ranked lifetime defers checking concrete
+            // bounds until this impl is used. This keeps non-dereferenceable fields valid
+            // without introducing associated-type equalities that conflict for aliases.
+            generics.make_where_clause().predicates.push(parse_quote!(
+                for<#lifetime> #expand_type: #deref<Target = #expand_type>
+            ));
+        }
+
+        generics
+    }
+
+    /// The `HarnessOutput` impl, built from each field's own, and the
+    /// conversion from the struct to its launch argument that a harness
+    /// takes it as an input with.
+    pub fn generate_harness(&self) -> syn::Result<TokenStream> {
+        if let Some(field) = self.fields.iter().find(|field| field.comptime.is_present()) {
+            return Err(syn::Error::new_spanned(
+                field.ident.as_ref().unwrap(),
+                "`CubeHarness` doesn't support comptime fields, since they can't be read back",
+            ));
+        }
+
+        let harness_output = prelude_type("HarnessOutput");
+        let launch_arg = prelude_type("LaunchArg");
+        let cube_type = prelude_type("CubeType");
+        let client = prelude_type("Client");
+        let scope = prelude_type("Scope");
+        let core = core_path();
+        let gate = self.harness.clone().unwrap_or_default().attr();
+
+        let name = &self.ident;
+        let name_launch = &self.name_launch;
+        let names = self
+            .fields
+            .iter()
+            .map(|field| field.ident.as_ref().unwrap())
+            .collect::<Vec<_>>();
+        let tys = self
+            .fields
+            .iter()
+            .map(|field| &field.ty)
+            .collect::<Vec<_>>();
+        let outs = (0..names.len())
+            .map(|i| format_ident!("__out_{i}"))
+            .collect::<Vec<_>>();
+
+        let (generics, generic_names, _) = self.generics.split_for_impl();
+        let output_where = bounded_where_clause(
+            &self.generics,
+            self.fields.iter().cloned(),
+            |ty| quote![#ty: #harness_output<Host = #ty>],
+        );
+        let launch_generics = Generics {
+            where_clause: self.launch_arg_where(),
+            ..self.generics.clone()
+        };
+        let from_where = bounded_where_clause(
+            &launch_generics,
+            self.fields.iter().cloned(),
+            |ty| quote![<#ty as #launch_arg>::RuntimeArg: ::core::convert::From<#ty>],
+        );
+
+        Ok(quote! {
+            #gate
+            impl #generics #harness_output for #name #generic_names #output_where {
+                type Out = (#(<#tys as #harness_output>::Out,)*);
+                type Host = Self;
+
+                fn alloc(
+                    client: &#client,
+                    lens: &mut impl ::core::iter::Iterator<Item = usize>,
+                    handles: &mut #core::__private::vec::Vec<#core::server::Handle>,
+                ) -> <Self::Out as #launch_arg>::RuntimeArg {
+                    (#(<#tys as #harness_output>::alloc(client, lens, handles),)*)
+                }
+
+                fn __expand_store(
+                    scope: &#scope,
+                    out: &mut <Self::Out as #cube_type>::ExpandType,
+                    value: <Self as #cube_type>::ExpandType,
+                ) {
+                    let (#(#outs,)*) = out;
+                    #(<#tys as #harness_output>::__expand_store(scope, #outs, value.#names);)*
+                }
+
+                fn read(
+                    bytes: &mut impl ::core::iter::Iterator<Item = #core::bytes::Bytes>,
+                    lens: &mut impl ::core::iter::Iterator<Item = usize>,
+                ) -> Self {
+                    Self {
+                        #(#names: <#tys as #harness_output>::read(bytes, lens),)*
+                    }
+                }
+            }
+
+            #gate
+            impl #generics ::core::convert::From<#name #generic_names> for #name_launch #generic_names #from_where {
+                fn from(value: #name #generic_names) -> Self {
+                    Self {
+                        #(#names: ::core::convert::Into::into(value.#names),)*
+                    }
+                }
+            }
+        })
+    }
+
     fn launch_arg_where(&self) -> Option<WhereClause> {
         if self.skip_bounds.is_present() {
             return self.generics.where_clause.clone();
@@ -359,6 +509,16 @@ impl TypeField {
             quote![#name: self.#name.clone()]
         } else {
             quote![#name: #clone::clone_unchecked(&self.#name)]
+        }
+    }
+
+    pub fn deref_field(&self) -> TokenStream {
+        let deref = prelude_type("DerefExpand");
+        let name = self.ident.as_ref().unwrap();
+        if self.comptime.is_present() {
+            quote![#name: self.#name.clone()]
+        } else {
+            quote![#name: #deref::__expand_deref_method(&self.#name, scope)]
         }
     }
 

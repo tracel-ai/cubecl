@@ -33,9 +33,11 @@ std = [
     "cubecl-cuda?/std",
     "cubecl-hip?/std",
     "cubecl-metal?/std",
+    "cubecl-tile?/std",
     "cubecl-wgpu?/std",
 ]
 stdlib = ["cubecl-std"] # CubeCL standard library
+tile = ["stdlib", "cubecl-tile"] # The tile DSL
 template = ["cubecl-core/template"]
 
 exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
@@ -98,6 +100,7 @@ cubecl-environment = { workspace = true }
 cubecl-ir = { workspace = true }
 cubecl-runtime = { workspace = true }
 cubecl-std = { workspace = true, default-features = true, optional = true }
+cubecl-tile = { workspace = true, optional = true }
 half = { workspace = true }
 
 cubecl-cpu = { workspace = true, optional = true }
