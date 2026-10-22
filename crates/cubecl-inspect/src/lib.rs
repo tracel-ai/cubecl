@@ -10,8 +10,10 @@
 //!
 //! - [`EnvironmentName`] resolves `--env` the way the runtime resolves its
 //!   own environment, from the configuration above the working directory.
-//! - [`Inspector`] opens a file read-only and produces [reports](report): plain
-//!   serializable values, which is what tests pin. [`list`] lists the
+//! - [`EnvironmentFile`] opens a file read-only, checked to be one this build
+//!   reads, and prunes or strips its records.
+//! - [`Inspector`] holds a file whose records it read, and produces
+//!   [reports](report): plain serializable values, which is what tests pin. [`list`] lists the
 //!   environment files of some directories, a summary each.
 //! - [`view`] renders a report as text.
 //! - [`command`] is the command line both front doors share: the
@@ -21,10 +23,12 @@
 //!   as the file changes.
 
 mod environment;
+mod environment_file;
 mod error;
 mod inspector;
 mod listing;
 mod palette;
+mod records;
 mod wordmark;
 
 pub mod command;
@@ -34,6 +38,7 @@ pub mod tui;
 pub mod view;
 
 pub use environment::{EnvironmentDirectory, EnvironmentName};
+pub use environment_file::EnvironmentFile;
 pub use error::InspectError;
 pub use inspector::Inspector;
 pub use listing::list;

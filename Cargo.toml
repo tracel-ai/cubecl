@@ -11,7 +11,7 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 rust-version = "1.95"
-version = "0.11.0"
+version = "0.12.0-pre.1"
 
 [workspace.lints.rust]
 warnings = "warn"
@@ -30,28 +30,29 @@ invalid_html_tags = "warn"
 ### Internal cubecl crates ###
 # Declared here so each consumer Cargo.toml can use `workspace = true` instead of
 # repeating the path and version.
-cubecl = { path = "crates/cubecl", version = "0.11.0", default-features = false }
-cubecl-common = { path = "crates/cubecl-common", version = "0.11.0", default-features = false }
-cubecl-core = { path = "crates/cubecl-core", version = "0.11.0", default-features = false }
-cubecl-cpp = { path = "crates/cubecl-cpp", version = "0.11.0", default-features = false }
-cubecl-cpu = { path = "crates/cubecl-cpu", version = "0.11.0", default-features = false }
-cubecl-cuda = { path = "crates/cubecl-cuda", version = "0.11.0", default-features = false }
-cubecl-environment = { path = "crates/cubecl-environment", version = "0.11.0", default-features = false }
-cubecl-hip = { path = "crates/cubecl-hip", version = "0.11.0", default-features = false }
-cubecl-inspect = { path = "crates/cubecl-inspect", version = "0.11.0", default-features = false }
-cubecl-ir = { path = "crates/cubecl-ir", version = "0.11.0", default-features = false }
-cubecl-llvm = { path = "crates/cubecl-llvm", version = "0.11.0", default-features = false }
-cubecl-macros = { path = "crates/cubecl-macros", version = "0.11.0", default-features = false }
-cubecl-macros-internal = { path = "crates/cubecl-macros-internal", version = "0.11.0", default-features = false }
-cubecl-metal = { path = "crates/cubecl-metal", version = "0.11.0", default-features = false }
-cubecl-monitoring = { path = "crates/cubecl-monitoring", version = "0.11.0", default-features = false }
-cubecl-opt = { path = "crates/cubecl-opt", version = "0.11.0", default-features = false }
-cubecl-runtime = { path = "crates/cubecl-runtime", version = "0.11.0", default-features = false }
-cubecl-server = { path = "crates/cubecl-server", version = "0.11.0", default-features = false }
-cubecl-spirv = { path = "crates/cubecl-spirv", version = "0.11.0", default-features = false }
-cubecl-std = { path = "crates/cubecl-std", version = "0.11.0", default-features = false }
-cubecl-wgpu = { path = "crates/cubecl-wgpu", version = "0.11.0", default-features = false }
-cubecl-zspace = { path = "crates/cubecl-zspace", version = "0.11.0", default-features = false }
+cubecl = { path = "crates/cubecl", version = "0.12.0-pre.1", default-features = false }
+cubecl-common = { path = "crates/cubecl-common", version = "0.12.0-pre.1", default-features = false }
+cubecl-core = { path = "crates/cubecl-core", version = "0.12.0-pre.1", default-features = false }
+cubecl-cpp = { path = "crates/cubecl-cpp", version = "0.12.0-pre.1", default-features = false }
+cubecl-cpu = { path = "crates/cubecl-cpu", version = "0.12.0-pre.1", default-features = false }
+cubecl-cuda = { path = "crates/cubecl-cuda", version = "0.12.0-pre.1", default-features = false }
+cubecl-environment = { path = "crates/cubecl-environment", version = "0.12.0-pre.1", default-features = false }
+cubecl-hip = { path = "crates/cubecl-hip", version = "0.12.0-pre.1", default-features = false }
+cubecl-inspect = { path = "crates/cubecl-inspect", version = "0.12.0-pre.1", default-features = false }
+cubecl-ir = { path = "crates/cubecl-ir", version = "0.12.0-pre.1", default-features = false }
+cubecl-llvm = { path = "crates/cubecl-llvm", version = "0.12.0-pre.1", default-features = false }
+cubecl-macros = { path = "crates/cubecl-macros", version = "0.12.0-pre.1", default-features = false }
+cubecl-macros-internal = { path = "crates/cubecl-macros-internal", version = "0.12.0-pre.1", default-features = false }
+cubecl-metal = { path = "crates/cubecl-metal", version = "0.12.0-pre.1", default-features = false }
+cubecl-monitoring = { path = "crates/cubecl-monitoring", version = "0.12.0-pre.1", default-features = false }
+cubecl-opt = { path = "crates/cubecl-opt", version = "0.12.0-pre.1", default-features = false }
+cubecl-runtime = { path = "crates/cubecl-runtime", version = "0.12.0-pre.1", default-features = false }
+cubecl-server = { path = "crates/cubecl-server", version = "0.12.0-pre.1", default-features = false }
+cubecl-spirv = { path = "crates/cubecl-spirv", version = "0.12.0-pre.1", default-features = false }
+cubecl-std = { path = "crates/cubecl-std", version = "0.12.0-pre.1", default-features = false }
+cubecl-tile = { path = "crates/cubecl-tile", version = "0.12.0-pre.1", default-features = false }
+cubecl-wgpu = { path = "crates/cubecl-wgpu", version = "0.12.0-pre.1", default-features = false }
+cubecl-zspace = { path = "crates/cubecl-zspace", version = "0.12.0-pre.1", default-features = false }
 
 bitflags = { version = "2.13.1", features = ["serde"] }
 crossbeam-utils = { version = "0.8.21", default-features = false }
@@ -76,6 +77,7 @@ log = { default-features = false, version = "^0.4.22" }
 
 tokio = { version = "^1.53.1", default-features = false }
 
+approx = { version = "^0.5.1", default-features = false }
 test-log = { version = "^0.2", default-features = false }
 
 tracing = { version = "^0.1.43", default-features = false }

@@ -1,7 +1,7 @@
-use super::TuneTrace;
+use crate::report::UntypedTuneRecord;
 use cubecl_environment::records::Stamped;
 use cubecl_server::compiler::{CompilationBatchRecord, CompilationRecord};
-use std::ops::Range;
+use std::ops::{Range, RangeBounds};
 use std::time::Duration;
 
 /// Compilations of one session, as the stretches of its clock they took:
@@ -39,13 +39,9 @@ impl CompilationSpans {
         Self { spans }
     }
 
-    /// The session time the compilations took.
-    pub fn wall(&self) -> Duration {
-        self.spans.iter().map(|&(_, wall)| wall).sum()
-    }
-
-    /// The time the compilations that started inside `window` took.
-    pub fn within(&self, window: Range<Duration>) -> Duration {
+    /// The time the compilations that started inside `window` took; `..`
+    /// for every one.
+    pub fn within(&self, window: &impl RangeBounds<Duration>) -> Duration {
         self.spans
             .iter()
             .filter(|(start, _)| window.contains(start))
@@ -53,12 +49,22 @@ impl CompilationSpans {
             .sum()
     }
 
+    /// The time the compilations that started inside any of `windows` took,
+    /// each counted once however many of them it is inside.
+    pub fn within_any(&self, windows: &[Range<Duration>]) -> Duration {
+        self.spans
+            .iter()
+            .filter(|(start, _)| windows.iter().any(|window| window.contains(start)))
+            .map(|&(_, wall)| wall)
+            .sum()
+    }
+
     /// The time the compilations that started during `tune` took: the tuner
     /// waits on the server while it compiles, so a compilation stamped inside
     /// the tune's span on the same session clock is the tune's.
-    pub fn during(&self, tune: &TuneTrace) -> Duration {
+    pub fn during(&self, tune: &Stamped<UntypedTuneRecord>) -> Duration {
         let start = tune.stamp.offset;
-        self.within(start..start + tune.record.wall)
+        self.within(&(start..start + tune.record.wall))
     }
 
     /// When the last compilation ended, on the session clock.
@@ -84,10 +90,10 @@ mod tests {
         let trips = [trip(0, 10), trip(0, 25), trip(0, 20), trip(100, 4)];
         let batches = [batch(0, 30), batch(100, 4)];
         let spans = CompilationSpans::new(&batches, &trips);
-        assert_eq!(spans.wall(), Duration::from_secs(34));
+        assert_eq!(spans.within(&..), Duration::from_secs(34));
         assert_eq!(spans.end(), Duration::from_secs(104));
         assert_eq!(
-            spans.within(Duration::ZERO..Duration::from_secs(50)),
+            spans.within(&(Duration::ZERO..Duration::from_secs(50))),
             Duration::from_secs(30)
         );
     }
@@ -97,8 +103,24 @@ mod tests {
     fn without_batches_each_kernel_takes_its_work() {
         let trips = [trip(0, 10), trip(10, 25)];
         let spans = CompilationSpans::new(&[], &trips);
-        assert_eq!(spans.wall(), Duration::from_secs(35));
+        assert_eq!(spans.within(&..), Duration::from_secs(35));
         assert_eq!(spans.end(), Duration::from_secs(35));
+    }
+
+    /// A compilation inside two overlapping windows counts once.
+    #[test]
+    fn a_compilation_inside_overlapping_windows_counts_once() {
+        let trips = [trip(1, 10), trip(5, 20)];
+        let spans = CompilationSpans::new(&[], &trips);
+        let second = |start, end| Duration::from_secs(start)..Duration::from_secs(end);
+        assert_eq!(
+            spans.within_any(&[second(0, 4), second(0, 3)]),
+            Duration::from_secs(10)
+        );
+        assert_eq!(
+            spans.within_any(&[second(0, 2), second(4, 6)]),
+            Duration::from_secs(30)
+        );
     }
 
     fn stamp(start: u64) -> Stamp {

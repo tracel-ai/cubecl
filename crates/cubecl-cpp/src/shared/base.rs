@@ -26,7 +26,7 @@ use cubecl_core::{
         features::{AtomicUsage, EnumSet, TypeUsage},
         interfaces::TypedExt,
         metadata::Info,
-        rewrite::{SimplifyOpsPass, visit_all_values},
+        rewrite::{CanonicalizePass, SimplifyOpsPass, visit_all_values},
         settings::Dim3,
         types::scalar::{Complex32Type, Complex64Type},
     },
@@ -300,6 +300,7 @@ where
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(SimpleCSEPass::with_memory());
         func_passes.add_pass(SimplifyOpsPass::default());
+        func_passes.add_pass(CanonicalizePass::default());
         func_passes.add_pass(DCEPass);
 
         func_passes.add_pass(PromoteBitwisePass);

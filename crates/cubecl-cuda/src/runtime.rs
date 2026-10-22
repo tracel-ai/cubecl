@@ -177,6 +177,12 @@ impl DeviceService for CudaServer {
                 get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT).unwrap() as u32,
             );
             let num_tensor_cores = tensor_cores_per_sm(&arch);
+            // `None` rather than `Some(0)` where the driver reports no L2, as the field asks.
+            let last_level_cache_size =
+                get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE)
+                    .ok()
+                    .and_then(|bytes| usize::try_from(bytes).ok())
+                    .filter(|&bytes| bytes > 0);
 
             comp_opts.warp_size = warp_size as usize;
 
@@ -198,7 +204,7 @@ impl DeviceService for CudaServer {
                     Some(8)
                 },
                 num_cpu_cores: None,
-                last_level_cache_size: None,
+                last_level_cache_size,
                 max_vector_size: VectorSize::MAX,
                 cube_mma_reserved_shared_memory: 0,
             }
@@ -478,9 +484,9 @@ fn tensor_cores_per_sm(arch: &CudaArchitecture) -> Option<u32> {
         return None;
     }
     match arch.version {
-        70 | 75 => Some(8),                           // Volta, Turing
-        80 | 86 | 89 | 90 | 91 | 92 | 100 => Some(4), // Ampere, Hopper, Blackwell
-        _ => None,                                    // Unknown or unsupported architecture
+        70 | 75 => Some(8),  // Volta, Turing
+        80..=130 => Some(4), // Ampere, Ada, Hopper, Blackwell (B200 sm_100, B300 sm_103, RTX 50 sm_120)
+        _ => None,           // Unknown or unsupported architecture
     }
 }
 

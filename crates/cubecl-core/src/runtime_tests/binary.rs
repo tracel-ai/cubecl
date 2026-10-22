@@ -1015,6 +1015,98 @@ pub fn test_dp4a<R: Runtime>(client: Client) {
     assert_eq!(i32::from_bytes(&actual), expected);
 }
 
+/// A runtime operand must not be rewritten through a constant zero or a
+/// reflexive identity. Each of these was a partial fold in the float dialect:
+/// `v % 1.0` is `0.5` for `2.5` (not `v`), `v - v` is `NaN` for `NaN` and
+/// infinity (not `+0`), `0.0 / v` is `NaN` for `v = 0`, and `v * 0.0` keeps the
+/// sign of `v`.
+pub fn test_ieee_constant_folds<R: Runtime>(client: Client) {
+    #[cube(launch_unchecked)]
+    fn folds<F: Float>(x: &[F], out: &mut [F]) {
+        if ABSOLUTE_POS < x.len() {
+            let v = x[ABSOLUTE_POS];
+            out[ABSOLUTE_POS * 6] = v % F::new(1.0);
+            out[ABSOLUTE_POS * 6 + 1] = v - v;
+            out[ABSOLUTE_POS * 6 + 2] = F::new(0.0) / v;
+            out[ABSOLUTE_POS * 6 + 3] = v * F::new(0.0);
+            out[ABSOLUTE_POS * 6 + 4] = F::new(0.0) + v;
+            out[ABSOLUTE_POS * 6 + 5] = F::new(0.0) % v;
+        }
+    }
+
+    // Not on wgpu: the shader still carries every one of these operations, but WGSL lets an
+    // implementation assume no NaN or infinity arises and ignore the sign of a zero, and so do
+    // Vulkan and Metal unless the shader opts into preserving them, which wgpu does not. The
+    // shader compilers fold under that latitude (`NaN - NaN` and `0 / 0` read back as `0`,
+    // `-4 * 0` as `+0`). What this test guards — that cubecl's own IR does not fold them —
+    // holds on every backend; the results wgpu does promise are still checked there. The
+    // runtime name says which backend, whatever compiler it picked.
+    let strict_ieee = !client.name().starts_with("wgpu");
+
+    macro_rules! check {
+        ($ty: ty) => {{
+            use cubecl_ir::features::TypeUsage;
+            let uses = <$ty>::supported_uses(&client);
+            if uses.contains(TypeUsage::Arithmetic) && uses.contains(TypeUsage::Buffer) {
+                let cases: [$ty; 7] = [2.5, 4.0, -4.0, 0.0, <$ty>::NAN, <$ty>::INFINITY, -0.0];
+                let input = client.create_from_slice(<$ty>::as_bytes(&cases));
+                let out = client.empty(cases.len() * 6 * core::mem::size_of::<$ty>());
+                unsafe {
+                    folds::launch_unchecked::<$ty>(
+                        &client,
+                        CubeCount::Static(1, 1, 1),
+                        CubeDim::new_1d(cases.len() as u32),
+                        BufferArg::from_raw_parts(input, cases.len()),
+                        BufferArg::from_raw_parts(out.clone(), cases.len() * 6),
+                    );
+                }
+                let bytes = client.read_one_unchecked(out);
+                let actual = <$ty>::from_bytes(&bytes);
+                let at = |case: usize, lane: usize| actual[case * 6 + lane];
+
+                // `v % 1.0` is the remainder, not `v`.
+                assert!((at(0, 0) - 0.5 as $ty).abs() <= <$ty>::EPSILON * 4.0);
+                assert_eq!(at(1, 0), 0.0 as $ty);
+                // `fmod(inf, 1)` and `fmod(NaN, 1)` are NaN.
+                if strict_ieee {
+                    assert!(at(4, 0).is_nan(), "fmod(NaN, 1)");
+                    assert!(at(5, 0).is_nan(), "fmod(inf, 1)");
+                }
+
+                // `v - v` is `+0` for finite values and NaN for NaN/infinity.
+                assert_eq!(at(0, 1), 0.0 as $ty);
+                if strict_ieee {
+                    assert!(at(4, 1).is_nan(), "NaN - NaN");
+                    assert!(at(5, 1).is_nan(), "inf - inf");
+                }
+
+                // `0.0 / v` is NaN for `v = 0`, not `+0`.
+                if strict_ieee {
+                    assert!(at(3, 2).is_nan(), "0 / 0");
+                }
+
+                // `v * 0.0` carries the sign of `v`.
+                if strict_ieee {
+                    assert_eq!(at(2, 3).to_bits(), (-0.0 as $ty).to_bits(), "-4 * 0");
+                }
+                assert_eq!(at(0, 3), 0.0 as $ty);
+
+                // `0.0 + v` is `+0` for both zeros: `+0.0 + -0.0` is `+0.0`.
+                assert_eq!(at(3, 4), 0.0 as $ty);
+                if strict_ieee {
+                    assert_eq!(at(6, 4).to_bits(), (0.0 as $ty).to_bits(), "+0 + -0");
+                }
+                // `0.0 % v` is NaN for `v = 0`.
+                if strict_ieee {
+                    assert!(at(3, 5).is_nan(), "0 % 0");
+                }
+            }
+        }};
+    }
+    check!(f32);
+    check!(f64);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_binary {
@@ -1111,6 +1203,12 @@ macro_rules! testgen_binary_untyped {
             add_test!(test_powi_negative_near_one);
             add_test!(test_signed_remainder);
             add_test!(test_self_div);
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_ieee_constant_folds() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::binary::test_ieee_constant_folds::<TestRuntime>(client);
+            }
         }
     };
 }

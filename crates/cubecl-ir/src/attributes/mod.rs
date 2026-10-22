@@ -153,6 +153,9 @@ impl ConstantAttr for ZeroAttr {
             None
         }
     }
+    fn as_bool(&self, ctx: &Context) -> Option<bool> {
+        self.ty.is_bool(ctx).then_some(false)
+    }
 }
 
 #[pliron_attr(name = "cube.index", format = "$0", verifier = "succ")]
@@ -251,6 +254,9 @@ impl TypedAttrInterface for BoolAttr {
 impl ConstantAttr for BoolAttr {
     fn as_const_val(&self, _ctx: &Context) -> ConstantValue {
         ConstantValue::Bool(self.0)
+    }
+    fn as_bool(&self, _ctx: &Context) -> Option<bool> {
+        Some(self.0)
     }
 }
 
