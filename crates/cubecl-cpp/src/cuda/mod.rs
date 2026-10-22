@@ -12,6 +12,7 @@ pub mod ptx;
 pub mod signature;
 pub mod tma;
 pub mod ty;
+pub mod unary;
 
 use dialect::*;
 pub use mma::manual::{supported_mma_combinations, supported_scaled_mma_combinations};

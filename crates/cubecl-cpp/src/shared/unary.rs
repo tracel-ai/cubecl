@@ -307,6 +307,11 @@ fn trailing_zeros<T: Int, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {
 }
 
 #[cube]
+pub(crate) fn tanh_via_f32<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
+    Vector::cast_from(Vector::<f32, N>::cast_from(input).tanh())
+}
+
+#[cube]
 fn count_ones<T: Scalar, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {
     Vector::<u32, N>::cast_from(Vector::<u32, N>::cast_from(input).count_ones())
 }
