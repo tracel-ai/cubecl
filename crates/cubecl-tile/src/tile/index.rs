@@ -5,8 +5,9 @@
 //! the nest that cuts them, the same entry a kernel would read off `region.coord(key)` itself.
 //! The tile reads that entry once, in [`Tile::at`], at the step that cuts the keys, and places its
 //! window with it ([`Indexing`]); its reads never touch the table again. Where no level cuts the
-//! keys they are one tile, so the table's first entry is the one, read as the tile is served. The scales it carries move
-//! with it wherever they span the axis the entry places, so a routed operand may be quantized.
+//! keys they are one tile, so the table's first entry is the one, read as the tile is served. The
+//! scales it carries move with it wherever they span the axis the entry places, so a routed
+//! operand may be quantized.
 
 use cubecl::prelude::*;
 

@@ -40,7 +40,7 @@ pub enum Field {
     ConvertedE2M1,
     /// A float code (`e2m1`, `e4m3` or `e5m2`) on a device that emulates converting it: a word is
     /// decoded as `f16` pairs from its bits, lifted to its values, or, where `lifted` is false,
-    /// each placed [`lift`](Field::lift) short of its value for a reader whose factor carries the
+    /// each placed `lift` short of its value for a reader whose factor carries the
     /// lift (a tile read placed). What [`read_on`](Field::read_on) makes of `Quant(value)` there,
     /// lifted.
     Placed {
