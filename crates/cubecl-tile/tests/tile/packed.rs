@@ -3195,6 +3195,203 @@ fn check_looked_up_copy(bits: usize, width: usize) {
     }
 }
 
+/// Every line of `input` read into registers decoded, a unit a line, and stored in `output`.
+#[cube(launch)]
+fn decoded_lines<N: Size>(
+    input: &TileArg<'_>,
+    output: &mut Tensor<Vector<f32, N>>,
+    space: Partitioning,
+) {
+    let input = input.tile(&space);
+    let lines = input.decoded::<f32, N>();
+    let line = ABSOLUTE_POS;
+    if line < output.len() {
+        output[line] = lines.read(line);
+    }
+}
+
+/// **A unit reads looked-up fields into its registers decoded.** Each `bits`-wide field names its
+/// entry of the table, and the row's scale multiplies it, as a copy decodes them, with no stage to
+/// decode into: a line inside one word reads the fields it needs of it, a wider one every word it
+/// spans (16-bit indices, two a word, four a line, on a device whose vectors stop at four).
+#[test]
+fn a_decoded_read_of_looked_up_fields_matches_the_copy() {
+    check_decoded_lines(8, 4);
+    check_decoded_lines(4, 4);
+    check_decoded_lines(2, 4);
+    check_decoded_lines(4, 2);
+    check_decoded_lines(16, 4);
+    check_decoded_lines(8, 8);
+    check_decoded_lines(4, 16);
+}
+
+/// **A unit reads integer fields into its registers decoded, with no table.** Signed 4-bit values,
+/// sign extension included, each under its row's scale, read two a line, a half of a word's
+/// fields at each read.
+#[test]
+fn a_decoded_read_of_integer_fields_scales_them() {
+    let (field, rows, cols, width) = (QuantValue::Q4S, 4, 32, 2);
+    let bits = field.size_bits();
+    let factor = 32 / bits;
+    let client = cubecl::test_device().client();
+
+    let span = 1i32 << bits;
+    let values: Vec<i32> = (0..rows * cols)
+        .map(|i| -(span / 2) + ((i * 5) as i32 % span))
+        .collect();
+    let mask = (1u32 << bits) - 1;
+    let words: Vec<u32> = values
+        .chunks(factor)
+        .map(|word| {
+            word.iter().enumerate().fold(0u32, |acc, (j, &v)| {
+                acc | (((v as u32) & mask) << (j * bits))
+            })
+        })
+        .collect();
+    let input = TensorHandle::new_contiguous(
+        vec![rows, cols],
+        client.create(Bytes::from_elems(words)),
+        u32::elem_type_native(),
+    );
+    let scales: Vec<f32> = (0..rows).map(|i| (i as f32 + 1.0) / 4.0).collect();
+    let (scales_t, _) = TestInput::builder(client.clone(), shape![rows])
+        .dtype(f32::elem_type_native())
+        .custom(scales.clone())
+        .generate_with_f32_host_data();
+    let lines = rows * cols / width;
+    let output = TestInput::builder(client.clone(), shape![lines * width])
+        .dtype(f32::elem_type_native())
+        .zeros()
+        .generate_without_host_data();
+
+    let space = Space::new(&[(M, rows), (N, cols)]);
+    let input = TileArgLaunch::new(
+        input.binding().into_tensor_arg(),
+        u32::elem_type_native(),
+        1,
+        TileSpec::direct(&[M, N]).packed(field),
+    )
+    .scales(TileArgLaunch::new(
+        scales_t.binding().into_tensor_arg(),
+        f32::elem_type_native(),
+        1,
+        TileSpec::direct(&[M]),
+    ));
+    decoded_lines::launch(
+        &client,
+        CubeCount::new_single(),
+        CubeDim::new_1d(lines as u32),
+        width,
+        input,
+        output.clone().binding().into_tensor_arg(),
+        uncut(&client, &space, &space).partitioning_arg(),
+    );
+
+    let got = HostData::from_tensor_handle(&client, output, HostDataType::F32);
+    for m in 0..rows {
+        for n in 0..cols {
+            let want = values[m * cols + n] as f32 * scales[m];
+            let have = got.get_f32(&[m * cols + n]);
+            assert!(
+                (have - want).abs() < 1e-6,
+                "at ({m}, {n}): got {have}, want {want}"
+            );
+        }
+    }
+}
+
+/// `table[index] ⊗ scale[row]` for `bits`-wide indices, read `width` values a line.
+fn check_decoded_lines(bits: usize, width: usize) {
+    let (rows, cols) = (4, 64);
+    let factor = 32 / bits;
+    let entries = 1usize << bits;
+
+    let client = cubecl::test_device().client();
+    let max = client.properties().hardware.max_vector_size;
+    if width > max {
+        ValidationResult::Skipped(format!(
+            "device vectors cap at {max}, below the {width}-wide line"
+        ))
+        .enforce();
+        return;
+    }
+
+    let indices: Vec<u32> = (0..rows * cols)
+        .map(|i| ((i * 37 + 3) % entries) as u32)
+        .collect();
+    let words: Vec<u32> = indices
+        .chunks(factor)
+        .map(|word| {
+            word.iter()
+                .enumerate()
+                .fold(0u32, |acc, (j, &v)| acc | (v << (j * bits)))
+        })
+        .collect();
+    // A packed buffer is stated in the values its words hold.
+    let input = TensorHandle::new_contiguous(
+        vec![rows, cols],
+        client.create(Bytes::from_elems(words)),
+        u32::elem_type_native(),
+    );
+    let table: Vec<f32> = (0..entries).map(|i| (i as f32 - 127.5) / 3.0).collect();
+    let (table_t, _) = TestInput::builder(client.clone(), shape![entries])
+        .dtype(f32::elem_type_native())
+        .custom(table.clone())
+        .generate_with_f32_host_data();
+    let scales: Vec<f32> = (0..rows).map(|i| (i as f32 + 1.0) / 4.0).collect();
+    let (scales_t, _) = TestInput::builder(client.clone(), shape![rows])
+        .dtype(f32::elem_type_native())
+        .custom(scales.clone())
+        .generate_with_f32_host_data();
+    let lines = rows * cols / width;
+    let output = TestInput::builder(client.clone(), shape![lines * width])
+        .dtype(f32::elem_type_native())
+        .zeros()
+        .generate_without_host_data();
+
+    let space = Space::new(&[(M, rows), (N, cols)]);
+    let input = TileArgLaunch::new(
+        input.binding().into_tensor_arg(),
+        u32::elem_type_native(),
+        1,
+        TileSpec::direct(&[M, N]).packed(Field::Index { bits }),
+    )
+    .codebook(TileArgLaunch::new(
+        table_t.binding().into_tensor_arg(),
+        f32::elem_type_native(),
+        1,
+        TileSpec::direct(&[TBL]),
+    ))
+    .expect("a plain table of an entry per index")
+    .scales(TileArgLaunch::new(
+        scales_t.binding().into_tensor_arg(),
+        f32::elem_type_native(),
+        1,
+        TileSpec::direct(&[M]),
+    ));
+    decoded_lines::launch(
+        &client,
+        CubeCount::new_single(),
+        CubeDim::new_1d(lines as u32),
+        width,
+        input,
+        output.clone().binding().into_tensor_arg(),
+        uncut(&client, &space, &space).partitioning_arg(),
+    );
+
+    let got = HostData::from_tensor_handle(&client, output, HostDataType::F32);
+    for m in 0..rows {
+        for n in 0..cols {
+            let want = table[indices[m * cols + n] as usize] * scales[m];
+            let have = got.get_f32(&[m * cols + n]);
+            assert!(
+                (have - want).abs() < 1e-6,
+                "{bits}-bit fields read {width} a line, at ({m}, {n}): got {have}, want {want}"
+            );
+        }
+    }
+}
+
 /// **A packed operand is bound at the words its buffer holds.** At any other element its buffer
 /// would be read as values it does not hold, so the binding refuses it.
 #[test]

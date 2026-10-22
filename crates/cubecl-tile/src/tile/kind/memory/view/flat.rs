@@ -57,7 +57,9 @@ impl Tile {
     pub fn flat<T: Numeric, W: Size>(&self) -> FlatView<'_, Vector<T, W>> {
         let g = self.mem("flat");
         if comptime!(g.store.packing != Packing::Plain) {
-            panic!("Tile::flat: a packed tile only unpacks under Tile::copy_from")
+            panic!(
+                "Tile::flat: a packed tile unpacks under Tile::copy_from, or read as Tile::decoded"
+            )
         }
         g.flat::<T, W>()
     }

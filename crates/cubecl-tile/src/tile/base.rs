@@ -1194,8 +1194,9 @@ impl Tile {
         unexpanded!()
     }
 
-    /// These values as indices into `table`, decoded only by [`copy_from`](Tile::copy_from): what
-    /// an operand bound under a codebook ([`TileArgLaunch::codebook`]) is served as.
+    /// These values as indices into `table`, decoded only by [`copy_from`](Tile::copy_from) and
+    /// [`decoded`](Tile::decoded): what an operand bound under a codebook
+    /// ([`TileArgLaunch::codebook`]) is served as.
     #[allow(dead_code)] // Reached through its expand, from `TileArg::tile`.
     pub(crate) fn lookup(&self, _table: &Tile) -> Tile {
         unexpanded!()
@@ -1510,7 +1511,8 @@ impl TileExpand {
             assert!(
                 !memory.codebook.present(),
                 "{site}: these values are indices into a codebook (`TileArgLaunch::codebook`), \
-                 which only a copy decodes; copy them into a stage first (`stage.copy_from(&w)`)"
+                 which only a copy or a decoded read decodes; copy them into a stage first \
+                 (`stage.copy_from(&w)`), or read them `decoded`"
             );
         }
     }

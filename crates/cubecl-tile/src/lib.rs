@@ -21,6 +21,7 @@ pub mod kind {
     pub use crate::tile::accumulator::smem_slots::SmemSlotsAccumulation;
     pub use crate::tile::kind::memory::base::{Boundary, Schedule, Storage, Write};
     pub use crate::tile::kind::memory::global::GlobalOperand;
+    pub use crate::tile::kind::memory::view::decoded::{Decoded, DecodedExpand};
     pub use crate::tile::kind::memory::view::masked::{Masked, MaskedMut};
     pub use crate::tile::packing::base::Field;
 }

@@ -68,6 +68,11 @@ impl Codebook {
         unexpanded!()
     }
 
+    /// Whether these values index a table at all.
+    pub(crate) fn present(&self) -> comptime_type!(bool) {
+        unexpanded!()
+    }
+
     pub(crate) fn __expand_none(_scope: &Scope) -> CodebookExpand {
         CodebookExpand::default()
     }
@@ -86,6 +91,10 @@ impl CodebookExpand {
     /// Whether these values index a table at all.
     pub(crate) fn present(&self) -> bool {
         self.table.is_some()
+    }
+
+    pub(crate) fn __expand_present_method(&self, _scope: &Scope) -> bool {
+        self.present()
     }
 
     pub(crate) fn __expand_entries_method<T: Numeric, V: Size>(

@@ -67,6 +67,11 @@ impl Factor {
         unexpanded!()
     }
 
+    /// Whether these values carry a scale at all.
+    pub(crate) fn scaled(&self) -> comptime_type!(bool) {
+        unexpanded!()
+    }
+
     /// Whether the innermost scales are [words](FactorExpand::holds_words) of block scales.
     pub(crate) fn holds_words(&self) -> comptime_type!(bool) {
         unexpanded!()
@@ -275,6 +280,10 @@ impl FactorExpand {
         self.scale
             .as_deref()
             .map(|scale| scale.clone().__expand_packing_method(scope))
+    }
+
+    pub(crate) fn __expand_scaled_method(&self, _scope: &Scope) -> bool {
+        self.scaled()
     }
 
     pub(crate) fn __expand_holds_words_method(&self, scope: &Scope) -> bool {
