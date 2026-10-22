@@ -57,7 +57,7 @@ fn column_one_row_product<E: Numeric>(
     }
 }
 
-/// [`column_gemv`] with the accumulator in memory: the output zeroed once, and every step's
+/// [`column_one_row_product`] with the accumulator in memory: the output zeroed once, and every step's
 /// block seeded from it and committed back ([`Tile::mma`]).
 #[cube(launch)]
 fn column_one_row_product_in_memory(

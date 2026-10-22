@@ -2,11 +2,11 @@
 //! factor scaled by a **real operand**, on the factor the kernel wrote it on.
 //!
 //! *Which* operand is not stated: the scales' own axes say it. A scale over the output's columns
-//! is a fact about the rhs's columns and nothing else could fold it in; anything else scales the
-//! lhs. One verb serves both: `(a ⊗ s) · b` and `a · (b ⊗ s)` are one sum, folded where cheapest.
+//! is a fact about the rhs's columns and nothing else could multiply it in; anything else scales the
+//! lhs. One verb serves both: `(a ⊗ s) · b` and `a · (b ⊗ s)` are one sum, scaled where cheapest.
 //!
 //! The point is what the kernel signature says: the values are a tensor of values, the scales a
-//! tensor of scales, both named at the call, and the fold is a verb the kernel writes. Nothing
+//! tensor of scales, both named at the call, and the scaling is a verb the kernel writes. Nothing
 //! decodes behind a read or rides a side channel, so `f16` scales work with no widening pass.
 //!
 //! The scales resolve at their own granularity through their own projection: a plain `KB` for a
@@ -78,7 +78,7 @@ fn scaled_matmul(
 }
 
 /// [`scaled_matmul`] with the accumulator promoted to registers: the partials never round-trip
-/// through `c`'s element between `K` steps, which is the form a decode gemv wants.
+/// through `c`'s element between `K` steps, which is the form a decode step's one-row product wants.
 #[cube(launch)]
 fn scaled_matmul_promoted<E: Numeric>(
     a: &TileArg<'_>,
@@ -1312,8 +1312,8 @@ fn an_rhs_scale_changes_within_a_coarser_region() {
     }
 }
 
-/// **The gap the decode gemv was waiting on.** The kernel opens a register block above the whole
-/// walk, so the scaled steps fold into it directly: refused before, and the same numbers as the
+/// **The gap the decode product was waiting on.** The kernel opens a register block above the whole
+/// walk, so the scaled steps sum into it directly: refused before, and the same numbers as the
 /// memory-backed form.
 #[test]
 fn a_promoted_accumulator_takes_the_scaled_contraction() {
@@ -1458,10 +1458,10 @@ fn wide_rhs_scaled_matmul_promoted<E: Numeric>(
 /// [`lhs_scales_are_served_several_at_a_time`].
 ///
 /// The case the two old asserts disagreed about: the memory nest admitted a wide scale line where
-/// its step folded one contracted value, the promoted block where the scales rode the rhs, and
+/// its step summed one contracted value, the promoted block where the scales rode the rhs, and
 /// nothing exercised the second.
 ///
-/// The block walks its columns under a constant ordinal, which is what a wide read needs — a fold
+/// The block walks its columns under a constant ordinal, which is what a wide read needs — a sum
 /// is a unit of the read it arrived in, and a unit index is not addressable at runtime. So unit
 /// `j` of a scale line goes with column `j`, and the scales vary per `(block of K, column)`.
 #[test]
@@ -1572,8 +1572,8 @@ fn rhs_scales_are_served_several_at_a_time() {
 }
 
 /// [`scaled_matmul`] with the lhs's scales served as lines: several of them per read, along `KB`.
-/// The fold rides the unit walk, which reads one line per `lw` steps and takes a fixed component
-/// of it; the scalar walk has no line ordinal to fold under, so this block fans out over units.
+/// The scaling rides the unit walk, which reads one line per `lw` steps and takes a fixed component
+/// of it; the scalar walk has no line ordinal to scale under, so this block fans out over units.
 #[cube(launch)]
 fn wide_lhs_scaled_matmul(
     a: &TileArg<'_>,
@@ -1609,8 +1609,8 @@ fn wide_lhs_scaled_matmul(
 /// **Scales served as lines along the contraction.** The lhs's scales vary over `KB` and nothing
 /// else, so `KB` is their innermost axis and a read serves several blocks of `K` at once.
 ///
-/// The block walks its contraction in runs of one scale line for this: the folds are unrolled so
-/// each one's unit is a constant, and the lines under one fold stay rolled, since they all take
+/// The block walks its contraction in runs of one scale line for this: the scale lines are unrolled so
+/// each one's unit is a constant, and the lines under one scale line stay rolled, since they all take
 /// the same scale. One row here, so the scales are per block of `K` alone.
 #[test]
 fn lhs_scales_are_served_several_at_a_time() {

@@ -63,7 +63,7 @@ fn split_partials(
     }
 }
 
-/// The second pass: fold the split axis away.
+/// The second pass: sum the split axis away.
 #[cube(launch)]
 fn reduce_splits(
     partials: &TileArg<'_>,
@@ -79,7 +79,7 @@ fn reduce_splits(
     }
 }
 
-/// The whole pipeline over `(m, n, k)` cut into `splits`: the partials, then the fold. Returns
+/// The whole pipeline over `(m, n, k)` cut into `splits`: the partials, then the sum. Returns
 /// both, since a wrong total and a wrong partial are different bugs.
 fn run_split_contraction(m: usize, n: usize, k: usize, splits: usize) -> (HostData, HostData) {
     let client = cubecl::test_device().client();
@@ -205,8 +205,8 @@ fn reference(m: usize, n: usize, k: usize, rows: std::ops::Range<usize>) -> Vec<
 }
 
 /// Each cube contracts its own slice of `K` and writes it to its own plane of the partials
-/// buffer, and the fold adds the planes up. Both halves are checked: a partials buffer that is
-/// right and a total that is not would be a broken fold, and the reverse a broken split.
+/// buffer, and the second pass adds the planes up. Both halves are checked: a partials buffer that is
+/// right and a total that is not would be a broken sum, and the reverse a broken split.
 #[test]
 fn a_split_contraction_sums_back_to_the_whole() {
     let (m, n, k, splits) = (4usize, 4usize, 16usize, 4usize);
@@ -260,8 +260,8 @@ fn a_split_of_one_is_the_whole_contraction() {
     }
 }
 
-/// The precondition the in-kernel combine rests on: this device folds `f32` atomically, and
-/// really does fold rather than race, across cubes that all target one cell.
+/// The precondition the in-kernel combine rests on: this device adds `f32` atomically, and
+/// really does add rather than race, across cubes that all target one cell.
 ///
 /// Probed rather than assumed. `f32` atomic add is there on metal (native and through wgpu's MSL
 /// path), CUDA from sm60, and the CPU runtime, but WGSL only has it behind
@@ -306,14 +306,14 @@ fn the_device_adds_floats_atomically_across_cubes() {
 // -- The in-kernel combine --------------------------------------------------
 //
 // The same split, without the second buffer and the second pass: `K` stays one axis, the cubes
-// each take a slice, and the drain folds each cube's contribution into the output atomically.
+// each take a slice, and the drain adds each cube's contribution into the output atomically.
 // What the workspace pipeline above does in two kernels, this does in one, and the two must agree.
 
 const K: Axis = Axis(4);
 
-/// The output is bound as an atomic buffer and drained through a folding sink. The register
+/// The output is bound as an atomic buffer and drained through a summing sink. The register
 /// accumulator is not decoration: the contraction runs in registers and only the drain touches
-/// the destination, which is the one shape a write-only fold admits.
+/// the destination, which is the one shape a write-only sum admits.
 #[cube(launch)]
 fn atomic_split_matmul<E: Numeric>(
     a: &TileArg<'_>,
@@ -380,7 +380,7 @@ fn atomic_split_matmul_by_unit<E: Numeric>(
     acc.drained_into(&c);
 }
 
-/// `a·b` with `K` distributed out over `splits` cubes, folded atomically into a zeroed output.
+/// `a·b` with `K` distributed out over `splits` cubes, added atomically into a zeroed output.
 fn run_atomic_split_contraction(m: usize, n: usize, k: usize, splits: usize) -> HostData {
     let client = cubecl::test_device().client();
     let dtype = f32::elem_type_native();
@@ -440,7 +440,7 @@ fn run_atomic_split_contraction(m: usize, n: usize, k: usize, splits: usize) -> 
     HostData::from_tensor_handle(&client, out, HostDataType::F32)
 }
 
-/// The in-kernel combine against the same contraction, unsplit: every cube folds its own slice of
+/// The in-kernel combine against the same contraction, unsplit: every cube adds its own slice of
 /// `K` into the output and the sum is the whole.
 #[test]
 fn an_atomic_drain_sums_the_slices_back_together() {
@@ -499,11 +499,11 @@ fn the_atomic_drain_agrees_with_the_workspace() {
     }
 }
 
-/// The same fold with the units carrying cells of their own: `N` rides the plane's units while
+/// The same sum with the units carrying cells of their own: `N` rides the plane's units while
 /// `K` rides the cubes, so a unit owns its columns and a cube owns its slice of the contraction.
 ///
-/// The control on the writer election. A fold from units that repeat each other's work has to be
-/// made by one of them, and a fold from units that each hold their own cells by all of them: an
+/// The control on the writer election. A sum from units that repeat each other's work has to be
+/// made by one of them, and a sum from units that each hold their own cells by all of them: an
 /// election that cannot tell them apart is wrong one way; "unit zero writes" would drop this half.
 #[test]
 fn an_atomic_drain_with_units_of_their_own() {
@@ -590,9 +590,9 @@ fn an_atomic_drain_with_units_of_their_own() {
     }
 }
 
-/// The same fold one scope down: `K` cut across the *planes* of a single cube. Planes share no
-/// registers either, so each holds a slice of every cell and the drain folds them in, and the
-/// election is per plane, so one unit of each folds its own plane's contribution.
+/// The same sum one scope down: `K` cut across the *planes* of a single cube. Planes share no
+/// registers either, so each holds a slice of every cell and the drain adds them in, and the
+/// election is per plane, so one unit of each adds its own plane's contribution.
 ///
 /// One cube, so nothing here is a cube split at all: what is being checked is that the combine is
 /// about instances that cannot meet in registers, not about cubes in particular.
@@ -680,10 +680,10 @@ fn an_atomic_drain_sums_across_planes() {
 ///
 /// The verb is still `mm`, and it is still true: across all the cubes the operation is
 /// `c = a·b`. What the split moves is the *init* it owns: a cell belongs to several cubes, so
-/// none may seed it, and the buffer arrives holding the fold's identity: zeroed before the launch.
+/// none may seed it, and the buffer arrives holding the sum's identity: zeroed before the launch.
 ///
 /// Every write is then a `+=` into a cell that already holds what the other cubes contracted, and
-/// nothing is ever read back, because folding is itself the read-modify-write.
+/// nothing is ever read back, because the atomic add is itself the read-modify-write.
 #[cube(launch)]
 fn atomic_split_matmul_in_place<E: Numeric>(
     a: &TileArg<'_>,
@@ -785,11 +785,11 @@ fn a_summing_output_contracts_in_place() {
 // -- The in-kernel combine, tensor-core leaf --------------------------------------------------
 //
 // A cmma accumulator stores through its intrinsic, which replaces and elects no writer, so on its
-// own it cannot drain into a store that folds. Opened with a scratch, the partition bounces each
-// fragment through smem, its one door, and the units fold its cells atomically, as a block does.
+// own it cannot drain into a store that sums. Opened with a scratch, the partition bounces each
+// fragment through smem, its one door, and the units add its cells atomically, as a block does.
 
 /// [`atomic_split_matmul`]'s tensor-core twin: the cube's slice of `K` staged and contracted in
-/// fragments, the accumulator opened with a scratch and drained through the folding sink.
+/// fragments, the accumulator opened with a scratch and drained through the summing sink.
 #[cube(launch)]
 fn atomic_split_cmma<E: Numeric>(
     a: &TileArg<'_>,
@@ -828,7 +828,7 @@ fn atomic_split_cmma<E: Numeric>(
 }
 
 /// Whether this device contracts `8×8×8` `f32` fragments and adds `f32` atomically into a
-/// buffer, the two things the fragment fold needs; reported rather than silently passed.
+/// buffer, the two things the fragment sum needs; reported rather than silently passed.
 fn sums_fragments(client: &cubecl::client::Client) -> bool {
     let f32_ty = f32::elem_type_native();
     let cmma = client.properties().features.matmul.cmma.iter().any(|cfg| {
@@ -852,7 +852,7 @@ fn sums_fragments(client: &cubecl::client::Client) -> bool {
     cmma && adds
 }
 
-/// `a·b` in fragments with `K` distributed to `splits` cubes, folded atomically into a zeroed
+/// `a·b` in fragments with `K` distributed to `splits` cubes, added atomically into a zeroed
 /// output.
 fn run_atomic_split_cmma(k: usize, splits: usize) -> HostData {
     let client = cubecl::test_device().client();
@@ -916,7 +916,7 @@ fn run_atomic_split_cmma(k: usize, splits: usize) -> HostData {
     HostData::from_tensor_handle(&client, out, HostDataType::F32)
 }
 
-/// A fragment folds into the output through the scratch: every split sums to the whole
+/// A fragment sums into the output through the scratch: every split sums to the whole
 /// contraction, exactly, since the values are small integers.
 #[test]
 fn a_fragment_sums_into_the_output_through_the_scratch() {
@@ -938,10 +938,10 @@ fn a_fragment_sums_into_the_output_through_the_scratch() {
     }
 }
 
-// -- A plain copy into a folding destination -------------------------------------------------
+// -- A plain copy into a summing destination -------------------------------------------------
 //
 // `copy_from` is the memory-to-memory door, and it picks its path on the destination's shape. A
-// folding destination has no address, so it must take the layout walk; before the write mode
+// summing destination has no address, so it must take the layout walk; before the write mode
 // entered that condition a whole, unmasked, plain one took the straight path and panicked there.
 
 /// Whether this device's buffers take an `f32` atomic add; reported rather than silently passed.

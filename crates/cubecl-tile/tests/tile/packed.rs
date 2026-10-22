@@ -5,8 +5,8 @@
 //! scales here. The tile serves the values the words hold ([`TileArg::tile`]) and the read unpacks.
 //!
 //! What a *quantized* operand adds on top is its scales, which are their own tensor and their own
-//! operand; folding them in is a verb the kernel writes ([`Tile::mm_scaled`], see
-//! [`scaled`](super::scaled)). The matmuls here are spelled that way, up to a whole decode gemv.
+//! operand; multiplying them in is a verb the kernel writes ([`Tile::mm_scaled`], see
+//! [`scaled`](super::scaled)). The matmuls here are spelled that way, up to a whole decode step's one-row product.
 //!
 //! Every test packs its own words: values low field first, `32 / bits` of them per word, and a
 //! binding whose shape counts *values* while the packing says how many sit in one stored word.
@@ -291,9 +291,9 @@ fn native_matmul(
     }
 }
 
-/// The decode gemv, whole: one row of activations against packed weights read straight from
+/// The decode step's one-row product, whole: one row of activations against packed weights read straight from
 /// global memory, their scales beside them, accumulating in a register block opened above the
-/// walk. `N` spreads across cubes, which is all a gemv has to spread.
+/// walk. `N` spreads across cubes, which is all a one-row product has to spread.
 #[cube(launch)]
 fn packed_one_row_product<E: Numeric>(
     x: &TileArg<'_>,
@@ -352,7 +352,7 @@ fn packed_matmul_byte_scales(
     }
 }
 
-/// [`packed_gemv`] with byte scales on the rhs, into the promoted block.
+/// [`packed_one_row_product`] with byte scales on the rhs, into the promoted block.
 #[cube(launch)]
 fn packed_one_row_product_byte_scales<E: Numeric>(
     x: &TileArg<'_>,
@@ -1041,7 +1041,7 @@ fn eight_bit_fields_contract_against_their_scales() {
     }
 }
 
-/// **The folded walk takes its scales several at a time.** A packed line folds a whole word per
+/// **The summing walk takes its scales several at a time.** A packed line sums a whole word per
 /// step, so nothing walks the contraction one value at a time. Here the scales are read two to a
 /// line, each field covering a block the walk picks.
 #[test]
@@ -1732,7 +1732,7 @@ fn an_i8_operand_contracts_against_its_scales() {
     }
 }
 
-/// **The q4 decode gemv, end to end.** A packed weight tensor read in place, its scales as their
+/// **The q4 decode product, end to end.** A packed weight tensor read in place, its scales as their
 /// own operand, one row of activations, `N` across cubes, and the partials in registers for the
 /// whole `K` walk: schemeless packed values, a scales operand, the rhs side, a promoted block.
 #[test]
@@ -2025,7 +2025,7 @@ fn an_eight_bit_decode_runs_in_this_spelling() {
     }
 }
 
-/// [`packed_gemv`] with the scales taken away: a packed rhs contracting into a promoted
+/// [`packed_one_row_product`] with the scales taken away: a packed rhs contracting into a promoted
 /// accumulator through the plain `mm`.
 #[cube(launch)]
 fn packed_one_row_product_unscaled<E: Numeric>(
@@ -2060,9 +2060,9 @@ fn packed_one_row_product_unscaled<E: Numeric>(
 
 /// A packed rhs drains from a promoted accumulator, exactly as its scaled twin does.
 ///
-/// [`a_packed_decode_gemv_runs_in_this_spelling`] runs this block with the scales folded in, and
+/// [`a_packed_decode_runs_in_this_spelling`] runs this block with the scales multiplied in, and
 /// the two reach the same `block::contract` through the same `RegisterData`, so if a packed rhs
-/// were what a promoted accumulator could not drain, the gemv could not be spelled either.
+/// were what a promoted accumulator could not drain, the one-row product could not be spelled either.
 ///
 /// What makes both work is the accumulator being declared at the *served* width (`V = factor`); a
 /// narrower one is refused by the width assert, and that is the only thing packing owes here.
@@ -2600,7 +2600,7 @@ fn check_float_scales(kind: FloatKind, block: usize, blocks: usize) {
     }
 }
 
-/// **Byte scales reach the promoted block on the rhs.** `e4m3` codes for the decode gemv's
+/// **Byte scales reach the promoted block on the rhs.** `e4m3` codes for the decode product's
 /// scales, one per `(block of K, block of N)`, read one at a time under the block's constant
 /// column ordinal. Halves, which `e4m3` holds exactly.
 #[test]

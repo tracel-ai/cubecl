@@ -79,7 +79,7 @@ fn a_rectangle_load_decodes_each_value_under_its_own_scale() {
     check_tiled(storage, 4, 4, Read::Stored);
 }
 
-/// NVFP4 in tile order as a gemm reads it, a column's block a load in tiles of sixteen columns,
+/// NVFP4 in tile order as a staged matmul reads it, a column's block a load in tiles of sixteen columns,
 /// staged as its words and decoded out of the stage: the stage holds every word where the
 /// stored tiles put it.
 #[test]

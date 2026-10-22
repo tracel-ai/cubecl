@@ -300,7 +300,7 @@ impl QuantizedTileInputBuilder {
     /// Integer value types only. The walk is over whole numbers packed as two's complement, and
     /// [`q`](QuantizedTileInput::q) is handed to tests as the magnitude each field stands for —
     /// both of which hold only where a format's codes are its magnitudes. Under a minifloat the
-    /// fields would be codes, so a test folding `q · scale` would compare the kernel against the
+    /// fields would be codes, so a test multiplying `q · scale` would compare the kernel against the
     /// integer grid the format exists to avoid.
     pub fn arange(self) -> QuantizedTileInput {
         assert!(

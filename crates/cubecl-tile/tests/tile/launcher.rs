@@ -110,7 +110,7 @@ fn binding(client: &Client, shape: &[usize]) -> TensorBinding {
     }
 }
 
-/// A cpu_gemm-shaped scheme: two batch axes riding one-per-cube on Z, 16×32 cube tiles on
+/// A CPU-matmul-shaped scheme: two batch axes riding one-per-cube on Z, 16×32 cube tiles on
 /// X/Y, 8×32 plane leaves with `leaf_k = 4`. Two planes a cube, so the cube fits a device
 /// whose cube holds as few units as a small CPU runner's cores.
 fn batched_space(b0: usize, b1: usize, m: usize, n: usize, k: usize) -> (Space, Vec<Level>) {
@@ -505,7 +505,7 @@ fn spec_returns_the_geometry_it_settled_on() {
     );
 }
 
-/// A leading broadcast dim is refused, not silently folded away. `geometry` labels the operand's
+/// A leading broadcast dim is refused, not silently dropped. `geometry` labels the operand's
 /// own axes and no batches are stated, so a dim past them has no axis to belong to and the
 /// derivation that *would* drop it never runs; the rank fails at launch, not as a misplaced store.
 #[test]

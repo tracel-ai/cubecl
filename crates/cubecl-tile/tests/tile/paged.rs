@@ -177,7 +177,7 @@ fn expected(table: &[u32]) -> Vec<Vec<f32>> {
 }
 
 /// Two page tables over the same pool: the answer follows the table, which it could not if the
-/// route did nothing, since the walk would fold the whole pool under both.
+/// route did nothing, since the walk would reduce the whole pool under both.
 #[test]
 fn a_routed_page_axis_reduces_each_sequence_over_the_pages_it_holds() {
     for table in [TABLE, [0, 1, 1, 0]] {
@@ -599,9 +599,9 @@ fn expected_paged_read_from(
         .collect()
 }
 
-/// A sequence read through its page table folds the positions its pages hold, in its table's
+/// A sequence read through its page table reduces the positions its pages hold, in its table's
 /// order: steps that cross pages, a length that ends inside a page, a full sequence and one of a
-/// single position. Reading the pool where it lies would fold pages 0, 1 and 2 for sequence 0.
+/// single position. Reading the pool where it lies would reduce pages 0, 1 and 2 for sequence 0.
 #[test]
 fn a_paged_operand_reads_each_sequence_through_its_table() {
     for lens in [[5, 6, 1], [6, 3, 4]] {

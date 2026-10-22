@@ -1,6 +1,6 @@
-//! A contraction cut across a cube's planes, folded back together in shared memory.
+//! A contraction cut across a cube's planes, summed back together in shared memory.
 //!
-//! `split_k`'s in-kernel combine one scope down: every plane of a cube contracts its own slice of
+//! `split_contraction`'s in-kernel combine one scope down: every plane of a cube contracts its own slice of
 //! `K` in registers and drains it into the cube's [`SmemAccumulation`], the cube synchronizes, and
 //! the sum leaves through a plain store. Nothing reaches global memory but the finished box, so
 //! the output is not zeroed first and binds as an ordinary tile. The planes meet atomically

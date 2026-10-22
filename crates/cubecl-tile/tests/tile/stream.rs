@@ -1,4 +1,5 @@
-//! Distributing a level's work as one index, which is stream-K.
+//! Distributing a level's work as one index: the hypercube scope taking every step of the
+//! contraction as dependent work.
 //!
 //! Distributing each axis on its own gives a cube the product of its per-axis runs, which is a box
 //! of the grid. A share of the work is not a box: it is a range of the index the axes make
@@ -78,7 +79,7 @@ fn copy_one_run(
     let dst = dst.tile(&space);
     let walk = dst.over(&level);
 
-    // Stated at launch but taken as runtime values: a window whose bounds fold to constants
+    // Stated at launch but taken as runtime values: a window whose bounds evaluate to constants
     // would prove the decode only for the case the compiler could have unrolled.
     for region in walk.range(comptime!(start).runtime(), comptime!(steps).runtime()) {
         dst.at(&region).copy_from(&src.at(&region));
@@ -238,7 +239,7 @@ fn a_run_starting_late_copies_the_regions_it_was_given() {
 //
 // The assignment above, over a matmul. `K` is not cut at cube scope and no axis is: the line runs
 // over the output's tiles and each tile's `K` blocks together, and a cube takes a run of it. A run
-// spans whole tiles inside, partial ones at each end; cubes then share cells, which the sink folds.
+// spans whole tiles inside, partial ones at each end; cubes then share cells, which the sink sums.
 
 const MM: Axis = Axis(2);
 const NN: Axis = Axis(3);
@@ -256,7 +257,7 @@ fn contract(acc: &Tile, a: &Tile, b: &Tile, region: &Region) {
 }
 
 /// The streamed contraction: each cube takes its run of the joint index over the output's tiles
-/// and their contraction, opens a register accumulator per output region it touches, folds that
+/// and their contraction, opens a register accumulator per output region it touches, sums that
 /// region's part of the run, and drains once through the atomic sink.
 ///
 /// `inner` is the level the run is counted in; `leaf` a level below it, where the run's step is
@@ -362,7 +363,7 @@ enum RhsStage {
     Smem,
 }
 
-/// `a · b` with the work shared between `runs` cubes, folded atomically into a zeroed output.
+/// `a · b` with the work shared between `runs` cubes, added atomically into a zeroed output.
 fn run_shared_index(m: usize, n: usize, k: usize, runs: usize, rhs: RhsStage) -> HostData {
     let client = cubecl::test_device().client();
     let dtype = f32::elem_type_native();
@@ -470,7 +471,7 @@ fn reference(m: usize, n: usize, k: usize) -> Vec<f32> {
 
 /// Every run count computes the same contraction. The interesting ones are those that do not
 /// divide the line: their runs start and end inside a tile's contraction, which is what makes
-/// this stream-K rather than a split of `K`.
+/// this one shared index rather than a split of `K`.
 fn shared_index_agrees_with_the_whole(cubes: usize) {
     let (m, n, k) = (8usize, 8usize, 16usize);
     let got = run_shared_index(m, n, k, cubes, RhsStage::InPlace);
@@ -487,7 +488,7 @@ fn shared_index_agrees_with_the_whole(cubes: usize) {
     }
 }
 
-/// The control: one run is the whole line, so nothing is partial and nothing is folded across
+/// The control: one run is the whole line, so nothing is partial and nothing is summed across
 /// cubes. A stream that only works when it is split is not working.
 #[test]
 fn a_stream_of_one_run_is_the_whole_contraction() {
@@ -510,7 +511,7 @@ fn runs_that_end_on_a_tile_do_the_split_a_cut_would() {
 }
 
 /// Runs that do not: 16 steps over 3, 5 and 7 leaves every run straddling a tile boundary, so a
-/// cube seeds a fresh accumulator part way through a tile's contraction and folds a slice that no
+/// cube seeds a fresh accumulator part way through a tile's contraction and sums a slice that no
 /// cut of `K` could hand it.
 #[test]
 fn runs_that_straddle_a_tile_boundary_still_sum_to_the_whole() {
@@ -524,7 +525,7 @@ fn runs_that_straddle_a_tile_boundary_still_sum_to_the_whole() {
     shared_index_agrees_with_the_whole(24);
 }
 
-/// The drain folds, so a device without a float atomic add cannot run any of this.
+/// The drain adds atomically, so a device without a float atomic add cannot run any of this.
 fn adds_atomically() -> bool {
     let client = cubecl::test_device().client();
     let adds = client
