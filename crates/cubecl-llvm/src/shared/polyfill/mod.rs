@@ -31,9 +31,10 @@ impl MatchRewrite for LowerComplexOp {
         op: Ptr<Operation>,
     ) -> Result<()> {
         let dyn_op = op.dyn_op(ctx);
+        let fast_math = op.fast_math(ctx);
         let scope = Scope::from_context_and_inserter(ctx, rewriter);
         let lower = op_cast::<dyn LowerOp>(&*dyn_op).unwrap();
-        let new_values = lower.lower(&scope);
+        let new_values = scope.with_fast_math(fast_math, |scope| lower.lower(scope));
         transfer_result_names(ctx, op, &new_values);
         rewriter.replace_operation_with_values(ctx, op, new_values);
 

@@ -289,6 +289,8 @@ impl WgpuCompiler for WgslCompiler {
     fn limit_properties(&self, properties: &mut DeviceProperties) {
         let hardware = &mut properties.hardware;
         hardware.max_units_per_cube = hardware.max_units_per_cube.min(hardware.max_cube_dim.0);
+        // WGSL has no way to ask for `SignedZeroInfNanPreserve`, whatever the adapter offers.
+        properties.features.ieee_special_values = false;
     }
 
     fn init(_backend: wgpu::Backend, _options: &WgpuCompilationOptions) -> Self {

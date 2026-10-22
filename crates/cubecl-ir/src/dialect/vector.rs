@@ -13,7 +13,7 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    CanMaterialize, PropagatesUniformity, Pure,
+    CanMaterialize, FastMathOp, PropagatesUniformity, Pure,
     attributes::IndexAttr,
     interfaces::{
         aliasing::AliasingOp,
@@ -497,6 +497,8 @@ pub struct FDotOp {
     pub lhs: Value,
     pub rhs: Value,
 }
+
+FastMathOp!(MagnitudeOp, NormalizeOp, FSumOp, FDotOp);
 
 fn scalar_ty(ctx: &Context, input: &Value) -> TypeHandle {
     input.scalar_ty(ctx)

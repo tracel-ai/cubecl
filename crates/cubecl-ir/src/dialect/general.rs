@@ -163,6 +163,8 @@ simplify!(CastOp, {
     }
 });
 
+crate::FastMathOp!(CastOp);
+
 #[cube_op(name = "cube.reinterpret_cast")]
 #[result_ty(argument)]
 #[op_traits(Pure, CanMaterialize, PropagatesUniformity)]

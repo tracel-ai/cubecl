@@ -52,6 +52,14 @@ shared_op!(DeclareComplexHelpersOp, |_, _| {
     crate::cuda::dialect::COMPLEX_HELPERS.into()
 });
 
+#[cube_op(name = "cpp.declare_rounded_arithmetic")]
+#[result_ty(none)]
+pub struct DeclareRoundedArithmeticOp {}
+
+shared_op!(DeclareRoundedArithmeticOp, |_, _| {
+    crate::hip::dialect::ROUNDED_ARITHMETIC.into()
+});
+
 #[cube_op(name = "cpp.load_info")]
 #[result_ty(fixed = InfoStructType::get(ctx).into())]
 pub struct LoadInfoOp {

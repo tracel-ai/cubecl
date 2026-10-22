@@ -17,7 +17,8 @@ use cubecl_core::{
     prelude::{
         polyfills::{
             cbrt, erf, expand_dp4a_polyfill, expand_himul_sim, expand_s_himul_64,
-            expand_u_himul_64, expm1, inverse_cbrt, log1p, powi_int, recip, to_degrees, to_radians,
+            expand_u_himul_64, expm1, float_mod_floor, inverse_cbrt, log1p, powi_int, recip,
+            to_degrees, to_radians,
         },
         *,
     },
@@ -120,12 +121,7 @@ impl LowerOp for PowiOp {
     }
 }
 
-#[cube]
-fn f_mod_floor<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> Vector<F, N> {
-    lhs - rhs * (lhs / rhs).floor()
-}
-
-lower_binary_math_arith!(FModFloorOp => f_mod_floor);
+lower_binary_math_arith!(FModFloorOp => float_mod_floor);
 
 #[cube]
 fn s_mod_floor<I: Int, N: Size>(lhs: Vector<I, N>, rhs: Vector<I, N>) -> Vector<I, N> {

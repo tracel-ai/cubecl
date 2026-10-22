@@ -602,6 +602,64 @@ impl FastMath {
     pub const fn all() -> EnumSet<FastMath> {
         EnumSet::all()
     }
+
+    /// No optimization: each operation rounds on its own, with nothing contracted, reassociated
+    /// or assumed about its operands. An operation keeps its backend's precision, which on Vulkan
+    /// is not correctly rounded for division, square root and remainder.
+    pub const fn none() -> EnumSet<FastMath> {
+        EnumSet::empty()
+    }
+
+    /// The name it goes by in printed IR.
+    pub const fn name(self) -> &'static str {
+        match self {
+            FastMath::NotNaN => "not-nan",
+            FastMath::NotInf => "not-inf",
+            FastMath::UnsignedZero => "unsigned-zero",
+            FastMath::AllowReciprocal => "allow-reciprocal",
+            FastMath::AllowContraction => "allow-contraction",
+            FastMath::AllowReassociation => "allow-reassociation",
+            FastMath::AllowTransform => "allow-transform",
+            FastMath::ReducedPrecision => "reduced-precision",
+        }
+    }
+
+    /// The optimizations that allowing this one also allows.
+    pub fn includes(self) -> EnumSet<FastMath> {
+        match self {
+            FastMath::AllowTransform => FastMath::AllowContraction | FastMath::AllowReassociation,
+            _ => EnumSet::empty(),
+        }
+    }
+}
+
+impl fmt::Display for FastMath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// A name that no [`FastMath`] goes by.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownFastMath(pub String);
+
+impl fmt::Display for UnknownFastMath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "not a fast-math optimization: {}", self.0)
+    }
+}
+
+impl core::error::Error for UnknownFastMath {}
+
+impl FromStr for FastMath {
+    type Err = UnknownFastMath;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        FastMath::all()
+            .iter()
+            .find(|flag| flag.name() == name)
+            .ok_or_else(|| UnknownFastMath(String::from(name)))
+    }
 }
 
 impl HardwareProperties {

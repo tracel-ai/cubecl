@@ -38,6 +38,10 @@ pub struct Features {
     /// Whether vectors can be read from / stored to addresses not aligned
     /// with the `vector_size`
     pub unaligned_io: bool,
+    /// Whether a kernel that allows no fast math keeps NaN, infinity and the sign of zero.
+    /// Without it, such a kernel is only promised that each operation rounds on its own, and on
+    /// WGSL and Metal not even that.
+    pub ieee_special_values: bool,
 }
 
 /// Type support for a device

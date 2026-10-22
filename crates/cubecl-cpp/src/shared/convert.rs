@@ -77,7 +77,7 @@ pub struct PromoteUnsupportedTypes;
 
 impl MatchRewrite for PromoteUnsupportedTypes {
     fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
-        let promote_half = op.impls::<dyn HalfPromotedOp>(ctx) && op.result(ctx).is_half(ctx);
+        let promote_half = promotes_half(ctx, op);
         let promote_int = op.impls::<dyn IntPromotedOp>(ctx) && op.result(ctx).is_small_int(ctx);
         promote_half || promote_int || promotes_msl_bfloat(ctx, op)
     }
@@ -88,7 +88,7 @@ impl MatchRewrite for PromoteUnsupportedTypes {
         _rewriter: &mut MatchRewriter,
         op: Ptr<Operation>,
     ) -> Result<()> {
-        if op.impls::<dyn HalfPromotedOp>(ctx) && op.result(ctx).is_half(ctx) {
+        if promotes_half(ctx, op) {
             let f32 = Float32Type::get(ctx).to_handle();
             promote(ctx, op, |ctx, value| value.is_half(ctx), f32);
         }
@@ -107,6 +107,15 @@ impl MatchRewrite for PromoteUnsupportedTypes {
 
         Ok(())
     }
+}
+
+/// Half arithmetic that must round on its own runs in `f32`, where CUDA and HIP have a call that
+/// never fuses. Rounding the `f32` result back gives the half that rounding once would, for one
+/// add, sub, mul or div: `f32` holds more than twice a half's precision.
+fn promotes_half(ctx: &Context, op: Ptr<Operation>) -> bool {
+    let promoted = op.impls::<dyn HalfPromotedOp>(ctx)
+        || (matches!(ctx.target(), Target::Cuda | Target::Hip) && op.is_unfused_arithmetic(ctx));
+    promoted && op.result(ctx).is_half(ctx)
 }
 
 fn promotes_msl_bfloat(ctx: &Context, op: Ptr<Operation>) -> bool {

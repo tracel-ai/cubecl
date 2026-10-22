@@ -32,7 +32,7 @@ use pliron::{
         inserter::{IRInserter, Inserter, OpInsertionPoint},
         listener::DummyListener,
     },
-    op::Op,
+    op::{Op, op_cast},
     operation::Operation,
     printable::Printable,
     r#type::{TypeHandle, Typed, type_cast},
@@ -54,7 +54,7 @@ use crate::{
         memory::DeclareVariableOp,
         vector::CompositeExtractOp,
     },
-    interfaces::{ScalarType, TypedExt},
+    interfaces::{ScalarType, TypedExt, fast_math::FastMathOp},
     read_value,
     settings::KernelSettings,
     types::{PointerType, RuntimeArrayType, cuda::TensorMapType, scalar::BoolType},
@@ -406,7 +406,8 @@ impl Debug for GlobalState {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, TypeHash)]
 pub struct InstructionModes {
-    pub fp_math_mode: EnumSet<FastMath>,
+    /// The float optimizations ops registered now allow, or `None` when the kernel said nothing.
+    pub fast_math: Option<EnumSet<FastMath>>,
 }
 
 impl Scope {
@@ -561,7 +562,24 @@ impl Scope {
     /// Register an [`Instruction`] into the scope.
     pub fn register(&self, op: &dyn Op) {
         let ctx = self.ctx();
+        if let Some(op) = op_cast::<dyn FastMathOp>(op)
+            && let Some(fast_math) = self.state().modes.fast_math
+        {
+            op.set_fast_math(ctx, fast_math);
+        }
         self.inserter().append_op(ctx, op);
+    }
+
+    /// Run `body` with the float ops it registers allowing `fast_math`.
+    pub fn with_fast_math<R>(
+        &self,
+        fast_math: Option<EnumSet<FastMath>>,
+        body: impl FnOnce(&Self) -> R,
+    ) -> R {
+        let outer = core::mem::replace(&mut self.state_mut().modes.fast_math, fast_math);
+        let result = body(self);
+        self.state_mut().modes.fast_math = outer;
+        result
     }
 
     /// Register an [`Instruction`] into the scope and return its result.

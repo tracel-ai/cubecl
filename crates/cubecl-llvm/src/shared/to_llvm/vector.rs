@@ -147,8 +147,9 @@ impl ToLLVMDialect for vector::FSumOp {
         let input = self.input(ctx);
         let elem_ty = input.get_type(ctx);
         let res_ty = self.get_result(ctx).get_type(ctx);
-        // Floating-point reductions require an initial accumulator value.
-        let attr = float_attr(ctx, res_ty, 0.0).unwrap_or_else(|| FPSingleAttr::from(0.0).into());
+        // Floating-point reductions require an initial accumulator value, and only `-0` adds
+        // nothing: `+0 + -0` is `+0`.
+        let attr = float_attr(ctx, res_ty, -0.0).unwrap_or_else(|| FPSingleAttr::from(-0.0).into());
         let attr = boxed_attr_cast(attr).unwrap();
 
         let res_ty = cube_type_to_llvm(ctx, res_ty);

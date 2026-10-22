@@ -97,9 +97,10 @@ fn normalize<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
 
 #[cube]
 fn sum<T: Float, N: Size>(input: Vector<T, N>) -> T {
-    let mut sum = T::from_int(0);
+    // Starting from `0` would turn a sum of `-0`s into `+0`.
+    let mut sum = input.extract(0usize);
     #[unroll]
-    for i in 0..input.vector_size() {
+    for i in 1..input.vector_size() {
         sum += input.extract(i);
     }
     sum

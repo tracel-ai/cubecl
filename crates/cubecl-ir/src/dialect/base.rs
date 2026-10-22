@@ -1,6 +1,9 @@
 use core::cell::Ref;
 
 use crate::{
+    EnumSet, FastMath,
+    dialect::math::{FAddOp, FDivOp, FMulOp, FSubOp},
+    interfaces::fast_math::FastMathOp,
     prelude::*,
     types::{AtomicType, PointerType},
 };
@@ -32,6 +35,11 @@ pub trait OperationPtrExt: Sized {
     fn get_attr<'a, T: Attribute>(self, ctx: &'a Context, key: &Identifier) -> Option<Ref<'a, T>>;
     fn set_attr<T: Attribute>(self, ctx: &Context, key: &Identifier, value: T);
     fn parent_module(self, ctx: &Context) -> ModuleOp;
+    /// The fast-math permissions on this op, if it is a float op its kernel said something about.
+    fn fast_math(self, ctx: &Context) -> Option<EnumSet<FastMath>>;
+    /// Whether this is arithmetic a downstream compiler could fuse with its neighbours, in a
+    /// kernel that forbids it.
+    fn is_unfused_arithmetic(self, ctx: &Context) -> bool;
 
     fn is_ancestor_of(self, ctx: &Context, other: Ptr<Operation>) -> bool;
 }
@@ -116,6 +124,20 @@ impl OperationPtrExt for Ptr<Operation> {
             op = parent;
         }
         panic!("Op is not contained in any module")
+    }
+    fn fast_math(self, ctx: &Context) -> Option<EnumSet<FastMath>> {
+        self.cast::<dyn FastMathOp>(ctx)
+            .and_then(|op| op.fast_math(ctx))
+    }
+    fn is_unfused_arithmetic(self, ctx: &Context) -> bool {
+        let fusable = self.is_op::<FAddOp>(ctx)
+            || self.is_op::<FSubOp>(ctx)
+            || self.is_op::<FMulOp>(ctx)
+            || self.is_op::<FDivOp>(ctx);
+        fusable
+            && self
+                .cast::<dyn FastMathOp>(ctx)
+                .is_some_and(|op| !op.allows_contraction(ctx))
     }
 
     fn is_ancestor_of(self, ctx: &Context, mut child: Ptr<Operation>) -> bool {

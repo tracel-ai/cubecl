@@ -29,38 +29,81 @@ fn fast_rsqrt<F: Float>(x: F) -> F {
 }
 ```
 
+### Strict Arithmetic
+
+`FastMath::none()` allows nothing: every operation rounds on its own, so a product is never fused
+into the add that consumes it, and nothing is assumed about `Inf`, `NaN` or the sign of zero. Use it
+where the arithmetic itself is the algorithm, as in compensated summation.
+
+```rust
+/// The error term of `a + b`, exact only if neither operation is fused or reassociated.
+#[cube(fast_math = FastMath::none())]
+fn two_sum<F: Float>(a: F, b: F) -> (F, F) {
+    let sum = a + b;
+    let b_virtual = sum - a;
+    let error = (a - (sum - b_virtual)) + (b - b_virtual);
+    (sum, error)
+}
+```
+
+Rounding is kept on every backend below except WGSL and Metal. `Inf`, `NaN` and signed zero are
+kept where `client.properties().features.ieee_special_values` is true.
+
+A kernel that says nothing gets each backend's default, which usually allows contraction: CubeCL
+fuses a product into the add that consumes it, and so may the driver. CubeCL's own folds may also
+ignore `Inf`, `NaN` and signed zero there, turning `0 * x` into `0`. A function that says nothing
+gets its caller's set. A function that gives a set gets exactly that set, so
+`FastMath::NotNaN.into()` alone also forbids contraction and can run slower than saying nothing.
+Operations CubeCL expands into several, such as `exp` on the CPU, carry the flags of the function
+they appear in.
+
+A set can forbid only some optimizations. Here a product may still fuse into the add that consumes
+it, but the `-inf` a mask adds is kept, since `NotInf` is not in the set:
+
+```rust
+/// A masked attention score: fused where it pays, but a masked score stays `-inf`.
+#[cube(fast_math = FastMath::AllowContraction | FastMath::AllowReassociation)]
+fn masked_score<F: Float>(query: F, key: F, mask: F) -> F {
+    query * key + mask
+}
+```
+
+`AllowTransform` includes contraction and reassociation, so a set that forbids either must leave it
+out as well: `FastMath::all() - FastMath::AllowContraction` still contracts.
+
 ### Backend Implementation
 
 #### WGPU with Vulkan Compiler
 
-Vulkan supports each flag as a modifier for all floating point operations. The compiler applies all
-enabled flags, but the implementation is driver-specific.
+Forbidden contraction is `NoContraction` on add, subtract, multiply and divide, and `mod_floor`,
+`dot`, `magnitude` and `normalize` are written out in those. No other flag reaches the driver, so an
+operation that allows contraction may also be reassociated. A kernel with a float operation that
+must keep `Inf`, `NaN` or signed zero, a comparison or `max` included, asks for
+`SignedZeroInfNanPreserve` at each float width the device can preserve; without it, Vulkan may
+assume they never occur. Division, square root and remainder keep Vulkan's precision, which is not
+correctly rounded.
 
-#### CUDA/HIP
+#### CPU, and CUDA/HIP through LLVM
 
-These targets only expose specific intrinsics. These intrinsics are used when all their required
-flags are present. Only `f32` is supported for these intrinsics, other float types are not affected
-by math flags on CUDA/HIP. Note that some of these are guesswork, because CUDA lacks documentation
-on special value handling.
+The flags become LLVM's fast-math flags on add, subtract, multiply, divide and remainder. Calls such
+as `exp` and vector reductions take none, so `ReducedPrecision` has no effect.
 
-| CubeCL Function   | Intrinsic           | Required Flags                                                  |
-| ----------------- | ------------------- | --------------------------------------------------------------- |
-| `a / b`           | `__fdividef(a, b)`  | `AllowReciprocal \| ReducedPrecision \| UnsignedZero \| NotInf` |
-| `exp(a)`          | `__expf(a)`         | `ReducedPrecision \| NotNaN \| NotInf`                          |
-| `log(a)`          | `__logf(a)`         | `ReducedPrecision \| NotNaN \| NotInf`                          |
-| `sin(a)`          | `__sinf(a)`         | `ReducedPrecision \| NotNaN \| NotInf`                          |
-| `cos(a)`          | `__cosf(a)`         | `ReducedPrecision \| NotNaN \| NotInf`                          |
-| `tanh(a)`         | `__tanhf(a)`        | `ReducedPrecision \| NotNaN \| NotInf`                          |
-| `powf(a)`         | `__powf(a)`         | `ReducedPrecision \| NotNaN \| NotInf`                          |
-| `sqrt(a)`         | `__fsqrt_rn(a)`     | `ReducedPrecision \| NotNaN \| NotInf`                          |
-| `inverse_sqrt(a)` | `__frsqrt_rn(a)`    | `ReducedPrecision \| NotNaN \| NotInf`                          |
-| `recip(a)`        | `__frcp_rn(a)`      | `AllowReciprocal \| ReducedPrecision \| UnsignedZero \| NotInf` |
-| `normalize(a)`    | n/a (`__frsqrt_rn`) | `ReducedPrecision \| NotNaN \| NotInf`                          |
-| `magnitude(a)`    | n/a (`__fsqrt_rn`)  | `ReducedPrecision \| NotNaN \| NotInf`                          |
+#### CUDA/HIP C++
 
-#### Other Backends
+Forbidden contraction prints add, subtract, multiply and divide as `__fadd_rn` and its siblings on
+CUDA, complex numbers and complex `powf` included, and as helpers compiled under
+`#pragma clang fp contract(off)` on HIP. `mod_floor` is written out in those. Half precision runs in
+`f32` for these, which rounds to the same result. No other flag reaches the C++ compiler.
 
-Other backends currently don't support any of these optimizations.
+#### Metal
+
+Metal has no per-operation control. `cubecl-metal` compiles with `MathMode::Safe`, and WGPU with
+Metal's default, which is fast math.
+
+#### WGSL
+
+WGSL has no way to forbid contraction for one operation. CubeCL does not fuse a strict kernel's
+operations, but the shader compiler may.
 
 ## FastDivmod
 

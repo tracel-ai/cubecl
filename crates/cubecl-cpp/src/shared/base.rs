@@ -10,7 +10,8 @@ use crate::{
         metadata::LowerInfoPass,
         signature::{
             CollectIncludesPass, DeclareComplexHelpersOp, DeclareInfoTypeOp,
-            DeclareVectorTypesPass, buffer_io, buffers, shared_memory_size,
+            DeclareRoundedArithmeticOp, DeclareVectorTypesPass, buffer_io, buffers,
+            shared_memory_size,
         },
         unroll::CppUnrollPass,
     },
@@ -23,10 +24,13 @@ use core::marker::PhantomData;
 use cubecl_core::{
     ir::{
         AddressType, ContextExt, DeviceProperties, ElemType, FloatKind, IntKind, Type, UIntKind,
+        dialect::OperationPtrExt,
         features::{AtomicUsage, EnumSet, TypeUsage},
-        interfaces::TypedExt,
+        interfaces::{TypedExt, fast_math::FastMathOp},
         metadata::Info,
-        rewrite::{CanonicalizePass, SimplifyOpsPass, visit_all_values},
+        rewrite::{
+            CanonicalizePass, SimplifyOpsPass, visit_all_ops_with_interface, visit_all_values,
+        },
         settings::Dim3,
         types::scalar::{Complex32Type, Complex64Type},
     },
@@ -49,10 +53,10 @@ use cubecl_opt::passes::{
 use cubecl_runtime::compiler::{CompilationError, Compiler};
 use pliron::{
     builtin::ops::{FuncOp, ModuleOp},
-    context::Context,
+    context::{Context, Ptr},
     irbuild::match_rewrite::MatchRewrite,
     op::Op,
-    operation::verify_operation,
+    operation::{Operation, verify_operation},
     opts::{dce::DCEPass, mem2reg::Mem2RegPass},
     pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
 };
@@ -313,6 +317,12 @@ where
 
         passes.run(module_op, &mut ctx, &mut analyses)?;
 
+        if T::target() == Target::Hip && contains_unfused_arithmetic(&ctx, module_op) {
+            DeclareRoundedArithmeticOp::new(&mut ctx)
+                .get_operation()
+                .insert_before(&ctx, entry_func.get_operation());
+        }
+
         #[cfg(feature = "metal")]
         if T::target() == Target::Metal {
             crate::metal::builtin::append_msl_builtins(&mut ctx, entry_func);
@@ -361,6 +371,15 @@ where
 
         Ok(compute_kernel)
     }
+}
+
+/// Whether `module` holds [unfused arithmetic](OperationPtrExt::is_unfused_arithmetic).
+fn contains_unfused_arithmetic(ctx: &Context, module: Ptr<Operation>) -> bool {
+    let mut found = false;
+    visit_all_ops_with_interface::<dyn FastMathOp, _>(ctx, &mut found, module, |ctx, found, op| {
+        *found |= op.get_operation().is_unfused_arithmetic(ctx);
+    });
+    found
 }
 
 #[cfg(feature = "pliron-dump")]

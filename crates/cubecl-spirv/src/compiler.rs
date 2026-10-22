@@ -27,10 +27,15 @@ use cubecl_core::{
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::{
+    FastMath,
     attributes::{ATTR_BUFFER_IO, BufferIOAttr, EntrypointInterface},
     dialect::{scf::BranchToSCFPass, ssa_matrix::MatrixToSSAPass},
+    interfaces::{TypedExt, fast_math::FastMathOp},
     prelude::{OperationPtrExt, SingleBlockRegionInterface, SymbolOpInterface},
-    rewrite::{CanonicalizePass, visit_all_ops_of_type, visit_all_ops_of_type_mut},
+    rewrite::{
+        CanonicalizePass, visit_all_ops_of_type, visit_all_ops_of_type_mut,
+        visit_all_ops_with_interface,
+    },
     settings::{Dim3, KernelSettings},
 };
 use cubecl_opt::passes::{
@@ -65,7 +70,10 @@ use pliron::{
 use pliron_spirv::{
     PlironBuilder, ToSpirvOp,
     attrs::VerCapExtAttr,
-    decorations::{DecoratableOp, set_decoration_uniform, set_decoration_uniform_id},
+    decorations::{
+        DecoratableOp, set_decoration_no_contraction, set_decoration_uniform,
+        set_decoration_uniform_id,
+    },
     ops::{EntryPointOp, ExecutionModeOp, GlobalVariableOp, SpirvModuleOp},
 };
 use rspirv::{
@@ -261,6 +269,7 @@ impl SpirvCompiler {
         passes.add_pass(AnnotateGlobalVisibilityPass);
 
         passes.run(module_op, ctx, &mut analyses)?;
+        let preserved_widths = ieee_special_value_widths(ctx, module_op);
 
         let bindings = (0..entry.deref(ctx).get_num_arguments()).map(|i| {
             let io = entry_func.get_arg_attr::<BufferIOAttr>(ctx, i, &ATTR_BUFFER_IO);
@@ -311,7 +320,7 @@ impl SpirvCompiler {
         passes.run(spirv_module_op, ctx, &mut analyses)?;
 
         let (shared_size, shared_args) = lower_shared(ctx, spirv_module);
-        declare_entry_point(ctx, spirv_module, shared_args);
+        declare_entry_point(ctx, spirv_module, shared_args, preserved_widths);
         hoist_constants(ctx, spirv_module);
 
         // Make sure this is the last pass so it catches all ops
@@ -389,7 +398,12 @@ fn hoist_constants(ctx: &mut Context, module: SpirvModuleOp) {
     }
 }
 
-fn declare_entry_point(ctx: &mut Context, module: SpirvModuleOp, shared_args: Vec<Identifier>) {
+fn declare_entry_point(
+    ctx: &mut Context,
+    module: SpirvModuleOp,
+    shared_args: Vec<Identifier>,
+    preserved_widths: Vec<u32>,
+) {
     let op = module.get_operation();
     // The builtins are the `Input` variables (see `LowerBuiltinsPass`).
     let mut inputs = vec![];
@@ -401,9 +415,9 @@ fn declare_entry_point(ctx: &mut Context, module: SpirvModuleOp, shared_args: Ve
     });
     visit_all_ops_of_type_mut::<FuncOp, _>(
         ctx,
-        &mut (module, shared_args, inputs),
+        &mut (module, shared_args, inputs, preserved_widths),
         op,
-        |ctx, (module, shared_args, inputs), func| {
+        |ctx, (module, shared_args, inputs, preserved_widths), func| {
             let Some(entry) = func.get_entrypoint_abi(ctx) else {
                 return;
             };
@@ -421,11 +435,63 @@ fn declare_entry_point(ctx: &mut Context, module: SpirvModuleOp, shared_args: Ve
             );
             entry_point.get_operation().insert_at_front(block, ctx);
             let (x, y, z) = entry.cube_dim.into();
+            for &width in preserved_widths.iter() {
+                let preserve = ExecutionModeOp::new(
+                    ctx,
+                    func_name.clone(),
+                    ExecutionMode::SignedZeroInfNanPreserve,
+                    vec![width],
+                );
+                preserve.get_operation().insert_at_front(block, ctx);
+            }
             let execution_mode =
                 ExecutionModeOp::new(ctx, func_name, ExecutionMode::LocalSize, vec![x, y, z]);
             execution_mode.get_operation().insert_at_front(block, ctx);
         },
     );
+}
+
+/// The float widths in `module` with an op that must keep NaN, infinity or the sign of zero, and
+/// that the device can keep IEEE. The mode covers the whole entry point.
+fn ieee_special_value_widths(ctx: &Context, module: Ptr<Operation>) -> Vec<u32> {
+    let mut widths = Vec::new();
+    visit_all_ops_with_interface::<dyn FastMathOp, _>(
+        ctx,
+        &mut widths,
+        module,
+        |ctx, widths, op| {
+            let assumptions = FastMath::NotNaN | FastMath::NotInf | FastMath::UnsignedZero;
+            if !op.allows(ctx, assumptions) {
+                widths.extend(float_widths(ctx, op.get_operation()));
+            }
+        },
+    );
+    let vulkan = ctx.aux_ty::<WgpuCompilationOptions>().vulkan;
+    widths.sort_unstable();
+    widths.dedup();
+    widths.retain(|&width| vulkan.preserves_special_values(width));
+    widths
+}
+
+/// The widths of the floats `op` reads or writes.
+fn float_widths(ctx: &Context, op: Ptr<Operation>) -> Vec<u32> {
+    let op = op.deref(ctx);
+    op.operands()
+        .chain(op.results())
+        .filter_map(|value| value.try_get_scalar_elem_ty(ctx))
+        .filter(|scalar| scalar.is_float(ctx))
+        .map(|scalar| scalar.size_bits(ctx) as u32)
+        .collect()
+}
+
+/// Carries the fast-math permissions of `cube_op` onto `op`, the SPIR-V it lowered to.
+pub(crate) fn decorate_fast_math(ctx: &Context, cube_op: Ptr<Operation>, op: Ptr<Operation>) {
+    if !cube_op.is_unfused_arithmetic(ctx) {
+        return;
+    }
+    if let Some(decoratable) = op_cast::<dyn DecoratableOp>(&*op.dyn_op(ctx)) {
+        set_decoration_no_contraction(decoratable, ctx);
+    }
 }
 
 pub(crate) fn decorate_uniform(ctx: &Context, op: Ptr<Operation>, uniformity: Option<UniformAttr>) {

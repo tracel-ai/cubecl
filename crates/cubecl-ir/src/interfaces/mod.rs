@@ -25,6 +25,7 @@ use pliron::{
 
 pub mod aliasing;
 pub mod control_flow;
+pub mod fast_math;
 pub mod memory_slot;
 pub mod side_effects;
 pub mod traits;
