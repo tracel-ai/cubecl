@@ -5,8 +5,8 @@ use cubecl::unexpanded;
 
 use crate::dialect::{LevelOp, TilesExpand};
 use crate::{
-    Axis, ComputeScope, Coords, CoordsExpand, Integer, IntegerExpand, Level, Planes, Region, RegionExpand, Space,
-    StageOwner,
+    Axis, ComputeScope, Coords, CoordsExpand, Integer, IntegerExpand, Level, Planes, Region,
+    RegionExpand, Space, StageOwner,
 };
 
 use super::distribution::{AxisDistribution, Distribution};

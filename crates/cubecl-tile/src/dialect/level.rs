@@ -8,10 +8,7 @@ use cubecl_ir::{
 use pliron::{
     basic_block::BasicBlock,
     graph::walkers::uninterruptible::immutable::walk_op,
-    irbuild::{
-        inserter::OpInsertionPoint,
-        listener::DummyListener,
-    },
+    irbuild::{inserter::OpInsertionPoint, listener::DummyListener},
     linked_list::ContainsLinkedList,
 };
 
@@ -33,10 +30,7 @@ pub struct LevelOp;
 
 impl LevelOp {
     /// The `(counts, positions, scales)` `body` traces, inside a `tile.level` op.
-    pub(crate) fn trace(
-        scope: &Scope,
-        body: impl FnOnce(&Scope) -> TilesExpand,
-    ) -> TilesExpand {
+    pub(crate) fn trace(scope: &Scope, body: impl FnOnce(&Scope) -> TilesExpand) -> TilesExpand {
         let block = BasicBlock::new(scope.ctx_mut(), None, vec![]);
         let child = scope.branch_child(OpInserter::new_at_block_end(block));
         let (mut counts, mut positions, mut scales) = body(&child);
@@ -104,6 +98,9 @@ pub(crate) fn levels(ctx: &Context, root: Ptr<Operation>) -> Vec<LevelOp> {
 
 /// Lowers each `tile.level` op to the code its region holds, in its place: what tracing wrote
 /// before the op existed.
+///
+/// With the test-only `sequential-levels` feature, it lowers each one instead to a loop over the
+/// level's instances, run by the first.
 #[derive(Default)]
 pub struct LowerLevelPass;
 
@@ -119,6 +116,8 @@ impl Pass for LowerLevelPass {
         let mut rewriter = IRRewriter::<DummyListener>::default();
         for level in levels(ctx, op) {
             res.ir_changed |= IRStatus::Changed;
+            #[cfg(feature = "sequential-levels")]
+            super::sequential::run_on_first_instance(ctx, &mut rewriter, &level)?;
             level.inline(ctx, &mut rewriter);
         }
         Ok(res)

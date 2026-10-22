@@ -20,6 +20,8 @@ workspace = true
 [features]
 default = ["std", "cubecl-core/default"]
 std = ["cubecl-core/std"]
+# Test only: each distributed level runs as a loop over its instances on the first one.
+sequential-levels = ["dep:thiserror"]
 
 
 [dependencies]
@@ -33,6 +35,7 @@ hashbrown = { workspace = true }
 pliron = { workspace = true }
 half = { workspace = true, features = ["bytemuck"] }
 serde = { workspace = true }
+thiserror = { workspace = true, optional = true }
 
 
 [dev-dependencies]
