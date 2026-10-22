@@ -439,7 +439,7 @@ fn lower(
     #[cfg(feature = "pliron-dump")]
     let ir_printing_dir = pliron_path(&kernel.name);
     let config = PMConfig {
-        print_after_all: true,
+        print_after_all: cfg!(feature = "pliron-dump"),
         ir_printing_dir,
         ..Default::default()
     };
