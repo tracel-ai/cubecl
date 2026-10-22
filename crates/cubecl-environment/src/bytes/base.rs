@@ -637,6 +637,52 @@ impl Bytes {
         bytes
     }
 
+    /// Creates empty bytes with `capacity` bytes of memory from the same memory as `self`.
+    ///
+    /// Use it for the output of an operation, so that the output stays in the memory of its
+    /// input, for example the same arena. When `self` has no memory of its own to allocate
+    /// from, for example device or file memory, the memory comes from the global allocator, as
+    /// with [`Self::with_capacity`].
+    ///
+    /// # Errors
+    ///
+    /// - [`AllocationError::OutOfMemory`] when the memory of `self` has no space for `capacity`
+    ///   bytes.
+    /// - [`AllocationError::UnsupportedOperation`] when `align` is larger than 16 bytes.
+    pub fn with_capacity_like(
+        &self,
+        capacity: usize,
+        align: usize,
+    ) -> Result<Self, AllocationError> {
+        Ok(Self {
+            controller: alloc_like(&*self.controller, capacity, align)?,
+            len: 0,
+        })
+    }
+
+    /// Creates bytes that hold `f(0)`, `f(1)`, ..., `f(n - 1)`, in the same memory as `self`.
+    ///
+    /// The alignment is the alignment of `E`. See [`Self::with_capacity_like`] for where the
+    /// memory comes from. Memory from the global allocator can become a `Vec` without a copy,
+    /// as with [`Self::from_fn`].
+    ///
+    /// # Errors
+    ///
+    /// The same as [`Self::with_capacity_like`]. A size that overflows `usize` is
+    /// [`AllocationError::OutOfMemory`].
+    pub fn from_fn_like<E, F>(&self, n: usize, f: F) -> Result<Self, AllocationError>
+    where
+        E: bytemuck::NoUninit,
+        F: FnMut(usize) -> E,
+    {
+        let size = n
+            .checked_mul(size_of::<E>())
+            .ok_or(AllocationError::OutOfMemory)?;
+        let mut bytes = self.with_capacity_like(size, align_of::<E>())?;
+        bytes.write_from_fn(n, f);
+        Ok(bytes)
+    }
+
     /// Writes `f(0)`, ..., `f(n - 1)` after `len`, and adds them to `len`.
     ///
     /// The spare capacity must hold `n` elements, and `len` must be zero, so that the elements

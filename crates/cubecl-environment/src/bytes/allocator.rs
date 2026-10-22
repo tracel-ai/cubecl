@@ -214,7 +214,7 @@ pub(crate) type AllocatorController = Controller<&'static dyn BufferAllocator>;
 mod tests {
     use super::*;
     use crate::bytes::{Bytes, ScratchBuffer, SplitPolicy, default_controller::MAX_ALIGN};
-    use alloc::boxed::Box;
+    use alloc::{boxed::Box, vec};
     use core::sync::atomic::{AtomicUsize, Ordering};
     #[cfg(feature = "dyn-stack")]
     use {
@@ -481,6 +481,43 @@ mod tests {
         let ptr = bytes.as_ptr();
         let vec = bytes.try_into_vec::<f32>().unwrap();
         assert_eq!(vec, [0.0, 1.0, 2.0, 3.0]);
+        assert_eq!(vec.as_ptr().cast::<u8>(), ptr);
+    }
+
+    #[test_log::test]
+    fn output_like_an_input_stays_in_the_allocator() {
+        let arena = Counting::leak(usize::MAX);
+        let input = Bytes::from_slice_in(arena, &[1, 2, 3, 4], 1).unwrap();
+        let output = input
+            .from_fn_like(3, |i| u16::try_from(i).unwrap())
+            .unwrap();
+        assert_eq!(bytemuck::cast_slice::<u8, u16>(&output), &[0, 1, 2]);
+        assert_eq!(output.align(), align_of::<u16>());
+        assert_eq!(output.property(), AllocationProperty::Other);
+        assert_eq!(arena.counts(), (2, 0, 0));
+        drop((input, output));
+        assert_eq!(arena.live(), 0);
+    }
+
+    #[test_log::test]
+    fn output_like_an_exhausted_allocator_is_an_error() {
+        let arena = Counting::leak(4);
+        let input = Bytes::from_slice_in(arena, &[1, 2, 3, 4], 1).unwrap();
+        assert_eq!(
+            input.with_capacity_like(1, 1).unwrap_err(),
+            AllocationError::OutOfMemory
+        );
+    }
+
+    #[test_log::test]
+    fn output_like_global_memory_becomes_a_vec_without_a_copy() {
+        let input = Bytes::from_elems(vec![1u8, 2, 3]);
+        let output = input
+            .from_fn_like(2, |i| f32::from(u8::try_from(i).unwrap()))
+            .unwrap();
+        let ptr = output.as_ptr();
+        let vec = output.try_into_vec::<f32>().unwrap();
+        assert_eq!(vec, [0.0, 1.0]);
         assert_eq!(vec.as_ptr().cast::<u8>(), ptr);
     }
 
