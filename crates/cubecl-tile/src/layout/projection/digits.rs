@@ -58,7 +58,7 @@ pub(crate) fn axis_offset(
 /// The logical coordinate producing physical `digits` under `projection`, inverting
 /// `BufferLayout`'s `to_source_pos`. Requires [`Projection::is_invertible`].
 #[cube]
-pub(crate) fn fold_physical(
+pub(crate) fn logical_of_digits(
     #[comptime] projection: Projection,
     digits: &Coords<u32>,
     physical_shape: &Coords<u32>,
@@ -107,7 +107,7 @@ mod tests {
 
     /// Folding the digits back reconstructs the coordinate they were decomposed from.
     #[test]
-    fn fold_physical_digits_invert_to_source_pos_digits() {
+    fn logical_of_digits_inverts_the_digits_to_source_pos_reads() {
         let shape = [3usize, 8];
         let p = Projection::new(
             &[A],

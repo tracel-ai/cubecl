@@ -83,7 +83,7 @@ fn constant_like<C: Int>(scope: &Scope, v: u64, e: &NativeExpand<C>) -> NativeEx
     ExpandValue::constant(v.into(), ty).into()
 }
 
-pub(crate) fn fold_add<C: Int>(
+pub(crate) fn simplified_add<C: Int>(
     scope: &Scope,
     lhs: NativeExpand<C>,
     rhs: NativeExpand<C>,
@@ -96,7 +96,11 @@ pub(crate) fn fold_add<C: Int>(
     }
 }
 
-fn fold_sub<C: Int>(scope: &Scope, lhs: NativeExpand<C>, rhs: NativeExpand<C>) -> NativeExpand<C> {
+fn simplified_sub<C: Int>(
+    scope: &Scope,
+    lhs: NativeExpand<C>,
+    rhs: NativeExpand<C>,
+) -> NativeExpand<C> {
     match (constant(&lhs), constant(&rhs)) {
         (Some(a), Some(b)) if a >= b => constant_like(scope, a - b, &lhs),
         (None, Some(0)) => lhs,
@@ -104,7 +108,7 @@ fn fold_sub<C: Int>(scope: &Scope, lhs: NativeExpand<C>, rhs: NativeExpand<C>) -
     }
 }
 
-pub(crate) fn fold_mul<C: Int>(
+pub(crate) fn simplified_mul<C: Int>(
     scope: &Scope,
     lhs: NativeExpand<C>,
     rhs: NativeExpand<C>,
@@ -118,7 +122,11 @@ pub(crate) fn fold_mul<C: Int>(
     }
 }
 
-fn fold_div<C: Int>(scope: &Scope, lhs: NativeExpand<C>, rhs: NativeExpand<C>) -> NativeExpand<C> {
+fn simplified_div<C: Int>(
+    scope: &Scope,
+    lhs: NativeExpand<C>,
+    rhs: NativeExpand<C>,
+) -> NativeExpand<C> {
     match (constant(&lhs), constant(&rhs)) {
         (Some(a), Some(b)) if b != 0 => constant_like(scope, a / b, &lhs),
         (None, Some(1)) => lhs,
@@ -128,7 +136,11 @@ fn fold_div<C: Int>(scope: &Scope, lhs: NativeExpand<C>, rhs: NativeExpand<C>) -
     }
 }
 
-fn fold_rem<C: Int>(scope: &Scope, lhs: NativeExpand<C>, rhs: NativeExpand<C>) -> NativeExpand<C> {
+fn simplified_rem<C: Int>(
+    scope: &Scope,
+    lhs: NativeExpand<C>,
+    rhs: NativeExpand<C>,
+) -> NativeExpand<C> {
     match (constant(&lhs), constant(&rhs)) {
         (Some(a), Some(b)) if b != 0 => constant_like(scope, a % b, &lhs),
         (None, Some(1)) | (Some(0), None) => constant_like(scope, 0, &lhs),
@@ -136,14 +148,22 @@ fn fold_rem<C: Int>(scope: &Scope, lhs: NativeExpand<C>, rhs: NativeExpand<C>) -
     }
 }
 
-fn fold_min<C: Int>(scope: &Scope, lhs: NativeExpand<C>, rhs: NativeExpand<C>) -> NativeExpand<C> {
+fn simplified_min<C: Int>(
+    scope: &Scope,
+    lhs: NativeExpand<C>,
+    rhs: NativeExpand<C>,
+) -> NativeExpand<C> {
     match (constant(&lhs), constant(&rhs)) {
         (Some(a), Some(b)) => constant_like(scope, a.min(b), &lhs),
         _ => C::__expand_min(scope, lhs, rhs),
     }
 }
 
-fn fold_max<C: Int>(scope: &Scope, lhs: NativeExpand<C>, rhs: NativeExpand<C>) -> NativeExpand<C> {
+fn simplified_max<C: Int>(
+    scope: &Scope,
+    lhs: NativeExpand<C>,
+    rhs: NativeExpand<C>,
+) -> NativeExpand<C> {
     match (constant(&lhs), constant(&rhs)) {
         (Some(a), Some(b)) => constant_like(scope, a.max(b), &lhs),
         _ => C::__expand_max(scope, lhs, rhs),
@@ -165,25 +185,25 @@ pub(crate) trait IntegerExpand<C: Int>: Sized {
 
 impl<C: Int> IntegerExpand<C> for NativeExpand<C> {
     fn __expand_plus_method(self, scope: &Scope, rhs: Self) -> Self {
-        fold_add(scope, self, rhs)
+        simplified_add(scope, self, rhs)
     }
     fn __expand_minus_method(self, scope: &Scope, rhs: Self) -> Self {
-        fold_sub(scope, self, rhs)
+        simplified_sub(scope, self, rhs)
     }
     fn __expand_times_method(self, scope: &Scope, rhs: Self) -> Self {
-        fold_mul(scope, self, rhs)
+        simplified_mul(scope, self, rhs)
     }
     fn __expand_divided_by_method(self, scope: &Scope, rhs: Self) -> Self {
-        fold_div(scope, self, rhs)
+        simplified_div(scope, self, rhs)
     }
     fn __expand_remainder_method(self, scope: &Scope, rhs: Self) -> Self {
-        fold_rem(scope, self, rhs)
+        simplified_rem(scope, self, rhs)
     }
     fn __expand_min_with_method(self, scope: &Scope, rhs: Self) -> Self {
-        fold_min(scope, self, rhs)
+        simplified_min(scope, self, rhs)
     }
     fn __expand_max_with_method(self, scope: &Scope, rhs: Self) -> Self {
-        fold_max(scope, self, rhs)
+        simplified_max(scope, self, rhs)
     }
     fn __expand_cast_method<To: Int>(self, scope: &Scope) -> NativeExpand<To> {
         match constant(&self) {
@@ -207,7 +227,7 @@ impl<C: Int> IntegerSeqExpand<C> for SequenceExpand<C> {
             ExpandValue::constant(0u64.into(), C::elem_type(scope)).into();
         for i in picks {
             let e = *self.__expand_index_method(scope, NativeExpand::from_lit(scope, i));
-            acc = fold_add(scope, acc, e);
+            acc = simplified_add(scope, acc, e);
         }
         acc
     }

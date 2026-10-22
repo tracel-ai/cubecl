@@ -113,11 +113,11 @@ impl<'a, E: Numeric, V: Size, C: Coordinates + 'a> AccumulateView<'a, E, V, C> {
     /// Fold a finished block back across the plane; one unit writes the total.
     pub(crate) fn commit(&mut self, pos: C, value: Vector<E, V>) {
         match comptime!(self.drain) {
-            Drain::PlaneFold => {
+            Drain::PlaneReduce => {
                 let combined = self.units.reduce::<Vector<E, V>>(value, self.monoid);
                 self.commit_shared(pos, combined, UNIT_POS_X == 0);
             }
-            Drain::GroupFold { unit_bits } => {
+            Drain::GroupReduce { unit_bits } => {
                 let combined = self.units.reduce::<Vector<E, V>>(value, self.monoid);
                 let unit_in_group = UNIT_POS_X & comptime!(unit_bits as u32);
                 self.commit_shared(pos, combined, unit_in_group == 0);

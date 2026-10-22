@@ -180,7 +180,7 @@ mod tests {
     /// A folded step needs both operands lined.
     #[test]
     #[should_panic(expected = "line the lhs along")]
-    fn a_folded_step_needs_both_operands_lined() {
+    fn a_summing_step_needs_both_operands_lined() {
         let (lhs, rhs, acc) = spaces(&[M, K], &[N, K]);
         contracted_per_step(&lhs, &rhs, &acc, 1, 4, 1);
     }
@@ -188,7 +188,7 @@ mod tests {
     /// A folded step needs a scalar accumulator.
     #[test]
     #[should_panic(expected = "cannot also be served")]
-    fn a_folded_step_needs_a_scalar_accumulator() {
+    fn a_summing_step_needs_a_scalar_accumulator() {
         let (lhs, rhs, acc) = spaces(&[M, K], &[N, K]);
         contracted_per_step(&lhs, &rhs, &acc, 4, 4, 2);
     }

@@ -49,16 +49,16 @@ pub(crate) enum Drain {
     /// Every unit holds the same whole cells and the write folds, so one unit writes.
     UnitZero,
     /// Units each hold a partial of one cell: combine across the plane, unit zero writes.
-    PlaneFold,
+    PlaneReduce,
     /// Groups each hold a partial of one cell: combine within the group, its first unit writes.
-    GroupFold { unit_bits: usize },
+    GroupReduce { unit_bits: usize },
 }
 
 impl Drain {
     pub(crate) const fn of(units: UnitShare, write: Write) -> Self {
         match (units, write) {
-            (UnitShare::Plane, _) => Drain::PlaneFold,
-            (UnitShare::Group { unit_bits }, _) => Drain::GroupFold { unit_bits },
+            (UnitShare::Plane, _) => Drain::PlaneReduce,
+            (UnitShare::Group { unit_bits }, _) => Drain::GroupReduce { unit_bits },
             // Repeated units hold the same cells: a store may land many times, a fold only once.
             (UnitShare::Repeated, Write::Accumulate | Write::Exclusive(_)) => Drain::UnitZero,
             (UnitShare::Repeated, Write::Replace) | (UnitShare::Whole, _) => Drain::EachUnit,

@@ -84,8 +84,8 @@ impl Scratch {
     }
 
     /// This setting raised to what `folds` demands.
-    pub fn at_least_bouncing(self, folds: bool) -> Scratch {
-        match (folds, self) {
+    pub fn at_least_bouncing(self, bouncing: bool) -> Scratch {
+        match (bouncing, self) {
             (true, Scratch::None) => Scratch::OneTile,
             (_, scratch) => scratch,
         }
@@ -561,7 +561,7 @@ fn register_accumulator<EA: Numeric>(
     let rhs_load = rhs.vector_tile();
     let rw = comptime!(rhs_load.run_length());
     let aw = out.vector_size();
-    let fold = comptime!(memory::contracted_per_step(
+    let contracted_per_step = comptime!(memory::contracted_per_step(
         &lhs.place.space,
         &rhs.place.space,
         &out.place.space,
@@ -571,19 +571,19 @@ fn register_accumulator<EA: Numeric>(
     ));
     // A block outliving the leaf cannot spread lines, so its lines and the sink's agree or fold.
     comptime!(assert!(
-        fold > 1 || rw == aw,
+        contracted_per_step > 1 || rw == aw,
         "Tile::accumulator: the block's lines are the rhs's ({rw} wide) and drain into \
          {aw}-wide cells; a stage served wider than its sink is the memory-backed leaf's \
          (Tile::accumulating)"
     ));
     // A block contracting runs along the contraction sums each into its cell, one value wide.
-    let width = comptime!(if fold > 1 { 1 } else { rw });
+    let width = comptime!(if contracted_per_step > 1 { 1 } else { rw });
     accumulator_in::<EA>(
         out,
         lhs,
         comptime!(Instruction::Registers { config }),
         width,
-        fold,
+        contracted_per_step,
         comptime!(Accumulation::Contraction(semiring)),
     )
 }
@@ -595,7 +595,7 @@ fn accumulator_in<EA: Numeric>(
     lhs: &Tile,
     #[comptime] form: Instruction,
     #[comptime] vector_size: usize,
-    #[comptime] fold: usize,
+    #[comptime] contracted_per_step: usize,
     #[comptime] accumulation: Accumulation,
 ) -> Tile {
     comptime!(assert!(
@@ -610,7 +610,7 @@ fn accumulator_in<EA: Numeric>(
         comptime!(form),
         comptime!(GridShape::new(&out.place, &lhs.place.space)),
         vector_size,
-        fold,
+        contracted_per_step,
         accumulation,
         comptime!(out.place.depth),
         comptime!(out.place.levels.clone()),

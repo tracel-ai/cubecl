@@ -66,7 +66,7 @@ impl PlaneTile {
         #[comptime] axes: MatrixAxes,
         #[comptime] k: usize,
         #[comptime] vector_size: usize,
-        #[comptime] fold: usize,
+        #[comptime] contracted_per_step: usize,
         #[comptime] accumulation: Accumulation,
     ) -> PlaneTile {
         match comptime!(form) {
@@ -85,9 +85,17 @@ impl PlaneTile {
                 io,
                 operands,
             )),
-            Instruction::Registers { config } => PlaneTile::new_Registers(
-                RegisterData::alloc::<T>(m, n, axes, vector_size, fold, config, accumulation),
-            ),
+            Instruction::Registers { config } => {
+                PlaneTile::new_Registers(RegisterData::alloc::<T>(
+                    m,
+                    n,
+                    axes,
+                    vector_size,
+                    contracted_per_step,
+                    config,
+                    accumulation,
+                ))
+            }
             Instruction::Wgmma => PlaneTile::new_Wgmma(WgmmaData::new::<T>(m, n, axes)),
         }
     }
@@ -570,7 +578,7 @@ impl PlanePartition {
         #[comptime] form: Instruction,
         #[comptime] grid: GridShape,
         #[comptime] vector_size: usize,
-        #[comptime] fold: usize,
+        #[comptime] contracted_per_step: usize,
         #[comptime] accumulation: Accumulation,
         #[comptime] depth: usize,
         #[comptime] levels: Vec<Level>,
@@ -590,7 +598,7 @@ impl PlanePartition {
                     axes,
                     k,
                     vector_size,
-                    fold,
+                    contracted_per_step,
                     accumulation,
                 ));
             }

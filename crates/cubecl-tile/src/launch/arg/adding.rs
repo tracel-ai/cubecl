@@ -31,7 +31,7 @@ pub(crate) fn adding_tile<E: Numeric, V: Size>(
         comptime!(arg.spec.projection.physical_rank()),
     );
     GlobalOperand::sink(
-        relay_sink::<E, V>(lines, first),
+        adding_sink::<E, V>(lines, first),
         geometry,
         V::value(),
         comptime!(space.space().clone()),
@@ -44,18 +44,18 @@ pub(crate) fn adding_tile<E: Numeric, V: Size>(
 /// The erased tensor over the carry that replaces each line written on the `first` turn and adds
 /// into it on every other.
 ///
-/// A constructor here rather than in cubecl for the reason the atomic sink's is: what a write
-/// *means* is this crate's statement, and cubecl's own backings all replace.
+/// A constructor here rather than beside cubecl-std's erased tensors, as the atomic sink's is:
+/// what a write *means* is the tile's statement, and cubecl-std's own backings all replace.
 // `N` is read by the expansion, which is where a `Size` has a value.
 #[allow(clippy::extra_unused_type_parameters)]
-fn relay_sink<E: Numeric, N: Size>(
+fn adding_sink<E: Numeric, N: Size>(
     _values: &Tensor<Vector<E, N>>,
     _first: bool,
 ) -> ErasedTensor<E, WriteOnly> {
     unexpanded!()
 }
 
-mod relay_sink {
+mod adding_sink {
     use super::*;
 
     pub fn expand<E: Numeric, N: Size>(
@@ -63,7 +63,7 @@ mod relay_sink {
         values: &<Tensor<Vector<E, N>> as CubeType>::ExpandType,
         first: NativeExpand<bool>,
     ) -> ErasedTensorExpand<E, WriteOnly> {
-        ErasedTensorExpand::new(RelaySink::<E, N> {
+        ErasedTensorExpand::new(AddingSink::<E, N> {
             values: ExpandTypeClone::clone_unchecked(values),
             first,
             _n: PhantomData,
@@ -74,13 +74,13 @@ mod relay_sink {
 /// A backing that writes each line on the first turn and adds into it on the rest: a read and a
 /// write, not an atomic, so it declares [`WritesLines`] alone. The read is the write's own, never
 /// the drain's, and the turns keep one cube at the box at a time.
-struct RelaySink<E: Numeric, N: Size> {
+struct AddingSink<E: Numeric, N: Size> {
     values: <Tensor<Vector<E, N>> as CubeType>::ExpandType,
     first: NativeExpand<bool>,
     _n: PhantomData<N>,
 }
 
-impl<E: Numeric, N: Size> ErasedTensorOperationsExpand<E> for RelaySink<E, N> {
+impl<E: Numeric, N: Size> ErasedTensorOperationsExpand<E> for AddingSink<E, N> {
     fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
         <N as Size>::__expand_value(scope)
     }
@@ -97,15 +97,15 @@ impl<E: Numeric, N: Size> ErasedTensorOperationsExpand<E> for RelaySink<E, N> {
         index: NativeExpand<usize>,
         value: ExpandValue,
     ) {
-        relay_line::expand::<E, N>(scope, &mut self.values, index, value.into(), self.first);
+        adding_line::expand::<E, N>(scope, &mut self.values, index, value.into(), self.first);
     }
 }
 
-impl<E: Numeric, N: Size> WritesLines<E> for RelaySink<E, N> {}
+impl<E: Numeric, N: Size> WritesLines<E> for AddingSink<E, N> {}
 
 /// One line of the carry: `value` on the first turn, the line there plus `value` after.
 #[cube]
-fn relay_line<E: Numeric, N: Size>(
+fn adding_line<E: Numeric, N: Size>(
     values: &mut Tensor<Vector<E, N>>,
     index: usize,
     value: Vector<E, N>,

@@ -262,7 +262,7 @@ mod tests {
     }
 
     #[test]
-    fn a_windowed_masked_or_folding_destination_scans() {
+    fn a_windowed_masked_or_summing_destination_scans() {
         let windowed = Access {
             whole: false,
             ..access()
