@@ -159,6 +159,29 @@ pub(crate) enum WindowCut {
     Shifted,
 }
 
+/// A page table entry and the cell it was read from: the page column `column` of sequence
+/// `sequence` lists. A cut naming that cell takes `page` from it instead of loading the table.
+#[derive(CubeType, CubeTypeMut, Clone)]
+#[expand(derive(Clone))]
+pub struct PageEntry {
+    sequence: u32,
+    column: u32,
+    page: u32,
+}
+
+#[cube]
+impl PageEntry {
+    /// The entry no table lists, what a buffer that is not a pool of pages has. A cut that names
+    /// it reads page 0, which is what the table gives outside itself.
+    pub fn unlisted() -> PageEntry {
+        PageEntry {
+            sequence: 0xFFFF_FFFFu32,
+            column: 0xFFFF_FFFFu32,
+            page: 0u32,
+        }
+    }
+}
+
 /// A page table as a kernel reads it: `u32`, `[sequences, pages_per_sequence]`, read by stride.
 /// Its shape is the operand's: the sequences it lists and their positions, `page_size` a column.
 /// It holds at least one entry, which [`lookup`](Self::lookup) reads for every window.
@@ -176,19 +199,21 @@ pub(crate) struct PageTable {
     /// The pool's last page: a table entry past it reads it, since a table is device data a
     /// launch may never have written.
     last_page: u32,
-    /// The page a window's origin lies in, resolved once as the window is cut
-    /// ([`pinned_at`](Self::pinned_at)): a line in the same sequence and the same column of the
-    /// table reads it without loading from the table.
-    pin_sequence: u32,
-    pin_column: u32,
-    pin_page: u32,
-    /// The page of the column after the pin's, where the window [`Spans::TwoPages`].
-    next_page: u32,
+    /// The entry this window was cut with, resolved once at the cut
+    /// ([`pinned_at`](Self::pinned_at)): a line in the same sequence and column reads its page from
+    /// here without loading the table. Replaced at each cut that resolves a new page.
+    pin: PageEntry,
     /// Where the pin's column starts, in positions.
     pin_start: u32,
-    /// What a line of the pinned page, or the next, adds to its offset as one sequence's.
+    /// What a line of the pinned page, or the next where the window [`Spans::TwoPages`], adds to
+    /// its offset as one sequence's.
     pin_base: u32,
     next_base: u32,
+    /// An entry handed in by [`Tile::with_page_entry`](crate::Tile::with_page_entry), consulted by
+    /// every cut that resolves its page and kept across cuts, unlike [`pin`](Self::pin). It holds
+    /// one page, so the page after it, which a [`Spans::TwoPages`] window also needs, is still
+    /// loaded. Absent at compile time when none is handed, so the cut emits no compare.
+    handed: ComptimeOption<PageEntry>,
     /// What the window's extent proves of the pages its lines lie in.
     #[cube(comptime)]
     spans: Spans,
@@ -251,13 +276,11 @@ impl PageTable {
             pages_per_sequence,
             // A bound pool holds a page at least; one stated by hand is kept off underflow.
             last_page: pool_pages.max_with(1u32).minus(1u32),
-            pin_sequence: 0u32,
-            pin_column: 0u32,
-            pin_page: 0u32,
-            next_page: 0u32,
+            pin: PageEntry::unlisted(),
             pin_start: 0u32,
             pin_base: 0u32,
             next_base: 0u32,
+            handed: ComptimeOption::new_None(),
             spans: comptime!(Spans::Any),
             origin_alignment: comptime!(0usize),
             page_size: comptime!(paging.page_size),
@@ -265,7 +288,15 @@ impl PageTable {
             position_dim,
             unit,
         };
-        unpinned.pinned(0u32, 0u32, comptime!(Spans::Any), comptime!(0usize))
+        let (first, no_stride) = (0u32, 0u32);
+        unpinned.pinned(
+            first,
+            first,
+            comptime!(Spans::Any),
+            comptime!(0usize),
+            no_stride,
+            no_stride,
+        )
     }
 
     /// This table for the window whose origin is `origin`, cut from the one this table was pinned
@@ -300,7 +331,7 @@ impl PageTable {
             ),
         });
         match comptime!(pin) {
-            Pin::Kept => self.aligned(origin_alignment),
+            Pin::Kept => self.with_alignment_and_entry(origin_alignment, self.handed.clone()),
             Pin::Resolved(spans) => self.repinned(
                 origin,
                 spans,
@@ -320,45 +351,42 @@ impl PageTable {
         sequence_stride: u32,
         position_stride: u32,
     ) -> PageTable {
-        let page_size = comptime!(self.page_size as u32);
-        let unit = comptime!(self.unit as u32);
         let sequence = origin.at(comptime!(self.sequence_dim)).cast::<u32>();
         let position = origin
             .at(comptime!(self.position_dim))
             .cast::<u32>()
-            .times(unit);
-        let mut table = self.pinned(
+            .times(comptime!(self.unit as u32));
+        self.pinned(
             sequence,
-            position.divided_by(page_size),
+            position.divided_by(comptime!(self.page_size as u32)),
             spans,
             origin_alignment,
-        );
-        // Wrapping: a base is only ever added to the offset of a line past its column's start.
-        let start = table.pin_start.divided_by(unit);
-        let page_digits = comptime!((self.page_size / self.unit) as u32);
-        table.pin_base = table
-            .pin_page
-            .times(sequence_stride)
-            .minus(start.times(position_stride));
-        table.next_base = table
-            .next_page
-            .times(sequence_stride)
-            .minus(start.plus(page_digits).times(position_stride));
-        table
+            sequence_stride,
+            position_stride,
+        )
     }
 
-    /// This table pinned at the page column `column` of sequence `sequence` lists.
+    /// This table pinned at the page column `column` of sequence `sequence` lists, with the bases
+    /// its lines add to their offsets.
     fn pinned(
         &self,
         sequence: u32,
         column: u32,
         #[comptime] spans: Spans,
         #[comptime] origin_alignment: usize,
+        sequence_stride: u32,
+        position_stride: u32,
     ) -> PageTable {
+        let unit = comptime!(self.unit as u32);
+        let page = self.cut_page(sequence, column);
         let next_page = match comptime!(spans) {
             Spans::TwoPages => self.lookup(sequence, column.plus(1u32)),
             Spans::Any | Spans::OnePage => 0u32,
         };
+        let pin_start = column.times(comptime!(self.page_size as u32));
+        // Wrapping: a base is only ever added to the offset of a line past its column's start.
+        let start = pin_start.divided_by(unit);
+        let page_digits = comptime!((self.page_size / self.unit) as u32);
         PageTable {
             entries: self.entries.clone(),
             sequence_stride: self.sequence_stride,
@@ -366,13 +394,19 @@ impl PageTable {
             sequences: self.sequences,
             pages_per_sequence: self.pages_per_sequence,
             last_page: self.last_page,
-            pin_sequence: sequence,
-            pin_column: column,
-            pin_page: self.lookup(sequence, column),
-            next_page,
-            pin_start: column.times(comptime!(self.page_size as u32)),
-            pin_base: 0u32,
-            next_base: 0u32,
+            pin: PageEntry {
+                sequence,
+                column,
+                page,
+            },
+            pin_start,
+            pin_base: page
+                .times(sequence_stride)
+                .minus(start.times(position_stride)),
+            next_base: next_page
+                .times(sequence_stride)
+                .minus(start.plus(page_digits).times(position_stride)),
+            handed: self.handed.clone(),
             spans,
             origin_alignment,
             page_size: comptime!(self.page_size),
@@ -382,8 +416,45 @@ impl PageTable {
         }
     }
 
-    /// This table, its pin unchanged, for a window whose origin is aligned to `origin_alignment`.
-    fn aligned(&self, #[comptime] origin_alignment: usize) -> PageTable {
+    /// The page `column` of sequence `sequence` lists: the handed entry where it names that cell,
+    /// else the table's [`lookup`](Self::lookup).
+    fn cut_page(&self, sequence: u32, column: u32) -> u32 {
+        #[comptime]
+        match &self.handed {
+            ComptimeOption::Some(handed) => self.page_from(handed, sequence, column),
+            ComptimeOption::None => self.lookup(sequence, column),
+        }
+    }
+
+    /// The page `column` of sequence `sequence` lists: `entry`'s where it names that cell, else
+    /// the table's.
+    fn page_from(&self, entry: &PageEntry, sequence: u32, column: u32) -> u32 {
+        let mut page = entry.page;
+        if sequence != entry.sequence || column != entry.column {
+            page = self.lookup(sequence, column);
+        }
+        page
+    }
+
+    /// The entry this table's window was cut with.
+    pub(crate) fn pinned_entry(&self) -> PageEntry {
+        self.pin.clone()
+    }
+
+    /// This table taking its pages from `entry` where a cut names its cell.
+    pub(crate) fn with_page_entry(&self, entry: &PageEntry) -> PageTable {
+        self.with_alignment_and_entry(
+            comptime!(self.origin_alignment),
+            ComptimeOption::new_Some(entry.clone()),
+        )
+    }
+
+    /// This table, its window unchanged, with the origin alignment and the handed entry given.
+    fn with_alignment_and_entry(
+        &self,
+        #[comptime] origin_alignment: usize,
+        handed: ComptimeOption<PageEntry>,
+    ) -> PageTable {
         PageTable {
             entries: self.entries.clone(),
             sequence_stride: self.sequence_stride,
@@ -391,13 +462,11 @@ impl PageTable {
             sequences: self.sequences,
             pages_per_sequence: self.pages_per_sequence,
             last_page: self.last_page,
-            pin_sequence: self.pin_sequence,
-            pin_column: self.pin_column,
-            pin_page: self.pin_page,
-            next_page: self.next_page,
+            pin: self.pin.clone(),
             pin_start: self.pin_start,
             pin_base: self.pin_base,
             next_base: self.next_base,
+            handed,
             spans: comptime!(self.spans),
             origin_alignment,
             page_size: comptime!(self.page_size),
@@ -494,10 +563,7 @@ impl PageTable {
         let sequence = digits.at(comptime!(self.sequence_dim));
         let position = digits.at(comptime!(self.position_dim)).times(unit);
         let column = position.divided_by(page_size);
-        let mut page = self.pin_page;
-        if sequence != self.pin_sequence || column != self.pin_column {
-            page = self.lookup(sequence, column);
-        }
+        let page = self.page_from(&self.pin, sequence, column);
         let mut resolved = Coords::<u32>::new();
         #[unroll]
         for pa in 0..digits.len() {

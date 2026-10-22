@@ -849,10 +849,48 @@ impl Memory {
         #[comptime] unit_share: UnitShare,
         #[comptime] split_share: SplitShare,
     ) -> Memory {
+        let layout = self.layout.pinned_at(&window.origin, cut);
+        self.relaid(
+            layout,
+            window,
+            window_start,
+            map,
+            access,
+            unit_share,
+            split_share,
+        )
+    }
+
+    /// This store taking its pages from `entry` where a cut names its cell
+    /// ([`Tile::with_page_entry`]).
+    pub(crate) fn with_page_entry(&self, entry: &PageEntry) -> Memory {
+        self.relaid(
+            self.layout.with_page_entry(entry),
+            self.window.clone(),
+            self.window_start,
+            self.map.clone(),
+            comptime!(self.access.clone()),
+            comptime!(self.unit_share),
+            comptime!(self.split_share),
+        )
+    }
+
+    /// This store over `layout`, `window` and the rest given, the buffer unchanged.
+    #[allow(clippy::too_many_arguments)]
+    fn relaid(
+        &self,
+        layout: BufferLayout,
+        window: Window,
+        window_start: u32,
+        map: RuntimeMap,
+        #[comptime] access: Access,
+        #[comptime] unit_share: UnitShare,
+        #[comptime] split_share: SplitShare,
+    ) -> Memory {
         Memory {
             address: comptime!(self.address),
             store: self.store.clone(),
-            layout: self.layout.pinned_at(&window.origin, cut),
+            layout,
             window,
             projection: comptime!(self.projection.clone()),
             source_window: self.source_window.clone(),
