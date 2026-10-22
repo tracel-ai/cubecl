@@ -1031,6 +1031,7 @@ dependencies = [
  "cubecl-metal",
  "cubecl-runtime",
  "cubecl-std",
+ "cubecl-tile",
  "cubecl-wgpu",
  "half",
 ]
@@ -1509,6 +1510,20 @@ dependencies = [
  "spin",
  "test-log",
  "variadics_please",
+]
+
+[[package]]
+name = "cubecl-tile"
+version = "0.11.0"
+dependencies = [
+ "bytemuck",
+ "cubecl",
+ "cubecl-common",
+ "cubecl-core",
+ "cubecl-std",
+ "half",
+ "rand 0.10.2",
+ "serde",
 ]
 
 [[package]]
