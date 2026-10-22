@@ -224,26 +224,6 @@ impl PlaneTile {
         }
     }
 
-    /// Store this tile, row-major, into `scratch` (one tile's cells).
-    pub(crate) fn store_scratch<T: Numeric>(&self, scratch: &Shared<[T]>) {
-        match self {
-            PlaneTile::Cmma(d) => d.store_scratch(scratch),
-            PlaneTile::Mma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => {
-                panic!("PlaneTile::store_scratch: only a cmma tile bounces through a scratch")
-            }
-        }
-    }
-
-    /// Load this tile back from `scratch`.
-    pub(crate) fn load_scratch<T: Numeric>(&mut self, scratch: &Shared<[T]>) {
-        match self {
-            PlaneTile::Cmma(d) => d.load_scratch(scratch),
-            PlaneTile::Mma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => {
-                panic!("PlaneTile::load_scratch: only a cmma tile bounces through a scratch")
-            }
-        }
-    }
-
     pub(crate) fn zero<T: Numeric>(&mut self) {
         match self {
             PlaneTile::Cmma(d) => d.zero::<T>(),
@@ -525,57 +505,6 @@ impl PlanePartition {
             cols: comptime!(self.cols),
             scratch: ComptimeOption::new_None(),
             held: Scratch::None,
-        }
-    }
-
-    /// `self[r, :] *= corr[r]`, each tile bounced through the scratch.
-    ///
-    /// The scratch is the plane's own slot (`with_scratch` indexes it by `PLANE_POS`), so
-    /// the bounce syncs the plane rather than the cube: every unit of the plane must call it,
-    /// and the other planes need not.
-    pub(crate) fn rescale_rows<T: Numeric>(&self, corr: &Array<T>) {
-        let mut scratch = #[comptime]
-        match &self.scratch {
-            ComptimeOption::Some(scratch) => scratch.at::<T>().clone(),
-            ComptimeOption::None => panic!(
-                "PlanePartition::rescale_rows: a row-wise op on a plane-resident accumulator \
-                 bounces through a scratch; open the accumulator with `with_scratch`"
-            ),
-        };
-        let (m, n) = self.at(0usize, 0usize).shape();
-        let rows = comptime!(self.m_tiles * m);
-        let mut moved = false;
-        #[unroll]
-        for r in 0..rows {
-            if corr[r] != T::from_int(1) {
-                moved = true;
-            }
-        }
-        let cells = comptime!(m * n);
-        let units = PLANE_DIM as usize;
-        let plane_unit = UNIT_POS_PLANE as usize;
-        #[unroll]
-        for mi in 0..comptime!(self.m_tiles) {
-            #[unroll]
-            for ni in 0..comptime!(self.n_tiles) {
-                let mut tile = self.at(mi, ni);
-                if moved {
-                    tile.store_scratch(&scratch);
-                }
-                sync_plane();
-                if moved {
-                    let mut cell = plane_unit;
-                    while cell < cells {
-                        scratch[cell] *= corr[mi * m + cell / n];
-                        cell += units;
-                    }
-                }
-                sync_plane();
-                if moved {
-                    tile.load_scratch(&scratch);
-                }
-                sync_plane();
-            }
         }
     }
 
