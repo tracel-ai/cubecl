@@ -221,7 +221,7 @@ fn scaled_matmul_cmma<E: Numeric>(
 /// fewer of them, and it rides the same [`Scales`] as the block level. Nothing in the kernel
 /// counts levels: it windows `scales` and hands it to the leaf.
 #[test]
-fn two_levels_fold_in_order() {
+fn two_levels_multiply_in_order() {
     let (rows, cols, block, blocks) = (4, 4, 8, 2);
     let depth = block * blocks;
 
@@ -474,7 +474,7 @@ fn check_factored(instruction: Instruction, size: usize) {
 
 /// One block per region, so each region carries one scale per row.
 #[test]
-fn a_scaled_contraction_folds_the_block_scale_in() {
+fn a_scaled_contraction_multiplies_the_block_scale_in() {
     let (rows, cols, block, blocks) = (4, 4, 8, 4);
     let (per_region, inside) = (1, block);
     let depth = block * blocks;

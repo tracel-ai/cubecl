@@ -147,7 +147,7 @@ fn expected(ends: &[u32]) -> Vec<Vec<f32>> {
 }
 
 #[test]
-fn a_windowed_walk_folds_each_sequence_over_its_own_tokens() {
+fn a_windowed_walk_reduces_each_sequence_over_its_own_tokens() {
     let got = run();
     let want = expected(&ENDS);
     for (b, row) in want.iter().enumerate() {
@@ -264,7 +264,7 @@ fn run_blocked(ends: &[u32]) -> HostData {
 /// and running past one. The answer follows the lengths, which it could not if the placement did
 /// nothing, since every sequence would fold from token zero under both.
 #[test]
-fn a_placed_window_folds_each_blocked_sequence_over_its_own_tokens() {
+fn a_placed_window_reduces_each_blocked_sequence_over_its_own_tokens() {
     for ends in [ENDS, [0, 3, 3, 6, 10]] {
         let got = run_blocked(&ends);
         let want = expected(&ends);

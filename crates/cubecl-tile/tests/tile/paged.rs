@@ -179,7 +179,7 @@ fn expected(table: &[u32]) -> Vec<Vec<f32>> {
 /// Two page tables over the same pool: the answer follows the table, which it could not if the
 /// route did nothing, since the walk would fold the whole pool under both.
 #[test]
-fn a_routed_page_axis_folds_each_sequence_over_the_pages_it_holds() {
+fn a_routed_page_axis_reduces_each_sequence_over_the_pages_it_holds() {
     for table in [TABLE, [0, 1, 1, 0]] {
         let got = run(&table);
         let want = expected(&table);

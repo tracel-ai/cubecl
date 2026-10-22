@@ -33,7 +33,7 @@ const KI: Axis = Axis(3);
 /// contraction, the leaf running under a block of `budget` scalars.
 #[cube(launch)]
 #[allow(clippy::too_many_arguments)]
-fn decode_gemv(
+fn quantized_decode(
     w: &TileArg<'_>,
     x: &TileArg<'_>,
     scale: &TileArg<'_>,
@@ -82,7 +82,7 @@ fn decode_gemv(
 /// `RegisterData::mma_scaled` refuses it; the shipping shape thus keeps its accumulator in memory.
 #[cube(launch)]
 #[allow(clippy::too_many_arguments)]
-fn decode_gemv_promoted<E: Numeric>(
+fn quantized_decode_promoted<E: Numeric>(
     w: &TileArg<'_>,
     x: &TileArg<'_>,
     scale: &TileArg<'_>,
@@ -126,7 +126,7 @@ fn decode_gemv_promoted<E: Numeric>(
 }
 
 #[test]
-fn the_serving_geometry_computes_the_decode_gemv() {
+fn the_serving_geometry_computes_the_decode_product() {
     serving_geometry(false, true);
 }
 
@@ -309,7 +309,7 @@ fn serving_geometry(promoted: bool, units_cut: bool) {
 
     let (count, dim) = (launcher.cube_count(), launcher.cube_dim());
     if promoted {
-        decode_gemv_promoted::launch(
+        quantized_decode_promoted::launch(
             &client,
             count,
             dim,
@@ -322,7 +322,7 @@ fn serving_geometry(promoted: bool, units_cut: bool) {
             dtype,
         );
     } else {
-        decode_gemv::launch(
+        quantized_decode::launch(
             &client,
             count,
             dim,

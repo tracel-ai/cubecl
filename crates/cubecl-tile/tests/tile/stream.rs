@@ -363,7 +363,7 @@ enum RhsStage {
 }
 
 /// `a · b` with the work shared between `runs` cubes, folded atomically into a zeroed output.
-fn run_stream_k(m: usize, n: usize, k: usize, runs: usize, rhs: RhsStage) -> HostData {
+fn run_shared_index(m: usize, n: usize, k: usize, runs: usize, rhs: RhsStage) -> HostData {
     let client = cubecl::test_device().client();
     let dtype = f32::elem_type_native();
 
@@ -471,9 +471,9 @@ fn reference(m: usize, n: usize, k: usize) -> Vec<f32> {
 /// Every run count computes the same contraction. The interesting ones are those that do not
 /// divide the line: their runs start and end inside a tile's contraction, which is what makes
 /// this stream-K rather than a split of `K`.
-fn stream_k_agrees_with_the_whole(cubes: usize) {
+fn shared_index_agrees_with_the_whole(cubes: usize) {
     let (m, n, k) = (8usize, 8usize, 16usize);
-    let got = run_stream_k(m, n, k, cubes, RhsStage::InPlace);
+    let got = run_shared_index(m, n, k, cubes, RhsStage::InPlace);
     let want = reference(m, n, k);
     for i in 0..m {
         for j in 0..n {
@@ -491,22 +491,22 @@ fn stream_k_agrees_with_the_whole(cubes: usize) {
 /// cubes. A stream that only works when it is split is not working.
 #[test]
 fn a_stream_of_one_run_is_the_whole_contraction() {
-    if !folds_atomically() {
+    if !adds_atomically() {
         return;
     }
-    stream_k_agrees_with_the_whole(1);
+    shared_index_agrees_with_the_whole(1);
 }
 
 /// Runs that end on a tile boundary: the same work a split of `K` would do, reached by distributing
 /// a line rather than by cutting an axis.
 #[test]
 fn runs_that_end_on_a_tile_do_the_split_a_cut_would() {
-    if !folds_atomically() {
+    if !adds_atomically() {
         return;
     }
     // 4 tiles of 4 K blocks: 16 steps of line over 4 and 8 runs.
-    stream_k_agrees_with_the_whole(4);
-    stream_k_agrees_with_the_whole(8);
+    shared_index_agrees_with_the_whole(4);
+    shared_index_agrees_with_the_whole(8);
 }
 
 /// Runs that do not: 16 steps over 3, 5 and 7 leaves every run straddling a tile boundary, so a
@@ -514,27 +514,27 @@ fn runs_that_end_on_a_tile_do_the_split_a_cut_would() {
 /// cut of `K` could hand it.
 #[test]
 fn runs_that_straddle_a_tile_boundary_still_sum_to_the_whole() {
-    if !folds_atomically() {
+    if !adds_atomically() {
         return;
     }
-    stream_k_agrees_with_the_whole(3);
-    stream_k_agrees_with_the_whole(5);
-    stream_k_agrees_with_the_whole(7);
+    shared_index_agrees_with_the_whole(3);
+    shared_index_agrees_with_the_whole(5);
+    shared_index_agrees_with_the_whole(7);
     // More runs than the line has steps, so some cubes get nothing at all.
-    stream_k_agrees_with_the_whole(24);
+    shared_index_agrees_with_the_whole(24);
 }
 
 /// The drain folds, so a device without a float atomic add cannot run any of this.
-fn folds_atomically() -> bool {
+fn adds_atomically() -> bool {
     let client = cubecl::test_device().client();
-    let folds = client
+    let adds = client
         .properties()
         .atomic_type_usage(Type::atomic(ElemType::Float(FloatKind::F32)))
         .contains(AtomicUsage::Add);
-    if !folds {
+    if !adds {
         ValidationResult::Skipped("device has no f32 atomic add".to_string()).enforce();
     }
-    folds
+    adds
 }
 
 /// An operand staged under the distribution. A share is walked region by region, and each region
@@ -542,7 +542,7 @@ fn folds_atomically() -> bool {
 /// walk does: nothing about staging changes because the regions arrived as a share.
 #[test]
 fn an_operand_stages_under_a_share_as_it_does_under_a_walk() {
-    if !folds_atomically() {
+    if !adds_atomically() {
         return;
     }
     let (m, n, k) = (8usize, 8usize, 16usize);
@@ -550,7 +550,7 @@ fn an_operand_stages_under_a_share_as_it_does_under_a_walk() {
     // Shares that straddle a tile boundary, so the staged operand is read from part way through
     // a tile's contraction as well as from its start.
     for runs in [1usize, 3, 5] {
-        let got = run_stream_k(m, n, k, runs, RhsStage::Smem);
+        let got = run_shared_index(m, n, k, runs, RhsStage::Smem);
         for i in 0..m {
             for j in 0..n {
                 let have = got.get_f32(&[i, j]);
@@ -570,7 +570,7 @@ fn an_operand_stages_under_a_share_as_it_does_under_a_walk() {
 #[test]
 fn cubes_take_shares_while_the_units_cut_k_between_them() {
     let client = cubecl::test_device().client();
-    if !folds_atomically() {
+    if !adds_atomically() {
         return;
     }
     let dtype = f32::elem_type_native();

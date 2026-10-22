@@ -295,7 +295,7 @@ fn native_matmul(
 /// global memory, their scales beside them, accumulating in a register block opened above the
 /// walk. `N` spreads across cubes, which is all a gemv has to spread.
 #[cube(launch)]
-fn packed_gemv<E: Numeric>(
+fn packed_one_row_product<E: Numeric>(
     x: &TileArg<'_>,
     w: &TileArg<'_>,
     scale: &TileArg<'_>,
@@ -354,7 +354,7 @@ fn packed_matmul_byte_scales(
 
 /// [`packed_gemv`] with byte scales on the rhs, into the promoted block.
 #[cube(launch)]
-fn packed_gemv_byte_scales<E: Numeric>(
+fn packed_one_row_product_byte_scales<E: Numeric>(
     x: &TileArg<'_>,
     w: &TileArg<'_>,
     scale: &TileArg<'_>,
@@ -1045,7 +1045,7 @@ fn eight_bit_fields_contract_against_their_scales() {
 /// step, so nothing walks the contraction one value at a time. Here the scales are read two to a
 /// line, each field covering a block the walk picks.
 #[test]
-fn a_folded_walk_takes_its_scales_several_at_a_time() {
+fn a_summing_walk_takes_its_scales_several_at_a_time() {
     let (field, rows, cols, block, blocks) = (QuantValue::Q4S, 4, 4, 8, 4);
     let depth = block * blocks;
     let bits = field.size_bits();
@@ -1736,7 +1736,7 @@ fn an_i8_operand_contracts_against_its_scales() {
 /// own operand, one row of activations, `N` across cubes, and the partials in registers for the
 /// whole `K` walk: schemeless packed values, a scales operand, the rhs side, a promoted block.
 #[test]
-fn a_packed_decode_gemv_runs_in_this_spelling() {
+fn a_packed_decode_runs_in_this_spelling() {
     let (field, block_k, blocks_k) = (QuantValue::Q4S, 8, 4);
     let depth = block_k * blocks_k;
     let bits = field.size_bits();
@@ -1810,7 +1810,7 @@ fn a_packed_decode_gemv_runs_in_this_spelling() {
         Form::Static,
     );
 
-    packed_gemv::launch(
+    packed_one_row_product::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
@@ -1882,7 +1882,7 @@ fn a_packed_decode_gemv_runs_in_this_spelling() {
 
 /// The same over 8-bit fields, so it runs on a device whose vectors cap at four.
 #[test]
-fn an_eight_bit_decode_gemv_runs_in_this_spelling() {
+fn an_eight_bit_decode_runs_in_this_spelling() {
     let (field, block_k, blocks_k) = (QuantValue::Q8S, 8, 4);
     let depth = block_k * blocks_k;
     let bits = field.size_bits();
@@ -1955,7 +1955,7 @@ fn an_eight_bit_decode_gemv_runs_in_this_spelling() {
         Form::Static,
     );
 
-    packed_gemv::launch(
+    packed_one_row_product::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
@@ -2028,7 +2028,7 @@ fn an_eight_bit_decode_gemv_runs_in_this_spelling() {
 /// [`packed_gemv`] with the scales taken away: a packed rhs contracting into a promoted
 /// accumulator through the plain `mm`.
 #[cube(launch)]
-fn packed_gemv_unscaled<E: Numeric>(
+fn packed_one_row_product_unscaled<E: Numeric>(
     x: &TileArg<'_>,
     w: &TileArg<'_>,
     c: &TileArg<'_>,
@@ -2127,7 +2127,7 @@ fn a_packed_rhs_drains_from_a_promoted_accumulator() {
         Form::Static,
     );
 
-    packed_gemv_unscaled::launch(
+    packed_one_row_product_unscaled::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
@@ -2681,7 +2681,7 @@ fn e4m3_scales_reach_the_promoted_block() {
         Form::Static,
     );
 
-    packed_gemv_byte_scales::launch(
+    packed_one_row_product_byte_scales::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),

@@ -422,7 +422,7 @@ fn run_block(routes: &[u32]) -> HostData {
 /// A refusal inside a cube verb dies on the expansion worker, so a regression here reads as the
 /// output keeping its fill value rather than as a message.
 #[test]
-fn a_routed_walk_folds_its_contraction_into_a_register_block() {
+fn a_routed_walk_sums_its_contraction_into_a_register_block() {
     assert_routed(&run_block(&ROUTES), &ROUTES, DEPTH);
 }
 

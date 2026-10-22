@@ -81,7 +81,7 @@ fn reduce_splits(
 
 /// The whole pipeline over `(m, n, k)` cut into `splits`: the partials, then the fold. Returns
 /// both, since a wrong total and a wrong partial are different bugs.
-fn run_split_k(m: usize, n: usize, k: usize, splits: usize) -> (HostData, HostData) {
+fn run_split_contraction(m: usize, n: usize, k: usize, splits: usize) -> (HostData, HostData) {
     let client = cubecl::test_device().client();
     let dtype = f32::elem_type_native();
     assert!(k.is_multiple_of(splits), "the test shapes divide evenly");
@@ -157,7 +157,7 @@ fn run_split_k(m: usize, n: usize, k: usize, splits: usize) -> (HostData, HostDa
         split_space.partitioning().level(0),
     );
 
-    let fold_space = implied(
+    let reduce_space = implied(
         &client,
         Partitioning::new(
             Space::new(&[(M, m), (N, n), (KB, splits)]),
@@ -168,8 +168,8 @@ fn run_split_k(m: usize, n: usize, k: usize, splits: usize) -> (HostData, HostDa
 
     reduce_splits::launch(
         &client,
-        fold_space.cube_count(),
-        fold_space.cube_dim(),
+        reduce_space.cube_count(),
+        reduce_space.cube_dim(),
         TileArgLaunch::new(
             partials.clone().binding().into_tensor_arg(),
             dtype,
@@ -182,8 +182,8 @@ fn run_split_k(m: usize, n: usize, k: usize, splits: usize) -> (HostData, HostDa
             1,
             TileSpec::direct(&[M, N]),
         ),
-        fold_space.partitioning_arg(),
-        fold_space.partitioning().level(0),
+        reduce_space.partitioning_arg(),
+        reduce_space.partitioning().level(0),
     );
 
     (
@@ -211,7 +211,7 @@ fn reference(m: usize, n: usize, k: usize, rows: std::ops::Range<usize>) -> Vec<
 fn a_split_contraction_sums_back_to_the_whole() {
     let (m, n, k, splits) = (4usize, 4usize, 16usize, 4usize);
     let inside = k / splits;
-    let (partials, out) = run_split_k(m, n, k, splits);
+    let (partials, out) = run_split_contraction(m, n, k, splits);
 
     for s in 0..splits {
         let want = reference(m, n, k, s * inside..(s + 1) * inside);
@@ -245,7 +245,7 @@ fn a_split_contraction_sums_back_to_the_whole() {
 #[test]
 fn a_split_of_one_is_the_whole_contraction() {
     let (m, n, k) = (4usize, 4usize, 16usize);
-    let (_, out) = run_split_k(m, n, k, 1);
+    let (_, out) = run_split_contraction(m, n, k, 1);
 
     let want = reference(m, n, k, 0..k);
     for i in 0..m {
@@ -274,7 +274,7 @@ fn atomic_add_probe(out: &mut Tensor<Atomic<f32>>) {
 }
 
 #[test]
-fn the_device_folds_floats_atomically_across_cubes() {
+fn the_device_adds_floats_atomically_across_cubes() {
     let client = cubecl::test_device().client();
     if !client
         .properties()
@@ -381,7 +381,7 @@ fn atomic_split_matmul_by_unit<E: Numeric>(
 }
 
 /// `a·b` with `K` distributed out over `splits` cubes, folded atomically into a zeroed output.
-fn run_atomic_split_k(m: usize, n: usize, k: usize, splits: usize) -> HostData {
+fn run_atomic_split_contraction(m: usize, n: usize, k: usize, splits: usize) -> HostData {
     let client = cubecl::test_device().client();
     let dtype = f32::elem_type_native();
 
@@ -443,7 +443,7 @@ fn run_atomic_split_k(m: usize, n: usize, k: usize, splits: usize) -> HostData {
 /// The in-kernel combine against the same contraction, unsplit: every cube folds its own slice of
 /// `K` into the output and the sum is the whole.
 #[test]
-fn an_atomic_drain_folds_the_slices_back_together() {
+fn an_atomic_drain_sums_the_slices_back_together() {
     let client = cubecl::test_device().client();
     if !client
         .properties()
@@ -455,7 +455,7 @@ fn an_atomic_drain_folds_the_slices_back_together() {
     }
 
     let (m, n, k, splits) = (4usize, 4usize, 16usize, 4usize);
-    let got = run_atomic_split_k(m, n, k, splits);
+    let got = run_atomic_split_contraction(m, n, k, splits);
     let want = reference(m, n, k, 0..k);
     for i in 0..m {
         for j in 0..n {
@@ -485,8 +485,8 @@ fn the_atomic_drain_agrees_with_the_workspace() {
     }
 
     let (m, n, k, splits) = (4usize, 4usize, 16usize, 4usize);
-    let (_, workspace) = run_split_k(m, n, k, splits);
-    let atomic = run_atomic_split_k(m, n, k, splits);
+    let (_, workspace) = run_split_contraction(m, n, k, splits);
+    let atomic = run_atomic_split_contraction(m, n, k, splits);
     for i in 0..m {
         for j in 0..n {
             let w = workspace.get_f32(&[i, j]);
@@ -597,7 +597,7 @@ fn an_atomic_drain_with_units_of_their_own() {
 /// One cube, so nothing here is a cube split at all: what is being checked is that the combine is
 /// about instances that cannot meet in registers, not about cubes in particular.
 #[test]
-fn an_atomic_drain_folds_across_planes() {
+fn an_atomic_drain_sums_across_planes() {
     let client = cubecl::test_device().client();
     if !client
         .properties()
@@ -705,7 +705,7 @@ fn atomic_split_matmul_in_place<E: Numeric>(
 }
 
 #[test]
-fn a_folding_output_contracts_in_place() {
+fn a_summing_output_contracts_in_place() {
     let client = cubecl::test_device().client();
     if !client
         .properties()
@@ -829,7 +829,7 @@ fn atomic_split_cmma<E: Numeric>(
 
 /// Whether this device contracts `8×8×8` `f32` fragments and adds `f32` atomically into a
 /// buffer, the two things the fragment fold needs; reported rather than silently passed.
-fn folds_fragments(client: &cubecl::client::Client) -> bool {
+fn sums_fragments(client: &cubecl::client::Client) -> bool {
     let f32_ty = f32::elem_type_native();
     let cmma = client.properties().features.matmul.cmma.iter().any(|cfg| {
         cfg.a_type == f32_ty
@@ -919,9 +919,9 @@ fn run_atomic_split_cmma(k: usize, splits: usize) -> HostData {
 /// A fragment folds into the output through the scratch: every split sums to the whole
 /// contraction, exactly, since the values are small integers.
 #[test]
-fn a_fragment_folds_into_the_output_through_the_scratch() {
+fn a_fragment_sums_into_the_output_through_the_scratch() {
     let client = cubecl::test_device().client();
-    if !folds_fragments(&client) {
+    if !sums_fragments(&client) {
         return;
     }
     let (m, n, k) = (8usize, 8usize, 64usize);
@@ -962,7 +962,7 @@ fn adds_atomically(client: &cubecl::client::Client) -> bool {
 /// destination that used to take the straight buffer fill. Narrowed first, this would take the
 /// layout walk either way and prove nothing about the condition.
 #[cube(launch)]
-fn copy_into_folding<E: Numeric>(
+fn copy_into_summing<E: Numeric>(
     src: &TileArg<'_>,
     out: &AccumulateArg<'_, E>,
     space: Partitioning,
@@ -976,7 +976,7 @@ fn copy_into_folding<E: Numeric>(
 /// The whole claim: the copy adds, it does not replace, and it does not panic on the way. Drop
 /// the write mode from the straight fill's condition and this panics about addresses instead.
 #[test]
-fn a_copy_into_a_folding_output_adds() {
+fn a_copy_into_a_summing_output_adds() {
     let client = cubecl::test_device().client();
     if !adds_atomically(&client) {
         return;
@@ -1005,7 +1005,7 @@ fn a_copy_into_a_folding_output_adds() {
         ),
         Form::Static,
     );
-    copy_into_folding::launch(
+    copy_into_summing::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),

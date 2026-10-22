@@ -274,7 +274,7 @@ fn assert_same(got: &HostData, want: &HostData, dims: &[usize]) {
 
 /// Both halves of the split reduce ride the leaf: one `mma` call unravels a `k1 × k2` nest.
 #[test]
-fn split_k_whole_reduce_at_leaf() {
+fn split_contraction_whole_reduce_at_leaf() {
     let (m, n, k1, k2) = (8, 8, 3, 4);
     let (k, tm, tn) = (k1 * k2, 4, 4);
 
@@ -304,7 +304,7 @@ fn split_k_whole_reduce_at_leaf() {
 /// The major half is walked instead: `k1` sequential `mma` calls, each reducing `k2`. The leaf
 /// still contracts two axes (`K1` is present at extent 1), so it still takes the N-D nest.
 #[test]
-fn split_k_major_half_walked() {
+fn split_contraction_major_half_walked() {
     let (m, n, k1, k2) = (8, 8, 3, 4);
     let (k, tm, tn) = (k1 * k2, 4, 4);
 
@@ -334,7 +334,7 @@ fn split_k_major_half_walked() {
 /// A batch axis alongside the two contracted ones: the leaf's batch unravel and its reduce
 /// unravel are independent nests, so they must not be confused for one another.
 #[test]
-fn split_k_with_a_batch_axis() {
+fn split_contraction_with_a_batch_axis() {
     let (b, m, n, k1, k2) = (3, 4, 8, 2, 4);
     let (k, tm, tn) = (k1 * k2, 4, 4);
 
@@ -1326,7 +1326,7 @@ fn test_reduce_axis_min_spatial_unit_units() {
 /// The data is all negative, so any identity leaking in (a zero from a sum-shaped combine, or
 /// from an out-of-bounds read) wins the maximum and the assert catches it.
 #[cube(launch)]
-fn resident_fold_kernel<E: Numeric>(
+fn resident_reduce_kernel<E: Numeric>(
     input: &TileArg<'_>,
     output: &TileArg<'_>,
     space: Partitioning,
@@ -1346,7 +1346,7 @@ fn resident_fold_kernel<E: Numeric>(
 }
 
 #[test]
-fn resident_max_over_unit_split_k() {
+fn resident_max_over_unit_split_contraction() {
     let client = cubecl::test_device().client();
     let plane_size = client.properties().hardware.plane_size_max as usize;
     let (m, n, kr) = (4usize, 4usize, 2usize);
@@ -1375,7 +1375,7 @@ fn resident_max_over_unit_split_k() {
         .uniform(7, 1.0, 2.0)
         .generate_without_host_data();
 
-    resident_fold_kernel::launch(
+    resident_reduce_kernel::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
@@ -1452,7 +1452,7 @@ fn resident_max_over_unit_group_k() {
         .uniform(7, 1.0, 2.0)
         .generate_without_host_data();
 
-    resident_fold_kernel::launch(
+    resident_reduce_kernel::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),

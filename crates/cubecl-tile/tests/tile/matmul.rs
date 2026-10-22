@@ -1352,7 +1352,7 @@ fn check_matmul_bound(
 /// `mma` never takes the init from the caller: the accumulating kernel folds onto what `c`
 /// holds, where the plain one would overwrite.
 #[test]
-fn mma_folds_onto_what_c_holds() {
+fn mma_adds_onto_what_c_holds() {
     let client = cubecl::test_device().client();
     let (m, n, k, tile_edge) = (8usize, 8usize, 4usize, 4usize);
     // The whole contraction lands at the leaf, where `c = a·b` would overwrite.
@@ -2999,7 +2999,7 @@ fn register_matmul_promoted_lined_lhs() {
 // ---- folded step: both operands lined along K --------------------------------
 
 /// `A·Bᵀ` off row-major `arange` operands: `lhs(i, p) = i·k + p`, `rhs(j, p) = j·k + p`.
-fn folded_matmul_reference(m: usize, n: usize, k: usize) -> Vec<f32> {
+fn summing_step_matmul_reference(m: usize, n: usize, k: usize) -> Vec<f32> {
     (0..m * n)
         .map(|idx| {
             let (i, j) = (idx / n, idx % n);
@@ -3014,7 +3014,7 @@ fn folded_matmul_reference(m: usize, n: usize, k: usize) -> Vec<f32> {
 ///
 /// `budget` sizes the block: too small for the shape and the rolled body runs, indexing its local
 /// arrays at runtime.
-fn check_folded_step(launcher: Launcher, (m, n, k): (usize, usize, usize), budget: usize) {
+fn check_summing_step(launcher: Launcher, (m, n, k): (usize, usize, usize), budget: usize) {
     let client = cubecl::test_device().client();
     let a = TileInput::builder(&client, launcher.space().subspace(&[M, K]))
         .untiled()
@@ -3045,29 +3045,29 @@ fn check_folded_step(launcher: Launcher, (m, n, k): (usize, usize, usize), budge
 
     let output = HostData::from_tensor_handle(&client, c.handle(), HostDataType::F32);
     let (_, expected) = TestInput::builder(client, shape![m, n])
-        .custom(folded_matmul_reference(m, n, k))
+        .custom(summing_step_matmul_reference(m, n, k))
         .generate_with_f32_host_data();
     assert_equals_approx(&output, &expected, 1e-3).enforce()
 }
 
 /// The 2-D nest at a folded step: four contracted values per `fma` instead of one.
 #[test]
-fn register_matmul_folded_step() {
-    check_folded_step(lined_lhs_space(4, 4, 8), (4, 4, 8), 64);
+fn register_matmul_summing_step() {
+    check_summing_step(lined_lhs_space(4, 4, 8), (4, 4, 8), 64);
 }
 
 /// [`register_matmul_folded_step`] with the block too big for the register budget: the same
 /// numbers off the rolled body, whose local arrays are indexed at runtime.
 #[test]
-fn register_matmul_folded_step_rolled() {
-    check_folded_step(lined_lhs_space(4, 4, 8), (4, 4, 8), 8);
+fn register_matmul_summing_step_rolled() {
+    check_summing_step(lined_lhs_space(4, 4, 8), (4, 4, 8), 8);
 }
 
 /// The folded step through a promoted block. The rhs lines along `K`, so the block's lines are
 /// one cell's partials, collapsed on drain rather than committed per visit; the sum never meets
 /// the output between regions, hence [`a_promoted_folded_step_sums_wider_than_its_output`].
 #[test]
-fn register_matmul_promoted_folded_step() {
+fn register_matmul_promoted_summing_step() {
     let client = cubecl::test_device().client();
     let (m, n, k) = (4usize, 4usize, 8usize);
     let launcher = lined_lhs_space(m, n, k);
@@ -3099,7 +3099,7 @@ fn register_matmul_promoted_folded_step() {
 
     let output = HostData::from_tensor_handle(&client, c.handle(), HostDataType::F32);
     let (_, expected) = TestInput::builder(client, shape![m, n])
-        .custom(folded_matmul_reference(m, n, k))
+        .custom(summing_step_matmul_reference(m, n, k))
         .generate_with_f32_host_data();
     assert_equals_approx(&output, &expected, 1e-3).enforce()
 }
@@ -3111,7 +3111,7 @@ fn register_matmul_promoted_folded_step() {
 /// The property a weight stored along `K` needs from a register block, the folded step being
 /// the only way such a weight contracts.
 #[test]
-fn a_promoted_folded_step_sums_wider_than_its_output() {
+fn a_promoted_summing_step_sums_wider_than_its_output() {
     let client = cubecl::test_device().client();
     let (m, n, k) = (1usize, 1usize, 4096usize);
     let launcher = lined_lhs_space(m, n, k);
@@ -3172,7 +3172,7 @@ fn a_promoted_folded_step_sums_wider_than_its_output() {
 /// The N-D nest at a folded step: two contracted axes, both operands lined along the faster of
 /// them. The reduce nest steps by the served width, so each step lands on a line start.
 #[test]
-fn register_matmul_folded_step_two_contracted_axes() {
+fn register_matmul_summing_step_two_contracted_axes() {
     let client = cubecl::test_device().client();
     let (m, n, k1, k2) = (4usize, 4usize, 2usize, 4usize);
     let k = k1 * k2;
@@ -3215,7 +3215,7 @@ fn register_matmul_folded_step_two_contracted_axes() {
 
     let output = HostData::from_tensor_handle(&client, c.handle(), HostDataType::F32);
     let (_, expected) = TestInput::builder(client, shape![m, n])
-        .custom(folded_matmul_reference(m, n, k))
+        .custom(summing_step_matmul_reference(m, n, k))
         .generate_with_f32_host_data();
     assert_equals_approx(&output, &expected, 1e-3).enforce()
 }
@@ -3228,7 +3228,12 @@ fn register_matmul_folded_step_two_contracted_axes() {
 ///
 /// `groups == 1` is the same nest at `UnitShare::Plane`, which is the case already covered; the
 /// point here is a plane carrying several cells at once.
-fn unit_group_fold_space(plane_size: usize, group_units: usize, edge: usize, n: usize) -> Launcher {
+fn unit_group_reduce_space(
+    plane_size: usize,
+    group_units: usize,
+    edge: usize,
+    n: usize,
+) -> Launcher {
     let groups = plane_size / group_units;
     implied(
         &cubecl::test_device().client(),
@@ -3247,7 +3252,7 @@ fn unit_group_fold_space(plane_size: usize, group_units: usize, edge: usize, n: 
 /// [`register_matmul_promoted_unit_group_fold`]. If this one fails the space itself is wrong and
 /// the promoted result proves nothing.
 #[test]
-fn register_matmul_unit_group_fold() {
+fn register_matmul_unit_group_reduce() {
     let client = cubecl::test_device().client();
     let plane_units = client.properties().hardware.plane_size_max as usize;
     let (group_units, edge, n) = (8usize, 4usize, 1usize);
@@ -3257,7 +3262,7 @@ fn register_matmul_unit_group_fold() {
     }
     let (groups, k) = (plane_units / group_units, group_units * edge);
     let m = groups;
-    let launcher = unit_group_fold_space(plane_units, group_units, edge, n);
+    let launcher = unit_group_reduce_space(plane_units, group_units, edge, n);
 
     let a = TileInput::builder(&client, launcher.space().subspace(&[M, K]))
         .untiled()
@@ -3296,7 +3301,7 @@ fn register_matmul_unit_group_fold() {
 /// The rows a group owns are what the `M` cut hands it, which a block built before the walk
 /// descends has to be told rather than assume.
 #[test]
-fn register_matmul_promoted_unit_group_fold() {
+fn register_matmul_promoted_unit_group_reduce() {
     let client = cubecl::test_device().client();
     let plane_units = client.properties().hardware.plane_size_max as usize;
     let (group_units, edge, n) = (8usize, 4usize, 1usize);
@@ -3306,7 +3311,7 @@ fn register_matmul_promoted_unit_group_fold() {
     }
     let (groups, k) = (plane_units / group_units, group_units * edge);
     let (m, dtype) = (groups, f32::elem_type_native());
-    let launcher = unit_group_fold_space(plane_units, group_units, edge, n);
+    let launcher = unit_group_reduce_space(plane_units, group_units, edge, n);
 
     let a = TileInput::builder(&client, launcher.space().subspace(&[M, K]))
         .untiled()
@@ -3341,7 +3346,7 @@ fn register_matmul_promoted_unit_group_fold() {
 /// The memory-backed leaf does both folds per visit and rounds the cell at each; a half-precision
 /// cell rounds away the walk that way, so this is the block a half-precision gemv runs in.
 #[test]
-fn register_matmul_promoted_folded_step_unit_group_fold() {
+fn register_matmul_promoted_summing_step_unit_group_reduce() {
     let client = cubecl::test_device().client();
     let plane_units = client.properties().hardware.plane_size_max as usize;
     let (group_units, edge, n) = (8usize, 4usize, 1usize);
@@ -3351,7 +3356,7 @@ fn register_matmul_promoted_folded_step_unit_group_fold() {
     }
     let (groups, k) = (plane_units / group_units, group_units * edge);
     let (m, dtype) = (groups, f32::elem_type_native());
-    let launcher = unit_group_fold_space(plane_units, group_units, edge, n);
+    let launcher = unit_group_reduce_space(plane_units, group_units, edge, n);
 
     let a = TileInput::builder(&client, launcher.space().subspace(&[M, K]))
         .untiled()
@@ -3379,7 +3384,7 @@ fn register_matmul_promoted_folded_step_unit_group_fold() {
 
     let output = HostData::from_tensor_handle(&client, c.handle(), HostDataType::F32);
     let (_, expected) = TestInput::builder(client, shape![m, n])
-        .custom(folded_matmul_reference(m, n, k))
+        .custom(summing_step_matmul_reference(m, n, k))
         .generate_with_f32_host_data();
     assert_equals_approx(&output, &expected, 1e-3).enforce()
 }
@@ -3491,7 +3496,7 @@ fn check_cmma_matmul_k_walk_with(
     if transposed {
         let output = HostData::from_tensor_handle(&client, c.handle(), HostDataType::F32);
         let (_, expected) = TestInput::builder(client, shape![m, n])
-            .custom(folded_matmul_reference(m, n, k))
+            .custom(summing_step_matmul_reference(m, n, k))
             .generate_with_f32_host_data();
         assert_equals_approx(&output, &expected, 1e-3).enforce()
     } else {

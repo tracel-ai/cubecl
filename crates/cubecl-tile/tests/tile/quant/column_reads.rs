@@ -24,7 +24,7 @@ const PER_WORD: usize = 8;
 /// `c = x · (W ⊗ s)`, the weight and the scales each read as many as they are bound wide a load,
 /// into a register block that lives across the walk over `K` and drains once.
 #[cube(launch)]
-fn column_gemv<E: Numeric>(
+fn column_one_row_product<E: Numeric>(
     x: &TileArg<'_>,
     w: &TileArg<'_>,
     scale: &TileArg<'_>,
@@ -60,7 +60,7 @@ fn column_gemv<E: Numeric>(
 /// [`column_gemv`] with the accumulator in memory: the output zeroed once, and every step's
 /// block seeded from it and committed back ([`Tile::mma`]).
 #[cube(launch)]
-fn column_gemv_in_memory(
+fn column_one_row_product_in_memory(
     x: &TileArg<'_>,
     w: &TileArg<'_>,
     scale: &TileArg<'_>,
@@ -149,7 +149,7 @@ fn scales(
 /// `columns` columns a load, `leaf_columns` a leaf: the weight `[N, KB, KI]` stored a word of 8
 /// along `KI`, then `columns` columns, the rest `N`-major so a group of columns keeps its whole
 /// `K` together. The scales plain, or stored `scale_columns` columns a load.
-fn gemv_against_the_reference(
+fn one_row_product_against_the_reference(
     columns: usize,
     leaf_columns: usize,
     in_memory: bool,
@@ -252,8 +252,8 @@ fn gemv_against_the_reference(
         };
     }
     match in_memory {
-        true => launch!(column_gemv_in_memory),
-        false => launch!(column_gemv, dtype),
+        true => launch!(column_one_row_product_in_memory),
+        false => launch!(column_one_row_product, dtype),
     }
 
     let got = HostData::from_tensor_handle(&client, c, HostDataType::F32);
@@ -276,42 +276,42 @@ fn gemv_against_the_reference(
 /// One column a load: the word alone, the path every untiled weight already takes.
 #[test]
 fn one_column_a_load_is_a_word_along_k() {
-    gemv_against_the_reference(1, 4, false, None);
+    one_row_product_against_the_reference(1, 4, false, None);
 }
 
 /// Two words a load, one of each column, split into their runs along `K`.
 #[test]
 fn two_columns_a_load_split_into_their_runs() {
-    gemv_against_the_reference(2, 4, false, None);
+    one_row_product_against_the_reference(2, 4, false, None);
 }
 
 /// Four words a load, the leaf's every column in one read.
 #[test]
 fn four_columns_a_load_cover_the_leaf() {
-    gemv_against_the_reference(4, 4, false, None);
+    one_row_product_against_the_reference(4, 4, false, None);
 }
 
 /// A leaf of eight columns reads two loads of four per step of `K`.
 #[test]
 fn a_leaf_wider_than_a_load_reads_several() {
-    gemv_against_the_reference(4, 8, false, None);
+    one_row_product_against_the_reference(4, 8, false, None);
 }
 
 /// The accumulator in memory takes the same loads the same way.
 #[test]
 fn an_accumulator_in_memory_splits_the_same_loads() {
-    gemv_against_the_reference(4, 8, true, None);
+    one_row_product_against_the_reference(4, 8, true, None);
 }
 
 /// The scales stored 2 blocks by 2 columns: one load a pair of columns' scales.
 #[test]
 fn scales_stored_across_columns_read_a_load_for_several() {
-    gemv_against_the_reference(4, 4, false, Some(2));
+    one_row_product_against_the_reference(4, 4, false, Some(2));
 }
 
 /// Four columns' scales a load, beside four columns' values a load, both accumulators.
 #[test]
 fn scales_and_values_both_read_four_columns_a_load() {
-    gemv_against_the_reference(4, 8, false, Some(4));
-    gemv_against_the_reference(4, 8, true, Some(4));
+    one_row_product_against_the_reference(4, 8, false, Some(4));
+    one_row_product_against_the_reference(4, 8, true, Some(4));
 }

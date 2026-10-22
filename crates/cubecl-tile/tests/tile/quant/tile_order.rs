@@ -31,7 +31,7 @@ const TILE: usize = 16;
 /// packed `f32` one word a load, into a register block that lives across the walk over `K` and
 /// drains once.
 #[cube(launch)]
-fn tile_order_gemv<E: Numeric>(
+fn tile_order_one_row_product<E: Numeric>(
     x: &TileArg<'_>,
     w: &TileArg<'_>,
     scale: &TileArg<'_>,
@@ -135,7 +135,7 @@ fn tile_order_reads_two_words_by_two_columns_a_load() {
     let s_spec = TileSpec::direct(&[N, KB]).packed(Field::of_scale(ScaleDtype::F32));
     // A load: two words along `K` by two columns, four words.
     let load_words = 2 * BLOCK / PER_WORD;
-    tile_order_gemv::launch(
+    tile_order_one_row_product::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
