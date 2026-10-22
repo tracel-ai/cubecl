@@ -54,8 +54,13 @@ cuda_op!(FuncOp, |op, ctx| {
             None => "".into(),
         };
         format!(
-            r#"extern "C" __global__ {return_ty} __launch_bounds__({}) {cluster_dim}"#,
+            r#"extern "C" __global__ {return_ty} __launch_bounds__({}{}) {cluster_dim}"#,
             abi.cube_dim.num_elems(),
+            // PROBE: a minimum of cubes a worker holds, for the kernels named, to cap registers.
+            match (std::env::var("PROBE_MIN_BLOCKS"), std::env::var("PROBE_MIN_BLOCKS_KERNEL")) {
+                (Ok(blocks), Ok(kernel)) if func_name.to_string().contains(kernel.as_str()) => format!(", {blocks}"),
+                _ => String::new(),
+            },
         )
     } else {
         format!("__device__ {return_ty}")

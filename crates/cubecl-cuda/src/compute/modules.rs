@@ -44,7 +44,14 @@ impl CudaModules {
     /// `backend` is which one compiles here; see [`cache_namespace`].
     pub fn new(compiler: CudaArtifactCompiler, backend: CudaBackend) -> Self {
         let fingerprint = cache_namespace(
-            &format!("ptx_sm{}", compiler.arch().version),
+            // PROBE: kernels built under a launch-bounds probe are stored apart.
+            &format!(
+                "ptx_sm{}{}",
+                compiler.arch().version,
+                std::env::var("PROBE_MIN_BLOCKS")
+                    .map(|b| format!("_mb{b}_{}", std::env::var("PROBE_MIN_BLOCKS_KERNEL").unwrap_or_default()))
+                    .unwrap_or_default()
+            ),
             backend,
             compiler.options().ptx_version,
         );
