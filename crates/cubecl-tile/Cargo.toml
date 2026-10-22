@@ -41,5 +41,5 @@ thiserror = { workspace = true, optional = true }
 [dev-dependencies]
 # No version, so Cargo drops it when publishing: `cubecl` re-exports this
 # crate and is published after it.
-cubecl = { path = "../cubecl", features = ["test-runtime", "tile"] }
+cubecl = { path = "../cubecl", features = ["test-runtime"] }
 rand = { workspace = true }

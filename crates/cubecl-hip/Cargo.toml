@@ -36,7 +36,6 @@ cpp = []
 pliron-dump = ["cubecl-cpp/pliron-dump", "cubecl-llvm/pliron-dump"]
 rocwmma = []
 
-tile = ["cubecl-cpp/tile", "cubecl-llvm/tile"]
 tracing = [
     "dep:tracing",
     "cubecl-server/tracing",

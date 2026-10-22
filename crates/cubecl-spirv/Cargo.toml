@@ -24,8 +24,6 @@ default = [
     "cubecl-runtime/default",
 ]
 pliron-dump = ["std"]
-# Lowers the tile ops ahead of the SPIR-V lowering.
-tile = ["dep:cubecl-tile"]
 std = [
     "cubecl-common/std",
     "cubecl-core/std",
@@ -46,7 +44,6 @@ tracing = [
 bitflags = { workspace = true }
 cubecl-common = { workspace = true }
 cubecl-core = { workspace = true }
-cubecl-tile = { workspace = true, optional = true }
 cubecl-environment = { workspace = true }
 cubecl-ir = { workspace = true, features = [
     "spirv",

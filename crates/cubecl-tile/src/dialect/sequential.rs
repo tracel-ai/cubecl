@@ -113,7 +113,7 @@ fn count_of(builtin: Builtin) -> Count {
 /// index.
 pub(super) fn run_on_first_instance(
     ctx: &mut Context,
-    rewriter: &mut IRRewriter<DummyListener>,
+    rewriter: &mut MatchRewriter,
     level: &LevelOp,
 ) -> Result<()> {
     let block = level

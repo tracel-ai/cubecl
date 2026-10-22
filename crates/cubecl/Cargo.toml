@@ -37,16 +37,7 @@ std = [
     "cubecl-wgpu?/std",
 ]
 stdlib = ["cubecl-std"] # CubeCL standard library
-# The tile DSL
-tile = [
-    "stdlib",
-    "cubecl-tile",
-    "cubecl-cpu?/tile",
-    "cubecl-cuda?/tile",
-    "cubecl-hip?/tile",
-    "cubecl-metal?/tile",
-    "cubecl-wgpu?/tile",
-]
+tile = ["stdlib", "cubecl-tile"] # The tile DSL
 template = ["cubecl-core/template"]
 
 exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]

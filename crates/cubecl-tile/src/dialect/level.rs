@@ -3,12 +3,10 @@
 use cubecl::ir::{ExpandValue, OpInserter, Scope};
 use cubecl_ir::{
     RecursiveMemoryEffects, RecursiveSideEffects, RecursivelySpeculatable,
-    dialect::branch::YieldOp, prelude::*,
+    dialect::branch::YieldOp, interfaces::LowerInterface, prelude::*,
 };
 use pliron::{
-    basic_block::BasicBlock,
-    graph::walkers::uninterruptible::immutable::walk_op,
-    irbuild::{inserter::OpInsertionPoint, listener::DummyListener},
+    basic_block::BasicBlock, derive::op_interface_impl, irbuild::inserter::OpInsertionPoint,
     linked_list::ContainsLinkedList,
 };
 
@@ -17,8 +15,11 @@ use crate::CoordsExpand;
 /// The tiles one instance takes at a level distributed over a scope: which tile is whose.
 ///
 /// Its region computes them from the instance's position in the launch, as tracing wrote it, and
-/// yields the ones known only at runtime; its results stand for them. [`LowerLevelPass`] inlines
-/// the region; a backend that runs the level's instances another way lowers it its own way.
+/// yields the ones known only at runtime; its results stand for them. Its lowering inlines the
+/// region; a backend that runs the level's instances another way lowers it its own way.
+///
+/// With the test-only `sequential-levels` feature, it lowers instead to a loop over the level's
+/// instances, run by the first.
 #[pliron_op(
     name = "tile.level",
     format = "`: ` types(CharSpace(`,`)) ` ` region($0)",
@@ -27,13 +28,6 @@ use crate::CoordsExpand;
 #[op_interfaces(NOpdsInterface<0>, OneRegionInterface, SingleBlockRegionInterface)]
 #[op_traits(RecursiveMemoryEffects, RecursiveSideEffects, RecursivelySpeculatable)]
 pub struct LevelOp;
-
-/// Lowers each `tile.level` op to the code its region holds, in its place: what tracing wrote
-/// before the op existed.
-///
-/// With the test-only `sequential-levels` feature, it lowers each one instead to a loop over the
-/// level's instances, run by the first.
-pub struct LowerLevelPass;
 
 /// A walk's `(counts, positions, scales)`, as traced.
 type TilesExpand = (
@@ -98,41 +92,13 @@ impl LevelOp {
     }
 }
 
-#[pass_name]
-impl Pass for LowerLevelPass {
-    fn run(
-        &mut self,
-        op: Ptr<Operation>,
-        ctx: &mut Context,
-        _analyses: &mut AnalysisManager,
-    ) -> Result<PassResult> {
-        let mut res = PassResult::default();
-        let mut rewriter = IRRewriter::<DummyListener>::default();
-        for level in levels(ctx, op) {
-            res.ir_changed |= IRStatus::Changed;
-            #[cfg(feature = "sequential-levels")]
-            super::sequential::run_on_first_instance(ctx, &mut rewriter, &level)?;
-            level.inline(ctx, &mut rewriter);
-        }
-        Ok(res)
+/// The code the region holds, in the op's place: what tracing wrote before the op existed.
+#[op_interface_impl]
+impl LowerInterface for LevelOp {
+    fn lower(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()> {
+        #[cfg(feature = "sequential-levels")]
+        super::sequential::run_on_first_instance(ctx, rewriter, self)?;
+        self.inline(ctx, rewriter);
+        Ok(())
     }
-}
-
-/// The `tile.level` ops under `root`, outer ones first.
-fn levels(ctx: &Context, root: Ptr<Operation>) -> Vec<LevelOp> {
-    let mut levels = Vec::new();
-    walk_op(
-        ctx,
-        &mut levels,
-        &WALKCONFIG_PREORDER_FORWARD,
-        root,
-        |ctx, levels, node| {
-            if let IRNode::Operation(op) = node
-                && let Some(level) = op.dyn_op(ctx).downcast_ref::<LevelOp>()
-            {
-                levels.push(*level);
-            }
-        },
-    );
-    levels
 }
