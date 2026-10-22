@@ -56,7 +56,7 @@ pub(crate) struct Memory {
 }
 
 /// How a contraction into a memory window runs: the register block a unit's share is tiled into,
-/// and the semiring it folds under.
+/// and the semiring it sums under.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct Contraction {
     pub(crate) block: RegisterBlock,

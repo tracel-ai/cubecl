@@ -1,4 +1,4 @@
-//! The register nest behind [`Tile::reduce_axis`](crate::Tile::reduce_axis): fold an input's
+//! The register nest behind [`Tile::reduce_axis`](crate::Tile::reduce_axis): reduce an input's
 //! contracted axes into one accumulator cell at a time, under a [`Monoid`].
 
 use cubecl::prelude::*;
@@ -14,7 +14,7 @@ pub(crate) fn register_data<Acc: Numeric, In: Numeric>(
     #[comptime] acc_space: Space,
     #[comptime] monoid: Monoid,
 ) {
-    // Drain the block the way it was built to fold; the partials fit no other operator.
+    // Drain the block the way it was built to reduce; the partials fit no other operator.
     comptime!(assert!(
         acc.accumulation.monoid() == monoid,
         "reduce: this accumulator folds under {:?} (stated at `Tile::accumulate`) but is being \
@@ -135,7 +135,7 @@ fn memory_body<Acc: Numeric, In: Numeric, V: Size>(
     }
 }
 
-/// Fold `in_view` across the contracted axes into `seed` for the cell at `acc_coords`.
+/// Reduce `in_view` across the contracted axes into `seed` for the cell at `acc_coords`.
 #[cube]
 fn element<Acc: Numeric, In: Numeric, V: Size>(
     in_view: &Masked<'_, Vector<In, V>, CoordsDyn>,
@@ -173,7 +173,7 @@ fn element<Acc: Numeric, In: Numeric, V: Size>(
     }
 }
 
-/// [`element`]'s line path: one read serves `contracted_per_step` folds.
+/// [`element`]'s line path: one read serves `contracted_per_step` values.
 #[cube]
 #[allow(clippy::too_many_arguments)]
 fn element_lines<Acc: Numeric, In: Numeric, V: Size>(

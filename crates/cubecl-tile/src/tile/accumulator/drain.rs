@@ -46,7 +46,7 @@ pub(crate) enum DrainPass {
 pub(crate) enum Drain {
     /// Each unit holds whole cells of its own and writes them.
     EachUnit,
-    /// Every unit holds the same whole cells and the write folds, so one unit writes.
+    /// Every unit holds the same whole cells and the write combines, so one unit writes.
     UnitZero,
     /// Units each hold a partial of one cell: combine across the plane, unit zero writes.
     PlaneReduce,
@@ -59,7 +59,7 @@ impl Drain {
         match (units, write) {
             (UnitShare::Plane, _) => Drain::PlaneReduce,
             (UnitShare::Group { unit_bits }, _) => Drain::GroupReduce { unit_bits },
-            // Repeated units hold the same cells: a store may land many times, a fold only once.
+            // Repeated units hold the same cells: a store may land many times, a combine only once.
             (UnitShare::Repeated, Write::Accumulate | Write::Exclusive(_)) => Drain::UnitZero,
             (UnitShare::Repeated, Write::Replace) | (UnitShare::Whole, _) => Drain::EachUnit,
         }

@@ -298,7 +298,7 @@ impl Memory {
             physical_strides.push(geometry.strides.at(i) * part / comptime!(vector_size as u32));
         }
         let gmem_projection = comptime!(projection.positional());
-        // Folded from the physical shape, so tiled (padded) operands get the logical extent.
+        // The product of the physical shape, so tiled (padded) operands get the logical extent.
         let bound = logical_extent(comptime!(gmem_projection.clone()), &physical_shape);
         let (origin, extent, map) = top_window(
             comptime!(space.clone()),

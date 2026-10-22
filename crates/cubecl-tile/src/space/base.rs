@@ -308,8 +308,8 @@ impl Space {
             Extent::Static(extent) => extent.is_multiple_of(width),
             Extent::Dynamic => true,
         };
-        let folds = width > 1 && contracted.last() == Some(&lined) && whole_lines;
-        if folds { width } else { 1 }
+        let sums_lines = width > 1 && contracted.last() == Some(&lined) && whole_lines;
+        if sums_lines { width } else { 1 }
     }
 
     /// The axes `operands` jointly contract against `output`.

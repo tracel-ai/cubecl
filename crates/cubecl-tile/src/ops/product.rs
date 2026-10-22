@@ -47,11 +47,11 @@ impl Tile {
                 per_read,
             );
 
-            // The fold is a unit of `b`'s read, so its address is the group's.
+            // The step is a unit of `b`'s read, so its address is the group's.
             let scales = b_reader
                 .view
                 .read(b_reader.map.anchor(b_base, comptime!(Vec::new())));
-            // `a`'s address steps with the fold: its map folds once here, each step an addition.
+            // `a`'s address moves with the step: its map is evaluated once here, each step an addition.
             let moving = comptime!(vec![split.axis]);
             let a_anchor = a_reader
                 .map
@@ -73,21 +73,21 @@ impl Tile {
     }
 }
 
-/// How a product's walk divides: one broadcast-operand read per group, folds inside it.
+/// How a product's walk divides: one broadcast-operand read per group, its values stepped inside it.
 #[derive(Clone, Debug)]
 struct GroupWalk {
-    /// The axis the fold steps: the one the broadcast operand's own lines run along.
+    /// The axis a read's values step: the one the broadcast operand's own lines run along.
     axis: Axis,
     /// Its position in the destination's box.
     at: usize,
-    /// Folds one read of that operand serves.
+    /// Values one read of that operand serves.
     per_read: usize,
     /// The destination's box in lines, cut at [`at`](Self::at) into groups of one read.
     groups: Vec<usize>,
 }
 
 impl GroupWalk {
-    /// How `dst` divides against `b`, read `width` lines wide with `folds` folds per read.
+    /// How `dst` divides against `b`, read `width` lines wide with `per_read` values a read.
     fn of(dst: &Space, b: &Space, width: usize, per_read: usize) -> Self {
         let rank = dst.rank();
         let axis = b.axis_at(b.rank() - 1);
@@ -169,7 +169,7 @@ fn bases(
     )
 }
 
-/// `base` with the fold axis advanced by `f`: the one component a fold moves.
+/// `base` with the stepped axis advanced by `f`: the one component a step moves.
 #[cube]
 fn stepped(base: &CoordsDyn, #[comptime] at: usize, #[comptime] f: usize) -> CoordsDyn {
     let mut out = CoordsDyn::new();

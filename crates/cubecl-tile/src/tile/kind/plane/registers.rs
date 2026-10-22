@@ -82,7 +82,7 @@ pub(crate) fn register_block_size(#[comptime] vector_size: usize) {
 #[cube]
 impl RegisterData {
     /// An uninitialized `m × n` block of `vector_size`-wide lines, contracting an rhs that brings
-    /// `fold` values of a cell a step. `n` must be a whole number of lines.
+    /// `contracted_per_step` values of a cell a step. `n` must be a whole number of lines.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn alloc<T: Numeric>(
         #[comptime] m: usize,
@@ -131,7 +131,7 @@ impl RegisterData {
         }
     }
 
-    /// Add `src`'s block (same grid and fold) into this one, casting each line up to `T`.
+    /// Add `src`'s block (same grid and values a step) into this one, casting each line up to `T`.
     pub(crate) fn add_cast_from<T: Numeric, S: Numeric>(&mut self, src: &RegisterData) {
         let data = self.data.at_mut::<T>();
         comptime!(assert!(

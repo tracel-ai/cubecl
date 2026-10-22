@@ -431,7 +431,7 @@ impl PlanePartition {
         });
         let a0 = comptime!(space.axis_at(edges.row_split));
         let a1 = comptime!(space.axis_at(edges.col_split));
-        // A single-tile axis folds to `0`; a `Dynamic` axis stays runtime (`None`).
+        // A single-tile axis is the constant `0`; a `Dynamic` axis stays runtime (`None`).
         let mi = if comptime!(step.level.tiles_const(&space, a0) == Some(1)) {
             comptime!(Some(0u64))
         } else {

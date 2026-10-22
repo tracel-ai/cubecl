@@ -65,7 +65,7 @@ impl TransportKind {
 
     /// An async copy moves a source line's bytes to one destination line, by address, without a
     /// unit touching them: only a transport whose every line is such a move takes one. A scan
-    /// may fold or window its destination, and a padded stage assembles each line out of
+    /// may sum into or window its destination, and a padded stage assembles each line out of
     /// several source cells.
     fn refuse_async(self, dst: StoreForm, src: StoreForm) {
         assert!(
@@ -271,7 +271,7 @@ mod tests {
             overhang: Overhang::Masked,
             ..access()
         };
-        let folding = Access {
+        let summing = Access {
             write: Write::Accumulate,
             ..access()
         };
@@ -279,7 +279,7 @@ mod tests {
             write: Write::Exclusive(Schedule::Sequential),
             ..access()
         };
-        for access in [windowed, masked, folding, relayed] {
+        for access in [windowed, masked, summing, relayed] {
             assert_eq!(
                 kind(plain(4), plain(4), &access),
                 TransportKind::Scanned(Scan::Element),

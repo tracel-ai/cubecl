@@ -6,7 +6,7 @@ use cubecl_std::tensor::layout::CoordsDyn;
 
 use crate::{Axis, Coords, Integer, IntegerExpand, IntegerSeq, IntegerSeqExpand, Projection};
 
-/// The logical extent per axis, folded from `projection`'s physical shape.
+/// The logical extent per axis: the product of `projection`'s physical extents carrying it.
 #[cube]
 pub(crate) fn logical_extent(
     #[comptime] projection: Projection,
@@ -65,7 +65,7 @@ pub(crate) fn logical_of_digits(
 ) -> CoordsDyn {
     comptime!(assert!(
         projection.is_invertible(),
-        "Projection::fold_physical: not invertible (an affine term mixes several logical \
+        "Projection::logical_of_digits: not invertible (an affine term mixes several logical \
          coordinates into one physical cell)"
     ));
     let mut out = CoordsDyn::new();
@@ -105,7 +105,7 @@ mod tests {
 
     const A: Axis = Axis(0);
 
-    /// Folding the digits back reconstructs the coordinate they were decomposed from.
+    /// Weighing the digits back reconstructs the coordinate they were decomposed from.
     #[test]
     fn logical_of_digits_inverts_the_digits_to_source_pos_reads() {
         let shape = [3usize, 8];

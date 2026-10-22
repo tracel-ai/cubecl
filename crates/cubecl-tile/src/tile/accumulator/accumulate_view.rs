@@ -10,7 +10,7 @@ use crate::*;
 /// What an accumulation starts from.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) enum InitFrom {
-    /// Fold onto the cell's existing value.
+    /// Combine with the cell's existing value.
     Cell,
     /// Start from the monoid's identity; the cell is never read.
     Identity,
@@ -21,14 +21,14 @@ pub(crate) enum InitFrom {
 pub(crate) enum CellRead {
     /// This unit owns the cell whole, so the block starts from it.
     AtSeed,
-    /// The units each hold a partial, so the elected writer folds the cell in once.
+    /// The units each hold a partial, so the elected writer combines the cell in once.
     AtCommit,
     /// Nothing the cell holds counts.
     Never,
 }
 
 impl CellRead {
-    /// Derived from `init_from` and the unit share. A folding destination is never read here:
+    /// Derived from `init_from` and the unit share. A summing destination is never read here:
     /// its store, atomic or relayed, is the sum.
     const fn of(unit_share: UnitShare, init_from: InitFrom, write: Write) -> Self {
         match write {
@@ -90,7 +90,7 @@ impl<'a, E: Numeric, V: Size, C: Coordinates + 'a> AccumulateView<'a, E, V, C> {
         comptime!(self.units)
     }
 
-    /// The monoid these cells fold under.
+    /// The monoid these cells combine under.
     pub(crate) fn monoid(&self) -> comptime_type!(Monoid) {
         comptime!(self.monoid)
     }
@@ -110,7 +110,7 @@ impl<'a, E: Numeric, V: Size, C: Coordinates + 'a> AccumulateView<'a, E, V, C> {
         }
     }
 
-    /// Fold a finished block back across the plane; one unit writes the total.
+    /// Reduce a finished block across the plane; one unit writes the total.
     pub(crate) fn commit(&mut self, pos: C, value: Vector<E, V>) {
         match comptime!(self.drain) {
             Drain::PlaneReduce => {
@@ -122,7 +122,7 @@ impl<'a, E: Numeric, V: Size, C: Coordinates + 'a> AccumulateView<'a, E, V, C> {
                 let unit_in_group = UNIT_POS_X & comptime!(unit_bits as u32);
                 self.commit_shared(pos, combined, unit_in_group == 0);
             }
-            // A fold from repeating units would land once per unit, so one makes it.
+            // A combine from repeating units would land once per unit, so one makes it.
             Drain::UnitZero => self.commit_shared(pos, value, UNIT_POS_X == 0),
             Drain::EachUnit => self.values.write(pos, value),
         }

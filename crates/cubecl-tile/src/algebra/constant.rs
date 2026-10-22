@@ -1,4 +1,4 @@
-//! Integer arithmetic on kernel values that folds constants at expand time.
+//! Integer arithmetic on kernel values that evaluates constants at expand time.
 
 use cubecl::ir::{
     ConstantValue, ExpandValue, Scope,
@@ -30,11 +30,11 @@ pub(crate) trait Integer: Sized {
     fn remainder(self, _rhs: Self) -> Self {
         unexpanded!()
     }
-    /// The smaller of the two; two constants fold.
+    /// The smaller of the two; two constants give a constant.
     fn min_with(self, _rhs: Self) -> Self {
         unexpanded!()
     }
-    /// The larger of the two; two constants fold.
+    /// The larger of the two; two constants give a constant.
     fn max_with(self, _rhs: Self) -> Self {
         unexpanded!()
     }
@@ -54,7 +54,7 @@ impl Integer for i32 {}
 
 /// Constant-keeping sums over the elements at comptime `picks`.
 pub(crate) trait IntegerSeq<C: Int>: Sized {
-    /// Sum of the picked elements (empty picks fold to `0`).
+    /// Sum of the picked elements (empty picks give `0`).
     fn sum(&self, _picks: Vec<usize>) -> C {
         unexpanded!()
     }

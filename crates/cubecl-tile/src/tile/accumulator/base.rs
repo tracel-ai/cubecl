@@ -78,12 +78,12 @@ impl Scratch {
         }
     }
 
-    /// Whether a fragment goes through shared memory on its way out; forced when folding.
+    /// Whether a fragment goes through shared memory on its way out; forced when partials are summed.
     pub fn bounces(self) -> bool {
         !matches!(self, Scratch::None)
     }
 
-    /// This setting raised to what `folds` demands.
+    /// This setting raised to bouncing where `bouncing` demands it.
     pub fn at_least_bouncing(self, bouncing: bool) -> Scratch {
         match (bouncing, self) {
             (true, Scratch::None) => Scratch::OneTile,
@@ -569,7 +569,7 @@ fn register_accumulator<EA: Numeric>(
         rw,
         aw
     ));
-    // A block outliving the leaf cannot spread lines, so its lines and the sink's agree or fold.
+    // A block outliving the leaf cannot spread lines, so its lines and the sink's agree or its partials sum.
     comptime!(assert!(
         contracted_per_step > 1 || rw == aw,
         "Tile::accumulator: the block's lines are the rhs's ({rw} wide) and drain into \
@@ -671,7 +671,7 @@ fn drain_below<A: Numeric, O: Numeric>(
         drain_leaf::<A, O>(acc, dest, pass);
     } else {
         let level = comptime!(levels[i].clone());
-        // A walked level's coordinates must fold to constants: its regions select fragments.
+        // A walked level's coordinates must be constants: its regions select fragments.
         if comptime!(level.coverage() == Coverage::Walk) {
             for region in dest.over(&level).unrolled() {
                 drain_below::<A, O>(

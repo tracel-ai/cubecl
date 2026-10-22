@@ -9,8 +9,8 @@ use crate::*;
 
 #[cube]
 impl RegisterData {
-    /// `self += lhs · rhs` over the block, one rank-1 update per `K` step, with scales folded in.
-    /// The block must be opened against the rhs it contracts (width and fold).
+    /// `self += lhs · rhs` over the block, one rank-1 update per `K` step, with scales multiplied in.
+    /// The block must be opened against the rhs it contracts (width and values a step).
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn mma<T: Numeric, EL: Numeric, ER: Numeric>(
         &mut self,
@@ -124,7 +124,7 @@ impl RegisterData {
     /// at a time. What an attention's unit does with the probabilities it just computed,
     /// contracting them with the values without leaving registers.
     ///
-    /// Every cell of `lhs` is a whole value, whatever it folded: a block that summed runs of its
+    /// Every cell of `lhs` is a whole value, whatever it summed: a block that summed runs of its
     /// contraction into its cells is one value wide. This block's lines are neighbours along the
     /// columns `rhs` is lined along.
     pub(crate) fn mma_block<T: Numeric, EL: Numeric, ER: Numeric>(

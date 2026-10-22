@@ -49,7 +49,7 @@ impl Projection {
         Projection::new(&self.axes, &physical)
     }
 
-    /// How many coordinates address this operand: its physical axes with tiled fragments folded.
+    /// How many coordinates address this operand: its physical axes with tiled fragments merged.
     pub fn coordinate_rank(&self) -> usize {
         self.carried_groups().len()
     }
