@@ -1,6 +1,6 @@
 //! A buffer layout's alignment in elements, along its innermost dim.
 
-use crate::{Axis, Geometry, layout::StoragePartitioning};
+use crate::{Axis, Geometry, gcd, layout::StoragePartitioning};
 use cubecl::prelude::TensorBinding;
 
 /// The alignment of a buffer's layout, counted in elements along its innermost dim: the number
@@ -120,13 +120,6 @@ impl From<&TensorBinding> for ElemAlignment {
             Some(&(COLS, read)) => Self::stored_piece(read),
             _ => Self::stored_piece(1),
         }
-    }
-}
-
-fn gcd(a: usize, b: usize) -> usize {
-    match b {
-        0 => a,
-        _ => gcd(b, a % b),
     }
 }
 

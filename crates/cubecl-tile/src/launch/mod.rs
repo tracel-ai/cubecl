@@ -16,7 +16,7 @@ pub use arg::destination::{
 pub use arg::last_arrival::LastArrival;
 pub use arg::operand::{Output, OutputArgs};
 pub use arg::relay::Relay;
-pub use arg::tma::{TmaBox, TmaLanding, TmaOperand, TmaTiles};
+pub use arg::tma::{TmaBox, TmaLanding, TmaOperand};
 pub use base::{Grid, spawnable};
 pub use binding::{Arg, Bound, Labelled, Unbound, Unlabelled};
 pub use refusal::Refusal;
