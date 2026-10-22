@@ -22,6 +22,9 @@ pub(crate) fn handle_command(
         base_commands::test::handle_command(args.try_into().unwrap(), env, context)?;
     } else {
         // conventional tests
+        // The tile DSL's suite is large and only concerns tile users: run it on its own with
+        // `cargo test -p cubecl-tile`.
+        args.exclude.push("cubecl-tile".to_string());
         if args.ci {
             // Exclude crates that are not supported on CI
             args.exclude.extend(vec![
