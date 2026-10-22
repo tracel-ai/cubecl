@@ -4,7 +4,7 @@ use crate::Boundary;
 
 /// How an operand's reads are bounds-checked, where the caller states it. An operand that states
 /// none is checked with [`Boundary::Zero`] on the axes that can leave the buffer.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum BoundaryPolicy {
     /// Unchecked; the caller guarantees every read is in bounds.
     Unchecked,

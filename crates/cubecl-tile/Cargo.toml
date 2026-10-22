@@ -28,6 +28,7 @@ cubecl-core = { workspace = true }
 cubecl-std = { workspace = true }
 
 bytemuck = { workspace = true }
+hashbrown = { workspace = true }
 half = { workspace = true, features = ["bytemuck"] }
 serde = { workspace = true }
 

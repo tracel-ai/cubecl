@@ -11,7 +11,7 @@ use crate::{Axis, StoragePartitioning, TileMisfit};
 use crate::Coords;
 
 /// One operand's physical `(extent, stride)` per dim, in scalars, and its storage tiling.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Geometry {
     shape: Vec<usize>,
     strides: Vec<usize>,
