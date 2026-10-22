@@ -11,14 +11,15 @@
 //! ([`current_cpu`]), and the server moves to that CPU's cache once the issuer has settled
 //! there ([`ServerPlacement::follow`]).
 
-/// The CPU the calling thread runs on; [`UNKNOWN_CPU`] where the system does not say.
+/// The CPU the calling thread runs on; [`UNKNOWN_CPU`] where the system does not say, and under
+/// Miri, which cannot call `sched_getcpu`.
 pub(crate) fn current_cpu() -> u32 {
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", not(miri)))]
     {
         // SAFETY: `sched_getcpu` takes no arguments.
         u32::try_from(unsafe { libc::sched_getcpu() }).unwrap_or(UNKNOWN_CPU)
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(all(target_os = "linux", not(miri))))]
     {
         UNKNOWN_CPU
     }
@@ -46,9 +47,10 @@ impl ServerPlacement {
     /// Keeps the calling thread, the server, under `issuer_cpu`'s last-level cache: at once for
     /// the first buffer, and once [`SETTLED_BUFFERS`] in a row came from a cache other than the
     /// one it is kept under after that. A no-op on a CPU with one last-level cache over the
-    /// CPUs the process may use, for an unknown CPU, and on systems this is not written for.
+    /// CPUs the process may use, for an unknown CPU, on systems this is not written for, and
+    /// under Miri, which cannot read or set the thread's affinity.
     pub(crate) fn follow(&mut self, issuer_cpu: u32) {
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", not(miri)))]
         {
             let Some(domains) = linux::CacheDomains::get() else {
                 return;
@@ -60,13 +62,13 @@ impl ServerPlacement {
                 domains.keep_current_thread(domain);
             }
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(all(target_os = "linux", not(miri))))]
         let _ = issuer_cpu;
     }
 
     /// Notes that a buffer came from `domain`, and answers the domain the server moves to, if
     /// it moves.
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    #[cfg_attr(not(all(target_os = "linux", not(miri))), allow(dead_code))]
     fn settle(&mut self, domain: usize) -> Option<usize> {
         let moves = match (self.kept, self.elsewhere) {
             (None, _) => true,
@@ -122,7 +124,7 @@ mod tests {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(miri)))]
 mod linux {
     use std::{fs, path::Path, string::String, sync::OnceLock, vec::Vec};
 
