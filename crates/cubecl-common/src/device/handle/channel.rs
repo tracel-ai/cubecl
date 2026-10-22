@@ -812,6 +812,7 @@ mod custom_channel {
             RunnerId,
             task::{ArenaSlot, GLOBAL_TASK_MAX_SIZE, Task},
         },
+        placement::{self, ServerPlacement},
     };
     use core::{
         hint::spin_loop,
@@ -952,6 +953,9 @@ mod custom_channel {
         server: OnceLock<Thread>,
         /// Whether the server is parked, or about to be ([`Server::park`]).
         parked: AtomicBool,
+        /// The CPU the client that last filled a buffer ran on, which the server follows to its
+        /// last-level cache ([`ServerPlacement`]).
+        issuer_cpu: AtomicU32,
         /// The runner id (for debugging purposes).
         runner_id: RunnerId,
     }
@@ -995,6 +999,10 @@ mod custom_channel {
         /// they fill the buffer: the one moment it has work to run.
         fn enqueued(&self, tasks: u32) {
             let count = self.enqueued_count.fetch_add(tasks, Ordering::SeqCst) + tasks;
+            if count as usize >= CHANNEL_MAX_TASK {
+                self.issuer_cpu
+                    .store(placement::current_cpu(), Ordering::Relaxed);
+            }
             if count as usize >= CHANNEL_MAX_TASK
                 && self.parked.load(Ordering::SeqCst)
                 && let Some(server) = self.server.get()
@@ -1045,6 +1053,8 @@ mod custom_channel {
         client_buf: usize,
         buffers: [TaskBuffer; 2],
         ready_to_execute: bool,
+        /// The last-level cache this thread is kept under, following the client's.
+        placement: ServerPlacement,
     }
 
     impl Server {
@@ -1058,6 +1068,7 @@ mod custom_channel {
                 shutdown: AtomicBool::new(false),
                 server: OnceLock::new(),
                 parked: AtomicBool::new(false),
+                issuer_cpu: AtomicU32::new(placement::UNKNOWN_CPU),
                 runner_id,
             });
 
@@ -1066,6 +1077,7 @@ mod custom_channel {
                 client_buf: 0,
                 buffers,
                 ready_to_execute: false,
+                placement: ServerPlacement::default(),
             }
         }
 
@@ -1181,6 +1193,8 @@ mod custom_channel {
         /// Swaps the client and server buffers, allowing the client to start
         /// filling the next buffer while the server processes the current one.
         fn fetch(&mut self) {
+            self.placement
+                .follow(self.state.issuer_cpu.load(Ordering::Relaxed));
             self.client_buf = 1 - self.client_buf;
 
             self.state.queue_ptr.store(
