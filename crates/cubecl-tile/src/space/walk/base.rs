@@ -3,8 +3,9 @@
 use cubecl::prelude::*;
 use cubecl::unexpanded;
 
+use crate::dialect::{LevelOp, TilesExpand};
 use crate::{
-    Axis, ComputeScope, Coords, Integer, IntegerExpand, Level, Planes, Region, RegionExpand, Space,
+    Axis, ComputeScope, Coords, CoordsExpand, Integer, IntegerExpand, Level, Planes, Region, RegionExpand, Space,
     StageOwner,
 };
 
@@ -73,15 +74,12 @@ impl Walk {
             }
         }
 
-        let (counts, positions, scales) = match comptime!(level.spans_launch()) {
-            true => Walk::spanning_launch(comptime!(host.clone()), comptime!(level.clone()), &grid),
-            false => Walk::dealt(
-                comptime!(host.clone()),
-                comptime!(level.clone()),
-                comptime!(distributes.clone()),
-                &grid,
-            ),
-        };
+        let (counts, positions, scales) = Walk::tiles(
+            comptime!(host.clone()),
+            comptime!(level.clone()),
+            comptime!(distributes.clone()),
+            &grid,
+        );
 
         // Folded, not accumulated, so a static walk can unroll.
         let steps = counts.product(comptime!((0..rank).collect::<Vec<_>>()));
@@ -101,6 +99,19 @@ impl Walk {
             level,
             unroll: comptime!(false),
             run: comptime!(None),
+        }
+    }
+
+    /// `(counts, positions, scales)` of this instance at `level`.
+    fn tiles_of(
+        #[comptime] host: Space,
+        #[comptime] level: Level,
+        #[comptime] distributes: Vec<AxisDistribution>,
+        grid: &Coords<usize>,
+    ) -> (Coords<usize>, Coords<usize>, Coords<usize>) {
+        match comptime!(level.spans_launch()) {
+            true => Walk::spanning_launch(host, level, grid),
+            false => Walk::dealt(host, level, distributes, grid),
         }
     }
 
@@ -415,6 +426,32 @@ impl Iterable for WalkExpand {
 
 /// The settings a walk is told after it is built.
 impl Walk {
+    /// `(counts, positions, scales)` of this instance at `level`: inside a `tile.level` op
+    /// ([`LevelOp`]) where the level is distributed over a scope.
+    fn tiles(
+        host: Space,
+        level: Level,
+        distributes: Vec<AxisDistribution>,
+        grid: &Coords<usize>,
+    ) -> (Coords<usize>, Coords<usize>, Coords<usize>) {
+        Walk::tiles_of(host, level, distributes, grid)
+    }
+
+    fn __expand_tiles(
+        scope: &Scope,
+        host: Space,
+        level: Level,
+        distributes: Vec<AxisDistribution>,
+        grid: &CoordsExpand<usize>,
+    ) -> TilesExpand {
+        match level.coverage().scope() {
+            Some(_) => LevelOp::trace(scope, |scope| {
+                Walk::__expand_tiles_of(scope, host, level, distributes, grid)
+            }),
+            None => Walk::__expand_tiles_of(scope, host, level, distributes, grid),
+        }
+    }
+
     /// This walk, unrolled when iterated (static spaces only).
     pub fn unrolled(self) -> Walk {
         unexpanded!()

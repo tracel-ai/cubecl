@@ -20,6 +20,7 @@ std = [
     "cubecl-core/std",
     "cubecl-cpp/std",
 ]
+tile = ["cubecl-cpp/tile"]
 
 [dependencies]
 cubecl-common = { workspace = true }

@@ -41,6 +41,7 @@ msl = [
     "dep:objc2-foundation",
 ]
 profile-tracy = ["tracy-client"]
+tile = ["cubecl-cpp?/tile"]
 spirv = ["cubecl-spirv", "ash", "tracel-ash", "cubecl-common/hash"]
 
 

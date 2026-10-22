@@ -173,6 +173,13 @@ impl<C: Int> AsMutExpand for CoordsExpand<C> {
 }
 
 impl<C: Int> CoordsExpand<C> {
+    /// The entries known only at runtime, in order.
+    pub(crate) fn runtime_mut(&mut self) -> impl Iterator<Item = &mut NativeExpand<C>> {
+        self.values
+            .iter_mut()
+            .filter(|v| matches!(v.expand, ExpandValue::Value(_)))
+    }
+
     pub fn __expand_assign_method(&mut self, _scope: &Scope, other: Self) {
         self.values = other.values;
     }

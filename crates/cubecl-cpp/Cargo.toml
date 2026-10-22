@@ -26,6 +26,8 @@ default = [
 hip = []
 metal = []
 pliron-dump = ["std"]
+# Lowers the tile ops ahead of the C++ lowering.
+tile = ["dep:cubecl-tile"]
 std = [
     "cubecl-runtime/std",
     "cubecl-common/std",
@@ -49,6 +51,7 @@ cubecl-core = { workspace = true, features = [
 cubecl-environment = { workspace = true }
 # For shared allocation
 cubecl-opt = { workspace = true }
+cubecl-tile = { workspace = true, optional = true }
 cubecl-runtime = { workspace = true, features = [
     "channel-mutex",
 ] }

@@ -235,6 +235,8 @@ where
         let mut passes = OpPass::<ModuleOp, Passes>::default();
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
 
+        #[cfg(feature = "tile")]
+        func_passes.add_pass(cubecl_tile::dialect::LowerLevelPass);
         func_passes.add_pass(LowerInfoPass);
         func_passes.add_pass(SROAPass);
         func_passes.add_pass(ResolvePendingPass);

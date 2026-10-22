@@ -25,10 +25,12 @@ std = ["cubecl-core/std"]
 [dependencies]
 cubecl-common = { workspace = true }
 cubecl-core = { workspace = true }
+cubecl-ir = { workspace = true }
 cubecl-std = { workspace = true }
 
 bytemuck = { workspace = true }
 hashbrown = { workspace = true }
+pliron = { workspace = true }
 half = { workspace = true, features = ["bytemuck"] }
 serde = { workspace = true }
 
@@ -36,5 +38,5 @@ serde = { workspace = true }
 [dev-dependencies]
 # No version, so Cargo drops it when publishing: `cubecl` re-exports this
 # crate and is published after it.
-cubecl = { path = "../cubecl", features = ["test-runtime"] }
+cubecl = { path = "../cubecl", features = ["test-runtime", "tile"] }
 rand = { workspace = true }
