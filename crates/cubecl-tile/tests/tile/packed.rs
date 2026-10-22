@@ -2199,21 +2199,27 @@ fn fp8_fields_unpack_on_read() {
     }
 }
 
-/// The same codes placed from their bits as `f16` and lifted, on every device: the decode a
-/// device that emulates the format's conversion reads, held to every code whichever device runs
-/// the suite.
+/// The same codes placed from their bits as `f16` and lifted, the decode a device that emulates
+/// the format's conversion reads, held to every code on each device that reads them placed.
+/// Placed, a small code is an `f16` subnormal (e4m3's 2^-9 is 2^-17 before its lift), which a
+/// device may flush to zero, as CI's software Vulkan does; such a device converts the codes
+/// instead ([`Field::read_on`]).
 #[test]
 fn fp8_codes_unpack_placed() {
     let client = cubecl::test_device().client();
     for value in [QuantValue::E4M3, QuantValue::E5M2] {
-        check_fp8_codes_unpack(
-            &client,
+        let placed = Field::Placed {
             value,
-            Field::Placed {
-                value,
-                lifted: true,
-            },
-        );
+            lifted: true,
+        };
+        if Field::from(value).read_on(&client) != placed {
+            ValidationResult::Skipped(format!(
+                "{value:?}: this device converts the codes, it never reads them placed"
+            ))
+            .enforce();
+            continue;
+        }
+        check_fp8_codes_unpack(&client, value, placed);
     }
 }
 
