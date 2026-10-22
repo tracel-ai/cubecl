@@ -28,6 +28,20 @@ use crate::CoordsExpand;
 #[op_traits(RecursiveMemoryEffects, RecursiveSideEffects, RecursivelySpeculatable)]
 pub struct LevelOp;
 
+/// Lowers each `tile.level` op to the code its region holds, in its place: what tracing wrote
+/// before the op existed.
+///
+/// With the test-only `sequential-levels` feature, it lowers each one instead to a loop over the
+/// level's instances, run by the first.
+pub struct LowerLevelPass;
+
+/// A walk's `(counts, positions, scales)`, as traced.
+type TilesExpand = (
+    CoordsExpand<usize>,
+    CoordsExpand<usize>,
+    CoordsExpand<usize>,
+);
+
 impl LevelOp {
     /// The `(counts, positions, scales)` `body` traces, inside a `tile.level` op.
     pub(crate) fn trace(scope: &Scope, body: impl FnOnce(&Scope) -> TilesExpand) -> TilesExpand {
@@ -57,52 +71,32 @@ impl LevelOp {
         yield_op.insert_at_back(block, ctx);
 
         let op = Operation::new(ctx, Self::get_concrete_op_info(), types, vec![], vec![], 1);
-        let region = op.deref(ctx).get_region(0);
-        block.insert_at_front(region, ctx);
-        let level = LevelOp { op };
-        scope.register(&level);
+        block.insert_at_front(op.deref(ctx).get_region(0), ctx);
+        scope.register(&LevelOp { op });
 
         for (i, v) in runtime.iter_mut().enumerate() {
             **v = ExpandValue::Value(op.deref(scope.ctx()).get_result(i)).into();
         }
-        drop(runtime);
         (counts, positions, scales)
     }
+
+    /// Moves the region's code before the op, and the values it yields in place of the results.
+    fn inline(&self, ctx: &mut Context, rewriter: &mut dyn Rewriter) {
+        let op = self.get_operation();
+        let block = self.get_body(ctx, 0);
+        let ops = block.deref(ctx).iter(ctx).collect::<Vec<_>>();
+        let (terminator, body) = ops.split_last().expect("a level's region ends in a yield");
+        for &inner in body {
+            rewriter.move_operation(ctx, inner, OpInsertionPoint::BeforeOperation(op));
+        }
+        let yielded = terminator.deref(ctx).operands().collect::<Vec<_>>();
+        for (i, value) in yielded.into_iter().enumerate() {
+            let result = op.deref(ctx).get_result(i);
+            rewriter.replace_value_uses_with(ctx, result, value);
+        }
+        rewriter.erase_operation(ctx, op);
+    }
 }
-
-/// A walk's `(counts, positions, scales)`, as traced.
-pub(crate) type TilesExpand = (
-    CoordsExpand<usize>,
-    CoordsExpand<usize>,
-    CoordsExpand<usize>,
-);
-
-/// The `tile.level` ops under `root`, outer ones first.
-pub(crate) fn levels(ctx: &Context, root: Ptr<Operation>) -> Vec<LevelOp> {
-    let mut levels = Vec::new();
-    walk_op(
-        ctx,
-        &mut levels,
-        &WALKCONFIG_PREORDER_FORWARD,
-        root,
-        |ctx, levels, node| {
-            if let IRNode::Operation(op) = node
-                && let Some(level) = op.dyn_op(ctx).downcast_ref::<LevelOp>()
-            {
-                levels.push(*level);
-            }
-        },
-    );
-    levels
-}
-
-/// Lowers each `tile.level` op to the code its region holds, in its place: what tracing wrote
-/// before the op existed.
-///
-/// With the test-only `sequential-levels` feature, it lowers each one instead to a loop over the
-/// level's instances, run by the first.
-#[derive(Default)]
-pub struct LowerLevelPass;
 
 #[pass_name]
 impl Pass for LowerLevelPass {
@@ -124,21 +118,21 @@ impl Pass for LowerLevelPass {
     }
 }
 
-impl LevelOp {
-    /// Moves the region's code before the op, and the values it yields in place of the results.
-    pub(crate) fn inline(&self, ctx: &mut Context, rewriter: &mut dyn Rewriter) {
-        let op = self.get_operation();
-        let block = self.get_body(ctx, 0);
-        let ops = block.deref(ctx).iter(ctx).collect::<Vec<_>>();
-        let (terminator, body) = ops.split_last().expect("a level's region ends in a yield");
-        for &inner in body {
-            rewriter.move_operation(ctx, inner, OpInsertionPoint::BeforeOperation(op));
-        }
-        let yielded = terminator.deref(ctx).operands().collect::<Vec<_>>();
-        for (i, value) in yielded.into_iter().enumerate() {
-            let result = op.deref(ctx).get_result(i);
-            rewriter.replace_value_uses_with(ctx, result, value);
-        }
-        rewriter.erase_operation(ctx, op);
-    }
+/// The `tile.level` ops under `root`, outer ones first.
+fn levels(ctx: &Context, root: Ptr<Operation>) -> Vec<LevelOp> {
+    let mut levels = Vec::new();
+    walk_op(
+        ctx,
+        &mut levels,
+        &WALKCONFIG_PREORDER_FORWARD,
+        root,
+        |ctx, levels, node| {
+            if let IRNode::Operation(op) = node
+                && let Some(level) = op.dyn_op(ctx).downcast_ref::<LevelOp>()
+            {
+                levels.push(*level);
+            }
+        },
+    );
+    levels
 }

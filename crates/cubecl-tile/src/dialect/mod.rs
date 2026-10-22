@@ -4,5 +4,4 @@ mod level;
 #[cfg(feature = "sequential-levels")]
 mod sequential;
 
-pub(crate) use level::TilesExpand;
 pub use level::{LevelOp, LowerLevelPass};

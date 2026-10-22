@@ -41,6 +41,7 @@ msl = [
     "dep:objc2-foundation",
 ]
 profile-tracy = ["tracy-client"]
+# Lowers the tile ops ahead of the WGSL lowering, and in the MSL and SPIR-V compilers.
 tile = ["dep:cubecl-tile", "cubecl-cpp?/tile", "cubecl-spirv?/tile"]
 spirv = ["cubecl-spirv", "ash", "tracel-ash", "cubecl-common/hash"]
 

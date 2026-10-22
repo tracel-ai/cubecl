@@ -128,23 +128,27 @@ pub(super) fn run_on_first_instance(
         return Ok(());
     }
     // A plane's instances meet at the cube, a cube's at the device.
-    let meet = match reads
+    let meet = if reads
         .iter()
         .any(|(_, builtin)| *builtin == Builtin::UnitPosY)
     {
-        true => SyncScope::Cube,
-        false => SyncScope::Device,
+        SyncScope::Cube
+    } else {
+        SyncScope::Device
     };
     initialize_again(ctx, block);
-    // Up to the block's terminator, its last op.
-    let mut rest = block.deref(ctx).iter(ctx).collect::<Vec<_>>();
-    rest.pop();
-    for &inner in &rest {
+    // Everything but the block's terminator, its last op.
+    let mut ops = block.deref(ctx).iter(ctx).collect::<Vec<_>>();
+    ops.pop();
+    for &inner in &ops {
         check_alone(ctx, inner, meet)?;
     }
     let mut positions = reads
         .iter()
-        .map(|(_, builtin)| *builtin)
+        .filter_map(|(_, builtin)| match count_of(*builtin) {
+            Count::Of(count) => Some((*builtin, count)),
+            Count::Unsupported | Count::Not => None,
+        })
         .collect::<Vec<_>>();
     positions.sort();
     positions.dedup();
@@ -155,7 +159,7 @@ pub(super) fn run_on_first_instance(
     nest(&scope, &positions, &mut indices, &mut |scope| {
         let mut at = scope.inserter().get_insertion_point();
         let mut mover = IRRewriter::<DummyListener>::default();
-        for &inner in &rest {
+        for &inner in &ops {
             mover.move_operation(scope.ctx(), inner, at);
             at = OpInsertionPoint::AfterOperation(inner);
         }
@@ -164,7 +168,7 @@ pub(super) fn run_on_first_instance(
     drop(scope);
 
     for (read, builtin) in reads {
-        let at = positions.iter().position(|p| *p == builtin).unwrap();
+        let at = positions.iter().position(|(p, _)| *p == builtin).unwrap();
         rewriter.replace_value_uses_with(ctx, read.get_result(ctx), indices[at]);
         rewriter.erase_operation(ctx, read.get_operation());
     }
@@ -180,12 +184,12 @@ fn initialize_again(ctx: &mut Context, block: Ptr<BasicBlock>) {
         .filter_map(|op| op.dyn_op(ctx).downcast_ref::<DeclareVariableOp>().copied())
         .collect::<Vec<_>>();
     for declaration in declarations {
-        let Some(init) = declaration.initializer(ctx).map(|init| init.clone()) else {
-            continue;
-        };
         if declaration.addr_space(ctx).0 != AddressSpace::Local {
             continue;
         }
+        let Some(init) = declaration.initializer(ctx).map(|init| init.clone()) else {
+            continue;
+        };
         let constant = ConstantOp::new(ctx, boxed_attr_cast(init).unwrap());
         constant
             .get_operation()
@@ -225,20 +229,17 @@ fn check_alone(ctx: &Context, root: Ptr<Operation>, meet: SyncScope) -> Result<(
     }
 }
 
-/// `if position == 0 { for index in 0..count { .. } }` for the first of `positions`, around the
-/// same for the others, around `body`.
+/// `if position == 0 { for index in 0..count { .. } }` for the first of `positions`, each with its
+/// count, around the same for the others, around `body`.
 fn nest(
     scope: &Scope,
-    positions: &[Builtin],
+    positions: &[(Builtin, Builtin)],
     indices: &mut Vec<Value>,
     body: &mut dyn FnMut(&Scope),
 ) {
-    let Some((&position, others)) = positions.split_first() else {
+    let Some((&(position, count), others)) = positions.split_first() else {
         body(scope);
         return;
-    };
-    let Count::Of(count) = count_of(position) else {
-        unreachable!("only counted positions are nested")
     };
     let zero = NativeExpand::<u32>::from_lit(scope, 0u32);
     let first = read_builtin(scope, position).__expand_eq_method(scope, &zero);
