@@ -4,7 +4,7 @@
 use cubecl::prelude::*;
 use cubecl_std::tensor::layout::CoordsDyn;
 
-use crate::ops::matmul::leaf::memory::resolve_nd_coords;
+use crate::ops::contraction::resolve_nd_coords;
 use crate::*;
 
 #[cube]
