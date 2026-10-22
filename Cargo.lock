@@ -1522,6 +1522,7 @@ dependencies = [
  "cubecl-core",
  "cubecl-std",
  "half",
+ "hashbrown 0.17.1",
  "rand 0.10.2",
  "serde",
 ]

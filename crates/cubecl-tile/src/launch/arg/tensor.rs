@@ -16,8 +16,10 @@ use cubecl_std::tensor::{
     view::launch::{VirtualViewLayoutCompilationArg, VirtualViewLayoutLaunch},
 };
 
+use crate::launch::binding::rebound_tensor;
 use crate::tile::packing::base::Packing;
 use crate::*;
+use cubecl::server::BufferBinding;
 
 /// An operand as a single launch argument: its values, a buffer or a TMA tensor map, its comptime
 /// [`TileSpec`], the element its buffer holds, and the scales they are read under.
@@ -407,6 +409,43 @@ impl TileArgLaunch {
             codebook: None,
             runtime_map: (Vec::new(), Vec::new()),
         }
+    }
+
+    /// This operand bound again over other buffers of the same layout: each tensor it holds, in the
+    /// order it holds them (its values, then its scales', then its index table's, then its codebook's), takes the next
+    /// of `buffers` and keeps the shape, strides and tiling it was settled at. A launch that binds
+    /// the same operands every step keeps its binding and changes only the addresses.
+    ///
+    /// `None` for a tensor map, whose descriptor holds its buffer, and where `buffers` runs out.
+    pub fn rebound(&self, buffers: &mut impl Iterator<Item = BufferBinding>) -> Option<Self> {
+        let values = match &self.values {
+            ValuesLaunch::Tensor { tensor, width } => ValuesLaunch::Tensor {
+                tensor: rebound_tensor(tensor, buffers.next()?)?,
+                width: *width,
+            },
+            ValuesLaunch::TensorMap { .. } => return None,
+        };
+        let scale = match &self.scale {
+            Some(scale) => Some(Box::new(scale.rebound(buffers)?)),
+            None => None,
+        };
+        let index = match &self.index {
+            Some((table, indexing)) => Some((Box::new(table.rebound(buffers)?), indexing.clone())),
+            None => None,
+        };
+        let codebook = match &self.codebook {
+            Some(table) => Some(Box::new(table.rebound(buffers)?)),
+            None => None,
+        };
+        Some(Self {
+            values,
+            spec: self.spec.clone(),
+            element: self.element,
+            scale,
+            index,
+            codebook,
+            runtime_map: self.runtime_map.clone(),
+        })
     }
 
     /// These values, stored as indices ([`Field::Index`]), read as the entries of `table` they
