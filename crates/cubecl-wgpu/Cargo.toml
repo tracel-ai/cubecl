@@ -41,7 +41,7 @@ msl = [
     "dep:objc2-foundation",
 ]
 profile-tracy = ["tracy-client"]
-tile = ["cubecl-cpp?/tile"]
+tile = ["dep:cubecl-tile", "cubecl-cpp?/tile", "cubecl-spirv?/tile"]
 spirv = ["cubecl-spirv", "ash", "tracel-ash", "cubecl-common/hash"]
 
 
@@ -67,6 +67,7 @@ cubecl-core = { workspace = true }
 cubecl-environment = { workspace = true }
 cubecl-ir = { workspace = true }
 cubecl-opt = { workspace = true }
+cubecl-tile = { workspace = true, optional = true }
 cubecl-monitoring = { workspace = true, features = [
     "amdgpu-busy-percent",
     "gpu-engine-counters",

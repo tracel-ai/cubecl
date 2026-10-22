@@ -33,6 +33,7 @@ std = [
     "cubecl-core/std",
     "cubecl-llvm/std",
 ]
+tile = ["cubecl-llvm/tile"]
 
 tracing = [
     "cubecl-server/tracing",

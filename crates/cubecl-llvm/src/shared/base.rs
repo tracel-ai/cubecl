@@ -448,6 +448,8 @@ fn lower(
     analyses.set_config(config);
 
     let mut func_passes = OpPass::<FuncOp, Passes>::default();
+    #[cfg(feature = "tile")]
+    func_passes.add_pass(cubecl_tile::dialect::LowerLevelPass);
     target.prologue(&mut func_passes);
     func_passes.add_pass(SROAPass);
     func_passes.add_pass(ResolvePendingPass);

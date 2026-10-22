@@ -19,6 +19,8 @@ workspace = true
 default = ["std", "cubecl-core/default", "cubecl-runtime/default"]
 
 pliron-dump = []
+# Lowers the tile ops ahead of the LLVM lowering.
+tile = ["dep:cubecl-tile"]
 std = ["cubecl-core/std", "cubecl-runtime/std"]
 
 tracing = ["cubecl-core/tracing", "cubecl-runtime/tracing", "cubecl-opt/tracing"]
@@ -27,6 +29,7 @@ nvptx = ["cubecl-core/nvidia"]
 
 
 [dependencies]
+cubecl-tile = { workspace = true, optional = true }
 cubecl-core = { workspace = true, features = [
     "amd",
     "std",
