@@ -1,0 +1,40 @@
+[package]
+authors = ["louisfd <louisfd94@gmail.com>"]
+categories = ["science", "mathematics", "algorithms"]
+description = "CubeCL Tile: a space cut into tiles, and the operations on them."
+keywords = []
+name = "cubecl-tile"
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-tile"
+
+edition.workspace = true
+license.workspace = true
+readme.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+
+[lints]
+workspace = true
+
+
+[features]
+default = ["std", "cubecl-core/default"]
+std = ["cubecl-core/std"]
+
+
+[dependencies]
+cubecl-common = { workspace = true }
+cubecl-core = { workspace = true }
+cubecl-std = { workspace = true }
+
+bytemuck = { workspace = true }
+hashbrown = { workspace = true }
+half = { workspace = true, features = ["bytemuck"] }
+serde = { workspace = true }
+
+
+[dev-dependencies]
+# No version, so Cargo drops it when publishing: `cubecl` re-exports this
+# crate and is published after it.
+cubecl = { path = "../cubecl", features = ["test-runtime"] }
+rand = { workspace = true }
