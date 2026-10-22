@@ -14,7 +14,7 @@ pub use arg::destination::{
     Buffered, Destination, DestinationLaunch, SinkLaunch, SinkLaunchVisitor, TmaStored,
 };
 pub use arg::last_arrival::LastArrival;
-pub use arg::operand::{Output, OutputArgs};
+pub use arg::output::{Output, OutputArgs};
 pub use arg::relay::Relay;
 pub use arg::tma::{TmaBox, TmaLanding, TmaOperand};
 pub use base::{Grid, spawnable};
