@@ -463,6 +463,43 @@ impl Tile {
         }
     }
 
+    /// Cuts `region` and returns the page table entry that window was cut with, loaded from the
+    /// table unless an entry handed to this tile already named it. It is [`PageEntry::unlisted`]
+    /// for a tile not read through a page table.
+    pub fn read_page_entry(&self, region: &Region) -> PageEntry {
+        let cut = self.at(region);
+        match &cut.kind {
+            TileKind::Memory(g) => g.layout.pinned_entry(),
+            TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_)
+            | TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_) => PageEntry::unlisted(),
+        }
+    }
+
+    /// This tile, its cuts taking their page from `entry` where they name its sequence and column,
+    /// and from the table otherwise. `entry` must come from a tile reading the same table, keys
+    /// handing theirs to values included: it is neither checked nor clamped to the pool, so an
+    /// entry from another table reads the page that table lists. A tile not read through a page
+    /// table is unchanged.
+    pub fn with_page_entry(&self, entry: &PageEntry) -> Tile {
+        let kind = match &self.kind {
+            TileKind::Memory(g) => TileKind::new_Memory(g.with_page_entry(entry)),
+            TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_)
+            | TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_) => self.kind.clone(),
+        };
+        Tile {
+            kind,
+            factor: self.factor.clone(),
+            place: comptime!(self.place.clone()),
+            element: comptime!(self.element),
+        }
+    }
+
     /// Window this tile down to `region`, no copy.
     pub fn at(&self, region: &Region) -> Tile {
         let skip = comptime!({

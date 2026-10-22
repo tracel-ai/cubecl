@@ -139,19 +139,48 @@ impl BufferLayout {
     ) -> BufferLayout {
         #[comptime]
         match &self.paging {
-            ComptimeOption::Some(table) => BufferLayout {
-                physical_shape: self.physical_shape.clone(),
-                physical_strides: self.physical_strides.clone(),
-                projection: comptime!(self.projection.clone()),
-                rows: comptime!(self.rows),
-                paging: ComptimeOption::new_Some(table.pinned_at(
+            ComptimeOption::Some(table) => {
+                self.with_paging(ComptimeOption::new_Some(table.pinned_at(
                     origin,
                     cut,
                     self.physical_strides.at(comptime!(table.sequence_dim)),
                     self.physical_strides.at(comptime!(table.position_dim)),
-                )),
-            },
+                )))
+            }
             ComptimeOption::None => self.clone(),
+        }
+    }
+
+    /// The entry this layout's window was cut with, [`PageEntry::unlisted`] where the buffer is not
+    /// a pool of pages.
+    pub(crate) fn pinned_entry(&self) -> PageEntry {
+        #[comptime]
+        match &self.paging {
+            ComptimeOption::Some(table) => table.pinned_entry(),
+            ComptimeOption::None => PageEntry::unlisted(),
+        }
+    }
+
+    /// This layout taking its pages from `entry` where a cut names its cell; unchanged where the
+    /// buffer is not a pool of pages.
+    pub(crate) fn with_page_entry(&self, entry: &PageEntry) -> BufferLayout {
+        #[comptime]
+        match &self.paging {
+            ComptimeOption::Some(table) => {
+                self.with_paging(ComptimeOption::new_Some(table.with_page_entry(entry)))
+            }
+            ComptimeOption::None => self.clone(),
+        }
+    }
+
+    /// This layout over `paging`, the rest unchanged.
+    fn with_paging(&self, paging: ComptimeOption<PageTable>) -> BufferLayout {
+        BufferLayout {
+            physical_shape: self.physical_shape.clone(),
+            physical_strides: self.physical_strides.clone(),
+            projection: comptime!(self.projection.clone()),
+            rows: comptime!(self.rows),
+            paging,
         }
     }
 
