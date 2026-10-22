@@ -87,6 +87,9 @@ pub use device::{Device, RuntimeId};
 #[cfg(feature = "stdlib")]
 pub use cubecl_std as std;
 
+#[cfg(feature = "tile")]
+pub use cubecl_tile as tile;
+
 #[cfg(feature = "wgpu")]
 pub use cubecl_wgpu as wgpu;
 
