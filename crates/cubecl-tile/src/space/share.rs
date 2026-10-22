@@ -81,22 +81,6 @@ impl UnitShare {
     pub(crate) fn reduces(self) -> bool {
         matches!(self, UnitShare::Plane | UnitShare::Group { .. })
     }
-
-    /// The units over which `axis` of a units level is distributed, as a share.
-    pub(crate) fn of_units(plane_units: usize, plane: usize) -> UnitShare {
-        match plane_units {
-            1 => UnitShare::Repeated,
-            n if n == plane => UnitShare::Plane,
-            n => {
-                assert!(
-                    n.is_power_of_two() && n < plane,
-                    "UnitShare::of_units: a group of {n} units in a plane of {plane} is not a bit \
-                     range of the unit index"
-                );
-                UnitShare::Group { unit_bits: n - 1 }
-            }
-        }
-    }
 }
 
 #[cube]

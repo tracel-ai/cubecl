@@ -1,5 +1,4 @@
 mod async_copy;
-mod attention;
 mod block_scaled;
 mod block_scaled_peak;
 mod blocked;
@@ -37,7 +36,6 @@ mod row_chunks;
 mod scaled;
 mod separable;
 mod smem_accumulation;
-mod softmax;
 mod space;
 mod split_k;
 mod stored_window;
