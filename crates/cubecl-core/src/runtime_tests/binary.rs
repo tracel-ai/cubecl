@@ -86,6 +86,26 @@ macro_rules! test_binary_impl {
             rhs: $rhs:expr,
             expected: $expected:expr
         }),*]) => {
+        test_binary_impl!($test_name, $float_type, $binary_func, [$({
+            input_vectorization: $input_vectorization,
+            out_vectorization: $out_vectorization,
+            lhs: $lhs,
+            rhs: $rhs,
+            expected: $expected
+        }),*], 0.001);
+    };
+    (
+        $test_name:ident,
+        $float_type:ident,
+        $binary_func:expr,
+        [$({
+            input_vectorization: $input_vectorization:expr,
+            out_vectorization: $out_vectorization:expr,
+            lhs: $lhs:expr,
+            rhs: $rhs:expr,
+            expected: $expected:expr
+        }),*],
+        $epsilon:expr) => {
         pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: Client) {
             #[cube(launch_unchecked, fast_math = *FAST_MATH)]
             fn test_function<$float_type: Float, In: Size, Out: Size>(
@@ -119,7 +139,7 @@ macro_rules! test_binary_impl {
                     )
                 };
 
-                assert_equals_approx::<F>(&client, output_handle, $expected, 0.001);
+                assert_equals_approx::<F>(&client, output_handle, $expected, $epsilon);
             }
             )*
         }
@@ -256,6 +276,37 @@ test_binary_impl!(
             expected: as_type![F: 0., 1.570_796_4, -1.570_796_4, 0.785_398_2]
         }
     ]
+);
+
+// `f16` holds 180 to within 0.125, as in `test_degrees`.
+test_binary_impl!(
+    test_atan2d,
+    F,
+    Vector::atan2d,
+    [
+        {
+            input_vectorization: 1,
+            out_vectorization: 1,
+            lhs: as_type![F: 0., 1., -1., 1., -1., 1., 0.],
+            rhs: as_type![F: 1., 0., 0., 1., -1., -1., -1.],
+            expected: as_type![F: 0., 90., -90., 45., -135., 135., 180.]
+        },
+        {
+            input_vectorization: 2,
+            out_vectorization: 2,
+            lhs: as_type![F: 0., 1., -1., 1.],
+            rhs: as_type![F: 1., 0., 0., 1.],
+            expected: as_type![F: 0., 90., -90., 45.]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 4,
+            lhs: as_type![F: 0., 1., -1., 1.],
+            rhs: as_type![F: 1., 0., 0., 1.],
+            expected: as_type![F: 0., 90., -90., 45.]
+        }
+    ],
+    0.3
 );
 
 test_binary_impl!(
@@ -1137,6 +1188,7 @@ macro_rules! testgen_binary {
             add_test!(test_max);
             add_test!(test_min);
             add_test!(test_atan2);
+            add_test!(test_atan2d);
             add_test!(test_fma);
             add_test!(test_fma_from_sub);
         }

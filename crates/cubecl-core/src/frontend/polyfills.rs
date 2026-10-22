@@ -433,6 +433,70 @@ pub fn to_radians<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
     input * Vector::new(T::new(comptime!(PI / 180.0)))
 }
 
+/// Sine and cosine of an angle in degrees. The angle is brought into `[-45, 45]` by whole quarter
+/// turns before it becomes radians, a subtraction that is exact while `turns * 90` is, so a
+/// multiple of 90 lands on exactly 0 or ±1: `sin(180)` is `0`, where `sin(to_radians(180))` is
+/// `-8.7e-8`. A quarter turn is negated as `0 - x`, so `cos(90)` is `+0` and `tan(90)` is `+inf`.
+#[cube]
+fn sin_cos_degrees<T: Float, N: Size>(input: Vector<T, N>) -> (Vector<T, N>, Vector<T, N>) {
+    let zero = Vector::<T, N>::zero();
+    let quarter = Vector::new(T::new(90.0));
+    let four = Vector::new(T::new(4.0));
+    let turns = (input / quarter).round();
+    let radians = to_radians(input - turns * quarter);
+    let (sin, cos) = (radians.sin(), radians.cos());
+
+    let quadrant = turns - (turns / four).floor() * four;
+    let one = quadrant.equal(&Vector::new(T::new(1.0)));
+    let two = quadrant.equal(&Vector::new(T::new(2.0)));
+    let three = quadrant.equal(&Vector::new(T::new(3.0)));
+    let odd = one.or(three);
+
+    let sin_out = select_many(odd, cos, sin);
+    let cos_out = select_many(odd, sin, cos);
+    let sin_out = select_many(two.or(three), zero - sin_out, sin_out);
+    let cos_out = select_many(one.or(two), zero - cos_out, cos_out);
+    (sin_out, cos_out)
+}
+
+#[cube]
+pub fn sind<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
+    let (sin, _) = sin_cos_degrees(input);
+    sin
+}
+
+#[cube]
+pub fn cosd<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
+    let (_, cos) = sin_cos_degrees(input);
+    cos
+}
+
+#[cube]
+pub fn tand<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
+    let (sin, cos) = sin_cos_degrees(input);
+    sin / cos
+}
+
+#[cube]
+pub fn asind<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
+    to_degrees(input.asin())
+}
+
+#[cube]
+pub fn acosd<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
+    to_degrees(input.acos())
+}
+
+#[cube]
+pub fn atand<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
+    to_degrees(input.atan())
+}
+
+#[cube]
+pub fn atan2d<T: Float, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T, N> {
+    to_degrees(lhs.atan2(rhs))
+}
+
 pub mod bitwise {
     use super::*;
 

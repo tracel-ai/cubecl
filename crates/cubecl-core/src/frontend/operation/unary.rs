@@ -383,6 +383,72 @@ define_unary_func!(ArcSinh, asinh, ArcSinhOp, f16, bf16, flex32, tf32, f32, f64)
 define_unary_func!(ArcCosh, acosh, ArcCoshOp, f16, bf16, flex32, tf32, f32, f64);
 define_unary_func!(ArcTanh, atanh, ArcTanhOp, f16, bf16, flex32, tf32, f32, f64);
 define_unary_func!(
+    SinDegrees,
+    sind,
+    SinDegreesOp,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+define_unary_func!(
+    CosDegrees,
+    cosd,
+    CosDegreesOp,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+define_unary_func!(
+    TanDegrees,
+    tand,
+    TanDegreesOp,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+define_unary_func!(
+    ArcSinDegrees,
+    asind,
+    ArcSinDegreesOp,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+define_unary_func!(
+    ArcCosDegrees,
+    acosd,
+    ArcCosDegreesOp,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+define_unary_func!(
+    ArcTanDegrees,
+    atand,
+    ArcTanDegreesOp,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+define_unary_func!(
     Degrees, to_degrees, DegreesOp, f16, bf16, flex32, tf32, f32, f64
 );
 define_unary_func!(

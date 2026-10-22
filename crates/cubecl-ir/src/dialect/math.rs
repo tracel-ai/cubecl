@@ -149,6 +149,61 @@ const_eval!(RadiansOp, {
     FloatAttr(f16, bf16, f32, f64): |inp| inp.to_radians(),
 });
 
+/// Sine and cosine of an angle in degrees, reduced by whole quarter turns the way the
+/// `sin_cos_degrees` polyfill is, so a folded constant matches what a backend computes.
+fn sin_cos_degrees<F: Float>(input: F) -> (F, F) {
+    let quarter = F::from(90.0).unwrap();
+    let four = F::from(4.0).unwrap();
+    let turns = (input / quarter).round();
+    let (sin, cos) = (input - turns * quarter).to_radians().sin_cos();
+    let quadrant = (turns - (turns / four).floor() * four).to_u8().unwrap_or(0);
+    let (sin, cos) = if quadrant % 2 == 1 {
+        (cos, sin)
+    } else {
+        (sin, cos)
+    };
+    let sin = if quadrant >= 2 { F::zero() - sin } else { sin };
+    let cos = if quadrant == 1 || quadrant == 2 {
+        F::zero() - cos
+    } else {
+        cos
+    };
+    (sin, cos)
+}
+
+pure_unop!("math.sin_degrees", SinDegreesOp);
+const_eval!(SinDegreesOp, {
+    FloatAttr(f16, bf16, f32, f64): |inp| sin_cos_degrees(inp).0,
+});
+
+pure_unop!("math.cos_degrees", CosDegreesOp);
+const_eval!(CosDegreesOp, {
+    FloatAttr(f16, bf16, f32, f64): |inp| sin_cos_degrees(inp).1,
+});
+
+pure_unop!("math.tan_degrees", TanDegreesOp);
+const_eval!(TanDegreesOp, {
+    FloatAttr(f16, bf16, f32, f64): |inp| {
+        let (sin, cos) = sin_cos_degrees(inp);
+        sin / cos
+    },
+});
+
+pure_unop!("math.arcsin_degrees", ArcSinDegreesOp);
+const_eval!(ArcSinDegreesOp, {
+    FloatAttr(f16, bf16, f32, f64): |inp| inp.asin().to_degrees(),
+});
+
+pure_unop!("math.arccos_degrees", ArcCosDegreesOp);
+const_eval!(ArcCosDegreesOp, {
+    FloatAttr(f16, bf16, f32, f64): |inp| inp.acos().to_degrees(),
+});
+
+pure_unop!("math.arctan_degrees", ArcTanDegreesOp);
+const_eval!(ArcTanDegreesOp, {
+    FloatAttr(f16, bf16, f32, f64): |inp| inp.atan().to_degrees(),
+});
+
 pure_unop!("math.sqrt", SqrtOp);
 const_eval!(SqrtOp, {
     FloatAttr(f16, bf16, f32, f64): |inp| inp.sqrt(),
@@ -504,6 +559,11 @@ simplify!(FDivOp, {
 pure_binop!("math.arc_tan2", ArcTan2Op);
 const_eval!(ArcTan2Op, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs.atan2(rhs),
+});
+
+pure_binop!("math.arc_tan2_degrees", ArcTan2DegreesOp);
+const_eval!(ArcTan2DegreesOp, {
+    FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs.atan2(rhs).to_degrees(),
 });
 
 pure_binop!("math.powf", PowfOp);

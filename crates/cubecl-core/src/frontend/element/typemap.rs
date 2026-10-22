@@ -632,6 +632,55 @@ impl<Marker: 'static> ArcTan2NativeExpand for DynamicScalar<Marker> {
     }
 }
 
+impl<Marker: 'static> SinDegrees for DynamicScalar<Marker> {}
+impl<Marker: 'static> SinDegreesNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_sind(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_sind(scope, input)
+    }
+}
+
+impl<Marker: 'static> CosDegrees for DynamicScalar<Marker> {}
+impl<Marker: 'static> CosDegreesNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_cosd(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_cosd(scope, input)
+    }
+}
+
+impl<Marker: 'static> TanDegrees for DynamicScalar<Marker> {}
+impl<Marker: 'static> TanDegreesNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_tand(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_tand(scope, input)
+    }
+}
+
+impl<Marker: 'static> ArcSinDegrees for DynamicScalar<Marker> {}
+impl<Marker: 'static> ArcSinDegreesNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_asind(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_asind(scope, input)
+    }
+}
+
+impl<Marker: 'static> ArcCosDegrees for DynamicScalar<Marker> {}
+impl<Marker: 'static> ArcCosDegreesNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_acosd(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_acosd(scope, input)
+    }
+}
+
+impl<Marker: 'static> ArcTanDegrees for DynamicScalar<Marker> {}
+impl<Marker: 'static> ArcTanDegreesNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_atand(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_atand(scope, input)
+    }
+}
+
+impl<Marker: 'static> ArcTan2Degrees for DynamicScalar<Marker> {}
+impl<Marker: 'static> ArcTan2DegreesNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_atan2d(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        f32::__expand_native_atan2d(scope, lhs, rhs)
+    }
+}
+
 impl<Marker: 'static> Powf for DynamicScalar<Marker> {}
 impl<Marker: 'static> PowfNativeExpand for DynamicScalar<Marker> {
     fn __expand_native_powf(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue {

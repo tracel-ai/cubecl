@@ -38,7 +38,14 @@ pub trait Float:
     + ScalarArcTanh
     + ScalarDegrees
     + ScalarRadians
+    + ScalarSinDegrees
+    + ScalarCosDegrees
+    + ScalarTanDegrees
+    + ScalarArcSinDegrees
+    + ScalarArcCosDegrees
+    + ScalarArcTanDegrees
     + ScalarArcTan2
+    + ScalarArcTan2Degrees
     + ScalarPowf
     + Powi<i32>
     + ScalarHypot

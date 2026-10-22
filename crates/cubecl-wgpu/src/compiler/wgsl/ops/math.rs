@@ -159,6 +159,13 @@ lower_unop!(Expm1Op, expm1);
 lower_unop!(CbrtOp, cbrt);
 lower_unop!(RcbrtOp, inverse_cbrt);
 lower_unop!(RecipOp, recip);
+lower_unop!(SinDegreesOp, sind);
+lower_unop!(CosDegreesOp, cosd);
+lower_unop!(TanDegreesOp, tand);
+lower_unop!(ArcSinDegreesOp, asind);
+lower_unop!(ArcCosDegreesOp, acosd);
+lower_unop!(ArcTanDegreesOp, atand);
+lower_binop!(ArcTan2DegreesOp, atan2d);
 lower_unop!(IsNanOp, is_nan);
 lower_unop!(IsInfOp, is_inf);
 
