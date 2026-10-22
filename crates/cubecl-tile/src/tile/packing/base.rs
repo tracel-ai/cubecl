@@ -6,6 +6,7 @@ use cubecl::ir::features::TypeUsage;
 use cubecl::ir::types::Fp8Format;
 use cubecl::ir::{ElemType, FloatKind};
 use cubecl::post_processing::fp4::E2M1_F16_LIFT;
+use cubecl::post_processing::minifloat::fp8_f16_lift;
 use cubecl::prelude::Scalar;
 use cubecl::quant::scheme::QuantValue;
 use cubecl::quant::scheme::ScaleDtype;
@@ -37,12 +38,13 @@ pub enum Field {
     /// and cast, the decode left to the compiler. What [`read_on`](Field::read_on) makes of
     /// `Quant(E2M1)` there.
     ConvertedE2M1,
-    /// An `e2m1` code on a device that emulates `e2m1x2`'s conversion: a word is decoded as `f16`
-    /// pairs from its bits, lifted to its values, or, where `lifted` is false, each placed
-    /// [`E2M1_F16_LIFT`] short of its value for a reader whose factor carries the lift (a tile
-    /// read placed). What [`read_on`](Field::read_on) makes of
-    /// `Quant(E2M1)` there, lifted.
-    PlacedE2M1 {
+    /// A float code (`e2m1`, `e4m3` or `e5m2`) on a device that emulates converting it: a word is
+    /// decoded as `f16` pairs from its bits, lifted to its values, or, where `lifted` is false,
+    /// each placed [`lift`](Field::lift) short of its value for a reader whose factor carries the
+    /// lift (a tile read placed). What [`read_on`](Field::read_on) makes of `Quant(value)` there,
+    /// lifted.
+    Placed {
+        value: QuantValue,
         lifted: bool,
     },
 }
@@ -74,7 +76,8 @@ impl Field {
             Field::Fp8(_) => 8,
             Field::Float(kind) => Field::float_bits(kind),
             Field::Index { bits } => bits,
-            Field::ConvertedE2M1 | Field::PlacedE2M1 { .. } => QuantValue::E2M1.size_bits(),
+            Field::ConvertedE2M1 => QuantValue::E2M1.size_bits(),
+            Field::Placed { value, .. } => value.size_bits(),
         }
     }
 
@@ -85,36 +88,55 @@ impl Field {
 }
 
 impl Field {
-    /// This field as the device `client` reads it: an `e2m1` code decoded from its bits where the
-    /// device emulates converting `e2m1x2` anyway, so a reader's factor can carry the decode's
-    /// lift; converted by the device where it converts `e2m1x2` itself; every other field as it
-    /// is. A device's own conversion is the one its compiler lowers best, so where it exists a
-    /// software decode is only ever slower.
+    /// This field as the device `client` reads it: a float code (`e2m1`, `e4m3`, `e5m2`) decoded
+    /// from its bits where the device emulates converting it anyway, so a reader's factor can
+    /// carry the decode's lift; an `e2m1` code converted by the device where it converts
+    /// `e2m1x2` itself; every other field as it is. A device's own conversion is the one its
+    /// compiler lowers best, so where it exists a software decode is only ever slower.
     pub fn read_on(self, client: &Client) -> Field {
-        let e2m1 = ElemType::Float(FloatKind::E2M1x2);
-        let emulated = client.features().conversion_is_emulated(e2m1);
+        let converted_as = match self {
+            Field::Quant(QuantValue::E2M1) => Some(FloatKind::E2M1x2),
+            Field::Quant(QuantValue::E4M3) => Some(FloatKind::E4M3),
+            Field::Quant(QuantValue::E5M2) => Some(FloatKind::E5M2),
+            _ => None,
+        };
+        let emulated = converted_as.is_some_and(|kind| {
+            client
+                .features()
+                .conversion_is_emulated(ElemType::Float(kind))
+        });
         let converts = e2m1x2::supported_uses(client).contains(TypeUsage::Conversion);
         match self {
-            Field::Quant(QuantValue::E2M1) if emulated => Field::PlacedE2M1 { lifted: true },
+            Field::Quant(value) if emulated => Field::Placed {
+                value,
+                lifted: true,
+            },
             Field::Quant(QuantValue::E2M1) if converts => Field::ConvertedE2M1,
             other => other,
         }
     }
 
-    /// This field read placed ([`Tile::placed`](crate::Tile::placed)): an `e2m1` code decoded
+    /// This field read placed ([`Tile::placed`](crate::Tile::placed)): a float code decoded
     /// from its bits, its lift left to the reader's factor; every other field as it is.
     pub(crate) fn placed(self) -> Field {
         match self {
-            Field::PlacedE2M1 { .. } => Field::PlacedE2M1 { lifted: false },
+            Field::Placed { value, .. } => Field::Placed {
+                value,
+                lifted: false,
+            },
             other => other,
         }
     }
 
-    /// What a value read this way is short of: [`E2M1_F16_LIFT`] for an `e2m1` code placed, one
-    /// for every value read as itself.
+    /// What a value read this way is short of: [`E2M1_F16_LIFT`] for an `e2m1` code placed, the
+    /// format's [`fp8_f16_lift`] for an `e4m3` or `e5m2` one, one for every value read as itself.
     pub(crate) fn lift(self) -> f64 {
-        match self {
-            Field::PlacedE2M1 { lifted: false } => E2M1_F16_LIFT,
+        match self.decode() {
+            FieldDecode::Placed { lifted: false } => E2M1_F16_LIFT,
+            FieldDecode::PlacedByte {
+                format,
+                lifted: false,
+            } => fp8_f16_lift(format),
             _ => 1.0,
         }
     }
@@ -167,7 +189,14 @@ impl Field {
             Field::Float(kind) => FieldDecode::Bits(kind),
             Field::Index { .. } => FieldDecode::Unsigned,
             Field::ConvertedE2M1 => FieldDecode::Converted,
-            Field::PlacedE2M1 { lifted } => FieldDecode::Placed { lifted },
+            // A placed code is the field it was, decoded from its bits instead.
+            Field::Placed { value, lifted } => match Field::Quant(value).decode() {
+                FieldDecode::Reinterpreted => FieldDecode::Placed { lifted },
+                FieldDecode::Byte(format) => FieldDecode::PlacedByte { format, lifted },
+                other => {
+                    panic!("Field::Placed: {value:?} reads back as {other:?}, not a float code")
+                }
+            },
         }
     }
 }
@@ -186,6 +215,9 @@ pub(crate) enum FieldDecode {
     /// A 4-bit float code decoded from its bits as `f16` pairs, lifted to its value or placed
     /// [`E2M1_F16_LIFT`] short of it.
     Placed { lifted: bool },
+    /// An 8-bit float code decoded from its bits as `f16` pairs, lifted to its value or placed
+    /// [`fp8_f16_lift`] short of it.
+    PlacedByte { format: Fp8Format, lifted: bool },
     /// An 8-bit float code, read back through the format's own decoder.
     Byte(Fp8Format),
     /// A whole float, read back by reinterpreting the bits of its slot.
@@ -333,5 +365,37 @@ mod tests {
         );
         assert_eq!(Field::ConvertedE2M1.decode(), FieldDecode::Converted);
         assert_eq!(Field::ConvertedE2M1.per_word(), 8);
+    }
+
+    /// A float code placed is the field it was, decoded from its bits, and read placed it is
+    /// short of its value by the gap between its exponent bias and an `f16`'s: `2^14` for
+    /// `e2m1`, `2^8` for `e4m3`, nothing for `e5m2`, which is an `f16`'s top byte. Lifted, it
+    /// is short of nothing.
+    #[test]
+    fn a_placed_code_leaves_its_lift_to_the_reader() {
+        let placed = |value| Field::Placed {
+            value,
+            lifted: true,
+        };
+        for (value, lift) in [
+            (QuantValue::E2M1, 16384.0),
+            (QuantValue::E4M3, 256.0),
+            (QuantValue::E5M2, 1.0),
+        ] {
+            assert_eq!(placed(value).size_bits(), Field::from(value).size_bits());
+            assert_eq!(placed(value).lift(), 1.0, "{value:?}");
+            assert_eq!(placed(value).placed().lift(), lift, "{value:?}");
+        }
+        assert_eq!(
+            placed(QuantValue::E4M3).placed().decode(),
+            FieldDecode::PlacedByte {
+                format: Fp8Format::E4M3,
+                lifted: false
+            }
+        );
+        assert_eq!(
+            placed(QuantValue::E2M1).decode(),
+            FieldDecode::Placed { lifted: true }
+        );
     }
 }

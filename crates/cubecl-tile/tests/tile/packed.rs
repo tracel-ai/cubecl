@@ -16,7 +16,7 @@ use cubecl::{
     bytes::Bytes, features::TypeUsage, ir::FloatKind, ir::types::Fp8Format, prelude::*,
     quant::scheme::QuantValue, std::tensor::TensorHandle, zspace::shape,
 };
-use cubecl_common::{e2m1, e4m3};
+use cubecl_common::{e2m1, e4m3, e5m2};
 
 use crate::tile::uncut;
 use cubecl_tile::Instruction;
@@ -628,7 +628,13 @@ fn fp4_codes_unpack_as_the_device_reads_them() {
 #[test]
 fn fp4_codes_unpack_placed() {
     let client = cubecl::test_device().client();
-    check_fp4_codes_unpack(&client, Field::PlacedE2M1 { lifted: true });
+    check_fp4_codes_unpack(
+        &client,
+        Field::Placed {
+            value: QuantValue::E2M1,
+            lifted: true,
+        },
+    );
 }
 
 /// Every `e2m1` code, packed eight to a word, unpacked through `field` and checked against the
@@ -2183,15 +2189,51 @@ fn words_of_bytes(bytes: &[u8]) -> Vec<u32> {
         .collect()
 }
 
-/// **An 8-bit float field unpacks on read.** `e4m3` codes four to a word, decoded through the
-/// format rather than sign-extended; the NaN codes are left out, since one of those has nothing
-/// to compare against.
+/// **An 8-bit float field unpacks on read.** `e4m3` and `e5m2` codes four to a word, decoded
+/// through the format rather than sign-extended.
 #[test]
-fn e4m3_fields_unpack_on_read() {
-    let (field, rows, cols) = (QuantValue::E4M3, 8, 8);
+fn fp8_fields_unpack_on_read() {
+    let client = cubecl::test_device().client();
+    for value in [QuantValue::E4M3, QuantValue::E5M2] {
+        check_fp8_codes_unpack(&client, value, Field::from(value));
+    }
+}
+
+/// The same codes placed from their bits as `f16` and lifted, on every device: the decode a
+/// device that emulates the format's conversion reads, held to every code whichever device runs
+/// the suite.
+#[test]
+fn fp8_codes_unpack_placed() {
+    let client = cubecl::test_device().client();
+    for value in [QuantValue::E4M3, QuantValue::E5M2] {
+        check_fp8_codes_unpack(
+            &client,
+            value,
+            Field::Placed {
+                value,
+                lifted: true,
+            },
+        );
+    }
+}
+
+/// The same codes as an operand bound at launch reads them on this device ([`Field::read_on`]):
+/// placed from their bits where it would emulate the conversion, through the format's decoder
+/// elsewhere.
+#[test]
+fn fp8_codes_unpack_as_the_device_reads_them() {
+    let client = cubecl::test_device().client();
+    for value in [QuantValue::E4M3, QuantValue::E5M2] {
+        check_fp8_codes_unpack(&client, value, Field::from(value).read_on(&client));
+    }
+}
+
+/// Every `value` code but its NaNs, which have nothing to compare against, packed four to a word,
+/// unpacked through `field` and checked bit for bit against the format's own decode.
+fn check_fp8_codes_unpack(client: &Client, value: QuantValue, field: Field) {
+    let (rows, cols) = (16, 16);
     let factor = 32 / field.size_bits();
 
-    let client = cubecl::test_device().client();
     let max = client.properties().hardware.max_vector_size;
     if factor > max {
         ValidationResult::Skipped(format!(
@@ -2201,7 +2243,15 @@ fn e4m3_fields_unpack_on_read() {
         return;
     }
 
-    let bytes: Vec<u8> = (0..rows * cols).map(|i| (i * 4) as u8).collect();
+    let decode = |bits: u8| match value {
+        QuantValue::E4M3 => e4m3::from_bits(bits).to_f32(),
+        QuantValue::E5M2 => e5m2::from_bits(bits).to_f32(),
+        other => panic!("check_fp8_codes_unpack: {other:?} is not an 8-bit float"),
+    };
+    // Every code once, a NaN code read as zero instead.
+    let bytes: Vec<u8> = (0..=u8::MAX)
+        .map(|bits| if decode(bits).is_nan() { 0 } else { bits })
+        .collect();
     let input = TensorHandle::new_contiguous(
         vec![rows, cols],
         client.create(Bytes::from_elems(words_of_bytes(&bytes))),
@@ -2215,7 +2265,7 @@ fn e4m3_fields_unpack_on_read() {
 
     let space = Space::new(&[(M, rows), (N, cols)]);
     packed_copy::launch(
-        &client,
+        client,
         CubeCount::new_single(),
         CubeDim::new_single(),
         TileArgLaunch::new(
@@ -2230,17 +2280,17 @@ fn e4m3_fields_unpack_on_read() {
             factor,
             TileSpec::direct(&[M, N]),
         ),
-        uncut(&client, &space, &space).partitioning_arg(),
+        uncut(client, &space, &space).partitioning_arg(),
     );
 
-    let got = HostData::from_tensor_handle(&client, output, HostDataType::F32);
+    let got = HostData::from_tensor_handle(client, output, HostDataType::F32);
     for m in 0..rows {
         for n in 0..cols {
-            let want = e4m3::from_bits(bytes[m * cols + n]).to_f32();
+            let want = decode(bytes[m * cols + n]);
             let have = got.get_f32(&[m, n]);
             assert!(
                 have.to_bits() == want.to_bits(),
-                "at ({m}, {n}): got {have}, want {want}"
+                "{field:?} at ({m}, {n}): got {have}, want {want}"
             );
         }
     }
