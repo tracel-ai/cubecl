@@ -33,8 +33,9 @@ impl Paging {
     }
 
     /// What an operand read through a table owes, checked once for the build and the kernel both:
-    /// a direct, untiled mapping over a pool of pages, never packed, moved a line at a time, its
-    /// lines whole within a page and never along the pages.
+    /// a direct, untiled mapping over a pool of pages, moved a line at a time, its lines whole
+    /// within a page and never along the pages. A packed pool is paged like a plain one: its words
+    /// lie along the innermost dim, as its lines do.
     ///
     /// # Errors
     ///
@@ -43,16 +44,13 @@ impl Paging {
         &self,
         projection: &Projection,
         stored_tiles: &[(Axis, usize)],
-        packing: Packing,
         delivery: Delivery,
         width: usize,
     ) -> Result<(), Refusal> {
         if !projection.is_direct() || projection.is_tiled() || !stored_tiles.is_empty() {
             return Err(Refusal::PagingOfAStatedLayout);
         }
-        if packing != Packing::Plain
-            || !matches!(delivery, Delivery::SyncPerUnit | Delivery::AsyncPerUnit)
-        {
+        if !matches!(delivery, Delivery::SyncPerUnit | Delivery::AsyncPerUnit) {
             return Err(Refusal::PagingMovedByRuns);
         }
         let (sequence, position) = self.dims(projection)?;
