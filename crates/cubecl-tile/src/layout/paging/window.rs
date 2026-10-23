@@ -123,6 +123,7 @@ mod tests {
         assert_eq!(window(1, 64, 128).spans(64), pages(1, 2));
         assert_eq!(window(1, 16, 4).spans(64), pages(2, 2));
         assert_eq!(window(1, 48, 48).spans(64), pages(2, 2));
+        assert_eq!(window(1, 80, 16).spans(64), pages(2, 3));
         assert_eq!(window(2, 4, 0).spans(64), Spans::Any);
         let unfixed = PagedWindow {
             sequences: Some(1),
