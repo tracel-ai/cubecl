@@ -882,6 +882,20 @@ pub trait Server:
     /// Enable collecting timestamps.
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError>;
 
+    /// Enable collecting timestamps from the next kernel launched on the
+    /// stream, for a window that holds one launch.
+    ///
+    /// A window opened where the stream is also holds the host preparing that
+    /// launch, which an idle device counts as device time. A backend that can
+    /// stamp the launch itself overrides this; the default opens the window
+    /// where the stream is, as [`start_profile`](Self::start_profile) does.
+    fn start_profile_at_launch(
+        &mut self,
+        stream_id: StreamId,
+    ) -> Result<ProfilingToken, ServerError> {
+        self.start_profile(stream_id)
+    }
+
     /// Disable collecting timestamps.
     fn end_profile(
         &mut self,
