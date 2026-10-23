@@ -4,7 +4,7 @@ use crate::*;
 
 /// The most pages a window pins: each is a register its lines pick from and a table read at its
 /// cut. A window reaching more resolves its lines one by one.
-pub(crate) const MAX_PINNED_PAGES: usize = 8;
+pub(crate) const MAX_PINNED_PAGES: usize = 4;
 
 /// What a window's extent proves of the pages its lines lie in.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -137,9 +137,10 @@ mod tests {
     #[test]
     fn a_window_wider_than_a_page_pins_the_pages_it_reaches() {
         assert_eq!(window(1, 128, 0).spans(64), pages(2, 3));
-        assert_eq!(window(1, 128, 0).spans(16), pages(8, 9));
-        assert_eq!(window(1, 128, 8).spans(16), Spans::Any);
-        assert_eq!(window(1, 256, 0).spans(16), Spans::Any);
+        assert_eq!(window(1, 64, 0).spans(16), pages(4, 5));
+        assert_eq!(window(1, 64, 16).spans(16), pages(4, 5));
+        assert_eq!(window(1, 64, 8).spans(16), Spans::Any);
+        assert_eq!(window(1, 128, 0).spans(16), Spans::Any);
     }
 
     /// A runtime shift keeps the extent but loses the alignment, so the pages any origin reaches.
@@ -147,7 +148,7 @@ mod tests {
     fn a_shifted_window_keeps_its_extent_not_its_page() {
         assert_eq!(pages(1, 2).shifted(), pages(2, 2));
         assert_eq!(pages(2, 2).shifted(), pages(2, 2));
-        assert_eq!(pages(8, 9).shifted(), Spans::Any);
+        assert_eq!(pages(4, 5).shifted(), Spans::Any);
         assert_eq!(Spans::Any.shifted(), Spans::Any);
     }
 }
