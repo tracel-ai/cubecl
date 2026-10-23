@@ -2,7 +2,7 @@ use crate::{
     CollectVerCapExtPass, ConvertArgsPass, PARAMS_NAME, SpirvKernel,
     lower::LowerOpsSpirvPass,
     ops::{
-        branch::BranchToSpirvConversionPass, builtin::LowerBuiltinsPass, memory::lower_shared,
+        branch::SCFToSpirvConversionPass, builtin::LowerBuiltinsPass, memory::lower_shared,
         to_spirv_dialect::ToSpirvDialectPass,
     },
     params_storage_class,
@@ -10,7 +10,7 @@ use crate::{
 use cubecl_core::{
     Compiler, WgpuCompilationOptions,
     ir::{
-        ContextExt, attributes::FuncInterface, features::EnumSet, ident, metadata::Info,
+        ContextExt, attributes::FuncInterface, features::EnumSet, metadata::Info,
         rewrite::SimplifyOpsPass,
     },
     post_processing::{
@@ -38,6 +38,7 @@ use cubecl_opt::passes::{
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass,
     inst_combine::InstCombinePass,
     mem2reg::Mem2RegPass,
+    pre::SSCMPre,
     sccp::SCCPPass,
     simple_cse::SimpleCSEPass,
     sroa::SROAPass,
@@ -51,6 +52,7 @@ use pliron::{
         ops::{ConstantOp, FuncOp, ModuleOp},
     },
     context::{Context, Ptr},
+    ident,
     identifier::Identifier,
     irbuild::{
         inserter::BlockInsertionPoint,
@@ -251,12 +253,18 @@ impl SpirvCompiler {
         func_passes.add_pass(SROAPass);
 
         func_passes.add_pass(Mem2RegPass);
-
         func_passes.add_pass(SROAPass);
+        func_passes.add_pass(DCEPass);
+
+        passes.add_pass(NestedOpsPass::new(func_passes));
+        passes.add_pass(SSCMPre);
+
+        let mut func_passes = OpPass::<FuncOp, Passes>::default();
         func_passes.add_pass(SCCPPass);
-        func_passes.add_pass(SimpleCSEPass::with_memory());
+        func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(DCEPass);
         func_passes.add_pass(CanonicalizePass::default());
+        func_passes.add_pass(DCEPass);
 
         passes.add_pass(NestedOpsPass::new(func_passes));
         passes.add_pass(AnnotateGlobalVisibilityPass);
@@ -282,7 +290,7 @@ impl SpirvCompiler {
         let mut passes = OpPass::<ModuleOp, Passes>::default();
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
 
-        func_passes.add_pass(BranchToSpirvConversionPass::default());
+        func_passes.add_pass(SCFToSpirvConversionPass::default());
         func_passes.add_pass(Mem2RegPass);
         func_passes.add_pass(DCEPass);
         func_passes.add_pass(SCCPPass);
@@ -338,7 +346,7 @@ fn insert_spirv_module(ctx: &mut Context, module: ModuleOp) -> SpirvModuleOp {
 
     let spirv_module = SpirvModuleOp::new(
         ctx,
-        ident("kernel"),
+        ident!("kernel"),
         AddressingModel::PhysicalStorageBuffer64,
         MemoryModel::Vulkan,
     );
@@ -354,7 +362,7 @@ fn insert_spirv_module(ctx: &mut Context, module: ModuleOp) -> SpirvModuleOp {
         .insert_at_front(module_body, ctx);
     let vce = VerCapExtAttr::new(
         comp_opts.max_spirv_version,
-        vec![Capability::Shader],
+        vec![Capability::Shader, Capability::VariablePointers],
         vec![],
     );
     spirv_module.set_attr_spirv_module_vce(ctx, vce);

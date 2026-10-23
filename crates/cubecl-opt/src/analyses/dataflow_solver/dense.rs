@@ -10,10 +10,14 @@ use cubecl_ir::{
 };
 use derive_more::Deref;
 use pliron::{
-    basic_block::BasicBlock, graph::walkers::uninterruptible::immutable::walk_op,
-    linked_list::ContainsLinkedList, printable::Printable, symbol_table::SymbolTableCollection,
+    basic_block::BasicBlock,
+    graph::{ControlFlowGraph, walkers::uninterruptible::immutable::walk_op},
+    linked_list::ContainsLinkedList,
+    printable::Printable,
+    symbol_table::SymbolTableCollection,
     utils::table::ISet,
 };
+use smallvec::SmallVec;
 
 use crate::analyses::dataflow_solver::{
     AnalysisState, ChangeResult, DataflowAnalysis, ReadRef, SolverWorkItem, WriteRef,
@@ -21,13 +25,6 @@ use crate::analyses::dataflow_solver::{
 };
 
 use super::{DataflowSolver, ProgramPoint};
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub enum CallControlFlowAction {
-    EnterCallee,
-    ExitCallee,
-    ExternalCallee,
-}
 
 pub trait LatticeValue: Default + PartialEq + Printable + Sized + 'static {
     fn join(&mut self, rhs: &Self) -> ChangeResult {
@@ -77,6 +74,10 @@ impl<T: LatticeValue> DenseLattice<T> {
     pub fn value_mut(&mut self) -> &mut T {
         &mut self.value
     }
+
+    pub fn clear_dependents(&self) {
+        self.dependents.borrow_mut().clear();
+    }
 }
 
 impl<T: LatticeValue> AnalysisState for DenseLattice<T> {
@@ -105,6 +106,10 @@ impl<T: LatticeValue> AnalysisState for DenseLattice<T> {
 
 pub trait DenseForwardDataflowAnalysis: Sized + 'static {
     type LatticeValue: LatticeValue;
+
+    fn on_load(&self, solver: &mut DataflowSolver) {
+        let _ = solver;
+    }
 
     /// Verify analysis can be run on the solver. Should be used to verify required analyses are
     /// loaded.
@@ -138,6 +143,15 @@ pub trait DenseForwardDataflowAnalysis: Sized + 'static {
         let _ = (this, solver, ctx, op);
     }
 
+    fn visit_block(
+        this: &DenseForward<Self>,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        block: Ptr<BasicBlock>,
+    ) {
+        this.visit_block(solver, ctx, block);
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn visit_block_transfer(
         this: &DenseForward<Self>,
@@ -145,11 +159,11 @@ pub trait DenseForwardDataflowAnalysis: Sized + 'static {
         ctx: &Context,
         block: Ptr<BasicBlock>,
         point: ProgramPoint,
-        predecessor: Ptr<BasicBlock>,
-        before: &ReadRef<DenseLattice<Self::LatticeValue>>,
+        predecessors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
         after: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) {
-        this.visit_block_transfer(solver, ctx, block, point, predecessor, before, after);
+        let _ = (block, point);
+        Self::visit_control_flow_transfer(this, solver, ctx, point, predecessors, after);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -158,32 +172,65 @@ pub trait DenseForwardDataflowAnalysis: Sized + 'static {
         solver: &DataflowSolver,
         ctx: &Context,
         branch: &dyn RegionBranchOpInterface,
-        region_from: Option<usize>,
-        region_to: Option<usize>,
-        before: &ReadRef<DenseLattice<Self::LatticeValue>>,
+        point: ProgramPoint,
+        predecessors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
         after: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) {
-        this.visit_region_branch_control_flow_transfer(
-            solver,
-            ctx,
-            branch,
-            region_from,
-            region_to,
-            before,
-            after,
-        );
+        let _ = (branch, point);
+        Self::visit_control_flow_transfer(this, solver, ctx, point, predecessors, after);
     }
 
-    fn visit_call_control_flow_transfer(
+    fn visit_callee_control_flow_transfer(
+        this: &DenseForward<Self>,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        callable: &dyn CallableOpInterface,
+        predecessors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
+        after: &WriteRef<DenseLattice<Self::LatticeValue>>,
+    ) {
+        let _ = callable;
+        let region = callable.callable_region(ctx).unwrap();
+        let point = ProgramPoint::at_block_start(ctx, region.entry_node(ctx).unwrap());
+        Self::visit_control_flow_transfer(this, solver, ctx, point, predecessors, after);
+    }
+
+    fn visit_return_control_flow_transfer(
         this: &DenseForward<Self>,
         solver: &DataflowSolver,
         ctx: &Context,
         call: &dyn CallOpInterface,
-        action: CallControlFlowAction,
+        predecessors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
+        after: &WriteRef<DenseLattice<Self::LatticeValue>>,
+    ) {
+        let _ = call;
+        let point = ProgramPoint::after_op(ctx, call.get_operation());
+        Self::visit_control_flow_transfer(this, solver, ctx, point, predecessors, after);
+    }
+
+    fn visit_control_flow_transfer(
+        this: &DenseForward<Self>,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        point: ProgramPoint,
+        predecessors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
+        after: &WriteRef<DenseLattice<Self::LatticeValue>>,
+    ) {
+        let _ = point;
+        for predecessor in predecessors {
+            this.join(solver, ctx, after, predecessor);
+        }
+    }
+
+    fn visit_external_call(
+        this: &DenseForward<Self>,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        call: &dyn CallOpInterface,
         before: &ReadRef<DenseLattice<Self::LatticeValue>>,
         after: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) {
-        this.visit_call_control_flow_transfer(solver, ctx, call, action, before, after);
+        let _ = (call, before);
+        Self::set_to_entry_state(this, solver, ctx, after);
     }
 }
 
@@ -204,6 +251,11 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
 }
 
 impl<T: DenseForwardDataflowAnalysis> DataflowAnalysis for DenseForward<T> {
+    fn on_load(&self, solver: &mut DataflowSolver) {
+        solver.ensure_loaded(DeadCodeAnalysis::default);
+        self.inner.on_load(solver);
+    }
+
     fn verify(&self, solver: &DataflowSolver, ctx: &Context, root: Ptr<Operation>) -> Result<()> {
         solver.require_loaded::<DeadCodeAnalysis>()?;
         T::verify(solver, ctx, root)
@@ -219,7 +271,7 @@ impl<T: DenseForwardDataflowAnalysis> DataflowAnalysis for DenseForward<T> {
 
         for region in root.deref(ctx).regions() {
             for block in region.deref(ctx).iter(ctx) {
-                self.visit_block(solver, ctx, block);
+                T::visit_block(self, solver, ctx, block);
                 for op in block.deref(ctx).iter(ctx) {
                     self.initialize(solver, ctx, op)?;
                 }
@@ -232,7 +284,7 @@ impl<T: DenseForwardDataflowAnalysis> DataflowAnalysis for DenseForward<T> {
         if let Some(op) = point.prev_op(ctx) {
             return self.process_operation(solver, ctx, op);
         }
-        self.visit_block(solver, ctx, point.block().unwrap());
+        T::visit_block(self, solver, ctx, point.block().unwrap());
         Ok(())
     }
 
@@ -301,52 +353,6 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
         solver.update_state(ctx, lhs, |lhs| lhs.join(rhs.deref().value()));
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn visit_block_transfer(
-        &self,
-        solver: &DataflowSolver,
-        ctx: &Context,
-        _block: Ptr<BasicBlock>,
-        _point: ProgramPoint,
-        _predecessor: Ptr<BasicBlock>,
-        before: &ReadRef<DenseLattice<T::LatticeValue>>,
-        after: &WriteRef<DenseLattice<T::LatticeValue>>,
-    ) {
-        self.join(solver, ctx, after, before);
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn visit_region_branch_control_flow_transfer(
-        &self,
-        solver: &DataflowSolver,
-        ctx: &Context,
-        _branch: &dyn RegionBranchOpInterface,
-        _region_from: Option<usize>,
-        _region_to: Option<usize>,
-        before: &ReadRef<DenseLattice<T::LatticeValue>>,
-        after: &WriteRef<DenseLattice<T::LatticeValue>>,
-    ) {
-        self.join(solver, ctx, after, before);
-    }
-
-    pub fn visit_call_control_flow_transfer(
-        &self,
-        solver: &DataflowSolver,
-        ctx: &Context,
-        _call: &dyn CallOpInterface,
-        action: CallControlFlowAction,
-        before: &ReadRef<DenseLattice<T::LatticeValue>>,
-        after: &WriteRef<DenseLattice<T::LatticeValue>>,
-    ) {
-        self.join(solver, ctx, after, before);
-        // Note that `setToEntryState` may be a "partial fixpoint" for some
-        // lattices, e.g., lattices that are lists of maps of other lattices will
-        // only set fixpoint for "known" lattices.
-        if action == CallControlFlowAction::ExternalCallee {
-            T::set_to_entry_state(self, solver, ctx, after);
-        }
-    }
-
     pub fn process_operation(
         &self,
         solver: &DataflowSolver,
@@ -354,7 +360,7 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
         op: Ptr<Operation>,
     ) -> Result<()> {
         let point = ProgramPoint::after_op(ctx, op);
-        if !is_block_live::<Self>(solver, ctx, point) {
+        if !is_block_live::<Self>(solver, point) {
             return Ok(());
         }
 
@@ -383,7 +389,7 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
 
     pub fn visit_block(&self, solver: &DataflowSolver, ctx: &Context, block: Ptr<BasicBlock>) {
         let point = ProgramPoint::at_block_start(ctx, block);
-        if !is_block_live::<Self>(solver, ctx, point) {
+        if !is_block_live::<Self>(solver, point) {
             return;
         }
 
@@ -411,6 +417,7 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
                     return T::set_to_entry_state(self, solver, ctx, &after);
                 }
 
+                let mut predecessors = SmallVec::<[_; 4]>::new();
                 for callsite in callsites.deref().known_predecessors() {
                     // Get the dense lattice before the callsite.
                     let before = self.get_lattice_for(
@@ -419,16 +426,16 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
                         ProgramPoint::before_op(ctx, *callsite),
                     );
 
-                    T::visit_call_control_flow_transfer(
-                        self,
-                        solver,
-                        ctx,
-                        op_cast::<dyn CallOpInterface>(&*callsite.dyn_op(ctx)).unwrap(),
-                        CallControlFlowAction::EnterCallee,
-                        &before,
-                        &after,
-                    );
+                    predecessors.push(before);
                 }
+                T::visit_callee_control_flow_transfer(
+                    self,
+                    solver,
+                    ctx,
+                    &*callable,
+                    &predecessors,
+                    &after,
+                );
                 return;
             }
 
@@ -440,6 +447,7 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
         }
 
         // Join the state with the state after the block's predecessors.
+        let mut predecessors = SmallVec::<[_; 4]>::new();
         for predecessor in block.preds(ctx) {
             // Skip control edges that aren't executable.
             let executable = solver.get_or_create_for::<Self, Executable>(
@@ -452,18 +460,11 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
 
             let term = predecessor.deref(ctx).get_terminator(ctx).unwrap();
             let before = self.get_lattice_for(solver, point, ProgramPoint::after_op(ctx, term));
-            // Merge in the state from the predecessor's terminator.
-            T::visit_block_transfer(
-                self,
-                solver,
-                ctx,
-                block,
-                point,
-                predecessor,
-                &before,
-                &after,
-            );
+            predecessors.push(before);
         }
+
+        // Merge in the state from the predecessors' terminators.
+        T::visit_block_transfer(self, solver, ctx, block, point, &predecessors, &after);
     }
 
     pub fn visit_call_operation(
@@ -483,15 +484,7 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
             callable.is_some_and(|callable| callable.callable_region(ctx).is_none())
         };
         if !solver.config().is_interprocedural || is_external_callable() {
-            return T::visit_call_control_flow_transfer(
-                self,
-                solver,
-                ctx,
-                call,
-                CallControlFlowAction::ExternalCallee,
-                before,
-                after,
-            );
+            return T::visit_external_call(self, solver, ctx, call, before, after);
         }
 
         let predecessors = solver.get_or_create_for::<Self, PredecessorState>(
@@ -502,6 +495,7 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
             return T::set_to_entry_state(self, solver, ctx, after);
         }
 
+        let mut predecessor_lattices = SmallVec::<[_; 4]>::new();
         for &predecessor in predecessors.deref().known_predecessors() {
             // Get the lattices at callee return:
             //
@@ -516,22 +510,22 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
             //     // latticeAfterCall
             //     ...
             //   }
-            let lattice_after_call = after;
             let lattice_at_callee_return = self.get_lattice_for(
                 solver,
                 ProgramPoint::after_op(ctx, call_op),
                 ProgramPoint::after_op(ctx, predecessor),
             );
-            T::visit_call_control_flow_transfer(
-                self,
-                solver,
-                ctx,
-                call,
-                CallControlFlowAction::ExitCallee,
-                &lattice_at_callee_return,
-                lattice_after_call,
-            );
+            predecessor_lattices.push(lattice_at_callee_return);
         }
+
+        T::visit_return_control_flow_transfer(
+            self,
+            solver,
+            ctx,
+            call,
+            &predecessor_lattices,
+            after,
+        );
     }
 
     pub fn visit_region_branch_operation(
@@ -549,6 +543,7 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
             "unexpected unresolved region successors"
         );
 
+        let mut predecessor_lattices = SmallVec::<[_; 4]>::new();
         for &op in predecessors.deref().known_predecessors() {
             let pred_point = match op == branch_op {
                 true => ProgramPoint::before_op(ctx, op),
@@ -569,46 +564,27 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
             //   before the parent.
             // In the latter case, just perform the join as it isn't the control flow
             // affected by the region.
-            let region_from = match op == branch_op {
-                true => None,
-                false => {
-                    let region = op.deref(ctx).get_parent_region(ctx).unwrap();
-                    Some(region.deref(ctx).find_index_in_parent(ctx))
-                }
-            };
-
             if point.is_block_start(ctx) {
-                let block = point.block().unwrap();
-                let region_to = block.deref(ctx).get_parent_region().unwrap();
-                let region_to = region_to.deref(ctx).find_index_in_parent(ctx);
-                T::visit_region_branch_control_flow_transfer(
-                    self,
-                    solver,
-                    ctx,
-                    branch,
-                    region_from,
-                    Some(region_to),
-                    &before,
-                    &after,
-                );
+                predecessor_lattices.push(before);
             } else {
                 let parent_op = op.deref(ctx).get_parent_op(ctx).unwrap();
                 if parent_op == branch_op || op == branch_op {
-                    T::visit_region_branch_control_flow_transfer(
-                        self,
-                        solver,
-                        ctx,
-                        branch,
-                        region_from,
-                        None,
-                        &before,
-                        &after,
-                    );
+                    predecessor_lattices.push(before);
                 } else {
                     self.join(solver, ctx, &after, &before);
                 }
             }
         }
+
+        T::visit_region_branch_control_flow_transfer(
+            self,
+            solver,
+            ctx,
+            branch,
+            point,
+            &predecessor_lattices,
+            &after,
+        );
     }
 
     fn resolve_callable(
@@ -629,6 +605,10 @@ impl<T: DenseForwardDataflowAnalysis> DenseForward<T> {
 
 pub trait DenseBackwardDataflowAnalysis: Sized + 'static {
     type LatticeValue: LatticeValue;
+
+    fn on_load(&self, solver: &mut DataflowSolver) {
+        let _ = solver;
+    }
 
     /// Verify analysis can be run on the solver. Should be used to verify required analyses are
     /// loaded.
@@ -662,6 +642,15 @@ pub trait DenseBackwardDataflowAnalysis: Sized + 'static {
         lattice: &WriteRef<DenseLattice<Self::LatticeValue>>,
     );
 
+    fn visit_block(
+        this: &DenseBackward<Self>,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        block: Ptr<BasicBlock>,
+    ) -> Result<()> {
+        this.visit_block(solver, ctx, block)
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn visit_block_transfer(
         this: &DenseBackward<Self>,
@@ -669,11 +658,23 @@ pub trait DenseBackwardDataflowAnalysis: Sized + 'static {
         ctx: &Context,
         block: Ptr<BasicBlock>,
         point: ProgramPoint,
-        successor: Ptr<BasicBlock>,
-        after: &ReadRef<DenseLattice<Self::LatticeValue>>,
+        successors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
         before: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) -> Result<()> {
-        this.visit_block_transfer(solver, ctx, block, point, successor, after, before)
+        let _ = block;
+        Self::visit_control_flow_transfer(this, solver, ctx, point, successors, before)
+    }
+
+    fn visit_region_branch_operation(
+        this: &DenseBackward<Self>,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        point: ProgramPoint,
+        branch: &dyn RegionBranchOpInterface,
+        predecessor: RegionPredecessor,
+        before: &WriteRef<DenseLattice<Self::LatticeValue>>,
+    ) -> Result<()> {
+        this.visit_region_branch_operation(solver, ctx, point, branch, predecessor, before)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -683,19 +684,12 @@ pub trait DenseBackwardDataflowAnalysis: Sized + 'static {
         ctx: &Context,
         branch: &dyn RegionBranchOpInterface,
         region_from: RegionPredecessor,
-        region_to: RegionSuccessor,
-        after: &ReadRef<DenseLattice<Self::LatticeValue>>,
+        point: ProgramPoint,
+        successors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
         before: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) -> Result<()> {
-        this.visit_region_branch_control_flow_transfer(
-            solver,
-            ctx,
-            branch,
-            region_from,
-            region_to,
-            after,
-            before,
-        )
+        let _ = (branch, region_from);
+        Self::visit_control_flow_transfer(this, solver, ctx, point, successors, before)
     }
 
     fn visit_call_control_flow_transfer(
@@ -703,11 +697,56 @@ pub trait DenseBackwardDataflowAnalysis: Sized + 'static {
         solver: &DataflowSolver,
         ctx: &Context,
         call: &dyn CallOpInterface,
-        action: CallControlFlowAction,
         after: &ReadRef<DenseLattice<Self::LatticeValue>>,
         before: &WriteRef<DenseLattice<Self::LatticeValue>>,
     ) -> Result<()> {
-        this.visit_call_control_flow_transfer(solver, ctx, call, action, after, before);
+        let _ = call;
+        Self::visit_control_flow_transfer(
+            this,
+            solver,
+            ctx,
+            ProgramPoint::before_op(ctx, call.get_operation()),
+            core::slice::from_ref(after),
+            before,
+        )
+    }
+
+    fn visit_return_control_flow_transfer(
+        this: &DenseBackward<Self>,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        point: ProgramPoint,
+        successors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
+        before: &WriteRef<DenseLattice<Self::LatticeValue>>,
+    ) -> Result<()> {
+        Self::visit_control_flow_transfer(this, solver, ctx, point, successors, before)
+    }
+
+    fn visit_control_flow_transfer(
+        this: &DenseBackward<Self>,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        point: ProgramPoint,
+        successors: &[ReadRef<DenseLattice<Self::LatticeValue>>],
+        before: &WriteRef<DenseLattice<Self::LatticeValue>>,
+    ) -> Result<()> {
+        let _ = point;
+        for successor in successors {
+            this.meet(solver, ctx, before, successor);
+        }
+        Ok(())
+    }
+
+    fn visit_external_call(
+        this: &DenseBackward<Self>,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        call: &dyn CallOpInterface,
+        after: &ReadRef<DenseLattice<Self::LatticeValue>>,
+        before: &WriteRef<DenseLattice<Self::LatticeValue>>,
+    ) -> Result<()> {
+        let _ = (call, after);
+        Self::set_to_exit_state(this, solver, ctx, before);
         Ok(())
     }
 }
@@ -729,8 +768,12 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
 }
 
 impl<T: DenseBackwardDataflowAnalysis> DataflowAnalysis for DenseBackward<T> {
+    fn on_load(&self, solver: &mut DataflowSolver) {
+        solver.ensure_loaded(DeadCodeAnalysis::default);
+        self.inner.on_load(solver);
+    }
+
     fn verify(&self, solver: &DataflowSolver, ctx: &Context, root: Ptr<Operation>) -> Result<()> {
-        solver.require_loaded::<DeadCodeAnalysis>()?;
         T::verify(solver, ctx, root)
     }
 
@@ -826,51 +869,6 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
         solver.update_state(ctx, lhs, |lhs| lhs.meet(rhs.deref().value()));
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn visit_block_transfer(
-        &self,
-        solver: &DataflowSolver,
-        ctx: &Context,
-        _block: Ptr<BasicBlock>,
-        _point: ProgramPoint,
-        _successor: Ptr<BasicBlock>,
-        after: &ReadRef<DenseLattice<T::LatticeValue>>,
-        before: &WriteRef<DenseLattice<T::LatticeValue>>,
-    ) -> Result<()> {
-        self.meet(solver, ctx, before, after);
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn visit_region_branch_control_flow_transfer(
-        &self,
-        solver: &DataflowSolver,
-        ctx: &Context,
-        _branch: &dyn RegionBranchOpInterface,
-        _region_from: RegionPredecessor,
-        _region_to: RegionSuccessor,
-        after: &ReadRef<DenseLattice<T::LatticeValue>>,
-        before: &WriteRef<DenseLattice<T::LatticeValue>>,
-    ) -> Result<()> {
-        self.meet(solver, ctx, before, after);
-        Ok(())
-    }
-
-    pub fn visit_call_control_flow_transfer(
-        &self,
-        solver: &DataflowSolver,
-        ctx: &Context,
-        _call: &dyn CallOpInterface,
-        action: CallControlFlowAction,
-        after: &ReadRef<DenseLattice<T::LatticeValue>>,
-        before: &WriteRef<DenseLattice<T::LatticeValue>>,
-    ) {
-        self.meet(solver, ctx, before, after);
-        if action == CallControlFlowAction::ExternalCallee {
-            T::set_to_exit_state(self, solver, ctx, before);
-        }
-    }
-
     fn process_operation(
         &self,
         solver: &DataflowSolver,
@@ -878,7 +876,7 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
         op: Ptr<Operation>,
     ) -> Result<()> {
         let point = ProgramPoint::before_op(ctx, op);
-        if !is_block_live::<Self>(solver, ctx, point) {
+        if !is_block_live::<Self>(solver, point) {
             return Ok(());
         }
 
@@ -886,7 +884,8 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
         let after = self.get_lattice_for(solver, point, ProgramPoint::after_op(ctx, op));
 
         if let Some(branch) = op.cast::<dyn RegionBranchOpInterface>(ctx) {
-            return self.visit_region_branch_operation(
+            return T::visit_region_branch_operation(
+                self,
                 solver,
                 ctx,
                 point,
@@ -902,18 +901,52 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
         T::visit_operation(self, solver, ctx, op, &after, &before)
     }
 
-    fn visit_block(
+    pub fn visit_block(
         &self,
         solver: &DataflowSolver,
         ctx: &Context,
         block: Ptr<BasicBlock>,
     ) -> Result<()> {
+        let point = ProgramPoint::at_block_end(ctx, block);
+        if !is_block_live::<Self>(solver, point) {
+            return Ok(());
+        }
+
+        let before = self.get_lattice_mut(solver, point);
+
+        if self.visit_block_special_cases(solver, ctx, block)? {
+            return Ok(());
+        }
+
+        let mut successors = SmallVec::<[_; 4]>::new();
+        for successor in block.deref(ctx).succs(ctx) {
+            let edge = CFGEdge::new(block, successor).into();
+            let executable = solver.get_or_create_for::<Self, Executable>(point, edge);
+            if !executable.deref().is_live() {
+                continue;
+            }
+
+            let after =
+                self.get_lattice_for(solver, point, ProgramPoint::at_block_start(ctx, successor));
+            successors.push(after);
+        }
+        T::visit_block_transfer(self, solver, ctx, block, point, &successors, &before)?;
+        Ok(())
+    }
+
+    /// Terrible name, need to come up with something better
+    pub fn visit_block_special_cases(
+        &self,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        block: Ptr<BasicBlock>,
+    ) -> Result<bool> {
         let parent_region = block.deref(ctx).get_parent_region().unwrap();
         let parent_op = block.deref(ctx).get_parent_op(ctx).unwrap();
 
         let point = ProgramPoint::at_block_end(ctx, block);
-        if !is_block_live::<Self>(solver, ctx, point) {
-            return Ok(());
+        if !is_block_live::<Self>(solver, point) {
+            return Ok(true);
         }
 
         let before = self.get_lattice_mut(solver, point);
@@ -943,64 +976,48 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
                     || !solver.config().is_interprocedural
                 {
                     T::set_to_exit_state(self, solver, ctx, &before);
-                    return Ok(());
+                    return Ok(true);
                 }
 
+                let mut successors = SmallVec::<[_; 4]>::new();
                 for &callsite in callsites.deref().known_predecessors() {
                     let after =
                         self.get_lattice_for(solver, point, ProgramPoint::after_op(ctx, callsite));
-                    T::visit_call_control_flow_transfer(
-                        self,
-                        solver,
-                        ctx,
-                        &*callsite.cast(ctx).unwrap(),
-                        CallControlFlowAction::ExitCallee,
-                        &after,
-                        &before,
-                    )?;
+                    successors.push(after);
                 }
-                return Ok(());
+                T::visit_return_control_flow_transfer(
+                    self,
+                    solver,
+                    ctx,
+                    point,
+                    &successors,
+                    &before,
+                )?;
+                return Ok(true);
             }
 
             if let Some(branch) = parent_op.cast::<dyn RegionBranchOpInterface>(ctx) {
                 let term = block.deref(ctx).get_terminator(ctx).unwrap();
                 let terminator = TraitOp::try_from_op(term, ctx).unwrap();
-                return self.visit_region_branch_operation(
+                T::visit_region_branch_operation(
+                    self,
                     solver,
                     ctx,
                     point,
                     &*branch,
                     RegionPredecessor::Terminator(terminator),
                     &before,
-                );
+                )?;
+                return Ok(true);
             }
 
             T::set_to_exit_state(self, solver, ctx, &before);
-            return Ok(());
+            return Ok(true);
         }
-
-        for successor in block.deref(ctx).succs(ctx) {
-            let edge = CFGEdge::new(block, successor).into();
-            let executable = solver.get_or_create_for::<Self, Executable>(point, edge);
-            if !executable.deref().is_live() {
-                continue;
-            }
-
-            T::visit_block_transfer(
-                self,
-                solver,
-                ctx,
-                block,
-                point,
-                successor,
-                &self.get_lattice_for(solver, point, ProgramPoint::at_block_start(ctx, successor)),
-                &before,
-            )?;
-        }
-        Ok(())
+        Ok(false)
     }
 
-    fn visit_region_branch_operation(
+    pub fn visit_region_branch_operation(
         &self,
         solver: &DataflowSolver,
         ctx: &Context,
@@ -1011,6 +1028,8 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
     ) -> Result<()> {
         let branch_op = branch.get_operation();
         let successors = branch.successor_regions(ctx, predecessor);
+
+        let mut successor_lattices = SmallVec::<[_; 4]>::new();
         for successor in successors {
             let after = match successor {
                 RegionSuccessor::AfterOp => {
@@ -1022,24 +1041,25 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
                 RegionSuccessor::Region(successor_region) => {
                     let successor_block = successor_region.deref(ctx).get_entry_block().unwrap();
                     let successor_point = ProgramPoint::at_block_start(ctx, successor_block);
-                    if !is_block_live::<Self>(solver, ctx, successor_point) {
+                    if !is_block_live::<Self>(solver, successor_point) {
                         continue;
                     }
                     self.get_lattice_for(solver, point, successor_point)
                 }
             };
 
-            T::visit_region_branch_control_flow_transfer(
-                self,
-                solver,
-                ctx,
-                branch,
-                predecessor,
-                successor,
-                &after,
-                before,
-            )?;
+            successor_lattices.push(after);
         }
+        T::visit_region_branch_control_flow_transfer(
+            self,
+            solver,
+            ctx,
+            branch,
+            predecessor,
+            point,
+            &successor_lattices,
+            before,
+        )?;
         Ok(())
     }
 
@@ -1052,15 +1072,7 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
         before: &WriteRef<DenseLattice<T::LatticeValue>>,
     ) -> Result<()> {
         if !solver.config().is_interprocedural {
-            return T::visit_call_control_flow_transfer(
-                self,
-                solver,
-                ctx,
-                call,
-                CallControlFlowAction::ExternalCallee,
-                after,
-                before,
-            );
+            return T::visit_external_call(self, solver, ctx, call, after, before);
         }
 
         let callee = self.resolve_callable(ctx, call);
@@ -1077,15 +1089,7 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
             .callable_region(ctx)
             .and_then(|region| region.deref(ctx).get_entry_block())
         else {
-            return T::visit_call_control_flow_transfer(
-                self,
-                solver,
-                ctx,
-                call,
-                CallControlFlowAction::ExternalCallee,
-                after,
-                before,
-            );
+            return T::visit_external_call(self, solver, ctx, call, after, before);
         };
 
         let callee_entry = ProgramPoint::at_block_start(ctx, callee_entry_block);
@@ -1100,7 +1104,6 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
             solver,
             ctx,
             call,
-            CallControlFlowAction::EnterCallee,
             &lattice_at_callee_entry,
             lattice_before_call,
         )

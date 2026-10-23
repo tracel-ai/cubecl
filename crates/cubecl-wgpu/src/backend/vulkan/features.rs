@@ -8,6 +8,7 @@ pub struct ExtendedFeatures<'a> {
     pub core: PhysicalDeviceFeatures,
 
     // Required
+    pub variable_pointers: Option<PhysicalDeviceVariablePointerFeatures<'a>>,
     pub vulkan_memory_model: Option<PhysicalDeviceVulkanMemoryModelFeatures<'a>>,
     pub buffer_device_address: Option<PhysicalDeviceBufferDeviceAddressFeatures<'a>>,
 
@@ -113,6 +114,7 @@ impl<'a> ExtendedFeatures<'a> {
         fill_core!(
             self,
             phys_caps,
+            KHR_VARIABLE_POINTERS_NAME; API_VERSION_1_1 => variable_pointers,
             KHR_VULKAN_MEMORY_MODEL_NAME; API_VERSION_1_2 => vulkan_memory_model,
             KHR_BUFFER_DEVICE_ADDRESS_NAME; API_VERSION_1_2 => buffer_device_address,
             KHR_SHADER_ATOMIC_INT64_NAME; API_VERSION_1_2 => atomic_int64,
@@ -161,6 +163,7 @@ impl<'a> ExtendedFeatures<'a> {
         }
 
         // Required
+        info = push_opt(info, &mut self.variable_pointers);
         info = push_opt(info, &mut self.vulkan_memory_model);
         info = push_opt(info, &mut self.buffer_device_address);
 
@@ -208,6 +211,7 @@ impl<'a> ExtendedFeatures<'a> {
         }
 
         // Required
+        features = push_opt(features, &mut self.variable_pointers);
         features = push_opt(features, &mut self.vulkan_memory_model);
         features = push_opt(features, &mut self.buffer_device_address);
 
@@ -282,6 +286,7 @@ impl<'a> ExtendedFeatures<'a> {
         zero_opt!(
             self,
             // Required
+            variable_pointers,
             vulkan_memory_model,
             buffer_device_address,
             // Core
@@ -313,6 +318,9 @@ impl<'a> ExtendedFeatures<'a> {
     }
 
     pub fn has_required_features(&self) -> bool {
+        let variable_pointers = self
+            .variable_pointers
+            .is_some_and(|it| it.variable_pointers == TRUE);
         let mem_model = self.vulkan_memory_model.is_some_and(|it| {
             it.vulkan_memory_model == TRUE && it.vulkan_memory_model_device_scope == TRUE
         });
@@ -323,7 +331,7 @@ impl<'a> ExtendedFeatures<'a> {
             || self
                 .extensions
                 .contains(&KHR_STORAGE_BUFFER_STORAGE_CLASS_NAME);
-        mem_model && device_address && storage_class
+        variable_pointers && mem_model && device_address && storage_class
     }
 }
 

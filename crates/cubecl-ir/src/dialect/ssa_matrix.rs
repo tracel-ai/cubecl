@@ -29,7 +29,7 @@ use crate::{
         memory,
         synchronization::SyncScope,
     },
-    interfaces::{TypedExt, synchronizes},
+    interfaces::{Deterministic, TypedExt, synchronizes},
     prelude::*,
 };
 
@@ -64,6 +64,7 @@ impl MatrixToSSAOp for matrix::FillOp {
 
 #[cube_op(name = "ssa_matrix.load")]
 #[result_ty(argument)]
+#[op_interfaces(Deterministic)]
 #[op_traits(CanMaterialize, NoSideEffects)]
 pub struct LoadOp {
     #[operand(ptr_read)]
@@ -128,6 +129,7 @@ impl MatrixToSSAOp for matrix::StoreOp {
 
 #[cube_op(name = "ssa_matrix.multiply_accumulate")]
 #[result_ty(argument)]
+#[op_interfaces(Deterministic)]
 #[op_traits(CanMaterialize, NoMemoryEffect, NoSideEffects)]
 pub struct MultiplyAccumulateOp {
     pub mat_a: Value,
@@ -162,6 +164,7 @@ impl MatrixToSSAOp for matrix::MultiplyAccumulateOp {
 /// coordination between threads.
 #[cube_op(name = "ssa_matrix.cast")]
 #[result_ty(argument)]
+#[op_interfaces(Deterministic)]
 #[op_traits(CanMaterialize, NoMemoryEffect, NoSideEffects)]
 pub struct CastOp {
     pub input: Value,
@@ -194,7 +197,7 @@ impl MatrixToSSAOp for matrix::CastOp {
     attributes = (ssa_matrix_elementwise_closure: IdentifierAttr),
     verifier = "succ"
 )]
-#[op_interfaces(OneResultInterface)]
+#[op_interfaces(Deterministic, OneResultInterface)]
 #[op_traits(CanMaterialize, NoMemoryEffect, NoSideEffects)]
 pub struct ElementwiseOp;
 

@@ -290,6 +290,33 @@ pub fn visit_all_values<State>(
     );
 }
 
+pub fn visit_all_values_mut<State>(
+    ctx: &mut Context,
+    state: &mut State,
+    root: Ptr<Operation>,
+    callback: for<'a> fn(&mut Context, &mut State, Value),
+) {
+    mutable::walk_op(
+        ctx,
+        &mut (state, callback),
+        &WALKCONFIG_PREORDER_FORWARD,
+        root,
+        |ctx, (state, callback), node| match node {
+            IRNode::Operation(ptr) => {
+                for res in ptr.results(ctx) {
+                    callback(ctx, state, res)
+                }
+            }
+            IRNode::BasicBlock(ptr) => {
+                for res in ptr.arguments(ctx) {
+                    callback(ctx, state, res)
+                }
+            }
+            IRNode::Region(_) => {}
+        },
+    );
+}
+
 pub trait RewriteOp<T: Op> {
     fn should_rewrite(&self, _ctx: &Context, _op: T) -> bool {
         true
