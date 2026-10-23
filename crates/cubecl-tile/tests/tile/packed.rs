@@ -3195,6 +3195,169 @@ fn check_looked_up_copy(bits: usize, width: usize) {
     }
 }
 
+/// How [`decoded_lines`] reads each line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum LineRead {
+    /// Masked where it overhangs the operand (`Decoded::read`).
+    Masked,
+    /// Untested, the kernel having tested it (`Decoded::read_unchecked`).
+    Untested,
+}
+
+/// Every line of `input`, `lines` a row, read into registers decoded, a unit a line, and stored
+/// in `output`.
+#[cube(launch)]
+fn decoded_lines<N: Size>(
+    input: &TileArg<'_>,
+    output: &mut Tensor<Vector<f32, N>>,
+    space: Partitioning,
+    #[comptime] lines: usize,
+    #[comptime] read: LineRead,
+) {
+    let input = input.tile(&space);
+    let decoded = input.decoded::<f32, N>();
+    let at = ABSOLUTE_POS;
+    let (row, line) = (at / lines, at % lines);
+    if at < output.len() {
+        output[at] = match comptime!(read) {
+            LineRead::Masked => decoded.read(row, line),
+            LineRead::Untested => decoded.read_unchecked(row, line),
+        };
+    }
+}
+
+/// **A unit reads looked-up fields into its registers decoded.** Each `bits`-wide field names its
+/// entry of the table, and the row's scale multiplies it, as a copy decodes them, with no stage to
+/// decode into: a line inside one word reads the fields it needs of it, a wider one every word it
+/// spans (16-bit indices, two a word, four a line, on a device whose vectors stop at four).
+#[test]
+fn a_decoded_read_of_looked_up_fields_matches_the_copy() {
+    for (bits, width) in [(8, 4), (4, 4), (2, 4), (4, 2), (16, 4), (8, 8), (4, 16)] {
+        check_decoded_lines(Field::Index { bits }, width, LineRead::Masked);
+    }
+}
+
+/// **A line the kernel tested itself reads the same untested.** The read skips the bounds test
+/// it would repeat, and decodes the same values.
+#[test]
+fn an_untested_decoded_read_matches_the_masked_one() {
+    for (bits, width) in [(8, 4), (2, 4), (16, 4)] {
+        check_decoded_lines(Field::Index { bits }, width, LineRead::Untested);
+    }
+}
+
+/// **A unit reads integer fields into its registers decoded, with no table.** Signed 4-bit values,
+/// sign extension included, each under its row's scale, read two a line, a quarter of a word's
+/// fields at each read.
+#[test]
+fn a_decoded_read_of_integer_fields_scales_them() {
+    check_decoded_lines(QuantValue::Q4S.into(), 2, LineRead::Masked);
+}
+
+/// Each `field` of a `[4, 64]` operand under its row's scale, read `width` values a line as
+/// `read` says, against the host's decode: an index's entry of a table, an integer sign-extended.
+fn check_decoded_lines(field: Field, width: usize, read: LineRead) {
+    let (rows, cols) = (4, 64);
+    let bits = field.size_bits();
+    let factor = 32 / bits;
+    let span = 1usize << bits;
+
+    let client = cubecl::test_device().client();
+    let max = client.properties().hardware.max_vector_size;
+    if width > max {
+        ValidationResult::Skipped(format!(
+            "device vectors cap at {max}, below the {width}-wide line"
+        ))
+        .enforce();
+        return;
+    }
+
+    // Every stored field, cycling through all the values `bits` hold.
+    let raw: Vec<u32> = (0..rows * cols)
+        .map(|i| ((i * 37 + 3) % span) as u32)
+        .collect();
+    let words: Vec<u32> = raw
+        .chunks(factor)
+        .map(|word| {
+            word.iter()
+                .enumerate()
+                .fold(0u32, |acc, (j, &v)| acc | (v << (j * bits)))
+        })
+        .collect();
+    // A packed buffer is stated in the values its words hold.
+    let input = TensorHandle::new_contiguous(
+        vec![rows, cols],
+        client.create(Bytes::from_elems(words)),
+        u32::elem_type_native(),
+    );
+    let table: Vec<f32> = (0..span).map(|i| (i as f32 - 127.5) / 3.0).collect();
+    let decode = |raw: u32| match field {
+        Field::Index { .. } => table[raw as usize],
+        _ => (((raw << (32 - bits)) as i32) >> (32 - bits)) as f32,
+    };
+    let scales: Vec<f32> = (0..rows).map(|i| (i as f32 + 1.0) / 4.0).collect();
+    let (scales_t, _) = TestInput::builder(client.clone(), shape![rows])
+        .dtype(f32::elem_type_native())
+        .custom(scales.clone())
+        .generate_with_f32_host_data();
+    let lines = rows * cols / width;
+    let output = TestInput::builder(client.clone(), shape![lines * width])
+        .dtype(f32::elem_type_native())
+        .zeros()
+        .generate_without_host_data();
+
+    let space = Space::new(&[(M, rows), (N, cols)]);
+    let mut input = TileArgLaunch::new(
+        input.binding().into_tensor_arg(),
+        u32::elem_type_native(),
+        1,
+        TileSpec::direct(&[M, N]).packed(field),
+    );
+    if let Field::Index { .. } = field {
+        let (table_t, _) = TestInput::builder(client.clone(), shape![span])
+            .dtype(f32::elem_type_native())
+            .custom(table.clone())
+            .generate_with_f32_host_data();
+        input = input
+            .codebook(TileArgLaunch::new(
+                table_t.binding().into_tensor_arg(),
+                f32::elem_type_native(),
+                1,
+                TileSpec::direct(&[TBL]),
+            ))
+            .expect("a plain table of an entry per index");
+    }
+    let input = input.scales(TileArgLaunch::new(
+        scales_t.binding().into_tensor_arg(),
+        f32::elem_type_native(),
+        1,
+        TileSpec::direct(&[M]),
+    ));
+    decoded_lines::launch(
+        &client,
+        CubeCount::new_single(),
+        CubeDim::new_1d(lines as u32),
+        width,
+        input,
+        output.clone().binding().into_tensor_arg(),
+        uncut(&client, &space, &space).partitioning_arg(),
+        cols / width,
+        read,
+    );
+
+    let got = HostData::from_tensor_handle(&client, output, HostDataType::F32);
+    for m in 0..rows {
+        for n in 0..cols {
+            let want = decode(raw[m * cols + n]) * scales[m];
+            let have = got.get_f32(&[m * cols + n]);
+            assert!(
+                (have - want).abs() < 1e-6,
+                "{field:?} read {width} a line, at ({m}, {n}): got {have}, want {want}"
+            );
+        }
+    }
+}
+
 /// **A packed operand is bound at the words its buffer holds.** At any other element its buffer
 /// would be read as values it does not hold, so the binding refuses it.
 #[test]

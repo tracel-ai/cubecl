@@ -24,6 +24,12 @@ impl<'a, T: CubePrimitive, C: Coordinates + 'a> Masked<'a, T, C> {
         }
     }
 
+    /// The value at `pos`, untested: the reader proved it in bounds, so reading past them is out
+    /// of bounds, not masked.
+    pub fn read_unchecked(&self, pos: C) -> T {
+        self.view.read_unchecked(pos)
+    }
+
     /// Whether `pos` lands on real data; always `true` when `check` is `false`.
     pub fn is_in_bounds(&self, pos: C) -> bool {
         if comptime!(self.check) {

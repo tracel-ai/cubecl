@@ -1194,8 +1194,9 @@ impl Tile {
         unexpanded!()
     }
 
-    /// These values as indices into `table`, decoded only by [`copy_from`](Tile::copy_from): what
-    /// an operand bound under a codebook ([`TileArgLaunch::codebook`]) is served as.
+    /// These values as indices into `table`, decoded only by [`copy_from`](Tile::copy_from) and
+    /// [`decoded`](Tile::decoded): what an operand bound under a codebook
+    /// ([`TileArgLaunch::codebook`]) is served as.
     #[allow(dead_code)] // Reached through its expand, from `TileArg::tile`.
     pub(crate) fn lookup(&self, _table: &Tile) -> Tile {
         unexpanded!()
@@ -1510,7 +1511,8 @@ impl TileExpand {
             assert!(
                 !memory.codebook.present(),
                 "{site}: these values are indices into a codebook (`TileArgLaunch::codebook`), \
-                 which only a copy decodes; copy them into a stage first (`stage.copy_from(&w)`)"
+                 which only a copy or a decoded read decodes; copy them into a stage first \
+                 (`stage.copy_from(&w)`), or read them `decoded`"
             );
         }
     }
@@ -1518,12 +1520,13 @@ impl TileExpand {
 
 #[cube]
 impl Tile {
-    /// The one scale at `coords`, one entry per axis of this tile's space.
+    /// The one scale at `coords`, one entry per axis of this tile's space, read from memory under
+    /// `guard`.
     #[allow(dead_code)] // Reached through its expand, from [`Factor`].
-    pub(crate) fn scale_at<S: Numeric>(&self, coords: &Coords<u32>) -> S {
+    pub(crate) fn scale_at<S: Numeric>(&self, coords: &Coords<u32>, #[comptime] guard: Guard) -> S {
         match &self.kind {
             TileKind::Lines(lines) => lines.read::<S>(coords),
-            TileKind::Memory(_) => self.value_in_line::<S>(coords),
+            TileKind::Memory(_) => self.value_in_line::<S>(coords, guard),
             TileKind::PlaneTile(_)
             | TileKind::PlanePartition(_)
             | TileKind::TmaGmem(_)
@@ -1541,6 +1544,7 @@ impl Tile {
         &self,
         coords: &Coords<u32>,
         #[comptime] values: Space,
+        #[comptime] guard: Guard,
     ) -> S {
         let rank = comptime!(self.place.space.rank());
         let projection = self.projection();
@@ -1559,14 +1563,14 @@ impl Tile {
                 own.push(0u32);
             }
         }
-        self.scale_at::<S>(&own)
+        self.scale_at::<S>(&own, guard)
     }
 
     /// The one value at `coords` of a tile that serves lines: the load holding it, read whole,
     /// and the value's place in it, whatever axes the load spans. A packed load decodes only the
     /// field that value is, not the whole line.
     #[allow(dead_code)] // Reached through its expand, from [`Tile::scale_at`].
-    fn value_in_line<S: Numeric>(&self, coords: &Coords<u32>) -> S {
+    fn value_in_line<S: Numeric>(&self, coords: &Coords<u32>, #[comptime] guard: Guard) -> S {
         let define!(Served) = self.element;
         let space = comptime!(self.place.space.clone());
         let rank = comptime!(space.rank());
@@ -1587,7 +1591,7 @@ impl Tile {
             Packing::Plain => {
                 let size!(W) = width;
                 let line = self
-                    .nd_packed::<Served, W>(comptime!(Guard::Checked))
+                    .nd_packed::<Served, W>(guard)
                     .read(load.index(coords, &space));
                 let value = if comptime!(width > 1) {
                     line.extract_dynamic(position.cast::<usize>())
@@ -1601,9 +1605,7 @@ impl Tile {
                     comptime!((field.size_bits() as u32, field.per_word() as u32));
                 let words_wide = comptime!(packing.physical(width));
                 let size!(WP) = words_wide;
-                let words = self
-                    .nd_words::<WP>(comptime!(Guard::Checked))
-                    .read(load.index(coords, &space));
+                let words = self.nd_words::<WP>(guard).read(load.index(coords, &space));
                 let word = if comptime!(words_wide > 1) {
                     words.extract_dynamic((position / per_word).cast::<usize>())
                 } else {

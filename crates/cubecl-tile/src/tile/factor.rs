@@ -56,14 +56,21 @@ impl Factor {
         unexpanded!()
     }
 
-    /// The scale covering the value at `coords`: the product down the chain.
-    pub(crate) fn at_coords(&self, _coords: &Coords<u32>, _values: Space) -> f32 {
+    /// The scale covering the value at `coords`: the product down the chain, each scale read
+    /// under `guard`. [`Guard::Proved`] where the reader proved the value's read in bounds, which
+    /// puts the scales covering it in bounds.
+    pub(crate) fn at_coords(&self, _coords: &Coords<u32>, _values: Space, _guard: Guard) -> f32 {
         unexpanded!()
     }
 
     /// The one scale every value shares: the product down the chain, no scale of which varies
     /// along any axis.
     pub(crate) fn whole(&self) -> f32 {
+        unexpanded!()
+    }
+
+    /// Whether these values carry a scale at all.
+    pub(crate) fn scaled(&self) -> comptime_type!(bool) {
         unexpanded!()
     }
 
@@ -173,7 +180,7 @@ impl FactorExpand {
             ExpandValue::constant(1u64.into(), f32::elem_type(scope)).into();
         for scale in self.chain().skip(1) {
             let origin = origin_of(scope, &scale.place.space);
-            let one = scale_for(scope, scale, &origin, &scale.place.space);
+            let one = scale_for(scope, scale, &origin, &scale.place.space, Guard::Checked);
             scaled = MulExpand::__expand_mul_method(scaled, scope, one);
         }
         scaled
@@ -233,6 +240,7 @@ impl FactorExpand {
         scope: &Scope,
         coords: &CoordsExpand<u32>,
         values: Space,
+        guard: Guard,
     ) -> NativeExpand<f32> {
         let mut product: Option<NativeExpand<f32>> = None;
         for scale in self.chain() {
@@ -241,7 +249,7 @@ impl FactorExpand {
                 "Factor: these scales are words of four e4m3 block scales, which only the \
                  block-scaled instruction reads; widened one at a time they mean nothing"
             );
-            let one = scale_for(scope, scale, coords, &values);
+            let one = scale_for(scope, scale, coords, &values, guard);
             product = Some(match product {
                 None => one,
                 Some(product) => MulExpand::__expand_mul_method(product, scope, one),
@@ -265,7 +273,7 @@ impl FactorExpand {
                  is written through memory, not on the sum's fragments"
             );
             let origin = origin_of(scope, &scale.place.space);
-            let one = scale_for(scope, scale, &origin, &scale.place.space);
+            let one = scale_for(scope, scale, &origin, &scale.place.space, Guard::Checked);
             product = MulExpand::__expand_mul_method(product, scope, one);
         }
         product
@@ -275,6 +283,10 @@ impl FactorExpand {
         self.scale
             .as_deref()
             .map(|scale| scale.clone().__expand_packing_method(scope))
+    }
+
+    pub(crate) fn __expand_scaled_method(&self, _scope: &Scope) -> bool {
+        self.scaled()
     }
 
     pub(crate) fn __expand_holds_words_method(&self, scope: &Scope) -> bool {
@@ -349,7 +361,7 @@ impl FactorExpand {
             .expect("Factor::word_at: the innermost scales are no words of block scales");
         scale
             .clone()
-            .__expand_scale_for_method::<u32>(scope, coords, values)
+            .__expand_scale_for_method::<u32>(scope, coords, values, Guard::Checked)
     }
 }
 
@@ -363,16 +375,17 @@ fn holds_words(scope: &Scope, scale: &TileExpand) -> bool {
 }
 
 /// The scale of `scale` covering the value at `coords` of a tile spanning `values`, widened to
-/// `f32`.
+/// `f32`, read under `guard`.
 fn scale_for(
     scope: &Scope,
     scale: &TileExpand,
     coords: &CoordsExpand<u32>,
     values: &Space,
+    guard: Guard,
 ) -> NativeExpand<f32> {
     scale
         .clone()
-        .__expand_scale_for_method::<f32>(scope, coords, values.clone())
+        .__expand_scale_for_method::<f32>(scope, coords, values.clone(), guard)
 }
 
 /// The all-zero coordinate of `space`: where a scale covering a whole region is read.
@@ -439,7 +452,11 @@ impl FactorReader {
         coords: &Coords<u32>,
     ) -> Vector<E, V> {
         if comptime!(self.scaled) {
-            let scale = self.inner.at_coords(coords, comptime!(self.values.clone()));
+            let scale = self.inner.at_coords(
+                coords,
+                comptime!(self.values.clone()),
+                comptime!(Guard::Checked),
+            );
             // Multiplied in `f32`, rounded to `E` once: a placed `e2m1` value is a lift short, which
             // the factor carries, and the lift times a scale is past a half's range where its
             // product with the value is not.
