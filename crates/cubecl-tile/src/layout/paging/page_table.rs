@@ -14,11 +14,13 @@ pub(crate) struct PageTable {
     entries: Box<[u32]>,
     sequence_stride: u32,
     page_stride: u32,
-    /// The table's rows: a sequence past them is outside the operand, and reads the pool's first
-    /// page.
+    /// The table's rows: a sequence past them is outside the operand.
     pub(crate) sequences: u32,
-    /// The table's columns: a position past them is likewise outside, and reads the first page.
+    /// The table's columns: a position past them is likewise outside.
     pub(crate) pages_per_sequence: u32,
+    /// Where the table's last entry lies: a coordinate past the table, which only a masked read
+    /// asks for, reads some cell at or before it, never past it.
+    last_entry: u32,
     /// The pool's last page: a table entry past it reads it, since a table is device data a
     /// launch may never have written.
     last_page: u32,
@@ -90,12 +92,23 @@ impl PageTable {
             sequences = table.shape(0) as u32;
             pages_per_sequence = table.shape(1) as u32;
         }
+        let last_entry = sequences
+            .max_with(1u32)
+            .minus(1u32)
+            .times(sequence_stride)
+            .plus(
+                pages_per_sequence
+                    .max_with(1u32)
+                    .minus(1u32)
+                    .times(page_stride),
+            );
         let unpinned = PageTable {
             entries: unsafe { table.as_slice().as_boxed_unchecked() },
             sequence_stride,
             page_stride,
             sequences,
             pages_per_sequence,
+            last_entry,
             // A bound pool holds a page at least; one stated by hand is kept off underflow.
             last_page: pool_pages.max_with(1u32).minus(1u32),
             pin: PageEntry::unlisted(),
@@ -225,6 +238,7 @@ impl PageTable {
             page_stride: self.page_stride,
             sequences: self.sequences,
             pages_per_sequence: self.pages_per_sequence,
+            last_entry: self.last_entry,
             last_page: self.last_page,
             pin: PageEntry {
                 sequence,
@@ -288,6 +302,7 @@ impl PageTable {
             page_stride: self.page_stride,
             sequences: self.sequences,
             pages_per_sequence: self.pages_per_sequence,
+            last_entry: self.last_entry,
             last_page: self.last_page,
             pin: self.pin.clone(),
             pin_start: self.pin_start,
@@ -358,22 +373,16 @@ impl PageTable {
 
     /// The page column `column` of sequence `sequence` lists, clamped to the pool.
     ///
-    /// A coordinate outside the table, which only a masked read asks for before the mask drops
-    /// it, reads the pool's first page and never loads past the table.
+    /// A coordinate past the table, which only a masked read asks for, reads some cell at or before
+    /// its last entry, never past it.
     fn lookup(&self, sequence: u32, column: u32) -> u32 {
-        // No branch, so a window's reads schedule around the load: the coordinate is clamped
-        // into the table, which holds an entry, and the entry dropped where it was outside.
-        let inside = sequence < self.sequences && column < self.pages_per_sequence;
+        // No branch, so a window's reads schedule around the load, and only two bounds live
+        // across the walk.
         let at = sequence
-            .min_with(self.sequences.max_with(1u32).minus(1u32))
             .times(self.sequence_stride)
-            .plus(
-                column
-                    .min_with(self.pages_per_sequence.max_with(1u32).minus(1u32))
-                    .times(self.page_stride),
-            );
-        let entry = self.entries[at.cast::<usize>()].min_with(self.last_page);
-        select(inside, entry, 0u32)
+            .plus(column.times(self.page_stride))
+            .min_with(self.last_entry);
+        self.entries[at.cast::<usize>()].min_with(self.last_page)
     }
 
     /// `pool`, the geometry of the pool as it lies, as the sequences this table lists: the table's
