@@ -101,8 +101,8 @@ pub enum Refusal {
     /// [`paged`](super::Arg::paged) on positions along the innermost dim, read `width` a line,
     /// with pages of `page_size` positions: a line would cross a page.
     PageSplitsALine { page_size: usize, width: usize },
-    /// [`paged`](super::Arg::paged) on a packed operand, or one moved by runs (a bulk copy, a
-    /// tensor map): the table resolves one line at a time.
+    /// [`paged`](super::Arg::paged) on an operand moved by runs (a bulk copy, a tensor map): the
+    /// table resolves one line at a time.
     PagingMovedByRuns,
     /// [`indexed`](crate::TileArgLaunch::indexed) with a table that is not plain `u32` entries,
     /// one a line: an entry is a coordinate.
@@ -281,8 +281,8 @@ impl Display for Refusal {
             ),
             Refusal::PagingMovedByRuns => write!(
                 f,
-                "Arg::paged: a page table is resolved a line at a time, so a packed operand or a \
-                 delivery that moves runs has no reading through it"
+                "Arg::paged: a page table is resolved a line at a time, so a delivery that moves \
+                 runs has no reading through it"
             ),
             Refusal::CodebookOfValuesNotIndices => write!(
                 f,

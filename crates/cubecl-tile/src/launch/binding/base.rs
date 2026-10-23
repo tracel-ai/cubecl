@@ -41,6 +41,8 @@ pub(crate) struct ArgData<'a> {
     pub(crate) in_stride_order: bool,
     /// The pool of pages this operand is read through, if any ([`paged`](Arg::paged)).
     pub(crate) paged: Option<PagedPool>,
+    /// The page table that pool is read through.
+    pub(crate) pages: Option<TensorBinding>,
 }
 
 /// What [`Arg::paged`] states: the axes a table resolves, and whether it covers the launch
@@ -87,6 +89,7 @@ impl<'a> Arg<'a, Unlabelled> {
                 delivery: Delivery::SyncPerUnit,
                 in_stride_order: false,
                 paged: None,
+                pages: None,
             },
             _state: PhantomData,
         }
@@ -154,17 +157,22 @@ impl<'a> Arg<'a, Labelled> {
     }
 
     /// Read this buffer, a pool of pages along the `sequence` dim each holding its positions along
-    /// the `position` dim, as the sequences a page table names: sequence `b`'s position `s` lies in
-    /// page `table[b, s / page_size]`, `page_size` the pool's extent along `position`. The pool is
-    /// bound as it lies; the kernel reads it through
-    /// [`TileArg::tile_paged`](crate::TileArg::tile_paged) with the table, whose shape is the
-    /// operand's extent along the two axes, so both are checked against it on every read.
-    pub fn paged(self, sequence: Axis, position: Axis) -> Self {
-        self.paged_as(PagedPool {
-            sequence,
-            position,
-            covering: false,
-        })
+    /// the `position` dim, as the sequences the `u32` page table `pages` names: sequence `b`'s
+    /// position `s` lies in page `pages[b, s / page_size]`, `page_size` the pool's extent along
+    /// `position`. The pool is bound as it lies and the table rides the operand, so the kernel
+    /// reads it with [`TileArg::tile`](crate::TileArg::tile) like any other. The table's shape is
+    /// the operand's extent along the two axes, so both are checked against it on every read. A
+    /// table holds at least one entry, which every window reads; a launch over no sequences or no
+    /// positions is the caller's to skip.
+    pub fn paged(self, pages: TensorBinding, sequence: Axis, position: Axis) -> Self {
+        self.paged_as(
+            pages,
+            PagedPool {
+                sequence,
+                position,
+                covering: false,
+            },
+        )
     }
 
     /// [`paged`](Self::paged) through a table the caller states covers the launch's extents
@@ -173,16 +181,20 @@ impl<'a> Arg<'a, Labelled> {
     /// A table that stops short reads its clamped entries there: other positions of the pool,
     /// never past it. Where the launch overhangs a table axis its lines run along, wider than
     /// one, the binding is refused ([`Refusal::UncheckableVectorEdge`]), not checked line by line.
-    pub fn paged_covering(self, sequence: Axis, position: Axis) -> Self {
-        self.paged_as(PagedPool {
-            sequence,
-            position,
-            covering: true,
-        })
+    pub fn paged_covering(self, pages: TensorBinding, sequence: Axis, position: Axis) -> Self {
+        self.paged_as(
+            pages,
+            PagedPool {
+                sequence,
+                position,
+                covering: true,
+            },
+        )
     }
 
-    fn paged_as(mut self, pool: PagedPool) -> Self {
+    fn paged_as(mut self, pages: TensorBinding, pool: PagedPool) -> Self {
         self.data.paged = Some(pool);
+        self.data.pages = Some(pages);
         self
     }
 
@@ -219,6 +231,7 @@ impl<'a> Arg<'a, Labelled> {
             .map(|(binding, element)| (settled_tensor(binding, &derived.geometry), element));
         let bound = Bound {
             tensor,
+            pages: self.data.pages.map(TensorBinding::into_tensor_arg),
             vector_size: self.data.width,
             spec: derived.spec,
         };
@@ -256,16 +269,7 @@ impl<'a> Arg<'a, Labelled> {
         // included.
         let paging = data
             .paged
-            .map(|pool| {
-                pool.paging(
-                    &geometry,
-                    &projection,
-                    &stored_tiles,
-                    packing,
-                    data.delivery,
-                    width,
-                )
-            })
+            .map(|pool| pool.paging(&geometry, &projection, &stored_tiles, data.delivery, width))
             .transpose()?;
         // A stated width is checked here: `stride / width` would truncate silently.
         // A line runs along the innermost dim's axis; a buffer with no labelled dim has none.
@@ -329,15 +333,18 @@ pub(crate) struct Derived {
 /// served width.
 pub struct Bound {
     tensor: Option<(TensorArg, ElemType)>,
+    /// The page table a pool of pages is read through ([`Arg::paged`]).
+    pages: Option<TensorArg>,
     /// Served width (values per line); a packed binding is narrower by the packing factor.
     pub vector_size: usize,
     pub spec: TileSpec,
 }
 
 impl Bound {
-    /// This operand bound again over `buffers`, another buffer of the same layout: the tensor it
-    /// holds takes the next one and keeps the shape, strides and tiling it was settled at. A launch
-    /// that binds the same operands every step keeps its binding and changes only the addresses.
+    /// This operand bound again over `buffers`, other buffers of the same layout: the tensor it
+    /// holds takes the next one, then its page table the one after, each keeping the shape,
+    /// strides and tiling it was settled at. A launch that binds the same operands every step
+    /// keeps its binding and changes only the addresses.
     ///
     /// `None` where `buffers` runs out, or where the operand aliases another input.
     pub fn rebound(&self, buffers: &mut impl Iterator<Item = BufferBinding>) -> Option<Self> {
@@ -345,8 +352,13 @@ impl Bound {
             Some((tensor, element)) => Some((rebound_tensor(tensor, buffers.next()?)?, *element)),
             None => None,
         };
+        let pages = match &self.pages {
+            Some(pages) => Some(rebound_tensor(pages, buffers.next()?)?),
+            None => None,
+        };
         Some(Self {
             tensor,
+            pages,
             vector_size: self.vector_size,
             spec: self.spec.clone(),
         })
@@ -358,7 +370,12 @@ impl Bound {
         let (tensor, element) = self
             .tensor
             .expect("Bound::arg: this operand was built over geometry alone and has no tensor");
-        TileArgLaunch::new(tensor, element, width, self.spec)
+        let paging = self.spec.paging;
+        let arg = TileArgLaunch::new(tensor, element, width, self.spec);
+        match (self.pages, paging) {
+            (Some(pages), Some(paging)) => arg.paged(pages, paging),
+            _ => arg,
+        }
     }
 
     /// The tensor argument itself; panics for an operand built over geometry alone.
@@ -498,7 +515,6 @@ impl PagedPool {
         geometry: &Geometry,
         projection: &Projection,
         stored_tiles: &[(Axis, usize)],
-        packing: Packing,
         delivery: Delivery,
         width: usize,
     ) -> Result<Paging, Refusal> {
@@ -515,7 +531,7 @@ impl PagedPool {
             page_size,
             ..unsized_paging
         };
-        paging.validate(projection, stored_tiles, packing, delivery, width)?;
+        paging.validate(projection, stored_tiles, delivery, width)?;
         let (sequence, _) = paging.dims(projection)?;
         match geometry.shape()[sequence] {
             0 => Err(Refusal::PagingOfAnEmptyPool),
