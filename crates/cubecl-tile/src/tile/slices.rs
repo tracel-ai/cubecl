@@ -184,10 +184,11 @@ impl AxisSlices {
 
     /// `self[c] = exp(self[c] · scale + bias[c] − logsumexp[c])`: the probabilities of a softmax
     /// whose logsumexp is known, read back from it instead of walking the score again.
-    /// `logsumexp` is a window of memory over this tile's space less the axis the softmax ran
-    /// along, which it broadcasts over: along the slices where that axis is the innermost, along
-    /// each slice where it is not, as a walk owned by the keys holds its scores keys first. A cell
-    /// whose logsumexp is the minimum value, every key of its softmax masked, is left at zero.
+    /// `logsumexp` is a window of memory that omits the axis the softmax ran along, which it
+    /// broadcasts over: along the slices where that axis is the innermost, along each slice where
+    /// it is not, as a walk owned by the keys holds its scores keys first. Its other axes are this
+    /// tile's, or one wide. A cell whose logsumexp is the minimum value, every key of its softmax
+    /// masked, is left at zero.
     pub fn probabilities<E: Float>(&mut self, scale: E, bias: &Tile, logsumexp: &Tile) {
         let recipe = bias.recipe();
         let broadcast = comptime!(Broadcast::new(&self.space, &logsumexp.place.space));
@@ -303,31 +304,33 @@ impl AxisSlices {
     }
 }
 
-/// Where each cell of a tile cut into slices along its innermost axis reads a tile over its space
-/// less one axis, which it broadcasts over: the reads' cell is an offset for each slice plus one
+/// Where each cell of a tile cut into slices along its innermost axis reads a tile that omits
+/// some of its axes, which it broadcasts over: the read cell is an offset for each slice plus one
 /// step for each position along the slice.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct Broadcast {
     /// The cell of the broadcast tile each slice's first position reads.
     pub(crate) slice: Vec<usize>,
     /// Cells of the broadcast tile one position along a slice moves: zero where the slices run
-    /// along the omitted axis.
+    /// along an omitted axis.
     pub(crate) position: usize,
 }
 
 impl Broadcast {
-    /// How a tile over `space` reads one over `broadcast`, `space` less one of its axes.
+    /// How a tile over `space` reads one over `broadcast`, whose every axis is one of `space`'s
+    /// at its extent, or one wide.
     ///
     /// # Panics
     ///
-    /// Where `broadcast` is not `space` less one axis, the others in order at their extents.
+    /// Where an axis of `broadcast` is neither.
     pub(crate) fn new(space: &Space, broadcast: &Space) -> Self {
-        let omitted: Vec<Axis> = space.axes().filter(|&a| !broadcast.contains(a)).collect();
         assert!(
-            omitted.len() == 1
-                && broadcast.rank() + 1 == space.rank()
-                && broadcast.axes().all(|a| space.extent(a) == broadcast.extent(a)),
-            "Broadcast::new: {broadcast:?} is {space:?} less one axis"
+            broadcast.axes().all(|axis| match space.contains(axis) {
+                true => space.extent(axis) == broadcast.extent(axis),
+                false => broadcast.extent(axis) == 1,
+            }),
+            "Broadcast::new: every axis of {broadcast:?} is one of {space:?}'s at its extent, or \
+             one wide"
         );
         let stride = |axis: Axis| {
             (broadcast.position(axis) + 1..broadcast.rank())
