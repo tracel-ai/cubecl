@@ -5,13 +5,17 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex, Weak,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     vec::Vec,
 };
 
 /// Every counter alive, matched against the file of each read.
 static COUNTERS: Mutex<Vec<Weak<Counted>>> = Mutex::new(Vec::new());
+
+/// How many counters are alive: a read with none counts nothing, and skips
+/// the lock every other read of a file would take.
+static ALIVE: AtomicUsize = AtomicUsize::new(0);
 
 /// The bytes read from one file through file-backed
 /// [`Bytes`](super::Bytes) while this counter is alive.
@@ -44,6 +48,7 @@ impl FileReadCounter {
         let mut counters = COUNTERS.lock().unwrap_or_else(|poison| poison.into_inner());
         counters.retain(|counter| counter.strong_count() > 0);
         counters.push(Arc::downgrade(&counted));
+        ALIVE.fetch_add(1, Ordering::Release);
         Self { counted }
     }
 
@@ -58,8 +63,17 @@ impl FileReadCounter {
     }
 }
 
+impl Drop for FileReadCounter {
+    fn drop(&mut self) {
+        ALIVE.fetch_sub(1, Ordering::Release);
+    }
+}
+
 /// Count `size` bytes read from `path` on every counter of it.
 pub(crate) fn count(path: &Path, size: u64) {
+    if ALIVE.load(Ordering::Acquire) == 0 {
+        return;
+    }
     let counters = COUNTERS.lock().unwrap_or_else(|poison| poison.into_inner());
     counters
         .iter()
