@@ -246,7 +246,15 @@ impl Tile {
                 let rounded = Vector::<f32, Const<1>>::new(f32::cast_from(scale));
                 let code = match comptime!(field.scale_dtype()) {
                     ScaleDtype::UE8M0 => f32_to_ue8m0_bits::<Const<1>>(rounded),
-                    _ => f32_to_fp8_bits::<Const<1>>(rounded, Fp8Format::E4M3),
+                    ScaleDtype::UE4M3 => f32_to_fp8_bits::<Const<1>>(rounded, Fp8Format::E4M3),
+                    ScaleDtype::F32 => Vector::<u32, Const<1>>::reinterpret(rounded),
+                    ScaleDtype::F16 => Vector::new(u32::cast_from(u16::reinterpret(
+                        half::f16::cast_from(rounded.extract(0usize)),
+                    ))),
+                    // `bf16` is a truncated `f32`, and the scale already lies on its grid.
+                    ScaleDtype::BF16 => {
+                        Vector::<u32, Const<1>>::reinterpret(rounded) >> Vector::new(16u32)
+                    }
                 };
                 let shift = comptime!((c * field.size_bits()) as u32);
                 codes.insert(

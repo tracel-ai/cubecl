@@ -20,7 +20,8 @@ fn quantize_copy(input: &TileArg<'_>, packed: &TileArg<'_>, space: Partitioning)
     packed.quantize_from(&input);
 }
 
-/// How the block scales are stored: plain `f32`s, or packed four to a word as `dtype` codes.
+/// How the block scales are stored: plain `f32`s, or packed into words as `dtype`, as many to a
+/// word as it holds.
 #[derive(Clone, Copy)]
 enum Scales {
     Plain,
@@ -54,7 +55,9 @@ fn host_scale_code(scale: f32, dtype: ScaleDtype) -> u32 {
     match dtype {
         ScaleDtype::UE8M0 => ue8m0::from_f32(scale).to_bits() as u32,
         ScaleDtype::UE4M3 => e4m3::from_f32(scale).to_bits() as u32,
-        other => panic!("a packed scale is an 8-bit code, not {other:?}"),
+        ScaleDtype::F32 => scale.to_bits(),
+        ScaleDtype::F16 => half::f16::from_f32(scale).to_bits() as u32,
+        ScaleDtype::BF16 => half::bf16::from_f32(scale).to_bits() as u32,
     }
 }
 
@@ -137,9 +140,10 @@ fn check_quantize(value: QuantValue, block: usize, scales: Scales, global: Optio
             (t, arg, ScaleDtype::F32)
         }
         Scales::Packed(dtype) => {
+            let per_word = Field::of_scale(dtype).per_word();
             let t = TensorHandle::new_contiguous(
-                vec![rows, blocks / 4],
-                client.create(Bytes::from_elems(vec![0u32; rows * blocks / 4])),
+                vec![rows, blocks / per_word],
+                client.create(Bytes::from_elems(vec![0u32; rows * blocks / per_word])),
                 u32::elem_type_native(),
             );
             let arg = TileArgLaunch::new(
@@ -219,7 +223,8 @@ fn check_quantize(value: QuantValue, block: usize, scales: Scales, global: Optio
                 .collect();
             let got = client.read_one(scales_t.handle).unwrap().to_vec();
             let got: Vec<u32> = bytemuck::cast_slice(&got).to_vec();
-            assert_eq!(got, host_words(&codes, 8), "{value:?} scales");
+            let bits = Field::of_scale(dtype).size_bits();
+            assert_eq!(got, host_words(&codes, bits), "{value:?} scales");
         }
     }
 }
@@ -229,6 +234,24 @@ fn check_quantize(value: QuantValue, block: usize, scales: Scales, global: Optio
 #[test]
 fn q8_quantizes_as_burn_calibrates_it() {
     check_quantize(QuantValue::Q8S, 16, Scales::Plain, None);
+}
+
+/// `q8` under `f32` scales bound as words, as a packed tensor's scales are.
+#[test]
+fn q8_quantizes_under_scales_in_words() {
+    check_quantize(QuantValue::Q8S, 16, Scales::Packed(ScaleDtype::F32), None);
+}
+
+/// `q4` under `f16` scales, two to a word: each rounded up onto the `f16` grid.
+#[test]
+fn q4_quantizes_under_half_scales() {
+    check_quantize(QuantValue::Q4S, 32, Scales::Packed(ScaleDtype::F16), None);
+}
+
+/// `q8` under `bf16` scales, two to a word.
+#[test]
+fn q8_quantizes_under_bf16_scales() {
+    check_quantize(QuantValue::Q8S, 32, Scales::Packed(ScaleDtype::BF16), None);
 }
 
 /// MXFP8: `e4m3` values under `ue8m0` scales, four to a word, a block of thirty-two.
