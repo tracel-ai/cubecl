@@ -125,6 +125,8 @@ impl CudaContext {
                 kernel.shared_mem_bytes as i32,
             )
             .map_err(|err| launch_failed("cuFuncSetAttribute", err))?;
+            // Every argument is ready: a window waiting for this launch starts here.
+            self.profiler.launching(stream.sys);
             cudarc::driver::result::launch_kernel(
                 kernel.func,
                 dispatch_count,
