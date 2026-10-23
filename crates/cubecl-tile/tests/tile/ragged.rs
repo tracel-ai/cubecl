@@ -5,7 +5,7 @@
 //! and nothing else: no side channel on an operand, no displaced window origin, `at` unchanged.
 //!
 //! The reduce is the shape that isolates it: the output omits the packed axis, so nothing but the
-//! walk's bounds decides which tokens a sequence folds.
+//! walk's bounds decides which tokens a sequence reduces.
 #![allow(non_snake_case)]
 
 use super::{Form, implied};
@@ -60,7 +60,7 @@ const TOKENS: usize = 10;
 const SEQS: usize = 4;
 const FEATURES: usize = 4;
 
-/// Every packed cell distinct, so folding one token of a neighbouring sequence cannot land on the
+/// Every packed cell distinct, so reducing one token of a neighbouring sequence cannot land on the
 /// right answer by accident.
 fn packed_values() -> Vec<f32> {
     (0..TOKENS * FEATURES)
@@ -130,7 +130,7 @@ fn run() -> HostData {
     HostData::from_tensor_handle(&client, out_handle, HostDataType::F32)
 }
 
-/// The reference, folded on the host from the same cumulative lengths.
+/// The reference, reduced on the host from the same cumulative lengths.
 fn expected(ends: &[u32]) -> Vec<Vec<f32>> {
     let values = packed_values();
     (0..SEQS)
@@ -147,7 +147,7 @@ fn expected(ends: &[u32]) -> Vec<Vec<f32>> {
 }
 
 #[test]
-fn a_windowed_walk_folds_each_sequence_over_its_own_tokens() {
+fn a_windowed_walk_reduces_each_sequence_over_its_own_tokens() {
     let got = run();
     let want = expected(&ENDS);
     for (b, row) in want.iter().enumerate() {
@@ -262,9 +262,9 @@ fn run_blocked(ends: &[u32]) -> HostData {
 
 /// Two sets of lengths over the same buffer, both with sequences starting off a block boundary
 /// and running past one. The answer follows the lengths, which it could not if the placement did
-/// nothing, since every sequence would fold from token zero under both.
+/// nothing, since every sequence would reduce from token zero under both.
 #[test]
-fn a_placed_window_folds_each_blocked_sequence_over_its_own_tokens() {
+fn a_placed_window_reduces_each_blocked_sequence_over_its_own_tokens() {
     for ends in [ENDS, [0, 3, 3, 6, 10]] {
         let got = run_blocked(&ends);
         let want = expected(&ends);

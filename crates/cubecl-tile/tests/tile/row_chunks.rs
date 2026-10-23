@@ -38,11 +38,11 @@ enum Staging {
 /// Which transport reads a stage's fragments.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Leaf {
-    /// cubek's manual mma, each unit computing its own addresses.
+    /// The manual mma, each unit computing its own addresses.
     Mma,
     /// The vendor's fragment API, rows off a pointer and a stride.
     Cmma,
-    /// cubek's manual mma, both operands' fragments handed out by `ldmatrix` from each unit's
+    /// The manual mma, both operands' fragments handed out by `ldmatrix` from each unit's
     /// row address: the swizzle applied where the unit addresses its row.
     MmaLoadMatrix,
 }

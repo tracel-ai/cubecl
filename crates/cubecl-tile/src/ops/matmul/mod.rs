@@ -11,4 +11,4 @@ pub(crate) mod register_block;
 pub(crate) use descent::Descent;
 pub(crate) use leaf::*;
 
-pub use mma_io::{LoadMethod, MmaIo, StoreMethod};
+pub use mma_io::{LoadMethod, MmaIo};

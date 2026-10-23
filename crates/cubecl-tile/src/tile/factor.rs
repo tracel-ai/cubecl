@@ -169,14 +169,14 @@ impl FactorExpand {
 
     /// Every scale outside the innermost, multiplied into one value read at the region's origin.
     pub(crate) fn coarse(&self, scope: &Scope) -> NativeExpand<f32> {
-        let mut folded: NativeExpand<f32> =
+        let mut scaled: NativeExpand<f32> =
             ExpandValue::constant(1u64.into(), f32::elem_type(scope)).into();
         for scale in self.chain().skip(1) {
             let origin = origin_of(scope, &scale.place.space);
             let one = scale_for(scope, scale, &origin, &scale.place.space);
-            folded = MulExpand::__expand_mul_method(folded, scope, one);
+            scaled = MulExpand::__expand_mul_method(scaled, scope, one);
         }
-        folded
+        scaled
     }
 
     pub(crate) fn __expand_at_method(&self, scope: &Scope, step: &StepExpand) -> FactorExpand {

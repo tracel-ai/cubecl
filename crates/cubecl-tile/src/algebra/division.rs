@@ -11,7 +11,7 @@ pub(crate) fn gcd(a: usize, b: usize) -> usize {
 
 /// `n / d` rounded toward minus infinity, for numerators that may be negative.
 #[cube]
-pub(crate) fn floor_div(n: i32, d: i32) -> i32 {
+fn floor_div(n: i32, d: i32) -> i32 {
     let q = n / d;
     select(n % d < 0, q - 1, q)
 }

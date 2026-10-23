@@ -31,18 +31,17 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, R
          lines along the accumulator"
     ));
     let mut b = Array::<Vector<E, V>>::new(nr);
-    let folded = along_k;
-    let width = comptime!(match folded {
+    let width = comptime!(match along_k {
         true => contracted_per_step,
         false => lw,
     });
     let lines = comptime!(kc / width);
     let tail = comptime!(kc % width);
-    // Constant units let the backend fold an `mr`-row fan-out's repeated line reads into one.
-    let fixed = comptime!(folded || (component_fanout && lw > 1) || lw == 1);
+    // Constant units let the backend merge an `mr`-row fan-out's repeated line reads into one.
+    let fixed = comptime!(along_k || (component_fanout && lw > 1) || lw == 1);
 
     for line in 0..lines {
-        if comptime!(folded) {
+        if comptime!(along_k) {
             rank1_update::<E, EL, L, ER, V, RL>(
                 lhs,
                 lhs_scales,
@@ -270,7 +269,7 @@ pub(crate) fn spread_guard(spread: usize, cols: usize) -> bool {
     spread > 1 && !cols.is_multiple_of(spread)
 }
 
-/// Seed the `mr × nr` register block from the accumulator. Folded partials seed unit 0 and start
+/// Seed the `mr × nr` register block from the accumulator. Summed partials seed unit 0 and start
 /// the rest at the identity; at `spread > 1` each block column gathers `spread` sink cells.
 #[cube]
 pub(crate) fn seed<E: Numeric, V: Size, A: Size>(
@@ -327,7 +326,7 @@ pub(crate) fn seed<E: Numeric, V: Size, A: Size>(
     c
 }
 
-/// Commit the block back through the accumulator, collapsing folded partials or scattering
+/// Commit the block back through the accumulator, collapsing summed partials or scattering
 /// spread units.
 #[cube]
 pub(crate) fn commit<E: Numeric, V: Size, A: Size>(

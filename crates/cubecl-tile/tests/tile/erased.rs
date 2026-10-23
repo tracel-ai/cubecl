@@ -287,7 +287,7 @@ fn buffer_matmul<EA: Numeric>(
 
 /// The same contraction, draining into a sink.
 ///
-/// The accumulator is register-resident, which is the whole point: the contraction folds `K` in
+/// The accumulator is register-resident, which is the whole point: the contraction sums `K` in
 /// the block and the scope's drain is the *only* touch of the destination. A drain writes each
 /// cell once and never reads it back, so it asks a sink for nothing a sink does not have.
 #[cube(launch)]
@@ -411,7 +411,7 @@ fn run_matmul(backed: Backed) -> HostData {
         .untiled()
         .arange();
     // Poisoned, not zeroed: the kernel owns `out = A·B` whatever the buffer held, and a drain
-    // that folded the destination in instead of writing it would show up as the poison.
+    // that summed the destination in instead of writing it would show up as the poison.
     let c = TileInput::builder(&client, launcher.space().subspace(&[M, N]))
         .untiled()
         .uniform(4242, 10., 100.);
@@ -695,7 +695,7 @@ fn a_masked_vectorized_sink_stores_where_a_buffer_stores() {
 /// A masked, vectorized read through a source reads the cells a buffer read reads.
 ///
 /// The read half of the same question, and not the same code: a buffer's masked read is the
-/// slice's, while [`ErasedTensor`]'s folds an out-of-bounds index to zero, reads *that* cell, and
+/// slice's, while [`ErasedTensor`]'s clamps an out-of-bounds index to zero, reads *that* cell, and
 /// selects the mask value after.
 ///
 /// So a guard dropped between the walk and the call does not fault here either; it returns the

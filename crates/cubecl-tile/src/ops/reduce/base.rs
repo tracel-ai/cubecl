@@ -7,14 +7,14 @@ use crate::*;
 
 #[cube]
 impl Tile {
-    /// `c = fold(input)`: reduce `input` into `self` across the contracted axes.
+    /// `c = reduce(input)`: reduce `input` into `self` across the contracted axes.
     pub fn reduce_axis(&mut self, input: &Tile, #[comptime] monoid: Monoid) {
         let define!(Served) = self.element;
         self.init_identity::<Served>(monoid);
         self.reduce_axis_accumulate(input, monoid);
     }
 
-    /// `c = fold(c, input)`: fold `input` into what `self` holds, which must be seeded.
+    /// `c = reduce(c, input)`: reduce `input` into what `self` holds, which must be seeded.
     pub fn reduce_axis_accumulate(&mut self, input: &Tile, #[comptime] monoid: Monoid) {
         let define!(Served) = self.element;
         let define!(Source) = input.read_element();

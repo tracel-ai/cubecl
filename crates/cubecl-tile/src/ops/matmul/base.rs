@@ -234,7 +234,7 @@ impl Tile {
 
 #[cube]
 impl Tile {
-    /// This memory window as a contraction's output: each unit's share tiled into `block`, folded
+    /// This memory window as a contraction's output: each unit's share tiled into `block`, summed
     /// under `semiring`. A plane-resident accumulator states both when it is opened.
     pub fn accumulating(
         &self,

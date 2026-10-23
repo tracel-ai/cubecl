@@ -5,7 +5,7 @@ use cubecl::prelude::*;
 use super::monoid::{Carrier, Monoid};
 use crate::comptime_only;
 
-/// A product monoid and the accumulation monoid its products fold into.
+/// A product monoid and the accumulation monoid its products sum into.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Semiring {
     add: Monoid,
@@ -29,12 +29,12 @@ impl Semiring {
         mul: Monoid::Sum,
     };
 
-    /// The monoid products accumulate into, and every drain folds partials under.
+    /// The monoid products accumulate into, and every drain sums partials under.
     pub const fn add(self) -> Monoid {
         self.add
     }
 
-    /// The product a pair of operands forms before it is folded in.
+    /// The product a pair of operands forms before it is summed in.
     pub const fn mul(self) -> Monoid {
         self.mul
     }

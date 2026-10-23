@@ -202,7 +202,7 @@ impl ProjectionInKernel {
                 if comptime!(moving.contains(&term.axis)) {
                     let p = comptime!(self.space.position(term.axis));
                     match comptime!(split_step(axis_map, t)) {
-                        // Same units as `anchor`'s fold, since the two are added.
+                        // Same units as `anchor`'s offset, since the two are added.
                         Some(step) => steps.push(pos[p].times(comptime!(line_scale(
                             &self.space,
                             &self.projection,

@@ -371,7 +371,7 @@ mod fragment_drain_tests {
     }
 
     #[test]
-    fn an_overhanging_or_folding_window_bounces() {
+    fn an_overhanging_or_summing_window_bounces() {
         let masked = FragmentDrain::of(&access(Write::Replace, Overhang::Masked), true, true);
         assert_eq!(masked, FragmentDrain::Bounce);
         for overhang in [Overhang::Never, Overhang::Fits, Overhang::Masked] {

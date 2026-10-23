@@ -75,7 +75,7 @@ impl BufferLayout {
     /// The logical coordinate line `i` of this buffer holds.
     pub(crate) fn line_coords(&self, i: usize) -> CoordsDyn {
         let digits = self.placed(&self.line_digits(i));
-        fold_physical(
+        logical_of_digits(
             comptime!(self.projection.clone()),
             &digits,
             &self.physical_shape,

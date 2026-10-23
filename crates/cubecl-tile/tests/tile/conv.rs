@@ -804,7 +804,7 @@ fn conv1d_vectorized_input_fanout() {
     );
 }
 
-/// Vectorized with stride and dilation both off `1`, so the line fold and the affine advance are
+/// Vectorized with stride and dilation both off `1`, so the line split and the affine advance are
 /// exercised at once rather than one at a time.
 #[test]
 fn conv1d_vectorized_strided_and_dilated() {
@@ -1184,8 +1184,8 @@ impl Conv1d {
     }
 }
 
-/// The degenerate coefficients, which a `Static` projection folds away entirely: the runtime path
-/// has to produce the same answer without that folding.
+/// The degenerate coefficients, which a `Static` projection evaluates away entirely: the runtime path
+/// has to produce the same answer without that evaluation.
 #[test]
 fn conv1d_dynamic_unit_coefficients() {
     Conv1d {
@@ -1818,7 +1818,7 @@ fn conv1d_staged_single_tap_strided() {
 }
 
 /// The overhang masked *and* the input lined: the fill steps whole lines through a window whose
-/// last taps read past the input, so the line fold and the mask have to hold at once.
+/// last taps read past the input, so the line split and the mask have to hold at once.
 #[test]
 fn conv1d_staged_vectorized_masked_overhang() {
     Conv1d {
@@ -1952,7 +1952,7 @@ fn conv2d_staged_mixed_steps() {
 
 /// The resident promote, zero, mma, drain kernel of the matmul tests, with a *gathered* lhs. The
 /// accumulator is sized by the whole contraction (taps times channels), both inputs stage into
-/// smem (the input into its compacted window); the fragment load folds tap and channel into `k`.
+/// smem (the input into its compacted window); the fragment load merges tap and channel into `k`.
 #[cube(launch)]
 fn conv_mma_kernel<E: Numeric>(
     input: &TileArg<'_>,

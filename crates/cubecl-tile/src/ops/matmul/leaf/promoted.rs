@@ -9,8 +9,8 @@ use crate::*;
 
 #[cube]
 impl RegisterData {
-    /// `self += lhs · rhs` over the block, one rank-1 update per `K` step, with scales folded in.
-    /// The block must be opened against the rhs it contracts (width and fold).
+    /// `self += lhs · rhs` over the block, one rank-1 update per `K` step, with scales multiplied in.
+    /// The block must be opened against the rhs it contracts (width and values a step).
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn mma<T: Numeric, EL: Numeric, ER: Numeric>(
         &mut self,
@@ -25,12 +25,13 @@ impl RegisterData {
         let rhs_load = rhs.vector_tile();
         let vw = comptime!(rhs_load.run_length());
         let lw = lhs.vector_size();
-        let fold = comptime!(self.fold);
+        let contracted_per_step = comptime!(self.contracted_per_step);
         // A packed rhs is served at its packing factor, so this checks the block was opened by it:
         // its lines are the rhs's, or one-wide cells that take the sum of each of the rhs's runs.
         comptime!(assert!(
-            (fold == 1 && vw == self.vector_size) || (fold == vw && self.vector_size == 1),
-            "RegisterData::mma: the block's lines are {} wide summing {fold} values a step, but the \
+            (contracted_per_step == 1 && vw == self.vector_size)
+                || (contracted_per_step == vw && self.vector_size == 1),
+            "RegisterData::mma: the block's lines are {} wide summing {contracted_per_step} values a step, but the \
              rhs serves runs of {vw}; a packed rhs serves its packing factor, so open the block \
              against the rhs it contracts",
             self.vector_size
@@ -41,8 +42,8 @@ impl RegisterData {
                 .contains(rhs.place.space.axis_at(rhs.place.space.rank() - 1))
         );
         comptime!(assert!(
-            fold == if lined_along_k { vw } else { 1 },
-            "RegisterData::mma: the block's lines hold {fold} partials of a cell but the rhs lines \
+            contracted_per_step == if lined_along_k { vw } else { 1 },
+            "RegisterData::mma: the block's lines hold {contracted_per_step} partials of a cell but the rhs lines \
              along {}; open the block against the operands it contracts",
             if lined_along_k {
                 "the contraction"
@@ -51,8 +52,8 @@ impl RegisterData {
             }
         ));
         comptime!(assert!(
-            fold == 1 || lw == fold,
-            "RegisterData::mma: a step consumes {fold} contracted values, so the lhs must line \
+            contracted_per_step == 1 || lw == contracted_per_step,
+            "RegisterData::mma: a step consumes {contracted_per_step} contracted values, so the lhs must line \
              along the contraction at that width (it is {lw} wide)"
         ));
         let size!(L) = lw;
@@ -103,7 +104,7 @@ impl RegisterData {
             &rhs_scales,
             data,
             lw,
-            fold,
+            contracted_per_step,
             lined_along_k,
             comptime!(rhs_load.values() / vw),
             mr,
@@ -123,7 +124,7 @@ impl RegisterData {
     /// at a time. What an attention's unit does with the probabilities it just computed,
     /// contracting them with the values without leaving registers.
     ///
-    /// Every cell of `lhs` is a whole value, whatever it folded: a block that summed runs of its
+    /// Every cell of `lhs` is a whole value, whatever it summed: a block that summed runs of its
     /// contraction into its cells is one value wide. This block's lines are neighbours along the
     /// columns `rhs` is lined along.
     pub(crate) fn mma_block<T: Numeric, EL: Numeric, ER: Numeric>(
@@ -135,7 +136,7 @@ impl RegisterData {
         let semiring = comptime!(self.accumulation.semiring("RegisterData::mma_block"));
         register_block_size(self.vector_size);
         comptime!(assert!(
-            self.fold == 1,
+            self.contracted_per_step == 1,
             "RegisterData::mma_block: this block's lines are neighbours along the rhs's columns, \
              not runs of its contraction"
         ));

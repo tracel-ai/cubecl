@@ -65,7 +65,7 @@ fn quantized_values(
             })
             .collect(),
         // A lookup field is a table index, not a rounded value; these stubs carry no table, so
-        // a lookup test states its indices exactly ([`pack_q_values`]) and folds the table into
+        // a lookup test states its indices exactly ([`pack_q_values`]) and multiplies the table into
         // its own host reference.
         QuantMode::Lookup => panic!("quantize stub: lookup takes exact indices via pack_q_values"),
     }
@@ -74,7 +74,7 @@ fn quantized_values(
 /// Whether the format's representable values are the integers in its range, which is what makes
 /// rounding to a whole number here the right rounding for it.
 ///
-/// Mirrors `quantize_symmetric` in `cubek-quant`: a minifloat's grid is not the integers — `e2m1`
+/// A minifloat's grid is not the integers — `e2m1`
 /// holds `0.5` and `1.5` — so rounding one here would quantize it twice, and this reference would
 /// then demand of the kernel exactly the degradation the format exists to avoid. Those formats
 /// round where they are encoded, against the codes they actually have.
@@ -180,7 +180,7 @@ fn encode_packed_u32(quantized: &[f32], scheme: &QuantScheme) -> Vec<u8> {
 }
 
 /// The field `q` occupies: the format's *code* for it, which is the value itself only for the
-/// integer formats. Mirrors `pack_q`/`encode_minifloat` in `cubek-quant`.
+/// integer formats.
 ///
 /// A minifloat encoded by casting would leave the reference reconstructing on the integer grid —
 /// `e2m1` losing `0.5` and `1.5`, `e4m3` wrapping its codes above ±127 — and a kernel that made
