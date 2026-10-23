@@ -10,12 +10,11 @@ use std::{
     vec::Vec,
 };
 
-/// Every counter alive, matched against the file of each read.
-static COUNTERS: Mutex<Vec<Weak<Counted>>> = Mutex::new(Vec::new());
-
-/// How many counters are alive: a read with none counts nothing, and skips
-/// the lock every other read of a file would take.
-static ALIVE: AtomicUsize = AtomicUsize::new(0);
+/// Every counter alive, which each read of a file is counted on.
+static REGISTRY: CounterRegistry = CounterRegistry {
+    counters: Mutex::new(Vec::new()),
+    alive: AtomicUsize::new(0),
+};
 
 /// The bytes read from one file through file-backed
 /// [`Bytes`](super::Bytes) while this counter is alive.
@@ -33,11 +32,6 @@ pub struct FileReadCounter {
     counted: Arc<Counted>,
 }
 
-struct Counted {
-    path: PathBuf,
-    read: AtomicU64,
-}
-
 impl FileReadCounter {
     /// Start counting the reads of `path`, from zero.
     pub fn new(path: impl Into<PathBuf>) -> Self {
@@ -45,16 +39,8 @@ impl FileReadCounter {
             path: path.into(),
             read: AtomicU64::new(0),
         });
-        let mut counters = COUNTERS.lock().unwrap_or_else(|poison| poison.into_inner());
-        counters.retain(|counter| counter.strong_count() > 0);
-        counters.push(Arc::downgrade(&counted));
-        ALIVE.fetch_add(1, Ordering::Release);
+        REGISTRY.register(&counted);
         Self { counted }
-    }
-
-    /// The file counted.
-    pub fn path(&self) -> &Path {
-        &self.counted.path
     }
 
     /// The bytes read from the file since this counter was created.
@@ -65,23 +51,63 @@ impl FileReadCounter {
 
 impl Drop for FileReadCounter {
     fn drop(&mut self) {
-        ALIVE.fetch_sub(1, Ordering::Release);
+        REGISTRY.unregister();
     }
 }
 
 /// Count `size` bytes read from `path` on every counter of it.
 pub(crate) fn count(path: &Path, size: u64) {
-    if ALIVE.load(Ordering::Acquire) == 0 {
-        return;
+    REGISTRY.count(path, size);
+}
+
+/// One file's count, shared by its counter and the registry.
+struct Counted {
+    path: PathBuf,
+    read: AtomicU64,
+}
+
+/// The counters alive, and how many there are: a read with none alive
+/// counts nothing, and skips the lock every other read of a file would take.
+///
+/// The orderings are `Relaxed` throughout: the lock orders the counters'
+/// list, and a count is read on its own. A read racing a counter's creation
+/// may go uncounted, which a caller avoids by creating the counter before
+/// the reads it counts.
+struct CounterRegistry {
+    counters: Mutex<Vec<Weak<Counted>>>,
+    alive: AtomicUsize,
+}
+
+impl CounterRegistry {
+    fn register(&self, counted: &Arc<Counted>) {
+        let mut counters = self.lock();
+        counters.retain(|counter| counter.strong_count() > 0);
+        counters.push(Arc::downgrade(counted));
+        self.alive.fetch_add(1, Ordering::Relaxed);
     }
-    let counters = COUNTERS.lock().unwrap_or_else(|poison| poison.into_inner());
-    counters
-        .iter()
-        .filter_map(Weak::upgrade)
-        .filter(|counted| counted.path == path)
-        .for_each(|counted| {
-            counted.read.fetch_add(size, Ordering::Relaxed);
-        });
+
+    fn unregister(&self) {
+        self.alive.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    fn count(&self, path: &Path, size: u64) {
+        if self.alive.load(Ordering::Relaxed) == 0 {
+            return;
+        }
+        self.lock()
+            .iter()
+            .filter_map(Weak::upgrade)
+            .filter(|counted| counted.path == path)
+            .for_each(|counted| {
+                counted.read.fetch_add(size, Ordering::Relaxed);
+            });
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Vec<Weak<Counted>>> {
+        self.counters
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+    }
 }
 
 #[cfg(test)]
