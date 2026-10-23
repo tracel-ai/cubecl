@@ -20,12 +20,14 @@ pub struct TileSpec {
     pub storage: Storage,
     /// How the buffer is stored: its stated storage tiles, finest first, as its
     /// [`StoragePartitioning`](crate::StoragePartitioning) reads back. Empty for a plain buffer.
-    /// What a load of it covers is the kernel's to pick ([`VectorTile::new`](crate::VectorTile::new)).
+    /// What a load of it covers is the kernel's to pick
+    /// ([`VectorTile::new`](crate::VectorTile::new)).
     pub stored_tiles: Vec<(Axis, usize)>,
     /// Who moves this operand into a stage ([`delivery`](Self::delivery)).
     pub delivery: Delivery,
     /// The axes a page table resolves where the buffer is a pool of pages read as sequences
-    /// ([`Arg::paged`](crate::launch::Arg::paged)); `None` for a buffer read where it lies.
+    /// ([`TileArgLaunch::indexed`](crate::TileArgLaunch::indexed)); `None` for a buffer read where
+    /// it lies.
     pub paging: Option<Paging>,
 }
 
