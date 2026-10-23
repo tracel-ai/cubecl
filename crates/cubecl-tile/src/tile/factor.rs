@@ -79,6 +79,22 @@ impl Factor {
         unexpanded!()
     }
 
+    /// The innermost scale tile, without the scale it carries in turn: the block scales an
+    /// encoding copy writes ([`Tile::quantize_from`](crate::Tile::quantize_from)).
+    pub(crate) fn innermost_scale(&self) -> Tile {
+        unexpanded!()
+    }
+
+    /// Every scale outside the innermost, multiplied into one value read at the region's origin.
+    pub(crate) fn coarse(&self) -> f32 {
+        unexpanded!()
+    }
+
+    /// How many scales the chain holds.
+    pub(crate) fn depth(&self) -> comptime_type!(usize) {
+        unexpanded!()
+    }
+
     /// How the innermost scales sit in their buffer: `None` where these values carry no scale.
     pub(crate) fn inner_stored(&self) -> comptime_type!(Option<Packing>) {
         unexpanded!()
@@ -277,6 +293,19 @@ impl FactorExpand {
             product = MulExpand::__expand_mul_method(product, scope, one);
         }
         product
+    }
+
+    pub(crate) fn __expand_innermost_scale_method(&self, _scope: &Scope) -> TileExpand {
+        self.innermost_tile()
+            .expect("Tile::quantize_from: the values are written under the block scales they carry")
+    }
+
+    pub(crate) fn __expand_coarse_method(&self, scope: &Scope) -> NativeExpand<f32> {
+        self.coarse(scope)
+    }
+
+    pub(crate) fn __expand_depth_method(&self, _scope: &Scope) -> usize {
+        self.depth()
     }
 
     pub(crate) fn __expand_inner_stored_method(&self, scope: &Scope) -> Option<Packing> {

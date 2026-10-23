@@ -159,6 +159,38 @@ impl Field {
         }
     }
 
+    /// The number format a value of this field is written in: what an encoding copy rounds it to
+    /// ([`Tile::quantize_from`](crate::Tile::quantize_from)). A float code reads back from its
+    /// bits or through the device's conversion, but is written the same way either way.
+    ///
+    /// # Panics
+    ///
+    /// For a field no value is quantized to: an index, a whole float, an 8-bit scale code.
+    pub(crate) fn quantized_value(self) -> QuantValue {
+        match self {
+            Field::Quant(value) | Field::Placed { value, .. } => value,
+            Field::ConvertedE2M1 => QuantValue::E2M1,
+            other => panic!("Field: a value is quantized to a number format, not to {other:?}"),
+        }
+    }
+
+    /// The scale dtype a scale of this field is stored as: the inverse of
+    /// [`of_scale`](Field::of_scale).
+    ///
+    /// # Panics
+    ///
+    /// For a field no scale is stored as.
+    pub(crate) fn scale_dtype(self) -> ScaleDtype {
+        match self {
+            Field::Fp8(Fp8Format::E4M3) => ScaleDtype::UE4M3,
+            Field::Fp8(Fp8Format::UE8M0) => ScaleDtype::UE8M0,
+            Field::Float(FloatKind::F32) => ScaleDtype::F32,
+            Field::Float(FloatKind::F16) => ScaleDtype::F16,
+            Field::Float(FloatKind::BF16) => ScaleDtype::BF16,
+            other => panic!("Field: a scale is stored as a float, not as {other:?}"),
+        }
+    }
+
     /// The bits a whole float occupies.
     pub(crate) fn float_bits(kind: FloatKind) -> usize {
         match kind {
