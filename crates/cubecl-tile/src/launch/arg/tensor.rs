@@ -1,7 +1,7 @@
 //! An operand as a single launch argument: its values, a buffer or a TMA tensor map, its comptime
 //! [`TileSpec`], the element it serves them at, the runtime half of its projection, and what its
-//! values are read through: the table they index and the scales they are under, each a
-//! [`TileArg`] of its own.
+//! values are read through: the page table a pool of them is read as sequences through, the table
+//! they index and the scales they are under, each a [`TileArg`] of its own.
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -38,8 +38,9 @@ use cubecl::server::BufferBinding;
 ///
 /// Values stored as indices ([`Field::Index`]) read through the table they index, their codebook
 /// ([`TileArgLaunch::codebook`]); a gather's runtime coefficients and offsets
-/// ([`TileArgLaunch::runtime_map`]) ride the argument too. A kernel serves every operand the same
-/// way, with [`tile`](TileArg::tile).
+/// ([`TileArgLaunch::runtime_map`]) ride the argument too, as does the page table of a pool of
+/// pages bound [`paged`](crate::launch::Arg::paged). A kernel serves every operand the same way,
+/// with [`tile`](TileArg::tile).
 pub struct TileArg<'a> {
     pub spec: TileSpec,
     /// The element the buffer holds.
@@ -50,20 +51,6 @@ pub struct TileArg<'a> {
 impl TileArg<'_> {
     /// Serve the operand as a [`Tile`] over the kernel's one `partitioning`, under its scales.
     pub fn tile(&self, _partitioning: &Partitioning) -> Tile {
-        unexpanded!()
-    }
-
-    /// [`tile`](TileArg::tile), read through `pages` where the operand is a pool of pages bound
-    /// [`paged`](crate::launch::Arg::paged), and where it lies where `pages` is `None`: one
-    /// kernel serves either. The launch decides which it compiles by the `pages` it passes, which
-    /// must match the binding: a table for a pool bound `paged`, `None` for any other operand;
-    /// a mismatch panics as the kernel expands. A table holds at least one entry, which every
-    /// window reads; a launch over no sequences or no positions is the caller's to skip.
-    pub fn tile_paged(
-        &self,
-        _partitioning: &Partitioning,
-        _pages: ComptimeOption<&Tensor<u32>>,
-    ) -> Tile {
         unexpanded!()
     }
 
@@ -155,6 +142,8 @@ pub struct TileArgExpand<'a> {
     index: Option<(Box<TileArgExpand<'static>>, Indexing)>,
     /// The table the values index, where they are stored as indices.
     codebook: Option<Box<TileArgExpand<'static>>>,
+    /// The page table a pool of pages is read as sequences through ([`Paging`]).
+    pages: Option<Box<TileArgExpand<'static>>>,
     /// The projection's dynamic coefficients and divisors, then its dynamic offsets.
     runtime_map: (CoordsExpand<u32>, CoordsExpand<i32>),
 }
@@ -185,29 +174,6 @@ impl<'a> TileArgExpand<'a> {
         let values = self.values_tile(scope, partitioning);
         let values = self.looking_up(scope, values);
         let values = self.indexing(scope, values, partitioning);
-        self.scaling(scope, values, partitioning)
-    }
-
-    pub fn __expand_tile_paged_method(
-        &self,
-        scope: &Scope,
-        partitioning: &PartitioningExpand,
-        pages: ComptimeOptionExpand<&Tensor<u32>>,
-    ) -> TileExpand {
-        let ComptimeOptionExpand::Some(table) = pages else {
-            return self.__expand_tile_method(scope, partitioning);
-        };
-        let ValuesExpand::Tensor { tensor, meta, .. } = &self.values else {
-            panic!("TileArg::tile_paged: a pool of pages is a buffer; a tensor map lands boxes")
-        };
-        assert!(self.index.is_none(), "{}", Refusal::IndexOfAStatedLayout);
-        let _held = scope.define_type::<Held>(self.element);
-        let tensor = scope.create_kernel_ref(TensorExpand::<Held>::__expand_from_parts(
-            *meta,
-            tensor.expand.into(),
-        ));
-        let values =
-            paged_tile::expand::<Held>(scope, tensor, table, partitioning, self.spec.clone());
         self.scaling(scope, values, partitioning)
     }
 
@@ -245,7 +211,8 @@ impl<'a> TileArgExpand<'a> {
         scope.create_kernel_ref(TensorExpand::__expand_from_parts(*meta, lines))
     }
 
-    /// The values alone, under none of their scales.
+    /// The values alone, under none of their scales: read through their page table where they are
+    /// a pool of pages, where they lie otherwise.
     fn values_tile(&self, scope: &Scope, partitioning: &PartitioningExpand) -> TileExpand {
         let _held = scope.define_type::<Held>(self.element);
         match &self.values {
@@ -254,6 +221,27 @@ impl<'a> TileArgExpand<'a> {
                     *meta,
                     tensor.expand.into(),
                 ));
+                if let Some(table) = &self.pages {
+                    let ValuesExpand::Tensor {
+                        tensor: pages,
+                        meta,
+                        ..
+                    } = &table.values
+                    else {
+                        unreachable!("Arg::paged binds its table as a buffer")
+                    };
+                    let pages = scope.create_kernel_ref(TensorExpand::<u32>::__expand_from_parts(
+                        *meta,
+                        pages.expand.into(),
+                    ));
+                    return paged_tile::expand::<Held>(
+                        scope,
+                        tensor,
+                        pages,
+                        partitioning,
+                        self.spec.clone(),
+                    );
+                }
                 let (coefficients, offsets) = self.runtime_map.clone();
                 buffer_tile::expand::<Held>(
                     scope,
@@ -362,6 +350,7 @@ pub struct TileArgLaunch {
     scale: Option<Box<TileArgLaunch>>,
     index: Option<(Box<TileArgLaunch>, Indexing)>,
     codebook: Option<Box<TileArgLaunch>>,
+    pages: Option<Box<TileArgLaunch>>,
     runtime_map: (Vec<u32>, Vec<i32>),
 }
 
@@ -409,12 +398,14 @@ impl TileArgLaunch {
             scale: None,
             index: None,
             codebook: None,
+            pages: None,
             runtime_map: (Vec::new(), Vec::new()),
         }
     }
 
     /// This operand bound again over other buffers of the same layout: each tensor it holds, in the
-    /// order it holds them (its values, then its scales', then its index table's, then its codebook's), takes the next
+    /// order it holds them (its values, then its scales', then its index table's, then its
+    /// codebook's, then its page table), takes the next
     /// of `buffers` and keeps the shape, strides and tiling it was settled at. A launch that binds
     /// the same operands every step keeps its binding and changes only the addresses.
     ///
@@ -439,6 +430,10 @@ impl TileArgLaunch {
             Some(table) => Some(Box::new(table.rebound(buffers)?)),
             None => None,
         };
+        let pages = match &self.pages {
+            Some(table) => Some(Box::new(table.rebound(buffers)?)),
+            None => None,
+        };
         Some(Self {
             values,
             spec: self.spec.clone(),
@@ -446,8 +441,17 @@ impl TileArgLaunch {
             scale,
             index,
             codebook,
+            pages,
             runtime_map: self.runtime_map.clone(),
         })
+    }
+
+    /// These values, a pool of pages, read as the sequences `table` names, as `paging` says: a
+    /// `u32` `[sequences, pages_per_sequence]` buffer, one entry a line.
+    pub(crate) fn paged(mut self, table: TensorArg, paging: Paging) -> Self {
+        let spec = TileSpec::direct(&[paging.sequence, paging.position]);
+        self.pages = Some(Box::new(Self::new(table, u32::elem_type_native(), 1, spec)));
+        self
     }
 
     /// These values, stored as indices ([`Field::Index`]), read as the entries of `table` they
@@ -563,6 +567,7 @@ pub struct TileArgCompilationArg {
     scale: Option<Box<TileArgCompilationArg>>,
     index: Option<(Box<TileArgCompilationArg>, Indexing)>,
     codebook: Option<Box<TileArgCompilationArg>>,
+    pages: Option<Box<TileArgCompilationArg>>,
     /// How many dynamic coefficients and offsets the runtime map holds.
     runtime_map: (usize, usize),
 }
@@ -593,6 +598,7 @@ impl LaunchArg for TileArg<'static> {
             scale,
             index,
             codebook,
+            pages,
             runtime_map: (coefficients, offsets),
         } = arg;
         let values = match values {
@@ -622,6 +628,7 @@ impl LaunchArg for TileArg<'static> {
         let index = index
             .map(|(table, indexing)| (Box::new(TileArg::register(*table, launcher)), indexing));
         let codebook = codebook.map(|table| Box::new(TileArg::register(*table, launcher)));
+        let pages = pages.map(|table| Box::new(TileArg::register(*table, launcher)));
         for coefficient in &coefficients {
             coefficient.register(launcher);
         }
@@ -635,6 +642,7 @@ impl LaunchArg for TileArg<'static> {
             scale,
             index,
             codebook,
+            pages,
             runtime_map: (coefficients.len(), offsets.len()),
         }
     }
@@ -691,6 +699,10 @@ impl LaunchArg for TileArg<'static> {
             .codebook
             .as_ref()
             .map(|table| Box::new(TileArg::expand(table, builder)));
+        let pages = arg
+            .pages
+            .as_ref()
+            .map(|table| Box::new(TileArg::expand(table, builder)));
         let (coefficients, offsets) = arg.runtime_map;
         let mut runtime_map = (
             Coords::<u32>::__expand_new(&builder.scope),
@@ -713,6 +725,7 @@ impl LaunchArg for TileArg<'static> {
             scale,
             index,
             codebook,
+            pages,
             runtime_map,
         }
     }
@@ -774,6 +787,7 @@ mod tests {
             scale: None,
             index: None,
             codebook: None,
+            pages: None,
             runtime_map: (0, 0),
         };
         TileArg::expand(&arg, builder)
@@ -812,6 +826,7 @@ mod tests {
             scale: None,
             index: None,
             codebook: None,
+            pages: None,
             runtime_map: (0, 0),
         };
         TileArg::expand(&arg, builder)

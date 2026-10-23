@@ -53,8 +53,7 @@ impl GlobalOperand {
 
     /// [`tensor`](GlobalOperand::tensor) over a pool of pages, read as the sequences `table` names
     /// ([`Paging`]): the spec states which axes the table resolves, the tensor is the pool as it
-    /// lies, and the operand's extent along the two axes is the table's. A pool is never packed,
-    /// so `T` is `E`'s scalar.
+    /// lies, and the operand's extent along the two axes is the table's.
     pub fn paged<T: Numeric, E: CubePrimitive<Scalar = T>>(
         tensor: &Tensor<E>,
         table: &Tensor<u32>,
@@ -367,13 +366,7 @@ fn check_operand(space: &Space, spec: &TileSpec, vector_size: usize) {
     }
     projection.validate_composition(|axis| space.extent(axis));
     if let Some(paging) = &spec.paging {
-        let checked = paging.validate(
-            projection,
-            &spec.stored_tiles,
-            spec.packing,
-            spec.delivery,
-            vector_size,
-        );
+        let checked = paging.validate(projection, &spec.stored_tiles, spec.delivery, vector_size);
         if let Err(refusal) = checked {
             panic!("GlobalOperand: {refusal}");
         }
