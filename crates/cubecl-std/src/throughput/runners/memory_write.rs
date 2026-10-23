@@ -86,7 +86,8 @@ pub fn memory_write_throughput<I: Numeric, N: Size>(
     // everywhere and writes once. `n_iter` is a scalar the kernel compiler
     // sees only at launch time, so it cannot fold the stores into a single
     // known-pattern fill, and the per-lane offset keeps the written line from
-    // being a uniform value even within one call.
+    // being a uniform value within one line; each store then offsets it by its
+    // own index, so no two neighbouring lines repeat (see the store).
     let seed = I::cast_from(n_iter);
     let mut line = Vector::<I, N>::empty();
     let lanes = line.vector_size();
@@ -125,7 +126,14 @@ pub fn memory_write_throughput<I: Numeric, N: Size>(
                     idx -= len;
                 }
 
-                output[idx] = line;
+                // Every line holds its own value. Lines that all repeat one
+                // value do not all reach memory: an RTX PRO 6000 reported
+                // 3.8 TB/s writing them on a 1.8 TB/s bus, and 1.65 TB/s once
+                // each line differed. A multiplicative hash of the index
+                // spreads neighbouring lines apart at the cost of one integer
+                // multiply, which the store's latency hides.
+                let scrambled = u32::cast_from(idx) * 2654435761u32;
+                output[idx] = line + Vector::cast_from(I::cast_from(scrambled));
             }
         }
 

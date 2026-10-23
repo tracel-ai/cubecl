@@ -1,15 +1,14 @@
-//! The decode gemv's serving geometry, in the split-axis spelling.
+//! The quantized decode product's serving geometry, in the split-axis spelling.
 //!
 //! `y = W · x` with `W` the weight's physical `[d_out, d_in]` buffer as the *lhs*, the
 //! orientation a decode step streams, where the contraction runs along the buffer's contiguous
 //! direction. `K` is spelled `(KB, KI)`, so one scale per block is the operand omitting `KI`.
 //!
 //! Two shapes, and the engine picks which by what it will accept. With the accumulator in memory
-//! the activation is read one `K`-contiguous line a step, which lets a step fold whole lines;
+//! the activation is read one `K`-contiguous line a step, which lets a step sum whole lines;
 //! promoted to registers, the block lines its cells along the accumulator, so reads are per cell.
 //!
-//! Both compute the same answer and neither is a ladder rung of the other.
-//! [`cubek-matmul`'s `QuantGemv` routine] is built on the first.
+//! Both compute the same answer and neither is a faster form of the other.
 
 use super::{Form, implied};
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
@@ -28,12 +27,12 @@ const N: Axis = Axis(1);
 const KB: Axis = Axis(2);
 const KI: Axis = Axis(3);
 
-/// The partials fold through the sink's element between `K` steps. Three levels: this cube's
+/// The partials sum through the sink's element between `K` steps. Three levels: this cube's
 /// strip of rows, this plane's group of rows, this unit's rows against its share of the
 /// contraction, the leaf running under a block of `budget` scalars.
 #[cube(launch)]
 #[allow(clippy::too_many_arguments)]
-fn decode_gemv(
+fn quantized_decode(
     w: &TileArg<'_>,
     x: &TileArg<'_>,
     scale: &TileArg<'_>,
@@ -78,11 +77,11 @@ fn decode_gemv(
 /// register block above the walk and drains it once.
 ///
 /// The activation is read *scalar* here, and has to be: a promoted block lines its cells along
-/// the accumulator, so a rhs lined along the contraction folds a whole step into one cell and
+/// the accumulator, so a rhs lined along the contraction sums a whole step into one cell and
 /// `RegisterData::mma_scaled` refuses it; the shipping shape thus keeps its accumulator in memory.
 #[cube(launch)]
 #[allow(clippy::too_many_arguments)]
-fn decode_gemv_promoted<E: Numeric>(
+fn quantized_decode_promoted<E: Numeric>(
     w: &TileArg<'_>,
     x: &TileArg<'_>,
     scale: &TileArg<'_>,
@@ -126,7 +125,7 @@ fn decode_gemv_promoted<E: Numeric>(
 }
 
 #[test]
-fn the_serving_geometry_computes_the_decode_gemv() {
+fn the_serving_geometry_computes_the_decode_product() {
     serving_geometry(false, true);
 }
 
@@ -309,7 +308,7 @@ fn serving_geometry(promoted: bool, units_cut: bool) {
 
     let (count, dim) = (launcher.cube_count(), launcher.cube_dim());
     if promoted {
-        decode_gemv_promoted::launch(
+        quantized_decode_promoted::launch(
             &client,
             count,
             dim,
@@ -322,7 +321,7 @@ fn serving_geometry(promoted: bool, units_cut: bool) {
             dtype,
         );
     } else {
-        decode_gemv::launch(
+        quantized_decode::launch(
             &client,
             count,
             dim,

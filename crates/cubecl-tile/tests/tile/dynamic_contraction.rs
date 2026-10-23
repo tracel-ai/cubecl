@@ -3,7 +3,7 @@
 //!
 //! `out = x · w`, the weight stored `[n, k]` and read as `[k, n]`, each step four lines of `K`.
 //! Two walks of it: every unit taking a column's whole `K`, and a column's units taking its steps
-//! in turns, their partials folded by the drain, as `matmul_mb` does. A `k` whose last step
+//! in turns, their partials summed by the drain, as `matmul_mb` does. A `k` whose last step
 //! reaches past the end is not a case: an operand lined along an axis it overhangs is refused.
 
 use super::{Form, implied};

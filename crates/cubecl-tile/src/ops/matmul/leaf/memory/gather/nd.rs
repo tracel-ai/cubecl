@@ -133,7 +133,7 @@ fn box_in_bounds<T: Numeric, W: Size>(
     view.is_in_bounds(near) && view.is_in_bounds(far)
 }
 
-/// The `K` walk over one batch matrix: seed the block, fold `kc` rank-1 updates, commit it back.
+/// The `K` walk over one batch matrix: seed the block, sum `kc` rank-1 updates, commit it back.
 #[cube]
 #[allow(clippy::too_many_arguments)]
 fn walk<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size, A: Size>(
@@ -305,7 +305,7 @@ fn rank1_update<E: Numeric, EL: Numeric, L: Size, ER: Numeric, V: Size>(
     }
     #[unroll(unroll)]
     for i in 0..mr {
-        // Row-invariant reads, taken once; zero and folded away when the cell loop reads them.
+        // Row-invariant reads, taken once; zero and evaluated away when the cell loop reads them.
         let mut a_row = Vector::<E, V>::cast_from(E::from_int(0));
         if comptime!(problem.lhs == LhsRole::FreeOfColumn) {
             // Same position for every component of one line.

@@ -346,7 +346,7 @@ fn a_separable_lhs_contracts_a_padded_staged_rhs() {
 ///
 /// Both halves of the split the separable schedule runs on are load-bearing here. `row` stays
 /// inside the floor, so it has to be anchored; `tap` has a coefficient the divisor factors out, so
-/// it steps by `1` on that anchor. This pins the hand fold against folding the whole map per tap.
+/// it steps by `1` on that anchor. This pins the hand-written step against evaluating the whole map per tap.
 const ROW_NUM: usize = 3;
 const RESAMPLE: usize = 2;
 const RTAPS: usize = 2;

@@ -247,7 +247,7 @@ impl Space {
             for axis in part.axes() {
                 let extent = part.extent_raw(axis);
                 match entries.iter_mut().find(|(a, _)| *a == axis) {
-                    Some(slot) => slot.1 = merge_level(slot.1, extent),
+                    Some(slot) => slot.1 = slot.1.broadcast(extent),
                     None => entries.push((axis, extent)),
                 }
             }
@@ -308,8 +308,8 @@ impl Space {
             Extent::Static(extent) => extent.is_multiple_of(width),
             Extent::Dynamic => true,
         };
-        let folds = width > 1 && contracted.last() == Some(&lined) && whole_lines;
-        if folds { width } else { 1 }
+        let sums_lines = width > 1 && contracted.last() == Some(&lined) && whole_lines;
+        if sums_lines { width } else { 1 }
     }
 
     /// The axes `operands` jointly contract against `output`.
@@ -379,17 +379,6 @@ impl Space {
             Extent::Static(n) => comptime!(n).runtime(),
             Extent::Dynamic => *self.sizes.index(i),
         }
-    }
-}
-
-/// Broadcast rule for one axis when [`merge`](Space::merge)ing spaces.
-fn merge_level(a: Extent, b: Extent) -> Extent {
-    match (a, b) {
-        (Extent::Static(1), b) => b,
-        (a, Extent::Static(1)) => a,
-        (Extent::Dynamic, _) | (_, Extent::Dynamic) => Extent::Dynamic,
-        (Extent::Static(a), Extent::Static(b)) if a == b => Extent::Static(a),
-        _ => panic!("Space::merge: axis appears with conflicting extents"),
     }
 }
 

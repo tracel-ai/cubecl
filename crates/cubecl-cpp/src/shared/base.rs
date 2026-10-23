@@ -26,7 +26,7 @@ use cubecl_core::{
         features::{AtomicUsage, EnumSet, TypeUsage},
         interfaces::TypedExt,
         metadata::Info,
-        rewrite::{CanonicalizePass, SimplifyOpsPass, visit_all_values},
+        rewrite::{CanonicalizePass, LowerOpsPass, SimplifyOpsPass, visit_all_values},
         settings::Dim3,
         types::scalar::{Complex32Type, Complex64Type},
     },
@@ -235,6 +235,7 @@ where
         let mut passes = OpPass::<ModuleOp, Passes>::default();
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
 
+        func_passes.add_pass(LowerOpsPass::default());
         func_passes.add_pass(LowerInfoPass);
         func_passes.add_pass(SROAPass);
         func_passes.add_pass(ResolvePendingPass);

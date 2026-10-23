@@ -51,7 +51,7 @@ pub(crate) struct RegisterData {
     /// block's columns, else the run a load holds of a column, which each step sums into its
     /// cell, so the block is one value wide.
     #[cube(comptime)]
-    pub(crate) fold: usize,
+    pub(crate) contracted_per_step: usize,
     /// Rows in the block.
     #[cube(comptime)]
     pub(crate) mr: usize,
@@ -82,20 +82,20 @@ pub(crate) fn register_block_size(#[comptime] vector_size: usize) {
 #[cube]
 impl RegisterData {
     /// An uninitialized `m × n` block of `vector_size`-wide lines, contracting an rhs that brings
-    /// `fold` values of a cell a step. `n` must be a whole number of lines.
+    /// `contracted_per_step` values of a cell a step. `n` must be a whole number of lines.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn alloc<T: Numeric>(
         #[comptime] m: usize,
         #[comptime] n: usize,
         #[comptime] axes: MatrixAxes,
         #[comptime] vector_size: usize,
-        #[comptime] fold: usize,
+        #[comptime] contracted_per_step: usize,
         #[comptime] config: RegisterBlock,
         #[comptime] accumulation: Accumulation,
     ) -> RegisterData {
         comptime!(assert!(
-            fold == 1 || vector_size == 1,
-            "RegisterData::alloc: a block contracting {fold} values of a cell a step sums them into \
+            contracted_per_step == 1 || vector_size == 1,
+            "RegisterData::alloc: a block contracting {contracted_per_step} values of a cell a step sums them into \
              the cell, so it is one value wide, not {vector_size}"
         ));
         comptime!(assert!(
@@ -107,7 +107,7 @@ impl RegisterData {
         RegisterData {
             data: Raw::<Registers<RA>>::of::<T>(Array::<Vector<T, RA>>::new(comptime!(m * nr))),
             vector_size,
-            fold,
+            contracted_per_step,
             mr: m,
             nr,
             axes,
@@ -131,19 +131,21 @@ impl RegisterData {
         }
     }
 
-    /// Add `src`'s block (same grid and fold) into this one, casting each line up to `T`.
+    /// Add `src`'s block (same grid and values a step) into this one, casting each line up to `T`.
     pub(crate) fn add_cast_from<T: Numeric, S: Numeric>(&mut self, src: &RegisterData) {
         let data = self.data.at_mut::<T>();
         comptime!(assert!(
-            self.mr == src.mr && self.nr == src.nr && self.fold == src.fold,
+            self.mr == src.mr
+                && self.nr == src.nr
+                && self.contracted_per_step == src.contracted_per_step,
             "RegisterData::add_cast_from: the blocks are {}x{} fold {} and {}x{} fold {}; a \
              promotion adds line for line and both are opened against one sink",
             self.mr,
             self.nr,
-            self.fold,
+            self.contracted_per_step,
             src.mr,
             src.nr,
-            src.fold
+            src.contracted_per_step
         ));
         register_block_size(self.vector_size);
         let count = comptime!(self.mr * self.nr);
@@ -229,7 +231,7 @@ impl RegisterData {
                     }
                 }
             }
-            Drain::PlaneFold =>
+            Drain::PlaneReduce =>
             {
                 #[unroll]
                 for i in 0..comptime!(self.mr) {
@@ -244,7 +246,7 @@ impl RegisterData {
                     }
                 }
             }
-            Drain::GroupFold { unit_bits } =>
+            Drain::GroupReduce { unit_bits } =>
             {
                 #[unroll]
                 for i in 0..comptime!(self.mr) {

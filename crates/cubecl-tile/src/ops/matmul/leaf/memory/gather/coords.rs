@@ -6,7 +6,7 @@ use cubecl_std::tensor::layout::CoordsDyn;
 use crate::*;
 
 use super::base::GatherProblem;
-use crate::ops::matmul::leaf::memory::resolve_nd_coords;
+use crate::ops::contraction::resolve_nd_coords;
 
 /// One operand read at accumulator cell `(row, col)` of batch matrix `batch`.
 #[cube]

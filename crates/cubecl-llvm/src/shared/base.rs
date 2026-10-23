@@ -39,7 +39,7 @@ use cubecl_core::{
         amd::GfxArch,
         dialect::scf::BranchToSCFPass,
         metadata::Info,
-        rewrite::{CanonicalizePass, SimplifyOpsPass},
+        rewrite::{CanonicalizePass, LowerOpsPass, SimplifyOpsPass},
     },
     post_processing::{
         bf16::LowerWideBf16CastPass,
@@ -448,6 +448,7 @@ fn lower(
     analyses.set_config(config);
 
     let mut func_passes = OpPass::<FuncOp, Passes>::default();
+    func_passes.add_pass(LowerOpsPass::default());
     target.prologue(&mut func_passes);
     func_passes.add_pass(SROAPass);
     func_passes.add_pass(ResolvePendingPass);

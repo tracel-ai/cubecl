@@ -23,6 +23,18 @@ impl Extent {
     pub(crate) fn is_dynamic(self) -> bool {
         matches!(self, Extent::Dynamic)
     }
+
+    /// The extent two spaces sharing an axis broadcast to when they are
+    /// [`merge`](crate::Space::merge)d.
+    pub(crate) fn broadcast(self, other: Extent) -> Extent {
+        match (self, other) {
+            (Extent::Static(1), b) => b,
+            (a, Extent::Static(1)) => a,
+            (Extent::Dynamic, _) | (_, Extent::Dynamic) => Extent::Dynamic,
+            (Extent::Static(a), Extent::Static(b)) if a == b => Extent::Static(a),
+            _ => panic!("Space::merge: axis appears with conflicting extents"),
+        }
+    }
 }
 
 /// Every axis with its comptime extent, in canonical order.

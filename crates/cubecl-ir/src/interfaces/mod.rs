@@ -267,6 +267,15 @@ pub trait CanonicalizeInterface {
     fn canonicalize(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()>;
 }
 
+/// An op of a dialect the backends don't know, such as the tile DSL's. Every backend runs
+/// [`LowerOpsPass`](crate::rewrite::LowerOpsPass) ahead of its own passes, which lowers it to ops
+/// the backend knows.
+#[op_interface]
+pub trait LowerInterface {
+    verify_op_succ!();
+    fn lower(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()>;
+}
+
 #[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ExpressionValue(u64);
 

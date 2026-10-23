@@ -30,7 +30,7 @@ use cubecl_ir::{
     attributes::{ATTR_BUFFER_IO, BufferIOAttr, EntrypointInterface},
     dialect::{scf::BranchToSCFPass, ssa_matrix::MatrixToSSAPass},
     prelude::{OperationPtrExt, SingleBlockRegionInterface, SymbolOpInterface},
-    rewrite::{CanonicalizePass, visit_all_ops_of_type, visit_all_ops_of_type_mut},
+    rewrite::{CanonicalizePass, LowerOpsPass, visit_all_ops_of_type, visit_all_ops_of_type_mut},
     settings::{Dim3, KernelSettings},
 };
 use cubecl_opt::passes::{
@@ -206,6 +206,7 @@ impl SpirvCompiler {
         let mut passes = OpPass::<ModuleOp, Passes>::default();
 
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
+        func_passes.add_pass(LowerOpsPass::default());
         func_passes.add_pass(SROAPass);
         func_passes.add_pass(CheckedIoPass::new(CheckedIo::new(
             settings.execution_mode,

@@ -1,8 +1,6 @@
 //! One [`Level`]: which axes a loop steps, in tiles of what size, how many, and who takes them.
 
-use cubecl::prelude::*;
-
-use super::{CubeOrder, PlaneOrder, UnitCube};
+use super::{ComputeScope, Count, CubeAxis, CubeOrder, GridCount, PlaneOrder, UnitCube};
 use crate::{Axis, AxisMap, Extent, Space};
 
 /// One decomposition level of a space: who takes its tiles and how it cuts each axis it names.
@@ -34,89 +32,6 @@ pub(crate) struct Cut {
     pub(crate) spread: Spread,
 }
 
-/// How many tiles a level takes along one of its axes.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum Count {
-    /// This many, stated: a walk's steps, or a scope's workers with one tile each.
-    Stated(usize),
-    /// Every tile the level above hands down; the one count whose tile can overhang.
-    All,
-    /// Every tile, distributed across this many workers in runs.
-    AllAcross(usize),
-    /// This many tiles, taken in turns by however many units the launch runs.
-    Distributed(usize),
-}
-
-/// What a walk counts along one axis of a level: a constant, or the extent handed down.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum GridCount {
-    Const(usize),
-    Extent(usize),
-}
-
-/// The hardware a level's tiles can go to, ordered inner to outer.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
-pub enum ComputeScope {
-    Unit,
-    Plane,
-    /// `planes` consecutive planes, the first a multiple of `planes`, issuing one instruction
-    /// together: a warpgroup MMA's four.
-    PlaneGroup {
-        planes: usize,
-    },
-    Cube,
-}
-
-impl ComputeScope {
-    /// The four planes of a warpgroup, which issue each warpgroup MMA together
-    /// ([`Instruction::Wgmma`](crate::Instruction::Wgmma)).
-    pub const WARPGROUP: Self = Self::PlaneGroup { planes: 4 };
-
-    /// The planes one instance of this scope spans, where it spans whole planes.
-    pub fn planes(self) -> Option<usize> {
-        match self {
-            ComputeScope::Plane => Some(1),
-            ComputeScope::PlaneGroup { planes } => Some(planes),
-            ComputeScope::Unit | ComputeScope::Cube => None,
-        }
-    }
-}
-
-#[cube]
-impl ComputeScope {
-    /// This instance's position within `compute_scope`: which plane or plane group of the cube,
-    /// or which unit of the plane.
-    pub fn position(#[comptime] compute_scope: ComputeScope) -> usize {
-        match comptime!(compute_scope) {
-            ComputeScope::Plane => UNIT_POS_Y as usize,
-            ComputeScope::PlaneGroup { planes } => UNIT_POS_Y as usize / planes,
-            ComputeScope::Unit => UNIT_POS_X as usize,
-            ComputeScope::Cube => {
-                panic!(
-                    "ComputeScope::position: a cube has one position per grid dimension; say which"
-                )
-            }
-        }
-    }
-
-    /// This unit's position among the units of its instance of `compute_scope`: in the cube,
-    /// in its plane group, or in its plane. A plane is the launch's `x`
-    /// ([`Partitioning::cube_dim`](crate::Partitioning::cube_dim)), so a unit's position in it is
-    /// `UNIT_POS_X`, and a group's planes are consecutive `y`s.
-    pub fn unit(#[comptime] compute_scope: ComputeScope) -> usize {
-        match comptime!(compute_scope) {
-            ComputeScope::Cube => UNIT_POS as usize,
-            ComputeScope::PlaneGroup { planes } => {
-                (UNIT_POS_Y as usize % planes) * CUBE_DIM_X as usize + UNIT_POS_X as usize
-            }
-            ComputeScope::Plane => UNIT_POS_X as usize,
-            ComputeScope::Unit => comptime!(panic!(
-                "ComputeScope::unit: a unit is the only unit of its own scope"
-            )),
-        }
-    }
-}
-
 /// How a level covers its tiles.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub enum Coverage {
@@ -144,62 +59,6 @@ pub enum Spread {
     Contiguous,
     /// Instances take turns (cube 0 → `{0,2}`, cube 1 → `{1,3}`).
     Interleaved,
-}
-
-/// One of the launch grid's three dimensions.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub(crate) enum CubeAxis {
-    X,
-    Y,
-    Z,
-}
-
-#[cube]
-impl CubeAxis {
-    /// This cube's position on grid dimension `dim`.
-    pub(crate) fn position(#[comptime] dim: CubeAxis) -> usize {
-        let cube_pos = match comptime!(dim) {
-            CubeAxis::X => CUBE_POS_X,
-            CubeAxis::Y => CUBE_POS_Y,
-            CubeAxis::Z => CUBE_POS_Z,
-        };
-        cube_pos as usize
-    }
-}
-
-impl Count {
-    /// The workers the tiles are distributed to, where that is a stated number.
-    pub(crate) fn stated(self) -> Option<usize> {
-        match self {
-            Count::Stated(n) | Count::AllAcross(n) => Some(n),
-            Count::All | Count::Distributed(_) => None,
-        }
-    }
-
-    /// Tiles this count takes along an axis of `extent`; a partial last tile counts.
-    pub(crate) fn tiles(self, extent: usize, tile: usize) -> usize {
-        match self {
-            Count::Stated(n) | Count::Distributed(n) => n,
-            Count::All | Count::AllAcross(_) => extent.div_ceil(tile),
-        }
-    }
-
-    /// [`tiles`](Count::tiles) where the host can prove it.
-    pub(crate) fn tiles_const(self, extent: Extent, tile: usize) -> Option<usize> {
-        match (self, extent) {
-            (Count::Stated(n) | Count::Distributed(n), _) => Some(n),
-            (_, Extent::Static(extent)) => Some(self.tiles(extent, tile)),
-            (_, Extent::Dynamic) => None,
-        }
-    }
-
-    /// What a walk counts along an axis stepped in `tile`.
-    pub(crate) fn grid(self, tile: usize) -> GridCount {
-        match self {
-            Count::Stated(n) | Count::Distributed(n) => GridCount::Const(n),
-            Count::All | Count::AllAcross(_) => GridCount::Extent(tile),
-        }
-    }
 }
 
 impl Level {

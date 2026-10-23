@@ -1,8 +1,11 @@
 //! [`Slot`]: a payload plus the [`Meeting`] sequencing its fill against its read.
 
+use cubecl::ir::Scope;
 use cubecl::prelude::*;
+use cubecl::unexpanded;
 
 use super::payload::base::{Payload, PayloadExpand};
+use super::payload::pair::OperandPair;
 use crate::*;
 
 pub(crate) const FIRST_SLOT: usize = 0;
@@ -115,5 +118,42 @@ impl<P: Payload<P> + CubeType<ExpandType: Clone>> Slot<P> {
                 .bring(src, &self.pipeline, region, comptime!(refills), only);
             self.release_write();
         }
+    }
+}
+
+// `consume` is spelled per payload shape: closure inference cannot resolve `P::ExpandType`.
+impl Slot<OperandPair> {
+    /// Wait for the slot's fill, pass its two tiles to `compute`, then free the slot.
+    pub fn consume(&mut self, _compute: impl FnOnce(&Tile, &Tile)) {
+        unexpanded!()
+    }
+}
+
+impl SlotExpand<OperandPair> {
+    pub fn __expand_consume_method<F>(&mut self, scope: &Scope, compute: F)
+    where
+        F: FnOnce(&Scope, &TileExpand, &TileExpand),
+    {
+        self.__expand_acquire_read_method(scope);
+        compute(scope, &self.data.lhs, &self.data.rhs);
+        self.__expand_release_read_method(scope);
+    }
+}
+
+impl Slot<Tile> {
+    /// [`consume`](Slot::consume) for the sole operand.
+    pub fn consume(&mut self, _compute: impl FnOnce(&Tile)) {
+        unexpanded!()
+    }
+}
+
+impl SlotExpand<Tile> {
+    pub fn __expand_consume_method<F>(&mut self, scope: &Scope, compute: F)
+    where
+        F: FnOnce(&Scope, &TileExpand),
+    {
+        self.__expand_acquire_read_method(scope);
+        compute(scope, &self.data);
+        self.__expand_release_read_method(scope);
     }
 }

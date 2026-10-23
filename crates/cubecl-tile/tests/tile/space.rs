@@ -174,9 +174,9 @@ fn an_operand_the_output_spans_contracts_nothing() {
 
 // ---- overhangs -------------------------------------------------------------
 
-/// A cpu_gemm-shaped scheme: cube tiles of `planes x leaf` leaves over `(m, n, k)`, `K` handed
+/// A CPU-matmul-shaped scheme: cube tiles of `planes x leaf` leaves over `(m, n, k)`, `K` handed
 /// down whole to the cube and stepped by `leaf_k` under the plane grid.
-fn cpu_gemm_nest(m: usize, n: usize, k: usize) -> Launcher {
+fn cpu_matmul_nest(m: usize, n: usize, k: usize) -> Launcher {
     let (leaf_m, leaf_n, leaf_k) = (8, 8, 4);
     let (planes_m, planes_n) = (2, 4);
     implied(
@@ -198,20 +198,20 @@ fn hangs(launcher: &Launcher, axis: Axis) -> bool {
 }
 
 #[test]
-fn overhangs_matches_cpu_gemm_checks() {
+fn overhangs_matches_cpu_matmul_checks() {
     // Every level divides: cube tiles 16×32, leaves 8×8×4.
-    let launcher = cpu_gemm_nest(64, 64, 16);
+    let launcher = cpu_matmul_nest(64, 64, 16);
     assert!(!hangs(&launcher, M));
     assert!(!hangs(&launcher, N));
     assert!(!hangs(&launcher, K));
 
-    // m = 40 is not a multiple of the cube tile (16): M overhangs (cpu_gemm's check_m).
+    // m = 40 is not a multiple of the cube tile (16): M overhangs (the CPU matmul's check_m).
     // Within a cube the plane split is exact by construction, so the leaf level adds nothing.
-    assert!(hangs(&cpu_gemm_nest(40, 64, 16), M));
+    assert!(hangs(&cpu_matmul_nest(40, 64, 16), M));
 
     // K is handed to the cube whole (nothing to overhang); k = 18 fails only at the leaf
-    // (leaf_k = 4): the deeper every-level alone drives the overhang (cpu_gemm's check_k).
-    let launcher = cpu_gemm_nest(64, 64, 18);
+    // (leaf_k = 4): the deeper every-level alone drives the overhang (the CPU matmul's check_k).
+    let launcher = cpu_matmul_nest(64, 64, 18);
     assert!(hangs(&launcher, K));
     assert!(!hangs(&launcher, M));
 }
@@ -375,7 +375,7 @@ fn an_axis_named_twice_is_refused() {
 
 /// A level that takes one of the thing below has one region on every axis, so it partitions
 /// nothing. It stays all the same: the kernel walks the levels it stated, one loop per level, so
-/// the list must hold every one. A one-region walk folds away in the kernel, so it costs nothing.
+/// the list must hold every one. A one-region walk evaluates away in the kernel, so it costs nothing.
 #[test]
 fn a_level_that_cuts_nothing_is_kept() {
     let plain = implied(

@@ -1,6 +1,6 @@
 //! A buffer layout's alignment in elements, along its innermost dim.
 
-use crate::{Axis, Geometry, layout::StoragePartitioning};
+use crate::{Axis, Geometry, gcd, layout::StoragePartitioning};
 use cubecl::prelude::TensorBinding;
 
 /// The alignment of a buffer's layout, counted in elements along its innermost dim: the number
@@ -17,20 +17,22 @@ use cubecl::prelude::TensorBinding;
 /// to its offset in elements ([`at_start`](Self::at_start)), the buffer's own start being the
 /// runtime's to align.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ElemAlignment {
-    divides: usize,
-    /// Whether `divides` is the one width that reads the buffer rather than a bound every width
-    /// divides: a storage-tiled buffer stores its read as a piece, which a reader takes whole.
-    exact: bool,
+pub struct ElemAlignment(Widths);
+
+/// The widths that read a buffer's elements and no others.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum Widths {
+    /// Every width dividing this one.
+    Dividing(usize),
+    /// This width alone: a storage-tiled buffer stores its read as a piece, which a reader takes
+    /// whole.
+    Exactly(usize),
 }
 
 impl ElemAlignment {
     /// A layout aligned to one element, read one element at a time: a strided or broadcast view,
     /// whose innermost dim strides past one.
-    pub const ONE: Self = Self {
-        divides: 1,
-        exact: false,
-    };
+    pub const ONE: Self = Self(Widths::Dividing(1));
 
     /// The alignment of a buffer of `shape` at `strides`, its dims taken in the order the buffer
     /// steps them, whatever order the view names them in.
@@ -56,10 +58,7 @@ impl ElemAlignment {
             }
             _ => 1,
         };
-        Self {
-            divides,
-            exact: false,
-        }
+        Self(Widths::Dividing(divides))
     }
 
     /// The alignment a view starting `start_bytes` into its buffer gives lines of `element_bytes`
@@ -72,33 +71,27 @@ impl ElemAlignment {
             true => (start_bytes / element_bytes) as usize,
             false => 1,
         };
-        Self {
-            divides,
-            exact: false,
-        }
+        Self(Widths::Dividing(divides))
     }
 
     /// The alignment of a buffer stored in pieces `read` elements wide, which a reader takes whole:
     /// a storage-tiled one's.
     pub const fn stored_piece(read: usize) -> Self {
-        Self {
-            divides: read,
-            exact: true,
-        }
+        Self(Widths::Exactly(read))
     }
 
     /// Whether the buffer is read in the pieces it is stored in, a storage-tiled one's, rather than
     /// along rows.
     pub fn is_stored_piece(self) -> bool {
-        self.exact
+        matches!(self.0, Widths::Exactly(_))
     }
 
     /// Whether a line `width` wide reads this buffer's elements and no others.
     pub fn admits(self, width: usize) -> bool {
-        match self.exact {
+        match self.0 {
             _ if width == 1 => true,
-            true => width == self.divides,
-            false => self.divides.is_multiple_of(width),
+            Widths::Exactly(read) => width == read,
+            Widths::Dividing(divides) => divides.is_multiple_of(width),
         }
     }
 }
@@ -120,13 +113,6 @@ impl From<&TensorBinding> for ElemAlignment {
             Some(&(COLS, read)) => Self::stored_piece(read),
             _ => Self::stored_piece(1),
         }
-    }
-}
-
-fn gcd(a: usize, b: usize) -> usize {
-    match b {
-        0 => a,
-        _ => gcd(b, a % b),
     }
 }
 

@@ -1,4 +1,4 @@
-//! Unit tests for the 1-D register folds in `Monoid::reduce` and `Monoid::reduce_array`.
+//! Unit tests for the 1-D register reductions in `Monoid::reduce` and `Monoid::reduce_array`.
 
 use crate::support::{HostData, HostDataType, TestInput};
 use cubecl::{client::Client, prelude::*, zspace::Shape};
@@ -92,16 +92,16 @@ fn test_plane_and_group_kernel(output: &mut Tensor<f32>) {
     let p_max = comptime!(UnitShare::Plane).reduce::<f32>(val, Monoid::Max);
     let p_min = comptime!(UnitShare::Plane).reduce::<f32>(val, Monoid::Min);
 
-    // Non-trivial 4-unit butterfly group fold (mask 0b11 = folds all 4 units)
+    // Non-trivial 4-unit butterfly group reduction (mask 0b11 = reduces all 4 units)
     let size!(W2) = 2;
     let mut v2 = Vector::<f32, W2>::zeroed();
     v2.insert(0usize, val);
     v2.insert(1usize, val * 2.0f32);
-    let folded_full =
+    let reduced_full =
         comptime!(UnitShare::Group { unit_bits: 0b11 }).reduce::<Vector<f32, W2>>(v2, Monoid::Sum);
 
-    // 2-unit sub-group butterfly fold (mask 0b01 = folds (0,1) and (2,3) separately)
-    let folded_pair =
+    // 2-unit sub-group butterfly reduction (mask 0b01 = reduces (0,1) and (2,3) separately)
+    let reduced_pair =
         comptime!(UnitShare::Group { unit_bits: 0b01 }).reduce::<Vector<f32, W2>>(v2, Monoid::Sum);
 
     // The same butterfly under max and min
@@ -123,10 +123,10 @@ fn test_plane_and_group_kernel(output: &mut Tensor<f32>) {
     output[base] = p_sum;
     output[base + 1] = p_max;
     output[base + 2] = p_min;
-    output[base + 3] = folded_full.extract(0usize);
-    output[base + 4] = folded_full.extract(1usize);
-    output[base + 5] = folded_pair.extract(0usize);
-    output[base + 6] = folded_pair.extract(1usize);
+    output[base + 3] = reduced_full.extract(0usize);
+    output[base + 4] = reduced_full.extract(1usize);
+    output[base + 5] = reduced_pair.extract(0usize);
+    output[base + 6] = reduced_pair.extract(1usize);
     output[base + 7] = s_fallback;
     output[base + 8] = m_fallback;
     output[base + 9] = n_fallback;
@@ -265,7 +265,7 @@ fn test_plane_and_group_primitives() {
                 "plane_min on unit {plane_unit}"
             );
 
-            // 4-unit butterfly group fold (mask 0b11: all units hold the 4-unit vector total)
+            // 4-unit butterfly group reduction (mask 0b11: all units hold the 4-unit vector total)
             assert_eq!(
                 output.get_f32(&[base + 3]),
                 10.0,
@@ -277,7 +277,7 @@ fn test_plane_and_group_primitives() {
                 "fold_group 0b11 [1] on unit {plane_unit}"
             );
 
-            // 2-unit pairwise butterfly fold (mask 0b01: units (0,1) and (2,3) fold separately)
+            // 2-unit pairwise butterfly reduction (mask 0b01: units (0,1) and (2,3) reduce separately)
             if plane_unit < 2 {
                 assert_eq!(
                     output.get_f32(&[base + 5]),
