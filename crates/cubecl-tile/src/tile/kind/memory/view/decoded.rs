@@ -279,7 +279,9 @@ fn read_packed_line<O: Float, W: Size>(
         }
     }
     if comptime!(scaled) {
-        let scale = window.factor.at_coords(&first, comptime!(space.clone()));
+        let scale = window
+            .factor
+            .at_coords_under(&first, comptime!(space.clone()), guard);
         values *= Vector::<f32, W>::cast_from(scale);
     }
     Vector::<O, W>::cast_from(values)
