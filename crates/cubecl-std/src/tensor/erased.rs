@@ -735,7 +735,7 @@ impl<E: Numeric, N: Size, IO: ErasedIoWrite> ViewOperationsMutExpand<Vector<E, N
         _scope: &Scope,
         _shared_memory: &SliceExpand<Vector<E, N>>,
         _pos: NativeExpand<usize>,
-    ) {
+    ) -> PendingExpand<()> {
         unimplemented!("ErasedTensor: not a tensor map")
     }
 }

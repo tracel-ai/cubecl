@@ -4,8 +4,8 @@ use cubecl_core::ir::AddressType;
 use cubecl_core::ir::types::{
     ArrayType, AtomicType,
     scalar::{
-        Float8E4M3Type, Float8E5M2Type, Float8E8M0Type, Float16Type, Float32Type, Float64Type,
-        FloatFlex32Type,
+        BFloat16Type, Float8E4M3Type, Float8E5M2Type, Float8E8M0Type, Float16Type, Float32Type,
+        Float64Type, FloatFlex32Type, TFloat32Type,
     },
 };
 
@@ -52,7 +52,11 @@ impl_cube_to_llvm_type!(IndexType, self, ctx => IntegerType::get(ctx, index_widt
 impl_cube_to_llvm_type!(Float64Type, self, ctx => FP64Type::get(ctx));
 impl_cube_to_llvm_type!(Float32Type, self, ctx => FP32Type::get(ctx));
 impl_cube_to_llvm_type!(FloatFlex32Type, self, ctx => FP32Type::get(ctx));
+// TF32 keeps its FP32 storage. Casts round the mantissa; matrix instructions take its bits.
+impl_cube_to_llvm_type!(TFloat32Type, self, ctx => FP32Type::get(ctx));
 impl_cube_to_llvm_type!(Float16Type, self, ctx => FP16Type::get(ctx));
+// LLVM legalizes `bfloat` per target: native where the hardware has it, through `f32` elsewhere.
+impl_cube_to_llvm_type!(BFloat16Type, self, ctx => BF16Type::get(ctx));
 impl_cube_to_llvm_type!(Float8E4M3Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
 impl_cube_to_llvm_type!(Float8E5M2Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
 impl_cube_to_llvm_type!(Float8E8M0Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
@@ -121,6 +125,7 @@ macro_rules! impl_llvm_type_to_mangled_overload {
 
 impl_llvm_type_to_mangled_overload!(IntegerType, self, _ctx => format!("i{}", self.width()));
 impl_llvm_type_to_mangled_overload!(FP16Type, self, _ctx => "f16".to_string());
+impl_llvm_type_to_mangled_overload!(BF16Type, self, _ctx => "bf16".to_string());
 impl_llvm_type_to_mangled_overload!(FP32Type, self, _ctx => "f32".to_string());
 impl_llvm_type_to_mangled_overload!(FP64Type, self, _ctx => "f64".to_string());
 impl_llvm_type_to_mangled_overload!(LlvmPointerType, self, _ctx => format!("p{}", self.address_space()));
@@ -138,4 +143,39 @@ pub fn llvm_mangled_ty(ctx: &Context, ty: TypeHandle) -> String {
     type_cast::<dyn LlvmTypeToMangledOverload>(&*ty.deref(ctx))
         .map(|ty| ty.to_string(ctx))
         .expect("Type not supported for overloading of intrinsic")
+}
+
+/// `find` of the first cube type `value` had, newest first, that it accepts: the operand history
+/// of a converted value, then its current type.
+pub fn cube_origin<T>(
+    ctx: &Context,
+    info: &OperandsInfo,
+    value: Value,
+    find: impl Fn(&dyn Type) -> Option<T>,
+) -> Option<T> {
+    info.lookup_operand_history(value)
+        .into_iter()
+        .rev()
+        .chain(core::iter::once(value.get_type(ctx)))
+        .find_map(|ty| find(&*ty.deref(ctx)))
+}
+
+/// The cube type the pointer `value` was converted from points at, passed to `find`.
+pub fn cube_pointee<T>(
+    ctx: &Context,
+    info: &OperandsInfo,
+    value: Value,
+    find: impl Fn(&dyn Type) -> Option<T>,
+) -> Option<T> {
+    cube_origin(ctx, info, value, |ty| {
+        let ptr = ty.downcast_ref::<CubePointerType>()?;
+        find(&*ptr.inner.deref(ctx))
+    })
+}
+
+/// The size of what `ptr` points at, read off the cube pointer type it was converted from.
+pub fn pointee_size(ctx: &Context, info: &OperandsInfo, ptr: Value) -> Option<usize> {
+    cube_pointee(ctx, info, ptr, |inner| {
+        Some(type_cast::<dyn SizedType>(inner)?.size(ctx))
+    })
 }

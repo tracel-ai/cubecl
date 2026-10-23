@@ -7,6 +7,7 @@
 //! forgot it would be silent.
 
 use super::storage::gpu::{GpuResource, GpuStorage};
+use crate::compute::modules::HipCompiledKernel;
 use crate::compute::{Captures, Window};
 use crate::compute::{Command, context::HipContext, stream::HipStreamBackend};
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
@@ -24,10 +25,11 @@ use cubecl_environment::future;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_server::command::{DeviceStream, Refused};
+use cubecl_server::compiler::ArtifactId;
 use cubecl_server::metadata_cache::Lookup;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
-    dry_run::LaunchMode,
+    execution::LaunchMode,
     id::GraphId,
     kernel::CubeKernel,
     logging::ServerLogger,
@@ -146,18 +148,26 @@ impl Server for HipServer {
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) {
-        let kernel_id = kernel.id();
-        if self.compile_failed(&kernel_id, kernel, &bindings, stream_id, launch_mode) {
+        if launch_mode == LaunchMode::Queue {
+            self.ctx.queue_kernel(kernel);
             return;
         }
-        // A dry run stops right here, after compilation and before anything
+        let id = ArtifactId {
+            kernel: kernel.id(),
+            variant: (),
+        };
+        let Some(loaded) = self.load_or_fail(kernel, &id, &bindings, stream_id, launch_mode) else {
+            return;
+        };
+        // A discarded launch stops right here, after compilation and before anything
         // that touches a buffer: resolving resources, uploading metadata or
         // reading a dynamic cube count would materialize memory the run
         // exists to leave unmapped.
-        if launch_mode.is_skipped() {
+        if launch_mode.discards_launch() {
             return;
         }
-        let io = self.ctx.kernel_io(&kernel_id);
+        let kernel_id = id.kernel;
+        let io = loaded.io.as_deref();
 
         // The count resolves before the scope opens, because entering the
         // scope replaces whatever claim the outputs carry — and a count that
@@ -171,7 +181,7 @@ impl Server for HipServer {
                 // exactly as a failed launch's would: a tainted or unreadable
                 // count buffer travels to everything downstream of it.
                 let mut written = self.write_set();
-                written.extend(bindings.buffers_written(io.as_deref()).cloned());
+                written.extend(bindings.buffers_written(io).cloned());
                 failed_writing(self, stream_id, written, err);
                 return;
             }
@@ -189,15 +199,15 @@ impl Server for HipServer {
         // bytes nothing wrote. An input that already carries a failure skips
         // the launch instead, and the scope settles that too.
         let mut written = self.write_set();
-        written.extend(bindings.buffers_written(io.as_deref()).cloned());
+        written.extend(bindings.buffers_written(io).cloned());
         ExecuteScope::launching(
             self,
             kernel_id.clone(),
             stream_id,
-            bindings.buffers_read(io.as_deref()),
+            bindings.buffers_read(io),
             written,
         )
-        .execute(|server| server.launch_checked(kernel_id, count, bindings, stream_id));
+        .execute(|server| server.launch_checked(kernel_id, &loaded, count, bindings, stream_id));
     }
 
     fn check(
@@ -206,6 +216,10 @@ impl Server for HipServer {
         _stream_id: StreamId,
     ) -> Result<(), ServerError> {
         self.streams.ensure_written(handles.iter())
+    }
+
+    fn compile_queued(&mut self) {
+        self.ctx.compile_queued(&self.streams.logger);
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
@@ -445,9 +459,9 @@ impl HipServer {
         Ok(Command::new(&mut self.ctx, streams, self.utilities.service))
     }
 
-    /// Compile `kernel` if this is the first launch of it, and say whether
-    /// that failed — in which case the outputs the launch was given now
-    /// carry the compilation error.
+    /// Compile `kernel` if this is the first launch of it, and return it
+    /// loaded — or `None` when that failed, in which case the outputs the
+    /// launch was given now carry the compilation error.
     ///
     /// Compilation comes first — memoized, so a launch after the first pays a
     /// map lookup — because the write scope stages what the compiled kernel
@@ -457,25 +471,22 @@ impl HipServer {
     /// kernel was only going to read — tainting those would refuse every
     /// later launch that shares them, an autotune sweep above all.
     ///
-    /// A dry run claims none. It was never going to write, so a failure in it
+    /// A discarded launch claims none. It was never going to write, so a failure in it
     /// leaves nothing stale, and tainting its buffers would fail unrelated
     /// reads of memory the run deliberately left alone.
-    fn compile_failed(
+    fn load_or_fail(
         &mut self,
-        kernel_id: &KernelId,
         kernel: Box<dyn CubeKernel>,
+        id: &ArtifactId<()>,
         bindings: &KernelArguments,
         stream_id: StreamId,
         launch_mode: LaunchMode,
-    ) -> bool {
-        if self.ctx.is_loaded(kernel_id) {
-            return false;
-        }
-        let logger = self.streams.logger.clone();
-        let Err(err) = self.ctx.compile_kernel(kernel_id, kernel, logger) else {
-            return false;
+    ) -> Option<HipCompiledKernel> {
+        let err = match self.ctx.load_kernel(&*kernel, id, &self.streams.logger) {
+            Ok(loaded) => return Some(loaded),
+            Err(err) => err,
         };
-        if !launch_mode.is_skipped() {
+        if !launch_mode.discards_launch() {
             // No compiled answer exists for a kernel that never compiled, so
             // the caller's declared IO decides what the failure claims: only
             // the outputs, never the buffers the kernel was only going to
@@ -487,7 +498,7 @@ impl HipServer {
         } else {
             self.profile_failure(&ServerError::Launch(err));
         }
-        true
+        None
     }
 
     /// The stream a profiling window records its events into.
@@ -575,6 +586,7 @@ impl HipServer {
     fn launch_checked(
         &mut self,
         kernel_id: KernelId,
+        kernel: &HipCompiledKernel,
         count: (u32, u32, u32),
         bindings: KernelArguments,
         stream_id: StreamId,
@@ -587,7 +599,7 @@ impl HipServer {
 
         let info_handle = info_buffer(&mut command, info.data)?;
 
-        // Resolving is also where a dry run's deferred allocations get their
+        // Resolving is also where a discarded launch's deferred allocations get their
         // device backing, so this can fail on a device the measured plan does
         // not fit — reported, not panicked.
         let mut resources = resources
@@ -600,7 +612,7 @@ impl HipServer {
 
         resources.push(command.resource(info_handle.binding())?);
 
-        command.kernel(kernel_id, count, &mut resources)?;
+        command.kernel(&kernel_id, kernel, count, &mut resources)?;
 
         Ok(())
     }

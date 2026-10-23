@@ -1,7 +1,6 @@
 #![allow(clippy::approx_constant)]
 
-use core::f32;
-use core::f32::consts::PI;
+use core::f64::consts::PI;
 use cubecl_runtime::runtime::Runtime;
 
 use core::fmt::Display;
@@ -809,7 +808,49 @@ test_unary_impl!(test_inverse_sqrt, F, Vector::inverse_sqrt, [
         input_vectorization: 4,
         out_vectorization: 4,
         input: as_type![F: 0.0, 0.01, 64.0, 0.111111],
-        expected: as_type![F: f32::INFINITY, 10.0, 0.125, 3.0]
+        expected: as_type![F: f64::INFINITY, 10.0, 0.125, 3.0]
+    }
+]);
+
+test_unary_impl!(test_cbrt, F, Vector::cbrt, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0.0, 1.0, 8.0, -27.0],
+        expected: as_type![F: 0.0, 1.0, 2.0, -3.0]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 64.0, -0.125, 2.0, 1000.0],
+        expected: as_type![F: 4.0, -0.5, 1.259_921, 10.0]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: -1.0, 0.001, 3.0, -125.0],
+        expected: as_type![F: -1.0, 0.1, 1.442_25, -5.0]
+    }
+]);
+
+test_unary_impl!(test_inverse_cbrt, F, Vector::inverse_cbrt, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 1.0, 8.0, -27.0, 0.125],
+        expected: as_type![F: 1.0, 0.5, -0.333_333_34, 2.0]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 64.0, -0.001, 2.0, 1000.0],
+        expected: as_type![F: 0.25, -10.0, 0.793_700_5, 0.1]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0.0, -1.0, 0.008, 125.0],
+        expected: as_type![F: f64::INFINITY, -1.0, 5.0, 0.2]
     }
 ]);
 
@@ -854,13 +895,13 @@ test_unary_impl!(
     {
         input_vectorization: 2,
         out_vectorization: 2,
-        input: as_type![F: f32::NAN, 1., 1.2, 1.9],
-        expected: as_type![F: f32::NAN, 1., 1., 1.0]
+        input: as_type![F: f64::NAN, 1., 1.2, 1.9],
+        expected: as_type![F: f64::NAN, 1., 1., 1.0]
     },{
         input_vectorization: 4,
         out_vectorization: 4,
-        input: as_type![F: -0.9, 0.2, f32::NAN, 1.99],
-        expected: as_type![F: -0., 0., f32::NAN, 1.]
+        input: as_type![F: -0.9, 0.2, f64::NAN, 1.99],
+        expected: as_type![F: -0., 0., f64::NAN, 1.]
     }]
 );
 
@@ -896,17 +937,17 @@ test_unary_impl_fixed!(
     [
         {
             input_vectorization: 1,
-            input: as_type![F: 0., f32::NAN, f32::INFINITY, f32::NEG_INFINITY],
+            input: as_type![F: 0., f64::NAN, f64::INFINITY, f64::NEG_INFINITY],
             expected: as_type![u32: false as i64, false as i64, true as i64, true as i64]
         },
         {
             input_vectorization: 2,
-            input: as_type![F: f32::INFINITY, -100., f32::NAN, f32::NEG_INFINITY],
+            input: as_type![F: f64::INFINITY, -100., f64::NAN, f64::NEG_INFINITY],
             expected: as_type![u32: true as i64, false as i64, false as i64, true as i64]
         },
         {
             input_vectorization: 4,
-            input: as_type![F: f32::NEG_INFINITY, f32::INFINITY, 100., f32::NAN],
+            input: as_type![F: f64::NEG_INFINITY, f64::INFINITY, 100., f64::NAN],
             expected: as_type![u32: true as i64, true as i64, false as i64, false as i64]
         }
     ]
@@ -1102,6 +1143,8 @@ macro_rules! testgen_unary {
             add_test!(test_vector_sum);
             add_test!(test_sqrt);
             add_test!(test_inverse_sqrt);
+            add_test!(test_cbrt);
+            add_test!(test_inverse_cbrt);
             add_test!(test_recip);
             add_test!(test_abs);
             add_test!(test_trunc);

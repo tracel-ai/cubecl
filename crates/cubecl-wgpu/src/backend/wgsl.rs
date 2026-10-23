@@ -1,4 +1,4 @@
-use cubecl_core::{Compiler, prelude::Visibility, server::KernelArguments};
+use cubecl_core::{Compiler, prelude::Visibility};
 use cubecl_core::{
     WgpuCompilationOptions,
     ir::{ElemType, UIntKind},
@@ -7,10 +7,11 @@ use cubecl_ir::{DeviceProperties, Type};
 use wgpu::Features;
 
 use crate::WgslCompiler;
+use crate::compute::pipelines::MetadataLayout;
 
 pub fn bindings(
     repr: &<WgslCompiler as Compiler>::Representation,
-    args: &KernelArguments,
+    metadata: MetadataLayout,
 ) -> (Vec<Visibility>, usize) {
     let mut bindings = repr
         .buffers
@@ -25,7 +26,7 @@ pub fn bindings(
             }
         })
         .collect::<Vec<_>>();
-    if !args.info.data.is_empty() {
+    if metadata != MetadataLayout::Absent {
         bindings.push(Visibility::Read);
     }
     (bindings, 0)
@@ -102,6 +103,10 @@ pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
             Type::atomic(ty),
             AtomicUsage::LoadStore | AtomicUsage::Exchange | AtomicUsage::Add,
         );
+        props.register_shared_atomic_type_usage(
+            Type::atomic(ty),
+            AtomicUsage::LoadStore | AtomicUsage::Exchange | AtomicUsage::Add,
+        );
     }
 
     let feats = adapter.features();
@@ -116,6 +121,7 @@ pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
     if feats.contains(wgpu::Features::SHADER_F16) {
         props.register_type_usage(ElemType::Float(FloatKind::F16), TypeUsage::all());
     }
+    // Storage buffers only: workgroup memory takes no float atomic.
     if feats.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
         props.register_atomic_type_usage(
             Type::atomic(ElemType::Float(FloatKind::F32)),

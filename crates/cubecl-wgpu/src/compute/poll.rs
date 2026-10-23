@@ -1,5 +1,6 @@
 #[cfg(not(target_family = "wasm"))]
 mod _impl {
+    use crate::compute::device_poison::PoisonWatch;
     use std::thread::JoinHandle;
 
     #[derive(Debug)]
@@ -10,7 +11,7 @@ mod _impl {
     }
 
     impl WgpuPoll {
-        pub fn new(device: wgpu::Device) -> Self {
+        pub fn new(device: wgpu::Device, queue: wgpu::Queue, poison: PoisonWatch) -> Self {
             let active_handle = std::sync::Arc::new(());
             let thread_check = active_handle.clone();
 
@@ -18,15 +19,12 @@ mod _impl {
             let poll_thread = std::thread::spawn(move || {
                 loop {
                     // Check whether the WgpuPoll, this thread, and something else is holding
-                    // a handle.
-                    if std::sync::Arc::strong_count(&thread_check) > 2 {
-                        if let Err(e) = device.poll(wgpu::PollType::Wait {
-                            submission_index: None, // Wait for most recent
-                            timeout: None,
-                        }) {
-                            log::warn!(
-                                "wgpu: requested wait timed out before the submission was completed during sync. ({e})"
-                            )
+                    // a handle. A lost device has nothing left to complete.
+                    if std::sync::Arc::strong_count(&thread_check) > 2 && !poison.is_poisoned() {
+                        if let Err(e) = poison.wait_unless_lost(&device, &queue, None)
+                            && !poison.is_poisoned()
+                        {
+                            log::warn!("wgpu: waiting on the device failed during sync. ({e})")
                         }
                     } else {
                         // Do not cancel thread while someone still needs to poll.
@@ -67,10 +65,12 @@ mod _impl {
 // On Wasm, the browser handles the polling loop, so we don't need anything.
 #[cfg(target_family = "wasm")]
 mod _impl {
+    use crate::compute::device_poison::PoisonWatch;
+
     #[derive(Debug)]
     pub struct WgpuPoll {}
     impl WgpuPoll {
-        pub fn new(_device: wgpu::Device) -> Self {
+        pub fn new(_device: wgpu::Device, _queue: wgpu::Queue, _poison: PoisonWatch) -> Self {
             Self {}
         }
         pub fn start_polling(&self) -> alloc::sync::Arc<()> {

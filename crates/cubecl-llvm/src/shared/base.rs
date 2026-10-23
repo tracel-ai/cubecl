@@ -7,7 +7,9 @@ use crate::nvptx::{
     ptx_version::PtxVersion,
 };
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
-use crate::shared::{plane::CtxPlaneDim, shared_memory::CtxSharedMemory};
+use crate::shared::{
+    buffer_params::AtomicReads, plane::CtxPlaneDim, shared_memory::CtxSharedMemory,
+};
 use crate::{
     cpu::{
         abi::CpuLowering,
@@ -33,8 +35,14 @@ use core::cell::RefCell;
 use cubecl_core::ir::nvidia::SmArch;
 use cubecl_core::{
     Compiler,
-    ir::{amd::GfxArch, dialect::scf::BranchToSCFPass, metadata::Info, rewrite::SimplifyOpsPass},
+    ir::{
+        amd::GfxArch,
+        dialect::scf::BranchToSCFPass,
+        metadata::Info,
+        rewrite::{CanonicalizePass, SimplifyOpsPass},
+    },
     post_processing::{
+        bf16::LowerWideBf16CastPass,
         bitwise::PromoteBitwisePass,
         minifloat::{LowerMinifloatCastPass, LowerMinifloatComparePass},
     },
@@ -45,7 +53,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::bytes::Bytes;
 use cubecl_opt::passes::{
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
-    sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
+    resolve_pending::ResolvePendingPass, sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::{
     compiler::CompilationError, config::compilation::F16Evaluation, kernel::BufferIOAttr,
@@ -82,6 +90,8 @@ pub struct PlironOptions {
     /// Pass scalars and static metadata in the kernel parameter block.
     /// The host must use the same layout.
     pub grid_constants: bool,
+    /// Whether to retain compiled object bytes in the resulting engine for caching.
+    pub keep_object: bool,
 }
 
 #[cfg(feature = "amdgpu")]
@@ -265,15 +275,22 @@ impl PlironCompiler {
         let shared_memories = Rc::new(RefCell::new(SharedMemories::default()));
 
         let lowering = CpuLowering::new(shared_memories.clone(), options.f16_evaluation);
-        let io = lower(&mut ctx, &ir, &lowering)?;
+        let Lowered { io, .. } = lower(&mut ctx, &ir, &lowering)?;
 
         let requirements = KernelRequirements {
             needs_parallelism,
             shared_memories: shared_memories.take(),
         };
 
-        PlironEngine::compile(&ctx, module, &kernel.settings.kernel_name, requirements, io)
-            .map_err(|err| generic(format!("converting to LLVM IR: {err}")))
+        PlironEngine::compile(
+            &ctx,
+            module,
+            &kernel.settings.kernel_name,
+            requirements,
+            io,
+            options.keep_object,
+        )
+        .map_err(|err| generic(format!("converting to LLVM IR: {err}")))
     }
 
     #[cfg(feature = "amdgpu")]
@@ -299,7 +316,7 @@ impl PlironCompiler {
         ctx.set_plane_dim(plane_dim);
         ctx.set_wmma(arch.wmma());
 
-        let io = lower(&mut ctx, &ir, &AmdGpuLowering { plane_dim })?;
+        let Lowered { io, atomic_reads } = lower(&mut ctx, &ir, &AmdGpuLowering { plane_dim })?;
 
         let shared_memory_size = ctx.shared_memory_size();
 
@@ -312,6 +329,7 @@ impl PlironCompiler {
                 cube_dim: kernel.settings.cube_dim,
                 shared_memory_size,
                 io,
+                atomic_reads,
             },
         )
         .map_err(|err| {
@@ -341,7 +359,8 @@ impl PlironCompiler {
         let plane_dim = arch.plane_dim();
         ctx.set_plane_dim(plane_dim);
 
-        let io = lower(&mut ctx, &ir, &NvptxLowering { plane_dim })?;
+        let tensor_maps = crate::nvptx::tensor_map::TensorMapParams::new(&ctx, ir.entry_func);
+        let Lowered { io, atomic_reads } = lower(&mut ctx, &ir, &NvptxLowering { plane_dim })?;
 
         let shared_memory_size = ctx.shared_memory_size();
 
@@ -364,7 +383,9 @@ impl PlironCompiler {
                 cube_dim: kernel.settings.cube_dim,
                 shared_memory_size,
                 io,
+                atomic_reads,
                 metadata,
+                tensor_maps,
             },
         )
         .map_err(|err| {
@@ -397,11 +418,20 @@ impl KernelIr {
     }
 }
 
+/// What a lowering read off the cube dialect before it was gone.
+struct Lowered {
+    /// Buffer access modes in binding order.
+    io: Vec<BufferIOAttr>,
+    /// The global buffers the kernel's atomics read.
+    #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+    atomic_reads: AtomicReads,
+}
+
 fn lower(
     ctx: &mut Context,
     kernel: &KernelIr,
     target: &dyn TargetLowering,
-) -> Result<Vec<BufferIOAttr>, CompilationError> {
+) -> Result<Lowered, CompilationError> {
     let (module_op, entry_func) = (kernel.module_op, kernel.entry_func);
 
     #[cfg(not(feature = "pliron-dump"))]
@@ -409,7 +439,7 @@ fn lower(
     #[cfg(feature = "pliron-dump")]
     let ir_printing_dir = pliron_path(&kernel.name);
     let config = PMConfig {
-        print_after_all: true,
+        print_after_all: cfg!(feature = "pliron-dump"),
         ir_printing_dir,
         ..Default::default()
     };
@@ -420,11 +450,15 @@ fn lower(
     let mut func_passes = OpPass::<FuncOp, Passes>::default();
     target.prologue(&mut func_passes);
     func_passes.add_pass(SROAPass);
+    func_passes.add_pass(ResolvePendingPass);
     func_passes.add_pass(SCCPPass);
     func_passes.add_pass(SimpleCSEPass::with_memory());
     func_passes.add_pass(SimplifyOpsPass::default());
+    func_passes.add_pass(CanonicalizePass::default());
     func_passes.add_pass(PromoteBitwisePass);
     func_passes.add_pass(InstCombinePass::default());
+    // LLVM converts between `f32` and `bfloat`; a wider source would round twice through `f32`.
+    func_passes.add_pass(LowerWideBf16CastPass::default());
     func_passes.add_pass(LowerMinifloatCastPass::default());
     func_passes.add_pass(LowerMinifloatComparePass::default());
     func_passes.add_pass(LowerComplexOpPass::default());
@@ -451,6 +485,8 @@ fn lower(
     run(&mut passes, module_op, ctx, &mut analyses)?;
 
     let io = cubecl_core::ir::attributes::buffer_io_by_position(ctx, entry_func);
+    #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+    let atomic_reads = AtomicReads::of(ctx, module_op);
 
     let mut passes = OpPass::<ModuleOp, Passes>::default();
     passes.add_pass(NestedOpsPass::new(lowering_passes));
@@ -464,7 +500,11 @@ fn lower(
         ))
     })?;
 
-    Ok(io)
+    Ok(Lowered {
+        io,
+        #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+        atomic_reads,
+    })
 }
 
 fn run(

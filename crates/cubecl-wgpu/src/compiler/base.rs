@@ -10,14 +10,14 @@ use cubecl_core::{
 #[cfg(feature = "msl")]
 use cubecl_cpp::shared::MslComputeKernel;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_ir::DeviceProperties;
+use cubecl_ir::{DeviceProperties, TargetProperties};
 use cubecl_server::compiler::CompilationError;
 use derive_more::derive::From;
 use thiserror::Error;
 
 #[cfg(feature = "spirv")]
 use crate::ParamsTransfer;
-use crate::{CompilerInfo, WgpuBackend, WgpuServer};
+use crate::{CompilerInfo, WgpuBackend};
 
 use super::wgsl;
 
@@ -182,6 +182,26 @@ impl Compiler for AutoCompiler {
 }
 
 impl WgpuCompiler for AutoCompiler {
+    fn limit_properties(&self, properties: &mut DeviceProperties) {
+        match self {
+            AutoCompiler::Wgsl(compiler) => compiler.limit_properties(properties),
+            #[cfg(feature = "spirv")]
+            AutoCompiler::SpirV(compiler) => compiler.limit_properties(properties),
+            #[cfg(feature = "msl")]
+            AutoCompiler::Msl(compiler) => compiler.limit_properties(properties),
+        }
+    }
+
+    fn target_properties(&self) -> TargetProperties {
+        match self {
+            AutoCompiler::Wgsl(compiler) => compiler.target_properties(),
+            #[cfg(feature = "spirv")]
+            AutoCompiler::SpirV(compiler) => compiler.target_properties(),
+            #[cfg(feature = "msl")]
+            AutoCompiler::Msl(compiler) => compiler.target_properties(),
+        }
+    }
+
     #[cfg(feature = "msl")]
     fn validate_runtime(
         backend: wgpu::Backend,
@@ -212,20 +232,16 @@ impl WgpuCompiler for AutoCompiler {
 
     fn compile_kernel(
         &mut self,
-        server: &mut WgpuServer<AutoCompiler>,
-        kernel: Box<dyn CubeKernel>,
+        kernel: &dyn CubeKernel,
         definition: KernelDefinition,
+        options: &WgpuCompilationOptions,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
         match self {
-            AutoCompiler::Wgsl(_) => {
-                CompiledKernel::compile(&*kernel, definition, self, &server.compilation_options)
-            }
+            AutoCompiler::Wgsl(_) => CompiledKernel::compile(kernel, definition, self, options),
             #[cfg(feature = "spirv")]
-            AutoCompiler::SpirV(_) => crate::vulkan::compile(self, server, kernel, definition),
+            AutoCompiler::SpirV(_) => crate::vulkan::compile(self, kernel, definition, options),
             #[cfg(feature = "msl")]
-            AutoCompiler::Msl(_) => {
-                CompiledKernel::compile(&*kernel, definition, self, &server.compilation_options)
-            }
+            AutoCompiler::Msl(_) => CompiledKernel::compile(kernel, definition, self, options),
         }
     }
 
@@ -267,17 +283,25 @@ impl WgpuCompiler for AutoCompiler {
 }
 
 impl WgpuCompiler for WgslCompiler {
+    /// A cube whose kernel reads its plane ids launches as one row along `x`
+    /// ([`WorkgroupLayout::Flat`](wgsl::builtin::WorkgroupLayout::Flat)), and the properties
+    /// cannot depend on the kernel, so every cube holds no more units than that row does.
+    fn limit_properties(&self, properties: &mut DeviceProperties) {
+        let hardware = &mut properties.hardware;
+        hardware.max_units_per_cube = hardware.max_units_per_cube.min(hardware.max_cube_dim.0);
+    }
+
     fn init(_backend: wgpu::Backend, _options: &WgpuCompilationOptions) -> Self {
         Self
     }
 
     fn compile_kernel(
         &mut self,
-        server: &mut WgpuServer<Self>,
-        kernel: Box<dyn CubeKernel>,
+        kernel: &dyn CubeKernel,
         definition: KernelDefinition,
+        options: &WgpuCompilationOptions,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
-        CompiledKernel::compile(&*kernel, definition, self, &server.compilation_options)
+        CompiledKernel::compile(kernel, definition, self, options)
     }
 
     fn validate_ir(
@@ -326,15 +350,22 @@ impl WgpuCompiler for MslCompiler {
         Self::default()
     }
 
+    fn target_properties(&self) -> TargetProperties {
+        TargetProperties {
+            mma: cubecl_cpp::metal::mma::mma_properties_metal(),
+        }
+    }
+
     fn compile_kernel(
         &mut self,
-        _server: &mut WgpuServer<Self>,
-        kernel: Box<dyn CubeKernel>,
+        kernel: &dyn CubeKernel,
         definition: KernelDefinition,
+        options: &WgpuCompilationOptions,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
         // The MSL compiler uses its own CompilationOptions, not WgpuCompilationOptions.
+        let _ = options;
         let compilation_options = cubecl_cpp::shared::CompilationOptions::default();
-        CompiledKernel::compile(&*kernel, definition, self, &compilation_options)
+        CompiledKernel::compile(kernel, definition, self, &compilation_options)
     }
 
     fn validate_ir(
@@ -362,11 +393,11 @@ impl WgpuCompiler for cubecl_spirv::SpirvCompiler {
 
     fn compile_kernel(
         &mut self,
-        server: &mut WgpuServer<Self>,
-        kernel: Box<dyn CubeKernel>,
+        kernel: &dyn CubeKernel,
         definition: KernelDefinition,
+        options: &WgpuCompilationOptions,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
-        crate::vulkan::compile(self, server, kernel, definition)
+        crate::vulkan::compile(self, kernel, definition, options)
     }
 
     fn validate_ir(
@@ -440,7 +471,10 @@ pub enum WgpuCompilerInitError {
 /// kernel — initializing the compiler for a given `wgpu::Backend`, compiling a kernel using
 /// the server's [`WgpuCompilationOptions`], validating the resulting IR against the device,
 /// and projecting the typed representation into the runtime-erased [`AutoRepresentation`].
-pub trait WgpuCompiler: Compiler {
+///
+/// Its representation is `Send` so a compiled kernel can travel to the thread
+/// that builds its pipeline.
+pub trait WgpuCompiler: Compiler<Representation: Send> {
     /// Check that this compiler can serve the selected graphics backend and device.
     ///
     /// Explicit compilers should return an error instead of silently selecting another shader
@@ -463,6 +497,17 @@ pub trait WgpuCompiler: Compiler {
     /// features).
     fn init(backend: wgpu::Backend, options: &WgpuCompilationOptions) -> Self;
 
+    /// Narrow the device's `properties` to what this compiler's kernels can reach. Most
+    /// compilers reach the device's own limits and leave them as they are.
+    fn limit_properties(&self, _properties: &mut DeviceProperties) {}
+
+    /// What a kernel reads of this compiler's target as it expands: how a manual MMA's
+    /// registers map onto its matrices. Only MSL lowers a manual MMA; the others keep the
+    /// defaults, which nothing reads.
+    fn target_properties(&self) -> TargetProperties {
+        TargetProperties::default()
+    }
+
     /// Validate that the compiled representation fits within the device's resource limits.
     ///
     /// Today this checks shared memory usage; additional checks may be added without
@@ -480,9 +525,9 @@ pub trait WgpuCompiler: Compiler {
     /// options from `server`, so its signature cannot collide with the base trait method.
     fn compile_kernel(
         &mut self,
-        server: &mut WgpuServer<Self>,
-        kernel: Box<dyn CubeKernel>,
+        kernel: &dyn CubeKernel,
         definition: KernelDefinition,
+        options: &WgpuCompilationOptions,
     ) -> Result<CompiledKernel<Self>, CompilationError>;
 
     /// Normalize the backend-specific representation into the [`AutoRepresentation`] shared

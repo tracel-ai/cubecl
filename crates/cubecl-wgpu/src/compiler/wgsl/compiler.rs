@@ -1,7 +1,10 @@
 use super::shader::ComputeShader;
 use crate::compiler::wgsl::{
-    self, EnableFeaturesPass, builtin::LowerBuiltinsPass, lower::LowerOpsWgslPass,
-    metadata::declare_info, rewrite_args, shared_memory_size, types,
+    self, EnableFeaturesPass,
+    builtin::{LowerBuiltinsPass, WorkgroupLayout},
+    lower::LowerOpsWgslPass,
+    metadata::declare_info,
+    rewrite_args, shared_memory_size, types,
 };
 use cubecl_server::kernel::BufferIOAttr;
 
@@ -27,7 +30,7 @@ use cubecl_ir::{
         opts::{dce::DCEPass, mem2reg::Mem2RegPass},
     },
     prelude::{AnalysisManager, NestedOpsPass, Op, OpPass, PMConfig, Pass, Passes},
-    rewrite::SimplifyOpsPass,
+    rewrite::{CanonicalizePass, SimplifyOpsPass},
     settings::Dim3,
 };
 use cubecl_opt::passes::{
@@ -39,8 +42,11 @@ use cubecl_server::kernel;
 
 const MAX_VECTOR_SIZE: usize = 4;
 
+#[derive(Clone, Copy)]
 pub struct KernelInfo {
     pub cube_dim: Dim3,
+    /// How the cube is laid out as a workgroup.
+    pub layout: WorkgroupLayout,
 }
 
 /// Wgsl Compiler.
@@ -84,6 +90,9 @@ impl WgslCompiler {
         value: kernel::KernelDefinition,
         compilation_options: &WgpuCompilationOptions,
     ) -> Result<wgsl::ComputeShader, CompilationError> {
+        #[cfg(target_family = "wasm")]
+        crate::compiler::wgsl::ops::wasm_inventory_root();
+
         let errors = value.body.pop_errors();
         if !errors.is_empty() {
             let mut reason = "Can't compile wgsl kernel".to_string();
@@ -106,9 +115,9 @@ impl WgslCompiler {
         let module_op = module.get_operation();
         let mut ctx = value.body.into_context().expect("Should be unique");
         ctx.set_aux_ty(value.info);
-        ctx.set_aux_ty(KernelInfo {
-            cube_dim: value.settings.cube_dim,
-        });
+        let cube_dim = value.settings.cube_dim;
+        let layout = WorkgroupLayout::new(&ctx, module_op, &cube_dim);
+        ctx.set_aux_ty(KernelInfo { cube_dim, layout });
         ctx.set_aux_ty(*compilation_options);
 
         #[cfg(feature = "pliron-dump")]
@@ -167,6 +176,7 @@ impl WgslCompiler {
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(SimpleCSEPass::with_memory());
         func_passes.add_pass(SimplifyOpsPass::default());
+        func_passes.add_pass(CanonicalizePass::default());
         func_passes.add_pass(DCEPass);
 
         passes.add_pass(NestedOpsPass::new(func_passes));
@@ -210,5 +220,87 @@ pub fn kernel_dir_name(name: &str) -> Option<std::path::PathBuf> {
         Some(dir)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use cubecl_core::{self as cubecl, Compiler, prelude::*};
+    use cubecl_ir::{metadata::Info, settings::Dim3};
+
+    use cubecl_server::kernel::KernelDefinition;
+
+    use super::WgslCompiler;
+
+    /// Reads a unit's axes and nothing of its plane.
+    #[cube]
+    fn axes() {
+        let _ = UNIT_POS_X + UNIT_POS_Y + UNIT_POS_Z;
+    }
+
+    /// Reads a unit's axes and its plane.
+    #[cube]
+    fn axes_and_plane() {
+        let _ = UNIT_POS_X + UNIT_POS_Y + UNIT_POS_Z + PLANE_POS;
+    }
+
+    /// Reads a unit's axes and sums over its plane, without reading which plane or lane it is.
+    #[cube]
+    fn axes_and_plane_sum() {
+        let _ = plane_sum(UNIT_POS_X + UNIT_POS_Y + UNIT_POS_Z);
+    }
+
+    /// The `@workgroup_size` line of the WGSL a kernel of `body` compiles to in cubes of
+    /// `cube_dim`.
+    fn workgroup_size(cube_dim: Dim3, body: fn(&Scope)) -> String {
+        let settings = KernelSettings::new(cube_dim, ExecutionMode::Checked, AddressType::U32);
+        let scope = Scope::root(settings.clone());
+        body(&scope);
+        let definition = KernelDefinition {
+            body: scope,
+            settings,
+            info: Info::default(),
+        };
+        let shader = WgslCompiler
+            .compile(definition, &Default::default())
+            .expect("the kernel compiles");
+        shader
+            .to_string()
+            .lines()
+            .find(|line| line.starts_with("@compute"))
+            .expect("an entry point")
+            .to_string()
+    }
+
+    #[test]
+    fn a_cube_spanning_y_without_planes_keeps_its_shape() {
+        assert_eq!(
+            workgroup_size(Dim3::new_3d(8, 4, 2), axes::expand),
+            "@compute @workgroup_size(8, 4, 2)"
+        );
+    }
+
+    #[test]
+    fn a_cube_spanning_y_with_planes_launches_flat() {
+        assert_eq!(
+            workgroup_size(Dim3::new_3d(8, 4, 2), axes_and_plane::expand),
+            "@compute @workgroup_size(64, 1, 1)"
+        );
+    }
+
+    #[test]
+    fn a_cube_spanning_y_with_plane_ops_but_no_plane_ids_keeps_its_shape() {
+        assert_eq!(
+            workgroup_size(Dim3::new_3d(8, 4, 2), axes_and_plane_sum::expand),
+            "@compute @workgroup_size(8, 4, 2)"
+        );
+    }
+
+    #[test]
+    fn a_cube_along_x_with_planes_keeps_its_shape() {
+        assert_eq!(
+            workgroup_size(Dim3::new_1d(64), axes_and_plane::expand),
+            "@compute @workgroup_size(64, 1, 1)"
+        );
     }
 }

@@ -54,7 +54,7 @@ impl BitOrAssign for ChangeResult {
 mod solver {
     use core::cell::{Ref, RefMut};
 
-    use pliron::{indented_block, printable::indented_nl, utils::table::IMap};
+    use pliron::{printable::indented_nl, utils::table::IMap};
 
     use super::*;
 
@@ -334,7 +334,8 @@ mod solver {
         ) -> core::fmt::Result {
             state.set_indent_width(4);
             write!(f, "DataflowSolver {{")?;
-            indented_block!(state, {
+            {
+                let _indent = state.indent();
                 let states = self.analysis_states.borrow();
                 let mut entries = states
                     .values()
@@ -346,7 +347,7 @@ mod solver {
                     write!(f, "{}", indented_nl(state))?;
                     entry.borrow().fmt(ctx, state, f)?;
                 }
-            });
+            }
 
             writeln!(f, "{}}}", indented_nl(state))
         }

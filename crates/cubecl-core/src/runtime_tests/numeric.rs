@@ -1,6 +1,6 @@
 use crate::{self as cubecl};
 use cubecl::prelude::*;
-use cubecl_ir::{ElemType, FloatKind, UIntKind};
+use cubecl_ir::{ElemType, FloatKind, UIntKind, features::TypeUsage};
 use cubecl_runtime::runtime::Runtime;
 
 #[cube(launch)]
@@ -60,6 +60,57 @@ pub fn test_kernel_define_many<R: Runtime>(client: Client) {
     assert_eq!(actual[1], f32::new(7.0));
 }
 
+type Tf32 = tf32;
+
+#[cube(launch)]
+pub fn kernel_tf32_round_scalar(array: &mut [f32]) {
+    if ABSOLUTE_POS < array.len() {
+        let rounded = Tf32::cast_from(array[ABSOLUTE_POS]);
+        array[ABSOLUTE_POS] = f32::cast_from(rounded);
+    }
+}
+
+#[cube(launch)]
+pub fn kernel_tf32_round_vector(array: &mut [Vector<f32, Const<4>>]) {
+    if ABSOLUTE_POS < array.len() {
+        let rounded = Vector::<tf32, Const<4>>::cast_from(array[ABSOLUTE_POS]);
+        array[ABSOLUTE_POS] = Vector::<f32, Const<4>>::cast_from(rounded);
+    }
+}
+
+pub fn test_tf32_scalar_and_vector_rounding<R: Runtime>(client: Client) {
+    if !tf32::supported_uses(&client).contains(TypeUsage::Conversion) {
+        return;
+    }
+
+    // TF32 has 10 fraction bits: its spacing at 1.0 is 1/1024.
+    let step = 1.0f32 / 1024.0;
+    let tie = 1.0 + step / 2.0;
+    let cases = [
+        (tie - f32::EPSILON, 1.0),
+        (tie, 1.0 + step),
+        (tie + f32::EPSILON, 1.0 + step),
+        (-tie, -(1.0 + step)),
+    ];
+    let values = cases.map(|(input, _)| input);
+    let expected = cases.map(|(_, expected)| expected);
+    let launches = [
+        kernel_tf32_round_scalar::launch,
+        kernel_tf32_round_vector::launch,
+    ];
+    for (lanes, launch) in [1, 4].into_iter().zip(launches) {
+        let handle = client.create_from_slice(f32::as_bytes(&values));
+        launch(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(32),
+            unsafe { BufferArg::from_raw_parts(handle.clone(), values.len() / lanes) },
+        );
+        let bytes = client.read_one(handle).unwrap();
+        assert_eq!(f32::from_bytes(&bytes), expected, "width={lanes}");
+    }
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_numeric {
@@ -77,6 +128,12 @@ macro_rules! testgen_numeric {
         fn test_kernel_define_many() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::numeric::test_kernel_define_many::<TestRuntime>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_tf32_scalar_and_vector_rounding() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::numeric::test_tf32_scalar_and_vector_rounding::<TestRuntime>(client);
         }
     };
 }

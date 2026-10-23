@@ -17,11 +17,11 @@ use cubecl_server::{
     allocator::ContiguousMemoryLayoutPolicy,
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
     logging::ServerLogger,
-    runtime::{DeviceUtilization, Runtime, UtilizationUnavailable},
+    runtime::{DeviceDescription, DeviceKind, DeviceUtilization, Runtime, UtilizationUnavailable},
 };
 use cubecl_std::tensor::is_contiguous;
 use std::sync::Arc;
-use sysinfo::{CpuRefreshKind, System};
+use sysinfo::{CpuRefreshKind, MemoryRefreshKind, System};
 
 #[derive(Default)]
 pub struct RuntimeOptions {
@@ -49,6 +49,7 @@ fn register_supported_types(props: &mut DeviceProperties) {
         ElemType::Int(IntKind::I32),
         ElemType::Int(IntKind::I64),
         ElemType::Float(FloatKind::F16),
+        ElemType::Float(FloatKind::BF16),
         ElemType::Float(FloatKind::F32),
         ElemType::Float(FloatKind::F64),
         ElemType::Bool,
@@ -82,6 +83,7 @@ fn register_supported_types(props: &mut DeviceProperties) {
 
     for ty in supported_atomic_types {
         props.register_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
+        props.register_shared_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
     }
 }
 
@@ -110,6 +112,17 @@ fn host_cpu_name(system: &System) -> String {
         // sysinfo reports no brand on Windows for ARM.
         .filter(|brand| !brand.is_empty())
         .map_or_else(|| format!("CPU {}", std::env::consts::ARCH), String::from)
+}
+
+/// Derives the device fingerprint for persistent compilation caching on this host.
+pub fn host_device_fingerprint(f16_evaluation: F16Evaluation) -> String {
+    let (cpu_name, cpu_features) = cubecl_llvm::host_cpu_target();
+    let features_hash = cubecl_common::hash::StableHasher::hash_one(&cpu_features);
+    format!(
+        "{}-{}-{features_hash:032x}-f16_{f16_evaluation}",
+        std::env::consts::ARCH,
+        cpu_name
+    )
 }
 
 struct HostVectorRegisters {
@@ -181,10 +194,11 @@ impl DeviceService for CpuServer {
         // measured ~2.5x worse on decode gemv, stages outgrowing what stays
         // resident. GPU-like floor when the topology cannot be read.
         let max_shared_memory_size = affinity::l1d_cache_size().unwrap_or(64 * 1024);
+        let native_f16 = host_has_f16_arithmetic();
         let f16_evaluation = CubeClRuntimeConfig::get()
             .compilation
             .f16_evaluation
-            .unwrap_or_else(|| F16Evaluation::for_native_f16(host_has_f16_arithmetic()));
+            .unwrap_or_else(|| F16Evaluation::for_native_f16(native_f16));
         let vector_registers = host_vector_registers();
         let load_width = vector_registers.width;
         let topology = HardwareProperties {
@@ -211,6 +225,8 @@ impl DeviceService for CpuServer {
         let mem_properties = MemoryDeviceProperties::new(total_memory as u64, ALIGNMENT)
             .with_max_memory(total_memory as u64);
 
+        let fingerprint = host_device_fingerprint(f16_evaluation);
+
         let mut device_props = DeviceProperties::new(
             Features {
                 unaligned_io: true,
@@ -219,22 +235,23 @@ impl DeviceService for CpuServer {
             mem_properties.clone(),
             topology.clone(),
             TimingMethod::Device,
-            // The CPU backend JITs through LLVM for whatever host it runs on
-            // and persists no compiled code, so there is no per-machine
-            // namespace to match against. The architecture and its load width
-            // are the honest fingerprint: they are what the generated code is valid for.
+            // The CPU backend JITs through LLVM for the host CPU microarchitecture.
+            // Its fingerprint identifies the target architecture, host CPU model,
+            // target feature set, and f16 evaluation mode for persistent compilation caches.
             DeviceIdentity {
                 name: host_cpu_name(&system),
-                fingerprint: format!(
-                    "cpu_{}_load-{load_width}_f16-{f16_evaluation}",
-                    std::env::consts::ARCH
-                ),
+                fingerprint: fingerprint.clone(),
                 physical: None,
             },
         );
         // Past one register, a wider vector still amortizes each IO iteration's index math.
         device_props.io_width_override = Some(512);
         register_supported_types(&mut device_props);
+        // f16 runs everywhere, but without native instructions LLVM computes it in f32 and
+        // converts around each operation, so f32 is the faster choice for a caller that has one.
+        if !native_f16 {
+            device_props.register_emulated_arithmetic(ElemType::Float(FloatKind::F16));
+        }
 
         // No graph capture on this backend: nothing updates the captures.
         let (utilities, _captures) = ServerUtilities::init(
@@ -245,11 +262,16 @@ impl DeviceService for CpuServer {
             logger,
             ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize),
         );
+        #[cfg(compilation_cache)]
+        let store = cubecl_server::compiler::ArtifactStore::new("cpu", &fingerprint);
+
         CpuServer::new(
             mem_properties,
             options.memory_config,
             f16_evaluation,
             Arc::new(utilities),
+            #[cfg(compilation_cache)]
+            store,
         )
     }
 
@@ -282,5 +304,50 @@ impl Runtime for CpuRuntime {
 
     fn utilization(_device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
         ProcessorTimes::read_machine_wide()
+    }
+
+    /// The host's processors, as the operating system and LLVM report them.
+    fn description(_device: &Self::Device) -> Option<DeviceDescription> {
+        let mut system = System::new();
+        system.refresh_cpu_list(CpuRefreshKind::nothing());
+        system.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
+        let mut description = DeviceDescription::new(host_cpu_name(&system), DeviceKind::Cpu);
+        description.max_memory = Some(system.total_memory());
+        // The CPU LLVM tunes the kernels for, the host's own.
+        description.architecture = Some(cubecl_llvm::host_cpu_target().0);
+        Some(description)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_f16_arithmetic_is_emulated_without_native_f16() {
+        let client = CpuRuntime::client(&CpuDevice);
+        let f16 = ElemType::Float(FloatKind::F16);
+        assert_eq!(
+            client.properties().features.arithmetic_is_emulated(f16),
+            !host_has_f16_arithmetic()
+        );
+        // Emulated or not, f16 keeps every usage: kernels in f16 still run.
+        assert_eq!(client.properties().type_usage(f16), TypeUsage::all());
+    }
+
+    /// The host is described from what the system and LLVM report, the same name the server
+    /// reports once it starts.
+    #[test]
+    fn the_host_is_described_without_a_server() {
+        let description = CpuRuntime::description(&CpuDevice).expect("the host is a device");
+
+        assert_eq!(description.kind, DeviceKind::Cpu);
+        assert!(description.max_memory.is_some_and(|bytes| bytes > 0));
+        assert!(description.architecture.is_some_and(|cpu| !cpu.is_empty()));
+        assert_eq!(description.physical, None, "a CPU is no card");
+        assert_eq!(
+            description.name,
+            CpuRuntime::client(&CpuDevice).properties().identity.name
+        );
     }
 }

@@ -65,7 +65,9 @@ use cubecl_ir::{
     types,
 };
 
-pub use cubecl_ir::types::matrix::{MatrixIdent, MatrixLayout, MatrixShape, MatrixType};
+pub use cubecl_ir::types::matrix::{
+    LdMatrixForm, MatrixIdent, MatrixLayout, MatrixShape, MatrixType, StMatrixForm,
+};
 use pliron::builtin::given_names::set_operation_result_name;
 use pliron::r#type::TypeHandle;
 
@@ -133,6 +135,58 @@ impl<C: CubeType, S: MatrixScope> Clone for MatrixExpand<C, S> {
             ident: self.ident,
             _c: self._c,
             _s: self._s,
+        }
+    }
+}
+
+impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
+    /// This fragment named at `O`, panicking unless `O` is the element it holds.
+    ///
+    /// Like a slice's `downcast`, this only satisfies the Rust type system: the fragment is the
+    /// same, so it costs nothing.
+    pub fn downcast<O: CubePrimitive>(&self) -> Matrix<O, S> {
+        unexpanded!()
+    }
+
+    /// This fragment named at `O`, whatever element it holds.
+    ///
+    /// # Safety
+    ///
+    /// Only for keeping the fragment at a dummy type, to be named again with
+    /// [`downcast`](Self::downcast) where it is used, as a slice's `downcast_unchecked` is.
+    pub unsafe fn downcast_unchecked<O: CubePrimitive>(&self) -> Matrix<O, S> {
+        unexpanded!()
+    }
+}
+
+impl<C: CubeType, S: MatrixScope> MatrixExpand<C, S> {
+    pub fn __expand_downcast_method<O: CubePrimitive>(&self, scope: &Scope) -> MatrixExpand<O, S> {
+        let named = O::Scalar::__expand_as_type(scope);
+        let ctx = scope.ctx();
+        let held = self
+            .elem
+            .unwrap_ptr(ctx)
+            .deref(ctx)
+            .downcast_ref::<MatrixType>()
+            .map(|matrix| matrix.elem_ty);
+        assert_eq!(
+            held,
+            Some(named),
+            "Matrix::downcast: the fragment holds {held:?}, not {named:?}"
+        );
+        self.__expand_downcast_unchecked_method(scope)
+    }
+
+    #[doc(hidden)]
+    pub fn __expand_downcast_unchecked_method<O: CubePrimitive>(
+        &self,
+        _scope: &Scope,
+    ) -> MatrixExpand<O, S> {
+        MatrixExpand {
+            elem: self.elem,
+            ident: self.ident,
+            _c: PhantomData,
+            _s: PhantomData,
         }
     }
 }
@@ -651,9 +705,46 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         #[comptime] transpose: bool,
     ) -> Array<Vector<E::Scalar, NO>> {
         intrinsic!(|scope| {
+            self.__expand_load_matrix_with_form_method(
+                scope,
+                row,
+                LdMatrixForm::M8N8B16,
+                num_matrices,
+                transpose,
+            )
+        })
+    }
+
+    /// Load one or more matrices of the given [form](LdMatrixForm) using intrinsic instructions.
+    /// CUDA only, and only with a form in the device's `ldmatrix_forms`.
+    /// The rows of the nth group of 8 rows are passed by the 8 lanes starting at `n * 8`, so a
+    /// 16x16 matrix takes its rows from 16 lanes. The slice determines the starting address of the
+    /// 16-byte row passed by this unit. Each matrix fills
+    /// [`registers_per_matrix`](LdMatrixForm::registers_per_matrix) 32-bit registers per unit, so
+    /// `Vector<E::Scalar, NO>` must be 32 bits wide.
+    ///
+    /// # Constraints:
+    /// Address must be aligned to 16 bytes
+    /// Address must be in shared memory
+    pub fn load_matrix_with_form<E: CubePrimitive, NO: Size>(
+        &self,
+        row: &[E],
+        #[comptime] form: LdMatrixForm,
+        #[comptime] num_matrices: usize,
+        #[comptime] transpose: bool,
+    ) -> Array<Vector<E::Scalar, NO>> {
+        intrinsic!(|scope| {
+            assert!(
+                form.admits_matrix_count(num_matrices),
+                "ldmatrix {form:?} cannot load {num_matrices} matrices at once"
+            );
+            assert!(
+                form.transposition().admits(transpose),
+                "ldmatrix {form:?} transposition is {:?}, but transpose is {transpose}",
+                form.transposition()
+            );
             let ptr = unsafe { *row.__expand_as_ptr_method(scope) }.value(scope);
-            let slice_vector_size = ptr.vector_size(scope.ctx());
-            let out = Array::__expand_new(scope, num_matrices);
+            let out = Array::__expand_new(scope, num_matrices * form.registers_per_matrix());
             let out_ptr = out.__extract_list(scope);
             scope.register(&LdMatrixOp::new(
                 scope.ctx_mut(),
@@ -661,6 +752,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 out_ptr,
                 num_matrices,
                 transpose,
+                form,
             ));
             out
         })
@@ -685,6 +777,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 fragment,
                 num_matrices,
                 transpose,
+                LdMatrixForm::M8N8B16,
             ));
         })
     }
@@ -709,7 +802,44 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     ) {
         intrinsic!(|scope| {
             let vector_size = self.__expand_vector_size_method(scope, ident);
+            self.__expand_store_matrix_with_form_method(
+                scope,
+                row,
+                registers,
+                StMatrixForm::M8N8B16,
+                num_matrices,
+                transpose,
+            )
+        })
+    }
 
+    /// Store one or more matrices of the given [form](StMatrixForm) using intrinsic instructions.
+    /// CUDA only, and only with a form in the device's `stmatrix_forms`.
+    /// The rows of the nth group of 8 rows are passed by the 8 lanes starting at `n * 8`. The slice
+    /// determines the starting address of the 16-byte row passed by this unit. Each matrix takes
+    /// one 32-bit register per unit.
+    ///
+    /// # Constraints:
+    /// Address must be aligned to 16 bytes
+    /// Address must be in shared memory
+    pub fn store_matrix_with_form<E: CubePrimitive, N: Size>(
+        &self,
+        row: &mut [E],
+        registers: &Array<Vector<E::Scalar, N>>,
+        #[comptime] form: StMatrixForm,
+        #[comptime] num_matrices: usize,
+        #[comptime] transpose: bool,
+    ) {
+        intrinsic!(|scope| {
+            assert!(
+                matches!(num_matrices, 1 | 2 | 4),
+                "stmatrix {form:?} cannot store {num_matrices} matrices at once"
+            );
+            assert!(
+                form.transposition().admits(transpose),
+                "stmatrix {form:?} transposition is {:?}, but transpose is {transpose}",
+                form.transposition()
+            );
             let registers = registers.read_value(scope);
             let destination = unsafe { *row.__expand_as_ptr_method(scope) }.value(scope);
 
@@ -719,6 +849,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 destination,
                 num_matrices,
                 transpose,
+                form,
             ));
         })
     }
@@ -1130,7 +1261,8 @@ pub mod cast {
     ) -> MatrixExpand<O, S> {
         let ident = input.ident;
 
-        if core::any::TypeId::of::<C>() == core::any::TypeId::of::<O>() {
+        // Compared as the scope resolves them: two `define!`d names for one element are one type.
+        if C::Scalar::elem_type(scope) == O::Scalar::elem_type(scope) {
             return MatrixExpand {
                 elem: input.elem,
                 ident,
@@ -1183,7 +1315,7 @@ pub mod cast_with_ident {
         input: MatrixExpand<C, S>,
         ident: MatrixIdent,
     ) -> MatrixExpand<O, S> {
-        if core::any::TypeId::of::<C>() == core::any::TypeId::of::<O>() && ident == input.ident {
+        if C::Scalar::elem_type(scope) == O::Scalar::elem_type(scope) && ident == input.ident {
             return MatrixExpand {
                 elem: input.elem,
                 ident,

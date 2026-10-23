@@ -127,7 +127,8 @@ macro_rules! lower_count_bits_intrinsic {
                 }
                 let intrinsic_type = FuncType::get(ctx, elem_ty, params, false);
 
-                let op = llvm::CallIntrinsicOp::new(ctx, $llvm_op.into(), intrinsic_type, args);
+                let name = format!("{}.{}", $llvm_op, llvm_mangled_ty(ctx, elem_ty));
+                let op = llvm::CallIntrinsicOp::new(ctx, name.into(), intrinsic_type, args);
                 rewriter.insert_op(ctx, &op);
 
                 let count = op.get_result(ctx);

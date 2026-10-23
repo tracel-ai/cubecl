@@ -39,8 +39,11 @@ pub mod throughput;
 /// Compute client module.
 pub mod client;
 
-/// The device type of each runtime.
+/// The device type of each runtime, and which hardware a device is.
 pub mod device;
+
+#[cfg(persistence)]
+mod namespace_version;
 
 /// Autotune module
 pub mod tune;
@@ -66,9 +69,9 @@ pub mod tma;
 
 /// Compiler trait and related types
 pub mod compiler;
-/// Running a workload for the compilation and tuning it provokes, without
-/// running the workload itself.
-pub mod dry_run;
+/// Device identity and properties.
+pub mod description;
+pub mod execution;
 pub mod launched;
 /// The payload every error type carries when the device is poisoned.
 pub mod poison;

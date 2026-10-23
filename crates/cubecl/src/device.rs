@@ -20,7 +20,10 @@ pub use cubecl_runtime::device::{
     AmdDevice, CpuDevice, CudaDevice, MetalDevice, WgpuBackend, WgpuDevice, WgpuDeviceKind,
 };
 
-pub use cubecl_runtime::runtime::{DeviceUtilization, UtilizationUnavailable};
+pub use cubecl_runtime::runtime::{
+    DeviceDescription, DeviceKind, DevicePower, DeviceTemperature, DeviceUtilization,
+    UtilizationUnavailable,
+};
 
 /// A device of any runtime.
 ///
@@ -481,6 +484,97 @@ impl Device {
             // the process down.
             #[allow(unreachable_patterns)]
             _ => Err(UtilizationUnavailable::RuntimeNotLinked),
+        }
+    }
+
+    /// The current temperature of this device. Creates a client if needed.
+    ///
+    /// Returns a [`NoSuchReading`](UtilizationUnavailable::NoSuchReading) error on devices
+    /// that don't report temperature.
+    ///
+    /// ```no_run
+    /// use cubecl::Device;
+    ///
+    /// if let Ok(temperature) = Device::default().temperature() {
+    ///     println!("{} °C", temperature.celsius);
+    /// }
+    /// ```
+    pub fn temperature(&self) -> Result<DeviceTemperature, UtilizationUnavailable> {
+        match *self {
+            #[cfg(feature = "cuda")]
+            Self::Cuda(ref device) => cubecl_cuda::CudaRuntime::temperature(device),
+            #[cfg(feature = "hip")]
+            Self::Hip(ref device) => cubecl_hip::HipRuntime::temperature(device),
+            #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
+            Self::Metal(ref device) => cubecl_metal::MetalRuntime::temperature(device),
+            #[cfg(feature = "wgpu")]
+            Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::temperature(device),
+            #[cfg(feature = "cpu")]
+            Self::Cpu(ref device) => cubecl_cpu::CpuRuntime::temperature(device),
+            #[allow(unreachable_patterns)]
+            _ => Err(UtilizationUnavailable::RuntimeNotLinked),
+        }
+    }
+
+    /// The power usage of this device, in Watt. Creates a client if needed.
+    ///
+    /// Returns a [`NoSuchReading`](UtilizationUnavailable::NoSuchReading) error on devices
+    /// that don't report their power usage.
+    ///
+    /// ```no_run
+    /// use cubecl::Device;
+    ///
+    /// if let Ok(power) = Device::default().power() {
+    ///     println!("{} W", power.watts);
+    /// }
+    /// ```
+    pub fn power(&self) -> Result<DevicePower, UtilizationUnavailable> {
+        match *self {
+            #[cfg(feature = "cuda")]
+            Self::Cuda(ref device) => cubecl_cuda::CudaRuntime::power(device),
+            #[cfg(feature = "hip")]
+            Self::Hip(ref device) => cubecl_hip::HipRuntime::power(device),
+            #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
+            Self::Metal(ref device) => cubecl_metal::MetalRuntime::power(device),
+            #[cfg(feature = "wgpu")]
+            Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::power(device),
+            #[cfg(feature = "cpu")]
+            Self::Cpu(ref device) => cubecl_cpu::CpuRuntime::power(device),
+            #[allow(unreachable_patterns)]
+            _ => Err(UtilizationUnavailable::RuntimeNotLinked),
+        }
+    }
+
+    /// Description of this device (name, kind, memory, card, architecture, driver) read from
+    /// the driver without starting a server on it, so it costs no context and no device memory.
+    ///
+    /// Returns `None` when the machine has no such device, the device is the runtime's "you
+    /// choose" device, the runtime describes nothing without a server, or the build does not
+    /// link the runtime.
+    ///
+    /// ```no_run
+    /// use cubecl::Device;
+    ///
+    /// for device in Device::enumerate_all() {
+    ///     if let Some(description) = device.description() {
+    ///         println!("{} ({:?})", description.name, description.kind);
+    ///     }
+    /// }
+    /// ```
+    pub fn description(&self) -> Option<DeviceDescription> {
+        match *self {
+            #[cfg(feature = "cuda")]
+            Self::Cuda(ref device) => cubecl_cuda::CudaRuntime::description(device),
+            #[cfg(feature = "hip")]
+            Self::Hip(ref device) => cubecl_hip::HipRuntime::description(device),
+            #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
+            Self::Metal(ref device) => cubecl_metal::MetalRuntime::description(device),
+            #[cfg(feature = "wgpu")]
+            Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::description(device),
+            #[cfg(feature = "cpu")]
+            Self::Cpu(ref device) => cubecl_cpu::CpuRuntime::description(device),
+            #[allow(unreachable_patterns)]
+            _ => None,
         }
     }
 

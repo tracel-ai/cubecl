@@ -12,10 +12,10 @@ fn gelu_array<F: Float, N: Size>(input: &[Vector<F, N>], output: &mut [Vector<F,
 #[cube]
 fn gelu_scalar<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     // Execute the sqrt function at comptime.
-    let sqrt2 = F::new(comptime!(2.0f32.sqrt()));
+    let sqrt2 = F::new(comptime!(2.0.sqrt()));
     let tmp = x / Vector::new(sqrt2);
 
-    x * (Vector::erf(tmp) + Vector::one()) / Vector::new(F::new(2.0f32))
+    x * (Vector::erf(tmp) + Vector::one()) / Vector::new(F::new(2.0))
 }
 
 pub fn launch(device: &Device) {

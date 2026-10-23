@@ -27,7 +27,10 @@ use pliron::{
     linked_list::ContainsLinkedList,
 };
 
+#[cfg(target_family = "wasm")]
+use crate::compiler::wgsl::builtin::BuiltIn;
 use crate::compiler::wgsl::{
+    KernelInfo,
     builtin::{ATTR_BUILTIN, BuiltInAttr},
     to_wgsl::{OpExtWgsl, OpToWgsl, TypeExtWgsl, wgsl_op, wgsl_op_with_out},
     value::WgslValue,
@@ -194,6 +197,21 @@ impl Pass for EnableFeaturesPass {
                 feats.insert(op.required_feature(ctx));
             },
         );
+        // Browser WebGPU requires a subgroup enable directive for builtins too.
+        // Native Naga supports subgroup use without the directive and rejects it.
+        #[cfg(target_family = "wasm")]
+        visit_all_ops_of_type::<FuncOp, _>(ctx, &mut feats, op, |ctx, feats, op| {
+            for i in 0..op.get_entry_block(ctx).arguments(ctx).len() {
+                if let Some(builtin) = op.get_arg_attr::<BuiltInAttr>(ctx, i, &ATTR_BUILTIN)
+                    && matches!(
+                        builtin.0,
+                        BuiltIn::SubgroupSize | BuiltIn::SubgroupId | BuiltIn::SubgroupInvocationId
+                    )
+                {
+                    feats.insert("subgroups".to_string());
+                }
+            }
+        });
 
         let mut res = PassResult::default();
         if !feats.is_empty() {
@@ -238,7 +256,8 @@ fn func_to_wgsl(ctx: &Context, op: &FuncOp) -> core::result::Result<String, fmt:
     let mut sig = String::new();
     let f = &mut sig;
     if let Some(entry) = op.get_entrypoint_abi(ctx) {
-        let (x, y, z) = entry.cube_dim.into();
+        let layout = ctx.aux_ty::<KernelInfo>().layout;
+        let (x, y, z) = layout.workgroup_size(entry.cube_dim).into();
         writeln!(f, "@compute @workgroup_size({x}, {y}, {z})")?;
     }
     let name = op.get_symbol_name(ctx);

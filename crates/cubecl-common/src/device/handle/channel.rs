@@ -812,13 +812,18 @@ mod custom_channel {
             RunnerId,
             task::{ArenaSlot, GLOBAL_TASK_MAX_SIZE, Task},
         },
+        placement::{self, ServerPlacement},
     };
     use core::{
         hint::spin_loop,
         sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering},
         time::Duration,
     };
-    use std::{sync::Arc, vec::Vec};
+    use std::{
+        sync::{Arc, OnceLock},
+        thread::Thread,
+        vec::Vec,
+    };
 
     /// Maximum number of [`Task`] that can be queued.
     pub const CHANNEL_MAX_TASK: usize = 32;
@@ -827,11 +832,12 @@ mod custom_channel {
     /// Gives a hot window to absorb back-to-back submits without any syscall.
     const SPIN_BUDGET_SERVER: u32 = 8192;
     /// Number of `thread::yield_now` calls after the spin budget is exhausted,
-    /// before the server drops to sleeping.
+    /// before the server parks.
     const YIELD_BUDGET_SERVER: u32 = 64;
-    /// Sleep duration once both the spin and yield budgets are exhausted.
-    /// Bounds the wake-up latency from a fully idle state.
-    const SLEEP_STEP_SERVER: Duration = Duration::from_micros(150);
+    /// Longest a parked server waits before it looks at its state again. A
+    /// client that fills a buffer wakes it at once, so this bounds only how
+    /// late it notices a shutdown, never how late it runs work.
+    const PARK_STEP_SERVER: Duration = Duration::from_micros(150);
 
     /// The client has the buffer to fill plus we add a factor of two to account for the double
     /// buffering approach.
@@ -919,7 +925,7 @@ mod custom_channel {
                 }
 
                 self.state.init_task_at(index, func);
-                self.state.enqueued_count.fetch_add(1, Ordering::SeqCst);
+                self.state.enqueued(1);
                 return Ok(());
             }
         }
@@ -943,6 +949,13 @@ mod custom_channel {
         /// Set by [`DeviceClient::request_shutdown`]; the server winds down
         /// once it is set and every client is dropped.
         shutdown: AtomicBool,
+        /// The server's thread, which a client unparks when it fills a buffer.
+        server: OnceLock<Thread>,
+        /// Whether the server is parked, or about to be ([`Server::park`]).
+        parked: AtomicBool,
+        /// The CPU the client that last filled a buffer ran on, which the server follows to its
+        /// last-level cache ([`ServerPlacement`]).
+        issuer_cpu: AtomicU32,
         /// The runner id (for debugging purposes).
         runner_id: RunnerId,
     }
@@ -979,8 +992,23 @@ mod custom_channel {
             }
 
             let actual_added = index_end - index_start;
-            self.enqueued_count
-                .fetch_add(actual_added as u32, Ordering::SeqCst);
+            self.enqueued(actual_added as u32);
+        }
+
+        /// Counts `tasks` more written tasks, and wakes a parked server when
+        /// they fill the buffer: the one moment it has work to run.
+        fn enqueued(&self, tasks: u32) {
+            let count = self.enqueued_count.fetch_add(tasks, Ordering::SeqCst) + tasks;
+            if count as usize >= CHANNEL_MAX_TASK {
+                self.issuer_cpu
+                    .store(placement::current_cpu(), Ordering::Relaxed);
+            }
+            if count as usize >= CHANNEL_MAX_TASK
+                && self.parked.load(Ordering::SeqCst)
+                && let Some(server) = self.server.get()
+            {
+                server.unpark();
+            }
         }
 
         /// Initializes the task at `index` in the current queue with `func`.
@@ -1025,6 +1053,8 @@ mod custom_channel {
         client_buf: usize,
         buffers: [TaskBuffer; 2],
         ready_to_execute: bool,
+        /// The last-level cache this thread is kept under, following the client's.
+        placement: ServerPlacement,
     }
 
     impl Server {
@@ -1036,6 +1066,9 @@ mod custom_channel {
                 available_index: AtomicU32::new(0),
                 enqueued_count: AtomicU32::new(0),
                 shutdown: AtomicBool::new(false),
+                server: OnceLock::new(),
+                parked: AtomicBool::new(false),
+                issuer_cpu: AtomicU32::new(placement::UNKNOWN_CPU),
                 runner_id,
             });
 
@@ -1044,11 +1077,14 @@ mod custom_channel {
                 client_buf: 0,
                 buffers,
                 ready_to_execute: false,
+                placement: ServerPlacement::default(),
             }
         }
 
         /// Main execution loop for the device thread.
         fn start(&mut self) {
+            // Before the first park, which only this thread can end early.
+            let _ = self.state.server.set(std::thread::current());
             let mut idle_count: u32 = 0;
             loop {
                 if self.ready_to_execute {
@@ -1080,11 +1116,35 @@ mod custom_channel {
                     if idle_count < SPIN_BUDGET_SERVER + YIELD_BUDGET_SERVER {
                         std::thread::yield_now();
                     } else {
-                        std::thread::sleep(SLEEP_STEP_SERVER);
+                        self.park();
                     }
                 }
                 idle_count = idle_count.saturating_add(1);
             }
+        }
+
+        /// Parks the server thread until a client fills a buffer, or for
+        /// [`PARK_STEP_SERVER`] at most.
+        ///
+        /// A sleep of fixed length here put the server to sleep through a burst
+        /// of work: a host that submits a few kernels, waits on them, then submits
+        /// again finds the server asleep each time, and each buffer it fills waits
+        /// out the rest of the sleep. Parked, the server runs it as soon as the
+        /// client that filled it says so ([`State::enqueued`]).
+        ///
+        /// # Notes
+        ///
+        /// The flag is raised before the queue is read, and the client reads the
+        /// flag after it counts its task, both sequentially consistent: either
+        /// the server sees the full queue and does not park, or the client sees
+        /// the flag and unparks it. An unpark that lands before the park is kept
+        /// by the thread and ends the park at once.
+        fn park(&self) {
+            self.state.parked.store(true, Ordering::SeqCst);
+            if (self.state.enqueued_count.load(Ordering::SeqCst) as usize) < CHANNEL_MAX_TASK {
+                std::thread::park_timeout(PARK_STEP_SERVER);
+            }
+            self.state.parked.store(false, Ordering::SeqCst);
         }
 
         /// Winds the server down once no more work can arrive.
@@ -1133,6 +1193,8 @@ mod custom_channel {
         /// Swaps the client and server buffers, allowing the client to start
         /// filling the next buffer while the server processes the current one.
         fn fetch(&mut self) {
+            self.placement
+                .follow(self.state.issuer_cpu.load(Ordering::Relaxed));
             self.client_buf = 1 - self.client_buf;
 
             self.state.queue_ptr.store(

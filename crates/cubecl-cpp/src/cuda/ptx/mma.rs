@@ -5,7 +5,7 @@ use cubecl_core::{
         AddressType, ContextExt, ElemType, FloatKind, IntKind, UIntKind,
         dialect::matrix::{LdMatrixOp, MmaManualOp, MmaManualScaledOp, StMatrixOp},
         interfaces::{ScalarType, TypedExt},
-        types::VectorType,
+        types::{LdMatrixForm, StMatrixForm, VectorType},
     },
     prelude::*,
 };
@@ -97,6 +97,8 @@ fn ldmatrix(
     row: *const u32,
     #[comptime] num: usize,
     #[comptime] transpose: &str,
+    #[comptime] shape: &str,
+    #[comptime] types: &str,
     #[comptime] open: &str,
     #[comptime] close: &str,
 ) -> Vector<u32, NCD> {
@@ -104,7 +106,7 @@ fn ldmatrix(
 
     let out: Vector<u32, NCD>;
     gpu_asm!(
-        "ldmatrix.sync.aligned.m8n8.x{num}{transpose}.shared::cta.b16 {open}{out}{close}, [{addr}];",
+        "ldmatrix.sync.aligned.{shape}.x{num}{transpose}.shared::cta{types} {open}{out}{close}, [{addr}];",
         out = out(_) out, addr = mem_in(_) row_addr, options(explicit_mem),
     );
     out
@@ -116,13 +118,58 @@ fn stmatrix(
     row: *const u32,
     #[comptime] num: usize,
     #[comptime] transpose: &str,
+    #[comptime] shape: &str,
+    #[comptime] types: &str,
 ) {
     let row_addr = generic_to_shared::<u32>(row);
 
     gpu_asm!(
-        "stmatrix.sync.aligned.m8n8.x{num}{transpose}.shared::cta.b16 [{addr}], {val};",
+        "stmatrix.sync.aligned.{shape}.x{num}{transpose}.shared::cta{types} [{addr}], {val};",
         addr = mem_out(_) row_addr, val = in(_) value, options(explicit_mem),
     );
+}
+
+/// How PTX spells a form of `ldmatrix` or `stmatrix`: its `.shape` and its element qualifiers.
+trait PtxMatrixMoveQualifiers {
+    fn ptx_shape(&self) -> &'static str;
+    fn ptx_element_qualifiers(&self) -> &'static str;
+}
+
+impl PtxMatrixMoveQualifiers for LdMatrixForm {
+    fn ptx_shape(&self) -> &'static str {
+        match self {
+            LdMatrixForm::M8N8B16 => "m8n8",
+            LdMatrixForm::M8N16B4x16P64 | LdMatrixForm::M8N16B6x16P32 => "m8n16",
+            LdMatrixForm::M16N16B8
+            | LdMatrixForm::M16N16B4x16P64
+            | LdMatrixForm::M16N16B6x16P32 => "m16n16",
+        }
+    }
+
+    fn ptx_element_qualifiers(&self) -> &'static str {
+        match self {
+            LdMatrixForm::M8N8B16 => ".b16",
+            LdMatrixForm::M16N16B8 => ".b8",
+            LdMatrixForm::M8N16B4x16P64 | LdMatrixForm::M16N16B4x16P64 => ".b8x16.b4x16_p64",
+            LdMatrixForm::M8N16B6x16P32 | LdMatrixForm::M16N16B6x16P32 => ".b8x16.b6x16_p32",
+        }
+    }
+}
+
+impl PtxMatrixMoveQualifiers for StMatrixForm {
+    fn ptx_shape(&self) -> &'static str {
+        match self {
+            StMatrixForm::M8N8B16 => "m8n8",
+            StMatrixForm::M16N8B8 => "m16n8",
+        }
+    }
+
+    fn ptx_element_qualifiers(&self) -> &'static str {
+        match self {
+            StMatrixForm::M8N8B16 => ".b16",
+            StMatrixForm::M16N8B8 => ".b8",
+        }
+    }
 }
 
 #[op_interface_impl]
@@ -135,9 +182,13 @@ impl LowerOp<Cuda> for MmaManualOp {
         let frag_d = self.registers_d(ctx);
         let shape = self.shape(ctx).0;
 
-        let kind = if frag_a.element_ty(ctx).is_fp8_fp6_fp4(ctx)
-            || frag_b.element_ty(ctx).is_fp8_fp6_fp4(ctx)
-        {
+        // FP8 operands take the kind-less form, which ptxas accepts from sm_89 on, while
+        // `.kind::f8f6f4` needs sm_100a or later. FP6 and FP4 operands exist only with it.
+        let is_fp6_or_fp4 = |fragment: Value| {
+            let elem = fragment.element_ty(ctx);
+            elem.is_float6(ctx) || elem.is_float4(ctx)
+        };
+        let kind = if is_fp6_or_fp4(frag_a) || is_fp6_or_fp4(frag_b) {
             ".kind::f8f6f4"
         } else {
             ""
@@ -200,11 +251,22 @@ impl LowerOp<Cuda> for LdMatrixOp {
         let out_arr = self.out_arr(ctx);
         let factor = self.factor(ctx).0;
         let trans = if self.transpose(ctx).0 { ".trans" } else { "" };
-        let (open, close) = if factor == 1 { ("{", "}") } else { ("", "") };
+        let form = self.form(ctx).0;
+        let registers = factor * form.registers_per_matrix();
+        let (open, close) = if registers == 1 { ("{", "}") } else { ("", "") };
 
-        scope.register_size::<NCD>(factor);
+        scope.register_size::<NCD>(registers);
 
-        let frag_out = ldmatrix::expand(scope, &row_ptr, factor, trans, open, close);
+        let frag_out = ldmatrix::expand(
+            scope,
+            &row_ptr,
+            factor,
+            trans,
+            form.ptx_shape(),
+            form.ptx_element_qualifiers(),
+            open,
+            close,
+        );
         let frag_out =
             reinterpret_value(scope, frag_out.read_value(scope), out_arr.unwrap_ptr(ctx));
         assign::expand_element(scope, frag_out.into(), out_arr.into());
@@ -225,7 +287,16 @@ impl LowerOp<Cuda> for StMatrixOp {
         let value = reinterpret_value(scope, self.registers(ctx), vec_ty.to_handle()).into();
         scope.register_size::<NCD>(factor);
 
-        stmatrix::expand(scope, value, &row_ptr, factor, trans);
+        let form = self.form(ctx).0;
+        stmatrix::expand(
+            scope,
+            value,
+            &row_ptr,
+            factor,
+            trans,
+            form.ptx_shape(),
+            form.ptx_element_qualifiers(),
+        );
         vec![]
     }
 }

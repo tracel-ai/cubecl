@@ -7,19 +7,24 @@ pub mod arithmetic_chains;
 pub mod assign;
 pub mod atomic;
 pub mod barrier;
+pub mod bf16;
 pub mod binary;
 pub mod branch;
 pub mod capture_status;
 pub mod cluster;
 pub mod cmma;
 pub mod cmma2;
+pub mod collectives;
 pub mod comparison;
+pub mod compile;
 pub mod complex;
 pub mod const_match;
+pub mod control_flow;
 pub mod debug;
 pub mod different_rank;
 pub mod enums;
 pub mod file;
+pub mod harness;
 pub mod index;
 pub mod launch;
 pub mod metadata;
@@ -33,7 +38,6 @@ pub mod read_lazy;
 pub mod relocation;
 pub mod saturating;
 pub mod sequence;
-pub mod short_circuit;
 pub mod slice;
 pub mod stream;
 pub mod stream_errors;
@@ -46,6 +50,7 @@ pub mod traits;
 pub mod unary;
 pub mod unroll;
 pub mod vector;
+pub mod wgmma;
 
 #[allow(missing_docs)]
 #[macro_export]
@@ -151,7 +156,9 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_launch_untyped!();
         cubecl_core::testgen_cmma!();
         cubecl_core::testgen_cmma2!();
+        cubecl_core::testgen_wgmma!();
         cubecl_core::testgen_numeric!();
+        cubecl_core::testgen_bf16!();
         cubecl_core::testgen_file!();
         cubecl_core::testgen_read_lazy!();
         cubecl_core::testgen_metadata!();
@@ -165,15 +172,18 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_cluster!();
 
         cubecl_core::testgen_enums!();
+        cubecl_core::testgen_harness!();
         cubecl_core::testgen_comparison!();
 
         cubecl_core::testgen_to_client!();
         cubecl_core::testgen_all_reduce!();
+        cubecl_core::testgen_collectives!();
 
-        cubecl_core::testgen_short_circuit!();
+        cubecl_core::testgen_control_flow!();
         cubecl_core::testgen_stream_errors!();
         cubecl_core::testgen_allocation_mode!();
         cubecl_core::testgen_out_of_memory!();
+        cubecl_core::testgen_compile!();
     };
 }
 

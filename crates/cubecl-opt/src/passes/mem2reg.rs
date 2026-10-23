@@ -14,7 +14,8 @@ use pliron::{
     basic_block::BasicBlock,
     context::{Context, Ptr},
     graph::{
-        ControlFlowGraph, dominance::DomInfo, walkers::uninterruptible::immutable::walk_region,
+        ControlFlowGraph, dominance::DomInfo, strictly_precedes_in_block,
+        walkers::uninterruptible::immutable::walk_region,
     },
     irbuild::listener::DummyListener,
     linked_list::ContainsLinkedList,
@@ -226,6 +227,7 @@ impl AllocPromotionAnalyzer<'_> {
 }
 
 type BlockIndexCache = HMap<Ptr<BasicBlock>, HMap<Ptr<BasicBlock>, usize>>;
+type OpsByBlock = HMap<Ptr<BasicBlock>, Vec<Ptr<Operation>>>;
 
 struct AllocPromoter<'a> {
     alloc: AllocInfo,
@@ -244,6 +246,7 @@ struct AllocPromoter<'a> {
     info: AllocPromotionInfo,
 
     visited_blocks: HSet<Ptr<BasicBlock>>,
+    ops_to_visit: OpsByBlock,
 
     block_index_cache: &'a mut BlockIndexCache,
 }
@@ -268,6 +271,7 @@ impl<'a> AllocPromoter<'a> {
             info,
             block_index_cache,
             visited_blocks: Default::default(),
+            ops_to_visit: Default::default(),
         }
     }
 
@@ -285,6 +289,29 @@ impl<'a> AllocPromoter<'a> {
         Ok(value)
     }
 
+    /// The ops that promoting the alloc can change, by block: its pointer's users and the holders
+    /// of regions to promote. Gathering them once relies on no hook moving an op between blocks.
+    fn ops_by_block(&self, ctx: &Context) -> OpsByBlock {
+        let users = self
+            .alloc
+            .ptr
+            .uses(ctx)
+            .into_iter()
+            .map(|r#use| r#use.user_op());
+        let holders = self
+            .info
+            .regions_to_promote
+            .keys()
+            .map(|region| region.deref(ctx).get_parent_op());
+        let ops: ISet<_> = users.chain(holders).collect();
+        let mut by_block = OpsByBlock::default();
+        for op in ops {
+            let block = op.deref(ctx).get_parent_block().unwrap();
+            by_block.entry(block).or_default().push(op);
+        }
+        by_block
+    }
+
     fn promote_in_block(
         &mut self,
         ctx: &mut Context,
@@ -296,7 +323,14 @@ impl<'a> AllocPromoter<'a> {
         }
         self.visited_blocks.insert(block);
 
-        let block_ops: Vec<_> = block.deref(ctx).iter(ctx).collect();
+        let mut block_ops = self.ops_to_visit.remove(&block).unwrap_or_default();
+        debug_assert!(
+            block_ops
+                .iter()
+                .all(|op| op.deref(ctx).get_parent_block() == Some(block)),
+            "a promotion hook moved an op to another block"
+        );
+        block_ops.sort_by(|&lhs, &rhs| block_order(ctx, lhs, rhs));
         for op in block_ops {
             if let Some(promotable) = TraitOp::<dyn PromotableOpInterface>::try_from_op(op, ctx) {
                 let parent_region = op.deref(ctx).get_parent_region(ctx).unwrap();
@@ -450,7 +484,7 @@ impl<'a> AllocPromoter<'a> {
                         &mut self.rewriter,
                     )
                     .unwrap();
-                blocking_uses_map.shift_remove(&to_promote);
+                blocking_uses_map.swap_remove(&to_promote);
                 continue;
             }
         }
@@ -518,6 +552,7 @@ impl<'a> AllocPromoter<'a> {
         // outermost region which we have to remove manually afterwards. This is
         // because `PromotableRegionOpInterface::finalize_promotion` must be called
         // before remove_blocking_uses.
+        self.ops_to_visit = self.ops_by_block(ctx);
         self.promote_in_region(ctx, ptr_region, None);
 
         // Blocking uses can then be removed for the outermost region.
@@ -591,14 +626,21 @@ fn dominance_sort(
     ops.sort_by(|lhs, rhs| {
         let lhs_block_index = topo_block_indices[&lhs.deref(ctx).get_parent_block().unwrap()];
         let rhs_block_index = topo_block_indices[&rhs.deref(ctx).get_parent_block().unwrap()];
-        match lhs_block_index.cmp(&rhs_block_index) {
-            ord @ (Ordering::Less | Ordering::Greater) => ord,
-            Ordering::Equal => match dom_info.op_strictly_dominates_op(ctx, *lhs, *rhs) {
-                true => Ordering::Less,
-                false => Ordering::Greater,
-            },
-        }
+        lhs_block_index
+            .cmp(&rhs_block_index)
+            .then_with(|| block_order(ctx, *lhs, *rhs))
     });
+}
+
+fn block_order(ctx: &Context, lhs: Ptr<Operation>, rhs: Ptr<Operation>) -> Ordering {
+    // Sorting ordered input compares a later op against an earlier one, so walk from `rhs`.
+    if lhs == rhs {
+        Ordering::Equal
+    } else if strictly_precedes_in_block(ctx, rhs, lhs) {
+        Ordering::Greater
+    } else {
+        Ordering::Less
+    }
 }
 
 fn get_blocks_sorted_by_dominance(

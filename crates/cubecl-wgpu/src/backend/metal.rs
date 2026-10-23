@@ -1,12 +1,15 @@
+use crate::compute::pipelines::MetadataLayout;
 use cubecl_core::{
     WgpuCompilationOptions,
     ir::{AddressType, UIntKind},
     prelude::Visibility,
-    server::KernelArguments,
 };
 use cubecl_cpp::{
-    metal::{arch::MetalArchitecture, supported_cmma_combinations_metal},
-    shared::{MslComputeKernel, register_wmma_features},
+    metal::{
+        arch::MetalArchitecture, mma::supported_mma_combinations_metal,
+        supported_cmma_combinations_metal,
+    },
+    shared::{MslComputeKernel, register_mma_features, register_wmma_features},
 };
 use cubecl_ir::{
     DeviceProperties, Type,
@@ -17,7 +20,7 @@ use wgpu::{
     hal::{self, Adapter, metal},
 };
 
-pub fn bindings(repr: &MslComputeKernel, args: &KernelArguments) -> (Vec<Visibility>, usize) {
+pub fn bindings(repr: &MslComputeKernel, metadata: MetadataLayout) -> (Vec<Visibility>, usize) {
     let buffers = repr.buffers.iter().map(|it| {
         // When slices are shared, it needs to be read-write if ANY of the slices is read-write,
         // and since we can't be sure, we'll assume everything is read-write.
@@ -27,11 +30,11 @@ pub fn bindings(repr: &MslComputeKernel, args: &KernelArguments) -> (Vec<Visibil
             Visibility::ReadWrite
         }
     });
-    let uniform = args.info.dynamic_metadata_offset >= args.info.data.len();
-    let info_vis = (!args.info.data.is_empty()).then_some(match uniform {
-        true => Visibility::Uniform,
-        false => Visibility::Read,
-    });
+    let info_vis = match metadata {
+        MetadataLayout::Absent => None,
+        MetadataLayout::Static => Some(Visibility::Uniform),
+        MetadataLayout::Dynamic => Some(Visibility::Read),
+    };
     (buffers.chain(info_vis).collect(), 0)
 }
 
@@ -274,22 +277,30 @@ fn register_types(props: &mut DeviceProperties) {
             ElemType::Float(ty),
             TypeUsage::Conversion | TypeUsage::Buffer,
         );
+        props.register_emulated_conversion(ElemType::Float(ty));
     }
 
     // MSL's 64-bit atomics exist only on Apple9 and later and only as min and max, so u64
     // is left out: registering it made add, load and store return wrong values.
     for ty in [ElemType::Int(IntKind::I32), ElemType::UInt(UIntKind::U32)] {
         props.register_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
+        props.register_shared_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
     }
+    // MSL's float atomics take `device` pointers only: the compiler rejects one in
+    // `threadgroup` memory, so shared memory gets none.
     props.register_atomic_type_usage(
         Type::atomic(ElemType::Float(FloatKind::F32)),
         AtomicUsage::Add | AtomicUsage::LoadStore,
     );
 }
 
+/// The `simdgroup_matrix` as a cooperative matrix, and as a manual MMA over each lane's
+/// registers.
 fn register_cmma(props: &mut DeviceProperties) {
     let combinations = supported_cmma_combinations_metal(&MetalArchitecture::Metal3);
     register_wmma_features(combinations, props);
+    let combinations = supported_mma_combinations_metal(&MetalArchitecture::Metal3);
+    register_mma_features(combinations, props);
 }
 
 #[cfg(all(test, target_vendor = "apple"))]

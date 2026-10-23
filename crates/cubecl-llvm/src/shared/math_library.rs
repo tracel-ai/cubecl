@@ -10,6 +10,8 @@ use std::ffi::{CStr, CString};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FloatWidth {
     F16,
+    /// `bfloat`: no math library has a function for it, so every one evaluates it in `f32`.
+    BF16,
     F32,
     F64,
 }
@@ -18,6 +20,7 @@ impl FloatWidth {
     pub fn suffix(self) -> &'static str {
         match self {
             FloatWidth::F16 => "f16",
+            FloatWidth::BF16 => "bf16",
             FloatWidth::F32 => "f32",
             FloatWidth::F64 => "f64",
         }
@@ -26,6 +29,7 @@ impl FloatWidth {
     fn of(kind: LLVMTypeKind) -> Option<Self> {
         match kind {
             LLVMTypeKind::LLVMHalfTypeKind => Some(FloatWidth::F16),
+            LLVMTypeKind::LLVMBFloatTypeKind => Some(FloatWidth::BF16),
             LLVMTypeKind::LLVMFloatTypeKind => Some(FloatWidth::F32),
             LLVMTypeKind::LLVMDoubleTypeKind => Some(FloatWidth::F64),
             _ => None,
@@ -38,6 +42,7 @@ impl FloatWidth {
         unsafe {
             match self {
                 FloatWidth::F16 => LLVMHalfTypeInContext(ctx),
+                FloatWidth::BF16 => LLVMBFloatTypeInContext(ctx),
                 FloatWidth::F32 => LLVMFloatTypeInContext(ctx),
                 FloatWidth::F64 => LLVMDoubleTypeInContext(ctx),
             }
@@ -279,7 +284,7 @@ unsafe fn convert(builder: LLVMBuilderRef, value: LLVMValueRef, to: LLVMTypeRef)
             return value;
         }
         let widths = |ty: LLVMTypeRef| match LLVMGetTypeKind(ty) {
-            LLVMTypeKind::LLVMHalfTypeKind => 16,
+            LLVMTypeKind::LLVMHalfTypeKind | LLVMTypeKind::LLVMBFloatTypeKind => 16,
             LLVMTypeKind::LLVMFloatTypeKind => 32,
             _ => 64,
         };

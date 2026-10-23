@@ -1,7 +1,9 @@
 use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::driver::Cuda;
+use crate::compute::modules::CudaCompiledKernel;
 use crate::compute::{
-    Captures, Command, Window, context::CudaContext, events::Fence, stream::CudaStreamBackend,
+    Captures, Command, Window, communication::BYTES, context::CudaContext, events::Fence,
+    stream::CudaStreamBackend,
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::server::{DeviceCaptures, ServerStorage};
@@ -11,9 +13,10 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, UIntKind},
     prelude::*,
     server::{
-        BufferBinding, CommunicationId, CopyDescriptor, Handle, KernelArguments, KernelResource,
-        LaunchError, ProfileError, ProfilingToken, ReduceOperation, ServerCommunication,
-        ServerError, ServerUtilities, TensorMapBinding, TensorMapMeta,
+        BufferBinding, CollectiveBuffer, CommunicationId, ComputeWait, CopyDescriptor, Handle,
+        KernelArguments, KernelResource, LaunchError, ProfileError, ProfilingToken,
+        ReduceOperation, Reduction, ServerCommunication, ServerError, ServerUtilities,
+        TensorMapBinding, TensorMapMeta,
     },
     zspace::SmallVec,
 };
@@ -22,9 +25,10 @@ use cubecl_environment::future::{self, DynFut};
 use cubecl_environment::stream::StreamId;
 use cubecl_server::command::{CollectiveDriver, Collectives, DeviceStream, Refused};
 use cubecl_server::metadata_cache::Lookup;
+use cubecl_server::compiler::ArtifactId;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
-    dry_run::LaunchMode,
+    execution::LaunchMode,
     id::GraphId,
     kernel::CubeKernel,
     logging::ServerLogger,
@@ -37,7 +41,7 @@ use cudarc::driver::sys::{
     CUstream, CUtensorMap, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapInterleave,
     CUtensorMapL2promotion, CUtensorMapSwizzle, cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
 };
-use std::{collections::HashMap, ffi::c_void, sync::Arc};
+use std::{collections::HashMap, convert::Infallible, ffi::c_void, sync::Arc};
 
 /// Stage `words` into a device buffer, reusing a cached one when a launch has
 /// already staged these exact info words. The info is read-only metadata (no
@@ -183,18 +187,26 @@ impl Server for CudaServer {
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) {
-        let kernel_id = kernel.id();
-        if self.compile_failed(&kernel_id, kernel, &bindings, stream_id, launch_mode) {
+        if launch_mode == LaunchMode::Queue {
+            self.ctx.queue_kernel(kernel);
             return;
         }
-        // A dry run stops right here, after compilation and before anything
+        let id = ArtifactId {
+            kernel: kernel.id(),
+            variant: (),
+        };
+        let Some(loaded) = self.load_or_fail(kernel, &id, &bindings, stream_id, launch_mode) else {
+            return;
+        };
+        // A discarded launch stops right here, after compilation and before anything
         // that touches a buffer: resolving resources, building tensor maps,
         // uploading metadata or reading a dynamic cube count would materialize
         // memory the run exists to leave unmapped.
-        if launch_mode.is_skipped() {
+        if launch_mode.discards_launch() {
             return;
         }
-        let io = self.ctx.kernel_io(&kernel_id);
+        let kernel_id = id.kernel;
+        let io = loaded.io.as_deref();
 
         // The count resolves before the scope opens, because entering the
         // scope replaces whatever claim the outputs carry — and a count that
@@ -208,7 +220,7 @@ impl Server for CudaServer {
                 // exactly as a failed launch's would: a tainted or unreadable
                 // count buffer travels to everything downstream of it.
                 let mut written = self.write_set();
-                written.extend(bindings.buffers_written(io.as_deref()).cloned());
+                written.extend(bindings.buffers_written(io).cloned());
                 failed_writing(self, stream_id, written, err);
                 return;
             }
@@ -226,15 +238,15 @@ impl Server for CudaServer {
         // bytes nothing wrote. An input that already carries a failure skips
         // the launch instead, and the scope settles that too.
         let mut written = self.write_set();
-        written.extend(bindings.buffers_written(io.as_deref()).cloned());
+        written.extend(bindings.buffers_written(io).cloned());
         ExecuteScope::launching(
             self,
             kernel_id.clone(),
             stream_id,
-            bindings.buffers_read(io.as_deref()),
+            bindings.buffers_read(io),
             written,
         )
-        .execute(|server| server.launch_checked(kernel_id, count, bindings, stream_id));
+        .execute(|server| server.launch_checked(kernel_id, &loaded, count, bindings, stream_id));
     }
 
     fn check(
@@ -243,6 +255,10 @@ impl Server for CudaServer {
         _stream_id: StreamId,
     ) -> Result<(), ServerError> {
         self.streams.ensure_written(handles.iter())
+    }
+
+    fn compile_queued(&mut self) {
+        self.ctx.compile_queued(&self.streams.logger);
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
@@ -418,7 +434,7 @@ impl ServerCommunication for CudaServer {
         // A group already joined is joined once, so the membership is
         // announced once too.
         if let Some(id) = self.collectives.join(device_ids)? {
-            self.utilities.initialized_comms.write().insert(id);
+            self.connect(&id)?;
         }
         Ok(())
     }
@@ -427,37 +443,191 @@ impl ServerCommunication for CudaServer {
         &mut self,
         src: BufferBinding,
         dst: BufferBinding,
-        dtype: ElemType,
+        reduction: Reduction,
         stream_id: StreamId,
-        op: ReduceOperation,
+        device_ids: Vec<DeviceId>,
+        wait: ComputeWait,
+    ) -> Result<(), ServerError> {
+        let size = src.size_in_used();
+        let checked = CollectiveBuffer::Destination
+            .expect_size(&dst, size)
+            .and_then(|()| Cuda::elements(reduction.dtype, size));
+        let group = CommunicationId::from(device_ids);
+        self.settle_collective(
+            &group,
+            [src],
+            dst,
+            checked,
+            |server, [src], dst, elements| {
+                server.run_collective(
+                    stream_id,
+                    &group,
+                    [src, dst],
+                    wait,
+                    |comm, [src, dst], stream| {
+                        Cuda::all_reduce(comm, src, dst, elements, reduction.op, stream)
+                    },
+                )
+            },
+        )
+    }
+
+    fn all_gather(
+        &mut self,
+        src: BufferBinding,
+        dst: BufferBinding,
+        stream_id: StreamId,
         device_ids: Vec<DeviceId>,
     ) -> Result<(), ServerError> {
-        // Staged before the bindings are consumed below.
-        let destination = dst.clone();
+        let size = src.size_in_used();
+        let checked = CollectiveBuffer::Destination
+            .expect_size(&dst, size * device_ids.len() as u64)
+            .and_then(|()| Cuda::elements(BYTES, size));
+        let group = CommunicationId::from(device_ids);
+        self.settle_collective(
+            &group,
+            [src],
+            dst,
+            checked,
+            |server, [src], dst, elements| {
+                server.run_collective(
+                    stream_id,
+                    &group,
+                    [src, dst],
+                    ComputeWait::Now,
+                    |comm, [src, dst], stream| Cuda::all_gather(comm, src, dst, elements, stream),
+                )
+            },
+        )
+    }
 
-        // The reduction reads the source, so it is worth no more than the work
-        // that wrote it; see `FailureStore::ensure_written`. The refusal
-        // settles the destination below like any other failure: the reduce
-        // never runs, so a read of the destination has to fail on the
-        // source's failure rather than take last step's bytes for this
-        // step's result — the caller's Result is swallowed by the
-        // fire-and-forget submit, so the taint is the only durable report.
-        let reduced = self
-            .streams
-            .ensure_written([&src].into_iter())
-            .and_then(|()| self.reduce_checked(src, dst, dtype, stream_id, op, device_ids));
-        match reduced {
-            Ok(()) => {
-                // The result is on its way, so an earlier failure that left the
-                // destination stale has nothing left to say about it.
-                self.mark_written(&destination);
-                Ok(())
+    fn reduce_scatter(
+        &mut self,
+        src: BufferBinding,
+        dst: BufferBinding,
+        reduction: Reduction,
+        stream_id: StreamId,
+        device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        let size = dst.size_in_used();
+        let checked = CollectiveBuffer::Source
+            .expect_size(&src, size * device_ids.len() as u64)
+            .and_then(|()| Cuda::elements(reduction.dtype, size));
+        let group = CommunicationId::from(device_ids);
+        self.settle_collective(
+            &group,
+            [src],
+            dst,
+            checked,
+            |server, [src], dst, elements| {
+                server.run_collective(
+                    stream_id,
+                    &group,
+                    [src, dst],
+                    ComputeWait::Now,
+                    |comm, [src, dst], stream| {
+                        Cuda::reduce_scatter(comm, src, dst, elements, reduction.op, stream)
+                    },
+                )
+            },
+        )
+    }
+
+    fn broadcast(
+        &mut self,
+        src: Option<BufferBinding>,
+        dst: BufferBinding,
+        stream_id: StreamId,
+        root: DeviceId,
+        device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        let size = dst.size_in_used();
+        let root_rank = self.collectives.rank(root, &device_ids);
+        let group = CommunicationId::from(device_ids);
+        match (src, self.device_id == root) {
+            (Some(src), true) => {
+                let checked = CollectiveBuffer::Source
+                    .expect_size(&src, size)
+                    .and(root_rank);
+                self.settle_collective(&group, [src], dst, checked, |server, [src], dst, root| {
+                    server.run_collective(
+                        stream_id,
+                        &group,
+                        [src, dst],
+                        ComputeWait::Now,
+                        |comm, [src, dst], stream| {
+                            let elements = Cuda::elements(BYTES, size)?;
+                            Cuda::broadcast(comm, Some(src), dst, elements, root, stream)
+                        },
+                    )
+                })
             }
-            Err(error) => {
-                self.taint_returned(error.clone(), &destination);
-                Err(error)
+            (None, false) => {
+                self.settle_collective(&group, [], dst, root_rank, |server, [], dst, root| {
+                    server.run_collective(
+                        stream_id,
+                        &group,
+                        [dst],
+                        ComputeWait::Now,
+                        |comm, [dst], stream| {
+                            let elements = Cuda::elements(BYTES, size)?;
+                            Cuda::broadcast(comm, None, dst, elements, root, stream)
+                        },
+                    )
+                })
+            }
+            // Only the root sends, so a source anywhere else, or none there, has nothing to send.
+            _ => {
+                let refused = Err::<Infallible, _>(ServerError::Generic {
+                    reason: format!(
+                        "a broadcast from {root:?} takes a source on the root and nowhere else"
+                    ),
+                    backtrace: BackTrace::capture(),
+                });
+                self.settle_collective(&group, [], dst, refused, |_, [], _, never| match never {})
             }
         }
+    }
+
+    fn all_to_all(
+        &mut self,
+        src: BufferBinding,
+        dst: BufferBinding,
+        stream_id: StreamId,
+        device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        let ranks = device_ids.len();
+        let size = src.size_in_used();
+        let checked = CollectiveBuffer::Destination
+            .expect_size(&dst, size)
+            .and_then(|()| match size.is_multiple_of(ranks as u64) {
+                true => Cuda::elements(BYTES, size / ranks as u64),
+                false => Err(ServerError::Generic {
+                    reason: format!(
+                        "an all_to_all over {ranks} ranks splits {size} bytes unevenly"
+                    ),
+                    backtrace: BackTrace::capture(),
+                }),
+            });
+        let group = CommunicationId::from(device_ids);
+        self.settle_collective(&group, [src], dst, checked, |server, [src], dst, chunk| {
+            server.run_collective(
+                stream_id,
+                &group,
+                [src, dst],
+                ComputeWait::Now,
+                |comm, [src, dst], stream| {
+                    // Its sends would read chunks its receives are overwriting.
+                    if src.ptr < dst.ptr + dst.size && dst.ptr < src.ptr + src.size {
+                        return Err(ServerError::Generic {
+                            reason: "an all_to_all's source and destination overlap".into(),
+                            backtrace: BackTrace::capture(),
+                        });
+                    }
+                    Cuda::all_to_all(comm, src, dst, chunk, ranks, stream)
+                },
+            )
+        })
     }
 
     fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
@@ -475,10 +645,17 @@ impl ServerCommunication for CudaServer {
     fn send(
         &mut self,
         desc: CopyDescriptor,
-        dtype: ElemType,
         stream_id: StreamId,
         device_id_dst: DeviceId,
     ) -> Result<(), ServerError> {
+        // Joined before anything that can fail: on a pair's first transfer the
+        // peer's thread waits in its own join until this one arrives.
+        let comm = *self.collectives.transfers_with(device_id_dst)?;
+        let peer = self
+            .collectives
+            .peer_rank(&pair(self.device_id, device_id_dst))?;
+        let transfers = self.transfer_stream();
+
         // The send reads the source, so it is worth no more than the work
         // that wrote it; see `FailureStore::ensure_written`. Skipping this
         // hands the peer stale bytes on a handle that carries no claim over
@@ -493,24 +670,22 @@ impl ServerCommunication for CudaServer {
         let mut command = self.command(stream_id, [&desc.handle].into_iter())?;
         let resource = command.resource(binding)?;
         let stream = command.stream().sys;
-        drop(command);
 
         // Wait for the data to be ready on the compute stream.
-        Fence::new(stream).wait_async(self.comm_stream())?;
-
-        let (peers, comm_id) = pair(self.device_id, device_id_dst);
-        let comm = self.collectives.get(&comm_id)?;
-        let peer = self.collectives.peer_rank(&peers)?;
-        let (nccl_dtype, count) = Cuda::data_type(dtype, resource.size)?;
-
-        Cuda::send(comm, &resource, nccl_dtype, count, peer, self.comm_stream())
+        Fence::new(stream).wait_async(transfers)?;
+        let bytes = Cuda::elements(BYTES, resource.size)?;
+        Cuda::send(&comm, &resource, bytes, peer, transfers)?;
+        // This stream's pool may reuse the source from here, and dropping the command releases one
+        // borrowed from another stream once this stream gets here: both wait for the send.
+        Fence::new(transfers).wait_async(stream)?;
+        drop(command);
+        Ok(())
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
     fn recv(
         &mut self,
         handle: Handle,
-        dtype: ElemType,
         stream_id: StreamId,
         device_id_src: DeviceId,
     ) -> Result<(), ServerError> {
@@ -520,7 +695,7 @@ impl ServerCommunication for CudaServer {
         // Every failure from here leaves the destination holding whatever it
         // held, so a read of it has to fail on that rather than take those
         // bytes for a result.
-        let received = self.recv_checked(handle, dtype, stream_id, device_id_src);
+        let received = self.recv_checked(handle, stream_id, device_id_src);
         match received {
             Ok(()) => {
                 // The data is on its way, so an earlier failure that left the
@@ -599,6 +774,26 @@ impl CudaServer {
         self.ctx.comm_stream
     }
 
+    fn transfer_stream(&self) -> CUstream {
+        self.ctx.transfer_stream
+    }
+
+    /// Runs one single-element `all_reduce` over the group `id`, so NCCL connects its peers now:
+    /// it connects them on a communicator's first operation, which waits on the host for every
+    /// peer. A single element connects the algorithm it picks, the ring on a single node.
+    fn connect(&self, id: &CommunicationId) -> Result<(), ServerError> {
+        let element = &self.ctx.connect_element;
+        let elements = Cuda::elements(ElemType::Float(FloatKind::F32), element.size)?;
+        Cuda::all_reduce(
+            self.collectives.get(id)?,
+            element,
+            element,
+            elements,
+            ReduceOperation::Sum,
+            self.comm_stream(),
+        )
+    }
+
     fn command_no_inputs(&mut self, stream_id: StreamId) -> Result<Command<'_>, ServerError> {
         self.command(stream_id, [].into_iter())
     }
@@ -622,9 +817,9 @@ impl CudaServer {
         Ok(Command::new(&mut self.ctx, streams, self.utilities.service))
     }
 
-    /// Compile `kernel` if this is the first launch of it, and say whether
-    /// that failed — in which case the outputs the launch was given now carry
-    /// the compilation error.
+    /// Compile `kernel` if this is the first launch of it, and return it
+    /// loaded — or `None` when that failed, in which case the outputs the
+    /// launch was given now carry the compilation error.
     ///
     /// Compilation comes first — memoized, so a launch after the first pays a
     /// map lookup — because the write scope stages what the compiled kernel
@@ -634,25 +829,22 @@ impl CudaServer {
     /// kernel was only going to read — tainting those would refuse every
     /// later launch that shares them, an autotune sweep above all.
     ///
-    /// A dry run claims none. It was never going to write, so a failure in it
+    /// A discarded launch claims none. It was never going to write, so a failure in it
     /// leaves nothing stale, and tainting its buffers would fail unrelated
     /// reads of memory the run deliberately left alone.
-    fn compile_failed(
+    fn load_or_fail(
         &mut self,
-        kernel_id: &KernelId,
         kernel: Box<dyn CubeKernel>,
+        id: &ArtifactId<()>,
         bindings: &KernelArguments,
         stream_id: StreamId,
         launch_mode: LaunchMode,
-    ) -> bool {
-        if self.ctx.is_loaded(kernel_id) {
-            return false;
-        }
-        let logger = self.streams.logger.clone();
-        let Err(err) = self.ctx.compile_kernel(kernel_id, kernel, logger) else {
-            return false;
+    ) -> Option<CudaCompiledKernel> {
+        let err = match self.ctx.load_kernel(&*kernel, id, &self.streams.logger) {
+            Ok(loaded) => return Some(loaded),
+            Err(err) => err,
         };
-        if !launch_mode.is_skipped() {
+        if !launch_mode.discards_launch() {
             // No compiled answer exists for a kernel that never compiled, so
             // the caller's declared IO decides what the failure claims: only
             // the outputs, never the buffers the kernel was only going to
@@ -664,56 +856,86 @@ impl CudaServer {
         } else {
             self.profile_failure(&ServerError::Launch(err));
         }
-        true
+        None
     }
 
-    /// The reduction itself, so every way it can fail settles the destination
-    /// through one path in [`all_reduce`](Server::all_reduce).
+    /// Runs `collective` over `group`, which reads `reads` and writes `dst`, under the
+    /// tainted-buffer rules: a broken group, a tainted read, a failed `checked` or any later
+    /// refusal leaves `dst` carrying the failure, the only report a fire-and-forget submit keeps,
+    /// and breaks the group.
+    fn settle_collective<const N: usize, Plan>(
+        &mut self,
+        group: &CommunicationId,
+        reads: [BufferBinding; N],
+        dst: BufferBinding,
+        checked: Result<Plan, ServerError>,
+        collective: impl FnOnce(
+            &mut Self,
+            [BufferBinding; N],
+            BufferBinding,
+            Plan,
+        ) -> Result<(), ServerError>,
+    ) -> Result<(), ServerError> {
+        let destination = dst.clone();
+        let ran = self
+            .collectives
+            .ensure_intact(group)
+            .and_then(|()| self.streams.ensure_written(reads.iter()))
+            .and(checked)
+            .and_then(|plan| collective(self, reads, dst, plan));
+        match ran {
+            Ok(()) => {
+                // The result is on its way, so an earlier failure that left the
+                // destination stale has nothing left to say about it.
+                self.mark_written(&destination);
+                Ok(())
+            }
+            Err(error) => {
+                self.collectives.mark_broken(group, error.clone());
+                self.taint_returned(error.clone(), &destination);
+                Err(error)
+            }
+        }
+    }
+
+    /// Runs `collective` on the collective stream over `bindings`, once the compute stream has
+    /// written them, keeping them borrowed until the compute stream waits as `wait` says.
     ///
     /// # Errors
     ///
-    /// A source and destination on different streams, a binding that names no
-    /// live allocation, a group never joined, an element type NCCL has no name
-    /// for, and NCCL's refusal to enqueue.
-    fn reduce_checked(
+    /// A group never joined, a binding that names no live allocation, a fence the driver
+    /// refuses, and whatever `collective` returns.
+    fn run_collective<const N: usize>(
         &mut self,
-        src: BufferBinding,
-        dst: BufferBinding,
-        dtype: ElemType,
         stream_id: StreamId,
-        op: ReduceOperation,
-        device_ids: Vec<DeviceId>,
+        group: &CommunicationId,
+        bindings: [BufferBinding; N],
+        wait: ComputeWait,
+        collective: impl FnOnce(
+            &<Cuda as CollectiveDriver>::Communicator,
+            [&GpuResource; N],
+            CUstream,
+        ) -> Result<(), ServerError>,
     ) -> Result<(), ServerError> {
-        // The collective needs both bindings on one stream, and nothing below
-        // can proceed without that.
-        if src.stream != dst.stream {
-            return Err(ServerError::Generic {
-                reason: "Source and destination should be on the same stream.".into(),
-                backtrace: BackTrace::capture(),
-            });
+        let comm = *self.collectives.get(group)?;
+        let comm_stream = self.comm_stream();
+
+        let mut command = self.command(stream_id, bindings.iter())?;
+        let mut resources = Vec::with_capacity(N);
+        for binding in bindings {
+            resources.push(command.resource(binding)?);
         }
-
-        let mut command = self.command(stream_id, [&src, &dst].into_iter())?;
-        let resource_src = command.resource(src)?;
-        let resource_dst = command.resource(dst)?;
         let stream = command.stream().sys;
+
+        Fence::new(stream).wait_async(comm_stream)?;
+        collective(&comm, core::array::from_fn(|i| &resources[i]), comm_stream)?;
+        if let ComputeWait::Now = wait {
+            Fence::new(comm_stream).wait_async(stream)?;
+        }
+        // Dropping the command releases bindings borrowed from other streams at this point of
+        // the compute stream, which only waits for the collective under `ComputeWait::Now`.
         drop(command);
-
-        // Wait for the data to be ready on the compute stream.
-        Fence::new(stream).wait_async(self.comm_stream())?;
-
-        let comm = self.collectives.get(&CommunicationId::from(device_ids))?;
-        let (nccl_dtype, count) = Cuda::data_type(dtype, resource_src.size)?;
-
-        Cuda::all_reduce(
-            comm,
-            &resource_src,
-            &resource_dst,
-            nccl_dtype,
-            count,
-            op,
-            self.comm_stream(),
-        )
+        Ok(())
     }
 
     /// The receive itself, so every way it can fail settles the destination
@@ -727,31 +949,33 @@ impl CudaServer {
     fn recv_checked(
         &mut self,
         handle: Handle,
-        dtype: ElemType,
         stream_id: StreamId,
         device_id_src: DeviceId,
     ) -> Result<(), ServerError> {
+        // Joined before anything that can fail or relocate: on a pair's first
+        // transfer the peer's thread waits in its own join until this one arrives.
+        let comm = *self.collectives.transfers_with(device_id_src)?;
+        let peer = self
+            .collectives
+            .peer_rank(&pair(self.device_id, device_id_src))?;
+
         // A command on the destination server reserves the memory the incoming
         // data lands in.
         let mut command_dst = self.command_no_inputs(stream_id)?;
         let memory = command_dst.reserve(handle.size())?;
         command_dst.bind(memory, handle.memory.clone())?;
         let resource_dst = command_dst.resource(handle.binding())?;
+        let stream = command_dst.stream().sys;
         drop(command_dst);
 
-        let (peers, comm_id) = pair(self.device_id, device_id_src);
-        let comm = self.collectives.get(&comm_id)?;
-        let peer = self.collectives.peer_rank(&peers)?;
-        let (nccl_dtype, count) = Cuda::data_type(dtype, resource_dst.size)?;
-
-        Cuda::recv(
-            comm,
-            &resource_dst,
-            nccl_dtype,
-            count,
-            peer,
-            self.comm_stream(),
-        )
+        // Compute work queued before the reservation may still use its memory, and compute work
+        // queued after it reads what arrives.
+        let transfers = self.transfer_stream();
+        Fence::new(stream).wait_async(transfers)?;
+        let bytes = Cuda::elements(BYTES, resource_dst.size)?;
+        Cuda::recv(&comm, &resource_dst, bytes, peer, transfers)?;
+        Fence::new(transfers).wait_async(stream)?;
+        Ok(())
     }
 
     /// The stream a profiling window records its events into.
@@ -852,6 +1076,7 @@ impl CudaServer {
     fn launch_checked(
         &mut self,
         kernel_id: KernelId,
+        kernel: &CudaCompiledKernel,
         count: (u32, u32, u32),
         bindings: KernelArguments,
         stream_id: StreamId,
@@ -859,7 +1084,7 @@ impl CudaServer {
         let address_type = kernel_id.address_type;
         let grid_constants = self
             .ctx
-            .compilation_options
+            .compilation_options()
             .cpp
             .supports_features
             .grid_constants;
@@ -892,7 +1117,7 @@ impl CudaServer {
         // refine this to minimize allocations.
         let mut tensor_maps = Vec::new();
 
-        // Resolving is also where a dry run's deferred allocations get their
+        // Resolving is also where a discarded launch's deferred allocations get their
         // device backing, so this can fail on a device the measured plan does
         // not fit — reported, not panicked.
         for resource in bindings.resources.into_iter() {
@@ -917,7 +1142,7 @@ impl CudaServer {
         }
         resources.extend(info_const);
 
-        command.kernel(kernel_id, count, &mut resources)?;
+        command.kernel(&kernel_id, kernel, count, &mut resources)?;
 
         Ok(())
     }
@@ -1337,15 +1562,14 @@ fn check_tma_im2col(
     Ok(())
 }
 
-/// The two devices of a peer-to-peer transfer, sorted, and the group they name.
+/// The two devices of a peer-to-peer transfer, sorted.
 ///
 /// Sorted because a rank is a position: `send` and `recv` are the two sides of
 /// one transfer and have to agree on which device is which.
-fn pair(this: DeviceId, peer: DeviceId) -> (Vec<DeviceId>, CommunicationId) {
+fn pair(this: DeviceId, peer: DeviceId) -> Vec<DeviceId> {
     let mut devices = vec![this, peer];
     devices.sort();
-    let id = CommunicationId::from(devices.clone());
-    (devices, id)
+    devices
 }
 
 impl ServerStorage for CudaServer {

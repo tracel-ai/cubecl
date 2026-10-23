@@ -8,7 +8,10 @@ use std::{
 
 use cubecl_server::{
     server::Handle,
-    tune::{AutotuneBound, Bounds, CloneInputGenerator, ResourceBound, Tunable, TunableSet},
+    tune::{
+        AutotuneBound, Bounds, CloneInputGenerator, OrderedSettings, Patience, ResourceBound,
+        Tunable, TunableSet, TuneGroup,
+    },
 };
 
 use crate::dummy::{
@@ -38,6 +41,16 @@ pub fn addition_set(
     .with(Tunable::new("add_slow_wrong", move |inputs| {
         op_add_slow.run(inputs)
     }))
+}
+
+/// [`addition_set`] with a third candidate: the same key, under another candidate list.
+pub fn addition_set_with_another_candidate(
+    client: DummyClient,
+    shapes: Vec<Vec<usize>>,
+) -> TunableSet<String, Vec<Handle>, ()> {
+    let op_add =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+    addition_set(client, shapes).with(Tunable::new("add_again", move |inputs| op_add.run(inputs)))
 }
 
 /// What [`identified_addition_set`]'s tunables are identified by, and named by.
@@ -139,6 +152,93 @@ pub fn bounded_addition_set_slow_first(
             launch_overhead: Duration::ZERO,
         }
     }))
+}
+
+/// What a candidate of [`ranked_addition_set`] runs.
+#[derive(Clone, Copy)]
+pub enum RankedKernel {
+    /// The fast, correct addition: `out` reads `[4, 5, 6]`.
+    Add,
+    /// The slow addition that copies `lhs`: `out` reads `[0, 1, 2]`.
+    SlowWrong,
+    /// Rejects its configuration on every call.
+    Rejected,
+    /// The fast addition, failing from its call number `n` on.
+    FailsAfter(usize),
+}
+
+/// Where a candidate of [`ranked_addition_set`] sits.
+#[derive(Clone, Copy)]
+pub enum Membership {
+    /// In the ordered group, ranked by its place in the list.
+    Ranked,
+    /// In no group: it trails the batch.
+    Ungrouped,
+}
+
+/// One candidate of [`ranked_addition_set`], counting its calls in `calls`.
+#[derive(Clone)]
+pub struct RankedCandidate {
+    pub kernel: RankedKernel,
+    pub membership: Membership,
+    pub calls: Arc<AtomicUsize>,
+}
+
+/// An addition set whose [ranked](Membership::Ranked) candidates form one
+/// [ordered](TuneGroup::ordered) group with `patience`, best first in list order. `uid` keeps
+/// the key out of the persistent cache.
+pub fn ranked_addition_set(
+    client: DummyClient,
+    shapes: Vec<Vec<usize>>,
+    uid: String,
+    patience: Patience,
+    candidates: Vec<RankedCandidate>,
+) -> TestSet {
+    let group = TuneGroup::ordered(
+        "ranked",
+        |_| 1,
+        OrderedSettings::default().with_patience(patience),
+    );
+    let count = candidates.len();
+
+    let mut set = TestSet::new(
+        move |_input: &Vec<Handle>| format!("add_ranked-{uid}-{}", log_shape_input_key(&shapes)),
+        CloneInputGenerator,
+    );
+
+    for (place, candidate) in candidates.into_iter().enumerate() {
+        let RankedCandidate {
+            kernel,
+            membership,
+            calls,
+        } = candidate;
+        let add = OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseAddition),
+            client.clone(),
+        );
+        let slow = OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseAdditionSlowWrong),
+            client.clone(),
+        );
+
+        let tunable = Tunable::new(&format!("ranked-{place}"), move |inputs| {
+            let call = calls.fetch_add(1, Ordering::Relaxed);
+            match kernel {
+                RankedKernel::Add => add.run(inputs),
+                RankedKernel::SlowWrong => slow.run(inputs),
+                RankedKernel::Rejected => Err("unsupported by this device".to_string()),
+                RankedKernel::FailsAfter(n) if call >= n => Err("failed late".to_string()),
+                RankedKernel::FailsAfter(_) => add.run(inputs),
+            }
+        });
+        let priority = (count - place) as i8;
+        set = set.with(match membership {
+            Membership::Ranked => tunable.group(&group, move |_| priority),
+            Membership::Ungrouped => tunable,
+        });
+    }
+
+    set
 }
 
 pub fn log_shape_input_key(shapes: &[Vec<usize>]) -> String {
@@ -265,6 +365,34 @@ pub fn addition_set_with_rejected_candidate(
     )
     .with(Tunable::new("add_rejected", move |_inputs| {
         calls.fetch_add(1, Ordering::Relaxed);
+        Result::<(), String>::Err("unsupported by this device".to_string())
+    }))
+    .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
+}
+
+/// [`addition_set_with_rejected_candidate`], where the rejection also stops the device from
+/// profiling: the rejecting candidate's function runs and rejects the problem, then the correct
+/// `add` runs unmeasured, the way a round goes when memory runs out partway through it. A round
+/// over it measures nothing, so the tuner has to decide on something it did not time.
+pub fn addition_set_rejected_then_unmeasured(
+    client: DummyClient,
+    shapes: Vec<Vec<usize>>,
+    uid: String,
+) -> TestSet {
+    let op_add =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+
+    TestSet::new(
+        move |_input: &Vec<Handle>| {
+            format!(
+                "add_rejected_unmeasured-{uid}-{}",
+                log_shape_input_key(&shapes)
+            )
+        },
+        CloneInputGenerator,
+    )
+    .with(Tunable::new("add_rejected", move |_inputs| {
+        crate::dummy::REFUSE_PROFILES.store(true, Ordering::Relaxed);
         Result::<(), String>::Err("unsupported by this device".to_string())
     }))
     .with(Tunable::new("add", move |inputs| op_add.run(inputs)))

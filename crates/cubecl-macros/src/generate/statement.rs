@@ -1,5 +1,5 @@
 use proc_macro2::{Span, TokenStream};
-use quote::{quote, quote_spanned};
+use quote::{format_ident, quote, quote_spanned};
 use syn::{Token, Type, spanned::Spanned};
 
 use crate::{
@@ -88,15 +88,19 @@ impl Statement {
                     DefineKind::Type => prelude_type("define_scalar"),
                     DefineKind::Size => prelude_type("define_size"),
                 };
+                // A definition, of a type or a size, lasts to the end of its block.
+                let definition = format_ident!("__{}_definition", name.to_string().to_lowercase());
                 let register = match kind {
-                    DefineKind::Size => quote![register_size],
-                    DefineKind::Type => quote![register_type],
+                    DefineKind::Size => {
+                        quote![let #definition = scope.define_size::<#name>(#value);]
+                    }
+                    DefineKind::Type => {
+                        quote![let #definition = scope.define_type::<#name>(#value);]
+                    }
                 };
                 quote! {
                     #define_func!(#name);
-                    {
-                        scope.#register::<#name>(#value);
-                    }
+                    #register
                 }
             }
             Statement::Expression {

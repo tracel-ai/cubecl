@@ -15,10 +15,10 @@ use cubecl_environment::backtrace::BackTrace;
 pub enum PageMapping {
     /// Allocate device memory now.
     ///
-    /// The answer whenever the allocation will be used, which outside a dry
-    /// run is all of them: a reservation becomes a kernel argument, a read or
-    /// a write within microseconds, so deferring it buys nothing — and gives
-    /// up the reservation-time failure the backends can still recover
+    /// The answer whenever the allocation will be used, which unless launches
+    /// are discarded is all of them: a reservation becomes a kernel argument, a
+    /// read or a write within microseconds, so deferring it buys nothing — and
+    /// gives up the reservation-time failure the backends can still recover
     /// (`Command::reserve` retries after reclaiming the stream), the pure
     /// lookup that keeps resolution infallible on the launch paths, and the
     /// guarantee that a capture window never allocates once recording starts.
@@ -29,24 +29,33 @@ pub enum PageMapping {
     /// behind it and the page's device footprint is zero.
     ///
     /// For the one case where the allocation may never be used: under a
-    /// [`DryRun`](crate::dry_run::DryRun) the workload's launches are compiled
-    /// and dropped, so most reservations are never resolved and never need to
-    /// exist. That is what lets a workload far larger than the device replay
-    /// its allocation stream — the pools still measure it, and only what
-    /// genuinely executes (a tuning pass, which resolves because it runs)
-    /// costs real memory.
+    /// [process mode](crate::execution::ProcessMode) that discards launches, the
+    /// workload's launches are compiled and discarded, so most reservations are
+    /// never resolved and never need to exist. That is what lets a workload far
+    /// larger than the device replay its allocation stream — the pools still
+    /// measure it, and only what genuinely executes (a tuning pass, which
+    /// resolves because it runs) costs real memory.
     Lazy,
 }
 
-impl PageMapping {
-    /// The mapping allocations made on this thread, right now, should get:
-    /// [`Lazy`](Self::Lazy) under a [`DryRun`](crate::dry_run::DryRun),
-    /// [`Eager`](Self::Eager) everywhere else.
-    pub fn current() -> Self {
-        match crate::dry_run::dry_run() {
-            true => PageMapping::Lazy,
-            false => PageMapping::Eager,
+impl From<crate::execution::ProcessMode> for PageMapping {
+    /// [`Lazy`](Self::Lazy) under a process mode whose streams discard their
+    /// launches, [`Eager`](Self::Eager) otherwise: a stream that executes
+    /// while the process mode discards is a measurement, which resolves what it
+    /// uses because it runs.
+    fn from(mode: crate::execution::ProcessMode) -> Self {
+        match mode.stream_mode() {
+            crate::execution::StreamMode::Discard => Self::Lazy,
+            crate::execution::StreamMode::Execute => Self::Eager,
         }
+    }
+}
+
+impl PageMapping {
+    /// The mapping allocations made in this process, right now, should get:
+    /// what the [process mode](crate::execution::ProcessMode) in force asks.
+    pub fn current() -> Self {
+        Self::from(crate::execution::ProcessMode::current())
     }
 
     /// A storage handle for `size` bytes honoring this mapping: a real device

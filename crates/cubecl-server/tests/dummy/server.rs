@@ -4,12 +4,13 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{
-    AddressType, DeviceIdentity, DeviceProperties, ElemType, HardwareProperties,
+    AddressType, DeviceIdentity, DeviceProperties, ElemType, FloatKind, HardwareProperties,
     MemoryDeviceProperties, TargetProperties, UIntKind, VectorSize,
     features::Features,
     metadata::Info,
     settings::{Dim3, ExecutionMode, KernelSettings},
 };
+use cubecl_server::driver::DevicePoison;
 use cubecl_server::memory_management::{Cleanup, PageUpdate};
 use cubecl_server::server::ServerStorage;
 use cubecl_server::{
@@ -21,8 +22,9 @@ use cubecl_server::{
         Claim, ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement,
     },
     server::{
-        BufferBinding, CopyDescriptor, CubeCount, Handle, KernelArguments, KernelResource,
-        ProfileError, ProfilingToken, Server, ServerCommunication, ServerError, ServerUtilities,
+        BufferBinding, CopyDescriptor, CubeCount, DeviceTransport, Handle, KernelArguments,
+        KernelResource, ProfileError, ProfilingToken, Server, ServerCommunication, ServerError,
+        ServerUtilities,
     },
     storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
     timestamp_profiler::TimestampProfiler,
@@ -35,6 +37,16 @@ use std::sync::Arc;
 /// `serial`.
 pub static REFUSE_PROFILES: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
+
+/// Makes the server behave as a lost device while set: syncs report the poisoning and nothing
+/// can be profiled. Process-wide, so tests that flip it run `serial`.
+pub static POISONED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+fn poisoned() -> Option<ServerError> {
+    POISONED
+        .load(core::sync::atomic::Ordering::Relaxed)
+        .then(|| DevicePoison::new("this test server was told it is poisoned").into())
+}
 
 /// The dummy server is used to test the cubecl-runtime infrastructure.
 /// It uses simple memory management with a bytes storage on CPU, without asynchronous tasks.
@@ -57,13 +69,34 @@ pub struct DummyServer<M = ()> {
     failures: ErrorGraph,
 }
 
-/// What a [`DummyServer`]'s marker has to be: nothing but a distinct type.
-pub trait Marker: Send + Sync + core::fmt::Debug + 'static {}
-impl<M: Send + Sync + core::fmt::Debug + 'static> Marker for M {}
+/// What a [`DummyServer`]'s marker has to be: a distinct type, and the transport its runtime
+/// claims between its devices.
+pub trait Marker: Send + Sync + core::fmt::Debug + 'static {
+    fn device_transport() -> Option<DeviceTransport> {
+        None
+    }
+}
+
+impl Marker for () {}
 
 /// A marker for a second dummy runtime, distinct from the default one.
 #[derive(Debug)]
 pub enum Other {}
+
+impl Marker for Other {}
+
+/// A marker for a dummy runtime that claims a transport reducing `f32`, so a collective reaches
+/// the checks that refuse it on the caller. Nothing behind it moves data.
+#[derive(Debug)]
+pub enum Transported {}
+
+impl Marker for Transported {
+    fn device_transport() -> Option<DeviceTransport> {
+        Some(DeviceTransport {
+            reduces: [ElemType::Float(FloatKind::F32)].into(),
+        })
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct KernelTask {
@@ -197,8 +230,10 @@ impl<M: Marker> Server for DummyServer<M> {
         handles: Vec<BufferBinding>,
         _stream_id: StreamId,
     ) -> DynFut<Result<(), ServerError>> {
-        // The claim check a read would have made, without the read. There is
-        // no device to fault here, so the barrier itself never fails.
+        if let Some(poison) = poisoned() {
+            return Box::pin(async move { Err(poison) });
+        }
+        // The claim check a read would have made, without the read.
         let result = self.ensure_written(handles.iter());
         Box::pin(async move { result })
     }
@@ -209,7 +244,7 @@ impl<M: Marker> Server for DummyServer<M> {
         _count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
-        launch_mode: cubecl_server::dry_run::LaunchMode,
+        launch_mode: cubecl_server::execution::LaunchMode,
     ) {
         let kernel = (&*kernel as &dyn core::any::Any)
             .downcast_ref::<KernelTask>()
@@ -224,7 +259,7 @@ impl<M: Marker> Server for DummyServer<M> {
                 // readable for whatever launches next on them.
                 let error = ServerError::from(cubecl_server::server::LaunchError::from(err));
                 self.timestamps.failure(&error);
-                if !launch_mode.is_skipped() {
+                if !launch_mode.discards_launch() {
                     let written: Vec<_> = bindings.buffers_written(None).cloned().collect();
                     self.taint(error, written.iter());
                 }
@@ -234,8 +269,8 @@ impl<M: Marker> Server for DummyServer<M> {
 
         // Compiled above, exactly as a real server does — and, exactly as a
         // real server does, a skipped launch stops before anything touches a
-        // buffer, so a dry run's lazily-carved allocations stay unmapped.
-        if launch_mode.is_skipped() {
+        // buffer, so a discarded launch's lazily-carved allocations stay unmapped.
+        if launch_mode.discards_launch() {
             return;
         }
 
@@ -326,6 +361,9 @@ impl<M: Marker> Server for DummyServer<M> {
     }
 
     fn start_profile(&mut self, _stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
+        if let Some(poison) = poisoned() {
+            return Err(poison);
+        }
         if REFUSE_PROFILES.load(core::sync::atomic::Ordering::Relaxed) {
             return Err(ServerError::Generic {
                 reason: "this test server was told to refuse profiles".into(),
@@ -391,7 +429,7 @@ impl<M: Marker> DummyServer<M> {
         let logger = Arc::new(ServerLogger::default());
 
         // No graph capture on this backend: nothing updates the captures.
-        let (utilities, _captures) = ServerUtilities::init(
+        let (mut utilities, _captures) = ServerUtilities::init(
             service,
             "dummy",
             props,
@@ -399,6 +437,7 @@ impl<M: Marker> DummyServer<M> {
             logger,
             ContiguousMemoryLayoutPolicy::new(4),
         );
+        utilities.device_transport = M::device_transport();
         let utilities = Arc::new(utilities);
 
         Self {

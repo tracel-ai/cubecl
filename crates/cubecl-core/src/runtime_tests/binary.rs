@@ -385,6 +385,187 @@ test_powi_impl!(
 );
 
 #[cube(launch_unchecked)]
+fn test_powi_square_kernel<F: Float, N: Size>(
+    input: &[Vector<F, N>],
+    exponents: &[Vector<i32, N>],
+    literal: &mut [Vector<F, N>],
+    dynamic: &mut [Vector<F, N>],
+    multiplied: &mut [Vector<F, N>],
+) {
+    if ABSOLUTE_POS < input.len() {
+        let x = input[ABSOLUTE_POS];
+        literal[ABSOLUTE_POS] = x.powi(Vector::new(2));
+        dynamic[ABSOLUTE_POS] = x.powi(exponents[ABSOLUTE_POS]);
+        multiplied[ABSOLUTE_POS] = x * x;
+    }
+}
+
+/// Squaring must use multiplication's accuracy even with a vector or runtime exponent.
+pub fn test_powi_square<R: Runtime, F: Float + num_traits::Float + CubeElement + Display>(
+    client: Client,
+) {
+    let input = as_type![F: 0.5, -0.5, 10., -10., 0.1, -0.1, 1.1, -1.1, 0., -0., 1.5, -1.5];
+    for lanes in [1, 2, 4] {
+        let lhs = client.create_from_slice(F::as_bytes(input));
+        let rhs = client.create_from_slice(i32::as_bytes(&[2; 12]));
+        let outputs = [(); 3].map(|_| client.empty(size_of_val(input)));
+        unsafe {
+            test_powi_square_kernel::launch_unchecked::<F>(
+                &client,
+                CubeCount::new_single(),
+                CubeDim::new_1d((input.len() / lanes) as u32),
+                lanes,
+                BufferArg::from_raw_parts(lhs, input.len()),
+                BufferArg::from_raw_parts(rhs, input.len()),
+                BufferArg::from_raw_parts(outputs[0].clone(), input.len()),
+                BufferArg::from_raw_parts(outputs[1].clone(), input.len()),
+                BufferArg::from_raw_parts(outputs[2].clone(), input.len()),
+            );
+        }
+        let expected = client
+            .read_one(outputs[2].clone())
+            .expect("multiply completed");
+        let expected = F::from_bytes(&expected);
+        // A failed launch returning an unwritten buffer must not make all three agree.
+        assert_eq!(expected[0], F::new(0.25));
+        assert_equals_exact::<F>(&client, outputs[0].clone(), expected);
+        assert_equals_exact::<F>(&client, outputs[1].clone(), expected);
+    }
+}
+
+/// Exact powers of two and signs isolate exponent handling from rounding tolerances.
+pub fn test_powi_exponents<R: Runtime, F: Float + num_traits::Float + CubeElement + Display>(
+    client: Client,
+) {
+    let lhs = as_type![F: 0., 2., -2., -2., 2., -2., -1., -1., -1., -1., 1., -1.];
+    let rhs = [
+        0,
+        0,
+        3,
+        4,
+        -3,
+        -3,
+        16_777_217,
+        -16_777_217,
+        i32::MIN,
+        i32::MAX,
+        i32::MIN,
+        -2,
+    ];
+    let expected = as_type![F: 1., 1., -8., 16., 0.125, -0.125, -1., -1., 1., -1., 1., 1.];
+    for lanes in [1, 2, 4] {
+        let lhs_handle = client.create_from_slice(F::as_bytes(lhs));
+        let rhs_handle = client.create_from_slice(i32::as_bytes(&rhs));
+        let output = client.empty(size_of_val(expected));
+        unsafe {
+            test_powi_kernel::launch_unchecked::<F>(
+                &client,
+                CubeCount::new_single(),
+                CubeDim::new_1d((lhs.len() / lanes) as u32),
+                lanes,
+                BufferArg::from_raw_parts(lhs_handle, lhs.len()),
+                BufferArg::from_raw_parts(rhs_handle, rhs.len()),
+                BufferArg::from_raw_parts(output.clone(), expected.len()),
+            );
+        }
+        assert_equals_exact::<F>(&client, output, expected);
+    }
+}
+
+#[cube(launch_unchecked)]
+fn test_powi_constant_kernel<F: Float, N: Size>(
+    input: &[Vector<F, N>],
+    output: &mut [Vector<F, N>],
+    #[comptime] exponent: i32,
+) {
+    if ABSOLUTE_POS < input.len() {
+        output[ABSOLUTE_POS] = input[ABSOLUTE_POS].powi(Vector::new(exponent));
+    }
+}
+
+/// Taking the reciprocal before exponentiation amplifies its rounding error near one.
+pub fn test_powi_negative_near_one<R: Runtime>(client: Client) {
+    let base = f32::from_bits(0x3f7f_ffff);
+    let input = [base, -base, base, -base];
+    for exponent in [-3, -16_777_216, -1_073_741_824] {
+        let exponents = [exponent, exponent, -exponent, -exponent];
+        let expected_dynamic: [f32; 4] =
+            core::array::from_fn(|i| (input[i] as f64).powi(exponents[i]) as f32);
+        let expected_constant = input.map(|x| (x as f64).powi(exponent) as f32);
+        for lanes in [1, 2, 4] {
+            let input_handle = client.create_from_slice(f32::as_bytes(&input));
+            let exponents_handle = client.create_from_slice(i32::as_bytes(&exponents));
+            let dynamic = client.empty(size_of_val(&input));
+            let constant = client.empty(size_of_val(&input));
+            unsafe {
+                test_powi_kernel::launch_unchecked::<f32>(
+                    &client,
+                    CubeCount::new_single(),
+                    CubeDim::new_1d((input.len() / lanes) as u32),
+                    lanes,
+                    BufferArg::from_raw_parts(input_handle.clone(), input.len()),
+                    BufferArg::from_raw_parts(exponents_handle, exponents.len()),
+                    BufferArg::from_raw_parts(dynamic.clone(), input.len()),
+                );
+                test_powi_constant_kernel::launch_unchecked::<f32>(
+                    &client,
+                    CubeCount::new_single(),
+                    CubeDim::new_1d((input.len() / lanes) as u32),
+                    lanes,
+                    BufferArg::from_raw_parts(input_handle, input.len()),
+                    BufferArg::from_raw_parts(constant.clone(), input.len()),
+                    exponent,
+                );
+            }
+            // Repeated f32 squaring itself accumulates error for these exponents.
+            // Check relative error even for the tiny positive-power controls.
+            for (output, expected) in [(dynamic, expected_dynamic), (constant, expected_constant)] {
+                let bytes = client.read_one(output).expect("powi completed");
+                for (&actual, expected) in f32::from_bytes(&bytes).iter().zip(expected) {
+                    let relative_error =
+                        ((actual as f64 - expected as f64) / expected as f64).abs();
+                    assert!(
+                        relative_error < 0.01,
+                        "exponent={exponent}, lanes={lanes}: expected {expected}, got {actual}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+pub fn test_powi_constants<R: Runtime, F: Float + num_traits::Float + CubeElement + Display>(
+    client: Client,
+) {
+    for exponent in [0, 1, 2, 3, -1, -3, 16_777_217, i32::MIN] {
+        let input = if exponent == 0 {
+            as_type![F: 0., -1., 0.5, 2.]
+        } else if exponent.unsigned_abs() > 3 {
+            as_type![F: -1., 1., -1., 1.]
+        } else {
+            as_type![F: -2., -1., 0.5, 2.]
+        };
+        let expected = input.map(|x| num_traits::Float::powi(x, exponent));
+        for lanes in [1, 2, 4] {
+            let input_handle = client.create_from_slice(F::as_bytes(input));
+            let output = client.empty(size_of_val(input));
+            unsafe {
+                test_powi_constant_kernel::launch_unchecked::<F>(
+                    &client,
+                    CubeCount::new_single(),
+                    CubeDim::new_1d((input.len() / lanes) as u32),
+                    lanes,
+                    BufferArg::from_raw_parts(input_handle, input.len()),
+                    BufferArg::from_raw_parts(output.clone(), input.len()),
+                    exponent,
+                );
+            }
+            assert_equals_exact::<F>(&client, output, &expected);
+        }
+    }
+}
+
+#[cube(launch_unchecked)]
 fn signed_remainder_kernel<I: Int, N: Size>(
     lhs: &[Vector<I, N>],
     rhs: &[Vector<I, N>],
@@ -834,6 +1015,98 @@ pub fn test_dp4a<R: Runtime>(client: Client) {
     assert_eq!(i32::from_bytes(&actual), expected);
 }
 
+/// A runtime operand must not be rewritten through a constant zero or a
+/// reflexive identity. Each of these was a partial fold in the float dialect:
+/// `v % 1.0` is `0.5` for `2.5` (not `v`), `v - v` is `NaN` for `NaN` and
+/// infinity (not `+0`), `0.0 / v` is `NaN` for `v = 0`, and `v * 0.0` keeps the
+/// sign of `v`.
+pub fn test_ieee_constant_folds<R: Runtime>(client: Client) {
+    #[cube(launch_unchecked)]
+    fn folds<F: Float>(x: &[F], out: &mut [F]) {
+        if ABSOLUTE_POS < x.len() {
+            let v = x[ABSOLUTE_POS];
+            out[ABSOLUTE_POS * 6] = v % F::new(1.0);
+            out[ABSOLUTE_POS * 6 + 1] = v - v;
+            out[ABSOLUTE_POS * 6 + 2] = F::new(0.0) / v;
+            out[ABSOLUTE_POS * 6 + 3] = v * F::new(0.0);
+            out[ABSOLUTE_POS * 6 + 4] = F::new(0.0) + v;
+            out[ABSOLUTE_POS * 6 + 5] = F::new(0.0) % v;
+        }
+    }
+
+    // Not on wgpu: the shader still carries every one of these operations, but WGSL lets an
+    // implementation assume no NaN or infinity arises and ignore the sign of a zero, and so do
+    // Vulkan and Metal unless the shader opts into preserving them, which wgpu does not. The
+    // shader compilers fold under that latitude (`NaN - NaN` and `0 / 0` read back as `0`,
+    // `-4 * 0` as `+0`). What this test guards — that cubecl's own IR does not fold them —
+    // holds on every backend; the results wgpu does promise are still checked there. The
+    // runtime name says which backend, whatever compiler it picked.
+    let strict_ieee = !client.name().starts_with("wgpu");
+
+    macro_rules! check {
+        ($ty: ty) => {{
+            use cubecl_ir::features::TypeUsage;
+            let uses = <$ty>::supported_uses(&client);
+            if uses.contains(TypeUsage::Arithmetic) && uses.contains(TypeUsage::Buffer) {
+                let cases: [$ty; 7] = [2.5, 4.0, -4.0, 0.0, <$ty>::NAN, <$ty>::INFINITY, -0.0];
+                let input = client.create_from_slice(<$ty>::as_bytes(&cases));
+                let out = client.empty(cases.len() * 6 * core::mem::size_of::<$ty>());
+                unsafe {
+                    folds::launch_unchecked::<$ty>(
+                        &client,
+                        CubeCount::Static(1, 1, 1),
+                        CubeDim::new_1d(cases.len() as u32),
+                        BufferArg::from_raw_parts(input, cases.len()),
+                        BufferArg::from_raw_parts(out.clone(), cases.len() * 6),
+                    );
+                }
+                let bytes = client.read_one_unchecked(out);
+                let actual = <$ty>::from_bytes(&bytes);
+                let at = |case: usize, lane: usize| actual[case * 6 + lane];
+
+                // `v % 1.0` is the remainder, not `v`.
+                assert!((at(0, 0) - 0.5 as $ty).abs() <= <$ty>::EPSILON * 4.0);
+                assert_eq!(at(1, 0), 0.0 as $ty);
+                // `fmod(inf, 1)` and `fmod(NaN, 1)` are NaN.
+                if strict_ieee {
+                    assert!(at(4, 0).is_nan(), "fmod(NaN, 1)");
+                    assert!(at(5, 0).is_nan(), "fmod(inf, 1)");
+                }
+
+                // `v - v` is `+0` for finite values and NaN for NaN/infinity.
+                assert_eq!(at(0, 1), 0.0 as $ty);
+                if strict_ieee {
+                    assert!(at(4, 1).is_nan(), "NaN - NaN");
+                    assert!(at(5, 1).is_nan(), "inf - inf");
+                }
+
+                // `0.0 / v` is NaN for `v = 0`, not `+0`.
+                if strict_ieee {
+                    assert!(at(3, 2).is_nan(), "0 / 0");
+                }
+
+                // `v * 0.0` carries the sign of `v`.
+                if strict_ieee {
+                    assert_eq!(at(2, 3).to_bits(), (-0.0 as $ty).to_bits(), "-4 * 0");
+                }
+                assert_eq!(at(0, 3), 0.0 as $ty);
+
+                // `0.0 + v` is `+0` for both zeros: `+0.0 + -0.0` is `+0.0`.
+                assert_eq!(at(3, 4), 0.0 as $ty);
+                if strict_ieee {
+                    assert_eq!(at(6, 4).to_bits(), (0.0 as $ty).to_bits(), "+0 + -0");
+                }
+                // `0.0 % v` is NaN for `v = 0`.
+                if strict_ieee {
+                    assert!(at(3, 5).is_nan(), "0 % 0");
+                }
+            }
+        }};
+    }
+    check!(f32);
+    check!(f64);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_binary {
@@ -858,6 +1131,9 @@ macro_rules! testgen_binary {
             add_test!(test_hypot);
             add_test!(test_rhypot);
             add_test!(test_powi);
+            add_test!(test_powi_square);
+            add_test!(test_powi_exponents);
+            add_test!(test_powi_constants);
             add_test!(test_max);
             add_test!(test_min);
             add_test!(test_atan2);
@@ -924,8 +1200,15 @@ macro_rules! testgen_binary_untyped {
             add_test!(test_mulhi);
             add_test!(test_dp4a);
             add_test!(test_powi_int);
+            add_test!(test_powi_negative_near_one);
             add_test!(test_signed_remainder);
             add_test!(test_self_div);
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_ieee_constant_folds() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::binary::test_ieee_constant_folds::<TestRuntime>(client);
+            }
         }
     };
 }
