@@ -3195,18 +3195,34 @@ fn check_looked_up_copy(bits: usize, width: usize) {
     }
 }
 
-/// Every line of `input` read into registers decoded, a unit a line, and stored in `output`.
+/// How [`decoded_lines`] reads each line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum LineRead {
+    /// Masked where it overhangs the operand ([`Decoded::read`](cubecl_tile::kind::Decoded::read)).
+    Masked,
+    /// Untested, the kernel having tested it ([`Decoded::read_unchecked`](cubecl_tile::kind::Decoded::read_unchecked)).
+    Untested,
+}
+
+/// Every line of `input`, `lines` a row, read into registers decoded, a unit a line, and stored
+/// in `output`.
 #[cube(launch)]
 fn decoded_lines<N: Size>(
     input: &TileArg<'_>,
     output: &mut Tensor<Vector<f32, N>>,
     space: Partitioning,
+    #[comptime] lines: usize,
+    #[comptime] read: LineRead,
 ) {
     let input = input.tile(&space);
-    let lines = input.decoded::<f32, N>();
-    let line = ABSOLUTE_POS;
-    if line < output.len() {
-        output[line] = lines.read(line);
+    let decoded = input.decoded::<f32, N>();
+    let at = ABSOLUTE_POS;
+    let (row, line) = (at / lines, at % lines);
+    if at < output.len() {
+        output[at] = match comptime!(read) {
+            LineRead::Masked => decoded.read(row, line),
+            LineRead::Untested => decoded.read_unchecked(row, line),
+        };
     }
 }
 
@@ -3216,13 +3232,18 @@ fn decoded_lines<N: Size>(
 /// spans (16-bit indices, two a word, four a line, on a device whose vectors stop at four).
 #[test]
 fn a_decoded_read_of_looked_up_fields_matches_the_copy() {
-    check_decoded_lines(8, 4);
-    check_decoded_lines(4, 4);
-    check_decoded_lines(2, 4);
-    check_decoded_lines(4, 2);
-    check_decoded_lines(16, 4);
-    check_decoded_lines(8, 8);
-    check_decoded_lines(4, 16);
+    for (bits, width) in [(8, 4), (4, 4), (2, 4), (4, 2), (16, 4), (8, 8), (4, 16)] {
+        check_decoded_lines(bits, width, LineRead::Masked);
+    }
+}
+
+/// **A line the kernel tested itself reads the same untested.** The read skips the bounds test
+/// it would repeat, and decodes the same values.
+#[test]
+fn an_untested_decoded_read_matches_the_masked_one() {
+    for (bits, width) in [(8, 4), (2, 4), (16, 4)] {
+        check_decoded_lines(bits, width, LineRead::Untested);
+    }
 }
 
 /// **A unit reads integer fields into its registers decoded, with no table.** Signed 4-bit values,
@@ -3285,6 +3306,8 @@ fn a_decoded_read_of_integer_fields_scales_them() {
         input,
         output.clone().binding().into_tensor_arg(),
         uncut(&client, &space, &space).partitioning_arg(),
+        cols / width,
+        LineRead::Masked,
     );
 
     let got = HostData::from_tensor_handle(&client, output, HostDataType::F32);
@@ -3300,8 +3323,8 @@ fn a_decoded_read_of_integer_fields_scales_them() {
     }
 }
 
-/// `table[index] ⊗ scale[row]` for `bits`-wide indices, read `width` values a line.
-fn check_decoded_lines(bits: usize, width: usize) {
+/// `table[index] ⊗ scale[row]` for `bits`-wide indices, read `width` values a line as `read` says.
+fn check_decoded_lines(bits: usize, width: usize, read: LineRead) {
     let (rows, cols) = (4, 64);
     let factor = 32 / bits;
     let entries = 1usize << bits;
@@ -3377,6 +3400,8 @@ fn check_decoded_lines(bits: usize, width: usize) {
         input,
         output.clone().binding().into_tensor_arg(),
         uncut(&client, &space, &space).partitioning_arg(),
+        cols / width,
+        read,
     );
 
     let got = HostData::from_tensor_handle(&client, output, HostDataType::F32);

@@ -9,23 +9,42 @@ use cubecl_std::tensor::layout::Coords1d;
 
 use crate::*;
 
-/// The lines of a tile's window at `O`, `W` values a line, counted row-major as
-/// [`flat`](Tile::flat) counts them, each read decoded ([`Tile::decoded`]).
+/// The lines of a tile's window at `O`, `W` values a line, each read decoded ([`Tile::decoded`]).
+///
+/// A line is named by its row, the window's lines grouped by every axis but the innermost and
+/// counted row-major, and its place in the row. Every line of a row shares the row's address and
+/// scale, so a reader taking several lines of one row computes them once.
 pub struct Decoded<'a, O: Float, W: Size> {
     _lines: PhantomData<(&'a (), O, W)>,
 }
 
 /// How a [`Decoded`] read is served, settled as the kernel expands.
 pub enum DecodedExpand<'a, O: Float, W: Size> {
-    /// Plain values under no scale: read as they lie, as [`flat`](Tile::flat) reads them.
-    Plain(MaskedExpand<'a, Vector<O, W>, Coords1d>),
+    /// Plain values under no scale: read as they lie, as [`flat`](Tile::flat) reads them, a row
+    /// `lines` long.
+    Plain {
+        values: MaskedExpand<'a, Vector<O, W>, Coords1d>,
+        lines: usize,
+    },
     /// Packed values: the window, its words unpacked, looked up and scaled at each read.
     Packed(Box<TileExpand>),
 }
 
 impl<O: Float, W: Size> Decoded<'_, O, W> {
-    /// The `line`-th line of the window.
-    pub fn read(&self, _line: usize) -> Vector<O, W> {
+    /// The `line`-th line of row `row`, masked where it overhangs the operand.
+    pub fn read(&self, _row: usize, _line: usize) -> Vector<O, W> {
+        unexpanded!()
+    }
+
+    /// The `line`-th line of row `row`, untested: the reader proved it in bounds, so reading past
+    /// them is out of bounds, not masked. What a reader that tests each line itself takes, so the
+    /// read does not test it again.
+    ///
+    /// # Panics
+    ///
+    /// As the kernel expands, on a window with a [`Boundary::Clamp`](crate::kind::Boundary::Clamp)
+    /// axis, whose reads must be clamped.
+    pub fn read_unchecked(&self, _row: usize, _line: usize) -> Vector<O, W> {
         unexpanded!()
     }
 }
@@ -34,11 +53,41 @@ impl<O: Float, W: Size> DecodedExpand<'_, O, W> {
     pub fn __expand_read_method(
         &self,
         scope: &Scope,
+        row: NativeExpand<usize>,
         line: NativeExpand<usize>,
     ) -> NativeExpand<Vector<O, W>> {
+        self.read(scope, row, line, Guard::Checked)
+    }
+
+    pub fn __expand_read_unchecked_method(
+        &self,
+        scope: &Scope,
+        row: NativeExpand<usize>,
+        line: NativeExpand<usize>,
+    ) -> NativeExpand<Vector<O, W>> {
+        if let DecodedExpand::Packed(window) = self {
+            assert!(
+                window.__expand_guard_provable_method(scope),
+                "Decoded::read_unchecked: a clamped window's reads are clamped, never untested"
+            );
+        }
+        self.read(scope, row, line, Guard::Proved)
+    }
+
+    fn read(
+        &self,
+        scope: &Scope,
+        row: NativeExpand<usize>,
+        line: NativeExpand<usize>,
+        guard: Guard,
+    ) -> NativeExpand<Vector<O, W>> {
         match self {
-            DecodedExpand::Plain(values) => values.__expand_read_method(scope, line),
-            DecodedExpand::Packed(window) => read_packed_line::expand::<O, W>(scope, window, line),
+            DecodedExpand::Plain { values, lines } => {
+                read_plain_line::expand::<O, W>(scope, values, row, line, *lines, guard)
+            }
+            DecodedExpand::Packed(window) => {
+                read_packed_line::expand::<O, W>(scope, window, row, line, guard)
+            }
         }
     }
 }
@@ -57,7 +106,10 @@ impl<O: Float, W: Size> IntoExpand for DecodedExpand<'_, O, W> {
 impl<O: Float, W: Size> ExpandTypeClone for DecodedExpand<'_, O, W> {
     fn clone_unchecked(&self) -> Self {
         match self {
-            DecodedExpand::Plain(values) => DecodedExpand::Plain(values.clone_unchecked()),
+            DecodedExpand::Plain { values, lines } => DecodedExpand::Plain {
+                values: values.clone_unchecked(),
+                lines: *lines,
+            },
             DecodedExpand::Packed(window) => DecodedExpand::Packed(window.clone()),
         }
     }
@@ -84,11 +136,10 @@ impl<O: Float, W: Size> AsMutExpand for DecodedExpand<'_, O, W> {
 }
 
 impl Tile {
-    /// This tile's window read into registers a line at a time, `W` values a line counted
-    /// row-major as [`flat`](Tile::flat) counts them, each served at `O` decoded as
-    /// [`dequantize_from`](Tile::dequantize_from) writes it: its fields unpacked, looked up in
-    /// the table they index, under the scales they carry. What a unit reading the lines it needs
-    /// straight out of memory takes, with no stage to decode into.
+    /// This tile's window read into registers a line at a time, `W` values a line, each served
+    /// at `O` decoded as [`dequantize_from`](Tile::dequantize_from) writes it: its fields
+    /// unpacked, looked up in the table they index, under the scales they carry. What a unit
+    /// reading the lines it needs straight out of memory takes, with no stage to decode into.
     ///
     /// Plain values under no scale read as [`flat`](Tile::flat) reads them. Packed values are read
     /// a word a load, so they are bound one word wide; a line takes the words it spans, or the
@@ -115,18 +166,44 @@ impl TileExpand {
                     "Tile::decoded: plain values under scales are decoded by a copy \
                      (`dequantize_from`)"
                 );
-                DecodedExpand::Plain(self.__expand_flat_method::<O, W>(scope))
+                let space = &self.place.space;
+                let row = space.extent_at(space.rank() - 1);
+                DecodedExpand::Plain {
+                    values: self.__expand_flat_method::<O, W>(scope),
+                    lines: row / W::__expand_value(scope),
+                }
             }
             Packing::Packed { .. } => DecodedExpand::Packed(Box::new(self.clone())),
         }
     }
 }
 
-/// The `line`-th line of a packed `window`, `W` values from its row-major start: the words it
-/// spans, or the fields it needs of one, each field looked up in the table it indexes where it
-/// has one, and the line multiplied by its scale in `f32`, rounded to `O` once.
+/// The `line`-th line of row `row` of plain `values`, `lines` a row, read under `guard`.
 #[cube]
-fn read_packed_line<O: Float, W: Size>(window: &Tile, line: usize) -> Vector<O, W> {
+fn read_plain_line<O: Float, W: Size>(
+    values: &Masked<'_, Vector<O, W>, Coords1d>,
+    row: usize,
+    line: usize,
+    #[comptime] lines: usize,
+    #[comptime] guard: Guard,
+) -> Vector<O, W> {
+    match comptime!(guard) {
+        Guard::Checked => values.read(row * lines + line),
+        Guard::Proved => values.read_unchecked(row * lines + line),
+    }
+}
+
+/// The `line`-th line of row `row` of a packed `window`, `W` values from the row's start: the
+/// words it spans, or the fields it needs of one, each field looked up in the table it indexes
+/// where it has one, and the line multiplied by its scale in `f32`, rounded to `O` once. Its
+/// words are read under `guard`.
+#[cube]
+fn read_packed_line<O: Float, W: Size>(
+    window: &Tile,
+    row: usize,
+    line: usize,
+    #[comptime] guard: Guard,
+) -> Vector<O, W> {
     let space = comptime!(window.place.space.clone());
     let rank = comptime!(space.rank());
     let along = comptime!(space.axis_at(rank - 1));
@@ -157,13 +234,18 @@ fn read_packed_line<O: Float, W: Size>(window: &Tile, line: usize) -> Vector<O, 
     let mem = window.mem("Tile::decoded");
     let looks_up = mem.codebook.present();
     let scaled = window.factor.scaled();
-    let words = window.nd_words::<Const<1>>(comptime!(Guard::Checked));
-    let extents = Coords::constant(comptime!(
-        (0..rank).map(|p| space.extent_at(p)).collect::<Vec<_>>()
+    let words = window.nd_words::<Const<1>>(guard);
+    // The row's coordinates, every axis but the innermost; then where the line starts along it.
+    let rows = Coords::constant(comptime!(
+        (0..rank - 1)
+            .map(|p| space.extent_at(p))
+            .collect::<Vec<_>>()
     ));
-    let first = extents.unravel((line * width) as u32);
+    let mut first = rows.unravel(row as u32);
+    let along_first = (line * width) as u32;
+    first.push(along_first);
     // Where the line starts in its word: zero where it spans whole words.
-    let shift = (first.at(comptime!(rank - 1)) % comptime!(per_word as u32)) * bits;
+    let shift = (along_first % comptime!(per_word as u32)) * bits;
 
     let mut values = Vector::<f32, W>::empty();
     #[unroll]
