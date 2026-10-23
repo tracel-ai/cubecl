@@ -797,6 +797,16 @@ fn try_create_server<C: WgpuCompiler>(
         },
     );
 
+    // Metal reports no core count; the GPU's driver states it in the I/O Registry entry the card
+    // is named by.
+    #[cfg(target_os = "macos")]
+    if let Some(entry) =
+        (device_props.identity.physical.as_ref()).and_then(|card| card.registry_entry_id)
+    {
+        device_props.hardware.num_streaming_multiprocessors =
+            cubecl_monitoring::gpu_utilization::gpu_core_count(entry);
+    }
+
     #[cfg(not(all(target_os = "macos", feature = "msl")))]
     {
         if features.contains(wgpu::Features::SUBGROUP)
@@ -809,6 +819,30 @@ fn try_create_server<C: WgpuCompiler>(
     }
 
     backend::register_features(&setup.adapter, &mut device_props, &mut compilation_options);
+
+    // PATCH: remove once wgpu supports `VK_EXT_subgroup_size_control` and this runtime requires
+    // full subgroups, so the adapter commits to an exact width on its own.
+    //
+    // A 32 to 64 plane range with plane ops is AMD RDNA under Vulkan: the driver may compile a
+    // shader wave32 or wave64, so the range is honest and a kernel needing one width rightly
+    // refuses it. On an AMD integrated GPU, though, RADV dispatches these compute shaders wave64
+    // (validated on gfx1151, where a wave32 dispatch would halve every plane sum), so the range
+    // narrows to 64 there. Only on a machine whose GPU is that integrated one, the only machines
+    // it was validated on: discrete RDNA keeps the range.
+    #[cfg(not(target_family = "wasm"))]
+    if device_props
+        .features
+        .plane
+        .contains(cubecl_ir::features::Plane::Ops)
+        && device_props.hardware.plane_size_min == 32
+        && device_props.hardware.plane_size_max == 64
+        && adapter_info.device_type == wgpu::DeviceType::IntegratedGpu
+        && !probe(setup.backend)
+            .iter()
+            .any(|adapter| adapter.device_type == wgpu::DeviceType::DiscreteGpu)
+    {
+        device_props.hardware.plane_size_min = 64;
+    }
 
     #[cfg(any(feature = "spirv", feature = "msl"))]
     if compilation_options.supports_vulkan_compiler || compilation_options.supports_msl_compiler {
