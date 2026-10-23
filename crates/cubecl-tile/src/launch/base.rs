@@ -191,6 +191,27 @@ impl Launcher {
         &self.overhanging
     }
 
+    /// The axes some tile reaches past the end of at some extent: this launch's
+    /// [`overhangs`](Self::overhangs), and every axis the kernel-form space leaves dynamic that a
+    /// level cuts in tiles wider than one or launches in an order that can overrun it. A tile of
+    /// one divides every extent.
+    pub(crate) fn may_overhang(&self) -> Vec<Axis> {
+        let kernel = self.partitioning.space();
+        let levels = self.partitioning.levels();
+        let mut axes = self.overhanging.clone();
+        for axis in kernel.axes().filter(|&axis| kernel.is_dynamic(axis)) {
+            let cut_short = levels.iter().any(|level| {
+                level
+                    .tile(axis)
+                    .is_some_and(|tile| tile > 1 || level.launch_order().is_some())
+            });
+            if cut_short && !axes.contains(&axis) {
+                axes.push(axis);
+            }
+        }
+        axes
+    }
+
     /// The leaf edge along `axis`: the stated tile, or the whole extent where none was.
     fn leaf_edge(&self, axis: Axis) -> usize {
         self.leaf

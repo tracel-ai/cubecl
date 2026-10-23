@@ -166,6 +166,37 @@ fn arg_derives_check_from_subspace_overhang() {
     assert!(forced.spec.boundaries.is_empty());
 }
 
+/// Under [`BoundaryPolicy::AnyExtent`] an operand checks the axes some extent could overhang,
+/// so a launch whose extents divide every tile binds the checks one whose extents do not binds:
+/// both compile one kernel. The default checks only what this launch's extents overhang.
+#[test]
+fn any_extent_checks_what_some_extent_could_overhang() {
+    let client = cubecl::test_device().client();
+    // K alone is dynamic in the kernel and its leaf cuts it in 4: 16 divides, 18 does not. M is
+    // static and divides, so it is in bounds whatever K is.
+    let bound = |k: usize, policy: Option<BoundaryPolicy>| {
+        let (space, levels) = batched_space(1, 1, 64, 64, k);
+        let launch = implied(
+            &client,
+            Partitioning::new(space, levels),
+            Form::DynamicAlong(&[K]),
+        );
+        let arg = launch
+            .arg(binding(&client, &[64, k]), f32::elem_type_native())
+            .axes(&[M, K]);
+        let arg = match policy {
+            Some(policy) => arg.boundary(policy),
+            None => arg,
+        };
+        arg.build().unwrap().spec.boundaries.to_vec()
+    };
+    let any_extent = Some(BoundaryPolicy::AnyExtent(Boundary::Zero));
+    assert_eq!(bound(16, any_extent), bound(18, any_extent));
+    assert_eq!(bound(16, any_extent), [None, Some(Boundary::Zero)]);
+    assert!(bound(16, None).is_empty());
+    assert_eq!(bound(18, None), [None, Some(Boundary::Zero)]);
+}
+
 /// A storage-tiled operand is addressed by fewer coordinates than its buffer has dims, and the
 /// boundary list follows the coordinates: sized off the physical rank it would land its per-axis
 /// modes on the grid fragments, which no [`Window`] ever reads.

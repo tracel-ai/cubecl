@@ -1521,11 +1521,14 @@ dependencies = [
  "cubecl",
  "cubecl-common",
  "cubecl-core",
+ "cubecl-ir",
  "cubecl-std",
  "half",
  "hashbrown 0.17.1",
+ "pliron",
  "rand 0.10.2",
  "serde",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
