@@ -67,7 +67,11 @@ pub enum YieldOpVerifyErr {
     MissingParentOp,
 }
 
-#[pliron_op(name = "branch.yield", format = "`(` operands(CharSpace(`,`)) `)`")]
+#[pliron_op(
+    name = "branch.yield",
+    format = "`(` operands(CharSpace(`,`)) `)`",
+    verifier = "succ"
+)]
 #[op_interfaces(IsTerminatorInterface, NResultsInterface<0>)]
 #[op_traits(Pure, ReturnLike, CanMaterialize)]
 pub struct YieldOp;
@@ -80,32 +84,6 @@ impl YieldOp {
 
     pub fn yield_values(&self, ctx: &Context) -> Vec<Value> {
         self.get_operation().operands(ctx)
-    }
-}
-
-impl Verify for YieldOp {
-    fn verify(&self, ctx: &Context) -> pliron::result::Result<()> {
-        let Some(parent_op) = self.get_operation().deref(ctx).get_parent_op(ctx) else {
-            return verify_err!(self.loc(ctx), YieldOpVerifyErr::MissingParentOp);
-        };
-
-        let expected_types: Vec<_> = parent_op
-            .deref(ctx)
-            .results()
-            .map(|r| r.get_type(ctx))
-            .collect();
-        let actual_types: Vec<_> = self
-            .get_operation()
-            .deref(ctx)
-            .operands()
-            .map(|o| o.get_type(ctx))
-            .collect();
-
-        if expected_types != actual_types {
-            return verify_err!(self.loc(ctx), YieldOpVerifyErr::OperandTypeMismatch);
-        }
-
-        Ok(())
     }
 }
 

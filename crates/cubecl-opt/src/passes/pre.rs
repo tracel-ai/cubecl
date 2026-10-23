@@ -41,7 +41,6 @@ use crate::{
         },
         value_numbering::ValueNumberLattice,
     },
-    would_op_be_trivially_dead,
 };
 
 pub struct LCMPre;
@@ -346,28 +345,6 @@ impl Leaders {
             }
         }
     }
-
-    fn is_op_redundant(&self, ctx: &Context, solver: &DataflowSolver, op: Ptr<Operation>) -> bool {
-        if !would_op_be_trivially_dead(ctx, op) {
-            return true;
-        }
-        let Some(block) = op.deref(ctx).get_parent_block() else {
-            return true;
-        };
-        let point = ProgramPoint::at_block_end(ctx, block);
-        let Some(leaders) = self.leaders.get(&point) else {
-            return true;
-        };
-        op.deref(ctx).results().any(|res| {
-            let Some(expr) = number_of_value(solver, res) else {
-                return true;
-            };
-            let Some(leader) = leaders.get(&expr) else {
-                return true;
-            };
-            matches!(leader, Leader::Material(value) if value == &res)
-        })
-    }
 }
 
 fn compute_leaders(
@@ -613,9 +590,6 @@ fn replace_redundant_values(
             };
             for r#use in value.uses(ctx) {
                 let user = r#use.user_op();
-                if !leaders.is_op_redundant(ctx, solver, user) {
-                    continue;
-                }
                 let Some(block) = user.deref(ctx).get_parent_block() else {
                     continue;
                 };

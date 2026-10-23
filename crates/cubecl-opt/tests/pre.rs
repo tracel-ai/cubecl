@@ -1251,3 +1251,46 @@ fn pre_does_not_speculate_users_of_loop_results() -> Result<()> {
         assert_eq!(product.operand(ctx, 0), loop_op.result(ctx));
     })
 }
+
+#[pliron_op(
+    name = "pre.opaque_read",
+    format = "`:` type($0)",
+    interfaces = [NOpdsInterface<0>, OneResultInterface, NRegionsInterface<0>],
+    verifier = "succ"
+)]
+#[op_traits(CanMaterialize, HasSideEffects)]
+pub struct PreOpaqueRead;
+// Deliberately no Deterministic interface: the result must be opaque.
+
+#[test]
+fn pre_keeps_opaque_read_and_dependents_in_polling_loop() -> Result<()> {
+    let input = r#"
+    builtin.func @f: builtin.function <() -> ()> [] {
+      ^entry():
+        zero = builtin.constant <builtin.integer <0: ui32>> : builtin.integer ui32;
+        scf.while : {
+          ^before():
+            current = pre.opaque_read : builtin.integer ui32;
+            keep_polling = cmp.i_not_equal (current, zero) [] []:
+                <(builtin.integer ui32, builtin.integer ui32) -> (cube.bool)>;
+            branch.condition (keep_polling)
+        } do {
+          ^body():
+            branch.yield ()
+        };
+        branch.return
+    }
+    "#;
+
+    assert_lcm_result(input, IRStatus::Unchanged, |ctx, op| {
+        assert_eq!(find_ops(ctx, op, "pre.opaque_read").len(), 1);
+        assert_eq!(find_ops(ctx, op, "cmp.i_not_equal").len(), 1);
+
+        let read = find_single_op_in(ctx, op, "before", "pre.opaque_read");
+        let comparison = find_single_op_in(ctx, op, "before", "cmp.i_not_equal");
+        let condition = find_single_op_in(ctx, op, "before", "branch.condition");
+
+        assert_eq!(comparison.operand(ctx, 0), read.result(ctx));
+        assert_eq!(condition.operand(ctx, 0), comparison.result(ctx));
+    })
+}

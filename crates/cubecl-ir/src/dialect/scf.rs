@@ -1423,38 +1423,6 @@ impl RegionBranchOpInterface for WhileOp {
 }
 
 #[op_interface_impl]
-impl MutableRegionBranchOpInterface for WhileOp {
-    fn add_entry_successor_operand(&self, _: &mut Context, _: RegionSuccessor, _: Value) {
-        panic!("WhileOp doesn't have entry successor operands")
-    }
-
-    fn add_successor_input(
-        &self,
-        ctx: &mut Context,
-        successor: RegionSuccessor,
-        ty: TypeHandle,
-    ) -> Value {
-        match successor {
-            RegionSuccessor::Region(reg) if reg == self.before_region(ctx) => {
-                let arg_idx = BasicBlock::push_argument(self.before_block(ctx), ctx, ty);
-                self.before_block(ctx).deref(ctx).get_argument(arg_idx)
-            }
-            RegionSuccessor::Region(reg) if reg == self.after_region(ctx) => {
-                let arg_idx = BasicBlock::push_argument(self.after_block(ctx), ctx, ty);
-                self.after_block(ctx).deref(ctx).get_argument(arg_idx)
-            }
-            RegionSuccessor::Region(_) => {
-                unreachable!()
-            }
-            RegionSuccessor::AfterOp => {
-                let res_idx = Operation::push_result(self.get_operation(), ctx, ty);
-                self.get_operation().deref(ctx).get_result(res_idx)
-            }
-        }
-    }
-}
-
-#[op_interface_impl]
 impl UniformRegionOpInterface for WhileOp {
     fn result_uniformity(&self, _ctx: &Context, _operands: &[Uniformity]) -> Uniformity {
         Uniformity::Cube
@@ -1472,20 +1440,26 @@ impl UniformRegionOpInterface for WhileOp {
 #[op_interface_impl]
 impl CanonicalizeInterface for WhileOp {
     fn canonicalize(&self, ctx: &mut Context, _rewriter: &mut MatchRewriter) -> Result<()> {
-        let results = self.get_operation().results(ctx);
         let before_block = self.before_block(ctx);
         let after_block = self.after_block(ctx);
-        for (idx, res) in results.into_iter().enumerate().rev() {
-            let before_carried = self.get_before_carried_value(ctx, idx);
-            let after_carried = self.get_after_carried_value(ctx, idx);
-            if !res.is_used(ctx)
-                && only_used_for_forward::<ConditionOp>(ctx, before_block, idx + 1, before_carried)
-                && only_used_for_forward::<YieldOp>(ctx, after_block, idx, after_carried)
-            {
-                remove_from_terminator::<ConditionOp>(ctx, before_block, idx + 1);
-                remove_from_terminator::<YieldOp>(ctx, after_block, idx);
+
+        let before_carried = before_block.arguments(ctx);
+        for (idx, arg) in before_carried.into_iter().enumerate().rev() {
+            if !arg.is_used(ctx) {
                 self.remove_initial_carried_value(ctx, idx);
                 self.remove_before_carried_value(ctx, idx);
+                remove_from_terminator::<YieldOp>(ctx, after_block, idx);
+            }
+        }
+
+        let results = self.get_operation().results(ctx);
+        for (idx, res) in results.into_iter().enumerate().rev() {
+            let cond = before_block.deref(ctx).get_terminator(ctx).unwrap();
+            let cond_arg = cond.deref(ctx).get_operand(idx + 1);
+            if !res.is_used(ctx)
+                && only_used_for_forward::<ConditionOp>(ctx, before_block, idx + 1, cond_arg)
+            {
+                remove_from_terminator::<ConditionOp>(ctx, before_block, idx + 1);
                 self.remove_after_carried_value(ctx, idx);
                 Operation::remove_result(self.get_operation(), ctx, idx);
             }
