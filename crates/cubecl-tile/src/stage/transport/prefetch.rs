@@ -54,13 +54,14 @@ impl UnitLines {
 
 #[cube]
 impl Memory {
-    /// The lines of this stage one unit moves; the stage shape must fold.
+    /// The lines of this stage one unit moves; the stage shape must be static.
     #[allow(dead_code)] // Reached through its expand, from `Stages::prefetched`.
     pub(crate) fn unit_lines(&self) -> comptime_type!(UnitLines) {
-        let folded = self.stage_lines().constant();
+        let stage_lines = self.stage_lines().constant();
         let fill = comptime!(self.access.fill);
         comptime!(UnitLines::of(
-            folded.expect("Memory: a stage fetched into registers has a static shape") as usize,
+            stage_lines.expect("Memory: a stage fetched into registers has a static shape")
+                as usize,
             fill,
         ))
     }

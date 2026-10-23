@@ -456,7 +456,7 @@ impl MmaData {
     /// row: a butterfly over the lane bits that leave the row in place.
     ///
     /// Whether a lane bit moves a row is read at lane 0, where both positions are constants the
-    /// compiler folds, so a bit that moves it costs no shuffle. That holds for a layout whose row
+    /// compiler evaluates, so a bit that moves it costs no shuffle. That holds for a layout whose row
     /// is a function of some of the lane's bits, as the manual-mma layouts are; the register
     /// attention's component test checks it on every lane.
     pub(crate) fn reduce_across_units<E: Numeric>(

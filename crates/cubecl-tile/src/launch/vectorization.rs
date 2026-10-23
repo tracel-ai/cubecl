@@ -1,3 +1,6 @@
+//! The width each operand is bound at: the device's ceiling, the layout's [`ElemAlignment`], and
+//! the [`VectorRequirement`]s a kernel states, settled by [`Vectorization`].
+
 use crate::layout::ElemAlignment;
 
 /// Why an operand's width must be narrower than the device reads it at.

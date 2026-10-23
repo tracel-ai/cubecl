@@ -151,7 +151,7 @@ fn procedural_nd<T: Numeric, W: Size>(
     )
 }
 
-/// A gathered operand split into the map folded once per run and the physical view it addresses.
+/// A gathered operand split into the map evaluated once per run and the physical view it addresses.
 #[derive(CubeType)]
 pub(crate) struct Gathered<'a, T: Numeric, W: Size> {
     pub map: ProjectionInKernel,
@@ -179,7 +179,7 @@ impl Tile {
         match &self.kind {
             TileKind::Memory(g) => Gathered::new(
                 g.axis_projection(comptime!(space.clone())),
-                // A folded caller derived its coordinates itself, so both guards stay on.
+                // A caller that evaluated the map derived its coordinates itself, so both guards stay on.
                 g.packed::<T, W, CoordsDyn, CompactionStep>(
                     g.physical_box(),
                     comptime!(Guard::Checked),

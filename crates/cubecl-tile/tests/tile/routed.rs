@@ -4,7 +4,7 @@
 //! one step along the expert axis at that value, so the axis keeps the extent it truly has while
 //! the walk visits one of them; the weights operand carries nothing, and `at` is the same call.
 //!
-//! The leaf sees one value of the axis, so it contracts nothing, and the block it opens folds
+//! The leaf sees one value of the axis, so it contracts nothing, and the block it opens sums
 //! along `K` exactly as an unrouted one does.
 #![allow(non_snake_case)]
 
@@ -25,9 +25,9 @@ const EXPERT: Axis = Axis(3);
 const TOKENS: usize = 4;
 const FEATURES: usize = 4;
 const EXPERTS: usize = 3;
-/// The contraction the folded leaf walks: two lines rather than one, so the walk has steps.
+/// The contraction the summing leaf walks: two lines rather than one, so the walk has steps.
 const DEPTH: usize = 8;
-/// The line a folded step serves off each operand.
+/// The line a summing step serves off each operand.
 const LINE: usize = 4;
 
 /// Which expert each token routes to. Distinct enough that reusing one token's expert for
@@ -68,7 +68,7 @@ fn weights_lined_along_k(depth: usize) -> Vec<f32> {
     along_k
 }
 
-/// Each token against its own expert, folded on the host.
+/// Each token against its own expert, summed on the host.
 fn expected(routes: &[u32], depth: usize) -> Vec<Vec<f32>> {
     let (x, w) = (activations(depth), weights(depth));
     (0..TOKENS)
@@ -85,7 +85,7 @@ fn expected(routes: &[u32], depth: usize) -> Vec<Vec<f32>> {
         .collect()
 }
 
-/// Every cell against the host's own fold, under the table the launch was given.
+/// Every cell against the host's own sum, under the table the launch was given.
 fn assert_routed(got: &HostData, routes: &[u32], depth: usize) {
     for (m, row) in expected(routes, depth).iter().enumerate() {
         for (n, cell) in row.iter().enumerate() {
@@ -283,7 +283,7 @@ fn run_staged(routes: &[u32]) -> HostData {
 }
 
 /// Two tables over the same weights: the answer follows the table. A route that did nothing could
-/// not, since it would fold every expert under both of them.
+/// not, since it would sum every expert under both of them.
 #[test]
 fn a_routed_walk_contracts_each_token_against_the_expert_its_table_names() {
     for routes in [ROUTES, [0, 0, 0, 0]] {
@@ -412,17 +412,17 @@ fn run_block(routes: &[u32]) -> HostData {
     HostData::from_tensor_handle(&client, out, HostDataType::F32)
 }
 
-/// A routed walk contracting in a register block at a folded step: the weights line along `K`, so
+/// A routed walk contracting in a register block at a summing step: the weights line along `K`, so
 /// a step consumes a whole line of each operand and the block's units are one cell's partials.
 ///
 /// The expert axis holds one value under the route, so it contracts nothing. Counted as a
-/// contracted axis it becomes the fastest one, not the axis the operands line along, and the fold
+/// contracted axis it becomes the fastest one, not the axis the operands line along, and the sum
 /// every `K`-stored weight needs is gone: a route could only run one scalar cell at a time.
 ///
 /// A refusal inside a cube verb dies on the expansion worker, so a regression here reads as the
 /// output keeping its fill value rather than as a message.
 #[test]
-fn a_routed_walk_folds_its_contraction_into_a_register_block() {
+fn a_routed_walk_sums_its_contraction_into_a_register_block() {
     assert_routed(&run_block(&ROUTES), &ROUTES, DEPTH);
 }
 
@@ -493,7 +493,7 @@ fn routing_an_axis_of_the_space_is_the_only_case_checked_here() {
     assert_eq!(launch_routed_on(EXPERT), 1.0);
 }
 
-/// Each unit writes the expert coordinate its region carried, so a walk that folds the unit's own
+/// Each unit writes the expert coordinate its region carried, so a walk that sums the unit's own
 /// position into a routed axis is visible as units disagreeing.
 #[cube(launch)]
 fn routed_units_kernel(

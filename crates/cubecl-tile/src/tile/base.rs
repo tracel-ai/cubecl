@@ -187,7 +187,7 @@ impl Tile {
         }
     }
 
-    /// Ask this accumulator to start from `init_from`; returns what took. A folding destination
+    /// Ask this accumulator to start from `init_from`; returns what took. A summing destination
     /// always answers [`Identity`](InitFrom::Identity).
     pub(crate) fn request_init_from(
         &mut self,
@@ -1068,7 +1068,7 @@ pub(crate) fn witnessed_space(#[comptime] space: Space, a: &Tile, b: &Tile, c: &
         #[unroll]
         for p in 0..comptime!(space.rank()) {
             let axis = comptime!(space.axis_at(p));
-            // Fold `Static` axes here so one `Dynamic` axis doesn't require a bound for the rest.
+            // Evaluate `Static` axes here so one `Dynamic` axis doesn't require a bound for the rest.
             let size = match comptime!(space.extent_raw(axis)) {
                 Extent::Static(n) => comptime!(n).runtime(),
                 Extent::Dynamic => {

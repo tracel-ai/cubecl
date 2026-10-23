@@ -1,6 +1,6 @@
-//! A contraction cut across a cube's planes, folded back together in shared memory.
+//! A contraction cut across a cube's planes, summed back together in shared memory.
 //!
-//! `split_k`'s in-kernel combine one scope down: every plane of a cube contracts its own slice of
+//! `split_contraction`'s in-kernel combine one scope down: every plane of a cube contracts its own slice of
 //! `K` in registers and drains it into the cube's [`SmemAccumulation`], the cube synchronizes, and
 //! the sum leaves through a plain store. Nothing reaches global memory but the finished box, so
 //! the output is not zeroed first and binds as an ordinary tile. The planes meet atomically
@@ -252,7 +252,7 @@ fn assert_matches(got: &HostData, m: usize, n: usize, k: usize) {
 /// One cube, four planes: every cell is the sum of four partials that only ever met in shared
 /// memory.
 #[test]
-fn planes_fold_their_slices_in_shared_memory() {
+fn planes_sum_their_slices_in_shared_memory() {
     if !adds_atomically_in_shared_memory(&cubecl::test_device().client()) {
         return;
     }
@@ -262,7 +262,7 @@ fn planes_fold_their_slices_in_shared_memory() {
 
 /// Several cubes, each with its own accumulator: a box's sum never sees another box's planes.
 #[test]
-fn each_cube_folds_only_its_own_box() {
+fn each_cube_sums_only_its_own_box() {
     if !adds_atomically_in_shared_memory(&cubecl::test_device().client()) {
         return;
     }

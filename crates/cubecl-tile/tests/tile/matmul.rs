@@ -134,7 +134,7 @@ fn assert_matmul_arange(client: &Client, handle: TensorHandle, m: usize, n: usiz
 
 /// `c = a · b` with every operand read where it lies: `outer`'s workers each take their box of
 /// it (through `runs` of boxes where the tiling states that level) and the leaf runs the software
-/// instruction under `config` on each `inner` region, folding under `semiring` from its identity.
+/// instruction under `config` on each `inner` region, summing under `semiring` from its identity.
 #[cube(launch)]
 fn matmul_in_place<E: Numeric>(
     a: &TileArg<'_>,
@@ -335,7 +335,7 @@ fn contract_on_the_last_unit(c: &Tile, a: &Tile, b: &Tile) {
     }
 }
 
-/// `c += a · b`: [`matmul_smem_ring`] folding onto what `c` holds, for the caller that owns the
+/// `c += a · b`: [`matmul_smem_ring`] adding onto what `c` holds, for the caller that owns the
 /// init.
 #[cube(launch)]
 fn matmul_smem_ring_accumulate(
@@ -555,7 +555,7 @@ fn matmul_two_levels_smem_then_smem(
 }
 
 /// `c = a · b` through a register block promoted out of memory: opened over the one level,
-/// seeded with the semiring's identity, every region's contraction folded into it, cast back down
+/// seeded with the semiring's identity, every region's contraction summed into it, cast back down
 /// on drain.
 #[cube(launch)]
 fn promoted_matmul_in_place<EA: Numeric>(
@@ -584,7 +584,7 @@ fn promoted_matmul_in_place<EA: Numeric>(
     acc.drained_into(&c);
 }
 
-/// [`promoted_matmul_in_place`] over the two-level cube/plane nest a real gemm composes: the
+/// [`promoted_matmul_in_place`] over the two-level cube/plane nest a real staged matmul composes: the
 /// block is opened per plane region and contracted along the inner K walk.
 #[cube(launch)]
 fn promoted_matmul_two_levels_in_place<EA: Numeric>(
@@ -1349,10 +1349,10 @@ fn check_matmul_bound(
     assert_tiled_matmul(&client, c.handle(), m, n, k, tile_edge);
 }
 
-/// `mma` never takes the init from the caller: the accumulating kernel folds onto what `c`
+/// `mma` never takes the init from the caller: the accumulating kernel adds onto what `c`
 /// holds, where the plain one would overwrite.
 #[test]
-fn mma_folds_onto_what_c_holds() {
+fn mma_adds_onto_what_c_holds() {
     let client = cubecl::test_device().client();
     let (m, n, k, tile_edge) = (8usize, 8usize, 4usize, 4usize);
     // The whole contraction lands at the leaf, where `c = a·b` would overwrite.
@@ -1723,7 +1723,7 @@ fn check_matmul_cpu(m: usize, n: usize, k: usize, levels: Vec<Level>) {
 }
 
 /// The "global matmul" shape: M and N stay comptime (`Static`) and only K is `Dynamic`, resolved
-/// from the tensor at runtime while M/N fold and unroll: the mixed `merged_space`/`Extents` path
+/// from the tensor at runtime while M/N evaluate and unroll: the mixed `merged_space`/`Extents` path
 /// that `all_dynamic` skips. Allocation uses the concrete nest, the kernel the K-dynamic one.
 #[test]
 fn matmul_cpu_dynamic_k() {
@@ -1775,7 +1775,7 @@ fn matmul_cpu_dynamic_k() {
 }
 
 /// N spread across a plane's units (`ComputeScope::Unit`): each unit owns a disjoint column of
-/// the register-leaf output and contracts all of K in registers: the gemv-perpendicular mapping.
+/// the register-leaf output and contracts all of K in registers: the one-row product's perpendicular mapping.
 /// `plane_size == 1` on CPU is one unit doing all of N (still correct); the win is on GPU's units.
 ///
 /// A bare `units()` declares the split without the unit count; [`Space::resolve_units`] (the
@@ -2195,7 +2195,7 @@ fn matmul_staged_invariant_lhs() {
 }
 
 /// A level whose edges equal the extents handed to it partitions nothing, and the build keeps it
-/// all the same: the kernel walks exactly the levels stated, and a one-region level folds to no
+/// all the same: the kernel walks exactly the levels stated, and a one-region level evaluates to no
 /// loop at all. The two-level kernel over it computes what the one-level one does.
 #[test]
 fn matmul_a_level_that_cuts_nothing_is_kept() {
@@ -2259,7 +2259,7 @@ fn matmul_a_level_that_cuts_nothing_is_kept() {
 
 // A contraction cut at cube scope leaves each cube holding a slice of every output cell, and
 // nothing combines them: a register accumulator drains by storing, so the last cube to arrive
-// erases the others, and one accumulating in place reads, folds and writes back: a lost update.
+// erases the others, and one accumulating in place reads, adds and writes back: a lost update.
 //
 // Both are refused (`SplitShare::validate`), and the refusal is unit-tested where it can be
 // observed, `space::base`. Not here, for the reason `blocked.rs` gives: this one fires inside the
@@ -2512,7 +2512,7 @@ fn register_matmul_promoted_accumulator() {
     assert_matmul_arange(&client, c.handle(), m, n, k);
 }
 
-/// Min-plus in place: the memory nest seeds `+∞`, forms `a + b` and folds under `min`, all of it
+/// Min-plus in place: the memory nest seeds `+∞`, forms `a + b` and reduces under `min`, all of it
 /// off the semiring the contraction was handed. Random operands, so the winning `p` differs cell
 /// by cell and a leaf that kept the ordinary `fma` cannot land on these numbers.
 #[test]
@@ -2575,7 +2575,7 @@ fn tropical_matmul_in_place() {
 }
 
 /// Max-plus through a promoted block: the register accumulator is built under `Max`, so it starts
-/// at the lowest value, steps with `+`, and drains its units under the same fold.
+/// at the lowest value, steps with `+`, and drains its units under the same monoid.
 #[test]
 fn tropical_matmul_promoted() {
     let client = cubecl::test_device().client();
@@ -2633,7 +2633,7 @@ fn tropical_matmul_promoted() {
     assert_equals_approx(&output, &expected, 1e-3).enforce()
 }
 
-/// The promoted register accumulator under the two-level cube/plane nest a real gemm composes,
+/// The promoted register accumulator under the two-level cube/plane nest a real staged matmul composes,
 /// with **vectorized** operands (rhs and output in 2-wide lines).
 ///
 /// This once failed to compile on the CPU backend, when the block was allocated scalar and
@@ -2859,7 +2859,7 @@ fn instruction_stated_once_runs_in_registers() {
 ///
 /// The regression this guards is silent in both directions: `#[unroll(flag)]` rolls the loop
 /// without complaint unless the macro sees `flag` as a comptime binding, and the lap arithmetic
-/// must fold or the coordinates come out runtime even unrolled. Either slip panics in `Tile::at`.
+/// must be constants or the coordinates come out runtime even unrolled. Either slip panics in `Tile::at`.
 ///
 /// The other unrolled shape, a fragment stage, needs a fragment leaf and so only runs on
 /// tensor-core hardware ([`cmma_matmul_staged_n_walk_partition`]); this one runs everywhere.
@@ -2907,7 +2907,7 @@ fn matmul_buffered_walk_cutting_a_fragment_accumulator_unrolls() {
 
 // ---- lined lhs: the (line, component) K walk --------------------------------------
 
-/// A single-level nest whose leaf takes the whole problem, the shape the lined-lhs and folded
+/// A single-level nest whose leaf takes the whole problem, the shape the lined-lhs and summing
 /// tests drive.
 fn lined_lhs_space(m: usize, n: usize, k: usize) -> Launcher {
     implied(
@@ -2996,10 +2996,10 @@ fn register_matmul_promoted_lined_lhs() {
     assert_matmul_arange(&client, c.handle(), m, n, k);
 }
 
-// ---- folded step: both operands lined along K --------------------------------
+// ---- summing step: both operands lined along K --------------------------------
 
 /// `A·Bᵀ` off row-major `arange` operands: `lhs(i, p) = i·k + p`, `rhs(j, p) = j·k + p`.
-fn folded_matmul_reference(m: usize, n: usize, k: usize) -> Vec<f32> {
+fn summing_step_matmul_reference(m: usize, n: usize, k: usize) -> Vec<f32> {
     (0..m * n)
         .map(|idx| {
             let (i, j) = (idx / n, idx % n);
@@ -3009,12 +3009,12 @@ fn folded_matmul_reference(m: usize, n: usize, k: usize) -> Vec<f32> {
 }
 
 /// Both operands lined along `K` with a scalar output: a step consumes a whole line, the block's
-/// units are `K`-partials of one cell, and one horizontal fold collapses them. The rhs is declared
+/// units are `K`-partials of one cell, and one horizontal sum collapses them. The rhs is declared
 /// `[N, K]`, which puts its line on the contracted axis.
 ///
 /// `budget` sizes the block: too small for the shape and the rolled body runs, indexing its local
 /// arrays at runtime.
-fn check_folded_step(launcher: Launcher, (m, n, k): (usize, usize, usize), budget: usize) {
+fn check_summing_step(launcher: Launcher, (m, n, k): (usize, usize, usize), budget: usize) {
     let client = cubecl::test_device().client();
     let a = TileInput::builder(&client, launcher.space().subspace(&[M, K]))
         .untiled()
@@ -3045,29 +3045,29 @@ fn check_folded_step(launcher: Launcher, (m, n, k): (usize, usize, usize), budge
 
     let output = HostData::from_tensor_handle(&client, c.handle(), HostDataType::F32);
     let (_, expected) = TestInput::builder(client, shape![m, n])
-        .custom(folded_matmul_reference(m, n, k))
+        .custom(summing_step_matmul_reference(m, n, k))
         .generate_with_f32_host_data();
     assert_equals_approx(&output, &expected, 1e-3).enforce()
 }
 
-/// The 2-D nest at a folded step: four contracted values per `fma` instead of one.
+/// The 2-D nest at a summing step: four contracted values per `fma` instead of one.
 #[test]
-fn register_matmul_folded_step() {
-    check_folded_step(lined_lhs_space(4, 4, 8), (4, 4, 8), 64);
+fn register_matmul_summing_step() {
+    check_summing_step(lined_lhs_space(4, 4, 8), (4, 4, 8), 64);
 }
 
 /// [`register_matmul_folded_step`] with the block too big for the register budget: the same
 /// numbers off the rolled body, whose local arrays are indexed at runtime.
 #[test]
-fn register_matmul_folded_step_rolled() {
-    check_folded_step(lined_lhs_space(4, 4, 8), (4, 4, 8), 8);
+fn register_matmul_summing_step_rolled() {
+    check_summing_step(lined_lhs_space(4, 4, 8), (4, 4, 8), 8);
 }
 
-/// The folded step through a promoted block. The rhs lines along `K`, so the block's lines are
+/// The summing step through a promoted block. The rhs lines along `K`, so the block's lines are
 /// one cell's partials, collapsed on drain rather than committed per visit; the sum never meets
 /// the output between regions, hence [`a_promoted_folded_step_sums_wider_than_its_output`].
 #[test]
-fn register_matmul_promoted_folded_step() {
+fn register_matmul_promoted_summing_step() {
     let client = cubecl::test_device().client();
     let (m, n, k) = (4usize, 4usize, 8usize);
     let launcher = lined_lhs_space(m, n, k);
@@ -3099,19 +3099,19 @@ fn register_matmul_promoted_folded_step() {
 
     let output = HostData::from_tensor_handle(&client, c.handle(), HostDataType::F32);
     let (_, expected) = TestInput::builder(client, shape![m, n])
-        .custom(folded_matmul_reference(m, n, k))
+        .custom(summing_step_matmul_reference(m, n, k))
         .generate_with_f32_host_data();
     assert_equals_approx(&output, &expected, 1e-3).enforce()
 }
 
-/// A half-precision output summing a long folded contraction: `4096` products of one. Summed in
+/// A half-precision output summing a long contraction a line a step: `4096` products of one. Summed in
 /// its own element the cell stops at `2048`, where one more product falls under half its spacing
 /// and rounds away; carried in `f32` across the walk and cast once on drain, it lands `4096`.
 ///
-/// The property a weight stored along `K` needs from a register block, the folded step being
+/// The property a weight stored along `K` needs from a register block, the summing step being
 /// the only way such a weight contracts.
 #[test]
-fn a_promoted_folded_step_sums_wider_than_its_output() {
+fn a_promoted_summing_step_sums_wider_than_its_output() {
     let client = cubecl::test_device().client();
     let (m, n, k) = (1usize, 1usize, 4096usize);
     let launcher = lined_lhs_space(m, n, k);
@@ -3169,10 +3169,10 @@ fn a_promoted_folded_step_sums_wider_than_its_output() {
     );
 }
 
-/// The N-D nest at a folded step: two contracted axes, both operands lined along the faster of
+/// The N-D nest at a summing step: two contracted axes, both operands lined along the faster of
 /// them. The reduce nest steps by the served width, so each step lands on a line start.
 #[test]
-fn register_matmul_folded_step_two_contracted_axes() {
+fn register_matmul_summing_step_two_contracted_axes() {
     let client = cubecl::test_device().client();
     let (m, n, k1, k2) = (4usize, 4usize, 2usize, 4usize);
     let k = k1 * k2;
@@ -3215,20 +3215,25 @@ fn register_matmul_folded_step_two_contracted_axes() {
 
     let output = HostData::from_tensor_handle(&client, c.handle(), HostDataType::F32);
     let (_, expected) = TestInput::builder(client, shape![m, n])
-        .custom(folded_matmul_reference(m, n, k))
+        .custom(summing_step_matmul_reference(m, n, k))
         .generate_with_f32_host_data();
     assert_equals_approx(&output, &expected, 1e-3).enforce()
 }
 
-// ---- the sub-plane fold: UnitShare::Group --------------------------------------
+// ---- the sub-plane reduction: UnitShare::Group --------------------------------------
 
-/// The nest a rows-in-flight gemv cuts: the plane splits into aligned groups of `group_units`,
+/// The nest a rows-in-flight one-row product cuts: the plane splits into aligned groups of `group_units`,
 /// each group owning one output row and its units interleaving `K` between them. Every unit holds
 /// a *partial* of the row, so the drain is a segmented reduction: `UnitShare::Group`, not `Plane`.
 ///
 /// `groups == 1` is the same nest at `UnitShare::Plane`, which is the case already covered; the
 /// point here is a plane carrying several cells at once.
-fn unit_group_fold_space(plane_size: usize, group_units: usize, edge: usize, n: usize) -> Launcher {
+fn unit_group_reduce_space(
+    plane_size: usize,
+    group_units: usize,
+    edge: usize,
+    n: usize,
+) -> Launcher {
     let groups = plane_size / group_units;
     implied(
         &cubecl::test_device().client(),
@@ -3243,21 +3248,21 @@ fn unit_group_fold_space(plane_size: usize, group_units: usize, edge: usize, n: 
     )
 }
 
-/// The memory-backed leaf over the segmented fold, the control for
+/// The memory-backed leaf over the segmented reduction, the control for
 /// [`register_matmul_promoted_unit_group_fold`]. If this one fails the space itself is wrong and
 /// the promoted result proves nothing.
 #[test]
-fn register_matmul_unit_group_fold() {
+fn register_matmul_unit_group_reduce() {
     let client = cubecl::test_device().client();
     let plane_units = client.properties().hardware.plane_size_max as usize;
     let (group_units, edge, n) = (8usize, 4usize, 1usize);
-    // A fold over unit groups needs a plane that holds at least one whole group.
+    // A reduction over unit groups needs a plane that holds at least one whole group.
     if skip_unless_plane_holds(&client, group_units as u32) {
         return;
     }
     let (groups, k) = (plane_units / group_units, group_units * edge);
     let m = groups;
-    let launcher = unit_group_fold_space(plane_units, group_units, edge, n);
+    let launcher = unit_group_reduce_space(plane_units, group_units, edge, n);
 
     let a = TileInput::builder(&client, launcher.space().subspace(&[M, K]))
         .untiled()
@@ -3287,26 +3292,26 @@ fn register_matmul_unit_group_fold() {
     assert_matmul_arange(&client, c.handle(), m, n, k);
 }
 
-/// The same segmented fold through a **promoted** accumulator.
+/// The same segmented reduction through a **promoted** accumulator.
 ///
-/// The case no other test covers: every promoted test here folds either nothing (`Whole`) or the
+/// The case no other test covers: every promoted test here reduces either nothing (`Whole`) or the
 /// whole plane (`Plane`). A plane carrying one cell per group has to reduce within each group and
 /// let each group's first unit write *its own row*.
 ///
 /// The rows a group owns are what the `M` cut hands it, which a block built before the walk
 /// descends has to be told rather than assume.
 #[test]
-fn register_matmul_promoted_unit_group_fold() {
+fn register_matmul_promoted_unit_group_reduce() {
     let client = cubecl::test_device().client();
     let plane_units = client.properties().hardware.plane_size_max as usize;
     let (group_units, edge, n) = (8usize, 4usize, 1usize);
-    // A fold over unit groups needs a plane that holds at least one whole group.
+    // A reduction over unit groups needs a plane that holds at least one whole group.
     if skip_unless_plane_holds(&client, group_units as u32) {
         return;
     }
     let (groups, k) = (plane_units / group_units, group_units * edge);
     let (m, dtype) = (groups, f32::elem_type_native());
-    let launcher = unit_group_fold_space(plane_units, group_units, edge, n);
+    let launcher = unit_group_reduce_space(plane_units, group_units, edge, n);
 
     let a = TileInput::builder(&client, launcher.space().subspace(&[M, K]))
         .untiled()
@@ -3334,24 +3339,24 @@ fn register_matmul_promoted_unit_group_fold() {
     assert_matmul_arange(&client, c.handle(), m, n, k);
 }
 
-/// The gemv's own layout, promoted: a plane split into groups, each owning a row, its units
+/// The one-row product's own layout, promoted: a plane split into groups, each owning a row, its units
 /// interleaving `K`, and the weight stored along `K` lining both operands along the contraction.
-/// Every unit's block is one line of partials, so the drain folds line then group and writes once.
+/// Every unit's block is one line of partials, so the drain reduces line then group and writes once.
 ///
-/// The memory-backed leaf does both folds per visit and rounds the cell at each; a half-precision
-/// cell rounds away the walk that way, so this is the block a half-precision gemv runs in.
+/// The memory-backed leaf does both reductions per visit and rounds the cell at each; a half-precision
+/// cell rounds away the walk that way, so this is the block a half-precision one-row product runs in.
 #[test]
-fn register_matmul_promoted_folded_step_unit_group_fold() {
+fn register_matmul_promoted_summing_step_unit_group_reduce() {
     let client = cubecl::test_device().client();
     let plane_units = client.properties().hardware.plane_size_max as usize;
     let (group_units, edge, n) = (8usize, 4usize, 1usize);
-    // A fold over unit groups needs a plane that holds at least one whole group.
+    // A reduction over unit groups needs a plane that holds at least one whole group.
     if skip_unless_plane_holds(&client, group_units as u32) {
         return;
     }
     let (groups, k) = (plane_units / group_units, group_units * edge);
     let (m, dtype) = (groups, f32::elem_type_native());
-    let launcher = unit_group_fold_space(plane_units, group_units, edge, n);
+    let launcher = unit_group_reduce_space(plane_units, group_units, edge, n);
 
     let a = TileInput::builder(&client, launcher.space().subspace(&[M, K]))
         .untiled()
@@ -3379,7 +3384,7 @@ fn register_matmul_promoted_folded_step_unit_group_fold() {
 
     let output = HostData::from_tensor_handle(&client, c.handle(), HostDataType::F32);
     let (_, expected) = TestInput::builder(client, shape![m, n])
-        .custom(folded_matmul_reference(m, n, k))
+        .custom(summing_step_matmul_reference(m, n, k))
         .generate_with_f32_host_data();
     assert_equals_approx(&output, &expected, 1e-3).enforce()
 }
@@ -3491,7 +3496,7 @@ fn check_cmma_matmul_k_walk_with(
     if transposed {
         let output = HostData::from_tensor_handle(&client, c.handle(), HostDataType::F32);
         let (_, expected) = TestInput::builder(client, shape![m, n])
-            .custom(folded_matmul_reference(m, n, k))
+            .custom(summing_step_matmul_reference(m, n, k))
             .generate_with_f32_host_data();
         assert_equals_approx(&output, &expected, 1e-3).enforce()
     } else {
@@ -4061,7 +4066,7 @@ fn cmma_matmul_staged_n_walk_partition() {
 // ---- Quantized A through the register (plain-ALU) leaf --------------------------------
 //
 // Every other quant matmul above runs on tensor cores and skips where cmma is absent, which is
-// everywhere the memory-bound GEMV actually lives. These pin the other leaf.
+// everywhere the memory-bound one-row product actually lives. These pin the other leaf.
 //
 // The staged kernel stages `A`'s *packed storage words* into smem, and the software instruction
 // dequantizes each read out of smem: no f32 inflation of the stage, no promotion, no cmma, no
@@ -4069,6 +4074,6 @@ fn cmma_matmul_staged_n_walk_partition() {
 
 // ---- Quantized B (RHS) through the register leaf ---------------------------------------
 //
-// The gemv production shape: the *weight* is the streamed RHS at `(K, N) = (d_in, d_out)`, packed
+// The one-row product's production shape: the *weight* is the streamed RHS at `(K, N) = (d_in, d_out)`, packed
 // along `d_out` (the innermost axis) with one scale per `(k, N-group)` block (`[1, bn]`); A stays
 // float. The RHS's served width drives the accumulator's line width, so `C` launches at that width.

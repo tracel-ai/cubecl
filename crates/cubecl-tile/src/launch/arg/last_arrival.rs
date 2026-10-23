@@ -2,7 +2,7 @@
 
 use cubecl::prelude::*;
 
-use crate::launch::arg::relay::adding_tile;
+use crate::launch::arg::adding::adding_tile;
 use crate::launch::arg::tensor::TileArgExpand;
 use crate::space::Extent;
 use crate::*;

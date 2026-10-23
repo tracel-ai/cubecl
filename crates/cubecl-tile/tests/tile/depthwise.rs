@@ -5,7 +5,7 @@
 //! operands and not in the accumulator. Depthwise, each channel has its own filter and its own
 //! output channel, so one axis `C` appears in *all three* operands. That is the whole difference.
 //!
-//! `C` is then a batch axis (an axis the walk splits and the leaf never folds), and the
+//! `C` is then a batch axis (an axis the walk splits and the leaf never contracts), and the
 //! contraction is over the window taps `RH`/`RW` alone.
 //!
 //! Stating it that way is what keeps this a space-and-projection change rather than a new kernel:

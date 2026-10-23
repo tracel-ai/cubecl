@@ -60,14 +60,14 @@ fn materialize(
 }
 
 /// Forces a scalar value into a runtime GPU variable by adding a runtime zero,
-/// preventing the expander from folding it away at compile time.
+/// preventing the expander from evaluating it away at compile time.
 #[cube]
 fn runtime_scalar<E: Numeric>(value: E) -> E {
     value + E::cast_from(0u32.runtime())
 }
 
 /// `x = offset + coordinate[COL]`, built so the recipe carries genuinely runtime scalars across
-/// the staging walk rather than folding to comptime.
+/// the staging walk rather than evaluating at comptime.
 #[cube]
 fn along_col<E: Float>(#[comptime] offset: ComptimeFloat<f32>) -> AffineCoordinate<E> {
     affine_along(
@@ -150,7 +150,7 @@ fn affine_plus_phase<E: Float>(
     .tile::<E>()
 }
 
-/// `launch_ratio` decides whether the fraction is spelled in constants, which fold at expand time,
+/// `launch_ratio` decides whether the fraction is spelled in constants, which evaluate at expand time,
 /// or in values the kernel only receives at launch. Both go through the same `Phase`, and the grid
 /// must come out the same.
 #[cube(launch)]
@@ -405,7 +405,7 @@ fn selecting_a_region_rebases_the_recipe_origin() {
     assert_grid(&h.read(output), |row, _| 2.0 * row as f32);
 }
 
-/// Walk the affine-plus-phase recipe with the fraction folded or passed at launch; the grid is the
+/// Walk the affine-plus-phase recipe with the fraction constant or passed at launch; the grid is the
 /// same either way.
 fn check_phase(launch_ratio: bool) {
     let h = Harness::new();

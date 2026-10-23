@@ -5,7 +5,7 @@ use cubecl::prelude::*;
 use cubecl::unexpanded;
 use cubecl_std::tensor::layout::CoordsDyn;
 
-use crate::algebra::{Integer, IntegerExpand, fold_add, fold_mul};
+use crate::algebra::{Integer, IntegerExpand, simplified_add, simplified_mul};
 
 /// An immutable coordinate/extent list whose expand's `IntoMut` is the identity.
 /// Copying into mutable slots (as `Sequence` does) would erase constness.
@@ -208,7 +208,7 @@ impl<C: Int> CoordsExpand<C> {
         let mut acc: NativeExpand<C> =
             ExpandValue::constant(1u64.into(), C::elem_type(scope)).into();
         for i in picks {
-            acc = fold_mul(scope, acc, self.values[i]);
+            acc = simplified_mul(scope, acc, self.values[i]);
         }
         acc
     }
@@ -216,7 +216,7 @@ impl<C: Int> CoordsExpand<C> {
         let mut acc: NativeExpand<C> =
             ExpandValue::constant(0u64.into(), C::elem_type(scope)).into();
         for i in picks {
-            acc = fold_add(scope, acc, self.values[i]);
+            acc = simplified_add(scope, acc, self.values[i]);
         }
         acc
     }

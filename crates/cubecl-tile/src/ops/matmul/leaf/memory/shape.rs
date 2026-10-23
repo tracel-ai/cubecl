@@ -94,7 +94,7 @@ impl ContractShape {
         MatrixAxes::new(lhs, self.mr, self.kc).unwrap_or_else(|e| panic!("{e}"))
     }
 
-    /// The rhs's matrix axes: `(col, k)` at a folded step, `(k, col)` otherwise.
+    /// The rhs's matrix axes: `(col, k)` at a summing step, `(k, col)` otherwise.
     pub(crate) fn rhs_axes(&self, rhs: &Space) -> MatrixAxes {
         match self.contracted_per_step > 1 {
             true => MatrixAxes::new(rhs, self.cols, self.kc).unwrap_or_else(|e| panic!("{e}")),
@@ -151,7 +151,7 @@ impl ContractShape {
     }
 }
 
-/// Scalars per block column: one at a folded step, `spread` when spread, else the rhs width.
+/// Scalars per block column: one at a summing step, `spread` when spread, else the rhs width.
 fn column_cell_width(contracted_per_step: usize, spread: usize, vw: usize) -> usize {
     if contracted_per_step > 1 {
         1
