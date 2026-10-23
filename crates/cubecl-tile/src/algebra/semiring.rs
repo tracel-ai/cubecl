@@ -51,8 +51,8 @@ impl Semiring {
         acc: T,
         #[comptime] semiring: Semiring,
     ) -> T {
-        let float = is_float::<T>();
-        if comptime!(semiring == Semiring::SUM_PROD && float) {
+        let element = elem_type_of::<T>();
+        if comptime!(semiring == Semiring::SUM_PROD && element.is_float()) {
             fma(lhs, rhs, acc)
         } else {
             let product = semiring.mul().combine::<T>(lhs, rhs);
@@ -76,12 +76,6 @@ impl Semiring {
     ) -> T::ExpandType {
         Semiring::__expand_step_of::<T>(scope, lhs, rhs, acc, self)
     }
-}
-
-/// Whether `T`'s scalar is a float: what `fma` takes.
-#[cube]
-fn is_float<T: CubePrimitive>() -> comptime_type!(bool) {
-    intrinsic!(|scope| { T::Scalar::elem_type(scope).is_float() })
 }
 
 comptime_only!(Semiring);
