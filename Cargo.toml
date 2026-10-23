@@ -103,6 +103,10 @@ variadics_please = "2"
 # no_std compatibility
 foldhash = { version = "0.2", default-features = false }
 hashbrown = "0.17"
+# 0.2 is the version that hashbrown already uses.
+allocator-api2 = { version = "0.2.21", default-features = false }
+# 0.13 is the version that gemm 0.19 uses.
+dyn-stack = { version = "0.13.2", default-features = false }
 smallvec = { version = "1", features = [
     "union",
     "const_generics",

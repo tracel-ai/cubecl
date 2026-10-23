@@ -1,14 +1,14 @@
 //! A version of [`bytemuck::BoxBytes`] that is cloneable and allows trailing uninitialized elements.
 
 use crate::bytes::{
-    AccessError, AccessPolicy, Reader, Writer,
-    default_controller::{self, NativeAllocationController},
+    AccessError, AccessPolicy, BufferAllocator, Reader, Writer,
+    allocator::AllocatorController,
+    default_controller::{self, Global, NativeAllocationController},
     shared_arc::SharedAllocationController,
 };
 use crate::sync::Arc;
 use alloc::{boxed::Box, vec::Vec};
 use core::{
-    alloc::LayoutError,
     mem::MaybeUninit,
     ops::{Deref, DerefMut},
     ptr::NonNull,
@@ -199,6 +199,66 @@ pub trait AllocationController {
     fn try_detach(&mut self) -> Option<NonNull<u8>> {
         None
     }
+
+    /// Allocates `capacity` uninitialized bytes in the same memory as this allocation.
+    ///
+    /// [`Bytes`] calls this method when it copies its data to a new allocation, for example in
+    /// `clone`, in `split` and in copy-on-write. Then the copy stays in the same memory as the
+    /// original. `capacity` is a multiple of `align`.
+    ///
+    /// The default returns `None`. Then the new allocation comes from the global allocator.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Some(Err(_))` when the memory of this allocation has no space for `capacity`
+    /// bytes.
+    #[allow(unused_variables)]
+    fn alloc_like(
+        &self,
+        capacity: usize,
+        align: usize,
+    ) -> Option<Result<Box<dyn AllocationController>, AllocationError>> {
+        None
+    }
+}
+
+/// Allocates `capacity` uninitialized bytes in the same memory as `source`.
+///
+/// The capacity becomes a multiple of `align`. When `source` has no memory of its own, the
+/// allocation comes from the global allocator.
+pub(crate) fn alloc_like(
+    source: &dyn AllocationController,
+    capacity: usize,
+    align: usize,
+) -> Result<Box<dyn AllocationController>, AllocationError> {
+    let capacity = capacity.next_multiple_of(align);
+    match source.alloc_like(capacity, align) {
+        Some(controller) => controller,
+        None => NativeAllocationController::alloc_with_capacity(Global, capacity, align)
+            .map(|controller| Box::new(controller) as Box<dyn AllocationController>),
+    }
+}
+
+/// Copies `data` into a new allocation in the same memory as `source`.
+pub(crate) fn copy_like(
+    source: &dyn AllocationController,
+    data: &[u8],
+    align: usize,
+) -> Result<Box<dyn AllocationController>, AllocationError> {
+    let mut controller = alloc_like(source, data.len(), align)?;
+    // SAFETY: Only initialized bytes are written.
+    let memory = unsafe { controller.memory_mut(AccessPolicy::default()) }
+        .expect("a new allocation is always host-resident");
+    write_init(&mut memory[..data.len()], data);
+    Ok(controller)
+}
+
+/// Writes `data` into `memory`. The two slices must have the same length.
+fn write_init(memory: &mut [MaybeUninit<u8>], data: &[u8]) {
+    // SAFETY: `&[u8]` and `&[MaybeUninit<u8>]` have the same layout, and the source is only read.
+    // See also #![feature(maybe_uninit_write_slice)], which would replace this with safe code.
+    memory
+        .copy_from_slice(unsafe { core::slice::from_raw_parts(data.as_ptr().cast(), data.len()) });
 }
 
 /// Errors that may occur during memory allocation operations.
@@ -219,6 +279,19 @@ pub enum AllocationError {
     /// amount of memory.
     OutOfMemory,
 }
+
+impl core::fmt::Display for AllocationError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::UnsupportedOperation => {
+                f.write_str("the allocator does not support this operation")
+            }
+            Self::OutOfMemory => f.write_str("the allocator has no memory for this allocation"),
+        }
+    }
+}
+
+impl core::error::Error for AllocationError {}
 
 impl Bytes {
     /// Splits the current allocation at the given offset.
@@ -287,17 +360,15 @@ impl Bytes {
                 Ok((Bytes::from_bytes_vec(left), Bytes::from_bytes_vec(right)))
             }
             // The allocation can't be detached into a `Vec`. Copy each half into
-            // its own native allocation so they can be mutated without a later
-            // copy-on-write.
+            // its own allocation, in the same memory, so they can be mutated
+            // without a later copy-on-write.
             Err(this) => {
-                let align = this.align();
                 match (
-                    Self::try_from_data(align, &this[..offset]),
-                    Self::try_from_data(align, &this[offset..]),
+                    this.copy_like(&this[..offset]),
+                    this.copy_like(&this[offset..]),
                 ) {
                     (Ok(left), Ok(right)) => Ok((left, right)),
-                    // A layout error here is practically unreachable: the data
-                    // already lives in a valid allocation of this alignment.
+                    // The memory of this allocation has no space for the copies.
                     _ => Err((this, SplitError::Unsupported)),
                 }
             }
@@ -404,6 +475,285 @@ impl Bytes {
             controller: Box::new(controller),
             len,
         }
+    }
+
+    /// Creates bytes from a shared [`bytes::Bytes`] buffer (zero-copy), with copy-on-write into
+    /// `allocator`.
+    ///
+    /// Reads use `bytes` directly, the same as [`Self::from_shared`]. The first write copies the
+    /// data into memory from `allocator`, not into the global allocator.
+    #[cfg(feature = "shared-bytes")]
+    pub fn from_shared_in(
+        bytes: bytes::Bytes,
+        property: AllocationProperty,
+        allocator: &'static dyn BufferAllocator,
+    ) -> Self {
+        let len = bytes.len();
+        let controller = crate::bytes::shared::SharedBytesAllocationController::new_in(
+            bytes, property, allocator,
+        );
+
+        Self {
+            controller: Box::new(controller),
+            len,
+        }
+    }
+
+    /// Creates empty bytes with `capacity` bytes of memory from `allocator`.
+    ///
+    /// Clones, splits and growth of the result also get their memory from `allocator`. The
+    /// memory never becomes a `Vec`: [`Self::try_into_vec`] always returns an error.
+    ///
+    /// # Errors
+    ///
+    /// - [`AllocationError::OutOfMemory`] when `allocator` has no memory for `capacity` bytes.
+    /// - [`AllocationError::UnsupportedOperation`] when `align` is larger than 16 bytes.
+    pub fn with_capacity_in(
+        allocator: &'static dyn BufferAllocator,
+        capacity: usize,
+        align: usize,
+    ) -> Result<Self, AllocationError> {
+        let controller = AllocatorController::alloc_with_capacity(
+            allocator,
+            capacity.next_multiple_of(align),
+            align,
+        )?;
+
+        Ok(Self {
+            controller: Box::new(controller),
+            len: 0,
+        })
+    }
+
+    /// Creates `len` zero bytes in memory from `allocator`.
+    ///
+    /// See [`Self::with_capacity_in`] for the behaviour of the memory.
+    ///
+    /// # Errors
+    ///
+    /// The same as [`Self::with_capacity_in`].
+    pub fn zeroed_in(
+        allocator: &'static dyn BufferAllocator,
+        len: usize,
+        align: usize,
+    ) -> Result<Self, AllocationError> {
+        let mut bytes = Self::with_capacity_in(allocator, len, align)?;
+        // SAFETY: Only initialized bytes are written.
+        let memory = unsafe { bytes.memory_mut_default() };
+        memory[..len].fill(MaybeUninit::new(0));
+        bytes.len = len;
+        Ok(bytes)
+    }
+
+    /// Creates a copy of `data` in memory from `allocator`.
+    ///
+    /// See [`Self::with_capacity_in`] for the behaviour of the memory.
+    ///
+    /// # Errors
+    ///
+    /// The same as [`Self::with_capacity_in`].
+    pub fn from_slice_in(
+        allocator: &'static dyn BufferAllocator,
+        data: &[u8],
+        align: usize,
+    ) -> Result<Self, AllocationError> {
+        let mut bytes = Self::with_capacity_in(allocator, data.len(), align)?;
+        // SAFETY: Only initialized bytes are written.
+        let memory = unsafe { bytes.memory_mut_default() };
+        write_init(&mut memory[..data.len()], data);
+        bytes.len = data.len();
+        Ok(bytes)
+    }
+
+    /// Creates empty bytes with `capacity` bytes of memory from the global allocator.
+    ///
+    /// Write the data into [`Self::spare_capacity_mut`], then call [`Self::set_len`]. Unlike
+    /// [`Self::with_capacity_in`], [`Self::try_into_vec`] can return this memory as a `Vec`
+    /// without a copy, if `align` is the alignment of the element type.
+    ///
+    /// # Errors
+    ///
+    /// - [`AllocationError::UnsupportedOperation`] when `align` is larger than 16 bytes.
+    /// - [`AllocationError::OutOfMemory`] when `capacity` is too large for a layout.
+    ///
+    /// When the global allocator has no memory, the program aborts, as with `Vec`.
+    pub fn with_capacity(capacity: usize, align: usize) -> Result<Self, AllocationError> {
+        let controller = NativeAllocationController::alloc_with_capacity(
+            Global,
+            capacity.next_multiple_of(align),
+            align,
+        )?;
+
+        Ok(Self {
+            controller: Box::new(controller),
+            len: 0,
+        })
+    }
+
+    /// Creates bytes that hold `f(0)`, `f(1)`, ..., `f(n - 1)`, in memory from `allocator`.
+    ///
+    /// The elements are written once, without zeroing the memory first. The alignment is the
+    /// alignment of `E`. See [`Self::with_capacity_in`] for the behaviour of the memory.
+    ///
+    /// # Errors
+    ///
+    /// The same as [`Self::with_capacity_in`]. A size that overflows `usize` is
+    /// [`AllocationError::OutOfMemory`].
+    pub fn from_fn_in<E, F>(
+        allocator: &'static dyn BufferAllocator,
+        n: usize,
+        f: F,
+    ) -> Result<Self, AllocationError>
+    where
+        E: bytemuck::NoUninit,
+        F: FnMut(usize) -> E,
+    {
+        let size = n
+            .checked_mul(size_of::<E>())
+            .ok_or(AllocationError::OutOfMemory)?;
+        let mut bytes = Self::with_capacity_in(allocator, size, align_of::<E>())?;
+        bytes.write_from_fn(n, f);
+        Ok(bytes)
+    }
+
+    /// Creates bytes that hold `f(0)`, `f(1)`, ..., `f(n - 1)`, in memory from the global
+    /// allocator.
+    ///
+    /// The result is the same as [`Self::from_elems`] of the collected elements, without the
+    /// intermediate `Vec`.
+    ///
+    /// # Panics
+    ///
+    /// When the size overflows `usize`, or when the alignment of `E` is larger than 16 bytes.
+    pub fn from_fn<E, F>(n: usize, f: F) -> Self
+    where
+        E: bytemuck::NoUninit,
+        F: FnMut(usize) -> E,
+    {
+        let size = n.checked_mul(size_of::<E>()).expect("size overflows usize");
+        let mut bytes = Self::with_capacity(size, align_of::<E>())
+            .unwrap_or_else(|err| panic!("failed to allocate {size} bytes: {err}"));
+        bytes.write_from_fn(n, f);
+        bytes
+    }
+
+    /// Creates empty bytes with `capacity` bytes of memory from the same memory as `self`.
+    ///
+    /// Use it for the output of an operation, so that the output stays in the memory of its
+    /// input, for example the same arena. When `self` has no memory of its own to allocate
+    /// from, for example device or file memory, the memory comes from the global allocator, as
+    /// with [`Self::with_capacity`].
+    ///
+    /// # Errors
+    ///
+    /// - [`AllocationError::OutOfMemory`] when the memory of `self` has no space for `capacity`
+    ///   bytes.
+    /// - [`AllocationError::UnsupportedOperation`] when `align` is larger than 16 bytes.
+    pub fn with_capacity_like(
+        &self,
+        capacity: usize,
+        align: usize,
+    ) -> Result<Self, AllocationError> {
+        Ok(Self {
+            controller: alloc_like(&*self.controller, capacity, align)?,
+            len: 0,
+        })
+    }
+
+    /// Creates bytes that hold `f(0)`, `f(1)`, ..., `f(n - 1)`, in the same memory as `self`.
+    ///
+    /// The alignment is the alignment of `E`. See [`Self::with_capacity_like`] for where the
+    /// memory comes from. Memory from the global allocator can become a `Vec` without a copy,
+    /// as with [`Self::from_fn`].
+    ///
+    /// # Errors
+    ///
+    /// The same as [`Self::with_capacity_like`]. A size that overflows `usize` is
+    /// [`AllocationError::OutOfMemory`].
+    pub fn from_fn_like<E, F>(&self, n: usize, f: F) -> Result<Self, AllocationError>
+    where
+        E: bytemuck::NoUninit,
+        F: FnMut(usize) -> E,
+    {
+        let size = n
+            .checked_mul(size_of::<E>())
+            .ok_or(AllocationError::OutOfMemory)?;
+        let mut bytes = self.with_capacity_like(size, align_of::<E>())?;
+        bytes.write_from_fn(n, f);
+        Ok(bytes)
+    }
+
+    /// Writes `f(0)`, ..., `f(n - 1)` after `len`, and adds them to `len`.
+    ///
+    /// The spare capacity must hold `n` elements, and `len` must be zero, so that the elements
+    /// are aligned.
+    fn write_from_fn<E, F>(&mut self, n: usize, mut f: F)
+    where
+        E: bytemuck::NoUninit,
+        F: FnMut(usize) -> E,
+    {
+        debug_assert_eq!(self.len, 0, "the elements must start at an aligned offset");
+        let spare = self.spare_capacity_mut();
+        assert!(
+            spare.len() >= n * size_of::<E>(),
+            "the spare capacity is too small"
+        );
+        let ptr = spare.as_mut_ptr().cast::<E>();
+        debug_assert!(
+            ptr.is_aligned(),
+            "the memory is not aligned for the element type"
+        );
+        for i in 0..n {
+            // SAFETY: The spare capacity holds `n` elements, and the pointer is aligned to `E`.
+            // When `f` panics, `len` does not change, and `E` is `Copy`, so nothing leaks.
+            unsafe { ptr.add(i).write(f(i)) };
+        }
+        // SAFETY: The first `n * size_of::<E>()` bytes are now initialized.
+        unsafe { self.set_len(n * size_of::<E>()) };
+    }
+
+    /// The uninitialized memory after the data: the bytes from `len` to the capacity.
+    ///
+    /// Write data here, then call [`Self::set_len`] to make it part of the bytes. If the memory
+    /// is still shared, this copies it first (copy-on-write).
+    ///
+    /// # Panics
+    ///
+    /// When the memory is not accessible from the host.
+    pub fn spare_capacity_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+        let len = self.len;
+        // SAFETY: The bytes after `len` are not part of the initialized data, so writes of
+        // uninitialized values there do not break the invariant of `Bytes`.
+        let memory = unsafe { self.memory_mut_default() };
+        &mut memory[len..]
+    }
+
+    /// Sets the length of the data.
+    ///
+    /// # Safety
+    ///
+    /// - `len` must not be larger than [`Self::capacity`].
+    /// - The first `len` bytes must be initialized, for example by writes to
+    ///   [`Self::spare_capacity_mut`].
+    pub unsafe fn set_len(&mut self, len: usize) {
+        debug_assert!(
+            len <= self.capacity(),
+            "the length must not be larger than the capacity"
+        );
+        self.len = len;
+    }
+
+    /// The controller of the allocation.
+    pub(crate) fn controller(&self) -> &dyn AllocationController {
+        &*self.controller
+    }
+
+    /// Copies `data` into new bytes in the same memory as `self`, with the same alignment.
+    fn copy_like(&self, data: &[u8]) -> Result<Self, AllocationError> {
+        Ok(Self {
+            controller: copy_like(&*self.controller, data, self.align())?,
+            len: data.len(),
+        })
     }
 
     /// The size of the allocation.
@@ -620,8 +970,8 @@ impl Bytes {
     }
 
     /// Copy an existing slice of data into Bytes that are aligned to `align`
-    fn try_from_data(align: usize, data: &[u8]) -> Result<Self, LayoutError> {
-        let controller = NativeAllocationController::alloc_with_data(data, align)?;
+    fn try_from_data(align: usize, data: &[u8]) -> Result<Self, AllocationError> {
+        let controller = NativeAllocationController::alloc_with_data(Global, data, align)?;
 
         Ok(Self {
             controller: Box::new(controller),
@@ -633,7 +983,7 @@ impl Bytes {
     /// into a fresh controller if not. We check the controller's reported alignment
     /// (not the raw pointer) because downstream callers such as `try_into_vec::<E>`
     /// depend on `alloc_align()` matching the element alignment.
-    fn try_enforce_runtime_align(&mut self, align: usize) -> Result<(), LayoutError> {
+    fn try_enforce_runtime_align(&mut self, align: usize) -> Result<(), AllocationError> {
         if self.controller.alloc_align() >= align {
             return Ok(());
         }
@@ -661,9 +1011,9 @@ impl Bytes {
         match self.controller.grow(new_cap, align) {
             Ok(()) => {}
             Err(_err) => {
-                let new_controller: Box<dyn AllocationController> = Box::new(
-                    NativeAllocationController::alloc_with_capacity(new_cap, align).unwrap(),
-                );
+                // Keep the data in the same memory, for example the same arena.
+                let new_controller = alloc_like(&*self.controller, new_cap, align)
+                    .unwrap_or_else(|err| panic!("failed to grow bytes to {new_cap} bytes: {err}"));
                 let mut new_bytes = Self {
                     controller: new_controller,
                     len: self.len,
@@ -787,8 +1137,9 @@ impl Clone for Bytes {
             };
         }
 
-        // unwrap here: the layout is valid as it has the alignment & size of self
-        Self::try_from_data(self.align(), self.deref()).unwrap()
+        // The copy stays in the same memory as `self`, for example the same arena.
+        self.copy_like(self)
+            .unwrap_or_else(|err| panic!("failed to clone {} bytes: {err}", self.len))
     }
 }
 

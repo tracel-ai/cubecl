@@ -24,8 +24,8 @@
 
 use super::{
     AccessError, AccessPolicy, AllocationController, AllocationError, AllocationProperty,
-    SplitError,
-    default_controller::{MAX_ALIGN, NativeAllocationController},
+    BufferAllocator, SplitError, allocator::AllocatorController, base::copy_like,
+    default_controller::MAX_ALIGN,
 };
 use alloc::boxed::Box;
 use core::mem::MaybeUninit;
@@ -53,6 +53,8 @@ pub struct SharedBytesAllocationController {
     controller: Once<Box<dyn AllocationController>>,
     /// The allocation property (used to optimize GPU transfers).
     property: AllocationProperty,
+    /// The memory of the copy-on-write buffer. `None` means the global allocator.
+    allocator: Option<&'static dyn BufferAllocator>,
 }
 
 impl SharedBytesAllocationController {
@@ -83,11 +85,38 @@ impl SharedBytesAllocationController {
             bytes,
             controller: Once::new(),
             property,
+            allocator: None,
         }
     }
 
-    /// Copy the shared bytes into a mutable native allocation controller on first call.
-    /// This is called lazily on first mutable access (copy-on-write).
+    /// Create a new controller whose copy-on-write buffer comes from `allocator`.
+    ///
+    /// Reads use `bytes` directly, the same as [`Self::new`]. The first write copies the data
+    /// into memory from `allocator`, not into the global allocator.
+    pub fn new_in(
+        bytes: bytes::Bytes,
+        property: AllocationProperty,
+        allocator: &'static dyn BufferAllocator,
+    ) -> Self {
+        Self {
+            allocator: Some(allocator),
+            ..Self::new(bytes, property)
+        }
+    }
+
+    /// A controller over `bytes` with the same property and allocator as `self`.
+    fn with_bytes(&self, bytes: bytes::Bytes) -> Self {
+        Self {
+            bytes,
+            controller: Once::new(),
+            property: self.property,
+            allocator: self.allocator,
+        }
+    }
+
+    /// Copy the shared bytes into a mutable allocation controller on first call, in memory
+    /// from the allocator of this controller. This is called lazily on first mutable access
+    /// (copy-on-write).
     ///
     /// The allocation uses `MAX_ALIGN` alignment to ensure `try_into_vec` works
     /// for all tensor element types (f16, f32, f64, etc.).
@@ -97,16 +126,12 @@ impl SharedBytesAllocationController {
 
             // Allocate with `MAX_ALIGN` to support all tensor element types in try_into_vec.
             // This ensures alignment is sufficient for f64, u128, SIMD types, etc.
-            let controller = NativeAllocationController::alloc_with_data(data, MAX_ALIGN)
-                .unwrap_or_else(|e| {
-                    panic!(
-                        "failed to allocate MAX_ALIGN buffer for copy-on-write (len: {}, error: {:?})",
-                        data.len(),
-                        e
-                    )
-                });
-
-            Box::new(controller) as Box<dyn AllocationController>
+            copy_like(self, data, MAX_ALIGN).unwrap_or_else(|e| {
+                panic!(
+                    "failed to allocate MAX_ALIGN buffer for copy-on-write (len: {}, error: {e})",
+                    data.len(),
+                )
+            })
         })
     }
 }
@@ -119,7 +144,9 @@ impl AllocationController for SharedBytesAllocationController {
         // Before mutation: the actual bytes::Bytes data may have lower alignment,
         // but try_detach will trigger init_mutable which allocates with MAX_ALIGN.
         //
-        // After mutation: the NativeAllocationController has MAX_ALIGN.
+        // After mutation: the copy-on-write buffer has MAX_ALIGN.
+        //
+        // With a custom allocator, try_detach returns None, so try_into_vec fails.
         MAX_ALIGN
     }
 
@@ -185,8 +212,8 @@ impl AllocationController for SharedBytesAllocationController {
         let right = self.bytes.slice(offset..);
 
         Ok((
-            Box::new(SharedBytesAllocationController::new(left, self.property)),
-            Box::new(SharedBytesAllocationController::new(right, self.property)),
+            Box::new(self.with_bytes(left)),
+            Box::new(self.with_bytes(right)),
         ))
     }
 
@@ -200,10 +227,7 @@ impl AllocationController for SharedBytesAllocationController {
         }
 
         // bytes::Bytes supports efficient slicing (reference counted, no copy).
-        Some(Box::new(SharedBytesAllocationController::new(
-            self.bytes.slice(start..end),
-            self.property,
-        )))
+        Some(Box::new(self.with_bytes(self.bytes.slice(start..end))))
     }
 
     fn duplicate(&self) -> Option<Box<dyn AllocationController>> {
@@ -213,10 +237,7 @@ impl AllocationController for SharedBytesAllocationController {
         }
 
         // bytes::Bytes is Clone (reference counted), so duplication is cheap
-        Some(Box::new(SharedBytesAllocationController::new(
-            self.bytes.clone(),
-            self.property,
-        )))
+        Some(Box::new(self.with_bytes(self.bytes.clone())))
     }
 
     unsafe fn copy_into(&self, buf: &mut [u8]) {
@@ -243,6 +264,18 @@ impl AllocationController for SharedBytesAllocationController {
         }
     }
 
+    fn alloc_like(
+        &self,
+        capacity: usize,
+        align: usize,
+    ) -> Option<Result<Box<dyn AllocationController>, AllocationError>> {
+        let allocator = self.allocator?;
+        Some(
+            AllocatorController::alloc_with_capacity(allocator, capacity, align)
+                .map(|controller| Box::new(controller) as Box<dyn AllocationController>),
+        )
+    }
+
     fn grow(&mut self, _size: usize, _align: usize) -> Result<(), AllocationError> {
         // Even after copy-on-write, we don't support growing
         // (would need to track original capacity vs NativeAllocationController's capacity)
@@ -250,6 +283,11 @@ impl AllocationController for SharedBytesAllocationController {
     }
 
     fn try_detach(&mut self) -> Option<NonNull<u8>> {
+        // Memory from a custom allocator never becomes a `Vec`. Return before the copy.
+        if self.allocator.is_some() {
+            return None;
+        }
+
         // Trigger copy-on-write if not already done.
         // This copies the data into a NativeAllocationController with MAX_ALIGN alignment,
         // which can then be detached and converted to a Vec.
