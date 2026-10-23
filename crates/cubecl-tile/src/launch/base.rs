@@ -1,5 +1,7 @@
 //! One kernel launch: the [`Launcher`].
 
+use std::sync::Arc;
+
 use cubecl::ir::{ElemType, HardwareProperties, OpaqueType};
 use cubecl::prelude::*;
 
@@ -66,18 +68,19 @@ pub fn spawnable(
 }
 
 /// One launch: a kernel-form partitioning, the concrete space with real extents, and the grid.
+/// What it settled is shared, so a launch kept and run again clones it for the price of a count.
 #[derive(Clone)]
 pub struct Launcher {
     client: Client,
-    partitioning: Partitioning,
-    concrete: Space,
+    partitioning: Arc<Partitioning>,
+    concrete: Arc<Space>,
     cube_count: CubeCount,
     cube_dim: CubeDim,
     /// The axes some tile reaches past the end of over the concrete space, worked out once: every
     /// operand the launch binds asks for them.
-    overhanging: Vec<Axis>,
+    overhanging: Arc<[Axis]>,
     /// The leaf over the concrete space.
-    leaf: Space,
+    leaf: Arc<Space>,
 }
 
 impl Launcher {
@@ -125,12 +128,12 @@ impl Launcher {
         }
         Ok(Launcher {
             client: client.clone(),
-            partitioning,
-            concrete: concrete.clone(),
+            partitioning: Arc::new(partitioning),
+            concrete: Arc::new(concrete.clone()),
             cube_count,
             cube_dim,
-            overhanging: over_concrete.overhanging(),
-            leaf: over_concrete.leaf(),
+            overhanging: over_concrete.overhanging().into(),
+            leaf: Arc::new(over_concrete.leaf()),
         })
     }
 
@@ -198,7 +201,7 @@ impl Launcher {
     pub(crate) fn may_overhang(&self) -> Vec<Axis> {
         let kernel = self.partitioning.space();
         let levels = self.partitioning.levels();
-        let mut axes = self.overhanging.clone();
+        let mut axes = self.overhanging.to_vec();
         for axis in kernel.axes().filter(|&axis| kernel.is_dynamic(axis)) {
             let cut_short = levels.iter().any(|level| {
                 level
