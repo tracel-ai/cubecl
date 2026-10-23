@@ -12,8 +12,9 @@ pub(crate) struct Boundaries {
 }
 
 impl Boundaries {
-    /// The mode: the stated policy, else whether the operand overhangs, underflows or has an
-    /// extent a table sets.
+    /// The mode: the stated policy, else, where the operand overhangs, underflows or has an extent
+    /// a table sets, the boundary [`AnyExtent`](BoundaryPolicy::AnyExtent) states or
+    /// [`Boundary::Zero`].
     fn mode(
         policy: Option<BoundaryPolicy>,
         projection: &Projection,
@@ -22,21 +23,21 @@ impl Boundaries {
         overhangs: &[Axis],
         table_bounded: &[Axis],
     ) -> Option<Boundary> {
-        match policy {
-            Some(BoundaryPolicy::Unchecked) => None,
-            Some(BoundaryPolicy::Every(boundary)) => Some(boundary),
-            None => {
-                let overhangs = addressed
-                    .iter()
-                    .filter(|&&axis| concrete.contains(axis))
-                    .any(|axis| overhangs.contains(axis));
-                (overhangs || projection.may_underflow() || !table_bounded.is_empty())
-                    .then_some(Boundary::Zero)
-            }
-        }
+        let boundary = match policy {
+            Some(BoundaryPolicy::Unchecked) => return None,
+            Some(BoundaryPolicy::Every(boundary)) => return Some(boundary),
+            Some(BoundaryPolicy::AnyExtent(boundary)) => boundary,
+            None => Boundary::Zero,
+        };
+        let overhangs = addressed
+            .iter()
+            .filter(|&&axis| concrete.contains(axis))
+            .any(|axis| overhangs.contains(axis));
+        (overhangs || projection.may_underflow() || !table_bounded.is_empty()).then_some(boundary)
     }
 
-    /// `concrete` is the launch's real-extent space and `overhangs` the axes its tiles reach past.
+    /// `concrete` is the launch's real-extent space and `overhangs` the axes its tiles reach past:
+    /// this launch's, or under [`AnyExtent`](BoundaryPolicy::AnyExtent) those any extent could.
     /// `table_bounded` are the axes a page table sets the extent of at launch
     /// ([`Paging`](crate::Paging)): never in bounds by construction, and their extent a whole
     /// number of pages, so of lines.

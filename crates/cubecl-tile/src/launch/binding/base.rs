@@ -278,7 +278,14 @@ impl<'a> Arg<'a, Labelled> {
             None => Err(LineMisfit::NoDims),
         };
         served.map_err(|why| Refusal::WidthNotServed { width, why })?;
-        let overhangs = launch.overhangs();
+        let may_overhang;
+        let overhangs = match data.boundary {
+            Some(BoundaryPolicy::AnyExtent(_)) => {
+                may_overhang = launch.may_overhang();
+                &may_overhang
+            }
+            _ => launch.overhangs(),
+        };
         let table_bounded: Vec<Axis> = match data.paged.is_some_and(|pool| pool.covering) {
             true => Vec::new(),
             false => paging
