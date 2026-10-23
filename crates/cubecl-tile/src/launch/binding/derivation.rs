@@ -7,7 +7,7 @@ use cubecl::prelude::CubeDim;
 use cubecl::zspace::Tiling;
 use hashbrown::{Equivalent, HashMap};
 
-use super::base::{ArgData, Derived, PagedPool};
+use super::base::{ArgData, Derived};
 use crate::{
     Axis, BoundaryPolicy, Delivery, Geometry, Packing, Partitioning, Projection, Refusal, Space,
 };
@@ -32,7 +32,6 @@ pub(crate) struct Derivation {
     packing: Packing,
     delivery: Delivery,
     in_stride_order: bool,
-    paged: Option<PagedPool>,
     stored: Tiling,
     partitioning: Partitioning,
     space: Space,
@@ -52,7 +51,6 @@ pub(crate) struct DerivationView<'a> {
     packing: Packing,
     delivery: Delivery,
     in_stride_order: bool,
-    paged: Option<PagedPool>,
     stored: Tiling,
     partitioning: &'a Partitioning,
     space: &'a Space,
@@ -86,7 +84,6 @@ impl Derivation {
             packing,
             delivery: data.delivery,
             in_stride_order: data.in_stride_order,
-            paged: data.paged,
             stored,
             partitioning: data.launch.partitioning(),
             space: data.launch.space(),
@@ -124,7 +121,6 @@ impl DerivationView<'_> {
             packing: self.packing,
             delivery: self.delivery,
             in_stride_order: self.in_stride_order,
-            paged: self.paged,
             stored: self.stored,
             partitioning: self.partitioning.clone(),
             space: self.space.clone(),
@@ -144,7 +140,6 @@ impl Equivalent<Derivation> for DerivationView<'_> {
             && self.packing == kept.packing
             && self.delivery == kept.delivery
             && self.in_stride_order == kept.in_stride_order
-            && self.paged == kept.paged
             && self.stored == kept.stored
             && *self.partitioning == kept.partitioning
             && *self.space == kept.space

@@ -14,6 +14,41 @@ pub struct Paging {
 }
 
 impl Paging {
+    /// The paging of a pool of `shape`, its pages along the dim `sequence` labels and their
+    /// positions along the one `position` labels, a page its extent there.
+    ///
+    /// # Errors
+    ///
+    /// What [`validate`](Self::validate) refuses, and a pool of no pages.
+    pub(crate) fn of_pool(
+        sequence: Axis,
+        position: Axis,
+        shape: &[usize],
+        projection: &Projection,
+        stored_tiles: &[(Axis, usize)],
+        delivery: Delivery,
+    ) -> Result<Paging, Refusal> {
+        let unsized_paging = Paging {
+            sequence,
+            position,
+            page_size: 0,
+        };
+        // Where the axes name no dims, `validate` refuses before it reads the page.
+        let page_size = unsized_paging
+            .dims(projection)
+            .map_or(0, |(_, position)| shape[position]);
+        let paging = Paging {
+            page_size,
+            ..unsized_paging
+        };
+        paging.validate(projection, stored_tiles, delivery)?;
+        let (sequence, _) = paging.dims(projection)?;
+        match shape[sequence] {
+            0 => Err(Refusal::PagingOfAnEmptyPool),
+            _ => Ok(paging),
+        }
+    }
+
     /// The buffer dims `projection` carries the two axes on, `(sequence, position)`.
     ///
     /// # Errors
@@ -33,9 +68,10 @@ impl Paging {
     }
 
     /// What an operand read through a table owes, checked once for the build and the kernel both:
-    /// a direct, untiled mapping over a pool of pages, moved a line at a time, its lines whole
-    /// within a page and never along the pages. A packed pool is paged like a plain one: its words
-    /// lie along the innermost dim, as its lines do.
+    /// a direct, untiled mapping over a pool of pages, moved a line at a time, its lines never
+    /// along the pages. A line is whole within a page because the binding serves it whole within
+    /// the dim a page spans. A packed pool is paged like a plain one: its words lie along the
+    /// innermost dim, as its lines do.
     ///
     /// # Errors
     ///
@@ -45,7 +81,6 @@ impl Paging {
         projection: &Projection,
         stored_tiles: &[(Axis, usize)],
         delivery: Delivery,
-        width: usize,
     ) -> Result<(), Refusal> {
         if !projection.is_direct() || projection.is_tiled() || !stored_tiles.is_empty() {
             return Err(Refusal::PagingOfAStatedLayout);
@@ -53,20 +88,13 @@ impl Paging {
         if !matches!(delivery, Delivery::SyncPerUnit | Delivery::AsyncPerUnit) {
             return Err(Refusal::PagingMovedByRuns);
         }
-        let (sequence, position) = self.dims(projection)?;
-        let innermost = projection.physical_rank() - 1;
-        if sequence == innermost {
+        let (sequence, _) = self.dims(projection)?;
+        if sequence == projection.physical_rank() - 1 {
             return Err(Refusal::PagesAlongALine(self.sequence));
         }
-        if self.page_size == 0 {
-            return Err(Refusal::PagingOfAnEmptyPool);
+        match self.page_size {
+            0 => Err(Refusal::PagingOfAnEmptyPool),
+            _ => Ok(()),
         }
-        if position == innermost && !self.page_size.is_multiple_of(width) {
-            return Err(Refusal::PageSplitsALine {
-                page_size: self.page_size,
-                width,
-            });
-        }
-        Ok(())
     }
 }

@@ -366,7 +366,7 @@ fn check_operand(space: &Space, spec: &TileSpec, vector_size: usize) {
     }
     projection.validate_composition(|axis| space.extent(axis));
     if let Some(paging) = &spec.paging {
-        let checked = paging.validate(projection, &spec.stored_tiles, spec.delivery, vector_size);
+        let checked = paging.validate(projection, &spec.stored_tiles, spec.delivery);
         if let Err(refusal) = checked {
             panic!("GlobalOperand: {refusal}");
         }
