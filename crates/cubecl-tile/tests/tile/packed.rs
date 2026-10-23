@@ -3198,9 +3198,9 @@ fn check_looked_up_copy(bits: usize, width: usize) {
 /// How [`decoded_lines`] reads each line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum LineRead {
-    /// Masked where it overhangs the operand ([`Decoded::read`](cubecl_tile::kind::Decoded::read)).
+    /// Masked where it overhangs the operand (`Decoded::read`).
     Masked,
-    /// Untested, the kernel having tested it ([`Decoded::read_unchecked`](cubecl_tile::kind::Decoded::read_unchecked)).
+    /// Untested, the kernel having tested it (`Decoded::read_unchecked`).
     Untested,
 }
 
@@ -3233,7 +3233,7 @@ fn decoded_lines<N: Size>(
 #[test]
 fn a_decoded_read_of_looked_up_fields_matches_the_copy() {
     for (bits, width) in [(8, 4), (4, 4), (2, 4), (4, 2), (16, 4), (8, 8), (4, 16)] {
-        check_decoded_lines(bits, width, LineRead::Masked);
+        check_decoded_lines(Field::Index { bits }, width, LineRead::Masked);
     }
 }
 
@@ -3242,92 +3242,25 @@ fn a_decoded_read_of_looked_up_fields_matches_the_copy() {
 #[test]
 fn an_untested_decoded_read_matches_the_masked_one() {
     for (bits, width) in [(8, 4), (2, 4), (16, 4)] {
-        check_decoded_lines(bits, width, LineRead::Untested);
+        check_decoded_lines(Field::Index { bits }, width, LineRead::Untested);
     }
 }
 
 /// **A unit reads integer fields into its registers decoded, with no table.** Signed 4-bit values,
-/// sign extension included, each under its row's scale, read two a line, a half of a word's
+/// sign extension included, each under its row's scale, read two a line, a quarter of a word's
 /// fields at each read.
 #[test]
 fn a_decoded_read_of_integer_fields_scales_them() {
-    let (field, rows, cols, width) = (QuantValue::Q4S, 4, 32, 2);
-    let bits = field.size_bits();
-    let factor = 32 / bits;
-    let client = cubecl::test_device().client();
-
-    let span = 1i32 << bits;
-    let values: Vec<i32> = (0..rows * cols)
-        .map(|i| -(span / 2) + ((i * 5) as i32 % span))
-        .collect();
-    let mask = (1u32 << bits) - 1;
-    let words: Vec<u32> = values
-        .chunks(factor)
-        .map(|word| {
-            word.iter().enumerate().fold(0u32, |acc, (j, &v)| {
-                acc | (((v as u32) & mask) << (j * bits))
-            })
-        })
-        .collect();
-    let input = TensorHandle::new_contiguous(
-        vec![rows, cols],
-        client.create(Bytes::from_elems(words)),
-        u32::elem_type_native(),
-    );
-    let scales: Vec<f32> = (0..rows).map(|i| (i as f32 + 1.0) / 4.0).collect();
-    let (scales_t, _) = TestInput::builder(client.clone(), shape![rows])
-        .dtype(f32::elem_type_native())
-        .custom(scales.clone())
-        .generate_with_f32_host_data();
-    let lines = rows * cols / width;
-    let output = TestInput::builder(client.clone(), shape![lines * width])
-        .dtype(f32::elem_type_native())
-        .zeros()
-        .generate_without_host_data();
-
-    let space = Space::new(&[(M, rows), (N, cols)]);
-    let input = TileArgLaunch::new(
-        input.binding().into_tensor_arg(),
-        u32::elem_type_native(),
-        1,
-        TileSpec::direct(&[M, N]).packed(field),
-    )
-    .scales(TileArgLaunch::new(
-        scales_t.binding().into_tensor_arg(),
-        f32::elem_type_native(),
-        1,
-        TileSpec::direct(&[M]),
-    ));
-    decoded_lines::launch(
-        &client,
-        CubeCount::new_single(),
-        CubeDim::new_1d(lines as u32),
-        width,
-        input,
-        output.clone().binding().into_tensor_arg(),
-        uncut(&client, &space, &space).partitioning_arg(),
-        cols / width,
-        LineRead::Masked,
-    );
-
-    let got = HostData::from_tensor_handle(&client, output, HostDataType::F32);
-    for m in 0..rows {
-        for n in 0..cols {
-            let want = values[m * cols + n] as f32 * scales[m];
-            let have = got.get_f32(&[m * cols + n]);
-            assert!(
-                (have - want).abs() < 1e-6,
-                "at ({m}, {n}): got {have}, want {want}"
-            );
-        }
-    }
+    check_decoded_lines(QuantValue::Q4S.into(), 2, LineRead::Masked);
 }
 
-/// `table[index] ⊗ scale[row]` for `bits`-wide indices, read `width` values a line as `read` says.
-fn check_decoded_lines(bits: usize, width: usize, read: LineRead) {
+/// Each `field` of a `[4, 64]` operand under its row's scale, read `width` values a line as
+/// `read` says, against the host's decode: an index's entry of a table, an integer sign-extended.
+fn check_decoded_lines(field: Field, width: usize, read: LineRead) {
     let (rows, cols) = (4, 64);
+    let bits = field.size_bits();
     let factor = 32 / bits;
-    let entries = 1usize << bits;
+    let span = 1usize << bits;
 
     let client = cubecl::test_device().client();
     let max = client.properties().hardware.max_vector_size;
@@ -3339,10 +3272,11 @@ fn check_decoded_lines(bits: usize, width: usize, read: LineRead) {
         return;
     }
 
-    let indices: Vec<u32> = (0..rows * cols)
-        .map(|i| ((i * 37 + 3) % entries) as u32)
+    // Every stored field, cycling through all the values `bits` hold.
+    let raw: Vec<u32> = (0..rows * cols)
+        .map(|i| ((i * 37 + 3) % span) as u32)
         .collect();
-    let words: Vec<u32> = indices
+    let words: Vec<u32> = raw
         .chunks(factor)
         .map(|word| {
             word.iter()
@@ -3356,11 +3290,11 @@ fn check_decoded_lines(bits: usize, width: usize, read: LineRead) {
         client.create(Bytes::from_elems(words)),
         u32::elem_type_native(),
     );
-    let table: Vec<f32> = (0..entries).map(|i| (i as f32 - 127.5) / 3.0).collect();
-    let (table_t, _) = TestInput::builder(client.clone(), shape![entries])
-        .dtype(f32::elem_type_native())
-        .custom(table.clone())
-        .generate_with_f32_host_data();
+    let table: Vec<f32> = (0..span).map(|i| (i as f32 - 127.5) / 3.0).collect();
+    let decode = |raw: u32| match field {
+        Field::Index { .. } => table[raw as usize],
+        _ => (((raw << (32 - bits)) as i32) >> (32 - bits)) as f32,
+    };
     let scales: Vec<f32> = (0..rows).map(|i| (i as f32 + 1.0) / 4.0).collect();
     let (scales_t, _) = TestInput::builder(client.clone(), shape![rows])
         .dtype(f32::elem_type_native())
@@ -3373,20 +3307,27 @@ fn check_decoded_lines(bits: usize, width: usize, read: LineRead) {
         .generate_without_host_data();
 
     let space = Space::new(&[(M, rows), (N, cols)]);
-    let input = TileArgLaunch::new(
+    let mut input = TileArgLaunch::new(
         input.binding().into_tensor_arg(),
         u32::elem_type_native(),
         1,
-        TileSpec::direct(&[M, N]).packed(Field::Index { bits }),
-    )
-    .codebook(TileArgLaunch::new(
-        table_t.binding().into_tensor_arg(),
-        f32::elem_type_native(),
-        1,
-        TileSpec::direct(&[TBL]),
-    ))
-    .expect("a plain table of an entry per index")
-    .scales(TileArgLaunch::new(
+        TileSpec::direct(&[M, N]).packed(field),
+    );
+    if let Field::Index { .. } = field {
+        let (table_t, _) = TestInput::builder(client.clone(), shape![span])
+            .dtype(f32::elem_type_native())
+            .custom(table.clone())
+            .generate_with_f32_host_data();
+        input = input
+            .codebook(TileArgLaunch::new(
+                table_t.binding().into_tensor_arg(),
+                f32::elem_type_native(),
+                1,
+                TileSpec::direct(&[TBL]),
+            ))
+            .expect("a plain table of an entry per index");
+    }
+    let input = input.scales(TileArgLaunch::new(
         scales_t.binding().into_tensor_arg(),
         f32::elem_type_native(),
         1,
@@ -3407,11 +3348,11 @@ fn check_decoded_lines(bits: usize, width: usize, read: LineRead) {
     let got = HostData::from_tensor_handle(&client, output, HostDataType::F32);
     for m in 0..rows {
         for n in 0..cols {
-            let want = table[indices[m * cols + n] as usize] * scales[m];
+            let want = decode(raw[m * cols + n]) * scales[m];
             let have = got.get_f32(&[m * cols + n]);
             assert!(
                 (have - want).abs() < 1e-6,
-                "{bits}-bit fields read {width} a line, at ({m}, {n}): got {have}, want {want}"
+                "{field:?} read {width} a line, at ({m}, {n}): got {have}, want {want}"
             );
         }
     }

@@ -4,8 +4,6 @@
 use std::marker::PhantomData;
 
 use cubecl::prelude::*;
-use cubecl::unexpanded;
-use cubecl_std::tensor::layout::Coords1d;
 
 use crate::*;
 
@@ -14,26 +12,18 @@ use crate::*;
 /// A line is named by its row, the window's lines grouped by every axis but the innermost and
 /// counted row-major, and its place in the row. Every line of a row shares the row's address and
 /// scale, so a reader taking several lines of one row computes them once.
-pub struct Decoded<'a, O: Float, W: Size> {
-    _lines: PhantomData<(&'a (), O, W)>,
+#[derive(CubeType, Clone)]
+pub struct Decoded<O: Float, W: Size> {
+    window: Tile,
+    #[cube(comptime)]
+    line: PhantomData<(O, W)>,
 }
 
-/// How a [`Decoded`] read is served, settled as the kernel expands.
-pub enum DecodedExpand<'a, O: Float, W: Size> {
-    /// Plain values under no scale: read as they lie, as [`flat`](Tile::flat) reads them, a row
-    /// `lines` long.
-    Plain {
-        values: MaskedExpand<'a, Vector<O, W>, Coords1d>,
-        lines: usize,
-    },
-    /// Packed values: the window, its words unpacked, looked up and scaled at each read.
-    Packed(Box<TileExpand>),
-}
-
-impl<O: Float, W: Size> Decoded<'_, O, W> {
+#[cube]
+impl<O: Float, W: Size> Decoded<O, W> {
     /// The `line`-th line of row `row`, masked where it overhangs the operand.
-    pub fn read(&self, _row: usize, _line: usize) -> Vector<O, W> {
-        unexpanded!()
+    pub fn read(&self, row: usize, line: usize) -> Vector<O, W> {
+        self.read_under(row, line, comptime!(Guard::Checked))
     }
 
     /// The `line`-th line of row `row`, untested: the reader proved it in bounds, so reading past
@@ -44,97 +34,25 @@ impl<O: Float, W: Size> Decoded<'_, O, W> {
     ///
     /// As the kernel expands, on a window with a [`Boundary::Clamp`](crate::kind::Boundary::Clamp)
     /// axis, whose reads must be clamped.
-    pub fn read_unchecked(&self, _row: usize, _line: usize) -> Vector<O, W> {
-        unexpanded!()
-    }
-}
-
-impl<O: Float, W: Size> DecodedExpand<'_, O, W> {
-    pub fn __expand_read_method(
-        &self,
-        scope: &Scope,
-        row: NativeExpand<usize>,
-        line: NativeExpand<usize>,
-    ) -> NativeExpand<Vector<O, W>> {
-        self.read(scope, row, line, Guard::Checked)
+    pub fn read_unchecked(&self, row: usize, line: usize) -> Vector<O, W> {
+        let provable = self.window.guard_provable();
+        comptime!(assert!(
+            provable,
+            "Decoded::read_unchecked: a clamped window's reads are clamped, never untested"
+        ));
+        self.read_under(row, line, comptime!(Guard::Proved))
     }
 
-    pub fn __expand_read_unchecked_method(
-        &self,
-        scope: &Scope,
-        row: NativeExpand<usize>,
-        line: NativeExpand<usize>,
-    ) -> NativeExpand<Vector<O, W>> {
-        if let DecodedExpand::Packed(window) = self {
-            assert!(
-                window.__expand_guard_provable_method(scope),
-                "Decoded::read_unchecked: a clamped window's reads are clamped, never untested"
-            );
-        }
-        self.read(scope, row, line, Guard::Proved)
-    }
-
-    fn read(
-        &self,
-        scope: &Scope,
-        row: NativeExpand<usize>,
-        line: NativeExpand<usize>,
-        guard: Guard,
-    ) -> NativeExpand<Vector<O, W>> {
-        match self {
-            DecodedExpand::Plain { values, lines } => {
-                read_plain_line::expand::<O, W>(scope, values, row, line, *lines, guard)
-            }
-            DecodedExpand::Packed(window) => {
-                read_packed_line::expand::<O, W>(scope, window, row, line, guard)
-            }
+    fn read_under(&self, row: usize, line: usize, #[comptime] guard: Guard) -> Vector<O, W> {
+        let packing = self.window.packing();
+        match comptime!(packing) {
+            Packing::Plain => read_plain_line::<O, W>(&self.window, row, line, guard),
+            Packing::Packed { .. } => read_packed_line::<O, W>(&self.window, row, line, guard),
         }
     }
 }
 
-impl<'a, O: Float, W: Size> CubeType for Decoded<'a, O, W> {
-    type ExpandType = DecodedExpand<'a, O, W>;
-}
-
-impl<O: Float, W: Size> IntoExpand for DecodedExpand<'_, O, W> {
-    type Expand = Self;
-    fn into_expand(self, _: &Scope) -> Self {
-        self
-    }
-}
-
-impl<O: Float, W: Size> ExpandTypeClone for DecodedExpand<'_, O, W> {
-    fn clone_unchecked(&self) -> Self {
-        match self {
-            DecodedExpand::Plain { values, lines } => DecodedExpand::Plain {
-                values: values.clone_unchecked(),
-                lines: *lines,
-            },
-            DecodedExpand::Packed(window) => DecodedExpand::Packed(window.clone()),
-        }
-    }
-}
-
-impl<O: Float, W: Size> IntoMut for DecodedExpand<'_, O, W> {
-    fn into_mut(self, _: &Scope) -> Self {
-        self
-    }
-}
-
-impl<O: Float, W: Size> CubeDebug for DecodedExpand<'_, O, W> {}
-
-impl<O: Float, W: Size> AsRefExpand for DecodedExpand<'_, O, W> {
-    fn __expand_ref_method(&self, _: &Scope) -> &Self {
-        self
-    }
-}
-
-impl<O: Float, W: Size> AsMutExpand for DecodedExpand<'_, O, W> {
-    fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
-        self
-    }
-}
-
+#[cube]
 impl Tile {
     /// This tile's window read into registers a line at a time, `W` values a line, each served
     /// at `O` decoded as [`dequantize_from`](Tile::dequantize_from) writes it: its fields
@@ -149,44 +67,30 @@ impl Tile {
     ///
     /// As the kernel expands: plain values under scales, which only a copy decodes; packed ones
     /// bound wider than a word, or whose scales vary along a line.
-    pub fn decoded<O: Float, W: Size>(&self) -> Decoded<'_, O, W> {
-        unexpanded!()
-    }
-}
-
-impl TileExpand {
-    pub fn __expand_decoded_method<O: Float, W: Size>(
-        &self,
-        scope: &Scope,
-    ) -> DecodedExpand<'_, O, W> {
-        match self.__expand_packing_method(scope) {
-            Packing::Plain => {
-                assert!(
-                    !self.factor.scaled(),
-                    "Tile::decoded: plain values under scales are decoded by a copy \
-                     (`dequantize_from`)"
-                );
-                let space = &self.place.space;
-                let row = space.extent_at(space.rank() - 1);
-                DecodedExpand::Plain {
-                    values: self.__expand_flat_method::<O, W>(scope),
-                    lines: row / W::__expand_value(scope),
-                }
-            }
-            Packing::Packed { .. } => DecodedExpand::Packed(Box::new(self.clone())),
+    pub fn decoded<O: Float, W: Size>(&self) -> Decoded<O, W> {
+        let (packing, scaled) = (self.packing(), self.factor.scaled());
+        comptime!(assert!(
+            packing != Packing::Plain || !scaled,
+            "Tile::decoded: plain values under scales are decoded by a copy (`dequantize_from`)"
+        ));
+        Decoded::<O, W> {
+            window: self.clone(),
+            line: PhantomData,
         }
     }
 }
 
-/// The `line`-th line of row `row` of plain `values`, `lines` a row, read under `guard`.
+/// The `line`-th line of row `row` of a plain `window`, read under `guard`.
 #[cube]
 fn read_plain_line<O: Float, W: Size>(
-    values: &Masked<'_, Vector<O, W>, Coords1d>,
+    window: &Tile,
     row: usize,
     line: usize,
-    #[comptime] lines: usize,
     #[comptime] guard: Guard,
 ) -> Vector<O, W> {
+    let space = comptime!(window.place.space.clone());
+    let lines = comptime!(space.extent_at(space.rank() - 1)) / W::value();
+    let values = window.flat::<O, W>();
     match comptime!(guard) {
         Guard::Checked => values.read(row * lines + line),
         Guard::Proved => values.read_unchecked(row * lines + line),
@@ -281,7 +185,7 @@ fn read_packed_line<O: Float, W: Size>(
     if comptime!(scaled) {
         let scale = window
             .factor
-            .at_coords_under(&first, comptime!(space.clone()), guard);
+            .at_coords(&first, comptime!(space.clone()), guard);
         values *= Vector::<f32, W>::cast_from(scale);
     }
     Vector::<O, W>::cast_from(values)

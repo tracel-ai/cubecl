@@ -141,7 +141,10 @@ impl Tile {
                 }
             }
             let values = values_at::<S, I, WP, VW>(held, offset, packing);
-            let scale = self.factor.at_coords(&at, comptime!(space.clone())) * lift;
+            let scale =
+                self.factor
+                    .at_coords(&at, comptime!(space.clone()), comptime!(Guard::Checked))
+                    * lift;
             // Multiplied in `f32`, rounded to `S` once: a placed `e2m1` value is a lift short,
             // which the scale carries, and the lift times a scale is past a half's range where
             // its product with the value is not.

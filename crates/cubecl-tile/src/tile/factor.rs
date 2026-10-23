@@ -56,19 +56,10 @@ impl Factor {
         unexpanded!()
     }
 
-    /// The scale covering the value at `coords`: the product down the chain.
-    pub(crate) fn at_coords(&self, _coords: &Coords<u32>, _values: Space) -> f32 {
-        unexpanded!()
-    }
-
-    /// [`at_coords`](Factor::at_coords), each scale read under `guard`: [`Guard::Proved`] where
-    /// the reader proved the value's read in bounds, which puts the scales covering it in bounds.
-    pub(crate) fn at_coords_under(
-        &self,
-        _coords: &Coords<u32>,
-        _values: Space,
-        _guard: Guard,
-    ) -> f32 {
+    /// The scale covering the value at `coords`: the product down the chain, each scale read
+    /// under `guard`. [`Guard::Proved`] where the reader proved the value's read in bounds, which
+    /// puts the scales covering it in bounds.
+    pub(crate) fn at_coords(&self, _coords: &Coords<u32>, _values: Space, _guard: Guard) -> f32 {
         unexpanded!()
     }
 
@@ -245,15 +236,6 @@ impl FactorExpand {
     }
 
     pub(crate) fn __expand_at_coords_method(
-        &self,
-        scope: &Scope,
-        coords: &CoordsExpand<u32>,
-        values: Space,
-    ) -> NativeExpand<f32> {
-        self.__expand_at_coords_under_method(scope, coords, values, Guard::Checked)
-    }
-
-    pub(crate) fn __expand_at_coords_under_method(
         &self,
         scope: &Scope,
         coords: &CoordsExpand<u32>,
@@ -470,7 +452,11 @@ impl FactorReader {
         coords: &Coords<u32>,
     ) -> Vector<E, V> {
         if comptime!(self.scaled) {
-            let scale = self.inner.at_coords(coords, comptime!(self.values.clone()));
+            let scale = self.inner.at_coords(
+                coords,
+                comptime!(self.values.clone()),
+                comptime!(Guard::Checked),
+            );
             // Multiplied in `f32`, rounded to `E` once: a placed `e2m1` value is a lift short, which
             // the factor carries, and the lift times a scale is past a half's range where its
             // product with the value is not.
