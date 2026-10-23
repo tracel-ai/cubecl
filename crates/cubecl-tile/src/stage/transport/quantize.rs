@@ -52,7 +52,7 @@ impl Tile {
             },
         });
         let (low, high) = comptime!(value.range());
-        let largest = comptime!(((high - low) / 2.0) as f64);
+        let span = comptime!((high - low) as f64);
         let src_lines = comptime!(block_space.tiles(&src_load.space()));
         let loads_a_block = comptime!(block_space.tiles(&load.space()));
         let lines_a_load = comptime!(load.values() / src_load.values());
@@ -108,10 +108,12 @@ impl Tile {
                         most = max(most, F::abs(held.extract(e)));
                     }
                 }
-                // As burn calibrates it: the block's largest over the format's, in the source's
-                // element, rounded up to the scale's dtype, which never clips the block's largest.
+                // As burn calibrates it: the block's range, twice its largest, over the format's,
+                // in the source's element, rounded up to the scale's dtype, which never clips the
+                // block's largest. Spelled as burn's ops: a device's fast division rounds
+                // `2a / (b - a)` and `a / ((b - a) / 2)` apart.
                 // Under a coarser scale the block's is taken relative to it, in `f32`.
-                let wanted = most / F::new(largest);
+                let wanted = most * F::new(2.0) / F::new(span);
                 let inner = if comptime!(two_levels) {
                     round_up_to_dtype::<F>(F::cast_from(f32::cast_from(wanted) / coarse), dtype)
                 } else {
