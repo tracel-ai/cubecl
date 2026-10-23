@@ -207,6 +207,10 @@ pub struct MemoryPoolsReport {
     pub persistent: MemoryPoolReport,
     /// The dedicated allocations, each its own device allocation.
     pub dedicated: MemoryPoolReport,
+    /// Kernel metadata outside the configured dynamic layout, when
+    /// enabled by the backend. Its usage is included in `memory_usage`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<MemoryPoolReport>,
 }
 
 impl MemoryReport {
@@ -238,6 +242,7 @@ impl MemoryPoolsReport {
         self.dynamic
             .iter()
             .chain([&self.persistent, &self.dedicated])
+            .chain(self.metadata.iter())
             .fold(MemoryUsage::default(), |usage, pool| {
                 usage.combine(pool.usage.clone())
             })
@@ -296,6 +301,7 @@ mod tests {
                 dynamic: vec![pool(bytes)],
                 persistent: pool(bytes),
                 dedicated: pool(bytes),
+                metadata: None,
             },
             auxiliary: Vec::new(),
         }
@@ -304,12 +310,13 @@ mod tests {
     /// A device report is the sum of its streams, each the sum of its pools.
     #[test]
     fn usage_sums_every_pool_of_every_stream() {
-        let report = MemoryReport {
+        let mut report = MemoryReport {
             streams: vec![stream(0, 1), stream(1, 10)],
         };
-        assert_eq!(report.streams[0].usage().bytes_in_use, 3);
-        assert_eq!(report.usage().bytes_in_use, 33);
-        assert_eq!(report.usage().number_allocs, 6);
+        report.streams[0].pools.metadata = Some(pool(2));
+        assert_eq!(report.streams[0].usage().bytes_in_use, 5);
+        assert_eq!(report.usage().bytes_in_use, 35);
+        assert_eq!(report.usage().number_allocs, 7);
     }
 
     /// The memories a runtime keeps for itself count toward the stream.
