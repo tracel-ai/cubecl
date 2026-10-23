@@ -4,6 +4,7 @@
 //! [`TileArg`] of its own.
 
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use cubecl::frontend::{AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, IntoMut};
 use cubecl::frontend::{buffer_len::expand_buffer_length_native, slice};
@@ -352,10 +353,11 @@ impl<'a> TileArgExpand<'a> {
 }
 
 /// The host side of a [`TileArg`]: its values, its spec, the element its buffer holds and its
-/// scales.
+/// scales. The spec is shared: a rebound operand and the compilation argument it registers as
+/// read the one its launch was settled with.
 pub struct TileArgLaunch {
     values: ValuesLaunch,
-    spec: TileSpec,
+    spec: Arc<TileSpec>,
     element: ElemType,
     scale: Option<Box<TileArgLaunch>>,
     index: Option<(Box<TileArgLaunch>, Indexing)>,
@@ -402,7 +404,7 @@ impl TileArgLaunch {
         );
         Self {
             values,
-            spec,
+            spec: Arc::new(spec),
             element,
             scale: None,
             index: None,
@@ -556,7 +558,7 @@ impl TileArgLaunch {
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct TileArgCompilationArg {
     values: ValuesCompilationArg,
-    spec: TileSpec,
+    spec: Arc<TileSpec>,
     element: ElemType,
     scale: Option<Box<TileArgCompilationArg>>,
     index: Option<(Box<TileArgCompilationArg>, Indexing)>,
@@ -706,7 +708,7 @@ impl LaunchArg for TileArg<'static> {
         }
         TileArgExpand {
             values,
-            spec: arg.spec.clone(),
+            spec: TileSpec::clone(&arg.spec),
             element: arg.element,
             scale,
             index,
@@ -767,7 +769,7 @@ mod tests {
                 },
                 width: 1,
             },
-            spec: TileSpec::direct(&[Axis(0)]),
+            spec: Arc::new(TileSpec::direct(&[Axis(0)])),
             element: ElemType::Float(FloatKind::F32),
             scale: None,
             index: None,
@@ -805,7 +807,7 @@ mod tests {
                 },
                 width: 1,
             },
-            spec: TileSpec::direct(keys),
+            spec: Arc::new(TileSpec::direct(keys)),
             element: u32::elem_type_native(),
             scale: None,
             index: None,
