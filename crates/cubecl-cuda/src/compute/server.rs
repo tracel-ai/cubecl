@@ -380,6 +380,16 @@ impl Server for CudaServer {
         self.ctx.profiler.start(sys)
     }
 
+    fn start_profile_at_launch(
+        &mut self,
+        stream_id: StreamId,
+    ) -> Result<ProfilingToken, ServerError> {
+        // Stamped by the launch itself, right before `cuLaunchKernel`
+        // (`CudaContext::execute_task`).
+        let sys = self.profiled_stream(stream_id, "start_profile_at_launch")?;
+        self.ctx.profiler.start_at_launch(sys)
+    }
+
     fn end_profile(
         &mut self,
         stream_id: StreamId,

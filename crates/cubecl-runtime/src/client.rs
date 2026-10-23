@@ -191,6 +191,16 @@ pub struct ProfileWindow {
     pub token: ProfilingToken,
 }
 
+/// Where a [`Client::profile`] window opens on its stream.
+#[derive(Debug, Clone, Copy)]
+enum WindowOpens {
+    /// Where the stream is: everything the closure enqueues is in the window.
+    Now,
+    /// At the next kernel launched, for a window around one launch: the host
+    /// preparing that launch stays out of it. See [`Server::start_profile_at_launch`].
+    AtLaunch,
+}
+
 /// The state a `DeviceHandle` reaches, seen as the server it is. A client
 /// keeps this cast, not the server type, so every operation reads the same
 /// whatever backend is underneath.
@@ -1340,7 +1350,8 @@ impl Client {
                 ))));
                 let to_launch = slot.clone();
                 let issued_profiled = issued.clone();
-                let profiled = self.profile(
+                let profiled = self.profile_opened(
+                    WindowOpens::AtLaunch,
                     move || {
                         let (kernel, count, bindings) = to_launch
                             .lock()
@@ -1787,6 +1798,17 @@ impl Client {
     pub fn profile<O: Send + 'static>(
         &self,
         func: impl FnOnce() -> O + Send,
+        func_name: &str,
+    ) -> Result<(O, ProfileDuration), ProfileError> {
+        self.profile_opened(WindowOpens::Now, func, func_name)
+    }
+
+    /// [`profile`](Self::profile), its window opened where `opens` says.
+    #[track_caller]
+    fn profile_opened<O: Send + 'static>(
+        &self,
+        opens: WindowOpens,
+        func: impl FnOnce() -> O + Send,
         #[allow(unused)] func_name: &str,
     ) -> Result<(O, ProfileDuration), ProfileError> {
         // Get the outer caller. For execute() this points straight to the
@@ -1825,21 +1847,23 @@ impl Client {
             .exclusive(move || {
                 // We first get mut access to the server to create a token.
                 // Then we free to server, since it's going to be accessed in `func()`.
-                let token =
-                    match device.submit_blocking(move |server| server.start_profile(stream_id)) {
-                        Ok(token) => match token {
-                            Ok(token) => token,
-                            Err(err) => return Err(err),
-                        },
-                        Err(err) => {
-                            return Err(ServerError::Generic {
-                                reason: alloc::format!(
-                                    "Can't start profiling because of a call error: {err:?}"
-                                ),
-                                backtrace: BackTrace::capture(),
-                            });
-                        }
-                    };
+                let token = match device.submit_blocking(move |server| match opens {
+                    WindowOpens::Now => server.start_profile(stream_id),
+                    WindowOpens::AtLaunch => server.start_profile_at_launch(stream_id),
+                }) {
+                    Ok(token) => match token {
+                        Ok(token) => token,
+                        Err(err) => return Err(err),
+                    },
+                    Err(err) => {
+                        return Err(ServerError::Generic {
+                            reason: alloc::format!(
+                                "Can't start profiling because of a call error: {err:?}"
+                            ),
+                            backtrace: BackTrace::capture(),
+                        });
+                    }
+                };
 
                 // We execute `func()` which will recursibly access the server.
                 let out = func();

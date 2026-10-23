@@ -60,6 +60,8 @@ pub struct EventProfiler<A: EventApi> {
 /// A window that has opened and not yet closed.
 struct Open<A: EventApi> {
     start: Pooled<A>,
+    /// The stream whose next launch records `start`, until one does.
+    waits_for_launch: Option<A::Stream>,
     /// The anchor this window opened under, kept so that its start and its end
     /// are placed against the same one however many refreshes happen in
     /// between.
@@ -79,11 +81,60 @@ impl<A: EventApi> EventProfiler<A> {
         let start = self.pool.acquire()?;
         start.record(stream)?;
 
+        Ok(self.opened(Open {
+            start,
+            waits_for_launch: None,
+            anchor,
+        }))
+    }
+
+    /// Open a window at the next kernel launched on `stream`, rather than at
+    /// where the stream is now.
+    ///
+    /// What lies between the two is the host preparing that launch. A device
+    /// with nothing queued stamps an event the moment it is recorded, so a
+    /// window opened before the preparation charges it to the kernel: a launch
+    /// timed alone on an idle device read its own host latency as device time.
+    /// The backend records the start right before it launches
+    /// ([`launching`](Self::launching)); a window closed with no launch in it
+    /// records its start as it closes, and reads empty.
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError`] when the device refuses an event. No window is opened.
+    pub fn start_at_launch(&mut self, stream: A::Stream) -> Result<ProfilingToken, ServerError> {
+        let anchor = self.anchor()?;
+        let start = self.pool.acquire()?;
+
+        Ok(self.opened(Open {
+            start,
+            waits_for_launch: Some(stream),
+            anchor,
+        }))
+    }
+
+    /// A kernel is about to be launched on `stream`: every window waiting for
+    /// that launch starts here. Free when no window is open.
+    ///
+    /// A start that cannot be recorded fails its window, not the launch.
+    pub fn launching(&mut self, stream: A::Stream) {
+        for state in self.open.values_mut() {
+            let Ok(open) = state else { continue };
+            if open.waits_for_launch != Some(stream) {
+                continue;
+            }
+            open.waits_for_launch = None;
+            if let Err(err) = open.start.record(stream) {
+                *state = Err(profile_error(err));
+            }
+        }
+    }
+
+    fn opened(&mut self, open: Open<A>) -> ProfilingToken {
         let token = ProfilingToken { id: self.counter };
         self.counter += 1;
-        self.open.insert(token, Ok(Open { start, anchor }));
-
-        Ok(token)
+        self.open.insert(token, Ok(open));
+        token
     }
 
     /// Close the window `token` opened at the current position of `stream`.
@@ -110,7 +161,11 @@ impl<A: EventApi> EventProfiler<A> {
         stream: A::Stream,
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
-        let Open { start, anchor } = match self.open.remove(&token) {
+        let Open {
+            start,
+            waits_for_launch,
+            anchor,
+        } = match self.open.remove(&token) {
             Some(state) => state?,
             None => {
                 return Err(ProfileError::NotRegistered {
@@ -118,6 +173,10 @@ impl<A: EventApi> EventProfiler<A> {
                 });
             }
         };
+        if waits_for_launch.is_some() {
+            // No launch came: the window is empty, and starts where it ends.
+            start.record(stream).map_err(profile_error)?;
+        }
 
         let end = self.pool.acquire().map_err(profile_error)?;
         end.record(stream).map_err(profile_error)?;
