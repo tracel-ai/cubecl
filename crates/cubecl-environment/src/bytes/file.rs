@@ -1,4 +1,4 @@
-use super::AllocationProperty;
+use super::{AllocationProperty, file_reads};
 use crate::bytes::{
     AccessError, AccessPolicy, AllocationController,
     default_controller::{MAX_ALIGN, NativeAllocationController},
@@ -68,6 +68,7 @@ impl FileAllocationController {
                     .map_err(|e| AccessError::Read(e.to_string()))?;
                 file.read_exact(&mut buf)
                     .map_err(|e| AccessError::Read(e.to_string()))?;
+                file_reads::count(&self.file, self.size);
 
                 Ok(Box::new(NativeAllocationController::from_elems(buf)))
             },
@@ -176,6 +177,7 @@ impl AllocationController for FileAllocationController {
         let mut file = File::open(self.file.as_ref()).unwrap();
         file.seek(SeekFrom::Start(self.offset)).unwrap();
         file.read_exact(buf).unwrap();
+        file_reads::count(&self.file, buf.len() as u64);
     }
 }
 
