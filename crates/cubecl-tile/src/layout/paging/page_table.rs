@@ -28,14 +28,13 @@ pub(crate) struct PageTable {
     pin: PageEntry,
     /// Where the pin's column starts, in positions.
     pin_start: u32,
-    /// What a line of the pinned page, or the next where the window [`Spans::TwoPages`], adds to
-    /// its offset as one sequence's.
-    pin_base: u32,
-    next_base: u32,
+    /// What a line of each pinned page, the pin's and the ones after it, adds to its offset as one
+    /// sequence's: one per page [`Spans::Pages`] counts.
+    bases: Coords<u32>,
     /// An entry handed in by [`Tile::with_page_entry`](crate::Tile::with_page_entry), consulted by
     /// every cut that resolves its page and kept across cuts, unlike [`pin`](Self::pin). It holds
-    /// one page, so the page after it, which a [`Spans::TwoPages`] window also needs, is still
-    /// loaded. Absent at compile time when none is handed, so the cut emits no compare.
+    /// one page, so the pages after it, which a wider [`Spans::Pages`] window also needs, are
+    /// still loaded. Absent at compile time when none is handed, so the cut emits no compare.
     handed: ComptimeOption<PageEntry>,
     /// What the window's extent proves of the pages its lines lie in.
     #[cube(comptime)]
@@ -101,8 +100,7 @@ impl PageTable {
             last_page: pool_pages.max_with(1u32).minus(1u32),
             pin: PageEntry::unlisted(),
             pin_start: 0u32,
-            pin_base: 0u32,
-            next_base: 0u32,
+            bases: Coords::<u32>::new(),
             handed: ComptimeOption::new_None(),
             spans: comptime!(Spans::Any),
             origin_alignment: comptime!(0usize),
@@ -143,7 +141,7 @@ impl PageTable {
         let pin = comptime!(match cut {
             WindowCut::Unmoved => Pin::Kept,
             WindowCut::Shifted => Pin::Resolved(self.spans.shifted()),
-            WindowCut::Level { nested: true, .. } if self.spans == Spans::OnePage => Pin::Kept,
+            WindowCut::Level { nested: true, .. } if self.spans.pages() == 1 => Pin::Kept,
             WindowCut::Level { edges, .. } => Pin::Resolved(
                 PagedWindow {
                     sequences: edges[self.sequence_dim],
@@ -202,14 +200,25 @@ impl PageTable {
     ) -> PageTable {
         let unit = comptime!(self.unit as u32);
         let page = self.cut_page(sequence, column);
-        let next_page = match comptime!(spans) {
-            Spans::TwoPages => self.lookup(sequence, column.plus(1u32)),
-            Spans::Any | Spans::OnePage => 0u32,
-        };
         let pin_start = column.times(comptime!(self.page_size as u32));
         // Wrapping: a base is only ever added to the offset of a line past its column's start.
         let start = pin_start.divided_by(unit);
         let page_digits = comptime!((self.page_size / self.unit) as u32);
+        let mut bases = Coords::<u32>::new();
+        #[unroll]
+        for k in 0..comptime!(spans.pages()) {
+            let listed = match comptime!(k == 0) {
+                true => page,
+                false => self.lookup(sequence, column.plus(comptime!(k as u32))),
+            };
+            bases.push(
+                listed.times(sequence_stride).minus(
+                    start
+                        .plus(comptime!(k as u32 * page_digits))
+                        .times(position_stride),
+                ),
+            );
+        }
         PageTable {
             entries: self.entries.clone(),
             sequence_stride: self.sequence_stride,
@@ -223,12 +232,7 @@ impl PageTable {
                 page,
             },
             pin_start,
-            pin_base: page
-                .times(sequence_stride)
-                .minus(start.times(position_stride)),
-            next_base: next_page
-                .times(sequence_stride)
-                .minus(start.plus(page_digits).times(position_stride)),
+            bases,
             handed: self.handed.clone(),
             spans,
             origin_alignment,
@@ -287,8 +291,7 @@ impl PageTable {
             last_page: self.last_page,
             pin: self.pin.clone(),
             pin_start: self.pin_start,
-            pin_base: self.pin_base,
-            next_base: self.next_base,
+            bases: self.bases.clone(),
             handed,
             spans: comptime!(self.spans),
             origin_alignment,
@@ -299,22 +302,38 @@ impl PageTable {
         }
     }
 
-    /// Where line `digits` lies, as digits and a base its offset adds past them: a window of at
-    /// most two pages keeps one sequence's digits, so its lines' offsets stay affine, and adds its
+    /// Where line `digits` lies, as digits and a base its offset adds past them: a window over
+    /// pinned pages keeps one sequence's digits, so its lines' offsets stay affine, and adds its
     /// page's base; any other is resolved line by line.
     pub(crate) fn located(&self, digits: &Coords<u32>) -> (Coords<u32>, u32) {
         match comptime!(self.spans) {
-            Spans::OnePage => (self.pinned_digits(digits), self.pin_base),
-            Spans::TwoPages => {
-                let page_size = comptime!(self.page_size as u32);
-                let unit = comptime!(self.unit as u32);
+            Spans::Pages { .. } => {
                 let pinned_digits = self.pinned_digits(digits);
-                let position = pinned_digits.at(comptime!(self.position_dim)).times(unit);
-                let pinned = position.minus(self.pin_start) < page_size;
-                (pinned_digits, select(pinned, self.pin_base, self.next_base))
+                let base = self.pinned_base(&pinned_digits);
+                (pinned_digits, base)
             }
             Spans::Any => (self.resolve(digits), 0u32),
         }
+    }
+
+    /// The base of the pinned page `digits` lies in, picked without a branch or an indexed read,
+    /// so it stays in registers.
+    fn pinned_base(&self, digits: &Coords<u32>) -> u32 {
+        let mut base = self.bases.at(0);
+        let pages = comptime!(self.spans.pages());
+        if comptime!(pages > 1) {
+            let unit = comptime!(self.unit as u32);
+            let offset = digits
+                .at(comptime!(self.position_dim))
+                .times(unit)
+                .minus(self.pin_start);
+            #[unroll]
+            for k in 1..pages {
+                let page_start = comptime!((k * self.page_size) as u32);
+                base = select(offset >= page_start, self.bases.at(k), base);
+            }
+        }
+        base
     }
 
     /// `digits` with the sequence's digit zeroed, since one sequence's lines are offset from their

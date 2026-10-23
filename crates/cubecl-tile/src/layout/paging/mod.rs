@@ -11,10 +11,10 @@
 //! the pool's first page, and a table entry past the pool its last: a table is device data a
 //! launch may never have written.
 //!
-//! The table is read as each window is cut, not as each line is: a window pins the page its origin
-//! lies in, and one whose extent is a single sequence and at most a page of positions the next page
-//! too, its lines offset from the two pages' starts without touching the table. A window proved
-//! inside one page pins it alone, and a window cut inside that one keeps the pin.
+//! The table is read as each window is cut, not as each line is: a window of one sequence pins the
+//! pages its positions may reach, at most `MAX_PINNED_PAGES`, its lines offset from those pages'
+//! starts without touching the table. A window proved inside one page pins it alone, and a window
+//! cut inside that one keeps the pin. A wider window resolves each line.
 
 pub(crate) mod base;
 pub(crate) mod page_entry;
