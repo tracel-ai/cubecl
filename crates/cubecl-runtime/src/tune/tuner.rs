@@ -226,14 +226,25 @@ struct PendingMark<K: AutotuneKey> {
     generation: u32,
 }
 
+impl<K: AutotuneKey> PendingMark<K> {
+    /// Whether no environment switch has reset `cache` since the key was marked.
+    fn is_current(&self, cache: &TuneCache<K>) -> bool {
+        #[cfg(persistence)]
+        return cache.generation() == self.generation;
+        #[cfg(not(persistence))]
+        {
+            let _ = cache;
+            true
+        }
+    }
+}
+
 impl<K: AutotuneKey> Drop for PendingMark<K> {
     fn drop(&mut self) {
         let mut cache = self.cache.lock();
-        #[cfg(persistence)]
-        if cache.generation() != self.generation {
-            return;
+        if self.is_current(&cache) {
+            cache.unmark_pending(&self.key);
         }
-        cache.unmark_pending(&self.key);
     }
 }
 
@@ -824,8 +835,14 @@ async fn process_request<K: AutotuneKey>(
     {
         log_context.log_result(&mut logger.lock(), &key, &results);
         // In-memory regardless: without it this key re-tunes on every call, and
-        // a tune that measured nothing would keep failing the same way.
-        cache.lock().cache_insert(key.clone(), fastest_index);
+        // a tune that measured nothing would keep failing the same way. Not after a switch,
+        // though: the key may be a newer tune's, whose pick its devices already keep.
+        {
+            let mut cache = cache.lock();
+            if mark.is_current(&cache) {
+                cache.cache_insert(key.clone(), fastest_index);
+            }
+        }
         // Where the tune was registered, whether or not that override is still open.
         let outcome = if unmeasured {
             TuneOutcome::Failed
@@ -842,17 +859,20 @@ async fn process_request<K: AutotuneKey>(
         // process and never measure the key again; letting it expire with this
         // one costs a re-tune and buys a real measurement.
         #[cfg(persistence)]
-        let stored = !unmeasured
-            && cache.lock().persistent_cache_insert(
-                key,
-                checksum,
-                crate::tune::PersistentCacheValue {
-                    fastest_index,
-                    results,
-                    bounds,
-                    limit,
-                },
-            );
+        let stored = !unmeasured && {
+            let mut cache = cache.lock();
+            mark.is_current(&cache)
+                && cache.persistent_cache_insert(
+                    key,
+                    checksum,
+                    crate::tune::PersistentCacheValue {
+                        fastest_index,
+                        results,
+                        bounds,
+                        limit,
+                    },
+                )
+        };
 
         #[cfg(persistence)]
         if stored && let Some(settled) = settled.as_mut() {

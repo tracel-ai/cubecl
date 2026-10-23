@@ -57,6 +57,7 @@ cubecl-ir = { workspace = true, features = [
 cubecl-zspace = { workspace = true }
 cubecl-monitoring = { workspace = true }
 
+crossbeam-utils = { workspace = true }
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = ["eq"] }
 hashbrown = { workspace = true }

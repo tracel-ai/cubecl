@@ -26,6 +26,7 @@
 //! See [`TuneInputs`] for the borrowed-inputs story, and [`Tunable::new`] for why its
 //! HRTB bound is spelled out directly (closure inference).
 
+mod append_only;
 mod base;
 mod bounds_generator;
 mod eviction;

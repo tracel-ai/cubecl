@@ -855,11 +855,11 @@ fn lists_whose_names_join_alike_never_share_a_tuner() {
 #[test_log::test]
 #[cfg(feature = "std")]
 #[serial_test::serial]
-fn a_second_list_one_device_runs_never_answers_another_device() {
+fn a_list_never_answers_for_another_list() {
     use cubecl_server::tune::{CloneInputGenerator, Tunable};
 
     static TUNER: LocalTuner<String, String> =
-        local_tuner!("a_second_list_one_device_runs_never_answers_another_device");
+        local_tuner!("a_list_never_answers_for_another_list");
     #[cfg(persistence)]
     let root = tempfile::tempdir().unwrap();
     #[cfg(persistence)]
@@ -912,6 +912,16 @@ fn a_second_list_one_device_runs_never_answers_another_device() {
         vec![4, 5, 6],
         "tuned on its own list, not handed index 0 of the joined list"
     );
+
+    let first_split_again = TUNER.init(&first, || split("another key"));
+    let (handles, _) = addition_inputs(&client, &first_split_again);
+    let out = handles[2].clone();
+    TUNER.execute(&first, &client, first_split_again, handles);
+    assert_eq!(
+        client.read_one(out).unwrap().to_vec(),
+        vec![4, 5, 6],
+        "the device's pick for its joined list does not answer its split list"
+    );
 }
 
 /// A result belongs to the environment it was tuned under, and one only on disk has no fastest
@@ -960,6 +970,155 @@ fn a_result_only_on_disk_has_a_fastest_identity_once_an_execute_reads_it() {
         first_round,
         "the persisted result is read back, not tuned again"
     );
+}
+
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn an_execute_after_a_switch_tunes_in_the_new_environment() {
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("an_execute_after_a_switch_tunes_in_the_new_environment");
+    let (first, second) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    rooted_at(first.path());
+
+    let client = test_client(&DummyDevice);
+    let id = "test".to_string();
+    let slow_runs = Arc::new(AtomicUsize::new(0));
+    let set = TUNER.init(&id, identified_addition_initializer(slow_runs.clone()));
+    let (handles, _) = addition_inputs(&client, &set);
+    TUNER.execute(&id, &client, set.clone(), handles.clone());
+    let first_round = slow_runs.load(Ordering::Relaxed);
+    assert!(first_round > 0, "the first execute holds a round");
+
+    cubecl_environment::environment::set_root(second.path());
+    TUNER.execute(&id, &client, set, handles);
+    assert!(
+        slow_runs.load(Ordering::Relaxed) > first_round,
+        "tuned again under the new environment"
+    );
+}
+
+#[test_log::test]
+// `autotune-checks` also runs every candidate outside the tune, so the gate would hold the wrong run.
+#[cfg(all(feature = "std", persistence, not(feature = "autotune-checks")))]
+#[serial_test::serial]
+fn a_tune_begun_before_a_switch_leaves_the_key_to_the_new_environment() {
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("a_tune_begun_before_a_switch_leaves_the_key_to_the_new_environment");
+    let (first, second) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    rooted_at(first.path());
+
+    let gate = Arc::new(Gate {
+        passed: std::sync::atomic::AtomicBool::new(false),
+        barrier: std::sync::Barrier::new(2),
+    });
+    let (stale, fresh) = ("stale".to_string(), "fresh".to_string());
+    let stale_client = test_client(&DummyDevice);
+    let fresh_client = Client::load::<DummyServer>(DeviceId::new(0, 1));
+    let stale_set = TUNER.init(&stale, {
+        let gate = gate.clone();
+        move || {
+            one_winner_set(
+                test_client(&DummyDevice),
+                dummy::Addition::Correct,
+                Some(gate.clone()),
+            )
+        }
+    });
+    let fresh_set = TUNER.init(&fresh, || {
+        one_winner_set(
+            Client::load::<DummyServer>(DeviceId::new(0, 1)),
+            dummy::Addition::SlowAndWrong,
+            None,
+        )
+    });
+    let (stale_handles, key) = addition_inputs(&stale_client, &stale_set);
+    let (fresh_handles, _) = addition_inputs(&fresh_client, &fresh_set);
+
+    std::thread::scope(|scope| {
+        let tuning =
+            scope.spawn(|| TUNER.execute(&stale, &stale_client, stale_set.clone(), stale_handles));
+        gate.barrier.wait();
+        cubecl_environment::environment::set_root(second.path());
+        TUNER.execute(&fresh, &fresh_client, fresh_set.clone(), fresh_handles);
+        gate.barrier.wait();
+        tuning.join().unwrap();
+    });
+
+    assert_eq!(
+        TUNER.fastest_identity(&fresh, &fresh_set, &key),
+        Some(dummy::Addition::Correct),
+        "the tune begun under the first environment overwrote the second's pick"
+    );
+}
+
+/// Holds a candidate's first run until the test has passed it twice.
+#[cfg(all(feature = "std", persistence, not(feature = "autotune-checks")))]
+struct Gate {
+    passed: std::sync::atomic::AtomicBool,
+    barrier: std::sync::Barrier,
+}
+
+/// An addition set whose `failing` candidate errors, so its tune has one winner. With a `gate`, the
+/// other candidate's first run waits at it.
+#[cfg(all(feature = "std", persistence, not(feature = "autotune-checks")))]
+fn one_winner_set(
+    client: DummyClient,
+    failing: dummy::Addition,
+    gate: Option<Arc<Gate>>,
+) -> TunableSet<String, Vec<Handle>, (), dummy::Addition> {
+    let candidate = move |identity: dummy::Addition, gate: Option<Arc<Gate>>| {
+        let op = OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseAddition),
+            client.clone(),
+        );
+        cubecl_server::tune::Tunable::identified(identity, move |inputs: Vec<Handle>| {
+            if identity == failing {
+                return Err("fails on this card".to_string());
+            }
+            if let Some(gate) = &gate
+                && !gate.passed.swap(true, Ordering::Relaxed)
+            {
+                gate.barrier.wait();
+                gate.barrier.wait();
+            }
+            op.run(inputs)
+        })
+    };
+    TunableSet::new(
+        |_: &Vec<Handle>| "one-winner".to_string(),
+        cubecl_server::tune::CloneInputGenerator,
+    )
+    .with(candidate(dummy::Addition::Correct, gate.clone()))
+    .with(candidate(dummy::Addition::SlowAndWrong, gate))
+}
+
+#[test_log::test]
+#[cfg(feature = "std")]
+#[serial_test::serial]
+fn a_cleared_tuner_settles_its_keys_again() {
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("a_cleared_tuner_settles_its_keys_again");
+    #[cfg(persistence)]
+    let root = tempfile::tempdir().unwrap();
+    #[cfg(persistence)]
+    rooted_at(root.path());
+
+    let client = test_client(&DummyDevice);
+    let id = "test".to_string();
+    let set = TUNER.init(&id, identified_addition_initializer(Default::default()));
+    let (handles, _) = addition_inputs(&client, &set);
+    TUNER.execute(&id, &client, set.clone(), handles.clone());
+
+    TUNER.clear();
+    let collector = StatisticsCollector::new();
+    let counted = ProcessModeOverride::new(ProcessMode::Execute, &collector);
+    TUNER.execute(&id, &client, set, handles);
+    core::mem::drop(counted);
+
+    assert_eq!(collector.statistics().autotune.settled(), 1);
 }
 
 /// The initializer of an [identified addition set](dummy::identified_addition_set).
@@ -2669,7 +2828,8 @@ fn a_memory_snapshot_is_recorded_under_its_label() {
     rooted_at(root.path());
     recording_at(RecordLevel::Basic);
 
-    let client = test_client(&DummyDevice);
+    // A device of its own: a device-wide report would count what tests in parallel allocate.
+    let client = Client::load::<DummyServer>(DeviceId::new(0, 3));
     let _held = client.create_from_slice(&[1, 2, 3]);
     client.record_memory("model loaded");
     let database = Database::open_active().unwrap();
