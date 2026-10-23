@@ -4,8 +4,11 @@ use cubecl::quant::scheme::{QuantValue, ScaleDtype};
 use cubecl::{bytes::Bytes, prelude::*, std::tensor::TensorHandle, zspace::shape};
 use cubecl_common::{e2m1, e4m3, ue8m0};
 use cubecl_tile::{
-    Axis, Partitioning, Projection, Space, TileArg, TileArgLaunch, TileSpec, kind::Field,
+    Axis, Launcher, Levels, Partitioning, Projection, Space, TileArg, TileArgLaunch, TileSpec,
+    kind::Field,
+    launch::Grid,
     layout::PhysicalAxisMap,
+    space::{CubeOrder, PlaneOrder},
 };
 
 const M: Axis = Axis(0);
@@ -18,6 +21,33 @@ fn quantize_copy(input: &TileArg<'_>, packed: &TileArg<'_>, space: Partitioning)
     let input = input.tile(&space);
     let mut packed = packed.tile(&space);
     packed.quantize_from(&input);
+}
+
+/// Each plane of the launch writing its box of the packed values from the float ones.
+#[cube(launch)]
+fn quantize_planes(input: &TileArg<'_>, packed: &TileArg<'_>, partitioning: Partitioning) {
+    let input = input.tile(&partitioning);
+    let packed = packed.tile(&partitioning);
+    for plane in &partitioning {
+        let mut packed = packed.at(&plane);
+        packed.quantize_from(&input.at(&plane));
+    }
+}
+
+/// How the float values are bound: as the words are, both block axes one dim of the row, or a
+/// dim an axis.
+#[derive(Clone, Copy)]
+enum Source {
+    AsTheWords,
+    PerAxis,
+}
+
+/// Which workers copy: one unit over the whole space, or a plane a row, its units taking the
+/// row's scales in turns, `planes` planes a cube, writing `words` words a load.
+#[derive(Clone, Copy)]
+enum Copy {
+    OneUnit,
+    PlaneARow { planes: usize, words: usize },
 }
 
 /// How the block scales are stored: plain `f32`s, or packed into words as `dtype`, as many to a
@@ -50,23 +80,28 @@ fn host_code(value: f32, format: QuantValue) -> u32 {
     }
 }
 
-/// A scale's code in a packed word of scales.
-fn host_scale_code(scale: f32, dtype: ScaleDtype) -> u32 {
-    match dtype {
-        ScaleDtype::UE8M0 => ue8m0::from_f32(scale).to_bits() as u32,
-        ScaleDtype::UE4M3 => e4m3::from_f32(scale).to_bits() as u32,
-        ScaleDtype::F32 => scale.to_bits(),
-        ScaleDtype::F16 => half::f16::from_f32(scale).to_bits() as u32,
-        ScaleDtype::BF16 => half::bf16::from_f32(scale).to_bits() as u32,
-    }
-}
-
 /// `words` bound as the values they pack: a packed operand is declared in values.
 fn in_values(words: &TensorHandle, rows: usize, cols: usize) -> TensorArg {
     let mut binding = words.clone().binding();
     binding.shape = vec![rows, cols].into();
     binding.strides = vec![cols, 1].into();
     binding.into_tensor_arg()
+}
+
+/// The low `bits` of a word.
+fn mask(bits: usize) -> u32 {
+    ((1u64 << bits) - 1) as u32
+}
+
+/// The scale a code of a packed word of scales stores.
+fn host_scale_value(code: u32, dtype: ScaleDtype) -> f32 {
+    match dtype {
+        ScaleDtype::UE8M0 => ue8m0::from_bits(code as u8).to_f32(),
+        ScaleDtype::UE4M3 => e4m3::from_bits(code as u8).to_f32(),
+        ScaleDtype::F32 => f32::from_bits(code),
+        ScaleDtype::F16 => half::f16::from_bits(code as u16).to_f32(),
+        ScaleDtype::BF16 => half::bf16::from_bits(code as u16).to_f32(),
+    }
 }
 
 /// Codes `bits` wide packed into words, the first in each word's low bits.
@@ -81,12 +116,31 @@ fn host_words(codes: &[u32], bits: usize) -> Vec<u32> {
         .collect()
 }
 
-/// `rows` rows of four blocks of `block` values each, quantized to `value` under `scales`, and
+/// `rows` rows of 160 blocks of `block` values each, quantized to `value` under `scales`, and
 /// under a per-tensor `global` where there is one: the words and the scales the copy writes match
 /// burn's calibration code for code. An all-zero block, whose scale is zero, is written as zeros.
 fn check_quantize(value: QuantValue, block: usize, scales: Scales, global: Option<f32>) {
+    check_quantize_as(
+        value,
+        block,
+        scales,
+        global,
+        Source::AsTheWords,
+        Copy::OneUnit,
+    );
+}
+
+/// [`check_quantize`], the source bound as `source` says and copied as `copy` says.
+fn check_quantize_as(
+    value: QuantValue,
+    block: usize,
+    scales: Scales,
+    global: Option<f32>,
+    source: Source,
+    copy: Copy,
+) {
     let client = cubecl::test_device().client();
-    let (rows, blocks) = (4, 4);
+    let (rows, blocks) = (4, 160);
     let cols = block * blocks;
     let bits = value.size_bits();
     let per_word = 32 / bits;
@@ -155,10 +209,14 @@ fn check_quantize(value: QuantValue, block: usize, scales: Scales, global: Optio
             (t, arg, dtype)
         }
     };
+    let words_a_load = match copy {
+        Copy::OneUnit => 1,
+        Copy::PlaneARow { words, .. } => words,
+    };
     let values = TileArgLaunch::new(
         in_values(&words, rows, cols),
         u32::elem_type_native(),
-        1,
+        words_a_load,
         TileSpec::new(projection.clone()).packed(Field::Quant(value)),
     )
     .scales(scales_arg);
@@ -178,55 +236,98 @@ fn check_quantize(value: QuantValue, block: usize, scales: Scales, global: Optio
             ))
         }
     };
-    quantize_copy::launch(
-        &client,
-        CubeCount::new_single(),
-        CubeDim::new_single(),
-        TileArgLaunch::new(
+    let input_arg = match source {
+        Source::AsTheWords => TileArgLaunch::new(
             input_t.binding().into_tensor_arg(),
             f32::elem_type_native(),
             width,
             TileSpec::new(projection),
         ),
-        values,
-        uncut(&client, &space, &space).partitioning_arg(),
-    );
-
-    let mut want_scales = Vec::new();
-    let mut want_codes = Vec::new();
-    for row in input.chunks(cols) {
-        for block_values in row.chunks(block) {
-            let scale = host_scale(block_values, value, dtype, global);
-            let effective = scale * global.unwrap_or(1.0);
-            want_scales.push(scale);
-            want_codes.extend(block_values.iter().map(|&v| match effective {
-                0.0 => 0,
-                _ => host_code(v / effective, value),
-            }));
+        Source::PerAxis => {
+            let mut binding = input_t.binding();
+            binding.shape = vec![rows, blocks, block].into();
+            binding.strides = vec![cols, block, 1].into();
+            TileArgLaunch::new(
+                binding.into_tensor_arg(),
+                f32::elem_type_native(),
+                width,
+                TileSpec::direct(&[M, KB, KI]),
+            )
         }
+    };
+    match copy {
+        Copy::OneUnit => quantize_copy::launch(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_single(),
+            input_arg,
+            values,
+            uncut(&client, &space, &space).partitioning_arg(),
+        ),
+        Copy::PlaneARow { planes, .. } => {
+            let order = PlaneOrder::new(&[], CubeOrder::RowMajor).cubes_of(planes);
+            let levels = Levels::leaf(&[(M, 1), (KB, blocks), (KI, block)])
+                .launch_planes(&[M], order)
+                .build();
+            let launcher = Launcher::new(
+                &client,
+                Partitioning::new(space.clone(), levels),
+                &space,
+                Grid::FromLevels,
+            )
+            .unwrap();
+            quantize_planes::launch(
+                &client,
+                launcher.cube_count(),
+                launcher.cube_dim(),
+                input_arg,
+                values,
+                launcher.partitioning_arg(),
+            )
+        }
+    }
+
+    let got_scales: Vec<f32> = match scales {
+        Scales::Plain => {
+            let got = HostData::from_tensor_handle(&client, scales_t, HostDataType::F32);
+            (0..rows * blocks)
+                .map(|i| got.get_f32(&[i / blocks, i % blocks]))
+                .collect()
+        }
+        Scales::Packed(dtype) => {
+            let bits = Field::of_scale(dtype).size_bits();
+            let got = client.read_one(scales_t.handle).unwrap().to_vec();
+            let got: Vec<u32> = bytemuck::cast_slice(&got).to_vec();
+            got.iter()
+                .flat_map(|&word| (0..32 / bits).map(move |i| (word >> (i * bits)) & mask(bits)))
+                .map(|code| host_scale_value(code, dtype))
+                .collect()
+        }
+    };
+    let mut want_codes = Vec::new();
+    for (i, block_values) in input.chunks(block).enumerate() {
+        let want = host_scale(block_values, value, dtype, global);
+        let have = got_scales[i];
+        // The device's division is the fast one: an `f32` scale, which nothing rounds after it,
+        // may land an ulp from the host's.
+        let ulps = (have.to_bits() as i64 - want.to_bits() as i64).abs();
+        let allowed = match dtype {
+            ScaleDtype::F32 => 1,
+            _ => 0,
+        };
+        assert!(
+            ulps <= allowed,
+            "{value:?} scale {i}: {have} against {want}"
+        );
+        let effective = have * global.unwrap_or(1.0);
+        want_codes.extend(block_values.iter().map(|&v| match effective {
+            0.0 => 0,
+            _ => host_code(v / effective, value),
+        }));
     }
     let got_words = client.read_one(words.handle).unwrap().to_vec();
     let got_words: Vec<u32> = bytemuck::cast_slice(&got_words).to_vec();
     assert_eq!(got_words, host_words(&want_codes, bits), "{value:?} values");
-    match scales {
-        Scales::Plain => {
-            let got = HostData::from_tensor_handle(&client, scales_t, HostDataType::F32);
-            for (i, &want) in want_scales.iter().enumerate() {
-                let have = got.get_f32(&[i / blocks, i % blocks]);
-                assert_eq!(have, want, "{value:?} scale {i}");
-            }
-        }
-        Scales::Packed(dtype) => {
-            let codes: Vec<u32> = want_scales
-                .iter()
-                .map(|&scale| host_scale_code(scale, dtype))
-                .collect();
-            let got = client.read_one(scales_t.handle).unwrap().to_vec();
-            let got: Vec<u32> = bytemuck::cast_slice(&got).to_vec();
-            let bits = Field::of_scale(dtype).size_bits();
-            assert_eq!(got, host_words(&codes, bits), "{value:?} scales");
-        }
-    }
 }
 
 /// `q8` under one `f32` scale a block of sixteen: the integer formats round to the nearest
@@ -252,6 +353,51 @@ fn q4_quantizes_under_half_scales() {
 #[test]
 fn q8_quantizes_under_bf16_scales() {
     check_quantize(QuantValue::Q8S, 32, Scales::Packed(ScaleDtype::BF16), None);
+}
+
+/// MXFP8 from a source bound a dim an axis, as a tensor restated over the block axes is.
+#[test]
+fn mxfp8_quantizes_from_a_source_per_axis() {
+    check_quantize_as(
+        QuantValue::E4M3,
+        32,
+        Scales::Packed(ScaleDtype::UE8M0),
+        None,
+        Source::PerAxis,
+        Copy::OneUnit,
+    );
+}
+
+/// NVFP4 copied a plane a row, its units taking the row's words of scales in turns, and the
+/// planes of one cube each copying their own row, a word or a block's two words a load.
+#[test]
+fn nvfp4_quantizes_a_plane_a_row() {
+    for (planes, words) in [(1, 1), (4, 1), (4, 2)] {
+        check_quantize_as(
+            QuantValue::E2M1,
+            16,
+            Scales::Packed(ScaleDtype::UE4M3),
+            Some(0.01),
+            Source::PerAxis,
+            Copy::PlaneARow { planes, words },
+        );
+    }
+}
+
+/// MXFP8 copied a plane a row, four words a load.
+#[test]
+fn mxfp8_quantizes_four_words_a_load() {
+    check_quantize_as(
+        QuantValue::E4M3,
+        32,
+        Scales::Packed(ScaleDtype::UE8M0),
+        None,
+        Source::PerAxis,
+        Copy::PlaneARow {
+            planes: 2,
+            words: 4,
+        },
+    );
 }
 
 /// MXFP8: `e4m3` values under `ue8m0` scales, four to a word, a block of thirty-two.

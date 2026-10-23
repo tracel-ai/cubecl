@@ -57,7 +57,10 @@ impl Tile {
         let scales_a_load = comptime!(scale_load.values());
         let scale_loads = comptime!(scale_load.counts(&scales_space).iter().product::<usize>());
 
+        // A window its holder shares is the holder's units' to fill, as a plain copy's is.
+        let holder = comptime!(self.place.holder());
         let fill = self.fill_units();
+        let fill = comptime!(fill.held_by(holder));
         let read = src.nd_packed::<F, SW>(comptime!(Guard::Checked));
         let mut words = self.nd_words_mut::<WP>();
         let first = FillUnits::worker(fill) as u32;
