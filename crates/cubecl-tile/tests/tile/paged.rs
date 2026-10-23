@@ -381,7 +381,10 @@ fn run_paged_read_table(
         Partitioning::new(
             Space::new(&[
                 (B, SEQUENCES),
-                (S, PAGES_EACH * page_len),
+                (
+                    S,
+                    shape.get(1).copied().unwrap_or(0).max(PAGES_EACH) * page_len,
+                ),
                 (F, FEATURES_READ),
             ]),
             Levels::leaf(&[(B, 1), (S, block)])
@@ -641,6 +644,46 @@ fn a_paged_read_of_steps_within_a_page_reads_each_sequence_through_its_table() {
     for (block, from) in [(1, 0), (2, 0), (2, 1), (1, 3)] {
         let got = run_paged_read_from(&lens, block, from);
         let want = expected_paged_read_from(&lens, &rows(&PAGES), from, PAGE_LEN);
+        for (b, row) in want.iter().enumerate() {
+            for (f, cell) in row.iter().enumerate() {
+                assert_eq!(
+                    got.get_f32(&[b, f]),
+                    *cell,
+                    "{block} a step from {from}: sequence {b} feature {f}"
+                );
+            }
+        }
+    }
+}
+
+/// Steps wider than a page pin every page they may reach: three pages from an unaligned or an
+/// aligned origin, four with the last pinned column past the table, and past the pin limit all
+/// the lines resolved one by one.
+#[test]
+fn a_paged_read_of_steps_wider_than_a_page_reads_each_sequence_through_its_table() {
+    let lens = [6, 5, 3];
+    for (block, from) in [(READ_BLOCK, 1), (6, 0), (6, 1), (4, 3)] {
+        let got = run_paged_read_from(&lens, block, from);
+        let want = expected_paged_read_from(&lens, &rows(&PAGES), from, PAGE_LEN);
+        for (b, row) in want.iter().enumerate() {
+            for (f, cell) in row.iter().enumerate() {
+                assert_eq!(
+                    got.get_f32(&[b, f]),
+                    *cell,
+                    "{block} a step from {from}: sequence {b} feature {f}"
+                );
+            }
+        }
+    }
+    let pages = vec![
+        vec![5, 0, 3, 6, 1, 2],
+        vec![1, 6, 2, 4, 0, 5],
+        vec![4, 4, 0, 3, 2, 6],
+    ];
+    let lens = [12, 9, 7];
+    for (block, from) in [(8, 0), (8, 1)] {
+        let got = run_paged_read_blocks(&lens, &pages, block, from);
+        let want = expected_paged_read_from(&lens, &pages, from, PAGE_LEN);
         for (b, row) in want.iter().enumerate() {
             for (f, cell) in row.iter().enumerate() {
                 assert_eq!(

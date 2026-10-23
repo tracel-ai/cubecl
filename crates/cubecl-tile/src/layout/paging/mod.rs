@@ -7,14 +7,15 @@
 //! is the logical one; the table is resolved only where a coordinate becomes an offset
 //! ([`BufferLayout`](super::projection::BufferLayout)), at every offset taken, a masked cell's
 //! included. The pool is bound as it lies; the operand's extents along the two axes are the
-//! table's, read off it at launch, so nothing states them twice. A coordinate past the table reads
-//! the pool's first page, and a table entry past the pool its last: a table is device data a
-//! launch may never have written.
+//! table's, read off it at launch, so nothing states them twice. A coordinate past the table, which
+//! only a masked read asks for, reads some cell at or before its last entry, never past it, and a
+//! table entry past the pool the pool's last page: a table is device data a launch may never have
+//! written.
 //!
-//! The table is read as each window is cut, not as each line is: a window pins the page its origin
-//! lies in, and one whose extent is a single sequence and at most a page of positions the next page
-//! too, its lines offset from the two pages' starts without touching the table. A window proved
-//! inside one page pins it alone, and a window cut inside that one keeps the pin.
+//! The table is read as each window is cut, not as each line is: a window of one sequence pins the
+//! pages its positions may reach, at most `MAX_PINNED_PAGES`, its lines offset from those pages'
+//! starts without touching the table. A window proved inside one page pins it alone, and a window
+//! cut inside that one keeps the pin. A wider window resolves each line.
 
 pub(crate) mod base;
 pub(crate) mod page_entry;
