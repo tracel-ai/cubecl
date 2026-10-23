@@ -566,10 +566,13 @@ pub(crate) fn collect_memory_kill_sets(
             let mut analyses = solver.analyses();
             let mut memory_ssa = analyses.get_analysis_mut::<MemorySSA>(*root, ctx).unwrap();
 
-            let Some(mem_use) = memory_ssa.optimized_use(ctx, op) else {
+            let Some(mem_val) = memory_ssa
+                .op_memory_def(op)
+                .or_else(|| memory_ssa.optimized_use(ctx, op))
+            else {
                 return;
             };
-            let current = out.get(&mem_use);
+            let current = out.get(&mem_val);
             let Some(computes) = solver.lookup_state::<Computes>(ProgramPoint::after_op(ctx, op))
             else {
                 return;
@@ -580,7 +583,7 @@ pub(crate) fn collect_memory_kill_sets(
                 dependents.unite(current);
             }
 
-            out.insert(mem_use, dependents);
+            out.insert(mem_val, dependents);
         },
     );
 

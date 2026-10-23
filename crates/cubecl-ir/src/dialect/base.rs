@@ -56,10 +56,6 @@ pub trait OperationExt {
     fn immediately_nested_ops(&self, ctx: &Context) -> impl Iterator<Item = Ptr<Operation>>;
 }
 
-pub trait ValueExt {
-    fn set_loc(&self, loc: Location);
-}
-
 pub trait UniquedExt<T> {
     fn map(&self, ctx: &Context, update: impl FnOnce(T) -> T) -> Self;
     fn update<R>(&mut self, ctx: &Context, update: impl FnOnce(&mut T) -> R) -> R;
@@ -232,7 +228,6 @@ use pliron::{
     graph::ControlFlowGraph,
     identifier::Identifier,
     linked_list::ContainsLinkedList,
-    location::Location,
     op::{OpInterfaceMarker, OpObj, op_impls},
     region::Region,
     r#type::TypeHandle,
