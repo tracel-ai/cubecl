@@ -124,7 +124,74 @@ impl Memory {
         }
     }
 
-    /// The `count` cells of this window in order, every unit of the plane reading them all: a
+    /// `self[c] = exp(self[c] · scale + bias[c] − logsumexp[c])` over this window over `space`,
+    /// `logsumexp` the cells of a tile it broadcasts over ([`AxisSlices::probabilities`]).
+    pub(crate) fn probabilities_along<E: Float>(
+        &mut self,
+        scale: E,
+        bias: &Procedural,
+        logsumexp: &Array<E>,
+        #[comptime] space: Space,
+        #[comptime] broadcast: Broadcast,
+    ) {
+        let (slices, length) = comptime!((
+            space.slices_along(space.axis_at(space.rank() - 1)),
+            space.extent_at(space.rank() - 1)
+        ));
+        let size!(W) = 1usize;
+        let mut view = self.flat_mut::<E, W>();
+        #[unroll]
+        for i in 0..slices {
+            let first = comptime!(broadcast.at(i, 0));
+            let step = comptime!(broadcast.position);
+            let mut s = UNIT_POS_PLANE as usize;
+            while s < length {
+                let at = i * length + s;
+                let cell = view.read(at).extract(0usize) * scale
+                    + bias.value_at::<E>(i as u32, s as u32, space.clone());
+                let probability =
+                    AxisSlices::exp_minus_cell::<E>(cell, logsumexp[first + s * step]);
+                view.write(at, Vector::cast_from(probability));
+                s += PLANE_DIM as usize;
+            }
+        }
+    }
+
+    /// `self[c] = probabilities[c] · (self[c] − delta[c])` over this window and `probabilities`,
+    /// both over `space`, `delta` the cells of a tile they broadcast over
+    /// ([`AxisSlices::softmax_gradient`]).
+    pub(crate) fn softmax_gradient_along<E: Float>(
+        &mut self,
+        probabilities: &Memory,
+        delta: &Array<E>,
+        #[comptime] space: Space,
+        #[comptime] broadcast: Broadcast,
+    ) {
+        let (slices, length) = comptime!((
+            space.slices_along(space.axis_at(space.rank() - 1)),
+            space.extent_at(space.rank() - 1)
+        ));
+        let size!(W) = 1usize;
+        let read = probabilities.flat::<E, W>();
+        let mut view = self.flat_mut::<E, W>();
+        #[unroll]
+        for i in 0..slices {
+            let first = comptime!(broadcast.at(i, 0));
+            let step = comptime!(broadcast.position);
+            let mut s = UNIT_POS_PLANE as usize;
+            while s < length {
+                let at = i * length + s;
+                let gradient = view.read(at).extract(0usize) - delta[first + s * step];
+                view.write(
+                    at,
+                    Vector::cast_from(read.read(at).extract(0usize) * gradient),
+                );
+                s += PLANE_DIM as usize;
+            }
+        }
+    }
+
+    /// The `count` cells of this window in order, every unit of its holder reading them all: a
     /// window holding one value a slice of something else, as the rows of a softmax.
     pub(crate) fn cells<E: Float>(&self, #[comptime] count: usize) -> Array<E> {
         let size!(W) = 1usize;
@@ -137,11 +204,17 @@ impl Memory {
         cells
     }
 
-    /// Write `values` over the `count` cells of this window, from the plane's first unit.
-    pub(crate) fn set_cells<E: Float>(&mut self, values: &Array<E>, #[comptime] count: usize) {
+    /// Write `values` over the `count` cells of this window, held by `holder`: every unit writes
+    /// its own window, and a plane's first unit the plane's.
+    pub(crate) fn set_cells<E: Float>(
+        &mut self,
+        values: &Array<E>,
+        #[comptime] count: usize,
+        #[comptime] holder: ComputeScope,
+    ) {
         let size!(W) = 1usize;
         let mut view = self.flat_mut::<E, W>();
-        if UNIT_POS_PLANE == 0 {
+        if comptime!(holder == ComputeScope::Unit) || UNIT_POS_PLANE == 0 {
             #[unroll]
             for i in 0..count {
                 view.write(i, Vector::cast_from(values[i]));
