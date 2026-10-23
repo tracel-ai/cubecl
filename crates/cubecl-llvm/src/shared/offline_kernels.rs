@@ -47,6 +47,32 @@ pub(crate) fn device_properties(plane_dim: u32) -> Arc<DeviceProperties> {
     ))
 }
 
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn mixed_vector_reductions<T: Numeric>(input: &[T], output: &mut [T]) {
+    let wide = Vector::<T, Const<4>>::new(input[0]);
+    let narrow = Vector::<T, Const<2>>::new(input[1]);
+    output[0] = wide.vector_sum();
+    output[1] = narrow.vector_sum();
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn mixed_vector_reductions_kernel<T: Numeric + cubecl_core::CubeElement>()
+-> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(1),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    mixed_vector_reductions::MixedVectorReductions::<T>::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 #[cube(launch)]
 fn scale(input: &[f32], output: &mut [f32]) {
     if ABSOLUTE_POS < input.len() {
