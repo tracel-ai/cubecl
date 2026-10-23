@@ -75,7 +75,10 @@ impl TileSpec {
         let coord_rank = self.projection.coordinate_rank();
         match policy {
             BoundaryPolicy::Unchecked => self.boundaries(&vec![None; coord_rank]),
-            BoundaryPolicy::Every(boundary) => self.boundaries(&vec![Some(boundary); coord_rank]),
+            // A spec has no launch to say which axes some extent could overhang: every one.
+            BoundaryPolicy::Every(boundary) | BoundaryPolicy::AnyExtent(boundary) => {
+                self.boundaries(&vec![Some(boundary); coord_rank])
+            }
         }
     }
 
