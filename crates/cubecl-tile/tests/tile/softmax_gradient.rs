@@ -94,12 +94,8 @@ fn by_queries(
                 let bias_s = bias_u.at(&step);
                 let (query_s, key_s) = (query_u.at(&step), key_u.at(&step));
                 let (value_s, out_gradient_s) = (value_u.at(&step), out_gradient_u.at(&step));
-                let mut score = bias_s.accumulator::<f32>(
-                    &query_s,
-                    &key_s,
-                    instruction,
-                    Semiring::SUM_PROD,
-                );
+                let mut score =
+                    bias_s.accumulator::<f32>(&query_s, &key_s, instruction, Semiring::SUM_PROD);
                 score.mma(&query_s, &key_s);
                 score
                     .along(S)
@@ -161,12 +157,8 @@ fn by_keys(
                 let bias_s = bias_u.at(&step);
                 let (query_s, key_s) = (query_u.at(&step), key_u.at(&step));
                 let (value_s, out_gradient_s) = (value_u.at(&step), out_gradient_u.at(&step));
-                let mut score = bias_s.accumulator::<f32>(
-                    &key_s,
-                    &query_s,
-                    instruction,
-                    Semiring::SUM_PROD,
-                );
+                let mut score =
+                    bias_s.accumulator::<f32>(&key_s, &query_s, instruction, Semiring::SUM_PROD);
                 score.mma(&key_s, &query_s);
                 score
                     .along(Q)
@@ -218,12 +210,8 @@ fn logsumexp_of(
             for step in unit.walk() {
                 let bias_s = bias_u.at(&step);
                 let (query_s, key_s) = (query_u.at(&step), key_u.at(&step));
-                let mut score = bias_s.accumulator::<f32>(
-                    &query_s,
-                    &key_s,
-                    instruction,
-                    Semiring::SUM_PROD,
-                );
+                let mut score =
+                    bias_s.accumulator::<f32>(&query_s, &key_s, instruction, Semiring::SUM_PROD);
                 score.mma(&query_s, &key_s);
                 softmax.step(&score, &bias_s, scale);
             }
@@ -281,13 +269,7 @@ impl Case {
     /// The inputs on `client`, with their host copies and everything the host computes from
     /// them.
     #[allow(clippy::type_complexity)]
-    fn reference(
-        &self,
-        client: &Client,
-    ) -> (
-        Reference,
-        [cubecl::std::tensor::TensorHandle; 4],
-    ) {
+    fn reference(&self, client: &Client) -> (Reference, [cubecl::std::tensor::TensorHandle; 4]) {
         let wobble =
             |i: usize, salt: usize| ((i * 2654435761 + salt * 40503) % 2048) as f32 / 512. - 2.;
         let input = |shape: [usize; 2], salt: usize| {
@@ -386,7 +368,12 @@ fn arg(handle: &cubecl::std::tensor::TensorHandle, axes: &[Axis]) -> TileArgLaun
 
 /// Every value `read` gives at `[i, j]` of `shape` within `1e-4` of `expected` relative to one
 /// plus its size.
-fn assert_close(name: &str, read: impl Fn(usize, usize) -> f32, shape: [usize; 2], expected: &[f64]) {
+fn assert_close(
+    name: &str,
+    read: impl Fn(usize, usize) -> f32,
+    shape: [usize; 2],
+    expected: &[f64],
+) {
     for i in 0..shape[0] {
         for j in 0..shape[1] {
             let (got, want) = (read(i, j) as f64, expected[i * shape[1] + j]);
@@ -448,7 +435,12 @@ fn units_owning_queries_take_the_softmax_gradient() {
     );
     let delta = HostData::from_tensor_handle(&client, delta, HostDataType::F32);
     let score_gradient = HostData::from_tensor_handle(&client, score_gradient, HostDataType::F32);
-    assert_close("delta", |i, _| delta.get_f32(&[i]), [queries, 1], &reference.delta);
+    assert_close(
+        "delta",
+        |i, _| delta.get_f32(&[i]),
+        [queries, 1],
+        &reference.delta,
+    );
     assert_close(
         "score_gradient",
         |i, j| score_gradient.get_f32(&[i, j]),

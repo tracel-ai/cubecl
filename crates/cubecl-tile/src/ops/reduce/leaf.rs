@@ -303,8 +303,8 @@ pub(crate) fn dot_cells<E: Float, Lhs: Numeric, Rhs: Numeric, V: Size>(
             Coords::constant(comptime!(layout.acc_extents.clone())).unravel(comptime!(a as u32));
         let mut sum = E::from_int(0);
         for p in 0..comptime!(layout.kc) {
-            let reduce_coords = Coords::constant(comptime!(layout.reduce_extents.clone()))
-                .unravel(p.cast::<u32>());
+            let reduce_coords =
+                Coords::constant(comptime!(layout.reduce_extents.clone())).unravel(p.cast::<u32>());
             let coords = resolve_nd_coords(
                 comptime!(in_space.clone()),
                 comptime!(acc_space.clone()),

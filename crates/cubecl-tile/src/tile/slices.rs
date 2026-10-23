@@ -236,12 +236,7 @@ impl AxisSlices {
                 block.softmax_gradient_along::<E>(probabilities, &values, broadcast)
             }
             (AxisSlicesKind::Window(window), AxisSlicesKind::Window(probabilities)) => window
-                .softmax_gradient_along::<E>(
-                    probabilities,
-                    &values,
-                    self.space.clone(),
-                    broadcast,
-                ),
+                .softmax_gradient_along::<E>(probabilities, &values, self.space.clone(), broadcast),
             _ => AxisSlices::refuse_fragments("AxisSlices::softmax_gradient"),
         }
     }
@@ -366,4 +361,3 @@ impl Broadcast {
         self.slice[slice] + position * self.position
     }
 }
-
