@@ -7,13 +7,16 @@ use cubecl_tile::{
     Axis, Launcher, Levels, Partitioning, Projection, Space, TileArg, TileArgLaunch, TileSpec,
     kind::Field,
     launch::Grid,
-    layout::PhysicalAxisMap,
+    layout::{PhysicalAxisMap, split},
     space::{CubeOrder, PlaneOrder},
 };
 
 const M: Axis = Axis(0);
 const KB: Axis = Axis(1);
 const KI: Axis = Axis(2);
+/// The blocks of the rows, one: the axis a packed matrix's rows split into beside [`M`], which a
+/// source restated over its block axes leaves out.
+const MB: Axis = Axis(3);
 
 /// The values packed from `input`, under the block scales they carry, which the copy computes.
 #[cube(launch)]
@@ -35,7 +38,7 @@ fn quantize_planes(input: &TileArg<'_>, packed: &TileArg<'_>, partitioning: Part
 }
 
 /// How the float values are bound: as the words are, both block axes one dim of the row, or a
-/// dim an axis.
+/// dim an axis, the rows' one block left out.
 #[derive(Clone, Copy)]
 enum Source {
     AsTheWords,
@@ -171,11 +174,11 @@ fn check_quantize_as(
         client.create(Bytes::from_elems(vec![0u32; rows * cols / per_word])),
         u32::elem_type_native(),
     );
-    let space = Space::new(&[(M, rows), (KB, blocks), (KI, block)]);
+    let space = Space::new(&[(MB, 1), (M, rows), (KB, blocks), (KI, block)]);
     let projection = Projection::new(
-        &[M, KB, KI],
+        &[MB, M, KB, KI],
         &[
-            PhysicalAxisMap::of(M),
+            split(&[(MB, 1), (M, rows)]),
             PhysicalAxisMap::disjoint(&[(KB, block), (KI, 1)]),
         ],
     );
@@ -227,7 +230,7 @@ fn check_quantize_as(
                 .dtype(f32::elem_type_native())
                 .custom(vec![g])
                 .generate_without_host_data();
-            let per_tensor = Projection::new(&[M, KB, KI], &[PhysicalAxisMap::broadcast()]);
+            let per_tensor = Projection::new(&[MB, M, KB, KI], &[PhysicalAxisMap::broadcast()]);
             values.scales(TileArgLaunch::new(
                 t.binding().into_tensor_arg(),
                 f32::elem_type_native(),
@@ -266,7 +269,7 @@ fn check_quantize_as(
         ),
         Copy::PlaneARow { planes, .. } => {
             let order = PlaneOrder::new(&[], CubeOrder::RowMajor).cubes_of(planes);
-            let levels = Levels::leaf(&[(M, 1), (KB, blocks), (KI, block)])
+            let levels = Levels::leaf(&[(MB, 1), (M, 1), (KB, blocks), (KI, block)])
                 .launch_planes(&[M], order)
                 .build();
             let launcher = Launcher::new(

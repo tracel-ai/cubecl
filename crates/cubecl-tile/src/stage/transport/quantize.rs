@@ -23,6 +23,7 @@ impl Tile {
         let coarse = self.factor.coarse();
         let two_levels = comptime!(self.factor.depth() > 1);
         let values_space = comptime!(self.place.space.clone());
+        let src_space = comptime!(src.place.space.clone());
         let scales_space = comptime!(scales.place.space.clone());
         let block_space = comptime!(values_space.subspace(&values_space.difference(&scales_space)));
         let load = self.vector_tile();
@@ -30,6 +31,7 @@ impl Tile {
         let scale_load = scales.vector_tile();
         comptime!(check_encoding_copy(
             &values_space,
+            &src_space,
             &block_space,
             &load,
             &src_load
@@ -94,7 +96,12 @@ impl Tile {
                         comptime!(block_space.clone()),
                         comptime!(src_load.clone()),
                     );
-                    let held = read.read(src_load.index(&at, &values_space));
+                    let at = Self::coords_over(
+                        &at,
+                        comptime!(values_space.clone()),
+                        comptime!(src_space.clone()),
+                    );
+                    let held = read.read(src_load.index(&at, &src_space));
                     lines[l] = held;
                     #[unroll]
                     for e in 0..comptime!(src_load.values()) {
@@ -181,6 +188,22 @@ impl Tile {
             }
         }
         at
+    }
+
+    /// `at`, coordinates over `from`, restated over `to`, whose axes are all `from`'s: the
+    /// source carries no axis the values span alone, such as the blocks of an axis no scale
+    /// groups, which is one block.
+    fn coords_over(
+        at: &Coords<u32>,
+        #[comptime] from: Space,
+        #[comptime] to: Space,
+    ) -> Coords<u32> {
+        let mut over = Coords::<u32>::new();
+        #[unroll]
+        for p in 0..comptime!(to.rank()) {
+            over.push(at.at(comptime!(from.position(to.axis_at(p)))));
+        }
+        over
     }
 
     /// Each of `values`, already over its scale, as the code `value` stores it in, in the low
@@ -285,13 +308,27 @@ impl Tile {
     }
 }
 
-/// What an encoding copy into `values`, written in `load`s from a source read in `src` loads,
-/// rests on. A block is `block`, the values' axes its scales omit.
-fn check_encoding_copy(values: &Space, block: &Space, load: &VectorTile, src: &VectorTile) {
+/// What an encoding copy into `values`, written in `load`s from a source over `source` read in
+/// `src` loads, rests on. A block is `block`, the values' axes its scales omit.
+fn check_encoding_copy(
+    values: &Space,
+    source: &Space,
+    block: &Space,
+    load: &VectorTile,
+    src: &VectorTile,
+) {
     assert!(
         values.axes().all(|axis| !values.is_dynamic(axis)),
         "Tile::quantize_from: an encoding copy walks the values' blocks, which needs their extents \
          at expansion; this window spans a dynamic axis"
+    );
+    assert!(
+        source.axes().all(|axis| values.contains(axis))
+            && values
+                .axes()
+                .all(|axis| source.contains(axis) || values.extent(axis) == 1),
+        "Tile::quantize_from: the source spans the values' axes, but for one of extent one: \
+         {source:?} against {values:?}"
     );
     for tile in [load, src] {
         assert!(
