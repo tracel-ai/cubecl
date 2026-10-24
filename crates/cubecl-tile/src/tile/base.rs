@@ -1243,6 +1243,15 @@ impl Tile {
         unexpanded!()
     }
 
+    /// These values with their scales kept beside them by a stage, which then holds the values as
+    /// they are stored rather than decoded by its fill: for a reader that decodes as it loads, a
+    /// manual-mma contraction's lane runs of `e2m1` codes under one level of block scales. Take
+    /// the coarser scales out for the sum first ([`factor`](Tile::factor)). Values that carry no
+    /// scale are staged as before.
+    pub fn scales_kept_beside(&self) -> Tile {
+        unexpanded!()
+    }
+
     /// This stage of `operand` with `operand`'s scales staged beside it as `spec` shapes it,
     /// where a stage keeps them beside it ([`decodes`](Tile::decodes)); itself otherwise.
     pub(crate) fn with_scales_staged(&self, _operand: &Tile, _spec: StageSpec) -> Tile {
@@ -1404,6 +1413,12 @@ impl TileExpand {
 
     pub(crate) fn __expand_scales_beside_method(&self, scope: &Scope) -> bool {
         !self.looks_up() && self.factor.staged_beside(scope)
+    }
+
+    pub fn __expand_scales_kept_beside_method(&self, _scope: &Scope) -> TileExpand {
+        let mut kept = self.clone();
+        kept.factor = self.factor.clone().kept_beside();
+        kept
     }
 
     pub(crate) fn __expand_with_scales_staged_method(
