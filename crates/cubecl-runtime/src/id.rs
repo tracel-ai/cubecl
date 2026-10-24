@@ -12,7 +12,7 @@ use cubecl_common::{
 };
 use cubecl_ir::{
     AddressType,
-    settings::{Dim3, ExecutionMode},
+    settings::{DebugInfo, Dim3, ExecutionMode},
 };
 use derive_more::{Eq, PartialEq};
 
@@ -97,6 +97,8 @@ pub struct KernelId {
     pub address_type: AddressType,
     /// The execution mode for this kernel
     pub mode: ExecutionMode,
+    /// The debug data of this kernel, after the configuration lowered it.
+    pub debug_info: DebugInfo,
     pub(crate) info: Option<Info>,
 }
 
@@ -107,6 +109,10 @@ impl Hash for KernelId {
         self.cube_dim.hash(state);
         self.mode.hash(state);
         self.info.hash(state);
+        // A kernel without debug data keeps the hash it had before the level existed.
+        if self.debug_info != DebugInfo::None {
+            self.debug_info.hash(state);
+        }
     }
 }
 
@@ -118,6 +124,7 @@ impl core::fmt::Debug for KernelId {
             .field("address_type", &self.address_type);
         debug_str.field("cube_dim", &self.cube_dim);
         debug_str.field("mode", &self.mode);
+        debug_str.field("debug_info", &self.debug_info);
         match &self.info {
             Some(info) => debug_str.field("info", info),
             None => debug_str.field("info", &self.info),
@@ -165,6 +172,7 @@ impl KernelId {
             cube_dim: Dim3::new_single(),
             mode: ExecutionMode::Checked,
             address_type: Default::default(),
+            debug_info: DebugInfo::None,
         }
     }
 
@@ -172,10 +180,14 @@ impl KernelId {
     ///
     /// Can be used as a persistent kernel cache key.
     pub fn stable_format(&self) -> String {
-        format!(
+        let format = format!(
             "{}-{}-{:?}-{:?}-{:?}",
             self.type_name, self.address_type, self.cube_dim, self.mode, self.info
-        )
+        );
+        match self.debug_info {
+            DebugInfo::None => format,
+            level => format!("{format}-{level:?}"),
+        }
     }
 
     /// Hash the key in a stable way that can be used between runs.
@@ -188,6 +200,10 @@ impl KernelId {
         self.cube_dim.hash(&mut hasher);
         self.mode.hash(&mut hasher);
         self.info.hash(&mut hasher);
+        // A kernel without debug data keeps its entry point name and cache key.
+        if self.debug_info != DebugInfo::None {
+            self.debug_info.hash(&mut hasher);
+        }
 
         hasher.finalize()
     }
@@ -212,6 +228,14 @@ impl KernelId {
     /// Set the [execution mode](ExecutionMode).
     pub fn mode(mut self, mode: ExecutionMode) -> Self {
         self.mode = mode;
+        self
+    }
+
+    /// Set the debug data that the kernel asks for. The id keeps the level after the
+    /// configuration lowers it, because that level changes the compiled kernel.
+    #[must_use]
+    pub fn debug_info(mut self, requested: DebugInfo) -> Self {
+        self.debug_info = crate::config::compilation::effective_debug_info(requested);
         self
     }
 
@@ -320,5 +344,32 @@ mod tests {
 
         assert!(set.contains(&value_1));
         assert!(!set.contains(&value_2));
+    }
+
+    #[test]
+    fn debug_info_changes_the_hash_and_the_cache_key() {
+        let with = |debug_info| KernelId {
+            debug_info,
+            ..KernelId::new::<()>().info("1")
+        };
+        let (none, lines, full) = (
+            with(DebugInfo::None),
+            with(DebugInfo::LineTables),
+            with(DebugInfo::Full),
+        );
+        assert_ne!(none.stable_hash(), lines.stable_hash());
+        assert_ne!(lines.stable_hash(), full.stable_hash());
+        assert_ne!(none.stable_format(), lines.stable_format());
+        assert_ne!(lines.stable_format(), full.stable_format());
+        assert_ne!(none, lines);
+        let state = std::collections::hash_map::RandomState::new();
+        assert_ne!(
+            core::hash::BuildHasher::hash_one(&state, &none),
+            core::hash::BuildHasher::hash_one(&state, &lines)
+        );
+        // Without debug data, the hash and the entry point name are the same as before.
+        let plain = KernelId::new::<()>().info("1");
+        assert_eq!(none.stable_hash(), plain.stable_hash());
+        assert_eq!(none.stable_format(), plain.stable_format());
     }
 }
