@@ -514,6 +514,24 @@ impl Memory {
         )
     }
 
+    /// The mutable twin of [`nd_words`](Memory::nd_words): a packed store's raw words, each written
+    /// whole by a writer that packed every field of it.
+    pub(crate) fn nd_words_mut<WP: Size>(
+        &mut self,
+        layout: ProjectionInKernel,
+    ) -> MaskedMut<'_, Vector<u32, WP>, CoordsDyn> {
+        comptime!(assert!(
+            matches!(self.store.packing, Packing::Packed { .. }),
+            "Memory::nd_words_mut: only a packed store holds words"
+        ));
+        let check = self.write_check();
+        MaskedMut::new(
+            self.window_view_mut::<u32, WP>(comptime!(Guard::Checked))
+                .view_mut(layout),
+            check,
+        )
+    }
+
     /// The identity step over this window's physical box, for callers that evaluate the map themselves.
     /// It masks against the physical box only: the caller owes in-range logical coordinates.
     pub(crate) fn physical_box(&self) -> CompactionStep {
