@@ -208,6 +208,31 @@ fn prime_buffer<I: Numeric, N: Size>(
     }
 }
 
+/// This unit's position in a coalesced pass, its cube moved `moved` cubes along
+/// the launch.
+///
+/// A cube stays resident for every pass of its launch. At one position for all
+/// of them, the cubes resident at once come back to the same lines each time the
+/// passes have walked the buffer: their own slices of it, a set the last level
+/// cache holds when few cubes fit an SM. An RTX PRO 6000 read 6.2 TB/s on a
+/// 1.8 TB/s bus that way, from a kernel build that fit four 256-unit cubes an SM
+/// rather than six. Moved along once per walk, the resident cubes read other
+/// slices, and a line comes back only after a whole buffer of traffic. Every
+/// cube still covers each window once a pass.
+#[cube]
+pub fn moved_pos(moved: usize) -> usize {
+    let cube = (CUBE_POS + moved) % CUBE_COUNT;
+    cube * CUBE_DIM as usize + UNIT_POS as usize
+}
+
+/// `moved` one walk of the buffer further: by the launch's golden section, so
+/// the walks place the resident cubes as far from each other as they can before
+/// the slices start to repeat.
+#[cube]
+pub fn moved_further(moved: usize) -> usize {
+    (moved + CUBE_COUNT * 618 / 1000 + 1) % CUBE_COUNT
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

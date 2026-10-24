@@ -352,7 +352,11 @@ fn load_e2m1_run<T: Numeric, N: Size>(
         for b in 0..comptime!(run.len / E2M1_SCALE_BLOCK) {
             let col = first + comptime!((b * E2M1_SCALE_BLOCK) as u32);
             let coords = TileMatrix::value_coords(at, col, 0usize, &space, axes, 1usize);
-            scales[b] = T::cast_from(factor.at_coords(&coords, comptime!(space.clone())));
+            scales[b] = T::cast_from(factor.at_coords(
+                &coords,
+                comptime!(space.clone()),
+                comptime!(Guard::Checked),
+            ));
         }
         #[unroll]
         for l in 0..comptime!(run.len / values) {

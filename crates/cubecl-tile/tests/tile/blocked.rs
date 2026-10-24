@@ -901,7 +901,7 @@ fn a_promoted_accumulator_spans_a_split_output_axis() {
 }
 
 /// [`wide_scaled_matmul`] with the accumulator promoted to registers: the partials never touch
-/// memory between `K` steps, which is what a decode gemv keeps them in, and the scales covering
+/// memory between `K` steps, which is what a decode step's one-row product keeps them in, and the scales covering
 /// four column blocks still arrive in one read.
 #[cube(launch)]
 fn wide_scaled_promoted<E: Numeric>(
@@ -930,7 +930,7 @@ fn wide_scaled_promoted<E: Numeric>(
     acc.drained_into(&c);
 }
 
-/// **The shape a decode gemv runs.** Scales read as a line against a register accumulator.
+/// **The shape a decode step's one-row product runs.** Scales read as a line against a register accumulator.
 #[test]
 fn a_promoted_accumulator_takes_scales_by_the_line() {
     let (rows, blocks, inside, depth, units) = (4, 4, 2, 8, 4);

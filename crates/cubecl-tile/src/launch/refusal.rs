@@ -85,25 +85,29 @@ pub enum Refusal {
     /// A TMA box lands its rows dense, at most swizzled within one span, and the stage keeps them
     /// as `why` says.
     RowsNoDescriptorLands { why: &'static str },
-    /// [`paged`](super::Arg::paged) on a gathered or storage-tiled operand: a page is resolved
-    /// digit for digit over a plain buffer's labelled dims.
+    /// [`indexed`](crate::TileArgLaunch::indexed) over a pool of pages on a gathered or
+    /// storage-tiled operand: a page is resolved digit for digit over a plain buffer's labelled
+    /// dims.
     PagingOfAStatedLayout,
-    /// [`paged`](super::Arg::paged) naming an axis no dim of the operand is labelled with.
+    /// [`indexed`](crate::TileArgLaunch::indexed) over a pool of pages naming an axis no dim of the
+    /// operand is labelled with.
     PagingOfAnUnlabelledAxis(Axis),
-    /// [`paged`](super::Arg::paged) naming one dim for both the pages and their positions.
+    /// [`indexed`](crate::TileArgLaunch::indexed) over a pool of pages naming one dim for both the
+    /// pages and their positions.
     PagingOfOneDim(Axis),
-    /// [`paged`](super::Arg::paged) with the pages along the innermost dim, this axis's: a line
-    /// runs along it, so one line would span pages.
+    /// [`indexed`](crate::TileArgLaunch::indexed) over a pool of pages with the pages along the
+    /// innermost dim, this axis's: a line runs along it, so one line would span pages.
     PagesAlongALine(Axis),
-    /// [`paged`](super::Arg::paged) on a pool of no pages, or of pages of no positions: there is
-    /// no page for a table entry to read.
+    /// [`indexed`](crate::TileArgLaunch::indexed) over a pool of pages on a pool of no pages, or of
+    /// pages of no positions: there is no page for a table entry to read.
     PagingOfAnEmptyPool,
-    /// [`paged`](super::Arg::paged) on positions along the innermost dim, read `width` a line,
-    /// with pages of `page_size` positions: a line would cross a page.
-    PageSplitsALine { page_size: usize, width: usize },
-    /// [`paged`](super::Arg::paged) on a packed operand, or one moved by runs (a bulk copy, a
-    /// tensor map): the table resolves one line at a time.
+    /// [`indexed`](crate::TileArgLaunch::indexed) over a pool of pages on an operand moved by runs
+    /// (a bulk copy, a tensor map): the table resolves one line at a time.
     PagingMovedByRuns,
+    /// [`indexed`](crate::TileArgLaunch::indexed) over a pool of pages whose scales span its pages
+    /// or positions unplaced: they are a pool of their own, placed by the same table before they
+    /// are stated.
+    ScalesOfAPoolUnpaged,
     /// [`indexed`](crate::TileArgLaunch::indexed) with a table that is not plain `u32` entries,
     /// one a line: an entry is a coordinate.
     IndexTableNotU32,
@@ -254,35 +258,40 @@ impl Display for Refusal {
             ),
             Refusal::PagingOfAStatedLayout => write!(
                 f,
-                "Arg::paged: a page is resolved digit for digit over a plain buffer's labelled \
-                 dims, so a gathered mapping or a storage-tiled binding has no reading here"
+                "TileArgLaunch::indexed: a page is resolved digit for digit over a plain buffer's \
+                 labelled dims, so a gathered mapping or a storage-tiled binding has no reading \
+                 here"
             ),
             Refusal::PagingOfAnUnlabelledAxis(axis) => write!(
                 f,
-                "Arg::paged: {axis:?} labels no dim of this operand, so no dim holds its pages"
+                "TileArgLaunch::indexed: {axis:?} labels no dim of this operand, so no dim holds \
+                 its pages"
             ),
             Refusal::PagingOfOneDim(axis) => write!(
                 f,
-                "Arg::paged: {axis:?} names the pages and their positions both, on one dim"
+                "TileArgLaunch::indexed: {axis:?} names the pages and their positions both, on one \
+                 dim"
             ),
             Refusal::PagesAlongALine(axis) => write!(
                 f,
-                "Arg::paged: the pages along {axis:?} lie on the innermost dim, which a line runs \
-                 along, so a line would span pages"
+                "TileArgLaunch::indexed: the pages along {axis:?} lie on the innermost dim, which \
+                 a line runs along, so a line would span pages"
             ),
             Refusal::PagingOfAnEmptyPool => write!(
                 f,
-                "Arg::paged: the pool holds no page, or its pages no position, for a table entry \
-                 to read"
+                "TileArgLaunch::indexed: the pool holds no page, or its pages no position, for a \
+                 table entry to read"
             ),
-            Refusal::PageSplitsALine { page_size, width } => write!(
+            Refusal::ScalesOfAPoolUnpaged => write!(
                 f,
-                "Arg::paged: a line of {width} positions would cross a page of {page_size}"
+                "TileArgLaunch::indexed: the scales of a pool of pages span its pages or \
+                 positions, so they are a pool of their own, placed by the same table before they \
+                 are stated"
             ),
             Refusal::PagingMovedByRuns => write!(
                 f,
-                "Arg::paged: a page table is resolved a line at a time, so a packed operand or a \
-                 delivery that moves runs has no reading through it"
+                "TileArgLaunch::indexed: a page table is resolved a line at a time, so a delivery \
+                 that moves runs has no reading through it"
             ),
             Refusal::CodebookOfValuesNotIndices => write!(
                 f,

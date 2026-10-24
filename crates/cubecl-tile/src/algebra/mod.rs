@@ -7,6 +7,6 @@ pub(crate) mod semiring;
 
 pub(crate) use constant::Integer;
 pub(crate) use constant::{
-    IntegerExpand, IntegerSeq, IntegerSeqExpand, constant, fold_add, fold_mul,
+    IntegerExpand, IntegerSeq, IntegerSeqExpand, constant, simplified_add, simplified_mul,
 };
 pub(crate) use division::{floor_div_rem, gcd};

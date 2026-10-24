@@ -187,15 +187,6 @@ impl SplitShare {
     }
 }
 
-/// A count a units level states along an axis, as the units it takes.
-impl From<Count> for usize {
-    fn from(count: Count) -> usize {
-        count
-            .stated()
-            .expect("a units level's count is stated; every tile is the launch's")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

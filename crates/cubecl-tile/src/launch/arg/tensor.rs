@@ -1,9 +1,10 @@
 //! An operand as a single launch argument: its values, a buffer or a TMA tensor map, its comptime
 //! [`TileSpec`], the element it serves them at, the runtime half of its projection, and what its
-//! values are read through: the table they index and the scales they are under, each a
-//! [`TileArg`] of its own.
+//! values are read through: the table that places them, the table they index and the scales they
+//! are under, each a [`TileArg`] of its own.
 
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use cubecl::frontend::{AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, IntoMut};
 use cubecl::frontend::{buffer_len::expand_buffer_length_native, slice};
@@ -37,8 +38,9 @@ use cubecl::server::BufferBinding;
 ///
 /// Values stored as indices ([`Field::Index`]) read through the table they index, their codebook
 /// ([`TileArgLaunch::codebook`]); a gather's runtime coefficients and offsets
-/// ([`TileArgLaunch::runtime_map`]) ride the argument too. A kernel serves every operand the same
-/// way, with [`tile`](TileArg::tile).
+/// ([`TileArgLaunch::runtime_map`]) ride the argument too, as does the table that places their
+/// windows ([`TileArgLaunch::indexed`]), a routed product's experts or a pool's pages. A kernel
+/// serves every operand the same way, with [`tile`](TileArg::tile).
 pub struct TileArg<'a> {
     pub spec: TileSpec,
     /// The element the buffer holds.
@@ -49,20 +51,6 @@ pub struct TileArg<'a> {
 impl TileArg<'_> {
     /// Serve the operand as a [`Tile`] over the kernel's one `partitioning`, under its scales.
     pub fn tile(&self, _partitioning: &Partitioning) -> Tile {
-        unexpanded!()
-    }
-
-    /// [`tile`](TileArg::tile), read through `pages` where the operand is a pool of pages bound
-    /// [`paged`](crate::launch::Arg::paged), and where it lies where `pages` is `None`: one
-    /// kernel serves either. The launch decides which it compiles by the `pages` it passes, which
-    /// must match the binding: a table for a pool bound `paged`, `None` for any other operand;
-    /// a mismatch panics as the kernel expands. A table holds at least one entry, which every
-    /// window reads; a launch over no sequences or no positions is the caller's to skip.
-    pub fn tile_paged(
-        &self,
-        _partitioning: &Partitioning,
-        _pages: ComptimeOption<&Tensor<u32>>,
-    ) -> Tile {
         unexpanded!()
     }
 
@@ -187,29 +175,6 @@ impl<'a> TileArgExpand<'a> {
         self.scaling(scope, values, partitioning)
     }
 
-    pub fn __expand_tile_paged_method(
-        &self,
-        scope: &Scope,
-        partitioning: &PartitioningExpand,
-        pages: ComptimeOptionExpand<&Tensor<u32>>,
-    ) -> TileExpand {
-        let ComptimeOptionExpand::Some(table) = pages else {
-            return self.__expand_tile_method(scope, partitioning);
-        };
-        let ValuesExpand::Tensor { tensor, meta, .. } = &self.values else {
-            panic!("TileArg::tile_paged: a pool of pages is a buffer; a tensor map lands boxes")
-        };
-        assert!(self.index.is_none(), "{}", Refusal::IndexOfAStatedLayout);
-        let _held = scope.define_type::<Held>(self.element);
-        let tensor = scope.create_kernel_ref(TensorExpand::<Held>::__expand_from_parts(
-            *meta,
-            tensor.expand.into(),
-        ));
-        let values =
-            paged_tile::expand::<Held>(scope, tensor, table, partitioning, self.spec.clone());
-        self.scaling(scope, values, partitioning)
-    }
-
     pub fn __expand_lines_method<E: Numeric, V: Size>(
         &self,
         scope: &Scope,
@@ -244,7 +209,8 @@ impl<'a> TileArgExpand<'a> {
         scope.create_kernel_ref(TensorExpand::__expand_from_parts(*meta, lines))
     }
 
-    /// The values alone, under none of their scales.
+    /// The values alone, under none of their scales: read through their table where they are a
+    /// pool of pages, where they lie otherwise.
     fn values_tile(&self, scope: &Scope, partitioning: &PartitioningExpand) -> TileExpand {
         let _held = scope.define_type::<Held>(self.element);
         match &self.values {
@@ -253,6 +219,27 @@ impl<'a> TileArgExpand<'a> {
                     *meta,
                     tensor.expand.into(),
                 ));
+                if let (Some(_), Some((table, _))) = (&self.spec.paging, &self.index) {
+                    let ValuesExpand::Tensor {
+                        tensor: pages,
+                        meta,
+                        ..
+                    } = &table.values
+                    else {
+                        unreachable!("TileArgLaunch::indexed binds its table as a buffer")
+                    };
+                    let pages = scope.create_kernel_ref(TensorExpand::<u32>::__expand_from_parts(
+                        *meta,
+                        pages.expand.into(),
+                    ));
+                    return paged_tile::expand::<Held>(
+                        scope,
+                        tensor,
+                        pages,
+                        partitioning,
+                        self.spec.clone(),
+                    );
+                }
                 let (coefficients, offsets) = self.runtime_map.clone();
                 buffer_tile::expand::<Held>(
                     scope,
@@ -298,7 +285,8 @@ impl<'a> TileArgExpand<'a> {
 
     /// `values` carrying the table that places their windows, where the operand has one: read at
     /// the first level of `partitioning` that cuts the table's keys ([`Indexing::read_at`]), or
-    /// now, at its first entry, where none does.
+    /// now, at its first entry, where none does. A pool of pages reads its table as each window
+    /// is cut and each line is offset ([`values_tile`](Self::values_tile)), so holds none here.
     fn indexing(
         &self,
         scope: &Scope,
@@ -308,6 +296,9 @@ impl<'a> TileArgExpand<'a> {
         let Some((table, indexing)) = &self.index else {
             return values;
         };
+        if self.spec.paging.is_some() {
+            return values;
+        }
         let keys = table.spec.axes().to_vec();
         let read_at = indexing
             .read_at(&keys, &partitioning.levels)
@@ -352,10 +343,11 @@ impl<'a> TileArgExpand<'a> {
 }
 
 /// The host side of a [`TileArg`]: its values, its spec, the element its buffer holds and its
-/// scales.
+/// scales. The spec is shared: a rebound operand and the compilation argument it registers as
+/// read the one its launch was settled with.
 pub struct TileArgLaunch {
     values: ValuesLaunch,
-    spec: TileSpec,
+    spec: Arc<TileSpec>,
     element: ElemType,
     scale: Option<Box<TileArgLaunch>>,
     index: Option<(Box<TileArgLaunch>, Indexing)>,
@@ -402,7 +394,7 @@ impl TileArgLaunch {
         );
         Self {
             values,
-            spec,
+            spec: Arc::new(spec),
             element,
             scale: None,
             index: None,
@@ -412,7 +404,8 @@ impl TileArgLaunch {
     }
 
     /// This operand bound again over other buffers of the same layout: each tensor it holds, in the
-    /// order it holds them (its values, then its scales', then its index table's, then its codebook's), takes the next
+    /// order it holds them (its values, then its scales', then its index table's, then its
+    /// codebook's), takes the next
     /// of `buffers` and keeps the shape, strides and tiling it was settled at. A launch that binds
     /// the same operands every step keeps its binding and changes only the addresses.
     ///
@@ -506,11 +499,47 @@ impl TileArgLaunch {
     /// says ([`Indexing`]). The scales they carry move with them wherever they span the placed
     /// axis; state them first, so they are checked here.
     ///
+    /// A table keyed by the axis it places and one more, `[sequence, position]` placing the
+    /// sequence, reads these values as a pool of pages: the dim the sequence labels holds pages,
+    /// the one the position labels a page's positions, and sequence `b`'s position `s` lies in page
+    /// `table[b, s / page_size]`, `page_size` the pool's extent along the position. The operand's
+    /// extents along the two axes are the table's, checked on every read. The table is read as
+    /// each window is cut, a window holding one page or two reading it once. The scales of a pool
+    /// spanning either axis are a pool of their own, placed by the same table before they are
+    /// stated.
+    ///
     /// # Errors
     ///
     /// The [`Refusal`] for a table that is not plain `u32` entries over one dim per key, or for
     /// values, or a scale level spanning the placed axis, whose windows an entry cannot place.
-    pub fn indexed(mut self, table: TileArgLaunch, indexing: Indexing) -> Result<Self, Refusal> {
+    pub fn indexed(self, table: TileArgLaunch, indexing: Indexing) -> Result<Self, Refusal> {
+        self.placed_by(table, indexing, false)
+    }
+
+    /// [`indexed`](Self::indexed), the table a pool of pages is read through stated to cover the
+    /// launch's extents along both its axes, so a read the launch keeps in bounds is in bounds
+    /// through the table: the two axes are checked only where the launch overhangs, as a buffer
+    /// read where it lies is. A table that stops short reads its clamped entries there: other
+    /// positions of the pool, never past it.
+    ///
+    /// # Errors
+    ///
+    /// As [`indexed`](Self::indexed).
+    pub fn indexed_covering(
+        self,
+        table: TileArgLaunch,
+        indexing: Indexing,
+    ) -> Result<Self, Refusal> {
+        self.placed_by(table, indexing, true)
+    }
+
+    /// [`indexed`](Self::indexed), a pool's table stated to cover the launch where `covering`.
+    fn placed_by(
+        mut self,
+        table: TileArgLaunch,
+        indexing: Indexing,
+        covering: bool,
+    ) -> Result<Self, Refusal> {
         let ValuesLaunch::Tensor { tensor, width } = &table.values else {
             return Err(Refusal::IndexTableNotU32);
         };
@@ -530,6 +559,21 @@ impl TileArgLaunch {
                 rank,
             });
         }
+        if let (Indexing::Coordinate(sequence), &[first, position]) = (&indexing, keys)
+            && first == *sequence
+        {
+            self.spec = Arc::new(self.paged_spec(*sequence, position, covering)?);
+            let mut level = self.scale.as_deref();
+            while let Some(scale) = level {
+                let spans = |axis| scale.spec.axes().contains(&axis);
+                if (spans(first) || spans(position)) && scale.spec.paging.is_none() {
+                    return Err(Refusal::ScalesOfAPoolUnpaged);
+                }
+                level = scale.scale.as_deref();
+            }
+            self.index = Some((Box::new(table), indexing));
+            return Ok(self);
+        }
         indexing.validate(&self.spec, self.indexed_width()?, keys)?;
         let mut level = self.scale.as_deref();
         while let Some(scale) = level {
@@ -540,6 +584,43 @@ impl TileArgLaunch {
         }
         self.index = Some((Box::new(table), indexing));
         Ok(self)
+    }
+
+    /// This operand's spec read as a pool of pages along `sequence` and `position`: its paging, and
+    /// unless the table `covering` the launch, the two axes checked on every read, their extents
+    /// being the table's.
+    fn paged_spec(
+        &self,
+        sequence: Axis,
+        position: Axis,
+        covering: bool,
+    ) -> Result<TileSpec, Refusal> {
+        let ValuesLaunch::Tensor { tensor, .. } = &self.values else {
+            return Err(Refusal::PagingMovedByRuns);
+        };
+        let mut spec = TileSpec::clone(&self.spec);
+        let paging = Paging::of_pool(
+            sequence,
+            position,
+            tensor.shape(),
+            &spec.projection,
+            &spec.stored_tiles,
+            spec.delivery,
+        )?;
+        if !covering {
+            let boundary = spec.boundaries.iter().flatten().next().copied();
+            if spec.boundaries.is_empty() {
+                spec.boundaries = (0..spec.projection.coordinate_rank())
+                    .map(|_| None)
+                    .collect();
+            }
+            let (sequence_dim, position_dim) = paging.dims(&spec.projection)?;
+            for dim in [sequence_dim, position_dim] {
+                spec.boundaries[dim] = Some(boundary.unwrap_or(Boundary::Zero));
+            }
+        }
+        spec.paging = Some(paging);
+        Ok(spec)
     }
 
     /// The values a line of this buffer holds, where an entry may move its window: a tensor map
@@ -556,7 +637,7 @@ impl TileArgLaunch {
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct TileArgCompilationArg {
     values: ValuesCompilationArg,
-    spec: TileSpec,
+    spec: Arc<TileSpec>,
     element: ElemType,
     scale: Option<Box<TileArgCompilationArg>>,
     index: Option<(Box<TileArgCompilationArg>, Indexing)>,
@@ -706,7 +787,7 @@ impl LaunchArg for TileArg<'static> {
         }
         TileArgExpand {
             values,
-            spec: arg.spec.clone(),
+            spec: TileSpec::clone(&arg.spec),
             element: arg.element,
             scale,
             index,
@@ -767,7 +848,7 @@ mod tests {
                 },
                 width: 1,
             },
-            spec: TileSpec::direct(&[Axis(0)]),
+            spec: Arc::new(TileSpec::direct(&[Axis(0)])),
             element: ElemType::Float(FloatKind::F32),
             scale: None,
             index: None,
@@ -805,7 +886,7 @@ mod tests {
                 },
                 width: 1,
             },
-            spec: TileSpec::direct(keys),
+            spec: Arc::new(TileSpec::direct(keys)),
             element: u32::elem_type_native(),
             scale: None,
             index: None,

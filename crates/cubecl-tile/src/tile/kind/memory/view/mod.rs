@@ -1,5 +1,6 @@
 //! The layouts and masked views a leaf reads a memory tile through.
 
+pub(crate) mod decoded;
 pub(crate) mod flat;
 pub(crate) mod masked;
 pub(crate) mod matrix;

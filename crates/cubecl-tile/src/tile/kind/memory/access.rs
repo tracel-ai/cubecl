@@ -403,7 +403,7 @@ impl Memory {
 
     /// The mask flag for a write view; refuses a [`Boundary::Clamp`] operand, whose writes alias.
     fn write_check(&self) -> comptime_type!(bool) {
-        // Whole-operand on purpose: one clamped axis already folds two cells onto one.
+        // Whole-operand on purpose: one clamped axis already lands two cells on one.
         comptime!(assert!(
             !self.window.boundaries.contains(&Some(Boundary::Clamp))
                 || !self.access.overhang.masks(),
@@ -514,7 +514,7 @@ impl Memory {
         )
     }
 
-    /// The identity step over this window's physical box, for callers that fold the map themselves.
+    /// The identity step over this window's physical box, for callers that evaluate the map themselves.
     /// It masks against the physical box only: the caller owes in-range logical coordinates.
     pub(crate) fn physical_box(&self) -> CompactionStep {
         let rank = comptime!(self.projection.physical_rank());

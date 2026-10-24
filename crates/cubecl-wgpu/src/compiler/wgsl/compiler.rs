@@ -32,7 +32,7 @@ use cubecl_ir::{
         printable::Printable,
     },
     prelude::{AnalysisManager, NestedOpsPass, Op, OpPass, Pass, Passes},
-    rewrite::{CanonicalizePass, SimplifyOpsPass},
+    rewrite::{CanonicalizePass, LowerOpsPass, SimplifyOpsPass},
     settings::Dim3,
 };
 use cubecl_opt::passes::{
@@ -132,6 +132,7 @@ impl WgslCompiler {
         let mut passes = OpPass::<ModuleOp, Passes>::default();
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
 
+        func_passes.add_pass(LowerOpsPass::default());
         func_passes.add_pass(SROAPass);
         func_passes.add_pass(CheckedIoPass::new(CheckedIo::new(
             value.settings.execution_mode,

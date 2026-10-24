@@ -5,7 +5,7 @@ use cubecl::prelude::*;
 
 use cubecl_std::tensor::layout::CoordsDyn;
 
-use crate::ops::matmul::leaf::memory::resolve_nd_coords;
+use crate::ops::contraction::resolve_nd_coords;
 use crate::*;
 
 #[cube]
@@ -22,14 +22,14 @@ impl Tile {
     fn mul_from<D: Numeric, A: Numeric, B: Numeric>(&mut self, a: &Tile, b: &Tile) {
         let space = comptime!(self.place.space.clone());
         let width = self.vector_size();
-        let folds = b.vector_size();
-        let split = comptime!(FoldWalk::of(&space, &b.place.space, width, folds));
+        let per_read = b.vector_size();
+        let split = comptime!(GroupWalk::of(&space, &b.place.space, width, per_read));
         let size!(W) = width;
-        let size!(F) = folds;
+        let size!(F) = per_read;
         let a_reader = a.nd_split::<A, W>();
         let b_reader = b.nd_split::<B, F>();
 
-        let a_fold_at = comptime!(a.place.space.position(split.axis));
+        let a_step_at = comptime!(a.place.space.position(split.axis));
         let extents = Coords::constant(comptime!(split.groups.clone()));
         let total = comptime!(split.groups.iter().product::<usize>());
 
@@ -44,24 +44,24 @@ impl Tile {
                 comptime!(a.place.space.clone()),
                 comptime!(b.place.space.clone()),
                 width,
-                folds,
+                per_read,
             );
 
-            // The fold is a unit of `b`'s read, so its address is the group's.
+            // The step is a unit of `b`'s read, so its address is the group's.
             let scales = b_reader
                 .view
                 .read(b_reader.map.anchor(b_base, comptime!(Vec::new())));
-            // `a`'s address steps with the fold: its map folds once here, each step an addition.
+            // `a`'s address moves with the step: its map is evaluated once here, each step an addition.
             let moving = comptime!(vec![split.axis]);
             let a_anchor = a_reader
                 .map
                 .anchor(a_base.clone(), comptime!(moving.clone()));
 
             #[unroll]
-            for f in 0..comptime!(split.folds) {
+            for f in 0..comptime!(split.per_read) {
                 let value = a_reader.view.read(a_reader.map.advance(
                     &a_anchor,
-                    stepped(&a_base, comptime!(a_fold_at), f),
+                    stepped(&a_base, comptime!(a_step_at), f),
                     comptime!(moving.clone()),
                 ));
                 let left = Vector::<D, W>::cast_from(value);
@@ -73,41 +73,41 @@ impl Tile {
     }
 }
 
-/// How a product's walk divides: one broadcast-operand read per group, folds inside it.
+/// How a product's walk divides: one broadcast-operand read per group, its values stepped inside it.
 #[derive(Clone, Debug)]
-struct FoldWalk {
-    /// The axis the fold steps: the one the broadcast operand's own lines run along.
+struct GroupWalk {
+    /// The axis a read's values step: the one the broadcast operand's own lines run along.
     axis: Axis,
     /// Its position in the destination's box.
     at: usize,
-    /// Folds one read of that operand serves.
-    folds: usize,
+    /// Values one read of that operand serves.
+    per_read: usize,
     /// The destination's box in lines, cut at [`at`](Self::at) into groups of one read.
     groups: Vec<usize>,
 }
 
-impl FoldWalk {
-    /// How `dst` divides against `b`, read `width` lines wide with `folds` folds per read.
-    fn of(dst: &Space, b: &Space, width: usize, folds: usize) -> Self {
+impl GroupWalk {
+    /// How `dst` divides against `b`, read `width` lines wide with `per_read` values a read.
+    fn of(dst: &Space, b: &Space, width: usize, per_read: usize) -> Self {
         let rank = dst.rank();
         let axis = b.axis_at(b.rank() - 1);
         let at = dst.position(axis);
         assert!(
-            folds == 1 || at != rank - 1,
-            "Tile::mul: {folds} of `b` arrive per read along {axis:?}, which is also the axis the \
+            per_read == 1 || at != rank - 1,
+            "Tile::mul: {per_read} of `b` arrive per read along {axis:?}, which is also the axis the \
              destination's own lines run along, so one line would straddle two of them"
         );
         let mut groups = line_extents(dst, width, 0, rank);
         assert!(
-            groups[at].is_multiple_of(folds),
-            "Tile::mul: {} positions of {axis:?} do not divide into reads of {folds}",
+            groups[at].is_multiple_of(per_read),
+            "Tile::mul: {} positions of {axis:?} do not divide into reads of {per_read}",
             groups[at]
         );
-        groups[at] /= folds;
-        FoldWalk {
+        groups[at] /= per_read;
+        GroupWalk {
             axis,
             at,
-            folds,
+            per_read,
             groups,
         }
     }
@@ -115,12 +115,12 @@ impl FoldWalk {
 
 /// A group's line coordinate in the destination's box.
 #[cube]
-fn group_line(at: &Coords<u32>, #[comptime] split: FoldWalk) -> CoordsDyn {
+fn group_line(at: &Coords<u32>, #[comptime] split: GroupWalk) -> CoordsDyn {
     let mut out = CoordsDyn::new();
     #[unroll]
     for p in 0..comptime!(split.groups.len()) {
         let coord = match comptime!(p == split.at) {
-            true => at.at(p).times(comptime!(split.folds as u32)),
+            true => at.at(p).times(comptime!(split.per_read as u32)),
             false => at.at(p),
         };
         out.push(coord);
@@ -136,7 +136,7 @@ fn bases(
     #[comptime] a: Space,
     #[comptime] b: Space,
     #[comptime] width: usize,
-    #[comptime] folds: usize,
+    #[comptime] per_read: usize,
 ) -> (CoordsDyn, CoordsDyn) {
     let mut cells = Coords::<u32>::new();
     #[unroll]
@@ -157,11 +157,19 @@ fn bases(
             width,
             true,
         ),
-        resolve_nd_coords(b, dst, comptime!(Vec::new()), &cells, &empty, folds, true),
+        resolve_nd_coords(
+            b,
+            dst,
+            comptime!(Vec::new()),
+            &cells,
+            &empty,
+            per_read,
+            true,
+        ),
     )
 }
 
-/// `base` with the fold axis advanced by `f`: the one component a fold moves.
+/// `base` with the stepped axis advanced by `f`: the one component a step moves.
 #[cube]
 fn stepped(base: &CoordsDyn, #[comptime] at: usize, #[comptime] f: usize) -> CoordsDyn {
     let mut out = CoordsDyn::new();

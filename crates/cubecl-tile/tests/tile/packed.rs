@@ -5,8 +5,8 @@
 //! scales here. The tile serves the values the words hold ([`TileArg::tile`]) and the read unpacks.
 //!
 //! What a *quantized* operand adds on top is its scales, which are their own tensor and their own
-//! operand; folding them in is a verb the kernel writes ([`Tile::mm_scaled`], see
-//! [`scaled`](super::scaled)). The matmuls here are spelled that way, up to a whole decode gemv.
+//! operand; multiplying them in is a verb the kernel writes ([`Tile::mm_scaled`], see
+//! [`scaled`](super::scaled)). The matmuls here are spelled that way, up to a whole decode step's one-row product.
 //!
 //! Every test packs its own words: values low field first, `32 / bits` of them per word, and a
 //! binding whose shape counts *values* while the packing says how many sit in one stored word.
@@ -291,11 +291,11 @@ fn native_matmul(
     }
 }
 
-/// The decode gemv, whole: one row of activations against packed weights read straight from
+/// The decode step's one-row product, whole: one row of activations against packed weights read straight from
 /// global memory, their scales beside them, accumulating in a register block opened above the
-/// walk. `N` spreads across cubes, which is all a gemv has to spread.
+/// walk. `N` spreads across cubes, which is all a one-row product has to spread.
 #[cube(launch)]
-fn packed_gemv<E: Numeric>(
+fn packed_one_row_product<E: Numeric>(
     x: &TileArg<'_>,
     w: &TileArg<'_>,
     scale: &TileArg<'_>,
@@ -352,9 +352,9 @@ fn packed_matmul_byte_scales(
     }
 }
 
-/// [`packed_gemv`] with byte scales on the rhs, into the promoted block.
+/// [`packed_one_row_product`] with byte scales on the rhs, into the promoted block.
 #[cube(launch)]
-fn packed_gemv_byte_scales<E: Numeric>(
+fn packed_one_row_product_byte_scales<E: Numeric>(
     x: &TileArg<'_>,
     w: &TileArg<'_>,
     scale: &TileArg<'_>,
@@ -1041,11 +1041,11 @@ fn eight_bit_fields_contract_against_their_scales() {
     }
 }
 
-/// **The folded walk takes its scales several at a time.** A packed line folds a whole word per
+/// **The summing walk takes its scales several at a time.** A packed line sums a whole word per
 /// step, so nothing walks the contraction one value at a time. Here the scales are read two to a
 /// line, each field covering a block the walk picks.
 #[test]
-fn a_folded_walk_takes_its_scales_several_at_a_time() {
+fn a_summing_walk_takes_its_scales_several_at_a_time() {
     let (field, rows, cols, block, blocks) = (QuantValue::Q4S, 4, 4, 8, 4);
     let depth = block * blocks;
     let bits = field.size_bits();
@@ -1732,11 +1732,11 @@ fn an_i8_operand_contracts_against_its_scales() {
     }
 }
 
-/// **The q4 decode gemv, end to end.** A packed weight tensor read in place, its scales as their
+/// **The q4 decode product, end to end.** A packed weight tensor read in place, its scales as their
 /// own operand, one row of activations, `N` across cubes, and the partials in registers for the
 /// whole `K` walk: schemeless packed values, a scales operand, the rhs side, a promoted block.
 #[test]
-fn a_packed_decode_gemv_runs_in_this_spelling() {
+fn a_packed_decode_runs_in_this_spelling() {
     let (field, block_k, blocks_k) = (QuantValue::Q4S, 8, 4);
     let depth = block_k * blocks_k;
     let bits = field.size_bits();
@@ -1810,7 +1810,7 @@ fn a_packed_decode_gemv_runs_in_this_spelling() {
         Form::Static,
     );
 
-    packed_gemv::launch(
+    packed_one_row_product::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
@@ -1882,7 +1882,7 @@ fn a_packed_decode_gemv_runs_in_this_spelling() {
 
 /// The same over 8-bit fields, so it runs on a device whose vectors cap at four.
 #[test]
-fn an_eight_bit_decode_gemv_runs_in_this_spelling() {
+fn an_eight_bit_decode_runs_in_this_spelling() {
     let (field, block_k, blocks_k) = (QuantValue::Q8S, 8, 4);
     let depth = block_k * blocks_k;
     let bits = field.size_bits();
@@ -1955,7 +1955,7 @@ fn an_eight_bit_decode_gemv_runs_in_this_spelling() {
         Form::Static,
     );
 
-    packed_gemv::launch(
+    packed_one_row_product::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
@@ -2025,10 +2025,10 @@ fn an_eight_bit_decode_gemv_runs_in_this_spelling() {
     }
 }
 
-/// [`packed_gemv`] with the scales taken away: a packed rhs contracting into a promoted
+/// [`packed_one_row_product`] with the scales taken away: a packed rhs contracting into a promoted
 /// accumulator through the plain `mm`.
 #[cube(launch)]
-fn packed_gemv_unscaled<E: Numeric>(
+fn packed_one_row_product_unscaled<E: Numeric>(
     x: &TileArg<'_>,
     w: &TileArg<'_>,
     c: &TileArg<'_>,
@@ -2060,9 +2060,9 @@ fn packed_gemv_unscaled<E: Numeric>(
 
 /// A packed rhs drains from a promoted accumulator, exactly as its scaled twin does.
 ///
-/// [`a_packed_decode_gemv_runs_in_this_spelling`] runs this block with the scales folded in, and
+/// [`a_packed_decode_runs_in_this_spelling`] runs this block with the scales multiplied in, and
 /// the two reach the same `block::contract` through the same `RegisterData`, so if a packed rhs
-/// were what a promoted accumulator could not drain, the gemv could not be spelled either.
+/// were what a promoted accumulator could not drain, the one-row product could not be spelled either.
 ///
 /// What makes both work is the accumulator being declared at the *served* width (`V = factor`); a
 /// narrower one is refused by the width assert, and that is the only thing packing owes here.
@@ -2127,7 +2127,7 @@ fn a_packed_rhs_drains_from_a_promoted_accumulator() {
         Form::Static,
     );
 
-    packed_gemv_unscaled::launch(
+    packed_one_row_product_unscaled::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
@@ -2600,7 +2600,7 @@ fn check_float_scales(kind: FloatKind, block: usize, blocks: usize) {
     }
 }
 
-/// **Byte scales reach the promoted block on the rhs.** `e4m3` codes for the decode gemv's
+/// **Byte scales reach the promoted block on the rhs.** `e4m3` codes for the decode product's
 /// scales, one per `(block of K, block of N)`, read one at a time under the block's constant
 /// column ordinal. Halves, which `e4m3` holds exactly.
 #[test]
@@ -2681,7 +2681,7 @@ fn e4m3_scales_reach_the_promoted_block() {
         Form::Static,
     );
 
-    packed_gemv_byte_scales::launch(
+    packed_one_row_product_byte_scales::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
@@ -3190,6 +3190,169 @@ fn check_looked_up_copy(bits: usize, width: usize) {
             assert!(
                 (have - want).abs() < 1e-6,
                 "at ({m}, {n}): got {have}, want {want}"
+            );
+        }
+    }
+}
+
+/// How [`decoded_lines`] reads each line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum LineRead {
+    /// Masked where it overhangs the operand (`Decoded::read`).
+    Masked,
+    /// Untested, the kernel having tested it (`Decoded::read_unchecked`).
+    Untested,
+}
+
+/// Every line of `input`, `lines` a row, read into registers decoded, a unit a line, and stored
+/// in `output`.
+#[cube(launch)]
+fn decoded_lines<N: Size>(
+    input: &TileArg<'_>,
+    output: &mut Tensor<Vector<f32, N>>,
+    space: Partitioning,
+    #[comptime] lines: usize,
+    #[comptime] read: LineRead,
+) {
+    let input = input.tile(&space);
+    let decoded = input.decoded::<f32, N>();
+    let at = ABSOLUTE_POS;
+    let (row, line) = (at / lines, at % lines);
+    if at < output.len() {
+        output[at] = match comptime!(read) {
+            LineRead::Masked => decoded.read(row, line),
+            LineRead::Untested => decoded.read_unchecked(row, line),
+        };
+    }
+}
+
+/// **A unit reads looked-up fields into its registers decoded.** Each `bits`-wide field names its
+/// entry of the table, and the row's scale multiplies it, as a copy decodes them, with no stage to
+/// decode into: a line inside one word reads the fields it needs of it, a wider one every word it
+/// spans (16-bit indices, two a word, four a line, on a device whose vectors stop at four).
+#[test]
+fn a_decoded_read_of_looked_up_fields_matches_the_copy() {
+    for (bits, width) in [(8, 4), (4, 4), (2, 4), (4, 2), (16, 4), (8, 8), (4, 16)] {
+        check_decoded_lines(Field::Index { bits }, width, LineRead::Masked);
+    }
+}
+
+/// **A line the kernel tested itself reads the same untested.** The read skips the bounds test
+/// it would repeat, and decodes the same values.
+#[test]
+fn an_untested_decoded_read_matches_the_masked_one() {
+    for (bits, width) in [(8, 4), (2, 4), (16, 4)] {
+        check_decoded_lines(Field::Index { bits }, width, LineRead::Untested);
+    }
+}
+
+/// **A unit reads integer fields into its registers decoded, with no table.** Signed 4-bit values,
+/// sign extension included, each under its row's scale, read two a line, a quarter of a word's
+/// fields at each read.
+#[test]
+fn a_decoded_read_of_integer_fields_scales_them() {
+    check_decoded_lines(QuantValue::Q4S.into(), 2, LineRead::Masked);
+}
+
+/// Each `field` of a `[4, 64]` operand under its row's scale, read `width` values a line as
+/// `read` says, against the host's decode: an index's entry of a table, an integer sign-extended.
+fn check_decoded_lines(field: Field, width: usize, read: LineRead) {
+    let (rows, cols) = (4, 64);
+    let bits = field.size_bits();
+    let factor = 32 / bits;
+    let span = 1usize << bits;
+
+    let client = cubecl::test_device().client();
+    let max = client.properties().hardware.max_vector_size;
+    if width > max {
+        ValidationResult::Skipped(format!(
+            "device vectors cap at {max}, below the {width}-wide line"
+        ))
+        .enforce();
+        return;
+    }
+
+    // Every stored field, cycling through all the values `bits` hold.
+    let raw: Vec<u32> = (0..rows * cols)
+        .map(|i| ((i * 37 + 3) % span) as u32)
+        .collect();
+    let words: Vec<u32> = raw
+        .chunks(factor)
+        .map(|word| {
+            word.iter()
+                .enumerate()
+                .fold(0u32, |acc, (j, &v)| acc | (v << (j * bits)))
+        })
+        .collect();
+    // A packed buffer is stated in the values its words hold.
+    let input = TensorHandle::new_contiguous(
+        vec![rows, cols],
+        client.create(Bytes::from_elems(words)),
+        u32::elem_type_native(),
+    );
+    let table: Vec<f32> = (0..span).map(|i| (i as f32 - 127.5) / 3.0).collect();
+    let decode = |raw: u32| match field {
+        Field::Index { .. } => table[raw as usize],
+        _ => (((raw << (32 - bits)) as i32) >> (32 - bits)) as f32,
+    };
+    let scales: Vec<f32> = (0..rows).map(|i| (i as f32 + 1.0) / 4.0).collect();
+    let (scales_t, _) = TestInput::builder(client.clone(), shape![rows])
+        .dtype(f32::elem_type_native())
+        .custom(scales.clone())
+        .generate_with_f32_host_data();
+    let lines = rows * cols / width;
+    let output = TestInput::builder(client.clone(), shape![lines * width])
+        .dtype(f32::elem_type_native())
+        .zeros()
+        .generate_without_host_data();
+
+    let space = Space::new(&[(M, rows), (N, cols)]);
+    let mut input = TileArgLaunch::new(
+        input.binding().into_tensor_arg(),
+        u32::elem_type_native(),
+        1,
+        TileSpec::direct(&[M, N]).packed(field),
+    );
+    if let Field::Index { .. } = field {
+        let (table_t, _) = TestInput::builder(client.clone(), shape![span])
+            .dtype(f32::elem_type_native())
+            .custom(table.clone())
+            .generate_with_f32_host_data();
+        input = input
+            .codebook(TileArgLaunch::new(
+                table_t.binding().into_tensor_arg(),
+                f32::elem_type_native(),
+                1,
+                TileSpec::direct(&[TBL]),
+            ))
+            .expect("a plain table of an entry per index");
+    }
+    let input = input.scales(TileArgLaunch::new(
+        scales_t.binding().into_tensor_arg(),
+        f32::elem_type_native(),
+        1,
+        TileSpec::direct(&[M]),
+    ));
+    decoded_lines::launch(
+        &client,
+        CubeCount::new_single(),
+        CubeDim::new_1d(lines as u32),
+        width,
+        input,
+        output.clone().binding().into_tensor_arg(),
+        uncut(&client, &space, &space).partitioning_arg(),
+        cols / width,
+        read,
+    );
+
+    let got = HostData::from_tensor_handle(&client, output, HostDataType::F32);
+    for m in 0..rows {
+        for n in 0..cols {
+            let want = decode(raw[m * cols + n]) * scales[m];
+            let have = got.get_f32(&[m * cols + n]);
+            assert!(
+                (have - want).abs() < 1e-6,
+                "{field:?} read {width} a line, at ({m}, {n}): got {have}, want {want}"
             );
         }
     }

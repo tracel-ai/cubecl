@@ -60,6 +60,12 @@ impl DeviceService for MetalServer {
                 let size = (*metal_device).maxThreadsPerThreadgroup();
                 (size.width as u32, size.height as u32, size.depth as u32)
             },
+            // Metal reports no core count; the GPU's driver states it in the I/O Registry.
+            #[cfg(target_os = "macos")]
+            num_streaming_multiprocessors: cubecl_monitoring::gpu_utilization::gpu_core_count(
+                RegistryEntryId::new(metal_device.registryID()),
+            ),
+            #[cfg(not(target_os = "macos"))]
             num_streaming_multiprocessors: None,
             num_tensor_cores: None,
             min_tensor_cores_dim: None,

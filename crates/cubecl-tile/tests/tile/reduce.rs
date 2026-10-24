@@ -58,7 +58,7 @@ enum Read {
     Smem { depth: usize },
 }
 
-/// Seeds `output` with the identity the fold starts from, then reduces `input` into it region by
+/// Seeds `output` with the identity the reduction starts from, then reduces `input` into it region by
 /// region. One body serves every monoid, which is the point: the kernels below differed only in
 /// this seed and the `Monoid` passed to `reduce_axis`.
 #[cube]
@@ -115,7 +115,7 @@ fn reduce_kernel<E: Numeric>(
 
 /// Reduce an axis-index recipe so a trailing partial tile must be masked without a backing window.
 /// `read` decides whether the recipe is evaluated at the leaf or first materialized into shared
-/// memory; either way the partial-tile mask must survive rather than folding the padded overhang.
+/// memory; either way the partial-tile mask must survive rather than reducing the padded overhang.
 #[cube(launch)]
 fn procedural_reduce_kernel<E: Float>(
     output: &TileArg<'_>,
@@ -274,7 +274,7 @@ fn assert_same(got: &HostData, want: &HostData, dims: &[usize]) {
 
 /// Both halves of the split reduce ride the leaf: one `mma` call unravels a `k1 × k2` nest.
 #[test]
-fn split_k_whole_reduce_at_leaf() {
+fn split_contraction_whole_reduce_at_leaf() {
     let (m, n, k1, k2) = (8, 8, 3, 4);
     let (k, tm, tn) = (k1 * k2, 4, 4);
 
@@ -304,7 +304,7 @@ fn split_k_whole_reduce_at_leaf() {
 /// The major half is walked instead: `k1` sequential `mma` calls, each reducing `k2`. The leaf
 /// still contracts two axes (`K1` is present at extent 1), so it still takes the N-D nest.
 #[test]
-fn split_k_major_half_walked() {
+fn split_contraction_major_half_walked() {
     let (m, n, k1, k2) = (8, 8, 3, 4);
     let (k, tm, tn) = (k1 * k2, 4, 4);
 
@@ -334,7 +334,7 @@ fn split_k_major_half_walked() {
 /// A batch axis alongside the two contracted ones: the leaf's batch unravel and its reduce
 /// unravel are independent nests, so they must not be confused for one another.
 #[test]
-fn split_k_with_a_batch_axis() {
+fn split_contraction_with_a_batch_axis() {
     let (b, m, n, k1, k2) = (3, 4, 8, 2, 4);
     let (k, tm, tn) = (k1 * k2, 4, 4);
 
@@ -404,7 +404,7 @@ fn run_reduce_staged(
     )
 }
 
-/// Exercise a 2-D `M × K -> M` reduction and derive the reference fold from `op`, so schedule
+/// Exercise a 2-D `M × K -> M` reduction and derive the reference reduction from `op`, so schedule
 /// coverage does not duplicate the three identities and comparison loops.
 fn check_2d_reduce(depth: usize, m: usize, k: usize, tm: usize, tk: usize, monoid: Monoid) {
     let launcher = implied(
@@ -1126,7 +1126,7 @@ fn test_reduce_axis_min_outer_axis_retained_innermost_v4() {
 }
 
 /// Reduction over the innermost axis with `vector_size` = 4: the line runs along the axis being
-/// reduced, so a step folds the whole line into one cell and the units collapse once at the end.
+/// reduced, so a step reduces the whole line into one cell and the units collapse once at the end.
 #[test]
 fn test_reduce_axis_sum_inner_axis_reduced_v4() {
     let (m, k, tm, tk) = (8, 16, 4, 16);
@@ -1205,7 +1205,7 @@ fn test_reduce_axis_multi_axis_3d_middle_axis_retained_innermost_v4() {
 }
 
 /// Reduction over an axis spread across plane units (`ComputeScope::Unit` / `UnitShare::Plane`).
-/// Tests that `UnitShare::Plane` seeds with 0 and folds across units combining with accumulator.
+/// Tests that `UnitShare::Plane` seeds with 0 and reduces across units combining with accumulator.
 #[test]
 fn test_reduce_axis_sum_spatial_unit_units() {
     let client = cubecl::test_device().client();
@@ -1316,8 +1316,8 @@ fn test_reduce_axis_min_spatial_unit_units() {
 }
 
 /// A `Max` reduce whose accumulator lives in registers while the reduced axis is split across the
-/// plane's units: each unit folds its own `K` slice, so each holds a partial maximum, and the drain
-/// combines them under the same fold the accumulator was built with.
+/// plane's units: each unit reduces its own `K` slice, so each holds a partial maximum, and the drain
+/// combines them under the same monoid the accumulator was built with.
 ///
 /// Two things had to be true for this to work, and neither was. The drain combined units with a
 /// hardcoded sum, and a promoted block read its `UnitShare` from the tile, which is only stamped on
@@ -1326,7 +1326,7 @@ fn test_reduce_axis_min_spatial_unit_units() {
 /// The data is all negative, so any identity leaking in (a zero from a sum-shaped combine, or
 /// from an out-of-bounds read) wins the maximum and the assert catches it.
 #[cube(launch)]
-fn resident_fold_kernel<E: Numeric>(
+fn resident_reduce_kernel<E: Numeric>(
     input: &TileArg<'_>,
     output: &TileArg<'_>,
     space: Partitioning,
@@ -1346,7 +1346,7 @@ fn resident_fold_kernel<E: Numeric>(
 }
 
 #[test]
-fn resident_max_over_unit_split_k() {
+fn resident_max_over_unit_split_contraction() {
     let client = cubecl::test_device().client();
     let plane_size = client.properties().hardware.plane_size_max as usize;
     let (m, n, kr) = (4usize, 4usize, 2usize);
@@ -1367,7 +1367,7 @@ fn resident_max_over_unit_split_k() {
         .dtype(f32_ty)
         .custom(values.clone())
         .generate_with_f32_host_data();
-    // Poisoned with values above every input, so a fold that let the sink take part would win the
+    // Poisoned with values above every input, so a reduction that let the sink take part would win the
     // maximum and be caught. `reduce_axis` owns the init, and the unit-split contraction is
     // exactly the case where it must seed rather than overwrite.
     let out_handle = TestInput::builder(client.clone(), shape![m, n])
@@ -1375,7 +1375,7 @@ fn resident_max_over_unit_split_k() {
         .uniform(7, 1.0, 2.0)
         .generate_without_host_data();
 
-    resident_fold_kernel::launch(
+    resident_reduce_kernel::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
@@ -1408,7 +1408,7 @@ fn resident_max_over_unit_split_k() {
     }
 }
 
-/// The twin of [`resident_max_over_unit_split_k`] at a **segmented** fold: the plane splits into
+/// The twin of [`resident_max_over_unit_split_contraction`] at a **segmented** reduction: the plane splits into
 /// aligned groups, each holding one `(m, n)` cell's partials, rather than the whole plane holding
 /// one. `UnitShare::Group` where that test is `UnitShare::Plane`.
 ///
@@ -1452,7 +1452,7 @@ fn resident_max_over_unit_group_k() {
         .uniform(7, 1.0, 2.0)
         .generate_without_host_data();
 
-    resident_fold_kernel::launch(
+    resident_reduce_kernel::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),

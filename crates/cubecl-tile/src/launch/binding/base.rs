@@ -11,8 +11,8 @@ use cubecl::server::BufferBinding;
 use super::{boundaries::Boundaries, derivation::Derivation, labels::Labels};
 use crate::BoundaryPolicy;
 use crate::{
-    Axis, Delivery, Extent, Field, Geometry, Launcher, LineMisfit, Packing, Paging, Projection,
-    Refusal, Space, Storage, StoragePartitioning, TileArgLaunch, TileSpec, VectorTile,
+    Axis, Delivery, Extent, Field, Geometry, Launcher, LineMisfit, Packing, Projection, Refusal,
+    Space, Storage, StoragePartitioning, TileArgLaunch, TileSpec, VectorTile,
 };
 
 /// Typestate marker: the operand's axes are not yet stated.
@@ -39,17 +39,6 @@ pub(crate) struct ArgData<'a> {
     pub(crate) delivery: Delivery,
     /// Whether the labelled dims bind in stride order ([`in_stride_order`](Arg::in_stride_order)).
     pub(crate) in_stride_order: bool,
-    /// The pool of pages this operand is read through, if any ([`paged`](Arg::paged)).
-    pub(crate) paged: Option<PagedPool>,
-}
-
-/// What [`Arg::paged`] states: the axes a table resolves, and whether it covers the launch
-/// ([`Arg::paged_covering`]).
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct PagedPool {
-    sequence: Axis,
-    position: Axis,
-    covering: bool,
 }
 
 /// One operand of a launch, being described; `S` says whether its axes are stated yet.
@@ -86,7 +75,6 @@ impl<'a> Arg<'a, Unlabelled> {
                 packing: Packing::Plain,
                 delivery: Delivery::SyncPerUnit,
                 in_stride_order: false,
-                paged: None,
             },
             _state: PhantomData,
         }
@@ -150,39 +138,6 @@ impl<'a> Arg<'a, Labelled> {
     /// stated); the kernel is the same either way.
     pub fn delivery(mut self, delivery: Delivery) -> Self {
         self.data.delivery = delivery;
-        self
-    }
-
-    /// Read this buffer, a pool of pages along the `sequence` dim each holding its positions along
-    /// the `position` dim, as the sequences a page table names: sequence `b`'s position `s` lies in
-    /// page `table[b, s / page_size]`, `page_size` the pool's extent along `position`. The pool is
-    /// bound as it lies; the kernel reads it through
-    /// [`TileArg::tile_paged`](crate::TileArg::tile_paged) with the table, whose shape is the
-    /// operand's extent along the two axes, so both are checked against it on every read.
-    pub fn paged(self, sequence: Axis, position: Axis) -> Self {
-        self.paged_as(PagedPool {
-            sequence,
-            position,
-            covering: false,
-        })
-    }
-
-    /// [`paged`](Self::paged) through a table the caller states covers the launch's extents
-    /// along both axes, so a read the launch keeps in bounds is in bounds through the table: the
-    /// two axes are checked only where the launch overhangs, as a buffer read where it lies is.
-    /// A table that stops short reads its clamped entries there: other positions of the pool,
-    /// never past it. Where the launch overhangs a table axis its lines run along, wider than
-    /// one, the binding is refused ([`Refusal::UncheckableVectorEdge`]), not checked line by line.
-    pub fn paged_covering(self, sequence: Axis, position: Axis) -> Self {
-        self.paged_as(PagedPool {
-            sequence,
-            position,
-            covering: true,
-        })
-    }
-
-    fn paged_as(mut self, pool: PagedPool) -> Self {
-        self.data.paged = Some(pool);
         self
     }
 
@@ -252,21 +207,6 @@ impl<'a> Arg<'a, Labelled> {
             addressed,
         } = labels;
         projection.validate(width)?;
-        // After the labels settle, so the dims are the ones the kernel addresses, stride order
-        // included.
-        let paging = data
-            .paged
-            .map(|pool| {
-                pool.paging(
-                    &geometry,
-                    &projection,
-                    &stored_tiles,
-                    packing,
-                    data.delivery,
-                    width,
-                )
-            })
-            .transpose()?;
         // A stated width is checked here: `stride / width` would truncate silently.
         // A line runs along the innermost dim's axis; a buffer with no labelled dim has none.
         let labels = projection.dense_labels();
@@ -278,13 +218,13 @@ impl<'a> Arg<'a, Labelled> {
             None => Err(LineMisfit::NoDims),
         };
         served.map_err(|why| Refusal::WidthNotServed { width, why })?;
-        let overhangs = launch.overhangs();
-        let table_bounded: Vec<Axis> = match data.paged.is_some_and(|pool| pool.covering) {
-            true => Vec::new(),
-            false => paging
-                .iter()
-                .flat_map(|p| [p.sequence, p.position])
-                .collect(),
+        let may_overhang;
+        let overhangs = match data.boundary {
+            Some(BoundaryPolicy::AnyExtent(_)) => {
+                may_overhang = launch.may_overhang();
+                &may_overhang
+            }
+            _ => launch.overhangs(),
         };
         let boundaries = Boundaries::new(
             data.boundary,
@@ -292,7 +232,6 @@ impl<'a> Arg<'a, Labelled> {
             &addressed,
             launch.space(),
             overhangs,
-            &table_bounded,
             width,
         )?;
         let spec = TileSpec {
@@ -303,7 +242,7 @@ impl<'a> Arg<'a, Labelled> {
             storage,
             stored_tiles,
             delivery: Delivery::SyncPerUnit,
-            paging,
+            paging: None,
         }
         .delivery(data.delivery);
         Ok(Derived { spec, geometry })
@@ -476,43 +415,4 @@ fn settled_tensor(mut binding: TensorBinding, geometry: &Geometry) -> TensorArg 
     binding.strides = geometry.strides().into();
     binding.tiling = geometry.tiling();
     binding.into_tensor_arg()
-}
-
-impl PagedPool {
-    /// The [`Paging`] this pool is read through, its page the pool's extent along `position`, over
-    /// the settled `geometry` and `projection`.
-    ///
-    /// # Errors
-    ///
-    /// What [`Paging::validate`] refuses, here so a candidate that cannot serve is skipped rather
-    /// than panicking as the kernel expands, and a pool of no pages.
-    fn paging(
-        self,
-        geometry: &Geometry,
-        projection: &Projection,
-        stored_tiles: &[(Axis, usize)],
-        packing: Packing,
-        delivery: Delivery,
-        width: usize,
-    ) -> Result<Paging, Refusal> {
-        let unsized_paging = Paging {
-            sequence: self.sequence,
-            position: self.position,
-            page_size: 0,
-        };
-        // Where the axes name no dims, `validate` refuses before it reads the page.
-        let page_size = unsized_paging
-            .dims(projection)
-            .map_or(0, |(_, position)| geometry.shape()[position]);
-        let paging = Paging {
-            page_size,
-            ..unsized_paging
-        };
-        paging.validate(projection, stored_tiles, packing, delivery, width)?;
-        let (sequence, _) = paging.dims(projection)?;
-        match geometry.shape()[sequence] {
-            0 => Err(Refusal::PagingOfAnEmptyPool),
-            _ => Ok(paging),
-        }
-    }
 }

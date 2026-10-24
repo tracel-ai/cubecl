@@ -22,10 +22,14 @@ impl CodebookRead for TileExpand {
 }
 
 /// `table[index]`, the table read as the one-axis tile it is.
+///
+/// Read untested: an index is a field as wide as the one the table was bound for, and a table
+/// holds an entry for every value such a field takes ([`TileArgLaunch::codebook`] refuses a
+/// shorter one), so no index reads past it.
 #[cube]
 fn table_entry(table: &Tile, index: u32) -> f32 {
     let define!(Served) = table.read_element();
-    let entries = table.nd_packed::<Served, Const<1>>(comptime!(Guard::Checked));
+    let entries = table.nd_packed::<Served, Const<1>>(comptime!(Guard::Proved));
     let mut at = CoordsDyn::new();
     at.push(index);
     f32::cast_from(entries.read(at).extract(0usize))
@@ -68,6 +72,11 @@ impl Codebook {
         unexpanded!()
     }
 
+    /// Whether these values index a table at all.
+    pub(crate) fn present(&self) -> comptime_type!(bool) {
+        unexpanded!()
+    }
+
     pub(crate) fn __expand_none(_scope: &Scope) -> CodebookExpand {
         CodebookExpand::default()
     }
@@ -86,6 +95,10 @@ impl CodebookExpand {
     /// Whether these values index a table at all.
     pub(crate) fn present(&self) -> bool {
         self.table.is_some()
+    }
+
+    pub(crate) fn __expand_present_method(&self, _scope: &Scope) -> bool {
+        self.present()
     }
 
     pub(crate) fn __expand_entries_method<T: Numeric, V: Size>(
