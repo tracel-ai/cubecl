@@ -16,6 +16,7 @@ use cubecl_core::{
         },
         interfaces::TypedExt,
         prelude::*,
+        types::scalar::Float64Type,
     },
     prelude::*,
 };
@@ -131,6 +132,7 @@ shared_op_with_out!(CRealOp, |op, ctx| {
     };
     format!("{function}({})", input.name(ctx))
 });
+unrolling!(CRealOp);
 shared_op_with_out!(CImagOp, |op, ctx| {
     let input = op.input(ctx);
     let function = if input.size(ctx) == 8 {
@@ -140,6 +142,20 @@ shared_op_with_out!(CImagOp, |op, ctx| {
     };
     format!("{function}({})", input.name(ctx))
 });
+unrolling!(CImagOp);
+shared_op_with_out!(ComplexConstructOp, |op, ctx| {
+    let function = if op.re(ctx).scalar_ty(ctx).deref(ctx).is::<Float64Type>() {
+        "make_cuDoubleComplex"
+    } else {
+        "make_cuFloatComplex"
+    };
+    format!(
+        "{function}({}, {})",
+        op.re(ctx).name(ctx),
+        op.im(ctx).name(ctx)
+    )
+});
+unrolling!(ComplexConstructOp);
 
 shared_op_with_out!(FAbsOp, |op, ctx| {
     let input = op.input(ctx);

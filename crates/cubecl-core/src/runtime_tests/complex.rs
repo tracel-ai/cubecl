@@ -184,6 +184,97 @@ pub fn kernel_complex_imag_cf64(output: &mut [f64], input: &[num_complex::Comple
     }
 }
 
+#[cube(launch)]
+pub fn kernel_complex_plane_sum<C: ComplexCore + PlaneReduce>(output: &mut Tensor<C>) {
+    let value = output[UNIT_POS as usize];
+    let sum = plane_sum(value);
+    if UNIT_POS == 0 {
+        output[0] = sum;
+    }
+}
+
+#[cube(launch)]
+pub fn kernel_complex_plane_prod<C: ComplexCore + PlaneReduce>(output: &mut Tensor<C>) {
+    let value = output[UNIT_POS as usize];
+    let product = plane_prod(value);
+    output[UNIT_POS as usize] = product;
+}
+
+#[cube(launch)]
+pub fn kernel_complex_plane_sum_vector<C: ComplexCore + PlaneReduce, N: Size>(
+    output: &mut Tensor<Vector<C, N>>,
+) {
+    let value = output[UNIT_POS as usize];
+    let sum = plane_sum(value);
+    if UNIT_POS == 0 {
+        output[0] = sum;
+    }
+}
+
+#[cube(launch)]
+pub fn kernel_complex_plane_broadcast_vector<C: ComplexCore, N: Size>(
+    output: &mut Tensor<Vector<C, N>>,
+) {
+    let value = output[UNIT_POS as usize];
+    output[UNIT_POS as usize] = plane_broadcast(value, 2u32);
+}
+
+#[cube(launch)]
+pub fn kernel_complex_plane_shuffle_vector<C: ComplexCore, N: Size>(
+    output: &mut Tensor<Vector<C, N>>,
+) {
+    let value = output[UNIT_POS as usize];
+    output[UNIT_POS as usize] = plane_shuffle(value, (UNIT_POS_PLANE + 1) % PLANE_DIM);
+}
+
+#[cube(launch)]
+pub fn kernel_complex_plane_shuffle_xor_vector<C: ComplexCore, N: Size>(
+    output: &mut Tensor<Vector<C, N>>,
+) {
+    let value = output[UNIT_POS as usize];
+    output[UNIT_POS as usize] = plane_shuffle_xor(value, 1);
+}
+
+#[cube(launch)]
+pub fn kernel_complex_plane_shuffle_up_vector<C: ComplexCore, N: Size>(
+    output: &mut Tensor<Vector<C, N>>,
+) {
+    let value = output[UNIT_POS as usize];
+    let moved = plane_shuffle_up(value, 1);
+    if UNIT_POS_PLANE >= 1 {
+        output[UNIT_POS as usize] = moved;
+    }
+}
+
+#[cube(launch)]
+pub fn kernel_complex_plane_shuffle_down_vector<C: ComplexCore, N: Size>(
+    output: &mut Tensor<Vector<C, N>>,
+) {
+    let value = output[UNIT_POS as usize];
+    let moved = plane_shuffle_down(value, 1);
+    if UNIT_POS_PLANE + 1 < PLANE_DIM {
+        output[UNIT_POS as usize] = moved;
+    }
+}
+
+#[cube(launch_unchecked)]
+pub fn kernel_complex_construct_cf32(output: &mut [f32], re: &[f32], im: &[f32]) {
+    if ABSOLUTE_POS < re.len() {
+        let value = num_complex::Complex::<f32>::construct(re[ABSOLUTE_POS], im[ABSOLUTE_POS]);
+        output[ABSOLUTE_POS * 2] = value.real_val();
+        output[ABSOLUTE_POS * 2 + 1] = value.imag_val();
+    }
+}
+
+#[cube(launch_unchecked)]
+pub fn kernel_complex_construct_cf64(output: &mut [f64], re: &[f64], im: &[f64]) {
+    if ABSOLUTE_POS < re.len() {
+        let value = num_complex::Complex::<f64>::construct(re[ABSOLUTE_POS], im[ABSOLUTE_POS]);
+        output[ABSOLUTE_POS * 2] = value.real_val();
+        output[ABSOLUTE_POS * 2 + 1] = value.imag_val();
+    }
+}
+
 #[cube(launch_unchecked)]
 pub fn kernel_complex_eq<C: ComplexCompare>(output: &mut [u8], lhs: &[C], rhs: &[C]) {
     if ABSOLUTE_POS < output.len() {
@@ -603,6 +694,243 @@ test_complex_unary_scalar_eq_op!(
     ],
     expect: |value| value.im
 );
+pub fn test_complex_plane_sum_cf32<R: Runtime>(client: Client) {
+    type C = num_complex::Complex<f32>;
+    let input: vec::Vec<C> = (0..32)
+        .map(|i| C::new(i as f32 + 1.0, -(i as f32)))
+        .collect();
+    let handle = client.create_from_slice(C::as_bytes(&input));
+    unsafe {
+        kernel_complex_plane_sum::launch::<C>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(32),
+            TensorArg::from_raw_parts(handle.clone(), [1].into(), [32].into()),
+        )
+    };
+    let expected = [C::new(528.0, -496.0)];
+    assert_complex_approx_eq(&client, handle, &expected, 0.0);
+}
+
+pub fn test_complex_plane_sum_cf64<R: Runtime>(client: Client) {
+    type C = num_complex::Complex<f64>;
+    let input: vec::Vec<C> = (0..32)
+        .map(|i| C::new(i as f64 + 1.0, -(i as f64)))
+        .collect();
+    let handle = client.create_from_slice(C::as_bytes(&input));
+    unsafe {
+        kernel_complex_plane_sum::launch::<C>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(32),
+            TensorArg::from_raw_parts(handle.clone(), [1].into(), [32].into()),
+        )
+    };
+    let expected = [C::new(528.0, -496.0)];
+    assert_complex_approx_eq(&client, handle, &expected, 0.0);
+}
+
+pub fn test_complex_plane_product_cf32<R: Runtime>(client: Client) {
+    type C = num_complex::Complex<f32>;
+    let mut input = vec![C::new(1.0, 0.0); 32];
+    input[0] = C::new(1.0, 1.0);
+    input[16] = C::new(1.0, 2.0);
+    let handle = client.create_from_slice(C::as_bytes(&input));
+    unsafe {
+        kernel_complex_plane_prod::launch::<C>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(32),
+            TensorArg::from_raw_parts(handle.clone(), [1].into(), [32].into()),
+        )
+    };
+    let expected = [C::new(-1.0, 3.0); 32];
+    assert_complex_approx_eq(&client, handle, &expected, 0.0);
+}
+
+fn complex_plane_move_input() -> vec::Vec<num_complex::Complex<f32>> {
+    type C = num_complex::Complex<f32>;
+    (0..32)
+        .flat_map(|i| {
+            let i = i as f32;
+            [C::new(i + 1.0, -i), C::new(-i, i + 2.0)]
+        })
+        .collect()
+}
+
+fn complex_plane_move_expected(
+    input: &[num_complex::Complex<f32>],
+    source: impl Fn(usize) -> usize,
+) -> vec::Vec<num_complex::Complex<f32>> {
+    (0..32)
+        .flat_map(|lane| {
+            let source = source(lane);
+            [input[source * 2], input[source * 2 + 1]]
+        })
+        .collect()
+}
+
+pub fn test_complex_plane_broadcast_vector_cf32<R: Runtime>(client: Client) {
+    type C = num_complex::Complex<f32>;
+    let input = complex_plane_move_input();
+    let expected = complex_plane_move_expected(&input, |_| 2);
+    let handle = client.create_from_slice(C::as_bytes(&input));
+    unsafe {
+        kernel_complex_plane_broadcast_vector::launch::<C>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(32),
+            2,
+            TensorArg::from_raw_parts(handle.clone(), [1].into(), [64].into()),
+        )
+    };
+    assert_complex_approx_eq(&client, handle, &expected, 0.0);
+}
+
+pub fn test_complex_plane_shuffle_vector_cf32<R: Runtime>(client: Client) {
+    type C = num_complex::Complex<f32>;
+    let input = complex_plane_move_input();
+    let expected = complex_plane_move_expected(&input, |lane| (lane + 1) % 32);
+    let handle = client.create_from_slice(C::as_bytes(&input));
+    unsafe {
+        kernel_complex_plane_shuffle_vector::launch::<C>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(32),
+            2,
+            TensorArg::from_raw_parts(handle.clone(), [1].into(), [64].into()),
+        )
+    };
+    assert_complex_approx_eq(&client, handle, &expected, 0.0);
+}
+
+pub fn test_complex_plane_shuffle_xor_vector_cf32<R: Runtime>(client: Client) {
+    type C = num_complex::Complex<f32>;
+    let input = complex_plane_move_input();
+    let expected = complex_plane_move_expected(&input, |lane| lane ^ 1);
+    let handle = client.create_from_slice(C::as_bytes(&input));
+    unsafe {
+        kernel_complex_plane_shuffle_xor_vector::launch::<C>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(32),
+            2,
+            TensorArg::from_raw_parts(handle.clone(), [1].into(), [64].into()),
+        )
+    };
+    assert_complex_approx_eq(&client, handle, &expected, 0.0);
+}
+
+pub fn test_complex_plane_shuffle_up_vector_cf32<R: Runtime>(client: Client) {
+    type C = num_complex::Complex<f32>;
+    let input = complex_plane_move_input();
+    let expected = complex_plane_move_expected(&input, |lane| lane.saturating_sub(1));
+    let handle = client.create_from_slice(C::as_bytes(&input));
+    unsafe {
+        kernel_complex_plane_shuffle_up_vector::launch::<C>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(32),
+            2,
+            TensorArg::from_raw_parts(handle.clone(), [1].into(), [64].into()),
+        )
+    };
+    assert_complex_approx_eq(&client, handle, &expected, 0.0);
+}
+
+pub fn test_complex_plane_shuffle_down_vector_cf32<R: Runtime>(client: Client) {
+    type C = num_complex::Complex<f32>;
+    let input = complex_plane_move_input();
+    let expected = complex_plane_move_expected(&input, |lane| (lane + 1).min(31));
+    let handle = client.create_from_slice(C::as_bytes(&input));
+    unsafe {
+        kernel_complex_plane_shuffle_down_vector::launch::<C>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(32),
+            2,
+            TensorArg::from_raw_parts(handle.clone(), [1].into(), [64].into()),
+        )
+    };
+    assert_complex_approx_eq(&client, handle, &expected, 0.0);
+}
+
+pub fn test_complex_plane_sum_vector_cf32<R: Runtime>(client: Client) {
+    type C = num_complex::Complex<f32>;
+    let input: vec::Vec<C> = (0..32)
+        .flat_map(|i| {
+            [
+                C::new(i as f32 + 1.0, -(i as f32)),
+                C::new(-(i as f32), i as f32 + 2.0),
+            ]
+        })
+        .collect();
+    let handle = client.create_from_slice(C::as_bytes(&input));
+    unsafe {
+        kernel_complex_plane_sum_vector::launch::<C>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(32),
+            2,
+            TensorArg::from_raw_parts(handle.clone(), [1].into(), [64].into()),
+        )
+    };
+    let expected = [C::new(528.0, -496.0), C::new(-496.0, 560.0)];
+    assert_complex_approx_eq(&client, handle, &expected, 0.0);
+}
+
+pub fn test_complex_construct_cf32<R: Runtime>(client: Client) {
+    let re = vec![1.5f32, -3.25, 0.0];
+    let im = vec![2.0f32, -4.5, 7.25];
+    let output = client.empty(re.len() * 2 * core::mem::size_of::<f32>());
+    let handle_re = client.create_from_slice(f32::as_bytes(&re));
+    let handle_im = client.create_from_slice(f32::as_bytes(&im));
+
+    unsafe {
+        kernel_complex_construct_cf32::launch_unchecked(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(re.len() as u32),
+            BufferArg::from_raw_parts(output.clone(), re.len() * 2),
+            BufferArg::from_raw_parts(handle_re, re.len()),
+            BufferArg::from_raw_parts(handle_im, im.len()),
+        )
+    };
+
+    let expected = re
+        .into_iter()
+        .zip(im)
+        .flat_map(|(re, im)| [re, im])
+        .collect::<vec::Vec<_>>();
+    assert_exact_eq(&client, output, &expected);
+}
+
+pub fn test_complex_construct_cf64<R: Runtime>(client: Client) {
+    let re = vec![1.5f64, -3.25, 0.0];
+    let im = vec![2.0f64, -4.5, 7.25];
+    let output = client.empty(re.len() * 2 * core::mem::size_of::<f64>());
+    let handle_re = client.create_from_slice(f64::as_bytes(&re));
+    let handle_im = client.create_from_slice(f64::as_bytes(&im));
+
+    unsafe {
+        kernel_complex_construct_cf64::launch_unchecked(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(re.len() as u32),
+            BufferArg::from_raw_parts(output.clone(), re.len() * 2),
+            BufferArg::from_raw_parts(handle_re, re.len()),
+            BufferArg::from_raw_parts(handle_im, im.len()),
+        )
+    };
+
+    let expected = re
+        .into_iter()
+        .zip(im)
+        .flat_map(|(re, im)| [re, im])
+        .collect::<vec::Vec<_>>();
+    assert_exact_eq(&client, output, &expected);
+}
+
 test_complex_binary_bool_eq_op!(
     test_complex_eq_cf32,
     kernel_complex_eq,
@@ -1081,6 +1409,18 @@ pub fn kernel_complex_validation_core<C: ComplexCore>(output: &mut [C], lhs: &[C
 }
 
 #[cube(launch)]
+pub fn kernel_complex_validation_plane_sum<C: ComplexCore + PlaneReduce>(
+    output: &mut [C],
+    input: &[C],
+) {
+    let value = input[UNIT_POS as usize];
+    let sum = plane_sum(value);
+    if UNIT_POS == 0 {
+        output[0] = sum;
+    }
+}
+
+#[cube(launch)]
 pub fn kernel_complex_validation_compare<C: ComplexCompare>(
     output: &mut [u8],
     lhs: &[C],
@@ -1115,6 +1455,26 @@ pub fn test_complex_validation_core<R: Runtime>(client: Client) {
         unsafe { BufferArg::from_raw_parts(output.clone(), 1) },
         unsafe { BufferArg::from_raw_parts(lhs, 1) },
         unsafe { BufferArg::from_raw_parts(rhs, 1) },
+    );
+
+    assert_complex_validation_error(client.read_one(output).map(|_| ()), "Complex operation");
+}
+
+pub fn test_complex_validation_plane_sum<R: Runtime>(client: Client) {
+    type C = num_complex::Complex<f32>;
+    if C::supported_complex_uses(&client).contains(cubecl::ir::features::ComplexUsage::Core) {
+        return;
+    }
+
+    let output = client.empty(core::mem::size_of::<C>());
+    let input = client.create_from_slice(C::as_bytes(&[C::new(1.0, 2.0)]));
+
+    kernel_complex_validation_plane_sum::launch::<C>(
+        &client,
+        CubeCount::new_single(),
+        CubeDim::new_1d(1),
+        unsafe { BufferArg::from_raw_parts(output.clone(), 1) },
+        unsafe { BufferArg::from_raw_parts(input, 1) },
     );
 
     assert_complex_validation_error(client.read_one(output).map(|_| ()), "Complex operation");
@@ -1400,6 +1760,94 @@ macro_rules! testgen_complex_core {
             }
 
             #[$crate::runtime_tests::test_log::test]
+            fn test_complex_plane_sum_cf32() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_plane_sum_cf32::<TestRuntime>(
+                    client,
+                );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_plane_sum_cf64() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_plane_sum_cf64::<TestRuntime>(
+                    client,
+                );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_plane_product_cf32() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_plane_product_cf32::<TestRuntime>(
+                    client,
+                );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_plane_sum_vector_cf32() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_plane_sum_vector_cf32::<
+                    TestRuntime,
+                >(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_plane_broadcast_vector_cf32() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_plane_broadcast_vector_cf32::<
+                    TestRuntime,
+                >(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_plane_shuffle_vector_cf32() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_plane_shuffle_vector_cf32::<
+                    TestRuntime,
+                >(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_plane_shuffle_xor_vector_cf32() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_plane_shuffle_xor_vector_cf32::<
+                    TestRuntime,
+                >(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_plane_shuffle_up_vector_cf32() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_plane_shuffle_up_vector_cf32::<
+                    TestRuntime,
+                >(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_plane_shuffle_down_vector_cf32() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_plane_shuffle_down_vector_cf32::<
+                    TestRuntime,
+                >(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_construct_cf32() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_construct_cf32::<TestRuntime>(
+                    client,
+                );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_construct_cf64() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_construct_cf64::<TestRuntime>(
+                    client,
+                );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
             fn test_complex_constant_cf32() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::complex::test_complex_constant_cf32::<TestRuntime>(
@@ -1617,6 +2065,14 @@ macro_rules! testgen_complex_validation {
                 cubecl_core::runtime_tests::complex::test_complex_validation_core::<TestRuntime>(
                     client,
                 );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_validation_plane_sum() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_validation_plane_sum::<
+                    TestRuntime,
+                >(client);
             }
 
             #[$crate::runtime_tests::test_log::test]
