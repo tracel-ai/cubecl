@@ -16,7 +16,6 @@
 
 use cubecl::{
     cmma::{MatrixIdent, MatrixLayout, MmaDefinition},
-    e2m1x2,
     ir::types::Fp8Format,
     prelude::*,
     quant::scheme::QuantValue,
@@ -344,6 +343,20 @@ fn load_e2m1_run<T: Numeric, N: Size>(
     let size!(WP) = comptime!(values / E2M1_PER_WORD);
     let words = src.nd_words::<WP>(comptime!(Guard::Checked));
     let factor = src.innermost_factor();
+    // The codes as the device reads them ([`Field::read_on`]): cast as `e2m1x2` only where the
+    // device converts them, decoded from the word's bits everywhere else. Each value is whole,
+    // since its block's scale is all this run multiplies it by.
+    let packing = src.packing();
+    let field = comptime!(match packing {
+        Packing::Packed {
+            field: Field::Placed { value, .. },
+        } => Field::Placed {
+            value,
+            lifted: true,
+        },
+        Packing::Packed { field } => field,
+        Packing::Plain => panic!("MmaData::load: an `e2m1` run reads packed words"),
+    });
     #[unroll]
     for half in 0..comptime!(run.halves()) {
         let at = row + comptime!(half as u32) * HALF_ROWS;
@@ -366,9 +379,12 @@ fn load_e2m1_run<T: Numeric, N: Size>(
             #[unroll]
             for w in 0..comptime!(values / E2M1_PER_WORD) {
                 let word = comptime!(l * values + w * E2M1_PER_WORD);
-                let codes = Vector::<e2m1x2, Const<4>>::reinterpret(line.extract(w));
-                let decoded = Vector::<T, Const<8>>::cast_from(codes)
-                    * Vector::<T, Const<8>>::new(scales[comptime!(word / E2M1_SCALE_BLOCK)]);
+                let codes = unpack_line::<T, Const<1>, Const<8>>(
+                    Vector::new(line.extract(w)),
+                    comptime!(field),
+                );
+                let decoded =
+                    codes * Vector::<T, Const<8>>::new(scales[comptime!(word / E2M1_SCALE_BLOCK)]);
                 #[unroll]
                 for p in 0..comptime!(E2M1_PER_WORD / SLOTS_PER_REGISTER) {
                     let mut pair = Vector::<T, N>::empty();
