@@ -639,6 +639,9 @@ pub(crate) fn load_fragment<T: Numeric, N: Size, A: Numeric, B: Numeric, CD: Num
     #[comptime] edges: (usize, usize),
     #[comptime] k_offset: usize,
 ) {
+    comptime!(if std::env::var("PROBE_DECODE").is_ok_and(|v| v.contains("panic-any")) {
+        panic!("PROBE: a fragment loads");
+    });
     // `ldmatrix` reads 16-byte rows of 16-bit served cells from shared memory, on a device that
     // offers it for the element; any other window, or device, takes the manual load.
     let offered = loads_matrix::<T>();
@@ -724,6 +727,11 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
     #[comptime] edges: (usize, usize),
     #[comptime] k_offset: usize,
 ) {
+    // PROBE: a trip-wire on a packed source's manual load.
+    let probe_packed = src.packing();
+    comptime!(if probe_packed != Packing::Plain && std::env::var("PROBE_DECODE").is_ok_and(|v| v.contains("panic-manual")) {
+        panic!("PROBE: a packed fragment loads manually");
+    });
     let num_vectors = def.vectors_per_lane(ident);
     let vector_size = def.vector_size(ident);
     let vector_layout = def.vector_layout(ident);

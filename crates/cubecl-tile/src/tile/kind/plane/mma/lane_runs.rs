@@ -222,6 +222,9 @@ pub(crate) fn load_lane_runs<T: Numeric, N: Size>(
     #[comptime] layout: MatrixLayout,
     #[comptime] shape: (usize, usize, usize),
 ) {
+    comptime!(if std::env::var("PROBE_DECODE").is_ok_and(|v| v.contains("panic-lanes")) {
+        panic!("PROBE: a fragment loads in lane runs");
+    });
     let refusal = lane_runs_refusal::<T>(src, ident, layout, shape);
     comptime!(if let Some(why) = refusal {
         panic!("MmaData::load: a fragment deeper than its instruction loads in lane runs: {why}")

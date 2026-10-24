@@ -151,6 +151,13 @@ fn load_e2m1_weight<T: Numeric, N: Size>(
     let (first, column) = def.position_of_nth(UNIT_POS_PLANE, 0u32, MatrixIdent::B);
     let shift = first / 2u32 * 8u32;
 
+    // PROBE: `PROBE_DECODE` holding `noload`, `nocvt` or `noscale` drops that part of the decode.
+    let no_load = comptime!(std::env::var("PROBE_DECODE").is_ok_and(|v| v.contains("noload")));
+    let no_cvt = comptime!(std::env::var("PROBE_DECODE").is_ok_and(|v| v.contains("nocvt")));
+    let no_scale = comptime!(std::env::var("PROBE_DECODE").is_ok_and(|v| v.contains("noscale")));
+    comptime!(if std::env::var("PROBE_DECODE").is_ok_and(|v| v.contains("panic")) {
+        panic!("PROBE: the stepped e2m1 loader is built");
+    });
     let mut codes = Array::<Vector<u32, WP>>::new(comptime!(k / values));
     #[unroll]
     for l in 0..comptime!(k / values) {
@@ -162,7 +169,11 @@ fn load_e2m1_weight<T: Numeric, N: Size>(
             axes,
             1usize,
         );
-        codes[l] = words.read(load.index(&at, &space));
+        if comptime!(no_load) {
+            codes[l] = Vector::<u32, WP>::new(UNIT_POS_PLANE * 0x01010101u32);
+        } else {
+            codes[l] = words.read(load.index(&at, &space));
+        }
     }
     let scale_words = comptime!(k / (E2M1_SCALE_BLOCK * SCALES_PER_WORD));
     // Each word's four scales converted at once, the device's pair conversion taking two a
@@ -178,8 +189,12 @@ fn load_e2m1_weight<T: Numeric, N: Size>(
             axes,
             1usize,
         );
-        let word = factor.word_at(&at, comptime!(space.clone()));
-        scales[w] = Vector::<T, Const<4>>::cast_from(Vector::<e4m3, Const<4>>::reinterpret(word));
+        if comptime!(no_load) {
+            scales[w] = Vector::<T, Const<4>>::new(T::cast_from(UNIT_POS_PLANE));
+        } else {
+            let word = factor.word_at(&at, comptime!(space.clone()));
+            scales[w] = Vector::<T, Const<4>>::cast_from(Vector::<e4m3, Const<4>>::reinterpret(word));
+        }
     }
 
     #[unroll]
@@ -189,9 +204,14 @@ fn load_e2m1_weight<T: Numeric, N: Size>(
         for i in 0..2usize {
             let word = comptime!(2 * s + i);
             let line = codes[comptime!(word / per_line)].extract(comptime!(word % per_line));
-            let pair = Vector::<e2m1x2, Const<4>>::reinterpret(line >> shift).extract(0usize);
-            let decoded = Vector::<T, Const<2>>::cast_from(Vector::<e2m1x2, Const<1>>::new(pair))
-                * Vector::<T, Const<2>>::new(scale);
+            let mut decoded = Vector::<T, Const<2>>::new(T::cast_from(line >> shift));
+            if comptime!(!no_cvt) {
+                let pair = Vector::<e2m1x2, Const<4>>::reinterpret(line >> shift).extract(0usize);
+                decoded = Vector::<T, Const<2>>::cast_from(Vector::<e2m1x2, Const<1>>::new(pair));
+            }
+            if comptime!(!no_scale) {
+                decoded = decoded * Vector::<T, Const<2>>::new(scale);
+            }
             let mut cells = Vector::<T, N>::empty();
             cells.insert(0usize, decoded.extract(0usize));
             cells.insert(1usize, decoded.extract(1usize));
