@@ -21,7 +21,7 @@ use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
     prelude::*,
     server::{
-        CopyDescriptor, IoError, KernelArguments, ProfileError, ProfilingToken,
+        CopyDescriptor, ExternalOpCallback, IoError, KernelArguments, ProfileError, ProfilingToken,
         ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Strides, strides},
@@ -399,6 +399,25 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 Ok(())
             });
         }
+    }
+
+    fn external_op(
+        &mut self,
+        _reads: Vec<BufferBinding>,
+        writes: Vec<BufferBinding>,
+        _op: ExternalOpCallback,
+        stream_id: StreamId,
+    ) {
+        // A wgpu command buffer carries dispatches and copies, not a host
+        // callback, so there is nothing to queue. The refusal still lands on
+        // the declared writes, where a read can find it, and dooms a capture
+        // if one is recording through the scope.
+        failed_writing(
+            self,
+            stream_id,
+            writes,
+            ServerError::external_op_unsupported(),
+        );
     }
 
     fn check(

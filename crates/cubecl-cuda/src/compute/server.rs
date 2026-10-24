@@ -5,6 +5,7 @@ use crate::compute::{
     Captures, Command, Window, communication::BYTES, context::CudaContext, events::Fence,
     stream::CudaStreamBackend,
 };
+use crate::runtime::{CudaBuffer, CudaRuntime};
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::server::{DeviceCaptures, ServerStorage};
 use cubecl_core::{
@@ -13,10 +14,10 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, UIntKind},
     prelude::*,
     server::{
-        BufferBinding, CollectiveBuffer, CommunicationId, ComputeWait, CopyDescriptor, Handle,
-        KernelArguments, KernelResource, LaunchError, ProfileError, ProfilingToken,
-        ReduceOperation, Reduction, ServerCommunication, ServerError, ServerUtilities,
-        TensorMapBinding, TensorMapMeta,
+        BufferBinding, CollectiveBuffer, CommunicationId, ComputeWait, CopyDescriptor,
+        ExternalContext, ExternalOpCallback, Handle, KernelArguments, KernelResource, LaunchError,
+        ProfileError, ProfilingToken, ReduceOperation, Reduction, ServerCommunication, ServerError,
+        ServerUtilities, TensorMapBinding, TensorMapMeta,
     },
     zspace::SmallVec,
 };
@@ -34,7 +35,10 @@ use cubecl_server::{
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, StreamMemoryReport},
     server::Server,
     storage::{ComputeStorage, ManagedResource},
-    stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
+    stream::{
+        ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, external_op_panicked,
+        failed_writing,
+    },
 };
 use cudarc::driver::sys::{
     CUstream, CUtensorMap, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapInterleave,
@@ -76,6 +80,11 @@ fn info_buffer(command: &mut Command<'_>, words: &[u64]) -> Result<Handle, Serve
         .insert(words.to_vec(), handle.clone());
     Ok(handle)
 }
+
+/// The identity an external operation's skip record carries in the failure
+/// graph. The operation is not a compiled kernel, but a skipped write set names
+/// the work that was skipped the same way a launch's does.
+struct ExternalOpKernel;
 
 #[derive(Debug)]
 pub struct CudaServer {
@@ -250,6 +259,82 @@ impl Server for CudaServer {
             written,
         )
         .execute(|server| server.launch_checked(kernel_id, &loaded, count, bindings, stream_id));
+    }
+
+    fn external_op(
+        &mut self,
+        reads: Vec<BufferBinding>,
+        writes: Vec<BufferBinding>,
+        op: ExternalOpCallback,
+        stream_id: StreamId,
+    ) {
+        let mut written = self.write_set();
+        written.extend(writes.iter().cloned());
+        let scope_reads = reads.clone();
+
+        ExecuteScope::launching(
+            self,
+            KernelId::new::<ExternalOpKernel>(),
+            stream_id,
+            scope_reads.iter(),
+            written,
+        )
+        .execute(move |server| {
+            // A host-side call has no recorded form. Refusing inside the scope
+            // dooms the capture, which is the point: sealing a recording that
+            // silently misses this operation would replay incomplete work.
+            if server
+                .streams
+                .try_stream_mut(&stream_id)
+                .is_some_and(|stream| stream.capturing.is_recording())
+            {
+                return Err(ServerError::graph_state(
+                    "external_op: a capture window records launches only, so an external \
+                     operation has no recorded form",
+                ));
+            }
+
+            let mut command = server.command(stream_id, reads.iter().chain(writes.iter()))?;
+            let stream = command.stream().sys;
+            let mut read_buffers = Vec::with_capacity(reads.len());
+            let mut write_buffers = Vec::with_capacity(writes.len());
+
+            for binding in &reads {
+                let resource = command.resource(binding.clone())?;
+                read_buffers.push(CudaBuffer {
+                    ptr: resource.ptr,
+                    size: resource.size,
+                });
+            }
+            for binding in &writes {
+                let resource = command.resource(binding.clone())?;
+                write_buffers.push(CudaBuffer {
+                    ptr: resource.ptr,
+                    size: resource.size,
+                });
+            }
+
+            // The callback is arbitrary code on the device thread. Catch it
+            // here so a panic settles on the write set through the scope
+            // instead of unwinding past the capture bookkeeping.
+            let mut context =
+                ExternalContext::<CudaRuntime>::new(stream, read_buffers, write_buffers);
+            let called = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                op(&mut context as &mut dyn core::any::Any)
+            }));
+            let retained = context.into_retained();
+
+            // The vendor call may still read the bindings and the owners it
+            // registered, on success, error or panic alike. Hand both to the
+            // deferred-release path the cross-stream pins use, before the
+            // outcome leaves this scope, so they drop only once this stream has
+            // reached the work queued after the operation.
+            command.defer_release((reads, writes, retained));
+            match called {
+                Ok(result) => result,
+                Err(payload) => Err(external_op_panicked(payload)),
+            }
+        });
     }
 
     fn check(

@@ -45,7 +45,7 @@ use cubecl_server::{
     allocator::PitchedMemoryLayoutPolicy,
     config::{CubeClRuntimeConfig, RuntimeConfig},
     logging::ServerLogger,
-    runtime::{DeviceDescription, DeviceKind, Runtime},
+    runtime::{DeviceDescription, DeviceKind, NativeRuntime, Runtime},
 };
 #[cfg(windows)]
 use cudarc::driver::sys::cuDeviceGetLuid;
@@ -490,6 +490,16 @@ fn tensor_cores_per_sm(arch: &CudaArchitecture) -> Option<u32> {
     }
 }
 
+/// One binding in the CUDA driver's own terms: a device pointer and the
+/// offset-adjusted byte size it covers.
+#[derive(Clone, Copy, Debug)]
+pub struct CudaBuffer {
+    /// The device address the binding starts at.
+    pub ptr: cudarc::driver::sys::CUdeviceptr,
+    /// The binding's byte length.
+    pub size: u64,
+}
+
 impl Runtime for CudaRuntime {
     type Server = CudaServer;
     type Device = CudaDevice;
@@ -593,6 +603,11 @@ impl Runtime for CudaRuntime {
         };
         Some(description)
     }
+}
+
+impl NativeRuntime for CudaRuntime {
+    type NativeStream = cudarc::driver::sys::CUstream;
+    type NativeBuffer = CudaBuffer;
 }
 
 /// What the driver says about a device. A refused query leaves its field empty rather than

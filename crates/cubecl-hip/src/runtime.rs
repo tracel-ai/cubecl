@@ -48,7 +48,7 @@ use cubecl_server::{
     allocator::PitchedMemoryLayoutPolicy,
     driver::checked,
     logging::ServerLogger,
-    runtime::{DeviceDescription, DeviceKind, Runtime},
+    runtime::{DeviceDescription, DeviceKind, NativeRuntime, Runtime},
 };
 use std::{
     ffi::CStr,
@@ -244,6 +244,16 @@ impl DeviceService for HipServer {
     }
 }
 
+/// One binding in HIP's own terms: a device pointer and the offset-adjusted
+/// byte size it covers.
+#[derive(Clone, Copy, Debug)]
+pub struct HipBuffer {
+    /// The device address the binding starts at.
+    pub ptr: cubecl_hip_sys::hipDeviceptr_t,
+    /// The binding's byte length.
+    pub size: u64,
+}
+
 impl Runtime for HipRuntime {
     type Server = HipServer;
     type Device = AmdDevice;
@@ -333,6 +343,11 @@ impl Runtime for HipRuntime {
         description.driver_version = driver_version();
         Some(description)
     }
+}
+
+impl NativeRuntime for HipRuntime {
+    type NativeStream = cubecl_hip_sys::hipStream_t;
+    type NativeBuffer = HipBuffer;
 }
 
 /// The properties of the device at `index`, without creating a context on it.

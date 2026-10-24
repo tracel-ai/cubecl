@@ -123,7 +123,6 @@ impl DeviceService for MetalServer {
 impl Runtime for MetalRuntime {
     type Server = MetalServer;
     type Device = MetalDevice;
-
     fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         has_pitched_row_major_strides(shape, strides)
     }

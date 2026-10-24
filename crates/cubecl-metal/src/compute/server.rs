@@ -12,8 +12,9 @@ use cubecl_core::{
     MemoryConfiguration,
     prelude::*,
     server::{
-        BufferBinding, CopyDescriptor, IoError, KernelArguments, KernelResource, ProfileError,
-        ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
+        BufferBinding, CopyDescriptor, ExternalOpCallback, IoError, KernelArguments,
+        KernelResource, ProfileError, ProfilingToken, ServerCommunication, ServerError,
+        ServerUtilities,
     },
 };
 use cubecl_environment::future::DynFut;
@@ -610,6 +611,23 @@ impl Server for MetalServer {
         let fence = MetalStreamBackend::flush(stream, failures);
 
         Box::pin(async move { MetalStreamBackend::wait_event_sync(fence) })
+    }
+
+    fn external_op(
+        &mut self,
+        _reads: Vec<BufferBinding>,
+        writes: Vec<BufferBinding>,
+        _op: ExternalOpCallback,
+        stream_id: StreamId,
+    ) {
+        // Metal has no host-callback node to record or queue. The refusal is
+        // left on the declared writes, and dooms a capture through the scope.
+        failed_writing(
+            self,
+            stream_id,
+            writes,
+            ServerError::external_op_unsupported(),
+        );
     }
 
     fn check(

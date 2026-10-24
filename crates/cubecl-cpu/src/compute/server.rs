@@ -7,14 +7,16 @@ use crate::compute::{
     kernel_compiler::{BufferAlignment, CpuKernelCompiler},
     schedule::{BindingsResource, ScheduleTask, ScheduledCpuBackend},
 };
+use crate::runtime::{CpuBuffer, CpuRuntime};
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::server::ServerStorage;
 use cubecl_core::{
     CompilationError, CubeCount, MemoryConfiguration,
     ir::MemoryDeviceProperties,
     server::{
-        BufferBinding, CopyDescriptor, IoError, KernelArguments, KernelResource, LaunchError,
-        ProfileError, ProfilingToken, Server, ServerCommunication, ServerError, ServerUtilities,
+        BufferBinding, CopyDescriptor, ExternalContext, ExternalOpCallback, IoError,
+        KernelArguments, KernelResource, LaunchError, ProfileError, ProfilingToken, Server,
+        ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Shape, Strides, strides},
 };
@@ -24,12 +26,13 @@ use cubecl_environment::stream::StreamId;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
     execution::LaunchMode,
+    id::KernelId,
     kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode},
     storage::{BytesStorage, ComputeStorage, ManagedResource},
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
-    stream::{ExecuteScope, FailureStore, WriteScoped, failed_writing},
+    stream::{ExecuteScope, FailureStore, WriteScoped, external_op_panicked, failed_writing},
 };
 use std::sync::Arc;
 
@@ -459,6 +462,88 @@ impl Server for CpuServer {
                 .scheduler
                 .register(stream_id, task, &server.streams_pool);
             Ok(())
+        });
+    }
+
+    fn external_op(
+        &mut self,
+        reads: Vec<BufferBinding>,
+        writes: Vec<BufferBinding>,
+        op: ExternalOpCallback,
+        stream_id: StreamId,
+    ) {
+        /// The identity an external operation's skip record carries in the
+        /// failure graph; it is not a compiled kernel, but it is work a
+        /// downstream read can be told was skipped.
+        struct ExternalOpKernel;
+
+        let mut written = self.write_set();
+        written.extend(writes.iter().cloned());
+        let scope_reads = reads.clone();
+
+        ExecuteScope::launching(
+            self,
+            KernelId::new::<ExternalOpKernel>(),
+            stream_id,
+            scope_reads.iter(),
+            written,
+        )
+        .execute(move |server| {
+            let mut dependencies = Vec::with_capacity(reads.len() + writes.len() + 1);
+            for binding in reads.iter().chain(writes.iter()) {
+                if !dependencies.contains(&binding.stream) {
+                    dependencies.push(binding.stream);
+                }
+            }
+            if !dependencies.contains(&stream_id) {
+                dependencies.push(stream_id);
+            }
+
+            // There is no host callback a CPU stream can queue behind its
+            // kernels: drain every stream the bindings depend on, then run the
+            // operation directly. Later work arrives after this call and is
+            // therefore ordered behind it.
+            server.scheduler.execute_streams(dependencies);
+
+            let read_count = reads.len();
+            let mut resources = Vec::with_capacity(read_count + writes.len());
+            for binding in reads.iter().chain(writes.iter()) {
+                let stream = server.scheduler.stream(&binding.stream);
+                let memory = binding.memory.clone();
+                let resource = stream
+                    .get_resource(binding.clone())
+                    .map_err(ServerError::Io)?;
+                resources.push(ManagedResource::new(memory, resource));
+            }
+
+            let buffers = resources.iter().map(|resource| {
+                let (ptr, size) = resource.resource().get_write_ptr_and_length();
+                CpuBuffer {
+                    ptr,
+                    size: size as u64,
+                }
+            });
+            let mut buffers = buffers.collect::<Vec<_>>();
+            let mut context = ExternalContext::<CpuRuntime>::new(
+                (),
+                buffers.drain(..read_count).collect(),
+                buffers,
+            );
+            let called = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                op(&mut context as &mut dyn core::any::Any)
+            }));
+            let retained = context.into_retained();
+
+            // The callback is host code, so completion is its return. Keep the
+            // bindings and the owners it registered alive across every exit,
+            // including a panic, before the scope settles the write set.
+            let result = match called {
+                Ok(result) => result,
+                Err(payload) => Err(external_op_panicked(payload)),
+            };
+            drop(retained);
+            drop(resources);
+            result
         });
     }
 
