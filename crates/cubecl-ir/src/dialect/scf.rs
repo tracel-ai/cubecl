@@ -40,8 +40,8 @@ use crate::{
     interfaces::{
         CanonicalizeInterface,
         control_flow::{
-            InvocationBounds, MutableRegionBranchOpInterface, RegionBranchOpInterface,
-            RegionPredecessor, RegionSuccessor,
+            InvocationBounds, LoopLikeOpInterface, MutableRegionBranchOpInterface,
+            RegionBranchOpInterface, RegionPredecessor, RegionSuccessor,
         },
         memory_slot::{
             MemoryRegionPredecessor, MemorySSAContext, MemorySSARegionOpInterface, MemoryValue,
@@ -1107,6 +1107,9 @@ impl RegionBranchOpInterface for ForOp {
 }
 
 #[op_interface_impl]
+impl LoopLikeOpInterface for ForOp {}
+
+#[op_interface_impl]
 impl UniformRegionOpInterface for ForOp {
     fn result_uniformity(&self, _ctx: &Context, operands: &[Uniformity]) -> Uniformity {
         operands[0].min(operands[1]).min(operands[2])
@@ -1421,6 +1424,9 @@ impl RegionBranchOpInterface for WhileOp {
         }
     }
 }
+
+#[op_interface_impl]
+impl LoopLikeOpInterface for WhileOp {}
 
 #[op_interface_impl]
 impl UniformRegionOpInterface for WhileOp {

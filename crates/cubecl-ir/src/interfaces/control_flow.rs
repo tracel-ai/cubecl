@@ -514,3 +514,9 @@ pub trait MutableRegionBranchTerminatorOpInterface: RegionBranchTerminatorOpInte
 
     fn add_successor_operand(&self, ctx: &mut Context, successor: RegionSuccessor, value: Value);
 }
+
+/// Will get actual methods later, for now use it to make the check in CPU generic
+#[op_interface]
+pub trait LoopLikeOpInterface {
+    verify_op_succ!();
+}

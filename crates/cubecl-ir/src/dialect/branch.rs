@@ -33,8 +33,9 @@ use crate::{
     interfaces::{
         CanonicalizeInterface,
         control_flow::{
-            InvocationBounds, MutableRegionBranchTerminatorOpInterface, RegionBranchOpInterface,
-            RegionBranchTerminatorOpInterface, RegionPredecessor, RegionSuccessor,
+            InvocationBounds, LoopLikeOpInterface, MutableRegionBranchTerminatorOpInterface,
+            RegionBranchOpInterface, RegionBranchTerminatorOpInterface, RegionPredecessor,
+            RegionSuccessor,
         },
         memory_slot::{
             MemoryRegionPredecessor, MemorySSAContext, MemorySSARegionOpInterface, MemoryValue,
@@ -854,6 +855,9 @@ impl RegionBranchOpInterface for RangeLoopOp {
 }
 
 #[op_interface_impl]
+impl LoopLikeOpInterface for RangeLoopOp {}
+
+#[op_interface_impl]
 impl ConditionallySpeculatable for RangeLoopOp {
     fn speculatability(&self, ctx: &Context) -> Speculatability {
         if let Some(constant_step) = self.constant_step(ctx)
@@ -999,3 +1003,6 @@ impl RegionBranchOpInterface for WhileOp {
         vec![]
     }
 }
+
+#[op_interface_impl]
+impl LoopLikeOpInterface for WhileOp {}
