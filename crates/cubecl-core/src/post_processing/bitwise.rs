@@ -45,7 +45,12 @@ fn apply<M: MatchRewrite>(
     mut match_rewrite: M,
     op: Ptr<Operation>,
 ) -> Result<IRStatus> {
-    apply_match_rewrite(ctx, &mut match_rewrite, RewriterOrder::default(), op)
+    apply_match_rewrite(
+        ctx,
+        &mut KeepLocation(&mut match_rewrite),
+        RewriterOrder::default(),
+        op,
+    )
 }
 
 // No special handling beyond zero extend

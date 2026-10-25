@@ -33,7 +33,6 @@ std = [
     "cubecl-spirv?/std",
     "cubecl-opt/std",
     "pliron/std",
-    "sanitize-filename",
 ]
 msl = [
     "cubecl-cpp/metal",
@@ -78,7 +77,6 @@ derive_more = { workspace = true }
 half = { workspace = true }
 itertools = { workspace = true }
 pliron = { workspace = true }
-sanitize-filename = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tracy-client = { workspace = true, optional = true }
 

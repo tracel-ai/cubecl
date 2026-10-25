@@ -556,11 +556,9 @@ pub enum SwitchOpVerifyErr {
 
 impl Verify for SwitchOp {
     fn verify(&self, ctx: &Context) -> Result<()> {
-        let loc = self.loc(ctx);
-
         let op = &*self.get_operation().deref(ctx);
         if op.get_num_successors() < 1 {
-            verify_err!(loc.clone(), SwitchOpVerifyErr::DefaultDestErr)?;
+            verify_err!(op.loc(), SwitchOpVerifyErr::DefaultDestErr)?;
         }
 
         Ok(())

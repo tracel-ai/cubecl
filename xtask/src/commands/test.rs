@@ -40,6 +40,20 @@ pub(crate) fn handle_command(
             None,
             "std with exclusive_memory_only",
         )?;
+        // cubecl-llvm with its GPU targets and the perf jitdump. Only the excluded runtimes turn
+        // them on, and their offline tests need no device. LLVM writes the jitdump on Linux only.
+        let llvm_features = if cfg!(target_os = "linux") {
+            "nvptx,amdgpu,jitdump"
+        } else {
+            "nvptx,amdgpu"
+        };
+        build_helpers::custom_crates_tests(
+            vec!["cubecl-llvm"],
+            vec!["--features", llvm_features, "--lib"],
+            None,
+            None,
+            "GPU targets and jitdump",
+        )?;
     }
     Ok(())
 }

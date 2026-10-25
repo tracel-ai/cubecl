@@ -4,7 +4,10 @@
 use crate::compiler::{CudaBackend, CudaCompilationOptions, CudaCompiler, CudaRepresentation};
 use crate::compute::events::driver_error;
 use crate::install::{cccl_include_path, include_path};
-use cubecl_core::{ir::DeviceProperties, prelude::*};
+use cubecl_core::{
+    ir::{DeviceProperties, settings::DebugInfo},
+    prelude::*,
+};
 use cubecl_cpp::cuda::arch::CudaArchitecture;
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_environment::backtrace::BackTrace;
@@ -144,7 +147,7 @@ impl ArtifactCompiler for CudaArtifactCompiler {
 
     fn finalize(
         &self,
-        _id: &ArtifactId<Self::Variant>,
+        id: &ArtifactId<Self::Variant>,
         mut lowered: Self::Lowered,
     ) -> Result<Self::Artifact, LaunchError> {
         let io = lowered.io.take();
@@ -175,7 +178,7 @@ impl ArtifactCompiler for CudaArtifactCompiler {
             }
         };
 
-        let cubin = self.assemble(&ptx)?;
+        let cubin = self.assemble(&ptx, id.kernel.debug_info != DebugInfo::None)?;
         Ok(CudaArtifact {
             entrypoint_name: lowered.entrypoint_name,
             shared_mem_bytes,
@@ -187,20 +190,26 @@ impl ArtifactCompiler for CudaArtifactCompiler {
 }
 
 impl CudaArtifactCompiler {
-    /// Assembles `ptx` into the machine code of this context's device.
+    /// Assembles `ptx` into the machine code of this context's device, with the line table of
+    /// the PTX's `.loc` directives if `line_info` is set.
     ///
     /// # Errors
     ///
     /// The driver call that failed, with the assembler's log when it wrote one: PTX the
     /// assembler rejects, or a kernel past the device's limits.
-    fn assemble(&self, ptx: &[c_char]) -> Result<Vec<u8>, CompilationError> {
+    fn assemble(&self, ptx: &[c_char], line_info: bool) -> Result<Vec<u8>, CompilationError> {
         let mut log = vec![0u8; ASSEMBLER_LOG_BYTES];
-        let mut options = [
+        let mut options = vec![
             CUjit_option::CU_JIT_ERROR_LOG_BUFFER,
             CUjit_option::CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES,
         ];
-        // The driver reads a size option's value as the number itself, not through a pointer.
-        let mut values = [log.as_mut_ptr() as *mut c_void, log.len() as *mut c_void];
+        // The driver reads a size or flag option's value as the number itself, not through a
+        // pointer.
+        let mut values = vec![log.as_mut_ptr() as *mut c_void, log.len() as *mut c_void];
+        if line_info {
+            options.push(CUjit_option::CU_JIT_GENERATE_LINE_INFO);
+            values.push(std::ptr::without_provenance_mut(1));
+        }
 
         // SAFETY: the context is the device's, valid for the server's life, and any thread may
         // make it current. `log`, `options` and `values` outlive the link state, which reads the

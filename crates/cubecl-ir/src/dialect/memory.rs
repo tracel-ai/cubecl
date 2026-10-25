@@ -438,7 +438,8 @@ pub struct StoreOp {
 
 impl Verify for StoreOp {
     fn verify(&self, ctx: &Context) -> Result<()> {
-        let loc = self.loc(ctx);
+        let operation = self.get_operation().deref(ctx);
+        let loc = operation.loc();
         let ptr_value_ty = ptr_value_ty(ctx, &self.ptr(ctx));
         let value_ty = self.value(ctx).get_type(ctx);
         if ptr_value_ty != value_ty {

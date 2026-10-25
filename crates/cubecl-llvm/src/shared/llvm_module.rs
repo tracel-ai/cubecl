@@ -12,17 +12,17 @@ use llvm_sys::{
         LLVMCreateStringAttribute, LLVMGetEnumAttributeKindForName, LLVMGetNamedFunction,
         LLVMGetParam, LLVMGetTypeKind, LLVMSetFunctionCallConv, LLVMTypeOf,
     },
-    prelude::LLVMValueRef,
 };
 use llvm_sys::{
     core::{
         LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy,
         LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMDisposeModule, LLVMGetBufferSize,
-        LLVMGetBufferStart, LLVMPrintModuleToString, LLVMSetTarget,
+        LLVMGetBufferStart, LLVMGetFirstFunction, LLVMGetNextFunction, LLVMPrintModuleToString,
+        LLVMSetTarget,
     },
-    error::{LLVMDisposeErrorMessage, LLVMGetErrorMessage},
+    error::{LLVMDisposeErrorMessage, LLVMErrorRef, LLVMGetErrorMessage},
     ir_reader::LLVMParseIRInContext2,
-    prelude::{LLVMContextRef, LLVMModuleRef},
+    prelude::{LLVMContextRef, LLVMModuleRef, LLVMValueRef},
     target::{LLVMDisposeTargetData, LLVMSetModuleDataLayout},
     target_machine::{
         LLVMCodeGenFileType, LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout,
@@ -74,6 +74,75 @@ impl LlvmModule {
     #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
     pub(crate) fn raw(&self) -> LLVMModuleRef {
         self.module
+    }
+
+    /// Adds the string attribute `key=value` to each function that the module defines.
+    #[cfg(cubecl_frame_pointers)]
+    pub(crate) fn add_function_attribute(&self, key: &str, value: &str) {
+        // SAFETY: the attribute belongs to the context of the module, and both strings are read
+        // for the lengths given.
+        unsafe {
+            self.add_to_defined_functions(llvm_sys::core::LLVMCreateStringAttribute(
+                self.ctx,
+                key.as_ptr().cast(),
+                u32::try_from(key.len()).expect("the attribute key fits in u32"),
+                value.as_ptr().cast(),
+                u32::try_from(value.len()).expect("the attribute value fits in u32"),
+            ));
+        }
+    }
+
+    /// Adds the enum attribute `name(value)` to each function that the module defines.
+    #[cfg(feature = "jitdump")]
+    pub(crate) fn add_function_enum_attribute(&self, name: &str, value: u64) {
+        use llvm_sys::core::{LLVMCreateEnumAttribute, LLVMGetEnumAttributeKindForName};
+
+        // SAFETY: the attribute belongs to the context of the module, and `name` is read for the
+        // length given.
+        unsafe {
+            let kind = LLVMGetEnumAttributeKindForName(name.as_ptr().cast(), name.len());
+            self.add_to_defined_functions(LLVMCreateEnumAttribute(self.ctx, kind, value));
+        }
+    }
+
+    /// Adds `attribute` to each function that the module defines.
+    ///
+    /// # Safety
+    /// `attribute` must belong to the context of the module.
+    #[cfg(any(cubecl_frame_pointers, feature = "jitdump"))]
+    unsafe fn add_to_defined_functions(&self, attribute: llvm_sys::prelude::LLVMAttributeRef) {
+        use llvm_sys::{
+            LLVMAttributeFunctionIndex,
+            core::{LLVMAddAttributeAtIndex, LLVMIsDeclaration},
+        };
+
+        // SAFETY: the module is live, the functions belong to it, and the caller's contract.
+        unsafe {
+            functions(self.module)
+                .filter(|&func| LLVMIsDeclaration(func) == 0)
+                .for_each(|func| {
+                    LLVMAddAttributeAtIndex(func, LLVMAttributeFunctionIndex, attribute);
+                });
+        }
+    }
+
+    /// # Errors
+    /// The message of LLVM's verifier, when the module is not valid.
+    #[cfg(any(test, debug_assertions))]
+    pub(crate) fn verify(&self) -> Result<(), String> {
+        use llvm_sys::analysis::{LLVMVerifierFailureAction, LLVMVerifyModule};
+
+        let mut message = std::ptr::null_mut();
+        // SAFETY: the module is live, and the message is ours to free.
+        unsafe {
+            let failed = LLVMVerifyModule(
+                self.module,
+                LLVMVerifierFailureAction::LLVMReturnStatusAction,
+                &raw mut message,
+            ) != 0;
+            let message = take_message(message);
+            if failed { Err(message) } else { Ok(()) }
+        }
     }
 
     pub(crate) fn set_triple(&self, triple: &CStr) {
@@ -142,17 +211,10 @@ impl LlvmModule {
             let options = LLVMCreatePassBuilderOptions();
             let error = LLVMRunPasses(self.module, pipeline.as_ptr(), machine.0, options);
             LLVMDisposePassBuilderOptions(options);
-            if error.is_null() {
-                return Ok(());
-            }
-            let c_msg = LLVMGetErrorMessage(error);
-            let message = CStr::from_ptr(c_msg).to_string_lossy().into_owned();
-            LLVMDisposeErrorMessage(c_msg);
-            Err(message)
+            error_message(error)
         }
     }
 
-    #[allow(dead_code)]
     pub(crate) fn print(&self) -> String {
         // SAFETY: the module is live, and the printed string is ours to free.
         unsafe { take_message(LLVMPrintModuleToString(self.module)) }
@@ -421,15 +483,16 @@ pub(crate) struct TargetSpec<'a> {
     pub cpu: &'a str,
     pub features: &'a CStr,
     pub reloc: LLVMRelocMode,
+    pub code_model: LLVMCodeModel,
 }
 
 /// An LLVM target machine at the aggressive optimization level.
 pub(crate) struct TargetMachine(LLVMTargetMachineRef);
 
 impl TargetMachine {
-    /// Builds a machine for the host CPU and all its detected features, and sets
-    /// the module's target triple and data layout. The native target must be initialized.
-    pub(crate) fn native(module: &LlvmModule) -> Result<Self, String> {
+    /// Builds a machine for the host CPU and all its detected features, with `code_model`, and
+    /// sets the module's target triple and data layout. The native target must be initialized.
+    pub(crate) fn native(module: &LlvmModule, code_model: LLVMCodeModel) -> Result<Self, String> {
         // SAFETY: host queries return owned LLVM messages, consumed exactly once.
         let (triple, cpu, features) = unsafe {
             (
@@ -445,6 +508,7 @@ impl TargetMachine {
             cpu: &cpu,
             features: &features,
             reloc: LLVMRelocMode::LLVMRelocPIC,
+            code_model,
         })?;
         module.set_triple(&triple);
         machine.set_data_layout(module);
@@ -474,7 +538,7 @@ impl TargetMachine {
                 spec.features.as_ptr(),
                 LLVMCodeGenOptLevel::LLVMCodeGenLevelAggressive,
                 spec.reloc,
-                LLVMCodeModel::LLVMCodeModelDefault,
+                spec.code_model,
             );
             if tm.is_null() {
                 return Err(format!("no target machine for '{}'", spec.cpu));
@@ -528,6 +592,35 @@ impl Drop for TargetMachine {
     fn drop(&mut self) {
         // SAFETY: the target machine is owned by `self`.
         unsafe { LLVMDisposeTargetMachine(self.0) }
+    }
+}
+
+/// The functions of `module`, in order.
+///
+/// # Safety
+/// `module` must be a live LLVM module while the iterator is used, and no function may be deleted
+/// from it while the iterator is used.
+pub(crate) unsafe fn functions(module: LLVMModuleRef) -> impl Iterator<Item = LLVMValueRef> {
+    let non_null = |func: LLVMValueRef| (!func.is_null()).then_some(func);
+    // SAFETY: the caller's contract.
+    let first = unsafe { LLVMGetFirstFunction(module) };
+    core::iter::successors(non_null(first), move |&func| {
+        // SAFETY: `func` belongs to `module`, which is live, by the caller's contract.
+        non_null(unsafe { LLVMGetNextFunction(func) })
+    })
+}
+
+/// `Ok` for a null `error`, else its message. The error is consumed.
+pub(crate) fn error_message(error: LLVMErrorRef) -> Result<(), String> {
+    if error.is_null() {
+        return Ok(());
+    }
+    // SAFETY: a non-null error is live and ours to consume, and so is its message.
+    unsafe {
+        let c_msg = LLVMGetErrorMessage(error);
+        let message = CStr::from_ptr(c_msg).to_string_lossy().into_owned();
+        LLVMDisposeErrorMessage(c_msg);
+        Err(message)
     }
 }
 
