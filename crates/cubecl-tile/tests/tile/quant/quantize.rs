@@ -48,7 +48,7 @@ enum Source {
 /// Which workers copy: one unit over the whole space, or a plane a row, its units taking the
 /// row's scales in turns, `planes` planes a cube, writing `words` words a load.
 #[derive(Clone, Copy)]
-enum Copy {
+enum Workers {
     OneUnit,
     PlaneARow { planes: usize, words: usize },
 }
@@ -129,18 +129,18 @@ fn check_quantize(value: QuantValue, block: usize, scales: Scales, global: Optio
         scales,
         global,
         Source::AsTheWords,
-        Copy::OneUnit,
+        Workers::OneUnit,
     );
 }
 
-/// [`check_quantize`], the source bound as `source` says and copied as `copy` says.
+/// [`check_quantize`], the source bound as `source` says and copied by `workers`.
 fn check_quantize_as(
     value: QuantValue,
     block: usize,
     scales: Scales,
     global: Option<f32>,
     source: Source,
-    copy: Copy,
+    workers: Workers,
 ) {
     let client = cubecl::test_device().client();
     let (rows, blocks) = (4, 160);
@@ -212,9 +212,9 @@ fn check_quantize_as(
             (t, arg, dtype)
         }
     };
-    let words_a_load = match copy {
-        Copy::OneUnit => 1,
-        Copy::PlaneARow { words, .. } => words,
+    let words_a_load = match workers {
+        Workers::OneUnit => 1,
+        Workers::PlaneARow { words, .. } => words,
     };
     let values = TileArgLaunch::new(
         in_values(&words, rows, cols),
@@ -258,8 +258,8 @@ fn check_quantize_as(
             )
         }
     };
-    match copy {
-        Copy::OneUnit => quantize_copy::launch(
+    match workers {
+        Workers::OneUnit => quantize_copy::launch(
             &client,
             CubeCount::new_single(),
             CubeDim::new_single(),
@@ -267,7 +267,7 @@ fn check_quantize_as(
             values,
             uncut(&client, &space, &space).partitioning_arg(),
         ),
-        Copy::PlaneARow { planes, .. } => {
+        Workers::PlaneARow { planes, .. } => {
             let order = PlaneOrder::new(&[], CubeOrder::RowMajor).cubes_of(planes);
             let levels = Levels::leaf(&[(MB, 1), (M, 1), (KB, blocks), (KI, block)])
                 .launch_planes(&[M], order)
@@ -367,7 +367,7 @@ fn mxfp8_quantizes_from_a_source_per_axis() {
         Scales::Packed(ScaleDtype::UE8M0),
         None,
         Source::PerAxis,
-        Copy::OneUnit,
+        Workers::OneUnit,
     );
 }
 
@@ -382,7 +382,7 @@ fn nvfp4_quantizes_a_plane_a_row() {
             Scales::Packed(ScaleDtype::UE4M3),
             Some(0.01),
             Source::PerAxis,
-            Copy::PlaneARow { planes, words },
+            Workers::PlaneARow { planes, words },
         );
     }
 }
@@ -396,7 +396,7 @@ fn mxfp8_quantizes_four_words_a_load() {
         Scales::Packed(ScaleDtype::UE8M0),
         None,
         Source::PerAxis,
-        Copy::PlaneARow {
+        Workers::PlaneARow {
             planes: 2,
             words: 4,
         },

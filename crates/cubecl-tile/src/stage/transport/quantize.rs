@@ -39,39 +39,74 @@ pub(crate) struct EncodingCopy {
 }
 
 impl EncodingCopy {
-    /// Lanes of a plane one block takes in the lane-shared copy: one a line of the source.
-    fn lanes_a_block(&self) -> usize {
+    /// Lines of the source one block holds.
+    fn lines_a_block(&self) -> usize {
         self.block.tiles(&self.line.space())
     }
 
-    /// Lanes one load of scales takes in the lane-shared copy: one a line of every block it
-    /// scales.
-    fn lanes_a_scale_load(&self) -> usize {
-        self.scale_load.values() * self.lanes_a_block()
-    }
-
-    /// Lanes one written load gathers its codes from: one a line it holds.
-    fn lanes_a_load(&self) -> usize {
+    /// Lines of the source one written load holds.
+    fn lines_a_load(&self) -> usize {
         self.load.values() / self.line.values()
     }
 
-    /// Whether a plane's lanes share the copy: the lanes of a load of scales are a power of two
-    /// that a plane of 32 holds, every block's and every written load's a power of two too, and
-    /// the scales load along one axis, where a block's offset is its place in the load.
-    fn lanes_share(&self) -> bool {
-        let powers = [
-            self.lanes_a_block(),
-            self.lanes_a_scale_load(),
-            self.lanes_a_load(),
-        ];
-        powers.iter().all(|lanes| lanes.is_power_of_two())
-            && self.lanes_a_scale_load() <= Self::SHARED_PLANE
-            && self.scale_load.extents().len() == 1
+    /// Lines of the source one load of scales covers: every line of every block it scales.
+    fn lines_a_scale_load(&self) -> usize {
+        self.scale_load.values() * self.lines_a_block()
     }
 
-    /// The plane width the lane-shared copy rests on at least, which every device with planes
-    /// wide enough to quantize in offers.
-    const SHARED_PLANE: usize = 32;
+    /// Loads of scales the window holds.
+    fn scale_loads(&self) -> usize {
+        self.scale_load.counts(&self.scales).iter().product()
+    }
+
+    /// Whether a plane's lanes can share the copy, a line a lane: a block's, a written load's and
+    /// a load of scales' lines are each a power of two, so each group of lanes that meets through
+    /// the plane is aligned in it.
+    fn lanes_can_share(&self) -> bool {
+        [
+            self.lines_a_block(),
+            self.lines_a_load(),
+            self.lines_a_scale_load(),
+        ]
+        .iter()
+        .all(|lines| lines.is_power_of_two())
+    }
+    /// What the copy rests on: the values' extents known at expansion, the source over the
+    /// values' axes but for ones of extent one, every load and line inside one block, the written
+    /// loads whole lines along the one axis both run along, and the scales loaded along one axis.
+    fn check(&self) {
+        let (values, source, block) = (&self.values, &self.source, &self.block);
+        assert!(
+            values.axes().all(|axis| !values.is_dynamic(axis)),
+            "Tile::quantize_from: an encoding copy walks the values' blocks, which needs their \
+             extents at expansion; this window spans a dynamic axis"
+        );
+        assert!(
+            source.axes().all(|axis| values.contains(axis))
+                && values
+                    .axes()
+                    .all(|axis| source.contains(axis) || values.extent(axis) == 1),
+            "Tile::quantize_from: the source spans the values' axes, but for one of extent one: \
+             {source:?} against {values:?}"
+        );
+        for tile in [&self.load, &self.line] {
+            assert!(
+                tile.extents().iter().all(|&(axis, _)| block.contains(axis))
+                    && block.tiles(&tile.space()) * tile.values() == block.cells(),
+                "Tile::quantize_from: a block of {block:?} is whole loads of {:?}, each inside it",
+                tile.extents()
+            );
+        }
+        // A block's offset in a load of scales is its place along the one axis the load runs on.
+        self.scale_load.along_one_axis("Tile::quantize_from");
+        let (along, run) = self.load.along_one_axis("Tile::quantize_from");
+        let (line_along, line_run) = self.line.along_one_axis("Tile::quantize_from");
+        assert!(
+            along == line_along && run.is_multiple_of(line_run),
+            "Tile::quantize_from: a written load is whole source lines along one axis, and {run} \
+             along {along:?} is not of {line_run} along {line_along:?}"
+        );
+    }
 }
 
 #[cube]
@@ -81,9 +116,9 @@ impl Tile {
     /// they omit; it is read in the source's lines and written in this tile's loads, each a whole
     /// number of lines.
     ///
-    /// A window a plane holds is quantized by its lanes together, a line a lane
-    /// ([`quantize_across_lanes`](Tile::quantize_across_lanes)); any other, a load of scales a
-    /// unit ([`quantize_per_unit`](Tile::quantize_per_unit)).
+    /// A window a plane holds is quantized by its lanes together, a line a lane, where the plane
+    /// is as wide as a load of scales' lines ([`quantize_across_lanes`](Tile::quantize_across_lanes));
+    /// any other, a load of scales a unit ([`quantize_per_unit`](Tile::quantize_per_unit)).
     pub(crate) fn copy_quantized_from<F: Float>(&mut self, src: &Tile) {
         let mut scales = self.factor.innermost_scale();
         let coarse = self.factor.coarse();
@@ -121,8 +156,12 @@ impl Tile {
         let holder = comptime!(self.place.holder());
         let fill = self.fill_units();
         let fill = comptime!(fill.held_by(holder));
-        if comptime!(fill.scope == ComputeScope::Plane && plan.lanes_share()) {
-            self.quantize_across_lanes::<F>(src, &mut scales, coarse, fill, plan);
+        // A plane narrower than a load of scales' lines cannot meet them through itself.
+        let lanes_share = comptime!(fill.scope == ComputeScope::Plane && plan.lanes_can_share());
+        if lanes_share
+            && FillUnits::workers(fill) as u32 >= comptime!(plan.lines_a_scale_load() as u32)
+        {
+            self.quantize_across_lanes::<F>(src, &mut scales, coarse, fill, plan.clone());
         } else {
             self.quantize_per_unit::<F>(src, &mut scales, coarse, fill, plan);
         }
@@ -139,15 +178,10 @@ impl Tile {
     ) {
         let size!(SW) = comptime!(plan.line.values());
         let size!(WP) = comptime!(plan.packing.physical(plan.load.values()));
-        let src_lines = comptime!(plan.lanes_a_block());
+        let src_lines = comptime!(plan.lines_a_block());
         let loads_a_block = comptime!(plan.block.tiles(&plan.load.space()));
         let scales_a_load = comptime!(plan.scale_load.values());
-        let scale_loads = comptime!(
-            plan.scale_load
-                .counts(&plan.scales)
-                .iter()
-                .product::<usize>()
-        );
+        let scale_loads = comptime!(plan.scale_loads());
         let read = src.nd_packed::<F, SW>(comptime!(Guard::Checked));
         let mut words = self.nd_words_mut::<WP>();
         let first = FillUnits::worker(fill) as u32;
@@ -188,15 +222,18 @@ impl Tile {
                         comptime!(plan.block.clone()),
                         comptime!(plan.load.clone()),
                     );
+                    let mut load_words = Vector::<u32, WP>::new(0u32);
+                    #[unroll]
+                    for l in 0..comptime!(plan.lines_a_load()) {
+                        load_words |= Self::place_codes::<SW, WP>(
+                            codes[comptime!(j * plan.lines_a_load() + l)],
+                            comptime!(l as u32).runtime(),
+                            plan.clone(),
+                        );
+                    }
                     words.write(
                         comptime!(plan.load.clone()).index(&at, &plan.values),
-                        Self::pack_codes::<SW, WP>(
-                            &codes,
-                            comptime!(j * plan.lanes_a_load()),
-                            comptime!(plan.value.size_bits()),
-                            comptime!(plan.line.values()),
-                            comptime!(plan.packing.physical(plan.load.values())),
-                        ),
+                        load_words,
                     );
                 }
                 match comptime!(plan.scale_packing) {
@@ -234,16 +271,10 @@ impl Tile {
     ) {
         let size!(SW) = comptime!(plan.line.values());
         let size!(WP) = comptime!(plan.packing.physical(plan.load.values()));
-        let block_lanes = comptime!(plan.lanes_a_block() as u32);
-        let load_lanes = comptime!(plan.lanes_a_load() as u32);
-        let scale_lanes = comptime!(plan.lanes_a_scale_load() as u32);
-        let scale_loads = comptime!(
-            plan.scale_load
-                .counts(&plan.scales)
-                .iter()
-                .product::<usize>()
-        );
-        let lines = comptime!((scale_loads * plan.lanes_a_scale_load()) as u32).runtime();
+        let block_lanes = comptime!(plan.lines_a_block() as u32);
+        let load_lanes = comptime!(plan.lines_a_load() as u32);
+        let scale_lanes = comptime!(plan.lines_a_scale_load() as u32);
+        let lines = comptime!((plan.scale_loads() * plan.lines_a_scale_load()) as u32).runtime();
         let read = src.nd_packed::<F, SW>(comptime!(Guard::Checked));
         let mut words = self.nd_words_mut::<WP>();
         let lane = FillUnits::worker(fill) as u32;
@@ -489,33 +520,6 @@ impl Tile {
         }
     }
 
-    /// The `wp` words of one of this tile's loads, packed from `codes`, the block's codes `bits`
-    /// wide, `sw` a source line, starting at its `first` line: each word's first code in its low
-    /// bits.
-    fn pack_codes<SW: Size, WP: Size>(
-        codes: &Array<Vector<u32, SW>>,
-        #[comptime] first: usize,
-        #[comptime] bits: usize,
-        #[comptime] sw: usize,
-        #[comptime] wp: usize,
-    ) -> Vector<u32, WP> {
-        let per_word = comptime!(32 / bits);
-        let mask = comptime!(((1u64 << bits) - 1) as u32);
-        let mut words = Vector::<u32, WP>::empty();
-        #[unroll]
-        for w in 0..wp {
-            let mut word = 0u32;
-            #[unroll]
-            for i in 0..per_word {
-                let at = comptime!(first * sw + w * per_word + i);
-                let code = codes[comptime!(at / sw)].extract(comptime!(at % sw));
-                word |= (code & mask) << comptime!((i * bits) as u32);
-            }
-            words.insert(w, word);
-        }
-        words
-    }
-
     /// `scale`'s code as `field` stores it in a word, in the low bits. Exact: the scale is already
     /// rounded onto its dtype's grid.
     fn scale_code<F: Float>(scale: F, #[comptime] field: Field) -> u32 {
@@ -550,43 +554,6 @@ impl Tile {
         out.write(
             comptime!(plan.scale_load.clone()).index(&at, &plan.scales),
             Vector::new(Stored::cast_from(scale)),
-        );
-    }
-}
-
-impl EncodingCopy {
-    /// What the copy rests on: the values' extents known at expansion, the source over the
-    /// values' axes but for ones of extent one, and every load and line inside one block, the
-    /// written loads whole lines along the one axis both run along.
-    fn check(&self) {
-        let (values, source, block) = (&self.values, &self.source, &self.block);
-        assert!(
-            values.axes().all(|axis| !values.is_dynamic(axis)),
-            "Tile::quantize_from: an encoding copy walks the values' blocks, which needs their \
-             extents at expansion; this window spans a dynamic axis"
-        );
-        assert!(
-            source.axes().all(|axis| values.contains(axis))
-                && values
-                    .axes()
-                    .all(|axis| source.contains(axis) || values.extent(axis) == 1),
-            "Tile::quantize_from: the source spans the values' axes, but for one of extent one: \
-             {source:?} against {values:?}"
-        );
-        for tile in [&self.load, &self.line] {
-            assert!(
-                tile.extents().iter().all(|&(axis, _)| block.contains(axis))
-                    && block.tiles(&tile.space()) * tile.values() == block.cells(),
-                "Tile::quantize_from: a block of {block:?} is whole loads of {:?}, each inside it",
-                tile.extents()
-            );
-        }
-        let (along, run) = self.load.along_one_axis("Tile::quantize_from");
-        let (line_along, line_run) = self.line.along_one_axis("Tile::quantize_from");
-        assert!(
-            along == line_along && run.is_multiple_of(line_run),
-            "Tile::quantize_from: a written load is whole source lines along one axis, and {run} \
-             along {along:?} is not of {line_run} along {line_along:?}"
         );
     }
 }
