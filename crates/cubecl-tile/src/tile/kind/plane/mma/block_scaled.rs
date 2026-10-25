@@ -6,7 +6,6 @@ use cubecl::{
     e2m1x2, e4m3,
     ir::{ElemType, FloatKind, features::ScaledMmaConfig},
     prelude::*,
-    quant::scheme::QuantValue,
 };
 
 use cubecl_std::tensor::layout::CoordsDyn;
@@ -103,12 +102,7 @@ fn refuse_unless_block_scaled<T: Numeric>(
     let offered = offers_block_scaled(m, n, k);
     let as_stored = served_as_stored::<T>();
     comptime!({
-        let e2m1 = matches!(
-            packing,
-            Packing::Packed {
-                field: Field::Quant(QuantValue::E2M1) | Field::ConvertedE2M1
-            }
-        );
+        let e2m1 = matches!(packing, Packing::Packed { field } if field.holds_e2m1());
         let refusal = if !offered {
             Some(format!(
                 "the device offers no block-scaled instruction of {m}x{n}x{k}"
