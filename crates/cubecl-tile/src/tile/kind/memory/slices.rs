@@ -138,19 +138,19 @@ impl Memory {
             space.slices_along(space.axis_at(space.rank() - 1)),
             space.extent_at(space.rank() - 1)
         ));
+        let step = comptime!(broadcast.position);
         let size!(W) = 1usize;
         let mut view = self.flat_mut::<E, W>();
         #[unroll]
         for i in 0..slices {
             let first = comptime!(broadcast.at(i, 0));
-            let step = comptime!(broadcast.position);
             let mut s = UNIT_POS_PLANE as usize;
             while s < length {
                 let at = i * length + s;
-                let cell = view.read(at).extract(0usize) * scale
+                let score = view.read(at).extract(0usize) * scale
                     + bias.value_at::<E>(i as u32, s as u32, space.clone());
                 let probability =
-                    AxisSlices::exp_minus_cell::<E>(cell, logsumexp[first + s * step]);
+                    AxisSlices::exp_minus_cell::<E>(score, logsumexp[first + s * step]);
                 view.write(at, Vector::cast_from(probability));
                 s += PLANE_DIM as usize;
             }
@@ -171,13 +171,13 @@ impl Memory {
             space.slices_along(space.axis_at(space.rank() - 1)),
             space.extent_at(space.rank() - 1)
         ));
+        let step = comptime!(broadcast.position);
         let size!(W) = 1usize;
         let read = probabilities.flat::<E, W>();
         let mut view = self.flat_mut::<E, W>();
         #[unroll]
         for i in 0..slices {
             let first = comptime!(broadcast.at(i, 0));
-            let step = comptime!(broadcast.position);
             let mut s = UNIT_POS_PLANE as usize;
             while s < length {
                 let at = i * length + s;

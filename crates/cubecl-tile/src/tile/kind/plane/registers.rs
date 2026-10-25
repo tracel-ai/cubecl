@@ -359,10 +359,10 @@ impl RegisterData {
                 #[unroll]
                 for j in 0..self.vector_size {
                     let column = n * self.vector_size + j;
-                    let cell = line.extract(j) * scale
+                    let score = line.extract(j) * scale
                         + bias.value_at::<E>(r as u32, column as u32, space.clone());
-                    let read = comptime!(broadcast.at(r, n * self.vector_size + j));
-                    line.insert(j, AxisSlices::exp_minus_cell::<E>(cell, logsumexp[read]));
+                    let slot = comptime!(broadcast.at(r, n * self.vector_size + j));
+                    line.insert(j, AxisSlices::exp_minus_cell::<E>(score, logsumexp[slot]));
                 }
                 data[at] = line;
             }
@@ -402,8 +402,8 @@ impl RegisterData {
                 let probability = read[at];
                 #[unroll]
                 for j in 0..self.vector_size {
-                    let cell = comptime!(broadcast.at(r, n * self.vector_size + j));
-                    line.insert(j, probability.extract(j) * (line.extract(j) - delta[cell]));
+                    let slot = comptime!(broadcast.at(r, n * self.vector_size + j));
+                    line.insert(j, probability.extract(j) * (line.extract(j) - delta[slot]));
                 }
                 data[at] = line;
             }

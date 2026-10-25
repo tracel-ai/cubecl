@@ -296,7 +296,11 @@ impl Case {
                     .filter(|&j| self.sees(i, j))
                     .map(|j| score(i, j))
                     .collect();
-                let max = seen.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let max = seen
+                    .iter()
+                    .copied()
+                    .reduce(f64::max)
+                    .expect("every query sees a key");
                 max + seen.iter().map(|s| (s - max).exp()).sum::<f64>().ln()
             })
             .collect();
