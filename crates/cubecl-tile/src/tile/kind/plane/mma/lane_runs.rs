@@ -18,7 +18,6 @@ use cubecl::{
     cmma::{MatrixIdent, MatrixLayout, MmaDefinition},
     ir::types::Fp8Format,
     prelude::*,
-    quant::scheme::QuantValue,
 };
 
 use super::block_scaled::{E2M1_PER_WORD, E2M1_SCALE_BLOCK};
@@ -129,12 +128,7 @@ pub(crate) fn lane_runs_refusal<T: Numeric>(
         MatrixIdent::B => layout == MatrixLayout::ColMajor,
         MatrixIdent::Accumulator => false,
     });
-    let e2m1 = comptime!(matches!(
-        packing,
-        Packing::Packed {
-            field: Field::Quant(QuantValue::E2M1) | Field::ConvertedE2M1
-        }
-    ));
+    let e2m1 = comptime!(matches!(packing, Packing::Packed { field } if field.holds_e2m1()));
     let exact_scales = comptime!(matches!(
         stored,
         Some(Packing::Packed {
@@ -150,7 +144,7 @@ pub(crate) fn lane_runs_refusal<T: Numeric>(
     } else if packing == Packing::Plain && levels == 0 {
         None
     } else if !e2m1 {
-        Some("a packed or scaled window loads in lane runs only as e2m1 codes the device converts")
+        Some("a packed or scaled window loads in lane runs only as e2m1 codes")
     } else if levels != 1 || !exact_scales {
         Some(
             "e2m1 codes load in lane runs under one level of e4m3 or power-of-two scales, whose \
