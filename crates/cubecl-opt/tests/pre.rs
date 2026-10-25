@@ -664,16 +664,16 @@ fn pre_nested_regions_link_new_results() -> Result<()> {
                 } else 
                 {
                   ^inner_else_block4v1() !6:
-                    again_v10 = math.i_add (a_v2, b_v3) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)> !7;
-                    branch.yield (b_v3, again_v10) !8
+                    again_v9 = math.i_add (a_v2, b_v3) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)> !7;
+                    branch.yield (b_v3, again_v9) !8
                 } !9;
                 pre.black_box inner_v6 !10;
                 branch.yield (inner_v6, v12) !11
             } else 
             {
               ^outer_else_block5v1() !12:
-                again_v9 = math.i_add (a_v2, b_v3) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)> !13;
-                branch.yield (c_v4, again_v9) !14
+                again_v10 = math.i_add (a_v2, b_v3) [] []: <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)> !13;
+                branch.yield (c_v4, again_v10) !14
             } !15;
             pre.black_box outer_v7 !16;
             branch.return v11 !17
