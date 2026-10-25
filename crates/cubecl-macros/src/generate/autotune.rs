@@ -81,10 +81,17 @@ impl AutotuneKey {
             let ty = &it.ty;
             quote![#name: #ty]
         });
+        // An unanchored field takes its argument as is, in shorthand: `name: name` would be
+        // spanned on the caller's field, where clippy's `redundant_field_names` reports it.
         let field_inits = fields.iter().map(|field| {
             let name = field.ident.as_ref().unwrap();
-            let init = field_init(field, Member::Named(name.clone()));
-            quote![#name: #init]
+            match field.anchor {
+                Some(_) => {
+                    let init = field_init(field, Member::Named(name.clone()));
+                    quote![#name: #init]
+                }
+                None => quote![#name],
+            }
         });
 
         quote! {

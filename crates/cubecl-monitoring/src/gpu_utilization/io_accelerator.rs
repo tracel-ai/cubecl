@@ -10,13 +10,23 @@ use objc2_io_kit::{
     io_service_t,
 };
 
-use crate::utilization::{DeviceUtilization, UtilizationUnavailable};
+use crate::utilization::{
+    DevicePower, DeviceTemperature, DeviceUtilization, UtilizationUnavailable,
+};
 
 /// `kIOMainPortDefault` is null, and naming the symbol would tie the binary to macOS 12.
 const DEFAULT_MAIN_PORT: u32 = 0;
 
 /// Older AMD drivers name the device's utilization differently.
 const UTILIZATION_KEYS: [&str; 2] = ["Device Utilization %", "GPU Activity(%)"];
+
+/// The GPU's temperature in degrees Celsius, which the AMD drivers of Intel Macs keep and Apple
+/// silicon's does not.
+const TEMPERATURE_KEYS: [&str; 1] = ["Temperature(C)"];
+
+/// The GPU's power draw in watts, which the AMD drivers of Intel Macs keep and Apple silicon's
+/// does not.
+const POWER_KEYS: [&str; 1] = ["Total Power(W)"];
 
 /// The statistics a GPU's driver keeps on its `IOAccelerator` entry in the I/O Registry, which an
 /// unprivileged process may read.
@@ -34,7 +44,29 @@ impl IoAcceleratorStatistics {
         Ok(Self { accelerator })
     }
 
-    pub fn read(&self) -> Result<DeviceUtilization, UtilizationUnavailable> {
+    pub fn utilization(&self) -> Result<DeviceUtilization, UtilizationUnavailable> {
+        self.statistic(&UTILIZATION_KEYS)?
+            .map(|busy_percent| DeviceUtilization::new(busy_percent as f32))
+            .ok_or_else(|| {
+                Self::query_failed("the PerformanceStatistics hold no device utilization")
+            })
+    }
+
+    pub fn temperature(&self) -> Result<DeviceTemperature, UtilizationUnavailable> {
+        self.statistic(&TEMPERATURE_KEYS)?
+            .map(|celsius| DeviceTemperature::new(celsius as f32))
+            .ok_or(UtilizationUnavailable::NoSuchReading)
+    }
+
+    pub fn power(&self) -> Result<DevicePower, UtilizationUnavailable> {
+        self.statistic(&POWER_KEYS)?
+            .map(|watts| DevicePower::new(watts as f32))
+            .ok_or(UtilizationUnavailable::NoSuchReading)
+    }
+
+    /// The number the driver's `PerformanceStatistics` hold under the first of `keys` they have,
+    /// `None` where they have none of them.
+    fn statistic(&self, keys: &[&'static str]) -> Result<Option<f64>, UtilizationUnavailable> {
         let performance_statistics = CFString::from_static_str("PerformanceStatistics");
         // SAFETY: the entry is retained by `self`, and the property is returned retained.
         let statistics = unsafe {
@@ -53,17 +85,12 @@ impl IoAcceleratorStatistics {
         };
         // SAFETY: the keys of an I/O Registry property dictionary are strings.
         let statistics = unsafe { statistics.cast_unchecked::<CFString, CFType>() };
-        let busy_percent = UTILIZATION_KEYS.iter().find_map(|&key| {
+        Ok(keys.iter().find_map(|&key| {
             statistics
                 .get(&CFString::from_static_str(key))?
                 .downcast_ref::<CFNumber>()?
                 .as_f64()
-        });
-        busy_percent
-            .map(|busy_percent| DeviceUtilization::new(busy_percent as f32))
-            .ok_or_else(|| {
-                Self::query_failed("the PerformanceStatistics hold no device utilization")
-            })
+        }))
     }
 
     fn accelerator_with_entry_id(
@@ -129,6 +156,23 @@ impl IoAcceleratorStatistics {
     fn query_failed(message: &str) -> UtilizationUnavailable {
         UtilizationUnavailable::QueryFailed(message.to_string())
     }
+}
+
+/// The GPU cores of the accelerator whose I/O Registry entry has `registry_entry_id`, which its
+/// driver states as `gpu-core-count` and Metal does not report: `None` where the entry or the
+/// property is missing, as on a Mac whose GPU is not Apple's.
+pub fn gpu_core_count(registry_entry_id: RegistryEntryId) -> Option<u32> {
+    let accelerator = IoAcceleratorStatistics::accelerator_with_entry_id(registry_entry_id).ok()?;
+    let key = CFString::from_static_str("gpu-core-count");
+    // SAFETY: the entry is held until its release below, and the property is returned retained.
+    let count = unsafe { IORegistryEntryCreateCFProperty(accelerator, Some(&key), None, 0) };
+    IOObjectRelease(accelerator);
+    count?
+        .downcast::<CFNumber>()
+        .ok()?
+        .as_i64()?
+        .try_into()
+        .ok()
 }
 
 impl Drop for IoAcceleratorStatistics {

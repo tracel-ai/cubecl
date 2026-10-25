@@ -136,6 +136,24 @@ fn a_kernel_without_atomics_keeps_its_promises() {
     assert!(params[1].contains("noalias"), "the output:\n{params:#?}");
 }
 
+/// An `e2m1x2` cast compiles on a part with no fp4 conversion of its own, a Strix Halo's: the
+/// software codec, no fp4 conversion instruction.
+#[test]
+fn fp4_casts_compile_to_the_software_codec() {
+    let asm = asm_of(
+        crate::shared::offline_kernels::fp4_round_trip_kernel(),
+        "gfx1151",
+    );
+    let fp4_conversion = asm
+        .lines()
+        .any(|line| line.trim_start().starts_with("v_cvt") && line.contains("fp4"));
+    assert!(!fp4_conversion, "no fp4 conversion instruction:\n{asm}");
+    assert!(
+        asm.contains("v_lshr") || asm.contains("v_bfe"),
+        "the codes are shifted out:\n{asm}"
+    );
+}
+
 /// The assembly `kernel` compiles to for `arch`.
 fn asm_of(kernel: impl CubeKernel, arch: &str) -> String {
     let arch = GfxArch::parse(arch);

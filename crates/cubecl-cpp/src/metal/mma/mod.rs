@@ -1,3 +1,7 @@
+pub mod manual;
+
+pub use manual::*;
+
 use core::cell::Ref;
 
 use cubecl_core::{

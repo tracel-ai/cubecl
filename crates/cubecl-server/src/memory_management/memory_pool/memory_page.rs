@@ -387,7 +387,9 @@ impl MemoryPage {
         });
     }
 
-    /// Inserts `slice` at `index`, renumbering the slices after it.
+    /// Inserts `slice` at `index`. Only the slices after it move, so only their
+    /// descriptors learn a new position: a reservation splits a slice on every
+    /// launch that allocates, and a page holds many.
     fn insert_slice(&mut self, index: usize, slice: Slice) {
         let mut location = self.location_base;
         location.slice = index as u32;

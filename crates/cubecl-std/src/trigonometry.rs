@@ -16,7 +16,7 @@ use cubecl_core as cubecl;
 /// let degrees = to_degrees(radians);
 /// assert!((degrees - F::new(180.0)).abs() < F::new(1e-6));
 /// ```
-#[cube]
+#[cube(harness(cfg(feature = "export_tests")))]
 pub fn to_degrees<F: Float>(val: F) -> F {
     val * F::new(180.0 / f64::consts::PI)
 }
@@ -30,7 +30,7 @@ pub fn to_degrees<F: Float>(val: F) -> F {
 /// let radians = to_radians(degrees);
 /// assert!((radians - F::new(std::f32::consts::PI)).abs() < F::new(1e-6));
 /// ```
-#[cube]
+#[cube(harness(cfg(feature = "export_tests")))]
 pub fn to_radians<F: Float>(val: F) -> F {
     val * F::new(f64::consts::PI / 180.0)
 }

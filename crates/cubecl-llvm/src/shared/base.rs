@@ -35,11 +35,17 @@ use core::cell::RefCell;
 use cubecl_core::ir::nvidia::SmArch;
 use cubecl_core::{
     Compiler,
-    ir::{amd::GfxArch, dialect::scf::BranchToSCFPass, metadata::Info, rewrite::SimplifyOpsPass},
+    ir::{
+        amd::GfxArch,
+        dialect::scf::BranchToSCFPass,
+        metadata::Info,
+        rewrite::{CanonicalizePass, LowerOpsPass, SimplifyOpsPass},
+    },
     post_processing::{
         bf16::LowerWideBf16CastPass,
         bitwise::PromoteBitwisePass,
-        minifloat::{LowerMinifloatCastPass, LowerMinifloatComparePass},
+        fp4::{LowerFp4Cast, LowerFp4CastPass},
+        minifloat::{Fp8Container, LowerMinifloatCastPass, LowerMinifloatComparePass},
     },
     prelude::*,
 };
@@ -434,7 +440,7 @@ fn lower(
     #[cfg(feature = "pliron-dump")]
     let ir_printing_dir = pliron_path(&kernel.name);
     let config = PMConfig {
-        print_after_all: true,
+        print_after_all: cfg!(feature = "pliron-dump"),
         ir_printing_dir,
         ..Default::default()
     };
@@ -443,17 +449,25 @@ fn lower(
     analyses.set_config(config);
 
     let mut func_passes = OpPass::<FuncOp, Passes>::default();
+    func_passes.add_pass(LowerOpsPass::default());
     target.prologue(&mut func_passes);
     func_passes.add_pass(SROAPass);
     func_passes.add_pass(ResolvePendingPass);
     func_passes.add_pass(SCCPPass);
     func_passes.add_pass(SimpleCSEPass::with_memory());
     func_passes.add_pass(SimplifyOpsPass::default());
+    func_passes.add_pass(CanonicalizePass::default());
     func_passes.add_pass(PromoteBitwisePass);
     func_passes.add_pass(InstCombinePass::default());
     // LLVM converts between `f32` and `bfloat`; a wider source would round twice through `f32`.
     func_passes.add_pass(LowerWideBf16CastPass::default());
     func_passes.add_pass(LowerMinifloatCastPass::default());
+    // No LLVM target converts `e2m1x2` itself, so every cast from or to it is the software codec,
+    // its decode through `f16` pairs, which every target holds.
+    func_passes.add_pass(LowerFp4CastPass::new(LowerFp4Cast::new(
+        true,
+        Fp8Container::Bytes,
+    )));
     func_passes.add_pass(LowerMinifloatComparePass::default());
     func_passes.add_pass(LowerComplexOpPass::default());
     target.epilogue(&mut func_passes);

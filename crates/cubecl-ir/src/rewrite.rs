@@ -34,7 +34,7 @@ use pliron::{
 
 use crate::{
     dialect::BlockPtrExt,
-    interfaces::{CanonicalizeInterface, SimplifyInterface},
+    interfaces::{CanonicalizeInterface, LowerInterface, SimplifyInterface},
     prelude::*,
 };
 
@@ -170,6 +170,29 @@ impl MatchRewrite for Canonicalize {
         let canonicalize = op_cast::<dyn CanonicalizeInterface>(&*dyn_op).unwrap();
         canonicalize.canonicalize(ctx, rewriter)?;
         Ok(())
+    }
+}
+
+/// Lowers each op implementing [`LowerInterface`], outer ones first.
+pub type LowerOpsPass = MatchRewritePass<LowerOps>;
+
+#[derive(Default, Clone, Copy, NamedRewrite)]
+pub struct LowerOps;
+
+impl MatchRewrite for LowerOps {
+    fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
+        op.impls::<dyn LowerInterface>(ctx)
+    }
+
+    fn rewrite(
+        &mut self,
+        ctx: &mut Context,
+        rewriter: &mut MatchRewriter,
+        op: Ptr<Operation>,
+    ) -> Result<()> {
+        let dyn_op = op.dyn_op(ctx);
+        let lower = op_cast::<dyn LowerInterface>(&*dyn_op).unwrap();
+        lower.lower(ctx, rewriter)
     }
 }
 

@@ -22,6 +22,11 @@ impl PtxVersion {
             .map(|(_, ptx)| Self(*ptx))
     }
 
+    /// The packed two-digit PTX version number (e.g. `87` for PTX 8.7).
+    pub const fn number(self) -> u32 {
+        self.0
+    }
+
     /// The NVPTX target feature that selects this version.
     pub fn target_feature(self) -> CString {
         CString::new(format!("+{self}")).expect("the feature has no NUL")

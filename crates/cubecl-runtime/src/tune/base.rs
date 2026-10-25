@@ -69,9 +69,9 @@ impl<K, F: TuneInputs, Output: 'static, Id> Tunable<K, F, Output, Id> {
             function: TuneFn::new(
                 name,
                 Box::new(move |inputs| {
-                    func(inputs).map_err(|err| AutotuneError::Unknown {
+                    func(inputs).map_err(|err| AutotuneError::Rejected {
                         name: name_for_err.to_string(),
-                        err: err.into(),
+                        reason: err.into(),
                     })
                 }),
             ),

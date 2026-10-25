@@ -1,4 +1,4 @@
-use alloc::vec::Vec;
+use alloc::{sync::Arc, vec::Vec};
 use core::sync::atomic::{AtomicI8, Ordering};
 use derive_more::Deref;
 use pliron::r#type::TypeHandle;
@@ -79,7 +79,7 @@ impl KernelBuilder {
         self.scope.state_mut().target_properties = properties;
     }
 
-    pub fn device_properties(&mut self, properties: &DeviceProperties) {
+    pub fn device_properties(&mut self, properties: Arc<DeviceProperties>) {
         self.scope.device_properties(properties);
     }
 

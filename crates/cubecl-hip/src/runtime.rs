@@ -40,9 +40,15 @@ use cubecl_cpp::{
 };
 use cubecl_hip_sys::{hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
 use cubecl_llvm::shared::lowered_features::{GpuTarget, restrict_features};
-use cubecl_monitoring::{DeviceUtilization, UtilizationUnavailable, gpu_utilization::CardCounters};
+use cubecl_monitoring::{
+    DevicePower, DeviceTemperature, DeviceUtilization, UtilizationUnavailable,
+    gpu_utilization::CardCounters,
+};
 use cubecl_server::{
-    allocator::PitchedMemoryLayoutPolicy, driver::checked, logging::ServerLogger, runtime::Runtime,
+    allocator::PitchedMemoryLayoutPolicy,
+    driver::checked,
+    logging::ServerLogger,
+    runtime::{DeviceDescription, DeviceKind, Runtime},
 };
 use std::{
     ffi::CStr,
@@ -170,6 +176,17 @@ impl DeviceService for HipServer {
             },
         );
         register_supported_types(&mut device_props);
+        // No AMD part converts fp4 itself; cubecl-llvm decodes it in software. Emulated, a packed
+        // reader decodes the word's bits as `f16` pairs rather than code by code.
+        #[cfg(not(feature = "cpp"))]
+        {
+            use cubecl_core::ir::{ElemType, FloatKind, features::TypeUsage};
+            device_props.register_type_usage(
+                ElemType::Float(FloatKind::E2M1x2),
+                TypeUsage::Conversion | TypeUsage::Buffer,
+            );
+            device_props.register_emulated_conversion(ElemType::Float(FloatKind::E2M1x2));
+        }
 
         // TODO look into unsafeAtomicAdd (https://github.com/ROCm/HIP/issues/3573120)
         // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
@@ -299,8 +316,111 @@ impl Runtime for HipRuntime {
     }
 
     fn utilization(device: &Self::Device) -> Result<DeviceUtilization, UtilizationUnavailable> {
-        CardCounters::read(Self::client(device).properties().identity.physical.as_ref())
+        CardCounters::utilization(Self::client(device).properties().identity.physical.as_ref())
     }
+
+    fn temperature(device: &Self::Device) -> Result<DeviceTemperature, UtilizationUnavailable> {
+        CardCounters::temperature(Self::client(device).properties().identity.physical.as_ref())
+    }
+
+    fn power(device: &Self::Device) -> Result<DevicePower, UtilizationUnavailable> {
+        CardCounters::power(Self::client(device).properties().identity.physical.as_ref())
+    }
+
+    fn description(device: &Self::Device) -> Option<DeviceDescription> {
+        if !cubecl_hip_sys::is_available() {
+            return None;
+        }
+        let index = device.index as i32;
+        let props = device_properties(index).ok()?;
+        let kind = match props.integrated != 0 {
+            true => DeviceKind::Integrated,
+            false => DeviceKind::Discrete,
+        };
+        let mut description = DeviceDescription::new(marketing_name(&props), kind);
+        description.max_memory = Some(props.totalGlobalMem as u64);
+        description.physical = Some(physical_device(index, &props));
+        description.architecture = Some(arch_name(&props));
+        description.driver_version = driver_version();
+        Some(description)
+    }
+}
+
+/// The properties of the device at `index`, without creating a context on it.
+fn device_properties(
+    index: i32,
+) -> Result<cubecl_hip_sys::hipDeviceProp_tR0600, cubecl_server::driver::DriverError> {
+    // SAFETY: `hipGetDevicePropertiesR0600` initializes the struct on success,
+    // which is checked before it is read.
+    unsafe {
+        let mut props = MaybeUninit::uninit();
+        let status = cubecl_hip_sys::hipGetDevicePropertiesR0600(
+            props.as_mut_ptr(),
+            index as cubecl_hip_sys::hipDevice_t,
+        );
+        checked("hipGetDevicePropertiesR0600", status)?;
+        Ok(props.assume_init())
+    }
+}
+
+/// The full `gcnArchName` in `props`, target-feature suffix included.
+fn arch_name(props: &cubecl_hip_sys::hipDeviceProp_tR0600) -> String {
+    // SAFETY: the array is a null-terminated C string the driver wrote, copied
+    // out before `props` is released.
+    unsafe { CStr::from_ptr(props.gcnArchName.as_ptr()) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// The card behind the device at `index`, whose properties are `props`.
+#[cfg_attr(not(windows), expect(unused_variables))]
+fn physical_device(index: i32, props: &cubecl_hip_sys::hipDeviceProp_tR0600) -> PhysicalDevice {
+    let mut bus_id = [0u8; 32];
+    // SAFETY: the buffer outlives the call and its length travels with it.
+    let status = unsafe {
+        cubecl_hip_sys::hipDeviceGetPCIBusId(
+            bus_id.as_mut_ptr().cast(),
+            bus_id.len() as c_int,
+            index,
+        )
+    };
+    let mut physical = PhysicalDevice::default();
+    physical.pci_address = checked("hipDeviceGetPCIBusId", status)
+        .ok()
+        .and_then(|()| CStr::from_bytes_until_nul(&bus_id).ok())
+        .and_then(|id| id.to_str().ok()?.parse().ok());
+    physical.vendor = Some(PciVendor::Amd);
+    #[cfg(windows)]
+    {
+        let luid = props.luid.map(|byte| byte as u8);
+        // A zeroed LUID names no adapter.
+        physical.luid = (luid != [0; 8]).then(|| AdapterLuid::new(luid));
+    }
+    physical
+}
+
+/// The HIP driver's version, decoded from `10_000_000 * major + 100_000 * minor + patch`.
+fn driver_version() -> Option<String> {
+    let mut version: c_int = 0;
+    // SAFETY: `version` outlives the call, and is only read after it reported writing it.
+    let status = unsafe { cubecl_hip_sys::hipDriverGetVersion(&mut version) };
+    checked("hipDriverGetVersion", status).ok()?;
+    Some(format!(
+        "{}.{}.{}",
+        version / 10_000_000,
+        (version / 100_000) % 100,
+        version % 100_000
+    ))
+}
+
+/// The marketing name in `props`, lossily decoded: a driver returning
+/// something that is not UTF-8 does not take the runtime down.
+fn marketing_name(props: &cubecl_hip_sys::hipDeviceProp_tR0600) -> String {
+    // SAFETY: the array is a null-terminated C string the driver wrote, copied
+    // out before `props` is released.
+    unsafe { CStr::from_ptr(props.name.as_ptr()) }
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// What the driver says about one AMD device.
@@ -348,55 +468,13 @@ impl DeviceProbe {
     /// returns `Self`, so there is nowhere to report this to and nothing that
     /// follows would be meaningful.
     fn of(index: i32) -> Self {
-        // SAFETY: `hipGetDevicePropertiesR0600` initializes the struct on
-        // success, which is asserted before anything reads it, and `index` was
-        // validated by the `AmdDevice` constructor.
-        let props = unsafe {
-            let mut props = MaybeUninit::uninit();
-            let status = cubecl_hip_sys::hipGetDevicePropertiesR0600(
-                props.as_mut_ptr(),
-                index as cubecl_hip_sys::hipDevice_t,
-            );
-            checked("hipGetDevicePropertiesR0600", status).unwrap_or_else(|err| {
-                panic!("the driver could not describe device {index}: {err}")
-            });
-            props.assume_init()
-        };
+        // `index` was validated by the `AmdDevice` constructor.
+        let props = device_properties(index)
+            .unwrap_or_else(|err| panic!("the driver could not describe device {index}: {err}"));
 
-        // SAFETY: both arrays are null-terminated C strings written by the
-        // driver, and both are copied out before `props` goes out of scope.
-        let (arch_name, name) = unsafe {
-            (
-                CStr::from_ptr(props.gcnArchName.as_ptr())
-                    .to_string_lossy()
-                    .into_owned(),
-                CStr::from_ptr(props.name.as_ptr())
-                    .to_string_lossy()
-                    .into_owned(),
-            )
-        };
-
-        let mut bus_id = [0u8; 32];
-        // SAFETY: the buffer outlives the call and its length travels with it.
-        let status = unsafe {
-            cubecl_hip_sys::hipDeviceGetPCIBusId(
-                bus_id.as_mut_ptr().cast(),
-                bus_id.len() as c_int,
-                index,
-            )
-        };
-        let mut physical = PhysicalDevice::default();
-        physical.pci_address = checked("hipDeviceGetPCIBusId", status)
-            .ok()
-            .and_then(|()| CStr::from_bytes_until_nul(&bus_id).ok())
-            .and_then(|id| id.to_str().ok()?.parse().ok());
-        physical.vendor = Some(PciVendor::Amd);
-        #[cfg(windows)]
-        {
-            let luid = props.luid.map(|byte| byte as u8);
-            // A zeroed LUID names no adapter.
-            physical.luid = (luid != [0; 8]).then(|| AdapterLuid::new(luid));
-        }
+        let arch_name = arch_name(&props);
+        let name = marketing_name(&props);
+        let physical = physical_device(index, &props);
 
         Self {
             arch_name,
