@@ -4,8 +4,8 @@ use cubecl_core::ir::AddressType;
 use cubecl_core::ir::types::{
     ArrayType, AtomicType,
     scalar::{
-        BFloat16Type, Float8E4M3Type, Float8E5M2Type, Float8E8M0Type, Float16Type, Float32Type,
-        Float64Type, FloatFlex32Type, TFloat32Type,
+        BFloat16Type, Float4E2M1Type, Float4E2M1x2Type, Float8E4M3Type, Float8E5M2Type,
+        Float8E8M0Type, Float16Type, Float32Type, Float64Type, FloatFlex32Type, TFloat32Type,
     },
 };
 
@@ -60,6 +60,10 @@ impl_cube_to_llvm_type!(BFloat16Type, self, ctx => BF16Type::get(ctx));
 impl_cube_to_llvm_type!(Float8E4M3Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
 impl_cube_to_llvm_type!(Float8E5M2Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
 impl_cube_to_llvm_type!(Float8E8M0Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
+// A code, or a pair of them, in the byte that holds it: what a buffer stores and a reinterpret
+// reads, while every conversion is the software codec (`LowerFp4CastPass`).
+impl_cube_to_llvm_type!(Float4E2M1Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
+impl_cube_to_llvm_type!(Float4E2M1x2Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
 impl_cube_to_llvm_type!(CubePointerType, self, ctx => LlvmPointerType::get(ctx, 0));
 impl_cube_to_llvm_type!(CubeVectorType, self, ctx => LlvmVectorType::get(ctx, cube_type_to_llvm(ctx, self.inner), self.vectorization as u32, VectorTypeKind::Fixed));
 impl_cube_to_llvm_type!(AtomicType, self, ctx => cube_type_to_llvm(ctx, self.inner));

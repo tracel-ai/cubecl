@@ -25,6 +25,21 @@ fn a_1d_cube_reads_only_the_x_thread_id() {
     );
 }
 
+/// An `e2m1x2` cast compiles on a part with no fp4 conversion of its own, an L4's: the codec is
+/// integer work on the word and `f16` pairs, and no fp4 conversion instruction is emitted.
+#[test]
+fn fp4_casts_compile_to_the_software_codec() {
+    let ptx = ptx_of(crate::shared::offline_kernels::fp4_round_trip_kernel(), 89);
+    assert!(
+        !ptx.contains("e2m1"),
+        "no fp4 conversion instruction:\n{ptx}"
+    );
+    assert!(
+        ptx.contains("shr") || ptx.contains("bfe"),
+        "the codes are shifted out:\n{ptx}"
+    );
+}
+
 #[test]
 fn plane_moves_are_native_shuffles() {
     let ptx = ptx_of(plane_moves_kernel(), 60);

@@ -15,7 +15,6 @@ use cubecl::{
     cmma::{MatrixIdent, MatrixLayout, MmaDefinition},
     e2m1x2, e4m3,
     prelude::*,
-    quant::scheme::QuantValue,
 };
 
 use super::block_scaled::{E2M1_PER_WORD, E2M1_SCALE_BLOCK};
@@ -49,12 +48,7 @@ pub(crate) fn steps_refusal<T: Numeric>(
     let e2m1_weight = comptime!(
         ident == MatrixIdent::B
             && layout == MatrixLayout::ColMajor
-            && matches!(
-                packing,
-                Packing::Packed {
-                    field: Field::Quant(QuantValue::E2M1) | Field::ConvertedE2M1
-                }
-            )
+            && matches!(packing, Packing::Packed { field } if field.holds_e2m1())
     );
     comptime!(if k <= depth {
         Some("the fragment is one instruction deep, which loads as one")
