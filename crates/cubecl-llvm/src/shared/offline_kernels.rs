@@ -190,6 +190,33 @@ pub(crate) fn relay_kernel(wait: Wait) -> impl CubeKernel {
     )
 }
 
+/// A word read as four `e2m1x2` and cast to eight `f16`, then the eight cast back: what a reader
+/// of a packed fp4 weight does, through the software codec on every LLVM target.
+#[cfg(any(feature = "nvptx", feature = "amdgpu"))]
+#[cube(launch)]
+fn fp4_round_trip(words: &[u32], out: &mut [u32]) {
+    let codes = Vector::<cubecl_core::e2m1x2, Const<4>>::reinterpret(words[ABSOLUTE_POS]);
+    let values = Vector::<half::f16, Const<8>>::cast_from(codes);
+    let encoded = Vector::<cubecl_core::e2m1x2, Const<4>>::cast_from(values);
+    out[ABSOLUTE_POS] = u32::reinterpret(encoded);
+}
+
+#[cfg(any(feature = "nvptx", feature = "amdgpu"))]
+pub(crate) fn fp4_round_trip_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    fp4_round_trip::Fp4RoundTrip::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 /// Scales `input` into `output` and counts the units into `tally`, dropping what the count was:
 /// an accumulation no cube waits on.
 #[cube(launch)]

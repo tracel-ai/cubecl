@@ -176,6 +176,17 @@ impl DeviceService for HipServer {
             },
         );
         register_supported_types(&mut device_props);
+        // No AMD part converts fp4 itself; cubecl-llvm decodes it in software. Emulated, a packed
+        // reader decodes the word's bits as `f16` pairs rather than code by code.
+        #[cfg(not(feature = "cpp"))]
+        {
+            use cubecl_core::ir::{ElemType, FloatKind, features::TypeUsage};
+            device_props.register_type_usage(
+                ElemType::Float(FloatKind::E2M1x2),
+                TypeUsage::Conversion | TypeUsage::Buffer,
+            );
+            device_props.register_emulated_conversion(ElemType::Float(FloatKind::E2M1x2));
+        }
 
         // TODO look into unsafeAtomicAdd (https://github.com/ROCm/HIP/issues/3573120)
         // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
