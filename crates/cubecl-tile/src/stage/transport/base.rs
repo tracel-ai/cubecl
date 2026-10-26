@@ -49,7 +49,8 @@ pub(crate) enum Scan {
 
 impl TransportKind {
     /// The transport `src` reaches `dst` by; panics on a pairing with no transport, or an async
-    /// copy on one that does not move each line whole ([`refuse_async`](TransportKind::refuse_async)).
+    /// copy on one that does not move each line whole
+    /// ([`refuse_async`](TransportKind::refuse_async)).
     pub(crate) fn new(dst: StoreForm, src: StoreForm, access: &Access, space: &Space) -> Self {
         let kind = Self::choose(dst, src, access, space);
         match src.delivery {
@@ -71,7 +72,7 @@ impl TransportKind {
         assert!(
             !matches!(self, TransportKind::Scanned(_)),
             "TransportKind: an async copy fills a whole, unmasked stage that replaces, and this \
-             destination is windowed, masked, folding or a sink"
+             destination is windowed, masked, summing or a sink"
         );
         assert!(
             dst.width == src.width,

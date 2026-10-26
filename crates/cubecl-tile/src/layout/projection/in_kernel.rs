@@ -84,23 +84,6 @@ fn line_scale(
     scale / width
 }
 
-/// A term's static additive step, `None` if dynamic; panics for one kept inside a floor.
-fn split_step(map: &PhysicalAxisMap, term: usize) -> Option<usize> {
-    if map.is_rational() {
-        return Some(map.static_offset_step(term).unwrap_or_else(|| {
-            panic!(
-                "ProjectionInKernel::advance: {:?} stays inside this axis's floor, so stepping it is \
-                 not an addition and the map has to be folded at every position",
-                map.terms()[term].axis
-            )
-        }));
-    }
-    match map.terms()[term].scale {
-        Scale::Static(s) => Some(s),
-        Scale::Dynamic { .. } => None,
-    }
-}
-
 #[cube]
 impl ProjectionInKernel {
     /// The source coordinate of `pos` with every axis in `moving` held at zero.
@@ -201,7 +184,7 @@ impl ProjectionInKernel {
                 let term = comptime!(axis_map.terms()[t]);
                 if comptime!(moving.contains(&term.axis)) {
                     let p = comptime!(self.space.position(term.axis));
-                    match comptime!(split_step(axis_map, t)) {
+                    match comptime!(axis_map.additive_step(t)) {
                         // Same units as `anchor`'s offset, since the two are added.
                         Some(step) => steps.push(pos[p].times(comptime!(line_scale(
                             &self.space,
@@ -247,41 +230,5 @@ impl Layout for ProjectionInKernel {
     /// The logical box; physical validity is the [`Window`](crate::Window)'s question.
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
         self.shape.within(pos)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const OUT: Axis = Axis(0);
-    const TAP: Axis = Axis(1);
-
-    #[test]
-    fn a_plain_affine_term_steps_by_its_coefficient() {
-        let map = PhysicalAxisMap::affine(&[(OUT, 2), (TAP, 3)]);
-        assert_eq!(split_step(&map, 0), Some(2));
-        assert_eq!(split_step(&map, 1), Some(3));
-    }
-
-    #[test]
-    fn a_dynamic_coefficient_has_no_static_step() {
-        let map =
-            PhysicalAxisMap::scaled(&[(OUT, Scale::Static(2)), (TAP, Scale::Dynamic { max: 4 })]);
-        assert_eq!(split_step(&map, 1), None);
-    }
-
-    /// `⌊(x + m·4)/2⌋` moves by `2` per `m`.
-    #[test]
-    fn a_divisible_term_steps_by_what_the_floor_factors_out() {
-        let map = PhysicalAxisMap::affine(&[(OUT, 3), (TAP, 4)]).over(2);
-        assert_eq!(split_step(&map, 1), Some(2));
-    }
-
-    #[test]
-    #[should_panic(expected = "stays inside this axis's floor")]
-    fn an_indivisible_term_under_a_floor_cannot_be_stepped() {
-        let map = PhysicalAxisMap::affine(&[(OUT, 3), (TAP, 4)]).over(2);
-        split_step(&map, 0);
     }
 }

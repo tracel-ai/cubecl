@@ -148,8 +148,8 @@ impl VectorTile {
     }
 
     /// How far along `axis` the value at `position` of one load sits from the load's first: the
-    /// position read as a number whose digits are the load's extents, finest first. `20` of a
-    /// 16 by 2 load along `K` then `N` is 4 along `K` and 1 along `N`.
+    /// position unravelled over the load's extents, finest first. `20` of a 16 by 2 load along `K`
+    /// then `N` is 4 along `K` and 1 along `N`.
     pub(crate) fn offset_along(&self, position: usize, axis: Axis) -> usize {
         let mut rest = position;
         for &(a, extent) in &self.extents {
@@ -179,8 +179,8 @@ impl VectorTile {
         edge.div_ceil(w)
     }
 
-    /// How many loads fit along each axis of `space`, rounded up: a padded stage's innermost
-    /// extent need not fill whole loads, and a checked read's box must include the partial last one.
+    /// How many loads fit along each axis of `space`, rounded up: a padded stage's innermost extent
+    /// need not fill whole loads, and a checked read's box must include the partial last one.
     pub(crate) fn counts(&self, space: &Space) -> Vec<usize> {
         space
             .axes()
@@ -281,12 +281,12 @@ impl VectorTile {
         #[comptime] tile: &VectorTile,
     ) -> Coords<u32> {
         let rank = comptime!(space.rank());
-        let digits = Coords::constant(comptime!(tile.counts(space))).unravel(line);
+        let place = Coords::constant(comptime!(tile.counts(space))).unravel(line);
         let mut coords = Coords::<u32>::new();
         #[unroll]
         for p in 0..rank {
             let extent = comptime!(tile.extent_along(space.axis_at(p)) as u32);
-            coords.push(digits.at(p).times(extent));
+            coords.push(place.at(p).times(extent));
         }
         coords
     }
@@ -413,7 +413,7 @@ mod tests {
         );
     }
 
-    /// A value's place in a load reads off its position, the load's extents the digits, finest
+    /// A value's place in a load reads off its position unravelled over the load's extents, finest
     /// first: the 21st value of a 16 by 2 load is the second column's fifth, a run's is itself.
     #[test]
     fn a_position_in_a_load_is_an_offset_along_each_axis() {

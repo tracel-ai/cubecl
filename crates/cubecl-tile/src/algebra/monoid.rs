@@ -72,21 +72,6 @@ impl Monoid {
         }
         acc
     }
-
-    /// `seed ∗ arr₀ ∗ … ∗ arr_{len-1}`: `len` elements of `arr` combined into `seed`.
-    pub fn reduce_array<E: Numeric>(
-        arr: &Array<E>,
-        #[comptime] len: usize,
-        seed: E,
-        #[comptime] monoid: Monoid,
-    ) -> E {
-        let mut acc = seed;
-        #[unroll]
-        for i in 0..len {
-            acc = monoid.combine::<E>(acc, arr[i]);
-        }
-        acc
-    }
 }
 
 /// `monoid.combine(a, b)`, hand-written since a comptime-only type has no `{Name}Expand`.

@@ -16,6 +16,5 @@ pub(crate) use compute_scope::*;
 pub(crate) use count::*;
 pub(crate) use cube_axis::*;
 pub(crate) use cube_order::*;
-pub(crate) use cube_order::{in_plane_axes, swizzled_positions};
 pub(crate) use level::*;
 pub(crate) use plane_order::*;
