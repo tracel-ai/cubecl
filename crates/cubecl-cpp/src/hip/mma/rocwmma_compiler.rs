@@ -339,7 +339,7 @@ pub(super) fn supported_wmma_combinations_rocwmma(
             ]
         }
         // RDNA1 has no WMMA instructions; they arrive with RDNA3.
-        AMDArchitecture::GFX101 | AMDArchitecture::Other => vec![],
+        AMDArchitecture::GFX9 | AMDArchitecture::GFX101 | AMDArchitecture::Other => vec![],
     };
     combinations
         .into_iter()
