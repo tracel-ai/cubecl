@@ -68,10 +68,10 @@ fn position_reads(ctx: &Context, block: Ptr<BasicBlock>) -> Result<Vec<(ReadBuil
             },
         );
     }
-    reads.retain(|(_, builtin)| !matches!(count_of(*builtin), Count::Not));
+    reads.retain(|(_, builtin)| !matches!(PositionCount::new(*builtin), PositionCount::Not));
     match reads
         .iter()
-        .find(|(_, builtin)| matches!(count_of(*builtin), Count::Unsupported))
+        .find(|(_, builtin)| matches!(PositionCount::new(*builtin), PositionCount::Unsupported))
     {
         Some((_, builtin)) => verify_err_noloc!(UnsupportedPosition(*builtin)),
         None => Ok(reads),
@@ -79,7 +79,7 @@ fn position_reads(ctx: &Context, block: Ptr<BasicBlock>) -> Result<Vec<(ReadBuil
 }
 
 /// What a builtin read inside a level counts among.
-enum Count {
+enum PositionCount {
     /// A position the loop ranges over this count.
     Of(Builtin),
     /// A position this lowering has no loop for.
@@ -88,23 +88,25 @@ enum Count {
     Not,
 }
 
-fn count_of(builtin: Builtin) -> Count {
-    match builtin {
-        Builtin::CubePosX => Count::Of(Builtin::CubeCountX),
-        Builtin::CubePosY => Count::Of(Builtin::CubeCountY),
-        Builtin::CubePosZ => Count::Of(Builtin::CubeCountZ),
-        Builtin::UnitPosY => Count::Of(Builtin::CubeDimY),
-        Builtin::UnitPos
-        | Builtin::UnitPosX
-        | Builtin::UnitPosZ
-        | Builtin::UnitPosPlane
-        | Builtin::PlanePos
-        | Builtin::CubePos
-        | Builtin::AbsolutePos
-        | Builtin::AbsolutePosX
-        | Builtin::AbsolutePosY
-        | Builtin::AbsolutePosZ => Count::Unsupported,
-        _ => Count::Not,
+impl PositionCount {
+    fn new(builtin: Builtin) -> Self {
+        match builtin {
+            Builtin::CubePosX => PositionCount::Of(Builtin::CubeCountX),
+            Builtin::CubePosY => PositionCount::Of(Builtin::CubeCountY),
+            Builtin::CubePosZ => PositionCount::Of(Builtin::CubeCountZ),
+            Builtin::UnitPosY => PositionCount::Of(Builtin::CubeDimY),
+            Builtin::UnitPos
+            | Builtin::UnitPosX
+            | Builtin::UnitPosZ
+            | Builtin::UnitPosPlane
+            | Builtin::PlanePos
+            | Builtin::CubePos
+            | Builtin::AbsolutePos
+            | Builtin::AbsolutePosX
+            | Builtin::AbsolutePosY
+            | Builtin::AbsolutePosZ => PositionCount::Unsupported,
+            _ => PositionCount::Not,
+        }
     }
 }
 
@@ -145,9 +147,9 @@ pub(super) fn run_on_first_instance(
     }
     let mut positions = reads
         .iter()
-        .filter_map(|(_, builtin)| match count_of(*builtin) {
-            Count::Of(count) => Some((*builtin, count)),
-            Count::Unsupported | Count::Not => None,
+        .filter_map(|(_, builtin)| match PositionCount::new(*builtin) {
+            PositionCount::Of(count) => Some((*builtin, count)),
+            PositionCount::Unsupported | PositionCount::Not => None,
         })
         .collect::<Vec<_>>();
     positions.sort();

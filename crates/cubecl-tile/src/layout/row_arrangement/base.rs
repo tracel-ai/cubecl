@@ -95,7 +95,7 @@ impl RowArrangement {
         }
     }
 
-    /// The swizzle moving physical axis `axis`'s digits, if any.
+    /// The swizzle moving physical axis `axis`'s coordinates, if any.
     pub(crate) fn swizzle_along(&self, axis: usize) -> Option<ChunkSwizzle> {
         match self {
             Self::Swizzled(swizzle) if swizzle.line_axis() == axis => Some(*swizzle),

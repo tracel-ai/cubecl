@@ -93,7 +93,7 @@ impl Walk {
             ),
         };
 
-        // Folded, not accumulated, so a static walk can unroll.
+        // Computed whole, not accumulated, so a static walk can unroll.
         let steps = counts.product(comptime!((0..rank).collect::<Vec<_>>()));
 
         Walk {
@@ -154,7 +154,7 @@ impl Walk {
         grid: &Coords<usize>,
     ) -> (Coords<usize>, Coords<usize>, Coords<usize>) {
         let rank = comptime!(host.rank());
-        // Folded, so a constant grid's decode folds too.
+        // Computed whole, so a constant grid's decode stays constant too.
         let mut instances = Coords::<usize>::new();
         #[unroll]
         for p in 0..rank {
@@ -338,21 +338,21 @@ impl Walk {
             if comptime!(self.routed_at.contains(&p)) {
                 coords.push(self.route.at(p));
             } else {
-                coords.push(self.fold(self.digit(idx, p), p).cast::<u32>());
+                coords.push(self.tile_coord(self.step_coord(idx, p), p).cast::<u32>());
             }
         }
         coords
     }
 
-    /// The odometer digit of step `idx` along axis `p` (last axis fastest).
-    fn digit(&self, idx: usize, #[comptime] p: usize) -> usize {
+    /// The coordinate of step `idx` along axis `p` (last axis fastest).
+    fn step_coord(&self, idx: usize, #[comptime] p: usize) -> usize {
         let rank = comptime!(self.space.rank());
         let quot = idx.divided_by(
             self.counts
                 .product(comptime!(((p + 1)..rank).collect::<Vec<_>>())),
         );
-        // `% count` is skipped when `idx` has no more significant digit, which folding cannot know;
-        // except for a count of one, where `% 1` folds to `0`.
+        // `% count` is skipped when `idx` has no more significant coordinate, which constant
+        // evaluation cannot know; except for a count of one, where `% 1` is `0`.
         let count = self.counts.at(p);
         let one = count.constant();
         let earlier = self
@@ -366,19 +366,20 @@ impl Walk {
         }
     }
 
-    /// Fold axis `p`'s instance position into its `digit` per the [`Spread`], counted from the
+    /// The tile axis `p`'s step coordinate `coord` reaches, with the instance's position added per
+    /// the [`Spread`], counted from the
     /// last tile where the level hands the axis out [`reversed`](crate::Levels::reversed).
-    fn fold(&self, digit: usize, #[comptime] p: usize) -> usize {
+    fn tile_coord(&self, coord: usize, #[comptime] p: usize) -> usize {
         let tile = match comptime!(self.distributes[p].clone()) {
-            AxisDistribution::Walked => digit,
+            AxisDistribution::Walked => coord,
             AxisDistribution::Distributed(Distribution {
                 spread: Spread::Contiguous,
                 ..
-            }) => digit.plus(self.positions.at(p).times(self.scales.at(p))),
+            }) => coord.plus(self.positions.at(p).times(self.scales.at(p))),
             AxisDistribution::Distributed(Distribution {
                 spread: Spread::Interleaved,
                 ..
-            }) => digit.times(self.scales.at(p)).plus(self.positions.at(p)),
+            }) => coord.times(self.scales.at(p)).plus(self.positions.at(p)),
         };
         let tiles = self.tiles.at(p);
         // A plane past the last tile stays past it, where the binding masks it.
@@ -430,7 +431,7 @@ impl Iterable for WalkExpand {
         });
     }
 
-    /// The region count when it folds to a constant, so a single region needs no loop.
+    /// The region count when it is a constant, so a single region needs no loop.
     fn const_len(&self) -> Option<usize> {
         crate::algebra::constant(&self.steps).map(|n| n as usize)
     }
