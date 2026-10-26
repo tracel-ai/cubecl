@@ -1460,11 +1460,8 @@ impl CanonicalizeInterface for WhileOp {
 
         let results = self.get_operation().results(ctx);
         for (idx, res) in results.into_iter().enumerate().rev() {
-            let cond = before_block.deref(ctx).get_terminator(ctx).unwrap();
-            let cond_arg = cond.deref(ctx).get_operand(idx + 1);
-            if !res.is_used(ctx)
-                && only_used_for_forward::<ConditionOp>(ctx, before_block, idx + 1, cond_arg)
-            {
+            let after_arg = self.get_after_carried_value(ctx, idx);
+            if !res.is_used(ctx) && !after_arg.is_used(ctx) {
                 remove_from_terminator::<ConditionOp>(ctx, before_block, idx + 1);
                 self.remove_after_carried_value(ctx, idx);
                 Operation::remove_result(self.get_operation(), ctx, idx);
