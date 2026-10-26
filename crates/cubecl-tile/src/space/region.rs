@@ -12,7 +12,7 @@ use cubecl::{prelude::*, unexpanded};
 #[derive(CubeType, Clone)]
 #[expand(derive(Clone))]
 pub struct Region {
-    digits: Sequence<Coords<u32>>,
+    step_coords: Sequence<Coords<u32>>,
     /// The runtime sizes of the root's dynamic axes, positional.
     sizes: Sequence<usize>,
     #[cube(comptime)]
@@ -22,12 +22,12 @@ pub struct Region {
 #[cube]
 impl Region {
     pub(crate) fn new(
-        digits: Sequence<Coords<u32>>,
+        step_coords: Sequence<Coords<u32>>,
         sizes: Sequence<usize>,
         #[comptime] path: Path,
     ) -> Region {
         Region {
-            digits,
+            step_coords,
             sizes,
             path,
         }
@@ -118,10 +118,10 @@ impl Region {
             };
             coords.push(c);
         }
-        let mut digits = Sequence::<Coords<u32>>::new();
-        digits.push(coords);
+        let mut step_coords = Sequence::<Coords<u32>>::new();
+        step_coords.push(coords);
         Region::new(
-            digits,
+            step_coords,
             Sequence::new(),
             comptime!(Path::new(
                 depth,
@@ -134,7 +134,7 @@ impl Region {
     /// The `i`-th step of the path.
     pub(crate) fn step(&self, #[comptime] i: usize) -> Step {
         Step::new(
-            self.digits.index(i).clone(),
+            self.step_coords.index(i).clone(),
             comptime!(self.path.space_at(i)),
             comptime!(self.path.level(i).clone()),
             comptime!(self.path.depth() - self.path.len() + i),
@@ -168,15 +168,15 @@ impl Region {
 
     /// This path with one more level's coordinates below it.
     pub(crate) fn below(&self, coords: Coords<u32>, #[comptime] level: Level) -> Region {
-        let n = comptime!(self.digits.len());
-        let mut digits = Sequence::<Coords<u32>>::new();
+        let n = comptime!(self.step_coords.len());
+        let mut step_coords = Sequence::<Coords<u32>>::new();
         #[unroll]
         for i in 0..n {
-            digits.push(self.digits.index(i).clone());
+            step_coords.push(self.step_coords.index(i).clone());
         }
-        digits.push(coords);
+        step_coords.push(coords);
         Region::new(
-            digits,
+            step_coords,
             self.sizes.clone(),
             comptime!(self.path.below(level)),
         )

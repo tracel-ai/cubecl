@@ -123,9 +123,10 @@ impl Projection {
         }
     }
 
-    /// Where `axis`'s digit at physical axis `pa` sits: the positions of its finer fragments, and
-    /// the one whose extent is this digit's radix (`None` for the outermost).
-    pub(crate) fn digit(
+    /// How physical axis `pa` carries `axis`: the positions of its finer carriers, whose extents a
+    /// coordinate is divided by first, and the one whose extent bounds `pa`'s coordinate (`None`
+    /// for the outermost, which keeps the whole quotient).
+    pub(crate) fn carried_by(
         &self,
         pa: usize,
         axis: Axis,
@@ -133,7 +134,8 @@ impl Projection {
         let carriers = self.carriers(axis);
         assert!(
             carriers.contains(&pa),
-            "Projection::digit: physical axis {pa} does not carry {axis:?} (carried by {carriers:?})"
+            "Projection::carried_by: physical axis {pa} does not carry {axis:?} (carried by \
+             {carriers:?})"
         );
         let finer = carriers.iter().copied().filter(|&q| q > pa).collect();
         (finer, (carriers[0] != pa).then_some(pa))
@@ -171,7 +173,7 @@ impl Projection {
         let at = terms.iter().position(|term| term.axis == block).unwrap();
         assert!(
             map.composition() == Composition::Disjoint && at + 1 < terms.len(),
-            "Projection::scales_per: {block:?} must partition its dim with a digit inside it \
+            "Projection::scales_per: {block:?} must partition its dim with an axis inside it \
              (PhysicalAxisMap::disjoint(&[({block:?}, block), (inside, 1)]))"
         );
         let radix = terms[at].scale.get();
@@ -493,9 +495,9 @@ impl Projection {
 mod tests {
     use super::*;
 
-    /// Block scales omit the in-block digit and count the split dim in blocks.
+    /// Block scales omit the in-block axis and count the split dim in blocks.
     #[test]
-    fn scales_per_block_omit_the_digit_inside_it() {
+    fn scales_per_block_omit_the_axis_inside_it() {
         let values = Projection::new(
             &[M, KB, KI],
             &[
@@ -509,9 +511,9 @@ mod tests {
         assert!(scales.physical[1].is_identity(KB));
     }
 
-    /// Scales per a middle digit keep the coarser digit, rescaled to count blocks.
+    /// Scales per a middle axis keep the coarser axis, rescaled to count blocks.
     #[test]
-    fn scales_per_a_coarser_digit_keep_what_is_above_it() {
+    fn scales_per_a_middle_axis_keep_what_is_above_it() {
         let values = Projection::new(
             &[M, KO, KB, KI],
             &[
@@ -529,7 +531,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "must partition its dim with a digit inside it")]
+    #[should_panic(expected = "must partition its dim with an axis inside it")]
     fn scales_per_an_unsplit_axis_are_refused() {
         Projection::direct(&[M, KB]).scales_per(KB);
     }
@@ -726,10 +728,10 @@ mod tests {
         // `[A0, B0, A1, B1, A2]`.
         assert_eq!(p.carriers(A).as_slice(), &[0, 2, 4]);
         assert_eq!(p.carriers(B).as_slice(), &[1, 3]);
-        assert_eq!(p.digit(0, A), (SmallVec::from_slice(&[2, 4]), None));
-        assert_eq!(p.digit(2, A), (SmallVec::from_slice(&[4]), Some(2)));
-        assert_eq!(p.digit(4, A), (SmallVec::new(), Some(4)));
-        assert_eq!(p.digit(1, B), (SmallVec::from_slice(&[3]), None));
+        assert_eq!(p.carried_by(0, A), (SmallVec::from_slice(&[2, 4]), None));
+        assert_eq!(p.carried_by(2, A), (SmallVec::from_slice(&[4]), Some(2)));
+        assert_eq!(p.carried_by(4, A), (SmallVec::new(), Some(4)));
+        assert_eq!(p.carried_by(1, B), (SmallVec::from_slice(&[3]), None));
         assert!(p.is_invertible());
         p.validate(4).unwrap();
     }

@@ -17,7 +17,7 @@ pub(crate) fn register_data<Acc: Numeric, In: Numeric>(
     // Drain the block the way it was built to reduce; the partials fit no other operator.
     comptime!(assert!(
         acc.accumulation.monoid() == monoid,
-        "reduce: this accumulator folds under {:?} (stated at `Tile::accumulate`) but is being \
+        "reduce: this accumulator sums under {:?} (stated at `Tile::accumulate`) but is being \
          reduced under {monoid:?}",
         acc.accumulation.monoid()
     ));

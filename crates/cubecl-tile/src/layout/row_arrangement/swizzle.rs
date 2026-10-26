@@ -88,12 +88,12 @@ impl ChunkSwizzle {
         }
     }
 
-    /// The physical axis holding a block's rows, whose digit keys the swizzle.
+    /// The physical axis holding a block's rows, whose coordinate keys the swizzle.
     pub(crate) fn row_axis(&self) -> usize {
         self.row_axis
     }
 
-    /// The physical axis holding a block row's lines, whose digit the swizzle moves.
+    /// The physical axis holding a block row's lines, whose coordinate the swizzle moves.
     pub(crate) fn line_axis(&self) -> usize {
         self.line_axis
     }

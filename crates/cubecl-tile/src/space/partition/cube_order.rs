@@ -172,7 +172,7 @@ pub(crate) fn in_plane_axes(space: &Space, level: &Level) -> (usize, usize) {
             AxisDistribution::unspanned_weight(level, space, space.axis_at(p)),
             1,
             "Walk: a {:?} cube level shares the grid's {wanted:?} dimension with an axis this \
-             space does not span, whose digit a swizzle has no way to put back",
+             space does not span, whose coordinate a swizzle has no way to put back",
             level.order()
         );
         p

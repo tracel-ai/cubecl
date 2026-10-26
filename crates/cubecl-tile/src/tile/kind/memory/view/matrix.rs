@@ -45,9 +45,9 @@ impl TileMatrix {
         }
     }
 
-    /// The `i`-th matrix of a tile whose window is `bound`, over the axes [`MatrixAxes`] names, each
-    /// axis counted in `load`s: a run along the innermost axis for a plain buffer, and for one stored
-    /// in tiles, every axis the load spans ([`VectorTile::counts`]).
+    /// The `i`-th matrix of a tile whose window is `bound`, over the axes [`MatrixAxes`] names,
+    /// each axis counted in `load`s: a run along the innermost axis for a plain buffer, and for one
+    /// stored in tiles, every axis the load spans ([`VectorTile::counts`]).
     pub(crate) fn batch(
         bound: &Coords<u32>,
         #[comptime] space: &Space,
@@ -57,7 +57,8 @@ impl TileMatrix {
         i: usize,
     ) -> Self {
         let rank = comptime!(space.rank());
-        // Rounded up like the buffer's own load count, so a checked read covers a partial last load.
+        // Rounded up like the buffer's own load count, so a checked read covers a partial last
+        // load.
         let counts = comptime!(load.counts(space));
         // A row, or a column, steps the innermost axis of its group, so a load may reach along that
         // axis and no other: the loads of a group are then consecutive rows (or columns), in order.
@@ -128,7 +129,7 @@ impl TileMatrix {
         for p in 0..rows.len() {
             coords.push(rows.at(p));
         }
-        // The innermost column digit is a line index.
+        // The innermost column coordinate is a line index.
         let cols = Coords::constant(comptime!(line_extents(
             space,
             vector_size,

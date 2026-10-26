@@ -90,7 +90,7 @@ fn split_step(map: &PhysicalAxisMap, term: usize) -> Option<usize> {
         return Some(map.static_offset_step(term).unwrap_or_else(|| {
             panic!(
                 "ProjectionInKernel::advance: {:?} stays inside this axis's floor, so stepping it is \
-                 not an addition and the map has to be folded at every position",
+                 not an addition and the map has to be summed at every position",
                 map.terms()[term].axis
             )
         }));

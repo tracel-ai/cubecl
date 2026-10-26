@@ -1,5 +1,6 @@
-//! A [`Projection`]'s digit arithmetic in the kernel: the logical extents a physical shape
-//! carries, the line offset of one coordinate, and a flat line's digits back to its coordinate.
+//! A [`Projection`]'s carriers read in the kernel: the logical extents a physical shape carries,
+//! the line offset of one coordinate, and a flat line's physical coordinates back to its logical
+//! one.
 
 use cubecl::prelude::*;
 use cubecl_std::tensor::layout::CoordsDyn;
@@ -22,8 +23,8 @@ pub(crate) fn logical_extent(
 }
 
 /// The line offset of coordinate `at` along `axis` under `projection`: each physical axis carrying
-/// `axis` takes its digit of `at`, weighed by its stride. Over a storage-tiled axis the offset is
-/// not linear in `at`: a coordinate that crosses into the next stored tile jumps to that tile's
+/// `axis` takes its coordinate of `at`, weighed by its stride. Over a storage-tiled axis the offset
+/// is not linear in `at`: a coordinate that crosses into the next stored tile jumps to that tile's
 /// stride, so a move from one coordinate to another is the difference of their offsets.
 #[cube]
 pub(crate) fn axis_offset(
@@ -39,15 +40,15 @@ pub(crate) fn axis_offset(
     #[unroll]
     for k in 0..comptime!(carriers.len()) {
         let pa = comptime!(carriers[k]);
-        let (finer, modulo) = comptime!(projection.digit(pa, axis));
+        let (finer, modulo) = comptime!(projection.carried_by(pa, axis));
         let scale = comptime!(projection.scale(pa, axis) as u32);
         let quot = at.divided_by(physical_shape.product(comptime!(finer.to_vec())));
-        let digit = match comptime!(modulo) {
+        let coord = match comptime!(modulo) {
             Some(m) => quot.remainder(physical_shape.at(m)),
             None => quot,
         };
         parts.push(
-            digit
+            coord
                 .times(comptime!(scale).runtime())
                 .times(strides.at(pa)),
         );
@@ -55,17 +56,17 @@ pub(crate) fn axis_offset(
     parts.sum(picks)
 }
 
-/// The logical coordinate producing physical `digits` under `projection`, inverting
+/// The logical coordinate producing `physical` under `projection`, inverting
 /// `BufferLayout`'s `to_source_pos`. Requires [`Projection::is_invertible`].
 #[cube]
-pub(crate) fn logical_of_digits(
+pub(crate) fn logical_of_physical(
     #[comptime] projection: Projection,
-    digits: &Coords<u32>,
+    physical: &Coords<u32>,
     physical_shape: &Coords<u32>,
 ) -> CoordsDyn {
     comptime!(assert!(
         projection.is_invertible(),
-        "Projection::logical_of_digits: not invertible (an affine term mixes several logical \
+        "Projection::logical_of_physical: not invertible (an affine term mixes several logical \
          coordinates into one physical cell)"
     ));
     let mut out = CoordsDyn::new();
@@ -78,10 +79,11 @@ pub(crate) fn logical_of_digits(
         #[unroll]
         for k in 0..comptime!(carriers.len()) {
             let pa = comptime!(carriers[k]);
-            // Each digit weighs the block it sits above, the same finer extents that stripped it.
-            let (finer, _) = comptime!(projection.digit(pa, axis));
+            // Each coordinate weighs the block it sits above, the same finer extents that stripped
+            // it.
+            let (finer, _) = comptime!(projection.carried_by(pa, axis));
             parts.push(
-                digits
+                physical
                     .at(pa)
                     .times(physical_shape.product(comptime!(finer.to_vec()))),
             );
@@ -91,9 +93,9 @@ pub(crate) fn logical_of_digits(
     out
 }
 
-/// Digit `j` of flat line `x` under `shape`'s row-major suffix strides.
+/// Coordinate `j` of flat line `x` under `shape`'s row-major suffix strides.
 #[cube]
-pub(crate) fn line_digit(x: u32, shape: &Coords<u32>, #[comptime] j: usize) -> u32 {
+pub(crate) fn line_coord(x: u32, shape: &Coords<u32>, #[comptime] j: usize) -> u32 {
     let plen = shape.len();
     x.divided_by(shape.product(comptime!(((j + 1)..plen).collect::<Vec<_>>())))
         .remainder(shape.at(j))
@@ -105,9 +107,9 @@ mod tests {
 
     const A: Axis = Axis(0);
 
-    /// Weighing the digits back reconstructs the coordinate they were decomposed from.
+    /// Weighing the physical coordinates back reconstructs the logical one they were taken from.
     #[test]
-    fn logical_of_digits_inverts_the_digits_to_source_pos_reads() {
+    fn logical_of_physical_inverts_what_to_source_pos_reads() {
         let shape = [3usize, 8];
         let p = Projection::new(
             &[A],
@@ -115,7 +117,7 @@ mod tests {
         );
         assert!(p.is_invertible());
         let block = |pa| {
-            p.digit(pa, A)
+            p.carried_by(pa, A)
                 .0
                 .iter()
                 .map(|&q| shape[q])
@@ -123,11 +125,11 @@ mod tests {
         };
 
         for coord in [0usize, 1, 7, 8, 9, 19, 23] {
-            let digit = |pa| match p.digit(pa, A).1 {
+            let physical = |pa| match p.carried_by(pa, A).1 {
                 Some(m) => (coord / block(pa)) % shape[m],
                 None => coord / block(pa),
             };
-            assert_eq!(digit(0) * block(0) + digit(1) * block(1), coord);
+            assert_eq!(physical(0) * block(0) + physical(1) * block(1), coord);
         }
     }
 }

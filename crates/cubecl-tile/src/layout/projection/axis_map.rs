@@ -101,7 +101,7 @@ impl From<usize> for Divisor {
     }
 }
 
-/// One logical axis's contribution to one physical axis: `digit * scale`.
+/// One logical axis's contribution to one physical axis: `coordinate * scale`.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct AxisTerm {
     pub axis: Axis,
@@ -117,7 +117,7 @@ pub(crate) enum Composition {
     Overlapping,
 }
 
-/// One buffer dim as `(Σ digit(axis) * scale + offset) / divisor`, floored.
+/// One buffer dim as `(Σ coordinate(axis) * scale + offset) / divisor`, floored.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct PhysicalAxisMap {
     terms: SmallVec<[AxisTerm; Space::MAX_RANK]>,

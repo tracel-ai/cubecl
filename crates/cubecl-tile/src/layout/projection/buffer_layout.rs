@@ -30,17 +30,17 @@ impl Layout for BufferLayout {
 
     fn to_source_pos(&self, pos: Self::Coordinates) -> Self::SourceCoordinates {
         let rank = comptime!(self.projection.physical_rank());
-        let mut digits = Coords::<u32>::new();
+        let mut physical = Coords::<u32>::new();
         #[unroll]
         for pa in 0..rank {
-            digits.push(self.physical_digit(&pos, pa));
+            physical.push(self.physical_coord(&pos, pa));
         }
-        let (digits, base) = self.paged(digits);
-        let digits = self.placed(&digits);
+        let (physical, base) = self.paged(physical);
+        let physical = self.placed(&physical);
         let mut terms = Sequence::<u32>::new();
         #[unroll]
         for pa in 0..rank {
-            terms.push(digits.at(pa).times(self.physical_strides.at(pa)));
+            terms.push(physical.at(pa).times(self.physical_strides.at(pa)));
         }
         terms
             .sum(comptime!((0..rank).collect::<Vec<_>>()))
@@ -74,10 +74,10 @@ impl Layout for BufferLayout {
 impl BufferLayout {
     /// The logical coordinate line `i` of this buffer holds.
     pub(crate) fn line_coords(&self, i: usize) -> CoordsDyn {
-        let digits = self.placed(&self.line_digits(i));
-        logical_of_digits(
+        let physical = self.placed(&self.line_physical(i));
+        logical_of_physical(
             comptime!(self.projection.clone()),
-            &digits,
+            &physical,
             &self.physical_shape,
         )
     }
@@ -85,11 +85,11 @@ impl BufferLayout {
     /// Where line `i` of this buffer sits: `i` itself unless rows are padded.
     pub(crate) fn line_offset(&self, i: usize) -> usize {
         if comptime!(self.rows.is_pitched()) {
-            let digits = self.line_digits(i);
+            let physical = self.line_physical(i);
             let mut offset = 0u32;
             #[unroll]
-            for pa in 0..digits.len() {
-                offset = offset.plus(digits.at(pa).times(self.physical_strides.at(pa)));
+            for pa in 0..physical.len() {
+                offset = offset.plus(physical.at(pa).times(self.physical_strides.at(pa)));
             }
             offset.cast::<usize>()
         } else {
@@ -108,25 +108,26 @@ impl BufferLayout {
         for p in 0..rank {
             let inner = comptime!((p + 1..rank).collect::<Vec<_>>());
             let quot = x.divided_by(extent.product(inner));
-            let digit = if comptime!(p == 0) {
+            let coord = if comptime!(p == 0) {
                 quot
             } else {
                 quot.remainder(extent.at(p))
             };
-            coords.push(digit);
+            coords.push(coord);
         }
         coords
     }
 
-    /// The digits line `i` sits at, one per physical axis, row-major over its extents.
-    fn line_digits(&self, i: usize) -> Coords<u32> {
+    /// The physical coordinates line `i` sits at, one per physical axis, row-major over its
+    /// extents.
+    fn line_physical(&self, i: usize) -> Coords<u32> {
         let x = i.cast::<u32>();
-        let mut digits = Coords::<u32>::new();
+        let mut physical = Coords::<u32>::new();
         #[unroll]
         for pa in 0..self.physical_shape.len() {
-            digits.push(line_digit(x, &self.physical_shape, pa));
+            physical.push(line_coord(x, &self.physical_shape, pa));
         }
-        digits
+        physical
     }
 
     /// This layout for a window whose origin is `origin`, cut as `cut` says
@@ -184,37 +185,38 @@ impl BufferLayout {
         }
     }
 
-    /// `digits` located through the page table where the buffer is a pool of pages
+    /// `physical` located through the page table where the buffer is a pool of pages
     /// ([`PageTable::located`]), with the base the line's offset adds past them.
-    fn paged(&self, digits: Coords<u32>) -> (Coords<u32>, u32) {
+    fn paged(&self, physical: Coords<u32>) -> (Coords<u32>, u32) {
         #[comptime]
         match &self.paging {
-            ComptimeOption::Some(table) => table.located(&digits),
-            ComptimeOption::None => (digits, 0u32),
+            ComptimeOption::Some(table) => table.located(&physical),
+            ComptimeOption::None => (physical, 0u32),
         }
     }
 
-    /// `digits` with a swizzled stage's line digit `XORed` by its row's key.
-    fn placed(&self, digits: &Coords<u32>) -> Coords<u32> {
+    /// `physical` with a swizzled stage's line coordinate `XORed` by its row's key.
+    fn placed(&self, physical: &Coords<u32>) -> Coords<u32> {
         let mut placed = Coords::<u32>::new();
         #[unroll]
-        for pa in 0..digits.len() {
-            let mut digit = digits.at(pa);
+        for pa in 0..physical.len() {
+            let mut coord = physical.at(pa);
             // The cube macro branches on a comptime value only through a `match`.
             #[allow(clippy::single_match)]
             match comptime!(self.rows.swizzle_along(pa)) {
                 Some(swizzle) => {
-                    digit = swizzled_line(swizzle, digit, digits.at(comptime!(swizzle.row_axis())));
+                    coord =
+                        swizzled_line(swizzle, coord, physical.at(comptime!(swizzle.row_axis())));
                 }
                 None => {}
             }
-            placed.push(digit);
+            placed.push(coord);
         }
         placed
     }
 
-    /// The digit `pos` sits at along physical axis `pa`.
-    fn physical_digit(&self, pos: &CoordsDyn, #[comptime] pa: usize) -> u32 {
+    /// The coordinate `pos` sits at along physical axis `pa`.
+    fn physical_coord(&self, pos: &CoordsDyn, #[comptime] pa: usize) -> u32 {
         let map = comptime!(self.projection.physical_axis(pa).clone());
         let picks = comptime!((0..map.terms().len()).collect::<Vec<_>>());
         let mut parts = Sequence::<u32>::new();
@@ -222,14 +224,15 @@ impl BufferLayout {
         for t in 0..comptime!(map.terms().len()) {
             let term = comptime!(map.terms()[t]);
             let p = comptime!(self.projection.position(term.axis));
-            let (finer, modulo) = comptime!(self.projection.digit(pa, term.axis));
-            // Strip the finer digits, then take this one; the outermost keeps the full quotient.
+            let (finer, modulo) = comptime!(self.projection.carried_by(pa, term.axis));
+            // Strip the finer coordinates, then take this one; the outermost keeps the full
+            // quotient.
             let quot = pos[p].divided_by(self.physical_shape.product(comptime!(finer.to_vec())));
-            let digit = match comptime!(modulo) {
+            let coord = match comptime!(modulo) {
                 Some(m) => quot.remainder(self.physical_shape.at(m)),
                 None => quot,
             };
-            parts.push(digit.times(comptime!(term.scale.get() as u32).runtime()));
+            parts.push(coord.times(comptime!(term.scale.get() as u32).runtime()));
         }
         parts.sum(picks)
     }

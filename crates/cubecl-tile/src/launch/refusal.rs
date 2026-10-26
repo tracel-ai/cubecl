@@ -86,8 +86,8 @@ pub enum Refusal {
     /// as `why` says.
     RowsNoDescriptorLands { why: &'static str },
     /// [`indexed`](crate::TileArgLaunch::indexed) over a pool of pages on a gathered or
-    /// storage-tiled operand: a page is resolved digit for digit over a plain buffer's labelled
-    /// dims.
+    /// storage-tiled operand: a page is resolved coordinate by coordinate over a plain buffer's
+    /// labelled dims.
     PagingOfAStatedLayout,
     /// [`indexed`](crate::TileArgLaunch::indexed) over a pool of pages naming an axis no dim of the
     /// operand is labelled with.
@@ -258,9 +258,9 @@ impl Display for Refusal {
             ),
             Refusal::PagingOfAStatedLayout => write!(
                 f,
-                "TileArgLaunch::indexed: a page is resolved digit for digit over a plain buffer's \
-                 labelled dims, so a gathered mapping or a storage-tiled binding has no reading \
-                 here"
+                "TileArgLaunch::indexed: a page is resolved coordinate by coordinate over a plain \
+                 buffer's labelled dims, so a gathered mapping or a storage-tiled binding has no \
+                 reading here"
             ),
             Refusal::PagingOfAnUnlabelledAxis(axis) => write!(
                 f,

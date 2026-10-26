@@ -138,8 +138,8 @@ impl RegisterData {
             self.mr == src.mr
                 && self.nr == src.nr
                 && self.contracted_per_step == src.contracted_per_step,
-            "RegisterData::add_cast_from: the blocks are {}x{} fold {} and {}x{} fold {}; a \
-             promotion adds line for line and both are opened against one sink",
+            "RegisterData::add_cast_from: the blocks are {}x{} over {} contracted and {}x{} over \
+             {}; a promotion adds line for line and both are opened against one sink",
             self.mr,
             self.nr,
             self.contracted_per_step,
