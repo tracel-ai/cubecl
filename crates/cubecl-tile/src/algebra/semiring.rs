@@ -43,14 +43,16 @@ impl Semiring {
 #[cube]
 impl Semiring {
     /// One accumulation step, `acc + (lhs * rhs)`, in `fma`'s argument order.
-    /// [`SUM_PROD`](Semiring::SUM_PROD) must stay a single `fma`.
+    /// [`SUM_PROD`](Semiring::SUM_PROD) over floats must stay a single `fma`. An `fma` is a float
+    /// instruction, so integers take the product and the sum apart, which is exact.
     fn step_of<T: Carrier + CubePrimitive>(
         lhs: T,
         rhs: T,
         acc: T,
         #[comptime] semiring: Semiring,
     ) -> T {
-        if comptime!(semiring == Semiring::SUM_PROD) {
+        let element = elem_type_of::<T>();
+        if comptime!(semiring == Semiring::SUM_PROD && element.is_float()) {
             fma(lhs, rhs, acc)
         } else {
             let product = semiring.mul().combine::<T>(lhs, rhs);

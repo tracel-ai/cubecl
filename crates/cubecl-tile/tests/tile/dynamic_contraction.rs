@@ -75,10 +75,23 @@ fn w_value(j: usize, i: usize) -> f32 {
     ((j * 3 + i) % 5) as f32 - 2.0
 }
 
-/// `x · w` under `form` on a `plane`-unit plane, read back as `m × n`.
-fn run(walk: Walk, plane: usize, m: usize, k: usize, n: usize, form: Form<'_>) -> Vec<f32> {
+/// `x · w` computed on the host, `m × n` in row order.
+fn host_product([m, k, n]: [usize; 3]) -> impl Iterator<Item = f32> {
+    (0..m * n).map(move |idx| {
+        let (r, j) = (idx / n, idx % n);
+        (0..k).map(|i| x_value(r, i) * w_value(j, i)).sum::<f32>()
+    })
+}
+
+/// `x · w` in `dtype` under `form` on a `plane`-unit plane, read back as `m × n`.
+fn run(
+    walk: Walk,
+    plane: usize,
+    [m, k, n]: [usize; 3],
+    form: Form<'_>,
+    dtype: ElemType,
+) -> Vec<f32> {
     let client = cubecl::test_device().client();
-    let dtype = f32::elem_type_native();
     let input = |shape, values: Vec<f32>| {
         TestInput::builder(client.clone(), shape)
             .dtype(dtype)
@@ -174,13 +187,9 @@ fn check(walk: Walk) {
         for m in [1, 8] {
             for k in [2 * chunk, 3 * chunk] {
                 for &n in ns {
-                    let want = (0..m * n).map(|idx| {
-                        let (r, j) = (idx / n, idx % n);
-                        (0..k).map(|i| x_value(r, i) * w_value(j, i)).sum::<f32>()
-                    });
-                    let wrong = run(walk, plane, m, k, n, form)
+                    let wrong = run(walk, plane, [m, k, n], form, f32::elem_type_native())
                         .iter()
-                        .zip(want)
+                        .zip(host_product([m, k, n]))
                         .filter(|(g, w)| (*g - w).abs() > 1e-3)
                         .count();
                     if wrong > 0 {
@@ -204,4 +213,26 @@ fn whole_k_per_unit_in_every_form() {
 #[test]
 fn k_split_across_units_in_every_form() {
     check(Walk::KSplitAcrossUnits);
+}
+
+/// An `i32` block sums exactly in `i32` under either walk. An `fma` is a float instruction: over
+/// integers it compiles to nothing on some backends and every cell reads zero.
+#[test]
+fn an_i32_block_sums_exactly() {
+    let client = cubecl::test_device().client();
+    let max = client.properties().hardware.max_vector_size;
+    if max < VECTOR {
+        ValidationResult::Skipped(format!(
+            "device vectors cap at {max}, below the {VECTOR}-wide weight lines"
+        ))
+        .enforce();
+        return;
+    }
+    let plane = client.properties().hardware.plane_size_max as usize;
+    let shape = [8, 2 * STEP * plane, 2048];
+    let want: Vec<f32> = host_product(shape).collect();
+    for walk in [Walk::WholeKPerUnit, Walk::KSplitAcrossUnits] {
+        let got = run(walk, plane, shape, Form::Static, i32::elem_type_native());
+        assert_eq!(got, want, "{walk:?}: an i32 block differs from the host");
+    }
 }
