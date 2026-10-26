@@ -259,11 +259,6 @@ impl Projection {
             .expect("Projection::position: axis not spanned by this operand")
     }
 
-    /// Every physical axis's map, in the projection's own order.
-    fn axis_maps(&self) -> impl Iterator<Item = &PhysicalAxisMap> {
-        self.physical.iter()
-    }
-
     pub(crate) fn physical_axis(&self, pa: usize) -> &PhysicalAxisMap {
         &self.physical[pa]
     }
@@ -395,19 +390,6 @@ impl Projection {
 
 // Queries against a buffer's runtime `Geometry`.
 impl Projection {
-    /// The axes carried by the buffer's unit-strided dim, or none where no dim strides by one.
-    pub fn contiguous(&self, geometry: &Geometry) -> SmallVec<[Axis; Space::MAX_RANK]> {
-        match self.unit_dim(geometry) {
-            None => SmallVec::new(),
-            Some(dim) => self
-                .logical_axes()
-                .iter()
-                .copied()
-                .filter(|&axis| self.physical_axis(dim).addresses(axis))
-                .collect(),
-        }
-    }
-
     /// Whether the buffer's dims can be addressed without two positions landing on one cell.
     pub fn is_addressable(&self, geometry: &Geometry) -> bool {
         if self.composition() == Composition::Overlapping {
@@ -418,16 +400,6 @@ impl Projection {
             let (_, (finer_extent, finer_stride)) = pair[1];
             stride >= finer_extent * finer_stride
         })
-    }
-
-    /// The buffer's contiguous dim — the innermost unit-strided one.
-    fn unit_dim(&self, geometry: &Geometry) -> Option<usize> {
-        geometry
-            .addressing_dims_by_stride()
-            .into_iter()
-            .filter(|&(_, (_, stride))| stride == 1)
-            .map(|(dim, _)| dim)
-            .next_back()
     }
 }
 
@@ -482,12 +454,15 @@ impl Projection {
 
     /// The length of the runtime offset array.
     pub(crate) fn dynamic_offset_count(&self) -> usize {
-        self.axis_maps().filter(|m| m.offset().is_dynamic()).count()
+        self.physical
+            .iter()
+            .filter(|m| m.offset().is_dynamic())
+            .count()
     }
 
     /// Whether any coefficient is only known at runtime.
     pub(crate) fn has_dynamic_scales(&self) -> bool {
-        self.axis_maps().any(|m| m.has_dynamic_scale())
+        self.physical.iter().any(|m| m.has_dynamic_scale())
     }
 }
 
@@ -1059,23 +1034,6 @@ mod geometry_tests {
         Geometry::new(dims)
     }
 
-    /// A `[k, n]` view over an `[n, k]` buffer: `k` strides by one, `n` by the row.
-    #[test]
-    fn a_col_weight_is_k_contiguous() {
-        let p = Projection::direct(&[K, N]);
-        let g = geometry(&[(4096, 1), (11008, 4096)]);
-
-        assert_eq!(p.contiguous(&g).as_slice(), &[K]);
-    }
-
-    #[test]
-    fn a_row_weight_is_n_contiguous() {
-        let p = Projection::direct(&[K, N]);
-        let g = geometry(&[(4096, 11008), (11008, 1)]);
-
-        assert_eq!(p.contiguous(&g).as_slice(), &[N]);
-    }
-
     #[test]
     fn padding_is_addressable() {
         let p = Projection::direct(&[K, N]);
@@ -1114,6 +1072,5 @@ mod geometry_tests {
 
         assert_eq!(p.composition(), Composition::Overlapping);
         assert!(p.is_addressable(&g));
-        assert_eq!(p.contiguous(&g).as_slice(), &[C]);
     }
 }
