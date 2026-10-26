@@ -51,7 +51,16 @@ impl ElemAlignment {
     }
 
     /// The alignment of a buffer of `shape` at `strides`, innermost last.
+    ///
+    /// A dim of one element steps nowhere, so its stride reads no address and aligns nothing:
+    /// a view `[1, k]` swapped out of a column `[k, 1]` keeps the column's stride of one on its
+    /// single row, and is as aligned as the dense row it is.
     pub fn new(shape: &[usize], strides: &[usize]) -> Self {
+        let (shape, strides): (Vec<usize>, Vec<usize>) = shape
+            .iter()
+            .zip(strides)
+            .filter(|&(&extent, _)| extent != 1)
+            .unzip();
         let divides = match (shape.split_last(), strides.split_last()) {
             (Some((&extent, _)), Some((&1, coarser))) => {
                 coarser.iter().fold(extent, |acc, &stride| gcd(acc, stride))
@@ -118,6 +127,16 @@ impl From<&TensorBinding> for ElemAlignment {
 
 #[cfg(test)]
 mod tests {
+    /// A row viewed out of a column keeps the column's stride on its single row, which steps
+    /// nowhere: it is as aligned as the dense row it is.
+    #[test]
+    fn a_dim_of_one_element_aligns_nothing() {
+        let k = 8;
+        let row = ElemAlignment::new(&[1, k], &[1, 1]);
+        assert_eq!(row, ElemAlignment::dense_rows(k));
+        assert!(ElemAlignment::in_stride_order(&[1, k], &[1, 1]).admits(k));
+    }
+
     /// A col weight's rows run along `k`, a pitch apart, whichever way the view names them.
     #[test]
     fn a_view_is_aligned_in_the_order_its_buffer_steps() {
