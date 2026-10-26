@@ -1,41 +1,55 @@
-use cubecl_ir::ExpandValue;
+use cubecl_ir::{
+    ComplexKind, ElemType, ExpandValue, features::ComplexUsage, interfaces::TypedExt,
+    pliron::value::Value,
+};
 use half::{bf16, f16};
 
 use super::{CubePrimitive, Vector};
 use crate::prelude::*;
+use crate::{self as cubecl};
+
 use crate::{
+    frontend::{
+        element::{complex_components, complex_construct},
+        polyfills::plane::{OpMul, plane_reduce},
+        validation::require_complex_usage,
+    },
     ir::{Scope, attributes::IndexAttr, dialect::plane::*},
     unexpanded,
 };
 
-pub trait PlaneNumeric {
+/// Scalar types supporting plane-wide sum and product reductions.
+pub trait PlaneReduce {
     fn __expand_native_sum(scope: &Scope, value: ExpandValue) -> ExpandValue;
+    fn __expand_native_prod(scope: &Scope, value: ExpandValue) -> ExpandValue;
+}
+
+/// Scalar types also supporting ordered reductions and prefix scans.
+pub trait PlaneNumeric: PlaneReduce {
     fn __expand_native_inclusive_sum(scope: &Scope, value: ExpandValue) -> ExpandValue;
     fn __expand_native_exclusive_sum(scope: &Scope, value: ExpandValue) -> ExpandValue;
-
-    fn __expand_native_prod(scope: &Scope, value: ExpandValue) -> ExpandValue;
     fn __expand_native_inclusive_prod(scope: &Scope, value: ExpandValue) -> ExpandValue;
     fn __expand_native_exclusive_prod(scope: &Scope, value: ExpandValue) -> ExpandValue;
-
     fn __expand_native_plane_min(scope: &Scope, value: ExpandValue) -> ExpandValue;
     fn __expand_native_plane_max(scope: &Scope, value: ExpandValue) -> ExpandValue;
 }
 
 macro_rules! plane_numeric {
     ($($ty: ty),*; $sum: ty, $inc_sum: ty, $exc_sum: ty, $prod: ty, $inc_prod: ty, $exc_prod: ty, $min: ty, $max: ty) => {
-        $(impl PlaneNumeric for $ty {
+        $(impl PlaneReduce for $ty {
             fn __expand_native_sum(scope: &Scope, value: ExpandValue) -> ExpandValue {
                 unary_expand(scope, value, <$sum>::new)
             }
+            fn __expand_native_prod(scope: &Scope, value: ExpandValue) -> ExpandValue {
+                unary_expand(scope, value, <$prod>::new)
+            }
+        }
+        impl PlaneNumeric for $ty {
             fn __expand_native_inclusive_sum(scope: &Scope, value: ExpandValue) -> ExpandValue {
                 unary_expand(scope, value, <$inc_sum>::new)
             }
             fn __expand_native_exclusive_sum(scope: &Scope, value: ExpandValue) -> ExpandValue {
                 unary_expand(scope, value, <$exc_sum>::new)
-            }
-
-            fn __expand_native_prod(scope: &Scope, value: ExpandValue) -> ExpandValue {
-                unary_expand(scope, value, <$prod>::new)
             }
             fn __expand_native_inclusive_prod(scope: &Scope, value: ExpandValue) -> ExpandValue {
                 unary_expand(scope, value, <$inc_prod>::new)
@@ -57,6 +71,94 @@ macro_rules! plane_numeric {
 plane_numeric!(i8, i16, i32, i64, isize; ISumOp, InclusiveISumOp, ExclusiveISumOp, IProdOp, InclusiveIProdOp, ExclusiveIProdOp, SMinOp, SMaxOp);
 plane_numeric!(u8, u16, u32, u64, usize; ISumOp, InclusiveISumOp, ExclusiveISumOp, IProdOp, InclusiveIProdOp, ExclusiveIProdOp, UMinOp, UMaxOp);
 plane_numeric!(f16, bf16, f32, flex32, tf32, f64; FSumOp, InclusiveFSumOp, ExclusiveFSumOp, FProdOp, InclusiveFProdOp, ExclusiveFProdOp, FMinOp, FMaxOp);
+
+macro_rules! plane_reduce_complex {
+    ($($ty:ty),*) => {
+        $(impl PlaneReduce for $ty {
+            fn __expand_native_sum(scope: &Scope, value: ExpandValue) -> ExpandValue {
+                require_complex_usage(
+                    scope,
+                    Self::elem_type_native(),
+                    ComplexUsage::Core,
+                    "plane_sum",
+                );
+                let [re, im] = complex_components(scope, value);
+                let re = unary_expand(scope, re, FSumOp::new);
+                let im = unary_expand(scope, im, FSumOp::new);
+                complex_construct(scope, re, im)
+            }
+            fn __expand_native_prod(scope: &Scope, value: ExpandValue) -> ExpandValue {
+                require_complex_usage(
+                    scope,
+                    Self::elem_type_native(),
+                    ComplexUsage::Core,
+                    "plane_prod",
+                );
+                complex_plane_prod::expand::<$ty>(scope, value.into()).into()
+            }
+        })*
+    };
+}
+plane_reduce_complex!(num_complex::Complex32, num_complex::Complex64);
+
+/// The butterfly product for complex values.
+///
+/// Complex multiplication does not distribute over the components, so this cannot reuse the
+/// per-component lowering that sum uses. The generic scalar reduction handles the butterfly;
+/// complex multiplication keeps the full complex value intact at each step.
+#[cube]
+fn complex_plane_prod<C: ComplexCore>(value: C) -> C {
+    let vector = Vector::<C, Const<1>>::new(value);
+    plane_reduce::<C, Const<1>, OpMul>(vector).extract(0usize)
+}
+
+fn is_complex(scope: &Scope, value: Value) -> bool {
+    uses_complex_64(scope, value)
+        || value
+            .scalar_ty(scope.ctx())
+            .deref(scope.ctx())
+            .is::<cubecl_ir::types::scalar::Complex32Type>()
+}
+
+fn uses_complex_64(scope: &Scope, value: Value) -> bool {
+    value
+        .scalar_ty(scope.ctx())
+        .deref(scope.ctx())
+        .is::<cubecl_ir::types::scalar::Complex64Type>()
+}
+
+fn complex_kind(scope: &Scope, value: Value) -> ComplexKind {
+    if uses_complex_64(scope, value) {
+        ComplexKind::C64
+    } else {
+        ComplexKind::C32
+    }
+}
+
+/// Lowers a plane data movement, splitting a complex value into its components and
+/// reconstructing it afterwards.
+fn plane_move(
+    scope: &Scope,
+    value: ExpandValue,
+    name: &'static str,
+    build: impl Fn(&Scope, Value) -> Value,
+) -> ExpandValue {
+    let input = value.read_value(scope);
+    if is_complex(scope, input) {
+        require_complex_usage(
+            scope,
+            ElemType::Complex(complex_kind(scope, input)),
+            ComplexUsage::Core,
+            name,
+        );
+        let [re, im] = complex_components(scope, input.into());
+        let re = build(scope, re.read_value(scope));
+        let im = build(scope, im.read_value(scope));
+        complex_construct(scope, re.into(), im.into())
+    } else {
+        build(scope, input).into()
+    }
+}
 
 /// Returns true if the cube unit has the lowest `plane_unit_id` among active unit in the plane
 pub fn plane_elect() -> bool {
@@ -92,9 +194,11 @@ pub mod plane_broadcast {
         value: NativeExpand<E>,
         id: u32,
     ) -> NativeExpand<E> {
-        let value = value.read_value(scope);
-        let op = BroadcastOp::new(scope.ctx_mut(), value, IndexAttr::new(id as usize));
-        scope.register_with_result(&op).into()
+        plane_move(scope, value.into(), "plane_broadcast", |scope, input| {
+            let op = BroadcastOp::new(scope.ctx_mut(), input, IndexAttr::new(id as usize));
+            scope.register_with_result(&op)
+        })
+        .into()
     }
 }
 
@@ -119,10 +223,12 @@ pub mod plane_shuffle {
         value: NativeExpand<E>,
         src_lane: NativeExpand<u32>,
     ) -> NativeExpand<E> {
-        let value = value.read_value(scope);
         let src_lane = src_lane.read_value(scope);
-        let op = ShuffleOp::new(scope.ctx_mut(), value, src_lane);
-        scope.register_with_result(&op).into()
+        plane_move(scope, value.into(), "plane_shuffle", |scope, input| {
+            let op = ShuffleOp::new(scope.ctx_mut(), input, src_lane);
+            scope.register_with_result(&op)
+        })
+        .into()
     }
 }
 
@@ -150,10 +256,12 @@ pub mod plane_shuffle_xor {
         value: NativeExpand<E>,
         mask: NativeExpand<u32>,
     ) -> NativeExpand<E> {
-        let value = value.read_value(scope);
         let mask = mask.read_value(scope);
-        let op = ShuffleXorOp::new(scope.ctx_mut(), value, mask);
-        scope.register_with_result(&op).into()
+        plane_move(scope, value.into(), "plane_shuffle_xor", |scope, input| {
+            let op = ShuffleXorOp::new(scope.ctx_mut(), input, mask);
+            scope.register_with_result(&op)
+        })
+        .into()
     }
 }
 
@@ -179,10 +287,12 @@ pub mod plane_shuffle_up {
         value: NativeExpand<E>,
         delta: NativeExpand<u32>,
     ) -> NativeExpand<E> {
-        let value = value.read_value(scope);
         let delta = delta.read_value(scope);
-        let op = ShuffleUpOp::new(scope.ctx_mut(), value, delta);
-        scope.register_with_result(&op).into()
+        plane_move(scope, value.into(), "plane_shuffle_up", |scope, input| {
+            let op = ShuffleUpOp::new(scope.ctx_mut(), input, delta);
+            scope.register_with_result(&op)
+        })
+        .into()
     }
 }
 
@@ -208,16 +318,18 @@ pub mod plane_shuffle_down {
         value: NativeExpand<E>,
         delta: NativeExpand<u32>,
     ) -> NativeExpand<E> {
-        let value = value.read_value(scope);
         let delta = delta.read_value(scope);
-        let op = ShuffleDownOp::new(scope.ctx_mut(), value, delta);
-        scope.register_with_result(&op).into()
+        plane_move(scope, value.into(), "plane_shuffle_down", |scope, input| {
+            let op = ShuffleDownOp::new(scope.ctx_mut(), input, delta);
+            scope.register_with_result(&op)
+        })
+        .into()
     }
 }
 
 /// Perform a reduce sum operation across all units in a plane.
 #[allow(unused_variables)]
-pub fn plane_sum<E: CubePrimitive<Scalar: PlaneNumeric>>(value: E) -> E {
+pub fn plane_sum<E: CubePrimitive<Scalar: PlaneReduce>>(value: E) -> E {
     unexpanded!()
 }
 
@@ -226,7 +338,7 @@ pub mod plane_sum {
     use super::*;
 
     /// Expand method of [`plane_sum()`].
-    pub fn expand<E: CubePrimitive<Scalar: PlaneNumeric>>(
+    pub fn expand<E: CubePrimitive<Scalar: PlaneReduce>>(
         scope: &Scope,
         elem: NativeExpand<E>,
     ) -> NativeExpand<E> {
@@ -284,7 +396,7 @@ pub mod plane_exclusive_sum {
 }
 
 /// Perform a reduce prod operation across all units in a plane.
-pub fn plane_prod<E: CubePrimitive<Scalar: PlaneNumeric>>(_elem: E) -> E {
+pub fn plane_prod<E: CubePrimitive<Scalar: PlaneReduce>>(_elem: E) -> E {
     unexpanded!()
 }
 
@@ -293,7 +405,7 @@ pub mod plane_prod {
     use super::*;
 
     /// Expand method of [`plane_prod()`].
-    pub fn expand<E: CubePrimitive<Scalar: PlaneNumeric>>(
+    pub fn expand<E: CubePrimitive<Scalar: PlaneReduce>>(
         scope: &Scope,
         elem: NativeExpand<E>,
     ) -> NativeExpand<E> {
