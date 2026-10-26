@@ -3068,6 +3068,18 @@ fn register_matmul_summing_step_rolled() {
 /// the output between regions, hence [`a_promoted_folded_step_sums_wider_than_its_output`].
 #[test]
 fn register_matmul_promoted_summing_step() {
+    check_promoted_summing_step(RegisterBlock::new(64));
+}
+
+/// [`register_matmul_promoted_summing_step`] with the block opened for partials: each cell a line
+/// of the run's products, a lane each, summed once at the drain rather than every step.
+#[test]
+fn register_matmul_promoted_partials_step() {
+    check_promoted_summing_step(RegisterBlock::new(64).partials());
+}
+
+/// A promoted block under `config` contracting two operands lined along `K` into a scalar output.
+fn check_promoted_summing_step(config: RegisterBlock) {
     let client = cubecl::test_device().client();
     let (m, n, k) = (4usize, 4usize, 8usize);
     let launcher = lined_lhs_space(m, n, k);
@@ -3092,7 +3104,7 @@ fn register_matmul_promoted_summing_step() {
         c.arg(&launcher, 1),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
-        RegisterBlock::new(64),
+        config,
         Semiring::SUM_PROD,
         dtype,
     );
@@ -3112,6 +3124,18 @@ fn register_matmul_promoted_summing_step() {
 /// the only way such a weight contracts.
 #[test]
 fn a_promoted_summing_step_sums_wider_than_its_output() {
+    check_a_promoted_step_sums_wider_than_its_output(RegisterBlock::new(64));
+}
+
+/// [`a_promoted_summing_step_sums_wider_than_its_output`] with the block opened for partials: the
+/// lanes are summed at the drain in `f32`, before the cast down to the output's `f16`.
+#[test]
+fn a_promoted_partials_step_sums_wider_than_its_output() {
+    check_a_promoted_step_sums_wider_than_its_output(RegisterBlock::new(64).partials());
+}
+
+/// A `1x1` cell of an `f16` output summing `4096` products of one in `f32` under `config`.
+fn check_a_promoted_step_sums_wider_than_its_output(config: RegisterBlock) {
     let client = cubecl::test_device().client();
     let (m, n, k) = (1usize, 1usize, 4096usize);
     let launcher = lined_lhs_space(m, n, k);
@@ -3156,7 +3180,7 @@ fn a_promoted_summing_step_sums_wider_than_its_output() {
         ),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
-        RegisterBlock::new(64),
+        config,
         Semiring::SUM_PROD,
         acc,
     );
