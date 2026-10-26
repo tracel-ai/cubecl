@@ -261,11 +261,11 @@ impl Iterable for LeavesExpand {
     type Item = RegionExpand;
 
     fn expand(self, scope: &Scope, body: &mut dyn FnMut(&Scope, RegionExpand)) {
-        each_leaf(scope, self.region, body, false);
+        self.region.each_leaf(scope, body, false);
     }
 
     fn expand_unroll(self, scope: &Scope, body: &mut dyn FnMut(&Scope, RegionExpand)) {
-        each_leaf(scope, self.region, body, true);
+        self.region.each_leaf(scope, body, true);
     }
 }
 
@@ -292,54 +292,46 @@ impl Iterable for PlanesExpand {
     type Item = RegionExpand;
 
     fn expand(self, scope: &Scope, body: &mut dyn FnMut(&Scope, RegionExpand)) {
-        each_plane(scope, self.region, body, false);
+        self.region.each_plane(scope, body, false);
     }
 
     fn expand_unroll(self, scope: &Scope, body: &mut dyn FnMut(&Scope, RegionExpand)) {
-        each_plane(scope, self.region, body, true);
+        self.region.each_plane(scope, body, true);
     }
 }
 
-/// `body` over the planes below `region`. A plane's place is the same at every step of a walk, so
-/// each walk between is read at its first step.
-fn each_plane(
-    scope: &Scope,
-    region: RegionExpand,
-    body: &mut dyn FnMut(&Scope, RegionExpand),
-    unroll: bool,
-) {
-    match region.path.next().coverage() {
-        Coverage::Distribute(ComputeScope::Plane) => match unroll {
-            true => region.expand_unroll(scope, body),
-            false => region.expand(scope, body),
-        },
-        Coverage::Walk => {
-            let first = region
-                .__expand_walk_method(scope)
-                .__expand_region_method(scope, 0usize.into_expand(scope));
-            each_plane(scope, first, body, unroll)
+impl RegionExpand {
+    /// `body` over the planes below this region. A plane's place is the same at every step of a
+    /// walk, so each walk between is read at its first step.
+    fn each_plane(self, scope: &Scope, body: &mut dyn FnMut(&Scope, RegionExpand), unroll: bool) {
+        match self.path.next().coverage() {
+            Coverage::Distribute(ComputeScope::Plane) => match unroll {
+                true => self.expand_unroll(scope, body),
+                false => self.expand(scope, body),
+            },
+            Coverage::Walk => {
+                let first = self
+                    .__expand_walk_method(scope)
+                    .__expand_region_method(scope, 0usize.into_expand(scope));
+                first.each_plane(scope, body, unroll)
+            }
+            Coverage::Distribute(other) => panic!(
+                "Region::planes: a level dealt to each {other:?} lies below this region before any \
+                 plane level, so this region has no planes of its own"
+            ),
         }
-        Coverage::Distribute(other) => panic!(
-            "Region::planes: a level dealt to each {other:?} lies below this region before any \
-             plane level, so this region has no planes of its own"
-        ),
     }
-}
 
-/// `body` over every region at the bottom of `region`'s partitioning below it.
-fn each_leaf(
-    scope: &Scope,
-    region: RegionExpand,
-    body: &mut dyn FnMut(&Scope, RegionExpand),
-    unroll: bool,
-) {
-    if region.path.at_bottom() {
-        body(scope, region);
-        return;
-    }
-    let mut below = |scope: &Scope, child: RegionExpand| each_leaf(scope, child, body, unroll);
-    match unroll {
-        true => region.expand_unroll(scope, &mut below),
-        false => region.expand(scope, &mut below),
+    /// `body` over every region at the bottom of this region's partitioning below it.
+    fn each_leaf(self, scope: &Scope, body: &mut dyn FnMut(&Scope, RegionExpand), unroll: bool) {
+        if self.path.at_bottom() {
+            body(scope, self);
+            return;
+        }
+        let mut below = |scope: &Scope, child: RegionExpand| child.each_leaf(scope, body, unroll);
+        match unroll {
+            true => self.expand_unroll(scope, &mut below),
+            false => self.expand(scope, &mut below),
+        }
     }
 }

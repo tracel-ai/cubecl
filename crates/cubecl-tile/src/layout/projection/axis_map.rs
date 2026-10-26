@@ -288,6 +288,23 @@ impl PhysicalAxisMap {
         self.divisor
     }
 
+    /// Term `term`'s static additive step, `None` if dynamic; panics for one kept inside a floor.
+    pub(crate) fn additive_step(&self, term: usize) -> Option<usize> {
+        if self.is_rational() {
+            return Some(self.static_offset_step(term).unwrap_or_else(|| {
+                panic!(
+                    "ProjectionInKernel::advance: {:?} stays inside this axis's floor, so stepping \
+                     it is not an addition and the map has to be summed at every position",
+                    self.terms()[term].axis
+                )
+            }));
+        }
+        match self.terms()[term].scale {
+            Scale::Static(s) => Some(s),
+            Scale::Dynamic { .. } => None,
+        }
+    }
+
     /// Term `term`'s static step outside the rational floor, where `scale / divisor` is exact.
     pub(crate) fn static_offset_step(&self, term: usize) -> Option<usize> {
         match (self.divisor, self.terms[term].scale) {
@@ -400,6 +417,33 @@ mod tests {
 
     const A: Axis = Axis(0);
     const B: Axis = Axis(1);
+
+    #[test]
+    fn a_plain_affine_term_steps_by_its_coefficient() {
+        let map = PhysicalAxisMap::affine(&[(A, 2), (B, 3)]);
+        assert_eq!(map.additive_step(0), Some(2));
+        assert_eq!(map.additive_step(1), Some(3));
+    }
+
+    #[test]
+    fn a_dynamic_coefficient_has_no_static_step() {
+        let map = PhysicalAxisMap::scaled(&[(A, Scale::Static(2)), (B, Scale::Dynamic { max: 4 })]);
+        assert_eq!(map.additive_step(1), None);
+    }
+
+    /// `⌊(x + m·4)/2⌋` moves by `2` per `m`.
+    #[test]
+    fn a_divisible_term_steps_by_what_the_floor_factors_out() {
+        let map = PhysicalAxisMap::affine(&[(A, 3), (B, 4)]).over(2);
+        assert_eq!(map.additive_step(1), Some(2));
+    }
+
+    #[test]
+    #[should_panic(expected = "stays inside this axis's floor")]
+    fn an_indivisible_term_under_a_floor_cannot_be_stepped() {
+        let map = PhysicalAxisMap::affine(&[(A, 3), (B, 4)]).over(2);
+        map.additive_step(0);
+    }
 
     #[test]
     fn identity_is_exactly_one_axis_at_coefficient_one() {

@@ -245,7 +245,10 @@ impl Display for Refusal {
                 "Launcher: {fillers} plane(s) are set aside to fill a walk's stages, and this \
                  device carries no barrier type for the two roles to meet on"
             ),
-            Refusal::BoxPastDescriptor { axis, edge, most } => box_past(f, *axis, *edge, *most),
+            Refusal::BoxPastDescriptor { axis, edge, most } => write!(
+                f,
+                "TMA: {edge} along {axis:?} exceeds the {most}-per-axis box limit"
+            ),
             Refusal::BoxSplitsStageBlocks { axis, rows, period } => write!(
                 f,
                 "TMA: a box lands its rows whole and in order, and the stage's blocks split \
@@ -354,14 +357,6 @@ impl Display for Refusal {
             ),
         }
     }
-}
-
-/// [`Refusal::BoxPastDescriptor`]'s message.
-fn box_past(f: &mut Formatter<'_>, axis: Axis, edge: usize, most: usize) -> fmt::Result {
-    write!(
-        f,
-        "TMA: {edge} along {axis:?} exceeds the {most}-per-axis box limit"
-    )
 }
 
 impl std::error::Error for Refusal {}
