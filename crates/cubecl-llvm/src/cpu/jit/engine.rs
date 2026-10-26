@@ -1,16 +1,23 @@
-use super::data::PlironData;
+use super::{
+    data::PlironData,
+    lljit::Jit,
+    symbols::{JitSymbols, write_perf_map},
+};
 use crate::{
     cpu::shared_memory::SharedMemories,
     prelude::{Context, ModuleOp},
-    shared::llvm_module::{LlvmModule, TargetMachine},
+    shared::{
+        debug_info::{check_debug_info, convert_module},
+        llvm_module::{LlvmModule, TargetMachine},
+    },
 };
-use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::bytes::Bytes;
-use cubecl_runtime::compiler::CompilationError;
-use cubecl_runtime::kernel::BufferIOAttr;
-use pliron_llvm::{llvm_sys::core::LLVMContext, to_llvm_ir};
+use cubecl_core::{codegen::KernelDump, ir::settings::DebugInfo};
+use cubecl_environment::{backtrace::BackTrace, bytes::Bytes};
+use cubecl_runtime::{compiler::CompilationError, kernel::BufferIOAttr};
+use llvm_sys::target_machine::LLVMCodeGenFileType;
+use pliron_llvm::llvm_sys::core::LLVMContext;
 use std::{
-    ffi::{CStr, CString, c_void},
+    ffi::{CStr, c_void},
     fmt::Display,
     sync::{Arc, Mutex, Once},
 };
@@ -28,101 +35,15 @@ pub struct KernelRequirements {
     pub shared_memories: SharedMemories,
 }
 
-/// Self-contained wrapper around LLVM `OrcV2` LLJIT handle.
-struct OrcJit(llvm_sys::orc2::lljit::LLVMOrcLLJITRef);
-
-impl OrcJit {
-    fn new() -> Result<Self, String> {
-        unsafe {
-            let mut jit = std::mem::MaybeUninit::uninit();
-            let err =
-                llvm_sys::orc2::lljit::LLVMOrcCreateLLJIT(jit.as_mut_ptr(), std::ptr::null_mut());
-            if !err.is_null() {
-                let msg_ptr = llvm_sys::error::LLVMGetErrorMessage(err);
-                let text = CStr::from_ptr(msg_ptr).to_string_lossy().into_owned();
-                llvm_sys::error::LLVMDisposeErrorMessage(msg_ptr);
-                return Err(text);
-            }
-            let jit = jit.assume_init();
-
-            let prefix = llvm_sys::orc2::lljit::LLVMOrcLLJITGetGlobalPrefix(jit);
-            let mut generator = std::ptr::null_mut();
-            let err = llvm_sys::orc2::LLVMOrcCreateDynamicLibrarySearchGeneratorForProcess(
-                &mut generator,
-                prefix,
-                None,
-                std::ptr::null_mut(),
-            );
-            if !err.is_null() {
-                let msg_ptr = llvm_sys::error::LLVMGetErrorMessage(err);
-                let text = CStr::from_ptr(msg_ptr).to_string_lossy().into_owned();
-                llvm_sys::error::LLVMDisposeErrorMessage(msg_ptr);
-                llvm_sys::orc2::lljit::LLVMOrcDisposeLLJIT(jit);
-                return Err(text);
-            }
-            let main_jd = llvm_sys::orc2::lljit::LLVMOrcLLJITGetMainJITDylib(jit);
-            llvm_sys::orc2::LLVMOrcJITDylibAddGenerator(main_jd, generator);
-
-            Ok(Self(jit))
-        }
-    }
-
-    fn add_object_file(&self, bytes: &[u8], name: &str) -> Result<(), String> {
-        let name_c = CString::new(name).map_err(|e| e.to_string())?;
-        unsafe {
-            let main_jd = llvm_sys::orc2::lljit::LLVMOrcLLJITGetMainJITDylib(self.0);
-            let mem_buf = llvm_sys::core::LLVMCreateMemoryBufferWithMemoryRangeCopy(
-                bytes.as_ptr() as *const _,
-                bytes.len(),
-                name_c.as_ptr(),
-            );
-            let err = llvm_sys::orc2::lljit::LLVMOrcLLJITAddObjectFile(self.0, main_jd, mem_buf);
-            if !err.is_null() {
-                let msg_ptr = llvm_sys::error::LLVMGetErrorMessage(err);
-                let text = CStr::from_ptr(msg_ptr).to_string_lossy().into_owned();
-                llvm_sys::error::LLVMDisposeErrorMessage(msg_ptr);
-                return Err(text);
-            }
-            Ok(())
-        }
-    }
-
-    fn lookup_symbol(&self, name: &str) -> Result<u64, String> {
-        let name_c = CString::new(name).map_err(|e| e.to_string())?;
-        unsafe {
-            let mut addr = 0u64;
-            let err = llvm_sys::orc2::lljit::LLVMOrcLLJITLookup(self.0, &mut addr, name_c.as_ptr());
-            if !err.is_null() {
-                let msg_ptr = llvm_sys::error::LLVMGetErrorMessage(err);
-                let text = CStr::from_ptr(msg_ptr).to_string_lossy().into_owned();
-                llvm_sys::error::LLVMDisposeErrorMessage(msg_ptr);
-                return Err(text);
-            }
-            Ok(addr)
-        }
-    }
-}
-
-impl Drop for OrcJit {
-    fn drop(&mut self) {
-        unsafe {
-            let err = llvm_sys::orc2::lljit::LLVMOrcDisposeLLJIT(self.0);
-            if !err.is_null() {
-                let msg_ptr = llvm_sys::error::LLVMGetErrorMessage(err);
-                llvm_sys::error::LLVMDisposeErrorMessage(msg_ptr);
-            }
-        }
-    }
-}
-
 /// A compiled kernel and its owning JIT.
+#[repr(C)]
 struct JitKernel {
     func: KernelFn,
     requirements: KernelRequirements,
     /// Buffer access modes in binding order.
     io: Vec<BufferIOAttr>,
     object_bytes: Mutex<Option<Bytes>>,
-    _jit: OrcJit,
+    _jit: Jit,
 }
 
 /// SAFETY: Compiled code is immutable and its JIT owns the context.
@@ -150,55 +71,82 @@ impl PlironEngine {
         io: Vec<BufferIOAttr>,
         keep_object: bool,
     ) -> pliron::result::Result<Self> {
+        Self::compile_with_debug_info(
+            ctx,
+            module,
+            kernel_name,
+            requirements,
+            io,
+            DebugInfo::None,
+            keep_object,
+        )
+    }
+
+    /// [`compile`](Self::compile), for a kernel that carries `debug_info`. With debug data, the
+    /// profiler symbol files that the environment asks for are written. With `keep_object`, the
+    /// engine keeps the object code for [`take_object_bytes`](Self::take_object_bytes).
+    ///
+    /// # Errors
+    /// When the module does not convert to LLVM IR.
+    ///
+    /// # Panics
+    /// When LLVM cannot create the JIT or the target machine, or cannot optimize, emit or link
+    /// the kernel.
+    pub fn compile_with_debug_info(
+        ctx: &Context,
+        module: ModuleOp,
+        kernel_name: &str,
+        requirements: KernelRequirements,
+        io: Vec<BufferIOAttr>,
+        debug_info: DebugInfo,
+        keep_object: bool,
+    ) -> pliron::result::Result<Self> {
         init_native();
 
-        let llvm_ctx = LLVMContext::default();
-        let llvm_module = to_llvm_ir::convert_module(ctx, &llvm_ctx, module)?;
-        #[cfg(feature = "pliron-dump")]
-        if let Some(dir) = ir_dump_path(kernel_name) {
-            let _ = std::fs::write(dir.join("llvm.ll"), llvm_module.to_string());
+        let llvm_module = to_llvm_module(ctx, module, kernel_name, debug_info)?;
+        let dump = KernelDump::new(kernel_name);
+        dump.write("llvm.ll", || llvm_module.print());
+
+        let symbols = match debug_info {
+            DebugInfo::None => JitSymbols::default(),
+            _ => JitSymbols::from_env(),
+        };
+        #[cfg(cubecl_frame_pointers)]
+        llvm_module.add_function_attribute("frame-pointer", "all");
+        // The perf support plugin copies the `.eh_frame` of each kernel into the jitdump. Then
+        // `perf --call-graph dwarf` can unwind through the kernel. `2` is `uwtable(async)`, as rustc
+        // gives the host code.
+        #[cfg(feature = "jitdump")]
+        if symbols.jitdump {
+            llvm_module.add_function_enum_attribute("uwtable", 2);
         }
-
-        let module = LlvmModule::new(&llvm_module.to_string())
-            .unwrap_or_else(|err| panic!("LLVM parsing failed for '{kernel_name}': {err}"));
-
-        let target_machine = TargetMachine::native(&module)
+        let jit = Jit::new(symbols, debug_info != DebugInfo::None).expect("failed to create LLJIT");
+        let machine = TargetMachine::native(&llvm_module, jit.code_model())
             .unwrap_or_else(|err| panic!("failed to create native target machine: {err}"));
-
-        module
-            .run_passes(PASS_PIPELINE, &target_machine)
+        llvm_module
+            .run_passes(PASS_PIPELINE, &machine)
             .unwrap_or_else(|err| panic!("LLVM optimization failed for '{kernel_name}': {err}"));
+        dump.write("llvm.opt.ll", || llvm_module.print());
 
-        #[cfg(feature = "pliron-dump")]
-        if let Some(dir) = ir_dump_path(kernel_name) {
-            let _ = std::fs::write(dir.join("llvm.opt.ll"), module.print());
-        }
-
-        let object_bytes = target_machine
-            .emit(
-                module,
-                llvm_sys::target_machine::LLVMCodeGenFileType::LLVMObjectFile,
-            )
+        let object = machine
+            .emit(llvm_module, LLVMCodeGenFileType::LLVMObjectFile)
             .unwrap_or_else(|err| panic!("LLVM code generation failed for '{kernel_name}': {err}"));
+        dump.write("kernel.o", || &object);
 
-        #[cfg(feature = "pliron-dump")]
-        if let Some(dir) = ir_dump_path(kernel_name) {
-            let _ = std::fs::write(dir.join("kernel.o"), &object_bytes);
-        }
-
-        let engine = Self::from_object(&object_bytes, kernel_name, requirements, io)
-            .unwrap_or_else(|err| {
+        let engine =
+            Self::load(jit, &object, kernel_name, requirements, io).unwrap_or_else(|err| {
                 panic!("failed to load compiled object for '{kernel_name}': {err}")
             });
-
         if keep_object {
-            *engine.0.object_bytes.lock().unwrap() = Some(Bytes::from_bytes_vec(object_bytes));
+            *engine.0.object_bytes.lock().unwrap() = Some(Bytes::from_bytes_vec(object));
         }
-
         Ok(engine)
     }
 
     /// Load precompiled object bytes directly into the JIT linking layer.
+    ///
+    /// # Errors
+    /// When the JIT cannot link the object, or the object does not define `entrypoint`.
     pub fn from_object(
         bytes: &[u8],
         entrypoint: &str,
@@ -207,24 +155,32 @@ impl PlironEngine {
     ) -> Result<Self, CompilationError> {
         init_native();
 
-        let jit = OrcJit::new().map_err(|err| CompilationError::Generic {
-            reason: format!("failed to create OrcJit: {err}"),
+        let generic = |reason| CompilationError::Generic {
+            reason,
             backtrace: BackTrace::capture(),
-        })?;
+        };
+        let jit = Jit::new(JitSymbols::default(), false)
+            .map_err(|err| generic(format!("failed to create the JIT: {err}")))?;
+        Self::load(jit, bytes, entrypoint, requirements, io).map_err(generic)
+    }
 
+    /// Links the object code `bytes` into `jit`, and takes the kernel `entrypoint` from it.
+    fn load(
+        jit: Jit,
+        bytes: &[u8],
+        entrypoint: &str,
+        requirements: KernelRequirements,
+        io: Vec<BufferIOAttr>,
+    ) -> Result<Self, String> {
         jit.add_object_file(bytes, entrypoint)
-            .map_err(|err| CompilationError::Generic {
-                reason: format!("failed to add object file to JIT: {err}"),
-                backtrace: BackTrace::capture(),
-            })?;
-
+            .map_err(|err| format!("failed to add object file to JIT: {err}"))?;
         let addr = jit
-            .lookup_symbol(entrypoint)
-            .map_err(|err| CompilationError::Generic {
-                reason: format!("kernel symbol '{entrypoint}' not found: {err}"),
-                backtrace: BackTrace::capture(),
-            })?;
-
+            .lookup(entrypoint)
+            .map_err(|err| format!("kernel symbol '{entrypoint}' not found: {err}"))?;
+        if let Some(size) = jit.symbol_size(entrypoint) {
+            write_perf_map(addr, size, entrypoint);
+        }
+        // SAFETY: The generated entry point matches `KernelFn`.
         let func: KernelFn = unsafe { std::mem::transmute::<u64, KernelFn>(addr) };
 
         Ok(PlironEngine(Arc::new(JitKernel {
@@ -275,13 +231,19 @@ impl Display for PlironEngine {
     }
 }
 
-#[cfg(feature = "pliron-dump")]
-/// IR dump directory, enabled by `CUBECL_DEBUG_PLIRON`.
-pub(crate) fn ir_dump_path(kernel_name: &str) -> Option<std::path::PathBuf> {
-    let dir = std::env::var("CUBECL_DEBUG_PLIRON").ok()?;
-    let path = std::path::Path::new(&dir).join(kernel_name);
-    std::fs::create_dir_all(&path).ok()?;
-    Some(path)
+/// Converts `module` to an LLVM module, with the DWARF of `debug_info`.
+pub(crate) fn to_llvm_module(
+    ctx: &Context,
+    module: ModuleOp,
+    kernel_name: &str,
+    debug_info: DebugInfo,
+) -> pliron::result::Result<LlvmModule> {
+    let llvm_ctx = LLVMContext::default();
+    let llvm_module = convert_module(ctx, &llvm_ctx, module, debug_info, true)?;
+    let llvm_module = LlvmModule::new(&llvm_module.to_string())
+        .unwrap_or_else(|err| panic!("LLVM IR does not parse for '{kernel_name}': {err}"));
+    check_debug_info(&llvm_module, kernel_name, debug_info);
+    Ok(llvm_module)
 }
 
 /// Optimization pipeline for JIT compilation.

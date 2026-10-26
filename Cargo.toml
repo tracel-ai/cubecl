@@ -206,8 +206,8 @@ windows-sys = "0.61"
 hi_sparse_bitset = "0.9"
 
 # Crates.io
-pliron = { version = "0.19", default-features = false }
-pliron-llvm = { version = "0.19", default-features = false }
+pliron = { version = "0.20.0", default-features = false }
+pliron-llvm = { version = "0.20.0", default-features = false }
 
 # Path
 # pliron = { path = "../pliron", default-features = false }
@@ -238,8 +238,8 @@ cudarc = { version = "0.19.6", features = [
 ], default-features = false } # CubeCL-CUDA
 
 # CubeCL-SPIR-V
-pliron-spirv = "0.16.0"
-rspirv = { version = "0.16.0", package = "tracel-rspirv" }
+pliron-spirv = "0.17.0"
+rspirv = { version = "0.17.0", package = "tracel-rspirv" }
 # pliron-spirv = { package = "pliron-spirv", path = "../tracel-rspirv/pliron-spirv" }
 # rspirv = { package = "tracel-rspirv", path = "../tracel-rspirv/rspirv" }
 # pliron-spirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "77996f97565f9a980d10d8fae9a56a60cb149614" }
@@ -258,14 +258,11 @@ wgpu-hal = "^30.0.0"
 
 renderdoc = "0.12"
 
+md-5 = "0.11"
+
 # Build deps
 cc = "1.2"
 cfg_aliases = "0.2.2"
 
 [profile.dev.build-override]
 opt-level = 3
-
-# pliron-spirv pins upstream pliron; point it at the same pliron as the rest of the workspace.
-[patch."https://github.com/pliron-org/pliron.git"]
-pliron = { version = "0.19" }
-pliron-derive = { version = "0.19" }

@@ -22,7 +22,6 @@ use cubecl_core::ir::{
     },
     types::barrier::{BarrierLevel, BarrierType},
 };
-use pliron::location::Location;
 
 // LLVM has no scoped form of `init`; arrivals and transactions use the scoped forms, which
 // take a count.
@@ -67,11 +66,12 @@ impl Barrier {
         }
     }
 
-    /// The `mbarrier` a copy that counts its bytes as transactions completes on.
-    pub(crate) fn mbarrier(self, loc: Location) -> Result<Value> {
+    /// The `mbarrier` a copy that counts its bytes as transactions completes on. An error has
+    /// the location of `op`.
+    pub(crate) fn mbarrier(self, ctx: &Context, op: Ptr<Operation>) -> Result<Value> {
         match self {
             Barrier::Cube(barrier) => Ok(barrier),
-            Barrier::Unit => input_err!(loc, UnitBarrierUnsupported),
+            Barrier::Unit => input_err!(op.deref(ctx).loc(), UnitBarrierUnsupported),
         }
     }
 }
@@ -228,7 +228,14 @@ pub(crate) fn memcpy_async(
         "a cooperative copy is split into each unit's share before it is lowered"
     );
     let (source, destination) = (op.source(ctx), op.destination(ctx));
-    let bytes = copy_bytes(ctx, rw, info, source, op.source_length(ctx), op.loc(ctx))?;
+    let bytes = copy_bytes(
+        ctx,
+        rw,
+        info,
+        source,
+        op.source_length(ctx),
+        op.get_operation(),
+    )?;
     let name = format!(
         "llvm.memcpy.{}.{}.i32",
         llvm_mangled_ty(ctx, destination.get_type(ctx)),
@@ -249,9 +256,9 @@ pub(crate) fn memcpy_async_tx(
     rw: &mut DialectConversionRewriter,
     info: &OperandsInfo,
 ) -> Result<()> {
-    let loc = op.loc(ctx);
-    let barrier = Barrier::new(ctx, rw, info, op.barrier(ctx)).mbarrier(loc.clone())?;
-    let bytes = copy_bytes(ctx, rw, info, op.source(ctx), op.source_length(ctx), loc)?;
+    let at = op.get_operation();
+    let barrier = Barrier::new(ctx, rw, info, op.barrier(ctx)).mbarrier(ctx, at)?;
+    let bytes = copy_bytes(ctx, rw, info, op.source(ctx), op.source_length(ctx), at)?;
     let destination = NvptxSpace::SharedCluster.cast(ctx, rw, op.destination(ctx));
     let source = NvptxSpace::Global.cast(ctx, rw, op.source(ctx));
 
@@ -280,20 +287,20 @@ fn unit_token(ctx: &mut Context, rw: &mut DialectConversionRewriter) -> Value {
 }
 
 /// The bytes `length` elements of what `source` points at take, as the 32-bit count the copy
-/// instructions read.
+/// instructions read. An error has the location of `op`.
 fn copy_bytes(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
     info: &OperandsInfo,
     source: Value,
     length: Value,
-    loc: Location,
+    op: Ptr<Operation>,
 ) -> Result<Value> {
     let elem_size =
         pointee_size(ctx, info, source).expect("a copy source points at sized elements");
     let Some(length) = resize_int(ctx, rw, length, 32, Extension::Zero) else {
         let ty = length.get_type(ctx).disp(ctx).to_string();
-        return input_err!(loc, CopyLengthType(ty));
+        return input_err!(op.deref(ctx).loc(), CopyLengthType(ty));
     };
     let elem_size = insert_i32_const(ctx, rw, elem_size as i32);
     let bytes = llvm::MulOp::new_with_overflow_flag(

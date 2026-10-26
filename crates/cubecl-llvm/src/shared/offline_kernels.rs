@@ -1,12 +1,11 @@
 //! Real kernels for the offline tests of both GPU targets: compiled from `#[cube]` without a
 //! device, so a test can assert on the instructions a lowering produces.
+#![cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
 
 use cubecl_core as cubecl;
-use cubecl_core::ir::{
-    DeviceIdentity, HardwareProperties, MemoryDeviceProperties, features::Features,
-    features::MmaConfig,
-};
+use cubecl_core::ir::{features::MmaConfig, settings::DebugInfo};
 use cubecl_core::prelude::*;
+use cubecl_core::runtime_tests::offline::{self, offline_device_properties};
 #[cfg(feature = "nvptx")]
 use cubecl_core::{ir::types::MatrixShape, prelude::barrier::Barrier};
 use cubecl_runtime::kernel::CubeKernel;
@@ -16,35 +15,7 @@ use half::f16;
 use std::sync::Arc;
 
 pub(crate) fn device_properties(plane_dim: u32) -> Arc<DeviceProperties> {
-    let hardware = HardwareProperties {
-        load_width: 128,
-        vector_register_count: None,
-        plane_size_min: plane_dim,
-        plane_size_max: plane_dim,
-        max_bindings: 32,
-        max_shared_memory_size: 65536,
-        max_cube_count: (u32::MAX, u16::MAX as u32, u16::MAX as u32),
-        max_units_per_cube: 1024,
-        max_cube_dim: (1024, 1024, 1024),
-        num_streaming_multiprocessors: None,
-        num_tensor_cores: None,
-        min_tensor_cores_dim: None,
-        num_cpu_cores: None,
-        last_level_cache_size: None,
-        max_vector_size: VectorSize::MAX,
-        cube_mma_reserved_shared_memory: 0,
-    };
-    Arc::new(DeviceProperties::new(
-        Features::default(),
-        MemoryDeviceProperties::new(u64::MAX, 256),
-        hardware,
-        cubecl_core::profile::TimingMethod::Device,
-        DeviceIdentity {
-            name: "offline".to_string(),
-            fingerprint: "offline".to_string(),
-            physical: None,
-        },
-    ))
+    Arc::new(offline_device_properties(plane_dim))
 }
 
 #[cube(launch)]
@@ -190,6 +161,33 @@ pub(crate) fn relay_kernel(wait: Wait) -> impl CubeKernel {
     )
 }
 
+/// A word read as four `e2m1x2` and cast to eight `f16`, then the eight cast back: what a reader
+/// of a packed fp4 weight does, through the software codec on every LLVM target.
+#[cfg(any(feature = "nvptx", feature = "amdgpu"))]
+#[cube(launch)]
+fn fp4_round_trip(words: &[u32], out: &mut [u32]) {
+    let codes = Vector::<cubecl_core::e2m1x2, Const<4>>::reinterpret(words[ABSOLUTE_POS]);
+    let values = Vector::<half::f16, Const<8>>::cast_from(codes);
+    let encoded = Vector::<cubecl_core::e2m1x2, Const<4>>::cast_from(values);
+    out[ABSOLUTE_POS] = u32::reinterpret(encoded);
+}
+
+#[cfg(any(feature = "nvptx", feature = "amdgpu"))]
+pub(crate) fn fp4_round_trip_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    fp4_round_trip::Fp4RoundTrip::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 /// Scales `input` into `output` and counts the units into `tally`, dropping what the count was:
 /// an accumulation no cube waits on.
 #[cube(launch)]
@@ -305,6 +303,16 @@ pub(crate) fn tf32_round_constants_kernel() -> impl CubeKernel {
         Arc::new(TargetProperties::default()),
         BufferCompilationArg { inplace: None },
     )
+}
+
+/// `nested_calls` of `cubecl-core` at `level`: two inlined `#[cube]` functions.
+pub(crate) fn nested_calls_kernel(level: DebugInfo) -> impl CubeKernel {
+    offline::nested_calls_kernel(device_properties(32), level)
+}
+
+/// `nested_calls_with_source` of `cubecl-core`: full debug data with the text of its file.
+pub(crate) fn nested_calls_with_source_kernel() -> impl CubeKernel {
+    offline::nested_calls_with_source_kernel(device_properties(32))
 }
 
 /// `bf16` arithmetic, a comparison, a square root and a plane reduction, which the backend

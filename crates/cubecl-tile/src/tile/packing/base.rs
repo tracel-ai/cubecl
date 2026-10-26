@@ -85,6 +85,20 @@ impl Field {
     pub fn per_word(self) -> usize {
         u32::BITS as usize / self.size_bits()
     }
+
+    /// Whether the slot holds an `e2m1` code, however the device reads it
+    /// ([`read_on`](Field::read_on)): what a reader that takes the codes' values whole asks.
+    pub fn holds_e2m1(self) -> bool {
+        matches!(
+            self,
+            Field::Quant(QuantValue::E2M1)
+                | Field::ConvertedE2M1
+                | Field::Placed {
+                    value: QuantValue::E2M1,
+                    ..
+                }
+        )
+    }
 }
 
 impl Field {
@@ -397,6 +411,27 @@ mod tests {
         );
         assert_eq!(Field::ConvertedE2M1.decode(), FieldDecode::Converted);
         assert_eq!(Field::ConvertedE2M1.per_word(), 8);
+    }
+
+    /// An `e2m1` code is one however a device reads it: converted, placed, or from its bits.
+    #[test]
+    fn every_read_of_an_e2m1_code_holds_e2m1() {
+        let placed = |value, lifted| Field::Placed { value, lifted };
+        for field in [
+            Field::from(QuantValue::E2M1),
+            Field::ConvertedE2M1,
+            placed(QuantValue::E2M1, true),
+            placed(QuantValue::E2M1, false),
+        ] {
+            assert!(field.holds_e2m1(), "{field:?}");
+        }
+        for field in [
+            Field::from(QuantValue::E4M3),
+            placed(QuantValue::E4M3, true),
+            Field::from(Fp8Format::E4M3),
+        ] {
+            assert!(!field.holds_e2m1(), "{field:?}");
+        }
     }
 
     /// A float code placed is the field it was, decoded from its bits, and read placed it is
