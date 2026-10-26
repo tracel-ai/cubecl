@@ -508,14 +508,13 @@ impl<K: AutotuneKey> Tuner<K> {
     where
         <F as TuneInputs>::At<'i>: Clone + Send,
     {
+        let config = crate::config::CubeClRuntimeConfig::get();
         let mut schedule = crate::tune::schedule::Schedule {
-            config: crate::config::CubeClRuntimeConfig::get()
-                .autotune
-                .bench
-                .clone(),
+            config: config.autotune.bench.clone(),
             limit: job.limit,
             short_circuit: job.short_circuit,
             track_steps: job.log_context.is_some(),
+            compile_parallelism: config.compilation.parallelism(),
             evictor: job.evictor.take(),
         };
 
