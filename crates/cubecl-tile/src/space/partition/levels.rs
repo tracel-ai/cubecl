@@ -13,7 +13,7 @@
 //! An `every` level ([`Count::All`]) closes its axis; only [`across`](Levels::across) may name it
 //! again, on the cube level.
 
-use super::{CubeOrder, PlaneOrder, UnitCube};
+use super::{CubeOrder, LaunchSpan, PlaneOrder, UnitCube};
 use crate::{Axis, ComputeScope, Count, Coverage, Level, Spread};
 
 /// One level as the builder holds it before it is a [`Level`].
@@ -33,10 +33,8 @@ struct StatedLevel {
     /// Closed axes this cube level names again, to distribute across cubes.
     reopened: Vec<Axis>,
     order: CubeOrder,
-    /// The order the launch's planes take this level's tiles in, where it spans the launch.
-    plane_order: Option<PlaneOrder>,
-    /// The cubes the launch's units are grouped in, where a unit level spans the launch.
-    unit_cube: Option<UnitCube>,
+    /// Who across the whole launch takes this level's tiles, where it spans the launch.
+    launch_span: Option<LaunchSpan>,
 }
 
 /// Which [`Count`] a stated level's entries carry.
@@ -146,7 +144,7 @@ impl Levels {
             "Levels::launch_planes: {:?} was taken whole by a level below",
             stated.reopened
         );
-        stated.plane_order = Some(order);
+        stated.launch_span = Some(LaunchSpan::Planes(order));
         self
     }
 
@@ -162,7 +160,7 @@ impl Levels {
             "Levels::launch_units: {:?} was taken whole by a level below",
             stated.reopened
         );
-        stated.unit_cube = Some(cube);
+        stated.launch_span = Some(LaunchSpan::Units(cube));
         self
     }
 
@@ -346,8 +344,7 @@ impl StatedLevel {
             reversed: Vec::new(),
             reopened: Vec::new(),
             order: CubeOrder::RowMajor,
-            plane_order: None,
-            unit_cube: None,
+            launch_span: None,
         }
     }
 
@@ -367,11 +364,12 @@ impl StatedLevel {
                 .map(|&(axis, tile, _)| (axis, tile))
                 .collect()
         };
-        if let Some(order) = &self.plane_order {
-            return Level::spanning_launch(&tile(), order.clone()).reversed(&self.reversed);
-        }
-        if let Some(cube) = self.unit_cube {
-            return Level::units_spanning_launch(&tile(), cube).reversed(&self.reversed);
+        if let Some(span) = &self.launch_span {
+            let level = match span {
+                LaunchSpan::Planes(order) => Level::spanning_launch(&tile(), order.clone()),
+                LaunchSpan::Units(cube) => Level::units_spanning_launch(&tile(), *cube),
+            };
+            return level.reversed(&self.reversed);
         }
         let cuts: Vec<(Axis, usize, Count, Spread)> = self
             .tiles
