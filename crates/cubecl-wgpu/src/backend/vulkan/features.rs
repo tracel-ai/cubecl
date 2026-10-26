@@ -19,6 +19,9 @@ pub struct ExtendedFeatures<'a> {
     pub subgroup_extended: Option<PhysicalDeviceShaderSubgroupExtendedTypesFeatures<'a>>,
     pub uniform_standard_layout: Option<PhysicalDeviceUniformBufferStandardLayoutFeatures<'a>>,
     pub shader_integer_dot_product: Option<PhysicalDeviceShaderIntegerDotProductFeatures<'a>>,
+    /// `VK_KHR_shader_non_semantic_info` has no feature struct. `Some` when the device accepts
+    /// non-semantic instructions.
+    pub non_semantic_info: Option<()>,
 
     // extensions
     pub cooperative_matrix: Option<PhysicalDeviceCooperativeMatrixFeaturesKHR<'a>>,
@@ -122,6 +125,8 @@ impl<'a> ExtendedFeatures<'a> {
             KHR_SHADER_SUBGROUP_EXTENDED_TYPES_NAME; API_VERSION_1_2 => subgroup_extended,
             KHR_UNIFORM_BUFFER_STANDARD_LAYOUT_NAME; API_VERSION_1_2 => uniform_standard_layout,
             KHR_SHADER_INTEGER_DOT_PRODUCT_NAME; API_VERSION_1_3 => shader_integer_dot_product,
+            // Kernel debug data needs it. It only lets the driver accept `NonSemantic` instructions.
+            KHR_SHADER_NON_SEMANTIC_INFO_NAME; API_VERSION_1_3 => non_semantic_info,
         );
 
         fill_opt!(self,

@@ -164,7 +164,7 @@ fn widen(
     let cast = CastOp::new(ctx, wide_ty, value);
     match value.defining_op() {
         Some(definition) => cast.get_operation().insert_after(ctx, definition),
-        None => match value.get_defining_block(ctx) {
+        None => match value.get_parent_block(ctx) {
             Some(block) => cast.get_operation().insert_at_front(block, ctx),
             None => cast.get_operation().insert_before(ctx, user),
         },
