@@ -158,6 +158,23 @@ impl IoAcceleratorStatistics {
     }
 }
 
+/// The GPU cores of the accelerator whose I/O Registry entry has `registry_entry_id`, which its
+/// driver states as `gpu-core-count` and Metal does not report: `None` where the entry or the
+/// property is missing, as on a Mac whose GPU is not Apple's.
+pub fn gpu_core_count(registry_entry_id: RegistryEntryId) -> Option<u32> {
+    let accelerator = IoAcceleratorStatistics::accelerator_with_entry_id(registry_entry_id).ok()?;
+    let key = CFString::from_static_str("gpu-core-count");
+    // SAFETY: the entry is held until its release below, and the property is returned retained.
+    let count = unsafe { IORegistryEntryCreateCFProperty(accelerator, Some(&key), None, 0) };
+    IOObjectRelease(accelerator);
+    count?
+        .downcast::<CFNumber>()
+        .ok()?
+        .as_i64()?
+        .try_into()
+        .ok()
+}
+
 impl Drop for IoAcceleratorStatistics {
     fn drop(&mut self) {
         IOObjectRelease(self.accelerator);

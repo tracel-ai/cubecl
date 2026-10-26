@@ -83,7 +83,8 @@ impl AliasingOp for BarrierNativeHandleOp {
 
 impl Verify for BarrierNativeHandleOp {
     fn verify(&self, ctx: &Context) -> Result<()> {
-        let loc = self.loc(ctx);
+        let operation = self.get_operation().deref(ctx);
+        let loc = operation.loc();
         let barrier_ty = self.bar_ptr(ctx).get_type(ctx).as_ptr(ctx);
 
         if !barrier_ty.inner.deref(ctx).is::<BarrierType>() {

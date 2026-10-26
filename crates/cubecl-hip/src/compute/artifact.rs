@@ -3,7 +3,10 @@
 
 use crate::compiler::{HipBackend, HipCompilationOptions, HipCompiler, HipRepresentation};
 use crate::compute::status::checked;
-use cubecl_core::{ir::DeviceProperties, prelude::*};
+use cubecl_core::{
+    ir::{DeviceProperties, settings::DebugInfo},
+    prelude::*,
+};
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_hip_sys::get_hip_include_path;
@@ -104,7 +107,7 @@ impl ArtifactCompiler for HipArtifactCompiler {
 
     fn finalize(
         &self,
-        _id: &ArtifactId<Self::Variant>,
+        id: &ArtifactId<Self::Variant>,
         mut lowered: Self::Lowered,
     ) -> Result<Self::Artifact, LaunchError> {
         let io = lowered.io.take();
@@ -118,7 +121,11 @@ impl ArtifactCompiler for HipArtifactCompiler {
             // from: it declares its shared memory statically, so the launch
             // reserves none.
             (HipBackend::Cpp, repr) => (
-                compile_to_binary(&lowered.source, &self.options.target)?,
+                compile_to_binary(
+                    &lowered.source,
+                    &self.options.target,
+                    id.kernel.debug_info != DebugInfo::None,
+                )?,
                 repr.as_ref()
                     .map(|repr| repr.shared_memory_size())
                     .unwrap_or(0),
@@ -173,13 +180,19 @@ impl Drop for RtcProgram {
     }
 }
 
-/// Compile `source` to a device binary with HIP RTC.
+/// Compile `source` to a device binary with HIP RTC. With `line_tables`, the binary has the line
+/// tables of the `#line` directives in `source`, for rocprofiler. It does not change the
+/// optimization level.
 ///
 /// # Errors
 ///
 /// [`CompilationError::Generic`] carrying the compiler's own log, and the
 /// source that produced it, so a kernel the driver refuses says why.
-fn compile_to_binary(source: &str, target: &str) -> Result<Vec<i8>, CompilationError> {
+fn compile_to_binary(
+    source: &str,
+    target: &str,
+    line_tables: bool,
+) -> Result<Vec<i8>, CompilationError> {
     let source = CString::new(source).map_err(|err| CompilationError::Generic {
         reason: format!("The generated source is not a valid C string: {err}"),
         backtrace: BackTrace::capture(),
@@ -228,6 +241,9 @@ fn compile_to_binary(source: &str, target: &str) -> Result<Vec<i8>, CompilationE
     // then compiles for the calling thread's current device.
     if !target.is_empty() {
         options.push(target_option.as_ptr());
+    }
+    if line_tables {
+        options.push(c"-gline-tables-only".as_ptr());
     }
 
     // SAFETY: `program.0` is the handle created above, and `options` holds

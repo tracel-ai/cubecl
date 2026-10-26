@@ -12,16 +12,14 @@ pub(crate) struct Boundaries {
 }
 
 impl Boundaries {
-    /// The mode: the stated policy, else, where the operand overhangs, underflows or has an extent
-    /// a table sets, the boundary [`AnyExtent`](BoundaryPolicy::AnyExtent) states or
-    /// [`Boundary::Zero`].
+    /// The mode: the stated policy, else, where the operand overhangs or underflows, the boundary
+    /// [`AnyExtent`](BoundaryPolicy::AnyExtent) states or [`Boundary::Zero`].
     fn mode(
         policy: Option<BoundaryPolicy>,
         projection: &Projection,
         addressed: &[Axis],
         concrete: &Space,
         overhangs: &[Axis],
-        table_bounded: &[Axis],
     ) -> Option<Boundary> {
         let boundary = match policy {
             Some(BoundaryPolicy::Unchecked) => return None,
@@ -33,21 +31,17 @@ impl Boundaries {
             .iter()
             .filter(|&&axis| concrete.contains(axis))
             .any(|axis| overhangs.contains(axis));
-        (overhangs || projection.may_underflow() || !table_bounded.is_empty()).then_some(boundary)
+        (overhangs || projection.may_underflow()).then_some(boundary)
     }
 
     /// `concrete` is the launch's real-extent space and `overhangs` the axes its tiles reach past:
     /// this launch's, or under [`AnyExtent`](BoundaryPolicy::AnyExtent) those any extent could.
-    /// `table_bounded` are the axes a page table sets the extent of at launch
-    /// ([`Paging`](crate::Paging)): never in bounds by construction, and their extent a whole
-    /// number of pages, so of lines.
     pub(crate) fn new(
         policy: Option<BoundaryPolicy>,
         projection: &Projection,
         addressed: &[Axis],
         concrete: &Space,
         overhangs: &[Axis],
-        table_bounded: &[Axis],
         width: usize,
     ) -> Result<Self, Refusal> {
         let coord_rank = projection.coordinate_rank();
@@ -55,14 +49,7 @@ impl Boundaries {
             return Err(Refusal::NoCoordinate);
         }
         // Most operands check nothing, and the untiled map below is the costly part.
-        let Some(boundary) = Self::mode(
-            policy,
-            projection,
-            addressed,
-            concrete,
-            overhangs,
-            table_bounded,
-        ) else {
+        let Some(boundary) = Self::mode(policy, projection, addressed, concrete, overhangs) else {
             return Ok(Boundaries {
                 modes: SmallVec::new(),
             });
@@ -70,26 +57,15 @@ impl Boundaries {
         let coords = projection.untiled();
 
         // Whether coordinate axis `pa` is always in bounds: it is one or more concrete axes laid
-        // end to end (like `K = KB·16 + KI`), and the tiles reach past none of them and no table
-        // bounds them.
+        // end to end (like `K = KB·16 + KI`), and the tiles reach past none of them.
         let settled = |pa: usize| {
             coords
                 .physical_axis(pa)
                 .flattened_axes(concrete)
-                .is_some_and(|axes| {
-                    axes.iter()
-                        .all(|axis| !overhangs.contains(axis) && !table_bounded.contains(axis))
-                })
-        };
-        // A table's extent is whole pages, each whole lines: a line never straddles its edge.
-        let whole_lines = |pa: usize| {
-            coords
-                .physical_axis(pa)
-                .identity_axis()
-                .is_some_and(|axis| table_bounded.contains(&axis))
+                .is_some_and(|axes| axes.iter().all(|axis| !overhangs.contains(axis)))
         };
 
-        if width > 1 && !settled(coord_rank - 1) && !whole_lines(coord_rank - 1) {
+        if width > 1 && !settled(coord_rank - 1) {
             return Err(Refusal::UncheckableVectorEdge);
         }
 
