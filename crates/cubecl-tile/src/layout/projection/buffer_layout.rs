@@ -75,11 +75,7 @@ impl BufferLayout {
     /// The logical coordinate line `i` of this buffer holds.
     pub(crate) fn line_coords(&self, i: usize) -> CoordsDyn {
         let physical = self.placed(&self.line_physical(i));
-        logical_of_physical(
-            comptime!(self.projection.clone()),
-            &physical,
-            &self.physical_shape,
-        )
+        self.logical_of_physical(&physical)
     }
 
     /// Where line `i` of this buffer sits: `i` itself unless rows are padded.
@@ -122,12 +118,51 @@ impl BufferLayout {
     /// extents.
     fn line_physical(&self, i: usize) -> Coords<u32> {
         let x = i.cast::<u32>();
+        let rank = self.physical_shape.len();
         let mut physical = Coords::<u32>::new();
         #[unroll]
-        for pa in 0..self.physical_shape.len() {
-            physical.push(line_coord(x, &self.physical_shape, pa));
+        for pa in 0..rank {
+            physical.push(
+                x.divided_by(
+                    self.physical_shape
+                        .product(comptime!(((pa + 1)..rank).collect::<Vec<_>>())),
+                )
+                .remainder(self.physical_shape.at(pa)),
+            );
         }
         physical
+    }
+
+    /// The logical coordinate producing `physical` under this layout's projection, inverting
+    /// [`to_source_pos`](Layout::to_source_pos). Requires [`Projection::is_invertible`].
+    fn logical_of_physical(&self, physical: &Coords<u32>) -> CoordsDyn {
+        comptime!(assert!(
+            self.projection.is_invertible(),
+            "Projection::logical_of_physical: not invertible (an affine term mixes several logical \
+             coordinates into one physical cell)"
+        ));
+        let mut out = CoordsDyn::new();
+        #[unroll]
+        for i in 0..comptime!(self.projection.logical_rank()) {
+            let axis = comptime!(self.projection.logical_axes()[i]);
+            let carriers = comptime!(self.projection.carriers(axis));
+            let picks = comptime!((0..carriers.len()).collect::<Vec<_>>());
+            let mut parts = Sequence::<u32>::new();
+            #[unroll]
+            for k in 0..comptime!(carriers.len()) {
+                let pa = comptime!(carriers[k]);
+                // Each coordinate weighs the block it sits above, the same finer extents that
+                // stripped it.
+                let (finer, _) = comptime!(self.projection.carried_by(pa, axis));
+                parts.push(
+                    physical
+                        .at(pa)
+                        .times(self.physical_shape.product(comptime!(finer.to_vec()))),
+                );
+            }
+            out.push(parts.sum(picks));
+        }
+        out
     }
 
     /// This layout for a window whose origin is `origin`, cut as `cut` says

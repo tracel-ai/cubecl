@@ -1,9 +1,7 @@
 //! A [`Projection`]'s carriers read in the kernel: the logical extents a physical shape carries,
-//! the line offset of one coordinate, and a flat line's physical coordinates back to its logical
-//! one.
+//! and the line offset of one coordinate.
 
 use cubecl::prelude::*;
-use cubecl_std::tensor::layout::CoordsDyn;
 
 use crate::{Axis, Coords, Integer, IntegerExpand, IntegerSeq, IntegerSeqExpand, Projection};
 
@@ -54,82 +52,4 @@ pub(crate) fn axis_offset(
         );
     }
     parts.sum(picks)
-}
-
-/// The logical coordinate producing `physical` under `projection`, inverting
-/// `BufferLayout`'s `to_source_pos`. Requires [`Projection::is_invertible`].
-#[cube]
-pub(crate) fn logical_of_physical(
-    #[comptime] projection: Projection,
-    physical: &Coords<u32>,
-    physical_shape: &Coords<u32>,
-) -> CoordsDyn {
-    comptime!(assert!(
-        projection.is_invertible(),
-        "Projection::logical_of_physical: not invertible (an affine term mixes several logical \
-         coordinates into one physical cell)"
-    ));
-    let mut out = CoordsDyn::new();
-    #[unroll]
-    for i in 0..comptime!(projection.logical_rank()) {
-        let axis = comptime!(projection.logical_axes()[i]);
-        let carriers = comptime!(projection.carriers(axis));
-        let picks = comptime!((0..carriers.len()).collect::<Vec<_>>());
-        let mut parts = Sequence::<u32>::new();
-        #[unroll]
-        for k in 0..comptime!(carriers.len()) {
-            let pa = comptime!(carriers[k]);
-            // Each coordinate weighs the block it sits above, the same finer extents that stripped
-            // it.
-            let (finer, _) = comptime!(projection.carried_by(pa, axis));
-            parts.push(
-                physical
-                    .at(pa)
-                    .times(physical_shape.product(comptime!(finer.to_vec()))),
-            );
-        }
-        out.push(parts.sum(picks));
-    }
-    out
-}
-
-/// Coordinate `j` of flat line `x` under `shape`'s row-major suffix strides.
-#[cube]
-pub(crate) fn line_coord(x: u32, shape: &Coords<u32>, #[comptime] j: usize) -> u32 {
-    let plen = shape.len();
-    x.divided_by(shape.product(comptime!(((j + 1)..plen).collect::<Vec<_>>())))
-        .remainder(shape.at(j))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const A: Axis = Axis(0);
-
-    /// Weighing the physical coordinates back reconstructs the logical one they were taken from.
-    #[test]
-    fn logical_of_physical_inverts_what_to_source_pos_reads() {
-        let shape = [3usize, 8];
-        let p = Projection::new(
-            &[A],
-            &[crate::PhysicalAxisMap::of(A), crate::PhysicalAxisMap::of(A)],
-        );
-        assert!(p.is_invertible());
-        let block = |pa| {
-            p.carried_by(pa, A)
-                .0
-                .iter()
-                .map(|&q| shape[q])
-                .product::<usize>()
-        };
-
-        for coord in [0usize, 1, 7, 8, 9, 19, 23] {
-            let physical = |pa| match p.carried_by(pa, A).1 {
-                Some(m) => (coord / block(pa)) % shape[m],
-                None => coord / block(pa),
-            };
-            assert_eq!(physical(0) * block(0) + physical(1) * block(1), coord);
-        }
-    }
 }

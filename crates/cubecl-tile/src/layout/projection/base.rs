@@ -4,8 +4,7 @@ use crate::Addressed;
 use cubecl::zspace::{SmallVec, Tiling};
 
 use crate::{
-    Axis, Composition, DimsBuilder, Divisor, Geometry, Offset, PhysicalAxisMap, Refusal, Scale,
-    Space,
+    Axis, Composition, DimsBuilder, Divisor, Geometry, Offset, PhysicalAxisMap, Refusal, Space,
 };
 
 /// An operand's logical axes mapped onto its buffer's physical axes.
@@ -345,11 +344,7 @@ impl Projection {
     }
 
     pub(crate) fn is_invertible(&self) -> bool {
-        self.physical.iter().all(|m| {
-            m.offset() == Offset::Static(0)
-                && m.divisor().is_unit()
-                && matches!(m.terms(), [t] if matches!(t.scale, Scale::Static(1)))
-        })
+        self.physical.iter().all(|m| m.identity_axis().is_some())
     }
 
     /// Why a gathered projection cannot be served at `vector_size`, if it cannot.
@@ -469,6 +464,7 @@ impl Projection {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Scale;
 
     /// Block scales omit the in-block axis and count the split dim in blocks.
     #[test]
@@ -709,6 +705,28 @@ mod tests {
         assert_eq!(p.carried_by(1, B), (SmallVec::from_slice(&[3]), None));
         assert!(p.is_invertible());
         p.validate(4).unwrap();
+    }
+
+    /// Weighing each carrier's coordinate by the extents finer than it gives back the coordinate.
+    #[test]
+    fn carried_coordinates_weigh_back_to_the_coordinate() {
+        let shape = [3usize, 8];
+        let p = Projection::new(&[A], &[PhysicalAxisMap::of(A), PhysicalAxisMap::of(A)]);
+        let block = |pa| {
+            p.carried_by(pa, A)
+                .0
+                .iter()
+                .map(|&q| shape[q])
+                .product::<usize>()
+        };
+
+        for coord in [0usize, 1, 7, 8, 9, 19, 23] {
+            let physical = |pa| match p.carried_by(pa, A).1 {
+                Some(m) => (coord / block(pa)) % shape[m],
+                None => coord / block(pa),
+            };
+            assert_eq!(physical(0) * block(0) + physical(1) * block(1), coord);
+        }
     }
 
     /// `tiling` reads back the piece counts of the dims `tiled` was given.
