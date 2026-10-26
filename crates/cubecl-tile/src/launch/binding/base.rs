@@ -168,10 +168,13 @@ impl<'a> Arg<'a, Labelled> {
             .unwrap_or_default();
         let derived = Derivation::view(&self.data, packing, stored)
             .derived(|| self.derive(packing, stored))?;
-        let tensor = self
-            .data
-            .binding
-            .map(|(binding, element)| (settled_tensor(binding, &derived.geometry), element));
+        let tensor = self.data.binding.map(|(mut binding, element)| {
+            // Its tiling restated over the settled geometry's dims.
+            binding.shape = derived.geometry.shape().into();
+            binding.strides = derived.geometry.strides().into();
+            binding.tiling = derived.geometry.tiling();
+            (binding.into_tensor_arg(), element)
+        });
         let bound = Bound {
             tensor,
             vector_size: self.data.width,
@@ -187,14 +190,12 @@ impl<'a> Arg<'a, Labelled> {
         let launch = data.launch;
         let width = data.width;
         let stated = data.projection.is_some() || stored.is_tiled();
-        let (geometry, axes) = stride_ordered(
-            data.geometry.clone(),
-            data.axes,
-            data.in_stride_order,
-            stated,
-        )?;
-        let (storage, stored_tiles) =
-            storage_of(&geometry, &axes, data.projection.is_none(), launch);
+        let (geometry, axes) = match data.in_stride_order {
+            true if stated => return Err(Refusal::StrideOrderOfAStatedLayout),
+            true => data.geometry.clone().in_stride_order(data.axes),
+            false => (data.geometry.clone(), data.axes.to_vec()),
+        };
+        let (storage, stored_tiles) = self.storage(&geometry, &axes);
         let labels = match data.projection.clone() {
             Some(projection) => {
                 Labels::stated(&geometry, launch, projection, &axes, data.batches, stored)?
@@ -246,6 +247,61 @@ impl<'a> Arg<'a, Labelled> {
         }
         .delivery(data.delivery);
         Ok(Derived { spec, geometry })
+    }
+
+    /// The coarsest level whose windows the operand's storage tiles address with one stride per
+    /// axis (one contiguous run each), every other window walked through the layout; and the stored
+    /// tiles themselves, finest first ([`TileSpec::stored_tiles`]).
+    fn storage(&self, geometry: &Geometry, axes: &[Axis]) -> (Storage, Vec<(Axis, usize)>) {
+        let launch = self.data.launch;
+        if !(self.data.projection.is_none() && geometry.tiling().is_tiled()) {
+            return (Storage::Strided, Vec::new());
+        }
+        let labels = geometry.labels(axes);
+        let partitioning = StoragePartitioning::new(geometry, &labels);
+        let stored_tiles = partitioning
+            .as_ref()
+            .map_or_else(Vec::new, |storage| storage.tiles().to_vec());
+        let tiles = partitioning
+            .map(|storage| storage.contiguous_tiles(&geometry.extents(&labels)))
+            .unwrap_or_default();
+        // Each level's window along the operand's axes, outermost first: the extent this launch
+        // cuts it to, and whether the kernel hands it down dynamic. A level that cuts an axis gives
+        // it its tile; one that does not passes the window above it down.
+        let (space, kernel) = (launch.space(), launch.partitioning().space());
+        let mut window: LevelWindow = axes
+            .iter()
+            .map(|&axis| (space.extent_raw(axis), kernel.is_dynamic(axis)))
+            .collect();
+        let windows: SmallVec<[LevelWindow; 8]> = launch
+            .partitioning()
+            .levels()
+            .iter()
+            .map(|level| {
+                for (&axis, cut) in axes.iter().zip(window.iter_mut()) {
+                    if let Some(tile) = level.tile(axis) {
+                        *cut = (Extent::Static(tile), false);
+                    }
+                }
+                window.clone()
+            })
+            .collect();
+        // A tile the kernel hands down dynamic is no window a storage tile can be, whatever this
+        // launch's extent makes it.
+        let cuts_to = |window: &[(Extent, bool)], tile: &[(Axis, usize)]| {
+            axes.iter().zip(window).all(|(&axis, &(extent, dynamic))| {
+                let stored = tile
+                    .iter()
+                    .find(|&&(a, _)| a == axis)
+                    .map_or(1, |&(_, e)| e);
+                !dynamic && extent == Extent::Static(stored)
+            })
+        };
+        let level = tiles
+            .iter()
+            .rev()
+            .find_map(|tile| windows.iter().position(|window| cuts_to(window, tile)));
+        (Storage::Tiled(level), stored_tiles)
     }
 }
 
@@ -316,82 +372,9 @@ pub struct Unbound {
     pub geometry: Geometry,
 }
 
-/// The labelled dims in stride order where asked; refused for a stated layout.
-fn stride_ordered(
-    geometry: Geometry,
-    axes: &[Axis],
-    in_stride_order: bool,
-    stated: bool,
-) -> Result<(Geometry, Vec<Axis>), Refusal> {
-    match in_stride_order {
-        true if stated => Err(Refusal::StrideOrderOfAStatedLayout),
-        true => Ok(geometry.in_stride_order(axes)),
-        false => Ok((geometry, axes.to_vec())),
-    }
-}
-
 /// One level's window along an operand's axes, in their order: the extent the launch cuts each axis
 /// to, and whether the kernel hands it down dynamic.
 type LevelWindow = SmallVec<[(Extent, bool); Space::MAX_RANK]>;
-
-/// The coarsest level whose windows the operand's storage tiles address with one stride per axis
-/// (one contiguous run each), every other window walked through the layout; and the
-/// stored tiles themselves, finest first ([`TileSpec::stored_tiles`]).
-fn storage_of(
-    geometry: &Geometry,
-    axes: &[Axis],
-    labelled: bool,
-    launch: &Launcher,
-) -> (Storage, Vec<(Axis, usize)>) {
-    if !(labelled && geometry.tiling().is_tiled()) {
-        return (Storage::Strided, Vec::new());
-    }
-    let labels = geometry.labels(axes);
-    let partitioning = StoragePartitioning::new(geometry, &labels);
-    let stored_tiles = partitioning
-        .as_ref()
-        .map_or_else(Vec::new, |storage| storage.tiles().to_vec());
-    let tiles = partitioning
-        .map(|storage| storage.contiguous_tiles(&geometry.extents(&labels)))
-        .unwrap_or_default();
-    // Each level's window along the operand's axes, outermost first: the extent this launch cuts
-    // it to, and whether the kernel hands it down dynamic. A level that cuts an axis gives it its
-    // tile; one that does not passes the window above it down.
-    let (space, kernel) = (launch.space(), launch.partitioning().space());
-    let mut window: LevelWindow = axes
-        .iter()
-        .map(|&axis| (space.extent_raw(axis), kernel.is_dynamic(axis)))
-        .collect();
-    let windows: SmallVec<[LevelWindow; 8]> = launch
-        .partitioning()
-        .levels()
-        .iter()
-        .map(|level| {
-            for (&axis, cut) in axes.iter().zip(window.iter_mut()) {
-                if let Some(tile) = level.tile(axis) {
-                    *cut = (Extent::Static(tile), false);
-                }
-            }
-            window.clone()
-        })
-        .collect();
-    // A tile the kernel hands down dynamic is no window a storage tile can be, whatever this
-    // launch's extent makes it.
-    let cuts_to = |window: &[(Extent, bool)], tile: &[(Axis, usize)]| {
-        axes.iter().zip(window).all(|(&axis, &(extent, dynamic))| {
-            let stored = tile
-                .iter()
-                .find(|&&(a, _)| a == axis)
-                .map_or(1, |&(_, e)| e);
-            !dynamic && extent == Extent::Static(stored)
-        })
-    };
-    let level = tiles
-        .iter()
-        .rev()
-        .find_map(|tile| windows.iter().position(|window| cuts_to(window, tile)));
-    (Storage::Tiled(level), stored_tiles)
-}
 
 /// `tensor` over `buffer` instead of its own: the shape, strides and tiling it was settled at kept.
 /// `None` for an alias of another input, which holds no buffer.
@@ -407,12 +390,4 @@ pub(crate) fn rebound_tensor(tensor: &TensorArg, buffer: BufferBinding) -> Optio
         }),
         TensorArg::Alias { .. } => None,
     }
-}
-
-/// The binding as the arg ships it, its tiling restated over the settled geometry's dims.
-fn settled_tensor(mut binding: TensorBinding, geometry: &Geometry) -> TensorArg {
-    binding.shape = geometry.shape().into();
-    binding.strides = geometry.strides().into();
-    binding.tiling = geometry.tiling();
-    binding.into_tensor_arg()
 }

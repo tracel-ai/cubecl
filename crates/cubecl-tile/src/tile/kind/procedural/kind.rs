@@ -109,8 +109,8 @@ impl Procedural {
         position: u32,
         #[comptime] space: Space,
     ) -> T {
-        // Where each of this recipe's axes reads its coordinate from: the position, a digit of the
-        // slice, or nowhere.
+        // Where each of this recipe's axes reads its coordinate from: the position, a coordinate of
+        // the slice, or nowhere.
         let (slice_extents, sources) = comptime!({
             let rank = space.rank();
             let extents: Vec<usize> = (0..rank - 1).map(|p| space.extent_at(p)).collect();
@@ -125,7 +125,7 @@ impl Procedural {
             (extents, sources)
         });
         let position_at = comptime!(space.rank() - 1);
-        let slice_digits = Coords::<u32>::constant(slice_extents).unravel(slice);
+        let slice_coords = Coords::<u32>::constant(slice_extents).unravel(slice);
         let mut coords = Coords::<u32>::new();
         // `#[unroll]` needs a range loop.
         #[allow(clippy::needless_range_loop)]
@@ -133,7 +133,7 @@ impl Procedural {
         for p in 0..sources.len() {
             match sources[p] {
                 Some(at) if at == position_at => coords.push(position),
-                Some(at) => coords.push(slice_digits.at(at)),
+                Some(at) => coords.push(slice_coords.at(at)),
                 None => coords.push(0u32.runtime()),
             }
         }

@@ -107,7 +107,7 @@ impl AxisDistribution {
                     panic!(
                         "AxisDistribution: {a:?} is distributed inside {axis:?} over the same scope but this \
                          operand does not span it, and its instance count is not comptime, so \
-                         {axis:?}'s digit of the instance index cannot be decoded"
+                         {axis:?}'s coordinate in the instance index cannot be decoded"
                     )
                 })
             })

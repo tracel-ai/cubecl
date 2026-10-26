@@ -17,12 +17,12 @@ use crate::*;
 /// [`take`](Relay::take), drains into the tile, and passes it on with [`pass`](Relay::pass), every
 /// unit of the cube reaching both. A sum whose partials must be rescaled against one another before
 /// they add, as an online softmax's are, reads and rescales what the turns before it left
-/// ([`carried`](Relay::carried)) in its turn, then drains as any other. The relay publishes a turn's lines at device scope before passing the
-/// box on and acquires them after taking it, so it runs only where the runtime hands one cube's
-/// writes to another within a dispatch (`device_memory_scope`), and reads its turn with a `u32`
-/// atomic add, which every GPU runtime offers. A waiting cube holds its place on
-/// the device: the relay rests on a box's earlier runs having started by the time a later one
-/// waits, which a grid whose runs are neighbours gives.
+/// ([`carried`](Relay::carried)) in its turn, then drains as any other. The relay publishes a
+/// turn's lines at device scope before passing the box on and acquires them after taking it, so it
+/// runs only where the runtime hands one cube's writes to another within a dispatch
+/// (`device_memory_scope`), and reads its turn with a `u32` atomic add, which every GPU runtime
+/// offers. A waiting cube holds its place on the device: the relay rests on a box's earlier runs
+/// having started by the time a later one waits, which a grid whose runs are neighbours gives.
 #[derive(CubeType)]
 pub struct Relay<'a> {
     /// The carry, read by the last turn and by a turn that rescales it.
@@ -147,7 +147,8 @@ impl<'a> Relay<'a> {
     }
 
     /// The counter of this cube's box: the cube's position over every axis the cube level
-    /// distributes but the `split` one, as one mixed-radix index, the split's digit left at zero.
+    /// distributes but the `split` one, as one mixed-radix index, the split's coordinate left at
+    /// zero.
     fn counter(partitioning: &Partitioning, walk: &Walk, #[comptime] split: usize) -> usize {
         let space = comptime!(partitioning.clone());
         let level = comptime!(space.levels()[0].clone());
@@ -157,11 +158,11 @@ impl<'a> Relay<'a> {
             let axis = comptime!(space.space().axis_at(p));
             if comptime!(level.distributes(axis)) {
                 let radix = Self::radix(partitioning, comptime!(level.clone()), p);
-                let digit = match comptime!(p == split) {
+                let position = match comptime!(p == split) {
                     true => 0usize.runtime(),
                     false => walk.position_at(p),
                 };
-                counter = counter.times(radix).plus(digit);
+                counter = counter.times(radix).plus(position);
             }
         }
         counter
@@ -211,8 +212,8 @@ impl<'a> Relay<'a> {
 }
 
 impl Relay<'_> {
-    /// The position in `space` of the one axis a relay splits: spread across cubes by the first level,
-    /// the cube level, and not spanned by the carry. Refuses any other partitioning.
+    /// The position in `space` of the one axis a relay splits: spread across cubes by the first
+    /// level, the cube level, and not spanned by the carry. Refuses any other partitioning.
     fn split(space: &Partitioning, spec: &TileSpec) -> usize {
         let level = &space.levels()[0];
         assert!(

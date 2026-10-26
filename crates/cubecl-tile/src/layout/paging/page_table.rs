@@ -216,7 +216,7 @@ impl PageTable {
         let pin_start = column.times(comptime!(self.page_size as u32));
         // Wrapping: a base is only ever added to the offset of a line past its column's start.
         let start = pin_start.divided_by(unit);
-        let page_digits = comptime!((self.page_size / self.unit) as u32);
+        let page_lines = comptime!((self.page_size / self.unit) as u32);
         let mut bases = Coords::<u32>::new();
         #[unroll]
         for k in 0..comptime!(spans.pages()) {
@@ -227,7 +227,7 @@ impl PageTable {
             bases.push(
                 listed.times(sequence_stride).minus(
                     start
-                        .plus(comptime!(k as u32 * page_digits))
+                        .plus(comptime!(k as u32 * page_lines))
                         .times(position_stride),
                 ),
             );
@@ -317,28 +317,28 @@ impl PageTable {
         }
     }
 
-    /// Where line `digits` lies, as digits and a base its offset adds past them: a window over
-    /// pinned pages keeps one sequence's digits, so its lines' offsets stay affine, and adds its
-    /// page's base; any other is resolved line by line.
-    pub(crate) fn located(&self, digits: &Coords<u32>) -> (Coords<u32>, u32) {
+    /// Where line `physical` lies, as physical coordinates and a base its offset adds past them: a
+    /// window over pinned pages keeps one sequence's coordinates, so its lines' offsets stay
+    /// affine, and adds its page's base; any other is resolved line by line.
+    pub(crate) fn located(&self, physical: &Coords<u32>) -> (Coords<u32>, u32) {
         match comptime!(self.spans) {
             Spans::Pages { .. } => {
-                let pinned_digits = self.pinned_digits(digits);
-                let base = self.pinned_base(&pinned_digits);
-                (pinned_digits, base)
+                let pinned = self.pinned_coords(physical);
+                let base = self.pinned_base(&pinned);
+                (pinned, base)
             }
-            Spans::Any => (self.resolve(digits), 0u32),
+            Spans::Any => (self.resolve(physical), 0u32),
         }
     }
 
-    /// The base of the pinned page `digits` lies in, picked without a branch or an indexed read,
+    /// The base of the pinned page `physical` lies in, picked without a branch or an indexed read,
     /// so it stays in registers.
-    fn pinned_base(&self, digits: &Coords<u32>) -> u32 {
+    fn pinned_base(&self, physical: &Coords<u32>) -> u32 {
         let mut base = self.bases.at(0);
         let pages = comptime!(self.spans.pages());
         if comptime!(pages > 1) {
             let unit = comptime!(self.unit as u32);
-            let offset = digits
+            let offset = physical
                 .at(comptime!(self.position_dim))
                 .times(unit)
                 .minus(self.pin_start);
@@ -351,21 +351,21 @@ impl PageTable {
         base
     }
 
-    /// `digits` with the sequence's digit zeroed, since one sequence's lines are offset from their
-    /// pages' bases, and the position held at or past the pin's start: a checked read addresses a
-    /// line past the window's bound at the bound's edge, which may lie before the pinned page, and
-    /// drops what it reads there.
-    fn pinned_digits(&self, digits: &Coords<u32>) -> Coords<u32> {
+    /// `physical` with the sequence's coordinate zeroed, since one sequence's lines are offset from
+    /// their pages' bases, and the position held at or past the pin's start: a checked read
+    /// addresses a line past the window's bound at the bound's edge, which may lie before the
+    /// pinned page, and drops what it reads there.
+    fn pinned_coords(&self, physical: &Coords<u32>) -> Coords<u32> {
         let first = self.pin_start.divided_by(comptime!(self.unit as u32));
         let mut pinned = Coords::<u32>::new();
         #[unroll]
-        for pa in 0..digits.len() {
+        for pa in 0..physical.len() {
             if comptime!(pa == self.sequence_dim) {
                 pinned.push(0u32);
             } else if comptime!(pa == self.position_dim) {
-                pinned.push(digits.at(pa).max_with(first));
+                pinned.push(physical.at(pa).max_with(first));
             } else {
-                pinned.push(digits.at(pa));
+                pinned.push(physical.at(pa));
             }
         }
         pinned
@@ -405,25 +405,25 @@ impl PageTable {
         sequences
     }
 
-    /// `digits`, a logical coordinate along each buffer dim, with the sequence's digit replaced
-    /// by the page its position lies in and the position's by its row there: the pinned page
-    /// where the line lies in it, else the table's [`lookup`](Self::lookup).
-    fn resolve(&self, digits: &Coords<u32>) -> Coords<u32> {
+    /// `physical`, a logical coordinate along each buffer dim, with the sequence's coordinate
+    /// replaced by the page its position lies in and the position's by its row there: the pinned
+    /// page where the line lies in it, else the table's [`lookup`](Self::lookup).
+    fn resolve(&self, physical: &Coords<u32>) -> Coords<u32> {
         let page_size = comptime!(self.page_size as u32);
         let unit = comptime!(self.unit as u32);
-        let sequence = digits.at(comptime!(self.sequence_dim));
-        let position = digits.at(comptime!(self.position_dim)).times(unit);
+        let sequence = physical.at(comptime!(self.sequence_dim));
+        let position = physical.at(comptime!(self.position_dim)).times(unit);
         let column = position.divided_by(page_size);
         let page = self.page_from(&self.pin, sequence, column);
         let mut resolved = Coords::<u32>::new();
         #[unroll]
-        for pa in 0..digits.len() {
+        for pa in 0..physical.len() {
             if comptime!(pa == self.sequence_dim) {
                 resolved.push(page);
             } else if comptime!(pa == self.position_dim) {
                 resolved.push(position.remainder(page_size).divided_by(unit));
             } else {
-                resolved.push(digits.at(pa));
+                resolved.push(physical.at(pa));
             }
         }
         resolved
