@@ -154,21 +154,17 @@ pub fn try_tensor_vector_size_parallel(
 
     let axis_shape = shape.get(axis).ok_or(VectorizationError::AxisOutOfBounds)?;
 
-    // Smallest non-zero stride among non-axis dims. Stride 0 is a broadcast and
-    // never contributes to the source offset, so it can be ignored. Every other
-    // dim can shift the source offset when its coord changes, so its stride must
-    // be a multiple of the vector size for vectorized reads to stay aligned.
-    // Unit-size dims are included for simplicity; they only cause false negatives
-    // (vectorization disabled) rather than incorrect output.
-    let next_stride = strides
-        .iter()
-        .enumerate()
-        .filter_map(|(i, &s)| (i != axis && s != 0).then_some(s))
-        .min()
-        .unwrap_or(0);
-
+    // Overlapping views can have outer strides that are not multiples of the
+    // smallest stride. Every non-axis stride must preserve vector alignment;
+    // broadcast strides (zero) satisfy this for every width.
     supported_vector_sizes
-        .filter(|&vector_size| axis_shape % vector_size == 0 && next_stride % vector_size == 0)
+        .filter(|&vector_size| {
+            axis_shape % vector_size == 0
+                && strides
+                    .iter()
+                    .enumerate()
+                    .all(|(i, stride)| i == axis || stride % vector_size == 0)
+        })
         .max()
         .ok_or(VectorizationError::NoValidVectorization)
 }
@@ -271,6 +267,24 @@ mod tests {
         // shifts source by 2 (still not a multiple of 4), so vec_size = 4 must
         // be rejected - but vec_size = 2 is fine.
         let v = try_parallel(&[1, 2, 4], &[1, 9, 4], &[12, 2, 1], 2).unwrap();
+        assert_eq!(v, 2);
+    }
+
+    #[test]
+    fn parallel_unfold_with_odd_outer_stride_rejects_vectorization() {
+        // The window stride is aligned, but the second row starts at element 5.
+        let v = try_parallel(&[1, 2, 4], &[2, 2, 2], &[5, 2, 1], 2).unwrap();
+        assert_eq!(v, 1);
+        assert!(matches!(
+            try_parallel(&[2, 4], &[2, 2, 2], &[5, 2, 1], 2),
+            Err(VectorizationError::NoValidVectorization)
+        ));
+    }
+
+    #[test]
+    fn parallel_unfold_outer_stride_limits_vector_width() {
+        // Width 4 aligns with the windows, but only width 2 aligns with both rows.
+        let v = try_parallel(&[1, 2, 4], &[2, 2, 4], &[10, 4, 1], 2).unwrap();
         assert_eq!(v, 2);
     }
 
