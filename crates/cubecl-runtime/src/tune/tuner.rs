@@ -22,6 +22,7 @@ use crate::execution::{ProcessMode, TuneOutcome, TuneRegistration};
 use crate::server::LaunchError;
 #[cfg(not(target_family = "wasm"))]
 use crate::server::ServerError;
+use crate::tune::sampler::measured;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
 use cubecl_environment::config::RuntimeConfig;
 
@@ -709,14 +710,14 @@ async fn resolve_bench(bench: PendingBench) -> AutotuneResult {
     };
     let timing_method = first.timing_method();
 
-    // One unmeasured sample disqualifies the candidate, the way one failed
+    // One sample that is no time disqualifies the candidate, the way one failed
     // sample does. Dropping it and averaging the rest would let a candidate
     // whose window went untimed be judged on its remaining runs.
     let Some(durations) =
         futures_util::future::join_all(profiles.into_iter().map(ProfileDuration::resolve))
             .await
             .into_iter()
-            .map(|ticks| ticks.map(|ticks| ticks.duration()))
+            .map(measured)
             .collect::<Option<Vec<Duration>>>()
     else {
         return AutotuneResult::error(AutotuneError::NotMeasured {
