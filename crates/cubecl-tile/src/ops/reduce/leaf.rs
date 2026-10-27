@@ -299,18 +299,18 @@ pub(crate) fn dot_cells<E: Float, Lhs: Numeric, Rhs: Numeric, V: Size>(
             let reduce_coords =
                 Coords::constant(comptime!(layout.reduce_extents.clone())).unravel(p.cast::<u32>());
             let coords = resolve_nd_coords(
-                comptime!(in_space.clone()),
-                comptime!(acc_space.clone()),
-                comptime!(layout.reduce_axes.clone()),
+                &in_space,
+                &acc_space,
+                &layout.reduce_axes,
                 &acc_coords,
                 &reduce_coords,
                 vw,
                 true,
             );
             let component = resolve_reduce_component(
-                comptime!(in_space.clone()),
-                comptime!(acc_space.clone()),
-                comptime!(layout.reduce_axes.clone()),
+                &in_space,
+                &acc_space,
+                &layout.reduce_axes,
                 &acc_coords,
                 &reduce_coords,
                 vw,
