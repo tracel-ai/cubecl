@@ -1565,6 +1565,17 @@ impl Tile {
         #[comptime] values: Space,
         #[comptime] guard: Guard,
     ) -> S {
+        let own = self.scale_coords(coords, values);
+        self.scale_at::<S>(&own, guard)
+    }
+
+    /// The coordinates, over this scale tile's space, of the scale covering the value at
+    /// `coords` of a tile spanning `values` ([`scale_for`](Tile::scale_for)).
+    pub(crate) fn scale_coords(
+        &self,
+        coords: &Coords<u32>,
+        #[comptime] values: Space,
+    ) -> Coords<u32> {
         let rank = comptime!(self.place.space.rank());
         let projection = self.projection();
         let mut own = Coords::<u32>::new();
@@ -1582,7 +1593,7 @@ impl Tile {
                 own.push(0u32);
             }
         }
-        self.scale_at::<S>(&own, guard)
+        own
     }
 
     /// The one value at `coords` of a tile that serves lines: the load holding it, read whole,

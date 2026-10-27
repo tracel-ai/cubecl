@@ -25,6 +25,9 @@ pub mod kind {
     pub use crate::tile::kind::memory::view::decoded::Decoded;
     pub use crate::tile::kind::memory::view::masked::{Masked, MaskedMut};
     pub use crate::tile::packing::base::Field;
+    /// A field's codes in and out of words, exposed for the round-trip tests.
+    #[doc(hidden)]
+    pub use crate::tile::packing::view::{pack_line, unpack_line};
 }
 
 /// Tiles whose values are computed from their coordinates.

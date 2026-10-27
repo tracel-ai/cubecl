@@ -8,6 +8,7 @@ use std::sync::Arc;
 use cubecl::frontend::{AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, IntoMut};
 use cubecl::ir::{ExpandValue, Scope};
 use cubecl::prelude::*;
+use cubecl::quant::scheme::QuantValue;
 use cubecl::unexpanded;
 use cubecl_std::tensor::layout::Coords2d;
 
@@ -102,6 +103,31 @@ impl Factor {
 
     /// The innermost scales' word at the value at `coords`, read as it is stored.
     pub(crate) fn word_at(&self, _coords: &Coords<u32>, _values: Space) -> u32 {
+        unexpanded!()
+    }
+
+    /// The innermost scales' load holding the scale covering the value at `coords` written as
+    /// `scales`, the mirror of [`at_coords`](Factor::at_coords): stored plain, or packed as their
+    /// field, as many to a word as it holds (`ue8m0` and `ue4m3` four, `f16` and `bf16` two,
+    /// `f32` one). A word is written whole, so `scales` is its every scale.
+    #[allow(dead_code)] // Reached through its expand, from [`Tile::quantize_from`](crate::Tile::quantize_from).
+    pub(crate) fn write_at<N: Size>(
+        &self,
+        _coords: &Coords<u32>,
+        _values: Space,
+        _scales: Vector<f32, N>,
+    ) {
+        unexpanded!()
+    }
+
+    /// The innermost scales calibrated from `src`, the float values they scale, as burn's
+    /// `quantize_dynamic` calibrates them for values written as `value`: each block's largest
+    /// magnitude over the format's, relative to `coarse`, every scale outside the innermost, where
+    /// there is one. The units that fill the scales take their loads in turn, a word of them where
+    /// they are packed ([`Tile::quantize_from`](crate::Tile::quantize_from)).
+    #[allow(dead_code)] // Reached through its expand, from [`Tile::quantize_from`](crate::Tile::quantize_from).
+    #[allow(clippy::extra_unused_type_parameters)] // `F` is the source's float, which the expand reads.
+    pub(crate) fn calibrate_from<F: Float>(&self, _src: &Tile, _coarse: f32, _value: QuantValue) {
         unexpanded!()
     }
 
@@ -391,6 +417,76 @@ impl FactorExpand {
         scale
             .clone()
             .__expand_scale_for_method::<u32>(scope, coords, values, Guard::Checked)
+    }
+
+    pub(crate) fn __expand_write_at_method<N: Size>(
+        &self,
+        scope: &Scope,
+        coords: &CoordsExpand<u32>,
+        values: Space,
+        scales: NativeExpand<Vector<f32, N>>,
+    ) {
+        let mut scale = self
+            .innermost_tile()
+            .expect("Factor::write_at: these values carry no scale to write");
+        scale.__expand_write_scales_for_method::<N>(scope, coords, values, scales);
+    }
+
+    pub(crate) fn __expand_calibrate_from_method<F: Float>(
+        &self,
+        scope: &Scope,
+        src: &TileExpand,
+        coarse: NativeExpand<f32>,
+        value: QuantValue,
+    ) {
+        let mut scale = self
+            .innermost_tile()
+            .expect("Factor::calibrate_from: these values carry no scale to calibrate");
+        scale.__expand_calibrate_method::<F>(scope, src, coarse, value, self.depth() > 1);
+    }
+}
+
+#[cube]
+impl Tile {
+    /// The load of these scales holding the one covering the value at `coords` of a tile spanning
+    /// `values` written as `scales`, the mirror of [`scale_for`](Tile::scale_for)
+    /// ([`Factor::write_at`]).
+    #[allow(dead_code)] // Reached through its expand, from [`Factor::write_at`].
+    pub(crate) fn write_scales_for<N: Size>(
+        &mut self,
+        coords: &Coords<u32>,
+        #[comptime] values: Space,
+        scales: Vector<f32, N>,
+    ) {
+        let own = self.scale_coords(coords, values);
+        self.write_scales::<N>(&own, scales);
+    }
+
+    /// This tile's load of scales starting at `start` written as `scales`: plain, or packed into
+    /// words as their field.
+    pub(crate) fn write_scales<N: Size>(&mut self, start: &Coords<u32>, scales: Vector<f32, N>) {
+        let space = comptime!(self.place.space.clone());
+        let load = self.vector_tile();
+        let n = N::value();
+        comptime!(assert!(
+            load.values() == n,
+            "Factor::write_at: a load of these scales holds {} of them, not {n}",
+            load.values()
+        ));
+        let at = load.index(start, &space);
+        let packing = self.packing();
+        match comptime!(packing) {
+            Packing::Plain => {
+                let define!(Stored) = self.element;
+                let mut out = self.nd_mut::<Stored, N>();
+                out.write(at, Vector::<Stored, N>::cast_from(scales));
+            }
+            Packing::Packed { field } => {
+                let size!(WP) = comptime!(packing.physical(n));
+                let mut words = self.nd_words_mut::<WP>();
+                words.write(at, pack_line::<WP, N>(scales, field));
+            }
+        }
     }
 }
 
