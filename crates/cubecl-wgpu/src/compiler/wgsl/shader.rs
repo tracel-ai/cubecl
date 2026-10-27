@@ -161,7 +161,15 @@ pub struct EnableOp {
 }
 
 wgsl_op!(EnableOp, |op, ctx| {
-    format!("enable {};\n", op.feature(ctx).as_ref())
+    let feature = op.feature(ctx).as_ref().to_string();
+    // Tint proves subgroup calls uniform from the control flow alone and refuses those under a branch
+    // every invocation of the plane takes (a matmul's plane sum), which Naga and the native compilers run.
+    let uniformity = if feature == "subgroups" {
+        "diagnostic(off, subgroup_uniformity);\n"
+    } else {
+        ""
+    };
+    format!("enable {feature};\n{uniformity}")
 });
 
 #[op_interface]
