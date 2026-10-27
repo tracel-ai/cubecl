@@ -1,7 +1,6 @@
 //! The encoding copy: a float tile written packed, under the block scales it computes
 //! ([`Tile::quantize_from`]), the mirror of the decoding copy ([`Tile::dequantize_from`]).
 
-use cubecl::ir::{ElemType, FloatKind, IntKind};
 use cubecl::prelude::*;
 use cubecl::quant::scheme::{QuantValue, ScaleDtype};
 use cubecl_std::quant::round::round_up_to_dtype;
@@ -22,7 +21,7 @@ impl Tile {
     pub(crate) fn copy_quantized_from<F: Float>(&mut self, src: &Tile) {
         let coarse = self.factor.coarse();
         let packing = self.packing();
-        let value = comptime!(value_written(packing, self.element));
+        let value = comptime!(packing.quantized_value(self.element));
         let scales = self.factor.innermost_scale();
         let space = comptime!(self.place.space.clone());
         let (load, scale_load) = (self.vector_tile(), scales.vector_tile());
@@ -148,7 +147,7 @@ impl Tile {
         let (sw, lw) = comptime!((load.values(), line.values()));
         let lines = comptime!(sw / lw);
         let packing = self.packing();
-        let value = comptime!(value_written(packing, self.element));
+        let value = comptime!(packing.quantized_value(self.element));
         let two_levels = comptime!(self.factor.depth() > 1);
         let scales = self.factor.innermost_scale();
         let space = comptime!(self.place.space.clone());
@@ -191,7 +190,7 @@ impl Tile {
         }
         if comptime!(fused) {
             let scale_packing = scales.packing();
-            let dtype = comptime!(scale_dtype(scale_packing, scales.element));
+            let dtype = comptime!(scale_packing.scale_dtype(scales.element));
             let inner = f32::cast_from(block_scale::<F>(most, coarse, value, dtype, two_levels));
             self.factor
                 .write_at::<Const<1>>(&start, comptime!(space.clone()), Vector::new(inner));
@@ -299,7 +298,7 @@ impl Tile {
     ) {
         let load = self.vector_tile();
         let packing = self.packing();
-        let dtype = comptime!(scale_dtype(packing, self.element));
+        let dtype = comptime!(packing.scale_dtype(self.element));
         let space = comptime!(self.place.space.clone());
         let block = comptime!(from.subspace(&from.difference(&space)));
         let lines = comptime!(block.tiles(&line.space()));
@@ -318,7 +317,7 @@ impl Tile {
                         let inner = comptime!(load.offset_along(c, axis) as u32);
                         at.push(start.at(comptime!(space.position(axis))) + inner);
                     } else {
-                        at.push(comptime!(line_offset(&line, &block, l, axis) as u32).runtime());
+                        at.push(comptime!(line.offset_in(l, &block, axis) as u32).runtime());
                     }
                 }
                 most = max(most, largest::<F, LW>(read.read(line.index(&at, &from))));
@@ -396,28 +395,6 @@ fn encoded<F: Float, N: Size>(
     select(zero, Vector::new(0.0), on_grid)
 }
 
-/// The number format values stored as `packing`, of `element`, are written in.
-fn value_written(packing: Packing, element: ElemType) -> QuantValue {
-    match (packing, element) {
-        (Packing::Packed { field }, _) => field.quantized_value(),
-        (Packing::Plain, ElemType::Int(IntKind::I8)) => QuantValue::Q8S,
-        (Packing::Plain, ElemType::Float(FloatKind::E4M3)) => QuantValue::E4M3,
-        (Packing::Plain, ElemType::Float(FloatKind::E5M2)) => QuantValue::E5M2,
-        (Packing::Plain, other) => {
-            panic!("Tile::quantize_from: no value is quantized to {other:?}")
-        }
-    }
-}
-
-/// The dtype scales stored as `packing`, of `element`, are rounded to.
-fn scale_dtype(packing: Packing, element: ElemType) -> ScaleDtype {
-    match (packing, element) {
-        (Packing::Packed { field }, _) => field.scale_dtype(),
-        (Packing::Plain, ElemType::Float(kind)) => Field::of_float(kind).scale_dtype(),
-        (Packing::Plain, other) => panic!("Tile::quantize_from: a scale is a float, not {other:?}"),
-    }
-}
-
 /// Whether each `load` of values spanning `values` is one block alone under its scale, the
 /// scales spanning `scales` in `scale_load`s: then a load's own lines calibrate its scale.
 fn one_block_a_load(
@@ -433,19 +410,4 @@ fn one_block_a_load(
             .extents()
             .iter()
             .all(|&(axis, extent)| block.contains(axis) && block.extent(axis) == extent)
-}
-
-/// How far along `axis` the `l`-th `line` of a `block` sits from its first value, the lines
-/// counted with the block's last axis fastest.
-fn line_offset(line: &VectorTile, block: &Space, l: usize, axis: Axis) -> usize {
-    let mut rest = l;
-    for at in block.axes().collect::<Vec<_>>().into_iter().rev() {
-        let width = line.extent_along(at);
-        let count = block.extent(at) / width;
-        if at == axis {
-            return (rest % count) * width;
-        }
-        rest /= count;
-    }
-    0
 }

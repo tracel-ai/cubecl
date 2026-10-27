@@ -147,6 +147,22 @@ impl VectorTile {
         0
     }
 
+    /// How far along `axis` the `line`-th of these loads of a window spanning `space` sits from
+    /// the window's first value, the loads counted with the last axis fastest: the place
+    /// [`start`](VectorTile::start) gives, known at expansion.
+    pub(crate) fn offset_in(&self, line: usize, space: &Space, axis: Axis) -> usize {
+        let mut rest = line;
+        for at in space.axes().collect::<Vec<_>>().into_iter().rev() {
+            let width = self.extent_along(at);
+            let count = space.extent(at).div_ceil(width);
+            if at == axis {
+                return (rest % count) * width;
+            }
+            rest /= count;
+        }
+        0
+    }
+
     /// How far along `axis` the value at `position` of one load sits from the load's first: the
     /// position unravelled over the load's extents, finest first. `20` of a 16 by 2 load along `K`
     /// then `N` is 4 along `K` and 1 along `N`.

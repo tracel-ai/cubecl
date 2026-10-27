@@ -4,7 +4,7 @@ use cubecl::client::Client;
 use cubecl::e2m1x2;
 use cubecl::ir::features::TypeUsage;
 use cubecl::ir::types::Fp8Format;
-use cubecl::ir::{ElemType, FloatKind};
+use cubecl::ir::{ElemType, FloatKind, IntKind};
 use cubecl::post_processing::fp4::E2M1_F16_LIFT;
 use cubecl::post_processing::minifloat::fp8_f16_lift;
 use cubecl::prelude::Scalar;
@@ -271,6 +271,39 @@ pub(crate) enum FieldDecode {
 }
 
 impl Packing {
+    /// The number format a value stored this way, as `element`, is written in: what an encoding
+    /// copy rounds it to ([`Tile::quantize_from`](crate::Tile::quantize_from)). A packed field's
+    /// ([`Field::quantized_value`]), or a plain `i8`'s, `e4m3`'s or `e5m2`'s.
+    ///
+    /// # Panics
+    ///
+    /// For a store no value is quantized to.
+    pub(crate) fn quantized_value(self, element: ElemType) -> QuantValue {
+        match (self, element) {
+            (Packing::Packed { field }, _) => field.quantized_value(),
+            (Packing::Plain, ElemType::Int(IntKind::I8)) => QuantValue::Q8S,
+            (Packing::Plain, ElemType::Float(FloatKind::E4M3)) => QuantValue::E4M3,
+            (Packing::Plain, ElemType::Float(FloatKind::E5M2)) => QuantValue::E5M2,
+            (Packing::Plain, other) => {
+                panic!("Packing: no value is quantized to a plain {other:?}")
+            }
+        }
+    }
+
+    /// The dtype a scale stored this way, as `element`, is rounded to: a packed field's
+    /// ([`Field::scale_dtype`]), or a plain float's.
+    ///
+    /// # Panics
+    ///
+    /// For a store no scale is held in.
+    pub(crate) fn scale_dtype(self, element: ElemType) -> ScaleDtype {
+        match (self, element) {
+            (Packing::Packed { field }, _) => field.scale_dtype(),
+            (Packing::Plain, ElemType::Float(kind)) => Field::of_float(kind).scale_dtype(),
+            (Packing::Plain, other) => panic!("Packing: a scale is a float, not {other:?}"),
+        }
+    }
+
     /// This packing read placed ([`Field::placed`]).
     pub(crate) fn placed(self) -> Packing {
         match self {
