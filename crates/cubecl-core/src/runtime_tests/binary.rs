@@ -1,6 +1,7 @@
 #![allow(clippy::approx_constant)]
 
 use core::fmt::Display;
+use cubecl_common::powi_portable;
 use cubecl_runtime::runtime::Runtime;
 
 use crate::{self as cubecl, as_type};
@@ -545,7 +546,7 @@ pub fn test_powi_constants<R: Runtime, F: Float + num_traits::Float + CubeElemen
         } else {
             as_type![F: -2., -1., 0.5, 2.]
         };
-        let expected = input.map(|x| num_traits::Float::powi(x, exponent));
+        let expected = input.map(|x| powi_portable(x, exponent));
         for lanes in [1, 2, 4] {
             let input_handle = client.create_from_slice(F::as_bytes(input));
             let output = client.empty(size_of_val(input));
@@ -1020,6 +1021,7 @@ pub fn test_dp4a<R: Runtime>(client: Client) {
 /// `v % 1.0` is `0.5` for `2.5` (not `v`), `v - v` is `NaN` for `NaN` and
 /// infinity (not `+0`), `0.0 / v` is `NaN` for `v = 0`, and `v * 0.0` keeps the
 /// sign of `v`.
+#[allow(clippy::eq_op)]
 pub fn test_ieee_constant_folds<R: Runtime>(client: Client) {
     #[cube(launch_unchecked)]
     fn folds<F: Float>(x: &[F], out: &mut [F]) {
