@@ -3,7 +3,6 @@
 use crate::compute::artifact::MetalArtifactCompiler;
 use crate::compute::pipelines::{MetalCompiledKernel, MetalPipelines};
 use cubecl_core::ir::DeviceProperties;
-use cubecl_core::prelude::KernelId;
 use cubecl_core::server::LaunchError;
 use cubecl_server::compiler::{ArtifactId, KernelLoader};
 use cubecl_server::kernel::CubeKernel;
