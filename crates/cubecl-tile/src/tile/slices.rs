@@ -182,6 +182,65 @@ impl AxisSlices {
         }
     }
 
+    /// `self[c] = exp(self[c] · scale + bias[c] − logsumexp[c])`: the probabilities of a softmax
+    /// whose logsumexp is known, read back from it instead of walking the score again.
+    /// `logsumexp` is a window of memory that omits the axis the softmax ran along, which it
+    /// broadcasts over: along the slices where that axis is the innermost, along each slice where
+    /// it is not, as a walk owned by the keys holds its scores keys first. Its other axes are this
+    /// tile's, or one wide. A cell whose logsumexp is the minimum value, every key of its softmax
+    /// masked, is left at zero.
+    pub fn probabilities<E: Float>(&mut self, scale: E, bias: &Tile, logsumexp: &Tile) {
+        let recipe = bias.recipe();
+        let broadcast = comptime!(Broadcast::new(&self.space, &logsumexp.place.space));
+        let values = logsumexp.cells::<E>(comptime!(logsumexp.place.space.cells()));
+        match &mut self.kind {
+            AxisSlicesKind::Registers(block) => block.probabilities_along::<E>(
+                scale,
+                recipe,
+                &values,
+                self.space.clone(),
+                broadcast,
+            ),
+            AxisSlicesKind::Window(window) => window.probabilities_along::<E>(
+                scale,
+                recipe,
+                &values,
+                self.space.clone(),
+                broadcast,
+            ),
+            AxisSlicesKind::Fragments(_) | AxisSlicesKind::Fragment(_) => {
+                AxisSlices::refuse_fragments("AxisSlices::probabilities")
+            }
+        }
+    }
+
+    /// `self[c] = probabilities[c] · (self[c] − delta[c])`: a softmax's gradient against its
+    /// scores, where `self` holds the gradient against its probabilities and `delta` is, for each
+    /// softmax, `Σ probabilities · self` along the axis it ran along. `delta` broadcasts as
+    /// [`probabilities`](Self::probabilities)'s logsumexp does; the probabilities are cut as
+    /// `self` is, held by the same holder.
+    pub fn softmax_gradient<E: Float>(&mut self, probabilities: &AxisSlices, delta: &Tile) {
+        comptime!(assert!(
+            self.space == probabilities.space && self.axis == probabilities.axis,
+            "AxisSlices::softmax_gradient: the probabilities are cut as the gradient is, along \
+             {:?} of {:?}, not along {:?} of {:?}",
+            self.axis,
+            self.space,
+            probabilities.axis,
+            probabilities.space
+        ));
+        let broadcast = comptime!(Broadcast::new(&self.space, &delta.place.space));
+        let values = delta.cells::<E>(comptime!(delta.place.space.cells()));
+        match (&mut self.kind, &probabilities.kind) {
+            (AxisSlicesKind::Registers(block), AxisSlicesKind::Registers(probabilities)) => {
+                block.softmax_gradient_along::<E>(probabilities, &values, broadcast)
+            }
+            (AxisSlicesKind::Window(window), AxisSlicesKind::Window(probabilities)) => window
+                .softmax_gradient_along::<E>(probabilities, &values, self.space.clone(), broadcast),
+            _ => AxisSlices::refuse_fragments("AxisSlices::softmax_gradient"),
+        }
+    }
+
     /// `values`, the slots a unit of a manual-mma grid keeps for the rows it holds cells of
     /// ([`Tile::slices_per_unit`]), written into `window`, a plane's window of one cell a slice in
     /// slice order: each slice written once, by a unit holding it. The caller meets the plane
@@ -228,5 +287,77 @@ impl AxisSlices {
     pub(crate) fn exp_minus_cell<E: Float>(value: E, slice: E) -> E {
         let live = slice > E::min_value();
         select(live, (value - slice).exp(), E::from_int(0))
+    }
+}
+
+#[cube]
+impl AxisSlices {
+    /// What an op that reads a value beside every cell declines on a plane's fragments, whose
+    /// cells lie where the instruction keeps them.
+    fn refuse_fragments(#[comptime] who: &str) -> ! {
+        panic!("{who}: a unit's register blocks or a plane's windows hold the cells, not fragments")
+    }
+}
+
+/// Where each cell of a tile cut into slices along its innermost axis reads a tile that omits
+/// some of its axes, which it broadcasts over: the read cell is an offset for each slice plus one
+/// step for each position along the slice.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct Broadcast {
+    /// The cell of the broadcast tile each slice's first position reads.
+    pub(crate) slice: Vec<usize>,
+    /// Cells of the broadcast tile one position along a slice moves: zero where the slices run
+    /// along an omitted axis.
+    pub(crate) position: usize,
+}
+
+impl Broadcast {
+    /// How a tile over `space` reads one over `broadcast`, whose every axis is one of `space`'s
+    /// at its extent, or one wide.
+    ///
+    /// # Panics
+    ///
+    /// Where an axis of `broadcast` is neither.
+    pub(crate) fn new(space: &Space, broadcast: &Space) -> Self {
+        assert!(
+            broadcast.axes().all(|axis| match space.contains(axis) {
+                true => space.extent(axis) == broadcast.extent(axis),
+                false => broadcast.extent(axis) == 1,
+            }),
+            "Broadcast::new: every axis of {broadcast:?} is one of {space:?}'s at its extent, or \
+             one wide"
+        );
+        let stride = |axis: Axis| {
+            (broadcast.position(axis) + 1..broadcast.rank())
+                .map(|p| broadcast.extent_at(p))
+                .product::<usize>()
+        };
+        let innermost = space.axis_at(space.rank() - 1);
+        let outer: Vec<Axis> = (0..space.rank() - 1).map(|p| space.axis_at(p)).collect();
+        let slices = outer.iter().map(|&a| space.extent(a)).product::<usize>();
+        let slice = (0..slices)
+            .map(|index| {
+                let mut rest = index;
+                let mut offset = 0;
+                for &axis in outer.iter().rev() {
+                    let extent = space.extent(axis);
+                    if broadcast.contains(axis) {
+                        offset += (rest % extent) * stride(axis);
+                    }
+                    rest /= extent;
+                }
+                offset
+            })
+            .collect();
+        let position = match broadcast.contains(innermost) {
+            true => stride(innermost),
+            false => 0,
+        };
+        Self { slice, position }
+    }
+
+    /// The broadcast tile's cell that position `position` of slice `slice` reads.
+    pub(crate) fn at(&self, slice: usize, position: usize) -> usize {
+        self.slice[slice] + position * self.position
     }
 }

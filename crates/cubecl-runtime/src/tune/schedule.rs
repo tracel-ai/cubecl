@@ -127,6 +127,7 @@ impl Schedule<'_> {
     {
         let (min_samples, max_samples) = self.config.samples();
 
+        let patient = !batch.patience.is_empty();
         let mut patience = PatienceTable::new(&batch);
         let mut candidates: Vec<Candidate> = batch
             .entries
@@ -135,7 +136,7 @@ impl Schedule<'_> {
             .collect();
 
         let mut short_circuit = None;
-        let window = self.compile_window(candidates.len());
+        let window = self.compile_window(candidates.len(), patient);
         let mut compiled = 0;
 
         // First pass: one warmup and one sample each, resolved inline so a candidate that
@@ -150,15 +151,19 @@ impl Schedule<'_> {
             let launched = self.track_steps.then(Instant::now);
             if slot >= compiled {
                 compiled = (slot + window).min(candidates.len());
-                let ahead = (slot..compiled)
-                    .filter(|&ahead| !patience.skips(ahead))
-                    .map(|ahead| autotunables[candidates[ahead].index]);
-                compile_together(ahead, &inputs, client);
+                let ahead = candidates[slot..compiled]
+                    .iter_mut()
+                    .enumerate()
+                    .filter(|(offset, _)| !patience.skips(slot + offset))
+                    .map(|(_, candidate)| candidate);
+                compile_together(ahead, autotunables, &inputs, client);
             }
+            // A candidate that rejected the problem while compiling is out of the round already.
             let operation = autotunables[candidates[slot].index];
-            let hit = self
-                .first_pass(operation, &inputs, client, &mut candidates[slot])
-                .await;
+            let hit = candidates[slot].live
+                && self
+                    .first_pass(operation, &inputs, client, &mut candidates[slot])
+                    .await;
 
             if let Some(launched) = launched {
                 candidates[slot].elapsed += launched.elapsed();
@@ -321,11 +326,15 @@ impl Schedule<'_> {
     /// How many of a batch of `len` candidates the first pass compiles together before measuring
     /// the first of them: the whole batch where it measures every candidate, and as many as
     /// compile at once where a short circuit may end it early, so a round that stops at its
-    /// first candidate compiles at most a batch of kernels it never runs.
-    fn compile_window(&self, len: usize) -> usize {
-        match self.limit.is_some() && self.short_circuit {
-            true => self.compile_parallelism,
-            false => len,
+    /// first candidate compiles at most a batch of kernels it never runs. A `patient` batch, one
+    /// where a group's patience may skip the rest of its members, compiles each candidate only
+    /// once it is reached: a member its group skips is never compiled.
+    fn compile_window(&self, len: usize, patient: bool) -> usize {
+        let bounded = self.limit.is_some() && self.short_circuit;
+        match (patient, bounded) {
+            (true, _) => 1,
+            (false, true) => self.compile_parallelism,
+            (false, false) => len,
         }
         .max(1)
     }
@@ -624,10 +633,12 @@ impl Candidate {
 ///
 /// Each runs once on this stream with its launches discarded, which queues the kernels they reach
 /// ([`LaunchMode::Queue`](crate::execution::LaunchMode::Queue)); the queue then compiles together.
-/// Only this stream discards, so another thread's launches still run. A candidate that declines
-/// queues nothing, and one whose kernel fails to compile reports it at its warmup.
-fn compile_together<'a, 'o, F: TuneInputs, Out: AutotuneOutput>(
-    candidates: impl Iterator<Item = &'o TuneFn<F, Out>>,
+/// Only this stream discards, so another thread's launches still run. A candidate that rejects
+/// the problem queues nothing and keeps its rejection, as its warmup would have reported it: it is
+/// never a kernel to fall back on. One whose kernel fails to compile reports it at its warmup.
+fn compile_together<'a, 'c, F: TuneInputs, Out: AutotuneOutput>(
+    candidates: impl Iterator<Item = &'c mut Candidate>,
+    autotunables: &[&TuneFn<F, Out>],
     inputs: &<F as TuneInputs>::At<'a>,
     client: &Client,
 ) where
@@ -636,7 +647,11 @@ fn compile_together<'a, 'o, F: TuneInputs, Out: AutotuneOutput>(
     let queuing =
         crate::execution::StreamModeOverride::new(crate::execution::StreamMode::Discard, client);
     for candidate in candidates {
-        let _ = candidate.execute(inputs.clone());
+        if let Err(rejection @ AutotuneError::Rejected { .. }) =
+            autotunables[candidate.index].execute(inputs.clone())
+        {
+            candidate.fail(rejection);
+        }
     }
     core::mem::drop(queuing);
     client.compile_queued();

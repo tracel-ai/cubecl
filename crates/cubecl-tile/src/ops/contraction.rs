@@ -11,10 +11,12 @@ use crate::*;
 /// The innermost axis is divided by `width`; pass `scale_acc_branch = false` when an acc
 /// coordinate is already a line index.
 #[cube]
+// `#[cube]` converts each comptime argument with `From`, which gives no `&[Axis]` from a `&Vec`.
+#[allow(clippy::ptr_arg)]
 pub(crate) fn resolve_nd_coords(
-    #[comptime] operand: Space,
-    #[comptime] acc: Space,
-    #[comptime] reduce: Vec<Axis>,
+    #[comptime] operand: &Space,
+    #[comptime] acc: &Space,
+    #[comptime] reduce: &Vec<Axis>,
     acc_coords: &Coords<u32>,
     reduce_coords: &Coords<u32>,
     #[comptime] width: usize,
