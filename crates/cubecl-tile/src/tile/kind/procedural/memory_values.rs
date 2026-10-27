@@ -50,6 +50,7 @@ impl MemoryValues {
         let define!(Stored) = self.element;
         let logical = comptime!(self.memory.projection.logical_axes().to_vec());
         let mut position = Coords::<u32>::new();
+        #[allow(clippy::needless_range_loop)]
         #[unroll]
         for p in 0..logical.len() {
             let axis = comptime!(logical[p]);

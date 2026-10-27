@@ -879,6 +879,11 @@ impl PlanePartition {
                     self.m_tiles * self.n_tiles == 1,
                     "Tile::along: a unit's slices are one register block"
                 ));
+                comptime!(assert_whole_cells(
+                    block.contracted_per_step,
+                    block.vector_size,
+                    "Tile::along"
+                ));
                 AxisSlicesKind::new_Registers(block)
             }
             PlaneTile::Cmma(_) | PlaneTile::Mma(_) => AxisSlicesKind::new_Fragments(self.clone()),
@@ -992,7 +997,14 @@ impl PlaneTile {
     /// This tile's slices along its columns: a register block's, or one fragment's.
     pub(crate) fn slices(&self) -> AxisSlicesKind {
         match self {
-            PlaneTile::Registers(block) => AxisSlicesKind::new_Registers(block.clone()),
+            PlaneTile::Registers(block) => {
+                comptime!(assert_whole_cells(
+                    block.contracted_per_step,
+                    block.vector_size,
+                    "Tile::along"
+                ));
+                AxisSlicesKind::new_Registers(block.clone())
+            }
             PlaneTile::Cmma(_) | PlaneTile::Mma(_) => AxisSlicesKind::new_Fragment(self.clone()),
             PlaneTile::Wgmma(_) => panic!(
                 "Tile::along: a warpgroup accumulator's slices are not read in place; drain it first"
