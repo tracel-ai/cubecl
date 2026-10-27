@@ -149,24 +149,8 @@ fn bases(
     let empty = Coords::<u32>::new();
     let no_reduce = comptime!(Vec::<Axis>::new());
     (
-        resolve_nd_coords(
-            &a,
-            &dst,
-            &no_reduce,
-            &cells,
-            &empty,
-            width,
-            true,
-        ),
-        resolve_nd_coords(
-            &b,
-            &dst,
-            &no_reduce,
-            &cells,
-            &empty,
-            per_read,
-            true,
-        ),
+        resolve_nd_coords(&a, &dst, &no_reduce, &cells, &empty, width, true),
+        resolve_nd_coords(&b, &dst, &no_reduce, &cells, &empty, per_read, true),
     )
 }
 

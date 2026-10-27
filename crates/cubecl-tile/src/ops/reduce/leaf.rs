@@ -161,14 +161,7 @@ fn element<Acc: Numeric, In: Numeric, V: Size>(
         )
     } else {
         element_scalars::<Acc, In, V>(
-            in_view,
-            in_space,
-            acc_space,
-            layout,
-            acc_coords,
-            vw,
-            seed,
-            monoid,
+            in_view, in_space, acc_space, layout, acc_coords, vw, seed, monoid,
         )
     }
 }
