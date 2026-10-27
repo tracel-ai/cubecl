@@ -481,6 +481,7 @@ fn a_refused_profile_degrades_to_an_untimed_launch() {
     let observer = std::sync::Arc::new(WantsTiming::default());
     let watching = LaunchObservation::new(observer.clone());
     REFUSE_PROFILES.store(true, core::sync::atomic::Ordering::Relaxed);
+    let refusing = ClearsRefusedProfiles;
 
     let client = test_client(&DummyDevice);
     let lhs = client.create_from_slice(&[0, 1, 2]);
@@ -497,7 +498,7 @@ fn a_refused_profile_degrades_to_an_untimed_launch() {
     );
     let obtained_resource = client.read_one(out).unwrap().to_vec();
 
-    REFUSE_PROFILES.store(false, core::sync::atomic::Ordering::Relaxed);
+    drop(refusing);
     drop(watching);
 
     assert_eq!(
@@ -1502,7 +1503,8 @@ fn autotune_short_circuit_disabled_benchmarks_all() {
 /// handed the reference inputs, not the generated ones the candidates run on.
 ///
 /// Counted against the candidates' own launches, so the assertion holds under either
-/// scheduler: the adaptive one warms each candidate up once, the fixed-count pass three times.
+/// scheduler: the adaptive one runs each candidate once to compile it with the round and warms it
+/// up once, the fixed-count pass warms it up three times.
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::parallel]
@@ -1515,7 +1517,7 @@ fn autotune_evicts_before_every_measured_sample() {
 
     let candidates = 2;
     let warmups = if CubeClRuntimeConfig::get().autotune.bench.adaptive {
-        1
+        2
     } else {
         3
     };
@@ -1553,7 +1555,8 @@ fn autotune_evicts_before_every_measured_sample() {
     // The winner ran on the reference inputs once the tune was over.
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 
-    // The launches that were not measured samples: the warm-ups, and the winner's real run.
+    // The launches that were not measured samples: the compile runs and warm-ups, and the winner's
+    // real run.
     let unmeasured = candidates * warmups + 1;
     let calls = calls.load(Ordering::Relaxed);
     let evictions = evictions.load(Ordering::Relaxed);
@@ -2735,8 +2738,6 @@ fn a_launch_is_collected_while_a_collection_is_open() {
 #[cfg(feature = "std")]
 #[serial_test::serial]
 fn a_round_that_measures_nothing_never_falls_back_on_a_rejection() {
-    use std::sync::atomic::Ordering;
-
     static TUNER: LocalTuner<String, String> =
         local_tuner!("a_round_that_measures_nothing_never_falls_back_on_a_rejection");
     #[cfg(persistence)]
@@ -2757,8 +2758,10 @@ fn a_round_that_measures_nothing_never_falls_back_on_a_rejection() {
         dummy::addition_set_rejected_then_unmeasured(client, shapes, uid.clone())
     });
 
+    // Its rejected candidate refuses profiles from then on.
+    let refusing = ClearsRefusedProfiles;
     TUNER.execute(&"test".to_string(), &client, test_set, handles);
-    REFUSE_PROFILES.store(false, Ordering::Relaxed);
+    drop(refusing);
 
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
