@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use core::time::Duration;
 use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
-use cubecl_common::profile::TimingMethod;
+use cubecl_common::profile::{ProfileTicks, TimingMethod};
 
 /// The timings collected for one candidate, plus the small amount of state needed to decide
 /// whether it is still worth sampling.
@@ -13,6 +13,15 @@ use cubecl_common::profile::TimingMethod;
 pub(crate) struct SampleSet {
     durations: Vec<Duration>,
     stalled: u8,
+}
+
+/// A resolved sample's time, or `None` where it is no time: unmeasured, or zero. No launch that
+/// ran takes zero; a zero is a window that timed nothing, such as a candidate whose kernel never
+/// launched, and recorded it would be the fastest sample in the round and end it on the spot.
+pub(crate) fn measured(ticks: Option<ProfileTicks>) -> Option<Duration> {
+    ticks
+        .map(|ticks| ticks.duration())
+        .filter(|duration| !duration.is_zero())
 }
 
 impl SampleSet {
@@ -124,6 +133,19 @@ const CONVERGENCE_ROUNDS: u8 = 2;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cubecl_common::profile::Instant;
+
+    #[test]
+    fn a_zero_sample_is_no_time() {
+        let now = Instant::now();
+        assert_eq!(measured(Some(ProfileTicks::from_start_end(now, now))), None);
+        assert_eq!(measured(None), None);
+        let later = now + Duration::from_micros(3);
+        assert_eq!(
+            measured(Some(ProfileTicks::from_start_end(now, later))),
+            Some(Duration::from_micros(3))
+        );
+    }
 
     fn set(durations: impl IntoIterator<Item = u64>) -> SampleSet {
         let mut set = SampleSet::default();
