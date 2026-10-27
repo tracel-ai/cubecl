@@ -694,13 +694,20 @@ async fn open_database(location: &str) -> Result<turso::Database, turso::Error> 
             .map_err(|error| turso::Error::IoError(error.kind(), "creating the cache directory"))?;
     }
 
+    // Windows' I/O backend never shares a WAL, so it isn't asked to: its
+    // refusal would only be recognized by its wording.
+    if cfg!(windows) {
+        log::info!("cubecl cache: opening {location} for this process alone");
+        return open_writable(location, false).await;
+    }
+
     match open_writable(location, true).await {
         // Writable for this process alone is still a cache that outlives the
         // run. Passed up, the refusal lands in the read-only fallback instead:
         // a new file doesn't open there at all, and an existing one opens
         // unable to take a single write.
         Err(err) if multiprocess_wal_unsupported(&err) => {
-            log::debug!("cubecl cache: {err}; opening {location} for this process alone");
+            log::info!("cubecl cache: {err}; opening {location} for this process alone");
             open_writable(location, false).await
         }
         opened => opened,
@@ -729,9 +736,10 @@ async fn open_writable(
 /// processes.
 ///
 /// It declines wherever it can't coordinate the WAL through shared memory:
-/// on Windows, whose I/O backend has no such coordination; on network and
-/// cluster file systems (NFS, SMB, Lustre, Ceph, 9p, ...), whose shared memory
-/// isn't coherent between hosts; and for in-memory databases. Every one of
+/// on Windows, whose I/O backend has no such coordination and which
+/// [`open_database`] therefore never asks; on network and cluster file
+/// systems (NFS, SMB, Lustre, Ceph, 9p, ...), whose shared memory isn't
+/// coherent between hosts; and for in-memory databases. Every one of
 /// them reaches the SDK as a plain [`turso::Error::Error`], the variant most
 /// engine errors map to, so the message is the only thing that sets them
 /// apart from a failure that single-process mode would hit just the same.
@@ -1371,7 +1379,7 @@ mod tests {
     /// elsewhere it ignores the request rather than refusing it.
     #[test_log::test]
     #[cfg_attr(miri, ignore)]
-    #[cfg(target_pointer_width = "64")]
+    #[cfg(all(any(unix, windows), target_pointer_width = "64"))]
     fn the_engine_declines_a_shared_wal_in_words_we_recognize() {
         let Err(err) = block_on(open_writable(":memory:", true)) else {
             panic!("an in-memory database must not get a shared WAL");
