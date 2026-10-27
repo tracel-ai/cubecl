@@ -338,6 +338,78 @@ impl RegisterData {
         }
     }
 
+    /// `self[c] = exp(self[c] · scale + bias[c] − logsumexp[c])` at every cell, the bias read at
+    /// the cell of a tile over `space` that the block holds, `logsumexp` the cells of a tile it
+    /// broadcasts over ([`AxisSlices::probabilities`]).
+    pub(crate) fn probabilities_along<E: Float>(
+        &mut self,
+        scale: E,
+        bias: &Procedural,
+        logsumexp: &Array<E>,
+        #[comptime] space: Space,
+        #[comptime] broadcast: Broadcast,
+    ) {
+        let data = self.data.at_mut::<E>();
+        #[unroll]
+        for r in 0..self.mr {
+            #[unroll]
+            for n in 0..self.nr {
+                let at = r * self.nr + n;
+                let mut line = data[at];
+                #[unroll]
+                for j in 0..self.vector_size {
+                    let column = n * self.vector_size + j;
+                    let score = line.extract(j) * scale
+                        + bias.value_at::<E>(r as u32, column as u32, space.clone());
+                    let slot = comptime!(broadcast.at(r, n * self.vector_size + j));
+                    line.insert(j, AxisSlices::exp_minus_cell::<E>(score, logsumexp[slot]));
+                }
+                data[at] = line;
+            }
+        }
+    }
+
+    /// `self[c] = probabilities[c] · (self[c] − delta[c])` ([`AxisSlices::softmax_gradient`]),
+    /// `probabilities` a block of this one's shape, `delta` the cells of a tile both broadcast
+    /// over.
+    pub(crate) fn softmax_gradient_along<E: Float>(
+        &mut self,
+        probabilities: &RegisterData,
+        delta: &Array<E>,
+        #[comptime] broadcast: Broadcast,
+    ) {
+        comptime!(assert!(
+            self.mr == probabilities.mr
+                && self.nr == probabilities.nr
+                && self.vector_size == probabilities.vector_size,
+            "RegisterData::softmax_gradient_along: the probabilities' block is {}×{} lines of {}, \
+             the gradient's {}×{} lines of {}",
+            probabilities.mr,
+            probabilities.nr,
+            probabilities.vector_size,
+            self.mr,
+            self.nr,
+            self.vector_size
+        ));
+        let read = probabilities.data.at::<E>();
+        let data = self.data.at_mut::<E>();
+        #[unroll]
+        for r in 0..self.mr {
+            #[unroll]
+            for n in 0..self.nr {
+                let at = r * self.nr + n;
+                let mut line = data[at];
+                let probability = read[at];
+                #[unroll]
+                for j in 0..self.vector_size {
+                    let slot = comptime!(broadcast.at(r, n * self.vector_size + j));
+                    line.insert(j, probability.extract(j) * (line.extract(j) - delta[slot]));
+                }
+                data[at] = line;
+            }
+        }
+    }
+
     /// Each slice's sum.
     pub(crate) fn sums_along<E: Float>(&self) -> Array<E> {
         let data = self.data.at::<E>();
