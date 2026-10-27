@@ -3456,23 +3456,41 @@ fn cmma_matmul_staged_k_walk_vectorized() {
 /// its own lines. Double-buffered, so the stages' prefetch moves that order too.
 #[test]
 fn cmma_matmul_double_buffered_k_walk_transposed_rhs() {
-    check_cmma_matmul_k_walk_with(32, 2, 1, StageLayout::Tiled, true);
+    check_cmma_matmul_k_walk_with(32, 2, 1, StageLayout::Tiled, Transposed::Rhs);
+}
+
+/// The staged cmma K walk with the lhs stored `{K, M}`: the `A` fragment loads col-major off a
+/// stage whose trailing axis is its rows, as a score kept keys first is read by a product whose
+/// rows are the queries.
+#[test]
+fn cmma_matmul_double_buffered_k_walk_transposed_lhs() {
+    check_cmma_matmul_k_walk_with(32, 2, 1, StageLayout::Tiled, Transposed::Lhs);
 }
 
 /// The one level always stages, whatever its depth: a cmma leaf cannot consume the global inputs
 /// directly, so the kernel first materializes them in shared memory.
 fn check_cmma_matmul_k_walk(k: usize, depth: usize, v: usize, layout: StageLayout) {
-    check_cmma_matmul_k_walk_with(k, depth, v, layout, false)
+    check_cmma_matmul_k_walk_with(k, depth, v, layout, Transposed::Neither)
 }
 
-/// [`check_cmma_matmul_k_walk`], the rhs stored `{K, N}` or — `transposed` — `{N, K}`, against
-/// the reference each storage order states over the same arange.
+/// Which operand of [`check_cmma_matmul_k_walk_with`] is stored with its axes swapped.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Transposed {
+    Neither,
+    /// The lhs stored `{K, M}`.
+    Lhs,
+    /// The rhs stored `{N, K}`.
+    Rhs,
+}
+
+/// [`check_cmma_matmul_k_walk`], one operand stored with its axes swapped as `transposed` says,
+/// against the reference each storage order states over the same arange.
 fn check_cmma_matmul_k_walk_with(
     k: usize,
     depth: usize,
     v: usize,
     layout: StageLayout,
-    transposed: bool,
+    transposed: Transposed,
 ) {
     let client = cubecl::test_device().client();
     if !require_cmma_8x8x8_f32(&client) {
@@ -3492,10 +3510,17 @@ fn check_cmma_matmul_k_walk_with(
     );
     let storage = layout.storage(&launcher);
 
-    let a = TileInput::builder(&client, launcher.space().subspace(&[M, K]))
+    let a_axes: &[Axis] = match transposed {
+        Transposed::Lhs => &[K, M],
+        Transposed::Neither | Transposed::Rhs => &[M, K],
+    };
+    let a = TileInput::builder(&client, launcher.space().subspace(a_axes))
         .untiled()
         .arange();
-    let b_axes: &[Axis] = if transposed { &[N, K] } else { &[K, N] };
+    let b_axes: &[Axis] = match transposed {
+        Transposed::Rhs => &[N, K],
+        Transposed::Neither | Transposed::Lhs => &[K, N],
+    };
     let b = TileInput::builder(&client, launcher.space().subspace(b_axes))
         .untiled()
         .arange();
@@ -3517,15 +3542,22 @@ fn check_cmma_matmul_k_walk_with(
         depth,
         f32::elem_type_native(),
     );
-    if transposed {
-        let output = HostData::from_tensor_handle(&client, c.handle(), HostDataType::F32);
-        let (_, expected) = TestInput::builder(client, shape![m, n])
-            .custom(summing_step_matmul_reference(m, n, k))
-            .generate_with_f32_host_data();
-        assert_equals_approx(&output, &expected, 1e-3).enforce()
-    } else {
-        assert_matmul_arange(&client, c.handle(), m, n, k);
-    }
+    let reference = match transposed {
+        Transposed::Neither => return assert_matmul_arange(&client, c.handle(), m, n, k),
+        Transposed::Rhs => summing_step_matmul_reference(m, n, k),
+        // `a[i, p]` is the arange at `p * m + i`, `b[p, j]` at `p * n + j`.
+        Transposed::Lhs => (0..m * n)
+            .map(|idx| {
+                let (i, j) = (idx / n, idx % n);
+                (0..k).map(|p| ((p * m + i) * (p * n + j)) as f32).sum()
+            })
+            .collect(),
+    };
+    let output = HostData::from_tensor_handle(&client, c.handle(), HostDataType::F32);
+    let (_, expected) = TestInput::builder(client, shape![m, n])
+        .custom(reference)
+        .generate_with_f32_host_data();
+    assert_equals_approx(&output, &expected, 1e-3).enforce()
 }
 
 /// [`cmma_matmul_k_walk`] with the instruction stated rather than picked: one body, launched at
