@@ -51,6 +51,11 @@ pub(crate) struct Schedule<'i> {
     pub(crate) limit: Option<Duration>,
     pub(crate) short_circuit: bool,
     pub(crate) track_steps: bool,
+    /// How many kernels compile at once ([`CompilationConfig::parallelism`]): the most the first
+    /// pass compiles ahead of a round a short circuit may end.
+    ///
+    /// [`CompilationConfig::parallelism`]: crate::config::compilation::CompilationConfig::parallelism
+    pub(crate) compile_parallelism: usize,
     /// What runs before every measured sample, when the set registered one.
     pub(crate) evictor: Option<Box<Evictor<'i>>>,
 }
@@ -130,6 +135,8 @@ impl Schedule<'_> {
             .collect();
 
         let mut short_circuit = None;
+        let window = self.compile_window(candidates.len());
+        let mut compiled = 0;
 
         // First pass: one warmup and one sample each, resolved inline so a candidate that
         // already hits the limit ends the batch before the remaining kernels are ever compiled.
@@ -141,6 +148,13 @@ impl Schedule<'_> {
             }
 
             let launched = self.track_steps.then(Instant::now);
+            if slot >= compiled {
+                compiled = (slot + window).min(candidates.len());
+                let ahead = (slot..compiled)
+                    .filter(|&ahead| !patience.skips(ahead))
+                    .map(|ahead| autotunables[candidates[ahead].index]);
+                compile_together(ahead, &inputs, client);
+            }
             let operation = autotunables[candidates[slot].index];
             let hit = self
                 .first_pass(operation, &inputs, client, &mut candidates[slot])
@@ -302,6 +316,18 @@ impl Schedule<'_> {
             decided: decided.map(|(index, _)| index),
             unmeasured,
         }
+    }
+
+    /// How many of a batch of `len` candidates the first pass compiles together before measuring
+    /// the first of them: the whole batch where it measures every candidate, and as many as
+    /// compile at once where a short circuit may end it early, so a round that stops at its
+    /// first candidate compiles at most a batch of kernels it never runs.
+    fn compile_window(&self, len: usize) -> usize {
+        match self.limit.is_some() && self.short_circuit {
+            true => self.compile_parallelism,
+            false => len,
+        }
+        .max(1)
     }
 
     /// Warm up a candidate and take its first sample, confirming on the spot if it already
@@ -593,6 +619,29 @@ impl Candidate {
     }
 }
 
+/// Compile the kernels of `candidates` in one batch, on as many threads as compile at once,
+/// rather than each inside its own warmup, one after another.
+///
+/// Each runs once on this stream with its launches discarded, which queues the kernels they reach
+/// ([`LaunchMode::Queue`](crate::execution::LaunchMode::Queue)); the queue then compiles together.
+/// Only this stream discards, so another thread's launches still run. A candidate that declines
+/// queues nothing, and one whose kernel fails to compile reports it at its warmup.
+fn compile_together<'a, 'o, F: TuneInputs, Out: AutotuneOutput>(
+    candidates: impl Iterator<Item = &'o TuneFn<F, Out>>,
+    inputs: &<F as TuneInputs>::At<'a>,
+    client: &Client,
+) where
+    <F as TuneInputs>::At<'a>: Clone,
+{
+    let queuing =
+        crate::execution::StreamModeOverride::new(crate::execution::StreamMode::Discard, client);
+    for candidate in candidates {
+        let _ = candidate.execute(inputs.clone());
+    }
+    core::mem::drop(queuing);
+    client.compile_queued();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -607,6 +656,7 @@ mod tests {
             limit: None,
             short_circuit: false,
             track_steps: false,
+            compile_parallelism: 1,
             evictor: None,
         }
     }
