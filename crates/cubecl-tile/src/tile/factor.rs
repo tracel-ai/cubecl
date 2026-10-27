@@ -123,8 +123,9 @@ impl Factor {
     /// The innermost scales calibrated from `src`, the float values they scale, as burn's
     /// `quantize_dynamic` calibrates them for values written as `value`: each block's largest
     /// magnitude over the format's, relative to `coarse`, every scale outside the innermost, where
-    /// there is one. The units that fill the scales take their loads in turn, a word of them where
-    /// they are packed ([`Tile::quantize_from`](crate::Tile::quantize_from)).
+    /// there is one. The units that fill the scales take their blocks in turn: lanes a block each,
+    /// meeting through the plane where a word packs several; otherwise a unit a word at a time
+    /// ([`Tile::quantize_from`](crate::Tile::quantize_from)).
     #[allow(dead_code)] // Reached through its expand, from [`Tile::quantize_from`](crate::Tile::quantize_from).
     #[allow(clippy::extra_unused_type_parameters)] // `F` is the source's float, which the expand reads.
     pub(crate) fn calibrate_from<F: Float>(&self, _src: &Tile, _coarse: f32, _value: QuantValue) {

@@ -214,9 +214,12 @@ impl Tile {
     }
 
     /// This tile's scales, the innermost of a factor, calibrated from `src`, the float values
-    /// they scale, for values written as `value` ([`Factor::calibrate_from`]): its loads
-    /// cyclically across the units that fill it, each load's blocks' largest magnitudes taken
-    /// over `src`'s lines. `two_levels` is whether `coarse` sits over the scales.
+    /// they scale, for values written as `value` ([`Factor::calibrate_from`]): its scales
+    /// cyclically across the units that fill it, each block's largest magnitude taken over
+    /// `src`'s lines. Where the units are lanes, they take a block each, and a word's scales meet
+    /// in its first unit through the plane, which writes the word; the units take as many turns
+    /// as the next, so each meeting is the whole plane's. Otherwise a unit takes a word at a time.
+    /// `two_levels` is whether `coarse` sits over the scales.
     #[allow(dead_code)] // Reached through its expand, from [`Factor::calibrate_from`].
     pub(crate) fn calibrate<F: Float>(
         &mut self,
@@ -226,7 +229,8 @@ impl Tile {
         #[comptime] two_levels: bool,
     ) {
         let (load, line) = (self.vector_tile(), src.vector_tile());
-        let size!(N) = comptime!(load.values());
+        let n = comptime!(load.values());
+        let size!(N) = n;
         let size!(LW) = comptime!(line.values());
         let space = comptime!(self.place.space.clone());
         let from = comptime!(src.place.space.clone());
@@ -234,98 +238,102 @@ impl Tile {
         let holder = comptime!(self.place.holder());
         let fill = self.fill_units();
         let fill = comptime!(fill.held_by(holder));
-        let units = comptime!(fill.count);
-        let loads = comptime!(load.counts(&space).iter().product::<usize>());
-        // Unrolled where the worker count is known, as the copy is.
-        if comptime!(units > 0 && loads.div_ceil(units) <= 8) {
+        let blocks = comptime!((load.counts(&space).iter().product::<usize>() * n) as u32);
+        // Lanes share a word's blocks where the plane is a word wide; a unit alone, or a plane
+        // narrower than a word, takes a word at a time. The plane's width is the launch's, the
+        // same for every unit, so the shuffles below are the whole plane's.
+        let lanes = if comptime!(n > 1 && holder != ComputeScope::Unit) {
+            CUBE_DIM_X >= comptime!(n as u32)
+        } else {
+            false.runtime()
+        };
+        let per = select(lanes, 1u32, comptime!(n as u32));
+        let shares = blocks.runtime() / per;
+        let unit = FillUnits::worker(fill) as u32;
+        let width = FillUnits::workers(fill) as u32;
+        for turn in 0..shares.div_ceil(width) {
+            let at = turn * width + unit;
+            let held = at < shares;
+            // A unit past the scales calibrates the first blocks again, and writes nothing.
+            let at = select(held, at, 0u32);
+            let block = at * per;
+            let start = load.start(block / comptime!(n as u32), &space);
+            let c = block % comptime!(n as u32);
+            let mut scales = Vector::<f32, N>::empty();
             #[unroll]
-            for t in 0..comptime!(loads.div_ceil(units)) {
-                let at_load = FillUnits::worker(fill) as u32 + comptime!((t * units) as u32);
-                if comptime!((t + 1) * units <= loads) {
-                    self.calibrate_load::<F, N, LW>(
+            for k in 0..n {
+                if comptime!(k as u32) < per {
+                    let scale = self.calibrate_block::<F, LW>(
                         &read,
-                        at_load,
+                        &start,
+                        c + comptime!(k as u32),
                         coarse,
                         comptime!(from.clone()),
                         comptime!(line.clone()),
                         value,
                         two_levels,
                     );
-                } else {
-                    if at_load < comptime!(loads as u32) {
-                        self.calibrate_load::<F, N, LW>(
-                            &read,
-                            at_load,
-                            coarse,
-                            comptime!(from.clone()),
-                            comptime!(line.clone()),
-                            value,
-                            two_levels,
-                        );
-                    }
+                    scales.insert(k, scale);
                 }
             }
-        } else {
-            let first = FillUnits::worker(fill) as u32;
-            let stride = FillUnits::workers(fill) as u32;
-            for at_load in range_stepped(first, comptime!(loads as u32), stride) {
-                self.calibrate_load::<F, N, LW>(
-                    &read,
-                    at_load,
-                    coarse,
-                    comptime!(from.clone()),
-                    comptime!(line.clone()),
-                    value,
-                    two_levels,
-                );
+            if lanes {
+                let scale = scales.extract(0usize);
+                let first = UNIT_POS_PLANE - c;
+                #[unroll]
+                for k in 0..n {
+                    scales.insert(k, plane_shuffle(scale, first + comptime!(k as u32)));
+                }
+            }
+            if held && c == 0 {
+                self.write_scales::<N>(&start, scales);
             }
         }
     }
 
-    /// This tile's `at_load`-th load of scales calibrated and written: each of its blocks read
-    /// out of `read`, a source spanning `from` in `line`s, a block every value at its scale's
-    /// coordinates along the axes the scales span and every position along the ones they omit.
+    /// The scale of the `c`-th block of this tile's load of scales starting at `start`,
+    /// calibrated: the block read out of `read`, a source spanning `from` in `line`s, every value
+    /// at its scale's coordinates along the axes the scales span and every position along the
+    /// ones they omit.
     #[allow(clippy::too_many_arguments)]
-    fn calibrate_load<F: Float, N: Size, LW: Size>(
-        &mut self,
+    fn calibrate_block<F: Float, LW: Size>(
+        &self,
         read: &Masked<'_, Vector<F, LW>, CoordsDyn>,
-        at_load: u32,
+        start: &Coords<u32>,
+        c: u32,
         coarse: f32,
         #[comptime] from: Space,
         #[comptime] line: VectorTile,
         #[comptime] value: QuantValue,
         #[comptime] two_levels: bool,
-    ) {
+    ) -> f32 {
         let load = self.vector_tile();
         let packing = self.packing();
         let dtype = comptime!(packing.scale_dtype(self.element));
         let space = comptime!(self.place.space.clone());
+        let (along, _) = comptime!(load.along_one_axis("Tile::quantize_from"));
         let block = comptime!(from.subspace(&from.difference(&space)));
         let lines = comptime!(block.tiles(&line.space()));
-        let start = load.start(at_load, &space);
-        let mut scales = Vector::<f32, N>::empty();
+        let mut most = F::new(0.0);
         #[unroll]
-        for c in 0..N::value() {
-            let mut most = F::new(0.0);
+        for l in 0..lines {
+            let mut at = Coords::<u32>::new();
             #[unroll]
-            for l in 0..lines {
-                let mut at = Coords::<u32>::new();
-                #[unroll]
-                for p in 0..comptime!(from.rank()) {
-                    let axis = comptime!(from.axis_at(p));
-                    if comptime!(space.contains(axis)) {
-                        let inner = comptime!(load.offset_along(c, axis) as u32);
-                        at.push(start.at(comptime!(space.position(axis))) + inner);
+            for p in 0..comptime!(from.rank()) {
+                let axis = comptime!(from.axis_at(p));
+                if comptime!(space.contains(axis)) {
+                    let coord = start.at(comptime!(space.position(axis)));
+                    if comptime!(axis == along) {
+                        at.push(coord + c);
                     } else {
-                        at.push(comptime!(line.offset_in(l, &block, axis) as u32).runtime());
+                        at.push(coord);
                     }
+                } else {
+                    at.push(comptime!(line.offset_in(l, &block, axis) as u32).runtime());
                 }
-                most = max(most, largest::<F, LW>(read.read(line.index(&at, &from))));
             }
-            let scale = block_scale::<F>(most, coarse, value, dtype, two_levels);
-            scales.insert(c, f32::cast_from(scale));
+            most = max(most, largest::<F, LW>(read.read(line.index(&at, &from))));
         }
-        self.write_scales::<N>(&start, scales);
+        f32::cast_from(block_scale::<F>(most, coarse, value, dtype, two_levels))
     }
 }
 
