@@ -50,9 +50,9 @@ pub(super) fn cell_position(
         comptime!(problem.block.column_line_extents()),
     );
     resolve_nd_coords(
-        operand,
-        comptime!(problem.block.space.clone()),
-        comptime!(problem.block.reduce.clone()),
+        &operand,
+        &problem.block.space,
+        &problem.block.reduce,
         &acc_coords,
         reduce_coords,
         width,
