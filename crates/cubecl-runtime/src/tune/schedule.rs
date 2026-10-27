@@ -51,8 +51,8 @@ pub(crate) struct Schedule<'i> {
     pub(crate) limit: Option<Duration>,
     pub(crate) short_circuit: bool,
     pub(crate) track_steps: bool,
-    /// How many kernels compile at once ([`CompilationConfig::parallelism`]): the most the first
-    /// pass compiles ahead of a round a short circuit may end.
+    /// How many kernels compile at once ([`CompilationConfig::parallelism`]): the first window a
+    /// round a short circuit may end compiles ahead of measuring.
     ///
     /// [`CompilationConfig::parallelism`]: crate::config::compilation::CompilationConfig::parallelism
     pub(crate) compile_parallelism: usize,
@@ -136,7 +136,6 @@ impl Schedule<'_> {
             .collect();
 
         let mut short_circuit = None;
-        let window = self.compile_window(candidates.len(), patient);
         let mut compiled = 0;
 
         // First pass: one warmup and one sample each, resolved inline so a candidate that
@@ -150,6 +149,7 @@ impl Schedule<'_> {
 
             let launched = self.track_steps.then(Instant::now);
             if slot >= compiled {
+                let window = self.compile_window(candidates.len(), patient, compiled == 0);
                 compiled = (slot + window).min(candidates.len());
                 let ahead = candidates[slot..compiled]
                     .iter_mut()
@@ -324,14 +324,18 @@ impl Schedule<'_> {
     }
 
     /// How many of a batch of `len` candidates the first pass compiles together before measuring
-    /// the first of them: the whole batch where it measures every candidate, and as many as
-    /// compile at once where a short circuit may end it early, so a round that stops at its
-    /// first candidate compiles at most a batch of kernels it never runs. A `patient` batch, one
-    /// where a group's patience may skip the rest of its members, compiles each candidate only
-    /// once it is reached: a member its group skips is never compiled.
-    fn compile_window(&self, len: usize, patient: bool) -> usize {
+    /// the next of them, `first` where it has compiled none yet: the whole batch where it
+    /// measures every candidate. Where a short circuit may end it early, as many as compile at
+    /// once first, so a round that stops at its first candidates compiles at most a batch of
+    /// kernels it never runs, then the rest of the batch at once: a round its first window did
+    /// not end rarely ends on the next, and compiling window after window waits on each
+    /// window's slowest kernel, then on its measurements, with the compiler idle, which costs a
+    /// round its limit never stops about twice the compile time of one batch. A `patient` batch,
+    /// one where a group's patience may skip the rest of its members, compiles each candidate
+    /// only once it is reached: a member its group skips is never compiled.
+    fn compile_window(&self, len: usize, patient: bool, first: bool) -> usize {
         let bounded = self.limit.is_some() && self.short_circuit;
-        match (patient, bounded) {
+        match (patient, bounded && first) {
             (true, _) => 1,
             (false, true) => self.compile_parallelism,
             (false, false) => len,
@@ -690,6 +694,21 @@ mod tests {
             .filter(|c| c.live)
             .map(|c| c.index)
             .collect()
+    }
+
+    #[test]
+    fn a_bounded_round_compiles_one_window_then_the_rest() {
+        let bounded = Schedule {
+            limit: Some(Duration::from_micros(10)),
+            short_circuit: true,
+            compile_parallelism: 8,
+            ..schedule(1.5)
+        };
+        assert_eq!(bounded.compile_window(100, false, true), 8);
+        assert_eq!(bounded.compile_window(100, false, false), 100);
+        assert_eq!(bounded.compile_window(100, true, true), 1);
+        assert_eq!(bounded.compile_window(100, true, false), 1);
+        assert_eq!(schedule(1.5).compile_window(100, false, true), 100);
     }
 
     #[test]
