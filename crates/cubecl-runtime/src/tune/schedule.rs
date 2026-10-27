@@ -10,7 +10,7 @@ use crate::config::autotune::BenchConfig;
 use crate::server::ServerError;
 use crate::tune::Evictor;
 use crate::tune::patience::PatienceTable;
-use crate::tune::sampler::SampleSet;
+use crate::tune::sampler::{SampleSet, measured};
 use crate::tune::{
     AutotuneError, AutotuneOutcome, AutotuneOutput, AutotuneResult, Batch, TuneFn, TuneInputs,
     TunePlan,
@@ -236,11 +236,11 @@ impl Schedule<'_> {
             .await;
 
             for (slot, (ticks, waited)) in slots.into_iter().zip(resolved) {
-                match ticks {
-                    Some(ticks) => candidates[slot].samples.push(ticks.duration()),
-                    // An unmeasured sample disqualifies its candidate rather
-                    // than being recorded as a zero, which would be the fastest
-                    // sample in the round and would short-circuit on it.
+                match measured(ticks) {
+                    Some(duration) => candidates[slot].samples.push(duration),
+                    // A sample that is no time disqualifies its candidate rather than being
+                    // recorded as a zero, which would be the fastest sample in the round and
+                    // would short-circuit on it.
                     None => {
                         let name = candidates[slot].name.to_string();
                         candidates[slot].fail(AutotuneError::NotMeasured { name });
@@ -383,9 +383,9 @@ impl Schedule<'_> {
         match operation.sample_once(inputs.clone(), client, self.evictor.as_deref_mut()) {
             Ok(profile) => {
                 candidate.method.get_or_insert(profile.timing_method());
-                match profile.resolve().await {
-                    Some(ticks) => {
-                        candidate.samples.push(ticks.duration());
+                match measured(profile.resolve().await) {
+                    Some(duration) => {
+                        candidate.samples.push(duration);
                         true
                     }
                     None => {
