@@ -183,7 +183,7 @@ impl Memory {
     }
 
     /// The backing as a [`View`] addressed by `layout`: the read path.
-    fn read_view<T: Numeric, W: Size>(
+    pub(crate) fn read_view<T: Numeric, W: Size>(
         &self,
         layout: BufferLayout,
     ) -> View<'_, Vector<T, W>, CoordsDyn> {

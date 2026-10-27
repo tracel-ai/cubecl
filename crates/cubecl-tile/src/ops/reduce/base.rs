@@ -14,6 +14,29 @@ impl Tile {
         self.reduce_axis_accumulate(input, monoid);
     }
 
+    /// `self[c] = Σ_r lhs[c, r] · rhs[c, r]`, `r` the axes `lhs` and `rhs` span beyond `self`'s:
+    /// each cell the dot product of its run of both, as attention's backward pass sums its output
+    /// against the output's gradient along the value dim. `self` is a window of memory a unit or a
+    /// plane holds ([`Tile::set_cells`]), every unit of the holder summing every cell; `lhs` and
+    /// `rhs` span one space, bound at one width.
+    pub fn dot<E: Float>(&mut self, lhs: &Tile, rhs: &Tile) {
+        let (width, rhs_width) = (lhs.vector_size(), rhs.vector_size());
+        comptime!(assert!(
+            lhs.place.space == rhs.place.space && width == rhs_width,
+            "Tile::dot: both factors span one space at one width, not {:?} at {width} and {:?} \
+             at {rhs_width}",
+            lhs.place.space,
+            rhs.place.space,
+        ));
+        let define!(Lhs) = lhs.read_element();
+        let define!(Rhs) = rhs.read_element();
+        let space = comptime!(self.place.space.clone());
+        let cells = comptime!(space.cells());
+        let size!(V) = width;
+        let values = reduce::dot_cells::<E, Lhs, Rhs, V>(lhs, rhs, space);
+        self.set_cells(&values, cells);
+    }
+
     /// `c = reduce(c, input)`: reduce `input` into what `self` holds, which must be seeded.
     pub fn reduce_axis_accumulate(&mut self, input: &Tile, #[comptime] monoid: Monoid) {
         let define!(Served) = self.element;
