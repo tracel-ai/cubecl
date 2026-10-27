@@ -105,7 +105,7 @@ impl Geometry {
         let batch_dims = self.rank() - labels.len();
         let mut trailing: Vec<(usize, (usize, usize))> =
             self.dims().enumerate().skip(batch_dims).collect();
-        trailing.sort_by_key(|&(_, (_, stride))| core::cmp::Reverse(stride));
+        trailing.sort_by_key(|&(_, dim)| stride_order(dim));
         let dims: Vec<(usize, usize)> = self
             .dims()
             .take(batch_dims)
@@ -158,11 +158,10 @@ impl Geometry {
             inside.push(dim);
             run *= extent;
         }
-        match self
-            .dims()
-            .enumerate()
-            .find(|&(dim, (_, stride))| !inside.contains(&dim) && !stride.is_multiple_of(values))
-        {
+        // A dim of one element steps nowhere, so its stride lands no value inside a line.
+        match self.dims().enumerate().find(|&(dim, (extent, stride))| {
+            extent > 1 && !inside.contains(&dim) && !stride.is_multiple_of(values)
+        }) {
             Some((_, (_, stride))) => Err(LineMisfit::StrideInsideLine(stride)),
             None => Ok(()),
         }
@@ -292,6 +291,14 @@ impl RuntimeGeometry {
     }
 }
 
+/// Where a dim of `(extent, stride)` sorts among a buffer's dims in stride order: by stride,
+/// coarsest first, and on a tie a dim of one element before the others. It steps nowhere, so its
+/// stride places it nowhere: a column `[k, 1]` at strides `[1, 1]` runs along `k`, and its lines
+/// run along `k` too, not along the dim one element long.
+pub(crate) fn stride_order((extent, stride): (usize, usize)) -> (core::cmp::Reverse<usize>, bool) {
+    (core::cmp::Reverse(stride), extent != 1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -336,6 +343,8 @@ mod tests {
                 vec![K, N, K, N],
             ),
             (Geometry::new(&[(6, 1)]), vec![N]),
+            // A row viewed out of a column: its single row keeps the column's stride.
+            (Geometry::new(&[(1, 1), (8, 1)]), vec![M, N]),
         ];
         for (geometry, labels) in &geometries {
             let line = *labels.last().unwrap();
@@ -363,7 +372,8 @@ mod tests {
     }
 
     /// The one-axis line rule: a line of `width` is served where the innermost dim is contiguous
-    /// and its extent and every outer stride are multiples of `width`.
+    /// and its extent and every outer stride are multiples of `width`; an outer dim of one
+    /// element steps nowhere, so its stride counts for nothing.
     fn line_rule_serves(geometry: &Geometry, width: usize) -> bool {
         if width == 1 {
             return true;
@@ -375,6 +385,7 @@ mod tests {
             && geometry.shape()[last].is_multiple_of(width)
             && geometry.strides()[..last]
                 .iter()
-                .all(|s| s.is_multiple_of(width))
+                .zip(geometry.shape())
+                .all(|(s, &extent)| extent == 1 || s.is_multiple_of(width))
     }
 }

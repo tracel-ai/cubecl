@@ -22,8 +22,8 @@ pub(crate) struct CmmaData {
     /// The whole MMA tile's `(m, n)`, whatever the role.
     #[cube(comptime)]
     pub shape: (usize, usize),
-    /// This plane's one-tile window of shared memory the fragment bounces through, at the fragment's
-    /// element.
+    /// This plane's one-tile window of shared memory the fragment bounces through, at the
+    /// fragment's element.
     pub scratch: ComptimeOption<Raw<SharedSlice>>,
 }
 
@@ -232,7 +232,7 @@ impl CmmaData {
             ComptimeOption::Some(scratch) => scratch.at::<T>().clone(),
             ComptimeOption::None => panic!(
                 "CmmaData: a fragment bounces through a scratch, to scale its slices, to reach a \
-                 store that folds, or a window the problem's edge cuts short; open the \
+                 store that sums, or a window the problem's edge cuts short; open the \
                  accumulator with `with_scratch`"
             ),
         }

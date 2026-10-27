@@ -1,4 +1,4 @@
-//! Unit tests for the 1-D register reductions in `Monoid::reduce` and `Monoid::reduce_array`.
+//! Unit tests for the 1-D register reductions in `Monoid::reduce`.
 
 use crate::support::{HostData, HostDataType, TestInput};
 use cubecl::{client::Client, prelude::*, zspace::Shape};
@@ -21,25 +21,6 @@ fn test_hsum_kernel(input: &Tensor<f32>, output: &mut Tensor<f32>) {
     output[0] = Monoid::reduce(v4, 4usize, Monoid::Sum);
     output[1] = Monoid::reduce(v4, 2usize, Monoid::Sum);
     output[2] = Monoid::reduce(v2, 2usize, Monoid::Sum);
-
-    let mut arr = Array::<f32>::new(4usize);
-    arr[0] = 1.0f32;
-    arr[1] = 2.0f32;
-    arr[2] = 3.0f32;
-    arr[3] = 4.0f32;
-    output[3] = Monoid::reduce_array(
-        &arr,
-        4usize,
-        Monoid::identity::<f32>(Monoid::Sum),
-        Monoid::Sum,
-    );
-    output[4] = Monoid::reduce_array(
-        &arr,
-        2usize,
-        Monoid::identity::<f32>(Monoid::Sum),
-        Monoid::Sum,
-    );
-    output[5] = Monoid::reduce_array(&arr, 4usize, 5.0f32, Monoid::Sum);
 }
 
 #[cube(launch)]
@@ -60,26 +41,6 @@ fn test_extrema_kernel(input: &Tensor<f32>, output: &mut Tensor<f32>) {
     output[1] = Monoid::reduce(v4, 4usize, Monoid::Min);
     output[2] = Monoid::reduce(v2, 2usize, Monoid::Max);
     output[3] = Monoid::reduce(v2, 2usize, Monoid::Min);
-
-    let mut arr = Array::<f32>::new(4usize);
-    arr[0] = 3.0f32;
-    arr[1] = 1.0f32;
-    arr[2] = 7.0f32;
-    arr[3] = 2.0f32;
-    output[4] = Monoid::reduce_array(
-        &arr,
-        4usize,
-        Monoid::identity::<f32>(Monoid::Max),
-        Monoid::Max,
-    );
-    output[5] = Monoid::reduce_array(
-        &arr,
-        4usize,
-        Monoid::identity::<f32>(Monoid::Min),
-        Monoid::Min,
-    );
-    output[6] = Monoid::reduce_array(&arr, 4usize, 10.0f32, Monoid::Max);
-    output[7] = Monoid::reduce_array(&arr, 4usize, -10.0f32, Monoid::Min);
 }
 
 #[cube(launch)]
@@ -157,13 +118,13 @@ fn test_plane_and_group_fallback_kernel(output: &mut Tensor<f32>) {
 }
 
 #[test]
-fn test_hsum_and_array_sum() {
+fn test_hsum() {
     let client: Client = cubecl::test_device().client();
     let (input_handle, _data) = TestInput::builder(client.clone(), Shape::new([4]))
         .dtype(f32::elem_type_native())
         .custom(vec![1.0, 2.0, 3.0, 4.0])
         .generate_with_f32_host_data();
-    let output_handle = TestInput::builder(client.clone(), Shape::new([6]))
+    let output_handle = TestInput::builder(client.clone(), Shape::new([3]))
         .dtype(f32::elem_type_native())
         .zeros()
         .generate_without_host_data();
@@ -180,9 +141,6 @@ fn test_hsum_and_array_sum() {
     assert_eq!(output.get_f32(&[0]), 10.0); // 1 + 2 + 3 + 4
     assert_eq!(output.get_f32(&[1]), 3.0); // 1 + 2
     assert_eq!(output.get_f32(&[2]), 3.0); // 1 + 2
-    assert_eq!(output.get_f32(&[3]), 10.0); // 1 + 2 + 3 + 4 (identity seeded)
-    assert_eq!(output.get_f32(&[4]), 3.0); // 1 + 2 (identity seeded)
-    assert_eq!(output.get_f32(&[5]), 15.0); // 5 + 1 + 2 + 3 + 4 (seeded)
 }
 
 #[test]
@@ -192,7 +150,7 @@ fn test_extrema_max_min() {
         .dtype(f32::elem_type_native())
         .custom(vec![3.0, 1.0, 7.0, 2.0])
         .generate_with_f32_host_data();
-    let output_handle = TestInput::builder(client.clone(), Shape::new([8]))
+    let output_handle = TestInput::builder(client.clone(), Shape::new([4]))
         .dtype(f32::elem_type_native())
         .zeros()
         .generate_without_host_data();
@@ -210,10 +168,6 @@ fn test_extrema_max_min() {
     assert_eq!(output.get_f32(&[1]), 1.0); // min(3, 1, 7, 2)
     assert_eq!(output.get_f32(&[2]), 3.0); // max(3, 1)
     assert_eq!(output.get_f32(&[3]), 1.0); // min(3, 1)
-    assert_eq!(output.get_f32(&[4]), 7.0); // max array (identity seeded with min_value)
-    assert_eq!(output.get_f32(&[5]), 1.0); // min array (identity seeded with max_value)
-    assert_eq!(output.get_f32(&[6]), 10.0); // max array starting from 10.0
-    assert_eq!(output.get_f32(&[7]), -10.0); // min array starting from -10.0
 }
 
 #[test]

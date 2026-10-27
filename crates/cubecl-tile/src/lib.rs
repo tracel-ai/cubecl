@@ -36,6 +36,7 @@ pub mod procedural {
     pub use crate::tile::kind::procedural::base::{Reads, Recipe, RecipeCoords, RecipeExpand};
     pub use crate::tile::kind::procedural::constant::Constant;
     pub use crate::tile::kind::procedural::kind::Procedural;
+    pub use crate::tile::kind::procedural::memory_values::{MemoryValues, MemoryValuesExpand};
     pub use crate::tile::kind::procedural::normalization::{DivGuard, TapSupport};
     pub use crate::tile::kind::procedural::phase::Phase;
     pub use crate::tile::kind::procedural::product::{Product, product_of};

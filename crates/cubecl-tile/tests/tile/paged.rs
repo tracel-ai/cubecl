@@ -375,6 +375,7 @@ type Bind = fn(TileArgLaunch, TileArgLaunch, Indexing) -> Result<TileArgLaunch, 
 
 /// [`run_paged_read_blocks`] through a table of `entries` laid out as `shape`, any rank, the pool
 /// bound by `bind`.
+#[allow(clippy::too_many_arguments)]
 fn run_paged_read_table(
     lens: &[u32; SEQUENCES],
     shape: &[usize],

@@ -53,7 +53,8 @@ impl Paging {
     ///
     /// # Errors
     ///
-    /// Either axis not one dim's identity, or both on one dim: a page is resolved digit for digit.
+    /// Either axis not one dim's identity, or both on one dim: a page is resolved coordinate by
+    /// coordinate.
     pub(crate) fn dims(&self, projection: &Projection) -> Result<(usize, usize), Refusal> {
         let dim = |axis: Axis| {
             (0..projection.physical_rank())
