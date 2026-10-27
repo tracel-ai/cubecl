@@ -36,6 +36,7 @@ mod row_chunks;
 mod scaled;
 mod separable;
 mod smem_accumulation;
+mod softmax_gradient;
 mod space;
 mod split_contraction;
 mod stored_window;

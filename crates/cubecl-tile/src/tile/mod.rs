@@ -17,3 +17,4 @@ pub(crate) use index::*;
 pub(crate) use kind::*;
 pub(crate) use packing::*;
 pub(crate) use placement::*;
+pub(crate) use slices::Broadcast;
