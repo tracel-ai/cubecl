@@ -12,6 +12,7 @@ use crate::*;
 /// batch and head reads that batch and head; a coordinate past the buffer reads zero. A recipe
 /// itself, evaluated at its own coordinates, so it composes with any other ([`Sum`](super::Sum)).
 #[derive(CubeType, Clone)]
+#[expand(derive(Clone))]
 pub struct MemoryValues {
     memory: Memory,
     #[cube(comptime)]
