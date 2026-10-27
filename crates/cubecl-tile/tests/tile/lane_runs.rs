@@ -50,6 +50,9 @@ enum Staged {
     /// Both operands, the weight as it is stored, its scale words beside it: the weight's
     /// fragments load a step at a time.
     Both,
+    /// Both operands, the weight as it is stored, its byte scales kept beside it by the stage
+    /// (`Tile::scales_kept_beside`): the weight's fragments load in lane runs out of the stage.
+    BothKept,
 }
 
 /// `c = a · b`, a leaf of `WINDOW` along `k` at a time, through the manual-mma instruction, `b`
@@ -96,6 +99,18 @@ fn lane_run_matmul(
         }
         Staged::Both => {
             let walk = space.over(&level);
+            let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, 1usize, None);
+            stages.pipelined(walk, |slot, region| {
+                let mut acc_r = acc.at(region);
+                slot.consume(|a_r, b_r| {
+                    let b_r = acc_r.dequantized(b_r, decoded);
+                    acc_r.mma(a_r, &b_r);
+                });
+            });
+        }
+        Staged::BothKept => {
+            let walk = space.over(&level);
+            let b = b.scales_kept_beside();
             let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, 1usize, None);
             stages.pipelined(walk, |slot, region| {
                 let mut acc_r = acc.at(region);
@@ -361,7 +376,7 @@ fn check_nvfp4_rows(
                 ],
             ))
             .build(),
-        Staged::Nothing | Staged::Activation => launcher
+        Staged::Nothing | Staged::Activation | Staged::BothKept => launcher
             .arg(
                 tensor(scale_words, vec![n, blocks], u32::elem_type_native()),
                 u32::elem_type_native(),
@@ -435,6 +450,7 @@ fn check_nvfp4_rows(
                 Staged::Nothing => "",
                 Staged::Activation => " out of a stage",
                 Staged::Both => ", both out of stages",
+                Staged::BothKept => ", both out of stages, byte scales kept beside",
             },
             match global {
                 None => "",
@@ -596,6 +612,16 @@ fn a_staged_nvfp4_weight_dequantizes_a_step_at_a_time() {
     check_nvfp4_rows(16, WINDOW, 8, 2, 1, Staged::Both, None);
     check_nvfp4_rows(16, 3 * WINDOW, 8, 2, 1, Staged::Both, None);
     check_nvfp4_rows(3, 2 * WINDOW, 8, 2, 2, Staged::Both, None);
+}
+
+/// **A weight staged with its byte scales kept beside it contracts in lane runs.** The stage
+/// holds the codes as they are stored and the scales beside them, and the weight's fragments read
+/// both in lane runs, as they would straight from the tensor.
+#[test]
+fn a_staged_nvfp4_weight_under_kept_byte_scales_contracts_in_lane_runs() {
+    check_nvfp4_rows(16, WINDOW, 8, 2, 1, Staged::BothKept, None);
+    check_nvfp4_rows(16, 2 * WINDOW, 8, 2, 2, Staged::BothKept, None);
+    check_nvfp4_rows(3, 2 * WINDOW, 8, 2, 2, Staged::BothKept, None);
 }
 
 /// **A per-tensor scale above the block scales leaves the weight for the sum.** Lane runs convert
