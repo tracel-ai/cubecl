@@ -52,19 +52,19 @@ impl ElemAlignment {
 
     /// The alignment of a buffer of `shape` at `strides`, innermost last.
     ///
-    /// A dim of one element steps nowhere, so its stride reads no address and aligns nothing:
-    /// a view `[1, k]` swapped out of a column `[k, 1]` keeps the column's stride of one on its
-    /// single row, and is as aligned as the dense row it is.
+    /// A coarser dim of one element steps nowhere, so its stride reads no address and aligns
+    /// nothing: a view `[1, k]` swapped out of a column `[k, 1]` keeps the column's stride of one
+    /// on its single row, and is as aligned as the dense row it is. The innermost dim is the one
+    /// the lines run along, whatever its extent: a line along a dim of one element holds one
+    /// element, so a column `[k, 1]` bound with that dim innermost is aligned to one, though its
+    /// buffer is dense along `k`.
     pub fn new(shape: &[usize], strides: &[usize]) -> Self {
-        let (shape, strides): (Vec<usize>, Vec<usize>) = shape
-            .iter()
-            .zip(strides)
-            .filter(|&(&extent, _)| extent != 1)
-            .unzip();
         let divides = match (shape.split_last(), strides.split_last()) {
-            (Some((&extent, _)), Some((&1, coarser))) => {
-                coarser.iter().fold(extent, |acc, &stride| gcd(acc, stride))
-            }
+            (Some((&extent, coarser_shape)), Some((&1, coarser))) => coarser_shape
+                .iter()
+                .zip(coarser)
+                .filter(|&(&extent, _)| extent != 1)
+                .fold(extent, |acc, (_, &stride)| gcd(acc, stride)),
             _ => 1,
         };
         Self(Widths::Dividing(divides))
@@ -135,6 +135,17 @@ mod tests {
         let row = ElemAlignment::new(&[1, k], &[1, 1]);
         assert_eq!(row, ElemAlignment::dense_rows(k));
         assert!(ElemAlignment::in_stride_order(&[1, k], &[1, 1]).admits(k));
+    }
+
+    /// A column bound with its dim of one element innermost runs its lines along that dim, which
+    /// holds one element: its buffer is dense along `k`, but no line along the column is wider
+    /// than one.
+    #[test]
+    fn an_innermost_dim_of_one_element_aligns_to_one() {
+        let k = 4;
+        let column = ElemAlignment::new(&[k, 1], &[1, 1]);
+        assert_eq!(column, ElemAlignment::new(&[k, 1], &[1, k]));
+        assert!(!column.admits(2));
     }
 
     /// A col weight's rows run along `k`, a pitch apart, whichever way the view names them.
