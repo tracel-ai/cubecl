@@ -464,12 +464,12 @@ impl ToSpirvCFDialect for branch::UnreachableOp {
     }
 }
 
-pub type SCFToSpirvConversionPass = DialectConversionPass<BranchToSpirvConversion>;
+pub type SCFToSpirvConversionPass = DialectConversionPass<SCFToSpirvConversion>;
 
 #[derive(Default, NamedRewrite)]
-pub struct BranchToSpirvConversion;
+pub struct SCFToSpirvConversion;
 
-impl DialectConversion for BranchToSpirvConversion {
+impl DialectConversion for SCFToSpirvConversion {
     fn can_convert_op(&self, ctx: &Context, op: Ptr<Operation>) -> bool {
         op.impls::<dyn ToSpirvCFDialect>(ctx)
     }

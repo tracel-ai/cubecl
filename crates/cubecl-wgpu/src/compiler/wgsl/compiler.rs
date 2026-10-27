@@ -28,7 +28,7 @@ use cubecl_ir::{
     pliron::{
         builtin::ops::{FuncOp, ModuleOp},
         operation::verify_operation,
-        opts::{dce::DCEPass, mem2reg::Mem2RegPass},
+        opts::dce::DCEPass,
         printable::Printable,
     },
     prelude::{AnalysisManager, NestedOpsPass, Op, OpPass, Pass, Passes},
@@ -37,7 +37,7 @@ use cubecl_ir::{
 };
 use cubecl_opt::passes::{
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
-    sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
+    mem2reg::Mem2RegPass, sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_server::compiler::CompilationError;
 use cubecl_server::kernel;

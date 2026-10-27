@@ -54,14 +54,15 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::bytes::Bytes;
 use cubecl_opt::passes::{
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
-    resolve_pending::ResolvePendingPass, sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
+    mem2reg::Mem2RegPass, resolve_pending::ResolvePendingPass, sccp::SCCPPass,
+    simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::{
     compiler::CompilationError, config::compilation::F16Evaluation, kernel::BufferIOAttr,
 };
 use pliron::{
     operation::verify_operation,
-    opts::{dce::DCEPass, mem2reg::Mem2RegPass, simplify_cfg::SimplifyCFGPass},
+    opts::{dce::DCEPass, simplify_cfg::SimplifyCFGPass},
 };
 use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
 use std::rc::Rc;
