@@ -275,6 +275,27 @@ impl<E: Float> OnlineSoftmax<E> {
         }
     }
 
+    /// Every slice's logsumexp, `m + ln(l)`, written into `logsumexp`, a window of one cell a
+    /// slice in slice order that a unit or a plane holds: what a pass that walks the slices again
+    /// reads its probabilities back from ([`AxisSlices::probabilities`]). A slice whose every
+    /// cell was masked keeps the minimum value, which reads back as probabilities of zero.
+    ///
+    /// `score` is the tile the state was taken in from, which says which unit holds which slice,
+    /// as [`store_rows`](OnlineSoftmax::store_rows) reads it. Every unit of the holder calls it.
+    pub fn store_logsumexp(&self, score: &Tile, logsumexp: &mut Tile) {
+        let mut values = Array::<E>::new(self.slices);
+        #[unroll]
+        for i in 0..self.slices {
+            let live = self.l[i] > E::from_int(0);
+            values[i] = select(live, self.m[i] + self.l[i].ln(), E::min_value());
+        }
+        if comptime!(self.slots == SliceSlots::Every) {
+            logsumexp.set_cells(&values, self.slices);
+        } else {
+            score.along(self.axis).store_held::<E>(&values, logsumexp);
+        }
+    }
+
     /// Each slice's `1 / l`, what its sum of probabilities times values is normalized by; zero
     /// for a slice whose every cell was masked.
     pub fn recip_l(&self) -> Array<E> {

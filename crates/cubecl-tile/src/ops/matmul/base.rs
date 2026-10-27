@@ -362,7 +362,9 @@ fn strided_2d(lhs: &Tile, rhs: &Tile, #[comptime] out: Space, #[comptime] rhs_al
         "mma: a cmma or plane-register fragment reads one `k` edge off a directly addressed \
          operand; a gather, or a contraction these axes give no edge for, needs the manual-mma \
          leaf, or an unpromoted Gmem/Smem accumulator, whose software instruction is the \
-         `memory` arm of `Descent::contract`"
+         `memory` arm of `Descent::contract`: {:?} · {:?} into {out:?}",
+        lhs.place.space,
+        rhs.place.space
     ));
 }
 
