@@ -53,6 +53,44 @@ impl AllocationController for WgpuAllocController {
     }
 }
 
+/// A staging buffer a read is mapping, held until the map resolves.
+///
+/// Unmaps the buffer when dropped before [`into_controller`](Self::into_controller) which
+/// would otherwise send the buffer back to the staging memory while still mapped or with
+/// the map still pending, causing the next subsequent read copying into it to fail
+/// on submit. Wgpu aborts a pending map and ignores an unmapped buffer.
+pub struct PendingStaging {
+    mapping: Option<(wgpu::Buffer, ManagedMemoryBinding)>,
+}
+
+impl PendingStaging {
+    pub fn new(buffer: wgpu::Buffer, binding: ManagedMemoryBinding) -> Self {
+        Self {
+            mapping: Some((buffer, binding)),
+        }
+    }
+
+    pub fn buffer(&self) -> &wgpu::Buffer {
+        &self.mapping.as_ref().unwrap().0
+    }
+
+    /// The controller of the mapped buffer, once its map has resolved.
+    pub fn into_controller(mut self) -> WgpuAllocController {
+        let (buffer, binding) = self.mapping.take().unwrap();
+        WgpuAllocController::init(binding, buffer)
+    }
+}
+
+impl Drop for PendingStaging {
+    fn drop(&mut self) {
+        // Unmapped before the binding is released, as `WgpuAllocController` does.
+        if let Some((buffer, binding)) = self.mapping.take() {
+            buffer.unmap();
+            drop(binding);
+        }
+    }
+}
+
 impl WgpuAllocController {
     /// Creates a new allocation controller for a managed wgpu staging buffer.
     ///
