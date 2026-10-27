@@ -158,11 +158,10 @@ impl Geometry {
             inside.push(dim);
             run *= extent;
         }
-        match self
-            .dims()
-            .enumerate()
-            .find(|&(dim, (_, stride))| !inside.contains(&dim) && !stride.is_multiple_of(values))
-        {
+        // A dim of one element steps nowhere, so its stride lands no value inside a line.
+        match self.dims().enumerate().find(|&(dim, (extent, stride))| {
+            extent > 1 && !inside.contains(&dim) && !stride.is_multiple_of(values)
+        }) {
             Some((_, (_, stride))) => Err(LineMisfit::StrideInsideLine(stride)),
             None => Ok(()),
         }
@@ -336,6 +335,8 @@ mod tests {
                 vec![K, N, K, N],
             ),
             (Geometry::new(&[(6, 1)]), vec![N]),
+            // A row viewed out of a column: its single row keeps the column's stride.
+            (Geometry::new(&[(1, 1), (8, 1)]), vec![M, N]),
         ];
         for (geometry, labels) in &geometries {
             let line = *labels.last().unwrap();
@@ -363,7 +364,8 @@ mod tests {
     }
 
     /// The one-axis line rule: a line of `width` is served where the innermost dim is contiguous
-    /// and its extent and every outer stride are multiples of `width`.
+    /// and its extent and every outer stride are multiples of `width`; an outer dim of one
+    /// element steps nowhere, so its stride counts for nothing.
     fn line_rule_serves(geometry: &Geometry, width: usize) -> bool {
         if width == 1 {
             return true;
@@ -375,6 +377,7 @@ mod tests {
             && geometry.shape()[last].is_multiple_of(width)
             && geometry.strides()[..last]
                 .iter()
-                .all(|s| s.is_multiple_of(width))
+                .zip(geometry.shape())
+                .all(|(s, &extent)| extent == 1 || s.is_multiple_of(width))
     }
 }
