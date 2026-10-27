@@ -1166,22 +1166,18 @@ impl WhileOp {
         let op = Operation::new(
             ctx,
             Self::get_concrete_op_info(),
-            results,
+            results.clone(),
             carried_values_init,
             vec![],
             2,
         );
 
         let before_region = op.deref_mut(ctx).get_region(0);
-        let before_block = BasicBlock::new(
-            ctx,
-            Some("before".try_into().unwrap()),
-            carried_types.clone(),
-        );
+        let before_block = BasicBlock::new(ctx, Some("before".try_into().unwrap()), carried_types);
         before_block.insert_at_front(before_region, ctx);
 
         let after_region = op.deref_mut(ctx).get_region(1);
-        let after_block = BasicBlock::new(ctx, Some("after".try_into().unwrap()), carried_types);
+        let after_block = BasicBlock::new(ctx, Some("after".try_into().unwrap()), results);
         after_block.insert_at_front(after_region, ctx);
 
         Self { op }
