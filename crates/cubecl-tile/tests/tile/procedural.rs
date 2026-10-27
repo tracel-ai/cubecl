@@ -6,6 +6,7 @@ use cubecl::{prelude::*, std::tensor::TensorHandle, zspace::shape};
 use cubecl_common::ComptimeFloat;
 use cubecl_tile::procedural::AffineCoordinate;
 use cubecl_tile::procedural::Constant;
+use cubecl_tile::procedural::MemoryValues;
 use cubecl_tile::procedural::Phase;
 use cubecl_tile::procedural::Procedural;
 use cubecl_tile::procedural::Product;
@@ -290,6 +291,35 @@ fn divided_direct_copy_kernel<E: Float>(
     output.copy_from(&source);
 }
 
+/// `row` plus the value `values` holds at each cell: a memory tile's values summed into another
+/// recipe. `values` spans the rows only where its spec says so; the cut at each region places it.
+#[cube(launch)]
+fn memory_values_kernel<E: Float>(
+    values: &TileArg<'_>,
+    output: &TileArg<'_>,
+    space: Partitioning,
+    #[comptime] level: Level,
+    #[define(E)] _dtype: ElemType,
+) {
+    let values = values.tile(&space);
+    let output = output.tile(&space);
+    for region in output.over(&level) {
+        let source = Procedural::new::<E, Sum<AxisValue, MemoryValues>>(
+            comptime!(space.space().clone()),
+            sum_of(
+                AxisValue {
+                    axis: ROW,
+                    scale: 1.0,
+                },
+                values.at(&region).values(),
+            ),
+        )
+        .tile::<E>();
+        let mut output_region = output.at(&region);
+        output_region.copy_from(&source.at(&region));
+    }
+}
+
 struct Harness {
     client: Client,
     dtype: ElemType,
@@ -564,4 +594,62 @@ fn divided_direct_copy_preserves_the_parent_bound() {
         &HostData::from_tensor_handle(&client, output, HostDataType::F32),
         |row, col| if row < 2 && col < 4 { 1.0 } else { 0.0 },
     );
+}
+
+/// A memory tile's values are a recipe: summed with another, each cell reads the value the tile
+/// holds there.
+#[test]
+fn memory_values_read_each_cell() {
+    let h = Harness::new();
+    let held: Vec<f32> = (0..ROWS * COLS).map(|i| (i * 3 % 7) as f32).collect();
+    let values = TestInput::builder(h.client.clone(), shape![ROWS, COLS])
+        .custom(held.clone())
+        .generate_without_host_data();
+    let output = h.output();
+    memory_values_kernel::launch(
+        &h.client,
+        h.launcher.cube_count(),
+        h.launcher.cube_dim(),
+        TileArgLaunch::new(
+            values.clone().binding().into_tensor_arg(),
+            values.dtype,
+            1,
+            TileSpec::direct(&[ROW, COL]),
+        ),
+        output_arg!(output),
+        h.launcher.partitioning_arg(),
+        h.launcher.partitioning().level(0),
+        h.dtype,
+    );
+    assert_grid(&h.read(output), |row, col| {
+        row as f32 + held[row * COLS + col]
+    });
+}
+
+/// A memory tile that leaves out an axis broadcasts over it: values over the columns alone serve
+/// every row.
+#[test]
+fn memory_values_broadcast_over_an_axis_they_leave_out() {
+    let h = Harness::new();
+    let held: Vec<f32> = (0..COLS).map(|col| (col * 5 % 4) as f32).collect();
+    let values = TestInput::builder(h.client.clone(), shape![COLS])
+        .custom(held.clone())
+        .generate_without_host_data();
+    let output = h.output();
+    memory_values_kernel::launch(
+        &h.client,
+        h.launcher.cube_count(),
+        h.launcher.cube_dim(),
+        TileArgLaunch::new(
+            values.clone().binding().into_tensor_arg(),
+            values.dtype,
+            1,
+            TileSpec::direct(&[COL]),
+        ),
+        output_arg!(output),
+        h.launcher.partitioning_arg(),
+        h.launcher.partitioning().level(0),
+        h.dtype,
+    );
+    assert_grid(&h.read(output), |row, col| row as f32 + held[col]);
 }
