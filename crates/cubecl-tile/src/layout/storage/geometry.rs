@@ -105,7 +105,7 @@ impl Geometry {
         let batch_dims = self.rank() - labels.len();
         let mut trailing: Vec<(usize, (usize, usize))> =
             self.dims().enumerate().skip(batch_dims).collect();
-        trailing.sort_by_key(|&(_, (_, stride))| core::cmp::Reverse(stride));
+        trailing.sort_by_key(|&(_, dim)| stride_order(dim));
         let dims: Vec<(usize, usize)> = self
             .dims()
             .take(batch_dims)
@@ -289,6 +289,14 @@ impl RuntimeGeometry {
         self.shape.push(extent);
         self.strides.push(stride);
     }
+}
+
+/// Where a dim of `(extent, stride)` sorts among a buffer's dims in stride order: by stride,
+/// coarsest first, and on a tie a dim of one element before the others. It steps nowhere, so its
+/// stride places it nowhere: a column `[k, 1]` at strides `[1, 1]` runs along `k`, and its lines
+/// run along `k` too, not along the dim one element long.
+pub(crate) fn stride_order((extent, stride): (usize, usize)) -> (core::cmp::Reverse<usize>, bool) {
+    (core::cmp::Reverse(stride), extent != 1)
 }
 
 #[cfg(test)]
