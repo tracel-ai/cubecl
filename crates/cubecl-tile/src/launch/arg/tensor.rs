@@ -485,6 +485,25 @@ impl TileArgLaunch {
         self
     }
 
+    /// This tensor map's cells read as the words `field` values are packed in, eight `e2m1` to
+    /// a word: what a TMA engine moves of a packed operand, which a stage holds as it lies.
+    ///
+    /// # Panics
+    ///
+    /// On an argument that is not a tensor map of `u32` words.
+    pub fn packed(mut self, field: impl Into<Field>) -> Self {
+        assert!(
+            matches!(self.values, ValuesLaunch::TensorMap { .. })
+                && self.element == u32::elem_type_native(),
+            "TileArgLaunch::packed: a tensor map of u32 words is read as packed values, and this \
+             is not one"
+        );
+        Arc::make_mut(&mut self.spec).packing = Packing::Packed {
+            field: field.into(),
+        };
+        self
+    }
+
     /// These values under `scale`, outside the scales they carry already: words of block scales
     /// where `scale` is a plain level holding `u32`, scales read as numbers otherwise.
     pub fn scales(mut self, scale: TileArgLaunch) -> Self {
