@@ -159,6 +159,8 @@ impl Layout for TmaFoldedLayout {
         for d in 0..comptime!(coordinates.dims.len()) {
             let terms = comptime!(coordinates.dims[d].clone());
             let mut coordinate = 0u32;
+            // Indexed: an unrolled loop walks a comptime list by its positions.
+            #[allow(clippy::needless_range_loop)]
             #[unroll]
             for t in 0..comptime!(terms.len()) {
                 let term = comptime!(terms[t]);

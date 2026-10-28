@@ -24,12 +24,7 @@ const BLOCK: usize = 16;
 const BOX: (usize, usize) = (16, 2);
 
 #[cube(launch)]
-fn load_by_tma<E: Float>(
-    input: &TileArg<'_>,
-    out: &TileArg<'_>,
-    space: Partitioning,
-    #[define(E)] _dtype: ElemType,
-) {
+fn load_by_tma(input: &TileArg<'_>, out: &TileArg<'_>, space: Partitioning) {
     let src = input.tile(&space);
     let dst = out.tile(&space);
     for cube in &space {
@@ -116,7 +111,6 @@ fn a_block_split_box_lands_through_a_folded_descriptor() {
         src,
         dst.arg(),
         launcher.partitioning_arg(),
-        dtype,
     );
     let loaded = HostData::from_tensor_handle(&client, output, HostDataType::F32);
     for row in 0..ROWS {
