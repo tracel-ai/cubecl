@@ -331,12 +331,13 @@ impl<'a> TileArgExpand<'a> {
         let Some(level) = &self.scale else {
             return values;
         };
-        let words =
-            level.element == u32::elem_type_native() && level.spec.packing == Packing::Plain;
+        // Words of block scales, or block scales packed in words a field a scale, which a reader
+        // that decodes as it loads asks a stage to keep beside the values.
+        let words = level.element == u32::elem_type_native();
         assert!(
             words || !matches!(self.values, ValuesExpand::TensorMap { .. }),
             "TileArg: a tensor map lands its values as they lie, so it rides only scales a stage \
-             keeps beside them: words of block scales"
+             keeps beside them: words of block scales, or block scales packed in words"
         );
         values.__expand_mul_method(scope, &level.__expand_tile_method(scope, partitioning))
     }
