@@ -227,12 +227,12 @@ CubeCL is one part of a small ecosystem with deliberately separated concerns, so
 | -------- | -------------- | ------- |
 | NVIDIA   | LLVM → PTX     | CUDA    |
 | AMD      | LLVM → AMDGPU  | HIP     |
-| Apple    | MSL            | wgpu    |
+| Apple    | MSL            | Metal   |
 | Vulkan   | SPIR-V         | wgpu    |
 | WebGPU   | WGSL           | wgpu    |
 | CPU      | LLVM → native  | cpu     |
 
-`cuda-cpp`, `hip-cpp` and `metal-native` are available as alternatives.
+`cuda-cpp`, `hip-cpp` and `wgpu-msl` (wgpu compiling MSL) are available as alternatives.
 
 Not all platforms support the same features.
 For example, tensor cores are not available with the WGSL compiler (plain WebGPU) or on CPU.
