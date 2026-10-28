@@ -518,6 +518,8 @@ impl TileArgLaunch {
 
     /// This tensor map's cells read as the words `field` values are packed in, eight `e2m1` to
     /// a word: what a TMA engine moves of a packed operand, which a stage holds as it lies.
+    /// `field` is read as stated: the field as the device reads it is
+    /// [`Field::read_on`]'s.
     ///
     /// # Panics
     ///
