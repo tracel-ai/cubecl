@@ -2,6 +2,7 @@
 
 use cubecl::prelude::*;
 
+use crate::dialect::DrainOp;
 use crate::ops::matmul::leaf::{Side, memory};
 use crate::*;
 
@@ -232,7 +233,20 @@ impl Tile {
     /// Drain this accumulator into `dest`, cast to its element. `self` and `dest` must be
     /// indexed by the same region. A cmma grid opened with no scratch opens one where `dest`
     /// needs its fragments bounced.
+    ///
+    /// It reaches the IR as one `tile.drained_into` op.
     pub fn drained_into(&self, dest: &Tile) {
+        intrinsic!(|scope| DrainOp::trace(scope, |scope| {
+            self.__expand_drain_into_method(scope, dest)
+        }))
+    }
+
+    /// [`drained_into`](Tile::drained_into)'s drain, as tracing writes it inside the op.
+    #[allow(
+        dead_code,
+        reason = "reached only through its expansion, inside the op"
+    )]
+    fn drain_into(&self, dest: &Tile) {
         let define!(Served) = self.element;
         let define!(Out) = dest.element;
         // A sum written out is a sum with its scales applied: multiplied by them once, as it
@@ -245,11 +259,11 @@ impl Tile {
         let bounces = dest.fragments_bounce(in_place);
         if comptime!(unopened && (scaled || bounces)) {
             let opened = self.clone().with_scratch(Scratch::OneTile);
-            opened.drained_into(dest);
+            opened.drain_into(dest);
         } else if comptime!(scaled) {
             let mut sum = self.unscaled();
             sum.scale_by::<f32>(self.factor.whole());
-            sum.drained_into(dest);
+            sum.drain_into(dest);
         } else {
             self.drain_as_opened::<Served, Out>(dest);
         }
