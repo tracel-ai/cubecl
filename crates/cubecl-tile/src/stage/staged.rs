@@ -69,7 +69,7 @@ impl Memory {
         match comptime!(storage.clone()) {
             // The plane holds the units at the depth of one region of `level`.
             StageStorage::Lines { read } => {
-                comptime!(refuse_for_a_plane(owner, "held in the plane's units"));
+                comptime!(owner.refuse_for_a_plane("held in the plane's units"));
                 Tile {
                     kind: TileKind::new_Lines(Lines::new(
                         operand,
@@ -141,7 +141,7 @@ impl Memory {
                 if comptime!(projection.is_direct() || decodes) {
                     Memory::smem_owned::<S>(space, vector_size, storage, units, alignment, owner)
                 } else {
-                    comptime!(refuse_for_a_plane(owner, "gathered"));
+                    comptime!(owner.refuse_for_a_plane("gathered"));
                     Memory::smem_gathered::<S>(
                         space,
                         vector_size,
@@ -156,7 +156,7 @@ impl Memory {
                 }
             }
             StageElement::Stored => {
-                comptime!(refuse_for_a_plane(owner, "kept in its stored form"));
+                comptime!(owner.refuse_for_a_plane("kept in its stored form"));
                 Memory::smem_stored::<S>(operand, level, storage, owner)
             }
         }
@@ -203,15 +203,4 @@ impl Memory {
             ),
         }
     }
-}
-
-/// Refuse a plane its own copy of a stage `form` describes: only a plain shared-memory stage of
-/// served values is laid out one copy per plane.
-fn refuse_for_a_plane(owner: StageOwner, form: &str) {
-    assert!(
-        matches!(owner, StageOwner::Cube { .. }),
-        "Memory::stage: this walk hands each plane a stage of its own, which is laid out only for \
-         a plain shared-memory stage of served values, and this one is {form}; stage the operand \
-         plain, or walk it from the cube"
-    );
 }

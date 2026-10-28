@@ -78,7 +78,8 @@ impl Scratch {
         }
     }
 
-    /// Whether a fragment goes through shared memory on its way out; forced when partials are summed.
+    /// Whether a fragment goes through shared memory on its way out; forced when partials are
+    /// summed.
     pub fn bounces(self) -> bool {
         !matches!(self, Scratch::None)
     }
@@ -192,7 +193,8 @@ impl Tile {
                     let cells = comptime!(m * n);
                     let tiles = comptime!(p.m_tiles * p.n_tiles);
                     let slots = comptime!(scratch.slots(tiles));
-                    // Indexed by hardware plane position, not level position: the launch decides the cube's shape.
+                    // Indexed by hardware plane position, not level position: the launch decides
+                    // the cube's shape.
                     let planes = comptime!(plane_windows(&self.place.space, &self.place.levels));
                     let plane = PLANE_POS.cast::<usize>() * comptime!(cells * slots);
                     let shared = Shared::<[Served]>::new_slice(comptime!(cells * slots * planes));
@@ -569,15 +571,21 @@ fn register_accumulator<EA: Numeric>(
         rw,
         aw
     ));
-    // A block outliving the leaf cannot spread lines, so its lines and the sink's agree or its partials sum.
+    // A block outliving the leaf cannot spread lines, so its lines and the sink's agree or its
+    // partials sum.
     comptime!(assert!(
         contracted_per_step > 1 || rw == aw,
         "Tile::accumulator: the block's lines are the rhs's ({rw} wide) and drain into \
          {aw}-wide cells; a stage served wider than its sink is the memory-backed leaf's \
          (Tile::accumulating)"
     ));
-    // A block contracting runs along the contraction sums each into its cell, one value wide.
-    let width = comptime!(if contracted_per_step > 1 { 1 } else { rw });
+    // A block contracting runs along the contraction sums each into its cell, one value wide, or,
+    // asked for partials, keeps a run's products a lane each in a cell as wide as the run.
+    let width = comptime!(match (contracted_per_step > 1, config.partials) {
+        (true, true) => contracted_per_step,
+        (true, false) => 1,
+        (false, _) => rw,
+    });
     accumulator_in::<EA>(
         out,
         lhs,
@@ -602,7 +610,7 @@ fn accumulator_in<EA: Numeric>(
         matches!(form, Instruction::Registers { .. })
             || accumulation == Accumulation::Contraction(Semiring::SUM_PROD),
         "Tile::accumulator: a hardware instruction accumulates under the sum of products alone, \
-         not {accumulation:?}; contract in a register block to fold under another"
+         not {accumulation:?}; contract in a register block to sum under another"
     ));
     let mut acc = PlanePartition::mirror::<EA>(
         comptime!(out.place.space.clone()),

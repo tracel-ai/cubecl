@@ -45,6 +45,17 @@ impl StageOwner {
         }
     }
 
+    /// Refuse a plane its own copy of a stage `form` describes: only a plain shared-memory stage of
+    /// served values is laid out one copy per plane.
+    pub(crate) fn refuse_for_a_plane(self, form: &str) {
+        assert!(
+            matches!(self, StageOwner::Cube { .. }),
+            "Memory::stage: this walk hands each plane a stage of its own, which is laid out only \
+             for a plain shared-memory stage of served values, and this one is {form}; stage the \
+             operand plain, or walk it from the cube"
+        );
+    }
+
     /// The units that fill one copy of the stage, where the cube holds `cube_units` (`0` when
     /// unknown): all of them, the filling planes', or one plane's share. A share that is not a
     /// whole count is unknown, which a fill walks rolled.

@@ -183,7 +183,7 @@ impl Memory {
     }
 
     /// The backing as a [`View`] addressed by `layout`: the read path.
-    fn read_view<T: Numeric, W: Size>(
+    pub(crate) fn read_view<T: Numeric, W: Size>(
         &self,
         layout: BufferLayout,
     ) -> View<'_, Vector<T, W>, CoordsDyn> {
@@ -733,7 +733,7 @@ impl Memory {
                 overhang: self.access.overhang,
                 write: self.access.write,
                 fill: self.access.fill,
-                storage: storage_below(self.access.storage, step.depth, &step.level, &space),
+                storage: self.access.storage.below(step.depth, &step.level, &space),
                 delivery: self.access.delivery,
             }),
             comptime!(UnitShare::new(&step.level, &space).under(self.unit_share)),
@@ -1049,38 +1049,6 @@ impl Memory {
             comptime!(self.unit_share),
             comptime!(self.split_share),
         )
-    }
-}
-
-/// The storage tiling one level down: through the storage tile's own level, inside one tile.
-fn storage_below(
-    storage: WindowStorage,
-    depth: usize,
-    level: &Level,
-    space: &Space,
-) -> WindowStorage {
-    match storage {
-        WindowStorage::Contiguous
-        | WindowStorage::Stored(Storage::Strided | Storage::Tiled(None)) => storage,
-        WindowStorage::Stored(Storage::Tiled(Some(tiled_at))) => {
-            assert!(
-                depth <= tiled_at,
-                "Memory::at: this window is above its storage tile, the tile of level \
-                 {tiled_at}, yet the descent is at depth {depth}; the storage tile's level was \
-                 skipped past"
-            );
-            if depth < tiled_at {
-                return storage;
-            }
-            for axis in space.axes() {
-                assert!(
-                    matches!(level.extent_in(space, axis), Extent::Static(_)),
-                    "Memory::at: level {tiled_at} hands {axis:?} down dynamic, so its tile is \
-                     no storage tile"
-                );
-            }
-            WindowStorage::Contiguous
-        }
     }
 }
 

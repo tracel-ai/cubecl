@@ -1,5 +1,6 @@
 //! A buffer layout's alignment in elements, along its innermost dim.
 
+use super::geometry::stride_order;
 use crate::{Axis, Geometry, gcd, layout::StoragePartitioning};
 use cubecl::prelude::TensorBinding;
 
@@ -39,7 +40,7 @@ impl ElemAlignment {
     pub fn in_stride_order(shape: &[usize], strides: &[usize]) -> Self {
         let mut dims: Vec<(usize, usize)> =
             shape.iter().copied().zip(strides.iter().copied()).collect();
-        dims.sort_by_key(|&(_, stride)| core::cmp::Reverse(stride));
+        dims.sort_by_key(|&dim| stride_order(dim));
         let (shape, strides): (Vec<usize>, Vec<usize>) = dims.into_iter().unzip();
         Self::new(&shape, &strides)
     }
@@ -51,7 +52,16 @@ impl ElemAlignment {
     }
 
     /// The alignment of a buffer of `shape` at `strides`, innermost last.
+    ///
+    /// A dim of one element steps nowhere, so its stride reads no address and aligns nothing:
+    /// a view `[1, k]` swapped out of a column `[k, 1]` keeps the column's stride of one on its
+    /// single row, and is as aligned as the dense row it is.
     pub fn new(shape: &[usize], strides: &[usize]) -> Self {
+        let (shape, strides): (Vec<usize>, Vec<usize>) = shape
+            .iter()
+            .zip(strides)
+            .filter(|&(&extent, _)| extent != 1)
+            .unzip();
         let divides = match (shape.split_last(), strides.split_last()) {
             (Some((&extent, _)), Some((&1, coarser))) => {
                 coarser.iter().fold(extent, |acc, &stride| gcd(acc, stride))
@@ -118,6 +128,29 @@ impl From<&TensorBinding> for ElemAlignment {
 
 #[cfg(test)]
 mod tests {
+    /// A row viewed out of a column keeps the column's stride on its single row, which steps
+    /// nowhere: it is as aligned as the dense row it is.
+    #[test]
+    fn a_dim_of_one_element_aligns_nothing() {
+        let k = 8;
+        let row = ElemAlignment::new(&[1, k], &[1, 1]);
+        assert_eq!(row, ElemAlignment::dense_rows(k));
+        assert!(ElemAlignment::in_stride_order(&[1, k], &[1, 1]).admits(k));
+    }
+
+    /// A column bound in buffer order runs its lines along the dim it steps, not along its dim of
+    /// one element, which ties its stride: `[k, 1]` at strides `[1, 1]` is a dense run of `k`.
+    #[test]
+    fn a_dim_of_one_element_is_never_innermost_in_stride_order() {
+        let k = 4;
+        assert_eq!(
+            ElemAlignment::in_stride_order(&[k, 1], &[1, 1]),
+            ElemAlignment::dense_rows(k)
+        );
+        let (_, axes) = Geometry::new(&[(k, 1), (1, 1)]).in_stride_order(&[Axis(2), Axis(1)]);
+        assert_eq!(axes, [Axis(1), Axis(2)]);
+    }
+
     /// A col weight's rows run along `k`, a pitch apart, whichever way the view names them.
     #[test]
     fn a_view_is_aligned_in_the_order_its_buffer_steps() {

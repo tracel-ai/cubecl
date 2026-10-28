@@ -1023,6 +1023,8 @@ pub fn test_dp4a<R: Runtime>(client: Client) {
 /// sign of `v`.
 #[allow(clippy::eq_op)]
 pub fn test_ieee_constant_folds<R: Runtime>(client: Client) {
+    // `v - v` is the point: it checks the subtraction isn't folded to zero.
+    #[allow(clippy::eq_op)]
     #[cube(launch_unchecked)]
     fn folds<F: Float>(x: &[F], out: &mut [F]) {
         if ABSOLUTE_POS < x.len() {

@@ -42,11 +42,11 @@ impl<C: Int> Coords<C> {
     pub(crate) fn to_dyn(&self) -> CoordsDyn {
         unexpanded!()
     }
-    /// Product of the elements at comptime `picks` (empty picks fold to `1`).
+    /// Product of the elements at comptime `picks` (empty picks give `1`).
     pub(crate) fn product(&self, _picks: Vec<usize>) -> C {
         unexpanded!()
     }
-    /// Sum of the elements at comptime `picks` (empty picks fold to `0`).
+    /// Sum of the elements at comptime `picks` (empty picks give `0`).
     pub(crate) fn sum(&self, _picks: Vec<usize>) -> C {
         unexpanded!()
     }
@@ -82,19 +82,19 @@ impl Coords<u32> {
         out
     }
 
-    /// The digits of a flat row-major index `i` over these extents.
-    /// The leading entry skips the modulo so the divide folds for constant extents.
+    /// The coordinates of a flat row-major index `i` over these extents.
+    /// The leading entry skips the modulo so the divide stays constant for constant extents.
     pub(crate) fn unravel(&self, i: u32) -> Coords<u32> {
         let n = self.len();
         let mut out = Coords::<u32>::new();
 
         #[unroll]
         for p in 0..n {
-            let digit = i.divided_by(self.product(comptime!(((p + 1)..n).collect::<Vec<_>>())));
+            let quot = i.divided_by(self.product(comptime!(((p + 1)..n).collect::<Vec<_>>())));
             if comptime!(p == 0) {
-                out.push(digit);
+                out.push(quot);
             } else {
-                out.push(digit.remainder(self.at(p)));
+                out.push(quot.remainder(self.at(p)));
             }
         }
 

@@ -27,10 +27,11 @@ impl RegisterData {
         let lw = lhs.vector_size();
         let contracted_per_step = comptime!(self.contracted_per_step);
         // A packed rhs is served at its packing factor, so this checks the block was opened by it:
-        // its lines are the rhs's, or one-wide cells that take the sum of each of the rhs's runs.
+        // its lines are the rhs's, or one-wide cells that take the sum of each of the rhs's runs,
+        // or cells as wide as a run that keep its products a lane each.
         comptime!(assert!(
             (contracted_per_step == 1 && vw == self.vector_size)
-                || (contracted_per_step == vw && self.vector_size == 1),
+                || (contracted_per_step == vw && (self.vector_size == 1 || self.vector_size == vw)),
             "RegisterData::mma: the block's lines are {} wide summing {contracted_per_step} values a step, but the \
              rhs serves runs of {vw}; a packed rhs serves its packing factor, so open the block \
              against the rhs it contracts",
@@ -76,7 +77,8 @@ impl RegisterData {
         let size!(RL) = comptime!(rhs_load.values());
 
         let config = comptime!(self.config);
-        // The scalars the block holds: a line a cell, one value where a cell sums a run.
+        // The scalars the block holds: a line a cell, one value where a cell sums a run, a run's
+        // partials where it keeps them.
         let unroll = comptime!(mr * nr * self.vector_size <= config.budget);
         let component_fanout = comptime!(config.component_fanout);
 
@@ -139,6 +141,11 @@ impl RegisterData {
             self.contracted_per_step == 1,
             "RegisterData::mma_block: this block's lines are neighbours along the rhs's columns, \
              not runs of its contraction"
+        ));
+        comptime!(assert_whole_cells(
+            lhs.contracted_per_step,
+            lhs.vector_size,
+            "RegisterData::mma_block"
         ));
         comptime!(assert!(
             lhs.mr == self.mr,

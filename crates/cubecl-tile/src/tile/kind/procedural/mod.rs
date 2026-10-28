@@ -5,6 +5,7 @@ pub(crate) mod base;
 pub(crate) mod constant;
 pub(crate) mod erased;
 pub(crate) mod kind;
+pub(crate) mod memory_values;
 pub(crate) mod normalization;
 pub(crate) mod phase;
 pub(crate) mod product;
