@@ -490,7 +490,9 @@ impl StageForm {
         let nesting = stage.nesting(space);
         let extents = StageForm::dense_extents(space, vector_size, &nesting);
         let rows = match stage {
-            StageStorage::Tiled { chunks, .. } => RowArrangement::new(chunks, &extents, line),
+            StageStorage::Tiled { chunks, .. } => {
+                RowArrangement::new(chunks, &extents, line, space.rank())
+            }
             StageStorage::Strided | StageStorage::Lines { .. } => RowArrangement::InOrder,
         };
         StageForm {

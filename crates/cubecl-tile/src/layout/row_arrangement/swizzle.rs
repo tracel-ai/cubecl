@@ -6,12 +6,21 @@ use crate::*;
 
 /// The XOR chunk swizzle a [`RowChunks::Swizzled`] stage resolves to: a line's chunk is
 /// `XORed` with a key read off its row, so rows read together start on distinct banks.
+///
+/// A row is the block's innermost axis, and the axes before it the block holds whole while the
+/// row stays within one bank period: a block split along `K` into `(KB, KI)` keeps its blocks of
+/// `K` side by side as one row, as a box over the matrix it splits lands them, and its rows are
+/// keyed on the axis before them, the rows a fragment reads together.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct ChunkSwizzle {
     /// The physical axis holding a block's rows.
     row_axis: usize,
-    /// The physical axis holding a block row's lines, the innermost.
+    /// The first of the physical axes a block row's lines span, the last of them the innermost.
     line_axis: usize,
+    /// Physical axes a block row's lines span: the innermost, and those merged before it.
+    span: usize,
+    /// Lines a block row holds along each axis it spans, outermost first; `1` past its span.
+    span_lines: [usize; Self::MAX_SPAN],
     /// Lines one chunk holds.
     lines_per_chunk: usize,
     /// Consecutive rows taking one key: the rows one bank period holds.
@@ -26,14 +35,18 @@ impl ChunkSwizzle {
     /// Bytes one pass over every bank covers: 32 banks of four bytes.
     const BANK_PERIOD_BYTES: usize = 128;
 
+    /// Physical axes one block row spans at most.
+    const MAX_SPAN: usize = 3;
+
     /// Rows after which the keys repeat, whatever the row's length: a row of a bank period or
     /// less cycles through `BANK_PERIOD_BYTES / CHUNK_BYTES` keys a key per period, one longer
     /// a key a row.
     pub(crate) const ROWS_PER_PERIOD: usize = Self::BANK_PERIOD_BYTES / RowChunks::CHUNK_BYTES;
 
-    /// The swizzle of a stage with line `extents` (last two: block rows, row lines), `None` where
-    /// there is nothing to permute.
-    pub(crate) fn new(extents: &[usize], line: LineBytes) -> Option<Self> {
+    /// The swizzle of a stage with line `extents`, its innermost block's `block_axes` last, `None`
+    /// where there is nothing to permute. A row spans the innermost axis, and each axis before it
+    /// whose lines fit one bank period with the row's, leaving the block an axis of rows.
+    pub(crate) fn new(extents: &[usize], line: LineBytes, block_axes: usize) -> Option<Self> {
         let LineBytes(line_bytes) = line;
         let rank = extents.len();
         assert!(
@@ -47,7 +60,20 @@ impl ChunkSwizzle {
         );
         let chunk_bytes = RowChunks::CHUNK_BYTES.max(line_bytes);
         let lines_per_chunk = chunk_bytes / line_bytes;
-        let row_lines = extents[rank - 1];
+        let mut span = 1;
+        let mut row_lines = extents[rank - 1];
+        while span < Self::MAX_SPAN && span + 1 < block_axes.min(rank) {
+            let next = extents[rank - 1 - span];
+            if next < 2 || row_lines * next * line_bytes > Self::BANK_PERIOD_BYTES {
+                break;
+            }
+            row_lines *= next;
+            span += 1;
+        }
+        let mut span_lines = [1; Self::MAX_SPAN];
+        for (s, lines) in span_lines.iter_mut().enumerate().take(span) {
+            *lines = extents[rank - span + s];
+        }
         if row_lines * line_bytes <= chunk_bytes {
             return None;
         }
@@ -64,8 +90,10 @@ impl ChunkSwizzle {
             return None;
         }
         Some(Self {
-            row_axis: rank - 2,
-            line_axis: rank - 1,
+            row_axis: rank - 1 - span,
+            line_axis: rank - span,
+            span,
+            span_lines,
             lines_per_chunk,
             rows_per_key: (period_chunks / chunks).max(1),
             keys,
@@ -93,9 +121,20 @@ impl ChunkSwizzle {
         self.row_axis
     }
 
-    /// The physical axis holding a block row's lines, whose coordinate the swizzle moves.
+    /// The first of the physical axes a block row's lines span, whose coordinates the swizzle
+    /// moves.
     pub(crate) fn line_axis(&self) -> usize {
         self.line_axis
+    }
+
+    /// Physical axes a block row's lines span: the innermost, and those merged before it.
+    pub(crate) fn span(&self) -> usize {
+        self.span
+    }
+
+    /// Lines a block row holds along the `s`-th axis it spans, outermost first.
+    pub(crate) fn span_lines(&self, s: usize) -> usize {
+        self.span_lines[s]
     }
 
     /// Host twin of [`swizzled_line`].
@@ -132,7 +171,7 @@ mod tests {
     /// Eight rows of a 64-byte block start on distinct 16-byte bank slots.
     #[test]
     fn eight_rows_of_a_64_byte_block_start_on_distinct_banks() {
-        let swizzle = ChunkSwizzle::new(&[2, 16, 4], LineBytes(16)).unwrap();
+        let swizzle = ChunkSwizzle::new(&[2, 16, 4], LineBytes(16), 3).unwrap();
         let mut slots: Vec<usize> = (0..8)
             .map(|row| bank_offset(&swizzle, 16, 4, row))
             .collect();
@@ -144,7 +183,7 @@ mod tests {
     #[test]
     fn rows_short_and_long_start_on_distinct_banks() {
         for (row_lines, line_bytes) in [(2, 16), (16, 16), (8, 8), (16, 4)] {
-            let swizzle = ChunkSwizzle::new(&[16, row_lines], LineBytes(line_bytes))
+            let swizzle = ChunkSwizzle::new(&[16, row_lines], LineBytes(line_bytes), 2)
                 .expect("a row of several chunks is swizzled");
             let rows = ChunkSwizzle::BANK_PERIOD_BYTES / RowChunks::CHUNK_BYTES;
             let mut slots: Vec<usize> = (0..rows)
@@ -160,7 +199,7 @@ mod tests {
 
     #[test]
     fn a_row_is_permuted_within_itself_a_chunk_at_a_time() {
-        let swizzle = ChunkSwizzle::new(&[16, 16], LineBytes(4)).unwrap();
+        let swizzle = ChunkSwizzle::new(&[16, 16], LineBytes(4), 2).unwrap();
         for row in 0..16 {
             let mut lines: Vec<usize> = (0..16).map(|line| swizzle.line_of(line, row)).collect();
             for line in 0..16 {
@@ -194,7 +233,7 @@ mod tests {
             (8, 16, Some(TensorMapSwizzle::B128)),
             (128, 2, None),
         ] {
-            let swizzle = ChunkSwizzle::new(&[64, row_lines], LineBytes(line_bytes)).unwrap();
+            let swizzle = ChunkSwizzle::new(&[64, row_lines], LineBytes(line_bytes), 2).unwrap();
             assert_eq!(
                 swizzle.tma(),
                 mode,
@@ -227,7 +266,7 @@ mod tests {
         const F16_BYTES: usize = 2;
         for (row_bytes, swizzle) in [(32, Swizzle::B32), (64, Swizzle::B64), (128, Swizzle::B128)] {
             let row_lines = row_bytes / F16_BYTES;
-            let stage = ChunkSwizzle::new(&[64, row_lines], LineBytes(F16_BYTES)).unwrap();
+            let stage = ChunkSwizzle::new(&[64, row_lines], LineBytes(F16_BYTES), 2).unwrap();
             let tile = WgmmaTileLayout {
                 major: Major::K,
                 swizzle,
@@ -247,10 +286,40 @@ mod tests {
         }
     }
 
+    /// A block split along `K` into `(KB, KI)` keeps its blocks of `K` side by side as one row,
+    /// keyed on the rows before them: four blocks of sixteen `f16` values are one 128-byte row,
+    /// swizzled as the TMA engine lands a box of the matrix they split; four blocks of two
+    /// 4-byte words are one 32-byte row. A row past a bank period merges no further.
+    #[test]
+    fn blocks_of_k_side_by_side_are_one_row() {
+        let f16 = ChunkSwizzle::new(&[64, 4, 2], LineBytes(16), 3).unwrap();
+        assert_eq!((f16.row_axis(), f16.line_axis(), f16.span()), (0, 1, 2));
+        assert_eq!(f16.tma(), Some(TensorMapSwizzle::B128));
+        for row in 0..64 {
+            for block in 0..4 {
+                for chunk in 0..2 {
+                    let line = block * 2 + chunk;
+                    assert_eq!(
+                        f16.line_of(line, row),
+                        tma_chunk(128, row, line),
+                        "row {row}, block {block}, chunk {chunk}"
+                    );
+                }
+            }
+        }
+        let words = ChunkSwizzle::new(&[64, 4, 1], LineBytes(8), 3).unwrap();
+        assert_eq!((words.row_axis(), words.span()), (0, 2));
+        assert_eq!(words.tma(), Some(TensorMapSwizzle::B32));
+        let long = ChunkSwizzle::new(&[16, 4, 8], LineBytes(16), 3).unwrap();
+        assert_eq!((long.row_axis(), long.span()), (1, 1));
+        // A block of one axis has no row to key on, so nothing merges into one.
+        assert!(ChunkSwizzle::new(&[4, 2], LineBytes(16), 1).is_some_and(|s| s.span() == 1));
+    }
+
     #[test]
     fn a_row_of_one_chunk_is_left_in_order() {
-        assert!(ChunkSwizzle::new(&[16, 1], LineBytes(16)).is_none());
-        assert!(ChunkSwizzle::new(&[16, 2], LineBytes(8)).is_none());
-        assert!(ChunkSwizzle::new(&[16, 4], LineBytes(128)).is_none());
+        assert!(ChunkSwizzle::new(&[16, 1], LineBytes(16), 2).is_none());
+        assert!(ChunkSwizzle::new(&[16, 2], LineBytes(8), 2).is_none());
+        assert!(ChunkSwizzle::new(&[16, 4], LineBytes(128), 2).is_none());
     }
 }

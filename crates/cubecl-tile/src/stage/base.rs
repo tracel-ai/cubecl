@@ -79,18 +79,20 @@ impl StageStorage {
             .tma_swizzle()
             .map_err(|why| Refusal::RowsNoDescriptorLands { why })?;
         let rank = space.rank();
+        // A row spans the innermost axis and those its swizzle merges beside it.
+        let span = form.rows.swizzle().map_or(1, |swizzle| swizzle.span());
         let row = space.axis_at(rank - 1);
         let period = match swizzle {
             TensorMapSwizzle::None => 1,
             _ => ChunkSwizzle::ROWS_PER_PERIOD,
         };
         for block in self.nesting(space) {
-            let rows = match rank {
-                1 => 1,
-                _ => block.extent_at(rank - 2),
+            let rows = match rank > span {
+                true => block.extent_at(rank - 1 - span),
+                false => 1,
             };
-            if block.extent_at(rank - 1) < space.extent_at(rank - 1) || !rows.is_multiple_of(period)
-            {
+            let splits_row = (rank - span..rank).any(|p| block.extent_at(p) < space.extent_at(p));
+            if splits_row || !rows.is_multiple_of(period) {
                 return Err(Refusal::BoxSplitsStageBlocks {
                     axis: row,
                     rows,
