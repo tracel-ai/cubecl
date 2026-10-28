@@ -69,14 +69,6 @@ impl Tile {
     }
 }
 
-/// How a rhs window is read: col-major when its trailing axis is `contracted`, else row-major.
-pub(crate) fn rhs_layout(rhs: &Space, contracted: Axis) -> MatrixLayout {
-    match rhs.axis_at(rhs.rank() - 1) == contracted {
-        true => MatrixLayout::ColMajor,
-        false => MatrixLayout::RowMajor,
-    }
-}
-
 /// How one factor of a tensor-core contraction is read into its fragment.
 #[derive(Clone)]
 pub(crate) struct FragmentRead {
@@ -84,7 +76,7 @@ pub(crate) struct FragmentRead {
     pub m: usize,
     pub n: usize,
     pub k: usize,
-    /// The rhs window's layout; the lhs is always row-major.
+    /// The window's layout: col-major where the lhs runs along its rows or the rhs along `k`.
     pub layout: MatrixLayout,
     /// What this factor's scales are checked against.
     pub side: Side,
@@ -99,11 +91,10 @@ impl FragmentRead {
         let n = acc_axes.cols(out);
         // A split contraction is one `k` edge.
         let k = own.contracted_extent(out);
-        // The lhs is row-major; the rhs col-major where its trailing axis is contracted.
-        let layout = match side {
-            Side::Lhs => MatrixLayout::RowMajor,
-            Side::Rhs if out.contains(own.axis_at(own.rank() - 1)) => MatrixLayout::RowMajor,
-            Side::Rhs => MatrixLayout::ColMajor,
+        // Col-major where the trailing axis is the lhs's row or the rhs's contracted one.
+        let layout = match (side, out.contains(own.axis_at(own.rank() - 1))) {
+            (Side::Lhs, true) | (Side::Rhs, false) => MatrixLayout::ColMajor,
+            (Side::Lhs, false) | (Side::Rhs, true) => MatrixLayout::RowMajor,
         };
         FragmentRead {
             m,

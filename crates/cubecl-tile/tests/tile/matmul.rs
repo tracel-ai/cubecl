@@ -3456,23 +3456,37 @@ fn cmma_matmul_staged_k_walk_vectorized() {
 /// its own lines. Double-buffered, so the stages' prefetch moves that order too.
 #[test]
 fn cmma_matmul_double_buffered_k_walk_transposed_rhs() {
-    check_cmma_matmul_k_walk_with(32, 2, 1, StageLayout::Tiled, true);
+    check_cmma_matmul_k_walk_with(32, 2, 1, StageLayout::Tiled, (false, true));
+}
+
+/// The staged cmma K walk with the lhs stored `{K, M}`, as a weight gradient's activation is: the
+/// stage keeps that order and the `A` fragment loads col-major off it.
+#[test]
+fn cmma_matmul_double_buffered_k_walk_transposed_lhs() {
+    check_cmma_matmul_k_walk_with(32, 2, 1, StageLayout::Tiled, (true, false));
+}
+
+/// Both operands stored along the output's axes, `{K, M}` and `{N, K}`.
+#[test]
+fn cmma_matmul_staged_k_walk_transposed_operands() {
+    check_cmma_matmul_k_walk_with(16, 1, 1, StageLayout::Strided, (true, true));
 }
 
 /// The one level always stages, whatever its depth: a cmma leaf cannot consume the global inputs
 /// directly, so the kernel first materializes them in shared memory.
 fn check_cmma_matmul_k_walk(k: usize, depth: usize, v: usize, layout: StageLayout) {
-    check_cmma_matmul_k_walk_with(k, depth, v, layout, false)
+    check_cmma_matmul_k_walk_with(k, depth, v, layout, (false, false))
 }
 
-/// [`check_cmma_matmul_k_walk`], the rhs stored `{K, N}` or — `transposed` — `{N, K}`, against
-/// the reference each storage order states over the same arange.
+/// [`check_cmma_matmul_k_walk`], the lhs stored `{M, K}` or `{K, M}` and the rhs `{K, N}` or
+/// `{N, K}` as `transposed` says, against the reference each storage order states over the same
+/// arange.
 fn check_cmma_matmul_k_walk_with(
     k: usize,
     depth: usize,
     v: usize,
     layout: StageLayout,
-    transposed: bool,
+    transposed: (bool, bool),
 ) {
     let client = cubecl::test_device().client();
     if !require_cmma_8x8x8_f32(&client) {
@@ -3492,10 +3506,12 @@ fn check_cmma_matmul_k_walk_with(
     );
     let storage = layout.storage(&launcher);
 
-    let a = TileInput::builder(&client, launcher.space().subspace(&[M, K]))
+    let (lhs_transposed, rhs_transposed) = transposed;
+    let a_axes: &[Axis] = if lhs_transposed { &[K, M] } else { &[M, K] };
+    let a = TileInput::builder(&client, launcher.space().subspace(a_axes))
         .untiled()
         .arange();
-    let b_axes: &[Axis] = if transposed { &[N, K] } else { &[K, N] };
+    let b_axes: &[Axis] = if rhs_transposed { &[N, K] } else { &[K, N] };
     let b = TileInput::builder(&client, launcher.space().subspace(b_axes))
         .untiled()
         .arange();
@@ -3517,15 +3533,20 @@ fn check_cmma_matmul_k_walk_with(
         depth,
         f32::elem_type_native(),
     );
-    if transposed {
-        let output = HostData::from_tensor_handle(&client, c.handle(), HostDataType::F32);
-        let (_, expected) = TestInput::builder(client, shape![m, n])
-            .custom(summing_step_matmul_reference(m, n, k))
-            .generate_with_f32_host_data();
-        assert_equals_approx(&output, &expected, 1e-3).enforce()
-    } else {
-        assert_matmul_arange(&client, c.handle(), m, n, k);
-    }
+    // Each operand an arange over its own storage order.
+    let lhs_at = |i: usize, p: usize| if lhs_transposed { p * m + i } else { i * k + p };
+    let rhs_at = |p: usize, j: usize| if rhs_transposed { j * k + p } else { p * n + j };
+    let reference = (0..m * n)
+        .map(|idx| {
+            let (i, j) = (idx / n, idx % n);
+            (0..k).map(|p| (lhs_at(i, p) * rhs_at(p, j)) as f32).sum()
+        })
+        .collect();
+    let output = HostData::from_tensor_handle(&client, c.handle(), HostDataType::F32);
+    let (_, expected) = TestInput::builder(client, shape![m, n])
+        .custom(reference)
+        .generate_with_f32_host_data();
+    assert_equals_approx(&output, &expected, 1e-3).enforce()
 }
 
 /// [`cmma_matmul_k_walk`] with the instruction stated rather than picked: one body, launched at
