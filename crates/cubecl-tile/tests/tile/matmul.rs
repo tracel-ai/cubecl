@@ -3068,6 +3068,18 @@ fn register_matmul_summing_step_rolled() {
 /// the output between regions, hence [`a_promoted_folded_step_sums_wider_than_its_output`].
 #[test]
 fn register_matmul_promoted_summing_step() {
+    check_promoted_summing_step(RegisterBlock::new(64));
+}
+
+/// [`register_matmul_promoted_summing_step`] with the block opened for partials: each cell a line
+/// of the run's products, a lane each, summed once at the drain rather than every step.
+#[test]
+fn register_matmul_promoted_partials_step() {
+    check_promoted_summing_step(RegisterBlock::new(64).partials());
+}
+
+/// A promoted block under `config` contracting two operands lined along `K` into a scalar output.
+fn check_promoted_summing_step(config: RegisterBlock) {
     let client = cubecl::test_device().client();
     let (m, n, k) = (4usize, 4usize, 8usize);
     let launcher = lined_lhs_space(m, n, k);
@@ -3092,7 +3104,7 @@ fn register_matmul_promoted_summing_step() {
         c.arg(&launcher, 1),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
-        RegisterBlock::new(64),
+        config,
         Semiring::SUM_PROD,
         dtype,
     );
@@ -3112,6 +3124,18 @@ fn register_matmul_promoted_summing_step() {
 /// the only way such a weight contracts.
 #[test]
 fn a_promoted_summing_step_sums_wider_than_its_output() {
+    check_a_promoted_step_sums_wider_than_its_output(RegisterBlock::new(64));
+}
+
+/// [`a_promoted_summing_step_sums_wider_than_its_output`] with the block opened for partials: the
+/// lanes are summed at the drain in `f32`, before the cast down to the output's `f16`.
+#[test]
+fn a_promoted_partials_step_sums_wider_than_its_output() {
+    check_a_promoted_step_sums_wider_than_its_output(RegisterBlock::new(64).partials());
+}
+
+/// A `1x1` cell of an `f16` output summing `4096` products of one in `f32` under `config`.
+fn check_a_promoted_step_sums_wider_than_its_output(config: RegisterBlock) {
     let client = cubecl::test_device().client();
     let (m, n, k) = (1usize, 1usize, 4096usize);
     let launcher = lined_lhs_space(m, n, k);
@@ -3156,7 +3180,7 @@ fn a_promoted_summing_step_sums_wider_than_its_output() {
         ),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
-        RegisterBlock::new(64),
+        config,
         Semiring::SUM_PROD,
         acc,
     );
@@ -3432,23 +3456,41 @@ fn cmma_matmul_staged_k_walk_vectorized() {
 /// its own lines. Double-buffered, so the stages' prefetch moves that order too.
 #[test]
 fn cmma_matmul_double_buffered_k_walk_transposed_rhs() {
-    check_cmma_matmul_k_walk_with(32, 2, 1, StageLayout::Tiled, true);
+    check_cmma_matmul_k_walk_with(32, 2, 1, StageLayout::Tiled, Transposed::Rhs);
+}
+
+/// The staged cmma K walk with the lhs stored `{K, M}`: the `A` fragment loads col-major off a
+/// stage whose trailing axis is its rows, as a score kept keys first is read by a product whose
+/// rows are the queries.
+#[test]
+fn cmma_matmul_double_buffered_k_walk_transposed_lhs() {
+    check_cmma_matmul_k_walk_with(32, 2, 1, StageLayout::Tiled, Transposed::Lhs);
 }
 
 /// The one level always stages, whatever its depth: a cmma leaf cannot consume the global inputs
 /// directly, so the kernel first materializes them in shared memory.
 fn check_cmma_matmul_k_walk(k: usize, depth: usize, v: usize, layout: StageLayout) {
-    check_cmma_matmul_k_walk_with(k, depth, v, layout, false)
+    check_cmma_matmul_k_walk_with(k, depth, v, layout, Transposed::Neither)
 }
 
-/// [`check_cmma_matmul_k_walk`], the rhs stored `{K, N}` or — `transposed` — `{N, K}`, against
-/// the reference each storage order states over the same arange.
+/// Which operand of [`check_cmma_matmul_k_walk_with`] is stored with its axes swapped.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Transposed {
+    Neither,
+    /// The lhs stored `{K, M}`.
+    Lhs,
+    /// The rhs stored `{N, K}`.
+    Rhs,
+}
+
+/// [`check_cmma_matmul_k_walk`], one operand stored with its axes swapped as `transposed` says,
+/// against the reference each storage order states over the same arange.
 fn check_cmma_matmul_k_walk_with(
     k: usize,
     depth: usize,
     v: usize,
     layout: StageLayout,
-    transposed: bool,
+    transposed: Transposed,
 ) {
     let client = cubecl::test_device().client();
     if !require_cmma_8x8x8_f32(&client) {
@@ -3468,10 +3510,17 @@ fn check_cmma_matmul_k_walk_with(
     );
     let storage = layout.storage(&launcher);
 
-    let a = TileInput::builder(&client, launcher.space().subspace(&[M, K]))
+    let a_axes: &[Axis] = match transposed {
+        Transposed::Lhs => &[K, M],
+        Transposed::Neither | Transposed::Rhs => &[M, K],
+    };
+    let a = TileInput::builder(&client, launcher.space().subspace(a_axes))
         .untiled()
         .arange();
-    let b_axes: &[Axis] = if transposed { &[N, K] } else { &[K, N] };
+    let b_axes: &[Axis] = match transposed {
+        Transposed::Rhs => &[N, K],
+        Transposed::Neither | Transposed::Lhs => &[K, N],
+    };
     let b = TileInput::builder(&client, launcher.space().subspace(b_axes))
         .untiled()
         .arange();
@@ -3493,15 +3542,22 @@ fn check_cmma_matmul_k_walk_with(
         depth,
         f32::elem_type_native(),
     );
-    if transposed {
-        let output = HostData::from_tensor_handle(&client, c.handle(), HostDataType::F32);
-        let (_, expected) = TestInput::builder(client, shape![m, n])
-            .custom(summing_step_matmul_reference(m, n, k))
-            .generate_with_f32_host_data();
-        assert_equals_approx(&output, &expected, 1e-3).enforce()
-    } else {
-        assert_matmul_arange(&client, c.handle(), m, n, k);
-    }
+    let reference = match transposed {
+        Transposed::Neither => return assert_matmul_arange(&client, c.handle(), m, n, k),
+        Transposed::Rhs => summing_step_matmul_reference(m, n, k),
+        // `a[i, p]` is the arange at `p * m + i`, `b[p, j]` at `p * n + j`.
+        Transposed::Lhs => (0..m * n)
+            .map(|idx| {
+                let (i, j) = (idx / n, idx % n);
+                (0..k).map(|p| ((p * m + i) * (p * n + j)) as f32).sum()
+            })
+            .collect(),
+    };
+    let output = HostData::from_tensor_handle(&client, c.handle(), HostDataType::F32);
+    let (_, expected) = TestInput::builder(client, shape![m, n])
+        .custom(reference)
+        .generate_with_f32_host_data();
+    assert_equals_approx(&output, &expected, 1e-3).enforce()
 }
 
 /// [`cmma_matmul_k_walk`] with the instruction stated rather than picked: one body, launched at
