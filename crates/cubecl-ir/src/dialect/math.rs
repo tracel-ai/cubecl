@@ -1,5 +1,6 @@
 use core::ops::Neg;
 
+use cubecl_common::powi_portable;
 use cubecl_macros_internal::{const_eval, cube_op, simplify};
 use half::{bf16, f16};
 use num_integer::Integer;
@@ -7,6 +8,7 @@ use num_traits::Float;
 use pliron::{
     attribute::AttrObj,
     builtin::{attributes::IntegerAttr, types::IntegerType},
+    opts::constants::ConstFoldInterface,
     utils::apint::{APInt, bw},
 };
 
@@ -519,7 +521,39 @@ pub struct PowiOp {
     pub rhs: Value,
 }
 
-// TODO const_eval
+impl ConstFoldInterface for PowiOp {
+    fn check_fold(&self, ctx: &Context, operand_attrs: &[Option<AttrObj>]) -> Vec<Option<AttrObj>> {
+        vec![(|| -> Option<_> {
+            let &[Some(lhs), Some(rhs)] = &operand_attrs else {
+                return None;
+            };
+            let lhs = lhs.downcast_ref::<FloatAttr>()?;
+            let rhs = rhs.downcast_ref::<IntegerAttr>()?.value().to_i32();
+            // f16 and bf16 accumulate in f32 because the error would be too big otherwise.
+            // This is also what LLVM does in compiler-rt.
+            let res = if let Some(val) = lhs.as_value::<f16>(ctx) {
+                lhs.with_value(ctx, f16::from_f32(powi_portable(val.to_f32(), rhs)))
+            } else if let Some(val) = lhs.as_value::<bf16>(ctx) {
+                lhs.with_value(ctx, bf16::from_f32(powi_portable(val.to_f32(), rhs)))
+            } else if let Some(val) = lhs.as_value::<f32>(ctx) {
+                lhs.with_value(ctx, powi_portable(val, rhs))
+            } else {
+                let val = lhs.as_value::<f64>(ctx)?;
+                lhs.with_value(ctx, powi_portable(val, rhs))
+            };
+            Some(res.into())
+        })()]
+    }
+
+    fn fold_in_place(
+        &self,
+        ctx: &mut Context,
+        operand_attrs: &[Option<AttrObj>],
+        rewriter: &mut dyn Rewriter,
+    ) -> IRStatus {
+        self.fold_with_materialization(ctx, operand_attrs, rewriter)
+    }
+}
 
 pure_binop!("math.hypot", HypotOp);
 Commutative!(HypotOp);

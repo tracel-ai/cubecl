@@ -16,6 +16,7 @@ use core::marker::PhantomData;
 use core::{cmp::Ordering, ops::*};
 
 use bytemuck::Zeroable;
+use cubecl_common::powi_portable;
 use cubecl_ir::{ConstantValue, interfaces::TypedExt};
 use derive_more::derive::{Debug, Display};
 use float_ord::FloatOrd;
@@ -1144,7 +1145,7 @@ impl<Marker: 'static> num_traits::Float for DynamicScalar<Marker> {
 
     fn powi(self, n: i32) -> Self {
         match self.val {
-            ConstantValue::Float(val) => Self::from_f64(val.powi(n)),
+            ConstantValue::Float(val) => Self::from_f64(powi_portable(val, n)),
             _ => self,
         }
     }
