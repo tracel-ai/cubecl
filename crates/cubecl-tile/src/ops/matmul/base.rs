@@ -4,6 +4,7 @@
 use cubecl::cmma::{MatrixIdent, MatrixLayout};
 use cubecl::prelude::*;
 
+use crate::dialect::MmaOp;
 use crate::ops::matmul::leaf::{FragmentRead, window_layouts};
 use crate::*;
 
@@ -144,7 +145,20 @@ impl Tile {
     /// A manual-mma accumulator takes each factor on the side its axes give it, whichever order
     /// they are handed over in: the one carrying the accumulator's rows fills the instruction's
     /// `A` ([`Tile::accumulator`] lays them along the factor it was opened on first).
+    ///
+    /// It reaches the IR as one `tile.mma` op.
     pub fn mma(&mut self, lhs: &Tile, rhs: &Tile) {
+        intrinsic!(|scope| MmaOp::trace(scope, |scope| {
+            self.__expand_contract_method(scope, lhs, rhs)
+        }))
+    }
+
+    /// [`mma`](Tile::mma)'s contraction, as tracing writes it inside the op.
+    #[allow(
+        dead_code,
+        reason = "reached only through its expansion, inside the op"
+    )]
+    fn contract(&mut self, lhs: &Tile, rhs: &Tile) {
         let mma = self.contracts_through_mma();
         let reversed = comptime!(mma && Side::of(&lhs.place.space, &self.place.space) == Side::Rhs);
         if comptime!(reversed) {
