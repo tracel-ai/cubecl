@@ -90,8 +90,7 @@ impl DeviceService for MetalServer {
 
         let logger = std::sync::Arc::new(cubecl_server::logging::ServerLogger::default());
         let allocator = ContiguousMemoryLayoutPolicy::new(mem_props.alignment as usize);
-        // No graph capture on this backend: nothing updates the captures.
-        let (utilities, _captures) = cubecl_core::server::ServerUtilities::init(
+        let (utilities, captures) = cubecl_core::server::ServerUtilities::init(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "metal",
             device_props.clone(),
@@ -103,7 +102,13 @@ impl DeviceService for MetalServer {
 
         let mem_config = cubecl_core::MemoryConfiguration::default();
 
-        MetalServer::new(metal_device, mem_props.clone(), mem_config, utilities)
+        MetalServer::new(
+            metal_device,
+            mem_props.clone(),
+            mem_config,
+            utilities,
+            captures,
+        )
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {

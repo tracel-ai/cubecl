@@ -1,30 +1,128 @@
-use crate::compute::copies::MetalCopies;
+use crate::compute::capture::RecordedDispatch;
+use crate::compute::driver::MetalBindings;
+use crate::compute::pipelines::MetalCompiledKernel;
 use crate::memory::MetalStorage;
-use cubecl_core::{MemoryConfiguration, server::ServerError};
+use cubecl_core::{
+    MemoryConfiguration,
+    server::{DeviceCaptures, Handle, IoError, LaunchError, ServerError},
+};
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_server::memory_management::relocation::RelocationReason;
 use cubecl_server::{
     logging::ServerLogger,
-    memory_management::{ErrorGraph, FailureId, MemoryManagement, MemoryManagementOptions},
+    memory_management::{
+        ErrorGraph, FailureId, MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
+        drop_queue::PendingDropQueue,
+    },
+    metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
     server::BufferBinding,
-    stream::{EventStreamBackend, StreamMemory},
+    storage::BytesStorage,
+    stream::{EventStreamBackend, StreamCapture, StreamMemory},
 };
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_metal::{
-    MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandQueue, MTLComputeCommandEncoder,
-    MTLDevice, MTLSharedEvent,
+    MTLBlitCommandEncoder, MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandEncoder,
+    MTLCommandQueue, MTLComputeCommandEncoder, MTLDevice, MTLEvent, MTLResourceOptions,
+    MTLSharedEvent, MTLSize,
 };
+use std::cell::{RefCell, RefMut};
 use std::ptr::NonNull;
 use std::sync::Arc;
 
-/// Active encoder state for batching multiple kernel dispatches.
-pub struct ActiveEncoder {
-    pub command_buffer: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
-    pub encoder: Retained<ProtocolObject<dyn MTLComputeCommandEncoder>>,
-    /// Temporary buffers that must stay alive until this encoder's work completes.
-    pub temporaries: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
+/// The most metadata a dispatch hands the encoder inline; Metal's limit for
+/// `setBytes`. Anything larger rides a buffer of its own.
+const MAX_INLINE_INFO_BYTES: usize = 4096;
+
+/// The pass a batch's command buffer has open.
+enum Pass {
+    Compute(Retained<ProtocolObject<dyn MTLComputeCommandEncoder>>),
+    Blit(Retained<ProtocolObject<dyn MTLBlitCommandEncoder>>),
+}
+
+impl Pass {
+    fn end(self) {
+        match self {
+            Pass::Compute(encoder) => encoder.endEncoding(),
+            Pass::Blit(encoder) => encoder.endEncoding(),
+        }
+    }
+}
+
+/// The command buffer a stream is filling, and the pass open on it.
+pub struct Batch {
+    command_buffer: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
+    /// `None` until something is encoded.
+    pass: Option<Pass>,
+    /// Temporary buffers that must stay alive until this batch's work completes.
+    temporaries: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
+}
+
+impl Batch {
+    fn open(queue: &ProtocolObject<dyn MTLCommandQueue>) -> Self {
+        Self {
+            command_buffer: queue
+                .commandBuffer()
+                .expect("Failed to create command buffer"),
+            pass: None,
+            temporaries: Vec::new(),
+        }
+    }
+
+    /// The batch's compute pass, opened in place of whatever pass is open.
+    pub fn compute(&mut self) -> &ProtocolObject<dyn MTLComputeCommandEncoder> {
+        if !matches!(self.pass, Some(Pass::Compute(_))) {
+            self.end_pass();
+            let encoder = self
+                .command_buffer
+                .computeCommandEncoder()
+                .expect("Failed to create compute command encoder");
+            self.pass = Some(Pass::Compute(encoder));
+        }
+        match &self.pass {
+            Some(Pass::Compute(encoder)) => encoder,
+            _ => unreachable!("the compute pass was opened above"),
+        }
+    }
+
+    /// The batch's blit pass, opened in place of whatever pass is open.
+    pub fn blit(&mut self) -> &ProtocolObject<dyn MTLBlitCommandEncoder> {
+        if !matches!(self.pass, Some(Pass::Blit(_))) {
+            self.end_pass();
+            let encoder = self
+                .command_buffer
+                .blitCommandEncoder()
+                .expect("Failed to create blit command encoder");
+            self.pass = Some(Pass::Blit(encoder));
+        }
+        match &self.pass {
+            Some(Pass::Blit(encoder)) => encoder,
+            _ => unreachable!("the blit pass was opened above"),
+        }
+    }
+
+    fn end_pass(&mut self) {
+        if let Some(pass) = self.pass.take() {
+            pass.end();
+        }
+    }
+
+    /// End the open pass and commit the command buffer, which signals
+    /// `signal` once it has run.
+    fn commit(
+        mut self,
+        signal: Option<(Retained<ProtocolObject<dyn MTLSharedEvent>>, u64)>,
+        fault: Arc<Mutex<Option<String>>>,
+    ) -> Retained<ProtocolObject<dyn MTLCommandBuffer>> {
+        self.end_pass();
+        if let Some((event, value)) = &signal {
+            let event: &ProtocolObject<dyn MTLEvent> = ProtocolObject::from_ref(&**event);
+            self.command_buffer.encodeSignalEvent_value(event, *value);
+        }
+        install_completion_handler(&self.command_buffer, self.temporaries, signal, fault);
+        self.command_buffer.commit();
+        self.command_buffer
+    }
 }
 
 /// Installs a completion handler that drops `temporaries` and, on a failed
@@ -88,27 +186,26 @@ fn install_completion_handler(
     }
 }
 
-/// Metal stream with its own command queue and memory management.
-pub struct MetalStream {
-    pub device: Retained<ProtocolObject<dyn MTLDevice>>,
-    pub queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
-    pub memory_management: MemoryManagement<MetalStorage>,
-    /// Encoder for the current dispatch batch, `None` between batches.
-    pub active_encoder: Option<ActiveEncoder>,
-    pub batch_ops: usize,
-    pub batch_bytes: usize,
-    pub shared_event: Retained<ProtocolObject<dyn MTLSharedEvent>>,
+/// A stream's command queue: the batch it is filling, and what its committed
+/// work signals.
+pub struct MetalQueue {
+    queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
+    /// The batch being filled, `None` between batches.
+    batch: Option<Batch>,
+    batch_ops: usize,
+    batch_bytes: usize,
+    shared_event: Retained<ProtocolObject<dyn MTLSharedEvent>>,
     /// Next event signal value.
-    pub event_counter: u64,
+    event_counter: u64,
     /// Device-specific batch flush thresholds.
-    pub max_ops_per_batch: usize,
-    pub max_mb_per_batch: usize,
+    max_ops_per_batch: usize,
+    max_mb_per_batch: usize,
     /// Ops submitted without a GPU wait, used for back-pressure.
-    pub submitted_ops: usize,
+    submitted_ops: usize,
     /// Max submitted ops before we wait on the GPU to drain.
-    pub max_submitted_ops: usize,
+    max_submitted_ops: usize,
     /// Last committed command buffer, kept alive for back-pressure waits.
-    pub last_command_buffer: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
+    last_command_buffer: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
     /// When `Some`, device profiling is active on this stream: each work-bearing command
     /// buffer committed during the window is collected here so its GPU timestamps
     /// (`GPUStartTime`/`GPUEndTime`) can be read after completion.
@@ -118,16 +215,222 @@ pub struct MetalStream {
     /// [`MetalEvent`], whose waits fail on it — see
     /// [`install_completion_handler`] for why the fault lives here and not on
     /// a buffer.
-    pub fault: Arc<Mutex<Option<String>>>,
+    fault: Arc<Mutex<Option<String>>>,
+}
+
+impl MetalQueue {
+    /// The device the queue submits to.
+    pub fn device(&self) -> Retained<ProtocolObject<dyn MTLDevice>> {
+        self.queue.device()
+    }
+
+    /// The batch being filled, opened when none is.
+    pub fn batch(&mut self) -> &mut Batch {
+        self.batch.get_or_insert_with(|| Batch::open(&self.queue))
+    }
+
+    /// Encode one dispatch of `kernel` over `count` threadgroups, given
+    /// `bindings`.
+    ///
+    /// # Errors
+    ///
+    /// The device's refusal of a buffer for metadata too large to hand the
+    /// encoder inline.
+    pub fn dispatch(
+        &mut self,
+        kernel: &MetalCompiledKernel,
+        count: (u32, u32, u32),
+        bindings: &MetalBindings,
+    ) -> Result<(), LaunchError> {
+        let info: &[u8] = bytemuck::cast_slice(&bindings.info);
+        let info_buffer = match info.len() > MAX_INLINE_INFO_BYTES {
+            true => Some(self.info_buffer(info)?),
+            false => None,
+        };
+        let info_index = bindings.buffers.len();
+
+        let batch = self.batch();
+        let encoder = batch.compute();
+        encoder.setComputePipelineState(&kernel.pipeline);
+        for (index, resource) in bindings.buffers.iter().enumerate() {
+            // SAFETY: the resource is a live slice of its buffer, which the
+            // batch's command buffer retains until it completes.
+            unsafe {
+                encoder.setBuffer_offset_atIndex(Some(resource.buffer()), resource.offset(), index)
+            };
+        }
+        match &info_buffer {
+            Some(buffer) => unsafe { encoder.setBuffer_offset_atIndex(Some(buffer), 0, info_index) },
+            None if !info.is_empty() => unsafe {
+                // SAFETY: `setBytes` copies the bytes into the command buffer
+                // before it returns.
+                encoder.setBytes_length_atIndex(
+                    NonNull::new(info.as_ptr() as *mut _).expect("a slice is never null"),
+                    info.len(),
+                    info_index,
+                )
+            },
+            None => {}
+        }
+        encoder.dispatchThreadgroups_threadsPerThreadgroup(
+            MTLSize {
+                width: count.0 as usize,
+                height: count.1 as usize,
+                depth: count.2 as usize,
+            },
+            kernel.threads_per_threadgroup(),
+        );
+        batch.temporaries.extend(info_buffer);
+
+        let bytes = bindings.buffers.iter().map(|resource| resource.size()).sum();
+        self.encoded(1, bytes);
+        Ok(())
+    }
+
+    /// A buffer holding `info`, for metadata too large to hand the encoder
+    /// inline.
+    fn info_buffer(
+        &self,
+        info: &[u8],
+    ) -> Result<Retained<ProtocolObject<dyn MTLBuffer>>, LaunchError> {
+        // SAFETY: the pointer and length are a live slice, which the device
+        // copies into the new buffer.
+        unsafe {
+            self.device().newBufferWithBytes_length_options(
+                NonNull::new(info.as_ptr() as *mut _).expect("a slice is never null"),
+                info.len(),
+                MTLResourceOptions::StorageModeShared,
+            )
+        }
+        .ok_or_else(|| LaunchError::Unknown {
+            reason: format!(
+                "failed to allocate a {} B Metal buffer for the kernel's metadata",
+                info.len()
+            ),
+            backtrace: cubecl_environment::backtrace::BackTrace::capture(),
+        })
+    }
+
+    /// Count `ops` dispatches touching `bytes` of memory toward the open
+    /// batch, and submit it once it is past the device's thresholds.
+    pub fn encoded(&mut self, ops: usize, bytes: usize) {
+        self.batch_ops += ops;
+        self.batch_bytes += bytes;
+
+        if self.batch_ops > self.max_ops_per_batch
+            || (self.batch_bytes >> 20) > self.max_mb_per_batch
+        {
+            self.flush();
+        }
+    }
+
+    /// Commit the open batch — or an empty command buffer when none is open —
+    /// signalling an event once everything submitted so far has run.
+    pub fn flush(&mut self) -> MetalEvent {
+        self.event_counter += 1;
+        let signal_value = self.event_counter;
+        let signal = Some((self.shared_event.clone(), signal_value));
+
+        let batch = match self.batch.take() {
+            Some(batch) => batch,
+            None => Batch::open(&self.queue),
+        };
+        let command_buffer = batch.commit(signal, self.fault.clone());
+
+        let ops_in_batch = self.batch_ops;
+
+        // While profiling, collect command buffers that actually carried dispatches; skip
+        // empty signal-only buffers (ops_in_batch == 0) so they don't widen the measured span.
+        if ops_in_batch > 0
+            && let Some(buffers) = self.profiling.as_mut()
+        {
+            buffers.push(command_buffer.clone());
+        }
+
+        self.last_command_buffer = Some(command_buffer);
+
+        self.batch_ops = 0;
+        self.batch_bytes = 0;
+
+        self.regulate(ops_in_batch);
+
+        MetalEvent::new(
+            self.shared_event.clone(),
+            signal_value,
+            self.fault.clone(),
+        )
+    }
+
+    /// Commit the open batch and wait until everything submitted has run.
+    ///
+    /// # Errors
+    ///
+    /// The fault the wait reveals, when the stream failed at execution time.
+    pub fn drain(&mut self) -> Result<(), ServerError> {
+        self.flush().wait_sync()
+    }
+
+    /// Waits on a previously submitted command buffer if total queued ops
+    /// exceed `max_submitted_ops`, then resets the counter. The memory is
+    /// cleaned up by its reservations, not here.
+    fn regulate(&mut self, ops_in_batch: usize) {
+        self.submitted_ops += ops_in_batch;
+
+        if self.submitted_ops >= self.max_submitted_ops {
+            if let Some(cmd_buf) = self.last_command_buffer.take() {
+                (*cmd_buf).waitUntilCompleted();
+                std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
+            }
+            self.submitted_ops = 0;
+        }
+    }
+}
+
+/// A stream's queue as the shared command names it: copyable, so a fence can
+/// be recorded while the stream's own fields are borrowed.
+#[derive(Clone, Copy)]
+pub struct QueueRef(NonNull<RefCell<MetalQueue>>);
+
+impl QueueRef {
+    /// The queue, borrowed for one call.
+    pub fn get(&self) -> RefMut<'_, MetalQueue> {
+        // SAFETY: a `QueueRef` is only made by `MetalStream::signal` and used
+        // within the command that took it, while the stream — whose box holds
+        // the queue — is alive and stays where it is.
+        unsafe { self.0.as_ref() }.borrow_mut()
+    }
+}
+
+/// Metal stream with its own command queue and memory management.
+pub struct MetalStream {
+    /// Boxed so its address is stable for the [`QueueRef`]s handed out, and
+    /// behind a cell because the shared command reaches it through them.
+    queue: Box<RefCell<MetalQueue>>,
+    pub memory_management: MemoryManagement<MetalStorage>,
+    /// The host memory reads are copied into.
+    pub host_memory: MemoryManagement<BytesStorage>,
+    pub drop_queue: PendingDropQueue<MetalEvent>,
+    /// This stream's graph capture (see [`StreamCapture`]): its position in
+    /// the lifecycle, and the memory its recorded launches were given.
+    pub capturing: StreamCapture,
+    /// Always empty: a dispatch hands its metadata to the encoder, and a
+    /// recorded one to the graph it seals into, so no launch builds a
+    /// metadata buffer to cache. Held because the capture window seals and
+    /// releases what a backend caches through it.
+    pub info_cache: MetadataInfoCache<Handle>,
+    /// The dispatches the open capture window has recorded, in order.
+    pub recording: Vec<RecordedDispatch>,
 }
 
 impl std::fmt::Debug for MetalStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let queue = self.queue();
         f.debug_struct("MetalStream")
-            .field("has_active_encoder", &self.active_encoder.is_some())
-            .field("batch_ops", &self.batch_ops)
-            .field("batch_bytes", &self.batch_bytes)
-            .field("event_counter", &self.event_counter)
+            .field("has_batch", &queue.batch.is_some())
+            .field("batch_ops", &queue.batch_ops)
+            .field("batch_bytes", &queue.batch_bytes)
+            .field("event_counter", &queue.event_counter)
+            .field("recording", &self.recording.len())
             .finish()
     }
 }
@@ -150,83 +453,49 @@ impl StreamMemory for MetalStream {
 }
 
 impl MetalStream {
-    /// Returns the active batch encoder, creating one if none is open.
-    pub fn get_or_create_encoder(&mut self) -> &mut ActiveEncoder {
-        if self.active_encoder.is_none() {
-            let command_buffer = (*self.queue)
-                .commandBuffer()
-                .expect("Failed to create command buffer");
-
-            let encoder = (*command_buffer)
-                .computeCommandEncoder()
-                .expect("Failed to create compute command encoder");
-
-            self.active_encoder = Some(ActiveEncoder {
-                command_buffer,
-                encoder,
-                temporaries: Vec::new(),
-            });
-        }
-
-        self.active_encoder.as_mut().unwrap()
+    /// The stream's queue, borrowed for one call.
+    pub fn queue(&self) -> RefMut<'_, MetalQueue> {
+        self.queue.borrow_mut()
     }
 
-    /// Commit the batch this stream has open and wait until everything it
-    /// submitted has run.
-    pub fn finish(&mut self) {
-        use objc2_metal::{MTLCommandBuffer, MTLCommandEncoder};
-
-        if let Some(active) = self.active_encoder.take() {
-            (*active.encoder).endEncoding();
-            install_completion_handler(
-                &active.command_buffer,
-                active.temporaries,
-                None,
-                self.fault.clone(),
-            );
-            (*active.command_buffer).commit();
-            // As a flush does: an open profile measures the dispatches this
-            // buffer carries.
-            if self.batch_ops > 0
-                && let Some(buffers) = self.profiling.as_mut()
-            {
-                buffers.push(active.command_buffer.clone());
-            }
-            self.last_command_buffer = Some(active.command_buffer);
-        }
-        self.batch_ops = 0;
-        self.batch_bytes = 0;
-        if let Some(command_buffer) = self.last_command_buffer.take() {
-            (*command_buffer).waitUntilCompleted();
-            std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
-        }
-        // Everything submitted has run, so nothing is left to regulate.
-        self.submitted_ops = 0;
+    /// The stream's queue, as the shared command names it.
+    pub fn queue_ref(&self) -> QueueRef {
+        QueueRef(NonNull::from(&*self.queue))
     }
 
-    /// Empty the outdated pools into the current pages.
+    /// Refuse `operation` while the stream records a graph.
     ///
-    /// The caller has [finished](Self::finish) every stream first: the blits
-    /// that move the bytes follow every dispatch that could still read them.
-    pub fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
-        let mut copier = MetalCopies::new(self.queue.clone());
-        self.memory_management
-            .relocate(&mut copier, reason, failures);
+    /// A recorded graph holds dispatches and nothing else, so a host copy, a
+    /// profile or a replay inside the window has no recorded form and must
+    /// not silently run once instead of on every replay.
+    ///
+    /// # Errors
+    ///
+    /// Fails while [`StreamCapture::is_recording`] holds, naming `operation`.
+    pub fn reject_while_recording(&self, operation: &str) -> Result<(), ServerError> {
+        if !self.capturing.is_recording() {
+            return Ok(());
+        }
+        Err(ServerError::graph_state(format!(
+            "{operation}: a Metal capture window records dispatches only, so this operation \
+             cannot be part of a graph"
+        )))
     }
 
-    /// Waits on a previously submitted command buffer if total queued ops
-    /// exceed `max_submitted_ops`, then resets the counter. The memory is
-    /// cleaned up by its reservations, not here.
-    pub fn regulate(&mut self, ops_in_batch: usize) {
-        self.submitted_ops += ops_in_batch;
-
-        if self.submitted_ops >= self.max_submitted_ops {
-            if let Some(cmd_buf) = self.last_command_buffer.take() {
-                (*cmd_buf).waitUntilCompleted();
-                std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
-            }
-            self.submitted_ops = 0;
-        }
+    /// Ready the stream's memory for the host to copy into or out of: refused
+    /// inside a capture window, and otherwise once everything submitted to
+    /// the stream has run.
+    ///
+    /// # Errors
+    ///
+    /// The refusal while recording, and the fault the wait reveals.
+    pub fn host_access(&self, operation: &str) -> Result<(), IoError> {
+        self.reject_while_recording(operation)
+            .and_then(|_| self.queue().drain())
+            .map_err(|err| IoError::Unknown {
+                description: err.to_string(),
+                backtrace: cubecl_environment::backtrace::BackTrace::capture(),
+            })
     }
 }
 
@@ -289,35 +558,34 @@ impl MetalEvent {
         Ok(())
     }
 
-    pub fn wait_async(self, stream: &mut MetalStream) {
-        use objc2_metal::{MTLCommandBuffer, MTLCommandEncoder, MTLEvent};
-
+    /// Make the work `queue` submits from here wait for this event.
+    pub fn wait_async(self, queue: &mut MetalQueue) {
         if std::ptr::eq(
             &*self.shared_event as *const _,
-            &*stream.shared_event as *const _,
+            &*queue.shared_event as *const _,
         ) {
             return;
         }
 
-        if let Some(active) = stream.active_encoder.take() {
-            (*active.encoder).endEncoding();
-            install_completion_handler(
-                &active.command_buffer,
-                active.temporaries,
-                None,
-                stream.fault.clone(),
-            );
-            (*active.command_buffer).commit();
+        if let Some(batch) = queue.batch.take() {
+            queue.last_command_buffer = Some(batch.commit(None, queue.fault.clone()));
         }
 
-        let command_buffer = (*stream.queue)
+        let command_buffer = queue
+            .queue
             .commandBuffer()
             .expect("Failed to create command buffer");
 
         let event_ref: &ProtocolObject<dyn MTLEvent> =
             ProtocolObject::from_ref(&*self.shared_event);
-        (*command_buffer).encodeWaitForEvent_value(event_ref, self.value);
-        (*command_buffer).commit();
+        command_buffer.encodeWaitForEvent_value(event_ref, self.value);
+        command_buffer.commit();
+    }
+}
+
+impl cubecl_server::memory_management::drop_queue::Fence for MetalEvent {
+    fn wait(self) -> Result<(), ServerError> {
+        self.wait_sync()
     }
 }
 
@@ -328,6 +596,8 @@ pub struct MetalStreamBackend {
     mem_props: MemoryDeviceProperties,
     mem_config: MemoryConfiguration,
     logger: Arc<ServerLogger>,
+    /// The device's captures, which every stream this creates takes its capture state from.
+    captures: DeviceCaptures,
 }
 
 impl MetalStreamBackend {
@@ -336,12 +606,14 @@ impl MetalStreamBackend {
         mem_props: MemoryDeviceProperties,
         mem_config: MemoryConfiguration,
         logger: Arc<ServerLogger>,
+        captures: DeviceCaptures,
     ) -> Self {
         Self {
             device,
             mem_props,
             mem_config,
             logger,
+            captures,
         }
     }
 }
@@ -368,6 +640,17 @@ impl EventStreamBackend for MetalStreamBackend {
             self.logger.clone(),
             MemoryManagementOptions::new("Metal GPU Memory"),
         );
+        // Reads land in host memory pooled the way the device's is.
+        let host_memory = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &MemoryDeviceProperties::new(
+                self.mem_props.max_page_size,
+                BytesStorage::ALIGNMENT as u64,
+            ),
+            self.mem_config.clone(),
+            self.logger.clone(),
+            MemoryManagementOptions::new("Metal Host Memory").mode(MemoryAllocationMode::Auto),
+        );
 
         // Tier batch limits by GPU architecture: the architecture name's last
         // character encodes the tier ('p' phone, 'g' base/pro, 's' max, 'd' ultra).
@@ -379,82 +662,32 @@ impl EventStreamBackend for MetalStreamBackend {
         };
 
         Ok(MetalStream {
-            device: self.device.clone(),
-            queue,
+            queue: Box::new(RefCell::new(MetalQueue {
+                queue,
+                batch: None,
+                batch_ops: 0,
+                batch_bytes: 0,
+                shared_event,
+                event_counter: 0,
+                max_ops_per_batch,
+                max_mb_per_batch,
+                submitted_ops: 0,
+                max_submitted_ops,
+                last_command_buffer: None,
+                profiling: None,
+                fault: Arc::new(Mutex::new(None)),
+            })),
             memory_management,
-            active_encoder: None,
-            batch_ops: 0,
-            batch_bytes: 0,
-            shared_event,
-            event_counter: 0,
-            max_ops_per_batch,
-            max_mb_per_batch,
-            submitted_ops: 0,
-            max_submitted_ops,
-            last_command_buffer: None,
-            profiling: None,
-            fault: Arc::new(Mutex::new(None)),
+            host_memory,
+            drop_queue: Default::default(),
+            capturing: StreamCapture::new(&self.captures),
+            info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
+            recording: Vec::new(),
         })
     }
 
     fn flush(stream: &mut Self::Stream, _failures: &mut ErrorGraph) -> Self::Event {
-        use objc2_metal::{MTLCommandBuffer, MTLCommandEncoder, MTLEvent};
-
-        stream.event_counter += 1;
-        let signal_value = stream.event_counter;
-
-        let signal = Some((stream.shared_event.clone(), signal_value));
-
-        let command_buffer = if let Some(active) = stream.active_encoder.take() {
-            (*active.encoder).endEncoding();
-
-            let event_ref: &ProtocolObject<dyn MTLEvent> =
-                ProtocolObject::from_ref(&*stream.shared_event);
-            (*active.command_buffer).encodeSignalEvent_value(event_ref, signal_value);
-
-            install_completion_handler(
-                &active.command_buffer,
-                active.temporaries,
-                signal,
-                stream.fault.clone(),
-            );
-            (*active.command_buffer).commit();
-            active.command_buffer
-        } else {
-            let signal_buffer = (*stream.queue)
-                .commandBuffer()
-                .expect("Failed to create command buffer");
-
-            let event_ref: &ProtocolObject<dyn MTLEvent> =
-                ProtocolObject::from_ref(&*stream.shared_event);
-            (*signal_buffer).encodeSignalEvent_value(event_ref, signal_value);
-            install_completion_handler(&signal_buffer, Vec::new(), signal, stream.fault.clone());
-            (*signal_buffer).commit();
-            signal_buffer
-        };
-
-        let ops_in_batch = stream.batch_ops;
-
-        // While profiling, collect command buffers that actually carried dispatches; skip
-        // empty signal-only buffers (ops_in_batch == 0) so they don't widen the measured span.
-        if ops_in_batch > 0
-            && let Some(buffers) = stream.profiling.as_mut()
-        {
-            buffers.push(command_buffer.clone());
-        }
-
-        stream.last_command_buffer = Some(command_buffer);
-
-        stream.batch_ops = 0;
-        stream.batch_bytes = 0;
-
-        stream.regulate(ops_in_batch);
-
-        MetalEvent::new(
-            stream.shared_event.clone(),
-            signal_value,
-            stream.fault.clone(),
-        )
+        stream.queue().flush()
     }
 
     fn handle_cursor(stream: &Self::Stream, handle: &BufferBinding) -> u64 {
@@ -468,7 +701,7 @@ impl EventStreamBackend for MetalStreamBackend {
     }
 
     fn wait_event(stream: &mut Self::Stream, event: Self::Event) -> Result<(), ServerError> {
-        event.wait_async(stream);
+        event.wait_async(&mut stream.queue());
         Ok(())
     }
 

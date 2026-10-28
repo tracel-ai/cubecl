@@ -13,7 +13,10 @@ use cubecl_server::validation::{validate_cube_dim, validate_shared_memory, valid
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_foundation::NSString;
-use objc2_metal::{MTLCompileOptions, MTLComputePipelineState, MTLDevice, MTLLibrary};
+use objc2_metal::{
+    MTLCompileOptions, MTLComputePipelineDescriptor, MTLComputePipelineState, MTLDevice,
+    MTLLibrary, MTLPipelineOption,
+};
 
 /// Compiles kernels to MSL for one Metal device, and has the device build
 /// their pipelines.
@@ -173,9 +176,19 @@ impl MetalArtifactCompiler {
             }
         })?;
 
+        // Every pipeline can be replayed from an indirect command buffer, which
+        // is what a captured graph is: whether a launch ends up in one is not
+        // known when its kernel is compiled.
+        let descriptor = MTLComputePipelineDescriptor::new();
+        descriptor.setComputeFunction(Some(&function));
+        descriptor.setSupportIndirectCommandBuffers(true);
         let pipeline = self
             .device
-            .newComputePipelineStateWithFunction_error(&function)
+            .newComputePipelineStateWithDescriptor_options_reflection_error(
+                &descriptor,
+                MTLPipelineOption::None,
+                None,
+            )
             .map_err(|err| CompilationError::Generic {
                 reason: format!(
                     "Failed to create compute pipeline: {:?}",

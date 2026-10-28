@@ -4,32 +4,63 @@ use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLBuffer, MTLDevice, MTLResourceOptions};
 use std::collections::HashMap;
 
-/// Wrapper for `MTLBuffer` that is Send + Sync.
+/// A slice of a Metal buffer: what a storage handle resolves to.
+///
+/// The buffer and the slice travel together because Metal binds a buffer at
+/// an offset, and every use of one — a dispatch, a blit, a host copy — needs
+/// both.
 #[derive(Debug, Clone)]
-pub struct MetalBufferHandle(Retained<ProtocolObject<dyn MTLBuffer>>);
+pub struct MetalResource {
+    buffer: Retained<ProtocolObject<dyn MTLBuffer>>,
+    offset: u64,
+    size: u64,
+}
 
 // SAFETY: GPU memory access is synchronized via command buffer ordering.
-unsafe impl Send for MetalBufferHandle {}
-unsafe impl Sync for MetalBufferHandle {}
+unsafe impl Send for MetalResource {}
+unsafe impl Sync for MetalResource {}
 
-impl MetalBufferHandle {
-    pub fn new(buffer: Retained<ProtocolObject<dyn MTLBuffer>>) -> Self {
-        Self(buffer)
+impl MetalResource {
+    /// The buffer the slice is carved from.
+    pub fn buffer(&self) -> &ProtocolObject<dyn MTLBuffer> {
+        &self.buffer
     }
 
-    pub fn inner(&self) -> &Retained<ProtocolObject<dyn MTLBuffer>> {
-        &self.0
+    /// The buffer the slice is carved from, retained.
+    pub fn retained(&self) -> Retained<ProtocolObject<dyn MTLBuffer>> {
+        self.buffer.clone()
+    }
+
+    /// Where the slice starts in its buffer, in bytes.
+    pub fn offset(&self) -> usize {
+        self.offset as usize
+    }
+
+    /// The bytes in the slice.
+    pub fn size(&self) -> usize {
+        self.size as usize
+    }
+
+    /// The slice's first byte, as the host sees it: Metal buffers are shared
+    /// with the host, so this is the memory the device reads and writes.
+    pub fn host_ptr(&self) -> *mut u8 {
+        // SAFETY: the slice lies inside the buffer, so the offset stays in
+        // the allocation `contents` points at.
+        unsafe { (self.buffer.contents().as_ptr() as *mut u8).add(self.offset()) }
     }
 }
 
 /// Metal buffer storage
 #[derive(Debug)]
 pub struct MetalStorage {
-    buffers: HashMap<StorageId, MetalBufferHandle>,
+    buffers: HashMap<StorageId, Retained<ProtocolObject<dyn MTLBuffer>>>,
     /// The bytes `buffers` holds.
     allocated: u64,
     device: Retained<ProtocolObject<dyn MTLDevice>>,
 }
+
+// SAFETY: GPU memory access is synchronized via command buffer ordering.
+unsafe impl Send for MetalStorage {}
 
 impl MetalStorage {
     pub fn new(device: Retained<ProtocolObject<dyn MTLDevice>>) -> Self {
@@ -42,7 +73,7 @@ impl MetalStorage {
 }
 
 impl ComputeStorage for MetalStorage {
-    type Resource = MetalBufferHandle;
+    type Resource = MetalResource;
 
     fn alignment(&self) -> usize {
         256 // Metal standard alignment
@@ -52,11 +83,16 @@ impl ComputeStorage for MetalStorage {
         &mut self,
         handle: &StorageHandle,
     ) -> Result<Self::Resource, cubecl_core::server::IoError> {
-        self.buffers.get(&handle.id).cloned().ok_or_else(|| {
+        let buffer = self.buffers.get(&handle.id).ok_or_else(|| {
             cubecl_core::server::IoError::StorageHandleNotFound {
                 reason: format!("{} in the Metal buffer storage", handle.id).into(),
                 backtrace: cubecl_environment::backtrace::BackTrace::capture(),
             }
+        })?;
+        Ok(MetalResource {
+            buffer: buffer.clone(),
+            offset: handle.offset(),
+            size: handle.size(),
         })
     }
 
@@ -76,8 +112,8 @@ impl ComputeStorage for MetalStorage {
             })?;
 
         // The device may round the length up; that is what it holds.
-        self.allocated += objc2_metal::MTLBuffer::length(&*buffer) as u64;
-        self.buffers.insert(id, MetalBufferHandle::new(buffer));
+        self.allocated += buffer.length() as u64;
+        self.buffers.insert(id, buffer);
 
         Ok(StorageHandle::new(
             id,
@@ -86,10 +122,8 @@ impl ComputeStorage for MetalStorage {
     }
 
     fn dealloc(&mut self, id: StorageId) {
-        use objc2_metal::MTLBuffer;
-
         if let Some(buffer) = self.buffers.remove(&id) {
-            self.allocated -= buffer.inner().length() as u64;
+            self.allocated -= buffer.length() as u64;
         }
     }
 
