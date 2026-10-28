@@ -20,7 +20,7 @@ fn main() {
         // the target has to be asked for.
         (
             "metal",
-            cfg!(feature = "metal-native")
+            cfg!(feature = "metal")
                 && std::env::var("CARGO_CFG_TARGET_VENDOR").is_ok_and(|vendor| vendor == "apple"),
         ),
         ("wgpu", cfg!(feature = "wgpu")),
