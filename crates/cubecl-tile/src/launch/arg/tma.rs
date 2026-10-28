@@ -101,11 +101,12 @@ impl TileArgLaunch {
 }
 
 /// One term of a descriptor coordinate: the position along the tile's `position`-th axis, times
-/// `scale`, over `divisor`.
+/// `scale`, modulo `modulus` where it is not zero, over `divisor`.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct TmaTerm {
     pub position: usize,
     pub scale: u32,
+    pub modulus: u32,
     pub divisor: u32,
 }
 
@@ -115,6 +116,7 @@ impl TmaTerm {
         Self {
             position,
             scale: 1,
+            modulus: 0,
             divisor: 1,
         }
     }
@@ -127,6 +129,12 @@ impl TmaTerm {
     /// This term over `divisor`: a position the box's origin only ever takes at multiples of it.
     pub fn over(self, divisor: u32) -> Self {
         Self { divisor, ..self }
+    }
+
+    /// This term modulo `modulus`, before its divisor: the place of a box inside a stored tile a
+    /// box covers part of.
+    pub fn modulo(self, modulus: u32) -> Self {
+        Self { modulus, ..self }
     }
 }
 
@@ -164,8 +172,11 @@ impl Layout for TmaFoldedLayout {
             #[unroll]
             for t in 0..comptime!(terms.len()) {
                 let term = comptime!(terms[t]);
-                coordinate +=
-                    pos[comptime!(term.position)] * comptime!(term.scale) / comptime!(term.divisor);
+                let mut value = pos[comptime!(term.position)] * comptime!(term.scale);
+                if comptime!(term.modulus != 0) {
+                    value %= comptime!(term.modulus);
+                }
+                coordinate += value / comptime!(term.divisor);
             }
             src.push(coordinate);
         }
