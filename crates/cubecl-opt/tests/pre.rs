@@ -1325,3 +1325,40 @@ fn pre_speculative_switch_with_unreachable_default() -> Result<()> {
     run_sscm_on_text(input)?;
     Ok(())
 }
+
+#[test]
+fn elect_cfg_loop() -> Result<()> {
+    let input = r#"
+ builtin.func @f: builtin.function <() -> ()> [] {
+  ^entry():
+   cf.branch ^header()
+  ^header():
+   current = plane.elect () [] []: <() -> (cube.bool)>;
+   cf.branch_conditional if current ^exit() else ^body()
+  ^body():
+   cf.branch ^header()
+  ^exit():
+   branch.return
+ }
+ "#;
+
+    assert_lcm_result(input, IRStatus::Unchanged, |ctx, op| {
+        assert_eq!(find_ops(ctx, op, "plane.elect").len(), 1);
+
+        let elect = find_single_op_in(ctx, op, "header", "plane.elect");
+        let condition = find_single_op_in(ctx, op, "header", "cf.branch_conditional");
+
+        assert_eq!(condition.operand(ctx, 0), elect.result(ctx));
+    })?;
+
+    assert_sscm_result(input, IRStatus::Unchanged, |ctx, op| {
+        assert_eq!(find_ops(ctx, op, "plane.elect").len(), 1);
+
+        let elect = find_single_op_in(ctx, op, "header", "plane.elect");
+        let condition = find_single_op_in(ctx, op, "header", "cf.branch_conditional");
+
+        assert_eq!(condition.operand(ctx, 0), elect.result(ctx));
+    })?;
+
+    Ok(())
+}

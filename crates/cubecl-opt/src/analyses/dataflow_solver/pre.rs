@@ -17,6 +17,7 @@ use alloc::{format, rc::Rc};
 use cubecl_ir::{
     dialect::{BlockPtrExt, RegionPtrExt},
     interfaces::{
+        Deterministic,
         control_flow::{
             CallableOpInterface, MutableRegionBranchOpInterface, RegionBranchOpInterface,
             RegionPredecessor, RegionSuccessor,
@@ -693,17 +694,21 @@ impl DenseBackwardDataflowAnalysis for AnticipatedBackwards {
 
         let point = ProgramPoint::before_op(ctx, op);
         let after_point = ProgramPoint::after_op(ctx, op);
+        let is_deterministic = op.impls::<dyn Deterministic>(ctx);
         let computes =
             solver.get_or_create_for::<AnticipatedAnalysis, Computes>(point, after_point);
         let computes = computes.deref();
-        let before_set = after.union(&**computes.value());
+        let before_set = match is_deterministic {
+            true => after.union(&**computes.value()).into(),
+            false => after.clone(),
+        };
 
         let before_set = if let Some(def) = memory_ssa.op_memory_def(op)
             && let Some(kill_set) = this.memory_kill_sets.get(&def)
         {
             before_set.difference(kill_set).into()
         } else {
-            before_set.into()
+            MaybeUninitBitset::Initialized(before_set)
         };
         let _ = after;
 
