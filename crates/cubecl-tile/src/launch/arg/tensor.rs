@@ -113,6 +113,7 @@ fn tensor_map_tile<E: Numeric>(
     layout: VirtualLayout<CoordsDyn, Sequence<i32>>,
     partitioning: &Partitioning,
     #[comptime] spec: TileSpec,
+    #[comptime] width: usize,
 ) -> Tile {
     let space = comptime!(partitioning.clone());
     let own = comptime!(space.space().subspace(spec.axes()));
@@ -122,6 +123,7 @@ fn tensor_map_tile<E: Numeric>(
         comptime!(own.rank()),
         comptime!(spec.units),
         comptime!(spec.packing),
+        width,
     );
     Tile::new::<E>(
         TileKind::new_TmaGmem(data),
@@ -160,6 +162,7 @@ enum ValuesExpand<'a> {
     TensorMap {
         map: Value,
         layout: VirtualLayoutExpand<CoordsDyn, Sequence<i32>>,
+        width: usize,
     },
 }
 
@@ -250,12 +253,13 @@ impl<'a> TileArgExpand<'a> {
                     self.spec.clone(),
                 )
             }
-            ValuesExpand::TensorMap { map, layout } => tensor_map_tile::expand::<Held>(
+            ValuesExpand::TensorMap { map, layout, width } => tensor_map_tile::expand::<Held>(
                 scope,
                 (*map).into(),
                 layout.clone(),
                 partitioning,
                 self.spec.clone(),
+                *width,
             ),
         }
     }
@@ -357,7 +361,7 @@ pub struct TileArgLaunch {
 }
 
 /// The host side of the values: a tensor and the width it is bound at, or a tensor map, boxed for
-/// being several times a tensor's size, and its layout.
+/// being several times a tensor's size, its layout and the width a stage it fills is read at.
 enum ValuesLaunch {
     Tensor {
         tensor: TensorArg,
@@ -366,6 +370,7 @@ enum ValuesLaunch {
     TensorMap {
         map: Box<TensorMapArg<Tiled>>,
         layout: VirtualViewLayoutLaunch<CoordsDyn, Sequence<i32>, TensorMapArg<Tiled>>,
+        width: usize,
     },
 }
 
@@ -384,7 +389,32 @@ impl TileArgLaunch {
     ) -> Self {
         let element = map.metadata.elem_ty;
         let map = Box::new(map);
-        Self::of(ValuesLaunch::TensorMap { map, layout }, element, spec)
+        Self::of(
+            ValuesLaunch::TensorMap {
+                map,
+                layout,
+                width: 1,
+            },
+            element,
+            spec,
+        )
+    }
+
+    /// This tensor map with the stage it fills read `width` values a line: the engine lands a box
+    /// as bytes, whatever the line its readers take, so a stage of a tensor map is as wide as
+    /// they read it, not one value a line.
+    ///
+    /// # Panics
+    ///
+    /// On a tensor, whose width is the one it is bound at ([`new`](Self::new)).
+    pub fn served_wide(mut self, width: usize) -> Self {
+        match &mut self.values {
+            ValuesLaunch::TensorMap { width: served, .. } => *served = width,
+            ValuesLaunch::Tensor { .. } => {
+                panic!("TileArgLaunch::served_wide: a tensor is read at the width it is bound at")
+            }
+        }
+        self
     }
 
     fn of(values: ValuesLaunch, element: ElemType, spec: TileSpec) -> Self {
@@ -673,7 +703,10 @@ enum ValuesCompilationArg {
         tensor: TensorCompilationArg,
         width: usize,
     },
-    TensorMap(VirtualViewLayoutCompilationArg<CoordsDyn, Sequence<i32>>),
+    TensorMap {
+        layout: VirtualViewLayoutCompilationArg<CoordsDyn, Sequence<i32>>,
+        width: usize,
+    },
 }
 
 impl<'a> CubeType for TileArg<'a> {
@@ -711,10 +744,10 @@ impl LaunchArg for TileArg<'static> {
                     width,
                 }
             }
-            ValuesLaunch::TensorMap { map, layout } => {
+            ValuesLaunch::TensorMap { map, layout, width } => {
                 let layout = layout.register(&map, Type::new(element), launcher);
                 launcher.register_tensor_map(*map, element.size());
-                ValuesCompilationArg::TensorMap(layout)
+                ValuesCompilationArg::TensorMap { layout, width }
             }
         };
         let scale = scale.map(|level| Box::new(TileArg::register(*level, launcher)));
@@ -773,9 +806,10 @@ impl LaunchArg for TileArg<'static> {
             }
             // The map and its layout kept apart: a tile builds the view where a box moves, at the
             // element the map serves.
-            ValuesCompilationArg::TensorMap(layout) => ValuesExpand::TensorMap {
+            ValuesCompilationArg::TensorMap { layout, width } => ValuesExpand::TensorMap {
                 layout: layout.expand(Type::new(arg.element), builder),
                 map: builder.tensor_map(),
+                width: *width,
             },
         };
         let scale = arg
