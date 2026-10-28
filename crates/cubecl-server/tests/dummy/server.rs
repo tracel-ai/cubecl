@@ -95,6 +95,13 @@ pub enum Other {}
 
 impl Marker for Other {}
 
+/// A marker for a dummy runtime one test has to itself: tests run in parallel, and a device-wide
+/// reading on a runtime they share counts the buffers of whichever test runs beside it.
+#[derive(Debug)]
+pub enum Isolated {}
+
+impl Marker for Isolated {}
+
 /// A marker for a dummy runtime that claims a transport reducing `f32`, so a collective reaches
 /// the checks that refuse it on the caller. Nothing behind it moves data.
 #[derive(Debug)]

@@ -3467,6 +3467,13 @@ fn cmma_matmul_double_buffered_k_walk_transposed_lhs() {
     check_cmma_matmul_k_walk_with(32, 2, 1, StageLayout::Tiled, Transposed::Lhs);
 }
 
+/// Both operands stored along the output's axes, `{K, M}` and `{N, K}`, as a weight gradient's
+/// are: a strided stage read straight by the `A` and `B` fragments, both col-major.
+#[test]
+fn cmma_matmul_staged_k_walk_transposed_operands() {
+    check_cmma_matmul_k_walk_with(16, 1, 1, StageLayout::Strided, Transposed::Both);
+}
+
 /// The one level always stages, whatever its depth: a cmma leaf cannot consume the global inputs
 /// directly, so the kernel first materializes them in shared memory.
 fn check_cmma_matmul_k_walk(k: usize, depth: usize, v: usize, layout: StageLayout) {
@@ -3481,6 +3488,8 @@ enum Transposed {
     Lhs,
     /// The rhs stored `{N, K}`.
     Rhs,
+    /// The lhs stored `{K, M}` and the rhs `{N, K}`.
+    Both,
 }
 
 /// [`check_cmma_matmul_k_walk`], one operand stored with its axes swapped as `transposed` says,
@@ -3511,14 +3520,14 @@ fn check_cmma_matmul_k_walk_with(
     let storage = layout.storage(&launcher);
 
     let a_axes: &[Axis] = match transposed {
-        Transposed::Lhs => &[K, M],
+        Transposed::Lhs | Transposed::Both => &[K, M],
         Transposed::Neither | Transposed::Rhs => &[M, K],
     };
     let a = TileInput::builder(&client, launcher.space().subspace(a_axes))
         .untiled()
         .arange();
     let b_axes: &[Axis] = match transposed {
-        Transposed::Rhs => &[N, K],
+        Transposed::Rhs | Transposed::Both => &[N, K],
         Transposed::Neither | Transposed::Lhs => &[K, N],
     };
     let b = TileInput::builder(&client, launcher.space().subspace(b_axes))
@@ -3550,6 +3559,13 @@ fn check_cmma_matmul_k_walk_with(
             .map(|idx| {
                 let (i, j) = (idx / n, idx % n);
                 (0..k).map(|p| ((p * m + i) * (p * n + j)) as f32).sum()
+            })
+            .collect(),
+        // `a[i, p]` is the arange at `p * m + i`, `b[p, j]` at `j * k + p`.
+        Transposed::Both => (0..m * n)
+            .map(|idx| {
+                let (i, j) = (idx / n, idx % n);
+                (0..k).map(|p| ((p * m + i) * (j * k + p)) as f32).sum()
             })
             .collect(),
     };
