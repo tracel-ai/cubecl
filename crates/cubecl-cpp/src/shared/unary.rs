@@ -1,6 +1,9 @@
 use cubecl_core::{
     self as cubecl,
-    frontend::polyfills::{cbrt, erf, inverse_cbrt, log1p, recip, to_degrees, to_radians},
+    frontend::polyfills::{
+        acosd, asind, atand, cbrt, cosd, erf, inverse_cbrt, log1p, recip, sind, tand, to_degrees,
+        to_radians,
+    },
     ir::{
         dialect::{
             atomic::AtomicLoadOp,
@@ -322,6 +325,12 @@ lower_unop!(RecipOp, recip);
 lower_unop!(Log1pOp, log1p);
 lower_unop!(DegreesOp, to_degrees);
 lower_unop!(RadiansOp, to_radians);
+lower_unop!(SinDegreesOp, sind);
+lower_unop!(CosDegreesOp, cosd);
+lower_unop!(TanDegreesOp, tand);
+lower_unop!(ArcSinDegreesOp, asind);
+lower_unop!(ArcCosDegreesOp, acosd);
+lower_unop!(ArcTanDegreesOp, atand);
 lower_unop!(FindFirstSetOp, find_first_set, |_, ctx| {
     ctx.target() == Target::Metal
 });

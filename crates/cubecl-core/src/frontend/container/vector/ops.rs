@@ -9,7 +9,8 @@ use num_traits::{NumCast, One, ToPrimitive, Zero};
 use crate::{
     self as cubecl,
     prelude::{
-        ArcTan2, InverseSqrt, IsInf, IsNan, Powf, Powi, SaturatingAdd, SaturatingSub, Trunc,
+        ArcTan2, ArcTan2Degrees, InverseSqrt, IsInf, IsNan, Powf, Powi, SaturatingAdd,
+        SaturatingSub, Trunc,
     },
 };
 use crate::{prelude::*, unexpanded};
@@ -261,7 +262,14 @@ impl<P: Scalar + ArcTan, N: Size> ArcTan for Vector<P, N> {}
 impl<P: Scalar + ArcSinh, N: Size> ArcSinh for Vector<P, N> {}
 impl<P: Scalar + ArcCosh, N: Size> ArcCosh for Vector<P, N> {}
 impl<P: Scalar + ArcTanh, N: Size> ArcTanh for Vector<P, N> {}
+impl<P: Scalar + SinDegrees, N: Size> SinDegrees for Vector<P, N> {}
+impl<P: Scalar + CosDegrees, N: Size> CosDegrees for Vector<P, N> {}
+impl<P: Scalar + TanDegrees, N: Size> TanDegrees for Vector<P, N> {}
+impl<P: Scalar + ArcSinDegrees, N: Size> ArcSinDegrees for Vector<P, N> {}
+impl<P: Scalar + ArcCosDegrees, N: Size> ArcCosDegrees for Vector<P, N> {}
+impl<P: Scalar + ArcTanDegrees, N: Size> ArcTanDegrees for Vector<P, N> {}
 impl<P: Scalar + ArcTan2, N: Size> ArcTan2 for Vector<P, N> {}
+impl<P: Scalar + ArcTan2Degrees, N: Size> ArcTan2Degrees for Vector<P, N> {}
 impl<P: Scalar + Recip, N: Size> Recip for Vector<P, N> {}
 impl<P: Scalar + ModFloor, N: Size> ModFloor for Vector<P, N> {}
 impl<P: Scalar + Round, N: Size> Round for Vector<P, N> {}
