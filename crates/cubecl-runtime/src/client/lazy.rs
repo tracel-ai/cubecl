@@ -1,49 +1,69 @@
 //! Allocation controller that lazily reads a device resource into host memory.
 
 use super::Client;
-use crate::server::CopyDescriptor;
+use crate::server::Handle;
 use alloc::boxed::Box;
 use alloc::format;
-use alloc::sync::Arc;
 use core::mem::MaybeUninit;
 use cubecl_common::bytes::{
     AccessError, AccessPolicy, AllocationController, AllocationProperty, Bytes,
 };
-use cubecl_environment::sync::Once;
-use cubecl_zspace::striding::has_contiguous_row_major_strides;
+use cubecl_environment::sync::{Mutex, Once};
+use cubecl_zspace::{Shape, Strides, striding::has_contiguous_row_major_strides};
 
 /// Allocation controller that lazily copies a device resource into host memory on first access.
 ///
-/// Constructing the [`Bytes`] is cheap: it only captures the [`Client`] and a
-/// [`CopyDescriptor`], whose [`Binding`](crate::server::Binding) keeps the device allocation
-/// alive. The device-to-host copy — going through the regular read path, including pinned
-/// staging — only happens the first time the bytes are read (e.g. during serialization), and
-/// the result is cached for subsequent accesses.
+/// Constructing the [`Bytes`] is cheap: it only captures the [`Client`], the source's [`Handle`]
+/// and its layout. The device-to-host copy goes through the regular read path, including pinned
+/// staging, and only happens the first time the bytes are read (e.g. during serialization); the
+/// result is cached for subsequent accesses.
 ///
 /// This lets a large number of device tensors be serialized without materializing them all in
 /// host memory at once: each [`Bytes`] is read just-in-time and dropped right after.
 ///
 /// # Semantics
 ///
-/// The data reflects the device state at *first access*, not at construction time. It is
-/// therefore only sound for buffers that are not mutated between [`read_lazy`] and the first
-/// read. This matches the typical use case of serializing frozen weights.
+/// Until the first access the controller holds the source's [`Handle`], so
+/// [`Handle::can_mut`] is false for it and a caller that honours it does not write the buffer in
+/// place: the data read is the data as it was at [`read_lazy`]. The handle is let go once the
+/// bytes are on the host.
 ///
 /// [`read_lazy`]: Client::read_lazy
 pub struct LazyDeviceController {
     client: Client,
-    descriptor: Arc<CopyDescriptor>,
+    /// The source until its bytes are on the host. A binding would keep the allocation alive but
+    /// does not count toward [`Handle::can_mut`].
+    source: Mutex<Option<Handle>>,
+    shape: Shape,
+    strides: Strides,
+    elem_size: usize,
     /// Host bytes, materialized from the device on first access.
     materialized: Once<Bytes>,
 }
 
 impl LazyDeviceController {
-    pub(super) fn new(client: Client, descriptor: Arc<CopyDescriptor>) -> Self {
+    pub(super) fn new(
+        client: Client,
+        source: Handle,
+        shape: Shape,
+        strides: Strides,
+        elem_size: usize,
+    ) -> Self {
         Self {
             client,
-            descriptor,
+            source: Mutex::new(Some(source)),
+            shape,
+            strides,
+            elem_size,
             materialized: Once::new(),
         }
+    }
+
+    /// The [`Bytes`] this controller reads into on first access.
+    pub(super) fn into_bytes(self) -> Bytes {
+        let len = self.byte_len();
+        // SAFETY: the controller materializes exactly `len` bytes on first access.
+        unsafe { Bytes::from_controller(Box::new(self), len) }
     }
 
     /// Materialize the device resource into host memory on first call, returning the cached
@@ -60,28 +80,31 @@ impl LazyDeviceController {
             return Err(AccessError::WouldCopy);
         }
 
-        self.materialized
+        let bytes = self
+            .materialized
             .try_call_once(|| -> Result<Bytes, AccessError> {
-                let desc = self.descriptor.as_ref();
-                // `read_one_tensor_async` consumes the descriptor by value; rebuild one from the
-                // shared fields. All clones are cheap (the binding is `Arc`-backed).
-                let descriptor = CopyDescriptor::new(
-                    desc.handle.clone(),
-                    desc.shape.clone(),
-                    desc.strides.clone(),
-                    desc.elem_size,
+                let source = self
+                    .source
+                    .lock()
+                    .clone()
+                    .expect("The source is held until its bytes are on the host");
+                let descriptor = source.copy_descriptor(
+                    self.shape.clone(),
+                    self.strides.clone(),
+                    self.elem_size,
                 );
                 cubecl_environment::future::reader::read_sync(
                     self.client.read_one_tensor_async(descriptor),
                 )
                 .map_err(|err| AccessError::Read(format!("{err:?}")))
-            })
+            })?;
+        self.source.lock().take();
+        Ok(bytes)
     }
 
-    /// The host byte length, derived from the descriptor without materializing.
+    /// The host byte length, derived from the layout without materializing.
     fn byte_len(&self) -> usize {
-        let desc = self.descriptor.as_ref();
-        desc.shape.iter().product::<usize>() * desc.elem_size
+        self.shape.iter().product::<usize>() * self.elem_size
     }
 }
 
@@ -102,7 +125,7 @@ impl AllocationController for LazyDeviceController {
         }
     }
 
-    // The host byte length, known from the descriptor without materializing.
+    // The host byte length, known from the layout without materializing.
     fn capacity(&self) -> usize {
         self.byte_len()
     }
@@ -110,36 +133,29 @@ impl AllocationController for LazyDeviceController {
     /// A zero-copy (until materialized) device sub-view over the byte range `[start, end)`:
     /// a new lazy controller that, when read, copies only those bytes off the device.
     fn view(&self, start: usize, end: usize) -> Option<Box<dyn AllocationController>> {
-        // Once materialized to host there is no device sub-view to take (and the host
-        // controller doesn't support views either).
-        if self.materialized.get().is_some() {
-            return None;
-        }
+        // The source is let go once the bytes are on the host, which have no sub-view to take.
+        let mut source = self.source.lock().clone()?;
         if start > end || end > self.byte_len() {
             return None;
         }
-
-        let desc = self.descriptor.as_ref();
         // A byte sub-range only maps to a contiguous device region when the source is
         // contiguous (a strided/padded tensor has gaps the byte offsets can't express).
-        if !has_contiguous_row_major_strides(&desc.shape, &desc.strides) {
+        if !has_contiguous_row_major_strides(&self.shape, &self.strides) {
             return None;
         }
 
-        // Narrow the binding to the byte window `[start, end)`. Offsets are byte-level and
+        // Narrow the handle to the byte window `[start, end)`. Offsets are byte-level and
         // `offset_end` is trimmed-from-the-end (see `Binding::size_in_used`).
-        let base = desc.handle.offset_start.unwrap_or(0);
-        let size = desc.handle.size;
-        let mut binding = desc.handle.clone();
-        binding.offset_start = Some(base + start as u64);
-        binding.offset_end = Some(size - (base + end as u64));
-
-        // Flat byte descriptor over the sub-range; materializing reads only these bytes.
-        let descriptor = CopyDescriptor::new(binding, [end - start].into(), [1].into(), 1);
+        let base = source.offset_start.unwrap_or(0);
+        source.offset_end = Some(source.size - (base + end as u64));
+        source.offset_start = Some(base + start as u64);
 
         Some(Box::new(LazyDeviceController::new(
             self.client.clone(),
-            Arc::new(descriptor),
+            source,
+            [end - start].into(),
+            [1].into(),
+            1,
         )))
     }
 

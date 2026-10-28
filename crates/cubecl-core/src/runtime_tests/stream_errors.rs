@@ -623,13 +623,14 @@ pub fn test_a_failed_in_place_launch_names_the_buffer_it_aliased<R: Runtime>(cli
 #[cfg(not(target_family = "wasm"))]
 pub fn lazy_read_of_stale_buffer_fails_at_read<R: Runtime>(client: Client) {
     let out = launch_rejected(&client, "lazy-read");
-    let descriptor = out.copy_descriptor(
+    let read = client.read_lazy_async(
+        out,
         cubecl_zspace::shape![1],
         cubecl_zspace::strides![1],
         core::mem::size_of::<u32>(),
     );
 
-    let err = cubecl_environment::future::block_on(client.read_lazy_async(descriptor))
+    let err = cubecl_environment::future::block_on(read)
         .expect_err("the buffer's writer was refused, the lazy read must say so")
         .to_string();
     assert!(
