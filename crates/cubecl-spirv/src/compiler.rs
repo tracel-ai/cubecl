@@ -15,6 +15,7 @@ use cubecl_core::{
         rewrite::SimplifyOpsPass,
     },
     post_processing::{
+        bf16::LowerWideBf16CastPass,
         bitwise::PromoteBitwisePass,
         checked_io::{CheckedIo, CheckedIoPass},
         minifloat::{
@@ -217,6 +218,7 @@ impl SpirvCompiler {
             }
             false => EnumSet::empty(),
         };
+        func_passes.add_pass(LowerWideBf16CastPass::default());
         func_passes.add_pass(LowerMinifloatCastPass::new(LowerMinifloatCast::new(
             native_fp8,
             Fp8Container::Bytes,
