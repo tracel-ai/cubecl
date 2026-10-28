@@ -823,6 +823,33 @@ impl RelocatingStreams for Relocating<'_, '_> {
     }
 }
 
+impl ServerStorage for MetalServer {
+    type Storage = MetalStorage;
+
+    fn get_resource(
+        &mut self,
+        binding: BufferBinding,
+        stream_id: StreamId,
+    ) -> Result<ManagedResource<<MetalStorage as ComputeStorage>::Resource>, ServerError> {
+        // The same claim check a read makes: a buffer a failed launch never
+        // filled reports the failure rather than handing back a pointer to
+        // whatever was there before.
+        self.streams.ensure_written([&binding].into_iter())?;
+        let mut resolved = self
+            .streams
+            .resolve(stream_id, std::iter::once(&binding))
+            .expect("creating a Metal stream never fails");
+        // Resolve from the binding's origin stream; see `resolve_origin_resource`.
+        let stream = resolved.get(&binding.stream);
+
+        Ok(stream.memory_management.managed_resource(
+            binding.memory,
+            binding.offset_start,
+            binding.offset_end,
+        )?)
+    }
+}
+
 #[cfg(test)]
 mod pitched_tests {
     use super::{read_pitched, write_pitched};
@@ -895,32 +922,5 @@ mod pitched_tests {
             assert!(read_pitched(std::ptr::null(), shape, strides, elem_size).is_empty());
             write_pitched(std::ptr::null_mut(), &[], shape, strides, elem_size);
         }
-    }
-}
-
-impl ServerStorage for MetalServer {
-    type Storage = MetalStorage;
-
-    fn get_resource(
-        &mut self,
-        binding: BufferBinding,
-        stream_id: StreamId,
-    ) -> Result<ManagedResource<<MetalStorage as ComputeStorage>::Resource>, ServerError> {
-        // The same claim check a read makes: a buffer a failed launch never
-        // filled reports the failure rather than handing back a pointer to
-        // whatever was there before.
-        self.streams.ensure_written([&binding].into_iter())?;
-        let mut resolved = self
-            .streams
-            .resolve(stream_id, std::iter::once(&binding))
-            .expect("creating a Metal stream never fails");
-        // Resolve from the binding's origin stream; see `resolve_origin_resource`.
-        let stream = resolved.get(&binding.stream);
-
-        Ok(stream.memory_management.managed_resource(
-            binding.memory,
-            binding.offset_start,
-            binding.offset_end,
-        )?)
     }
 }
