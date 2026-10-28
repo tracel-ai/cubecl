@@ -443,6 +443,14 @@ fn register_features(
         comp_options.vulkan.supports_fp_fast_math = true;
     }
 
+    if let Some(float_controls) = &extended_feat.float_controls_properties
+        && float_controls.shader_signed_zero_inf_nan_preserve_float64 == TRUE
+    {
+        comp_options
+            .vulkan
+            .supports_f64_signed_zero_inf_nan_preserve = true;
+    }
+
     // Native fp8 takes no comparison, so equality and the bool conversion read the value as an
     // 8-bit integer instead. `shaderInt8` is what makes that integer legal, and every device that
     // reports `shaderFloat8` reports it too, so requiring both costs nothing.

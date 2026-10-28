@@ -51,10 +51,12 @@ use cubecl_runtime::compiler::CompilationError;
 use pliron::{
     basic_block::BasicBlock,
     builtin::{
+        attributes::UnitAttr,
         op_interfaces::OneRegionInterface,
         ops::{ConstantOp, FuncOp, ModuleOp},
     },
     context::{Context, Ptr},
+    dict_key,
     identifier::Identifier,
     irbuild::{
         inserter::BlockInsertionPoint,
@@ -70,7 +72,10 @@ use pliron::{
 use pliron_spirv::{
     ToSpirvOp,
     attrs::VerCapExtAttr,
-    decorations::{DecoratableOp, set_decoration_uniform, set_decoration_uniform_id},
+    decorations::{
+        DecoratableOp, set_decoration_no_contraction, set_decoration_uniform,
+        set_decoration_uniform_id,
+    },
     ops::{EntryPointOp, ExecutionModeOp, GlobalVariableOp, SpirvModuleOp},
 };
 use rspirv::{
@@ -311,9 +316,7 @@ impl SpirvCompiler {
         hoist_constants(ctx, spirv_module);
 
         // Make sure this is the last pass so it catches all ops
-        OpPass::<SpirvModuleOp, CollectVerCapExtPass>::default()
-            .run(spirv_module_op, ctx, &mut analyses)
-            .unwrap();
+        collect_requirements(ctx, spirv_module, &mut analyses);
 
         // Something weird with the validation rules, can't be bothered to debug for the MVP.
         // Try to figure this out later.
@@ -422,6 +425,75 @@ fn declare_entry_point(ctx: &mut Context, module: SpirvModuleOp, shared_args: Ve
             execution_mode.get_operation().insert_at_front(block, ctx);
         },
     );
+}
+
+/// Collects the version, capabilities and extensions the module needs.
+fn collect_requirements(ctx: &mut Context, module: SpirvModuleOp, analyses: &mut AnalysisManager) {
+    let op = module.get_operation();
+    let mut collect = OpPass::<SpirvModuleOp, CollectVerCapExtPass>::default();
+    collect.run(op, ctx, analyses).unwrap();
+    if preserve_f64_special_values(ctx, module) {
+        // The execution mode needs a capability of its own.
+        collect.run(op, ctx, analyses).unwrap();
+    }
+}
+
+/// A driver may assume that no signed zero, infinity or NaN reaches a float operation, and fold a
+/// NaN test away, unless the kernel declares `SignedZeroInfNanPreserve` for the width. The f64
+/// functions handle these values themselves, so a kernel that uses f64 declares it where the device
+/// can honor it. Returns whether the mode was added.
+fn preserve_f64_special_values(ctx: &mut Context, module: SpirvModuleOp) -> bool {
+    let supported = ctx
+        .aux_ty::<WgpuCompilationOptions>()
+        .vulkan
+        .supports_f64_signed_zero_inf_nan_preserve;
+    let uses_f64 = module
+        .get_vce(ctx)
+        .capabilities
+        .contains(&Capability::Float64);
+    if !(supported && uses_f64) {
+        return false;
+    }
+
+    let mut entry_points = vec![];
+    visit_all_ops_of_type::<FuncOp, _>(
+        ctx,
+        &mut entry_points,
+        module.get_operation(),
+        |ctx, names, func| {
+            if func.get_entrypoint_abi(ctx).is_some() {
+                names.push(func.get_symbol_name(ctx));
+            }
+        },
+    );
+    let block = module.get_body(ctx, 0);
+    for name in entry_points {
+        let mode =
+            ExecutionModeOp::new(ctx, name, ExecutionMode::SignedZeroInfNanPreserve, vec![64]);
+        mode.get_operation().insert_at_front(block, ctx);
+    }
+    true
+}
+
+dict_key!(
+    /// Marks a float operation whose rounding must stay as written: the driver may neither fuse it
+    /// with another operation nor reassociate it. Error-free transformations depend on this.
+    NO_CONTRACTION_ATTR,
+    "spirv_no_contraction"
+);
+
+/// Gives `to` the `NoContraction` decoration when `from`, the op it replaces, is marked with
+/// [`NO_CONTRACTION_ATTR`].
+pub(crate) fn decorate_no_contraction(ctx: &Context, from: Ptr<Operation>, to: Ptr<Operation>) {
+    if from
+        .get_attr::<UnitAttr>(ctx, &NO_CONTRACTION_ATTR)
+        .is_none()
+    {
+        return;
+    }
+    if let Some(decoratable) = op_cast::<dyn DecoratableOp>(&*to.dyn_op(ctx)) {
+        set_decoration_no_contraction(decoratable, ctx);
+    }
 }
 
 pub(crate) fn decorate_uniform(ctx: &Context, op: Ptr<Operation>, uniformity: Option<UniformAttr>) {

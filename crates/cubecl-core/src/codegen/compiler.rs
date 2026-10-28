@@ -12,6 +12,7 @@ pub struct WgpuCompilationOptions {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct VulkanCompilationOptions {
     pub supports_fp_fast_math: bool,
+    pub supports_f64_signed_zero_inf_nan_preserve: bool,
     pub supports_explicit_smem: bool,
     pub supports_long_vectors: bool,
     pub supports_arbitrary_bitwise: bool,
