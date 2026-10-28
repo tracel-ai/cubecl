@@ -1171,7 +1171,7 @@ fn scm_if_divergent_condition() -> Result<()> {
         block_end(^else_block4v1): Anticipated({})
         branch.yield (a_v0): Anticipated({})
         result_v4 = scf.if cond_v2 : builtin.integer i64 then {..} else {..}: Anticipated({e3})
-        cond_v2 = plane.elect () [] []: <() -> (cube.bool )>: Anticipated({e2, e3})
+        cond_v2 = plane.elect () [] []: <() -> (cube.bool )>: Anticipated({e3})
         builtin.func @f: builtin.function <(builtin.integer i64, builtin.integer i64) -> ()> {..}: Anticipated({})
     "#]]
     .assert_eq(&actual);
@@ -1236,7 +1236,7 @@ fn scm_speculative_seed_external_fixpoint() -> Result<()> {
         block_end(^inner_else_block6v1): Anticipated({})
         branch.yield (a_v0): Anticipated({})
         inner_v6 = scf.if inner_cond_v4 : builtin.integer i64 then {..} else {..}: Anticipated({e5})
-        inner_cond_v4 = plane.elect () [] []: <() -> (cube.bool )>: Anticipated({e4, e5})
+        inner_cond_v4 = plane.elect () [] []: <() -> (cube.bool )>: Anticipated({e5})
         block_end(^uniform_else_block7v1): Anticipated({})
         branch.yield (fallback_value_v7): Anticipated({})
         fallback_value_v7 = math.i_add (a_v0, b_v1) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Anticipated({e5})
@@ -1244,7 +1244,7 @@ fn scm_speculative_seed_external_fixpoint() -> Result<()> {
         block_end(^outer_else_block8v1): Anticipated({})
         branch.yield (a_v0): Anticipated({})
         result_v9 = scf.if outer_cond_v3 : builtin.integer i64 then {..} else {..}: Anticipated({e5})
-        outer_cond_v3 = plane.elect () [] []: <() -> (cube.bool )>: Anticipated({e3, e5})
+        outer_cond_v3 = plane.elect () [] []: <() -> (cube.bool )>: Anticipated({e5})
         builtin.func @f: builtin.function <(builtin.integer i64, builtin.integer i64, cube.bool ) -> ()> 
           [entry_point: cube.entrypoint_abi <cube_dim: (1, 1, 1)>]{..}: Anticipated({})
     "#]].assert_eq(&actual);
@@ -1412,7 +1412,7 @@ fn scm_while_divergent_condition() -> Result<()> {
         branch.yield (value_v6): Anticipated({e4})
         value_v6 = math.i_add (a_v1, b_v2) [] []: <(builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)>: Anticipated({e4})
         y_v7 = scf.while init_v0 : builtin.integer i64 {..} do {..}: Anticipated({e4})
-        cond_v3 = plane.elect () [] []: <() -> (cube.bool )>: Anticipated({e3, e4})
+        cond_v3 = plane.elect () [] []: <() -> (cube.bool )>: Anticipated({e4})
         builtin.func @f: builtin.function <(builtin.integer i64, builtin.integer i64, builtin.integer i64) -> (builtin.integer i64)> {..}: Anticipated({})
     "#]]
     .assert_eq(&actual);
