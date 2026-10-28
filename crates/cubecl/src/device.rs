@@ -9,7 +9,6 @@
 //! what fails.
 
 use cubecl_core::client::Client;
-#[cfg(any_runtime)]
 use cubecl_core::device::Device as DeviceIdentity;
 use cubecl_core::zspace::{Shape, Strides};
 #[cfg(any_runtime)]
@@ -796,11 +795,21 @@ impl Device {
     }
 }
 
+/// A build that links no runtime has nothing to probe, so its default names the
+/// CPU's device, the walk's last stop. Like any device of a runtime the build
+/// left out, it is a value only: asking it for a client fails.
+#[cfg(not(any_runtime))]
+impl Default for Device {
+    fn default() -> Self {
+        Self::Cpu(CpuDevice)
+    }
+}
+
 /// What lets this stand in wherever a runtime's own device type did: burn's
 /// backends take a device through this trait, and are handed this one.
 ///
-/// Only where a runtime is linked, since the trait asks for a default.
-#[cfg(any_runtime)]
+/// An identity needs no runtime, so a crate that names devices without
+/// running anything builds without one.
 impl DeviceIdentity for Device {
     fn from_id(device_id: DeviceId) -> Self {
         Self::from_id(device_id)
