@@ -69,6 +69,17 @@ pub struct WgpuMemory {
 }
 
 impl WgpuResource {
+    /// The buffer size wgpu will see when the resource is bound.
+    ///
+    /// wgpu enforces 4-byte alignment for buffer binding sizes per the
+    /// WebGPU spec, so the size is rounded up; zero-sized resources bind
+    /// "the rest of the buffer" from their offset instead. The result is
+    /// exactly the size a [`wgpu::BindGroupEntry`] built from this resource
+    /// contains, i.e. part of its binding identity.
+    pub(super) fn binding_size(&self) -> Option<NonZeroU64> {
+        NonZeroU64::new(self.size.next_multiple_of(4))
+    }
+
     /// Return the binding view of the buffer.
     pub fn as_wgpu_bind_resource(&self) -> wgpu::BindingResource<'_> {
         // wgpu enforces 4-byte alignment for buffer binding sizes per the WebGPU spec.
@@ -80,7 +91,7 @@ impl WgpuResource {
         //
         // For zero-sized resources, pass None (use rest of buffer from offset).
         // The allocator guarantees the buffer is at least MIN_BUFFER_SIZE bytes.
-        let size = NonZeroU64::new(self.size.next_multiple_of(4));
+        let size = self.binding_size();
 
         let binding = wgpu::BufferBinding {
             buffer: &self.buffer,
