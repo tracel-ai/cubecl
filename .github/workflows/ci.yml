@@ -144,6 +144,34 @@ jobs:
       - name: Tests
         run: xtask test --ci
 
+  macos-metal-tests:
+    # The Metal runtimes only build on Apple targets: cubecl's native Metal runtime
+    # (cubecl-metal) and wgpu compiling MSL. Nothing else runs them.
+    runs-on: blaze/macos-15
+    needs: [prepare-checks, code-quality]
+    timeout-minutes: 60
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+      # --------------------------------------------------------------------------------
+      - name: Install Rust
+        uses: tracel-ai/github-actions/install-rust@v12
+        with:
+          rust-toolchain: stable
+          cache-key: stable-macos
+      # --------------------------------------------------------------------------------
+      - name: Device check
+        run: system_profiler SPDisplaysDataType
+      # --------------------------------------------------------------------------------
+      - name: Lint
+        run: cargo clippy -p cubecl-metal -p cubecl-wgpu --features cubecl-wgpu/msl --tests -- -D warnings
+      # --------------------------------------------------------------------------------
+      - name: Native Metal tests
+        run: cargo test --release -p cubecl-metal
+      # --------------------------------------------------------------------------------
+      - name: wgpu MSL tests
+        run: cargo test --release -p cubecl-wgpu --features msl --lib
+
   linux-miri-tests:
     runs-on: [
       '@id:cubecl-linux-miri-tests-${{ matrix.rust }}-${{ github.run_id }}-${{ github.run_attempt }}',
