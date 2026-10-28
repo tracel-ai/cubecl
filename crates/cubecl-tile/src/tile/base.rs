@@ -863,6 +863,25 @@ impl Tile {
         }
     }
 
+    /// Writes `src`'s numbers into this tile packed, under the block scales this tile carries,
+    /// which it computes: the mirror of [`dequantize_from`](Tile::dequantize_from). The tile's
+    /// packing says the format its values are written in, and its innermost scale tile the dtype
+    /// its scales are stored as; a scale coarser than the block's (a per-tensor one) is read, as
+    /// the caller already wrote it.
+    ///
+    /// Calibrated as burn's `quantize_dynamic` is: a block's scale is its largest magnitude over
+    /// the format's largest, rounded up to the scale's dtype, relative to the coarser scale where
+    /// there is one; each value is divided by its scale and rounded to the nearest code.
+    pub fn quantize_from(&mut self, src: &Tile) {
+        let (from, into) = (src.is_memory(), self.is_memory());
+        comptime!(assert!(
+            from && into,
+            "Tile::quantize_from: values are encoded from memory into memory"
+        ));
+        let define!(Source) = src.element;
+        self.copy_quantized_from::<Source>(src);
+    }
+
     fn copy_unscaled_from<S: Numeric, R: Numeric>(&mut self, src: &Tile) {
         // Bound before the match, which borrows the kind.
         let space = comptime!(self.place.space.clone());
@@ -1546,6 +1565,17 @@ impl Tile {
         #[comptime] values: Space,
         #[comptime] guard: Guard,
     ) -> S {
+        let own = self.scale_coords(coords, values);
+        self.scale_at::<S>(&own, guard)
+    }
+
+    /// The coordinates, over this scale tile's space, of the scale covering the value at
+    /// `coords` of a tile spanning `values` ([`scale_for`](Tile::scale_for)).
+    pub(crate) fn scale_coords(
+        &self,
+        coords: &Coords<u32>,
+        #[comptime] values: Space,
+    ) -> Coords<u32> {
         let rank = comptime!(self.place.space.rank());
         let projection = self.projection();
         let mut own = Coords::<u32>::new();
@@ -1563,7 +1593,7 @@ impl Tile {
                 own.push(0u32);
             }
         }
-        self.scale_at::<S>(&own, guard)
+        own
     }
 
     /// The one value at `coords` of a tile that serves lines: the load holding it, read whole,

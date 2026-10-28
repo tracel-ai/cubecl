@@ -54,7 +54,14 @@ impl Tile {
         let dst = comptime!(self.place.space.clone());
         let along = comptime!(dst.axis_at(dst.rank() - 1));
         let varies = src.factor.varies_along(comptime!(along));
-        comptime!(check_decoding_copy(&space, &dst, &load, vw, varies));
+        comptime!(check_scaled_copy(
+            "Tile::dequantize_from",
+            &space,
+            &dst,
+            &load,
+            vw,
+            varies
+        ));
         // A window its holder shares is the holder's units' to fill, as a plain copy's is.
         let holder = comptime!(self.place.holder());
         let fill = self.fill_units();
@@ -156,22 +163,30 @@ impl Tile {
     }
 }
 
-/// What a decoding copy from `src`, read in `load`s, into `dst` (written `vw` wide) rests on.
-/// `varies` is whether the scales vary along the destination's innermost axis.
-fn check_decoding_copy(src: &Space, dst: &Space, load: &VectorTile, vw: usize, varies: bool) {
+/// What a copy through scales rests on, `reader` the copy: the packed side spans `src`, read or
+/// written in `load`s, and the float side `dst`, written or read `vw` wide. `varies` is whether
+/// the scales vary along the float side's innermost axis.
+pub(super) fn check_scaled_copy(
+    reader: &str,
+    src: &Space,
+    dst: &Space,
+    load: &VectorTile,
+    vw: usize,
+    varies: bool,
+) {
     assert!(
         src.axes().all(|axis| !src.is_dynamic(axis)),
-        "Tile::dequantize_from: a decoding copy reads its window through the values' own axes, \
-         which needs their extents at expansion; this window spans a dynamic axis. Copy a region a \
+        "{reader}: a copy through scales walks the packed window through its own axes, which \
+         needs their extents at expansion; this window spans a dynamic axis. Copy a region a \
          level cuts to (a stage, a leaf) rather than the whole dynamic tile"
     );
     assert!(
         src.narrows_to(dst),
-        "Tile::dequantize_from: a decoding copy writes the box it reads, and {src:?} does not \
-         narrow to {dst:?} by dropping one-wide axes"
+        "{reader}: a copy through scales takes the box it gives, and {src:?} does not narrow to \
+         {dst:?} by dropping one-wide axes"
     );
-    // A destination line is `vw` consecutive values along its innermost axis, so it sits inside
-    // one load only where that is the load's finest axis and its extent there holds whole lines.
+    // A float line is `vw` consecutive values along its innermost axis, so it sits inside one
+    // load only where that is the load's finest axis and its extent there holds whole lines.
     let along = dst.axis_at(dst.rank() - 1);
     let &(finest, run) = load
         .extents()
@@ -179,15 +194,15 @@ fn check_decoding_copy(src: &Space, dst: &Space, load: &VectorTile, vw: usize, v
         .expect("a load holds at least one value");
     assert!(
         vw == 1 || (finest == along && run.is_multiple_of(vw)),
-        "Tile::dequantize_from: a decoding copy reads each destination line out of one load, and a \
-         {vw}-wide line along {along:?} does not sit inside a load of {:?}",
+        "{reader}: a copy through scales takes each float line out of one load, and a {vw}-wide \
+         line along {along:?} does not sit inside a load of {:?}",
         load.extents()
     );
-    // One scale a destination line, at its first value.
+    // One scale a float line, at its first value.
     assert!(
         vw == 1 || !varies,
-        "Tile::copy_from: a destination line runs {vw} values along {along:?}, which the scales \
-         vary along, so one line lies under several scales; write the destination one value a \
-         line, or omit {along:?} from the scales"
+        "{reader}: a float line runs {vw} values along {along:?}, which the scales vary along, so \
+         one line lies under several scales; take the float side one value a line, or omit \
+         {along:?} from the scales"
     );
 }

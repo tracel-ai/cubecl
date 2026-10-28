@@ -1,4 +1,5 @@
-//! The unpacking read: a stored `u32`'s fields served as values.
+//! The unpacking read, a stored `u32`'s fields served as values, and its mirror, the packing
+//! write.
 
 use std::marker::PhantomData;
 
@@ -8,11 +9,12 @@ use cubecl::ir::VectorSize;
 use cubecl::ir::types::Fp8Format;
 use cubecl::post_processing::fp4::{e2m1_words_to_f16, e2m1_words_to_f16_placed};
 use cubecl::post_processing::minifloat::{
-    fp8_bits_to_f32, fp8_words_to_f16, fp8_words_to_f16_placed, ue8m0_bits_to_f32,
+    f32_to_fp8_bits, f32_to_ue8m0_bits, fp8_bits_to_f32, fp8_words_to_f16, fp8_words_to_f16_placed,
+    ue8m0_bits_to_f32,
 };
 use cubecl::prelude::barrier::Barrier;
 use cubecl::quant::scheme::QuantValue;
-use cubecl_std::quant::fp4::e2m1_packed_bits_to_float;
+use cubecl_std::quant::fp4::{e2m1_packed_bits_to_float, float_to_e2m1_bits};
 
 use crate::{Field, FieldDecode, Packing};
 use cubecl::prelude::*;
@@ -23,7 +25,7 @@ use cubecl_std::tensor::{
 
 /// Unpack one line of `NQ` stored words into its `NF` values, fields from each word's low bits.
 #[cube]
-pub(crate) fn unpack_line<F: Numeric, NQ: Size, NF: Size>(
+pub fn unpack_line<F: Numeric, NQ: Size, NF: Size>(
     words: Vector<u32, NQ>,
     #[comptime] field: Field,
 ) -> Vector<F, NF> {
@@ -76,6 +78,107 @@ pub(crate) fn values_at<F: Numeric, I: Numeric, WP: Size, NF: Size>(
                 words.insert(w, u32::cast_from(line.extract(first + w)) >> shift);
             }
             unpack_line::<F, NQ, NF>(words, field)
+        }
+    }
+}
+
+/// Pack `NF` values into one line of `NQ` words, the mirror of [`unpack_line`]: each value as
+/// the code its field stores, the first in each word's low bits. Each value already lies on the
+/// field's grid, so a code reads back as the value it packs: an integer already rounded and in
+/// range, a float code already clamped to the format's range, a scale already rounded to its
+/// dtype. A placed float code is written as the value it stands for, as any float code is.
+#[cube]
+pub fn pack_line<NQ: Size, NF: Size>(
+    values: Vector<f32, NF>,
+    #[comptime] field: Field,
+) -> Vector<u32, NQ> {
+    let bits = comptime!(field.size_bits());
+    let nq = NQ::value();
+    let nf = NF::value();
+    let fields = comptime!(fields_per_word(nq, nf, bits));
+    let mask = comptime!(((1u64 << bits) - 1) as u32);
+    let codes = codes_of::<NF>(values, field);
+
+    let mut words = Vector::<u32, NQ>::empty();
+    #[unroll]
+    for w in 0..nq {
+        let mut word = 0u32;
+        #[unroll]
+        for j in 0..fields {
+            word |= (codes.extract(w * fields + j) & mask) << comptime!((j * bits) as u32);
+        }
+        words.insert(w, word);
+    }
+    words
+}
+
+/// `line` with the `NF` values starting at its `offset` written as `packing` lays them, the
+/// mirror of [`values_at`]: a packed line's fields there are taken to be zero, and are set.
+#[cube]
+pub(crate) fn place_at<I: Numeric, WP: Size, NF: Size>(
+    line: Vector<I, WP>,
+    values: Vector<f32, NF>,
+    #[comptime] offset: usize,
+    #[comptime] packing: Packing,
+) -> Vector<I, WP> {
+    let nf = NF::value();
+    let mut line = line;
+    match comptime!(packing) {
+        Packing::Plain =>
+        {
+            #[unroll]
+            for j in 0..nf {
+                line.insert(offset + j, I::cast_from(values.extract(j)));
+            }
+        }
+        Packing::Packed { field } => {
+            let (bits, per_word) = comptime!((field.size_bits(), field.per_word()));
+            let nq = comptime!((nf / per_word).max(1));
+            let size!(NQ) = nq;
+            let (first, shift) =
+                comptime!((offset / per_word, ((offset % per_word) * bits) as u32));
+            let words = pack_line::<NQ, NF>(values, field);
+            #[unroll]
+            for w in 0..nq {
+                let word = u32::cast_from(line.extract(first + w)) | (words.extract(w) << shift);
+                line.insert(first + w, I::cast_from(word));
+            }
+        }
+    }
+    line
+}
+
+/// Each of `values` as the code `field` stores it, in the low bits: what [`pack_line`] packs.
+#[cube]
+fn codes_of<NF: Size>(values: Vector<f32, NF>, #[comptime] field: Field) -> Vector<u32, NF> {
+    match comptime!(field.decode()) {
+        // Two's complement; the field keeps the low bits.
+        FieldDecode::SignExtended => {
+            Vector::<u32, NF>::reinterpret(Vector::<i32, NF>::cast_from(values))
+        }
+        FieldDecode::Unsigned => Vector::<u32, NF>::cast_from(values),
+        FieldDecode::Reinterpreted | FieldDecode::Converted | FieldDecode::Placed { .. } => {
+            float_to_e2m1_bits::<f32, NF>(values)
+        }
+        FieldDecode::Byte(Fp8Format::UE8M0) => f32_to_ue8m0_bits::<NF>(values),
+        FieldDecode::Byte(format) | FieldDecode::PlacedByte { format, .. } => {
+            f32_to_fp8_bits::<NF>(values, format)
+        }
+        FieldDecode::Bits(kind) => {
+            let bits = Vector::<u32, NF>::reinterpret(values);
+            match comptime!(kind) {
+                FloatKind::F32 => bits,
+                FloatKind::F16 => {
+                    let mut codes = Vector::<u32, NF>::empty();
+                    #[unroll]
+                    for j in 0..NF::value() {
+                        codes.insert(j, f32_bits_to_f16(bits.extract(j)));
+                    }
+                    codes
+                }
+                // `bf16` is a truncated `f32`, and the value already lies on its grid.
+                _ => bits >> Vector::new(16u32),
+            }
         }
     }
 }
@@ -290,6 +393,22 @@ fn f16_bits_to_f32(bits: u32) -> f32 {
         sign | 0x7fc0_0000u32,
     );
     f32::reinterpret(select(exponent == 31u32, special, finite))
+}
+
+/// One finite `f32` on `f16`'s grid, given as its bits, as the `f16` bit pattern in integer
+/// arithmetic, the mirror of [`f16_bits_to_f32`]: a device without `f16` arithmetic has no
+/// `f16` to reinterpret, and casting to one there keeps the `f32`.
+#[cube]
+fn f32_bits_to_f16(bits: u32) -> u32 {
+    let sign = (bits >> 16u32) & 0x8000u32;
+    let exponent = (bits >> 23u32) & 0xffu32;
+    let mantissa = bits & 0x007f_ffffu32;
+    // Rebias the exponent 127 -> 15 and narrow the mantissa; below `2^-14` the value is subnormal,
+    // a whole number of `2^-24`.
+    let normal = sign | ((exponent - 112u32) << 10u32) | (mantissa >> 13u32);
+    let magnitude = f32::reinterpret(bits & 0x7fff_ffffu32);
+    let subnormal = sign | u32::cast_from(magnitude * 16_777_216.0f32);
+    select(exponent < 113u32, subnormal, normal)
 }
 
 /// The whole floats, each read out of its own slot.

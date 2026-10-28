@@ -4,6 +4,7 @@ pub(crate) mod async_copy;
 pub(crate) mod base;
 pub(crate) mod padded;
 pub(crate) mod prefetch;
+pub(crate) mod quantize;
 pub(crate) mod scaled;
 pub(crate) mod scanned;
 pub(crate) mod straight;

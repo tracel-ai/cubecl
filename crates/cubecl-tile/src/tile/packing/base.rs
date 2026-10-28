@@ -4,7 +4,7 @@ use cubecl::client::Client;
 use cubecl::e2m1x2;
 use cubecl::ir::features::TypeUsage;
 use cubecl::ir::types::Fp8Format;
-use cubecl::ir::{ElemType, FloatKind};
+use cubecl::ir::{ElemType, FloatKind, IntKind};
 use cubecl::post_processing::fp4::E2M1_F16_LIFT;
 use cubecl::post_processing::minifloat::fp8_f16_lift;
 use cubecl::prelude::Scalar;
@@ -173,6 +173,38 @@ impl Field {
         }
     }
 
+    /// The number format a value of this field is written in: what an encoding copy rounds it to
+    /// ([`Tile::quantize_from`](crate::Tile::quantize_from)). A float code reads back from its
+    /// bits or through the device's conversion, but is written the same way either way.
+    ///
+    /// # Panics
+    ///
+    /// For a field no value is quantized to: an index, a whole float, an 8-bit scale code.
+    pub(crate) fn quantized_value(self) -> QuantValue {
+        match self {
+            Field::Quant(value) | Field::Placed { value, .. } => value,
+            Field::ConvertedE2M1 => QuantValue::E2M1,
+            other => panic!("Field: a value is quantized to a number format, not to {other:?}"),
+        }
+    }
+
+    /// The scale dtype a scale of this field is stored as: the inverse of
+    /// [`of_scale`](Field::of_scale).
+    ///
+    /// # Panics
+    ///
+    /// For a field no scale is stored as.
+    pub(crate) fn scale_dtype(self) -> ScaleDtype {
+        match self {
+            Field::Fp8(Fp8Format::E4M3) => ScaleDtype::UE4M3,
+            Field::Fp8(Fp8Format::UE8M0) => ScaleDtype::UE8M0,
+            Field::Float(FloatKind::F32) => ScaleDtype::F32,
+            Field::Float(FloatKind::F16) => ScaleDtype::F16,
+            Field::Float(FloatKind::BF16) => ScaleDtype::BF16,
+            other => panic!("Field: a scale is stored as a float, not as {other:?}"),
+        }
+    }
+
     /// The bits a whole float occupies.
     pub(crate) fn float_bits(kind: FloatKind) -> usize {
         match kind {
@@ -239,6 +271,39 @@ pub(crate) enum FieldDecode {
 }
 
 impl Packing {
+    /// The number format a value stored this way, as `element`, is written in: what an encoding
+    /// copy rounds it to ([`Tile::quantize_from`](crate::Tile::quantize_from)). A packed field's
+    /// ([`Field::quantized_value`]), or a plain `i8`'s, `e4m3`'s or `e5m2`'s.
+    ///
+    /// # Panics
+    ///
+    /// For a store no value is quantized to.
+    pub(crate) fn quantized_value(self, element: ElemType) -> QuantValue {
+        match (self, element) {
+            (Packing::Packed { field }, _) => field.quantized_value(),
+            (Packing::Plain, ElemType::Int(IntKind::I8)) => QuantValue::Q8S,
+            (Packing::Plain, ElemType::Float(FloatKind::E4M3)) => QuantValue::E4M3,
+            (Packing::Plain, ElemType::Float(FloatKind::E5M2)) => QuantValue::E5M2,
+            (Packing::Plain, other) => {
+                panic!("Packing: no value is quantized to a plain {other:?}")
+            }
+        }
+    }
+
+    /// The dtype a scale stored this way, as `element`, is rounded to: a packed field's
+    /// ([`Field::scale_dtype`]), or a plain float's.
+    ///
+    /// # Panics
+    ///
+    /// For a store no scale is held in.
+    pub(crate) fn scale_dtype(self, element: ElemType) -> ScaleDtype {
+        match (self, element) {
+            (Packing::Packed { field }, _) => field.scale_dtype(),
+            (Packing::Plain, ElemType::Float(kind)) => Field::of_float(kind).scale_dtype(),
+            (Packing::Plain, other) => panic!("Packing: a scale is a float, not {other:?}"),
+        }
+    }
+
     /// This packing read placed ([`Field::placed`]).
     pub(crate) fn placed(self) -> Packing {
         match self {
