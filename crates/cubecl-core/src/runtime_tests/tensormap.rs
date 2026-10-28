@@ -232,6 +232,53 @@ where
     assert_eq!(actual, &expected);
 }
 
+/// A launch whose tensor map does not encode never runs. The tensor it was to load through the map
+/// is only ever read, so it stays readable; the output it was to write carries the failure.
+pub fn test_tensormap_load_refused_keeps_input<R: Runtime, F: Float + CubeElement>(client: Client)
+where
+    <<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource: Debug,
+{
+    if !client.features().tma.contains(Tma::Base) {
+        println!("Skipped test_tensormap_load_refused_keeps_input due to unavailability");
+        return;
+    }
+
+    let values = (0..64 * 64).map(|it| F::from_int(it)).collect::<Vec<_>>();
+    let shape = shape![64, 64];
+    let MemoryLayout {
+        memory: handle,
+        strides,
+    } = client.create_tensor_from_slice(F::as_bytes(&values), shape.clone(), size_of::<F>());
+    let input = unsafe { TensorArg::from_raw_parts(handle.clone(), strides, shape) };
+    let out = client.empty(16 * 32 * size_of::<F>());
+
+    // 512 rows: past the 256 elements a box may span along a dimension, so the driver refuses
+    // the encoding when the launch builds the map.
+    tensormap_load::launch::<F>(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_2d(32, 16),
+        1,
+        TensorMapArg::new(
+            TiledArgs {
+                tile_size: shape![512, 32],
+            },
+            input,
+            F::elem_type_native(),
+        ),
+        unsafe { BufferArg::from_raw_parts(out.clone(), 32 * 16) },
+    );
+
+    assert!(
+        client.read_one(out).is_err(),
+        "the output was never written"
+    );
+    let input = client
+        .read_one(handle)
+        .expect("the input was only to be read through the tensor map");
+    assert_eq!(F::from_bytes(&input), &values);
+}
+
 pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(client: Client)
 where
     <<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource: Debug,
@@ -557,6 +604,15 @@ macro_rules! testgen_tensormap {
             cubecl_core::runtime_tests::tensormap::test_tensormap_load::<TestRuntime, FloatType>(
                 client,
             );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_tensormap_load_refused_keeps_input() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::tensormap::test_tensormap_load_refused_keeps_input::<
+                TestRuntime,
+                FloatType,
+            >(client);
         }
 
         #[$crate::runtime_tests::test_log::test]
