@@ -26,12 +26,15 @@ use pliron::{
     parsable::{IntoParseResult, Parsable, ParseResult, StateStream},
     printable::Printable,
     region::Region,
-    utils::table::{HMap, SmallMap},
+    utils::{
+        apint::APInt,
+        table::{HMap, SmallMap},
+    },
     value::Use,
 };
 
 use crate::{
-    RecursiveMemoryEffects, RecursiveSideEffects, RecursivelySpeculatable,
+    HasSideEffects, RecursiveMemoryEffects, RecursiveSideEffects, RecursivelySpeculatable,
     attributes::{BoolAttr, IntegerVecAttr, ZeroAttr},
     dialect::{
         BlockPtrExt,
@@ -47,6 +50,7 @@ use crate::{
             MemoryRegionPredecessor, MemorySSAContext, MemorySSARegionOpInterface, MemoryValue,
             PromotableRegionOpInterface, RegionMemoryPhiInputs, RegionMemoryValue,
         },
+        side_effects::{ConditionallySpeculatable, Speculatability},
         uniformity::{UniformRegionOpInterface, Uniformity},
     },
     prelude::*,
@@ -818,6 +822,10 @@ impl ForOp {
         self.get_operation().deref(ctx).get_operand(2)
     }
 
+    pub fn constant_step(&self, ctx: &Context) -> Option<APInt> {
+        Some(const_operand::<IntegerAttr>(ctx, self.get_operation(), 2)?.value())
+    }
+
     pub fn initial_carried_values(&self, ctx: &Context) -> Vec<Value> {
         self.get_segment(ctx, 1)
     }
@@ -1110,6 +1118,19 @@ impl RegionBranchOpInterface for ForOp {
 impl LoopLikeOpInterface for ForOp {}
 
 #[op_interface_impl]
+impl ConditionallySpeculatable for ForOp {
+    fn speculatability(&self, ctx: &Context) -> Speculatability {
+        if let Some(constant_step) = self.constant_step(ctx)
+            && constant_step.to_i128() == 1
+        {
+            Speculatability::RecursivelySpeculatable
+        } else {
+            Speculatability::NotSpeculatable
+        }
+    }
+}
+
+#[op_interface_impl]
 impl UniformRegionOpInterface for ForOp {
     fn result_uniformity(&self, _ctx: &Context, operands: &[Uniformity]) -> Uniformity {
         operands[0].min(operands[1]).min(operands[2])
@@ -1149,7 +1170,7 @@ impl CanonicalizeInterface for ForOp {
     verifier = "succ"
 )]
 #[op_interfaces(NRegionsInterface<2>, SingleBlockRegionInterface)]
-#[op_traits(RecursiveMemoryEffects, RecursiveSideEffects)]
+#[op_traits(RecursiveMemoryEffects, HasSideEffects)]
 pub struct WhileOp;
 
 impl WhileOp {

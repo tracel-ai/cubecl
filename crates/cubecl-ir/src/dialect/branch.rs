@@ -26,8 +26,8 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    CanMaterialize, NoMemoryEffect, Pure, RecursiveMemoryEffects, RecursiveSideEffects,
-    RecursivelySpeculatable, ReturnLike,
+    CanMaterialize, HasSideEffects, NoMemoryEffect, Pure, RecursiveMemoryEffects,
+    RecursiveSideEffects, RecursivelySpeculatable, ReturnLike,
     attributes::{BoolAttr, IntegerVecAttr, ZeroAttr},
     dialect::{general::SymbolUserOpVerifyErr, scf::block_mem_val},
     interfaces::{
@@ -880,7 +880,7 @@ impl ConditionallySpeculatable for RangeLoopOp {
     NRegionsInterface<2>,
     SingleBlockRegionInterface
 )]
-#[op_traits(RecursiveMemoryEffects, RecursiveSideEffects)]
+#[op_traits(RecursiveMemoryEffects, HasSideEffects)]
 pub struct WhileOp;
 
 impl WhileOp {
