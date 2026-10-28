@@ -211,6 +211,18 @@ pub fn physical_device(adapter: &Adapter, info: &wgpu::AdapterInfo) -> Option<Ph
     Some(physical)
 }
 
+/// What the card behind `adapter` can hold at once, as a client on it would
+/// report, where its graphics API says so without opening a device: Vulkan
+/// does, from its memory heaps.
+#[cfg_attr(not(feature = "spirv"), expect(unused_variables))]
+pub fn max_memory(adapter: &Adapter) -> Option<u64> {
+    #[cfg(feature = "spirv")]
+    if let Some(capacity) = vulkan::max_memory(adapter) {
+        return Some(capacity);
+    }
+    None
+}
+
 #[cfg(feature = "spirv")]
 fn is_vulkan(adapter: &Adapter) -> bool {
     unsafe { adapter.as_hal::<wgpu::hal::api::Vulkan>().is_some() }
