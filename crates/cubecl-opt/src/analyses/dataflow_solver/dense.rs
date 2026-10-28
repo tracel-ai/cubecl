@@ -2,9 +2,12 @@ use core::{any::TypeId, cell::RefCell};
 
 use cubecl_ir::{
     dialect::{BlockPtrExt, RegionPtrExt},
-    interfaces::control_flow::{
-        CallableOpInterface, RegionBranchOpInterface, RegionBranchTerminatorOpInterface,
-        RegionPredecessor, RegionSuccessor,
+    interfaces::{
+        ReturnLike,
+        control_flow::{
+            CallableOpInterface, RegionBranchOpInterface, RegionBranchTerminatorOpInterface,
+            RegionPredecessor, RegionSuccessor,
+        },
     },
     prelude::*,
 };
@@ -959,6 +962,7 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
                 return true;
             }
             term.impls::<dyn RegionBranchTerminatorOpInterface>(ctx)
+                || term.deref(ctx).get_num_successors() == 0
         };
         if is_exit_block(block) {
             // If this block is exiting from a callable, the successors of exiting from
@@ -967,6 +971,8 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
 
             if let Some(callable) = parent_op.cast::<dyn CallableOpInterface>(ctx)
                 && callable.callable_region(ctx) == Some(parent_region)
+                && let Some(term) = block.deref(ctx).get_terminator(ctx)
+                && term.impls::<dyn ReturnLike>(ctx)
             {
                 let callsites = solver.get_or_create_for::<Self, PredecessorState>(
                     point,
@@ -996,9 +1002,10 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
                 return Ok(true);
             }
 
-            if let Some(branch) = parent_op.cast::<dyn RegionBranchOpInterface>(ctx) {
-                let term = block.deref(ctx).get_terminator(ctx).unwrap();
-                let terminator = TraitOp::try_from_op(term, ctx).unwrap();
+            if let Some(branch) = parent_op.cast::<dyn RegionBranchOpInterface>(ctx)
+                && let Some(term) = block.deref(ctx).get_terminator(ctx)
+                && let Some(terminator) = TraitOp::try_from_op(term, ctx)
+            {
                 T::visit_region_branch_operation(
                     self,
                     solver,
@@ -1028,6 +1035,10 @@ impl<T: DenseBackwardDataflowAnalysis> DenseBackward<T> {
     ) -> Result<()> {
         let branch_op = branch.get_operation();
         let successors = branch.successor_regions(ctx, predecessor);
+        debug_assert!(
+            !successors.is_empty(),
+            "Region branches must always have at least one structural successor"
+        );
 
         let mut successor_lattices = SmallVec::<[_; 4]>::new();
         for successor in successors {

@@ -1294,3 +1294,34 @@ fn pre_keeps_opaque_read_and_dependents_in_polling_loop() -> Result<()> {
         assert_eq!(condition.operand(ctx, 0), comparison.result(ctx));
     })
 }
+
+// Panics on unwrap in the analysis if it fails
+#[test]
+fn pre_speculative_switch_with_unreachable_default() -> Result<()> {
+    let input = r#"
+    builtin.func @f: builtin.function <() -> ()>
+        [entry_point: cube.entrypoint_abi <cube_dim: (32, 1, 1)>] {
+      ^entry():
+        lane = cube.read_builtin (UnitPos) : cube.index;
+        selector = cube.cast (lane) [] []:
+            <(cube.index) -> (builtin.integer si32)>;
+
+        scf.switch (selector) []
+            [scf_switch_cases: cube.integer_vec [<0: ui32>]]:
+            <(builtin.integer si32) -> ()>
+        {
+          ^default():
+            branch.unreachable
+        }
+        {
+          ^case():
+            branch.yield ()
+        };
+
+        branch.return
+    }
+    "#;
+
+    run_sscm_on_text(input)?;
+    Ok(())
+}
