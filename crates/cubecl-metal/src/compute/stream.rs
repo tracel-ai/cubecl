@@ -260,7 +260,9 @@ impl MetalQueue {
             };
         }
         match &info_buffer {
-            Some(buffer) => unsafe { encoder.setBuffer_offset_atIndex(Some(buffer), 0, info_index) },
+            Some(buffer) => unsafe {
+                encoder.setBuffer_offset_atIndex(Some(buffer), 0, info_index)
+            },
             None if !info.is_empty() => unsafe {
                 // SAFETY: `setBytes` copies the bytes into the command buffer
                 // before it returns.
@@ -282,7 +284,11 @@ impl MetalQueue {
         );
         batch.temporaries.extend(info_buffer);
 
-        let bytes = bindings.buffers.iter().map(|resource| resource.size()).sum();
+        let bytes = bindings
+            .buffers
+            .iter()
+            .map(|resource| resource.size())
+            .sum();
         self.encoded(1, bytes);
         Ok(())
     }
@@ -354,11 +360,7 @@ impl MetalQueue {
 
         self.regulate(ops_in_batch);
 
-        MetalEvent::new(
-            self.shared_event.clone(),
-            signal_value,
-            self.fault.clone(),
-        )
+        MetalEvent::new(self.shared_event.clone(), signal_value, self.fault.clone())
     }
 
     /// Commit the open batch and wait until everything submitted has run.

@@ -242,7 +242,8 @@ fn metal_graph_many_launches_dynamic_metadata() {
 
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let client = MetalRuntime::client(&Default::default());
-    let read = |handle: &Handle| f32::from_bytes(&client.read_one(handle.clone()).unwrap()).to_vec();
+    let read =
+        |handle: &Handle| f32::from_bytes(&client.read_one(handle.clone()).unwrap()).to_vec();
 
     let a = client.create_from_slice(f32::as_bytes(&[0.0f32; N]));
     let b = client.create_from_slice(f32::as_bytes(&[0.0f32; N]));

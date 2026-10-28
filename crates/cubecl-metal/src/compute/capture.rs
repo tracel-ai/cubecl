@@ -165,8 +165,8 @@ impl Executable {
                         dispatch.bindings.buffers.len(),
                     )
                 };
-                info_offset += size_of_val(dispatch.bindings.info.as_slice())
-                    .next_multiple_of(INFO_ALIGNMENT);
+                info_offset +=
+                    size_of_val(dispatch.bindings.info.as_slice()).next_multiple_of(INFO_ALIGNMENT);
             }
             command.concurrentDispatchThreadgroups_threadsPerThreadgroup(
                 dispatch.threadgroups,
@@ -176,9 +176,7 @@ impl Executable {
         }
 
         executable.resident.extend(info);
-        executable
-            .resident
-            .sort_unstable_by_key(|buffer| Retained::as_ptr(buffer));
+        executable.resident.sort_unstable_by_key(Retained::as_ptr);
         executable
             .resident
             .dedup_by_key(|buffer| Retained::as_ptr(buffer));
@@ -186,9 +184,7 @@ impl Executable {
             .into_iter()
             .map(|dispatch| dispatch.pipeline)
             .collect();
-        executable
-            ._pipelines
-            .sort_unstable_by_key(|pipeline| Retained::as_ptr(pipeline));
+        executable._pipelines.sort_unstable_by_key(Retained::as_ptr);
         executable
             ._pipelines
             .dedup_by_key(|pipeline| Retained::as_ptr(pipeline));
