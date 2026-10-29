@@ -5,10 +5,12 @@ use crate::{
     prelude::*,
     shared::{
         builtins::InsertGpuBuiltinsPass,
+        fp4::Fp4Decode,
         metadata::{CtxGridConstants, rebuild_func_type},
     },
 };
 use cubecl_core::ir::attributes::ATTR_TENSOR_MAP_BINDING;
+use cubecl_core::ir::nvidia::SmArch;
 use cubecl_opt::passes::alloc_shared_memory::AllocateSharedMemoryBlockPass;
 
 #[derive(Debug, Default)]
@@ -69,6 +71,8 @@ impl EntryArgLayout for PtxKernelParams {
 pub struct NvptxLowering {
     /// Device warp width.
     pub plane_dim: u32,
+    /// The device compiled for.
+    pub arch: SmArch,
 }
 
 impl TargetLowering for NvptxLowering {
@@ -85,5 +89,12 @@ impl TargetLowering for NvptxLowering {
 
     fn arg_layout(&self) -> Box<dyn EntryArgLayout> {
         Box::new(PtxKernelParams)
+    }
+
+    fn fp4_decode(&self) -> Fp4Decode {
+        match crate::nvptx::fp4::decodes_e2m1x2(&self.arch) {
+            true => Fp4Decode::Native,
+            false => Fp4Decode::Software,
+        }
     }
 }

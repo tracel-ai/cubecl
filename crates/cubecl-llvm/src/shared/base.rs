@@ -44,8 +44,7 @@ use cubecl_core::{
     post_processing::{
         bf16::LowerWideBf16CastPass,
         bitwise::PromoteBitwisePass,
-        fp4::{LowerFp4Cast, LowerFp4CastPass},
-        minifloat::{Fp8Container, LowerMinifloatCastPass, LowerMinifloatComparePass},
+        minifloat::{LowerMinifloatCastPass, LowerMinifloatComparePass},
     },
     prelude::*,
 };
@@ -339,7 +338,8 @@ impl PlironCompiler {
         ctx.set_plane_dim(plane_dim);
 
         let tensor_maps = crate::nvptx::tensor_map::TensorMapParams::new(&ctx, ir.entry_func);
-        let Lowered { io, atomic_reads } = lower(&mut ctx, &ir, &NvptxLowering { plane_dim })?;
+        let Lowered { io, atomic_reads } =
+            lower(&mut ctx, &ir, &NvptxLowering { plane_dim, arch })?;
 
         let shared_memory_size = ctx.shared_memory_size();
 
@@ -477,12 +477,7 @@ fn lower(
     // LLVM converts between `f32` and `bfloat`; a wider source would round twice through `f32`.
     func_passes.add_pass(LowerWideBf16CastPass::default());
     func_passes.add_pass(LowerMinifloatCastPass::default());
-    // No LLVM target converts `e2m1x2` itself, so every cast from or to it is the software codec,
-    // its decode through `f16` pairs, which every target holds.
-    func_passes.add_pass(LowerFp4CastPass::new(LowerFp4Cast::new(
-        true,
-        Fp8Container::Bytes,
-    )));
+    target.fp4_decode().add_passes(&mut func_passes);
     func_passes.add_pass(LowerMinifloatComparePass::default());
     func_passes.add_pass(LowerComplexOpPass::default());
     target.epilogue(&mut func_passes);

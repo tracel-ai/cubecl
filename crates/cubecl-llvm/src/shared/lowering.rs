@@ -1,6 +1,9 @@
 //! Target-specific lowering.
 
-use crate::prelude::{EntryArgLayout, FuncOp, OpPass, Passes};
+use crate::{
+    prelude::{EntryArgLayout, FuncOp, OpPass, Passes},
+    shared::fp4::Fp4Decode,
+};
 
 /// Target passes and kernel argument layout.
 pub trait TargetLowering {
@@ -14,4 +17,9 @@ pub trait TargetLowering {
 
     /// Kernel argument layout.
     fn arg_layout(&self) -> Box<dyn EntryArgLayout>;
+
+    /// How the target decodes `e2m1x2`.
+    fn fp4_decode(&self) -> Fp4Decode {
+        Fp4Decode::Software
+    }
 }
