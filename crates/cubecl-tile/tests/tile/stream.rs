@@ -350,6 +350,44 @@ fn stream_matmul_staged_rhs<E: Numeric>(
     }
 }
 
+/// [`stream_matmul`] over the first `prefix` steps of every tile's contraction alone, the runs
+/// sharing that prefix ([`Walk::portion_of`]): the steps past it are no run's.
+#[cube(launch)]
+fn stream_matmul_prefix<E: Numeric>(
+    a: &TileArg<'_>,
+    b: &TileArg<'_>,
+    out: &AccumulateArg<'_, E>,
+    space: Partitioning,
+    prefix: usize,
+    #[comptime] outer: Level,
+    #[comptime] inner: Level,
+    #[define(E)] _dtype: ElemType,
+) {
+    let a = a.tile(&space);
+    let b = b.tile(&space);
+    let c = out.tile(&space);
+    let portion = space.over(&outer).portion_of(prefix);
+    for i in 0..portion.touched() {
+        let region = portion.region(i);
+        let (from, steps) = portion.steps(i);
+        let c_region = c.at(&region);
+        let a_region = a.at(&region);
+        let b_region = b.at(&region);
+        let acc = c_region.accumulator::<E>(
+            &a_region,
+            &b_region,
+            comptime!(Instruction::Registers {
+                config: REGISTER_BLOCK
+            }),
+            Semiring::SUM_PROD,
+        );
+        for cell in region.over(&inner).range(from, steps) {
+            contract(&acc, &a_region, &b_region, &cell);
+        }
+        acc.drained_into(&c_region);
+    }
+}
+
 /// The tile the contraction accumulates in, and the block it walks `K` in.
 const TILE_M: usize = 4;
 const TILE_N: usize = 4;
@@ -456,14 +494,85 @@ fn run_shared_index(m: usize, n: usize, k: usize, runs: usize, rhs: RhsStage) ->
     HostData::from_tensor_handle(&client, out, HostDataType::F32)
 }
 
+/// `a · b` over the first `prefix` blocks of `K` alone, shared between `runs` cubes, added
+/// atomically into a zeroed output.
+fn run_shared_prefix(m: usize, n: usize, k: usize, runs: usize, prefix: usize) -> HostData {
+    let client = cubecl::test_device().client();
+    let dtype = f32::elem_type_native();
+
+    let a: Vec<f32> = (0..m * k).map(|i| (i % 7) as f32 - 3.0).collect();
+    let b: Vec<f32> = (0..k * n).map(|i| (i % 5) as f32 - 2.0).collect();
+    let (a_handle, _) = TestInput::builder(client.clone(), shape![m, k])
+        .dtype(dtype)
+        .custom(a)
+        .generate_with_f32_host_data();
+    let (b_handle, _) = TestInput::builder(client.clone(), shape![k, n])
+        .dtype(dtype)
+        .custom(b)
+        .generate_with_f32_host_data();
+    let out = TestInput::builder(client.clone(), shape![m, n])
+        .dtype(dtype)
+        .zeros()
+        .generate_without_host_data();
+
+    // The cubes take whole output tiles and share the line of them, each tile `k / BLOCK_K` steps.
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(MM, m), (NN, n), (KK, k)]),
+            Levels::leaf(&[(MM, TILE_M), (NN, TILE_N), (KK, BLOCK_K)])
+                .walk(&[(MM, 1), (NN, 1), (KK, k / BLOCK_K)])
+                .cubes(&[MM, NN])
+                .shared_by(runs)
+                .build(),
+        ),
+        Form::Static,
+    );
+
+    stream_matmul_prefix::launch(
+        &client,
+        launcher.cube_count(),
+        launcher.cube_dim(),
+        TileArgLaunch::new(
+            a_handle.binding().into_tensor_arg(),
+            dtype,
+            1,
+            TileSpec::direct(&[MM, KK]),
+        ),
+        TileArgLaunch::new(
+            b_handle.binding().into_tensor_arg(),
+            dtype,
+            1,
+            TileSpec::direct(&[KK, NN]),
+        ),
+        AccumulateArgLaunch::new(
+            out.clone().binding().into_tensor_arg(),
+            1,
+            TileSpec::direct(&[MM, NN]),
+        ),
+        launcher.partitioning_arg(),
+        prefix,
+        launcher.partitioning().level(0),
+        launcher.partitioning().level(1),
+        dtype,
+    );
+
+    HostData::from_tensor_handle(&client, out, HostDataType::F32)
+}
+
 /// The same contraction on the host, from the same seeds.
 fn reference(m: usize, n: usize, k: usize) -> Vec<f32> {
+    reference_over(m, n, k, k)
+}
+
+/// [`reference`] summed over the first `contracted` of `K` alone.
+fn reference_over(m: usize, n: usize, k: usize, contracted: usize) -> Vec<f32> {
     let a = |i: usize, p: usize| ((i * k + p) % 7) as f32 - 3.0;
     let b = |p: usize, j: usize| ((p * n + j) % 5) as f32 - 2.0;
     let mut out = vec![0.0; m * n];
     for i in 0..m {
         for j in 0..n {
-            out[i * n + j] = (0..k).map(|p| a(i, p) * b(p, j)).sum();
+            out[i * n + j] = (0..contracted).map(|p| a(i, p) * b(p, j)).sum();
         }
     }
     out
@@ -523,6 +632,35 @@ fn runs_that_straddle_a_tile_boundary_still_sum_to_the_whole() {
     shared_index_agrees_with_the_whole(7);
     // More runs than the line has steps, so some cubes get nothing at all.
     shared_index_agrees_with_the_whole(24);
+}
+
+/// Runs sharing a prefix of every tile's steps, which the launch states: the steps past it are no
+/// run's, so the runs split the prefix evenly and every tile sums its prefix alone, whether a run
+/// starts and ends inside a tile or holds several, and where some runs hold nothing.
+#[test]
+fn runs_share_the_prefix_of_every_tile_the_launch_states() {
+    if !adds_atomically() {
+        return;
+    }
+    // 4 tiles of 6 K blocks, of which the first 4, then 1, are shared.
+    let (m, n, k) = (8usize, 8usize, 24usize);
+    for prefix in [4usize, 1] {
+        let want = reference_over(m, n, k, prefix * BLOCK_K);
+        for runs in [1usize, 3, 5, 24] {
+            let got = run_shared_prefix(m, n, k, runs, prefix);
+            for i in 0..m {
+                for j in 0..n {
+                    let have = got.get_f32(&[i, j]);
+                    let want = want[i * n + j];
+                    assert!(
+                        (have - want).abs() < 1e-3,
+                        "{runs} runs over a prefix of {prefix}: at ({i}, {j}): got {have}, want \
+                         {want}"
+                    );
+                }
+            }
+        }
+    }
 }
 
 /// The drain adds atomically, so a device without a float atomic add cannot run any of this.
