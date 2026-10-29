@@ -90,7 +90,7 @@ impl TransportKind {
     /// The transport the two forms and the destination's access leave, before any claim a
     /// delivery adds.
     fn choose(dst: StoreForm, src: StoreForm, access: &Access, space: &Space) -> Self {
-        if dst.packing != Packing::Plain {
+        if !dst.packing.as_stored() {
             assert!(
                 access.whole
                     && !access.overhang.masks()
@@ -103,7 +103,7 @@ impl TransportKind {
         }
         if access.whole
             && !access.overhang.masks()
-            && src.packing == Packing::Plain
+            && src.packing.as_stored()
             && access.write == Write::Replace
             && dst.addressed
         {
@@ -191,7 +191,7 @@ impl Scan {
         // `storage_extents` rounds the innermost extent up; the scan would miss an unfillable line.
         fill_extent(space, src.width, dst.width, src.masks);
         match src.packing {
-            Packing::Plain => Scan::Element,
+            Packing::Plain | Packing::Words { .. } => Scan::Element,
             Packing::Packed { field: _ } => Scan::Words,
         }
     }

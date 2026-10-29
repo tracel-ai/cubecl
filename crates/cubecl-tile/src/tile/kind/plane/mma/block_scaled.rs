@@ -1,11 +1,13 @@
-//! The block-scaled manual mma: `e2m1` operands under `e4m3` scales, NVFP4's, contracted by the
-//! device's block-scaled instruction.
+//! The block-scaled manual mma: packed codes under block scales, contracted by the device's
+//! block-scaled instruction of the form the blueprint states ([`BlockScaledOperands`]): NVFP4's
+//! `e2m1` under `e4m3` scales of sixteen, MXFP4's and MXFP8's under `ue8m0` scales of
+//! thirty-two, or any other the device takes.
 
 use cubecl::{
     cmma::{MatrixIdent, MatrixLayout, MmaDefinition},
-    e2m1x2, e4m3,
-    ir::{ElemType, FloatKind, features::ScaledMmaConfig},
+    ir::{ElemType, FloatKind},
     prelude::*,
+    quant::scheme::QuantValue,
 };
 
 use cubecl_std::tensor::layout::CoordsDyn;
@@ -14,20 +16,13 @@ use super::widths::*;
 use crate::tile::kind::plane::load_matrix::LDMATRIX_ROW_BYTES;
 use crate::*;
 
-/// `e2m1` values one stored word holds, and so one register of the block-scaled instruction.
-pub(crate) const E2M1_PER_WORD: usize = 8;
-
 /// Words one `ldmatrix` row holds.
 const LDMATRIX_ROW_WORDS: usize = LDMATRIX_ROW_BYTES / size_of::<u32>();
-
-/// Values one `e2m1` block scale covers along the contraction under the instruction this
-/// encoding runs: NVFP4's block, a `ue4m3` scale every sixteen values.
-pub(crate) const E2M1_SCALE_BLOCK: usize = 16;
 
 /// Bind a block-scaled fragment's widths in role `ident`: its values' and its scales'.
 #[cube]
 pub(crate) fn register_block_scaled_sizes(
-    def: &MmaDefinition<e2m1x2, e2m1x2, f32>,
+    def: &MmaDefinition<LhsCodes, RhsCodes, f32>,
     #[comptime] ident: MatrixIdent,
 ) {
     let values = def.vector_size(ident);
@@ -44,36 +39,52 @@ pub(crate) fn register_block_scaled_sizes(
     });
 }
 
-/// The device's block-scaled instruction of `m × n × k` over `e2m1` operands under `e4m3` scales,
-/// summing in `CD`: one scale every [`E2M1_SCALE_BLOCK`] values of `k`.
+/// Bind the elements `form` names: each role's codes and the scales', so either fragment's
+/// instruction names both inputs.
+#[cube]
+pub(crate) fn register_block_scaled_elements(#[comptime] form: BlockScaledOperands) {
+    intrinsic!(|scope| {
+        scope.register_type::<LhsCodes>(ElemType::Float(form.lhs));
+        scope.register_type::<RhsCodes>(ElemType::Float(form.rhs));
+        scope.register_type::<BlockScale>(ElemType::Float(form.scales));
+    });
+}
+
+/// The device's block-scaled instruction of `m × n × k` over `form`'s codes under its scales,
+/// summing in `CD`: one scale every `form.block` values of `k`.
 #[cube]
 pub(crate) fn block_scaled_definition<CD: Numeric>(
+    #[comptime] form: BlockScaledOperands,
     #[comptime] m: usize,
     #[comptime] n: usize,
     #[comptime] k: usize,
-) -> MmaDefinition<e2m1x2, e2m1x2, CD> {
-    MmaDefinition::<e2m1x2, e2m1x2, CD>::new_scaled::<e4m3>(
+) -> MmaDefinition<LhsCodes, RhsCodes, CD> {
+    MmaDefinition::<LhsCodes, RhsCodes, CD>::new_scaled::<BlockScale>(
         m,
         n,
         k,
-        comptime!(k / E2M1_SCALE_BLOCK),
+        comptime!(k / form.block),
     )
 }
 
-/// Refuses `src`, loaded into a fragment of `T`, as an operand of the device's block-scaled
-/// instruction of `m × n × k` ([`MmaOperands::BlockScaled`]) unless it is one: packed `e2m1` values
-/// in shared memory under one level of scales, one every [`E2M1_SCALE_BLOCK`] values of `k`, served
-/// as stored, on a device that offers the instruction.
+/// Refuses `src`, loaded into a fragment of `T` in role `ident`, as an operand of the device's
+/// block-scaled instruction of `m × n × k` over `form` ([`MmaOperands::BlockScaled`]) unless it
+/// is one: packed codes in shared memory, the ones a register of the instruction holds for
+/// `ident` and as many to a word, under one level of scales, one every `form.block` values of
+/// `k`, served as stored, on a device that offers the instruction.
 /// A fragment already loaded passes: it was refused or admitted as it loaded, and holds the
 /// instruction's registers rather than the values it loaded them from.
 ///
-/// What the instruction takes is NVFP4: the leaf reads each block's scale at its first value and
-/// hands it over as `e4m3`, so the scales must cover sixteen values of `k` or a multiple of
-/// sixteen, each exact in `e4m3`. A per-tensor factor above them is the product's to apply: the
-/// instruction holds one level.
+/// The leaf reads each block's scale at its first value and hands it over as `form.scales`, so
+/// the scales must cover `form.block` values of `k` or a multiple of it, each exact in that type.
+/// Scales stored as [words](Packing::Words) are handed over a word at a time, so a word must be
+/// of the instruction's scale type and hold the scales of one step of it. A per-tensor factor
+/// above them is the product's to apply: the instruction holds one level.
 #[cube]
 pub(crate) fn assert_block_scaled<T: Numeric>(
     src: &Tile,
+    #[comptime] form: BlockScaledOperands,
+    #[comptime] ident: MatrixIdent,
     #[comptime] m: usize,
     #[comptime] n: usize,
     #[comptime] k: usize,
@@ -84,7 +95,7 @@ pub(crate) fn assert_block_scaled<T: Numeric>(
         | TileKind::TmaGmem(_)
         | TileKind::Procedural(_)
         | TileKind::Lines(_)
-        | TileKind::PlanePartition(_) => refuse_unless_block_scaled::<T>(src, m, n, k),
+        | TileKind::PlanePartition(_) => refuse_unless_block_scaled::<T>(src, form, ident, m, n, k),
     }
 }
 
@@ -92,6 +103,8 @@ pub(crate) fn assert_block_scaled<T: Numeric>(
 #[cube]
 fn refuse_unless_block_scaled<T: Numeric>(
     src: &Tile,
+    #[comptime] form: BlockScaledOperands,
+    #[comptime] ident: MatrixIdent,
     #[comptime] m: usize,
     #[comptime] n: usize,
     #[comptime] k: usize,
@@ -99,17 +112,38 @@ fn refuse_unless_block_scaled<T: Numeric>(
     let packing = src.packing();
     let shared = src.is_shared();
     let levels = src.factor_levels();
-    let offered = offers_block_scaled(m, n, k);
+    let word_field = src.innermost_factor().word_field();
+    let offered = offers_block_scaled(form, m, n, k);
     let as_stored = served_as_stored::<T>();
+    let registers = codes_per_register(form, ident, m, n, k);
     comptime!({
-        let e2m1 = matches!(packing, Packing::Packed { field } if field.holds_e2m1());
+        let held = match ident {
+            MatrixIdent::A => form.lhs,
+            _ => form.rhs,
+        };
+        let stored = match packing {
+            Packing::Packed { field } => field.code().map(|code| (code, field.per_word())),
+            Packing::Plain | Packing::Words { .. } => None,
+        };
+        let scale_field = Field::of_float(form.scales);
+        let step_scales = k / form.block;
         let refusal = if !offered {
             Some(format!(
-                "the device offers no block-scaled instruction of {m}x{n}x{k}"
+                "the device offers no block-scaled instruction of {m}x{n}x{k} over {form:?}"
             ))
-        } else if !e2m1 {
+        } else if ElemType::Float(held).size_bits() != 8 {
             Some(format!(
-                "the operand is stored as {packing:?}, not packed e2m1 values"
+                "a register of the instruction holds its {held:?} codes one a byte, which no \
+                 packed word stores"
+            ))
+        } else if stored.map(|(code, _)| code) != code_of(held) {
+            Some(format!(
+                "the operand is stored as {packing:?}, not packed {held:?} codes"
+            ))
+        } else if stored.map(|(_, per_word)| per_word) != Some(registers) {
+            Some(format!(
+                "the operand stores {packing:?} words, and a register of the instruction holds \
+                 {registers} {held:?} codes"
             ))
         } else if !as_stored {
             Some(
@@ -124,9 +158,20 @@ fn refuse_unless_block_scaled<T: Numeric>(
                 "the operand carries {levels} levels of scales and the instruction reads one; \
                  take the coarser ones out for the sum (`Tile::factor`)"
             ))
-        } else if !k.is_multiple_of(E2M1_SCALE_BLOCK) {
+        } else if !k.is_multiple_of(form.block) {
             Some(format!(
-                "a depth of {k} is not whole blocks of {E2M1_SCALE_BLOCK}"
+                "a depth of {k} is not whole blocks of {}",
+                form.block
+            ))
+        } else if word_field.is_some_and(|field| field != scale_field) {
+            Some(format!(
+                "the scales are words of {word_field:?}, and the instruction reads {:?}",
+                form.scales
+            ))
+        } else if word_field.is_some_and(|field| field.per_word() != step_scales) {
+            Some(format!(
+                "a word holds {} scales, and one step of the instruction reads {step_scales}",
+                scale_field.per_word()
             ))
         } else {
             None
@@ -135,6 +180,33 @@ fn refuse_unless_block_scaled<T: Numeric>(
             panic!("MmaOperands::BlockScaled: {refusal}");
         }
     });
+}
+
+/// The code a register element of a block-scaled instruction holds: `e2m1x2` two `e2m1`. `None`
+/// for one no stored field holds.
+fn code_of(kind: FloatKind) -> Option<QuantValue> {
+    match kind {
+        FloatKind::E2M1x2 | FloatKind::E2M1 => Some(QuantValue::E2M1),
+        FloatKind::E4M3 => Some(QuantValue::E4M3),
+        FloatKind::E5M2 => Some(QuantValue::E5M2),
+        _ => None,
+    }
+}
+
+/// Codes one register of the block-scaled instruction of `m × n × k` over `form` holds in role
+/// `ident`.
+#[cube]
+fn codes_per_register(
+    #[comptime] form: BlockScaledOperands,
+    #[comptime] ident: MatrixIdent,
+    #[comptime] m: usize,
+    #[comptime] n: usize,
+    #[comptime] k: usize,
+) -> comptime_type!(usize) {
+    register_block_scaled_elements(form);
+    let def = block_scaled_definition::<f32>(form, m, n, k);
+    let elements = def.vector_size(ident);
+    comptime!(elements * held_per_element(form, ident))
 }
 
 /// Whether a fragment of `T` holds the codes as they are stored, which the block-scaled
@@ -152,26 +224,17 @@ fn served_as_stored<T: Numeric>() -> comptime_type!(bool) {
     })
 }
 
-/// Whether the device offers the block-scaled instruction of `m × n × k` over `e2m1` operands
-/// under `e4m3` scales, read off its properties at expansion.
+/// Whether the device offers the block-scaled instruction of `m × n × k` over `form`, read off
+/// its properties at expansion.
 #[cube]
 fn offers_block_scaled(
+    #[comptime] form: BlockScaledOperands,
     #[comptime] m: usize,
     #[comptime] n: usize,
     #[comptime] k: usize,
 ) -> comptime_type!(bool) {
     intrinsic!(|scope| {
-        let fp4 = ElemType::Float(FloatKind::E2M1x2);
-        let wanted = ScaledMmaConfig {
-            a_type: fp4,
-            b_type: fp4,
-            cd_type: ElemType::Float(FloatKind::F32),
-            scales_type: ElemType::Float(FloatKind::E4M3),
-            m: m as u32,
-            n: n as u32,
-            k: k as u32,
-            scales_factor: (k / E2M1_SCALE_BLOCK) as u32,
-        };
+        let wanted = form.instruction(m, n, k);
         scope
             .state()
             .device_properties
@@ -180,31 +243,33 @@ fn offers_block_scaled(
     })
 }
 
-/// Load a block-scaled operand: each unit's words of `src`'s stored `e2m1` values where the
-/// instruction places its registers, each a run of eight values along `k`, and the four scales
-/// of the row (for `A`) or column (for `B`) its scale register serves, one every
-/// [`E2M1_SCALE_BLOCK`] values of the instruction's `k`. `layout` is the window's: an `A` read
-/// along its rows, a `B` along its columns where it lies col-major, the stored words running along
-/// `k` either way.
+/// Load a block-scaled operand of `form`: each unit's words of `src`'s stored codes where the
+/// instruction places its registers, each a run of a word's codes along `k`, and the scales of the
+/// row (for `A`) or column (for `B`) its scale register serves, one every `form.block` values of
+/// the instruction's `k`. `layout` is the window's: an `A` read along its rows, a `B` along its
+/// columns where it lies col-major, the stored words running along `k` either way.
 ///
 /// The words come in one `ldmatrix` for the whole fragment where `io` lets the role load through
 /// it and a stage in shared memory holds them ([`load_block_scaled_ldmatrix`]); a word at a time
 /// otherwise.
 ///
-/// Scales stored as words of four, as an NVFP4 checkpoint packs them, are one load each, straight
-/// into the register; scales stored one to a value are read and narrowed one at a time.
+/// Scales stored as [words](Packing::Words) of a step's scales, as a checkpoint packs them, are one
+/// load each, straight into the register; scales stored one to a value are read and narrowed one
+/// at a time.
 #[cube]
-pub(crate) fn load_block_scaled<NV: Size, NS: Size>(
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
     src: &Tile,
-    values: &mut Array<Vector<e2m1x2, NV>>,
-    scales: &mut Array<Vector<e4m3, NS>>,
+    values: &mut Array<Vector<C, NV>>,
+    scales: &mut Array<Vector<BlockScale, NS>>,
+    #[comptime] form: BlockScaledOperands,
     #[comptime] ident: MatrixIdent,
     #[comptime] layout: MatrixLayout,
     #[comptime] io: MmaIo,
     #[comptime] shape: (usize, usize, usize),
 ) {
     let (m, n, k) = comptime!(shape);
-    let def = block_scaled_definition::<f32>(m, n, k);
+    let def = block_scaled_definition::<f32>(form, m, n, k);
     let space = comptime!(src.place.space.clone());
     // The window's rows are the served axis, its columns the contraction, however many axes
     // make it up: a block-split space states `k` as its blocks and the position inside one.
@@ -232,16 +297,22 @@ pub(crate) fn load_block_scaled<NV: Size, NS: Size>(
         "MmaData::load_block_scaled: the instruction reads both operands along `k`, so a \
          block-scaled window holds its words along `k`: an `A` row-major and a `B` col-major"
     ));
-    // A register of the instruction is one stored word, eight values; the window may be read a
-    // whole line of words at a time, up to the sixteen bytes one unit reads at once.
+    // A register of the instruction is one stored word (`assert_block_scaled`); the window may be
+    // read a whole line of words at a time, up to the sixteen bytes one unit reads at once.
+    let packing = src.packing();
+    let per_word = comptime!(match packing {
+        Packing::Packed { field } => field.per_word(),
+        Packing::Plain | Packing::Words { .. } => {
+            panic!("MmaData::load_block_scaled: a block-scaled operand is packed codes")
+        }
+    });
     let load = src.vector_tile();
-    let line_words = comptime!(load.values() / E2M1_PER_WORD);
+    let line_words = comptime!(load.values() / per_word);
     comptime!(assert!(
-        load.values().is_multiple_of(E2M1_PER_WORD)
-            && LDMATRIX_ROW_WORDS.is_multiple_of(line_words),
-        "MmaData::load_block_scaled: a register of the instruction is one stored word, eight \
-         `e2m1` values, read out of lines of whole words up to sixteen bytes; this window is read \
-         {} values a load",
+        load.values().is_multiple_of(per_word) && LDMATRIX_ROW_WORDS.is_multiple_of(line_words),
+        "MmaData::load_block_scaled: a register of the instruction is one stored word, {per_word} \
+         codes, read out of lines of whole words up to sixteen bytes; this window is read {} \
+         values a load",
         load.values()
     ));
     let size!(WP) = line_words;
@@ -257,17 +328,21 @@ pub(crate) fn load_block_scaled<NV: Size, NS: Size>(
     match method {
         LoadMethod::LoadMatrix => {
             load_block_scaled_ldmatrix(
-                src, &words, values, &def, ident, axes, transposed, line_words,
+                src, &words, values, &def, form, ident, axes, transposed, line_words, per_word,
             );
         }
         LoadMethod::Manual => {
-            // An `e2m1x2` holds two values.
+            // An element of the register holds `per_element` codes: an `e2m1x2` two.
             let per_register = def.vector_size(ident);
+            let per_element = comptime!(held_per_element(form, ident));
             let registers = def.vectors_per_lane(ident);
             #[unroll]
             for i in 0..registers {
-                let (row, col) =
-                    def.position_of_nth(unit, comptime!((i * per_register * 2) as u32), ident);
+                let (row, col) = def.position_of_nth(
+                    unit,
+                    comptime!((i * per_register * per_element) as u32),
+                    ident,
+                );
                 let (window_row, window_col) = if comptime!(transposed) {
                     (col, row)
                 } else {
@@ -277,10 +352,9 @@ pub(crate) fn load_block_scaled<NV: Size, NS: Size>(
                     TileMatrix::value_coords(window_row, window_col, 0usize, &space, axes, 1usize);
                 // The window's columns run along `k` whichever its layout.
                 let line = words.read(load.index(&at, &space));
-                let word =
-                    window_col / comptime!(E2M1_PER_WORD as u32) % comptime!(line_words as u32);
+                let word = window_col / comptime!(per_word as u32) % comptime!(line_words as u32);
                 values[i] =
-                    Vector::<e2m1x2, NV>::reinterpret(line.extract_dynamic(word.cast::<usize>()));
+                    Vector::<C, NV>::reinterpret(line.extract_dynamic(word.cast::<usize>()));
             }
         }
     }
@@ -290,26 +364,22 @@ pub(crate) fn load_block_scaled<NV: Size, NS: Size>(
     let factor = src.innermost_factor();
     let packed_scales = factor.holds_words();
     if comptime!(packed_scales) {
-        // The step's four scales as the operand stores them: one word, the register itself.
-        comptime!(assert!(
-            k / E2M1_SCALE_BLOCK == 4,
-            "MmaData::load_block_scaled: a word holds four block scales, and this step reads {}",
-            k / E2M1_SCALE_BLOCK
-        ));
+        // The step's scales as the operand stores them: one word, the register itself
+        // (`assert_block_scaled` holds a word to a step's scales).
         let at = TileMatrix::value_coords(served, 0u32.runtime(), 0usize, &space, axes, 1usize);
         let word = factor.word_at(&at, comptime!(space.clone()));
-        scales[0] = Vector::<e4m3, NS>::reinterpret(word);
+        scales[0] = Vector::<BlockScale, NS>::reinterpret(word);
     } else {
-        let mut register = Vector::<e4m3, NS>::empty();
+        let mut register = Vector::<BlockScale, NS>::empty();
         #[unroll]
-        for b in 0..comptime!(k / E2M1_SCALE_BLOCK) {
+        for b in 0..comptime!(k / form.block) {
             // The window's rows are the served axis whichever its layout: an `A`'s rows, a
             // `B`'s columns lying col-major.
-            let along_k = comptime!((b * E2M1_SCALE_BLOCK) as u32);
+            let along_k = comptime!((b * form.block) as u32);
             let at =
                 TileMatrix::value_coords(served, along_k.runtime(), 0usize, &space, axes, 1usize);
             let scale = factor.at_coords(&at, comptime!(space.clone()), comptime!(Guard::Checked));
-            register.insert(b, e4m3::cast_from(scale));
+            register.insert(b, BlockScale::cast_from(scale));
         }
         scales[0] = register;
     }
@@ -326,27 +396,35 @@ pub(crate) fn load_block_scaled<NV: Size, NS: Size>(
 /// The address is the window's own arrangement of the row ([`Masked::line_slice`]), so a swizzled
 /// stage is read where its fill wrote it.
 #[cube]
-fn load_block_scaled_ldmatrix<WP: Size, NV: Size>(
+#[allow(clippy::too_many_arguments)]
+fn load_block_scaled_ldmatrix<C: Scalar, WP: Size, NV: Size>(
     src: &Tile,
     words: &Masked<'_, Vector<u32, WP>, CoordsDyn>,
-    values: &mut Array<Vector<e2m1x2, NV>>,
-    def: &MmaDefinition<e2m1x2, e2m1x2, f32>,
+    values: &mut Array<Vector<C, NV>>,
+    def: &MmaDefinition<LhsCodes, RhsCodes, f32>,
+    #[comptime] form: BlockScaledOperands,
     #[comptime] ident: MatrixIdent,
     #[comptime] axes: MatrixAxes,
     #[comptime] transposed: bool,
     #[comptime] line_words: usize,
+    #[comptime] per_word: usize,
 ) {
     let space = comptime!(src.place.space.clone());
     let load = src.vector_tile();
     let rank = comptime!(space.rank());
-    // An `e2m1x2` holds two values; a register is one word.
+    // An element of the register holds `per_element` codes, an `e2m1x2` two; a register is one
+    // word.
     let per_register = def.vector_size(ident);
+    let per_element = comptime!(held_per_element(form, ident));
     let registers = def.vectors_per_lane(ident);
     let unit = UNIT_POS_PLANE;
     let row_in_matrix = unit % 8;
     let nth_matrix = unit / 8 % comptime!(registers as u32);
-    let (row, col) =
-        def.position_of_nth(0, nth_matrix * comptime!((per_register * 2) as u32), ident);
+    let (row, col) = def.position_of_nth(
+        0,
+        nth_matrix * comptime!((per_register * per_element) as u32),
+        ident,
+    );
     // The window's rows are the served axis whichever its layout, its words along `k`.
     let (window_row, window_col) = if comptime!(transposed) {
         (col + row_in_matrix, row)
@@ -359,9 +437,9 @@ fn load_block_scaled_ldmatrix<WP: Size, NV: Size>(
     for p in 0..rank {
         // One row of a matrix: sixteen bytes of words along `k`, the innermost axis in its lines.
         let extent = comptime!({
-            let values = axes.col_run(&space, LDMATRIX_ROW_WORDS * E2M1_PER_WORD)[p];
+            let values = axes.col_run(&space, LDMATRIX_ROW_WORDS * per_word)[p];
             match p == rank - 1 {
-                true => (values / (line_words * E2M1_PER_WORD)) as u32,
+                true => (values / (line_words * per_word)) as u32,
                 false => values as u32,
             }
         });
@@ -371,12 +449,21 @@ fn load_block_scaled_ldmatrix<WP: Size, NV: Size>(
     let regs = def.load_matrix::<Vector<u32, WP>, Const<1>>(row_slice, ident, registers, false);
     #[unroll]
     for i in 0..registers {
-        values[i] = Vector::<e2m1x2, NV>::reinterpret(regs[i].extract(0usize));
+        values[i] = Vector::<C, NV>::reinterpret(regs[i].extract(0usize));
     }
 }
 
-/// Whether the device offers `ldmatrix`, which moves 16-bit cells: words of `e2m1` values move as
-/// pairs of them. Read off its properties at expansion.
+/// Codes one element of a register of `form`'s instruction holds in role `ident`: two for an
+/// `e2m1x2`, one otherwise.
+fn held_per_element(form: BlockScaledOperands, ident: MatrixIdent) -> usize {
+    BlockScaledOperands::values_per_element(match ident {
+        MatrixIdent::A => form.lhs,
+        _ => form.rhs,
+    })
+}
+
+/// Whether the device offers `ldmatrix`, which moves 16-bit cells: words of codes move as pairs of
+/// them. Read off its properties at expansion.
 #[cube]
 fn loads_words_as_matrix() -> comptime_type!(bool) {
     intrinsic!(|scope| {
@@ -397,17 +484,20 @@ fn loads_words_as_matrix() -> comptime_type!(bool) {
 /// `acc += lhs · rhs` over two block-scaled operand fragments via
 /// `MmaDefinition::execute_scaled`.
 #[cube]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn mma_execute_block_scaled<A: Numeric>(
-    lhs: &Array<Vector<e2m1x2, NLB>>,
-    lhs_scales: &Array<Vector<e4m3, NSB>>,
-    rhs: &Array<Vector<e2m1x2, NRB>>,
-    rhs_scales: &Array<Vector<e4m3, NSB>>,
+    lhs: &Array<Vector<LhsCodes, NLB>>,
+    lhs_scales: &Array<Vector<BlockScale, NSB>>,
+    rhs: &Array<Vector<RhsCodes, NRB>>,
+    rhs_scales: &Array<Vector<BlockScale, NSB>>,
     acc: &mut Array<Vector<A, NA>>,
+    #[comptime] form: BlockScaledOperands,
     #[comptime] m: usize,
     #[comptime] n: usize,
     #[comptime] k: usize,
 ) {
-    let def = block_scaled_definition::<A>(m, n, k);
+    register_block_scaled_elements(form);
+    let def = block_scaled_definition::<A>(form, m, n, k);
     let out = def.execute_scaled(lhs, rhs, &*acc, lhs_scales[0], rhs_scales[0]);
     let num = def.vectors_per_lane(MatrixIdent::Accumulator);
     #[unroll]

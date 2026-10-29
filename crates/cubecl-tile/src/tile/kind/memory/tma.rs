@@ -78,7 +78,7 @@ impl TmaData {
         );
         // A packed stage holds the words the box moves, which the descriptor names at `T`.
         match comptime!(dst.store.packing) {
-            Packing::Plain => self.view::<T>().tensor_map_load(
+            Packing::Plain | Packing::Words { .. } => self.view::<T>().tensor_map_load(
                 barrier,
                 dst.store.buffer_mut::<T>(),
                 self.pos.clone(),
@@ -127,7 +127,7 @@ impl TmaData {
         if UNIT_POS == 0 {
             // As `stage_into`: a packed stage holds words the descriptor names at `T`.
             match comptime!(src.store.packing) {
-                Packing::Plain => self
+                Packing::Plain | Packing::Words { .. } => self
                     .view::<T>()
                     .tensor_map_store(src.store.buffer::<T>(), self.pos.clone())
                     .wait(),

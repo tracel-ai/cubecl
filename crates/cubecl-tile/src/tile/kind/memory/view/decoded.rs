@@ -46,7 +46,9 @@ impl<O: Float, W: Size> Decoded<O, W> {
     fn read_under(&self, row: usize, line: usize, #[comptime] guard: Guard) -> Vector<O, W> {
         let packing = self.window.packing();
         match comptime!(packing) {
-            Packing::Plain => read_plain_line::<O, W>(&self.window, row, line, guard),
+            Packing::Plain | Packing::Words { .. } => {
+                read_plain_line::<O, W>(&self.window, row, line, guard)
+            }
             Packing::Packed { .. } => read_packed_line::<O, W>(&self.window, row, line, guard),
         }
     }
@@ -70,7 +72,7 @@ impl Tile {
     pub fn decoded<O: Float, W: Size>(&self) -> Decoded<O, W> {
         let (packing, scaled) = (self.packing(), self.factor.scaled());
         comptime!(assert!(
-            packing != Packing::Plain || !scaled,
+            !packing.as_stored() || !scaled,
             "Tile::decoded: plain values under scales are decoded by a copy (`dequantize_from`)"
         ));
         Decoded::<O, W> {
@@ -114,7 +116,8 @@ fn read_packed_line<O: Float, W: Size>(
     let packing = window.packing();
     let field = comptime!(match packing {
         Packing::Packed { field } => field,
-        Packing::Plain => unreachable!("Tile::decoded serves plain values as they lie"),
+        Packing::Plain | Packing::Words { .. } =>
+            unreachable!("Tile::decoded serves plain values as they lie"),
     });
     let (bits, per_word) = comptime!((field.size_bits() as u32, field.per_word()));
     let width = W::value();

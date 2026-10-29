@@ -14,15 +14,20 @@
 use cubecl::{
     cmma::{MatrixIdent, MatrixLayout, MmaDefinition},
     e2m1x2, e4m3,
+    ir::types::Fp8Format,
     prelude::*,
 };
 
-use super::block_scaled::{E2M1_PER_WORD, E2M1_SCALE_BLOCK};
-use super::lane_runs::{instruction_depth, lays_out_lane_runs};
+use super::lane_runs::{E2M1_PER_WORD, instruction_depth, lays_out_lane_runs};
 use crate::*;
 
 /// `e4m3` block scales one word of them holds.
 const SCALES_PER_WORD: usize = 4;
+
+/// Values of `k` one `e4m3` scale of a word covers: the words this decodes are NVFP4's, four
+/// blocks of sixteen. Words of another field, or of another block, are refused
+/// ([`steps_refusal`]): a word read whole does not say its block.
+const E2M1_SCALE_BLOCK: usize = 16;
 
 /// Why `src`, a shared-memory window of an `m × n × k` fragment of `T` in role `ident`, cannot
 /// load a step at a time; `None` where it can: a fragment deeper than its instruction over a plain
@@ -44,7 +49,7 @@ pub(crate) fn steps_refusal<T: Numeric>(
     let bytes = T::size().comptime();
     let packing = src.packing();
     let levels = src.factor_levels();
-    let words = src.innermost_factor().holds_words();
+    let word_field = src.innermost_factor().word_field();
     let e2m1_weight = comptime!(
         ident == MatrixIdent::B
             && layout == MatrixLayout::ColMajor
@@ -52,11 +57,11 @@ pub(crate) fn steps_refusal<T: Numeric>(
     );
     comptime!(if k <= depth {
         Some("the fragment is one instruction deep, which loads as one")
-    } else if packing == Packing::Plain && levels == 0 {
+    } else if packing.as_stored() && levels == 0 {
         None
     } else if (m, n, depth) != (16, 8, 16) || bytes != 2 || !laid_out {
         Some("a step's registers are read off the 16-bit m16n8k16 layout, which this is not")
-    } else if !e2m1_weight || levels != 1 || !words {
+    } else if !e2m1_weight || levels != 1 || word_field != Some(Field::Fp8(Fp8Format::E4M3)) {
         Some(
             "a packed window loads a step at a time only as a B of e2m1 codes along `k` under \
              words of e4m3 block scales",
@@ -95,7 +100,7 @@ pub(crate) fn load_in_steps<T: Numeric, N: Size>(
     });
     let packing = src.packing();
     match comptime!(packing) {
-        Packing::Plain =>
+        Packing::Plain | Packing::Words { .. } =>
         {
             #[unroll]
             for s in 0..comptime!(k / depth) {
