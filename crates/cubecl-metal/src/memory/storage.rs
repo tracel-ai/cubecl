@@ -1,3 +1,6 @@
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_server::command::CopyLayout;
+use cubecl_server::server::IoError;
 use cubecl_server::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
@@ -41,12 +44,35 @@ impl MetalResource {
         self.size as usize
     }
 
-    /// The slice's first byte, as the host sees it: Metal buffers are shared
-    /// with the host, so this is the memory the device reads and writes.
-    pub fn host_ptr(&self) -> *mut u8 {
+    /// The slice's first byte, as the host sees it, for a host copy of `len`
+    /// bytes laid out as `layout`: Metal buffers are shared with the host, so
+    /// this is the memory the device reads and writes.
+    ///
+    /// # Errors
+    ///
+    /// A copy that reaches past the slice. The host's `memcpy` has no device
+    /// to fault on it: it would read or overwrite whatever pool slice sits
+    /// past this one, memory no failure ever claimed.
+    pub fn host_ptr(&self, layout: &CopyLayout<'_>, len: usize) -> Result<*mut u8, IoError> {
+        let extent = match layout.pitch {
+            None => len,
+            Some(pitch) => pitch
+                .height
+                .checked_sub(1)
+                .map_or(0, |rows| rows * pitch.stride_bytes + pitch.width_bytes),
+        };
+        if extent > self.size() {
+            return Err(IoError::Unknown {
+                description: format!(
+                    "a host copy spanning {extent} bytes exceeds the {} byte buffer",
+                    self.size()
+                ),
+                backtrace: BackTrace::capture(),
+            });
+        }
         // SAFETY: the slice lies inside the buffer, so the offset stays in
         // the allocation `contents` points at.
-        unsafe { (self.buffer.contents().as_ptr() as *mut u8).add(self.offset()) }
+        Ok(unsafe { (self.buffer.contents().as_ptr() as *mut u8).add(self.offset()) })
     }
 }
 

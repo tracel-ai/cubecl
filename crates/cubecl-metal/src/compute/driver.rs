@@ -12,7 +12,6 @@ use crate::compute::pipelines::MetalCompiledKernel;
 use crate::compute::stream::{MetalEvent, MetalStream, MetalStreamBackend, QueueRef};
 use crate::memory::{MetalResource, MetalStorage};
 use cubecl_common::bytes::Bytes;
-use cubecl_environment::backtrace::BackTrace;
 use cubecl_server::command::{CopyLayout, DeviceStream, Driver};
 use cubecl_server::id::KernelId;
 use cubecl_server::memory_management::drop_queue::PendingDropQueue;
@@ -102,11 +101,12 @@ impl Driver for Metal {
         stream: &MetalStream,
     ) -> Result<(), IoError> {
         stream.host_access("read")?;
-        let source = resource.host_ptr();
+        let source = resource.host_ptr(layout, bytes.len())?;
         let target = bytes.as_mut_ptr();
         match layout.pitch {
             // SAFETY: the stream has drained, so nothing writes the source,
-            // and both sides hold the bytes the destination was sized for.
+            // `host_ptr` checked the source holds the copy, and the
+            // destination was sized for it.
             None => unsafe { std::ptr::copy_nonoverlapping(source, target, bytes.len()) },
             Some(pitch) => {
                 for row in 0..pitch.height {
@@ -132,26 +132,11 @@ impl Driver for Metal {
         stream: &MetalStream,
     ) -> Result<(), IoError> {
         stream.host_access("write")?;
-        let target = resource.host_ptr();
+        let target = resource.host_ptr(layout, data.len())?;
         match layout.pitch {
-            None => {
-                // The one write the taint bookkeeping cannot record: an
-                // oversized copy corrupts whatever pool slice sits past the
-                // target, memory no failure ever claimed.
-                if resource.size() < data.len() {
-                    return Err(IoError::Unknown {
-                        description: format!(
-                            "write of {} bytes exceeds the target buffer of {} bytes",
-                            data.len(),
-                            resource.size()
-                        ),
-                        backtrace: BackTrace::capture(),
-                    });
-                }
-                // SAFETY: the stream has drained, so nothing reads or writes
-                // the target, and the check above covers its size.
-                unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), target, data.len()) };
-            }
+            // SAFETY: the stream has drained, so nothing reads or writes the
+            // target, and `host_ptr` checked it holds the copy.
+            None => unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), target, data.len()) },
             Some(pitch) => {
                 for row in 0..pitch.height {
                     // SAFETY: as above, a row at a time: `width_bytes` apart
@@ -174,11 +159,11 @@ impl Driver for Metal {
         target: &MetalResource,
         queue: QueueRef,
     ) -> Result<(), IoError> {
+        let mut queue = queue.get();
         // SAFETY: both are live slices of the same size on distinct buffers,
         // left alone until the queue's next fence has passed.
         unsafe {
             queue
-                .get()
                 .batch()
                 .blit()
                 .copyFromBuffer_sourceOffset_toBuffer_destinationOffset_size(
@@ -192,6 +177,9 @@ impl Driver for Metal {
                     source.size().next_multiple_of(4),
                 );
         }
+        // Counted as a launch is, so the batch holding it is work a profile
+        // window measures and the batch limits see.
+        queue.encoded(1, source.size());
         Ok(())
     }
 

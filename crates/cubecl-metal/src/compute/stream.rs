@@ -111,14 +111,13 @@ impl Batch {
     /// `signal` once it has run.
     fn commit(
         mut self,
-        signal: Option<(Retained<ProtocolObject<dyn MTLSharedEvent>>, u64)>,
+        signal: (Retained<ProtocolObject<dyn MTLSharedEvent>>, u64),
         fault: Arc<Mutex<Option<String>>>,
     ) -> Retained<ProtocolObject<dyn MTLCommandBuffer>> {
         self.end_pass();
-        if let Some((event, value)) = &signal {
-            let event: &ProtocolObject<dyn MTLEvent> = ProtocolObject::from_ref(&**event);
-            self.command_buffer.encodeSignalEvent_value(event, *value);
-        }
+        let (event, value) = &signal;
+        let event: &ProtocolObject<dyn MTLEvent> = ProtocolObject::from_ref(&**event);
+        self.command_buffer.encodeSignalEvent_value(event, *value);
         install_completion_handler(&self.command_buffer, self.temporaries, signal, fault);
         self.command_buffer.commit();
         self.command_buffer
@@ -126,14 +125,14 @@ impl Batch {
 }
 
 /// Installs a completion handler that drops `temporaries` and, on a failed
-/// command buffer, records the fault on the stream's sticky slot. `signal_event`
-/// is `Some` when the buffer signals an event; it is forced on failure so
-/// dependent waiters return promptly — and fail, because every wait checks the
-/// fault slot after its event lands.
+/// command buffer, records the fault on the stream's sticky slot. The event
+/// the buffer signals is forced on failure so dependent waiters return
+/// promptly — and fail, because every wait checks the fault slot after its
+/// event lands.
 fn install_completion_handler(
     command_buffer: &ProtocolObject<dyn MTLCommandBuffer>,
     temporaries: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
-    signal_event: Option<(Retained<ProtocolObject<dyn MTLSharedEvent>>, u64)>,
+    signal_event: (Retained<ProtocolObject<dyn MTLSharedEvent>>, u64),
     fault: Arc<Mutex<Option<String>>>,
 ) {
     let temporaries = Mutex::new(Some(temporaries));
@@ -169,9 +168,8 @@ fn install_completion_handler(
                 // Metal leaves encoded events unsignaled on fault; signal
                 // manually so a dependent wait returns promptly — with the
                 // fault recorded above.
-                if let Some((event, value)) = &signal_event {
-                    event.setSignaledValue(*value);
-                }
+                let (event, value) = &signal_event;
+                event.setSignaledValue(*value);
             }
         },
     );
@@ -379,7 +377,7 @@ impl MetalQueue {
     pub fn flush(&mut self) -> MetalEvent {
         self.event_counter += 1;
         let signal_value = self.event_counter;
-        let signal = Some((self.shared_event.clone(), signal_value));
+        let signal = (self.shared_event.clone(), signal_value);
 
         let batch = match self.batch.take() {
             Some(batch) => batch,
@@ -405,13 +403,33 @@ impl MetalQueue {
         MetalEvent::new(self.shared_event.clone(), signal_value, self.fault.clone())
     }
 
+    /// Count `ops` dispatches touching `bytes` of memory toward the open
+    /// batch and commit it now, whatever the thresholds say.
+    pub fn submit(&mut self, ops: usize, bytes: usize) -> MetalEvent {
+        self.batch_ops += ops;
+        self.batch_bytes += bytes;
+        self.flush()
+    }
+
     /// Commit the open batch and wait until everything submitted has run.
     ///
     /// # Errors
     ///
     /// The fault the wait reveals, when the stream failed at execution time.
     pub fn drain(&mut self) -> Result<(), ServerError> {
-        self.flush().wait_sync()
+        // Every command buffer the queue commits signals, so with no batch
+        // open the last signal covers them all: an idle stream is drained
+        // without an empty command buffer's round trip to the GPU — each of
+        // a write's copies drains the stream.
+        let event = match self.batch {
+            Some(_) => self.flush(),
+            None => MetalEvent::new(
+                self.shared_event.clone(),
+                self.event_counter,
+                self.fault.clone(),
+            ),
+        };
+        event.wait_sync()
     }
 
     /// Waits on a previously submitted command buffer if total queued ops
@@ -468,14 +486,17 @@ pub struct MetalStream {
 
 impl std::fmt::Debug for MetalStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let queue = self.queue();
-        f.debug_struct("MetalStream")
-            .field("has_batch", &queue.batch.is_some())
-            .field("batch_ops", &queue.batch_ops)
-            .field("batch_bytes", &queue.batch_bytes)
-            .field("event_counter", &queue.event_counter)
-            .field("recording", &self.recording.len())
-            .finish()
+        let mut debug = f.debug_struct("MetalStream");
+        // Formatted from inside a call that holds the queue, such as an error
+        // logged mid-replay, the queue is left out rather than panicking.
+        if let Ok(queue) = self.queue.try_borrow() {
+            debug
+                .field("has_batch", &queue.batch.is_some())
+                .field("batch_ops", &queue.batch_ops)
+                .field("batch_bytes", &queue.batch_bytes)
+                .field("event_counter", &queue.event_counter);
+        }
+        debug.field("recording", &self.recording.len()).finish()
     }
 }
 
@@ -611,19 +632,17 @@ impl MetalEvent {
             return;
         }
 
-        if let Some(batch) = queue.batch.take() {
-            queue.last_command_buffer = Some(batch.commit(None, queue.fault.clone()));
-        }
-
-        let command_buffer = queue
-            .queue
-            .commandBuffer()
-            .expect("Failed to create command buffer");
-
+        // Encoded between the passes of the batch being filled: what the batch
+        // already holds runs as it would have, what follows waits, and the
+        // flush that commits it signals after the wait — so the batch's
+        // accounting and a drain both cover it.
+        let batch = queue.batch();
+        batch.end_pass();
         let event_ref: &ProtocolObject<dyn MTLEvent> =
             ProtocolObject::from_ref(&*self.shared_event);
-        command_buffer.encodeWaitForEvent_value(event_ref, self.value);
-        command_buffer.commit();
+        batch
+            .command_buffer
+            .encodeWaitForEvent_value(event_ref, self.value);
     }
 }
 

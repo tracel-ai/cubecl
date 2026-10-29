@@ -268,6 +268,63 @@ fn metal_graph_many_launches_dynamic_metadata() {
     assert_eq!((read(&a), read(&b)), simulate(100.0, 1));
 }
 
+/// One graph replayed in turn on two streams, with no read between replays:
+/// each replay runs after the one before it, whichever stream that was on, as
+/// CUDA orders the launches of one graph. Metal orders work on one queue only,
+/// and a replay rewrites the commands the last one may still be running.
+#[test]
+fn metal_graph_replays_on_two_streams_run_in_order() {
+    const N: usize = 1 << 16;
+    const CUBE: u32 = 256;
+    const PASS_LAUNCHES: usize = 100;
+    const REPLAYS: usize = 8;
+
+    // One pass: ping-pong `dst = src + 1` between `a` and `b`, so a pass
+    // adds `PASS_LAUNCHES` to `a` only if each launch follows the last.
+    fn run_pass(client: &Client, a: &Handle, b: &Handle) {
+        for i in 0..PASS_LAUNCHES {
+            let (src, dst) = if i % 2 == 0 { (a, b) } else { (b, a) };
+            add_one_tensor::launch(
+                client,
+                CubeCount::Static(N as u32 / CUBE, 1, 1),
+                CubeDim::new_1d(CUBE),
+                // SAFETY: `src`/`dst` are contiguous rank-1 buffers of exactly
+                // `N` f32 elements, matching the declared shape and strides.
+                unsafe { TensorArg::from_raw_parts(src.clone(), [1].into(), [N].into()) },
+                unsafe { TensorArg::from_raw_parts(dst.clone(), [1].into(), [N].into()) },
+            );
+        }
+    }
+
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = MetalRuntime::client(&Default::default());
+    let owner = StreamId { value: 4_000_011 };
+    let other = StreamId { value: 4_000_012 };
+
+    let (a, b, graph) = owner.executes(|| {
+        let a = client.create_from_slice(f32::as_bytes(&[0.0f32; N]));
+        let b = client.create_from_slice(f32::as_bytes(&[0.0f32; N]));
+        client.graph_prepare().expect("graph_prepare");
+        run_pass(&client, &a, &b);
+        let _ = client.read_one(a.clone()).unwrap();
+        client.start_capture().expect("start_capture");
+        run_pass(&client, &a, &b);
+        (a, b, client.stop_capture().expect("stop_capture"))
+    });
+
+    for replay in 0..REPLAYS {
+        let stream = if replay % 2 == 0 { other } else { owner };
+        stream.executes(|| unsafe { graph.replay() }.expect("replay enqueues"));
+    }
+
+    // The warmup and every replay ran, each launch after the last.
+    let launches = ((1 + REPLAYS) * PASS_LAUNCHES) as f32;
+    let a = owner.executes(|| client.read_one(a).unwrap());
+    let b = owner.executes(|| client.read_one(b).unwrap());
+    assert_eq!(f32::from_bytes(&a), vec![launches; N]);
+    assert_eq!(f32::from_bytes(&b), vec![launches - 1.0; N]);
+}
+
 /// Out-of-order lifecycle calls are rejected and leave the stream usable.
 #[test]
 fn metal_graph_lifecycle_state_errors() {

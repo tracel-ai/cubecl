@@ -9,7 +9,7 @@
 
 use crate::compute::driver::{Metal, MetalBindings};
 use crate::compute::pipelines::MetalCompiledKernel;
-use crate::compute::stream::MetalStream;
+use crate::compute::stream::{MetalEvent, MetalStream};
 use cubecl_server::command::GraphDriver;
 use cubecl_server::server::ServerError;
 use objc2::rc::Retained;
@@ -20,6 +20,7 @@ use objc2_metal::{
     MTLIndirectCommandBuffer, MTLIndirectCommandBufferDescriptor, MTLIndirectCommandType,
     MTLIndirectComputeCommand, MTLResource, MTLResourceOptions, MTLResourceUsage, MTLSize,
 };
+use std::cell::Cell;
 use std::ptr::NonNull;
 
 /// Where each recorded dispatch's metadata starts in the graph's metadata
@@ -77,6 +78,11 @@ struct Commands {
     encoded: Retained<ProtocolObject<dyn MTLIndirectCommandBuffer>>,
     /// Rewritten from `encoded` by every replay, then run.
     replayed: Retained<ProtocolObject<dyn MTLIndirectCommandBuffer>>,
+    /// Signalled once the last replay has run. A replay on another stream
+    /// waits on it: Metal orders work on one queue only, and the next replay
+    /// rewrites `replayed` while the last may still be running it — the
+    /// order CUDA gives the launches of one graph on any stream.
+    last_replay: Cell<Option<MetalEvent>>,
     dispatches: usize,
     /// The bytes the dispatches bind, counted toward the batch a replay
     /// lands in as a launch's are.
@@ -199,6 +205,7 @@ impl Commands {
         Ok(Self {
             encoded,
             replayed,
+            last_replay: Cell::new(None),
             dispatches,
             bytes,
             _resident: resident,
@@ -281,6 +288,9 @@ impl GraphDriver for Metal {
         let range = NSRange::new(0, commands.dispatches);
 
         let mut queue = stream.queue();
+        if let Some(last) = commands.last_replay.take() {
+            last.wait_async(&mut queue);
+        }
         let batch = queue.batch();
         // SAFETY: both command buffers were made from the same descriptor for
         // `commands.dispatches` commands, which the range spans.
@@ -311,7 +321,11 @@ impl GraphDriver for Metal {
         );
         // SAFETY: the commands bind only buffers declared resident above.
         unsafe { encoder.executeCommandsInBuffer_withRange(&commands.replayed, range) };
-        queue.encoded(commands.dispatches, commands.bytes);
+        // Committed now, as a graph launch is, so the event says when this
+        // replay has run.
+        commands
+            .last_replay
+            .set(Some(queue.submit(commands.dispatches, commands.bytes)));
         Ok(())
     }
 }
