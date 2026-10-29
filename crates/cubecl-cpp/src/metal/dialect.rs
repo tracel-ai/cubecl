@@ -4,7 +4,7 @@ use cubecl_core::ir::{
     ElemType, FloatKind,
     dialect::{
         general::PrintfOp,
-        synchronization::{SyncOp, SyncScope},
+        synchronization::{SyncOp, SyncPlaneStorageOp, SyncScope},
     },
     features::MmaConfig,
 };
@@ -65,6 +65,11 @@ metal_op!(SyncOp, |op, ctx| {
         SyncScope::Unit => "",
     }
     .into()
+});
+
+// The simdgroup barrier's device flag is what orders the plane's storage writes for its own units.
+metal_op!(SyncPlaneStorageOp, |_, _| {
+    "simdgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);\n".into()
 });
 
 // Coop Matrices dialect

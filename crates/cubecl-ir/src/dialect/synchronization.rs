@@ -47,6 +47,25 @@ impl Synchronizes for SyncOp {
     }
 }
 
+/// A plane barrier that also orders storage memory: the units of the plane meet, as at a
+/// [`SyncOp`] at [`Plane`](SyncScope::Plane) scope, and every write one of them made to storage
+/// before it is visible to the others after it. A plane barrier alone orders shared memory only.
+/// It reaches no further than the plane: other planes and other cubes are not ordered by it.
+#[cube_op(name = "sync.sync_plane_storage")]
+#[result_ty(none)]
+#[op_traits(CanMaterialize, HasSideEffects)]
+pub struct SyncPlaneStorageOp {}
+
+#[op_interface_impl]
+impl Synchronizes for SyncPlaneStorageOp {
+    fn minimum_scope(&self, _ctx: &Context) -> SyncScope {
+        SyncScope::Plane
+    }
+    fn maximum_scope(&self, _ctx: &Context) -> SyncScope {
+        SyncScope::Plane
+    }
+}
+
 /// Fences the async proxy in CUDA, to make shared memory available to it. Does not implement
 /// `Synchronizes`, because it works only as a memory availability barrier with an outside chip.
 /// It does not synchronize the actual threads, and is typically called only by the TMA leader.
