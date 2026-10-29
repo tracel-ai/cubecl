@@ -21,8 +21,8 @@ use cubecl_common::{e2m1, e4m3};
 use cubecl_tile::stage::RowChunks;
 use cubecl_tile::{
     Axis, Instruction, Level, Levels, MmaOperands, Partitioning, Projection, Semiring, Space,
-    StageStorage, Stages, TileArg, TileArgLaunch, TileSpec, kind::Field, layout::PhysicalAxisMap,
-    ops::matmul::MmaIo,
+    StageStorage, Stages, Tile, TileArg, TileArgLaunch, TileSpec, kind::Field,
+    layout::PhysicalAxisMap, ops::matmul::MmaIo,
 };
 use half::f16;
 
@@ -59,6 +59,25 @@ enum Staged {
     BothKeptTiled(RowChunks),
 }
 
+/// Which factor the accumulator is opened on and the contraction handed first: the one filling
+/// the instruction's `A`, whose free axis the accumulator's rows lie along.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum First {
+    /// `a`, the activation: the accumulator `(m, n)`.
+    Activation,
+    /// `b`, the weight: the accumulator `(n, m)`, `b` decoded into `A`.
+    Weight,
+}
+
+/// `acc += a · b`, the factors handed over in the order `first` says.
+#[cube]
+fn contract(acc: &mut Tile, a: &Tile, b: &Tile, #[comptime] first: First) {
+    match comptime!(first) {
+        First::Activation => acc.mma(a, b),
+        First::Weight => acc.mma(b, a),
+    }
+}
+
 /// `c = a · b`, a leaf of `WINDOW` along `k` at a time, through the manual-mma instruction, `b`
 /// dequantized at `decoded` into the fragments it meets. An operand under block scales carries
 /// them; a per-tensor scale above them leaves `b` for the sum (`Tile::factor`). Each operand read
@@ -73,6 +92,7 @@ fn lane_run_matmul(
     #[comptime] level: Level,
     #[comptime] staged: Staged,
     #[comptime] decoded: ElemType,
+    #[comptime] first: First,
 ) {
     let instruction = comptime!(Instruction::Mma {
         io: MmaIo::manual(),
@@ -81,13 +101,16 @@ fn lane_run_matmul(
     let a = a.tile(&space);
     let mut c = c.tile(&space);
     let (b, b_factor) = b.tile(&space).factor(c.space(), instruction);
-    let acc = c.accumulator::<f32>(&a, &b, instruction, Semiring::SUM_PROD);
+    let acc = match comptime!(first) {
+        First::Activation => c.accumulator::<f32>(&a, &b, instruction, Semiring::SUM_PROD),
+        First::Weight => c.accumulator::<f32>(&b, &a, instruction, Semiring::SUM_PROD),
+    };
     match comptime!(staged) {
         Staged::Nothing => {
             for region in space.over(&level) {
                 let mut acc_r = acc.at(&region);
                 let b_r = acc_r.dequantized(&b.at(&region), decoded);
-                acc_r.mma(&a.at(&region), &b_r);
+                contract(&mut acc_r, &a.at(&region), &b_r, first);
             }
         }
         Staged::Activation => {
@@ -97,7 +120,7 @@ fn lane_run_matmul(
                 let mut acc_r = acc.at(region);
                 let b_r = acc_r.dequantized(&b.at(region), decoded);
                 slot.consume(|a_r| {
-                    acc_r.mma(a_r, &b_r);
+                    contract(&mut acc_r, a_r, &b_r, first);
                 });
             });
         }
@@ -108,7 +131,7 @@ fn lane_run_matmul(
                 let mut acc_r = acc.at(region);
                 slot.consume(|a_r, b_r| {
                     let b_r = acc_r.dequantized(b_r, decoded);
-                    acc_r.mma(a_r, &b_r);
+                    contract(&mut acc_r, a_r, &b_r, first);
                 });
             });
         }
@@ -127,7 +150,7 @@ fn lane_run_matmul(
                 let mut acc_r = acc.at(region);
                 slot.consume(|a_r, b_r| {
                     let b_r = acc_r.dequantized(b_r, decoded);
-                    acc_r.mma(a_r, &b_r);
+                    contract(&mut acc_r, a_r, &b_r, first);
                 });
             });
         }
@@ -158,20 +181,6 @@ fn skip_without_instruction(client: &cubecl::client::Client) -> bool {
         .enforce();
     }
     !offered
-}
-
-/// The `16 × 8` product's partitioning, `k` deep, walked a `WINDOW` at a time.
-fn launcher(client: &cubecl::client::Client, k: usize) -> cubecl_tile::Launcher {
-    implied(
-        client,
-        Partitioning::new(
-            Space::new(&[(M, 16), (N, 8), (K, k)]),
-            Levels::leaf(&[(M, 16), (N, 8), (K, WINDOW)])
-                .walk_every(&[M, N, K])
-                .build(),
-        ),
-        Form::Static,
-    )
 }
 
 fn tensor(handle: cubecl::server::Handle, rows: usize, cols: usize) -> TensorArg {
@@ -205,19 +214,35 @@ fn assert_product(
 
 /// A plain 16-bit `a · b`, `b` held `[n, k]`, each operand served `width_a` and `width_b` wide.
 fn check_plain(k: usize, width_a: usize, width_b: usize) {
+    check_plain_handed(k, width_a, width_b, First::Activation)
+}
+
+/// [`check_plain`] with the factors handed over as `first` says, the product as many rows and
+/// columns as the accumulator's rows and columns then lie along.
+fn check_plain_handed(k: usize, width_a: usize, width_b: usize, first: First) {
     let client = cubecl::test_device().client();
     if skip_without_instruction(&client) {
         return;
     }
-    let launcher = launcher(&client, k);
-    let a = activation(16, k);
-    let b: Vec<f32> = (0..8 * k)
+    let (rows, cols) = fragment_edges(first);
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(M, rows), (N, cols), (K, k)]),
+            Levels::leaf(&[(M, rows), (N, cols), (K, WINDOW)])
+                .walk_every(&[M, N, K])
+                .build(),
+        ),
+        Form::Static,
+    );
+    let a = activation(rows, k);
+    let b: Vec<f32> = (0..cols * k)
         .map(|i| ((i * 5 + i / k) % 13) as f32 / 4.0 - 1.5)
         .collect();
     let half = |values: &[f32]| values.iter().map(|&v| f16::from_f32(v)).collect::<Vec<_>>();
     let a_handle = client.create_from_slice(f16::as_bytes(&half(&a)));
     let b_handle = client.create_from_slice(f16::as_bytes(&half(&b)));
-    let c = TestInput::builder(client.clone(), Shape::from(vec![16, 8]))
+    let c = TestInput::builder(client.clone(), Shape::from(vec![rows, cols]))
         .zeros()
         .generate_without_host_data();
     lane_run_matmul::launch(
@@ -225,13 +250,13 @@ fn check_plain(k: usize, width_a: usize, width_b: usize) {
         launcher.cube_count(),
         launcher.cube_dim(),
         TileArgLaunch::new(
-            tensor(a_handle, 16, k),
+            tensor(a_handle, rows, k),
             f16::elem_type_native(),
             width_a,
             TileSpec::direct(&[M, K]),
         ),
         TileArgLaunch::new(
-            tensor(b_handle, 8, k),
+            tensor(b_handle, cols, k),
             f16::elem_type_native(),
             width_b,
             TileSpec::direct(&[N, K]),
@@ -246,15 +271,25 @@ fn check_plain(k: usize, width_a: usize, width_b: usize) {
         launcher.partitioning().level(0),
         Staged::Nothing,
         f16::elem_type_native(),
+        first,
     );
     let got = HostData::from_tensor_handle(&client, c, HostDataType::F32);
     assert_product(
         &got,
-        16,
-        8,
+        rows,
+        cols,
         |i, j| (0..k).map(|l| a[i * k + l] * b[j * k + l]).sum(),
-        &format!("plain, k = {k}, served {width_a} and {width_b} wide"),
+        &format!("plain, k = {k}, served {width_a} and {width_b} wide, {first:?} first"),
     );
+}
+
+/// The product's rows and columns one `16 × 8` fragment covers, its sixteen rows along the
+/// free axis of the factor handed over first.
+fn fragment_edges(first: First) -> (usize, usize) {
+    match first {
+        First::Activation => (16, 8),
+        First::Weight => (8, 16),
+    }
 }
 
 /// `a · (b ⊗ s)` with `b` NVFP4: `e2m1` codes eight to a word along `k`, `e4m3` scales four to a
@@ -279,13 +314,46 @@ fn check_nvfp4_rows(
     staged: Staged,
     global: Option<f32>,
 ) {
+    check_nvfp4_handed(
+        rows,
+        k,
+        width_a,
+        words,
+        columns,
+        staged,
+        global,
+        First::Activation,
+    )
+}
+
+/// [`check_nvfp4_rows`] with the factors handed over as `first` says: the weight first decodes
+/// its codes into the instruction's `A`, two of its columns a unit, and its columns are the
+/// fragment's sixteen rows.
+#[allow(clippy::too_many_arguments)]
+fn check_nvfp4_handed(
+    rows: usize,
+    k: usize,
+    width_a: usize,
+    words: usize,
+    columns: usize,
+    staged: Staged,
+    global: Option<f32>,
+    first: First,
+) {
     let client = cubecl::test_device().client();
     if skip_without_instruction(&client) {
         return;
     }
     let blocks = k / BLOCK;
-    let n = 8 * columns;
-    let leaf = Levels::leaf(&[(M, 16), (N, 8), (KB, WINDOW / BLOCK), (KI, BLOCK)]).walk_every(&[M]);
+    let (fragment_rows, fragment_cols) = fragment_edges(first);
+    let n = fragment_cols * columns;
+    let leaf = Levels::leaf(&[
+        (M, fragment_rows),
+        (N, fragment_cols),
+        (KB, WINDOW / BLOCK),
+        (KI, BLOCK),
+    ])
+    .walk_every(&[M]);
     // More than one column of fragments: a level below the walk steps them, `k` held whole.
     let leaf = match columns {
         1 => leaf,
@@ -441,6 +509,7 @@ fn check_nvfp4_rows(
         launcher.partitioning().level(0),
         staged,
         f16::elem_type_native(),
+        first,
     );
     let got = HostData::from_tensor_handle(&client, c, HostDataType::F32);
     let decoded = |code: u8| e2m1::from_bits(code).to_f32();
@@ -458,7 +527,7 @@ fn check_nvfp4_rows(
         },
         &format!(
             "nvfp4, {rows} rows, k = {k}, a served {width_a} wide{}, codes {words} words a \
-             load, {columns} column fragments{}",
+             load, {columns} column fragments{}, {first:?} first",
             match staged {
                 Staged::Nothing => "",
                 Staged::Activation => " out of a stage",
@@ -546,6 +615,7 @@ fn check_plain_split(k: usize, width: usize) {
         launcher.partitioning().level(0),
         Staged::Nothing,
         f16::elem_type_native(),
+        First::Activation,
     );
     let got = HostData::from_tensor_handle(&client, c, HostDataType::F32);
     assert_product(
@@ -718,4 +788,27 @@ fn the_lane_run_map_is_the_devices_layout() {
             }
         }
     }
+}
+
+/// The weight handed over first fills the instruction's `A` and the accumulator's rows lie along
+/// its columns; the product still drains into the output as it is laid out, `(m, n)`.
+#[test]
+fn a_plain_weight_handed_first_contracts_in_lane_runs() {
+    check_plain_handed(WINDOW, 8, 8, First::Weight);
+    check_plain_handed(2 * WINDOW, 2, 4, First::Weight);
+}
+
+/// An NVFP4 weight handed over first decodes its codes into the instruction's `A`, two of its
+/// columns a unit, read straight, out of stages under byte scales kept beside the codes, and
+/// under a per-tensor scale; a product of fewer rows than the fragment's eight columns overhangs
+/// it. Scales staged as words decode a step at a time, which reads a `B` alone and refuses it.
+#[test]
+fn an_nvfp4_weight_handed_first_decodes_into_the_left_operand() {
+    let weight = First::Weight;
+    check_nvfp4_handed(8, 2 * WINDOW, 8, 2, 1, Staged::Nothing, None, weight);
+    check_nvfp4_handed(8, WINDOW, 8, 2, 2, Staged::Nothing, None, weight);
+    check_nvfp4_handed(3, 2 * WINDOW, 8, 2, 1, Staged::Nothing, None, weight);
+    check_nvfp4_handed(8, 2 * WINDOW, 8, 2, 1, Staged::Activation, None, weight);
+    check_nvfp4_handed(8, 2 * WINDOW, 8, 2, 2, Staged::BothKept, None, weight);
+    check_nvfp4_handed(8, WINDOW, 8, 2, 1, Staged::Nothing, Some(0.375), weight);
 }

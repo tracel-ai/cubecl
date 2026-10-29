@@ -139,6 +139,17 @@ impl Space {
     pub fn subspace(&self, axes: &[Axis]) -> Space {
         Space::from_shape(self.shape.subspace(axes))
     }
+
+    /// This box listed in `held`'s order where `held` spans the same axes, as it is otherwise:
+    /// the box a plane-resident accumulator writes through, its fragments' rows along its own
+    /// leading axes whatever order the memory it drains into lists them in.
+    pub(crate) fn in_order_of(&self, held: &Space) -> Space {
+        let same_axes = held.rank() == self.rank() && held.axes().all(|axis| self.contains(axis));
+        match same_axes {
+            true => self.subspace(&held.axes().collect::<Vec<_>>()),
+            false => self.clone(),
+        }
+    }
 }
 
 #[cube]

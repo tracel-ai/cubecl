@@ -885,9 +885,10 @@ impl Tile {
     fn copy_unscaled_from<S: Numeric, R: Numeric>(&mut self, src: &Tile) {
         // Bound before the match, which borrows the kind.
         let space = comptime!(self.place.space.clone());
+        let held = comptime!(self.place.space.in_order_of(&src.place.space));
         match &src.kind {
             TileKind::PlanePartition(s) => match &mut self.kind {
-                TileKind::Memory(d) => s.fragment().store_window::<S>(d, space),
+                TileKind::Memory(d) => s.fragment().store_window::<S>(d, held),
                 TileKind::PlaneTile(_)
                 | TileKind::PlanePartition(_)
                 | TileKind::TmaGmem(_)
@@ -909,7 +910,7 @@ impl Tile {
                 (TileKind::PlaneTile(d), TileKind::Memory(_)) => {
                     d.load_window::<S>(src, DeepLoad::Steps)
                 }
-                (TileKind::Memory(d), TileKind::PlaneTile(s)) => s.store_window::<S>(d, space),
+                (TileKind::Memory(d), TileKind::PlaneTile(s)) => s.store_window::<S>(d, held),
                 (TileKind::Memory(d), TileKind::TmaGmem(s)) => s.load_into::<S>(d),
                 (TileKind::TmaGmem(d), TileKind::Memory(s)) => d.store_from::<S>(s),
                 (TileKind::Memory(d), TileKind::Memory(s)) => d.load_from::<S>(s, space),
@@ -948,13 +949,14 @@ impl Tile {
         let define!(Served) = self.element;
         let define!(Source) = src.element;
         let space = comptime!(self.place.space.clone());
+        let held = comptime!(self.place.space.in_order_of(&src.place.space));
         let holder = comptime!(self.place.holder());
         match (&mut self.kind, &src.kind) {
             (TileKind::Memory(d), TileKind::PlaneTile(s)) => {
-                s.store_cast_window::<Source, Served>(d, space)
+                s.store_cast_window::<Source, Served>(d, held)
             }
             (TileKind::Memory(d), TileKind::PlanePartition(s)) => {
-                s.fragment().store_cast_window::<Source, Served>(d, space)
+                s.fragment().store_cast_window::<Source, Served>(d, held)
             }
             // A window its holder shares is filled by the holder's units, whoever filled the
             // buffer it windows: a plane's window of the cube's scratch is the plane's.
