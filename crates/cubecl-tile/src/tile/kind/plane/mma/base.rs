@@ -880,25 +880,36 @@ fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     }
 }
 
-/// An `m × k` accumulator's registers regrouped as the `A` operand of an `m × n × k` contraction:
-/// for 16-bit operands the manual-mma layouts put the accumulator's cell `e` where the operand's
-/// cell `e` is, so a product contracting its own output reads it without moving a cell between
-/// units. A wider operand's `A` lays its cells otherwise (a `tf32` one along the columns first),
-/// and is refused.
+/// A run of accumulators along `k`, `accs`, regrouped as the `A` operand of an `m × n × k`
+/// contraction, each of them `m` high and an equal share of `k` wide: for 16-bit operands the
+/// manual-mma layouts put an accumulator's cell `e` where the operand's cell `e` of the same
+/// columns is, and the operand holds its columns' shares one after another, so a product
+/// contracting its own output reads it without moving a cell between units. A run of one is an
+/// accumulator as deep as it is wide; a longer run is what lets the product contract on an
+/// instruction deeper than the accumulators are wide. A wider operand's `A` lays its cells
+/// otherwise (a `tf32` one along the columns first), and is refused.
 #[cube]
-pub(crate) fn accumulator_as_a<L: Numeric>(
-    acc: &Array<Vector<L, NA>>,
+pub(crate) fn accumulators_as_a<L: Numeric>(
+    accs: &Sequence<PlaneTile>,
     #[comptime] m: usize,
     #[comptime] n: usize,
     #[comptime] k: usize,
-) -> Array<Vector<L, NL>> {
+    #[comptime] io: MmaIo,
+    #[comptime] operands: MmaOperands,
+) -> MmaData {
     let depth = instruction_depth::<L>(m, n, k);
     comptime!(assert!(
         depth == k,
-        "accumulator_as_a: an accumulator read as the A operand is one instruction deep; a \
-         {k}-deep contraction of it would hold `k` in lane runs, which its cells do not lie in"
+        "accumulators_as_a: accumulators read as the A operand are one instruction deep; a \
+         {k}-deep contraction of them would hold `k` in lane runs, which their cells do not lie in"
     ));
-    let acc_def = MmaDefinition::<L, L, L>::new(m, k, k);
+    let count = comptime!(accs.len());
+    comptime!(assert!(
+        k.is_multiple_of(count),
+        "accumulators_as_a: {count} accumulators share the {k} columns of the A operand unevenly"
+    ));
+    let width = comptime!(k / count);
+    let acc_def = MmaDefinition::<L, L, L>::new(m, width, width);
     let a_def = MmaDefinition::<L, L, L>::new(m, n, k);
     register_lhs_size::<L>(&a_def);
     let acc_regs = acc_def.vectors_per_lane(MatrixIdent::Accumulator);
@@ -908,29 +919,55 @@ pub(crate) fn accumulator_as_a<L: Numeric>(
     let bytes = L::size().comptime();
     comptime!(assert!(
         bytes == 2,
-        "accumulator_as_a: an accumulator's cells sit where the A operand's do for 16-bit \
+        "accumulators_as_a: an accumulator's cells sit where the A operand's do for 16-bit \
          operands; a {bytes}-byte operand's A lays them otherwise"
     ));
+    let acc_cells = comptime!(acc_regs * acc_width);
     comptime!(assert!(
-        acc_regs * acc_width == a_regs * a_width,
-        "accumulator_as_a: an {m}x{k} accumulator holds {} cells a unit, and the A operand of an \
-         {m}x{n}x{k} contraction {}",
-        acc_regs * acc_width,
+        count * acc_cells == a_regs * a_width,
+        "accumulators_as_a: {count} accumulators of {m}x{width} hold {} cells a unit, and the A \
+         operand of an {m}x{n}x{k} contraction {}",
+        count * acc_cells,
         a_regs * a_width
     ));
     let mut registers = Array::<Vector<L, NL>>::new(a_regs);
     #[unroll]
-    for i in 0..acc_regs {
+    for j in 0..count {
+        let acc = match accs.index(j) {
+            PlaneTile::Mma(data) => match &data.fragment {
+                MmaFragment::Acc(acc) => acc.at::<L>(),
+                MmaFragment::Lhs(_)
+                | MmaFragment::Rhs(_)
+                | MmaFragment::LhsBlockScaled(..)
+                | MmaFragment::RhsBlockScaled(..) => {
+                    panic!("accumulators_as_a: only an accumulator is reread as the A operand")
+                }
+            },
+            PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => {
+                panic!("accumulators_as_a: only a manual-mma accumulator is reread as an operand")
+            }
+        };
         #[unroll]
-        for e in 0..acc_width {
-            let (register, slot) =
-                comptime!(((i * acc_width + e) / a_width, (i * acc_width + e) % a_width));
-            let mut vector = registers[register];
-            vector.insert(slot, acc[i].extract(e));
-            registers[register] = vector;
+        for i in 0..acc_regs {
+            #[unroll]
+            for e in 0..acc_width {
+                let cell = comptime!(j * acc_cells + i * acc_width + e);
+                let (register, slot) = comptime!((cell / a_width, cell % a_width));
+                let mut vector = registers[register];
+                vector.insert(slot, acc[i].extract(e));
+                registers[register] = vector;
+            }
         }
     }
-    registers
+    MmaData {
+        fragment: MmaFragment::new_Lhs(Raw::<Registers<NL>>::of::<L>(registers)),
+        m,
+        n,
+        k,
+        layout: MatrixLayout::RowMajor,
+        io,
+        operands,
+    }
 }
 
 /// `acc += lhs · rhs` over three role fragments via `MmaDefinition::execute`: one instruction,

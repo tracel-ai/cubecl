@@ -100,6 +100,20 @@ impl<P: Payload<P> + Clone + CubeType<ExpandType: Clone>> Stages<P> {
             owner: plan.owner(),
         });
 
+        // Every slot's barriers are declared before any slot's data: the barriers stay in use to
+        // the end, while the data is what `free` hands to what the kernel declares after the walk,
+        // which takes it only as one run.
+        let mut meetings = Sequence::<Meeting>::new();
+        #[unroll]
+        for _ in 0..depth {
+            meetings.push(Meeting::new(
+                comptime!(plan.sync()),
+                comptime!(plan.collective_full()),
+                comptime!(plan.commits()),
+                comptime!(plan.fences()),
+                comptime!(plan.fillers()),
+            ));
+        }
         // Later slots share buffers the first slot owns, so it is built first.
         let first = sources.staged(
             sources,
@@ -120,13 +134,7 @@ impl<P: Payload<P> + Clone + CubeType<ExpandType: Clone>> Stages<P> {
             };
             slots.push(Slot::wrap(
                 data,
-                Meeting::new(
-                    comptime!(plan.sync()),
-                    comptime!(plan.collective_full()),
-                    comptime!(plan.commits()),
-                    comptime!(plan.fences()),
-                    comptime!(plan.fillers()),
-                ),
+                meetings.index(slot).clone(),
                 comptime!(plan.refills(slot)),
             ));
         }

@@ -290,7 +290,22 @@ impl PlaneTile {
                 // ([`steps`](crate::tile::kind::plane::mma::steps)) or in lane runs out of global
                 // memory ([`lane_runs`](crate::tile::kind::plane::mma::lane_runs)), each of which
                 // says why where it cannot.
-                let (m, n, k) = comptime!((d.m, d.n, d.k));
+                // A left factor held as a run of accumulators along the contraction is as deep as
+                // the run, one instruction a call ([`accumulators_as_a`]); every other factor
+                // contracts at the leaf the accumulator was opened at.
+                let run = match &lhs.kind {
+                    TileKind::PlanePartition(_) => comptime!(true),
+                    TileKind::PlaneTile(_)
+                    | TileKind::Memory(_)
+                    | TileKind::TmaGmem(_)
+                    | TileKind::Procedural(_)
+                    | TileKind::Lines(_) => comptime!(false),
+                };
+                let (m, n) = comptime!((d.m, d.n));
+                let k = comptime!(match run {
+                    true => lhs.place.space.contracted_extent(&out),
+                    false => d.k,
+                });
                 let block_scaled = comptime!(d.operands == MmaOperands::BlockScaled);
                 // An operand already in fragments was held to the instruction as it loaded
                 // (`PlanePartition::operand`), and a fragment no longer states its storage.
@@ -307,7 +322,7 @@ impl PlaneTile {
                     rhs.refuse_factor("PlaneTile::Mma");
                 }
                 flattened_k(lhs, rhs, out);
-                d.mma::<E, EL, ER>(lhs, rhs)
+                d.mma::<E, EL, ER>(lhs, rhs, k)
             }
             PlaneTile::Wgmma(d) => {
                 lhs.refuse_factor("PlaneTile::Wgmma");
