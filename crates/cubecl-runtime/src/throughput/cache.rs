@@ -74,14 +74,14 @@ impl ThroughputCache {
     /// refuses to write is still kept for the rest of the run.
     pub fn insert(&mut self, key: ThroughputKey, value: ThroughputValue) {
         #[cfg(persistence)]
-        match self.cache.insert(key, value) {
-            Ok(()) => {}
-            Err(err @ StoreError::Backend { .. }) => log::warn!(
-                "Throughput measurement could not be stored, it will be measured again next run: {}",
-                err.reason()
-            ),
-            Err(err) => {
-                log::warn!("Concurrent throughput measurement, keeping the existing value: {err}")
+        if let Err(err) = self.cache.insert(key, value) {
+            match err {
+                StoreError::Backend { key, error } => log::warn!(
+                    "Throughput measurement for key {key:?} could not be stored, it will be measured again next run: {error}"
+                ),
+                err => log::warn!(
+                    "Concurrent throughput measurement, keeping the existing value: {err}"
+                ),
             }
         }
 
