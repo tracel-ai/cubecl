@@ -477,7 +477,7 @@ impl Client {
         let checked = self
             .device
             .submit_blocking(move |server| server.check(vec![binding], stream_id))
-            .unwrap_or_resume();
+            .closed_as_error();
         if let Err(err) = checked {
             return core::future::ready(Err(err));
         }
@@ -524,7 +524,7 @@ impl Client {
                     .expect("is_service passed, so this is the server's type");
                 server.get_resource(binding, stream_id)
             })
-            .unwrap_or_resume()
+            .closed_as_error()
     }
 
     fn do_create_from_slices(
@@ -913,7 +913,7 @@ impl Client {
         let stagings = self
             .device
             .submit_blocking(move |server| server.staging(&sizes, stream_id))
-            .unwrap_or_resume();
+            .closed_as_error();
 
         let stagings = match stagings {
             Ok(val) => val,
@@ -1765,7 +1765,7 @@ impl Client {
         let token = self
             .device
             .submit_blocking(move |server| server.start_profile(stream_id))
-            .unwrap_or_resume()
+            .closed_as_error()
             .map_err(|err| ProfileError::from(&err))?;
         Ok(ProfileWindow { stream_id, token })
     }
@@ -1775,7 +1775,7 @@ impl Client {
         let ProfileWindow { stream_id, token } = window;
         self.device
             .submit_blocking(move |server| server.end_profile(stream_id, token))
-            .unwrap_or_resume()
+            .closed_as_error()
     }
 
     /// Drop `window` without measuring it, for a caller that will never reach
@@ -1878,11 +1878,11 @@ impl Client {
                             Err(err) => Err(err),
                         }
                     })
-                    .unwrap_or_resume();
+                    .closed_as_error();
 
                 Ok(result)
             })
-            .unwrap_or_resume()
+            .closed_as_error()
             .map_err(|err| ProfileError::from(&err))?;
 
         #[cfg(feature = "profile-tracy")]
@@ -1941,7 +1941,7 @@ impl Client {
         let read = self
             .device
             .submit_blocking(move |server| server.read(vec![src_descriptor], stream_id_src))
-            .unwrap_or_resume();
+            .closed_as_error();
 
         let mut data = cubecl_environment::future::block_on(read).unwrap();
 
@@ -2022,17 +2022,17 @@ fn profile_label(name: &'static str, kernel_id: &KernelId) -> String {
     kernel_id.entrypoint_name(&base)
 }
 
-/// A blocking call whose answer is already a [`ServerError`] result reads a runner that was
+/// A blocking call whose answer is already a [`ServerError`] result reads a service that was
 /// closed as one more error rather than a panic: a client still issuing work as the process
-/// exits ([`DeviceHandle::close`]) is told the device is gone. A panic in the task itself is
-/// re-raised, as [`CallResultExt::unwrap_or_resume`] does.
+/// exits ([`DeviceHandle::close`]) is told the device is gone. Any other failure, a panic in the
+/// task or a runner that is gone, is re-raised, as [`CallResultExt::unwrap_or_resume`] does.
 trait ClosedAsError {
     type Answer;
 
     fn closed_as_error(self) -> Self::Answer;
 }
 
-/// The error a call on a closed runner answers with.
+/// The error a call on a closed service answers with.
 fn device_closed() -> ServerError {
     ServerError::Generic {
         reason: "the device was closed, as the process exits".into(),
@@ -2040,13 +2040,13 @@ fn device_closed() -> ServerError {
     }
 }
 
-impl<R> ClosedAsError for Result<Result<R, ServerError>, CallError> {
-    type Answer = Result<R, ServerError>;
+impl<R, E: From<ServerError>> ClosedAsError for Result<Result<R, E>, CallError> {
+    type Answer = Result<R, E>;
 
     fn closed_as_error(self) -> Self::Answer {
         match self {
             Ok(answer) => answer,
-            Err(error) if error.is_disconnected() => Err(device_closed()),
+            Err(error) if error.is_closed() => Err(device_closed().into()),
             Err(error) => error.resume(),
         }
     }
@@ -2058,9 +2058,7 @@ impl<R: Send + 'static> ClosedAsError for Result<DynFut<Result<R, ServerError>>,
     fn closed_as_error(self) -> Self::Answer {
         match self {
             Ok(answer) => answer,
-            Err(error) if error.is_disconnected() => {
-                Box::pin(core::future::ready(Err(device_closed())))
-            }
+            Err(error) if error.is_closed() => Box::pin(core::future::ready(Err(device_closed()))),
             Err(error) => error.resume(),
         }
     }

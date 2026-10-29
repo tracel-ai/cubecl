@@ -95,6 +95,12 @@ impl From<&ServerError> for ProfileError {
     }
 }
 
+impl From<ServerError> for ProfileError {
+    fn from(error: ServerError) -> Self {
+        ProfileError::Server(Box::new(error))
+    }
+}
+
 impl core::fmt::Debug for ProfileError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(format_args!("{self}"))

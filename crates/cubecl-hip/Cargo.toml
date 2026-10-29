@@ -44,8 +44,6 @@ tracing = [
 ]
 
 [dependencies]
-# The exit handler that stops the devices before HIP tears itself down.
-libc = { workspace = true }
 # Runtime Deps
 log = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }

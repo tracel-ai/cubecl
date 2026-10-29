@@ -7,6 +7,7 @@ use core::ffi::c_int;
 
 use cubecl_common::{
     device::{Device, DeviceService},
+    device_handle::DeviceHandle,
     profile::TimingMethod,
 };
 #[cfg(windows)]
@@ -248,9 +249,10 @@ impl DeviceService for HipServer {
             utilities,
             captures,
         );
-        // Once HIP is loaded and the device set up, so the handler runs ahead of
-        // HIP's own teardown and no call on this device reaches a runtime that is gone.
-        crate::compute::exit::OpenedDevices::close_at_exit(device_id);
+        // HIP frees its runtime in its library's exit teardown, while other threads may still
+        // call into it through this server. Asked once HIP is loaded and the device set up, so
+        // the close runs ahead of that teardown.
+        DeviceHandle::<HipServer>::close_at_exit(device_id);
         server
     }
 

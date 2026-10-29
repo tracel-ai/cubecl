@@ -5,7 +5,6 @@ pub(crate) mod capture;
 pub(crate) mod context;
 pub(crate) mod driver;
 pub(crate) mod events;
-pub(crate) mod exit;
 pub(crate) mod modules;
 pub(crate) mod status;
 pub(crate) mod storage;
