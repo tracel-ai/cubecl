@@ -140,7 +140,22 @@ impl Tile {
     /// decoded into `f32`, unless the kernel [`dequantized`](Tile::dequantized) it at another
     /// element first, a manual-mma instruction decodes it at its other factor's element, or the
     /// instruction reads its codes as stored.
+    ///
+    /// A manual-mma accumulator takes each factor on the side its axes give it, whichever order
+    /// they are handed over in: the one carrying the accumulator's rows fills the instruction's
+    /// `A` ([`Tile::accumulator`] lays them along the factor it was opened on first).
     pub fn mma(&mut self, lhs: &Tile, rhs: &Tile) {
+        let mma = self.contracts_through_mma();
+        let reversed = comptime!(mma && Side::of(&lhs.place.space, &self.place.space) == Side::Rhs);
+        if comptime!(reversed) {
+            self.mma_in_order(rhs, lhs)
+        } else {
+            self.mma_in_order(lhs, rhs)
+        }
+    }
+
+    /// [`mma`](Tile::mma) with `lhs` filling the instruction's `A`.
+    fn mma_in_order(&mut self, lhs: &Tile, rhs: &Tile) {
         let stored = self.reads_codes_as_stored();
         let mma = self.contracts_through_mma();
         // The manual-mma instruction takes its factors by position.

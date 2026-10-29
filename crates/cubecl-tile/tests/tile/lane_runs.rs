@@ -21,8 +21,8 @@ use cubecl_common::{e2m1, e4m3};
 use cubecl_tile::stage::RowChunks;
 use cubecl_tile::{
     Axis, Instruction, Level, Levels, MmaOperands, Partitioning, Projection, Semiring, Space,
-    StageStorage, Stages, Tile, TileArg, TileArgLaunch, TileSpec, kind::Field,
-    layout::PhysicalAxisMap, ops::matmul::MmaIo,
+    StageStorage, Stages, TileArg, TileArgLaunch, TileSpec, kind::Field, layout::PhysicalAxisMap,
+    ops::matmul::MmaIo,
 };
 use half::f16;
 
@@ -59,23 +59,15 @@ enum Staged {
     BothKeptTiled(RowChunks),
 }
 
-/// Which factor the accumulator is opened on and the contraction handed first: the one filling
-/// the instruction's `A`, whose free axis the accumulator's rows lie along.
+/// Which factor the accumulator is opened on first: the one filling the instruction's `A`,
+/// whose free axis the accumulator's rows lie along. The contraction names the factors `a · b`
+/// either way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum First {
     /// `a`, the activation: the accumulator `(m, n)`.
     Activation,
     /// `b`, the weight: the accumulator `(n, m)`, `b` decoded into `A`.
     Weight,
-}
-
-/// `acc += a · b`, the factors handed over in the order `first` says.
-#[cube]
-fn contract(acc: &mut Tile, a: &Tile, b: &Tile, #[comptime] first: First) {
-    match comptime!(first) {
-        First::Activation => acc.mma(a, b),
-        First::Weight => acc.mma(b, a),
-    }
 }
 
 /// `c = a · b`, a leaf of `WINDOW` along `k` at a time, through the manual-mma instruction, `b`
@@ -110,7 +102,7 @@ fn lane_run_matmul(
             for region in space.over(&level) {
                 let mut acc_r = acc.at(&region);
                 let b_r = acc_r.dequantized(&b.at(&region), decoded);
-                contract(&mut acc_r, &a.at(&region), &b_r, first);
+                acc_r.mma(&a.at(&region), &b_r);
             }
         }
         Staged::Activation => {
@@ -120,7 +112,7 @@ fn lane_run_matmul(
                 let mut acc_r = acc.at(region);
                 let b_r = acc_r.dequantized(&b.at(region), decoded);
                 slot.consume(|a_r| {
-                    contract(&mut acc_r, a_r, &b_r, first);
+                    acc_r.mma(a_r, &b_r);
                 });
             });
         }
@@ -131,7 +123,7 @@ fn lane_run_matmul(
                 let mut acc_r = acc.at(region);
                 slot.consume(|a_r, b_r| {
                     let b_r = acc_r.dequantized(b_r, decoded);
-                    contract(&mut acc_r, a_r, &b_r, first);
+                    acc_r.mma(a_r, &b_r);
                 });
             });
         }
@@ -150,7 +142,7 @@ fn lane_run_matmul(
                 let mut acc_r = acc.at(region);
                 slot.consume(|a_r, b_r| {
                     let b_r = acc_r.dequantized(b_r, decoded);
-                    contract(&mut acc_r, a_r, &b_r, first);
+                    acc_r.mma(a_r, &b_r);
                 });
             });
         }
