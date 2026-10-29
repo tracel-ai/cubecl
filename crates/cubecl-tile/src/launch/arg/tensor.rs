@@ -32,9 +32,10 @@ use cubecl::server::BufferBinding;
 /// none.
 ///
 /// Scales are levels innermost first, so each covers more than the one inside it: NVFP4's values
-/// carry their block scales, which carry the per-tensor scale. A plain level holding `u32` is words
-/// of block scales, which only the block-scaled instruction reads; any other, a packed one
-/// included, is scales read as numbers.
+/// carry their block scales, which carry the per-tensor scale. A level bound as
+/// [words](TileSpec::words) is words of block scales, each naming its field, which only the
+/// block-scaled instruction reads whole; any other, a packed one included, is scales read as
+/// numbers.
 ///
 /// Values stored as indices ([`Field::Index`]) read through the table they index, their codebook
 /// ([`TileArgLaunch::codebook`]); a gather's runtime coefficients and offsets
@@ -419,7 +420,7 @@ impl TileArgLaunch {
 
     fn of(values: ValuesLaunch, element: ElemType, spec: TileSpec) -> Self {
         assert!(
-            spec.packing == Packing::Plain || element == u32::elem_type_native(),
+            spec.packing.as_stored() || element == u32::elem_type_native(),
             "TileArgLaunch: a packed operand is bound at the u32 words its buffer holds, not \
              {element:?}"
         );
@@ -492,7 +493,7 @@ impl TileArgLaunch {
         let plain = *width == 1
             && tensor.shape().len() == 1
             && table.spec.axes().len() == 1
-            && table.spec.packing == Packing::Plain
+            && table.spec.packing.as_stored()
             && table.scale.is_none()
             && table.index.is_none()
             && table.codebook.is_none();
@@ -538,7 +539,7 @@ impl TileArgLaunch {
     }
 
     /// These values under `scale`, outside the scales they carry already: words of block scales
-    /// where `scale` is a plain level holding `u32`, scales read as numbers otherwise.
+    /// where `scale` is bound as [words](TileSpec::words), scales read as numbers otherwise.
     pub fn scales(mut self, scale: TileArgLaunch) -> Self {
         self.scale = Some(Box::new(match self.scale {
             None => scale,
@@ -597,7 +598,7 @@ impl TileArgLaunch {
         };
         let plain_u32 = table.element == u32::elem_type_native()
             && *width == 1
-            && table.spec.packing == Packing::Plain
+            && table.spec.packing.as_stored()
             && table.scale.is_none()
             && table.index.is_none();
         if !plain_u32 {

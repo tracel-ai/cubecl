@@ -35,7 +35,7 @@ pub trait UniformRegionOpInterface: RegionBranchOpInterface + SingleBlockRegionI
         &self,
         ctx: &Context,
         operands: &[Uniformity],
-    ) -> Vec<Uniformity>;
+    ) -> Uniformity;
 }
 
 #[op_interface]
@@ -50,9 +50,11 @@ pub trait UniformRegionTerminatorOpInterface: RegionBranchTerminatorOpInterface 
             .collect::<SmallVec<[_; 8]>>();
         self.successor_regions(ctx, &operands)
     }
-    fn successor_region_uniformity(
-        &self,
-        ctx: &Context,
-        operands: &[Uniformity],
-    ) -> Vec<Uniformity>;
+    fn successor_region_uniformity(&self, ctx: &Context, operands: &[Uniformity]) -> Uniformity;
+}
+
+#[op_interface]
+pub trait UniformBranchOpInterface: BranchOpInterface {
+    verify_op_succ!();
+    fn successor_uniformity(&self, ctx: &Context, operands: &[Uniformity]) -> Uniformity;
 }

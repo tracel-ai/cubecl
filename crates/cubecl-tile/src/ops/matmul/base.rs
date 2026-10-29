@@ -52,7 +52,7 @@ impl Tile {
     /// that factor, its fragments could not hold `k` in the order the other factor's do.
     pub fn dequantized(&self, operand: &Tile, #[comptime] element: ElemType) -> Tile {
         let (quantized, packing) = (operand.quantized(), operand.packing());
-        let decodes = comptime!(quantized || packing != Packing::Plain);
+        let decodes = comptime!(quantized || !packing.as_stored());
         let mma = self.contracts_through_mma();
         if comptime!(!decodes || mma) {
             operand.clone()
@@ -170,15 +170,14 @@ impl Tile {
         let (lhs_packing, rhs_packing) = (lhs.packing(), rhs.packing());
         // A manual-mma instruction multiplies two factors of one element, so a packed factor
         // against a plain one decodes at that one's element.
-        let (lhs_read, rhs_read) = comptime!(match (
-            mma,
-            lhs_packing == Packing::Plain,
-            rhs_packing == Packing::Plain
-        ) {
-            (true, false, true) => (rhs_read, rhs_read),
-            (true, true, false) => (lhs_read, lhs_read),
-            _ => (lhs_read, rhs_read),
-        });
+        let (lhs_read, rhs_read) =
+            comptime!(
+                match (mma, lhs_packing.as_stored(), rhs_packing.as_stored()) {
+                    (true, false, true) => (rhs_read, rhs_read),
+                    (true, true, false) => (lhs_read, lhs_read),
+                    _ => (lhs_read, rhs_read),
+                }
+            );
         let define!(Served) = self.element;
         let define!(Lhs) = comptime!(if stored { lhs.element } else { lhs_read });
         let define!(Rhs) = comptime!(if stored { rhs.element } else { rhs_read });
@@ -329,15 +328,30 @@ impl PlaneTile {
                     true => lhs.place.space.contracted_extent(&out),
                     false => d.k,
                 });
-                let block_scaled = comptime!(d.operands == MmaOperands::BlockScaled);
+                let form = comptime!(d.operands.block_scaled());
+                let block_scaled = comptime!(form.is_some());
                 // An operand already in fragments was held to the instruction as it loaded
                 // (`PlanePartition::operand`), and a fragment no longer states its storage.
                 let (lhs_in_memory, rhs_in_memory) = (lhs.is_memory(), rhs.is_memory());
                 if comptime!(block_scaled && lhs_in_memory) {
-                    assert_block_scaled::<EL>(lhs, m, n, k);
+                    assert_block_scaled::<EL>(
+                        lhs,
+                        comptime!(form.unwrap()),
+                        MatrixIdent::A,
+                        m,
+                        n,
+                        k,
+                    );
                 }
                 if comptime!(block_scaled && rhs_in_memory) {
-                    assert_block_scaled::<ER>(rhs, m, n, k);
+                    assert_block_scaled::<ER>(
+                        rhs,
+                        comptime!(form.unwrap()),
+                        MatrixIdent::B,
+                        m,
+                        n,
+                        k,
+                    );
                 }
                 let steps = lane_run_steps::<EL>(m, n, k);
                 if comptime!(!block_scaled && steps == 1) {

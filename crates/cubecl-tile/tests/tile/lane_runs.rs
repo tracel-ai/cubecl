@@ -446,6 +446,7 @@ fn check_nvfp4_handed(
                     PhysicalAxisMap::of(KB).over(SCALES_PER_WORD),
                 ],
             ))
+            .words(Field::Fp8(Fp8Format::E4M3))
             .build(),
         Staged::Nothing | Staged::Activation | Staged::BothKept | Staged::BothKeptTiled(_) => {
             launcher

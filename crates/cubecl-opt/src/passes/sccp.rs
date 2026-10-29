@@ -11,7 +11,6 @@ use smallvec::SmallVec;
 
 use crate::analyses::dataflow_solver::{
     DataflowSolver, SmallPtrVec, SolverConfig,
-    dead_code::DeadCodeAnalysis,
     sccp::{ConstantLattice, SparseConstantPropagationAnalysis},
 };
 
@@ -106,7 +105,6 @@ fn rewrite(
 
 pub fn sccp(root_op: Ptr<Operation>, ctx: &mut Context) -> Result<IRStatus> {
     let mut solver = DataflowSolver::new(SolverConfig::default());
-    solver.load(DeadCodeAnalysis::default());
     solver.load(SparseConstantPropagationAnalysis::default());
     solver.initialize_and_run(ctx, root_op)?;
     rewrite(&solver, ctx, &root_op.regions(ctx))

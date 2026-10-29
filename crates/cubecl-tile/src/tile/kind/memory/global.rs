@@ -118,12 +118,14 @@ impl GlobalOperand {
         let rank = comptime!(spec.projection.physical_rank());
         // Held at what the binding holds: `T`, or the `u32` words a packed one packs it in.
         let backing = match comptime!(spec.packing) {
-            Packing::Plain => Backing::new_Buffer(Raw::<Slice>::of::<T>(unsafe {
-                tensor
-                    .as_slice()
-                    .downcast_unchecked::<T>()
-                    .as_boxed_unchecked()
-            })),
+            Packing::Plain | Packing::Words { .. } => {
+                Backing::new_Buffer(Raw::<Slice>::of::<T>(unsafe {
+                    tensor
+                        .as_slice()
+                        .downcast_unchecked::<T>()
+                        .as_boxed_unchecked()
+                }))
+            }
             Packing::Packed { .. } => Backing::new_Buffer(Raw::<Slice>::of::<u32>(unsafe {
                 tensor
                     .as_slice()
@@ -162,7 +164,7 @@ impl GlobalOperand {
         #[comptime] write: Write,
     ) -> GlobalOperand {
         comptime!(assert!(
-            spec.packing == Packing::Plain,
+            spec.packing.as_stored(),
             "GlobalOperand::sink: a sink is written at the width it states, so its spec may not \
              state a packing ({:?}) on top of it",
             spec.packing
@@ -189,7 +191,7 @@ impl GlobalOperand {
         #[comptime] spec: TileSpec,
     ) -> GlobalOperand {
         comptime!(assert!(
-            spec.packing == Packing::Plain,
+            spec.packing.as_stored(),
             "GlobalOperand::source: a source is read at the width it states, so its spec may not \
              state a packing ({:?}) on top of it",
             spec.packing

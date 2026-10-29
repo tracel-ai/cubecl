@@ -71,6 +71,13 @@ impl MemoryValue {
             MemoryDefiningEntity::LiveOnEntry => None,
         }
     }
+
+    pub fn defining_op(&self) -> Option<Ptr<Operation>> {
+        match self.defining_entity()? {
+            DefiningEntity::Op(op) => Some(op),
+            DefiningEntity::Block(_) => None,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -94,6 +101,14 @@ impl MemorySSAContext {
             defining_entity: MemoryDefiningEntity::Op(op),
         }
     }
+
+    pub fn new_value_at_entry(&mut self) -> MemoryValue {
+        self.last_idx += 1;
+        MemoryValue {
+            val_uid: self.last_idx,
+            defining_entity: MemoryDefiningEntity::LiveOnEntry,
+        }
+    }
 }
 
 /// Different from `RegionPredecessor` because terminators don't actually matter for memory SSA
@@ -115,6 +130,7 @@ impl Printable for MemoryRegionPredecessor {
 }
 
 pub type RegionMemoryPhiInputs = SmallMap<MemoryRegionPredecessor, MemoryValue, 2>;
+
 pub enum RegionMemoryValue {
     Forward(MemoryValue),
     RegionPhi(RegionMemoryPhiInputs),

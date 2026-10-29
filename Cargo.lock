@@ -1296,6 +1296,7 @@ name = "cubecl-ir"
 version = "0.12.0-pre.2"
 dependencies = [
  "bumpalo",
+ "ciborium",
  "cubecl-common",
  "cubecl-environment",
  "cubecl-macros-internal",

@@ -57,8 +57,10 @@ pub(crate) fn values_at<F: Numeric, I: Numeric, WP: Size, NF: Size>(
     let nf = NF::value();
     let wp = WP::value();
     match comptime!(packing) {
-        Packing::Plain if comptime!(offset == 0 && wp == nf) => Vector::<F, NF>::cast_from(line),
-        Packing::Plain => {
+        Packing::Plain | Packing::Words { .. } if comptime!(offset == 0 && wp == nf) => {
+            Vector::<F, NF>::cast_from(line)
+        }
+        Packing::Plain | Packing::Words { .. } => {
             let mut out = Vector::<F, NF>::empty();
             #[unroll]
             for j in 0..nf {
@@ -124,7 +126,7 @@ pub(crate) fn place_at<I: Numeric, WP: Size, NF: Size>(
     let nf = NF::value();
     let mut line = line;
     match comptime!(packing) {
-        Packing::Plain =>
+        Packing::Plain | Packing::Words { .. } =>
         {
             #[unroll]
             for j in 0..nf {

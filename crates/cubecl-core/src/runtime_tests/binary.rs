@@ -1043,9 +1043,12 @@ pub fn test_ieee_constant_folds<R: Runtime>(client: Client) {
     // Vulkan and Metal unless the shader opts into preserving them, which wgpu does not. The
     // shader compilers fold under that latitude (`NaN - NaN` and `0 / 0` read back as `0`,
     // `-4 * 0` as `+0`). What this test guards — that cubecl's own IR does not fold them —
-    // holds on every backend; the results wgpu does promise are still checked there. The
-    // runtime name says which backend, whatever compiler it picked.
-    let strict_ieee = !client.name().starts_with("wgpu");
+    // holds on every backend; the results wgpu does promise are still checked there. Native
+    // Metal compiles the same MSL with the driver's fast math, as wgpu does, so it is not strict
+    // either. The runtime name says which backend, whatever compiler it picked.
+    let strict_ieee = !["wgpu", "metal"]
+        .iter()
+        .any(|runtime| client.name().starts_with(runtime));
 
     macro_rules! check {
         ($ty: ty) => {{

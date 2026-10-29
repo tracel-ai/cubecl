@@ -33,7 +33,7 @@ impl Memory {
         #[comptime] space: Space,
     ) {
         comptime!(assert!(
-            self.store.packing == Packing::Plain
+            self.store.packing.as_stored()
                 && self.projection.is_direct()
                 && self.store.vector_size == 1,
             "Memory::fill_procedural: procedural sources require a plain, direct scalar destination"
@@ -99,6 +99,27 @@ impl Memory {
     ) -> Tile {
         let element = operand.stage_element();
         let decodes = comptime!(element == StageElement::Decoded);
+        let packing = operand.packing();
+        let stage = Memory::stage_memory_as_served::<S>(
+            operand, level, storage, width, owner, element, decodes,
+        );
+        // Words are served as stored, so their stage holds them as they lie, still words.
+        match comptime!(packing) {
+            Packing::Words { .. } => stage.served_as(packing),
+            Packing::Plain | Packing::Packed { .. } => stage,
+        }
+    }
+
+    /// [`stage_memory`](Memory::stage_memory) before a stage of words is read as words.
+    fn stage_memory_as_served<S: Numeric>(
+        operand: &Tile,
+        #[comptime] level: Level,
+        #[comptime] storage: StageStorage,
+        #[comptime] width: Option<usize>,
+        #[comptime] owner: StageOwner,
+        #[comptime] element: StageElement,
+        #[comptime] decodes: bool,
+    ) -> Tile {
         match comptime!(element) {
             StageElement::Served | StageElement::Decoded => {
                 let space = comptime!(level.child(&operand.place.space));
@@ -187,7 +208,7 @@ impl Memory {
             }
         };
         match comptime!(packing) {
-            Packing::Plain => {
+            Packing::Plain | Packing::Words { .. } => {
                 // The values the bulk engine lands come packed; a plain stored stage keeps the
                 // copy's alignment.
                 Memory::smem_owned::<S>(space, vector_size, storage, units, 0usize, owner)

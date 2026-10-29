@@ -1,9 +1,9 @@
 use core::fmt::{self, Debug};
 
 use crate::{
-    CanMaterialize, ConstantValue, ElemType,
+    ConstantValue, ElemType,
     dialect::synchronization::SyncScope,
-    interfaces::memory_slot::MemoryValue,
+    interfaces::{memory_slot::MemoryValue, side_effects::MemoryEffectsOp},
     prelude::*,
     types::{AtomicType, PointerType, VectorType, scalar::*},
 };
@@ -16,11 +16,13 @@ use pliron::{
     builtin::{attr_interfaces::TypedAttrInterface, ops::ConstantOp, types::IntegerType},
     context::Context,
     derive::{op_interface, type_interface},
-    op::OpId,
+    op::{Op, OpId},
     printable::{self, Printable},
+    result::Result,
     r#type::{TypeHandle, type_cast},
     utils::apint::APInt,
     value::Use,
+    verify_err,
 };
 
 pub mod aliasing;
@@ -99,8 +101,6 @@ pub trait MaterializableOp {
         attributes: AttributeDict,
     ) -> Ptr<Operation>;
 }
-
-CanMaterialize!(ConstantOp);
 
 #[op_interface]
 pub trait Synchronizes {
@@ -326,6 +326,48 @@ impl Debug for Expression {
             .field("mem_value", &self.mem_value)
             .finish()
     }
+}
+
+/// The op is deterministic given the operands, attributes, and memory state.
+/// This applies to most ops, but not things like plane ops that have hidden runtime state.
+#[op_interface]
+pub trait Deterministic: MemoryEffectsOp {
+    verify_op_succ!();
+}
+
+/// Constant-like ops, i.e. `address_of` or constants, that do not have a runtime cost and carry no
+/// SSA values so should be freshly materialized instead of merged.
+#[op_interface]
+pub trait ConstantLike: MaterializableOp + OneResultInterface {
+    fn verify(op: &dyn Op, ctx: &Context) -> Result<()>
+    where
+        Self: Sized,
+    {
+        let loc = op.loc(ctx);
+        let op = op.get_operation();
+        if op.deref(ctx).get_num_operands() > 0 {
+            return verify_err!(loc, "Constant-like ops can't have operands");
+        }
+        if op.deref(ctx).num_regions() > 0 {
+            return verify_err!(loc, "Constant-like ops can't have regions");
+        }
+        if op.deref(ctx).get_num_successors() > 0 {
+            return verify_err!(loc, "Constant-like ops can't have successors");
+        }
+        Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl ConstantLike for ConstantOp {}
+
+/// Ops that are so trivial it's better to recompute than insert a block arg/region result.
+/// They are excluded from the single-leader rule in PRE. Should be used for things like pointer
+/// offsets, this mirrors LLVM's specific exclusion of GEP in its PRE implementation.
+/// It ends up being more expensive to merge the offset pointers than to simply recompute them.
+#[op_interface]
+pub trait TrivialOp: MaterializableOp {
+    verify_op_succ!();
 }
 
 #[op_interface]
