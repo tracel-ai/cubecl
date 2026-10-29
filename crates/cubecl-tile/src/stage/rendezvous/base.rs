@@ -171,6 +171,73 @@ impl Meeting {
         }
     }
 
+    /// Producer acquire: wait until the slot is free; a `Plane` slot waits on `sync_plane`.
+    #[allow(dead_code)] // Reached through its expand, from `Slot::refill` / `Slot::consume`.
+    pub(crate) fn acquire_write(&self) {
+        match self {
+            Meeting::Barrier { empty, writes, .. } => empty.wait_parity(*writes ^ 1),
+            Meeting::Cube => sync_cube(),
+            Meeting::Plane => sync_plane(),
+        }
+    }
+
+    /// Producer release: publish the fill, async copies included ([`Meeting::producers`] say
+    /// who arrives).
+    #[allow(dead_code)] // Reached through its expand, from `Slot::refill` / `Slot::consume`.
+    pub(crate) fn release_write(&mut self) {
+        match self {
+            Meeting::Barrier {
+                full,
+                all_publish,
+                commits,
+                elected,
+                writes,
+                ..
+            } => {
+                if *all_publish || UNIT_POS == *elected {
+                    // Handed over before the arrival, so the phase cannot flip on the arrivals
+                    // with this unit's copies still in flight.
+                    if *commits {
+                        full.commit_copy_async();
+                    }
+                    full.arrive();
+                }
+                *writes ^= 1;
+            }
+            Meeting::Cube | Meeting::Plane => {}
+        }
+    }
+
+    /// Consumer acquire: wait for the slot's fill.
+    #[allow(dead_code)] // Reached through its expand, from `Slot::refill` / `Slot::consume`.
+    pub(crate) fn acquire_read(&self) {
+        match self {
+            Meeting::Barrier { full, reads, .. } => full.wait_parity(*reads),
+            Meeting::Cube | Meeting::Plane => {}
+        }
+    }
+
+    /// Consumer release: free the slot.
+    #[allow(dead_code)] // Reached through its expand, from `Slot::refill` / `Slot::consume`.
+    pub(crate) fn release_read(&mut self) {
+        match self {
+            Meeting::Barrier { empty, reads, .. } => {
+                empty.arrive();
+                *reads ^= 1;
+            }
+            Meeting::Cube | Meeting::Plane => {}
+        }
+    }
+
+    /// Publish the slot's last fill where no later fill will ([`Slot::publish`]).
+    pub(crate) fn publish(&self) {
+        match self {
+            Meeting::Cube => sync_cube(),
+            Meeting::Plane => sync_plane(),
+            Meeting::Barrier { .. } => {}
+        }
+    }
+
     /// Fill staged `dst` from `src`, spread over the units `dst` names ([`FillUnits`]).
     pub(crate) fn fill(&self, dst: &mut Tile, src: &Tile) {
         // Bound before the match, which borrows the kind.
