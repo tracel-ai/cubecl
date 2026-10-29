@@ -26,7 +26,7 @@ mod lazy;
 use cubecl_common::{
     bytes::{AllocationProperty, Bytes},
     device::{DeviceId, ServiceId},
-    device_handle::{CallResultExt, DeviceHandle},
+    device_handle::{CallError, CallResultExt, DeviceHandle},
     profile::ProfileDuration,
 };
 use cubecl_environment::{backtrace::BackTrace, future::DynFut, stream::StreamId, sync::Mutex};
@@ -151,7 +151,7 @@ impl Graph {
         self.inner
             .device
             .submit_blocking(move |server| server.replay(id, stream_id))
-            .unwrap_or_resume()
+            .closed_as_error()
     }
 }
 
@@ -341,7 +341,7 @@ impl Client {
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.read(descriptors, stream_id))
-            .unwrap_or_resume()
+            .closed_as_error()
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -1486,7 +1486,7 @@ impl Client {
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.check(bindings, stream_id))
-            .unwrap_or_resume()
+            .closed_as_error()
     }
 
     /// Flush all outstanding commands.
@@ -1495,7 +1495,7 @@ impl Client {
 
         self.device
             .submit_blocking(move |server| server.flush(stream_id))
-            .unwrap_or_resume()
+            .closed_as_error()
     }
 
     /// Compile every kernel queued for compilation (see
@@ -1515,7 +1515,7 @@ impl Client {
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.graph_prepare(stream_id))
-            .unwrap_or_resume()
+            .closed_as_error()
     }
 
     /// Begin recording launches on this client's stream into a graph rather
@@ -1537,7 +1537,7 @@ impl Client {
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.begin_capture(stream_id))
-            .unwrap_or_resume()
+            .closed_as_error()
     }
 
     /// Whether this client's stream is capturing a graph: from
@@ -1564,7 +1564,7 @@ impl Client {
         let id = self
             .device
             .submit_blocking(move |server| server.end_capture(stream_id))
-            .unwrap_or_resume()?;
+            .closed_as_error()?;
 
         Ok(Graph {
             inner: Arc::new(GraphHandle {
@@ -1610,7 +1610,7 @@ impl Client {
         let fut = self
             .device
             .submit_blocking(move |server| server.sync(bindings, stream_id))
-            .unwrap_or_resume();
+            .closed_as_error();
 
         self.utilities.logger.profile_summary();
 
@@ -1743,7 +1743,7 @@ impl Client {
                     .into_iter()
                     .try_for_each(|id| server.memory_cleanup(id))
             })
-            .unwrap_or_resume()
+            .closed_as_error()
     }
 
     /// Open a profiling window at the current position of the calling stream.
@@ -2020,4 +2020,48 @@ impl Client {
 fn profile_label(name: &'static str, kernel_id: &KernelId) -> String {
     let base = type_name_format(name, TypeNameFormatLevel::Balanced);
     kernel_id.entrypoint_name(&base)
+}
+
+/// A blocking call whose answer is already a [`ServerError`] result reads a runner that was
+/// closed as one more error rather than a panic: a client still issuing work as the process
+/// exits ([`DeviceHandle::close`]) is told the device is gone. A panic in the task itself is
+/// re-raised, as [`CallResultExt::unwrap_or_resume`] does.
+trait ClosedAsError {
+    type Answer;
+
+    fn closed_as_error(self) -> Self::Answer;
+}
+
+/// The error a call on a closed runner answers with.
+fn device_closed() -> ServerError {
+    ServerError::Generic {
+        reason: "the device was closed, as the process exits".into(),
+        backtrace: BackTrace::capture(),
+    }
+}
+
+impl<R> ClosedAsError for Result<Result<R, ServerError>, CallError> {
+    type Answer = Result<R, ServerError>;
+
+    fn closed_as_error(self) -> Self::Answer {
+        match self {
+            Ok(answer) => answer,
+            Err(error) if error.is_disconnected() => Err(device_closed()),
+            Err(error) => error.resume(),
+        }
+    }
+}
+
+impl<R: Send + 'static> ClosedAsError for Result<DynFut<Result<R, ServerError>>, CallError> {
+    type Answer = DynFut<Result<R, ServerError>>;
+
+    fn closed_as_error(self) -> Self::Answer {
+        match self {
+            Ok(answer) => answer,
+            Err(error) if error.is_disconnected() => {
+                Box::pin(core::future::ready(Err(device_closed())))
+            }
+            Err(error) => error.resume(),
+        }
+    }
 }
