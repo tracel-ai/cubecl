@@ -206,6 +206,12 @@ impl StagesExpand<OperandPair> {
     ) where
         F: FnMut(&Scope, &mut SlotExpand<OperandPair>, &RegionExpand),
     {
+        // Reached only past the guard in `prefetched`; a caller reaching it another way meets the
+        // same rule here rather than a fetch that cannot hold its fill.
+        assert!(
+            self.__expand_prefetches_in_registers_method(scope),
+            "Stages: a register-staged walk on stages that prefetch into their slots"
+        );
         let depth = self.depth;
         // The registers a fetch holds a region in are at the elements the sources hold.
         define_scalar!(Lhs);
