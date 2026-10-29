@@ -11,6 +11,7 @@ pub(crate) mod builtin_values;
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub mod builtins;
 pub(crate) mod debug_info;
+pub mod fp4;
 pub mod intrinsic;
 pub(crate) mod llvm_module;
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
