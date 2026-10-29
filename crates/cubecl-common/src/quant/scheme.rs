@@ -665,6 +665,133 @@ impl<T: AsRef<[u8]>> From<T> for BlockSize {
     }
 }
 
+/// A [`QuantScheme`] packed into one `u64`, for an IR that carries a scheme as a scalar: a remote
+/// backend's custom operation crosses the wire as tensors and scalars only.
+///
+/// The layout, from the low bits: the value (4), the store's kind (2) and packing axis (6), the
+/// mode (2), the per-tensor level (3), the block level's dtype (3), its rank (3) and its sizes
+/// (8 each, up to [`BlockSize::MAX_DIMS`]). A level's 3 bits are `0` for none, else its dtype's
+/// index plus one. Every match is exhaustive, so a variant added here fails the build until it
+/// has a code.
+impl QuantScheme {
+    /// This scheme as one `u64`; [`from_code`](Self::from_code) reads it back.
+    ///
+    /// # Panics
+    ///
+    /// When the store's packing axis does not fit 6 bits.
+    pub fn to_code(&self) -> u64 {
+        let value = match self.value {
+            QuantValue::Q8F => 0,
+            QuantValue::E5M2 => 1,
+            QuantValue::E4M3 => 2,
+            QuantValue::Q4F => 3,
+            QuantValue::E2M1 => 4,
+            QuantValue::Q2F => 5,
+            QuantValue::Q8S => 6,
+            QuantValue::Q4S => 7,
+            QuantValue::Q2S => 8,
+        };
+        let (store, axis) = match self.store {
+            QuantStore::Native => (0, 0),
+            QuantStore::PackedNative(axis) => (1, axis),
+            QuantStore::PackedU32(axis) => (2, axis),
+        };
+        assert!(axis < 64, "a packing axis past 63 has no code");
+        let mode = match self.mode {
+            QuantMode::Symmetric => 0,
+            QuantMode::Lookup => 1,
+        };
+        let level = |dtype: Option<ScaleDtype>| match dtype {
+            None => 0,
+            Some(ScaleDtype::F32) => 1,
+            Some(ScaleDtype::F16) => 2,
+            Some(ScaleDtype::BF16) => 3,
+            Some(ScaleDtype::UE8M0) => 4,
+            Some(ScaleDtype::UE4M3) => 5,
+        };
+        let sizes = self
+            .block
+            .as_ref()
+            .map_or(&[][..], |block| block.size.as_slice());
+        let packed_sizes = sizes
+            .iter()
+            .enumerate()
+            .fold(0u64, |packed, (index, size)| {
+                packed | (u64::from(*size) << (8 * index))
+            });
+        value
+            | (store << 4)
+            | ((axis as u64) << 6)
+            | (mode << 12)
+            | (level(self.tensor) << 14)
+            | (level(self.block.map(|block| block.dtype)) << 17)
+            | ((sizes.len() as u64) << 20)
+            | (packed_sizes << 23)
+    }
+
+    /// The scheme [`to_code`](Self::to_code) packed into `code`; `None` for a code no scheme packs
+    /// to, so decoding is exactly the inverse of packing.
+    pub fn from_code(code: u64) -> Option<Self> {
+        let field = |offset: u32, bits: u32| (code >> offset) & ((1 << bits) - 1);
+        let value = match field(0, 4) {
+            0 => QuantValue::Q8F,
+            1 => QuantValue::E5M2,
+            2 => QuantValue::E4M3,
+            3 => QuantValue::Q4F,
+            4 => QuantValue::E2M1,
+            5 => QuantValue::Q2F,
+            6 => QuantValue::Q8S,
+            7 => QuantValue::Q4S,
+            8 => QuantValue::Q2S,
+            _ => return None,
+        };
+        let axis = field(6, 6) as usize;
+        let store = match field(4, 2) {
+            0 => QuantStore::Native,
+            1 => QuantStore::PackedNative(axis),
+            2 => QuantStore::PackedU32(axis),
+            _ => return None,
+        };
+        let mode = match field(12, 2) {
+            0 => QuantMode::Symmetric,
+            1 => QuantMode::Lookup,
+            _ => return None,
+        };
+        let level = |bits: u64| match bits {
+            0 => Some(None),
+            1 => Some(Some(ScaleDtype::F32)),
+            2 => Some(Some(ScaleDtype::F16)),
+            3 => Some(Some(ScaleDtype::BF16)),
+            4 => Some(Some(ScaleDtype::UE8M0)),
+            5 => Some(Some(ScaleDtype::UE4M3)),
+            _ => None,
+        };
+        let tensor = level(field(14, 3))?;
+        let rank = field(20, 3) as usize;
+        if rank > MAX_DIMS {
+            return None;
+        }
+        let sizes: Vec<u8> = (0..rank)
+            .map(|index| field(23 + 8 * index as u32, 8) as u8)
+            .collect();
+        let block = level(field(17, 3))?.map(|dtype| BlockScale {
+            size: BlockSize::new(sizes),
+            dtype,
+        });
+        // Read fields alone accept codes no scheme packs to: bits a field of this scheme does
+        // not use, a size past the rank, a block size `BlockSize::new` trims. Packing the
+        // result again keeps the one code each scheme has.
+        Some(Self {
+            value,
+            store,
+            mode,
+            tensor,
+            block,
+        })
+        .filter(|scheme| scheme.to_code() == code)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1023,6 +1150,97 @@ mod tests {
                 ScaleDtype::UE4M3 => crate::e4m3::MIN_POSITIVE.to_f32(),
                 ScaleDtype::F32 | ScaleDtype::UE8M0 => unreachable!(),
             }
+        }
+    }
+
+    /// Every scheme packs into a code that reads back as itself, its private per-tensor level
+    /// included: every value, store (at both ends of the axis), mode, per-tensor level, and block
+    /// level at ranks one to five with sizes at both ends.
+    #[test]
+    fn every_scheme_round_trips_through_its_code() {
+        let values = [
+            QuantValue::Q8F,
+            QuantValue::E5M2,
+            QuantValue::E4M3,
+            QuantValue::Q4F,
+            QuantValue::E2M1,
+            QuantValue::Q2F,
+            QuantValue::Q8S,
+            QuantValue::Q4S,
+            QuantValue::Q2S,
+        ];
+        let stores = [
+            QuantStore::Native,
+            QuantStore::PackedNative(0),
+            QuantStore::PackedNative(63),
+            QuantStore::PackedU32(0),
+            QuantStore::PackedU32(63),
+        ];
+        let dtypes = [
+            ScaleDtype::F32,
+            ScaleDtype::F16,
+            ScaleDtype::BF16,
+            ScaleDtype::UE8M0,
+            ScaleDtype::UE4M3,
+        ];
+        let sizes: [&[u8]; 4] = [&[32], &[255, 1], &[0, 16], &[2, 4, 8, 16, 255]];
+        let mut codes = alloc::collections::BTreeSet::new();
+        let mut count = 0;
+        for value in values {
+            for store in stores {
+                for mode in [QuantMode::Symmetric, QuantMode::Lookup] {
+                    let base = QuantScheme::default()
+                        .with_value(value)
+                        .with_store(store)
+                        .with_mode(mode);
+                    let tensors = core::iter::once(base)
+                        .chain(dtypes.iter().map(|dtype| base.per_tensor(*dtype)));
+                    for scheme in tensors {
+                        let blocks =
+                            core::iter::once(scheme).chain(dtypes.iter().flat_map(|dtype| {
+                                sizes
+                                    .iter()
+                                    .map(move |size| scheme.per_block(*size, *dtype))
+                            }));
+                        for scheme in blocks {
+                            let code = scheme.to_code();
+                            assert_eq!(QuantScheme::from_code(code), Some(scheme), "{scheme:?}");
+                            codes.insert(code);
+                            count += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(codes.len(), count, "two schemes share a code");
+    }
+
+    /// A code no scheme packs to reads back as no scheme: a reserved value in any field, and a
+    /// bit the scheme it would decode to does not use.
+    #[test]
+    fn a_code_no_scheme_packs_to_is_refused() {
+        let canonical = QuantScheme::default()
+            .with_store(QuantStore::PackedU32(1))
+            .per_block([32], ScaleDtype::F16)
+            .to_code();
+        let native = QuantScheme::default()
+            .with_store(QuantStore::Native)
+            .to_code();
+        let refused = [
+            ("value 9", (canonical & !0xF) | 9),
+            ("value 15", (canonical & !0xF) | 15),
+            ("store 3", canonical | (3 << 4)),
+            ("mode 2", canonical | (2 << 12)),
+            ("per-tensor level 6", canonical | (6 << 14)),
+            ("block level 7", canonical | (7 << 17)),
+            ("rank 6", (canonical & !(7 << 20)) | (6 << 20)),
+            ("an axis on a native store", native | (5 << 6)),
+            ("a rank with no block level", native | (1 << 20)),
+            ("a size past the rank", canonical | (8 << 31)),
+            ("bit 63", canonical | (1 << 63)),
+        ];
+        for (case, code) in refused {
+            assert_eq!(QuantScheme::from_code(code), None, "{case}");
         }
     }
 }
