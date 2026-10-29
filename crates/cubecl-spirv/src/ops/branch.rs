@@ -336,6 +336,7 @@ impl ToSpirvCFDialect for scf::WhileOp {
         let after_region = self.after_region(ctx);
         let before = self.before_block(ctx);
         let after = self.after_block(ctx);
+        let mut cond_fwd = vec![];
         let merge = BasicBlock::new(ctx, Some(ident("merge")), vec![]);
 
         rewriter.inline_region(ctx, before_region, BlockInsertionPoint::AfterBlock(entry));
@@ -351,6 +352,7 @@ impl ToSpirvCFDialect for scf::WhileOp {
         rewriter.set_insertion_point_before_operation(before_term);
 
         if let Some(cond_op) = before_term.as_op::<ConditionOp>(ctx) {
+            cond_fwd = cond_op.forward_values(ctx);
             let cond = cond_op.condition(ctx);
             let after_branch = BranchConditionalOp::new(ctx, cond, after, vec![], merge, vec![]);
             rewriter.append_op(ctx, &after_branch);
@@ -375,16 +377,14 @@ impl ToSpirvCFDialect for scf::WhileOp {
         }
 
         let num_after_args = after.deref(ctx).get_num_arguments();
-        for i in (0..num_after_args).rev() {
+        for (i, &value) in (0..num_after_args).zip(cond_fwd.iter()).rev() {
             let old_value = after.deref(ctx).get_argument(i);
-            let value = before.deref(ctx).get_argument(i);
             rewriter.replace_value_uses_with(ctx, old_value, value);
             BasicBlock::remove_argument(after, ctx, i);
         }
 
         rewriter.set_insertion_point_to_block_end(merge);
-        let results = before.arguments(ctx);
-        let merge_op = MergeOp::new(ctx, results);
+        let merge_op = MergeOp::new(ctx, cond_fwd);
         rewriter.append_op(ctx, &merge_op);
 
         rewriter.set_insertion_point_before_operation(self.get_operation());
@@ -464,12 +464,12 @@ impl ToSpirvCFDialect for branch::UnreachableOp {
     }
 }
 
-pub type BranchToSpirvConversionPass = DialectConversionPass<BranchToSpirvConversion>;
+pub type SCFToSpirvConversionPass = DialectConversionPass<SCFToSpirvConversion>;
 
 #[derive(Default, NamedRewrite)]
-pub struct BranchToSpirvConversion;
+pub struct SCFToSpirvConversion;
 
-impl DialectConversion for BranchToSpirvConversion {
+impl DialectConversion for SCFToSpirvConversion {
     fn can_convert_op(&self, ctx: &Context, op: Ptr<Operation>) -> bool {
         op.impls::<dyn ToSpirvCFDialect>(ctx)
     }

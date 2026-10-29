@@ -1,5 +1,5 @@
 use pliron::{
-    builtin::ops::{FuncOp, ModuleOp},
+    builtin::ops::{ConstantOp, FuncOp, ModuleOp},
     dict_key,
 };
 
@@ -7,10 +7,23 @@ use pliron::{
 macro_rules! Pure {
     ($ty: ty) => {
         $crate::NoSideEffects!($ty);
-        $crate::NoMemoryEffect!($ty);
-        $crate::AlwaysSpeculatable!($ty);
+        $crate::PureBase!($ty);
     };
 }
+
+/// Pure without side effects because they're usually already implemented for upstream ops
+#[macro_export]
+macro_rules! PureBase {
+    ($ty: ty) => {
+        $crate::NoMemoryEffect!($ty);
+        $crate::AlwaysSpeculatable!($ty);
+
+        #[::pliron::derive::op_interface_impl]
+        impl $crate::interfaces::Deterministic for $ty {}
+    };
+}
+
+PureBase!(ConstantOp);
 
 #[macro_export]
 macro_rules! CanMaterialize {
@@ -20,8 +33,8 @@ macro_rules! CanMaterialize {
             fn materialize(
                 &self,
                 ctx: &mut pliron::context::Context,
-                result_ty: Vec<pliron::r#type::TypeHandle>,
-                operands: Vec<Value>,
+                result_ty: pliron::alloc::vec::Vec<pliron::r#type::TypeHandle>,
+                operands: pliron::alloc::vec::Vec<pliron::value::Value>,
                 attributes: pliron::attribute::AttributeDict,
             ) -> pliron::context::Ptr<pliron::operation::Operation> {
                 use pliron::op::Op;
@@ -30,7 +43,7 @@ macro_rules! CanMaterialize {
                     Self::get_concrete_op_info(),
                     result_ty,
                     operands,
-                    vec![],
+                    pliron::alloc::vec![],
                     0,
                 );
                 op.deref_mut(ctx).attributes = attributes;
@@ -39,6 +52,8 @@ macro_rules! CanMaterialize {
         }
     };
 }
+
+CanMaterialize!(ConstantOp);
 
 #[macro_export]
 macro_rules! NoMemoryEffect {
@@ -134,16 +149,20 @@ macro_rules! ReturnLike {
         }
 
         #[::pliron::derive::op_interface_impl]
+        impl $crate::interfaces::control_flow::MutableRegionBranchTerminatorOpInterface for $ty {
+            fn add_successor_operand(&self, ctx: &mut Context, _: RegionSuccessor, value: Value) {
+                Operation::push_operand(self.get_operation(), ctx, value);
+            }
+        }
+
+        #[::pliron::derive::op_interface_impl]
         impl $crate::interfaces::uniformity::UniformRegionTerminatorOpInterface for $ty {
             fn successor_region_uniformity(
                 &self,
-                ctx: &Context,
+                _: &Context,
                 _operands: &[$crate::interfaces::uniformity::Uniformity],
-            ) -> Vec<$crate::interfaces::uniformity::Uniformity> {
-                self.all_successor_regions(ctx)
-                    .iter()
-                    .map(|_| $crate::interfaces::uniformity::Uniformity::Cube)
-                    .collect()
+            ) -> $crate::interfaces::uniformity::Uniformity {
+                $crate::interfaces::uniformity::Uniformity::Cube
             }
         }
 

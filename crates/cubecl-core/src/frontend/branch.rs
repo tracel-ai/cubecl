@@ -31,7 +31,7 @@ use crate::{
     IntoRuntime,
     frontend::{
         CubePrimitive, ReadValue, RuntimeAssign, assign, assign_binop_expand, binary_expand,
-        init_mut_of_type,
+        zeroed_mut_of_type,
     },
     prelude::{CubeEnum, ExpandTypeClone},
 };
@@ -777,7 +777,7 @@ pub trait EarlyReturnable {
 
 impl<T: CubePrimitive> EarlyReturnable for NativeExpand<T> {
     fn init_value(scope: &Scope) -> Option<Value> {
-        Some(init_mut_of_type(scope, T::__expand_as_type(scope)).value(scope))
+        Some(zeroed_mut_of_type(scope, T::__expand_as_type(scope)).value(scope))
     }
     fn from_value(scope: &Scope, value: Option<Value>) -> Self {
         read_value(scope, value.unwrap()).into()

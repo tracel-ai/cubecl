@@ -32,6 +32,10 @@ where
 }
 
 impl MaybeUninitBitset {
+    pub fn empty_init() -> Self {
+        Self::Initialized(Default::default())
+    }
+
     pub fn union(&self, other: &Self) -> Self {
         match (self, other) {
             (MaybeUninitBitset::Uninitialized, other)
@@ -51,6 +55,18 @@ impl MaybeUninitBitset {
             (MaybeUninitBitset::Uninitialized, other)
             | (other, MaybeUninitBitset::Uninitialized) => other.clone(),
             (MaybeUninitBitset::Initialized(this), MaybeUninitBitset::Initialized(other)) => {
+                MaybeUninitBitset::Initialized(this.intersection(other).into())
+            }
+        }
+    }
+
+    pub fn raw_intersection<Other>(&self, other: Other) -> Self
+    where
+        Other: BitSetInterface<Conf = <SparseBitSet as BitSetBase>::Conf>,
+    {
+        match self {
+            MaybeUninitBitset::Uninitialized => MaybeUninitBitset::Initialized(other.into()),
+            MaybeUninitBitset::Initialized(this) => {
                 MaybeUninitBitset::Initialized(this.intersection(other).into())
             }
         }
@@ -96,6 +112,22 @@ impl MaybeUninitBitset {
         match self {
             MaybeUninitBitset::Uninitialized => Box::new(iter::empty()),
             MaybeUninitBitset::Initialized(bit_set) => Box::new(bit_set.iter()),
+        }
+    }
+
+    pub fn is_initialized(&self) -> bool {
+        matches!(self, MaybeUninitBitset::Initialized(_))
+    }
+
+    #[track_caller]
+    pub fn unwrap(&self) -> &SparseBitSet {
+        self.initialized().unwrap()
+    }
+
+    pub fn initialized(&self) -> Option<&SparseBitSet> {
+        match self {
+            MaybeUninitBitset::Uninitialized => None,
+            MaybeUninitBitset::Initialized(bit_set) => Some(bit_set),
         }
     }
 }
