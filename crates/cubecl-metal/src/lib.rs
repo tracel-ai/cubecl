@@ -31,9 +31,6 @@ mod tests {
     cubecl_std::testgen_tensor_identity!([f16, flex32, f32, u32]);
     cubecl_std::testgen_quantized_view!(f16);
     cubecl_core::testgen_profiling!();
-    // No `testgen_profiling_nested!`: a stream collects the command buffers of
-    // one window at a time (`Stream::profiling`), so an inner `start_profile`
-    // replaces the outer's collector and the outer window ends up measuring
-    // nothing. Add it once the collector is a stack.
+    cubecl_core::testgen_profiling_nested!();
     cubecl_core::testgen_complex_validation!();
 }

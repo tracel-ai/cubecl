@@ -517,13 +517,10 @@ impl Server for MetalServer {
         if let Err(err) = future::block_on(self.sync(Vec::new(), stream_id)) {
             log::warn!("{err}");
         }
-        // Begin collecting this window's work-bearing command buffers on the stream.
-        self.streams
-            .resolve(stream_id, [].into_iter())?
-            .current()
-            .queue()
-            .profiling = Some(Vec::new());
-        Ok(self.timestamps.start())
+        let mut streams = self.streams.resolve(stream_id, [].into_iter())?;
+        let token = self.timestamps.start();
+        streams.current().queue().profile_windows.open(&token);
+        Ok(token)
     }
 
     fn end_profile(
@@ -536,17 +533,12 @@ impl Server for MetalServer {
             self.timestamps.failure(&err);
         }
 
-        // The collector disarms whatever the token says below: left armed, it
-        // would retain every later flush's command buffer until the next
-        // start_profile — and a failed profile is exactly when the token
-        // errors, since a failure anywhere in the window lands in it.
+        // The window closes whatever the token says below: left open, it
+        // would retain every later flush's command buffer — and a failed
+        // profile is exactly when the token errors, since a failure anywhere
+        // in the window lands in it.
         let buffers = match self.streams.resolve(stream_id, [].into_iter()) {
-            Ok(mut streams) => streams
-                .current()
-                .queue()
-                .profiling
-                .take()
-                .unwrap_or_default(),
+            Ok(mut streams) => streams.current().queue().profile_windows.close(&token),
             Err(err) => {
                 self.timestamps.abandon(token);
                 return Err(ProfileError::from(&err));
@@ -590,12 +582,12 @@ impl Server for MetalServer {
     }
 
     fn abandon_profile(&mut self, stream_id: StreamId, token: ProfilingToken) {
-        // Disarm the collector and drop what it has retained: left armed it
-        // would hold every later flush's command buffers until the next
-        // `start_profile`. No sync, which is the whole difference from
-        // `end_profile`: nothing is going to read these timestamps.
+        // Close the window and drop what it retained: left open it would hold
+        // every later flush's command buffers. No sync, which is the whole
+        // difference from `end_profile`: nothing is going to read these
+        // timestamps.
         if let Some(stream) = self.streams.try_stream_mut(&stream_id) {
-            stream.queue().profiling = None;
+            stream.queue().profile_windows.close(&token);
         }
         self.timestamps.abandon(token);
     }

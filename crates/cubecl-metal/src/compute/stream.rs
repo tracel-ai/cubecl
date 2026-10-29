@@ -4,7 +4,7 @@ use crate::compute::pipelines::MetalCompiledKernel;
 use crate::memory::MetalStorage;
 use cubecl_core::{
     MemoryConfiguration,
-    server::{DeviceCaptures, Handle, IoError, LaunchError, ServerError},
+    server::{DeviceCaptures, Handle, IoError, LaunchError, ProfilingToken, ServerError},
 };
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
@@ -186,6 +186,53 @@ fn install_completion_handler(
     }
 }
 
+/// The profile windows open on a stream, and the work-bearing command buffers
+/// committed since the first of them opened, whose GPU timestamps a window
+/// reads once it closes.
+///
+/// Windows nest: each measures every command buffer committed from its
+/// opening on, so an inner window's work is also the outer's. An autotune
+/// round's window holds the per-launch windows of an instrumented run, and the
+/// round measures nothing if those replace it.
+#[derive(Default)]
+pub struct ProfileWindows {
+    /// Each open window's token, and where in `committed` it opened.
+    open: Vec<(u64, usize)>,
+    committed: Vec<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
+}
+
+impl ProfileWindows {
+    /// Open the window `token` names at this point of the stream.
+    pub fn open(&mut self, token: &ProfilingToken) {
+        self.open.push((token.id, self.committed.len()));
+    }
+
+    /// Record a command buffer that carried work, for the windows open now.
+    pub fn committed(&mut self, buffer: &Retained<ProtocolObject<dyn MTLCommandBuffer>>) {
+        if !self.open.is_empty() {
+            self.committed.push(buffer.clone());
+        }
+    }
+
+    /// Close the window `token` names: the command buffers committed since it
+    /// opened, none for a window this stream did not open. The last window to
+    /// close lets go of every command buffer the windows held.
+    pub fn close(
+        &mut self,
+        token: &ProfilingToken,
+    ) -> Vec<Retained<ProtocolObject<dyn MTLCommandBuffer>>> {
+        let Some(position) = self.open.iter().position(|(id, _)| *id == token.id) else {
+            return Vec::new();
+        };
+        let (_, opened) = self.open.remove(position);
+        let buffers = self.committed[opened..].to_vec();
+        if self.open.is_empty() {
+            self.committed.clear();
+        }
+        buffers
+    }
+}
+
 /// A stream's command queue: the batch it is filling, and what its committed
 /// work signals.
 pub struct MetalQueue {
@@ -206,10 +253,8 @@ pub struct MetalQueue {
     max_submitted_ops: usize,
     /// Last committed command buffer, kept alive for back-pressure waits.
     last_command_buffer: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
-    /// When `Some`, device profiling is active on this stream: each work-bearing command
-    /// buffer committed during the window is collected here so its GPU timestamps
-    /// (`GPUStartTime`/`GPUEndTime`) can be read after completion.
-    pub profiling: Option<Vec<Retained<ProtocolObject<dyn MTLCommandBuffer>>>>,
+    /// The profile windows open on this stream, and the command buffers they measure.
+    pub profile_windows: ProfileWindows,
     /// The first GPU-time fault a completed command buffer reported, sticky
     /// for the stream's life. Shared with every completion handler and every
     /// [`MetalEvent`], whose waits fail on it — see
@@ -345,12 +390,10 @@ impl MetalQueue {
 
         let ops_in_batch = self.batch_ops;
 
-        // While profiling, collect command buffers that actually carried dispatches; skip
-        // empty signal-only buffers (ops_in_batch == 0) so they don't widen the measured span.
-        if ops_in_batch > 0
-            && let Some(buffers) = self.profiling.as_mut()
-        {
-            buffers.push(command_buffer.clone());
+        // Empty signal-only buffers (ops_in_batch == 0) carry no work, so they don't widen a
+        // measured span.
+        if ops_in_batch > 0 {
+            self.profile_windows.committed(&command_buffer);
         }
 
         self.last_command_buffer = Some(command_buffer);
@@ -676,7 +719,7 @@ impl EventStreamBackend for MetalStreamBackend {
                 submitted_ops: 0,
                 max_submitted_ops,
                 last_command_buffer: None,
-                profiling: None,
+                profile_windows: ProfileWindows::default(),
                 fault: Arc::new(Mutex::new(None)),
             })),
             memory_management,
