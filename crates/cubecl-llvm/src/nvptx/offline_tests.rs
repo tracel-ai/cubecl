@@ -629,6 +629,26 @@ fn an_im2col_load_and_a_bulk_copy_share_a_barrier() {
     );
 }
 
+/// A unit's `copy_async` is the copy engine's `cp.async`, as the C++ backend issues it, and its
+/// commit arrives on the cube barrier the units then wait on.
+#[test]
+fn unit_async_copies_complete_on_the_barrier() {
+    for arch in [90, 120] {
+        let ptx = ptx_of(
+            crate::shared::offline_kernels::unit_async_copy_kernel(),
+            arch,
+        );
+        assert!(
+            ptx.contains("cp.async.cg.shared.global"),
+            "a 16-byte copy through L2 on sm_{arch}:\n{ptx}"
+        );
+        assert!(
+            ptx.contains("cp.async.mbarrier.arrive.shared"),
+            "the commit arrives on the barrier on sm_{arch}:\n{ptx}"
+        );
+    }
+}
+
 /// `memcpy_async` copies synchronously: on a unit barrier there is nothing to wait for, and a
 /// cooperative copy splits the elements over the cube before its units meet on the `mbarrier`.
 #[test]
