@@ -10,8 +10,10 @@ use crate::{
 };
 
 use super::distribution::{AxisDistribution, Distribution, Workers};
+use super::launch_span::launch_tiles;
+use super::swizzled::{in_plane_axes, swizzled_positions};
 use crate::Spread;
-use crate::space::partition::{GridCount, in_plane_axes, launch_tiles, swizzled_positions};
+use crate::space::partition::GridCount;
 
 /// The runtime odometer over a [`Space`]'s tiles under one [`Level`].
 #[derive(CubeType)]
@@ -159,12 +161,14 @@ impl Walk {
         #[unroll]
         for p in 0..rank {
             match comptime!(distributes[p].clone()) {
-                AxisDistribution::Distributed(Distribution { workers, .. }) => match comptime!(workers) {
-                    Workers::Across(workers) => instances.push(workers.runtime()),
-                    // The plane's width is the launch's, so it is read, not compiled in.
-                    Workers::LaunchUnits => instances.push(CUBE_DIM_X as usize),
-                    Workers::Grid => instances.push(grid.at(p)),
-                },
+                AxisDistribution::Distributed(Distribution { workers, .. }) => {
+                    match comptime!(workers) {
+                        Workers::Across(workers) => instances.push(workers.runtime()),
+                        // The plane's width is the launch's, so it is read, not compiled in.
+                        Workers::LaunchUnits => instances.push(CUBE_DIM_X as usize),
+                        Workers::Grid => instances.push(grid.at(p)),
+                    }
+                }
                 AxisDistribution::Walked => instances.push(1usize),
             }
         }
