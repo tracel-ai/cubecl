@@ -182,6 +182,7 @@ macro_rules! testgen_untyped {
 
         cubecl_core::testgen_control_flow!();
         cubecl_core::testgen_stream_errors!();
+        cubecl_core::testgen_stream_untyped!();
         cubecl_core::testgen_allocation_mode!();
         cubecl_core::testgen_out_of_memory!();
         cubecl_core::testgen_compile!();
