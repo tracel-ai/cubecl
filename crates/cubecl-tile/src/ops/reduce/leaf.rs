@@ -4,7 +4,7 @@
 use cubecl::prelude::*;
 use cubecl_std::tensor::layout::CoordsDyn;
 
-use crate::ops::contraction::resolve_nd_coords;
+use crate::ops::contraction::{AccCoords, resolve_nd_coords};
 use crate::*;
 
 #[cube]
@@ -191,7 +191,7 @@ fn element_lines<Acc: Numeric, In: Numeric, V: Size>(
             acc_coords,
             &reduce_coords,
             contracted_per_step,
-            true,
+            AccCoords::Cells,
         );
 
         let in_vec = match comptime!(monoid) {
@@ -239,7 +239,7 @@ fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
             acc_coords,
             &reduce_coords,
             vw,
-            true,
+            AccCoords::Cells,
         );
 
         // Memory reads return Sum's identity out of bounds; other monoids need it read in.
@@ -305,7 +305,7 @@ pub(crate) fn dot_cells<E: Float, Lhs: Numeric, Rhs: Numeric, V: Size>(
                 &acc_coords,
                 &reduce_coords,
                 vw,
-                true,
+                AccCoords::Cells,
             );
             let component = resolve_reduce_component(
                 &in_space,

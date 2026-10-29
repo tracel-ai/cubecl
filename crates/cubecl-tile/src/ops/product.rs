@@ -5,7 +5,7 @@ use cubecl::prelude::*;
 
 use cubecl_std::tensor::layout::CoordsDyn;
 
-use crate::ops::contraction::resolve_nd_coords;
+use crate::ops::contraction::{AccCoords, resolve_nd_coords};
 use crate::*;
 
 #[cube]
@@ -149,8 +149,8 @@ fn bases(
     let empty = Coords::<u32>::new();
     let no_reduce = comptime!(Vec::<Axis>::new());
     (
-        resolve_nd_coords(&a, &dst, &no_reduce, &cells, &empty, width, true),
-        resolve_nd_coords(&b, &dst, &no_reduce, &cells, &empty, per_read, true),
+        resolve_nd_coords(&a, &dst, &no_reduce, &cells, &empty, width, AccCoords::Cells),
+        resolve_nd_coords(&b, &dst, &no_reduce, &cells, &empty, per_read, AccCoords::Cells),
     )
 }
 
