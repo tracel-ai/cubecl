@@ -186,12 +186,10 @@ fn kernel_test_shared_freed_in_a_loop(out: &mut [u32], rounds: u32, #[comptime] 
 /// Shared memory freed inside a loop is taken by what the same round declares after it: two arrays
 /// of five eighths of a cube's shared memory each fit, every round, and pass the right values.
 ///
-/// Skipped on a CPU runtime: it holds each shared memory in a host block of its own, laid out by
-/// no allocator, so no declaration ever takes another's bytes.
+/// Generated only for a runtime whose launch counts shared memory as the allocator lays it out
+/// ([`testgen_shared_freed_in_a_loop`]): one that counts every declaration apart refuses the
+/// launch, as a CPU runtime and wgpu do.
 pub fn test_shared_freed_in_a_loop<R: Runtime>(client: Client) {
-    if client.properties().hardware.num_cpu_cores.is_some() {
-        return;
-    }
     let units = 32u32;
     let rounds = 3u32;
     let len = client.properties().hardware.max_shared_memory_size / size_of::<u32>() * 5 / 8;
@@ -644,14 +642,6 @@ macro_rules! testgen_sync_plane {
         }
 
         #[$crate::runtime_tests::test_log::test]
-        fn test_shared_freed_in_a_loop() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::synchronization::test_shared_freed_in_a_loop::<TestRuntime>(
-                client,
-            );
-        }
-
-        #[$crate::runtime_tests::test_log::test]
         fn test_sync_cube_shared() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::synchronization::test_sync_cube_shared::<TestRuntime>(
@@ -697,6 +687,22 @@ macro_rules! testgen_sync_plane {
             cubecl_core::runtime_tests::synchronization::test_workgroup_uniform_load_vec::<
                 TestRuntime,
             >(client);
+        }
+    };
+}
+
+/// [`test_shared_freed_in_a_loop`], for a runtime whose launch counts shared memory as the
+/// allocator lays it out.
+#[allow(missing_docs)]
+#[macro_export]
+macro_rules! testgen_shared_freed_in_a_loop {
+    () => {
+        #[$crate::runtime_tests::test_log::test]
+        fn test_shared_freed_in_a_loop() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::synchronization::test_shared_freed_in_a_loop::<TestRuntime>(
+                client,
+            );
         }
     };
 }
