@@ -23,7 +23,7 @@ use cubecl_core::{
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::{self, DynFut};
 use cubecl_environment::stream::StreamId;
-use cubecl_server::command::{CollectiveDriver, Collectives, DeviceStream, Refused};
+use cubecl_server::command::{CollectiveDriver, Collectives, Refused};
 use cubecl_server::compiler::ArtifactId;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
@@ -40,7 +40,7 @@ use cudarc::driver::sys::{
     CUstream, CUtensorMap, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapInterleave,
     CUtensorMapL2promotion, CUtensorMapSwizzle, cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
 };
-use std::{collections::HashMap, convert::Infallible, ffi::c_void, sync::Arc};
+use std::{convert::Infallible, ffi::c_void, sync::Arc};
 
 /// Stage `words` into a device buffer, reusing a cached one when a launch has
 /// already staged these exact info words. The info is read-only metadata (no
@@ -91,9 +91,6 @@ pub struct CudaServer {
     /// buffers it retained). Referencing graphs by id keeps the raw
     /// `CUgraphExec` inside the server, never boxed across the actor boundary.
     graphs: Captures,
-    /// Allocation modes set on streams that did not exist yet, applied when the stream is
-    /// created rather than creating it only to hold the mode.
-    pending_allocation_modes: HashMap<StreamId, MemoryAllocationMode>,
 }
 
 // SAFETY: `CudaServer` is only accessed from one thread at a time via the `DeviceHandle`,
@@ -433,11 +430,9 @@ impl Server for CudaServer {
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
-        match self.streams.try_stream_mut(&stream_id) {
-            Some(stream) => stream.device_memory().mode(mode),
-            None => {
-                self.pending_allocation_modes.insert(stream_id, mode);
-            }
+        // A failed stream creation is reported by the next command on it.
+        if let Ok(mut command) = self.command_no_inputs(stream_id) {
+            command.allocation_mode(mode);
         }
     }
 }
@@ -778,7 +773,6 @@ impl CudaServer {
             utilities: Arc::new(utilities),
             collectives: Collectives::new(device_id),
             graphs: Captures::default(),
-            pending_allocation_modes: HashMap::new(),
         }
     }
 
@@ -823,10 +817,7 @@ impl CudaServer {
         handles: impl Iterator<Item = &'a BufferBinding>,
     ) -> Result<Command<'_>, ServerError> {
         self.unsafe_set_current();
-        let mut streams = self.streams.resolve(stream_id, handles)?;
-        if let Some(mode) = self.pending_allocation_modes.remove(&stream_id) {
-            streams.current().device_memory().mode(mode);
-        }
+        let streams = self.streams.resolve(stream_id, handles)?;
         Ok(Command::new(&mut self.ctx, streams, self.utilities.service))
     }
 
