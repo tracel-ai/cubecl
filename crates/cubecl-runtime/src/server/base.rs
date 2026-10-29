@@ -1708,17 +1708,33 @@ impl MetadataBindingInfo {
     }
 }
 
-/// A binding with shape and stride info for non-contiguous reading
-#[derive(new, Debug)]
-pub struct CopyDescriptor {
-    /// Binding for the memory resource
-    pub handle: BufferBinding,
+/// A buffer and the layout of a copy to or from it.
+///
+/// A copy queued at the call holds a [`BufferBinding`]: its stream orders it before any later
+/// in-place write. A copy deferred past the call holds the [`Handle`], so [`Handle::can_mut`]
+/// stays false until it runs.
+#[derive(new, Clone, Debug)]
+pub struct CopyDescriptor<B = BufferBinding> {
+    /// The memory resource
+    pub handle: B,
     /// Shape of the resource
     pub shape: Shape,
     /// Strides of the resource
     pub strides: Strides,
     /// Size of each element in the resource
     pub elem_size: usize,
+}
+
+impl CopyDescriptor<Handle> {
+    /// The same read, holding only a binding of the buffer.
+    pub fn binding(self) -> CopyDescriptor {
+        CopyDescriptor {
+            handle: self.handle.binding(),
+            shape: self.shape,
+            strides: self.strides,
+            elem_size: self.elem_size,
+        }
+    }
 }
 
 /// A tensor map used with TMA ops

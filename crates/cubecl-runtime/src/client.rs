@@ -31,7 +31,7 @@ use cubecl_common::{
 };
 use cubecl_environment::{backtrace::BackTrace, future::DynFut, stream::StreamId, sync::Mutex};
 use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, VectorSize, features::Features};
-use cubecl_zspace::{Shape, Strides};
+use cubecl_zspace::Shape;
 pub use group::*;
 
 #[allow(unused)]
@@ -436,30 +436,23 @@ impl Client {
             .remove(0)
     }
 
-    /// Reads `source`, laid out as `shape` and `strides`, lazily.
+    /// Reads the buffer `source` describes lazily.
     ///
     /// The returned [`Bytes`] only performs the device-to-host copy on first access (e.g. during
     /// serialization). This lets a large number of device tensors be serialized without
     /// materializing them all in host memory at once: drain the [`Bytes`] sequentially rather than
     /// holding them all alive.
     ///
-    /// Until that first access the [`Bytes`] hold `source`, so [`Handle::can_mut`] is false for
-    /// it and a caller that honours it does not write the buffer in place: the data read is the
-    /// data as it was at this call.
+    /// Until that first access the [`Bytes`] hold `source`'s handle, so [`Handle::can_mut`] is
+    /// false for it and a caller that honours it does not write the buffer in place: the data
+    /// read is the data as it was at this call.
     #[cfg(not(target_family = "wasm"))]
-    pub fn read_lazy(
-        &self,
-        source: Handle,
-        shape: Shape,
-        strides: Strides,
-        elem_size: usize,
-    ) -> Bytes {
-        self.expect_local(&source.clone().binding());
-        lazy::LazyDeviceController::new(self.clone(), source, shape, strides, elem_size)
-            .into_bytes()
+    pub fn read_lazy(&self, source: CopyDescriptor<Handle>) -> Bytes {
+        self.expect_local(&source.handle.clone().binding());
+        lazy::LazyDeviceController::new(self.clone(), source).into_bytes()
     }
 
-    /// Reads `source`, laid out as `shape` and `strides`, lazily, async variant.
+    /// Reads the buffer `source` describes lazily, async variant.
     ///
     /// On native targets the returned future is immediately ready and yields a lazy [`Bytes`]
     /// whose device-to-host copy is deferred to first access (see [`read_lazy`](Self::read_lazy)).
@@ -472,12 +465,9 @@ impl Client {
     #[cfg(not(target_family = "wasm"))]
     pub fn read_lazy_async(
         &self,
-        source: Handle,
-        shape: Shape,
-        strides: Strides,
-        elem_size: usize,
+        source: CopyDescriptor<Handle>,
     ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
-        let binding = source.clone().binding();
+        let binding = source.handle.clone().binding();
         if let Err(err) = self.local(&binding) {
             return core::future::ready(Err(err));
         }
@@ -489,12 +479,11 @@ impl Client {
         if let Err(err) = checked {
             return core::future::ready(Err(err));
         }
-        let controller =
-            lazy::LazyDeviceController::new(self.clone(), source, shape, strides, elem_size);
+        let controller = lazy::LazyDeviceController::new(self.clone(), source);
         core::future::ready(Ok(controller.into_bytes()))
     }
 
-    /// Reads `source`, laid out as `shape` and `strides`, lazily, async variant.
+    /// Reads the buffer `source` describes lazily, async variant.
     ///
     /// On `wasm` the deferred copy cannot run inside the synchronous access path, so awaiting
     /// performs the read eagerly and yields a materialized [`Bytes`]. Awaiting one tensor at a
@@ -502,12 +491,9 @@ impl Client {
     #[cfg(target_family = "wasm")]
     pub fn read_lazy_async(
         &self,
-        source: Handle,
-        shape: Shape,
-        strides: Strides,
-        elem_size: usize,
+        source: CopyDescriptor<Handle>,
     ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
-        self.read_one_tensor_async(source.copy_descriptor(shape, strides, elem_size))
+        self.read_one_tensor_async(source.binding())
     }
 
     /// Given a resource handle, returns the storage resource.
