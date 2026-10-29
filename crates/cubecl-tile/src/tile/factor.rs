@@ -25,6 +25,9 @@ pub struct Factor;
 pub struct FactorExpand {
     // `Arc`: a tile holds its scale, and the scale is a tile.
     scale: Option<Arc<TileExpand>>,
+    /// Whether a stage keeps these scales beside the values though they are not words of block
+    /// scales ([`Tile::scales_kept_beside`](crate::Tile::scales_kept_beside)).
+    kept_beside: bool,
 }
 
 impl Factor {
@@ -144,6 +147,24 @@ impl FactorExpand {
     pub(crate) fn of(scale: &TileExpand) -> Self {
         FactorExpand {
             scale: Some(Arc::new(scale.clone())),
+            kept_beside: false,
+        }
+    }
+
+    /// This factor, its scales kept beside the values by a stage as `from`'s are: a factor
+    /// windowed, split or staged off another keeps its choice.
+    fn keeping(self, from: &FactorExpand) -> Self {
+        FactorExpand {
+            kept_beside: from.kept_beside,
+            ..self
+        }
+    }
+
+    /// This factor, its scales kept beside the values by a stage.
+    pub(crate) fn kept_beside(self) -> Self {
+        FactorExpand {
+            kept_beside: true,
+            ..self
         }
     }
 
@@ -179,12 +200,12 @@ impl FactorExpand {
             return (FactorExpand::default(), FactorExpand::default());
         };
         if !Self::varies_outside(scope, scale, space) {
-            return (FactorExpand::default(), self.clone());
+            return (FactorExpand::default().keeping(self), self.clone());
         }
         let (kept, taken) = scale.factor.split_on(scope, space);
         let mut inner = scale.clone();
         inner.factor = kept;
-        (FactorExpand::of(&inner), taken)
+        (FactorExpand::of(&inner).keeping(self), taken)
     }
 
     /// This factor with `coarser` outside it: under the last scale of its chain.
@@ -232,7 +253,9 @@ impl FactorExpand {
     pub(crate) fn __expand_at_method(&self, scope: &Scope, step: &StepExpand) -> FactorExpand {
         match self.scale.as_deref() {
             // The scale's own scale is windowed with it, by its `at_step`.
-            Some(scale) => FactorExpand::of(&scale.clone().__expand_at_step_method(scope, step)),
+            Some(scale) => {
+                FactorExpand::of(&scale.clone().__expand_at_step_method(scope, step)).keeping(self)
+            }
             None => FactorExpand::default(),
         }
     }
@@ -269,11 +292,13 @@ impl FactorExpand {
     ) -> FactorExpand {
         match self.scale.as_deref() {
             None => FactorExpand::default(),
-            Some(scale) if scale.place.space.contains(axis) => FactorExpand::of(&place(scale)),
+            Some(scale) if scale.place.space.contains(axis) => {
+                FactorExpand::of(&place(scale)).keeping(self)
+            }
             Some(scale) => {
                 let mut kept = scale.clone();
                 kept.factor = scale.factor.spanning(axis, place);
-                FactorExpand::of(&kept)
+                FactorExpand::of(&kept).keeping(self)
             }
         }
     }
@@ -346,16 +371,17 @@ impl FactorExpand {
     }
 
     pub(crate) fn __expand_holds_words_method(&self, scope: &Scope) -> bool {
-        self.staged_beside(scope)
-    }
-
-    /// Whether these scales are staged beside the values they scale rather than decoded into
-    /// them: words of block scales, which only the block-scaled instruction reads, so values
-    /// under them are staged as they are stored.
-    pub(crate) fn staged_beside(&self, scope: &Scope) -> bool {
         self.scale
             .as_deref()
             .is_some_and(|scale| holds_words(scope, scale))
+    }
+
+    /// Whether these scales are staged beside the values they scale rather than decoded into
+    /// them, so the values under them are staged as they are stored: words of block scales, which
+    /// only the block-scaled instruction reads, or scales a reader that decodes as it loads asked
+    /// to keep there ([`Tile::scales_kept_beside`](crate::Tile::scales_kept_beside)).
+    pub(crate) fn staged_beside(&self, scope: &Scope) -> bool {
+        self.scaled() && (self.kept_beside || self.__expand_holds_words_method(scope))
     }
 
     /// The scale tile staged beside the values, which are under it alone.
@@ -381,7 +407,7 @@ impl FactorExpand {
             width: None,
             ..spec.clone()
         };
-        FactorExpand::of(&stage_one::expand(scope, self.beside(), spec))
+        FactorExpand::of(&stage_one::expand(scope, self.beside(), spec)).keeping(self)
     }
 
     /// Fill this factor's stage from `src`, the factor it stages windowed as the values are.

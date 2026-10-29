@@ -79,18 +79,20 @@ impl StageStorage {
             .tma_swizzle()
             .map_err(|why| Refusal::RowsNoDescriptorLands { why })?;
         let rank = space.rank();
+        // A row spans the innermost axis and those its swizzle merges beside it.
+        let span = form.rows.swizzle().map_or(1, |swizzle| swizzle.span());
         let row = space.axis_at(rank - 1);
         let period = match swizzle {
             TensorMapSwizzle::None => 1,
             _ => ChunkSwizzle::ROWS_PER_PERIOD,
         };
         for block in self.nesting(space) {
-            let rows = match rank {
-                1 => 1,
-                _ => block.extent_at(rank - 2),
+            let rows = match rank > span {
+                true => block.extent_at(rank - 1 - span),
+                false => 1,
             };
-            if block.extent_at(rank - 1) < space.extent_at(rank - 1) || !rows.is_multiple_of(period)
-            {
+            let splits_row = (rank - span..rank).any(|p| block.extent_at(p) < space.extent_at(p));
+            if splits_row || !rows.is_multiple_of(period) {
                 return Err(Refusal::BoxSplitsStageBlocks {
                     axis: row,
                     rows,
@@ -106,7 +108,7 @@ impl StageStorage {
     /// padding after each row. What [`Stages::smem`](crate::Stages::smem) allocates for it.
     pub fn bytes(&self, space: &Space, vector_size: usize, elem_bits: usize) -> usize {
         let line = vector_size * elem_bits / 8;
-        StageForm::dense(space, vector_size, self.clone(), LineBytes(line)).cells() * line
+        StageForm::dense_cells(space, vector_size, self, LineBytes(line)) * line
     }
 
     /// The storage-tiling nesting a stage over `space` gets, coarse to fine; empty is row-major.

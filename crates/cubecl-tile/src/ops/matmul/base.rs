@@ -4,7 +4,7 @@
 use cubecl::cmma::{MatrixIdent, MatrixLayout};
 use cubecl::prelude::*;
 
-use crate::ops::matmul::leaf::FragmentRead;
+use crate::ops::matmul::leaf::{FragmentRead, window_layouts};
 use crate::*;
 
 #[cube]
@@ -275,8 +275,11 @@ impl PlaneTile {
     ) {
         match self {
             PlaneTile::Cmma(d) => {
-                let transposed = transposed_rhs(lhs, rhs);
-                strided_2d(lhs, rhs, comptime!(out.clone()), transposed);
+                let (lhs_window, rhs_window) =
+                    comptime!(window_layouts(&lhs.place.space, &rhs.place.space));
+                let lhs_along_m = read_col_major(lhs, lhs_window);
+                let rhs_along_k = read_col_major(rhs, rhs_window);
+                strided_2d(lhs, rhs, comptime!(out.clone()), lhs_along_m, rhs_along_k);
                 d.mma::<E, EL, ER>(lhs, rhs, out)
             }
             PlaneTile::Mma(d) => {
@@ -287,7 +290,22 @@ impl PlaneTile {
                 // ([`steps`](crate::tile::kind::plane::mma::steps)) or in lane runs out of global
                 // memory ([`lane_runs`](crate::tile::kind::plane::mma::lane_runs)), each of which
                 // says why where it cannot.
-                let (m, n, k) = comptime!((d.m, d.n, d.k));
+                // A left factor held as a run of accumulators along the contraction is as deep as
+                // the run, one instruction a call ([`accumulators_as_a`]); every other factor
+                // contracts at the leaf the accumulator was opened at.
+                let run = match &lhs.kind {
+                    TileKind::PlanePartition(_) => comptime!(true),
+                    TileKind::PlaneTile(_)
+                    | TileKind::Memory(_)
+                    | TileKind::TmaGmem(_)
+                    | TileKind::Procedural(_)
+                    | TileKind::Lines(_) => comptime!(false),
+                };
+                let (m, n) = comptime!((d.m, d.n));
+                let k = comptime!(match run {
+                    true => lhs.place.space.contracted_extent(&out),
+                    false => d.k,
+                });
                 let block_scaled = comptime!(d.operands == MmaOperands::BlockScaled);
                 // An operand already in fragments was held to the instruction as it loaded
                 // (`PlanePartition::operand`), and a fragment no longer states its storage.
@@ -304,7 +322,7 @@ impl PlaneTile {
                     rhs.refuse_factor("PlaneTile::Mma");
                 }
                 flattened_k(lhs, rhs, out);
-                d.mma::<E, EL, ER>(lhs, rhs)
+                d.mma::<E, EL, ER>(lhs, rhs, k)
             }
             PlaneTile::Wgmma(d) => {
                 lhs.refuse_factor("PlaneTile::Wgmma");
@@ -333,7 +351,8 @@ impl PlaneTile {
                             .space
                             .contains(rhs.place.space.axis_at(rhs.place.space.rank() - 1))
                     );
-                    strided_2d(lhs, rhs, comptime!(out.clone()), rhs_along_k);
+                    // A register block reads its lhs along `k`.
+                    strided_2d(lhs, rhs, comptime!(out.clone()), false, rhs_along_k);
                     d.mma::<E, EL, ER>(lhs, rhs, out)
                 }
             },
@@ -343,7 +362,13 @@ impl PlaneTile {
 
 /// Asserts that operands are not gathered and read as one matrix each.
 #[cube]
-fn strided_2d(lhs: &Tile, rhs: &Tile, #[comptime] out: Space, #[comptime] rhs_along_k: bool) {
+fn strided_2d(
+    lhs: &Tile,
+    rhs: &Tile,
+    #[comptime] out: Space,
+    #[comptime] lhs_along_m: bool,
+    #[comptime] rhs_along_k: bool,
+) {
     let lhs_gathered = lhs.gathered();
     let rhs_gathered = rhs.gathered();
     let flat = comptime!({
@@ -355,7 +380,13 @@ fn strided_2d(lhs: &Tile, rhs: &Tile, #[comptime] out: Space, #[comptime] rhs_al
         } else {
             MatrixAxes::new(&rhs.place.space, kc, cols)
         };
-        MatrixAxes::new(&lhs.place.space, axes.rows(&out), kc).is_ok() && rhs_matrix.is_ok()
+        let rows = axes.rows(&out);
+        let lhs_matrix = if lhs_along_m {
+            MatrixAxes::new(&lhs.place.space, kc, rows)
+        } else {
+            MatrixAxes::new(&lhs.place.space, rows, kc)
+        };
+        lhs_matrix.is_ok() && rhs_matrix.is_ok()
     });
     comptime!(assert!(
         !lhs_gathered && !rhs_gathered && flat,
@@ -368,23 +399,19 @@ fn strided_2d(lhs: &Tile, rhs: &Tile, #[comptime] out: Space, #[comptime] rhs_al
     ));
 }
 
-/// Whether `rhs` is read col-major: a col-major cmma fragment or a staged `(col, k)` window.
+/// Whether `factor` is read col-major: a col-major cmma fragment, or a staged window laid out as
+/// `window` says (the lhs along its rows, the rhs along `k`). Only a shared stage can answer
+/// column-major; a gmem factor never does.
 #[cube]
-fn transposed_rhs(lhs: &Tile, rhs: &Tile) -> comptime_type!(bool) {
-    match &rhs.kind {
+fn read_col_major(factor: &Tile, #[comptime] window: MatrixLayout) -> comptime_type!(bool) {
+    match &factor.kind {
         TileKind::PlaneTile(t) => match t {
             PlaneTile::Cmma(d) => comptime!(d.layout == MatrixLayout::ColMajor),
             PlaneTile::Mma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(false),
         },
-        // The contracted axis is the lhs's trailing one; not every axis the output lacks is.
-        // Only a shared stage can answer column-major; a gmem rhs never does.
-        TileKind::Memory(m) => comptime!(
-            m.address == AddressSpace::Shared
-                && crate::ops::matmul::leaf::rhs_layout(
-                    &rhs.place.space,
-                    lhs.place.space.axis_at(lhs.place.space.rank() - 1)
-                ) == MatrixLayout::ColMajor
-        ),
+        TileKind::Memory(m) => {
+            comptime!(m.address == AddressSpace::Shared && window == MatrixLayout::ColMajor)
+        }
         TileKind::PlanePartition(_)
         | TileKind::TmaGmem(_)
         | TileKind::Procedural(_)

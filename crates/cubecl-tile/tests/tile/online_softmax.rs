@@ -148,7 +148,8 @@ fn plane_attention<E: Float>(
 /// [`plane_attention`] with the score held in manual-mma registers from the score's contraction to
 /// the value's: the softmax reads the accumulator where its units hold it, and the probabilities,
 /// cast in the same registers ([`Tile::cast`]), are the value's left factor. The leaf is one
-/// instruction `m × n` along the queries and keys, so the value contracts the keys `n` deep.
+/// instruction `m × n` along the queries and keys, and the value contracts the keys as deep as the
+/// level above the leaf steps them: `n`, or a run of the score's fragments read as one `A`.
 #[cube(launch)]
 #[allow(clippy::too_many_arguments)]
 fn register_plane_attention<E: Float>(
@@ -577,9 +578,10 @@ fn run<E: Float + CubeElement>(case: Case) {
 }
 
 /// A case through [`register_plane_attention`]: the leaf one `16 × 8` instruction along the
-/// queries and keys, `16` deep along the head and `8` wide along the values, so the score
-/// contracts `m16n8k16` and the value `m16n8k8`.
-fn run_registers<E: Float + CubeElement>(case: Case, ending: Ending) {
+/// queries and keys, `16` deep along the head and `8` wide along the values, under a level that
+/// steps the keys `run` leaves at a time. The score contracts `m16n8k16` on each leaf of a run,
+/// and the value the run at once, `m16n8k8` for a run of one and `m16n8k16` for a run of two.
+fn run_registers<E: Float + CubeElement>(case: Case, ending: Ending, run: usize) {
     let client: Client = cubecl::test_device().client();
     let e_ty = E::elem_type_native();
     let f32_ty = f32::elem_type_native();
@@ -591,9 +593,10 @@ fn run_registers<E: Float + CubeElement>(case: Case, ending: Ending) {
                 && [cfg.m, cfg.n, cfg.k] == [16, 8, k]
         })
     };
-    if !(offered(16) && offered(8)) {
+    let value_depth = 8 * run as u32;
+    if !(offered(16) && offered(value_depth)) {
         ValidationResult::Skipped(format!(
-            "no m16n8k16 and m16n8k8 {e_ty:?} instructions summing in f32"
+            "no m16n8k16 and m16n8k{value_depth} {e_ty:?} instructions summing in f32"
         ))
         .enforce();
         return;
@@ -616,12 +619,14 @@ fn run_registers<E: Float + CubeElement>(case: Case, ending: Ending) {
         Partitioning::new(
             Space::new(&[(Q, queries), (S, keys), (D, head), (V, value)]),
             planes_over(
-                Levels::leaf(&[(Q, m), (S, n), (D, depth), (V, n)]).walk(&[
-                    (Q, rows),
-                    (S, block),
-                    (D, head / depth),
-                    (V, value / n),
-                ]),
+                Levels::leaf(&[(Q, m), (S, n), (D, depth), (V, n)])
+                    .walk(&[(S, run)])
+                    .walk(&[
+                        (Q, rows),
+                        (S, block / run),
+                        (D, head / depth),
+                        (V, value / n),
+                    ]),
                 PlanesAlong::Queries,
                 planes,
                 keys / (n * block),
@@ -1192,7 +1197,7 @@ const REGISTER_PREFILL: Case = Case {
 
 #[test]
 fn register_plane_attention_matches_the_reference() {
-    run_registers::<half::f16>(REGISTER_PREFILL, Ending::Normalized);
+    run_registers::<half::f16>(REGISTER_PREFILL, Ending::Normalized, 1);
 }
 
 #[test]
@@ -1203,6 +1208,7 @@ fn register_plane_attention_reads_nothing_past_the_attended_keys() {
             ..REGISTER_PREFILL
         },
         Ending::Normalized,
+        1,
     );
 }
 
@@ -1215,6 +1221,7 @@ fn register_plane_attention_masks_causally_from_the_bottom_right() {
             ..REGISTER_PREFILL
         },
         Ending::Normalized,
+        1,
     );
 }
 
@@ -1230,6 +1237,23 @@ fn register_plane_attention_hands_its_undivided_state_by_rows() {
             ..REGISTER_PREFILL
         },
         Ending::Undivided,
+        1,
+    );
+}
+
+/// The value contracting two of the score's fragments at once, `m16n8k16` reading both as its
+/// `A`: causally and past the attended keys, so the masked cells of a run weigh nothing.
+#[test]
+fn register_plane_attention_contracts_a_run_of_two_score_fragments() {
+    run_registers::<half::f16>(REGISTER_PREFILL, Ending::Normalized, 2);
+    run_registers::<half::f16>(
+        Case {
+            attended: 100,
+            causal: true,
+            ..REGISTER_PREFILL
+        },
+        Ending::Normalized,
+        2,
     );
 }
 

@@ -69,14 +69,6 @@ impl Tile {
     }
 }
 
-/// How a rhs window is read: col-major when its trailing axis is `contracted`, else row-major.
-pub(crate) fn rhs_layout(rhs: &Space, contracted: Axis) -> MatrixLayout {
-    match rhs.axis_at(rhs.rank() - 1) == contracted {
-        true => MatrixLayout::ColMajor,
-        false => MatrixLayout::RowMajor,
-    }
-}
-
 /// How one factor of a tensor-core contraction is read into its fragment.
 #[derive(Clone)]
 pub(crate) struct FragmentRead {

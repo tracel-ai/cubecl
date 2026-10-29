@@ -2672,7 +2672,9 @@ fn a_memory_snapshot_is_recorded_under_its_label() {
     rooted_at(root.path());
     recording_at(RecordLevel::Basic);
 
-    let client = test_client(&DummyDevice);
+    // A runtime of its own: the snapshot and the report are read a while apart, and the whole
+    // device's memory moves under a test running beside this one on a shared runtime.
+    let client = Client::load::<DummyServer<Isolated>>(DeviceId::new(0, 0));
     let _held = client.create_from_slice(&[1, 2, 3]);
     client.record_memory("model loaded");
     let database = Database::open_active().unwrap();
