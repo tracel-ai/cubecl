@@ -1,7 +1,8 @@
 use ::pliron::context::Context;
 use cubecl_ir::{
-    AddressSpace, Pure,
+    AddressSpace, CanMaterialize, Pure,
     attributes::IndexAttr,
+    interfaces::TrivialOp,
     prelude::*,
     types::{BytesType, PointerType},
 };
@@ -28,7 +29,8 @@ pub struct AllocSharedOp {
     format = "$0 `[` attr($offset, $IndexAttr) `] : ` type($0)"
 )]
 #[result_ty(argument)]
-#[op_traits(Pure)]
+#[op_interfaces(TrivialOp)]
+#[op_traits(Pure, CanMaterialize)]
 pub struct SliceSharedOp {
     pub block: Value,
     pub offset: IndexAttr,

@@ -15,22 +15,46 @@ extern crate std;
 
 use core::ops::Range;
 
-use cubecl_ir::{AddressSpace, interfaces::TypedExt};
+use cubecl_ir::{
+    AddressSpace,
+    interfaces::{TypedExt, control_flow::SymbolOpInterface},
+    prelude::{IsTerminatorInterface, OperationPtrExt},
+};
 
 pub mod analyses;
 pub mod passes;
 pub mod scoped_map;
 
-use hi_sparse_bitset::{Apply, BitSetInterface, ops};
+use hi_sparse_bitset::{
+    Apply, BitSetInterface,
+    cache::{DynamicCache, ReduceCache},
+    config::Config,
+    ops::{self, BitSetOp},
+};
 use pliron::{
     context::{Context, Ptr},
     operation::Operation,
+    opts::dce::SideEffects,
     r#type::TypeHandle,
     value::{Use, Value},
 };
 use smallvec::SmallVec;
 
-pub(crate) type SparseBitSet = hi_sparse_bitset::BitSet<hi_sparse_bitset::config::_128bit>;
+pub type SparseBitSet = hi_sparse_bitset::BitSet<hi_sparse_bitset::config::_128bit>;
+
+pub fn reduce_bitset<Conf, Op, I>(op: Op, bitsets: I) -> Option<hi_sparse_bitset::BitSet<Conf>>
+where
+    Conf: Config,
+    Op: BitSetOp,
+    I: ExactSizeIterator + Clone,
+    I::Item: BitSetInterface<Conf = Conf>,
+{
+    if bitsets.len() <= <Conf::DefaultCache as ReduceCache>::MAX_LEN {
+        hi_sparse_bitset::reduce(op, bitsets).map(Into::into)
+    } else {
+        hi_sparse_bitset::reduce_w_cache(op, bitsets, DynamicCache).map(Into::into)
+    }
+}
 
 pub(crate) trait BitSetExt: BitSetInterface {
     #[inline]
@@ -43,6 +67,31 @@ pub(crate) trait BitSetExt: BitSetInterface {
 }
 impl<T: BitSetInterface> BitSetExt for T {}
 
+pub(crate) trait BitsetLatticeExt {
+    fn set(&mut self, new: Self) -> ChangeResult;
+    fn unite_changed(&mut self, other: &Self) -> ChangeResult;
+}
+
+impl BitsetLatticeExt for SparseBitSet {
+    fn set(&mut self, new: Self) -> ChangeResult
+    where
+        Self: PartialEq,
+    {
+        match *self == new {
+            true => ChangeResult::Unchanged,
+            false => {
+                *self = new;
+                ChangeResult::Changed
+            }
+        }
+    }
+
+    fn unite_changed(&mut self, other: &Self) -> ChangeResult {
+        self.set(self.union(other).into())
+    }
+}
+
+use crate::analyses::dataflow_solver::ChangeResult;
 pub use crate::analyses::liveness::shared::SharedLiveness;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -77,4 +126,15 @@ pub(crate) fn operand_range_to_uses(
 ) -> SmallVec<[Use<Value>; 4]> {
     let op = op.deref(ctx);
     range.map(|idx| op.get_operand_as_use(idx)).collect()
+}
+
+pub fn would_op_be_trivially_dead(ctx: &Context, op: Ptr<Operation>) -> bool {
+    if op.impls::<dyn IsTerminatorInterface>(ctx) {
+        return false;
+    }
+    if op.impls::<dyn SymbolOpInterface>(ctx) {
+        return false;
+    }
+    op.cast::<dyn SideEffects>(ctx)
+        .is_some_and(|op| !op.has_side_effects(ctx))
 }
