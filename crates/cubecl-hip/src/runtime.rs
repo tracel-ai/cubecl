@@ -239,7 +239,7 @@ impl DeviceService for HipServer {
         );
         let options = RuntimeOptions::default();
 
-        HipServer::new(
+        let server = HipServer::new(
             hip_ctx,
             mem_properties,
             options.memory_config,
@@ -247,7 +247,11 @@ impl DeviceService for HipServer {
             probe.integrated,
             utilities,
             captures,
-        )
+        );
+        // Once HIP is loaded and the device set up, so the handler runs ahead of
+        // HIP's own teardown and no call on this device reaches a runtime that is gone.
+        crate::compute::exit::OpenedDevices::close_at_exit(device_id);
+        server
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {
