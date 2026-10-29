@@ -9,6 +9,7 @@ use crate::EnumSetType;
 pub use crate::EnumSet;
 
 /// Features supported by a runtime
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Default, Hash)]
 pub struct Features {
     /// Plane features supported by this runtime.
@@ -41,6 +42,7 @@ pub struct Features {
 }
 
 /// Type support for a device
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Default, Hash)]
 pub struct Types {
     /// Valid address types
@@ -74,6 +76,7 @@ pub struct Types {
 }
 
 /// Matrix multiplication-related features
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Default, Hash)]
 pub struct MatmulFeatures {
     /// The cmma feature enables cooperative matrix-multiply and accumulate operations.
@@ -106,6 +109,7 @@ pub struct MatmulFeatures {
 }
 
 /// Operations allowed for this type. CMMA is defined separately.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, EnumSetType)]
 pub enum TypeUsage {
     /// Conversion to/from the type. All types should support this.
@@ -119,6 +123,7 @@ pub enum TypeUsage {
 }
 
 /// Complex capability families allowed for a complex element type.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, EnumSetType)]
 pub enum ComplexUsage {
     /// Arithmetic, negation, conjugation, and real/imaginary extraction.
@@ -148,6 +153,7 @@ impl TypeUsage {
 }
 
 /// Atomic operations allowed for this type.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, EnumSetType)]
 pub enum AtomicUsage {
     /// Atomic loads and stores
@@ -171,6 +177,7 @@ impl AtomicUsage {
 }
 
 /// Supported plane features
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, EnumSetType)]
 pub enum Plane {
     /// Basic plane-wide operations
@@ -299,6 +306,7 @@ pub struct ScaledMmaConfig {
 }
 
 /// Atomic features that may be supported by a ``Runtime``.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, EnumSetType)]
 pub enum Tma {
     /// Base feature set for tensor memory accelerator features. Includes tiling and im2col
