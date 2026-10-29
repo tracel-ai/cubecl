@@ -54,14 +54,15 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::bytes::Bytes;
 use cubecl_opt::passes::{
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
-    resolve_pending::ResolvePendingPass, sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
+    mem2reg::Mem2RegPass, resolve_pending::ResolvePendingPass, sccp::SCCPPass,
+    simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::{
     compiler::CompilationError, config::compilation::F16Evaluation, kernel::BufferIOAttr,
 };
 use pliron::{
     operation::verify_operation,
-    opts::{dce::DCEPass, mem2reg::Mem2RegPass, simplify_cfg::SimplifyCFGPass},
+    opts::{dce::DCEPass, simplify_cfg::SimplifyCFGPass},
 };
 use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
 use std::rc::Rc;
@@ -466,6 +467,7 @@ fn lower(
     let mut func_passes = OpPass::<FuncOp, Passes>::default();
     func_passes.add_pass(LowerOpsPass::default());
     target.prologue(&mut func_passes);
+    func_passes.add_pass(BranchToSCFPass::default());
     func_passes.add_pass(SROAPass);
     func_passes.add_pass(ResolvePendingPass);
     func_passes.add_pass(SCCPPass);
@@ -486,11 +488,21 @@ fn lower(
     func_passes.add_pass(LowerMinifloatComparePass::default());
     func_passes.add_pass(LowerComplexOpPass::default());
     target.epilogue(&mut func_passes);
+    func_passes.add_pass(BranchToSCFPass::default());
     func_passes.add_pass(DCEPass);
+    func_passes.add_pass(Mem2RegPass);
     func_passes.add_pass(SROAPass);
+    func_passes.add_pass(DCEPass);
+
+    let mut after_pre_func_passes = OpPass::<FuncOp, Passes>::default();
+    after_pre_func_passes.add_pass(SCCPPass);
+    after_pre_func_passes.add_pass(SimplifyOpsPass::default());
+    after_pre_func_passes.add_pass(DCEPass);
+    after_pre_func_passes.add_pass(CanonicalizePass::default());
+    after_pre_func_passes.add_pass(DCEPass);
 
     let mut lowering_passes = OpPass::<FuncOp, Passes>::default();
-    lowering_passes.add_pass(BranchToSCFPass::default());
+
     lowering_passes.add_pass(SCFToLlvmCf::default());
     lowering_passes.add_pass(LowerEntryAbiPass::new(
         kernel.info.clone(),
@@ -503,6 +515,8 @@ fn lower(
 
     let mut passes = OpPass::<ModuleOp, Passes>::default();
     passes.add_pass(NestedOpsPass::new(func_passes));
+    target.pre(&mut passes);
+    passes.add_pass(NestedOpsPass::new(after_pre_func_passes));
     // Memory effects must be annotated before cube operations are lowered.
     passes.add_pass(AnnotateGlobalVisibilityPass);
     run(&mut passes, module_op, ctx, &mut analyses)?;

@@ -102,7 +102,7 @@ macro_rules! typed_vec_attr {
 /// A zero-value attribute, used for zero-initializing arbitrary types with whatever "zero" means
 /// for it. Arrays get all fields zero-initialized, floats and ints initialize to zero, booleans
 /// to false, etc.
-#[pliron_attr(name = "cube.zero", format = "`[zero: ` $ty `]`", verifier = "succ")]
+#[pliron_attr(name = "cube.zero", format = "`<` $ty `>`", verifier = "succ")]
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Hash)]
 pub struct ZeroAttr {
     pub ty: TypeHandle,

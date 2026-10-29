@@ -5,7 +5,7 @@ use crate::{
     prelude::*,
     shared::{builtins::InsertGpuBuiltinsPass, metadata::rebuild_func_type},
 };
-use cubecl_opt::passes::alloc_shared_memory::AllocateSharedMemoryBlockPass;
+use cubecl_opt::passes::{alloc_shared_memory::AllocateSharedMemoryBlockPass, pre::SSCMPre};
 
 const GLOBAL_ADDRESS_SPACE: u32 = 1;
 
@@ -68,5 +68,9 @@ impl TargetLowering for AmdGpuLowering {
 
     fn arg_layout(&self) -> Box<dyn EntryArgLayout> {
         Box::new(KernargArgs)
+    }
+
+    fn pre(&self, passes: &mut OpPass<ModuleOp, Passes>) {
+        passes.add_pass(SSCMPre);
     }
 }

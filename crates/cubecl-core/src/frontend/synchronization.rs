@@ -2,7 +2,7 @@ use crate::{
     frontend::{NativeExpand, element::Atomic},
     ir::{
         Scope,
-        dialect::synchronization::{SyncAsyncProxyOp, SyncOp, SyncScope},
+        dialect::synchronization::{SyncAsyncProxyOp, SyncOp, SyncPlaneStorageOp, SyncScope},
     },
     prelude::{CubePrimitive, Numeric},
     unexpanded,
@@ -41,6 +41,27 @@ pub mod sync_plane {
 
     pub fn expand(scope: &Scope) {
         scope.register(&SyncOp::new(scope.ctx_mut(), SyncScope::Plane));
+    }
+}
+
+/// [`sync_plane()`] over storage memory (input args) as well as shared memory.
+///
+/// The units of the plane meet, and every write one of them made to storage before it is visible
+/// to the others after it. Only the units of the plane must reach it, unlike [`sync_storage()`],
+/// so a window a plane holds can hand its own units what they wrote to global memory. It orders
+/// nothing for other planes or other cubes.
+///
+/// Warning: as with [`sync_plane()`], a target without plane-level synchronization (WebGPU) lowers
+/// it to a cube barrier, which every unit of the cube must reach.
+pub fn sync_plane_storage() {
+    unexpanded!()
+}
+
+pub mod sync_plane_storage {
+    use super::*;
+
+    pub fn expand(scope: &Scope) {
+        scope.register(&SyncPlaneStorageOp::new(scope.ctx_mut()));
     }
 }
 
