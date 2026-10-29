@@ -179,8 +179,8 @@ impl BufferLayout {
                 self.with_paging(ComptimeOption::new_Some(table.pinned_at(
                     origin,
                     cut,
-                    self.physical_strides.at(comptime!(table.sequence_dim)),
-                    self.physical_strides.at(comptime!(table.position_dim)),
+                    self.physical_strides.at(comptime!(table.list.sequence_dim)),
+                    self.physical_strides.at(comptime!(table.list.position_dim)),
                 )))
             }
             ComptimeOption::None => self.clone(),

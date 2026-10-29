@@ -42,6 +42,22 @@ fn fp4_casts_compile_to_the_software_codec() {
     );
 }
 
+/// On a Blackwell part the decode is the part's own conversion, a pair an instruction; the
+/// encode stays the software codec, so no conversion to `e2m1x2` is emitted.
+#[test]
+fn fp4_decodes_on_the_part_where_it_converts() {
+    let ptx = ptx_of(crate::shared::offline_kernels::fp4_round_trip_kernel(), 120);
+    assert_eq!(
+        ptx.matches("cvt.rn.f16x2.e2m1x2").count(),
+        4,
+        "one conversion per pair of the word:\n{ptx}"
+    );
+    assert!(
+        !ptx.contains(".e2m1x2.f32"),
+        "the encode is the software codec:\n{ptx}"
+    );
+}
+
 #[test]
 fn plane_moves_are_native_shuffles() {
     let ptx = ptx_of(plane_moves_kernel(), 60);
@@ -627,6 +643,26 @@ fn an_im2col_load_and_a_bulk_copy_share_a_barrier() {
         ptx.contains("mbarrier.try_wait.parity.shared::cta.b64"),
         "{ptx}"
     );
+}
+
+/// A unit's `copy_async` is the copy engine's `cp.async`, as the C++ backend issues it, and its
+/// commit arrives on the cube barrier the units then wait on.
+#[test]
+fn unit_async_copies_complete_on_the_barrier() {
+    for arch in [90, 120] {
+        let ptx = ptx_of(
+            crate::shared::offline_kernels::unit_async_copy_kernel(),
+            arch,
+        );
+        assert!(
+            ptx.contains("cp.async.cg.shared.global"),
+            "a 16-byte copy through L2 on sm_{arch}:\n{ptx}"
+        );
+        assert!(
+            ptx.contains("cp.async.mbarrier.arrive.shared"),
+            "the commit arrives on the barrier on sm_{arch}:\n{ptx}"
+        );
+    }
 }
 
 /// `memcpy_async` copies synchronously: on a unit barrier there is nothing to wait for, and a

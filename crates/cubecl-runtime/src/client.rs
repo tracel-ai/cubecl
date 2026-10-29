@@ -436,25 +436,23 @@ impl Client {
             .remove(0)
     }
 
-    /// Reads the device resource described by `descriptor` lazily.
+    /// Reads the buffer `source` describes lazily.
     ///
     /// The returned [`Bytes`] only performs the device-to-host copy on first access (e.g. during
-    /// serialization), keeping the source allocation alive until then. This lets a large number of
-    /// device tensors be serialized without materializing them all in host memory at once: drain
-    /// the [`Bytes`] sequentially rather than holding them all alive.
+    /// serialization). This lets a large number of device tensors be serialized without
+    /// materializing them all in host memory at once: drain the [`Bytes`] sequentially rather than
+    /// holding them all alive.
     ///
-    /// The data reflects the device state at first access, so the buffer must not be mutated
-    /// between this call and the first read.
+    /// Until that first access the [`Bytes`] hold `source`'s handle, so [`Handle::can_mut`] is
+    /// false for it and a caller that honours it does not write the buffer in place: the data
+    /// read is the data as it was at this call.
     #[cfg(not(target_family = "wasm"))]
-    pub fn read_lazy(&self, descriptor: CopyDescriptor) -> Bytes {
-        self.expect_local(&descriptor.handle);
-        let len = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
-        let controller = lazy::LazyDeviceController::new(self.clone(), Arc::new(descriptor));
-        // SAFETY: the controller materializes exactly `len` bytes on first access.
-        unsafe { Bytes::from_controller(alloc::boxed::Box::new(controller), len) }
+    pub fn read_lazy(&self, source: CopyDescriptor<Handle>) -> Bytes {
+        self.expect_local(&source.handle.clone().binding());
+        lazy::LazyDeviceController::new(self.clone(), source).into_bytes()
     }
 
-    /// Reads the device resource described by `descriptor` lazily, async variant.
+    /// Reads the buffer `source` describes lazily, async variant.
     ///
     /// On native targets the returned future is immediately ready and yields a lazy [`Bytes`]
     /// whose device-to-host copy is deferred to first access (see [`read_lazy`](Self::read_lazy)).
@@ -467,12 +465,12 @@ impl Client {
     #[cfg(not(target_family = "wasm"))]
     pub fn read_lazy_async(
         &self,
-        descriptor: CopyDescriptor,
+        source: CopyDescriptor<Handle>,
     ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
-        if let Err(err) = self.local(&descriptor.handle) {
+        let binding = source.handle.clone().binding();
+        if let Err(err) = self.local(&binding) {
             return core::future::ready(Err(err));
         }
-        let binding = descriptor.handle.clone();
         let stream_id = self.stream_id();
         let checked = self
             .device
@@ -481,14 +479,11 @@ impl Client {
         if let Err(err) = checked {
             return core::future::ready(Err(err));
         }
-        let len = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
-        let controller = lazy::LazyDeviceController::new(self.clone(), Arc::new(descriptor));
-        // SAFETY: the controller materializes exactly `len` bytes on first access.
-        let bytes = unsafe { Bytes::from_controller(alloc::boxed::Box::new(controller), len) };
-        core::future::ready(Ok(bytes))
+        let controller = lazy::LazyDeviceController::new(self.clone(), source);
+        core::future::ready(Ok(controller.into_bytes()))
     }
 
-    /// Reads the device resource described by `descriptor` lazily, async variant.
+    /// Reads the buffer `source` describes lazily, async variant.
     ///
     /// On `wasm` the deferred copy cannot run inside the synchronous access path, so awaiting
     /// performs the read eagerly and yields a materialized [`Bytes`]. Awaiting one tensor at a
@@ -496,9 +491,9 @@ impl Client {
     #[cfg(target_family = "wasm")]
     pub fn read_lazy_async(
         &self,
-        descriptor: CopyDescriptor,
+        source: CopyDescriptor<Handle>,
     ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
-        self.read_one_tensor_async(descriptor)
+        self.read_one_tensor_async(source.binding())
     }
 
     /// Given a resource handle, returns the storage resource.

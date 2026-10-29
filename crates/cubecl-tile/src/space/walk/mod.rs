@@ -2,7 +2,9 @@
 
 pub(crate) mod base;
 pub(crate) mod distribution;
+pub(crate) mod launch_span;
 pub(crate) mod portion;
+pub(crate) mod swizzled;
 
 pub(crate) use base::*;
 pub(crate) use distribution::AxisDistribution;
