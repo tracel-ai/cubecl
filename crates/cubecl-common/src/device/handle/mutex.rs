@@ -1,6 +1,8 @@
 use crate::device::{
     DeviceId, DeviceService,
-    handle::{CallError, DeviceHandleSpec, ServerUtilitiesHandle, ServiceCreationError},
+    handle::{
+        CallError, DeviceHandleSpec, ServerUtilitiesHandle, ServiceCreationError, SpawnedCall,
+    },
 };
 use alloc::boxed::Box;
 use core::any::{Any, TypeId};
@@ -83,6 +85,13 @@ impl DeviceHandleSpec for MutexDeviceHandle {
         let mut guard = self.state.service.lock();
 
         task(&mut **guard);
+    }
+
+    fn spawn<R: Send + 'static, T: FnOnce(&mut dyn Any) -> R + Send + 'static>(
+        &self,
+        task: T,
+    ) -> SpawnedCall<R> {
+        SpawnedCall::done(self.submit_blocking(task))
     }
 
     fn insert<S: DeviceService>(

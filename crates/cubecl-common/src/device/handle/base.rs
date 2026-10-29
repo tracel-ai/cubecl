@@ -244,9 +244,7 @@ pub trait DeviceHandleSpec: Sized + Clone {
     fn spawn<R: Send + 'static, T: FnOnce(&mut dyn Any) -> R + Send + 'static>(
         &self,
         task: T,
-    ) -> SpawnedCall<R> {
-        SpawnedCall::done(self.submit_blocking(task))
-    }
+    ) -> SpawnedCall<R>;
 
     fn exclusive<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError>;
 
