@@ -1,4 +1,4 @@
-use cubecl_ir::dialect::synchronization::{SyncOp, SyncScope};
+use cubecl_ir::dialect::synchronization::{SyncOp, SyncPlaneStorageOp, SyncScope};
 
 use crate::compiler::wgsl::to_wgsl::{wasm_inventory_root, wgsl_op};
 
@@ -12,4 +12,9 @@ wgsl_op!(SyncOp, |op, ctx| {
         SyncScope::Device => "storageBarrier();\nworkgroupBarrier();\n".into(),
         SyncScope::Unit => "".into(),
     }
+});
+
+// WGSL has no plane barrier: a plane's is the workgroup's, here with the storage half.
+wgsl_op!(SyncPlaneStorageOp, |_, _| {
+    "storageBarrier();\nworkgroupBarrier();\n".into()
 });

@@ -118,7 +118,7 @@ impl Tile {
         let scaled = self.quantized();
         let packing = self.packing();
         let shared = self.is_shared();
-        if comptime!(scaled || packing != Packing::Plain || !shared) {
+        if comptime!(scaled || !packing.as_stored() || !shared) {
             let landing = self.landed::<E>(comptime!(read.side), comptime!(read.out.clone()));
             landing.load_into(frag, comptime!(read.out.clone()));
             // The landing is this region's until every unit's load has read it.
@@ -160,7 +160,7 @@ impl Tile {
     ) -> Tile {
         let scaled = self.quantized();
         let packing = self.packing();
-        if comptime!(instruction == Instruction::Cmma && (scaled || packing != Packing::Plain)) {
+        if comptime!(instruction == Instruction::Cmma && (scaled || !packing.as_stored())) {
             self.landed::<S>(side, out)
         } else {
             self.clone()

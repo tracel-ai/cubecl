@@ -33,9 +33,9 @@ impl Tile {
         ));
         if comptime!(!fused) {
             self.factor.calibrate_from::<F>(src, coarse, value);
+            // The scales are read back from wherever they are stored, global memory included.
             match comptime!(self.place.holder()) {
-                ComputeScope::Plane => sync_plane(),
-                // The scales are read back from wherever they are stored, global memory included.
+                ComputeScope::Plane => sync_plane_storage(),
                 _ => sync_storage(),
             }
         }
@@ -43,7 +43,7 @@ impl Tile {
         // The written view borrows its own handle on this tile, which the copy still reads.
         let mut into = self.clone();
         match comptime!(packing) {
-            Packing::Plain => {
+            Packing::Plain | Packing::Words { .. } => {
                 let define!(Stored) = self.element;
                 let size!(SW) = sw;
                 self.copy_encoded::<F, Stored, SW>(src, into.nd_mut::<Stored, SW>(), coarse);

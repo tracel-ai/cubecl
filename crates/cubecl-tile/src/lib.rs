@@ -57,7 +57,7 @@ pub use launch::base::Launcher;
 pub use launch::spec::TileSpec;
 pub use layout::projection::Projection;
 pub use layout::storage::Geometry;
-pub use ops::matmul::instruction::{Instruction, MmaOperands};
+pub use ops::matmul::instruction::{BlockScaledOperands, Instruction, MmaOperands};
 pub use ops::matmul::register_block::RegisterBlock;
 pub use space::axis::Axis;
 pub use space::base::Space;

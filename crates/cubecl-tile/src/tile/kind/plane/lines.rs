@@ -89,7 +89,7 @@ impl Lines {
         let served = comptime!(operand.element);
         let field = comptime!(match packing {
             Packing::Packed { field } => field,
-            Packing::Plain => match served {
+            Packing::Plain | Packing::Words { .. } => match served {
                 ElemType::Float(kind) if Field::float_bits(kind) == 32 => Field::Float(kind),
                 other => panic!(
                     "Lines: a plain operand is held as whole 32-bit words, and {other:?} is not \
@@ -197,7 +197,7 @@ impl Lines {
                     Packing::Packed { field: _ } => {
                         src.nd_words::<WR>(comptime!(Guard::Checked)).read(at)
                     }
-                    Packing::Plain => {
+                    Packing::Plain | Packing::Words { .. } => {
                         let size!(SV) = served;
                         let values = src.nd_packed::<S, SV>(comptime!(Guard::Checked)).read(at);
                         let mut bits = Vector::<u32, WR>::empty();

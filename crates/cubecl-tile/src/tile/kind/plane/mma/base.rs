@@ -2,7 +2,6 @@
 
 use cubecl::{
     cmma::{MatrixIdent, MatrixLayout, MmaDefinition},
-    e2m1x2, e4m3,
     prelude::*,
 };
 
@@ -59,12 +58,14 @@ pub(crate) enum MmaFragment {
     Lhs(Raw<Registers<NL>>),
     Rhs(Raw<Registers<NR>>),
     Acc(Raw<Registers<NA>>),
-    /// A block-scaled `A`: its `e2m1` values as the instruction takes them, two a byte, and the
-    /// `e4m3` scales of the row this unit's scale register serves, the one register an array of
-    /// one holds, so a handle to the fragment loads the registers the fragment holds.
-    LhsBlockScaled(Array<Vector<e2m1x2, NLB>>, Array<Vector<e4m3, NSB>>),
+    /// A block-scaled `A`: its codes as the instruction takes them (`e2m1` two a byte for an
+    /// `e2m1x2` register), and the scales of the row this unit's scale register serves, the one
+    /// register an array of one holds, so a handle to the fragment loads the registers the
+    /// fragment holds. Its elements are the instruction's form's
+    /// ([`BlockScaledOperands`](crate::BlockScaledOperands)).
+    LhsBlockScaled(Array<Vector<LhsCodes, NLB>>, Array<Vector<BlockScale, NSB>>),
     /// A block-scaled `B`, as [`LhsBlockScaled`](Self::LhsBlockScaled) is an `A`.
-    RhsBlockScaled(Array<Vector<e2m1x2, NRB>>, Array<Vector<e4m3, NSB>>),
+    RhsBlockScaled(Array<Vector<RhsCodes, NRB>>, Array<Vector<BlockScale, NSB>>),
 }
 
 #[cube]
@@ -155,7 +156,7 @@ impl MmaData {
         #[comptime] operands: MmaOperands,
     ) -> MmaData {
         match comptime!((ident, operands)) {
-            (_, MmaOperands::BlockScaled) => {
+            (_, MmaOperands::BlockScaled(_)) => {
                 MmaData::block_scaled(ident, m, n, k, layout, io, operands)
             }
             (MatrixIdent::A, MmaOperands::Plain) => {
@@ -170,9 +171,9 @@ impl MmaData {
         }
     }
 
-    /// Allocate a block-scaled operand fragment in role `ident`: `e2m1` values under an `e4m3`
-    /// scale every [`E2M1_SCALE_BLOCK`] of them along `k`, the device's block-scaled instruction
-    /// of `m × n × k` ([`MmaOperands::BlockScaled`]).
+    /// Allocate a block-scaled operand fragment in role `ident`: codes under a scale every block of
+    /// them along `k`, as the form `operands` states, the device's block-scaled instruction of
+    /// `m × n × k` ([`MmaOperands::BlockScaled`]).
     pub(crate) fn block_scaled(
         #[comptime] ident: MatrixIdent,
         #[comptime] m: usize,
@@ -182,7 +183,11 @@ impl MmaData {
         #[comptime] io: MmaIo,
         #[comptime] operands: MmaOperands,
     ) -> MmaData {
-        let def = block_scaled_definition::<f32>(m, n, k);
+        let form = comptime!(operands.block_scaled().expect(
+            "MmaData::block_scaled: a block-scaled fragment is allocated under a block-scaled form"
+        ));
+        register_block_scaled_elements(form);
+        let def = block_scaled_definition::<f32>(form, m, n, k);
         register_block_scaled_sizes(&def, ident);
         let fragment = match comptime!(ident) {
             MatrixIdent::A => MmaFragment::new_LhsBlockScaled(
@@ -249,6 +254,7 @@ impl MmaData {
         let k = comptime!(self.k);
         let layout = comptime!(self.layout);
         let io = comptime!(self.io);
+        let form = comptime!(self.operands.block_scaled());
         let def = MmaDefinition::<T, T, T>::new(m, n, k);
         let steps = lane_run_steps::<T>(m, n, k);
         match &mut self.fragment {
@@ -304,12 +310,26 @@ impl MmaData {
                 (m, n),
                 0usize,
             ),
-            MmaFragment::LhsBlockScaled(values, scales) => {
-                load_block_scaled(src, values, scales, MatrixIdent::A, layout, io, (m, n, k))
-            }
-            MmaFragment::RhsBlockScaled(values, scales) => {
-                load_block_scaled(src, values, scales, MatrixIdent::B, layout, io, (m, n, k))
-            }
+            MmaFragment::LhsBlockScaled(values, scales) => load_block_scaled(
+                src,
+                values,
+                scales,
+                comptime!(form.expect("a block-scaled fragment is held under its form")),
+                MatrixIdent::A,
+                layout,
+                io,
+                (m, n, k),
+            ),
+            MmaFragment::RhsBlockScaled(values, scales) => load_block_scaled(
+                src,
+                values,
+                scales,
+                comptime!(form.expect("a block-scaled fragment is held under its form")),
+                MatrixIdent::B,
+                layout,
+                io,
+                (m, n, k),
+            ),
         }
     }
 

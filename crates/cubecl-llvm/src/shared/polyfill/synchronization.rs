@@ -1,7 +1,9 @@
 //! Target-specific synchronization.
 
 use crate::prelude::*;
-use cubecl_core::ir::dialect::synchronization::{SyncAsyncProxyOp, SyncOp, SyncScope};
+use cubecl_core::ir::dialect::synchronization::{
+    SyncAsyncProxyOp, SyncOp, SyncPlaneStorageOp, SyncScope,
+};
 
 #[op_interface_impl]
 impl LowerOp for SyncOp {
@@ -38,6 +40,22 @@ impl LowerOp for SyncOp {
                 #[cfg(feature = "nvptx")]
                 LlvmTarget::Nvptx => crate::nvptx::synchronization::lower_sync_storage(scope),
             },
+        }
+        vec![]
+    }
+}
+
+/// The plane barrier: `bar.warp.sync` and the wavefront fence order every address space among
+/// the plane's units already, storage included.
+#[op_interface_impl]
+impl LowerOp for SyncPlaneStorageOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        match scope.ctx().target() {
+            LlvmTarget::Cpu => {}
+            #[cfg(feature = "amdgpu")]
+            LlvmTarget::AmdGpu => crate::amdgpu::synchronization::lower_sync_plane(scope),
+            #[cfg(feature = "nvptx")]
+            LlvmTarget::Nvptx => crate::nvptx::synchronization::lower_sync_plane(scope),
         }
         vec![]
     }

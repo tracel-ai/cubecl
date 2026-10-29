@@ -85,7 +85,7 @@ impl Indexing {
             None => Err(Refusal::IndexOfAStatedLayout),
             Some(dim)
                 if dim + 1 == projection.physical_rank()
-                    && (width > 1 || spec.packing != Packing::Plain) =>
+                    && (width > 1 || !spec.packing.as_stored()) =>
             {
                 Err(Refusal::IndexAlongALine(self.axis()))
             }
