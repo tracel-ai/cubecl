@@ -1,5 +1,5 @@
 use cubecl_core::ir::{
-    dialect::synchronization::{SyncAsyncProxyOp, SyncOp, SyncScope},
+    dialect::synchronization::{SyncAsyncProxyOp, SyncOp, SyncPlaneStorageOp, SyncScope},
     prelude::*,
 };
 
@@ -75,6 +75,9 @@ cuda_op!(SyncOp, |op, ctx| {
     }
     .into()
 });
+
+// `__syncwarp` already orders every memory the warp's threads wrote, global included.
+cuda_op!(SyncPlaneStorageOp, |_, _| "__syncwarp();\n".into());
 
 cuda_op!(SyncAsyncProxyOp, |_, _| {
     "cuda::device::experimental::fence_proxy_async_shared_cta();".into()

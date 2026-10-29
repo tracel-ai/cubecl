@@ -125,6 +125,74 @@ pub fn test_sync_plane<R: Runtime>(client: Client) {
     assert_eq!(&actual[0..32], expected);
 }
 
+/// Every unit reads its plane neighbour's slot in global memory before writing its own, so a
+/// stale copy of the zero it read first is what a barrier ordering shared memory alone may hand
+/// back; then it writes its slot, meets its plane at [`sync_plane_storage()`], and reads the
+/// neighbour's slot again. `before` only keeps the early read alive; the host never reads it.
+/// `plane_dim` is the plane size the device ran at, which decides who the neighbour is.
+#[cube(launch)]
+fn kernel_test_sync_plane_storage(
+    slots: &mut [u32],
+    before: &mut [u32],
+    out: &mut [u32],
+    plane_dim: &mut [u32],
+) {
+    let unit = ABSOLUTE_POS;
+    if unit == 0 {
+        plane_dim[0] = PLANE_DIM;
+    }
+    let first_of_plane = unit - UNIT_POS_PLANE as usize;
+    let next = first_of_plane + ((UNIT_POS_PLANE + 1) % PLANE_DIM) as usize;
+    before[unit] = slots[next];
+
+    slots[unit] = unit as u32 + 1;
+    sync_plane_storage();
+    out[unit] = slots[next];
+}
+
+/// A plane's units read each other's global writes past [`sync_plane_storage()`], across many
+/// cubes of two planes each.
+pub fn test_sync_plane_storage<R: Runtime>(client: Client) {
+    if !client.features().plane.contains(Plane::Sync) {
+        // We can't execute the test, skip.
+        return;
+    }
+
+    let cubes = 256u32;
+    let plane_size = client.properties().hardware.plane_size_max;
+    let units = core::cmp::min(
+        2 * plane_size,
+        client.properties().hardware.max_units_per_cube,
+    );
+    let count = (cubes * units) as usize;
+
+    let slots = client.create_from_slice(u32::as_bytes(&vec![0u32; count]));
+    let before = client.empty(count * core::mem::size_of::<u32>());
+    let out = client.empty(count * core::mem::size_of::<u32>());
+    let plane_dim = client.empty(core::mem::size_of::<u32>());
+
+    kernel_test_sync_plane_storage::launch(
+        &client,
+        CubeCount::Static(cubes, 1, 1),
+        CubeDim::new_1d(units),
+        unsafe { BufferArg::from_raw_parts(slots, count) },
+        unsafe { BufferArg::from_raw_parts(before, count) },
+        unsafe { BufferArg::from_raw_parts(out.clone(), count) },
+        unsafe { BufferArg::from_raw_parts(plane_dim.clone(), 1) },
+    );
+
+    let ran_at = u32::from_bytes(&client.read_one_unchecked(plane_dim))[0] as usize;
+    let actual = client.read_one_unchecked(out);
+    let actual = u32::from_bytes(&actual);
+    let expected: Vec<u32> = (0..count)
+        .map(|unit| {
+            let first = unit - unit % ran_at;
+            (first + (unit % ran_at + 1) % ran_at) as u32 + 1
+        })
+        .collect();
+    assert_eq!(actual, &expected);
+}
+
 #[cube(launch)]
 /// All 64 elements should be 1
 fn kernel_test_sync_cube_shared<F: Float>(out: &mut [F]) {
@@ -609,6 +677,14 @@ macro_rules! testgen_sync_plane {
         fn test_sync_plane() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::synchronization::test_sync_plane::<TestRuntime>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_sync_plane_storage() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::synchronization::test_sync_plane_storage::<TestRuntime>(
+                client,
+            );
         }
 
         #[$crate::runtime_tests::test_log::test]

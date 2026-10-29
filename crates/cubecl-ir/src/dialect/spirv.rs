@@ -104,7 +104,7 @@ impl StoreTensorOp {
 }
 
 #[pliron_op(name = "spirv.create_layout", format, attributes = (spirv_create_layout_rank: IndexAttr), verifier = "succ")]
-#[op_interfaces(NResultsInterface<1>, OneResultInterface)]
+#[op_interfaces(OneResultInterface)]
 #[op_traits(CanMaterialize, Pure)]
 pub struct CreateLayoutOp;
 

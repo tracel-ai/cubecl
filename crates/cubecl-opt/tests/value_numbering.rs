@@ -1,14 +1,15 @@
 use cubecl_ir::{
     NoSideEffects,
     dialect::memory::AddressSpaceAttr,
-    interfaces::side_effects::{MemoryEffect, MemoryEffectsOp},
+    interfaces::{
+        Deterministic,
+        side_effects::{MemoryEffect, MemoryEffectsOp},
+    },
     prelude::*,
 };
 use cubecl_opt::analyses::dataflow_solver::{
     DataflowSolver, SolverConfig,
-    dead_code::DeadCodeAnalysis,
-    sccp::SparseConstantPropagationAnalysis,
-    value_numbering::{ValueClassAnalysis, ValueNumberLattice, ValueNumberingAnalysis},
+    value_numbering::{ValueNumberLattice, ValueNumberingAnalysis},
 };
 use expect_test::expect;
 use itertools::Itertools;
@@ -42,6 +43,7 @@ impl MemoryEffectsOp for MemoryDefInSpaceOp {
     verifier = "succ",
     attributes = (use_address_space: AddressSpaceAttr)
 )]
+#[op_interfaces(Deterministic)]
 #[op_traits(NoSideEffects)]
 pub struct MemoryUseInSpaceOp;
 
@@ -60,9 +62,6 @@ fn run_numbering_on_text(ctx: &mut Context, input: &str) -> Result<DataflowSolve
     verify_operation(op, ctx)?;
 
     let mut solver = DataflowSolver::new(SolverConfig::default());
-    solver.load(DeadCodeAnalysis::default());
-    solver.load(SparseConstantPropagationAnalysis::default());
-    solver.load(ValueClassAnalysis::default());
     solver.load(ValueNumberingAnalysis::default());
     solver.initialize_and_run(ctx, op).unwrap();
 

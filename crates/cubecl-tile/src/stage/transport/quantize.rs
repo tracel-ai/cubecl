@@ -33,9 +33,9 @@ impl Tile {
         ));
         if comptime!(!fused) {
             self.factor.calibrate_from::<F>(src, coarse, value);
+            // The scales are read back from wherever they are stored, global memory included.
             match comptime!(self.place.holder()) {
-                ComputeScope::Plane => sync_plane(),
-                // The scales are read back from wherever they are stored, global memory included.
+                ComputeScope::Plane => sync_plane_storage(),
                 _ => sync_storage(),
             }
         }

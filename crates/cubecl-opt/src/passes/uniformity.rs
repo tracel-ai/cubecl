@@ -5,8 +5,6 @@ use pliron::{dict_key, value::DefiningEntity};
 use crate::analyses::dataflow_solver::{
     DataflowSolver, SolverConfig,
     control_flow_uniformity::BlockUniformityAnalysis,
-    dead_code::DeadCodeAnalysis,
-    sccp::SparseConstantPropagationAnalysis,
     value_uniformity::{
         DynamicUniformityAnalysis, DynamicUniformityLattice, StrictUniformityAnalysis,
     },
@@ -30,8 +28,6 @@ pub fn op_dyn_uniformity(ctx: &Context, op: Ptr<Operation>) -> Option<UniformAtt
 
 pub fn uniformity_solver(root_op: Ptr<Operation>, ctx: &Context) -> Result<DataflowSolver> {
     let mut solver = DataflowSolver::new(SolverConfig::default());
-    solver.load(DeadCodeAnalysis::default());
-    solver.load(SparseConstantPropagationAnalysis::default());
     solver.load(BlockUniformityAnalysis);
     solver.load(StrictUniformityAnalysis::default());
     solver.load(DynamicUniformityAnalysis::default());

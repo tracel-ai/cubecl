@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 use cubecl::prelude::*;
 use cubecl_common::bytes::{AccessError, AllocationProperty, Bytes, Reader};
 use cubecl_runtime::runtime::Runtime;
-use cubecl_runtime::server::MemoryLayout;
+use cubecl_runtime::server::{CopyDescriptor, MemoryLayout};
 use cubecl_zspace::shape;
 
 /// A device resource read lazily must defer the device-to-host copy until first access, then
@@ -19,8 +19,7 @@ pub fn test_read_lazy<R: Runtime>(client: Client) {
         strides,
     } = client.create_tensor_from_slice(bytes_expected, shape.clone(), elem_size);
 
-    let descriptor = handle.copy_descriptor(shape, strides, elem_size);
-    let lazy = client.read_lazy(descriptor);
+    let lazy = client.read_lazy(CopyDescriptor::new(handle, shape, strides, elem_size));
 
     // Before any access the data is still on the device. On wasm `read_lazy` is eager, so the
     // property already reflects the materialized host allocation.
@@ -87,6 +86,45 @@ pub fn test_read_lazy<R: Runtime>(client: Client) {
     );
 }
 
+/// A pending lazy read, and a view of it, hold the source until their bytes are on the host.
+pub fn test_read_lazy_holds_its_source<R: Runtime>(client: Client) {
+    let data = [1i32, 2, 3, 4];
+    let elem_size = size_of::<i32>();
+    let shape = shape![data.len()];
+    let MemoryLayout {
+        memory: handle,
+        strides,
+    } = client.create_tensor_from_slice(i32::as_bytes(&data), shape.clone(), elem_size);
+    assert!(handle.can_mut());
+
+    let lazy = client.read_lazy(CopyDescriptor::new(
+        handle.clone(),
+        shape,
+        strides,
+        elem_size,
+    ));
+    assert!(
+        !handle.can_mut(),
+        "a pending lazy read must hold its source"
+    );
+
+    let view = lazy
+        .view(0, elem_size)
+        .expect("a contiguous device buffer supports views");
+
+    let _: &[u8] = &lazy;
+    assert!(
+        !handle.can_mut(),
+        "a pending view must hold its source after the parent is read"
+    );
+
+    let _: &[u8] = &view;
+    assert!(
+        handle.can_mut(),
+        "materialized reads must let go of their source"
+    );
+}
+
 /// Empty tensors can be read eagerly or lazily, including layouts with zero strides.
 pub fn test_read_empty_tensor<R: Runtime>(client: Client) {
     for shape in [
@@ -98,7 +136,8 @@ pub fn test_read_empty_tensor<R: Runtime>(client: Client) {
     ] {
         let elem_size = size_of::<f32>();
         let MemoryLayout { memory, strides } = client.empty_tensor(shape.clone(), elem_size);
-        let lazy = client.read_lazy(memory.clone().copy_descriptor(
+        let lazy = client.read_lazy(CopyDescriptor::new(
+            memory.clone(),
             shape.clone(),
             strides.clone(),
             elem_size,
@@ -139,6 +178,14 @@ macro_rules! testgen_read_lazy {
         fn test_read_lazy() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::read_lazy::test_read_lazy::<TestRuntime>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_read_lazy_holds_its_source() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::read_lazy::test_read_lazy_holds_its_source::<TestRuntime>(
+                client,
+            );
         }
 
         #[$crate::runtime_tests::test_log::test]
