@@ -1,6 +1,8 @@
 use crate::device::{
     DeviceId, DeviceService, DeviceServiceStage, ServerUtilitiesHandle,
-    handle::{CallError, DeviceHandleSpec, ServiceCloseError, ServiceCreationError, exit},
+    handle::{
+        CallError, DeviceHandleSpec, ServiceCloseError, ServiceCreationError, SpawnedCall, exit,
+    },
 };
 use core::time::Duration;
 use cubecl_environment::future::channel::oneshot;
@@ -80,6 +82,26 @@ impl DeviceHandleSpec for ChannelDeviceHandle {
             .expect("Can't have an error when submitting a task");
     }
 
+    fn spawn<R: Send + 'static, T: FnOnce(&mut dyn Any) -> R + Send + 'static>(
+        &self,
+        task: T,
+    ) -> SpawnedCall<R> {
+        let state = self.state.service.clone();
+        let current = StreamId::current();
+        let (sender, receiver) = oneshot::channel();
+        let call = move || {
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                state.act_on(|s| current.executes(|| task(s.as_mut())))
+            }))
+            .unwrap_or_else(|payload| Err(CallError::from_panic(payload)));
+            let _ = sender.send(result);
+        };
+        match self.send::<_, SEND_FLUSH>(call) {
+            Ok(()) => SpawnedCall::running(receiver),
+            Err(error) => SpawnedCall::done(Err(error)),
+        }
+    }
+
     fn flush_queue(&self) {
         if !is_device_runner_thread(self.state.client.runner_id()) {
             self.state.client.flush();
@@ -138,11 +160,11 @@ impl ChannelDeviceHandle {
         &self,
         task: T,
     ) -> Result<R, CallError> {
-        type Outcome<R> = Result<R, Box<dyn Any + Send>>;
+        type Outcome<R> = Result<R, CallError>;
 
         /// Builds a `'static` shim that consumes `*slot` on the device
         /// thread. The caller has to keep `*slot` alive until the shim has run,
-        /// `run_scoped` does this by blocking on `recv.recv()`.
+        /// `run_scoped` does this by joining the call.
         ///
         /// The task runs in its own frame and the outcome is sent from the one
         /// above: references into the caller's frame stay protected for as long
@@ -171,8 +193,8 @@ impl ChannelDeviceHandle {
                         .take()
                         .unwrap_unchecked()
                 };
-                let outcome = catch_unwind(AssertUnwindSafe(task));
-                let _ = sender.send(outcome);
+                let result = catch_unwind(AssertUnwindSafe(task)).map_err(CallError::from_panic);
+                let _ = sender.send(result);
             }
         }
 
@@ -180,13 +202,7 @@ impl ChannelDeviceHandle {
         let mut slot = Some((task, sender));
         // Send the erased shim to the device thread.
         self.send::<_, SEND_FLUSH>(create_shim(&mut slot))?;
-        match recv.recv() {
-            Ok(Ok(value)) => Ok(value),
-            Ok(Err(payload)) => Err(CallError::from_panic(payload)),
-            // The sender was dropped without sending (e.g. the runner thread died)
-            // so no panic payload is available.
-            Err(_) => Err(CallError::disconnected()),
-        }
+        SpawnedCall::running(recv).join()
     }
 
     /// Dispatches a task to the runner.
@@ -1644,6 +1660,32 @@ mod tests {
         );
 
         // Channel survives: next task still runs.
+        let ok = handle.submit_blocking(|state| state.counter).unwrap();
+        assert_eq!(ok, 0);
+    }
+
+    #[test]
+    fn test_spawn_returns_before_the_task_finishes() {
+        let handle = mock_fixture();
+        let (release, released) = oneshot::channel::<()>();
+
+        let pending =
+            handle.spawn(move |_state| released.recv_timeout(Duration::from_secs(5)).is_ok());
+        release.send(()).unwrap();
+
+        assert!(pending.join().unwrap(), "the task was never released");
+    }
+
+    #[test]
+    fn test_spawn_panic_returns_err() {
+        let handle = mock_fixture();
+
+        let err = handle
+            .spawn(|_state| -> usize { panic!("boom") })
+            .join()
+            .expect_err("panicking task must return Err");
+
+        assert_eq!(err.message(), Some("boom"));
         let ok = handle.submit_blocking(|state| state.counter).unwrap();
         assert_eq!(ok, 0);
     }
