@@ -42,6 +42,22 @@ fn fp4_casts_compile_to_the_software_codec() {
     );
 }
 
+/// On a Blackwell part the decode is the part's own conversion, a pair an instruction; the
+/// encode stays the software codec, so no conversion to `e2m1x2` is emitted.
+#[test]
+fn fp4_decodes_on_the_part_where_it_converts() {
+    let ptx = ptx_of(crate::shared::offline_kernels::fp4_round_trip_kernel(), 120);
+    assert_eq!(
+        ptx.matches("cvt.rn.f16x2.e2m1x2").count(),
+        4,
+        "one conversion per pair of the word:\n{ptx}"
+    );
+    assert!(
+        !ptx.contains(".e2m1x2.f32"),
+        "the encode is the software codec:\n{ptx}"
+    );
+}
+
 #[test]
 fn plane_moves_are_native_shuffles() {
     let ptx = ptx_of(plane_moves_kernel(), 60);

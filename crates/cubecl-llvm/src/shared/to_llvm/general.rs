@@ -173,6 +173,16 @@ impl ToLLVMDialect for CastOp {
         let in_ty = operands_info
             .lookup_most_recent_type(self.input(ctx))
             .unwrap_or(self.input(ctx).get_type(ctx));
+
+        // A decode the pipeline left for the target: only a target that converts `e2m1x2` itself
+        // has one (`Fp4Decode::Native`).
+        #[cfg(feature = "nvptx")]
+        if ctx.target() == LlvmTarget::Nvptx && crate::shared::fp4::is_e2m1x2(ctx, in_ty) {
+            let res_ty = cube_type_to_llvm(ctx, self.result_type(ctx));
+            let value = crate::nvptx::fp4::decode_e2m1x2(ctx, rewriter, self.input(ctx), res_ty);
+            rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![value]);
+            return Ok(());
+        }
         let in_ty = extract_elem_type(ctx, in_ty);
         let out_ty = self.get_result(ctx).get_type(ctx);
         let out_ty = extract_elem_type(ctx, out_ty);
