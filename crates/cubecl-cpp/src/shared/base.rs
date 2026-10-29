@@ -104,6 +104,9 @@ pub struct CppSupportedFeatures {
     pub fast_tanh: bool,
     pub elect_sync: bool,
     pub dp4a: bool,
+    /// The device converts its byte-wide minifloat pairs (`e2m1x2`) itself, so a word of them
+    /// converts a byte at a time out of the one register it lies in.
+    pub byte_pair_conversion: bool,
 }
 
 impl Default for CompilationOptions {
