@@ -13,6 +13,17 @@ use cubecl::prelude::*;
 use cubecl_common::profile::{Duration, ProfileDuration, TimingMethod};
 use cubecl_environment::stream::StreamId;
 use cubecl_runtime::server::{Handle, ProfileError};
+use std::sync::{Mutex, MutexGuard, PoisonError};
+
+/// A window's device time is the device's between its two stamps, whatever stream ran in
+/// between: another test's launches land in it as surely as the window's own. Tests in one
+/// process share each device, so they measure one at a time.
+static DEVICE_TIME: Mutex<()> = Mutex::new(());
+
+/// Holds the device's time for the caller until the guard drops.
+fn measure_alone() -> MutexGuard<'static, ()> {
+    DEVICE_TIME.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// Long enough that the window has something to measure on any device, short
 /// enough that a nesting test running four of them stays quick.
@@ -96,6 +107,7 @@ fn maybe_resolve(profile: ProfileDuration) -> Option<Duration> {
 /// it must not do is invent a zero, because zero is the fastest result there is
 /// and an absence dressed as one wins every comparison it enters.
 pub fn test_empty_window_reports_no_device_time<R: Runtime>(client: Client) {
+    let _alone = measure_alone();
     match client.profile(|| {}, "empty") {
         Ok((_, profile)) => {
             if let Some(duration) = maybe_resolve(profile) {
@@ -116,6 +128,7 @@ pub fn test_empty_window_reports_no_device_time<R: Runtime>(client: Client) {
 /// backend reading its device's ticks as the wrong unit passes "> 0" and fails
 /// here.
 pub fn test_kernel_window_reports_positive_device_time<R: Runtime>(client: Client) {
+    let _alone = measure_alone();
     let output = client.empty(LEN * core::mem::size_of::<f32>());
 
     let (_, profile) = client.profile(|| launch(&client, &output), "busy").unwrap();
@@ -136,6 +149,7 @@ pub fn test_kernel_window_reports_positive_device_time<R: Runtime>(client: Clien
 /// the loop runs, which reads as launches getting cheaper the more of them
 /// there are, and autotune prices a candidate's launches off it.
 pub fn test_window_spans_every_pass_in_it<R: Runtime>(client: Client) {
+    let _alone = measure_alone();
     let output = client.empty(core::mem::size_of::<f32>());
 
     // Compiling the kernel would otherwise land inside the first window.
@@ -173,6 +187,7 @@ pub fn test_window_spans_every_pass_in_it<R: Runtime>(client: Client) {
 /// on another stream is the ordinary case. Closing there instead would find
 /// no window on that stream, or pair events recorded on two streams.
 pub fn test_split_window_closes_on_its_own_stream<R: Runtime>(client: Client) {
+    let _alone = measure_alone();
     let output = client.empty(core::mem::size_of::<f32>());
     let mut closer = client.clone();
     unsafe {
@@ -211,6 +226,7 @@ pub fn test_split_window_closes_on_its_own_stream<R: Runtime>(client: Client) {
 /// An abandoned window is gone: ending it afterwards finds nothing, and the
 /// next window measures as usual.
 pub fn test_abandoned_window_is_dropped<R: Runtime>(client: Client) {
+    let _alone = measure_alone();
     let output = client.empty(LEN * core::mem::size_of::<f32>());
 
     let window = client.profile_start().unwrap();
@@ -244,6 +260,7 @@ pub fn test_abandoned_window_is_dropped<R: Runtime>(client: Client) {
 /// stall the stream and put the stall in the outer measurement — real GPU idle
 /// time, correctly reported, but not what this is testing.
 pub fn test_nested_windows_are_contained_by_the_outer_one<R: Runtime>(client: Client) {
+    let _alone = measure_alone();
     let output = client.empty(LEN * core::mem::size_of::<f32>());
 
     let (inner, outer) = client
