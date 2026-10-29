@@ -1,4 +1,4 @@
-use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneInputs, Tuner};
+use super::{AutotuneError, AutotuneKey, AutotuneOutput, TunableSet, TuneInputs, Tuner};
 #[cfg(feature = "autotune-checks")]
 use crate::tune::AutotuneLoggerExt;
 use crate::{client::Client, device::HardwareIdentity, tune::TuneCacheResult};
@@ -285,46 +285,41 @@ where
                     "Somehow we STILL didn't check a tuning checksum or start tuning, something has gone wrong."
                 )
             }
-            // Still waiting (e.g. on wasm), or its candidates' kernels queued by a compile-only dry
-            // run, where an operation only queues its kernels: the candidates run in the plan's
-            // order, the one the measurement follows, so the pending period runs the best ranked
-            // candidate that launches rather than the first declared.
+            // Still waiting (e.g. on wasm), stopped on a lost device, or its candidates' kernels
+            // queued under a `CompileOnly` override, where an operation only queues its kernels:
+            // the candidates run in the plan's order, the one the measurement follows, so the
+            // best ranked candidate that launches runs rather than the first declared.
             TuneCacheResult::Pending | TuneCacheResult::Compiled => {
-                execute_in_plan_order(&operations, &key, inputs)
-                    .expect("All autotune operations failed, no viable operation found.")
+                match execute_in_plan_order(&operations, &key, inputs) {
+                    Ok(output) => output,
+                    Err(failures) => panic!(
+                        "All autotune operations failed, no viable operation found.\n{failures:?}"
+                    ),
+                }
             }
         }
     }
 }
 
-/// Runs the candidates in the order the plan measures them, then whatever the plan left out
-/// in declaration order, and hands back the first output. A candidate that fails to launch is
-/// skipped, as the measurement skips it.
+/// Runs the candidates in the plan's [order](super::TunePlan::order) and hands back the
+/// first output, or every candidate's error when none launches. A candidate that fails to
+/// launch is skipped, as the measurement skips it.
 fn execute_in_plan_order<'a, AK: AutotuneKey, I: TuneInputs, Out: 'static, Id>(
     operations: &TunableSet<AK, I, Out, Id>,
     key: &AK,
     inputs: <I as TuneInputs>::At<'a>,
-) -> Option<Out>
+) -> Result<Out, Vec<AutotuneError>>
 where
     <I as TuneInputs>::At<'a>: Clone,
 {
-    let mut plan = operations.plan(key);
-    let mut tried = Vec::with_capacity(operations.len());
-    loop {
-        let batch = plan.next();
-        if batch.is_empty() {
-            break;
-        }
-        for index in batch.indices() {
-            tried.push(index);
-            if let Ok(output) = operations.fastest(index).execute(inputs.clone()) {
-                return Some(output);
-            }
+    let mut failures = Vec::new();
+    for (index, _) in operations.plan(key).order(operations.len()) {
+        match operations.fastest(index).execute(inputs.clone()) {
+            Ok(output) => return Ok(output),
+            Err(err) => failures.push(err),
         }
     }
-    (0..operations.len())
-        .filter(|index| !tried.contains(index))
-        .find_map(|index| operations.fastest(index).execute(inputs.clone()).ok())
+    Err(failures)
 }
 
 #[cfg(test)]
@@ -372,7 +367,7 @@ mod tests {
             );
 
         assert_eq!(
-            execute_in_plan_order(&operations, &FakeAutotuneKey, ()),
+            execute_in_plan_order(&operations, &FakeAutotuneKey, ()).ok(),
             Some(1)
         );
     }
@@ -395,7 +390,7 @@ mod tests {
             );
 
         assert_eq!(
-            execute_in_plan_order(&operations, &FakeAutotuneKey, ()),
+            execute_in_plan_order(&operations, &FakeAutotuneKey, ()).ok(),
             Some(2)
         );
     }
@@ -414,10 +409,10 @@ mod tests {
             );
 
         assert_eq!(
-            execute_in_plan_order(&operations, &FakeAutotuneKey, ()),
+            execute_in_plan_order(&operations, &FakeAutotuneKey, ()).ok(),
             Some(1)
         );
         let nothing = set().with(Tunable::<FakeAutotuneKey, (), usize>::new("fails", fails));
-        assert_eq!(execute_in_plan_order(&nothing, &FakeAutotuneKey, ()), None);
+        assert!(execute_in_plan_order(&nothing, &FakeAutotuneKey, ()).is_err());
     }
 }
