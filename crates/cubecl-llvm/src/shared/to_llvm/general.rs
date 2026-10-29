@@ -1,7 +1,6 @@
 use crate::{prelude::*, shared::to_llvm::lower_by_target};
-use cubecl_core::ir::dialect::{
-    barrier::CommitCopyAsyncOp,
-    general::{CastOp, CommentOp, CopyOp, FreeOp, PrintfOp, ReinterpretCastOp, SelectOp},
+use cubecl_core::ir::dialect::general::{
+    CastOp, CommentOp, CopyOp, FreeOp, PrintfOp, ReinterpretCastOp, SelectOp,
 };
 use pliron_llvm::{
     attributes::BytesAttr,
@@ -405,7 +404,6 @@ macro_rules! erase_op {
 
 erase_op!(CommentOp);
 erase_op!(FreeOp);
-erase_op!(CommitCopyAsyncOp);
 
 /// `value`'s float lanes converted to the float lanes of `ty`, rounding to nearest even. `f16`
 /// and `bf16` share a width and no instruction converts between them, so they go through the
