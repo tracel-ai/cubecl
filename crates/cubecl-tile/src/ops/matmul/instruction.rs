@@ -1,5 +1,6 @@
 //! What one plane contracts through ([`Instruction`]).
 
+use cubecl::cmma::MatrixIdent;
 use cubecl::ir::{ElemType, FloatKind, features::ScaledMmaConfig};
 
 use crate::{MmaIo, RegisterBlock};
@@ -100,6 +101,14 @@ impl BlockScaledOperands {
             scales: float(instruction.scales_type)?,
             block: (instruction.k as usize).checked_div(scales)?,
         })
+    }
+
+    /// The codes the operand in role `ident` holds.
+    pub fn codes(&self, ident: MatrixIdent) -> FloatKind {
+        match ident {
+            MatrixIdent::A => self.lhs,
+            _ => self.rhs,
+        }
     }
 
     /// The codes a register of the instruction holds in role `lhs` (or `rhs`), counted in values:
