@@ -5,6 +5,7 @@ use core::{fmt, ops::Deref};
 
 use cubecl_core::{
     self as cubecl,
+    frontend::reinterpret_value,
     ir::types::Fp8Format,
     ir::{
         dialect::general::CastOp,
@@ -15,12 +16,17 @@ use cubecl_core::{
     },
     prelude::*,
 };
-use pliron::{printable::Printable, utils::apfloat::Float8E5M2};
+use pliron::{
+    builtin::types::{IntegerType, Signedness},
+    printable::Printable,
+    utils::apfloat::Float8E5M2,
+};
 
 use crate::{
-    cuda::{cuda_op_with_out, ty::*},
+    cuda::{cuda_op_with_out, ptx::InlinePtxOp, ty::*},
+    ptx_block,
     shared::{
-        CppValue,
+        CompilationOptions, CppValue,
         lowering::LowerOp,
         ty::{TypeExt, TypeExtCPP, TypedExtCPP},
     },
@@ -55,21 +61,22 @@ impl LowerOp<Cuda> for CastOp {
     fn should_lower(&self, ctx: &Context) -> bool {
         let input = self.input(ctx);
         let out = self.get_result(ctx);
-        let should_lower_from = (input.is_fp8_fp6_fp4(ctx) || input.is_float4x2(ctx))
-            && intermediate_for_ty(ctx, input.get_type(ctx)) != out.get_type(ctx);
         let should_lower_to = (out.is_fp8_fp6_fp4(ctx) || out.is_float4x2(ctx))
             && !encodes_directly(ctx, input, out.get_type(ctx));
-        should_lower_from || should_lower_to
+        MinifloatSource::of(ctx, input, out.get_type(ctx)) != MinifloatSource::NotConverted
+            || should_lower_to
     }
 
     fn lower(&self, scope: &Scope) -> Vec<Value> {
         let ctx = scope.ctx();
         let mut current = self.input(ctx);
         let out_ty = self.get_result(ctx).get_type(ctx);
-        if current.is_fp8_fp6_fp4(ctx) || current.is_float4x2(ctx) {
-            let intermediate = intermediate_for_ty(ctx, current.get_type(ctx));
-            current = cast_value(scope, current, intermediate);
-        }
+        let intermediate = intermediate_for_ty(ctx, current.get_type(ctx));
+        current = match MinifloatSource::of(ctx, current, out_ty) {
+            MinifloatSource::NotConverted => current,
+            MinifloatSource::Converted => cast_value(scope, current, intermediate),
+            MinifloatSource::ByteSelected => byte_selected(scope, current, intermediate),
+        };
         if (out_ty.is_fp8_fp6_fp4(ctx) || out_ty.is_float4x2(ctx))
             && !encodes_directly(ctx, current, out_ty)
         {
@@ -81,6 +88,84 @@ impl LowerOp<Cuda> for CastOp {
         }
         vec![cast_value(scope, current, out_ty)]
     }
+}
+
+/// How a cast's minifloat input reaches the `f16`/`bf16` its type converts to
+/// ([`intermediate_for_ty`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum MinifloatSource {
+    /// The input is no minifloat, or its conversion is the cast itself.
+    NotConverted,
+    /// Through the conversion its type has, one value or pair at a time.
+    Converted,
+    /// A word of byte-wide pairs on a device that converts them itself: each pair read out of the
+    /// word's one register by the conversion's own byte select ([`byte_selected`]). Converted a
+    /// pair at a time, the compiler first isolates each byte into a register of its own, five or
+    /// six instructions a word. A wider pair is read as half a register, which costs nothing.
+    ByteSelected,
+}
+
+impl MinifloatSource {
+    fn of(ctx: &Context, input: Value, out_ty: TypeHandle) -> Self {
+        if !(input.is_fp8_fp6_fp4(ctx) || input.is_float4x2(ctx)) {
+            Self::NotConverted
+        } else if byte_pairs_in_a_word(ctx, input) {
+            Self::ByteSelected
+        } else if intermediate_for_ty(ctx, input.get_type(ctx)) != out_ty {
+            Self::Converted
+        } else {
+            Self::NotConverted
+        }
+    }
+}
+
+/// Bytes in the word a [`ByteSelected`](MinifloatSource::ByteSelected) conversion reads.
+const WORD_BYTES: usize = 4;
+
+/// Whether `value` is one word of byte-wide pairs on a device that converts them itself.
+fn byte_pairs_in_a_word(ctx: &Context, value: Value) -> bool {
+    value.is_packed_fp6_fp8_fp4(ctx)
+        && value.scalar_ty(ctx).size(ctx) == 1
+        && value.vector_size(ctx) == WORD_BYTES
+        && ctx
+            .try_aux_ty::<CompilationOptions>()
+            .is_some_and(|options| options.supports_features.byte_pair_conversion)
+}
+
+/// A word of byte-wide pairs as `out_ty`, their values: the word split into its bytes in PTX and
+/// each pair converted from its byte of the one register, which the assembler folds into the
+/// conversion's byte select ([`MinifloatSource::ByteSelected`]).
+fn byte_selected(scope: &Scope, word: Value, out_ty: TypeHandle) -> Value {
+    let pair = pair_name(scope.ctx(), word.scalar_ty(scope.ctx()));
+    let u32 = IntegerType::get(scope.ctx_mut(), 32, Signedness::Unsigned).to_handle();
+    let converted = VectorType::get(scope.ctx_mut(), u32, WORD_BYTES).to_handle();
+    let bits = reinterpret_value(scope, word, u32);
+    // `$0` reads as the four result registers together, so the pairs reach it through one 128-bit
+    // move, which the assembler folds away.
+    let ptx = ptx_block! {
+        ".reg .b8 b0, b1, b2, b3;"
+        ".reg .b32 h0, h1, h2, h3;"
+        ".reg .b128 pairs;"
+        "mov.b32 {b0, b1, b2, b3}, $1;"
+        format!("cvt.rn.f16x2.{pair} h0, b0;")
+        format!("cvt.rn.f16x2.{pair} h1, b1;")
+        format!("cvt.rn.f16x2.{pair} h2, b2;")
+        format!("cvt.rn.f16x2.{pair} h3, b3;")
+        "mov.b128 pairs, {h0, h1, h2, h3};"
+        "mov.b128 $0, pairs;"
+    };
+    let op = InlinePtxOp::new(scope.ctx_mut(), Some(converted), ptx, vec![bits]);
+    scope.register(&op);
+    let result = op.result(scope.ctx()).expect("the conversion has a result");
+    reinterpret_value(scope, result, out_ty)
+}
+
+/// PTX's name for a byte-wide pair, as `cvt` spells it.
+fn pair_name(ctx: &Context, ty: TypeHandle) -> &'static str {
+    match_ty!((ty.deref(ctx)) {
+        Float4E2M1x2Type => "e2m1x2",;
+        _ => panic!("{} is no byte-wide pair PTX converts", ty.deref(ctx).display(ctx))
+    })
 }
 
 /// fp8 must convert straight from its source: an f16 detour rounds twice. e8m0 converts from

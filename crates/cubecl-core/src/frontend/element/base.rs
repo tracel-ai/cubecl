@@ -8,7 +8,9 @@ use alloc::{boxed::Box, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
 use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
 use cubecl_ir::{
-    VectorSize, ident,
+    VectorSize,
+    attributes::ZeroAttr,
+    ident,
     interfaces::TypedExt,
     pliron::{printable::Printable, r#type::Typed, value::Value},
     types::PointerType,
@@ -862,6 +864,18 @@ impl<T: Scalar + Into<ConstantValue>> NativeExpand<T> {
         let value = self.constant().unwrap();
         T::from_const_value(value)
     }
+}
+
+pub(crate) fn zeroed_mut_of_type(scope: &Scope, mut ty: TypeHandle) -> ExpandValue {
+    let ctx = scope.ctx();
+    if let Some(PointerType { inner, .. }) = ty.deref(ctx).downcast_ref() {
+        ty = *inner;
+    }
+    if ty.is_ptr(ctx) {
+        panic!("tried initializing mut for ptr {}", ty.disp(ctx));
+    }
+    let zero = ZeroAttr::new(ty);
+    scope.create_local_mut(ty, Some(zero.into())).into()
 }
 
 pub(crate) fn init_mut_of_type(scope: &Scope, mut ty: TypeHandle) -> ExpandValue {

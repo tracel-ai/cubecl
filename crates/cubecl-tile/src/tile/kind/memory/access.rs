@@ -18,7 +18,7 @@ impl Tile {
     /// `W` is the line width (`self.store.vector_size`).
     pub fn view<T: Numeric, W: Size>(&self) -> View<'_, Vector<T, W>, CoordsDyn> {
         let g = self.mem("view");
-        if comptime!(g.store.packing != Packing::Plain) {
+        if comptime!(!g.store.packing.as_stored()) {
             panic!(
                 "Tile::view: a packed tile only serves values its read unpacks (Tile::copy_from, \
                  Tile::matrix_packed)"
@@ -100,7 +100,7 @@ impl Memory {
     /// the values a reader asks for, which a matrix fragment can load where words it cannot.
     pub(crate) fn stage_element(&self) -> comptime_type!(StageElement) {
         comptime!(match self.store.packing {
-            Packing::Plain => StageElement::Served,
+            Packing::Plain | Packing::Words { .. } => StageElement::Served,
             Packing::Packed { field } if field.per_word() == 1 => StageElement::Decoded,
             Packing::Packed { .. } => StageElement::Stored,
         })
@@ -115,7 +115,7 @@ impl Memory {
     pub(crate) fn size_bytes<T: Numeric>(&self) -> u32 {
         let wp = comptime!(self.store.packing.physical(self.store.vector_size) as u32);
         match comptime!(self.store.packing) {
-            Packing::Plain => {
+            Packing::Plain | Packing::Words { .. } => {
                 self.store.buffer::<T>().len() as u32 * T::size().comptime() as u32 * wp
             }
             Packing::Packed { field: _ } => {
@@ -357,7 +357,7 @@ impl Memory {
                 .assert_rows_are_runs("Memory::window_slice")
         );
         // A raw window would hand a packed store's words over as served values.
-        if comptime!(self.store.packing != Packing::Plain) {
+        if comptime!(!self.store.packing.as_stored()) {
             panic!(
                 "Memory::window_slice: a packed store has no raw element window; a fragment \
                  load reads it through Tile::matrix_packed"
@@ -389,7 +389,7 @@ impl Memory {
         layout: L,
         #[comptime] guard: Guard,
     ) -> Masked<'_, Vector<T, W>, C> {
-        if comptime!(self.store.packing != Packing::Plain) {
+        if comptime!(!self.store.packing.as_stored()) {
             panic!(
                 "Tile::matrix: a packed tile only serves values its read unpacks \
                  (Tile::matrix_packed)"
@@ -417,7 +417,7 @@ impl Memory {
         &mut self,
         layout: L,
     ) -> MaskedMut<'_, Vector<T, W>, C> {
-        if comptime!(self.store.packing != Packing::Plain) {
+        if comptime!(!self.store.packing.as_stored()) {
             panic!("Tile::matrix_mut: writing a packed tile requires repacking")
         }
         let check = self.write_check();
@@ -462,7 +462,7 @@ impl Memory {
     ) -> Masked<'_, Vector<T, W>, C> {
         let packing = self.packing();
         match comptime!(packing) {
-            Packing::Plain => self.masked::<T, W, C, L>(layout, guard),
+            Packing::Plain | Packing::Words { .. } => self.masked::<T, W, C, L>(layout, guard),
             Packing::Packed { field } => {
                 let words = self
                     .window_view_storage::<u32, WP>(comptime!(Guard::Checked))
@@ -486,7 +486,7 @@ impl Memory {
         let physical = comptime!(packing.physical(self.store.vector_size));
         // `size!` binds inside each arm: hoisted, a packed read lands on the wrong field.
         match comptime!(packing) {
-            Packing::Plain => {
+            Packing::Plain | Packing::Words { .. } => {
                 let size!(WP) = physical;
                 self.unpacked::<T, WP, W, C, L>(layout, guard)
             }
@@ -595,7 +595,7 @@ impl Memory {
 
     /// The mutable twin of [`flat`](Memory::flat).
     pub(crate) fn flat_mut<T: Numeric, W: Size>(&mut self) -> FlatViewMut<'_, Vector<T, W>> {
-        if comptime!(self.store.packing != Packing::Plain) {
+        if comptime!(!self.store.packing.as_stored()) {
             panic!("Tile::flat_mut: writing a packed tile requires repacking")
         }
         let extent = self.window.extent.clone();

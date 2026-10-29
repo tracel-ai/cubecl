@@ -158,6 +158,62 @@ pub fn test_sync_cube_shared<R: Runtime>(client: Client) {
 }
 
 #[cube(launch)]
+/// Every round, the cube passes its units' values round through one shared array, frees it, meets,
+/// and passes them round again through a second: each holds `len` values, more than half of what
+/// a cube may hold, so they fit together only where the second takes the first's bytes. The round
+/// opens on a barrier, so no unit writes the first again before every unit is done with the
+/// second of the round before.
+fn kernel_test_shared_freed_in_a_loop(out: &mut [u32], rounds: u32, #[comptime] len: usize) {
+    let unit = UNIT_POS as usize;
+    let next = (unit + 1) % CUBE_DIM as usize;
+    for round in 0..rounds {
+        sync_cube();
+        let mut first = Shared::<[u32]>::new_slice(len);
+        first[unit] = UNIT_POS + round;
+        first[len - 1 - unit] = UNIT_POS + round;
+        sync_cube();
+        let passed = first[next] + first[len - 1 - next];
+        unsafe { first.free() };
+        sync_cube();
+        let mut second = Shared::<[u32]>::new_slice(len);
+        second[unit] = passed;
+        second[len - 1 - unit] = passed;
+        sync_cube();
+        out[round as usize * CUBE_DIM as usize + unit] = second[next] + second[len - 1 - next];
+    }
+}
+
+/// Shared memory freed inside a loop is taken by what the same round declares after it: two arrays
+/// of five eighths of a cube's shared memory each fit, every round, and pass the right values.
+///
+/// Generated only for a runtime whose launch counts shared memory as the allocator lays it out
+/// ([`testgen_shared_freed_in_a_loop`]): one that counts every declaration apart refuses the
+/// launch, as a CPU runtime and wgpu do.
+pub fn test_shared_freed_in_a_loop<R: Runtime>(client: Client) {
+    let units = 32u32;
+    let rounds = 3u32;
+    let len = client.properties().hardware.max_shared_memory_size / size_of::<u32>() * 5 / 8;
+    let count = (units * rounds) as usize;
+    let handle = client.empty(count * size_of::<u32>());
+
+    kernel_test_shared_freed_in_a_loop::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(units),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), count) },
+        rounds,
+        len,
+    );
+
+    let actual = client.read_one_unchecked(handle);
+    let actual = u32::from_bytes(&actual);
+    let expected: Vec<u32> = (0..rounds)
+        .flat_map(|round| (0..units).map(move |unit| 4 * ((unit + 2) % units + round)))
+        .collect();
+    assert_eq!(actual, expected);
+}
+
+#[cube(launch)]
 fn kernel_test_workgroup_uniform_load(out: &mut [u32]) {
     let mut count = Shared::new_slice(1usize);
     if UNIT_POS == 0 {
@@ -631,6 +687,22 @@ macro_rules! testgen_sync_plane {
             cubecl_core::runtime_tests::synchronization::test_workgroup_uniform_load_vec::<
                 TestRuntime,
             >(client);
+        }
+    };
+}
+
+/// [`test_shared_freed_in_a_loop`], for a runtime whose launch counts shared memory as the
+/// allocator lays it out.
+#[allow(missing_docs)]
+#[macro_export]
+macro_rules! testgen_shared_freed_in_a_loop {
+    () => {
+        #[$crate::runtime_tests::test_log::test]
+        fn test_shared_freed_in_a_loop() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::synchronization::test_shared_freed_in_a_loop::<TestRuntime>(
+                client,
+            );
         }
     };
 }

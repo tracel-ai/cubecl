@@ -11,7 +11,7 @@ use crate::{
 };
 use cubecl_core::ir::attributes::ATTR_TENSOR_MAP_BINDING;
 use cubecl_core::ir::nvidia::SmArch;
-use cubecl_opt::passes::alloc_shared_memory::AllocateSharedMemoryBlockPass;
+use cubecl_opt::passes::{alloc_shared_memory::AllocateSharedMemoryBlockPass, pre::SSCMPre};
 
 #[derive(Debug, Default)]
 pub struct PtxKernelParams;
@@ -89,6 +89,10 @@ impl TargetLowering for NvptxLowering {
 
     fn arg_layout(&self) -> Box<dyn EntryArgLayout> {
         Box::new(PtxKernelParams)
+    }
+
+    fn pre(&self, passes: &mut OpPass<ModuleOp, Passes>) {
+        passes.add_pass(SSCMPre);
     }
 
     fn fp4_decode(&self) -> Fp4Decode {

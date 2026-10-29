@@ -9,15 +9,27 @@
 //! held to the reference on codes and scales that are exact in `f32`.
 
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
-use cubecl::{client::Client, ir::FloatKind, prelude::*, quant::scheme::QuantValue, zspace::Shape};
+use cubecl::{
+    client::Client, ir::FloatKind, ir::types::Fp8Format, prelude::*, quant::scheme::QuantValue,
+    zspace::Shape,
+};
 use cubecl_common::{e2m1, e4m3};
 use cubecl_tile::{
-    Axis, Instruction, Level, Levels, MmaOperands, Partitioning, Projection, Semiring, Space,
-    StageStorage, Stages, TileArg, TileArgLaunch, TileSpec, kind::Field, layout::PhysicalAxisMap,
-    ops::matmul::MmaIo,
+    Axis, BlockScaledOperands, Instruction, Level, Levels, MmaOperands, Partitioning, Projection,
+    Semiring, Space, StageStorage, Stages, TileArg, TileArgLaunch, TileSpec, kind::Field,
+    layout::PhysicalAxisMap, ops::matmul::MmaIo,
 };
 
 use super::{Form, implied};
+
+/// NVFP4 as the block-scaled instruction takes it: `e2m1` codes two to a byte under an `e4m3`
+/// scale every sixteen of `k`.
+const NVFP4: BlockScaledOperands = BlockScaledOperands {
+    lhs: FloatKind::E2M1x2,
+    rhs: FloatKind::E2M1x2,
+    scales: FloatKind::E4M3,
+    block: 16,
+};
 
 const M: Axis = Axis(0);
 const N: Axis = Axis(1);
@@ -55,7 +67,7 @@ fn block_scaled_matmul<E: Numeric>(
         &b,
         comptime!(Instruction::Mma {
             io: MmaIo::manual(),
-            operands: MmaOperands::BlockScaled,
+            operands: MmaOperands::BlockScaled(NVFP4),
         }),
         Semiring::SUM_PROD,
     );
@@ -87,7 +99,7 @@ fn block_scaled_matmul_under_words<E: Numeric>(
 ) {
     let instruction = comptime!(Instruction::Mma {
         io: MmaIo::manual(),
-        operands: MmaOperands::BlockScaled,
+        operands: MmaOperands::BlockScaled(NVFP4),
     });
     let mut c = c.tile(&space);
     let (a, a_factor) = a.tile(&space).factor(c.space(), instruction);
@@ -207,7 +219,8 @@ fn check_block_scaled(k: usize, globals: Option<(f32, f32)>) {
                 let spec = TileSpec::new(Projection::new(
                     &[axis, K],
                     &[PhysicalAxisMap::of(axis), PhysicalAxisMap::of(K).over(STEP)],
-                ));
+                ))
+                .words(Field::Fp8(Fp8Format::E4M3));
                 TileArgLaunch::new(
                     tensor(handle, rows, k / STEP),
                     u32::elem_type_native(),
@@ -364,7 +377,8 @@ fn check_block_scaled_in_blocks(k: usize, (a_global, b_global): (f32, f32)) {
                     PhysicalAxisMap::of(axis),
                     PhysicalAxisMap::of(KB).over(STEP / BLOCK),
                 ],
-            )),
+            ))
+            .words(Field::Fp8(Fp8Format::E4M3)),
         );
         let global = TileArgLaunch::new(
             tensor(client.create_from_slice(f32::as_bytes(&[global])), 1, 1),

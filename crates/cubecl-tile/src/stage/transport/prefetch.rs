@@ -137,8 +137,8 @@ impl Memory {
     /// Refuse a pairing this transport cannot move.
     fn refuse_unfetchable(&self, src: &Memory) {
         comptime!(assert!(
-            self.store.packing == Packing::Plain
-                && src.store.packing == Packing::Plain
+            self.store.packing.as_stored()
+                && src.store.packing.as_stored()
                 && self.access.whole
                 && !self.access.overhang.masks()
                 && self.access.write == Write::Replace

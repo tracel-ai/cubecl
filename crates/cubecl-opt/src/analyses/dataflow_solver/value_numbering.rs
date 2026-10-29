@@ -6,7 +6,8 @@ use core::{
 use alloc::{rc::Rc, vec::Vec};
 use cubecl_ir::{
     interfaces::{
-        Expression, ExpressionCanonicalize, ExpressionValue, side_effects::MemoryEffectsOp,
+        Deterministic, Expression, ExpressionCanonicalize, ExpressionValue,
+        side_effects::MemoryEffectsOp,
     },
     prelude::*,
 };
@@ -130,8 +131,8 @@ impl ValueClasses {
 impl SparseForwardDataflowAnalysis for ValueClasses {
     type LatticeValue = ValueClass;
 
-    fn verify(solver: &DataflowSolver, _: &Context, _: Ptr<Operation>) -> Result<()> {
-        solver.require_loaded::<ValueNumberingAnalysis>()
+    fn on_load(&self, solver: &mut DataflowSolver) {
+        solver.ensure_loaded(ValueNumberingAnalysis::default);
     }
 
     fn visit_operation(
@@ -142,18 +143,26 @@ impl SparseForwardDataflowAnalysis for ValueClasses {
         operands: &[ReadRef<SparseLattice<ValueClass>>],
         results: &[WriteRef<SparseLattice<ValueClass>>],
     ) -> Result<()> {
-        if results.len() > 1 || op.deref(ctx).num_regions() > 0 {
+        if results.len() != 1 || op.deref(ctx).num_regions() > 0 {
             this.set_all_to_entry_states(solver, ctx, results);
             return Ok(());
         }
 
+        let is_deterministic = op.impls::<dyn Deterministic>(ctx);
         let has_side_effects = op
             .cast::<dyn SideEffects>(ctx)
             .is_none_or(|op| op.has_side_effects(ctx));
+
+        if !is_deterministic || has_side_effects {
+            this.set_all_to_entry_states(solver, ctx, results);
+            return Ok(());
+        }
+
         let (has_innumerable_effects, mem_val) = match op.cast::<dyn MemoryEffectsOp>(ctx) {
             Some(effects) if effects.has_effects(ctx) => {
                 let mut analyses = solver.analyses();
-                let mut memory_ssa = MemorySSA::get_for_nearest_root(ctx, &mut analyses, op)?;
+                let mut memory_ssa =
+                    analyses.get_analysis_mut::<MemorySSA>(solver.root().unwrap(), ctx)?;
                 memory_ssa.set_alias_analysis_stack(default_stack());
 
                 let mem_val = memory_ssa.optimized_use(ctx, op);
@@ -163,7 +172,7 @@ impl SparseForwardDataflowAnalysis for ValueClasses {
             None => (true, None),
         };
 
-        if has_side_effects || has_innumerable_effects {
+        if has_innumerable_effects {
             this.set_all_to_entry_states(solver, ctx, results);
             return Ok(());
         }
@@ -189,7 +198,7 @@ impl SparseForwardDataflowAnalysis for ValueClasses {
         expression.mem_value = mem_val;
 
         let value = ValueClass::Expression(expression);
-        solver.update_state(ctx, result, |it| it.join(&value));
+        solver.update_state(ctx, result, |it| it.set(value));
 
         Ok(())
     }
@@ -243,8 +252,8 @@ impl ValueNumberingAnalysis {
 }
 
 impl DataflowAnalysis for ValueNumberingAnalysis {
-    fn verify(&self, solver: &DataflowSolver, _: &Context, _: Ptr<Operation>) -> Result<()> {
-        solver.require_loaded::<SparseForward<ValueClasses>>()
+    fn on_load(&self, solver: &mut DataflowSolver) {
+        solver.ensure_loaded(SparseForward::<ValueClasses>::default);
     }
 
     fn initialize(
@@ -259,7 +268,7 @@ impl DataflowAnalysis for ValueNumberingAnalysis {
             root,
             |ctx, (this, solver), value| {
                 let point = ProgramPoint::after_value(ctx, value);
-                if !is_block_live::<Self>(solver, ctx, point) {
+                if !is_block_live::<Self>(solver, point) {
                     return;
                 }
                 this.update_value(solver, ctx, point, value);

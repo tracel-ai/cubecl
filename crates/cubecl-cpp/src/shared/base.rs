@@ -47,7 +47,8 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
-    resolve_pending::ResolvePendingPass, sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
+    mem2reg::Mem2RegPass, resolve_pending::ResolvePendingPass, sccp::SCCPPass,
+    simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::compiler::{CompilationError, Compiler};
 use pliron::{
@@ -56,7 +57,7 @@ use pliron::{
     irbuild::match_rewrite::MatchRewrite,
     op::Op,
     operation::verify_operation,
-    opts::{dce::DCEPass, mem2reg::Mem2RegPass},
+    opts::dce::DCEPass,
     pass::{AnalysisManager, NestedOpsPass, OpPass, Pass, Passes},
 };
 use std::fmt::Debug;
@@ -104,6 +105,9 @@ pub struct CppSupportedFeatures {
     pub fast_tanh: bool,
     pub elect_sync: bool,
     pub dp4a: bool,
+    /// The device converts its byte-wide minifloat pairs (`e2m1x2`) itself, so a word of them
+    /// converts a byte at a time out of the one register it lies in.
+    pub byte_pair_conversion: bool,
 }
 
 impl Default for CompilationOptions {

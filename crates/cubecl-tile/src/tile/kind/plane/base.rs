@@ -52,7 +52,7 @@ impl PlaneTile {
     /// packed codes as they are stored.
     pub(crate) fn reads_codes_as_stored(&self) -> comptime_type!(bool) {
         match self {
-            PlaneTile::Mma(data) => comptime!(data.operands == MmaOperands::BlockScaled),
+            PlaneTile::Mma(data) => comptime!(data.operands.block_scaled().is_some()),
             PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(false),
         }
     }
@@ -755,15 +755,17 @@ impl PlanePartition {
                 .map(|axis| src.place.space.extent(axis))
                 .product::<usize>()
         );
-        let block_scaled = comptime!(matches!(
-            form,
-            Instruction::Mma {
-                operands: MmaOperands::BlockScaled,
-                ..
-            }
-        ));
+        let scaled_form = comptime!(match form {
+            Instruction::Mma { operands, .. } => operands.block_scaled(),
+            Instruction::Cmma | Instruction::Registers { .. } | Instruction::Wgmma => None,
+        });
+        let block_scaled = comptime!(scaled_form.is_some());
         if comptime!(block_scaled) {
-            assert_block_scaled::<T>(src, m, n, k);
+            let ident = comptime!(match Side::of(&src.place.space, &acc.place.space) {
+                Side::Lhs => MatrixIdent::A,
+                Side::Rhs => MatrixIdent::B,
+            });
+            assert_block_scaled::<T>(src, comptime!(scaled_form.unwrap()), ident, m, n, k);
         }
         let mut frags = PlanePartition::store::<T>(
             comptime!(src.place.space.clone()),
@@ -795,7 +797,7 @@ impl PlanePartition {
                     panic!("PlanePartition::fragments: operand fragments are a partition")
                 }
             }
-        } else if comptime!(scaled || packing != Packing::Plain || !shared) {
+        } else if comptime!(scaled || !packing.as_stored() || !shared) {
             // A scaled, packed or global operand loads from its plane's landing, as the direct
             // contraction does: a fragment reads a shared, plain window as it lies.
             let side = comptime!(Side::of(&src.place.space, &acc.place.space));

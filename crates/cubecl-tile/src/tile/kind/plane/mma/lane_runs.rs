@@ -20,9 +20,15 @@ use cubecl::{
     prelude::*,
 };
 
-use super::block_scaled::{E2M1_PER_WORD, E2M1_SCALE_BLOCK};
 use super::widths::*;
 use crate::*;
+
+/// `e2m1` values one stored word holds.
+pub(crate) const E2M1_PER_WORD: usize = 8;
+
+/// Values of `k` a run reads one scale for: sixteen, the narrowest block a format scales, so
+/// a run under any block of a multiple of it reads each value's scale.
+pub(crate) const SCALE_READ: usize = 16;
 
 /// Slots of one instruction's `k` a unit holds, on the 16-bit `m16n8k16` layout: four of sixteen.
 const SLOTS_PER_UNIT: usize = 4;
@@ -141,7 +147,7 @@ pub(crate) fn lane_runs_refusal<T: Numeric>(
         Some("lane runs read the 16-bit m16n8k16 layout, which this target or element is not")
     } else if !along_k {
         Some("a window loads in lane runs along `k`: an A row-major, a B col-major")
-    } else if packing == Packing::Plain && levels == 0 {
+    } else if packing.as_stored() && levels == 0 {
         None
     } else if !e2m1 {
         Some("a packed or scaled window loads in lane runs only as e2m1 codes")
@@ -238,7 +244,9 @@ pub(crate) fn load_lane_runs<T: Numeric, N: Size>(
     let first = (UNIT_POS_PLANE % UNITS_PER_ROW) * comptime!(run.len as u32);
     let packing = src.packing();
     match comptime!(packing) {
-        Packing::Plain => load_plain_run::<T, N>(src, fragment, row, first, run),
+        Packing::Plain | Packing::Words { .. } => {
+            load_plain_run::<T, N>(src, fragment, row, first, run)
+        }
         Packing::Packed { .. } => load_e2m1_run::<T, N>(src, fragment, row, first, run),
     }
 }
@@ -329,7 +337,7 @@ fn load_e2m1_run<T: Numeric, N: Size>(
     comptime!(assert!(
         values.is_multiple_of(E2M1_PER_WORD)
             && run.len.is_multiple_of(values)
-            && run.len.is_multiple_of(E2M1_SCALE_BLOCK),
+            && run.len.is_multiple_of(SCALE_READ),
         "MmaData::load: a unit's {}-value run of `k` reads whole loads and whole scale blocks, \
          and this window is read {values} values a load",
         run.len,
@@ -349,15 +357,16 @@ fn load_e2m1_run<T: Numeric, N: Size>(
             lifted: true,
         },
         Packing::Packed { field } => field,
-        Packing::Plain => panic!("MmaData::load: an `e2m1` run reads packed words"),
+        Packing::Plain | Packing::Words { .. } =>
+            panic!("MmaData::load: an `e2m1` run reads packed words"),
     });
     #[unroll]
     for half in 0..comptime!(run.halves()) {
         let at = row + comptime!(half as u32) * HALF_ROWS;
-        let mut scales = Array::<T>::new(comptime!(run.len / E2M1_SCALE_BLOCK));
+        let mut scales = Array::<T>::new(comptime!(run.len / SCALE_READ));
         #[unroll]
-        for b in 0..comptime!(run.len / E2M1_SCALE_BLOCK) {
-            let col = first + comptime!((b * E2M1_SCALE_BLOCK) as u32);
+        for b in 0..comptime!(run.len / SCALE_READ) {
+            let col = first + comptime!((b * SCALE_READ) as u32);
             let coords = TileMatrix::value_coords(at, col, 0usize, &space, axes, 1usize);
             scales[b] = T::cast_from(factor.at_coords(
                 &coords,
@@ -378,7 +387,7 @@ fn load_e2m1_run<T: Numeric, N: Size>(
                     comptime!(field),
                 );
                 let decoded =
-                    codes * Vector::<T, Const<8>>::new(scales[comptime!(word / E2M1_SCALE_BLOCK)]);
+                    codes * Vector::<T, Const<8>>::new(scales[comptime!(word / SCALE_READ)]);
                 #[unroll]
                 for p in 0..comptime!(E2M1_PER_WORD / SLOTS_PER_REGISTER) {
                     let mut pair = Vector::<T, N>::empty();

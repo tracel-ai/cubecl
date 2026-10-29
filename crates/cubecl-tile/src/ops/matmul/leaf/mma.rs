@@ -40,6 +40,9 @@ impl MmaData {
                     bf,
                     b_scales,
                     acc.at_mut::<A>(),
+                    comptime!(operands.block_scaled().expect(
+                        "MmaData::mma: block-scaled fragments are contracted under their form"
+                    )),
                     m,
                     n,
                     k,
@@ -135,7 +138,7 @@ pub(crate) fn deep_load(lhs: &Tile, rhs: &Tile) -> comptime_type!(DeepLoad) {
     let lhs_words = lhs.innermost_factor().holds_words();
     let rhs_words = rhs.innermost_factor().holds_words();
     comptime!({
-        let decoded_in_runs = |packing: Packing, words: bool| packing != Packing::Plain && !words;
+        let decoded_in_runs = |packing: Packing, words: bool| !packing.as_stored() && !words;
         let packed_codes =
             decoded_in_runs(lhs_packing, lhs_words) || decoded_in_runs(rhs_packing, rhs_words);
         match lhs_window && rhs_window && (!(lhs_shared && rhs_shared) || packed_codes) {

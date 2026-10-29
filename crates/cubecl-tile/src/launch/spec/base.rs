@@ -92,6 +92,15 @@ impl TileSpec {
         self
     }
 
+    /// This spec with its binding holding `u32` words of `field`-wide values, each word read
+    /// whole ([`Packing::Words`]): block scales as a block-scaled instruction takes them.
+    pub fn words(mut self, field: impl Into<Field>) -> Self {
+        self.packing = Packing::Words {
+            field: field.into(),
+        };
+        self
+    }
+
     /// This spec with its stages moved by `delivery`: each unit its own lines, landed when the fill
     /// returns or after it, or one unit the whole stage in bulk. The kernel does not change; the
     /// fill does.

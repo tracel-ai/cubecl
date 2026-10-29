@@ -219,7 +219,7 @@ impl Tile {
         let staged = match &self.kind {
             TileKind::Memory(d) => d.stage_element(),
             TileKind::TmaGmem(t) => comptime!(match t.packing {
-                Packing::Plain => StageElement::Served,
+                Packing::Plain | Packing::Words { .. } => StageElement::Served,
                 Packing::Packed { .. } => StageElement::Stored,
             }),
             TileKind::PlaneTile(_)
@@ -241,7 +241,7 @@ impl Tile {
     pub(crate) fn read_element(&self) -> comptime_type!(ElemType) {
         let packing = self.packing();
         comptime!(match packing {
-            Packing::Plain => self.element,
+            Packing::Plain | Packing::Words { .. } => self.element,
             Packing::Packed { .. } => f32::elem_type_native(),
         })
     }
@@ -1213,6 +1213,13 @@ impl Tile {
         unexpanded!()
     }
 
+    /// This tile's values read as `packing` says, the same memory: what a stage of
+    /// [words](Packing::Words) holds, which its shared memory, filled with the words as they
+    /// lie, would otherwise call plain.
+    pub(crate) fn served_as(&self, _packing: Packing) -> Tile {
+        unexpanded!()
+    }
+
     /// These values as indices into `table`, decoded only by [`copy_from`](Tile::copy_from) and
     /// [`decoded`](Tile::decoded): what an operand bound under a codebook
     /// ([`TileArgLaunch::codebook`]) is served as.
@@ -1389,6 +1396,15 @@ impl TileExpand {
     pub fn __expand_scaled_method(&self, _scope: &Scope, factor: &FactorExpand) -> TileExpand {
         let mut out = self.clone();
         out.factor = out.factor.and(factor.clone());
+        out
+    }
+
+    pub(crate) fn __expand_served_as_method(&self, _scope: &Scope, packing: Packing) -> TileExpand {
+        let mut out = self.clone();
+        match &mut out.kind {
+            TileKindExpand::Memory(memory) => memory.store.packing = packing,
+            _ => panic!("Tile::served_as: only memory holds its values in a packing"),
+        }
         out
     }
 
@@ -1633,7 +1649,7 @@ impl Tile {
             }
         }
         match comptime!(packing) {
-            Packing::Plain => {
+            Packing::Plain | Packing::Words { .. } => {
                 let size!(W) = width;
                 let line = self
                     .nd_packed::<Served, W>(guard)
