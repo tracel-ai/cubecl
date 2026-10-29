@@ -84,6 +84,7 @@ pub enum CompilerInfo {
 pub struct WgpuServer<C: WgpuCompiler> {
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
+    written_pool: Vec<BufferBinding>,
     /// The pipelines built so far, and how to build another.
     pipelines: KernelLoader<WgpuPipelines<C>>,
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
@@ -169,6 +170,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
         Self {
             streams_pool: Vec::new(),
+            written_pool: Vec::new(),
             pipelines: KernelLoader::new(pipelines),
             scheduler: SchedulerMultiStream::new(
                 utilities.logger.clone(),
@@ -311,8 +313,10 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                     .into())
                 });
             }
-            if !streams.contains(&desc.handle.stream) {
-                streams.push(desc.handle.stream);
+            for stream in self.scheduler.streams_to_align(&desc.handle) {
+                if !streams.contains(&stream) {
+                    streams.push(stream);
+                }
             }
             let stream = self.scheduler.stream(&desc.handle.stream);
             let resource = match stream.resource(desc.handle) {
@@ -382,20 +386,26 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 }
 
                 // The write is registered on the caller, so name the
-                // stream that owns the handle as an argument: its queued
+                // streams with work queued on the handle as arguments: that
                 // work has to land before this write overwrites the same
                 // memory.
-                let owner = desc.handle.stream;
+                server.streams_pool.clear();
+                server
+                    .streams_pool
+                    .extend(server.scheduler.streams_to_align(&desc.handle));
                 let handle = desc.handle.clone();
-                let stream = server.scheduler.stream(&owner);
+                let stream = server.scheduler.stream(&handle.stream);
                 let resource = stream.resource(desc.handle).map_err(ServerError::Io)?;
+                server.scheduler.record_write(stream_id, &handle);
                 let task = ScheduleTask::Write {
                     data,
                     buffer: resource,
                     handle,
                 };
 
-                server.scheduler.register(stream_id, task, &[owner]);
+                server
+                    .scheduler
+                    .register(stream_id, task, &server.streams_pool);
                 Ok(())
             });
         }
@@ -503,7 +513,9 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             // Pin the memory of every input that lives on another stream (released in `WgpuStream::flush`).
             args.resources.iter().for_each(|resource| match resource {
                 KernelResource::Buffer(b) => {
-                    server.streams_pool.push(b.stream);
+                    server
+                        .streams_pool
+                        .extend(server.scheduler.streams_to_align(b));
                     if b.stream != stream_id {
                         shared_inputs.push(b.memory.clone());
                     }
@@ -512,6 +524,13 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                     panic!("Tensor maps not supported in WGPU")
                 }
             });
+
+            let mut written = core::mem::take(&mut server.written_pool);
+            written.extend(
+                args.buffers_written(io.as_deref())
+                    .filter(|b| b.stream != stream_id)
+                    .cloned(),
+            );
 
             let resources = server
                 .prepare_bindings(stream_id, args, compiler_info)
@@ -524,6 +543,10 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 shared_inputs,
             };
 
+            for b in written.drain(..) {
+                server.scheduler.record_write(stream_id, &b);
+            }
+            server.written_pool = written;
             server
                 .scheduler
                 .register(stream_id, task, &server.streams_pool);
@@ -845,9 +868,7 @@ impl<C: WgpuCompiler> ServerStorage for WgpuServer<C> {
         // whatever was there before.
         self.scheduler.ensure_written([&binding].into_iter())?;
         let mut streams = vec![stream_id];
-        if binding.stream != stream_id {
-            streams.push(binding.stream);
-        }
+        streams.extend(self.scheduler.streams_to_align(&binding));
         self.scheduler.execute_streams(streams);
         let stream = self.scheduler.stream(&binding.stream);
         Ok(stream.memory.managed_resource(

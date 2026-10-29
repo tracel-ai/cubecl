@@ -4,7 +4,7 @@ use crate::memory_management::relocation::{
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
-    memory_management::{ErrorGraph, FailureId},
+    memory_management::{ErrorGraph, FailureId, ManagedMemoryId},
     server::{BufferBinding, ServerError},
     stream::{FailureStore, Failures, StreamFactory, StreamMemory, StreamPool},
 };
@@ -54,8 +54,19 @@ pub struct SchedulerMultiStream<B: SchedulerStreamBackend> {
     strategy: SchedulerStrategy,
     /// Maximum number of tasks allowed per stream before execution is triggered.
     max_tasks: usize,
+    /// Queued writes into buffers another stream owns. A binding names only its owner, so
+    /// without this a later user would align with the owner and run before the write.
+    foreign_writes: Vec<ForeignWrite>,
     /// Server logger.
     pub logger: Arc<ServerLogger>,
+}
+
+#[derive(Debug)]
+struct ForeignWrite {
+    owner: StreamId,
+    memory: ManagedMemoryId,
+    writer: StreamId,
+    writer_index: usize,
 }
 
 /// Defines the scheduling strategy for task execution.
@@ -219,6 +230,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
             failures: Failures::new(logger.clone()),
             max_tasks: options.max_tasks,
             strategy: options.strategy,
+            foreign_writes: Vec::new(),
             logger,
         }
     }
@@ -275,6 +287,37 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         let graph = self.failures.graph_mut();
         for stream in self.pool.streams_mut() {
             B::flush(&mut stream.stream, graph);
+        }
+    }
+
+    /// The streams a task using `binding` must follow: the one that owns it, and the one with a
+    /// queued write into it when that is another.
+    pub fn streams_to_align(&self, binding: &BufferBinding) -> impl Iterator<Item = StreamId> {
+        let id = binding.memory.descriptor().id;
+        let writer = self
+            .foreign_writes
+            .iter()
+            .find(|write| write.owner == binding.stream && write.memory == id)
+            .map(|write| write.writer);
+        core::iter::once(binding.stream).chain(writer)
+    }
+
+    /// Records that a task registered on `writer` writes `binding`, which a later user of the
+    /// binding then aligns with until `writer` executes. A write by the owner need not be
+    /// recorded: it already aligned with any pending writer, and executing that writer drops it.
+    pub fn record_write(&mut self, writer: StreamId, binding: &BufferBinding) {
+        let owner = binding.stream;
+        let memory = binding.memory.descriptor().id;
+        self.foreign_writes
+            .retain(|write| write.owner != owner || write.memory != memory);
+        if owner != writer {
+            let writer_index = self.pool.stream_index(&writer);
+            self.foreign_writes.push(ForeignWrite {
+                owner,
+                memory,
+                writer,
+                writer_index,
+            });
         }
     }
 
@@ -340,6 +383,8 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
                 indices.push(index);
             }
         }
+        self.foreign_writes
+            .retain(|write| !indices.contains(&write.writer_index));
 
         // Create schedules for each stream to be executed, noting on the way
         // whether any of them refuses to have its tasks interleaved (see
