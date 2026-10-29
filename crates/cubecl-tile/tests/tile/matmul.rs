@@ -3609,6 +3609,102 @@ fn staged_matmul_on_a_stated_instruction<E: Numeric>(
     acc.drained_into(&c);
 }
 
+/// A grid of manual-mma fragments over `f16` operands, contracted out of a shared stage a slice of
+/// `K` at a time: each slice loads the grid's `B` fragments once, two to one `ldmatrix`, beside
+/// the `A` column. `B` is stored `{K, N}`, its fragments neighbours along the stage's columns, or
+/// `{N, K}`, neighbours along its rows; both read back the host's product, small integers summed
+/// exactly in `f32`.
+#[test]
+fn mma_grid_loads_b_fragments_two_at_a_time() {
+    let client = cubecl::test_device().client();
+    let (f16_ty, f32_ty) = (f16::elem_type_native(), f32::elem_type_native());
+    let supported = client.properties().features.matmul.mma.iter().any(|cfg| {
+        cfg.a_type == f16_ty
+            && cfg.b_type == f16_ty
+            && cfg.cd_type == f32_ty
+            && (cfg.m, cfg.n, cfg.k) == (16, 8, 16)
+    }) && client
+        .properties()
+        .features
+        .matmul
+        .ldmatrix
+        .contains(&f16_ty);
+    if !supported {
+        ValidationResult::Skipped(
+            "device offers no 16x8x16 f16 manual mma read by ldmatrix".into(),
+        )
+        .enforce();
+        return;
+    }
+
+    let (m, n, k) = (32usize, 32usize, 32usize);
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(M, m), (N, n), (K, k)]),
+            Levels::leaf(&[(M, 16), (N, 8), (K, 16)])
+                .walk(&[(M, m / 16), (N, n / 8)])
+                .walk(&[(K, k / 16)])
+                .build(),
+        ),
+        Form::Static,
+    );
+    let a_at = |i: usize, p: usize| ((i * 3 + p) % 7) as f32 - 3.0;
+    let b_at = |p: usize, j: usize| ((p * 5 + j) % 9) as f32 - 4.0;
+    let operand = |shape: [usize; 2], axes: &[Axis], value: &dyn Fn(usize, usize) -> f32| {
+        let values = (0..shape[0] * shape[1])
+            .map(|at| value(at / shape[1], at % shape[1]))
+            .collect();
+        let handle = TestInput::builder(client.clone(), shape![shape[0], shape[1]])
+            .dtype(f16_ty)
+            .custom(values)
+            .generate_without_host_data();
+        launcher
+            .arg(handle.binding(), f16_ty)
+            .axes(axes)
+            .vectorize(1)
+            .build()
+            .unwrap_or_else(|refusal| panic!("the operand binds: {refusal}"))
+            .arg()
+    };
+    let expected: Vec<f32> = (0..m * n)
+        .map(|at| (0..k).map(|p| a_at(at / n, p) * b_at(p, at % n)).sum())
+        .collect();
+    for b_rows_along_k in [true, false] {
+        let a = operand([m, k], &[M, K], &a_at);
+        let b = match b_rows_along_k {
+            true => operand([k, n], &[K, N], &b_at),
+            false => operand([n, k], &[N, K], &|j, p| b_at(p, j)),
+        };
+        // Poisoned, not zeroed: the kernel zeroes the accumulator fragments.
+        let c = TileInput::builder(&client, launcher.space().subspace(&[M, N]))
+            .untiled()
+            .uniform(4242, 10., 100.);
+        staged_matmul_on_a_stated_instruction::launch(
+            &client,
+            launcher.cube_count(),
+            launcher.cube_dim(),
+            a,
+            b,
+            c.arg(&launcher, 1),
+            launcher.partitioning_arg(),
+            launcher.partitioning().level(0),
+            StageStorage::Strided,
+            1,
+            Instruction::Mma {
+                io: MmaIo::default(),
+                operands: MmaOperands::Plain,
+            },
+            f32_ty,
+        );
+        let output = HostData::from_tensor_handle(&client, c.handle(), HostDataType::F32);
+        let (_, reference) = TestInput::builder(client.clone(), shape![m, n])
+            .custom(expected.clone())
+            .generate_with_f32_host_data();
+        assert_equals_approx(&output, &reference, 0.0).enforce();
+    }
+}
+
 /// The staged body at a register block, which every device runs.
 #[test]
 fn one_staged_body_at_a_register_block() {

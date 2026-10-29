@@ -6,6 +6,7 @@ use cubecl::{
     prelude::*,
 };
 
+use crate::tile::kind::plane::load_matrix::PairAxis;
 use crate::tile::slices::AxisSlicesKind;
 use crate::*;
 
@@ -284,6 +285,36 @@ impl PlaneTile {
             }
             PlaneTile::Wgmma(_) => {
                 panic!("PlaneTile::load_window: a warpgroup accumulator is not a fill sink")
+            }
+        }
+    }
+
+    /// Whether this tile loads out of `src`, its window, beside a neighbour of its grid in one
+    /// instruction ([`MmaData::pairs_from`]).
+    pub(crate) fn pairs_from<T: Numeric>(&self, src: &Tile) -> comptime_type!(bool) {
+        match self {
+            PlaneTile::Mma(data) => data.pairs_from::<T>(src),
+            PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(false),
+        }
+    }
+
+    /// This tile and `second`, its neighbour along `along` in `src`, a window over both, loaded
+    /// together ([`MmaData::load_pair_window`]).
+    pub(crate) fn load_pair_window<T: Numeric>(
+        &mut self,
+        second: &mut PlaneTile,
+        src: &Tile,
+        #[comptime] along: PairAxis,
+    ) {
+        match self {
+            PlaneTile::Mma(first) => match second {
+                PlaneTile::Mma(other) => first.load_pair_window::<T>(other, src, along),
+                PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => {
+                    panic!("PlaneTile::load_pair_window: a manual-mma tile pairs with its like")
+                }
+            },
+            PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => {
+                panic!("PlaneTile::load_pair_window: only manual-mma tiles load in pairs")
             }
         }
     }
@@ -812,7 +843,9 @@ impl PlanePartition {
     }
 
     /// Fill each tile from its window of `src`, in row-major order, manual-mma tiles deeper than
-    /// their instruction as `load` says.
+    /// their instruction as `load` says. Tiles that load beside a neighbour
+    /// ([`PlaneTile::pairs_from`]) load two at a time, along the grid's columns where they come
+    /// in pairs, its rows otherwise, out of windows of two tiles each.
     pub(crate) fn fill_from<T: Numeric>(&self, src: &Tile, #[comptime] load: DeepLoad) {
         let level = comptime!(fragment_level(
             &src.place.space,
@@ -824,20 +857,77 @@ impl PlanePartition {
             (self.rows, self.cols),
             (self.m_tiles, self.n_tiles)
         ));
+        let along = comptime!(match (self.m_tiles % 2, self.n_tiles % 2) {
+            (_, 0) => Some(PairAxis::Cols),
+            (0, _) => Some(PairAxis::Rows),
+            _ => None,
+        });
+        let first = src.at(&Region::cell(
+            comptime!(src.place.depth),
+            comptime!(src.place.space.clone()),
+            comptime!(level.clone()),
+            edges,
+            0usize,
+            0usize,
+        ));
+        let pairs = self.at(0usize, 0usize).pairs_from::<T>(&first);
+        match comptime!(along.filter(|_| pairs)) {
+            Some(along) => self.fill_pairs_from::<T>(src, along, edges),
+            None =>
+            {
+                #[unroll]
+                for mi in 0..comptime!(self.m_tiles) {
+                    #[unroll]
+                    for ni in 0..comptime!(self.n_tiles) {
+                        let mut frag = self.at(mi, ni);
+                        let window = src.at(&Region::cell(
+                            comptime!(src.place.depth),
+                            comptime!(src.place.space.clone()),
+                            comptime!(level.clone()),
+                            edges,
+                            mi,
+                            ni,
+                        ));
+                        frag.load_window::<T>(&window, load);
+                    }
+                }
+            }
+        }
+    }
+
+    /// [`fill_from`](Self::fill_from) two tiles at a time, neighbours along `along`, each pair out
+    /// of its window of `src`: the level cutting the window into the grid's tiles, its cells two
+    /// tiles long along `along`.
+    fn fill_pairs_from<T: Numeric>(
+        &self,
+        src: &Tile,
+        #[comptime] along: PairAxis,
+        #[comptime] edges: MatrixAxes,
+    ) {
+        let (pair, pairs) = comptime!(match along {
+            PairAxis::Rows => ((2 * self.rows, self.cols), (self.m_tiles / 2, self.n_tiles)),
+            PairAxis::Cols => ((self.rows, 2 * self.cols), (self.m_tiles, self.n_tiles / 2)),
+        });
+        let level = comptime!(fragment_level(&src.place.space, pair, pairs));
         #[unroll]
-        for mi in 0..comptime!(self.m_tiles) {
+        for pi in 0..comptime!(pairs.0) {
             #[unroll]
-            for ni in 0..comptime!(self.n_tiles) {
-                let mut frag = self.at(mi, ni);
+            for pj in 0..comptime!(pairs.1) {
                 let window = src.at(&Region::cell(
                     comptime!(src.place.depth),
                     comptime!(src.place.space.clone()),
                     comptime!(level.clone()),
                     edges,
-                    mi,
-                    ni,
+                    pi,
+                    pj,
                 ));
-                frag.load_window::<T>(&window, load);
+                let ((mi, ni), (mj, nj)) = comptime!(match along {
+                    PairAxis::Rows => ((2 * pi, pj), (2 * pi + 1, pj)),
+                    PairAxis::Cols => ((pi, 2 * pj), (pi, 2 * pj + 1)),
+                });
+                let mut first = self.at(mi, ni);
+                let mut second = self.at(mj, nj);
+                first.load_pair_window::<T>(&mut second, &window, along);
             }
         }
     }
