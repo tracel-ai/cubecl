@@ -108,7 +108,7 @@ impl StageStorage {
     /// padding after each row. What [`Stages::smem`](crate::Stages::smem) allocates for it.
     pub fn bytes(&self, space: &Space, vector_size: usize, elem_bits: usize) -> usize {
         let line = vector_size * elem_bits / 8;
-        StageForm::dense(space, vector_size, self.clone(), LineBytes(line)).cells() * line
+        StageForm::dense_cells(space, vector_size, self, LineBytes(line)) * line
     }
 
     /// The storage-tiling nesting a stage over `space` gets, coarse to fine; empty is row-major.
