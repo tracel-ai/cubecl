@@ -121,10 +121,10 @@ pub fn emit_ptx(
     check_debug_info(&module, entrypoint, debug_info);
     finalize(&module, entrypoint, &eff_arch, &entry)?;
     let ir = module.print();
-    let ptx = compile(module, &eff_arch, ptx_version)?;
-
+    // Written before the compile, so a kernel LLVM aborts on leaves its module behind.
     let dump = KernelDump::new(entrypoint);
     dump.write("nvptx.ll", || &ir);
+    let ptx = compile(module, &eff_arch, ptx_version)?;
     dump.write("nvptx.ptx", || &ptx);
 
     Ok(NvptxModule {

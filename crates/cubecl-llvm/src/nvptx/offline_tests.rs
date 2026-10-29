@@ -665,6 +665,19 @@ fn unit_async_copies_complete_on_the_barrier() {
     }
 }
 
+/// A manual `mma` whose B element differs from A's is refused as a compile error, as the C++
+/// backend's compile of it fails, rather than reaching instruction selection, which aborts.
+#[test]
+fn an_mma_of_mismatched_operands_is_a_compile_error() {
+    let Err(error) = compile(crate::shared::offline_kernels::mismatched_mma_kernel(), 120) else {
+        panic!("no instruction takes a 16-bit A and an f32 B");
+    };
+    assert!(
+        format!("{error:?}").contains("no `mma` instruction multiplies"),
+        "{error:?}"
+    );
+}
+
 /// `memcpy_async` copies synchronously: on a unit barrier there is nothing to wait for, and a
 /// cooperative copy splits the elements over the cube before its units meet on the `mbarrier`.
 #[test]

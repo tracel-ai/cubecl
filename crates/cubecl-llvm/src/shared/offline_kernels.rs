@@ -806,6 +806,41 @@ pub(crate) fn unit_async_copy_kernel() -> impl CubeKernel {
     )
 }
 
+/// A manual `mma` of a 16-bit A by an `f32` B, a pairing no instruction takes.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn mismatched_mma(output: &mut [f32]) {
+    let def = cmma::MmaDefinition::<f16, f32, f32>::new(16usize, 8usize, 16usize);
+    let mut registers_a = Array::<Vector<f16, Const<2>>>::new(4usize);
+    let mut registers_b = Array::<Vector<f32, Const<1>>>::new(4usize);
+    let mut registers_c = Array::<Vector<f32, Const<2>>>::new(2usize);
+    #[unroll]
+    for i in 0..4usize {
+        registers_a[i] = Vector::new(f16::from_int(1));
+        registers_b[i] = Vector::new(1.0);
+    }
+    #[unroll]
+    for i in 0..2usize {
+        registers_c[i] = Vector::new(0.0);
+    }
+    let registers_d = def.execute(&registers_a, &registers_b, &registers_c);
+    output[UNIT_POS as usize] = registers_d[0].extract(0usize);
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn mismatched_mma_kernel() -> impl CubeKernel {
+    mismatched_mma::MismatchedMma::new(
+        KernelSettings::new(
+            *CubeDim::new_1d(32),
+            ExecutionMode::Unchecked,
+            AddressType::U32,
+        ),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 /// How a kernel of [`group_waits`] commits and waits.
 #[cfg(feature = "nvptx")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
