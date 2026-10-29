@@ -204,12 +204,15 @@ pub struct DeviceIdentity {
     pub fingerprint: String,
     /// The card behind the device, `None` for a device that is no card: a CPU, or a software
     /// rasterizer.
+    ///
+    /// Never serialized: every id on a card is local to the host that reported it, so a card read
+    /// on another host would match that host's own card at the same PCI address.
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub physical: Option<PhysicalDevice>,
 }
 
 /// The card a device runs on. Two runtimes report different fields for one card, so compare with
 /// [`is_same_card`](Self::is_same_card), not `==`.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[non_exhaustive]
 pub struct PhysicalDevice {
@@ -226,9 +229,6 @@ impl PhysicalDevice {
     /// Whether `other` is known to be this card through another runtime: by PCI address, otherwise
     /// by LUID, otherwise by registry entry id. A card with none of them matches nothing, itself
     /// included, since two such cards of one make compare equal.
-    ///
-    /// Both cards must be this host's: every one of these ids is local to the machine that
-    /// reported it, and a card another host reported shares its PCI address with many.
     pub fn is_same_card(&self, other: &Self) -> bool {
         if let (Some(mine), Some(theirs)) = (self.pci_address, other.pci_address) {
             return mine == theirs;
@@ -258,9 +258,8 @@ impl PhysicalDevice {
 }
 
 /// The id of the GPU's entry in the macOS I/O Registry, which Metal reports as `registryID`. Like
-/// [`AdapterLuid`] it is not promised to survive a restart, so it has no text form and is never a
-/// stored key; serialized, it means something only on the host that reported it.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+/// [`AdapterLuid`] it is not promised to survive a restart, so it has no serialization or text
+/// form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RegistryEntryId(u64);
 
@@ -274,10 +273,8 @@ impl RegistryEntryId {
     }
 }
 
-/// The id Windows gives a graphics adapter. It changes on restart, so it has no text form and is
-/// never a stored key: one wants [`PhysicalDevice::pci_address`]. Serialized, it means something
-/// only on the host that reported it.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+/// The id Windows gives a graphics adapter. It changes on restart, so it has no serialization or
+/// text form: a stored key wants [`PhysicalDevice::pci_address`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AdapterLuid([u8; 8]);
 
@@ -300,7 +297,6 @@ impl AdapterLuid {
 }
 
 /// The maker of a card, by PCI vendor id.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PciVendor {
     Nvidia,
@@ -357,7 +353,6 @@ impl fmt::Display for PciVendor {
 }
 
 /// `domain:bus:device.function`, written `0000:07:00.0`. CUDA and NVML call it the bus id.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PciAddress {
     pub domain: u32,
@@ -663,11 +658,7 @@ mod tests {
             DeviceIdentity {
                 name: "a card".to_string(),
                 fingerprint: "hip-kernel_gfx1102".to_string(),
-                physical: Some(PhysicalDevice {
-                    pci_address: Some("0000:03:00.0".parse().unwrap()),
-                    vendor: Some(PciVendor::Amd),
-                    ..PhysicalDevice::default()
-                }),
+                physical: None,
             },
         );
         sent.register_type_usage(ElemType::Float(FloatKind::F16), TypeUsage::Arithmetic);
@@ -694,6 +685,28 @@ mod tests {
         ciborium::into_writer(&stated, &mut zero).unwrap();
         let memory: MemoryDeviceProperties = ciborium::from_reader(zero.as_slice()).unwrap();
         assert_eq!(memory.max_memory(), None);
+    }
+
+    /// A card read on another host is no card here: its PCI address would name whichever local
+    /// card sits at the same address, and every check keyed to the card would read that one.
+    #[cfg(feature = "serde")]
+    #[test]
+    fn a_card_never_leaves_the_host_that_reported_it() {
+        let sent = DeviceIdentity {
+            name: "a card".to_string(),
+            fingerprint: "hip-kernel_gfx1102".to_string(),
+            physical: Some(PhysicalDevice {
+                pci_address: Some("0000:03:00.0".parse().unwrap()),
+                vendor: Some(PciVendor::Amd),
+                ..PhysicalDevice::default()
+            }),
+        };
+
+        let mut bytes = alloc::vec::Vec::new();
+        ciborium::into_writer(&sent, &mut bytes).unwrap();
+        let received: DeviceIdentity = ciborium::from_reader(bytes.as_slice()).unwrap();
+        assert_eq!(received.physical, None);
+        assert_eq!(received.fingerprint, sent.fingerprint);
     }
 
     #[test]
