@@ -5,7 +5,7 @@ use crate::device::{
 use core::time::Duration;
 use cubecl_environment::future::channel::oneshot;
 use cubecl_environment::stream::StreamId;
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashMap;
 use std::{
     any::{Any, TypeId},
     boxed::Box,
@@ -14,7 +14,7 @@ use std::{
     vec::Vec,
 };
 
-use custom_channel::DeviceClient;
+use custom_channel::{Closer, DeviceClient};
 
 // For debugging and benchmarking.
 //
@@ -75,9 +75,18 @@ impl DeviceHandleSpec for ChannelDeviceHandle {
     }
 
     /// Asynchronously dispatches a task to the device thread.
+    ///
+    /// A closed runner ([`Stop::Close`]) refuses it, and the task is dropped: nobody waits on
+    /// an asynchronous task, and the process is exiting. A task that ran here and panicked
+    /// panics here.
     fn submit<T: FnOnce(&mut dyn Any) + Send + 'static>(&self, task: T) {
-        self.submit_inner::<_, SEND_NO_FLUSH>(task)
-            .expect("Can't have an error when submitting a task");
+        match self.submit_inner::<_, SEND_NO_FLUSH>(task) {
+            Ok(()) => {}
+            Err(error) if error.is_disconnected() => {
+                log::debug!("a task submitted to a closed device runner was dropped");
+            }
+            Err(error) => error.resume(),
+        }
     }
 
     fn flush_queue(&self) {
@@ -95,6 +104,10 @@ impl DeviceHandleSpec for ChannelDeviceHandle {
 
     fn shutdown(device_id: DeviceId) {
         shutdown_device(device_id);
+    }
+
+    fn close(device_id: DeviceId) {
+        stop_device(device_id, Stop::Close);
     }
 }
 
@@ -274,11 +287,15 @@ static CHANNELS: spin::Mutex<Option<Registry>> = spin::Mutex::new(None);
 struct Registry {
     /// Cached state per `(RunnerId, TypeId)`.
     channels: HashMap<(RunnerId, TypeId), ChannelDeviceState>,
-    /// Runners [`shutdown_device`] has swept out of both registries but not yet joined.
+    /// Runners [`stop_device`] has swept out of both registries but not yet joined.
     /// An `init` that lands on one waits for the join instead of caching a client of a
     /// runner that is about to go away, which would park it forever, or spawning a
     /// second runner with the same [`RunnerId`] while the first is still draining.
-    shutting_down: HashSet<RunnerId>,
+    ///
+    /// Each keeps a [`Closer`], which holds no client: a [`Stop::Close`] that finds the runner
+    /// already shutting down closes it too, rather than waiting on a shutdown that only ends
+    /// once every client is dropped.
+    shutting_down: HashMap<RunnerId, Closer>,
 }
 
 /// How long [`shutdown_device`] waits for a runner thread before giving up on it.
@@ -320,7 +337,7 @@ impl ChannelDeviceState {
             let shutting_down = guard
                 .get_or_insert_with(Registry::default)
                 .shutting_down
-                .contains(&runner_id);
+                .contains_key(&runner_id);
 
             if !shutting_down {
                 break guard;
@@ -464,6 +481,24 @@ impl DeviceRunner {
     }
 }
 
+/// How [`stop_device`] stops a device's runners.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Stop {
+    /// Run every queued task and stop once the last client is dropped.
+    Shutdown,
+    /// Stop at the next batch, though clients remain: the batch of tasks in flight finishes,
+    /// queued tasks are left unrun, later ones refused, and the runner's buffers leaked,
+    /// since a client may still write into them. A blocking call waiting on a task left
+    /// unrun waits forever. What process exit needs, when the threads holding clients never
+    /// drop them and the runtime under the server is about to be torn down; never anything
+    /// else.
+    ///
+    /// It reaches every service on the device's runners, whichever runtime registered it
+    /// (see [`stop_device`]'s scope), and a runner a [`Stop::Shutdown`] is already winding
+    /// down is closed too.
+    Close,
+}
+
 /// Stops every runner thread of `device_id`, blocking until they exit.
 ///
 /// Queued tasks run before the threads stop. Live handles keep their runner alive, so
@@ -485,6 +520,12 @@ impl DeviceRunner {
 /// rules cannot rule out: a task holding this device's handle parked in *another*
 /// device's unflushed queue, or two runners shutting each other down.
 pub(crate) fn shutdown_device(device_id: DeviceId) {
+    stop_device(device_id, Stop::Shutdown);
+}
+
+/// Stops every runner thread of `device_id` as `stop` says, blocking until they exit;
+/// [`shutdown_device`] describes the scope and the timeout.
+pub(crate) fn stop_device(device_id: DeviceId, stop: Stop) {
     // A runner joining itself would deadlock. Cycles through another device cannot be
     // caught here, the join timeout is what bounds those.
     SERVER_THREAD.with_borrow(|current| {
@@ -501,9 +542,20 @@ pub(crate) fn shutdown_device(device_id: DeviceId) {
     // concurrent `init` observe a half-swept state: clone a client from a `RunnerEntry`
     // that is about to be joined and cache it in the registry, which parks the runner
     // forever since nothing but this function removes that entry.
-    let (channels, runners) = {
+    let (channels, runners, already_stopping) = {
         let mut guard_channel = CHANNELS.lock();
         let registry = guard_channel.get_or_insert_with(Registry::default);
+
+        // Runners another call is already winding down, which a close must not wait on.
+        let already_stopping: Vec<Closer> = match stop {
+            Stop::Shutdown => Vec::new(),
+            Stop::Close => registry
+                .shutting_down
+                .iter()
+                .filter(|(runner_id, _)| runner_id.device == device_id)
+                .map(|(_, closer)| closer.clone())
+                .collect(),
+        };
 
         let runners: Vec<(RunnerId, RunnerEntry)> = match RUNNERS.lock().as_mut() {
             Some(map) => map
@@ -520,19 +572,28 @@ pub(crate) fn shutdown_device(device_id: DeviceId) {
 
         // Marked before the lock is released, so an `init` racing with this sweep either
         // got in before it, and its entry is in `channels` above, or waits for the join.
-        for (runner_id, _) in runners.iter() {
-            registry.shutting_down.insert(*runner_id);
+        for (runner_id, runner) in runners.iter() {
+            registry
+                .shutting_down
+                .insert(*runner_id, runner.client.closer());
         }
 
-        (channels, runners)
+        (channels, runners, already_stopping)
     };
+
+    for closer in already_stopping {
+        closer.close();
+    }
 
     // Dropped outside the locks: each cached state holds a client clone that must go away
     // before the servers can exit.
     drop(channels);
 
     for (runner_id, runner) in runners {
-        runner.client.request_shutdown();
+        match stop {
+            Stop::Shutdown => runner.client.request_shutdown(),
+            Stop::Close => runner.client.closer().close(),
+        }
         drop(runner.client);
         join_runner(runner_id, runner.thread);
 
@@ -588,7 +649,7 @@ fn wait_for_device_shutdown(device_id: DeviceId) {
         let pending = CHANNELS.lock().as_ref().is_some_and(|registry| {
             registry
                 .shutting_down
-                .iter()
+                .keys()
                 .any(|runner_id| runner_id.device == device_id)
         });
 
@@ -733,7 +794,8 @@ mod normal_channel {
     use super::RunnerId;
     use crate::device::handle::CallError;
     use alloc::boxed::Box;
-    use std::sync::mpsc::SyncSender;
+    use core::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, mpsc::SyncSender};
 
     /// Buffer size for the command channel.
     pub const CHANNEL_MAX_TASK: usize = 32;
@@ -741,6 +803,8 @@ mod normal_channel {
     /// The client-side handle used to enqueue tasks.
     pub struct DeviceClient {
         state: SyncSender<Box<dyn FnOnce() + Send + 'static>>,
+        /// Set by a [`Closer`].
+        closed: Arc<AtomicBool>,
         runner_id: RunnerId,
     }
 
@@ -748,8 +812,24 @@ mod normal_channel {
         fn clone(&self) -> Self {
             Self {
                 state: self.state.clone(),
+                closed: self.closed.clone(),
                 runner_id: self.runner_id,
             }
+        }
+    }
+
+    /// Closes a runner ([`super::Stop::Close`]). Holds no sender, which would keep the runner
+    /// alive; so a server waiting on an empty queue stops at the next task it receives rather
+    /// than at once.
+    #[derive(Clone)]
+    pub struct Closer {
+        closed: Arc<AtomicBool>,
+    }
+
+    impl Closer {
+        /// Close the runner.
+        pub fn close(&self) {
+            self.closed.store(true, Ordering::Release);
         }
     }
 
@@ -767,11 +847,16 @@ mod normal_channel {
                 CHANNEL_MAX_TASK,
             );
 
+            let closed = Arc::new(AtomicBool::new(false));
+            let server_closed = closed.clone();
             let thread = std::thread::spawn(move || {
                 init();
                 // `Err` means every sender is gone and the queue is drained:
-                // no task can ever arrive again.
+                // no task can ever arrive again. A close leaves the rest unrun.
                 while let Ok(item) = recv.recv() {
+                    if server_closed.load(Ordering::Acquire) {
+                        break;
+                    }
                     item()
                 }
             });
@@ -779,6 +864,7 @@ mod normal_channel {
             (
                 Self {
                     state: sender,
+                    closed,
                     runner_id,
                 },
                 thread,
@@ -789,8 +875,19 @@ mod normal_channel {
         /// the queue is drained.
         pub fn request_shutdown(&self) {}
 
+        /// What closes this client's runner ([`super::Stop::Close`]) without
+        /// keeping the runner alive.
+        pub fn closer(&self) -> Closer {
+            Closer {
+                closed: self.closed.clone(),
+            }
+        }
+
         /// Atomically reserves a slot in the buffer and writes the task.
         pub fn enqueue<F: FnOnce() + Send + 'static>(&self, func: F) -> Result<(), CallError> {
+            if self.closed.load(Ordering::Acquire) {
+                return Err(CallError::disconnected());
+            }
             self.state
                 .send(Box::new(func))
                 .map_err(|_| CallError::disconnected())
@@ -820,7 +917,7 @@ mod custom_channel {
         time::Duration,
     };
     use std::{
-        sync::{Arc, OnceLock},
+        sync::{Arc, OnceLock, Weak},
         thread::Thread,
         vec::Vec,
     };
@@ -859,6 +956,25 @@ mod custom_channel {
         state: Arc<State>,
     }
 
+    /// Closes a runner ([`super::Stop::Close`]). Holds no client: the server's state is
+    /// reached weakly, so a runner shutting down is not kept alive by it.
+    #[derive(Clone)]
+    pub struct Closer {
+        state: Weak<State>,
+    }
+
+    impl Closer {
+        /// Close the runner, waking it if it is parked; one that already stopped is left.
+        pub fn close(&self) {
+            if let Some(state) = self.state.upgrade() {
+                state.closed.store(true, Ordering::Release);
+                if let Some(server) = state.server.get() {
+                    server.unpark();
+                }
+            }
+        }
+    }
+
     impl Clone for DeviceClient {
         fn clone(&self) -> Self {
             Self {
@@ -893,6 +1009,13 @@ mod custom_channel {
                 .spawn(move || {
                     init();
                     server.start();
+                    // A closed server may still be written to: a client that
+                    // reserved a slot before the close saw it writes into these
+                    // buffers, so they outlive the thread. Only process exit
+                    // closes a server, which ends the leak.
+                    if server.state.closed.load(Ordering::Acquire) {
+                        core::mem::forget(server);
+                    }
                 })
                 .unwrap();
 
@@ -906,10 +1029,21 @@ mod custom_channel {
             self.state.shutdown.store(true, Ordering::Release);
         }
 
+        /// What closes this client's runner ([`super::Stop::Close`]) without
+        /// keeping the runner alive.
+        pub fn closer(&self) -> Closer {
+            Closer {
+                state: Arc::downgrade(&self.state),
+            }
+        }
+
         /// Atomically reserves a slot in the buffer and writes the task.
         pub fn enqueue<F: FnOnce() + Send + 'static>(&self, func: F) -> Result<(), CallError> {
             let mut idle_count: u32 = 0;
             loop {
+                if self.state.closed.load(Ordering::Acquire) {
+                    return Err(CallError::disconnected());
+                }
                 let index = self.state.available_index.fetch_add(1, Ordering::Acquire) as usize;
                 if index >= CHANNEL_MAX_TASK {
                     // The queue is full; back off until the server flushes/swaps buffers.
@@ -949,6 +1083,9 @@ mod custom_channel {
         /// Set by [`DeviceClient::request_shutdown`]; the server winds down
         /// once it is set and every client is dropped.
         shutdown: AtomicBool,
+        /// Set by a [`Closer`]; the server stops at its next batch, and clients
+        /// are refused.
+        closed: AtomicBool,
         /// The server's thread, which a client unparks when it fills a buffer.
         server: OnceLock<Thread>,
         /// Whether the server is parked, or about to be ([`Server::park`]).
@@ -1066,6 +1203,7 @@ mod custom_channel {
                 available_index: AtomicU32::new(0),
                 enqueued_count: AtomicU32::new(0),
                 shutdown: AtomicBool::new(false),
+                closed: AtomicBool::new(false),
                 server: OnceLock::new(),
                 parked: AtomicBool::new(false),
                 issuer_cpu: AtomicU32::new(placement::UNKNOWN_CPU),
@@ -1087,6 +1225,11 @@ mod custom_channel {
             let _ = self.state.server.set(std::thread::current());
             let mut idle_count: u32 = 0;
             loop {
+                // Checked before every batch, so a close waits out the task in
+                // flight and nothing after it.
+                if self.state.closed.load(Ordering::Acquire) {
+                    return;
+                }
                 if self.ready_to_execute {
                     self.execute_tasks();
                     idle_count = 0;
@@ -1225,7 +1368,7 @@ mod tests {
 
     use super::*;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::time::Duration;
 
     // A mock service to track state changes and initialization
@@ -1378,6 +1521,86 @@ mod tests {
 
         drop(handle);
         shutdown_device(device_id);
+    }
+
+    /// Closing stops the runner though a client is still alive, as process exit
+    /// needs: the service is dropped on its thread before `close` returns, and a
+    /// later call on the remaining client is refused rather than reaching it.
+    #[test]
+    fn test_close_stops_the_runner_while_a_client_remains() {
+        static DROPPED: AtomicBool = AtomicBool::new(false);
+
+        struct Closing;
+
+        impl Drop for Closing {
+            fn drop(&mut self) {
+                DROPPED.store(true, Ordering::SeqCst);
+            }
+        }
+
+        impl DeviceService for Closing {
+            fn init(_id: DeviceId) -> Self {
+                Self
+            }
+
+            fn utilities(&self) -> ServerUtilitiesHandle {
+                Arc::new(())
+            }
+        }
+
+        let device_id = super::super::next_test_device_id();
+        let handle = DeviceHandle::<Closing, ChannelDeviceHandle>::new(device_id);
+        handle.submit_blocking(|_| ()).unwrap();
+
+        stop_device(device_id, Stop::Close);
+
+        assert!(
+            DROPPED.load(Ordering::SeqCst),
+            "the service must be gone before close returns"
+        );
+        assert!(
+            handle.submit_blocking(|_| ()).is_err(),
+            "a call after the close must be refused"
+        );
+    }
+
+    /// A close that finds the runner already being shut down closes it rather than waiting:
+    /// the shutdown waits for the last client, which at exit is never dropped.
+    #[test]
+    fn test_close_ends_a_shutdown_waiting_on_a_live_client() {
+        let device_id = super::super::next_test_device_id();
+        let handle = DeviceHandle::<MockService, ChannelDeviceHandle>::new(device_id);
+        handle.submit_blocking(|_| ()).unwrap();
+
+        let shutting_down = std::thread::spawn(move || shutdown_device(device_id));
+        while !CHANNELS.lock().as_ref().is_some_and(|registry| {
+            registry
+                .shutting_down
+                .keys()
+                .any(|runner_id| runner_id.device == device_id)
+        }) {
+            std::thread::yield_now();
+        }
+
+        let started = std::time::Instant::now();
+        stop_device(device_id, Stop::Close);
+        shutting_down.join().unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "the close waited on the shutdown's live client"
+        );
+        assert!(handle.submit_blocking(|_| ()).is_err());
+    }
+
+    /// An asynchronous task sent to a closed runner is dropped, not a panic in the sender.
+    #[test]
+    fn test_a_task_submitted_after_a_close_is_dropped() {
+        let device_id = super::super::next_test_device_id();
+        let handle = DeviceHandle::<MockService, ChannelDeviceHandle>::new(device_id);
+        handle.submit_blocking(|_| ()).unwrap();
+        stop_device(device_id, Stop::Close);
+
+        handle.submit(|state| state.counter += 1);
     }
 
     #[test]

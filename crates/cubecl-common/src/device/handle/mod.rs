@@ -147,6 +147,18 @@ impl<S: ?Sized + 'static, I: DeviceHandleSpec> DeviceHandle<S, I> {
     pub fn shutdown(device_id: DeviceId) {
         I::shutdown(device_id)
     }
+
+    /// Stops serving every service on `device_id` now, though clients remain.
+    ///
+    /// The task each runner is in finishes; queued tasks are left unrun and
+    /// later ones refused, so a thread still holding a client gets an error, or
+    /// waits forever on a call that will not run. Only for process exit, before
+    /// the runtime under the services is torn down, when the threads holding
+    /// clients will never drop them. The same caveats as
+    /// [`shutdown`](Self::shutdown) about colliding device ids apply.
+    pub fn close(device_id: DeviceId) {
+        I::close(device_id)
+    }
 }
 
 /// Shuts a device's runner down when dropped. Use [`DeviceFixture`] rather than

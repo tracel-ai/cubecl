@@ -33,6 +33,12 @@ impl CallError {
         Self { payload: None }
     }
 
+    /// Whether the runner was gone or closed before the task could run, rather than the task
+    /// panicking.
+    pub fn is_disconnected(&self) -> bool {
+        self.payload.is_none()
+    }
+
     /// Returns the panic message if the failure was a panic whose payload is a
     /// string (the common case for `panic!`, indexing, `unwrap`, ...).
     pub fn message(&self) -> Option<&str> {
@@ -159,6 +165,13 @@ pub trait DeviceHandleSpec: Sized + Clone {
 
     fn shutdown(device_id: DeviceId) {
         let _ = device_id;
+    }
+
+    /// Stop serving `device_id` now, though clients remain: what process exit
+    /// needs before the runtime under the server is torn down. A handle with no
+    /// runner of its own shuts down as it would otherwise.
+    fn close(device_id: DeviceId) {
+        Self::shutdown(device_id);
     }
 }
 
