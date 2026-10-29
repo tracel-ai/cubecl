@@ -20,16 +20,24 @@ pub(crate) enum RowArrangement {
 }
 
 impl RowArrangement {
-    /// Resolves `chunks` for a stage whose last two line extents are block rows and row lines.
-    pub(crate) fn new(chunks: RowChunks, extents: &[usize], line: LineBytes) -> Self {
+    /// Resolves `chunks` for a stage of line `extents`, its innermost block's `block_axes` last:
+    /// swizzled rows span the block's innermost axis and those [`ChunkSwizzle`] merges beside it,
+    /// padded ones its innermost axis.
+    pub(crate) fn new(
+        chunks: RowChunks,
+        extents: &[usize],
+        line: LineBytes,
+        block_axes: usize,
+    ) -> Self {
         let row_bytes = extents.last().copied().unwrap_or(0) * line.0;
         let one_chunk = row_bytes <= RowChunks::CHUNK_BYTES.max(line.0);
         match (chunks, one_chunk) {
-            (RowChunks::InOrder, _) | (_, true) => Self::InOrder,
-            (RowChunks::Swizzled, false) => match ChunkSwizzle::new(extents, line) {
+            (RowChunks::InOrder, _) => Self::InOrder,
+            (RowChunks::Swizzled, _) => match ChunkSwizzle::new(extents, line, block_axes) {
                 Some(swizzle) => Self::Swizzled(swizzle),
                 None => Self::InOrder,
             },
+            (RowChunks::Padded, true) => Self::InOrder,
             (RowChunks::Padded, false) => Self::Padded {
                 lines: RowChunks::CHUNK_BYTES.div_ceil(line.0),
             },
@@ -95,11 +103,11 @@ impl RowArrangement {
         }
     }
 
-    /// The swizzle moving physical axis `axis`'s coordinates, if any.
-    pub(crate) fn swizzle_along(&self, axis: usize) -> Option<ChunkSwizzle> {
+    /// The swizzle moving a block row's lines, if any.
+    pub(crate) fn swizzle(&self) -> Option<ChunkSwizzle> {
         match self {
-            Self::Swizzled(swizzle) if swizzle.line_axis() == axis => Some(*swizzle),
-            Self::InOrder | Self::Swizzled(_) | Self::Padded { .. } => None,
+            Self::Swizzled(swizzle) => Some(*swizzle),
+            Self::InOrder | Self::Padded { .. } => None,
         }
     }
 }
@@ -109,11 +117,11 @@ mod tests {
     use super::*;
 
     fn swizzled() -> RowArrangement {
-        RowArrangement::new(RowChunks::Swizzled, &[16, 4], LineBytes(16))
+        RowArrangement::new(RowChunks::Swizzled, &[16, 4], LineBytes(16), 2)
     }
 
     fn padded() -> RowArrangement {
-        RowArrangement::new(RowChunks::Padded, &[16, 4], LineBytes(16))
+        RowArrangement::new(RowChunks::Padded, &[16, 4], LineBytes(16), 2)
     }
 
     #[test]
@@ -141,27 +149,27 @@ mod tests {
     fn a_request_resolves_against_the_rows_it_lays_down() {
         let extents = [2, 16, 4];
         assert_eq!(
-            RowArrangement::new(RowChunks::InOrder, &extents, LineBytes(16)),
+            RowArrangement::new(RowChunks::InOrder, &extents, LineBytes(16), 3),
             RowArrangement::InOrder
         );
         assert!(matches!(
-            RowArrangement::new(RowChunks::Swizzled, &extents, LineBytes(16)),
+            RowArrangement::new(RowChunks::Swizzled, &extents, LineBytes(16), 3),
             RowArrangement::Swizzled(_)
         ));
         assert_eq!(
-            RowArrangement::new(RowChunks::Padded, &extents, LineBytes(16)),
+            RowArrangement::new(RowChunks::Padded, &extents, LineBytes(16), 3),
             RowArrangement::Padded { lines: 1 }
         );
         assert_eq!(
-            RowArrangement::new(RowChunks::Padded, &[16, 1], LineBytes(16)),
+            RowArrangement::new(RowChunks::Padded, &[16, 1], LineBytes(16), 2),
             RowArrangement::InOrder
         );
         assert_eq!(
-            RowArrangement::new(RowChunks::Padded, &[16, 16], LineBytes(4)),
+            RowArrangement::new(RowChunks::Padded, &[16, 16], LineBytes(4), 2),
             RowArrangement::Padded { lines: 4 }
         );
         assert_eq!(
-            RowArrangement::new(RowChunks::Padded, &[16, 4], LineBytes(32)),
+            RowArrangement::new(RowChunks::Padded, &[16, 4], LineBytes(32), 2),
             RowArrangement::Padded { lines: 1 }
         );
     }

@@ -18,6 +18,7 @@ use cubecl::{
     zspace::Shape,
 };
 use cubecl_common::{e2m1, e4m3};
+use cubecl_tile::stage::RowChunks;
 use cubecl_tile::{
     Axis, Instruction, Level, Levels, MmaOperands, Partitioning, Projection, Semiring, Space,
     StageStorage, Stages, TileArg, TileArgLaunch, TileSpec, kind::Field, layout::PhysicalAxisMap,
@@ -50,6 +51,12 @@ enum Staged {
     /// Both operands, the weight as it is stored, its scale words beside it: the weight's
     /// fragments load a step at a time.
     Both,
+    /// Both operands, the weight as it is stored, its byte scales kept beside it by the stage
+    /// (`Tile::scales_kept_beside`): the weight's fragments load in lane runs out of the stage.
+    BothKept,
+    /// [`BothKept`](Staged::BothKept) out of stages tiled as the 16-bit instruction reads them,
+    /// each tile one block of `K` deep, its rows' chunks laid as `RowChunks` says.
+    BothKeptTiled(RowChunks),
 }
 
 /// `c = a · b`, a leaf of `WINDOW` along `k` at a time, through the manual-mma instruction, `b`
@@ -97,6 +104,25 @@ fn lane_run_matmul(
         Staged::Both => {
             let walk = space.over(&level);
             let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, 1usize, None);
+            stages.pipelined(walk, |slot, region| {
+                let mut acc_r = acc.at(region);
+                slot.consume(|a_r, b_r| {
+                    let b_r = acc_r.dequantized(b_r, decoded);
+                    acc_r.mma(a_r, &b_r);
+                });
+            });
+        }
+        Staged::BothKept | Staged::BothKeptTiled(_) => {
+            let walk = space.over(&level);
+            let b = b.scales_kept_beside();
+            let storage = comptime!(match staged {
+                Staged::BothKeptTiled(chunks) => StageStorage::Tiled {
+                    block: vec![(M, 16), (N, 8), (KB, 1), (KI, BLOCK)],
+                    chunks,
+                },
+                _ => StageStorage::Strided,
+            });
+            let mut stages = Stages::smem(&walk, &a, &b, storage, 1usize, None);
             stages.pipelined(walk, |slot, region| {
                 let mut acc_r = acc.at(region);
                 slot.consume(|a_r, b_r| {
@@ -361,15 +387,17 @@ fn check_nvfp4_rows(
                 ],
             ))
             .build(),
-        Staged::Nothing | Staged::Activation => launcher
-            .arg(
-                tensor(scale_words, vec![n, blocks], u32::elem_type_native()),
-                u32::elem_type_native(),
-            )
-            .axes(&[N, KB])
-            .packed(Field::Fp8(Fp8Format::E4M3))
-            .vectorize(SCALES_PER_WORD)
-            .build(),
+        Staged::Nothing | Staged::Activation | Staged::BothKept | Staged::BothKeptTiled(_) => {
+            launcher
+                .arg(
+                    tensor(scale_words, vec![n, blocks], u32::elem_type_native()),
+                    u32::elem_type_native(),
+                )
+                .axes(&[N, KB])
+                .packed(Field::Fp8(Fp8Format::E4M3))
+                .vectorize(SCALES_PER_WORD)
+                .build()
+        }
     }
     .unwrap();
     let c = TestInput::builder(client.clone(), Shape::from(vec![rows, n]))
@@ -435,6 +463,10 @@ fn check_nvfp4_rows(
                 Staged::Nothing => "",
                 Staged::Activation => " out of a stage",
                 Staged::Both => ", both out of stages",
+                Staged::BothKept => ", both out of stages, byte scales kept beside",
+                Staged::BothKeptTiled(RowChunks::Swizzled) =>
+                    ", both out of swizzled tiled stages, byte scales kept beside",
+                Staged::BothKeptTiled(_) => ", both out of tiled stages, byte scales kept beside",
             },
             match global {
                 None => "",
@@ -596,6 +628,24 @@ fn a_staged_nvfp4_weight_dequantizes_a_step_at_a_time() {
     check_nvfp4_rows(16, WINDOW, 8, 2, 1, Staged::Both, None);
     check_nvfp4_rows(16, 3 * WINDOW, 8, 2, 1, Staged::Both, None);
     check_nvfp4_rows(3, 2 * WINDOW, 8, 2, 2, Staged::Both, None);
+}
+
+/// **A weight staged with its byte scales kept beside it contracts in lane runs.** The stage
+/// holds the codes as they are stored and the scales beside them, and the weight's fragments read
+/// both in lane runs, as they would straight from the tensor.
+#[test]
+fn a_staged_nvfp4_weight_under_kept_byte_scales_contracts_in_lane_runs() {
+    check_nvfp4_rows(16, WINDOW, 8, 2, 1, Staged::BothKept, None);
+    check_nvfp4_rows(16, 2 * WINDOW, 8, 2, 2, Staged::BothKept, None);
+    check_nvfp4_rows(3, 2 * WINDOW, 8, 2, 2, Staged::BothKept, None);
+}
+
+#[test]
+fn a_tiled_stage_of_an_nvfp4_weight_under_kept_byte_scales_contracts_in_lane_runs() {
+    for chunks in [RowChunks::InOrder, RowChunks::Swizzled] {
+        check_nvfp4_rows(16, WINDOW, 8, 2, 1, Staged::BothKeptTiled(chunks), None);
+        check_nvfp4_rows(16, 2 * WINDOW, 8, 2, 2, Staged::BothKeptTiled(chunks), None);
+    }
 }
 
 /// **A per-tensor scale above the block scales leaves the weight for the sum.** Lane runs convert
