@@ -44,6 +44,14 @@ static INIT_NVPTX: Once = Once::new();
 /// trade: a denormal lost in an atomic sum, for an atomic that is not a retry loop.
 const ALLOW_FTZ_ATOMICS: &CStr = c"nvptx-allow-ftz-atomics";
 
+/// The size a loop may grow to when LLVM unrolls it, raised from the `O3` default of 300 to what
+/// keeps a tile kernel's inner loops unrolled, as NVVM leaves them. At 300 the packed staged
+/// matmul keeps its fragment loops rolled, a quarter of NVRTC's `HMMA` per body, and runs a
+/// quarter slower; at 1000 it is within a few percent of NVRTC, and the float staged matmul on
+/// rows and tiles gains up to a tenth, with no family's fastest setting slower. LLVM holds it as
+/// global state, so it is set once with the target, and applies to every kernel compiled after.
+const UNROLL_THRESHOLD: (&CStr, &CStr) = (c"unroll-threshold", c"1000");
+
 fn init_nvptx() {
     INIT_NVPTX.call_once(|| unsafe {
         llvm_sys::target::LLVMInitializeNVPTXTargetInfo();
@@ -54,6 +62,8 @@ fn init_nvptx() {
         // An LLVM without the option still compiles correct kernels, with CAS-loop atomics;
         // `a_float_atomic_add_is_the_native_instruction` is what notices.
         let _ = set_llvm_option(ALLOW_FTZ_ATOMICS, c"true");
+        let (name, value) = UNROLL_THRESHOLD;
+        let _ = set_llvm_option(name, value);
     });
 }
 
