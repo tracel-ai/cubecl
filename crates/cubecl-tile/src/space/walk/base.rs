@@ -9,7 +9,7 @@ use crate::{
     StageOwner,
 };
 
-use super::distribution::{AxisDistribution, Distribution};
+use super::distribution::{AxisDistribution, Distribution, Workers};
 use crate::Spread;
 use crate::space::partition::{GridCount, in_plane_axes, launch_tiles, swizzled_positions};
 
@@ -159,15 +159,12 @@ impl Walk {
         #[unroll]
         for p in 0..rank {
             match comptime!(distributes[p].clone()) {
-                AxisDistribution::Distributed(Distribution {
-                    across: Some(workers),
-                    ..
-                }) => instances.push(workers.runtime()),
-                // The plane's width is the launch's, so it is read, not compiled in.
-                AxisDistribution::Distributed(Distribution { in_turns: true, .. }) => {
-                    instances.push(CUBE_DIM_X as usize)
-                }
-                AxisDistribution::Distributed(_) => instances.push(grid.at(p)),
+                AxisDistribution::Distributed(Distribution { workers, .. }) => match comptime!(workers) {
+                    Workers::Across(workers) => instances.push(workers.runtime()),
+                    // The plane's width is the launch's, so it is read, not compiled in.
+                    Workers::LaunchUnits => instances.push(CUBE_DIM_X as usize),
+                    Workers::Grid => instances.push(grid.at(p)),
+                },
                 AxisDistribution::Walked => instances.push(1usize),
             }
         }
@@ -192,8 +189,7 @@ impl Walk {
                     scope: compute_scope,
                     dim,
                     spread,
-                    across,
-                    in_turns: _,
+                    workers,
                     divides,
                     inner,
                     unspanned,
@@ -207,12 +203,12 @@ impl Walk {
                             .divided_by(inner_weight)
                             .remainder(instances.at(p)),
                     };
-                    let run = match comptime!(across) {
-                        Some(workers) => grid
+                    let run = match comptime!(workers) {
+                        Workers::Across(workers) => grid
                             .at(p)
                             .plus(comptime!(workers - 1).runtime())
                             .divided_by(workers.runtime()),
-                        None => 1usize.runtime(),
+                        Workers::Grid | Workers::LaunchUnits => 1usize.runtime(),
                     };
                     counts.push(AxisDistribution::tiles(
                         grid.at(p),
