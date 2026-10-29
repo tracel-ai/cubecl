@@ -26,6 +26,7 @@ use cubecl_common::profile::TimingMethod;
 /// For Intel GPUs, this is variable based on the number of registers used in the kernel. No way to
 /// query this at compile time is currently available. As a result, the minimum value should usually
 /// be assumed.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HardwareProperties {
     /// The widest single load instruction, in bits.
@@ -110,6 +111,7 @@ impl VectorRegisters {
 }
 
 /// Properties of the device related to allocation.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct MemoryDeviceProperties {
@@ -118,8 +120,19 @@ pub struct MemoryDeviceProperties {
     /// The required memory offset alignment in bytes.
     pub alignment: u64,
     /// Private because [`set_max_memory`](Self::set_max_memory) is its only
-    /// writer, and that is where a zero becomes `None`.
+    /// writer, and that is where a zero becomes `None`; a deserialized one
+    /// goes through the same rule.
+    #[cfg_attr(feature = "serde", serde(deserialize_with = "deserialize_max_memory"))]
     max_memory: Option<u64>,
+}
+
+/// A stated capacity as [`MemoryDeviceProperties::set_max_memory`] takes it: a zero is no figure.
+#[cfg(feature = "serde")]
+fn deserialize_max_memory<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u64>, D::Error> {
+    let stated = <Option<u64> as serde::Deserialize>::deserialize(deserializer)?;
+    Ok(stated.filter(|bytes| *bytes != 0))
 }
 
 impl MemoryDeviceProperties {
@@ -178,6 +191,7 @@ impl MemoryDeviceProperties {
 /// point: a backend derives it once and hands it to both consumers, so the
 /// identity a bundle is stamped with and the namespace its kernels live under
 /// cannot drift apart.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct DeviceIdentity {
     /// The device as it names itself — `AMD Radeon 8060S Graphics`,
@@ -190,6 +204,10 @@ pub struct DeviceIdentity {
     pub fingerprint: String,
     /// The card behind the device, `None` for a device that is no card: a CPU, or a software
     /// rasterizer.
+    ///
+    /// Never serialized: every id on a card is local to the host that reported it, so a card read
+    /// on another host would match that host's own card at the same PCI address.
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub physical: Option<PhysicalDevice>,
 }
 
@@ -386,6 +404,7 @@ impl FromStr for PciAddress {
 
 /// Properties of what the device can do, like what `Feature` are
 /// supported by it and what its memory properties are.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeviceProperties {
     /// The features supported by the runtime.
@@ -623,7 +642,72 @@ fn vector_sizes_down_from(widest: usize) -> impl Iterator<Item = VectorSize> + C
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::FloatKind;
     use alloc::string::ToString;
+
+    /// Properties sent to another host read back as they were sent, the element-type tables
+    /// keyed by a non-string type included, and a stated capacity of zero reads back as none.
+    #[cfg(feature = "serde")]
+    #[test]
+    fn device_properties_round_trip_through_a_binary_format() {
+        let mut sent = DeviceProperties::new(
+            Features::default(),
+            MemoryDeviceProperties::new(1 << 30, 256).with_max_memory(8 << 30),
+            hardware(128, Some(256)),
+            TimingMethod::Device,
+            DeviceIdentity {
+                name: "a card".to_string(),
+                fingerprint: "hip-kernel_gfx1102".to_string(),
+                physical: None,
+            },
+        );
+        sent.register_type_usage(ElemType::Float(FloatKind::F16), TypeUsage::Arithmetic);
+        sent.register_emulated_conversion(ElemType::Float(FloatKind::BF16));
+
+        let mut bytes = alloc::vec::Vec::new();
+        ciborium::into_writer(&sent, &mut bytes).unwrap();
+        let received: DeviceProperties = ciborium::from_reader(bytes.as_slice()).unwrap();
+        assert_eq!(received, sent);
+
+        /// What another host could send: a capacity of zero, which no writer here produces.
+        #[derive(serde::Serialize)]
+        struct Stated {
+            max_page_size: u64,
+            alignment: u64,
+            max_memory: Option<u64>,
+        }
+        let mut zero = alloc::vec::Vec::new();
+        let stated = Stated {
+            max_page_size: 1,
+            alignment: 1,
+            max_memory: Some(0),
+        };
+        ciborium::into_writer(&stated, &mut zero).unwrap();
+        let memory: MemoryDeviceProperties = ciborium::from_reader(zero.as_slice()).unwrap();
+        assert_eq!(memory.max_memory(), None);
+    }
+
+    /// A card read on another host is no card here: its PCI address would name whichever local
+    /// card sits at the same address, and every check keyed to the card would read that one.
+    #[cfg(feature = "serde")]
+    #[test]
+    fn a_card_never_leaves_the_host_that_reported_it() {
+        let sent = DeviceIdentity {
+            name: "a card".to_string(),
+            fingerprint: "hip-kernel_gfx1102".to_string(),
+            physical: Some(PhysicalDevice {
+                pci_address: Some("0000:03:00.0".parse().unwrap()),
+                vendor: Some(PciVendor::Amd),
+                ..PhysicalDevice::default()
+            }),
+        };
+
+        let mut bytes = alloc::vec::Vec::new();
+        ciborium::into_writer(&sent, &mut bytes).unwrap();
+        let received: DeviceIdentity = ciborium::from_reader(bytes.as_slice()).unwrap();
+        assert_eq!(received.physical, None);
+        assert_eq!(received.fingerprint, sent.fingerprint);
+    }
 
     #[test]
     fn a_device_without_a_fixed_register_set_has_no_budget() {

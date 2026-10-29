@@ -1,4 +1,4 @@
-use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneInputs, Tuner};
+use super::{AutotuneError, AutotuneKey, AutotuneOutput, TunableSet, TuneInputs, Tuner};
 #[cfg(feature = "autotune-checks")]
 use crate::tune::AutotuneLoggerExt;
 use crate::{client::Client, device::HardwareIdentity, tune::TuneCacheResult};
@@ -286,18 +286,133 @@ where
                 )
             }
             // Still waiting (e.g. on wasm), stopped on a lost device, or its candidates' kernels
-            // queued under a `CompileOnly` override: run the first operation that serves the
-            // problem, which there only queues its kernels.
+            // queued under a `CompileOnly` override, where an operation only queues its kernels:
+            // the candidates run in the plan's order, the one the measurement follows, so the
+            // best ranked candidate that launches runs rather than the first declared.
             TuneCacheResult::Pending | TuneCacheResult::Compiled => {
-                let mut failures = Vec::new();
-                for i in 0..operations.len() {
-                    match operations.fastest(i).execute(inputs.clone()) {
-                        Ok(output) => return output,
-                        Err(err) => failures.push(err),
-                    }
+                match execute_in_plan_order(&operations, &key, inputs) {
+                    Ok(output) => output,
+                    Err(failures) => panic!(
+                        "All autotune operations failed, no viable operation found.\n{failures:?}"
+                    ),
                 }
-                panic!("All autotune operations failed, no viable operation found.\n{failures:?}");
             }
         }
+    }
+}
+
+/// Runs the candidates in the plan's [order](super::TunePlan::order) and hands back the
+/// first output, or every candidate's error when none launches. A candidate that fails to
+/// launch is skipped, as the measurement skips it.
+fn execute_in_plan_order<'a, AK: AutotuneKey, I: TuneInputs, Out: 'static, Id>(
+    operations: &TunableSet<AK, I, Out, Id>,
+    key: &AK,
+    inputs: <I as TuneInputs>::At<'a>,
+) -> Result<Out, Vec<AutotuneError>>
+where
+    <I as TuneInputs>::At<'a>: Clone,
+{
+    let mut failures = Vec::new();
+    for (index, _) in operations.plan(key).order(operations.len()) {
+        match operations.fastest(index).execute(inputs.clone()) {
+            Ok(output) => return Ok(output),
+            Err(err) => failures.push(err),
+        }
+    }
+    Err(failures)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tune::{Tunable, TuneGroup};
+    use alloc::string::String;
+    use core::fmt::Display;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize, Debug)]
+    struct FakeAutotuneKey;
+
+    impl Display for FakeAutotuneKey {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.write_str("FakeAutotuneKey")
+        }
+    }
+
+    impl AutotuneKey for FakeAutotuneKey {}
+
+    fn set() -> TunableSet<FakeAutotuneKey, (), usize> {
+        TunableSet::new(|_: &()| FakeAutotuneKey, |_: &FakeAutotuneKey, _: &()| ())
+    }
+
+    fn answers(index: usize) -> impl Fn(()) -> Result<usize, String> {
+        move |_| Ok(index)
+    }
+
+    fn fails(_: ()) -> Result<usize, String> {
+        Err("does not launch here".into())
+    }
+
+    #[test]
+    fn the_pending_fallback_runs_the_plan_s_first_candidate_not_the_first_declared() {
+        let group = TuneGroup::<FakeAutotuneKey>::new("group", |_| 1);
+        let operations = set()
+            .with(Tunable::<FakeAutotuneKey, (), usize>::new(
+                "declared_first",
+                answers(0),
+            ))
+            .with(
+                Tunable::<FakeAutotuneKey, (), usize>::new("planned_first", answers(1))
+                    .group(&group, |_| 1),
+            );
+
+        assert_eq!(
+            execute_in_plan_order(&operations, &FakeAutotuneKey, ()).ok(),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn the_pending_fallback_moves_down_the_plan_when_a_candidate_does_not_launch() {
+        let group = TuneGroup::<FakeAutotuneKey>::new("group", |_| 1);
+        let operations = set()
+            .with(
+                Tunable::<FakeAutotuneKey, (), usize>::new("planned_last", answers(0))
+                    .group(&group, |_| 0),
+            )
+            .with(
+                Tunable::<FakeAutotuneKey, (), usize>::new("planned_first", fails)
+                    .group(&group, |_| 2),
+            )
+            .with(
+                Tunable::<FakeAutotuneKey, (), usize>::new("planned_second", answers(2))
+                    .group(&group, |_| 1),
+            );
+
+        assert_eq!(
+            execute_in_plan_order(&operations, &FakeAutotuneKey, ()).ok(),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn the_pending_fallback_tries_what_the_plan_left_out_last() {
+        let never = TuneGroup::<FakeAutotuneKey>::new("never", |_| -1);
+        let operations = set()
+            .with(Tunable::<FakeAutotuneKey, (), usize>::new(
+                "declared_first",
+                fails,
+            ))
+            .with(
+                Tunable::<FakeAutotuneKey, (), usize>::new("left_out", answers(1))
+                    .group(&never, |_| 1),
+            );
+
+        assert_eq!(
+            execute_in_plan_order(&operations, &FakeAutotuneKey, ()).ok(),
+            Some(1)
+        );
+        let nothing = set().with(Tunable::<FakeAutotuneKey, (), usize>::new("fails", fails));
+        assert!(execute_in_plan_order(&nothing, &FakeAutotuneKey, ()).is_err());
     }
 }
