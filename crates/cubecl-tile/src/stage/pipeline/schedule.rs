@@ -58,8 +58,11 @@ where
 pub enum Prefetch {
     /// In its own slot, filled before the previous contraction.
     InSlots,
-    /// In registers, loaded before the contraction and stored after; bounded by
-    /// [`fits`](Prefetch::fits).
+    /// In registers, loaded before the contraction and stored after. Takes
+    /// [`InSlots`](Prefetch::InSlots) where the registers cannot hold the fill: fixed operands,
+    /// scales kept beside their values, filler planes, a source not delivered by every unit, a
+    /// depth past 2, a fill that decodes, converts, rewidens or packs its source or masks its
+    /// stage, a stage whose per-unit share is unknown, and loads past [`fits`](Prefetch::fits).
     InRegisters,
 }
 
@@ -106,9 +109,8 @@ impl Stages<OperandPair> {
     /// [`pipelined`](Stages::pipelined) with the next region's loads held in registers across the
     /// current contraction.
     ///
-    /// Requires depth 1 or 2, every unit copying straight from a plain operand, and loads within
-    /// [`Prefetch::fits`]; otherwise refused at expansion. Fixed operands, and operands whose
-    /// stages keep their scales beside them, fall back to [`pipelined`](Stages::pipelined).
+    /// Falls back to [`pipelined`](Stages::pipelined) in the cases
+    /// [`Prefetch::InRegisters`] lists.
     pub fn prefetched<F>(&mut self, _walk: Walk, _compute: F)
     where
         F: FnMut(&mut Slot<OperandPair>, &Region),
@@ -122,20 +124,9 @@ impl StagesExpand<OperandPair> {
     where
         F: FnMut(&Scope, &mut SlotExpand<OperandPair>, &RegionExpand),
     {
-        // Registers hold the values alone, so scales a stage keeps beside them are brought by the
-        // slots.
-        let scales_beside = self.sources.lhs.__expand_scales_beside_method(scope)
-            || self.sources.rhs.__expand_scales_beside_method(scope);
-        if self.has_fixed(scope) || scales_beside {
+        if !self.__expand_prefetches_in_registers_method(scope) {
             return self.__expand_pipelined_method(scope, walk, compute);
         }
-        self.__expand_assert_copied_by_every_unit_method(scope);
-        assert!(
-            self.depth <= 2,
-            "Stages::prefetched: {} slots hold one region ahead, so the slots past a second \
-             would sit idle; build them with a depth of 1 or 2",
-            self.depth
-        );
         let total = walk.__expand_total_method(scope);
         self.prime(scope, &walk, &total);
         self.prefetching_laps(scope, walk, total, compute);

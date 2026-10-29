@@ -27,10 +27,18 @@ impl Tile {
         g.window_view::<T, W>(comptime!(Guard::Checked))
     }
 
-    /// Scalars of this stage one unit holds in registers across a contraction.
-    #[allow(dead_code)] // Reached through its expand, from `Stages::prefetched`.
-    pub(crate) fn fetched_scalars(&self) -> comptime_type!(usize) {
-        self.mem("fetched_scalars").fetched_scalars()
+    /// Scalars of this stage one unit holds in registers across a contraction; none for a tile
+    /// that is not a memory window or whose share is unknown.
+    #[allow(dead_code)] // Reached through its expand, from `Stages::prefetches_in_registers`.
+    pub(crate) fn fetched_scalars(&self) -> comptime_type!(Option<usize>) {
+        match &self.kind {
+            TileKind::Memory(m) => m.fetched_scalars(),
+            TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(None),
+        }
     }
 
     /// Free the shared memory this stage is held in; a stage of a call has none.

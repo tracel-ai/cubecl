@@ -285,6 +285,7 @@ fn matmul_smem_ring_scheduled(
     #[comptime] depth: usize,
     #[comptime] schedule: Schedule,
     #[comptime] unrolled: bool,
+    #[comptime] streamed: bool,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
@@ -312,6 +313,13 @@ fn matmul_smem_ring_scheduled(
                 });
             }
             Schedule::ThroughRegisters => {
+                // A fallback to the slots would pass these tests too, so say where the stage waits:
+                // a walk of one region holds its operands fixed, which the slots fill once.
+                let in_registers = stages.prefetches_in_registers();
+                comptime!(assert!(
+                    in_registers || !streamed,
+                    "a plain SyncPerUnit pair streamed at depth {depth} waits in registers"
+                ));
                 stages.prefetched(walk, |slot, region| {
                     let c_r = c.at(region);
                     slot.consume(|a_s, b_s| {
@@ -1168,6 +1176,7 @@ fn check_matmul_scheduled(
     let client = cubecl::test_device().client();
     let levels = tiling.build();
     let tile_edge = leaf_edge(&levels, M);
+    let streamed = k > leaf_edge(&levels, K);
     let space = Space::new(&[(M, m), (N, n), (K, k)]);
     let partitioning = Partitioning::new(space.clone(), levels);
     let grid = Grid::Stated {
@@ -1200,6 +1209,7 @@ fn check_matmul_scheduled(
         depth,
         schedule,
         unrolled,
+        streamed,
     );
     assert_tiled_matmul(&client, c.handle(), m, n, k, tile_edge);
 }
