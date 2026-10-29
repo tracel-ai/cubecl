@@ -21,6 +21,14 @@ pub(crate) enum Packing {
         /// The slot one value occupies.
         field: Field,
     },
+    /// Stored `u32` words of `field`-wide values, served as stored like [`Plain`](Self::Plain):
+    /// a reader takes a word whole, its fields in place, as a block-scaled instruction takes a
+    /// register of its scales. The field says what the word holds, which a word read whole would
+    /// otherwise not.
+    Words {
+        /// The slot one value of a word occupies.
+        field: Field,
+    },
 }
 
 /// The slot one packed value occupies.
@@ -188,6 +196,16 @@ impl Field {
         }
     }
 
+    /// The number format a code of this field is written in, however the device reads it: `None`
+    /// for a field that holds no code (an index, a whole float, an 8-bit scale).
+    pub(crate) fn code(self) -> Option<QuantValue> {
+        match self {
+            Field::Quant(value) | Field::Placed { value, .. } => Some(value),
+            Field::ConvertedE2M1 => Some(QuantValue::E2M1),
+            Field::Fp8(_) | Field::Float(_) | Field::Index { .. } => None,
+        }
+    }
+
     /// The scale dtype a scale of this field is stored as: the inverse of
     /// [`of_scale`](Field::of_scale).
     ///
@@ -287,6 +305,9 @@ impl Packing {
             (Packing::Plain, other) => {
                 panic!("Packing: no value is quantized to a plain {other:?}")
             }
+            (Packing::Words { field }, _) => {
+                panic!("Packing: words of {field:?} are read whole, never encoded into")
+            }
         }
     }
 
@@ -298,7 +319,7 @@ impl Packing {
     /// For a store no scale is held in.
     pub(crate) fn scale_dtype(self, element: ElemType) -> ScaleDtype {
         match (self, element) {
-            (Packing::Packed { field }, _) => field.scale_dtype(),
+            (Packing::Packed { field } | Packing::Words { field }, _) => field.scale_dtype(),
             (Packing::Plain, ElemType::Float(kind)) => Field::of_float(kind).scale_dtype(),
             (Packing::Plain, other) => panic!("Packing: a scale is a float, not {other:?}"),
         }
@@ -310,7 +331,7 @@ impl Packing {
             Packing::Packed { field } => Packing::Packed {
                 field: field.placed(),
             },
-            Packing::Plain => Packing::Plain,
+            Packing::Plain | Packing::Words { .. } => self,
         }
     }
 
@@ -318,7 +339,7 @@ impl Packing {
     pub(crate) fn lift(self) -> f64 {
         match self {
             Packing::Packed { field } => field.lift(),
-            Packing::Plain => 1.0,
+            Packing::Plain | Packing::Words { .. } => 1.0,
         }
     }
 
@@ -328,8 +349,14 @@ impl Packing {
             Packing::Packed { field } => Packing::Packed {
                 field: field.read_on(client),
             },
-            Packing::Plain => Packing::Plain,
+            Packing::Plain | Packing::Words { .. } => self,
         }
+    }
+
+    /// Whether the values are served as they are stored, one a stored element: plain, or words
+    /// read whole.
+    pub(crate) fn as_stored(self) -> bool {
+        matches!(self, Packing::Plain | Packing::Words { .. })
     }
 }
 
@@ -337,7 +364,7 @@ impl Packing {
     /// Values per stored element: one, unless a `u32` holds several fields.
     fn factor(&self) -> usize {
         match self {
-            Packing::Plain => 1,
+            Packing::Plain | Packing::Words { .. } => 1,
             Packing::Packed { field } => field.per_word(),
         }
     }

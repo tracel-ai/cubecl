@@ -1,5 +1,7 @@
 //! What one plane contracts through ([`Instruction`]).
 
+use cubecl::ir::{ElemType, FloatKind, features::ScaledMmaConfig};
+
 use crate::{MmaIo, RegisterBlock};
 
 /// What one plane contracts through: a software register block or a hardware fragment form.
@@ -38,7 +40,74 @@ pub enum MmaOperands {
     /// reaches one, or read through lane runs where its fragment is deeper than the instruction.
     #[default]
     Plain,
-    /// `e2m1` values under `e4m3` block scales, each read as stored by the device's block-scaled
-    /// instruction.
-    BlockScaled,
+    /// Packed codes under block scales, each read as stored by the device's block-scaled
+    /// instruction of this form.
+    BlockScaled(BlockScaledOperands),
+}
+
+impl MmaOperands {
+    /// The block-scaled instruction's form, where the operands are read by one.
+    pub fn block_scaled(self) -> Option<BlockScaledOperands> {
+        match self {
+            MmaOperands::Plain => None,
+            MmaOperands::BlockScaled(form) => Some(form),
+        }
+    }
+}
+
+/// The form of a block-scaled instruction's operands: what each input's registers hold, what its
+/// scales are, and how many values of `k` one scale covers. Any form the device's instruction
+/// takes ([`ScaledMmaConfig`]); the inputs may hold different codes, under scales of one type and
+/// one block.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct BlockScaledOperands {
+    /// The `A`'s codes as a register of the instruction holds them: `e2m1x2` for `e2m1` codes two
+    /// to a byte, `e4m3` for one to a byte.
+    pub lhs: FloatKind,
+    /// The `B`'s codes, as [`lhs`](Self::lhs) is the `A`'s.
+    pub rhs: FloatKind,
+    /// The type of a block scale.
+    pub scales: FloatKind,
+    /// Values of `k` one scale covers.
+    pub block: usize,
+}
+
+impl BlockScaledOperands {
+    /// The device instruction of `m × n × k` this form names, summing in `f32`.
+    pub fn instruction(&self, m: usize, n: usize, k: usize) -> ScaledMmaConfig {
+        ScaledMmaConfig {
+            a_type: ElemType::Float(self.lhs),
+            b_type: ElemType::Float(self.rhs),
+            cd_type: ElemType::Float(FloatKind::F32),
+            scales_type: ElemType::Float(self.scales),
+            m: m as u32,
+            n: n as u32,
+            k: k as u32,
+            scales_factor: (k / self.block) as u32,
+        }
+    }
+
+    /// The form of `instruction`, a device's block-scaled instruction.
+    pub fn of(instruction: &ScaledMmaConfig) -> Option<Self> {
+        let float = |elem: ElemType| match elem {
+            ElemType::Float(kind) => Some(kind),
+            _ => None,
+        };
+        let scales = instruction.scales_factor as usize;
+        Some(Self {
+            lhs: float(instruction.a_type)?,
+            rhs: float(instruction.b_type)?,
+            scales: float(instruction.scales_type)?,
+            block: (instruction.k as usize).checked_div(scales)?,
+        })
+    }
+
+    /// The codes a register of the instruction holds in role `lhs` (or `rhs`), counted in values:
+    /// two for each `e2m1x2`.
+    pub fn values_per_element(kind: FloatKind) -> usize {
+        match kind {
+            FloatKind::E2M1x2 => 2,
+            _ => 1,
+        }
+    }
 }

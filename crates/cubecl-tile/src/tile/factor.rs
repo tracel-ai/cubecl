@@ -83,6 +83,12 @@ impl Factor {
         unexpanded!()
     }
 
+    /// The field of the innermost scales' [words](Packing::Words): what one scale of a word is.
+    /// `None` where they are no words.
+    pub(crate) fn word_field(&self) -> comptime_type!(Option<Field>) {
+        unexpanded!()
+    }
+
     /// The innermost scale tile, without the scale it carries in turn: the block scales an
     /// encoding copy writes ([`Tile::quantize_from`](crate::Tile::quantize_from)).
     pub(crate) fn innermost_scale(&self) -> Tile {
@@ -314,8 +320,8 @@ impl FactorExpand {
         for scale in self.chain() {
             assert!(
                 !holds_words(scope, scale),
-                "Factor: these scales are words of four e4m3 block scales, which only the \
-                 block-scaled instruction reads; widened one at a time they mean nothing"
+                "Factor: these scales are words of block scales, which only the block-scaled \
+                 instruction reads whole; widened one at a time they mean nothing"
             );
             let one = scale_for(scope, scale, coords, &values, guard);
             product = Some(match product {
@@ -368,6 +374,12 @@ impl FactorExpand {
 
     pub(crate) fn __expand_scaled_method(&self, _scope: &Scope) -> bool {
         self.scaled()
+    }
+
+    pub(crate) fn __expand_word_field_method(&self, scope: &Scope) -> Option<Field> {
+        self.scale
+            .as_deref()
+            .and_then(|scale| word_field(scope, scale))
     }
 
     pub(crate) fn __expand_holds_words_method(&self, scope: &Scope) -> bool {
@@ -503,7 +515,7 @@ impl Tile {
         let at = load.index(start, &space);
         let packing = self.packing();
         match comptime!(packing) {
-            Packing::Plain => {
+            Packing::Plain | Packing::Words { .. } => {
                 let define!(Stored) = self.element;
                 let mut out = self.nd_mut::<Stored, N>();
                 out.write(at, Vector::<Stored, N>::cast_from(scales));
@@ -517,13 +529,22 @@ impl Tile {
     }
 }
 
-/// Whether `scale` holds words rather than scales: each `u32` the `e4m3` scales of the four blocks
-/// one block-scaled instruction step covers, the first block's in the low byte, as an NVFP4
-/// checkpoint packs them, bound plain. Only that instruction reads such scales
-/// ([`FactorExpand::__expand_word_at_method`]); widened to a scale one means nothing. A packed
-/// scale holds `u32` words too, of fields read as scales.
+/// The field of the words `scale` holds rather than scales: each `u32` the scales of the blocks
+/// one block-scaled instruction step covers, the first block's in the low bits, as a checkpoint
+/// packs them ([`Packing::Words`]). Only that instruction, and a reader decoding a word as it
+/// lays the instruction's registers, read such scales
+/// ([`FactorExpand::__expand_word_at_method`]); widened one at a time they mean nothing. A packed
+/// scale holds `u32` words too, of fields read one at a time as scales.
+fn word_field(scope: &Scope, scale: &TileExpand) -> Option<Field> {
+    match scale.__expand_packing_method(scope) {
+        Packing::Words { field } => Some(field),
+        Packing::Plain | Packing::Packed { .. } => None,
+    }
+}
+
+/// Whether `scale` holds [words](word_field) rather than scales.
 fn holds_words(scope: &Scope, scale: &TileExpand) -> bool {
-    scale.element == u32::elem_type(scope) && scale.__expand_packing_method(scope) == Packing::Plain
+    word_field(scope, scale).is_some()
 }
 
 /// The scale of `scale` covering the value at `coords` of a tile spanning `values`, widened to

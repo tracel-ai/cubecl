@@ -43,7 +43,7 @@ impl Tile {
         // The written view borrows its own handle on this tile, which the copy still reads.
         let mut into = self.clone();
         match comptime!(packing) {
-            Packing::Plain => {
+            Packing::Plain | Packing::Words { .. } => {
                 let define!(Stored) = self.element;
                 let size!(SW) = sw;
                 self.copy_encoded::<F, Stored, SW>(src, into.nd_mut::<Stored, SW>(), coarse);

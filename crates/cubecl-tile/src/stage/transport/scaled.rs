@@ -23,7 +23,7 @@ impl Tile {
         let sw = comptime!(load.values());
         let packing = src.packing();
         match comptime!(packing) {
-            Packing::Plain => {
+            Packing::Plain | Packing::Words { .. } => {
                 let size!(SW) = sw;
                 self.copy_decoded::<S, R, R, SW>(
                     src,
