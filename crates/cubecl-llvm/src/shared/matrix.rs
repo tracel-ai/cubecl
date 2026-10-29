@@ -4,9 +4,9 @@ use crate::{prelude::*, shared::to_llvm::lower_by_target};
 use cubecl_core::{
     ir::{
         dialect::matrix::{
-            CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp,
-            RowIndexOp, StMatrixOp, StoreOp, WgmmaCommitGroupOp, WgmmaDescriptorOp, WgmmaFenceOp,
-            WgmmaFenceOperandOp, WgmmaOp, WgmmaWaitGroupOp,
+            CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MmaManualScaledOp,
+            MultiplyAccumulateOp, RowIndexOp, StMatrixOp, StoreOp, WgmmaCommitGroupOp,
+            WgmmaDescriptorOp, WgmmaFenceOp, WgmmaFenceOperandOp, WgmmaOp, WgmmaWaitGroupOp,
         },
         types::matrix::MatrixType,
     },
@@ -65,6 +65,8 @@ dispatch_matrix_op!(CastOp, cast);
 dispatch_matrix_op!(RowIndexOp, row_index);
 dispatch_matrix_op!(ColIndexOp, col_index);
 dispatch_matrix_op!(MmaManualOp, mma_manual);
+// The block-scaled `mma` is Blackwell's alone, so only NVPTX lowers it.
+dispatch_matrix_op!(MmaManualScaledOp, ["nvptx" Nvptx => crate::nvptx::matrix::mma_manual_scaled]);
 dispatch_matrix_op!(LdMatrixOp, ld_matrix);
 dispatch_matrix_op!(StMatrixOp, st_matrix);
 

@@ -5,7 +5,7 @@ use crate::{
         address::NvptxSpace,
         registers::{
             RegisterForm, call_returning_registers, extract_lane, insert_lane, load_fragment,
-            poison, store_fragment,
+            poison, store_fragment, vector_bits,
         },
     },
     prelude::*,
@@ -19,11 +19,13 @@ use crate::{
 };
 use cubecl_core::ir::{
     dialect::matrix::{
-        CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp,
-        RowIndexOp, StMatrixOp, StoreOp,
+        CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MmaManualScaledOp,
+        MultiplyAccumulateOp, RowIndexOp, StMatrixOp, StoreOp,
     },
     types::{
-        LdMatrixForm, MatrixIdent, MatrixLayout, MatrixShape, StMatrixForm, matrix::MatrixType,
+        LdMatrixForm, MatrixIdent, MatrixLayout, MatrixShape, StMatrixForm,
+        matrix::MatrixType,
+        scalar::{Float4E2M1x2Type, Float8E4M3Type, Float8E8M0Type},
     },
 };
 
@@ -571,6 +573,109 @@ pub(crate) fn mma_manual(
 
     rw.erase_operation(ctx, old_op);
     Ok(())
+}
+
+#[derive(Debug, Error)]
+#[error(
+    "the NVPTX backend lowers the block-scaled `mma` on `e2m1x2` pairs scaled two or four times \
+     along `k` (MXFP4, NVFP4) only, not {0}"
+)]
+pub struct ScaledMmaUnsupported(String);
+
+/// The block-scaled `mma` of Blackwell's consumer parts: `e2m1` operands, a scale for every
+/// `k / scales_factor` of them, an `f32` accumulator. The intrinsic names its scale type, the
+/// scales a register holds and the kind that pairs them: `mxf4nvf4` both for MXFP4, two `ue8m0`
+/// scales, and for NVFP4, four `ue4m3` ones. Each unit's scales are one register; the byte and
+/// unit selectors are zero, as the C++ backend's `{0, 0}`: a unit's register holds the scales of
+/// the rows it owns.
+pub(crate) fn mma_manual_scaled(
+    op: &MmaManualScaledOp,
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    operands_info: &OperandsInfo,
+) -> Result<()> {
+    let old_op = op.get_operation();
+    let (a, b, c, d) = (
+        op.registers_a(ctx),
+        op.registers_b(ctx),
+        op.registers_c(ctx),
+        op.registers_d(ctx),
+    );
+    let factor = op.scales_factor(ctx).0;
+    let MatrixShape { m, n, k } = *op.shape(ctx).clone();
+
+    let (a_vec_ty, a_elem) = registers_as_vector(ctx, operands_info, a);
+    let (b_vec_ty, b_elem) = registers_as_vector(ctx, operands_info, b);
+    let (cd_vec_ty, cd_elem) = registers_as_vector(ctx, operands_info, c);
+    let scale_elem = operands_info
+        .lookup_most_recent_type(op.scales_a(ctx))
+        .unwrap_or_else(|| op.scales_a(ctx).get_type(ctx))
+        .scalar_ty(ctx);
+    let pairs = |elem: TypeHandle| elem.deref(ctx).is::<Float4E2M1x2Type>();
+    let scale = match factor {
+        2 => scale_type_name(ctx, scale_elem).filter(|name| *name == "ue8m0"),
+        4 => scale_type_name(ctx, scale_elem),
+        _ => None,
+    };
+    let (true, true, true, Some(scale)) =
+        (pairs(a_elem), pairs(b_elem), cd_elem.is_float32(ctx), scale)
+    else {
+        let config = format!(
+            "{} x {} into {}, {} scales, {factor} along k",
+            a_elem.disp(ctx),
+            b_elem.disp(ctx),
+            cd_elem.disp(ctx),
+            scale_elem.disp(ctx)
+        );
+        return input_err!(op.loc(ctx), ScaledMmaUnsupported(config));
+    };
+
+    let a_val = registers_value(ctx, rw, a, a_vec_ty);
+    let b_val = registers_value(ctx, rw, b, b_vec_ty);
+    let c_val = registers_value(ctx, rw, c, cd_vec_ty);
+    let mut args = RegisterForm::Word.split(ctx, rw, a_val);
+    args.extend(RegisterForm::Word.split(ctx, rw, b_val));
+    let c_regs = RegisterForm::Scalar.split(ctx, rw, c_val);
+    let reg_tys: Vec<TypeHandle> = c_regs.iter().map(|reg| reg.get_type(ctx)).collect();
+    args.extend(c_regs);
+    for scales in [op.scales_a(ctx), op.scales_b(ctx)] {
+        args.push(scales_word(ctx, rw, scales));
+        args.extend((0..2).map(|_| insert_int_const(ctx, rw, 16, 0)));
+    }
+
+    let name = format!(
+        "llvm.nvvm.mma.block.scale.m{m}n{n}k{k}.row.col.mxf4nvf4.scale.{factor}x.f32.e2m1.e2m1.f32.{scale}"
+    );
+    let regs = call_returning_registers(ctx, rw, &name, reg_tys, args);
+
+    let result = RegisterForm::Scalar.join(ctx, rw, &regs, cd_vec_ty);
+    let d_array_ty = registers_array_ty(ctx, operands_info, d);
+    let result = vector_into_array(ctx, rw, result, d_array_ty);
+    store_fragment(ctx, rw, d, result);
+
+    rw.erase_operation(ctx, old_op);
+    Ok(())
+}
+
+/// How the block-scaled intrinsics name a scale type: `e4m3` scales are read unsigned.
+fn scale_type_name(ctx: &Context, elem: TypeHandle) -> Option<&'static str> {
+    let elem = elem.deref(ctx);
+    if elem.is::<Float8E4M3Type>() {
+        Some("ue4m3")
+    } else if elem.is::<Float8E8M0Type>() {
+        Some("ue8m0")
+    } else {
+        None
+    }
+}
+
+/// A unit's scales as the one 32-bit register the instruction reads, the first in the low byte.
+fn scales_word(ctx: &mut Context, rw: &mut DialectConversionRewriter, scales: Value) -> Value {
+    let ty = scales.get_type(ctx);
+    let bits = vector_bits(ctx, ty);
+    let int_ty: TypeHandle = IntegerType::get(ctx, bits as u32, Signedness::Signless).into();
+    let packed = bitcast(ctx, rw, scales, int_ty);
+    resize_int(ctx, rw, packed, 32, Extension::Zero).expect("scales are packed as an integer")
 }
 
 #[derive(Debug, Error)]

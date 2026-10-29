@@ -3,10 +3,11 @@
 //! A GPU runtime's properties come from its C++ backend, which gained each generation's hardware
 //! features as they shipped. The LLVM backend runs ordinary kernels: arithmetic, memory, shared
 //! memory, the plane operations, the two barriers and the matrix instructions it has register
-//! shapes for, plus Hopper's TMA and warpgroup MMA on NVPTX. Everything else is taken away here
-//! rather than left to fail at compile time, because a consumer picks its algorithm off these
-//! properties — cubek's matmul selectors ask for `mma` before they ask anything else — and an
-//! advertisement that cannot be honoured is a launch that fails rather than one that falls back.
+//! shapes for, plus Hopper's TMA and warpgroup MMA and Blackwell's block-scaled fp4 MMA on
+//! NVPTX. Everything else is taken away here rather than left to fail at compile time, because a
+//! consumer picks its algorithm off these properties — cubek's matmul selectors ask for `mma`
+//! before they ask anything else — and an advertisement that cannot be honoured is a launch that
+//! fails rather than one that falls back.
 //! The CPU runtime builds its properties from what this backend lowers, so it has nothing to
 //! narrow.
 
@@ -44,6 +45,7 @@ pub fn restrict_features(props: &mut DeviceProperties, target: GpuTarget) {
         #[cfg(feature = "nvptx")]
         GpuTarget::Nvptx { arch } => {
             keep_nvptx_matrix_forms(props);
+            keep_nvptx_scaled_forms(props);
             keep_nvptx_tma(props);
             let configs = crate::nvptx::wgmma::configs(arch);
             props.features.matmul.wgmma.extend(configs.iter().copied());
@@ -51,6 +53,7 @@ pub fn restrict_features(props: &mut DeviceProperties, target: GpuTarget) {
         #[cfg(feature = "amdgpu")]
         GpuTarget::AmdGpu { wmma } => {
             keep_amdgpu_matrix_forms(props, wmma);
+            props.features.matmul.scaled_mma = Default::default();
             remove_tma(props);
         }
     }
@@ -142,6 +145,27 @@ fn keep_nvptx_matrix_forms(props: &mut DeviceProperties) {
         .retain(|form| *form == StMatrixForm::M8N8B16);
 }
 
+/// Keeps the block-scaled `mma` forms NVPTX lowers: `e2m1x2` pairs into `f32`, scaled two times
+/// along `k` by `ue8m0` (MXFP4) or four times by `ue4m3` or `ue8m0` (NVFP4). The `mxf8f6f4`
+/// forms, a scale for all of `k`, have no lowering.
+#[cfg(feature = "nvptx")]
+fn keep_nvptx_scaled_forms(props: &mut DeviceProperties) {
+    let pairs = ElemType::Float(FloatKind::E2M1x2);
+    let ue8m0 = ElemType::Float(FloatKind::UE8M0);
+    let e4m3 = ElemType::Float(FloatKind::E4M3);
+    props.features.matmul.scaled_mma.retain(|config| {
+        let operands = config.a_type == pairs
+            && config.b_type == pairs
+            && config.cd_type == ElemType::Float(FloatKind::F32);
+        let scales = match config.scales_factor {
+            2 => config.scales_type == ue8m0,
+            4 => config.scales_type == ue8m0 || config.scales_type == e4m3,
+            _ => false,
+        };
+        operands && scales
+    });
+}
+
 /// Keeps the matrix forms AMDGPU lowers. The matrix lowering is RDNA's WMMA with `f16` or `bf16`
 /// operands accumulating in their own type or `f32`: CDNA's MFMA and the integer and fp8 WMMA
 /// forms have none. The plane operations work under
@@ -164,10 +188,9 @@ fn keep_amdgpu_matrix_forms(props: &mut DeviceProperties, wmma: Option<AmdWmma>)
 
 /// What neither GPU target lowers.
 fn restrict_common(props: &mut DeviceProperties) {
-    // The cube-level matrix API, and the scaled instructions with their `block_scale` operands.
+    // The cube-level matrix API.
     let matmul = &mut props.features.matmul;
     matmul.cube_mma = Default::default();
-    matmul.scaled_mma = Default::default();
     matmul.cmma_tensor_addressing = false;
     if matmul.cmma.is_empty() && matmul.mma.is_empty() {
         props.hardware.num_tensor_cores = None;
