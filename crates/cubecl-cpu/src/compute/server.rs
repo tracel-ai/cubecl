@@ -23,7 +23,7 @@ use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
-    dry_run::LaunchMode,
+    execution::LaunchMode,
     kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode},
@@ -63,6 +63,9 @@ impl CpuServer {
         memory_config: MemoryConfiguration,
         f16_evaluation: F16Evaluation,
         utilities: Arc<ServerUtilities>,
+        #[cfg(compilation_cache)] store: cubecl_server::compiler::ArtifactStore<
+            crate::compute::cache::CpuCacheEntry,
+        >,
     ) -> Self {
         let backend =
             ScheduledCpuBackend::new(memory_properties, memory_config, utilities.logger.clone());
@@ -82,10 +85,14 @@ impl CpuServer {
         Self {
             scheduler,
             utilities,
-            kernels: KernelLoader::new(CpuKernelCompiler::new(PlironOptions {
-                f16_evaluation,
-                ..Default::default()
-            })),
+            kernels: KernelLoader::new(CpuKernelCompiler::new(
+                PlironOptions {
+                    f16_evaluation,
+                    ..Default::default()
+                },
+                #[cfg(compilation_cache)]
+                store,
+            )),
             streams_pool: Vec::new(),
         }
     }
@@ -352,18 +359,18 @@ impl Server for CpuServer {
         // refuse every later launch that shares them, an autotune sweep
         // above all.
         //
-        // A dry run stages none either way. It was never going to write, so a
+        // A discarded launch stages none either way. It was never going to write, so a
         // failure in it leaves nothing stale, and tainting its buffers would
         // fail unrelated reads of memory the run deliberately left alone. It
         // stops right after compilation, before anything that touches a
         // buffer: resolving resources or reading a dynamic cube count would
-        // materialize memory a dry run exists to leave unmapped. It registers
+        // materialize memory discarding a launch exists to leave unmapped. It registers
         // no stream dependency either, which is correct rather than an
         // oversight — nothing is scheduled, so there is no work for a later
         // stream to order against.
         // Storage bases and pool offsets are 64-byte aligned. A view can weaken that
         // guarantee, so cache a separate specialization for its common alignment.
-        // Inspect only descriptors: dry runs must not materialize any buffer.
+        // Inspect only descriptors: discarded launches must not materialize any buffer.
         let alignment =
             bindings
                 .resources
@@ -379,8 +386,7 @@ impl Server for CpuServer {
                     },
                 );
         let alignment = BufferAlignment(alignment);
-        // A compile-only launch only queues its kernel, touching nothing else.
-        if launch_mode == LaunchMode::CompileOnly {
+        if launch_mode == LaunchMode::Queue {
             self.kernels.enqueue(kernel, alignment);
             return;
         }
@@ -396,7 +402,7 @@ impl Server for CpuServer {
             Err(err) => {
                 let error = ServerError::Launch(err);
                 self.scheduler.stream(&stream_id).profile_failure(&error);
-                if !launch_mode.is_skipped() {
+                if !launch_mode.discards_launch() {
                     let mut written = self.write_set();
                     written.extend(bindings.buffers_written(None).cloned());
                     failed_writing(self, stream_id, written, error);
@@ -404,7 +410,7 @@ impl Server for CpuServer {
                 return;
             }
         };
-        if launch_mode.is_skipped() {
+        if launch_mode.discards_launch() {
             return;
         }
 

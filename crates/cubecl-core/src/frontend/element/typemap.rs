@@ -16,6 +16,7 @@ use core::marker::PhantomData;
 use core::{cmp::Ordering, ops::*};
 
 use bytemuck::Zeroable;
+use cubecl_common::powi_portable;
 use cubecl_ir::{ConstantValue, interfaces::TypedExt};
 use derive_more::derive::{Debug, Display};
 use float_ord::FloatOrd;
@@ -29,6 +30,12 @@ use crate::{
 };
 
 use super::*;
+
+/// Type-level tag for a launch kernel's dynamic generic.
+///
+/// `N` is the generic's position in the kernel signature, which keeps generics
+/// within one kernel distinct while letting kernels share the same types.
+pub struct GenericSlot<const N: usize>;
 
 /// A fake element type that can be configured to map to any other element type.
 #[repr(transparent)]
@@ -663,6 +670,20 @@ impl<Marker: 'static> InverseSqrtNativeExpand for DynamicScalar<Marker> {
     }
 }
 
+impl<Marker: 'static> Cbrt for DynamicScalar<Marker> {}
+impl<Marker: 'static> CbrtNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_cbrt(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_cbrt(scope, input)
+    }
+}
+
+impl<Marker: 'static> InverseCbrt for DynamicScalar<Marker> {}
+impl<Marker: 'static> InverseCbrtNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_inverse_cbrt(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_inverse_cbrt(scope, input)
+    }
+}
+
 impl<Marker: 'static> Round for DynamicScalar<Marker> {}
 impl<Marker: 'static> RoundNativeExpand for DynamicScalar<Marker> {
     fn __expand_native_round(scope: &Scope, input: ExpandValue) -> ExpandValue {
@@ -789,8 +810,8 @@ impl<Marker: 'static> Float for DynamicScalar<Marker> {
 
     const RADIX: u32 = 2;
 
-    fn new(val: f32) -> Self {
-        DynamicScalar::from_f64(val as f64)
+    fn new(val: f64) -> Self {
+        DynamicScalar::from_f64(val)
     }
 }
 
@@ -1124,7 +1145,7 @@ impl<Marker: 'static> num_traits::Float for DynamicScalar<Marker> {
 
     fn powi(self, n: i32) -> Self {
         match self.val {
-            ConstantValue::Float(val) => Self::from_f64(val.powi(n)),
+            ConstantValue::Float(val) => Self::from_f64(powi_portable(val, n)),
             _ => self,
         }
     }

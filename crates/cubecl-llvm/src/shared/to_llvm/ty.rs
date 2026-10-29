@@ -4,8 +4,8 @@ use cubecl_core::ir::AddressType;
 use cubecl_core::ir::types::{
     ArrayType, AtomicType,
     scalar::{
-        BFloat16Type, Float8E4M3Type, Float8E5M2Type, Float8E8M0Type, Float16Type, Float32Type,
-        Float64Type, FloatFlex32Type, TFloat32Type,
+        BFloat16Type, Float4E2M1Type, Float4E2M1x2Type, Float8E4M3Type, Float8E5M2Type,
+        Float8E8M0Type, Float16Type, Float32Type, Float64Type, FloatFlex32Type, TFloat32Type,
     },
 };
 
@@ -60,6 +60,10 @@ impl_cube_to_llvm_type!(BFloat16Type, self, ctx => BF16Type::get(ctx));
 impl_cube_to_llvm_type!(Float8E4M3Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
 impl_cube_to_llvm_type!(Float8E5M2Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
 impl_cube_to_llvm_type!(Float8E8M0Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
+// A code, or a pair of them, in the byte that holds it: what a buffer stores and a reinterpret
+// reads, while every conversion is the software codec (`LowerFp4CastPass`).
+impl_cube_to_llvm_type!(Float4E2M1Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
+impl_cube_to_llvm_type!(Float4E2M1x2Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
 impl_cube_to_llvm_type!(CubePointerType, self, ctx => LlvmPointerType::get(ctx, 0));
 impl_cube_to_llvm_type!(CubeVectorType, self, ctx => LlvmVectorType::get(ctx, cube_type_to_llvm(ctx, self.inner), self.vectorization as u32, VectorTypeKind::Fixed));
 impl_cube_to_llvm_type!(AtomicType, self, ctx => cube_type_to_llvm(ctx, self.inner));
@@ -143,4 +147,39 @@ pub fn llvm_mangled_ty(ctx: &Context, ty: TypeHandle) -> String {
     type_cast::<dyn LlvmTypeToMangledOverload>(&*ty.deref(ctx))
         .map(|ty| ty.to_string(ctx))
         .expect("Type not supported for overloading of intrinsic")
+}
+
+/// `find` of the first cube type `value` had, newest first, that it accepts: the operand history
+/// of a converted value, then its current type.
+pub fn cube_origin<T>(
+    ctx: &Context,
+    info: &OperandsInfo,
+    value: Value,
+    find: impl Fn(&dyn Type) -> Option<T>,
+) -> Option<T> {
+    info.lookup_operand_history(value)
+        .into_iter()
+        .rev()
+        .chain(core::iter::once(value.get_type(ctx)))
+        .find_map(|ty| find(&*ty.deref(ctx)))
+}
+
+/// The cube type the pointer `value` was converted from points at, passed to `find`.
+pub fn cube_pointee<T>(
+    ctx: &Context,
+    info: &OperandsInfo,
+    value: Value,
+    find: impl Fn(&dyn Type) -> Option<T>,
+) -> Option<T> {
+    cube_origin(ctx, info, value, |ty| {
+        let ptr = ty.downcast_ref::<CubePointerType>()?;
+        find(&*ptr.inner.deref(ctx))
+    })
+}
+
+/// The size of what `ptr` points at, read off the cube pointer type it was converted from.
+pub fn pointee_size(ctx: &Context, info: &OperandsInfo, ptr: Value) -> Option<usize> {
+    cube_pointee(ctx, info, ptr, |inner| {
+        Some(type_cast::<dyn SizedType>(inner)?.size(ctx))
+    })
 }

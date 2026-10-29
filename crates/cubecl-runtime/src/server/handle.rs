@@ -9,6 +9,17 @@ use crate::{
     server::{CopyDescriptor, TensorMapBinding},
 };
 
+/// How two handles' bytes relate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Overlap {
+    /// No byte in common.
+    Disjoint,
+    /// The same bytes.
+    Same,
+    /// Some bytes in common, but not all.
+    Partial,
+}
+
 /// Server handle containing the [memory handle](crate::server::Handle).
 pub struct Handle {
     /// Memory handle.
@@ -132,6 +143,24 @@ impl Handle {
             strides,
             elem_size,
             handle: self.binding(),
+        }
+    }
+    /// How this handle's bytes relate to `other`'s.
+    pub fn overlap(&self, other: &Self) -> Overlap {
+        let bytes = |handle: &Self| {
+            handle.offset_start.unwrap_or(0)..handle.size - handle.offset_end.unwrap_or(0)
+        };
+        let mine = bytes(self);
+        let theirs = bytes(other);
+        if self.memory.descriptor().id != other.memory.descriptor().id
+            || mine.end <= theirs.start
+            || theirs.end <= mine.start
+        {
+            Overlap::Disjoint
+        } else if mine == theirs {
+            Overlap::Same
+        } else {
+            Overlap::Partial
         }
     }
     /// Get the size of the handle, in bytes, accounting for offsets

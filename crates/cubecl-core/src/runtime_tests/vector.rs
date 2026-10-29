@@ -9,7 +9,7 @@ use cubecl::prelude::*;
 #[cube(launch_unchecked)]
 pub fn kernel_vector_index<F: Float, N: Size>(output: &mut [F]) {
     if UNIT_POS == 0 {
-        let vector = Vector::<F, N>::new(F::new(5f32));
+        let vector = Vector::<F, N>::new(F::new(5.0));
         #[unroll]
         for i in 0..4 {
             output[i] = vector.extract(i);
@@ -49,7 +49,7 @@ pub fn test_vector_index<R: Runtime, F: Float + CubeElement>(client: Client) {
 pub fn kernel_vector_index_assign<F: Float, N: Size>(output: &mut [Vector<F, N>]) {
     if UNIT_POS == 0 {
         let mut vector = RuntimeCell::<Vector<F, N>>::new(output[0]);
-        vector.insert(0usize, F::new(5f32));
+        vector.insert(0usize, F::new(5.0));
         output[0] = vector.consume();
     }
 }
@@ -244,7 +244,7 @@ pub fn test_vector_extract_dynamic<R: Runtime, F: Float + CubeElement>(client: C
 pub fn kernel_vector_insert_dynamic<F: Float, N: Size>(index: &[u32], output: &mut [Vector<F, N>]) {
     if UNIT_POS == 0 {
         let mut vector = output[0];
-        vector.insert_dynamic(usize::cast_from(index[0]), F::new(5f32));
+        vector.insert_dynamic(usize::cast_from(index[0]), F::new(5.0));
         output[0] = vector;
     }
 }
@@ -279,7 +279,7 @@ pub fn test_vector_insert_dynamic<R: Runtime, F: Float + CubeElement>(client: Cl
 #[cube(launch_unchecked)]
 pub fn kernel_shared_memory<F: Float, N: Size>(output: &mut [Vector<F, N>]) {
     let mut smem1 = Shared::new_slice(8usize);
-    smem1[0] = Vector::new(F::new(42f32));
+    smem1[0] = Vector::new(F::new(42.0));
     output[0] = smem1[0];
 }
 

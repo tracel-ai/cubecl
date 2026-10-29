@@ -24,12 +24,12 @@ use cubecl_core::{
 use cubecl_environment::future;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
-use cubecl_server::command::{DeviceStream, Refused};
+use cubecl_server::command::Refused;
 use cubecl_server::compiler::ArtifactId;
 use cubecl_server::metadata_cache::Lookup;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
-    dry_run::LaunchMode,
+    execution::LaunchMode,
     id::GraphId,
     kernel::CubeKernel,
     logging::ServerLogger,
@@ -38,7 +38,7 @@ use cubecl_server::{
     storage::{ComputeStorage, ManagedResource},
     stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
 };
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct HipServer {
@@ -47,9 +47,6 @@ pub struct HipServer {
     utilities: Arc<ServerUtilities>,
     /// The graphs this server has captured — see [`Captures`].
     graphs: Captures,
-    /// Allocation modes set on streams that did not exist yet, applied when the stream is
-    /// created rather than creating it only to hold the mode.
-    pending_allocation_modes: HashMap<StreamId, MemoryAllocationMode>,
 }
 
 // SAFETY: `HipServer` is only accessed from one thread at a time via the `DeviceHandle`
@@ -148,8 +145,7 @@ impl Server for HipServer {
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) {
-        // A compile-only launch only queues its kernel, touching nothing else.
-        if launch_mode == LaunchMode::CompileOnly {
+        if launch_mode == LaunchMode::Queue {
             self.ctx.queue_kernel(kernel);
             return;
         }
@@ -160,11 +156,11 @@ impl Server for HipServer {
         let Some(loaded) = self.load_or_fail(kernel, &id, &bindings, stream_id, launch_mode) else {
             return;
         };
-        // A dry run stops right here, after compilation and before anything
+        // A discarded launch stops right here, after compilation and before anything
         // that touches a buffer: resolving resources, uploading metadata or
         // reading a dynamic cube count would materialize memory the run
         // exists to leave unmapped.
-        if launch_mode.is_skipped() {
+        if launch_mode.discards_launch() {
             return;
         }
         let kernel_id = id.kernel;
@@ -381,11 +377,9 @@ impl Server for HipServer {
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
-        match self.streams.try_stream_mut(&stream_id) {
-            Some(stream) => stream.device_memory().mode(mode),
-            None => {
-                self.pending_allocation_modes.insert(stream_id, mode);
-            }
+        // A failed stream creation is reported by the next command on it.
+        if let Ok(mut command) = self.command_no_inputs(stream_id) {
+            command.allocation_mode(mode);
         }
     }
 }
@@ -440,7 +434,6 @@ impl HipServer {
             ),
             utilities: Arc::new(utilities),
             graphs: Captures::default(),
-            pending_allocation_modes: HashMap::new(),
         }
     }
 
@@ -453,10 +446,7 @@ impl HipServer {
         stream_id: StreamId,
         handles: impl Iterator<Item = &'a BufferBinding>,
     ) -> Result<Command<'_>, ServerError> {
-        let mut streams = self.streams.resolve(stream_id, handles)?;
-        if let Some(mode) = self.pending_allocation_modes.remove(&stream_id) {
-            streams.current().device_memory().mode(mode);
-        }
+        let streams = self.streams.resolve(stream_id, handles)?;
         Ok(Command::new(&mut self.ctx, streams, self.utilities.service))
     }
 
@@ -472,7 +462,7 @@ impl HipServer {
     /// kernel was only going to read — tainting those would refuse every
     /// later launch that shares them, an autotune sweep above all.
     ///
-    /// A dry run claims none. It was never going to write, so a failure in it
+    /// A discarded launch claims none. It was never going to write, so a failure in it
     /// leaves nothing stale, and tainting its buffers would fail unrelated
     /// reads of memory the run deliberately left alone.
     fn load_or_fail(
@@ -487,7 +477,7 @@ impl HipServer {
             Ok(loaded) => return Some(loaded),
             Err(err) => err,
         };
-        if !launch_mode.is_skipped() {
+        if !launch_mode.discards_launch() {
             // No compiled answer exists for a kernel that never compiled, so
             // the caller's declared IO decides what the failure claims: only
             // the outputs, never the buffers the kernel was only going to
@@ -600,7 +590,7 @@ impl HipServer {
 
         let info_handle = info_buffer(&mut command, info.data)?;
 
-        // Resolving is also where a dry run's deferred allocations get their
+        // Resolving is also where a discarded launch's deferred allocations get their
         // device backing, so this can fail on a device the measured plan does
         // not fit — reported, not panicked.
         let mut resources = resources

@@ -5,6 +5,7 @@ use cubecl_runtime::throughput::{KernelConfig, MemorySpec, ThroughputError, Thro
 use crate::throughput::{
     LaunchConfig,
     memory_probe::{self, MemoryProbe},
+    verify::verify,
 };
 
 /// Builds the read-only streaming kernel, moving `working_set` bytes per pass,
@@ -59,7 +60,7 @@ pub fn build_kernel(
         let _ = cubecl_core::future::block_on(client.sync());
         start.elapsed()
     });
-    memory_probe::verify(&verifier, &sample, &written)?;
+    verify(&verifier, &sample, &written)?;
 
     // Reads only — no `2 *`. That factor is the whole difference from the copy.
     let ops_count = probe.window_lines * config.vector_size;
@@ -115,8 +116,13 @@ pub fn memory_read_throughput<I: Numeric, N: Size>(
     // compiler is free to hoist such a load out of the loop — leaving the probe
     // reporting the speed of adding a register to itself.
     let mut start = 0;
+    // The cubes each cube has moved along the launch, once per walk of the
+    // buffer, so a line comes back only after a whole buffer of traffic (see
+    // `memory_probe::moved_pos`).
+    let mut moved = 0usize;
 
     for _ in 0..n_iter {
+        let pos = memory_probe::moved_pos(moved);
         for step in 0..steps {
             // Coalesced spreads one step's addresses across adjacent threads,
             // which is only fast where those threads share a real plane. A
@@ -125,7 +131,7 @@ pub fn memory_read_throughput<I: Numeric, N: Size>(
             let base = if blocked {
                 ABSOLUTE_POS * steps + step
             } else {
-                ABSOLUTE_POS + (step * stride)
+                pos + (step * stride)
             };
 
             if base < window {
@@ -141,6 +147,7 @@ pub fn memory_read_throughput<I: Numeric, N: Size>(
         start += window;
         if start >= len {
             start -= len;
+            moved = memory_probe::moved_further(moved);
         }
     }
 

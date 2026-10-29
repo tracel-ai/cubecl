@@ -24,6 +24,7 @@ shared-bytes = ["dep:bytes"]
 persistence = [
     "std",
     "dep:turso",
+    "dep:branches",
     "dep:web-sys",
     "dep:js-sys",
     "dep:wasm-bindgen",
@@ -64,6 +65,7 @@ serde_bytes = { workspace = true, features = ["alloc"] }
 # Persistence
 bytes = { workspace = true, optional = true }
 turso = { workspace = true, optional = true }
+branches = { workspace = true, optional = true }
 ciborium = { workspace = true }
 # The bundle manifest is JSON on every target: the flat format exists for the
 # ones the `cache` feature can't reach.

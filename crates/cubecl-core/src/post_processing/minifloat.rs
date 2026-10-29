@@ -13,6 +13,7 @@ use cubecl_ir::{
     prelude::*,
     types::Fp8Format,
 };
+use half::f16;
 use pliron::r#type::TypeHandle;
 
 use crate::{self as cubecl, prelude::*};
@@ -28,6 +29,11 @@ const F32_NAN_BITS: u32 = f32::NAN.to_bits();
 const FP8_SIGN_BIT: u32 = 1 << (u8::BITS - 1);
 const FP8_MAGNITUDE_MASK: u32 = FP8_SIGN_BIT - 1;
 const SIGN_SHIFT: u32 = u32::BITS - u8::BITS;
+const F16_MANTISSA_BITS: u32 = f16::MANTISSA_DIGITS - 1;
+const F16_EXPONENT_BIAS: u32 = (f16::MAX_EXP - 1) as u32;
+/// Two codes sixteen bits apart, the halves of an `f16` pair: their magnitudes, and their signs.
+const FP8_PAIR_MAGNITUDE_MASK: u32 = FP8_MAGNITUDE_MASK | (FP8_MAGNITUDE_MASK << u16::BITS);
+const FP8_PAIR_SIGN_MASK: u32 = FP8_SIGN_BIT | (FP8_SIGN_BIT << u16::BITS);
 
 /// Bits above the low byte are ignored.
 ///
@@ -86,6 +92,85 @@ pub fn fp8_bits_to_f32<N: Size>(
     };
 
     Vector::<f32, N>::reinterpret(result | sign)
+}
+
+/// Whether a `format` code lands on an `f16` by moving its bits ([`fp8_words_to_f16_placed`]): a
+/// signed code whose exponent and mantissa fit an `f16`'s. `e4m3` and `e5m2` do; `ue8m0`, eight
+/// exponent bits and no sign, does not.
+pub const fn fp8_places_on_f16(format: Fp8Format) -> bool {
+    matches!(format, Fp8Format::E4M3 | Fp8Format::E5M2)
+}
+
+/// What a `format` code placed as an `f16` ([`fp8_words_to_f16_placed`]) is short of its value
+/// by: `2^(15 - bias)`, the gap between an `f16`'s exponent bias and the format's. `2^8` for
+/// `e4m3`; one for `e5m2`, whose codes are an `f16`'s top byte.
+///
+/// # Panics
+///
+/// For a format that does not place on an `f16` ([`fp8_places_on_f16`]).
+pub fn fp8_f16_lift(format: Fp8Format) -> f64 {
+    assert!(
+        fp8_places_on_f16(format),
+        "fp8_f16_lift: a {format:?} code does not place on an f16"
+    );
+    2f64.powi(F16_EXPONENT_BIAS as i32 - format.bias() as i32)
+}
+
+/// The four `format` codes of each word of `words`, lowest byte first, decoded to `f16`.
+///
+/// One multiply for every lane lifts the placed values
+/// ([`fp8_words_to_f16_placed`](fn@fp8_words_to_f16_placed)) to their values, exactly, the
+/// factor being a power of two.
+#[cube]
+pub fn fp8_words_to_f16<W: Size, V: Size>(
+    words: Vector<u32, W>,
+    #[comptime] format: Fp8Format,
+) -> Vector<f16, V> {
+    let lift = comptime![fp8_f16_lift(format)];
+    fp8_words_to_f16_placed::<W, V>(words, format) * Vector::new(f16::new(lift))
+}
+
+/// The four `format` codes of each word of `words`, lowest byte first, placed as `f16` each
+/// [`fp8_f16_lift`] short of its value, exactly: what a caller that multiplies the values by a
+/// factor anyway, a block scale, takes, multiplying the lift into that factor once rather than
+/// paying a multiply a value.
+///
+/// A code's magnitude, its exponent and mantissa together, is already an `f16`'s in order, so it
+/// lands by one mask and one shift onto the `f16`'s exponent and mantissa, and its sign by
+/// another onto the sign bit. The exponent field is the code's own, so what it lands on is the
+/// value short by the bias gap and exactly that, and a code of exponent zero is an `f16`
+/// subnormal, which is the format's own subnormal arm with no select. A word's codes `j` and
+/// `j + 2` sit sixteen bits apart, so a word is two pairs, each pair costing what one code does.
+///
+/// An `e4m3` NaN code (magnitude all ones) has no counterpart at this placement and reads as a
+/// finite value; a quantizer writes one only for a NaN input. `e5m2`'s infinities and NaNs land
+/// on the `f16`'s own.
+#[cube]
+pub fn fp8_words_to_f16_placed<W: Size, V: Size>(
+    words: Vector<u32, W>,
+    #[comptime] format: Fp8Format,
+) -> Vector<f16, V> {
+    comptime!(assert!(
+        fp8_places_on_f16(format),
+        "fp8_words_to_f16_placed: a {format:?} code does not place on an f16"
+    ));
+    let magnitude_shift = comptime![F16_MANTISSA_BITS - format.mantissa_bits()];
+    let sign_shift = comptime![u16::BITS - u8::BITS];
+    let mut values = Vector::<f16, V>::empty();
+    #[unroll]
+    for w in 0..W::value() {
+        let word = words.extract(w);
+        #[unroll]
+        for j in 0..2usize {
+            let codes = word >> comptime![8 * j as u32];
+            let bits = ((codes & FP8_PAIR_MAGNITUDE_MASK) << magnitude_shift)
+                | ((codes & FP8_PAIR_SIGN_MASK) << sign_shift);
+            let pair = Vector::<f16, Const<2>>::reinterpret(bits);
+            values.insert(4 * w + j, pair.extract(0usize));
+            values.insert(4 * w + j + 2, pair.extract(1usize));
+        }
+    }
+    values
 }
 
 /// Round to nearest even; overflow and infinities saturate to the largest finite value, as the host

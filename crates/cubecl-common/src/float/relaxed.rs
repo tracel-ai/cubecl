@@ -10,6 +10,8 @@ use derive_more::derive::{
 };
 use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 
+use crate::powi_portable;
+
 /// A floating point type with relaxed precision, minimum [`prim@f16`], max [`prim@f32`].
 ///
 #[allow(non_camel_case_types)]
@@ -256,7 +258,7 @@ impl num_traits::Float for flex32 {
     }
 
     fn powi(self, n: i32) -> Self {
-        flex32(self.0.powi(n))
+        flex32(powi_portable(self.0, n))
     }
 
     fn powf(self, n: Self) -> Self {

@@ -36,9 +36,58 @@ wgsl_op_with_out!(CastOp; |op, ctx| {
     fmt_cast_to(ctx, op.input(ctx), op.result_type(ctx))
 });
 wgsl_op_with_out!(ReinterpretCastOp; |op, ctx| {
-    let ty = op.result_type(ctx).to_wgsl(ctx);
-    format!("bitcast<{ty}>({})", op.input(ctx).name(ctx))
+    let to = op.result_type(ctx);
+    if let Some(cast) = fmt_f16_pair_reinterpret(ctx, op.input(ctx), to) {
+        return cast;
+    }
+    format!("bitcast<{}>({})", to.to_wgsl(ctx), op.input(ctx).name(ctx))
 });
+
+/// A reinterpret between 32-bit lanes and twice as many `f16` lanes, through `unpack2x16float`
+/// and `pack2x16float`: naga types a `bitcast` that changes the lane count as its input's shape,
+/// so `bitcast<vec2<f16>>(u32)` reads back as an `f32` scalar and fails validation once indexed.
+/// The `f16` to `f32` round trip is exact.
+fn fmt_f16_pair_reinterpret(ctx: &Context, value: Value, to: TypeHandle) -> Option<String> {
+    let from = value.get_type(ctx);
+    let (from_size, to_size) = (from.vector_size(ctx), to.vector_size(ctx));
+    let (from_elem, to_elem) = (from.scalar_ty(ctx), to.scalar_ty(ctx));
+    let name = value.name(ctx);
+    let lane = |size: usize, i: usize| {
+        if size > 1 {
+            format!("{name}[{i}]")
+        } else {
+            name.to_string()
+        }
+    };
+    let join = |ty: TypeHandle, parts: Vec<String>| {
+        if parts.len() > 1 {
+            format!("{}({})", ty.to_wgsl(ctx), parts.join(", "))
+        } else {
+            parts.concat()
+        }
+    };
+
+    if to_elem.is_float16(ctx) && !from_elem.is_float16(ctx) && to_size == 2 * from_size {
+        let parts = (0..from_size)
+            .map(|i| {
+                let word = lane(from_size, i);
+                format!("vec2<f16>(unpack2x16float(bitcast<u32>({word})))")
+            })
+            .collect();
+        return Some(join(to, parts));
+    }
+    if from_elem.is_float16(ctx) && !to_elem.is_float16(ctx) && from_size == 2 * to_size {
+        let elem = to_elem.to_wgsl(ctx);
+        let parts = (0..to_size)
+            .map(|i| {
+                let (lo, hi) = (lane(from_size, 2 * i), lane(from_size, 2 * i + 1));
+                format!("bitcast<{elem}>(pack2x16float(vec2<f32>(f32({lo}), f32({hi}))))")
+            })
+            .collect();
+        return Some(join(to, parts));
+    }
+    None
+}
 
 wgsl_op_with_out!(SelectOp; |op, ctx| {
     let t = op.true_value(ctx).name(ctx);
@@ -180,7 +229,7 @@ fn unroll_bool_and<T: Scalar, N: Size>(
     let mut out = Vector::empty();
     #[unroll]
     for i in 0..lhs.vector_size() {
-        out.insert(i, lhs.extract(i) && rhs.extract(i));
+        out.insert(i, lhs.extract(i) & rhs.extract(i));
     }
     out
 }
@@ -194,7 +243,7 @@ fn unroll_bool_or<T: Scalar, N: Size>(
     let mut out = Vector::empty();
     #[unroll]
     for i in 0..lhs.vector_size() {
-        out.insert(i, lhs.extract(i) || rhs.extract(i));
+        out.insert(i, lhs.extract(i) | rhs.extract(i));
     }
     out
 }

@@ -45,6 +45,8 @@ pub trait Float:
     + ScalarRhypot
     + ScalarSqrt
     + ScalarInverseSqrt
+    + ScalarCbrt
+    + ScalarInverseCbrt
     + ScalarRound
     + ScalarFloor
     + ScalarCeil
@@ -74,8 +76,8 @@ pub trait Float:
     const NEG_INFINITY: Self;
     const RADIX: u32;
 
-    fn new(val: f32) -> Self;
-    fn __expand_new(scope: &Scope, val: f32) -> <Self as CubeType>::ExpandType {
+    fn new(val: f64) -> Self;
+    fn __expand_new(scope: &Scope, val: f64) -> <Self as CubeType>::ExpandType {
         __expand_new(scope, val)
     }
 }
@@ -191,8 +193,8 @@ macro_rules! impl_float {
             const NEG_INFINITY: Self = $primitive::NEG_INFINITY;
             const RADIX: u32 = $primitive::RADIX;
 
-            fn new(val: f32) -> Self {
-                $new(val as f64)
+            fn new(val: f64) -> Self {
+                $new(val)
             }
         }
 

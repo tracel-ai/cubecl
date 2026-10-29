@@ -7,12 +7,11 @@
 //! that wrong on one rank and the whole group hangs. That is what lives here.
 //!
 //! What does not is [`CollectiveDriver`]: agreeing the identifier, joining,
-//! naming an element type, and the three operations themselves.
+//! naming an element type, and the operations themselves.
 
 use super::{DeviceResource, Driver};
 use crate::server::{CommunicationId, ReduceOperation, ServerError};
-use alloc::format;
-use alloc::vec::Vec;
+use alloc::{format, vec, vec::Vec};
 use cubecl_common::device::DeviceId;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
@@ -53,15 +52,15 @@ pub trait CollectiveDriver: Driver {
         rank: usize,
     ) -> Result<Self::Communicator, ServerError>;
 
-    /// How the driver names `dtype`, and how many elements `size` bytes hold.
+    /// The elements of `dtype` that `size` bytes hold, as the driver names them.
     ///
     /// # Errors
     ///
-    /// An element type the driver has no name for. Reported rather than fatal:
-    /// a collective is one operation among many, and refusing it is not a
-    /// reason to take the process down — the caller can pick another type, or
-    /// another way to move the tensor.
-    fn data_type(dtype: ElemType, size: u64) -> Result<(Self::DataType, usize), ServerError>;
+    /// An element type the driver has no name for, and a size that is not whole elements.
+    /// Reported rather than fatal: a collective is one operation among many, and
+    /// refusing it is not a reason to take the process down. The caller can pick
+    /// another type, or another way to move the tensor.
+    fn elements(dtype: ElemType, size: u64) -> Result<Elements<Self::DataType>, ServerError>;
 
     /// Reduce `src` across the group into `dst` on every rank.
     ///
@@ -72,9 +71,64 @@ pub trait CollectiveDriver: Driver {
         comm: &Self::Communicator,
         src: &DeviceResource<Self>,
         dst: &DeviceResource<Self>,
-        dtype: Self::DataType,
-        count: usize,
+        elements: Elements<Self::DataType>,
         op: ReduceOperation,
+        stream: Self::CommStream,
+    ) -> Result<(), ServerError>;
+
+    /// Write every rank's `src` of `elements`, concatenated in rank order, to `dst`.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to enqueue the gather.
+    fn all_gather(
+        comm: &Self::Communicator,
+        src: &DeviceResource<Self>,
+        dst: &DeviceResource<Self>,
+        elements: Elements<Self::DataType>,
+        stream: Self::CommStream,
+    ) -> Result<(), ServerError>;
+
+    /// Reduce every rank's `src` and write this rank's chunk of `elements` to `dst`.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to enqueue the reduction.
+    fn reduce_scatter(
+        comm: &Self::Communicator,
+        src: &DeviceResource<Self>,
+        dst: &DeviceResource<Self>,
+        elements: Elements<Self::DataType>,
+        op: ReduceOperation,
+        stream: Self::CommStream,
+    ) -> Result<(), ServerError>;
+
+    /// Write rank `root`'s `src` of `elements` to `dst` on every rank. Only `root` has a `src`.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to enqueue the broadcast.
+    fn broadcast(
+        comm: &Self::Communicator,
+        src: Option<&DeviceResource<Self>>,
+        dst: &DeviceResource<Self>,
+        elements: Elements<Self::DataType>,
+        root: usize,
+        stream: Self::CommStream,
+    ) -> Result<(), ServerError>;
+
+    /// Send chunk `r` of `src` to rank `r` and write the chunk rank `r` sends to chunk `r` of
+    /// `dst`, each of the `ranks` chunks holding `elements`.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to enqueue the exchange.
+    fn all_to_all(
+        comm: &Self::Communicator,
+        src: &DeviceResource<Self>,
+        dst: &DeviceResource<Self>,
+        elements: Elements<Self::DataType>,
+        ranks: usize,
         stream: Self::CommStream,
     ) -> Result<(), ServerError>;
 
@@ -86,8 +140,7 @@ pub trait CollectiveDriver: Driver {
     fn send(
         comm: &Self::Communicator,
         src: &DeviceResource<Self>,
-        dtype: Self::DataType,
-        count: usize,
+        elements: Elements<Self::DataType>,
         peer: usize,
         stream: Self::CommStream,
     ) -> Result<(), ServerError>;
@@ -100,11 +153,19 @@ pub trait CollectiveDriver: Driver {
     fn recv(
         comm: &Self::Communicator,
         dst: &DeviceResource<Self>,
-        dtype: Self::DataType,
-        count: usize,
+        elements: Elements<Self::DataType>,
         peer: usize,
         stream: Self::CommStream,
     ) -> Result<(), ServerError>;
+}
+
+/// A buffer's elements, with their type as the driver names it.
+#[derive(Debug, Clone, Copy)]
+pub struct Elements<T> {
+    /// The driver's name for the element type.
+    pub data_type: T,
+    /// How many elements.
+    pub count: usize,
 }
 
 /// The groups this device has joined.
@@ -116,6 +177,8 @@ pub struct Collectives<D: CollectiveDriver> {
     /// This device, whose position in a sorted group is its rank.
     device: DeviceId,
     joined: HashMap<CommunicationId, D::Communicator>,
+    /// The groups whose part here failed, each with the failure that broke it.
+    broken: HashMap<CommunicationId, ServerError>,
 }
 
 impl<D: CollectiveDriver> core::fmt::Debug for Collectives<D> {
@@ -125,6 +188,7 @@ impl<D: CollectiveDriver> core::fmt::Debug for Collectives<D> {
         f.debug_struct("Collectives")
             .field("device", &self.device)
             .field("joined", &self.joined.len())
+            .field("broken", &self.broken.len())
             .finish()
     }
 }
@@ -135,6 +199,31 @@ impl<D: CollectiveDriver> Collectives<D> {
         Self {
             device,
             joined: HashMap::default(),
+            broken: HashMap::default(),
+        }
+    }
+
+    /// Records that this device's part of a collective over `group` failed with `cause`. Its
+    /// peers wait in that collective, and another one over the group would pair with theirs.
+    pub fn mark_broken(&mut self, group: &CommunicationId, cause: ServerError) {
+        self.broken.entry(group.clone()).or_insert(cause);
+    }
+
+    /// Refuses a collective over `group` once a part of one here has failed.
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::Generic`] naming the failure that broke the group.
+    pub fn ensure_intact(&self, group: &CommunicationId) -> Result<(), ServerError> {
+        match self.broken.get(group) {
+            None => Ok(()),
+            Some(cause) => Err(ServerError::Generic {
+                reason: format!(
+                    "an earlier collective over this group failed on this device, so its peers \
+                     wait in that one and this device runs no other over the group: {cause}"
+                ),
+                backtrace: BackTrace::capture(),
+            }),
         }
     }
 
@@ -149,7 +238,25 @@ impl<D: CollectiveDriver> Collectives<D> {
     /// would have no rank in a group it is not in — and whatever the driver
     /// says about agreeing an identifier or joining.
     pub fn join(&mut self, devices: Vec<DeviceId>) -> Result<Option<CommunicationId>, ServerError> {
-        let id = CommunicationId::from(devices.clone());
+        self.join_as(CommunicationId::from(devices.clone()), devices)
+    }
+
+    /// The communicator for transfers between this device and `peer`, joined on first use.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the driver says about agreeing an identifier or joining.
+    pub fn transfers_with(&mut self, peer: DeviceId) -> Result<&D::Communicator, ServerError> {
+        let id = CommunicationId::transfers_between(self.device, peer);
+        self.join_as(id.clone(), vec![self.device, peer])?;
+        self.get(&id)
+    }
+
+    fn join_as(
+        &mut self,
+        id: CommunicationId,
+        devices: Vec<DeviceId>,
+    ) -> Result<Option<CommunicationId>, ServerError> {
         if self.joined.contains_key(&id) {
             return Ok(None);
         }
@@ -159,6 +266,16 @@ impl<D: CollectiveDriver> Collectives<D> {
         // number.
         let mut devices = devices;
         devices.sort();
+        // Two ranks on one device would each wait in its join for the other.
+        if let Some(pair) = devices.windows(2).find(|pair| pair[0] == pair[1]) {
+            return Err(ServerError::Generic {
+                reason: format!(
+                    "{:?} appears twice among the devices of a group, which need one rank each",
+                    pair[0]
+                ),
+                backtrace: BackTrace::capture(),
+            });
+        }
         let rank = rank_in(self.device, &devices).ok_or_else(|| ServerError::Generic {
             reason: format!(
                 "this device ({:?}) is not among the {} the group was formed over, \
@@ -187,6 +304,20 @@ impl<D: CollectiveDriver> Collectives<D> {
                 reason: "no communicator for this group; it has to be joined first".into(),
                 backtrace: BackTrace::capture(),
             })
+    }
+
+    /// The rank of `device` in the group over `devices`.
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::Generic`] when `device` is not among `devices`.
+    pub fn rank(&self, device: DeviceId, devices: &[DeviceId]) -> Result<usize, ServerError> {
+        let mut sorted = devices.to_vec();
+        sorted.sort();
+        rank_in(device, &sorted).ok_or_else(|| ServerError::Generic {
+            reason: format!("{device:?} is not among the devices of the group"),
+            backtrace: BackTrace::capture(),
+        })
     }
 
     /// The rank of the one device in `devices` that is not this one.

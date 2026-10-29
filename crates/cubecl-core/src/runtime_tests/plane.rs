@@ -80,14 +80,14 @@ pub fn kernel_min<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>) {
 #[cube(launch)]
 pub fn kernel_all<F: Float>(output: &mut Tensor<F>) {
     let val = output[UNIT_POS as usize];
-    let val2 = plane_all(val < F::new(5f32));
+    let val2 = plane_all(val < F::new(5.0));
     output[UNIT_POS as usize] = F::cast_from(val2);
 }
 
 #[cube(launch)]
 pub fn kernel_any<F: Float>(output: &mut Tensor<F>) {
     let val = output[UNIT_POS as usize];
-    let val2 = plane_any(val > F::new(5f32));
+    let val2 = plane_any(val > F::new(5.0));
     output[UNIT_POS as usize] = F::cast_from(val2);
 }
 
@@ -95,7 +95,7 @@ pub fn kernel_any<F: Float>(output: &mut Tensor<F>) {
 pub fn kernel_elect<F: Float>(output: &mut Tensor<F>) {
     let elect = plane_elect();
     if elect {
-        output[20] += F::new(1f32);
+        output[20] += F::new(1.0);
     }
 }
 
@@ -180,8 +180,8 @@ pub fn test_plane_sum<
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
-    let input: Vec<f32> = (0..plane_size * vectorization as u32)
-        .map(|x| x as f32)
+    let input: Vec<f64> = (0..plane_size * vectorization as u32)
+        .map(|x| x as f64)
         .collect();
     let mut expected = input.clone();
 
@@ -212,8 +212,8 @@ pub fn test_plane_inclusive_sum<
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
-    let input: Vec<f32> = (0..plane_size * vectorization as u32)
-        .map(|x| x as f32)
+    let input: Vec<f64> = (0..plane_size * vectorization as u32)
+        .map(|x| x as f64)
         .collect();
     let mut expected = input.clone();
 
@@ -249,8 +249,8 @@ pub fn test_plane_exclusive_sum<
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
-    let input: Vec<f32> = (0..plane_size * vectorization as u32)
-        .map(|x| x as f32)
+    let input: Vec<f64> = (0..plane_size * vectorization as u32)
+        .map(|x| x as f64)
         .collect();
     let mut expected = vec![0.0; input.len()];
 
@@ -286,7 +286,7 @@ pub fn test_plane_prod<
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
-    let input: Vec<f32> = (0..plane_size * vectorization as u32)
+    let input: Vec<f64> = (0..plane_size * vectorization as u32)
         .map(|x| match x % 3 {
             0 => 0.5,
             1 => 1.25,
@@ -323,7 +323,7 @@ pub fn test_plane_inclusive_prod<
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
-    let input: Vec<f32> = (0..plane_size * vectorization as u32)
+    let input: Vec<f64> = (0..plane_size * vectorization as u32)
         .map(|x| match x % 3 {
             0 => 0.5,
             1 => 1.25,
@@ -364,7 +364,7 @@ pub fn test_plane_exclusive_prod<
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
-    let input: Vec<f32> = (0..plane_size * vectorization as u32)
+    let input: Vec<f64> = (0..plane_size * vectorization as u32)
         .map(|x| match x % 3 {
             0 => 0.5,
             1 => 1.25,
@@ -405,8 +405,8 @@ pub fn test_plane_max<
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
-    let mut input: Vec<f32> = (0..plane_size * vectorization as u32)
-        .map(|x| x as f32)
+    let mut input: Vec<f64> = (0..plane_size * vectorization as u32)
+        .map(|x| x as f64)
         .collect();
     input[16] = 999.0; // I don't want the max to always be the last element.
 
@@ -439,8 +439,8 @@ pub fn test_plane_min<
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
-    let mut input: Vec<f32> = (0..plane_size * vectorization as u32)
-        .map(|x| x as f32)
+    let mut input: Vec<f64> = (0..plane_size * vectorization as u32)
+        .map(|x| x as f64)
         .collect();
     input[16] = -5.0; // I don't want the min to always be the first element.
 
@@ -478,13 +478,13 @@ pub fn test_plane_min_partial<
     let cube_dim = 4usize;
     let buffer_len = 32usize;
 
-    let input: Vec<f32> = (0..buffer_len).map(|x| (x + 1) as f32).collect();
+    let input: Vec<f64> = (0..buffer_len).map(|x| (x + 1) as f64).collect();
 
     let mut expected = input.clone();
     expected[0] = input[..cube_dim]
         .iter()
         .copied()
-        .fold(f32::INFINITY, f32::min);
+        .fold(f64::INFINITY, f64::min);
 
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
@@ -508,8 +508,8 @@ pub fn test_plane_all<
 ) {
     let vectorization = 1; // Vectorization can't work for all/any
     let plane_size = 32;
-    let mut input: Vec<f32> = (0..plane_size * vectorization as u32)
-        .map(|x| (x % 5) as f32) // the predicate is x < 5 which is always satisfied at this step.
+    let mut input: Vec<f64> = (0..plane_size * vectorization as u32)
+        .map(|x| (x % 5) as f64) // the predicate is x < 5 which is always satisfied at this step.
         .collect();
 
     for k in 0..vectorization {
@@ -518,8 +518,8 @@ pub fn test_plane_all<
         }
     }
 
-    let expected: Vec<f32> = (0..input.len())
-        .map(|x| ((x % vectorization) % 2) as f32)
+    let expected: Vec<f64> = (0..input.len())
+        .map(|x| ((x % vectorization) % 2) as f64)
         .collect();
 
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
@@ -538,8 +538,8 @@ pub fn test_plane_any<
 ) {
     let vectorization = 1; // Vectorization can't work for all/any
     let plane_size = 32;
-    let mut input: Vec<f32> = (0..plane_size * vectorization as u32)
-        .map(|x| (x % 5) as f32) // the predicate is x > 5 which is never satisfied at this step.
+    let mut input: Vec<f64> = (0..plane_size * vectorization as u32)
+        .map(|x| (x % 5) as f64) // the predicate is x > 5 which is never satisfied at this step.
         .collect();
 
     for k in 0..vectorization {
@@ -548,8 +548,8 @@ pub fn test_plane_any<
         }
     }
 
-    let expected: Vec<f32> = (0..input.len())
-        .map(|x| (1 - (x % vectorization) % 2) as f32)
+    let expected: Vec<f64> = (0..input.len())
+        .map(|x| (1 - (x % vectorization) % 2) as f64)
         .collect();
 
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
@@ -639,8 +639,8 @@ pub fn test_plane_broadcast<
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
-    let input: Vec<f32> = (0..plane_size * vectorization as u32)
-        .map(|x| x as f32)
+    let input: Vec<f64> = (0..plane_size * vectorization as u32)
+        .map(|x| x as f64)
         .collect();
     let mut expected = input.clone();
 
@@ -669,8 +669,8 @@ pub fn test_plane_shuffle<
     vectorization: VectorSize,
 ) {
     let plane_size = client.properties().hardware.plane_size_max;
-    let input: Vec<f32> = (0..plane_size * vectorization as u32)
-        .map(|x| x as f32)
+    let input: Vec<f64> = (0..plane_size * vectorization as u32)
+        .map(|x| x as f64)
         .collect();
     let mut expected = input.clone();
 
@@ -699,8 +699,8 @@ pub fn test_plane_shuffle_xor<
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
-    let input: Vec<f32> = (0..plane_size * vectorization as u32)
-        .map(|x| x as f32)
+    let input: Vec<f64> = (0..plane_size * vectorization as u32)
+        .map(|x| x as f64)
         .collect();
     let mut expected = input.clone();
 
@@ -735,8 +735,8 @@ pub fn test_plane_shuffle_up<
     vectorization: VectorSize,
 ) {
     let plane_size = client.properties().hardware.plane_size_max;
-    let input: Vec<f32> = (0..plane_size * vectorization as u32)
-        .map(|x| x as f32)
+    let input: Vec<f64> = (0..plane_size * vectorization as u32)
+        .map(|x| x as f64)
         .collect();
     let mut expected = input.clone();
 
@@ -769,8 +769,8 @@ pub fn test_plane_shuffle_down<
     vectorization: VectorSize,
 ) {
     let plane_size = client.properties().hardware.plane_size_max;
-    let input: Vec<f32> = (0..plane_size * vectorization as u32)
-        .map(|x| x as f32)
+    let input: Vec<f64> = (0..plane_size * vectorization as u32)
+        .map(|x| x as f64)
         .collect();
     let mut expected = input.clone();
 

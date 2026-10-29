@@ -211,14 +211,14 @@ Sometimes the results are surprising, which is part of why this is so useful for
 
 Even if these benchmarks add some overhead the first time, the results get cached on the device and reused on later runs.
 When you have control over the deployment target, you can save a warm environment with `cubecl::environment::bundle()` and ship it with your binary, which removes the cold-start cost entirely.
-A dry run compiles and tunes every launch without executing it, so producing that bundle is cheap.
+A `ProcessModeOverride` compiles and tunes every launch without executing it, so producing that bundle is cheap: `examples/execution` shows how.
 
 ## Ecosystem
 
 CubeCL is one part of a small ecosystem with deliberately separated concerns, so you can go as low as you need.
 
-- **Write your own kernels.** The [CubeCL book](https://burn.dev/books/cubecl/) takes you from setup to your first kernel, then through the core features. This repository contains the language, the JIT compiler, the IR, and the per-platform runtimes.
-- **Build on [CubeK](https://github.com/tracel-ai/cubek).** Ready-made kernels for matrix multiplication, attention, and reductions, plus tiling APIs to write your own. It was split out from CubeCL so that kernel work and language work can move at their own cadences, since the kind of pull requests and the rate of updates are very different between the two.
+- **Write your own kernels.** The [CubeCL book](https://burn.dev/books/cubecl/) takes you from setup to your first kernel, then through the core features. This repository contains the language, the tile DSL (`cubecl::tile`), the JIT compiler, the IR, and the per-platform runtimes.
+- **Build on [CubeK](https://github.com/tracel-ai/cubek).** Ready-made kernels for matrix multiplication, attention, and reductions. It was split out from CubeCL so that kernel work and language work can move at their own cadences, since the kind of pull requests and the rate of updates are very different between the two.
 - **Train and run models with [Burn](https://burn.dev).** Burn uses CubeCL to run on GPUs and CPUs. It is the deep learning framework that drove CubeCL's design, and its production proving ground.
 
 ## Supported platforms
@@ -275,7 +275,7 @@ That is how CubeCL was born.
 CubeCL is a low-level GPU/CPU programming language similar to CUDA, and it aims to reach peak performance on every backend it supports.
 The tradeoff compared to tile DSLs is not performance but kernel complexity, because the programmer has to handle device properties explicitly and specialize the kernel for them.
 CubeCL relies on Rust's type system to manage that complexity, which is already good at expressing abstractions, rather than shipping a separate language frontend.
-If you'd rather write at the tile level, [CubeK](https://github.com/tracel-ai/cubek) provides tiling APIs built on CubeCL, plus ready-made matmul, attention and reduction kernels.
+If you'd rather write at the tile level, the `tile` feature brings in `cubecl::tile`, and [CubeK](https://github.com/tracel-ai/cubek) builds ready-made matmul, attention and reduction kernels on it.
 
 Kernels are compiled just-in-time, not ahead-of-time.
 Only the variants you actually launch are generated, so you do not end up with a precompiled library that has to cover every combination of shape, hardware target, and instruction set, which can easily run into gigabytes for AoT projects like hand-written CUDA.

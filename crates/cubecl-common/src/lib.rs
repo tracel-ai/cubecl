@@ -68,3 +68,8 @@ pub use float::*;
 mod ratio;
 
 pub use ratio::*;
+
+/// Polyfills for things that aren't great in normal Rust (just powi right now)
+mod polyfill;
+
+pub use polyfill::*;

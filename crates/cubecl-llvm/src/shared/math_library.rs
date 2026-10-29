@@ -7,6 +7,8 @@ use llvm_sys::{
 };
 use std::ffi::{CStr, CString};
 
+use super::llvm_module::functions;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FloatWidth {
     F16,
@@ -73,14 +75,10 @@ pub unsafe fn redirect_intrinsics(
     library: &dyn MathLibrary,
 ) -> Result<bool, String> {
     unsafe {
-        let mut candidates = Vec::new();
-        let mut func = LLVMGetFirstFunction(module);
-        while !func.is_null() {
-            if let Some(candidate) = classify(func, library) {
-                candidates.push(candidate);
-            }
-            func = LLVMGetNextFunction(func);
-        }
+        // Collected first, as the loop below deletes the functions it redirects.
+        let candidates: Vec<_> = functions(module)
+            .filter_map(|func| classify(func, library))
+            .collect();
 
         let mut redirected = false;
         for candidate in candidates {

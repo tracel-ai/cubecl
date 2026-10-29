@@ -16,8 +16,8 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    AlwaysSpeculatable, CanMaterialize, NoMemoryEffect, RecursiveMemoryEffects,
-    RecursiveSideEffects, RecursivelySpeculatable, ReturnLike,
+    CanMaterialize, NoMemoryEffect, Pure, RecursiveMemoryEffects, RecursiveSideEffects,
+    RecursivelySpeculatable, ReturnLike,
     attributes::{BoolAttr, IntegerVecAttr, ZeroAttr},
     dialect::scf::block_mem_val,
     interfaces::{
@@ -59,7 +59,7 @@ pub enum YieldOpVerifyErr {
 
 #[pliron_op(name = "branch.yield", format = "`(` operands(CharSpace(`,`)) `)`")]
 #[op_interfaces(IsTerminatorInterface, NResultsInterface<0>)]
-#[op_traits(NoMemoryEffect, AlwaysSpeculatable, ReturnLike, CanMaterialize)]
+#[op_traits(Pure, ReturnLike, CanMaterialize)]
 pub struct YieldOp;
 
 impl YieldOp {
@@ -101,7 +101,7 @@ impl Verify for YieldOp {
 
 #[pliron_op(name = "branch.condition", format = "`(` operands(CharSpace(`,`)) `)`")]
 #[op_interfaces(IsTerminatorInterface, NResultsInterface<0>, OperandNOfType<0, BoolType>)]
-#[op_traits(CanMaterialize, NoMemoryEffect, AlwaysSpeculatable)]
+#[op_traits(Pure, CanMaterialize)]
 pub struct ConditionOp;
 
 impl ConditionOp {

@@ -5,8 +5,11 @@ use cubecl_core::{
     prelude::Visibility,
 };
 use cubecl_cpp::{
-    metal::{arch::MetalArchitecture, supported_cmma_combinations_metal},
-    shared::{MslComputeKernel, register_wmma_features},
+    metal::{
+        arch::MetalArchitecture, mma::supported_mma_combinations_metal,
+        supported_cmma_combinations_metal,
+    },
+    shared::{MslComputeKernel, register_mma_features, register_wmma_features},
 };
 use cubecl_ir::{
     DeviceProperties, Type,
@@ -281,16 +284,23 @@ fn register_types(props: &mut DeviceProperties) {
     // is left out: registering it made add, load and store return wrong values.
     for ty in [ElemType::Int(IntKind::I32), ElemType::UInt(UIntKind::U32)] {
         props.register_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
+        props.register_shared_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
     }
+    // MSL's float atomics take `device` pointers only: the compiler rejects one in
+    // `threadgroup` memory, so shared memory gets none.
     props.register_atomic_type_usage(
         Type::atomic(ElemType::Float(FloatKind::F32)),
         AtomicUsage::Add | AtomicUsage::LoadStore,
     );
 }
 
+/// The `simdgroup_matrix` as a cooperative matrix, and as a manual MMA over each lane's
+/// registers.
 fn register_cmma(props: &mut DeviceProperties) {
     let combinations = supported_cmma_combinations_metal(&MetalArchitecture::Metal3);
     register_wmma_features(combinations, props);
+    let combinations = supported_mma_combinations_metal(&MetalArchitecture::Metal3);
+    register_mma_features(combinations, props);
 }
 
 #[cfg(all(test, target_vendor = "apple"))]

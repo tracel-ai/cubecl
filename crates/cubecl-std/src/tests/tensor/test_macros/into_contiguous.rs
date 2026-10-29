@@ -8,9 +8,16 @@ macro_rules! testgen_tensor_into_contiguous {
             use $crate::tests::tensor::into_contiguous::{
                 test_into_contiguous_packed_halving, test_into_contiguous_packed_multi_vector,
                 test_into_contiguous_packed_repack, test_into_contiguous_packed_vector_size_one,
+                test_into_contiguous_permuted_blocks, test_into_contiguous_permuted_edges,
                 test_into_contiguous_permuted_sweep, test_into_contiguous_permuted_unaligned_axis,
                 test_into_contiguous_rank_mismatch, test_into_contiguous_shape_mismatch,
+                test_into_contiguous_unfold_unaligned_rows,
             };
+
+            #[$crate::tests::test_log::test]
+            pub fn test_unfold_unaligned_rows() {
+                test_into_contiguous_unfold_unaligned_rows::<TestRuntime>(&Default::default());
+            }
 
             #[$crate::tests::test_log::test]
             pub fn test_packed_repack() {
@@ -50,6 +57,16 @@ macro_rules! testgen_tensor_into_contiguous {
             #[$crate::tests::test_log::test]
             pub fn test_permuted_sweep() {
                 test_into_contiguous_permuted_sweep::<TestRuntime>(&Default::default());
+            }
+
+            #[$crate::tests::test_log::test]
+            pub fn test_permuted_blocks() {
+                test_into_contiguous_permuted_blocks::<TestRuntime>(&Default::default());
+            }
+
+            #[$crate::tests::test_log::test]
+            pub fn test_permuted_edges() {
+                test_into_contiguous_permuted_edges::<TestRuntime>(&Default::default());
             }
         }
     };

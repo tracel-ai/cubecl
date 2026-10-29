@@ -467,10 +467,11 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static> ViewMutExpand<'a, E, C> {
 
 #[cube]
 impl<'a, E: CubePrimitive, C: Coordinates> ViewMut<'a, E, C> {
-    /// Execute a TMA store into global memory, if the underlying storage supports it.
+    /// Execute a TMA store into global memory, if the underlying storage supports it, and
+    /// return its completion: `shared_memory` may only be written again once it resolves.
     /// Panics if it's unsupported.
     #[allow(unused_variables)]
-    pub fn tensor_map_store(&self, shared_memory: &[E], pos: C) {
+    pub fn tensor_map_store(&self, shared_memory: &[E], pos: C) -> Pending<()> {
         intrinsic!(|scope| {
             self.inner
                 .__expand_tensor_map_store_method(scope, shared_memory, pos)

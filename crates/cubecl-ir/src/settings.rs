@@ -75,6 +75,34 @@ pub enum ExecutionMode {
     Unchecked,
 }
 
+/// How much source-level debug data a kernel carries. Profilers and debuggers read it to map
+/// kernel code back to the `#[cube]` source.
+#[derive(
+    Default,
+    Hash,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Clone,
+    Copy,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub enum DebugInfo {
+    /// No debug data.
+    #[default]
+    #[serde(rename = "none")]
+    None,
+    /// Source lines, with each inlined `#[cube]` function as its own frame.
+    #[serde(rename = "line-tables")]
+    LineTables,
+    /// Line tables and the embedded source text.
+    #[serde(rename = "full")]
+    Full,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct KernelSettings {
     /// The cube dim of the kernel
@@ -83,8 +111,8 @@ pub struct KernelSettings {
     pub address_type: AddressType,
     /// The name of the kernel
     pub kernel_name: String,
-    /// Whether to include debug symbols
-    pub debug_symbols: bool,
+    /// The source-level debug data to include
+    pub debug_info: DebugInfo,
     /// CUDA Cluster dim, if any
     pub cluster_dim: Option<Dim3>,
     /// Execution mode
@@ -97,7 +125,7 @@ impl KernelSettings {
             cube_dim,
             address_type,
             kernel_name: String::new(),
-            debug_symbols: false,
+            debug_info: DebugInfo::None,
             cluster_dim: None,
             execution_mode,
         }
@@ -123,9 +151,16 @@ impl KernelSettings {
         self
     }
 
-    /// Activate debug symbols
-    pub fn debug_symbols(mut self) -> Self {
-        self.debug_symbols = true;
+    /// Include full debug data, whatever the cargo profile asks for.
+    #[must_use]
+    pub fn debug_symbols(self) -> Self {
+        self.debug_info(DebugInfo::Full)
+    }
+
+    /// Set the source-level debug data to include.
+    #[must_use]
+    pub fn debug_info(mut self, debug_info: DebugInfo) -> Self {
+        self.debug_info = debug_info;
         self
     }
 

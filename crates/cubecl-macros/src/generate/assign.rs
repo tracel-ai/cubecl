@@ -230,6 +230,7 @@ impl Assign {
 
     fn where_clause(&self, trait_: &Path) -> Option<WhereClause> {
         let cube_type = prelude_type("CubeType");
+        let into_expand = prelude_type("IntoExpand");
 
         let fields: Vec<_> = match &self.data {
             Data::Enum(variants) => variants
@@ -244,11 +245,12 @@ impl Assign {
                 .cloned()
                 .collect(),
         };
-        bounded_where_clause(
-            &self.generics,
-            fields,
-            |param| quote!(<#param as #cube_type>::ExpandType: #trait_),
-        )
+        bounded_where_clause(&self.generics, fields, |param| {
+            let expand_type = quote!(<#param as #cube_type>::ExpandType);
+            // Preserve CubeType's equality explicitly: RuntimeAssign's IntoExpand
+            // supertrait can otherwise shadow it when resolving init_mut's result.
+            quote!(#expand_type: #trait_ + #into_expand<Expand = #expand_type>)
+        })
     }
 }
 

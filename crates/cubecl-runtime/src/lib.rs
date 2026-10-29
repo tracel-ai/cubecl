@@ -27,6 +27,10 @@ extern crate alloc;
 #[macro_use]
 extern crate derive_new;
 
+/// The source directory of the kernel debug data.
+#[cfg(feature = "std")]
+pub mod debug_source;
+
 /// Various identifier types used in `CubeCL`.
 pub mod id;
 
@@ -39,8 +43,11 @@ pub mod throughput;
 /// Compute client module.
 pub mod client;
 
-/// The device type of each runtime.
+/// The device type of each runtime, and which hardware a device is.
 pub mod device;
+
+#[cfg(persistence)]
+mod namespace_version;
 
 /// Autotune module
 pub mod tune;
@@ -66,7 +73,9 @@ pub mod tma;
 
 /// Compiler trait and related types
 pub mod compiler;
-pub mod dry_run;
+/// Device identity and properties.
+pub mod description;
+pub mod execution;
 pub mod launched;
 /// The payload every error type carries when the device is poisoned.
 pub mod poison;

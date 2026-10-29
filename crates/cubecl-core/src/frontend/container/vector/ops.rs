@@ -247,6 +247,8 @@ impl<P: Scalar + Powf, N: Size> Powf for Vector<P, N> {}
 impl<P: Scalar + Powi<I>, I: Scalar, N: Size> Powi<Vector<I, N>> for Vector<P, N> {}
 impl<P: Scalar + Sqrt, N: Size> Sqrt for Vector<P, N> {}
 impl<P: Scalar + InverseSqrt, N: Size> InverseSqrt for Vector<P, N> {}
+impl<P: Scalar + Cbrt, N: Size> Cbrt for Vector<P, N> {}
+impl<P: Scalar + InverseCbrt, N: Size> InverseCbrt for Vector<P, N> {}
 impl<P: Scalar + Cos, N: Size> Cos for Vector<P, N> {}
 impl<P: Scalar + Sin, N: Size> Sin for Vector<P, N> {}
 impl<P: Scalar + Tan, N: Size> Tan for Vector<P, N> {}

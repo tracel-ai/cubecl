@@ -1,5 +1,5 @@
 use alloc::vec;
-use core::f32::consts::PI;
+use core::f64::consts::PI;
 
 use cubecl_ir::{Type, cube_op, interfaces::TypedExt, prelude::*};
 use num_traits::One;
@@ -90,7 +90,7 @@ fn max_nan_fallback<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> 
 #[cube]
 pub fn erf<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     let erf = erf_positive(x.abs());
-    select_many(x.less_than(&Vector::new(F::new(0f32))), -erf, erf)
+    select_many(x.less_than(&Vector::new(F::new(0.0))), -erf, erf)
 }
 
 /// An approximation of the error function: <https://en.wikipedia.org/wiki/Error_function#Numerical_approximations>
@@ -99,13 +99,13 @@ pub fn erf<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
 /// > All of these approximations are valid for x ≥ 0. To use these approximations for negative x, use the fact that erf x is an odd function, so erf x = −erf(−x).
 #[cube]
 fn erf_positive<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
-    let p = Vector::new(F::new(0.3275911_f32));
-    let a1 = Vector::new(F::new(0.2548296_f32));
-    let a2 = Vector::new(F::new(-0.28449674_f32));
-    let a3 = Vector::new(F::new(1.4214137_f32));
-    let a4 = Vector::new(F::new(-1.453152_f32));
-    let a5 = Vector::new(F::new(1.0614054_f32));
-    let one = Vector::new(F::new(1.0_f32));
+    let p = Vector::new(F::new(0.3275911));
+    let a1 = Vector::new(F::new(0.2548296));
+    let a2 = Vector::new(F::new(-0.28449674));
+    let a3 = Vector::new(F::new(1.4214137));
+    let a4 = Vector::new(F::new(-1.453152));
+    let a5 = Vector::new(F::new(1.0614054));
+    let one = Vector::new(F::new(1.0));
 
     let t = one / (one + p * x);
     let tmp = ((((a5 * t + a4) * t) + a3) * t + a2) * t + a1;
@@ -211,10 +211,10 @@ pub fn log1p<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
 #[cube]
 pub fn expm1<T: Float, N: Size>(x: Vector<T, N>) -> Vector<T, N> {
     let sq = x * x;
-    let a = sq * Vector::new(T::new(0.5_f32));
-    let b = sq * x * Vector::new(T::new(1.0_f32 / 6.0_f32));
+    let a = sq * Vector::new(T::new(0.5));
+    let b = sq * x * Vector::new(T::new(1.0 / 6.0));
     let taylor = x + a + b;
-    let is_small = x.abs().less_than(&Vector::new(T::new(1e-5_f32)));
+    let is_small = x.abs().less_than(&Vector::new(T::new(1e-5)));
     select_many(is_small, taylor, x.exp() - Vector::one())
 }
 
@@ -240,7 +240,7 @@ fn simple_pow<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<T, N>) -> Vecto
 
 #[cube]
 pub fn powf<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<T, N>) -> Vector<T, N> {
-    let modulo = exp.mod_floor(Vector::new(T::new(2.0_f32)));
+    let modulo = exp.mod_floor(Vector::new(T::new(2.0)));
     let is_even = modulo.equal(&Vector::zero());
     let is_odd = modulo.equal(&Vector::one());
     let is_neg_base = base.less_than(&Vector::zero());
@@ -253,18 +253,115 @@ pub fn powf<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<T, N>) -> Vector<
     select_many(is_even, even_res, sel1)
 }
 
+/// Integer powers by squaring, without converting the exponent to a float.
+/// Constant exponents, including vector splats, expand to multiplication chains.
 #[cube]
 pub fn powi<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vector<T, N> {
-    let is_even = exp.is_multiple_of(2);
-    let is_neg_base = base.less_than(&Vector::zero());
-    let exp = Vector::cast_from(exp);
+    intrinsic!(|scope| {
+        let value = exp.read_value(scope);
+        if let Some(exponent) = powi_constant_exponent(scope.ctx(), value) {
+            powi_constant::expand::<T, N>(scope, base, exponent)
+        } else {
+            powi_runtime::expand::<T, N>(scope, base, exp)
+        }
+    })
+}
 
-    let even_res = simple_pow(base.abs(), exp);
-    let odd_neg_res = -(simple_pow(-base, exp));
-    let default = simple_pow(base, exp);
+// Vector literals are broadcasts of scalar constants at this point in lowering.
+fn powi_constant_exponent(ctx: &Context, mut value: Value) -> Option<i32> {
+    use cubecl_ir::{attributes::IntAttrExt, dialect::vector::VectorBroadcastOp};
+    use pliron::builtin::{attributes::IntegerAttr, ops::ConstantOp};
 
-    let sel1 = select_many((!is_even).vec_and(is_neg_base), odd_neg_res, default);
-    select_many(is_even, even_res, sel1)
+    loop {
+        let op = value.defining_op()?;
+        if let Some(broadcast) = op.as_op::<VectorBroadcastOp>(ctx) {
+            value = broadcast.input(ctx);
+        } else {
+            let attr = op
+                .as_op::<ConstantOp>(ctx)?
+                .get_attr_builtin_constant_value(ctx)?;
+            return attr.downcast_ref::<IntegerAttr>()?.as_value::<i32>(ctx);
+        }
+    }
+}
+
+// Emit the squaring chain for a known exponent. In particular, a square
+// is one multiply for both scalar constants and vector splats, with no loop.
+#[cube]
+fn powi_constant<T: Float, N: Size>(base: Vector<T, N>, #[comptime] exp: i32) -> Vector<T, N> {
+    // For negative exponents, form base^(|exp| / 2), then square its reciprocal.
+    // This postpones reciprocal rounding without overflowing the full positive
+    // power when the negative power is a representable subnormal.
+    let magnitude = comptime!(exp.unsigned_abs() >> u32::from(exp < 0));
+    let mut factor = base;
+    let mut result = Vector::one();
+    #[unroll]
+    for bit in 0..comptime!(32 - magnitude.leading_zeros()) {
+        if comptime!(magnitude & (1 << bit) != 0) {
+            if comptime!(bit == magnitude.trailing_zeros()) {
+                result = factor;
+            } else {
+                result *= factor;
+            }
+        }
+        if comptime!(bit + 1 < 32 - magnitude.leading_zeros()) {
+            factor *= factor;
+        }
+    }
+    if comptime!(exp < 0) {
+        let reciprocal = Vector::one() / result;
+        result = reciprocal * reciprocal;
+        if comptime!(exp & 1 != 0) {
+            result /= base;
+        }
+    }
+    result
+}
+
+#[cube]
+fn powi_runtime<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vector<T, N> {
+    let zero = Vector::<u32, N>::zero();
+    let one = Vector::<T, N>::one();
+    let one_u = Vector::<u32, N>::one();
+    let negative = exp.less_than(&Vector::zero());
+
+    // Unsigned subtraction also represents abs(i32::MIN), without signed overflow.
+    let unsigned = Vector::<u32, N>::cast_from(exp);
+    let magnitude = select_many(negative, zero - unsigned, unsigned);
+    // As in the constant path, negative powers use half the magnitude so the
+    // reciprocal can be taken after exponentiation without losing subnormals.
+    let mut remaining = select_many(negative, magnitude >> one_u, magnitude);
+    let mut factor = base;
+    // Consume the first bit without multiplying by one. Square only when another
+    // exponent bit remains, so a runtime square needs just one loop iteration.
+    let mut result = select_many((remaining & one_u).equal(&one_u), base, one);
+    remaining >>= one_u;
+
+    // The highest bit across all lanes bounds the loop, without a reduction on
+    // every iteration. OR the signed exponents too: a negative result means at
+    // least one lane needs a reciprocal.
+    let mut bits = 0u32;
+    let mut signs = 0i32;
+    #[unroll]
+    for lane in 0..remaining.vector_size() {
+        bits |= remaining.extract(lane);
+        signs |= exp.extract(lane);
+    }
+    while bits != 0 {
+        factor *= factor;
+        // Select after multiplying so finished lanes retain their result even
+        // if their unused factor overflows while other lanes continue.
+        result = select_many((remaining & one_u).equal(&one_u), result * factor, result);
+        remaining >>= one_u;
+        bits >>= 1;
+    }
+
+    if signs < 0 {
+        let reciprocal = one / result;
+        let divisor = select_many((magnitude & one_u).equal(&one_u), base, one);
+        result = select_many(negative, (reciprocal * reciprocal) / divisor, result);
+    }
+    result
 }
 
 /// Wrapping integer power, interpreting the exponent as `u32`.
@@ -307,14 +404,33 @@ pub fn recip<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
     Vector::one() / input
 }
 
+/// Cube root of the magnitude with the input's sign put back, since `powf` is NaN for a negative
+/// base. A backend `pow` can be a few ulp off (WGSL's is `exp2(y * log2(x))`), so one Newton step
+/// refines it. The step is written as `mag / y²` rather than `y³` so it can't overflow, and is
+/// skipped for zero and infinity, where it would divide by zero.
+#[cube]
+pub fn cbrt<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
+    let zero = Vector::<T, N>::zero();
+    let mag = input.abs();
+    let approx = mag.powf(Vector::new(T::new(comptime!(1.0 / 3.0))));
+    let refined = (approx + approx + mag / (approx * approx)) / Vector::new(T::new(3.0));
+    let root = select_many(mag.equal(&zero).or(mag.is_inf()), approx, refined);
+    select_many(input.less_than(&zero), -root, root)
+}
+
+#[cube]
+pub fn inverse_cbrt<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
+    Vector::one() / cbrt(input)
+}
+
 #[cube]
 pub fn to_degrees<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
-    input * Vector::new(T::new(comptime!(180.0_f32 / PI)))
+    input * Vector::new(T::new(comptime!(180.0 / PI)))
 }
 
 #[cube]
 pub fn to_radians<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
-    input * Vector::new(T::new(comptime!(PI / 180.0_f32)))
+    input * Vector::new(T::new(comptime!(PI / 180.0)))
 }
 
 pub mod bitwise {

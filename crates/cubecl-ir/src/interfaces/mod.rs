@@ -267,6 +267,15 @@ pub trait CanonicalizeInterface {
     fn canonicalize(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()>;
 }
 
+/// An op of a dialect the backends don't know, such as the tile DSL's. Every backend runs
+/// [`LowerOpsPass`](crate::rewrite::LowerOpsPass) ahead of its own passes, which lowers it to ops
+/// the backend knows.
+#[op_interface]
+pub trait LowerInterface {
+    verify_op_succ!();
+    fn lower(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()>;
+}
+
 #[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ExpressionValue(u64);
 
@@ -334,6 +343,11 @@ pub trait ConstantAttr: TypedAttrInterface {
         None
     }
     fn float_as_f64(&self, _ctx: &Context) -> Option<f64> {
+        None
+    }
+    /// The value of a scalar bool constant, without the panic `as_const_val` has for a zero of an
+    /// unsupported type such as a vector.
+    fn as_bool(&self, _ctx: &Context) -> Option<bool> {
         None
     }
 }

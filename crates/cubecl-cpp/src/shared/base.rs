@@ -21,13 +21,16 @@ use cubecl_runtime::kernel::BufferIOAttr;
 use super::ComputeKernel;
 use core::marker::PhantomData;
 use cubecl_core::{
+    codegen::KernelDump,
     ir::{
         AddressType, ContextExt, DeviceProperties, ElemType, FloatKind, IntKind, Type, UIntKind,
         features::{AtomicUsage, EnumSet, TypeUsage},
         interfaces::TypedExt,
         metadata::Info,
-        rewrite::{SimplifyOpsPass, visit_all_values},
-        settings::Dim3,
+        rewrite::{
+            CanonicalizePass, InheritLocationPass, LowerOpsPass, SimplifyOpsPass, visit_all_values,
+        },
+        settings::{DebugInfo, Dim3},
         types::scalar::{Complex32Type, Complex64Type},
     },
     post_processing::{
@@ -44,7 +47,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
-    sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
+    resolve_pending::ResolvePendingPass, sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::compiler::{CompilationError, Compiler};
 use pliron::{
@@ -54,7 +57,7 @@ use pliron::{
     op::Op,
     operation::verify_operation,
     opts::{dce::DCEPass, mem2reg::Mem2RegPass},
-    pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
+    pass::{AnalysisManager, NestedOpsPass, OpPass, Pass, Passes},
 };
 use std::fmt::Debug;
 
@@ -185,6 +188,12 @@ where
             info: kernel.info,
         };
 
+        let line_directives = kernel.settings.debug_info != DebugInfo::None;
+        if line_directives {
+            ctx.set_aux_ty(super::branch::LineDirectives {
+                directory: source_directory(&ctx, kernel.settings.debug_info),
+            });
+        }
         ctx.set_aux_ty(compilation_options);
         ctx.set_aux_ty(state);
         ctx.set_aux_ty(T::target());
@@ -219,24 +228,17 @@ where
                 .insert_before(&ctx, entry_func.get_operation());
         }
 
-        #[cfg(feature = "pliron-dump")]
-        let dump_dir = kernel_dir_name(&kernel.settings.kernel_name);
-
-        let config = PMConfig {
-            #[cfg(feature = "pliron-dump")]
-            ir_printing_dir: dump_dir.clone(),
-            print_after_all: cfg!(feature = "pliron-dump"),
-            ..Default::default()
-        };
-
+        let dump = KernelDump::new(&kernel.settings.kernel_name);
         let mut analyses = AnalysisManager::default();
-        analyses.set_config(config);
+        analyses.set_config(dump.pass_config());
 
         let mut passes = OpPass::<ModuleOp, Passes>::default();
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
 
+        func_passes.add_pass(LowerOpsPass::default());
         func_passes.add_pass(LowerInfoPass);
         func_passes.add_pass(SROAPass);
+        func_passes.add_pass(ResolvePendingPass);
         func_passes.add_pass(CheckedIoPass::new(CheckedIo::new(
             kernel.settings.execution_mode,
             kernel.settings.kernel_name,
@@ -299,6 +301,7 @@ where
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(SimpleCSEPass::with_memory());
         func_passes.add_pass(SimplifyOpsPass::default());
+        func_passes.add_pass(CanonicalizePass::default());
         func_passes.add_pass(DCEPass);
 
         func_passes.add_pass(PromoteBitwisePass);
@@ -308,6 +311,11 @@ where
         passes.add_pass(AnnotateGlobalVisibilityPass);
         passes.add_pass(DeclareVectorTypesPass);
         passes.add_pass(CollectIncludesPass::<T>::default());
+        // Some passes insert ops without a location. They get the location of the op before them,
+        // so each line of the source has a `#line`.
+        if line_directives {
+            passes.add_pass(InheritLocationPass);
+        }
 
         passes.run(module_op, &mut ctx, &mut analyses)?;
 
@@ -354,22 +362,29 @@ where
             source,
         };
 
-        #[cfg(feature = "pliron-dump")]
-        dump_cpp(&compute_kernel, dump_dir);
+        dump.write("module.cpp", || {
+            let source = compute_kernel.to_string();
+            crate::formatter::format_cpp(&source).unwrap_or(source)
+        });
 
         Ok(compute_kernel)
     }
 }
 
-#[cfg(feature = "pliron-dump")]
-fn dump_cpp(kernel: &ComputeKernel, dir: Option<std::path::PathBuf>) {
-    let Some(dir) = dir else {
-        return;
-    };
+/// The directory that has the relative source files of the kernel in `ctx` on this computer, if
+/// one does. At [`DebugInfo::Full`], the file must have the compiled text.
+#[cfg(feature = "std")]
+fn source_directory(ctx: &Context, level: DebugInfo) -> Option<std::path::PathBuf> {
+    use cubecl_core::ir::debug::DebugState;
+    use cubecl_runtime::debug_source::{kernel_source_root, source_md5s};
+    let debug = ctx.try_aux_ty::<DebugState>()?;
+    kernel_source_root(debug, &source_md5s(debug, level)).map(Into::into)
+}
 
-    let source = kernel.to_string();
-    let source = crate::formatter::format_cpp(&source).unwrap_or(source);
-    std::fs::write(dir.join("module.cpp"), source).unwrap();
+/// Without `std`, the search cannot read the files, and the directives keep the relative paths.
+#[cfg(not(feature = "std"))]
+fn source_directory(_ctx: &Context, _level: DebugInfo) -> Option<pliron::std_deps::path::PathBuf> {
+    None
 }
 
 pub fn register_supported_types(props: &mut DeviceProperties) {
@@ -421,23 +436,115 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
             _ => AtomicUsage::Add | AtomicUsage::LoadStore | AtomicUsage::Exchange,
         };
         props.register_atomic_type_usage(Type::atomic(ty), usage);
+        props.register_shared_atomic_type_usage(Type::atomic(ty), usage);
     }
 }
 
-#[cfg(feature = "pliron-dump")]
-pub fn kernel_dir_name(name: &str) -> Option<std::path::PathBuf> {
-    if let Ok(dir) = std::env::var("CUBECL_DEBUG_PLIRON") {
-        let path = sanitize_filename::sanitize_with_options(
-            name,
-            sanitize_filename::Options {
-                replacement: "_",
-                ..Default::default()
+#[cfg(test)]
+mod shared_memory_tests {
+    use cubecl_core::{
+        self as cubecl, Compiler,
+        compute::KernelBuilder,
+        ir::{
+            AddressType,
+            settings::{Dim3, ExecutionMode, KernelSettings},
+        },
+        prelude::*,
+    };
+
+    use super::CompilationOptions;
+    use crate::MslCompiler;
+
+    /// How `two_arrays` frees its first array and waits for the cube before using its second.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    enum Freed {
+        Synced,
+        DeclaredBeforeTheBarrier,
+        Unsynced,
+        InBranch,
+        InLoop,
+        Never,
+    }
+
+    /// Two arrays of a kilobyte each, the second declared after the first is freed where `freed`
+    /// says, and first written after a cube barrier unless it is unsynced.
+    #[cube]
+    fn two_arrays(#[comptime] freed: Freed) {
+        let mut first = Shared::<[f32]>::new_slice(256usize);
+        first[UNIT_POS as usize] = 1.0;
+        sync_cube();
+        match comptime!(freed) {
+            Freed::Synced | Freed::DeclaredBeforeTheBarrier | Freed::Unsynced => unsafe {
+                first.free()
             },
-        );
-        let dir = std::path::PathBuf::from(dir).join(&path);
-        std::fs::create_dir_all(&dir).unwrap();
-        Some(dir)
-    } else {
-        None
+            Freed::InBranch => {
+                if UNIT_POS == 0 {
+                    unsafe { first.free() }
+                }
+            }
+            Freed::InLoop => {
+                for _ in 0..UNIT_POS {
+                    unsafe { first.free() }
+                }
+            }
+            Freed::Never => {}
+        }
+        if comptime!(!matches!(
+            freed,
+            Freed::Unsynced | Freed::DeclaredBeforeTheBarrier
+        )) {
+            sync_cube();
+        }
+        let mut second = Shared::<[f32]>::new_slice(256usize);
+        if comptime!(freed == Freed::DeclaredBeforeTheBarrier) {
+            sync_cube();
+        }
+        second[UNIT_POS as usize] = 2.0;
+    }
+
+    /// The shared memory `two_arrays` compiles to under `freed`.
+    fn shared_bytes(freed: Freed) -> usize {
+        let builder = KernelBuilder::new(KernelSettings::new(
+            Dim3::new_1d(256),
+            ExecutionMode::Checked,
+            AddressType::U32,
+        ));
+        two_arrays::expand(&builder.scope, freed);
+        MslCompiler::default()
+            .compile(builder.build(), &CompilationOptions::default())
+            .expect("the kernel compiles")
+            .shared_memory_size
+    }
+
+    /// An array declared after another is freed takes the freed one's bytes: a kernel that holds
+    /// its stages until its walk ends and its bounce windows after needs the larger of the two,
+    /// not their sum.
+    #[test]
+    fn an_array_declared_after_a_free_reuses_its_bytes() {
+        assert_eq!(shared_bytes(Freed::Synced), 1024);
+        assert_eq!(shared_bytes(Freed::Never), 2048);
+    }
+
+    /// What decides is the first use, not the declaration: an array declared before the barrier
+    /// but first written after it reuses the freed bytes too, as a kernel that opens its memory
+    /// and then waits for the cube does.
+    #[test]
+    fn the_barrier_comes_before_the_first_use() {
+        assert_eq!(shared_bytes(Freed::DeclaredBeforeTheBarrier), 1024);
+    }
+
+    /// A free that might not run, inside a branch, or that might run before a later use of the
+    /// same array, inside a loop, releases nothing: the two arrays could be live at once.
+    #[test]
+    fn a_free_in_a_branch_or_a_loop_releases_nothing() {
+        assert_eq!(shared_bytes(Freed::InBranch), 2048);
+        assert_eq!(shared_bytes(Freed::InLoop), 2048);
+    }
+
+    /// A free with no cube barrier after it releases nothing: one unit could write the new array
+    /// while another still reads the freed one.
+    #[test]
+    fn a_free_releases_only_past_a_barrier() {
+        assert_eq!(shared_bytes(Freed::Unsynced), 2048);
     }
 }

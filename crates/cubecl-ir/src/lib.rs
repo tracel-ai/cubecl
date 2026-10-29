@@ -26,6 +26,7 @@ pub mod apfloat;
 pub mod arena;
 pub mod attributes;
 pub mod convert;
+pub mod debug;
 pub mod dialect;
 pub mod interfaces;
 pub mod metadata;
@@ -73,9 +74,9 @@ pub mod prelude {
             match_rewrite::{MatchRewrite, MatchRewriter},
             rewriter::{IRRewriter, Rewriter},
         },
-        location::Located,
         op::{Op, op_cast, op_impls},
         operation::Operation,
+        parsable::StreamLocation,
         pass::*,
         result::Result,
         r#type::{Type, TypeHandle, Typed, TypedHandle, type_cast, type_impls},
