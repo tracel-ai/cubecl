@@ -47,7 +47,7 @@ impl PoisonWatch {
     /// Installs an uncaptured-error handler too. wgpu's default one panics,
     /// which on a healthy device is what surfaces a validation bug, so it
     /// still does; but once the device is poisoned every call on it errors.
-    /// An out-of-memory error poisons the device instead (see
+    /// An out-of-memory error that reaches it poisons the device instead (see
     /// [`uncaptured_error`](Self::uncaptured_error)).
     pub fn watch(device: &wgpu::Device) -> Self {
         let poison = Self::default();
@@ -66,11 +66,16 @@ impl PoisonWatch {
 
     /// What the device's uncaptured-error handler does with `error`.
     ///
-    /// An out-of-memory error leaves invalid whatever the failed allocation
-    /// backed, and every result that reads it. A panic here is not the run's
+    /// An out-of-memory error poisons the device. This is the fallback: on
+    /// native, a buffer allocation catches its own out-of-memory error and
+    /// returns it, and the device stays usable. What reaches this handler is
+    /// the browser's error, which arrives asynchronously, possibly after work
+    /// using the buffer was submitted, or one raised outside an allocation,
+    /// such as at submit. Nothing tracks which results read the memory that
+    /// failed, so none of them can be trusted. A panic here is not the run's
     /// error: in a browser it traps this callback alone, and the run goes on
-    /// with the invalid buffers and returns their results. The device is
-    /// poisoned instead, so the run fails at its next sync point.
+    /// and returns those results. The device is poisoned instead, so the run
+    /// fails at its next sync point.
     fn uncaptured_error(&self, error: wgpu::Error) {
         if self.is_poisoned() {
             log::debug!("error on a poisoned wgpu device: {error}");
