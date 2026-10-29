@@ -1,6 +1,8 @@
 //! One [`Level`]: which axes a loop steps, in tiles of what size, how many, and who takes them.
 
-use super::{ComputeScope, Count, CubeAxis, CubeOrder, GridCount, PlaneOrder, UnitCube};
+use super::{
+    ComputeScope, Count, Coverage, CubeAxis, CubeOrder, GridCount, PlaneOrder, Spread, UnitCube,
+};
 use crate::{Axis, AxisMap, Extent, Space};
 
 /// One decomposition level of a space: who takes its tiles and how it cuts each axis it names.
@@ -37,35 +39,6 @@ pub(crate) struct Cut {
     pub(crate) tile: usize,
     pub(crate) count: Count,
     pub(crate) spread: Spread,
-}
-
-/// How a level covers its tiles.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
-pub enum Coverage {
-    /// One instance steps the tiles in sequence.
-    Walk,
-    /// The tiles are distributed over the instances of a scope.
-    Distribute(ComputeScope),
-}
-
-impl Coverage {
-    /// The scope the tiles are distributed over, or `None` where one instance walks them.
-    pub fn scope(self) -> Option<ComputeScope> {
-        match self {
-            Coverage::Walk => None,
-            Coverage::Distribute(scope) => Some(scope),
-        }
-    }
-}
-
-/// How a distributed axis's tiles are handed to a scope's instances.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
-pub enum Spread {
-    /// Instance `i` owns a contiguous run (cube 0 → `{0,1}`, cube 1 → `{2,3}`).
-    #[default]
-    Contiguous,
-    /// Instances take turns (cube 0 → `{0,2}`, cube 1 → `{1,3}`).
-    Interleaved,
 }
 
 impl Level {
