@@ -1,6 +1,6 @@
 use crate::device::{
     DeviceId, DeviceService, DeviceServiceStage, ServerUtilitiesHandle,
-    handle::{CallError, DeviceHandleSpec, ServiceCreationError},
+    handle::{CallError, DeviceHandleSpec, ServiceCloseError, ServiceCreationError, exit},
 };
 use core::time::Duration;
 use cubecl_environment::future::channel::oneshot;
@@ -71,7 +71,7 @@ impl DeviceHandleSpec for ChannelDeviceHandle {
     ) -> Result<R, CallError> {
         let state = self.state.service.clone();
         let current = StreamId::current();
-        self.run_scoped(move || state.act_on(|s| current.executes(|| task(s.as_mut()))))
+        self.run_scoped(move || state.act_on(|s| current.executes(|| task(s.as_mut()))))?
     }
 
     /// Asynchronously dispatches a task to the device thread.
@@ -96,6 +96,14 @@ impl DeviceHandleSpec for ChannelDeviceHandle {
     fn shutdown(device_id: DeviceId) {
         shutdown_device(device_id);
     }
+
+    fn close<S: DeviceService>(device_id: DeviceId) -> Result<(), ServiceCloseError> {
+        let runner_id = RunnerId {
+            device: device_id,
+            stage: S::stage(),
+        };
+        close_service(runner_id, TypeId::of::<S>())
+    }
 }
 
 const SEND_FLUSH: bool = true;
@@ -112,7 +120,13 @@ impl ChannelDeviceHandle {
         let current = StreamId::current();
 
         let func_init = move || {
-            state.act_on(|state| current.executes(|| task(state.as_mut())));
+            // Nobody waits on an asynchronous task, so a closed service has nobody to tell.
+            if state
+                .act_on(|state| current.executes(|| task(state.as_mut())))
+                .is_err()
+            {
+                log::debug!("a task sent to a closed device service was dropped");
+            }
         };
 
         self.send::<_, FLUSH>(func_init)
@@ -218,8 +232,15 @@ std::thread_local! {
     static SERVER_THREAD: RefCell<Option<RunnerId>> = const { RefCell::new(None) };
 
     /// Heterogeneous map of service states owned by this thread.
-    #[allow(clippy::type_complexity)]
-    static STATES: RefCell<HashMap<TypeId, RefCell<Box<dyn Any + 'static>>>> = RefCell::new(HashMap::new());
+    static STATES: RefCell<HashMap<TypeId, ServiceSlot>> = RefCell::new(HashMap::new());
+}
+
+/// A service's place on its runner thread.
+enum ServiceSlot {
+    Open(RefCell<Box<dyn Any + 'static>>),
+    /// Closed by [`close_service`]: every call to it is refused, and it is never started again,
+    /// since the runtime under it is being torn down.
+    Closed,
 }
 
 /// Internal runner logic to manage background thread spawning.
@@ -378,18 +399,28 @@ impl ChannelDeviceState {
                     ),
                 };
 
-                if service.is_some() && map.contains_key(&type_id) {
-                    callback.send(Err(())).unwrap();
-                } else {
-                    let service = service.unwrap_or_else(|| S::init(device_id));
-                    let utilities = service.utilities();
-
-                    map.entry(type_id)
-                        .or_insert_with(|| RefCell::new(Box::new(service)));
-                    callback
-                        .send(Ok(ChannelService { type_id, utilities }))
-                        .unwrap();
-                }
+                let started = match map.get(&type_id) {
+                    Some(ServiceSlot::Closed) => Err("the service was closed"),
+                    Some(ServiceSlot::Open(_)) if service.is_some() => {
+                        Err("Service already initialized.")
+                    }
+                    Some(ServiceSlot::Open(state)) => Ok(state
+                        .borrow()
+                        .downcast_ref::<S>()
+                        .expect("State type mismatch in the device registry")
+                        .utilities()),
+                    // Refused before `S::init`, which would reach a runtime being torn down.
+                    None if exit::is_exiting() => Err("the process is exiting"),
+                    None => {
+                        let service = service.unwrap_or_else(|| S::init(device_id));
+                        let utilities = service.utilities();
+                        map.insert(type_id, ServiceSlot::Open(RefCell::new(Box::new(service))));
+                        Ok(utilities)
+                    }
+                };
+                callback
+                    .send(started.map(|utilities| ChannelService { type_id, utilities }))
+                    .unwrap();
             });
         };
 
@@ -410,11 +441,7 @@ impl ChannelDeviceState {
 
         let service = match service {
             Ok(service) => service,
-            Err(_) => {
-                return Err(ServiceCreationError::new(
-                    "Service already initialized.".into(),
-                ));
-            }
+            Err(reason) => return Err(ServiceCreationError::new(reason.into())),
         };
 
         let channel = Self {
@@ -433,16 +460,21 @@ impl ChannelDeviceState {
 }
 
 impl ChannelService {
-    /// Borrows the service state from thread-local storage and passes it to `f`.
+    /// Borrows the service state from thread-local storage and passes it to `f`, or refuses
+    /// with [`CallError::is_closed`] once the service is closed.
     /// Panics if the state is already borrowed (re-entrant access).
-    fn act_on<R>(&self, f: impl FnOnce(&mut Box<dyn Any + 'static>) -> R) -> R {
-        STATES.with_borrow(|map| {
-            let cell = map.get(&self.type_id).expect("Service state not found");
-            let mut guard = cell
-                .try_borrow_mut()
-                .expect("Service state is already borrowed");
-            f(&mut guard)
-        })
+    fn act_on<R>(&self, f: impl FnOnce(&mut Box<dyn Any + 'static>) -> R) -> Result<R, CallError> {
+        STATES.with_borrow(
+            |map| match map.get(&self.type_id).expect("Service state not found") {
+                ServiceSlot::Open(cell) => {
+                    let mut guard = cell
+                        .try_borrow_mut()
+                        .expect("Service state is already borrowed");
+                    Ok(f(&mut guard))
+                }
+                ServiceSlot::Closed => Err(CallError::closed()),
+            },
+        )
     }
 }
 
@@ -546,6 +578,56 @@ pub(crate) fn shutdown_device(device_id: DeviceId) {
     // A concurrent `shutdown_device` for the same device may still be joining. This call
     // promises the runners are gone once it returns, so wait that one out too.
     wait_for_device_shutdown(device_id);
+}
+
+/// Closes the service `type_id` on `runner_id`, though clients of it remain, waiting up to
+/// [`SHUTDOWN_JOIN_TIMEOUT`] for the runner to reach the close.
+///
+/// The close is one more task on the runner, so everything queued ahead of it runs first, and
+/// every call queued after it is answered [`CallError::closed`]: no caller is left waiting. The
+/// runner keeps serving its other services, which may belong to another runtime on a colliding
+/// [`DeviceId`]. A runner never started, or already gone, has nothing to close.
+fn close_service(runner_id: RunnerId, type_id: TypeId) -> Result<(), ServiceCloseError> {
+    let client = match RUNNERS
+        .lock()
+        .as_ref()
+        .and_then(|runners| runners.get(&runner_id))
+    {
+        Some(runner) => runner.client.clone(),
+        None => return Ok(()),
+    };
+    if is_device_runner_thread(&runner_id) {
+        return remove_service(type_id);
+    }
+
+    let (sender, recv) = oneshot::channel();
+    let close = move || {
+        let _ = sender.send(remove_service(type_id));
+    };
+    if client.enqueue(close).is_err() {
+        return Ok(());
+    }
+    client.flush();
+    match recv.recv_timeout(SHUTDOWN_JOIN_TIMEOUT) {
+        Ok(closed) => closed,
+        Err(oneshot::RecvTimeoutError::Disconnected) => Ok(()),
+        Err(oneshot::RecvTimeoutError::Timeout) => Err(ServiceCloseError::new(std::format!(
+            "device runner {runner_id:?} did not reach the close within {SHUTDOWN_JOIN_TIMEOUT:?}"
+        ))),
+    }
+}
+
+/// Takes the service `type_id` out of this runner thread and leaves it closed.
+fn remove_service(type_id: TypeId) -> Result<(), ServiceCloseError> {
+    let open = STATES.with(|states| match states.try_borrow_mut() {
+        Ok(mut map) => Ok(map.insert(type_id, ServiceSlot::Closed)),
+        Err(_) => Err(ServiceCloseError::new(
+            "a service cannot be closed from inside a call on its own runner".into(),
+        )),
+    })?;
+    // Dropped once the map is released: dropping a service may call another one on this thread.
+    drop(open);
+    Ok(())
 }
 
 /// Waits for `thread` to exit, giving up after [`SHUTDOWN_JOIN_TIMEOUT`].
@@ -1225,7 +1307,7 @@ mod tests {
 
     use super::*;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::time::Duration;
 
     // A mock service to track state changes and initialization
@@ -1897,5 +1979,130 @@ mod tests {
             let _: usize = d.data.iter().map(|&b| b as usize).sum();
         });
         task.run();
+    }
+
+    /// A service whose drop is observable, for the close tests: each test spells its own type
+    /// so the statics are its own.
+    macro_rules! observed_service {
+        ($name:ident, $dropped:ident) => {
+            static $dropped: AtomicBool = AtomicBool::new(false);
+
+            struct $name;
+
+            impl Drop for $name {
+                fn drop(&mut self) {
+                    $dropped.store(true, Ordering::SeqCst);
+                }
+            }
+
+            impl DeviceService for $name {
+                fn init(_id: DeviceId) -> Self {
+                    Self
+                }
+
+                fn utilities(&self) -> ServerUtilitiesHandle {
+                    Arc::new(())
+                }
+            }
+        };
+    }
+
+    /// The exit contract: a close takes the service down though a handle to it remains, and
+    /// the handle's later calls are answered as closed instead of reaching it or waiting.
+    #[test]
+    fn test_close_drops_the_service_and_answers_every_later_call() {
+        observed_service!(Closing, DROPPED);
+        let handle = DeviceFixture::new(
+            DeviceHandle::<Closing, ChannelDeviceHandle>::new,
+            shutdown_device,
+        );
+        handle.submit_blocking(|_| ()).unwrap();
+
+        DeviceHandle::<Closing, ChannelDeviceHandle>::close(handle.device_id()).unwrap();
+
+        assert!(
+            DROPPED.load(Ordering::SeqCst),
+            "dropped before close returns"
+        );
+        let refused = handle.submit_blocking(|_| ()).unwrap_err();
+        assert!(refused.is_closed(), "{refused:?}");
+        handle.submit(|_| unreachable!("a closed service runs nothing"));
+        let refused = handle.submit_blocking(|_| ()).unwrap_err();
+        assert!(refused.is_closed(), "{refused:?}");
+    }
+
+    /// Work queued ahead of a close still runs: the close is one more task on the runner, so
+    /// what a thread sent before it is not lost.
+    #[test]
+    fn test_work_queued_ahead_of_a_close_runs() {
+        static RAN: AtomicBool = AtomicBool::new(false);
+        let handle = mock_fixture();
+        handle.submit(|_| RAN.store(true, Ordering::SeqCst));
+
+        DeviceHandle::<MockService, ChannelDeviceHandle>::close(handle.device_id()).unwrap();
+
+        assert!(RAN.load(Ordering::SeqCst));
+    }
+
+    /// Runtimes number their devices alike, so one runner serves several runtimes' services:
+    /// closing one runtime's service at exit must leave the others serving.
+    #[test]
+    fn test_closing_one_service_leaves_the_runner_serving_the_others() {
+        observed_service!(Closing, DROPPED);
+        let handle = mock_fixture();
+        let closing = DeviceHandle::<Closing, ChannelDeviceHandle>::new(handle.device_id());
+        closing.submit_blocking(|_| ()).unwrap();
+
+        DeviceHandle::<Closing, ChannelDeviceHandle>::close(handle.device_id()).unwrap();
+
+        assert!(DROPPED.load(Ordering::SeqCst));
+        let counted = handle.submit_blocking(|state| {
+            state.counter += 1;
+            state.counter
+        });
+        assert_eq!(counted.unwrap(), 1);
+    }
+
+    /// A closed service is never started again: its `init` would reach the runtime being torn
+    /// down.
+    #[test]
+    fn test_a_closed_service_is_not_started_again() {
+        static STARTED: AtomicBool = AtomicBool::new(false);
+
+        struct Never;
+
+        impl DeviceService for Never {
+            fn init(_id: DeviceId) -> Self {
+                STARTED.store(true, Ordering::SeqCst);
+                Self
+            }
+
+            fn utilities(&self) -> ServerUtilitiesHandle {
+                Arc::new(())
+            }
+        }
+
+        let handle = mock_fixture();
+        DeviceHandle::<Never, ChannelDeviceHandle>::close(handle.device_id()).unwrap();
+
+        assert!(ChannelDeviceState::init::<Never>(handle.device_id(), None).is_err());
+        assert!(!STARTED.load(Ordering::SeqCst));
+    }
+
+    /// A close from inside a call to the service it closes is refused rather than taking the
+    /// service out from under that call.
+    #[test]
+    fn test_a_close_inside_the_services_own_call_is_refused() {
+        let handle = mock_fixture();
+        let device_id = handle.device_id();
+
+        let closed = handle
+            .submit_blocking(move |_| {
+                DeviceHandle::<MockService, ChannelDeviceHandle>::close(device_id)
+            })
+            .unwrap();
+
+        assert!(closed.is_err());
+        assert!(handle.submit_blocking(|_| ()).is_ok());
     }
 }
