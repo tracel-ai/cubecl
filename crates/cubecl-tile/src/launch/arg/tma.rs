@@ -59,6 +59,144 @@ impl TileArgLaunch {
     }
 }
 
+impl TileArgLaunch {
+    /// A TMA tensor map as a tile argument over `axes`, `extents` along each, whose descriptor
+    /// dims are not the tile's own axes: each descriptor coordinate is read off a position over
+    /// `axes` as `coordinates` says, as a block-split operand lands in a descriptor over the
+    /// matrix it splits (its `KB` and `KI` one column).
+    ///
+    /// # Panics
+    ///
+    /// Where `extents` does not give one extent an axis, or a term reads past `axes`.
+    pub fn tensor_map_folded(
+        tensor_map: TensorMapArg<Tiled>,
+        axes: &[Axis],
+        extents: &[u32],
+        coordinates: TmaCoordinates,
+    ) -> Self {
+        assert_eq!(
+            extents.len(),
+            axes.len(),
+            "TileArgLaunch::tensor_map_folded: one extent an axis, {axes:?} against {extents:?}"
+        );
+        assert!(
+            coordinates
+                .dims
+                .iter()
+                .flatten()
+                .all(|term| term.position < axes.len()),
+            "TileArgLaunch::tensor_map_folded: a term reads a position past {axes:?}"
+        );
+        let mut shape = SequenceArg::new();
+        for &extent in extents {
+            shape.push(extent);
+        }
+        let layout = TmaFoldedLayoutLaunch::new(shape, coordinates);
+        Self::of_tensor_map(
+            tensor_map,
+            VirtualViewLayoutLaunch::new::<IntoDynLayout<TmaFoldedLayout>>(layout),
+            TileSpec::direct(axes),
+        )
+    }
+}
+
+/// One term of a descriptor coordinate: the position along the tile's `position`-th axis, times
+/// `scale`, modulo `modulus` where it is not zero, over `divisor`.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct TmaTerm {
+    pub position: usize,
+    pub scale: u32,
+    pub modulus: u32,
+    pub divisor: u32,
+}
+
+impl TmaTerm {
+    /// The position along the `position`-th axis as it is.
+    pub fn axis(position: usize) -> Self {
+        Self {
+            position,
+            scale: 1,
+            modulus: 0,
+            divisor: 1,
+        }
+    }
+
+    /// This term times `scale`.
+    pub fn times(self, scale: u32) -> Self {
+        Self { scale, ..self }
+    }
+
+    /// This term over `divisor`: a position the box's origin only ever takes at multiples of it.
+    pub fn over(self, divisor: u32) -> Self {
+        Self { divisor, ..self }
+    }
+
+    /// This term modulo `modulus`, before its divisor: the place of a box inside a stored tile a
+    /// box covers part of.
+    pub fn modulo(self, modulus: u32) -> Self {
+        Self { modulus, ..self }
+    }
+}
+
+/// How a tile's position lands in a descriptor: one sum of [`TmaTerm`]s a descriptor dim,
+/// outermost first, the order the descriptor states its dims in.
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub struct TmaCoordinates {
+    pub dims: Vec<Vec<TmaTerm>>,
+}
+
+/// In-kernel tensor-map layout landing a tile's position, over its own axes, in a descriptor whose
+/// dims sum them ([`TmaCoordinates`]).
+#[derive(CubeType, CubeLaunch, Clone)]
+pub(crate) struct TmaFoldedLayout {
+    /// The extent of each of the tile's axes.
+    shape: CoordsDyn,
+    #[cube(comptime)]
+    coordinates: TmaCoordinates,
+}
+
+#[cube]
+impl Layout for TmaFoldedLayout {
+    type Coordinates = CoordsDyn;
+    type SourceCoordinates = CoordsDyn;
+
+    fn to_source_pos(&self, pos: Self::Coordinates) -> Self::SourceCoordinates {
+        let coordinates = comptime!(self.coordinates.clone());
+        let mut src = CoordsDyn::new();
+        #[unroll]
+        for d in 0..comptime!(coordinates.dims.len()) {
+            let terms = comptime!(coordinates.dims[d].clone());
+            let mut coordinate = 0u32;
+            // Indexed: an unrolled loop walks a comptime list by its positions.
+            #[allow(clippy::needless_range_loop)]
+            #[unroll]
+            for t in 0..comptime!(terms.len()) {
+                let term = comptime!(terms[t]);
+                let mut value = pos[comptime!(term.position)] * comptime!(term.scale);
+                if comptime!(term.modulus != 0) {
+                    value %= comptime!(term.modulus);
+                }
+                coordinate += value / comptime!(term.divisor);
+            }
+            src.push(coordinate);
+        }
+        src
+    }
+
+    fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (Self::SourceCoordinates, bool) {
+        // TMA loads are clamped by the descriptor; no in-kernel bounds check.
+        (self.to_source_pos(pos), true)
+    }
+
+    fn shape(&self) -> Self::Coordinates {
+        self.shape.clone()
+    }
+
+    fn is_in_bounds(&self, _pos: Self::Coordinates) -> bool {
+        true
+    }
+}
+
 /// Where a box of a storage-tiled operand lands its values: the order the descriptor states the
 /// operand in.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

@@ -41,6 +41,7 @@ mod space;
 mod split_contraction;
 mod stored_window;
 mod stream;
+mod tma_folded;
 mod tma_store;
 mod vector_tile;
 mod wgmma;

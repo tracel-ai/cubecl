@@ -8,10 +8,16 @@ use crate::*;
 
 #[cube]
 impl MmaData {
-    pub(crate) fn mma<A: Numeric, L: Numeric, R: Numeric>(&mut self, lhs: &Tile, rhs: &Tile) {
+    /// `acc += lhs · rhs`, `k` deep: the leaf this accumulator was opened at, or the run of
+    /// accumulators its left factor holds ([`PlaneTile::mma`]).
+    pub(crate) fn mma<A: Numeric, L: Numeric, R: Numeric>(
+        &mut self,
+        lhs: &Tile,
+        rhs: &Tile,
+        #[comptime] k: usize,
+    ) {
         let m = comptime!(self.m);
         let n = comptime!(self.n);
-        let k = comptime!(self.k);
         let io = comptime!(self.io);
         let operands = comptime!(self.operands);
         let (lhs_layout, rhs_layout) =
@@ -24,11 +30,6 @@ impl MmaData {
             MmaFragment::Acc(acc) => match (&a.fragment, &b.fragment) {
                 (MmaFragment::Lhs(af), MmaFragment::Rhs(bf)) => {
                     mma_execute::<L, R, A>(af.at::<L>(), bf.at::<R>(), acc.at_mut::<A>(), m, n, k)
-                }
-                // A left factor held as an accumulator, reread as the `A` it contracts as.
-                (MmaFragment::Acc(af), MmaFragment::Rhs(bf)) => {
-                    let af = accumulator_as_a::<L>(af.at::<L>(), m, n, k);
-                    mma_execute::<L, R, A>(&af, bf.at::<R>(), acc.at_mut::<A>(), m, n, k)
                 }
                 (
                     MmaFragment::LhsBlockScaled(af, a_scales),
@@ -60,8 +61,9 @@ impl MmaData {
 
 #[cube]
 impl Tile {
-    /// This factor as the `ident` operand of a manual-mma contraction: the fragment it holds, or
-    /// its window loaded in `layout`, a fragment deeper than its instruction as `load` says.
+    /// This factor as the `ident` operand of a manual-mma contraction: the fragment it holds, the
+    /// accumulators it holds along `k` reread as the `A` they contract as, or its window loaded in
+    /// `layout`, a fragment deeper than its instruction as `load` says.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn mma_operand<T: Numeric>(
         &self,
@@ -76,20 +78,44 @@ impl Tile {
     ) -> MmaData {
         match &self.kind {
             TileKind::PlaneTile(tile) => match tile {
-                PlaneTile::Mma(data) => data.clone(),
+                PlaneTile::Mma(data) => match &data.fragment {
+                    // A left factor held as an accumulator, a run of one.
+                    MmaFragment::Acc(_) => {
+                        comptime!(assert!(
+                            ident == MatrixIdent::A,
+                            "Tile::mma_operand: an accumulator is reread as the A operand alone"
+                        ));
+                        let mut run = Sequence::<PlaneTile>::new();
+                        run.push(tile.clone());
+                        accumulators_as_a::<T>(&run, m, n, k, io, operands)
+                    }
+                    MmaFragment::Lhs(_)
+                    | MmaFragment::Rhs(_)
+                    | MmaFragment::LhsBlockScaled(..)
+                    | MmaFragment::RhsBlockScaled(..) => data.clone(),
+                },
                 PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => {
                     panic!("Tile::mma_operand: a held operand must be an mma fragment")
                 }
             },
+            // A left factor held as accumulators along `k`: an instruction deeper than they are
+            // wide reads them as one `A`, as an attention's value reads its scores.
+            TileKind::PlanePartition(partition) => {
+                comptime!(assert!(
+                    ident == MatrixIdent::A
+                        && partition.m_tiles == 1
+                        && layout == MatrixLayout::RowMajor,
+                    "Tile::mma_operand: a grid of fragments is an operand only as accumulators \
+                     along the contraction, read as the A operand of one instruction"
+                ));
+                accumulators_as_a::<T>(&partition.frags, m, n, k, io, operands)
+            }
             TileKind::Memory(_) => {
                 let mut data = MmaData::operand::<T>(ident, m, n, k, layout, io, operands);
                 data.load_window::<T>(self, load);
                 data
             }
-            TileKind::PlanePartition(_)
-            | TileKind::TmaGmem(_)
-            | TileKind::Procedural(_)
-            | TileKind::Lines(_) => {
+            TileKind::TmaGmem(_) | TileKind::Procedural(_) | TileKind::Lines(_) => {
                 panic!("Tile::mma_operand: an operand must be a fragment or a memory window")
             }
         }
@@ -98,18 +124,25 @@ impl Tile {
 
 /// How a contraction loads its factors' fragments where they are deeper than its instruction:
 /// in lane runs where both are memory windows and either lies in global memory, where whole loads
-/// pay, else a step at a time, which `ldmatrix` reads out of shared memory and a factor already
-/// in fragments holds.
+/// pay, or holds packed codes under scales that are not words, which only a lane run decodes as
+/// it loads; else a step at a time, which `ldmatrix` reads out of shared memory and a factor
+/// already in fragments holds.
 #[cube]
 pub(crate) fn deep_load(lhs: &Tile, rhs: &Tile) -> comptime_type!(DeepLoad) {
     let (lhs_window, rhs_window) = (lhs.is_memory(), rhs.is_memory());
     let (lhs_shared, rhs_shared) = (lhs.is_shared(), rhs.is_shared());
-    comptime!(
-        match lhs_window && rhs_window && !(lhs_shared && rhs_shared) {
+    let (lhs_packing, rhs_packing) = (lhs.packing(), rhs.packing());
+    let lhs_words = lhs.innermost_factor().holds_words();
+    let rhs_words = rhs.innermost_factor().holds_words();
+    comptime!({
+        let decoded_in_runs = |packing: Packing, words: bool| packing != Packing::Plain && !words;
+        let packed_codes =
+            decoded_in_runs(lhs_packing, lhs_words) || decoded_in_runs(rhs_packing, rhs_words);
+        match lhs_window && rhs_window && (!(lhs_shared && rhs_shared) || packed_codes) {
             true => DeepLoad::LaneRuns,
             false => DeepLoad::Steps,
         }
-    )
+    })
 }
 
 /// Each factor's window layout: `A` row-major and `B` col-major when its trailing axis is

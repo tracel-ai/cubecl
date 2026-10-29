@@ -30,6 +30,9 @@ pub(crate) struct TmaData {
     /// How the values sit in the cells the descriptor moves.
     #[cube(comptime)]
     pub(crate) packing: Packing,
+    /// The cells a line of a stage it fills holds ([`TileArgLaunch::served_wide`]).
+    #[cube(comptime)]
+    pub(crate) width: usize,
 }
 
 #[cube]
@@ -42,6 +45,7 @@ impl TmaData {
         #[comptime] rank: usize,
         #[comptime] units: usize,
         #[comptime] packing: Packing,
+        #[comptime] width: usize,
     ) -> TmaData {
         let bound = layout.shape();
         let mut pos = CoordsDyn::new();
@@ -56,6 +60,7 @@ impl TmaData {
             bound,
             units,
             packing,
+            width,
         }
     }
 
@@ -163,6 +168,7 @@ impl TmaData {
             bound: self.bound.clone(),
             units: self.units,
             packing: self.packing,
+            width: self.width,
         }
     }
 }
