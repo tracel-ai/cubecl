@@ -185,7 +185,13 @@ fn kernel_test_shared_freed_in_a_loop(out: &mut [u32], rounds: u32, #[comptime] 
 
 /// Shared memory freed inside a loop is taken by what the same round declares after it: two arrays
 /// of five eighths of a cube's shared memory each fit, every round, and pass the right values.
+///
+/// Skipped on a CPU runtime: it holds each shared memory in a host block of its own, laid out by
+/// no allocator, so no declaration ever takes another's bytes.
 pub fn test_shared_freed_in_a_loop<R: Runtime>(client: Client) {
+    if client.properties().hardware.num_cpu_cores.is_some() {
+        return;
+    }
     let units = 32u32;
     let rounds = 3u32;
     let len = client.properties().hardware.max_shared_memory_size / size_of::<u32>() * 5 / 8;
