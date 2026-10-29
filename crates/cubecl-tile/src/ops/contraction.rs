@@ -47,8 +47,9 @@ pub(crate) fn resolve_nd_coords(
                 None => 0u32,
             }
         };
-        let divides =
-            comptime!(p == operand_rank - 1 && width > 1 && (acc_counts == AccCoords::Cells || !in_acc));
+        let divides = comptime!(
+            p == operand_rank - 1 && width > 1 && (acc_counts == AccCoords::Cells || !in_acc)
+        );
         let coord = if comptime!(divides) {
             raw_coord.divided_by(comptime!(width as u32))
         } else {
