@@ -84,12 +84,21 @@ impl Portion {
 impl Walk {
     /// This instance's portion of the level's flat index, counted in steps of `below`.
     pub fn portion(self, #[comptime] below: Level) -> Portion {
+        let stride = self.region(0).over(&below).total();
+        self.portion_of(stride)
+    }
+
+    /// [`portion`](Self::portion) of the first `steps` steps of every region, counted in the
+    /// level below's, the rest left out of every run: where a region's steps are a prefix only the
+    /// launch reads, as the attended keys of a longer cache are, the runs share that prefix evenly
+    /// rather than every step the space states.
+    pub fn portion_of(self, steps: usize) -> Portion {
         let instances = comptime!(
             self.level
                 .shared_by()
                 .expect("Walk::portion: this level distributes no grid as one; say `shared_by`")
         );
-        let stride = self.region(0).over(&below).total();
+        let stride = steps;
         let steps = self.total() * stride;
         let run = match comptime!(self.level.coverage()) {
             Coverage::Distribute(ComputeScope::Cube) => CubeAxis::position(CubeAxis::X),
