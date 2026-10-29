@@ -5,6 +5,7 @@ use core::{fmt, ops::Deref};
 
 use cubecl_core::{
     self as cubecl,
+    frontend::reinterpret_value,
     ir::types::Fp8Format,
     ir::{
         dialect::general::CastOp,
@@ -15,12 +16,17 @@ use cubecl_core::{
     },
     prelude::*,
 };
-use pliron::{printable::Printable, utils::apfloat::Float8E5M2};
+use pliron::{
+    builtin::types::{IntegerType, Signedness},
+    printable::Printable,
+    utils::apfloat::Float8E5M2,
+};
 
 use crate::{
-    cuda::{cuda_op_with_out, ty::*},
+    cuda::{cuda_op_with_out, ptx::InlinePtxOp, ty::*},
+    ptx_block,
     shared::{
-        CppValue,
+        CompilationOptions, CppValue,
         lowering::LowerOp,
         ty::{TypeExt, TypeExtCPP, TypedExtCPP},
     },
@@ -59,7 +65,7 @@ impl LowerOp<Cuda> for CastOp {
             && intermediate_for_ty(ctx, input.get_type(ctx)) != out.get_type(ctx);
         let should_lower_to = (out.is_fp8_fp6_fp4(ctx) || out.is_float4x2(ctx))
             && !encodes_directly(ctx, input, out.get_type(ctx));
-        should_lower_from || should_lower_to
+        should_lower_from || should_lower_to || is_e2m1_word(ctx, input)
     }
 
     fn lower(&self, scope: &Scope) -> Vec<Value> {
@@ -68,7 +74,10 @@ impl LowerOp<Cuda> for CastOp {
         let out_ty = self.get_result(ctx).get_type(ctx);
         if current.is_fp8_fp6_fp4(ctx) || current.is_float4x2(ctx) {
             let intermediate = intermediate_for_ty(ctx, current.get_type(ctx));
-            current = cast_value(scope, current, intermediate);
+            current = match is_e2m1_word(ctx, current) {
+                true => e2m1_word_to_half(scope, current, intermediate),
+                false => cast_value(scope, current, intermediate),
+            };
         }
         if (out_ty.is_fp8_fp6_fp4(ctx) || out_ty.is_float4x2(ctx))
             && !encodes_directly(ctx, current, out_ty)
@@ -81,6 +90,47 @@ impl LowerOp<Cuda> for CastOp {
         }
         vec![cast_value(scope, current, out_ty)]
     }
+}
+
+/// Whether `value` is one word of `e2m1` pairs on a device that converts them itself
+/// ([`e2m1_word_to_half`]).
+fn is_e2m1_word(ctx: &Context, value: Value) -> bool {
+    value.is_float4x2(ctx)
+        && value.vector_size(ctx) == E2M1_PAIRS_PER_WORD
+        && ctx
+            .try_aux_ty::<CompilationOptions>()
+            .is_some_and(|options| options.supports_features.e2m1_conversion)
+}
+
+/// Pairs of `e2m1` codes in one 32-bit word.
+const E2M1_PAIRS_PER_WORD: usize = 4;
+
+/// A word of `e2m1` pairs as its eight values, `out_ty`: the word split into its bytes in PTX and
+/// each converted from its byte of the one register. Converted a pair at a time, the compiler
+/// first isolates each byte into a register of its own, five or six instructions a word that the
+/// conversion's own byte select makes unnecessary, on a decoding contraction's hottest path.
+fn e2m1_word_to_half(scope: &Scope, word: Value, out_ty: TypeHandle) -> Value {
+    let u32 = IntegerType::get(scope.ctx_mut(), 32, Signedness::Unsigned).to_handle();
+    let halves = VectorType::get(scope.ctx_mut(), u32, E2M1_PAIRS_PER_WORD).to_handle();
+    let bits = reinterpret_value(scope, word, u32);
+    // `$0` reads as the four result registers together, so the pairs reach it through one 128-bit
+    // move, which the assembler folds away.
+    let ptx = ptx_block! {
+        ".reg .b8 b0, b1, b2, b3;"
+        ".reg .b32 h0, h1, h2, h3;"
+        ".reg .b128 pairs;"
+        "mov.b32 {b0, b1, b2, b3}, $1;"
+        "cvt.rn.f16x2.e2m1x2 h0, b0;"
+        "cvt.rn.f16x2.e2m1x2 h1, b1;"
+        "cvt.rn.f16x2.e2m1x2 h2, b2;"
+        "cvt.rn.f16x2.e2m1x2 h3, b3;"
+        "mov.b128 pairs, {h0, h1, h2, h3};"
+        "mov.b128 $0, pairs;"
+    };
+    let op = InlinePtxOp::new(scope.ctx_mut(), Some(halves), ptx, vec![bits]);
+    scope.register(&op);
+    let result = op.result(scope.ctx()).expect("the conversion has a result");
+    reinterpret_value(scope, result, out_ty)
 }
 
 /// fp8 must convert straight from its source: an f16 detour rounds twice. e8m0 converts from

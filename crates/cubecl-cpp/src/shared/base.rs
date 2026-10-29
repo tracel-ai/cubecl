@@ -104,6 +104,9 @@ pub struct CppSupportedFeatures {
     pub fast_tanh: bool,
     pub elect_sync: bool,
     pub dp4a: bool,
+    /// The device converts `e2m1x2` itself (`cvt.rn.f16x2.e2m1x2`), so a word of codes is
+    /// converted a byte at a time out of the one register it lies in.
+    pub e2m1_conversion: bool,
 }
 
 impl Default for CompilationOptions {

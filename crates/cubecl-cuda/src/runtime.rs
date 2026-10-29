@@ -380,6 +380,7 @@ impl DeviceService for CudaServer {
         // major version. Try to keep this up to date with new arch major revisions if they also
         // implement it.
         if arch_major == 10 || arch_major == 11 || arch_major == 12 {
+            comp_opts.supports_features.e2m1_conversion = true;
             device_props
                 .register_type_usage(ElemType::Float(FloatKind::E2M1), TypeUsage::Conversion);
             device_props.register_type_usage(
