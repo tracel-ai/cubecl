@@ -1,3 +1,4 @@
+#[cfg(feature = "std")]
 use alloc::borrow::Cow;
 use core::fmt::Write;
 use cubecl_core::ir::{
@@ -21,6 +22,7 @@ use crate::{
 pub struct LineDirectives {
     /// The directory of the relative source files, if one has them on this computer. The
     /// directives join it to each relative path, so a tool finds the file from any directory.
+    /// Without `std`, source paths are emitted unchanged.
     pub directory: Option<PathBuf>,
 }
 
@@ -81,12 +83,15 @@ fn line_directive<'c>(
     }
     let (file, line) = source;
     let _ = write!(out, "#line {line} \"");
-    let directory = ctx
-        .try_aux_ty::<LineDirectives>()
-        .and_then(|lines| lines.directory.as_ref());
-    let file = match directory {
-        Some(directory) if file.is_relative() => Cow::Owned(directory.join(file)),
-        _ => Cow::Borrowed(file),
+    #[cfg(feature = "std")]
+    let file = {
+        let directory = ctx
+            .try_aux_ty::<LineDirectives>()
+            .and_then(|lines| lines.directory.as_ref());
+        match directory {
+            Some(directory) if file.is_relative() => Cow::Owned(directory.join(file)),
+            _ => Cow::Borrowed(file),
+        }
     };
     let _ = write!(StringLiteral(out), "{}", file.display());
     out.push_str("\"\n");
@@ -280,9 +285,11 @@ mod tests {
             assert_eq!(number, source_line(text), "`{code}` in:\n{source}");
             assert!(file.ends_with(SOURCE_PATH), "{file}");
             // With `std`, the search finds the workspace root, a parent of the working directory.
+            let path = std::path::Path::new(file);
             if cfg!(feature = "std") {
-                let path = std::path::Path::new(file);
                 assert!(path.is_absolute() && path.is_file(), "{file}");
+            } else {
+                assert!(path.is_relative(), "{file}");
             }
         }
     }

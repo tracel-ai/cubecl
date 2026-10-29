@@ -124,18 +124,25 @@ impl Tile {
 
 /// How a contraction loads its factors' fragments where they are deeper than its instruction:
 /// in lane runs where both are memory windows and either lies in global memory, where whole loads
-/// pay, else a step at a time, which `ldmatrix` reads out of shared memory and a factor already
-/// in fragments holds.
+/// pay, or holds packed codes under scales that are not words, which only a lane run decodes as
+/// it loads; else a step at a time, which `ldmatrix` reads out of shared memory and a factor
+/// already in fragments holds.
 #[cube]
 pub(crate) fn deep_load(lhs: &Tile, rhs: &Tile) -> comptime_type!(DeepLoad) {
     let (lhs_window, rhs_window) = (lhs.is_memory(), rhs.is_memory());
     let (lhs_shared, rhs_shared) = (lhs.is_shared(), rhs.is_shared());
-    comptime!(
-        match lhs_window && rhs_window && !(lhs_shared && rhs_shared) {
+    let (lhs_packing, rhs_packing) = (lhs.packing(), rhs.packing());
+    let lhs_words = lhs.innermost_factor().holds_words();
+    let rhs_words = rhs.innermost_factor().holds_words();
+    comptime!({
+        let decoded_in_runs = |packing: Packing, words: bool| packing != Packing::Plain && !words;
+        let packed_codes =
+            decoded_in_runs(lhs_packing, lhs_words) || decoded_in_runs(rhs_packing, rhs_words);
+        match lhs_window && rhs_window && (!(lhs_shared && rhs_shared) || packed_codes) {
             true => DeepLoad::LaneRuns,
             false => DeepLoad::Steps,
         }
-    )
+    })
 }
 
 /// Each factor's window layout: `A` row-major and `B` col-major when its trailing axis is

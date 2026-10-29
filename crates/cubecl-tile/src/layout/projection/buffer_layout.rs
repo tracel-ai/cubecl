@@ -230,24 +230,38 @@ impl BufferLayout {
         }
     }
 
-    /// `physical` with a swizzled stage's line coordinate `XORed` by its row's key.
+    /// `physical` with a swizzled stage's line `XORed` by its row's key: the line a block row's
+    /// coordinates along the axes it spans name, read as one index and split back.
     fn placed(&self, physical: &Coords<u32>) -> Coords<u32> {
-        let mut placed = Coords::<u32>::new();
-        #[unroll]
-        for pa in 0..physical.len() {
-            let mut coord = physical.at(pa);
-            // The cube macro branches on a comptime value only through a `match`.
-            #[allow(clippy::single_match)]
-            match comptime!(self.rows.swizzle_along(pa)) {
-                Some(swizzle) => {
-                    coord =
-                        swizzled_line(swizzle, coord, physical.at(comptime!(swizzle.row_axis())));
+        match comptime!(self.rows.swizzle()) {
+            Some(swizzle) => {
+                let (first, span) = comptime!((swizzle.line_axis(), swizzle.span()));
+                let mut line = 0u32;
+                #[unroll]
+                for s in 0..span {
+                    line = line * comptime!(swizzle.span_lines(s) as u32) + physical.at(first + s);
                 }
-                None => {}
+                let moved =
+                    swizzled_line(swizzle, line, physical.at(comptime!(swizzle.row_axis())));
+                let mut placed = Coords::<u32>::new();
+                #[unroll]
+                for pa in 0..physical.len() {
+                    if comptime!(pa >= first && pa < first + span) {
+                        let inner = comptime!(
+                            (pa + 1 - first..span)
+                                .map(|s| swizzle.span_lines(s))
+                                .product::<usize>() as u32
+                        );
+                        let lines = comptime!(swizzle.span_lines(pa - first) as u32);
+                        placed.push(moved / inner % lines);
+                    } else {
+                        placed.push(physical.at(pa));
+                    }
+                }
+                placed
             }
-            placed.push(coord);
+            None => physical.clone(),
         }
-        placed
     }
 
     /// The coordinate `pos` sits at along physical axis `pa`.

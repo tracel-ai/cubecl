@@ -24,7 +24,7 @@ use cubecl_core::{
 use cubecl_environment::future;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
-use cubecl_server::command::{DeviceStream, Refused};
+use cubecl_server::command::Refused;
 use cubecl_server::compiler::ArtifactId;
 use cubecl_server::metadata_cache::Lookup;
 use cubecl_server::{
@@ -38,7 +38,7 @@ use cubecl_server::{
     storage::{ComputeStorage, ManagedResource},
     stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
 };
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct HipServer {
@@ -47,9 +47,6 @@ pub struct HipServer {
     utilities: Arc<ServerUtilities>,
     /// The graphs this server has captured — see [`Captures`].
     graphs: Captures,
-    /// Allocation modes set on streams that did not exist yet, applied when the stream is
-    /// created rather than creating it only to hold the mode.
-    pending_allocation_modes: HashMap<StreamId, MemoryAllocationMode>,
 }
 
 // SAFETY: `HipServer` is only accessed from one thread at a time via the `DeviceHandle`
@@ -380,11 +377,9 @@ impl Server for HipServer {
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
-        match self.streams.try_stream_mut(&stream_id) {
-            Some(stream) => stream.device_memory().mode(mode),
-            None => {
-                self.pending_allocation_modes.insert(stream_id, mode);
-            }
+        // A failed stream creation is reported by the next command on it.
+        if let Ok(mut command) = self.command_no_inputs(stream_id) {
+            command.allocation_mode(mode);
         }
     }
 }
@@ -439,7 +434,6 @@ impl HipServer {
             ),
             utilities: Arc::new(utilities),
             graphs: Captures::default(),
-            pending_allocation_modes: HashMap::new(),
         }
     }
 
@@ -452,10 +446,7 @@ impl HipServer {
         stream_id: StreamId,
         handles: impl Iterator<Item = &'a BufferBinding>,
     ) -> Result<Command<'_>, ServerError> {
-        let mut streams = self.streams.resolve(stream_id, handles)?;
-        if let Some(mode) = self.pending_allocation_modes.remove(&stream_id) {
-            streams.current().device_memory().mode(mode);
-        }
+        let streams = self.streams.resolve(stream_id, handles)?;
         Ok(Command::new(&mut self.ctx, streams, self.utilities.service))
     }
 

@@ -489,7 +489,7 @@ impl StageForm {
     ) -> StageForm {
         let nesting = stage.nesting(space);
         let extents = StageForm::dense_extents(space, vector_size, &nesting);
-        let rows = StageForm::dense_rows(&stage, &extents, line);
+        let rows = StageForm::dense_rows(&stage, &extents, line, space.rank());
         StageForm {
             extents,
             rows,
@@ -571,14 +571,22 @@ impl StageForm {
         line: LineBytes,
     ) -> usize {
         let extents = StageForm::dense_extents(space, vector_size, &stage.nesting(space));
-        let rows = StageForm::dense_rows(stage, &extents, line);
+        let rows = StageForm::dense_rows(stage, &extents, line, space.rank());
         StageForm::pitched_over(&extents, &rows).iter().product()
     }
 
-    /// How a dense stage held as `stage` lays its rows over its line `extents`.
-    fn dense_rows(stage: &StageStorage, extents: &[usize], line: LineBytes) -> RowArrangement {
+    /// How a dense stage held as `stage` lays its rows over its line `extents`, the last
+    /// `block_axes` of them one block's.
+    fn dense_rows(
+        stage: &StageStorage,
+        extents: &[usize],
+        line: LineBytes,
+        block_axes: usize,
+    ) -> RowArrangement {
         match stage {
-            StageStorage::Tiled { chunks, .. } => RowArrangement::new(*chunks, extents, line),
+            StageStorage::Tiled { chunks, .. } => {
+                RowArrangement::new(*chunks, extents, line, block_axes)
+            }
             StageStorage::Strided | StageStorage::Lines { .. } => RowArrangement::InOrder,
         }
     }
