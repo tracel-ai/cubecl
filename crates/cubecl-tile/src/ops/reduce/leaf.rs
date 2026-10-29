@@ -194,23 +194,34 @@ fn element_lines<Acc: Numeric, In: Numeric, V: Size>(
             AccCoords::Cells,
         );
 
-        let in_vec = match comptime!(monoid) {
-            Monoid::Sum => in_view.read(in_coords),
-            Monoid::Prod | Monoid::Max | Monoid::Min => {
-                let valid = in_view.is_in_bounds(in_coords.clone());
-                select(
-                    valid,
-                    in_view.read(in_coords),
-                    Vector::<In, V>::cast_from(Monoid::identity::<In>(monoid)),
-                )
-            }
-        };
+        let in_vec = read_or_identity::<In, V>(in_view, in_coords, monoid);
         acc_vec = monoid.combine::<Vector<Acc, V>>(acc_vec, Vector::<Acc, V>::cast_from(in_vec));
     }
     monoid.combine::<Acc>(
         seed,
         Monoid::reduce::<Acc, V>(acc_vec, contracted_per_step, monoid),
     )
+}
+
+/// `in_view` at `in_coords`, reading `monoid`'s identity out of bounds. A masked read returns
+/// zero there, Sum's identity; other monoids need theirs read in.
+#[cube]
+fn read_or_identity<In: Numeric, V: Size>(
+    in_view: &Masked<'_, Vector<In, V>, CoordsDyn>,
+    in_coords: CoordsDyn,
+    #[comptime] monoid: Monoid,
+) -> Vector<In, V> {
+    match comptime!(monoid) {
+        Monoid::Sum => in_view.read(in_coords),
+        Monoid::Prod | Monoid::Max | Monoid::Min => {
+            let valid = in_view.is_in_bounds(in_coords.clone());
+            select(
+                valid,
+                in_view.read(in_coords),
+                Vector::<In, V>::cast_from(Monoid::identity::<In>(monoid)),
+            )
+        }
+    }
 }
 
 /// [`element`]'s scalar path: one extract per contracted element.
@@ -242,18 +253,7 @@ fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
             AccCoords::Cells,
         );
 
-        // Memory reads return Sum's identity out of bounds; other monoids need it read in.
-        let in_vec = match comptime!(monoid) {
-            Monoid::Sum => in_view.read(in_coords),
-            Monoid::Prod | Monoid::Max | Monoid::Min => {
-                let valid = in_view.is_in_bounds(in_coords.clone());
-                select(
-                    valid,
-                    in_view.read(in_coords),
-                    Vector::<In, V>::cast_from(Monoid::identity::<In>(monoid)),
-                )
-            }
-        };
+        let in_vec = read_or_identity::<In, V>(in_view, in_coords, monoid);
         let in_val = if comptime!(vw <= 1) {
             in_vec.extract(0usize)
         } else {
