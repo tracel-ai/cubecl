@@ -16,7 +16,7 @@ use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_foundation::NSRange;
 use objc2_metal::{
-    MTLBuffer, MTLComputeCommandEncoder, MTLComputePipelineState, MTLDevice,
+    MTLBlitCommandEncoder, MTLBuffer, MTLComputeCommandEncoder, MTLComputePipelineState, MTLDevice,
     MTLIndirectCommandBuffer, MTLIndirectCommandBufferDescriptor, MTLIndirectCommandType,
     MTLIndirectComputeCommand, MTLResource, MTLResourceOptions, MTLResourceUsage, MTLSize,
 };
@@ -65,7 +65,7 @@ impl RecordedDispatch {
 pub struct Executable {
     /// One command per recorded dispatch, in order; `None` for a window that
     /// recorded none, whose replay does nothing.
-    commands: Option<Retained<ProtocolObject<dyn MTLIndirectCommandBuffer>>>,
+    commands: Option<Commands>,
     dispatches: usize,
     /// The bytes the dispatches bind, counted toward the batch a replay
     /// lands in as a launch's are.
@@ -78,6 +78,21 @@ pub struct Executable {
     resident: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
     /// The pipelines the commands run, alive for as long as they can run.
     _pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
+}
+
+/// A graph's commands, in the indirect command buffer they were encoded into
+/// and in the one a replay runs.
+///
+/// A replay first copies the encoded commands over the ones it runs. Apple's
+/// driver runs an indirect command buffer slower the more often it runs it
+/// unchanged — a 1.7B model's decode step went from 10 to 23 ms of GPU time
+/// over 20 replays — and runs one rewritten before each replay at its first
+/// speed. The copy is a blit of the commands alone, a few microseconds.
+struct Commands {
+    /// Encoded on the host when the graph is instantiated, and never run.
+    encoded: Retained<ProtocolObject<dyn MTLIndirectCommandBuffer>>,
+    /// Rewritten from `encoded` by every replay, then run.
+    replayed: Retained<ProtocolObject<dyn MTLIndirectCommandBuffer>>,
 }
 
 impl Executable {
@@ -119,20 +134,24 @@ impl Executable {
                 .max()
                 .unwrap_or(0),
         );
-        // SAFETY: the descriptor describes compute commands only, and the
-        // count is the number of commands encoded below.
-        let commands = unsafe {
-            device.newIndirectCommandBufferWithDescriptor_maxCommandCount_options(
-                &descriptor,
-                dispatches,
-                MTLResourceOptions::StorageModeShared,
-            )
-        }
-        .ok_or_else(|| {
-            ServerError::graph_state(format!(
-                "Metal refused an indirect command buffer of {dispatches} dispatches"
-            ))
-        })?;
+        let new_commands = |storage| {
+            // SAFETY: the descriptor describes compute commands only, and the
+            // count is the number of commands encoded below.
+            unsafe {
+                device.newIndirectCommandBufferWithDescriptor_maxCommandCount_options(
+                    &descriptor,
+                    dispatches,
+                    storage,
+                )
+            }
+            .ok_or_else(|| {
+                ServerError::graph_state(format!(
+                    "Metal refused an indirect command buffer of {dispatches} dispatches"
+                ))
+            })
+        };
+        let commands = new_commands(MTLResourceOptions::StorageModeShared)?;
+        let replayed = new_commands(MTLResourceOptions::StorageModePrivate)?;
 
         let mut info_offset = 0;
         for (index, dispatch) in recording.iter().enumerate() {
@@ -188,7 +207,10 @@ impl Executable {
         executable
             ._pipelines
             .dedup_by_key(|pipeline| Retained::as_ptr(pipeline));
-        executable.commands = Some(commands);
+        executable.commands = Some(Commands {
+            encoded: commands,
+            replayed,
+        });
         Ok(executable)
     }
 
@@ -252,7 +274,7 @@ impl GraphDriver for Metal {
     }
 
     fn upload(_exec: &Executable, _stream: &mut MetalStream) {
-        // Nothing to stage: the commands were encoded into shared memory.
+        // Nothing to stage: a replay copies the commands it runs itself.
     }
 
     fn replay(exec: &Executable, stream: &mut MetalStream) -> Result<(), ServerError> {
@@ -266,8 +288,23 @@ impl GraphDriver for Metal {
             .map(|buffer| NonNull::from(ProtocolObject::<dyn MTLResource>::from_ref(&**buffer)))
             .collect();
 
+        let range = NSRange::new(0, exec.dispatches);
+
         let mut queue = stream.queue();
-        let encoder = queue.batch().compute();
+        let batch = queue.batch();
+        // SAFETY: both command buffers were made from the same descriptor for
+        // `exec.dispatches` commands, which the range spans.
+        unsafe {
+            batch
+                .blit()
+                .copyIndirectCommandBuffer_sourceRange_destination_destinationIndex(
+                    &commands.encoded,
+                    range,
+                    &commands.replayed,
+                    0,
+                )
+        };
+        let encoder = batch.compute();
         // SAFETY: every pointer is a buffer the executable retains, and the
         // count is the array's length.
         unsafe {
@@ -276,8 +313,14 @@ impl GraphDriver for Metal {
                 resident.len(),
                 MTLResourceUsage::Read | MTLResourceUsage::Write,
             );
-            encoder.executeCommandsInBuffer_withRange(commands, NSRange::new(0, exec.dispatches));
         }
+        // Declared read so the commands run after the copy that rewrote them.
+        encoder.useResource_usage(
+            ProtocolObject::from_ref(&*commands.replayed),
+            MTLResourceUsage::Read,
+        );
+        // SAFETY: the commands bind only buffers declared resident above.
+        unsafe { encoder.executeCommandsInBuffer_withRange(&commands.replayed, range) };
         queue.encoded(exec.dispatches, exec.bytes);
         Ok(())
     }
