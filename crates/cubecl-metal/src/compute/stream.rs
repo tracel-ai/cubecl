@@ -288,9 +288,10 @@ impl MetalQueue {
         bindings: &MetalBindings,
     ) -> Result<(), LaunchError> {
         let info: &[u8] = bytemuck::cast_slice(&bindings.info);
-        let info_buffer = match info.len() > MAX_INLINE_INFO_BYTES {
-            true => Some(self.info_buffer(info)?),
-            false => None,
+        let info_buffer = if info.len() > MAX_INLINE_INFO_BYTES {
+            Some(self.info_buffer(info)?)
+        } else {
+            None
         };
         let info_index = bindings.buffers.len();
 
@@ -305,17 +306,15 @@ impl MetalQueue {
             };
         }
         match &info_buffer {
+            // SAFETY: the buffer is fresh and holds the metadata; the batch
+            // retains it until its work completes.
             Some(buffer) => unsafe {
                 encoder.setBuffer_offset_atIndex(Some(buffer), 0, info_index)
             },
+            // SAFETY: `setBytes` copies the bytes into the command buffer
+            // before it returns.
             None if !info.is_empty() => unsafe {
-                // SAFETY: `setBytes` copies the bytes into the command buffer
-                // before it returns.
-                encoder.setBytes_length_atIndex(
-                    NonNull::new(info.as_ptr() as *mut _).expect("a slice is never null"),
-                    info.len(),
-                    info_index,
-                )
+                encoder.setBytes_length_atIndex(NonNull::from(info).cast(), info.len(), info_index)
             },
             None => {}
         }
@@ -348,7 +347,7 @@ impl MetalQueue {
         // copies into the new buffer.
         unsafe {
             self.device().newBufferWithBytes_length_options(
-                NonNull::new(info.as_ptr() as *mut _).expect("a slice is never null"),
+                NonNull::from(info).cast(),
                 info.len(),
                 MTLResourceOptions::StorageModeShared,
             )

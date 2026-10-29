@@ -60,28 +60,12 @@ impl RecordedDispatch {
     }
 }
 
-/// An instantiated graph: the indirect command buffer its recorded dispatches
-/// were encoded into, and what replaying it needs.
-pub struct Executable {
-    /// One command per recorded dispatch, in order; `None` for a window that
-    /// recorded none, whose replay does nothing.
-    commands: Option<Commands>,
-    dispatches: usize,
-    /// The bytes the dispatches bind, counted toward the batch a replay
-    /// lands in as a launch's are.
-    bytes: usize,
-    /// Every buffer the commands bind, each once. An encoder that executes an
-    /// indirect command buffer sees none of the buffers in it, so a replay
-    /// declares each one resident first; holding them also keeps every
-    /// buffer the commands point at alive for as long as the graph can
-    /// replay.
-    resident: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
-    /// The pipelines the commands run, alive for as long as they can run.
-    _pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
-}
+/// An instantiated graph: its commands, or `None` for a window that recorded
+/// no dispatch, whose replay does nothing.
+pub struct Executable(Option<Commands>);
 
 /// A graph's commands, in the indirect command buffer they were encoded into
-/// and in the one a replay runs.
+/// and in the one a replay runs, with what running them needs.
 ///
 /// A replay first copies the encoded commands over the ones it runs. Apple's
 /// driver runs an indirect command buffer slower the more often it runs it
@@ -93,10 +77,24 @@ struct Commands {
     encoded: Retained<ProtocolObject<dyn MTLIndirectCommandBuffer>>,
     /// Rewritten from `encoded` by every replay, then run.
     replayed: Retained<ProtocolObject<dyn MTLIndirectCommandBuffer>>,
+    dispatches: usize,
+    /// The bytes the dispatches bind, counted toward the batch a replay
+    /// lands in as a launch's are.
+    bytes: usize,
+    /// Every buffer the commands bind, each once, alive for as long as the
+    /// graph can replay.
+    _resident: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
+    /// The same buffers, as the list a replay declares resident: an encoder
+    /// that executes an indirect command buffer sees none of the buffers in
+    /// it. Built once; `_resident` keeps every pointer valid.
+    declared: Vec<NonNull<ProtocolObject<dyn MTLResource>>>,
+    /// The pipelines the commands run, alive for as long as they can run.
+    _pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
 }
 
-impl Executable {
-    /// Encode `recording` into an indirect command buffer on `device`.
+impl Commands {
+    /// Encode `recording`, which holds at least one dispatch, into an
+    /// indirect command buffer on `device`.
     ///
     /// Each command sets its own pipeline and buffers, and waits on the one
     /// before it: a kernel reads what the previous one wrote, as the stream
@@ -111,17 +109,6 @@ impl Executable {
         recording: Vec<RecordedDispatch>,
     ) -> Result<Self, ServerError> {
         let dispatches = recording.len();
-        let mut executable = Self {
-            commands: None,
-            dispatches,
-            bytes: 0,
-            resident: Vec::new(),
-            _pipelines: Vec::new(),
-        };
-        if recording.is_empty() {
-            return Ok(executable);
-        }
-
         let info = Self::info_buffer(device, &recording)?;
         let descriptor = MTLIndirectCommandBufferDescriptor::new();
         descriptor.setCommandTypes(MTLIndirectCommandType::ConcurrentDispatch);
@@ -150,18 +137,20 @@ impl Executable {
                 ))
             })
         };
-        let commands = new_commands(MTLResourceOptions::StorageModeShared)?;
+        let encoded = new_commands(MTLResourceOptions::StorageModeShared)?;
         let replayed = new_commands(MTLResourceOptions::StorageModePrivate)?;
 
+        let mut bytes = 0;
+        let mut resident = Vec::new();
         let mut info_offset = 0;
         for (index, dispatch) in recording.iter().enumerate() {
             // SAFETY: `index` is below the command count the buffer was made
             // with.
-            let command = unsafe { commands.indirectComputeCommandAtIndex(index) };
+            let command = unsafe { encoded.indirectComputeCommandAtIndex(index) };
             command.setComputePipelineState(&dispatch.pipeline);
             for (slot, resource) in dispatch.bindings.buffers.iter().enumerate() {
                 // SAFETY: the resource is a live slice of its buffer, which
-                // the executable retains below.
+                // `resident` retains.
                 unsafe {
                     command.setKernelBuffer_offset_atIndex(
                         resource.buffer(),
@@ -169,14 +158,14 @@ impl Executable {
                         slot,
                     )
                 };
-                executable.bytes += resource.size();
-                executable.resident.push(resource.retained());
+                bytes += resource.size();
+                resident.push(resource.retained());
             }
             if let Some(info) = &info
                 && !dispatch.bindings.info.is_empty()
             {
                 // SAFETY: the offset is where `info_buffer` wrote this
-                // dispatch's metadata, which the executable retains below.
+                // dispatch's metadata, and `resident` retains the buffer.
                 unsafe {
                     command.setKernelBuffer_offset_atIndex(
                         info,
@@ -194,24 +183,28 @@ impl Executable {
             command.setBarrier();
         }
 
-        executable.resident.extend(info);
-        executable.resident.sort_unstable_by_key(Retained::as_ptr);
-        executable
-            .resident
-            .dedup_by_key(|buffer| Retained::as_ptr(buffer));
-        executable._pipelines = recording
+        resident.extend(info);
+        resident.sort_unstable_by_key(Retained::as_ptr);
+        resident.dedup_by_key(|buffer| Retained::as_ptr(buffer));
+        let declared = resident
+            .iter()
+            .map(|buffer| NonNull::from(ProtocolObject::<dyn MTLResource>::from_ref(&**buffer)))
+            .collect();
+        let mut pipelines: Vec<_> = recording
             .into_iter()
             .map(|dispatch| dispatch.pipeline)
             .collect();
-        executable._pipelines.sort_unstable_by_key(Retained::as_ptr);
-        executable
-            ._pipelines
-            .dedup_by_key(|pipeline| Retained::as_ptr(pipeline));
-        executable.commands = Some(Commands {
-            encoded: commands,
+        pipelines.sort_unstable_by_key(Retained::as_ptr);
+        pipelines.dedup_by_key(|pipeline| Retained::as_ptr(pipeline));
+        Ok(Self {
+            encoded,
             replayed,
-        });
-        Ok(executable)
+            dispatches,
+            bytes,
+            _resident: resident,
+            declared,
+            _pipelines: pipelines,
+        })
     }
 
     /// One buffer holding every dispatch's metadata in recording order, each
@@ -269,8 +262,11 @@ impl GraphDriver for Metal {
         if let Some(doomed) = doomed {
             return Err(doomed);
         }
+        if recording.is_empty() {
+            return Ok(Executable(None));
+        }
         let device = stream.queue().device();
-        Executable::encode(&device, recording)
+        Commands::encode(&device, recording).map(|commands| Executable(Some(commands)))
     }
 
     fn upload(_exec: &Executable, _stream: &mut MetalStream) {
@@ -279,21 +275,15 @@ impl GraphDriver for Metal {
 
     fn replay(exec: &Executable, stream: &mut MetalStream) -> Result<(), ServerError> {
         stream.reject_while_recording("replay")?;
-        let Some(commands) = &exec.commands else {
+        let Some(commands) = &exec.0 else {
             return Ok(());
         };
-        let resident: Vec<NonNull<ProtocolObject<dyn MTLResource>>> = exec
-            .resident
-            .iter()
-            .map(|buffer| NonNull::from(ProtocolObject::<dyn MTLResource>::from_ref(&**buffer)))
-            .collect();
-
-        let range = NSRange::new(0, exec.dispatches);
+        let range = NSRange::new(0, commands.dispatches);
 
         let mut queue = stream.queue();
         let batch = queue.batch();
         // SAFETY: both command buffers were made from the same descriptor for
-        // `exec.dispatches` commands, which the range spans.
+        // `commands.dispatches` commands, which the range spans.
         unsafe {
             batch
                 .blit()
@@ -305,12 +295,12 @@ impl GraphDriver for Metal {
                 )
         };
         let encoder = batch.compute();
-        // SAFETY: every pointer is a buffer the executable retains, and the
-        // count is the array's length.
+        // SAFETY: every pointer is a buffer the commands retain, and the count
+        // is the list's length.
         unsafe {
             encoder.useResources_count_usage(
-                NonNull::new(resident.as_ptr() as *mut _).expect("a vector is never null"),
-                resident.len(),
+                NonNull::from(commands.declared.as_slice()).cast(),
+                commands.declared.len(),
                 MTLResourceUsage::Read | MTLResourceUsage::Write,
             );
         }
@@ -321,7 +311,7 @@ impl GraphDriver for Metal {
         );
         // SAFETY: the commands bind only buffers declared resident above.
         unsafe { encoder.executeCommandsInBuffer_withRange(&commands.replayed, range) };
-        queue.encoded(exec.dispatches, exec.bytes);
+        queue.encoded(commands.dispatches, commands.bytes);
         Ok(())
     }
 }

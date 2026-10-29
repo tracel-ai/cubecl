@@ -228,9 +228,9 @@ impl MetalServer {
             info: info.data,
         };
 
-        command.kernel(&kernel_id, kernel, count, &mut bindings)?;
-
-        Ok(())
+        command
+            .kernel(&kernel_id, kernel, count, &mut bindings)
+            .map_err(ServerError::from)
     }
 }
 
@@ -283,12 +283,11 @@ impl Server for MetalServer {
         size: u64,
         stream_id: StreamId,
     ) -> Result<(), ServerError> {
-        let result = match self.command_no_inputs(stream_id) {
-            Ok(mut command) => command
+        let result = self.command_no_inputs(stream_id).and_then(|mut command| {
+            command
                 .initialize_memory(memory.clone(), size)
-                .map_err(ServerError::from),
-            Err(error) => Err(error),
-        };
+                .map_err(ServerError::from)
+        });
         // No stream to allocate on, or no memory to allocate: the buffer carries the
         // error instead.
         if let Err(error) = &result {
