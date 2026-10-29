@@ -880,9 +880,21 @@ impl WgpuStream {
         Ok(())
     }
 
+    /// Destroy what the memories freed, once the commands that may bind it are submitted.
+    fn destroy_retired(&mut self) {
+        self.memory.storage().destroy_retired();
+        self.auxiliary.destroy_retired();
+    }
+
     fn submit_tasks(&mut self) {
         if self.tasks_count == 0 {
             self.shared_bindings.clear();
+            // A cleanup with no task after it still gives its pages back. The queue's pending
+            // writes are submitted first: they may land in them.
+            if self.memory.storage().has_retired() || self.auxiliary.has_retired() {
+                self.queue.submit([]);
+                self.destroy_retired();
+            }
             return;
         }
 
@@ -902,6 +914,8 @@ impl WgpuStream {
 
         // This will _first_ fire off all pending write_buffer work.
         let index = self.queue.submit([tasks_encoder.finish()]);
+        // What the storage freed can be destroyed now the commands binding it are submitted.
+        self.destroy_retired();
 
         // Release cross-stream input pins.
         if !self.shared_bindings.is_empty() {
