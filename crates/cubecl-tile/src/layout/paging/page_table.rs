@@ -5,25 +5,13 @@ use cubecl::prelude::*;
 use super::window::{PagedWindow, Pin, Spans};
 use crate::*;
 
-/// A page table as a kernel reads it: `u32`, `[sequences, pages_per_sequence]`, read by stride.
-/// Its shape is the operand's: the sequences it lists and their positions, `page_size` a column.
-/// It holds at least one entry, which [`lookup`](Self::lookup) reads for every window.
+/// A page table as a kernel reads it, pinned for the window it was last cut for: the [`PageList`]
+/// every window shares and the pin of this one.
 #[derive(CubeType, Clone)]
 #[expand(derive(Clone))]
 pub(crate) struct PageTable {
-    entries: Box<[u32]>,
-    sequence_stride: u32,
-    page_stride: u32,
-    /// The table's rows: a sequence past them is outside the operand.
-    pub(crate) sequences: u32,
-    /// The table's columns: a position past them is likewise outside.
-    pub(crate) pages_per_sequence: u32,
-    /// Where the table's last entry lies: a coordinate past the table, which only a masked read
-    /// asks for, reads some cell at or before it, never past it.
-    last_entry: u32,
-    /// The pool's last page: a table entry past it reads it, since a table is device data a
-    /// launch may never have written.
-    last_page: u32,
+    /// The table's entries and shape, fixed for every window cut over it.
+    pub(crate) list: PageList,
     /// The entry this window was cut with, resolved once at the cut
     /// ([`pinned_at`](Self::pinned_at)): a line in the same sequence and column reads its page from
     /// here without loading the table. Replaced at each cut that resolves a new page.
@@ -45,8 +33,29 @@ pub(crate) struct PageTable {
     /// of the whole operand (aligned to everything), 1 where nothing is known.
     #[cube(comptime)]
     origin_alignment: usize,
+}
+
+/// A page table's entries as a kernel reads them: `u32`, `[sequences, pages_per_sequence]`, read
+/// by stride. Its shape is the operand's: the sequences it lists and their positions, `page_size`
+/// a column. It holds at least one entry, which [`lookup`](Self::lookup) reads for every window.
+#[derive(CubeType, Clone)]
+#[expand(derive(Clone))]
+pub(crate) struct PageList {
+    entries: Box<[u32]>,
+    sequence_stride: u32,
+    page_stride: u32,
+    /// The table's rows: a sequence past them is outside the operand.
+    sequences: u32,
+    /// The table's columns: a position past them is likewise outside.
+    pages_per_sequence: u32,
+    /// Where the table's last entry lies: a coordinate past the table, which only a masked read
+    /// asks for, reads some cell at or before it, never past it.
+    last_entry: u32,
+    /// The pool's last page: a table entry past it reads it, since a table is device data a
+    /// launch may never have written.
+    last_page: u32,
     #[cube(comptime)]
-    pub(crate) page_size: usize,
+    page_size: usize,
     /// The buffer dim the pages lie along.
     #[cube(comptime)]
     pub(crate) sequence_dim: usize,
@@ -102,7 +111,7 @@ impl PageTable {
                     .minus(1u32)
                     .times(page_stride),
             );
-        let unpinned = PageTable {
+        let list = PageList {
             entries: unsafe { table.as_slice().as_boxed_unchecked() },
             sequence_stride,
             page_stride,
@@ -111,16 +120,19 @@ impl PageTable {
             last_entry,
             // A bound pool holds a page at least; one stated by hand is kept off underflow.
             last_page: pool_pages.max_with(1u32).minus(1u32),
+            page_size: comptime!(paging.page_size),
+            sequence_dim,
+            position_dim,
+            unit,
+        };
+        let unpinned = PageTable {
+            list,
             pin: PageEntry::unlisted(),
             pin_start: 0u32,
             bases: Coords::<u32>::new(),
             handed: ComptimeOption::new_None(),
             spans: comptime!(Spans::Any),
             origin_alignment: comptime!(0usize),
-            page_size: comptime!(paging.page_size),
-            sequence_dim,
-            position_dim,
-            unit,
         };
         let (first, no_stride) = (0u32, 0u32);
         unpinned.pinned(
@@ -146,8 +158,8 @@ impl PageTable {
         let origin_alignment = comptime!(match &cut {
             WindowCut::Unmoved => self.origin_alignment,
             WindowCut::Shifted => 1,
-            WindowCut::Level { edges, .. } => match edges[self.position_dim] {
-                Some(loads) => gcd(self.origin_alignment, loads * self.unit),
+            WindowCut::Level { edges, .. } => match edges[self.list.position_dim] {
+                Some(loads) => gcd(self.origin_alignment, loads * self.list.unit),
                 None => self.origin_alignment,
             },
         });
@@ -157,11 +169,11 @@ impl PageTable {
             WindowCut::Level { nested: true, .. } if self.spans.pages() == 1 => Pin::Kept,
             WindowCut::Level { edges, .. } => Pin::Resolved(
                 PagedWindow {
-                    sequences: edges[self.sequence_dim],
-                    positions: edges[self.position_dim].map(|loads| loads * self.unit),
+                    sequences: edges[self.list.sequence_dim],
+                    positions: edges[self.list.position_dim].map(|loads| loads * self.list.unit),
                     origin_alignment,
                 }
-                .spans(self.page_size),
+                .spans(self.list.page_size),
             ),
         });
         match comptime!(pin) {
@@ -185,14 +197,14 @@ impl PageTable {
         sequence_stride: u32,
         position_stride: u32,
     ) -> PageTable {
-        let sequence = origin.at(comptime!(self.sequence_dim)).cast::<u32>();
+        let sequence = origin.at(comptime!(self.list.sequence_dim)).cast::<u32>();
         let position = origin
-            .at(comptime!(self.position_dim))
+            .at(comptime!(self.list.position_dim))
             .cast::<u32>()
-            .times(comptime!(self.unit as u32));
+            .times(comptime!(self.list.unit as u32));
         self.pinned(
             sequence,
-            position.divided_by(comptime!(self.page_size as u32)),
+            position.divided_by(comptime!(self.list.page_size as u32)),
             spans,
             origin_alignment,
             sequence_stride,
@@ -211,18 +223,18 @@ impl PageTable {
         sequence_stride: u32,
         position_stride: u32,
     ) -> PageTable {
-        let unit = comptime!(self.unit as u32);
+        let unit = comptime!(self.list.unit as u32);
         let page = self.cut_page(sequence, column);
-        let pin_start = column.times(comptime!(self.page_size as u32));
+        let pin_start = column.times(comptime!(self.list.page_size as u32));
         // Wrapping: a base is only ever added to the offset of a line past its column's start.
         let start = pin_start.divided_by(unit);
-        let page_lines = comptime!((self.page_size / self.unit) as u32);
+        let page_lines = comptime!((self.list.page_size / self.list.unit) as u32);
         let mut bases = Coords::<u32>::new();
         #[unroll]
         for k in 0..comptime!(spans.pages()) {
             let listed = match comptime!(k == 0) {
                 true => page,
-                false => self.lookup(sequence, column.plus(comptime!(k as u32))),
+                false => self.list.lookup(sequence, column.plus(comptime!(k as u32))),
             };
             bases.push(
                 listed.times(sequence_stride).minus(
@@ -233,13 +245,7 @@ impl PageTable {
             );
         }
         PageTable {
-            entries: self.entries.clone(),
-            sequence_stride: self.sequence_stride,
-            page_stride: self.page_stride,
-            sequences: self.sequences,
-            pages_per_sequence: self.pages_per_sequence,
-            last_entry: self.last_entry,
-            last_page: self.last_page,
+            list: self.list.clone(),
             pin: PageEntry {
                 sequence,
                 column,
@@ -250,20 +256,16 @@ impl PageTable {
             handed: self.handed.clone(),
             spans,
             origin_alignment,
-            page_size: comptime!(self.page_size),
-            sequence_dim: comptime!(self.sequence_dim),
-            position_dim: comptime!(self.position_dim),
-            unit: comptime!(self.unit),
         }
     }
 
     /// The page `column` of sequence `sequence` lists: the handed entry where it names that cell,
-    /// else the table's [`lookup`](Self::lookup).
+    /// else the table's [`lookup`](PageList::lookup).
     fn cut_page(&self, sequence: u32, column: u32) -> u32 {
         #[comptime]
         match &self.handed {
             ComptimeOption::Some(handed) => self.page_from(handed, sequence, column),
-            ComptimeOption::None => self.lookup(sequence, column),
+            ComptimeOption::None => self.list.lookup(sequence, column),
         }
     }
 
@@ -272,7 +274,7 @@ impl PageTable {
     fn page_from(&self, entry: &PageEntry, sequence: u32, column: u32) -> u32 {
         let mut page = entry.page;
         if sequence != entry.sequence || column != entry.column {
-            page = self.lookup(sequence, column);
+            page = self.list.lookup(sequence, column);
         }
         page
     }
@@ -297,23 +299,13 @@ impl PageTable {
         handed: ComptimeOption<PageEntry>,
     ) -> PageTable {
         PageTable {
-            entries: self.entries.clone(),
-            sequence_stride: self.sequence_stride,
-            page_stride: self.page_stride,
-            sequences: self.sequences,
-            pages_per_sequence: self.pages_per_sequence,
-            last_entry: self.last_entry,
-            last_page: self.last_page,
+            list: self.list.clone(),
             pin: self.pin.clone(),
             pin_start: self.pin_start,
             bases: self.bases.clone(),
             handed,
             spans: comptime!(self.spans),
             origin_alignment,
-            page_size: comptime!(self.page_size),
-            sequence_dim: comptime!(self.sequence_dim),
-            position_dim: comptime!(self.position_dim),
-            unit: comptime!(self.unit),
         }
     }
 
@@ -337,14 +329,14 @@ impl PageTable {
         let mut base = self.bases.at(0);
         let pages = comptime!(self.spans.pages());
         if comptime!(pages > 1) {
-            let unit = comptime!(self.unit as u32);
+            let unit = comptime!(self.list.unit as u32);
             let offset = physical
-                .at(comptime!(self.position_dim))
+                .at(comptime!(self.list.position_dim))
                 .times(unit)
                 .minus(self.pin_start);
             #[unroll]
             for k in 1..pages {
-                let page_start = comptime!((k * self.page_size) as u32);
+                let page_start = comptime!((k * self.list.page_size) as u32);
                 base = select(offset >= page_start, self.bases.at(k), base);
             }
         }
@@ -356,13 +348,13 @@ impl PageTable {
     /// addresses a line past the window's bound at the bound's edge, which may lie before the
     /// pinned page, and drops what it reads there.
     fn pinned_coords(&self, physical: &Coords<u32>) -> Coords<u32> {
-        let first = self.pin_start.divided_by(comptime!(self.unit as u32));
+        let first = self.pin_start.divided_by(comptime!(self.list.unit as u32));
         let mut pinned = Coords::<u32>::new();
         #[unroll]
         for pa in 0..physical.len() {
-            if comptime!(pa == self.sequence_dim) {
+            if comptime!(pa == self.list.sequence_dim) {
                 pinned.push(0u32);
-            } else if comptime!(pa == self.position_dim) {
+            } else if comptime!(pa == self.list.position_dim) {
                 pinned.push(physical.at(pa).max_with(first));
             } else {
                 pinned.push(physical.at(pa));
@@ -371,6 +363,53 @@ impl PageTable {
         pinned
     }
 
+    /// `pool`, the geometry of the pool as it lies, as the sequences this table lists: the table's
+    /// rows along the sequence dim and their positions along the position dim, over the pool's
+    /// strides.
+    pub(crate) fn sequences_over(&self, pool: &RuntimeGeometry) -> RuntimeGeometry {
+        let page_size = comptime!(self.list.page_size as u32);
+        let mut sequences = RuntimeGeometry::new();
+        #[unroll]
+        for pa in 0..pool.shape.len() {
+            let extent = if comptime!(pa == self.list.sequence_dim) {
+                self.list.sequences
+            } else if comptime!(pa == self.list.position_dim) {
+                self.list.pages_per_sequence.times(page_size)
+            } else {
+                pool.shape.at(pa)
+            };
+            sequences.push(extent, pool.strides.at(pa));
+        }
+        sequences
+    }
+
+    /// `physical`, a logical coordinate along each buffer dim, with the sequence's coordinate
+    /// replaced by the page its position lies in and the position's by its row there: the pinned
+    /// page where the line lies in it, else the table's [`lookup`](PageList::lookup).
+    fn resolve(&self, physical: &Coords<u32>) -> Coords<u32> {
+        let page_size = comptime!(self.list.page_size as u32);
+        let unit = comptime!(self.list.unit as u32);
+        let sequence = physical.at(comptime!(self.list.sequence_dim));
+        let position = physical.at(comptime!(self.list.position_dim)).times(unit);
+        let column = position.divided_by(page_size);
+        let page = self.page_from(&self.pin, sequence, column);
+        let mut resolved = Coords::<u32>::new();
+        #[unroll]
+        for pa in 0..physical.len() {
+            if comptime!(pa == self.list.sequence_dim) {
+                resolved.push(page);
+            } else if comptime!(pa == self.list.position_dim) {
+                resolved.push(position.remainder(page_size).divided_by(unit));
+            } else {
+                resolved.push(physical.at(pa));
+            }
+        }
+        resolved
+    }
+}
+
+#[cube]
+impl PageList {
     /// The page column `column` of sequence `sequence` lists, clamped to the pool.
     ///
     /// A coordinate past the table, which only a masked read asks for, reads some cell at or before
@@ -383,49 +422,5 @@ impl PageTable {
             .plus(column.times(self.page_stride))
             .min_with(self.last_entry);
         self.entries[at.cast::<usize>()].min_with(self.last_page)
-    }
-
-    /// `pool`, the geometry of the pool as it lies, as the sequences this table lists: the table's
-    /// rows along the sequence dim and their positions along the position dim, over the pool's
-    /// strides.
-    pub(crate) fn sequences_over(&self, pool: &RuntimeGeometry) -> RuntimeGeometry {
-        let page_size = comptime!(self.page_size as u32);
-        let mut sequences = RuntimeGeometry::new();
-        #[unroll]
-        for pa in 0..pool.shape.len() {
-            let extent = if comptime!(pa == self.sequence_dim) {
-                self.sequences
-            } else if comptime!(pa == self.position_dim) {
-                self.pages_per_sequence.times(page_size)
-            } else {
-                pool.shape.at(pa)
-            };
-            sequences.push(extent, pool.strides.at(pa));
-        }
-        sequences
-    }
-
-    /// `physical`, a logical coordinate along each buffer dim, with the sequence's coordinate
-    /// replaced by the page its position lies in and the position's by its row there: the pinned
-    /// page where the line lies in it, else the table's [`lookup`](Self::lookup).
-    fn resolve(&self, physical: &Coords<u32>) -> Coords<u32> {
-        let page_size = comptime!(self.page_size as u32);
-        let unit = comptime!(self.unit as u32);
-        let sequence = physical.at(comptime!(self.sequence_dim));
-        let position = physical.at(comptime!(self.position_dim)).times(unit);
-        let column = position.divided_by(page_size);
-        let page = self.page_from(&self.pin, sequence, column);
-        let mut resolved = Coords::<u32>::new();
-        #[unroll]
-        for pa in 0..physical.len() {
-            if comptime!(pa == self.sequence_dim) {
-                resolved.push(page);
-            } else if comptime!(pa == self.position_dim) {
-                resolved.push(position.remainder(page_size).divided_by(unit));
-            } else {
-                resolved.push(physical.at(pa));
-            }
-        }
-        resolved
     }
 }
