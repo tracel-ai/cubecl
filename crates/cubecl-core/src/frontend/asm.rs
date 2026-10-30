@@ -1,9 +1,9 @@
 use alloc::{string::String, vec::Vec};
 
 use cubecl_ir::{
-    AddressSpace, Scope,
+    Scope,
     dialect::{InlineAsmOp, MemoryClobbers, OperationPtrExt},
-    interfaces::TypeExt,
+    interfaces::{TypeExt, side_effects::MemoryScope},
 };
 use pliron::{op::Op, r#type::Typed, value::Value};
 
@@ -22,8 +22,8 @@ pub struct BuildAsmExpand {
     nomem: bool,
     explicit_mem: bool,
     readonly: bool,
-    reads_spaces: Vec<AddressSpace>,
-    writes_spaces: Vec<AddressSpace>,
+    reads_spaces: Vec<MemoryScope>,
+    writes_spaces: Vec<MemoryScope>,
 }
 
 impl BuildAsmExpand {
@@ -78,32 +78,32 @@ impl BuildAsmExpand {
     }
 
     pub fn reads_local(mut self) -> Self {
-        self.reads_spaces.push(AddressSpace::Local);
+        self.reads_spaces.push(MemoryScope::Local);
         self
     }
 
     pub fn reads_shared(mut self) -> Self {
-        self.reads_spaces.push(AddressSpace::Shared);
+        self.reads_spaces.push(MemoryScope::Shared);
         self
     }
 
     pub fn reads_global(mut self) -> Self {
-        self.reads_spaces.push(AddressSpace::Global(0));
+        self.reads_spaces.push(MemoryScope::Global);
         self
     }
 
     pub fn writes_local(mut self) -> Self {
-        self.writes_spaces.push(AddressSpace::Local);
+        self.writes_spaces.push(MemoryScope::Local);
         self
     }
 
     pub fn writes_shared(mut self) -> Self {
-        self.writes_spaces.push(AddressSpace::Shared);
+        self.writes_spaces.push(MemoryScope::Shared);
         self
     }
 
     pub fn writes_global(mut self) -> Self {
-        self.writes_spaces.push(AddressSpace::Global(0));
+        self.writes_spaces.push(MemoryScope::Global);
         self
     }
 

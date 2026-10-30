@@ -1,8 +1,17 @@
-use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign};
+use core::{
+    fmt,
+    ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign},
+};
 
-use pliron::{opts::dce::SideEffects, printable::Printable};
+use alloc::string::ToString;
+use derive_more::From;
+use itertools::Itertools;
+use pliron::{
+    opts::dce::SideEffects,
+    printable::{self, Printable},
+};
 
-use crate::{AddressSpace, dialect::OperationExt, prelude::*};
+use crate::{EnumSet, EnumSetType, dialect::OperationExt, prelude::*, typed_vec_attr};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum ModRefResult {
@@ -71,38 +80,78 @@ impl BitAndAssign for ModRefResult {
     }
 }
 
+/// Memory scope for effects, they typically affect *all* global buffers and often affect more than
+/// one storage class. This enum set allows properly specifying these effects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, EnumSetType)]
+#[format]
+pub enum MemoryScope {
+    Global,
+    Shared,
+    Local,
+}
+
+typed_vec_attr!(MemoryScope, "cube.memory_scopes", MemoryScopeVecAttr);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Extent {
+    // Exactly this pointer, without requiring a size
+    ExactPointer,
+    Exact(usize),
+    AtMost(usize),
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, From)]
+pub enum MemoryLocation {
+    Pointer(Value, Extent),
+    Scope(EnumSet<MemoryScope>),
+    All,
+}
+
+impl MemoryLocation {
+    pub fn exact_pointer(value: Value) -> MemoryLocation {
+        MemoryLocation::Pointer(value, Extent::ExactPointer)
+    }
+}
+
+impl From<MemoryScope> for MemoryLocation {
+    fn from(value: MemoryScope) -> Self {
+        MemoryLocation::Scope(value.into())
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MemoryEffect {
-    Read(Value),
-    Write(Value),
-    ReadAllInSpace(AddressSpace),
-    WriteAllInSpace(AddressSpace),
-    ReadAll,
-    WriteAll,
-    // Not analyzable, clobber the entire state
+    Read(MemoryLocation),
+    Write(MemoryLocation),
+    /// Make a memory location available, which references it so stores can't be sunk past this
+    MakeAvailable(MemoryLocation),
+    /// Make writes by other threads to a memory location visible to the current thread
+    MakeVisible(MemoryLocation),
+    /// Not analyzable, clobber the entire state
     Opaque,
 }
 
 impl MemoryEffect {
-    pub fn value(&self) -> Option<Value> {
+    pub fn location(&self) -> MemoryLocation {
         match self {
-            MemoryEffect::Read(value) | MemoryEffect::Write(value) => Some(*value),
-            MemoryEffect::ReadAllInSpace(_)
-            | MemoryEffect::WriteAllInSpace(_)
-            | MemoryEffect::ReadAll
-            | MemoryEffect::WriteAll
-            | MemoryEffect::Opaque => None,
+            MemoryEffect::Read(loc) | MemoryEffect::Write(loc) => *loc,
+            MemoryEffect::MakeVisible(loc) | MemoryEffect::MakeAvailable(loc) => *loc,
+            MemoryEffect::Opaque => MemoryLocation::All,
+        }
+    }
+
+    pub fn pointer(&self) -> Option<(Value, Extent)> {
+        match self.location() {
+            MemoryLocation::Pointer(value, extent) => Some((value, extent)),
+            MemoryLocation::Scope(_) | MemoryLocation::All => None,
         }
     }
 
     pub fn mod_ref_mask(&self) -> ModRefResult {
         match self {
-            MemoryEffect::Read(_) | MemoryEffect::ReadAllInSpace(_) | MemoryEffect::ReadAll => {
-                ModRefResult::Ref
-            }
-            MemoryEffect::Write(_) | MemoryEffect::WriteAllInSpace(_) | MemoryEffect::WriteAll => {
-                ModRefResult::Mod
-            }
+            MemoryEffect::Read(_) | MemoryEffect::MakeAvailable(_) => ModRefResult::Ref,
+            MemoryEffect::Write(_) | MemoryEffect::MakeVisible(_) => ModRefResult::Mod,
             MemoryEffect::Opaque => ModRefResult::ModRef,
         }
     }
@@ -112,24 +161,45 @@ impl MemoryEffect {
     }
 }
 
-impl Printable for MemoryEffect {
-    fn fmt(
-        &self,
-        ctx: &Context,
-        _state: &pliron::printable::State,
-        f: &mut core::fmt::Formatter<'_>,
-    ) -> core::fmt::Result {
+impl Printable for Extent {
+    fn fmt(&self, _: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            MemoryEffect::Read(value) => write!(f, "Read({})", value.disp(ctx)),
-            MemoryEffect::Write(value) => write!(f, "Write({})", value.disp(ctx)),
-            MemoryEffect::ReadAllInSpace(address_space) => {
-                write!(f, "ReadAllInSpace({})", address_space.disp(ctx))
+            Extent::ExactPointer => f.write_str("ExactPointer"),
+            Extent::Exact(value) => write!(f, "Exact({value})"),
+            Extent::AtMost(value) => write!(f, "AtMost({value})"),
+            Extent::Unknown => write!(f, "Unknown"),
+        }
+    }
+}
+
+impl Printable for MemoryLocation {
+    fn fmt(&self, ctx: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MemoryLocation::Pointer(value, extent) => {
+                write!(
+                    f,
+                    "Pointer({}, extent: {})",
+                    value.disp(ctx),
+                    extent.disp(ctx)
+                )
             }
-            MemoryEffect::WriteAllInSpace(address_space) => {
-                write!(f, "WriteAllInSpace({})", address_space.disp(ctx))
-            }
-            MemoryEffect::ReadAll => write!(f, "ReadAll"),
-            MemoryEffect::WriteAll => write!(f, "WriteAll"),
+            MemoryLocation::Scope(scope) => write!(
+                f,
+                "Scope({})",
+                scope.iter().map(|it| it.disp(ctx).to_string()).join(" | ")
+            ),
+            MemoryLocation::All => f.write_str("All"),
+        }
+    }
+}
+
+impl Printable for MemoryEffect {
+    fn fmt(&self, ctx: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MemoryEffect::Read(loc) => write!(f, "Read({})", loc.disp(ctx)),
+            MemoryEffect::Write(loc) => write!(f, "Write({})", loc.disp(ctx)),
+            MemoryEffect::MakeAvailable(loc) => write!(f, "MakeAvailable({})", loc.disp(ctx)),
+            MemoryEffect::MakeVisible(loc) => write!(f, "MakeVisible({})", loc.disp(ctx)),
             MemoryEffect::Opaque => write!(f, "Opaque"),
         }
     }

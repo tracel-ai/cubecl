@@ -3,11 +3,11 @@ use core::{cell::Ref, fmt::Display};
 use cubecl_core::{
     frontend::InputKind,
     ir::{
-        AddressType, Scope,
+        AddressType, EnumSet, Scope,
         dialect::{InlineAsmOp, InputSpecsAttr, MemoryClobbers, MemoryClobbersAttr},
         interfaces::{
             TypedExt,
-            side_effects::{MemoryEffect, MemoryEffectsOp},
+            side_effects::{Extent, MemoryEffect, MemoryEffectsOp, MemoryLocation},
         },
         prelude::*,
         types::VectorType,
@@ -139,37 +139,42 @@ impl MemoryEffectsOp for InlinePtxOp {
             .0
         {
             MemoryClobbers::Nomem => vec![],
-            MemoryClobbers::Readonly => vec![MemoryEffect::ReadAll],
+            MemoryClobbers::Readonly => vec![MemoryEffect::Read(MemoryLocation::All)],
             MemoryClobbers::Explicit {
                 reads_spaces,
                 writes_spaces,
             } => {
                 let mut out = vec![];
-                for space in reads_spaces.0.iter() {
-                    out.push(MemoryEffect::ReadAllInSpace(*space));
+                let reads_spaces: EnumSet<_> = reads_spaces.0.iter().copied().collect();
+                let writes_spaces: EnumSet<_> = writes_spaces.0.iter().copied().collect();
+                if !reads_spaces.is_empty() {
+                    out.push(MemoryEffect::Read(reads_spaces.into()));
                 }
-                for space in writes_spaces.0.iter() {
-                    out.push(MemoryEffect::WriteAllInSpace(*space));
+                if !writes_spaces.is_empty() {
+                    out.push(MemoryEffect::Write(writes_spaces.into()));
                 }
                 let specs = self.get_attr_cuda_inline_ptx_in_spec(ctx).unwrap();
                 for (value, spec) in self.inputs(ctx).into_iter().zip(specs.0.iter()) {
                     match spec.kind {
                         InputKind::MemIn => {
-                            out.push(MemoryEffect::Read(value));
+                            out.push(MemoryEffect::Read((value, Extent::Unknown).into()));
                         }
                         InputKind::MemOut => {
-                            out.push(MemoryEffect::Write(value));
+                            out.push(MemoryEffect::Write((value, Extent::Unknown).into()));
                         }
                         InputKind::MemInout => {
-                            out.push(MemoryEffect::Read(value));
-                            out.push(MemoryEffect::Write(value));
+                            out.push(MemoryEffect::Read((value, Extent::Unknown).into()));
+                            out.push(MemoryEffect::Write((value, Extent::Unknown).into()));
                         }
                         InputKind::In => {}
                     }
                 }
                 out
             }
-            MemoryClobbers::ReadWrite => vec![MemoryEffect::ReadAll, MemoryEffect::WriteAll],
+            MemoryClobbers::ReadWrite => vec![
+                MemoryEffect::Read(MemoryLocation::All),
+                MemoryEffect::Write(MemoryLocation::All),
+            ],
         }
     }
 }
