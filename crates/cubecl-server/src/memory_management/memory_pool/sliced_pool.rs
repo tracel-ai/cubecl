@@ -144,10 +144,7 @@ impl SlicedPool {
             .pages
             .iter_mut()
             .filter(|(page, _)| !page.is_guarded())
-            .find_map(|(page, _)| {
-                page.coalesce(failures);
-                page.try_reserve(size)
-            });
+            .find_map(|(page, _)| page.reserve(size, failures));
         if handle.is_some() {
             self.largest_alloc = self.largest_alloc.max(size);
         }
