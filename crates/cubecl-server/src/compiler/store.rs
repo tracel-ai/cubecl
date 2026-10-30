@@ -89,9 +89,19 @@ impl KernelCacheKey {
     /// Create a key from a kernel id and the current build ID.
     pub fn new(id: &KernelId, build_id: StableHash) -> Self {
         Self {
-            id: id.stable_hash(),
+            id: Self::hash_id(id),
             build_id,
         }
+    }
+
+    /// The id hashed whole: its full rendering ([`KernelId::stable_format`]) and its `Hash`, which
+    /// takes the kernel's `TypeId`. [`KernelId::stable_hash`] alone hashes the info through a `Hash`
+    /// that may leave out what its `Eq` compares, and the rendering alone misses two types that
+    /// print alike; either way two kernels share a key, and a store written through serves the
+    /// first one's artifact to the second, in the same run. A `TypeId` is stable within a build,
+    /// which the build id already scopes a store to.
+    fn hash_id(id: &KernelId) -> StableHash {
+        StableHasher::hash_one(&(id.stable_format(), id))
     }
 
     /// Create a key from an artifact id (kernel and variant) and the current build ID.
@@ -101,7 +111,7 @@ impl KernelCacheKey {
     ) -> Self {
         use core::hash::Hash;
         let mut hasher = StableHasher::new();
-        id.kernel.stable_hash().hash(&mut hasher);
+        Self::hash_id(&id.kernel).hash(&mut hasher);
         id.variant.hash(&mut hasher);
         Self {
             id: hasher.finalize(),
@@ -270,6 +280,66 @@ mod tests {
     struct First;
     struct Second;
     struct Third;
+
+    /// Two infos that print alike: only their types tell them apart.
+    #[derive(PartialEq, Eq, Hash)]
+    struct InfoA(u32);
+    #[derive(PartialEq, Eq, Hash)]
+    struct InfoB(u32);
+    impl core::fmt::Debug for InfoA {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            write!(f, "Info({})", self.0)
+        }
+    }
+    impl core::fmt::Debug for InfoB {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            write!(f, "Info({})", self.0)
+        }
+    }
+
+    /// An info whose `Hash` leaves out a field its `Eq` and `Debug` take.
+    #[derive(PartialEq, Eq, Debug)]
+    struct Partial(u32, u32);
+    impl core::hash::Hash for Partial {
+        fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+            self.0.hash(state);
+        }
+    }
+
+    /// Kernels the pipeline cache tells apart never share a store key.
+    #[test]
+    fn kernels_told_apart_have_their_own_keys() {
+        let build = build_id_hash();
+        let key = |id: &KernelId| KernelCacheKey::new(id, build);
+
+        let a = KernelId::new::<First>().info(InfoA(1));
+        let b = KernelId::new::<First>().info(InfoB(1));
+        assert_eq!(a.stable_format(), b.stable_format(), "they print alike");
+        assert_ne!(a, b);
+        assert_ne!(key(&a), key(&b));
+
+        let c = KernelId::new::<First>().info(Partial(1, 2));
+        let d = KernelId::new::<First>().info(Partial(1, 3));
+        assert_eq!(c.stable_hash(), d.stable_hash(), "their info hashes alike");
+        assert_ne!(c, d);
+        assert_ne!(key(&c), key(&d));
+    }
+
+    /// A store reopened in the same build finds what an earlier one kept.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_reopened_store_finds_what_was_kept() {
+        let root = tempfile::tempdir().unwrap();
+        let kernel = KernelId::new::<First>().info(Partial(1, 2));
+        store(root.path()).keep(&kernel, 7, None);
+
+        let mut reopened = store(root.path());
+        assert_eq!(
+            reopened.take(&KernelId::new::<First>().info(Partial(1, 3))),
+            None
+        );
+        assert_eq!(reopened.take(&kernel), Some(7));
+    }
 
     /// Stores as [`compilation_store`] opens them: lazy, over storage in an
     /// environment rooted at `root`, which only holds what it is written.
