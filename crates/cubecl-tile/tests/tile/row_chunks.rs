@@ -669,7 +669,8 @@ fn the_ldmatrix_transport_reads_wide_lines_manually() {
 }
 
 /// A stage behind a 4-byte shared allocation still starts its rows on 16 bytes, which an
-/// `ldmatrix` row address needs: the stage is aligned to a chunk whatever is declared before it.
+/// `ldmatrix` row address needs: the stage is aligned
+/// ([`RowChunks::STAGE_ALIGNMENT_BYTES`]) whatever is declared before it.
 /// In-order lines of every width a row holds whole.
 #[test]
 fn the_ldmatrix_transport_reads_a_stage_declared_after_another_allocation() {

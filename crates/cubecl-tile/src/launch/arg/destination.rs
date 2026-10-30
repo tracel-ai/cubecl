@@ -4,8 +4,8 @@
 use cubecl::prelude::*;
 
 use crate::{
-    Bound, Output, OutputArgs, Partitioning, Refusal, Tile, TileArg, TileArgLaunch, TmaOperand,
-    kind::Write, launch::Unbound,
+    Bound, Output, OutputArgs, Partitioning, Refusal, Tile, TileArg, TileArgLaunch, kind::Write,
+    launch::Unbound,
 };
 
 /// Which launch argument carries a kernel's output and how the kernel serves it as a [`Tile`].
@@ -94,9 +94,9 @@ impl Destination for TmaStored {
 }
 
 impl DestinationLaunch for TmaStored {
-    type Operand = TmaOperand;
+    type Operand = TileArgLaunch;
 
-    fn arg<E: Numeric>(operand: TmaOperand) -> TileArgLaunch {
-        operand.arg()
+    fn arg<E: Numeric>(operand: TileArgLaunch) -> TileArgLaunch {
+        operand
     }
 }

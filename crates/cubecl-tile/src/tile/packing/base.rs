@@ -96,7 +96,7 @@ impl Field {
 
     /// Whether the slot holds an `e2m1` code, however the device reads it
     /// ([`read_on`](Field::read_on)): what a reader that takes the codes' values whole asks.
-    pub fn holds_e2m1(self) -> bool {
+    pub(crate) fn holds_e2m1(self) -> bool {
         matches!(
             self,
             Field::Quant(QuantValue::E2M1)

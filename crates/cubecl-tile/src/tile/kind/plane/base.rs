@@ -349,7 +349,7 @@ impl PlaneTile {
 /// `Clone` duplicates the handles, not the tiles.
 #[derive(CubeType, Clone)]
 #[expand(derive(Clone))]
-pub struct PlanePartition {
+pub(crate) struct PlanePartition {
     pub(crate) frags: Sequence<PlaneTile>,
     #[cube(comptime)]
     pub m_tiles: usize,

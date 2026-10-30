@@ -4,7 +4,7 @@ use crate::Extent;
 
 /// How many tiles a level takes along one of its axes.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum Count {
+pub(crate) enum Count {
     /// This many, stated: a walk's steps, or a scope's workers with one tile each.
     Stated(usize),
     /// Every tile the level above hands down; the one count whose tile can overhang.

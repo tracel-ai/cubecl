@@ -151,7 +151,7 @@ pub(crate) struct IndexTable {
     #[cube(comptime)]
     pub(crate) placed: bool,
     /// Whether the entry read names a coordinate of the axis, or a run of at least one; `true`
-    /// until it is read ([`Tile::entry_in_range`]).
+    /// until it is read. A walk within a tile whose entry is out of range takes no step.
     in_range: bool,
 }
 
@@ -229,12 +229,6 @@ fn nonempty(from: u32, until: u32) -> bool {
     from < until
 }
 
-/// What a tile with no table to read answers: its window is where it lies.
-#[cube]
-fn no_table() -> bool {
-    true
-}
-
 /// Where the first entry lies: the one a table no level's keys cut is read at.
 #[cube]
 fn first_entry() -> u32 {
@@ -242,15 +236,6 @@ fn first_entry() -> u32 {
 }
 
 impl Tile {
-    /// Whether the entry this tile's table placed it with names a coordinate of the axis it
-    /// places, or a run of at least one row: `false` for an entry past a stack of slabs, as a
-    /// padding row's route or a padding tile's group names. Such a tile holds nothing, so a walk
-    /// within it ([`Region::walk_within`]) takes no step. `true` for a tile with no table, or none
-    /// read yet.
-    pub fn entry_in_range(&self) -> bool {
-        cubecl::unexpanded!()
-    }
-
     /// This tile with its table read where `step` cuts the table's keys: its window, and the
     /// windows of the scales it carries that span the axis the entry places, placed by the entry.
     /// Any other tile, or step, as it is.
@@ -273,16 +258,6 @@ impl Tile {
 }
 
 impl TileExpand {
-    pub fn __expand_entry_in_range_method(&self, scope: &Scope) -> NativeExpand<bool> {
-        match &self.kind {
-            TileKindExpand::Memory(MemoryExpand {
-                index: ComptimeOptionExpand::Some(table),
-                ..
-            }) => table.in_range,
-            _ => no_table::expand(scope),
-        }
-    }
-
     pub(crate) fn __expand_indexed_at_method(self, scope: &Scope, step: &StepExpand) -> TileExpand {
         let TileKindExpand::Memory(memory) = &self.kind else {
             return self;

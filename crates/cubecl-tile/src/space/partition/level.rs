@@ -357,12 +357,12 @@ impl Level {
     }
 
     /// How many tiles this level takes along `axis`, where it names it.
-    pub fn count(&self, axis: Axis) -> Option<Count> {
+    pub(crate) fn count(&self, axis: Axis) -> Option<Count> {
         self.cuts.contains(axis).then(|| self.cuts.get(axis).count)
     }
 
     /// How the instances spread `axis`'s tiles, where the level names it.
-    pub fn spread(&self, axis: Axis) -> Option<Spread> {
+    pub(crate) fn spread(&self, axis: Axis) -> Option<Spread> {
         self.cuts.contains(axis).then(|| self.cuts.get(axis).spread)
     }
 
@@ -371,7 +371,7 @@ impl Level {
     }
 
     /// Whether this level distributes `axis`'s tiles over its scope one by one.
-    pub fn distributes(&self, axis: Axis) -> bool {
+    pub(crate) fn distributes(&self, axis: Axis) -> bool {
         self.coverage != Coverage::Walk && self.shared_by.is_none() && self.cuts.contains(axis)
     }
 

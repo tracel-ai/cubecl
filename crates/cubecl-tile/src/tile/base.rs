@@ -660,7 +660,7 @@ impl Tile {
     }
 
     /// Multiply every partial this accumulator holds by `factor`, cast to its element.
-    pub fn scale_by<E: Numeric>(&mut self, factor: E) {
+    pub(crate) fn scale_by<E: Numeric>(&mut self, factor: E) {
         let define!(Served) = self.element;
         let factor = Served::cast_from(factor);
         match &mut self.kind {

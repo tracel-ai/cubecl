@@ -32,7 +32,7 @@ macro_rules! dispatch {
             let $device = cubecl::Device::Cpu(Default::default());
             $body;
         }
-        #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
+        #[cfg(all(feature = "metal", target_vendor = "apple"))]
         {
             let $device = cubecl::Device::Metal(Default::default());
             $body;
