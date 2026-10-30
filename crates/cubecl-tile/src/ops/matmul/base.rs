@@ -143,6 +143,14 @@ impl Tile {
     pub fn mma(&mut self, lhs: &Tile, rhs: &Tile) {
         let stored = self.reads_codes_as_stored();
         let mma = self.contracts_through_mma();
+        // The manual-mma instruction takes its factors by position.
+        if comptime!(mma) {
+            comptime!(Side::refuse_misplaced(
+                &lhs.place.space,
+                &rhs.place.space,
+                &self.place.space
+            ));
+        }
         let (lhs_read, rhs_read) = (lhs.read_element(), rhs.read_element());
         let (lhs_packing, rhs_packing) = (lhs.packing(), rhs.packing());
         // A manual-mma instruction multiplies two factors of one element, so a packed factor

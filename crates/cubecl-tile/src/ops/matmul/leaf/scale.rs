@@ -21,6 +21,26 @@ impl Side {
     }
 }
 
+impl Side {
+    /// Refuse a contraction into `out` whose factors, spanning `lhs` and `rhs`, are not on the
+    /// sides their axes give them ([`Side::of`]): the left one carrying the output's rows, the
+    /// right one its innermost axis. An instruction that takes its operands by position would
+    /// contract each against the other's axis and drain wrong numbers rather than fail.
+    pub(crate) fn refuse_misplaced(lhs: &Space, rhs: &Space, out: &Space) {
+        for (factor, space, side) in [("left", lhs, Side::Lhs), ("right", rhs, Side::Rhs)] {
+            assert!(
+                Side::of(space, out) == side,
+                "mma: the {factor} factor spans {:?}, which puts it on the other side of an \
+                 output spanning {:?}: the right factor is the one carrying the output's \
+                 innermost axis. Hand the factors over in that order, or open the output in the \
+                 order they are handed over in",
+                space.axes().collect::<Vec<_>>(),
+                out.axes().collect::<Vec<_>>()
+            );
+        }
+    }
+}
+
 /// Refuse scales spanning axes only the other operand varies over.
 pub(crate) fn check_scales_ride(side: Side, scales: &Space, output: &Space, axes: MatrixAxes) {
     let group = |range: core::ops::Range<usize>| {
@@ -99,5 +119,44 @@ mod tests {
     fn row_scales_cannot_ride_the_rhs() {
         let (out, axes) = contraction();
         check_scales_ride(Side::Rhs, &Space::new(&[(M, 4)]), &out, axes);
+    }
+
+    /// The factors of `c[m, n] += a[m, k] · b[k, n]` are on their sides, whichever order each
+    /// lists its own axes in.
+    #[test]
+    fn factors_on_their_sides_are_admitted() {
+        let out = Space::new(&[(M, 4), (N, 4)]);
+        Side::refuse_misplaced(
+            &Space::new(&[(M, 4), (K, 8)]),
+            &Space::new(&[(K, 8), (N, 4)]),
+            &out,
+        );
+        Side::refuse_misplaced(
+            &Space::new(&[(K, 8), (M, 4)]),
+            &Space::new(&[(N, 4), (K, 8)]),
+            &out,
+        );
+    }
+
+    /// Factors handed over the other way round would each contract against the other's axis.
+    #[test]
+    #[should_panic(expected = "the left factor spans [Axis(1), Axis(2)]")]
+    fn factors_handed_over_reversed_are_refused() {
+        Side::refuse_misplaced(
+            &Space::new(&[(N, 4), (K, 8)]),
+            &Space::new(&[(M, 4), (K, 8)]),
+            &Space::new(&[(M, 4), (N, 4)]),
+        );
+    }
+
+    /// An output opened `(n, m)` puts the factors in the order `(rhs, lhs)`.
+    #[test]
+    #[should_panic(expected = "the left factor spans [Axis(0), Axis(2)]")]
+    fn an_output_opened_the_other_way_round_is_refused() {
+        Side::refuse_misplaced(
+            &Space::new(&[(M, 4), (K, 8)]),
+            &Space::new(&[(K, 8), (N, 4)]),
+            &Space::new(&[(N, 4), (M, 4)]),
+        );
     }
 }
