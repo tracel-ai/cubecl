@@ -7,6 +7,7 @@ use crate::compute::stream::Stream;
 use cubecl_core::{ir::DeviceProperties, prelude::*};
 use cubecl_cpp::cuda::arch::CudaArchitecture;
 use cubecl_environment::backtrace::BackTrace;
+use cubecl_server::command::CONNECT_ELEMENT_SIZE;
 use cubecl_server::compiler::{ArtifactId, KernelLoader};
 use cubecl_server::kernel::CubeKernel;
 use cubecl_server::logging::ServerLogger;
@@ -15,7 +16,7 @@ use cudarc::driver::sys::{CUctx_st, CUfunction_attribute, CUstream};
 use std::os::raw::c_void;
 
 #[derive(Debug)]
-pub(crate) struct CudaContext {
+pub struct CudaContext {
     pub context: *mut CUctx_st,
     /// The stream collectives run on. Kept on the context so a relocation —
     /// which reaches the context, not the server — can wait on it.
@@ -62,9 +63,11 @@ impl CudaContext {
             transfer_stream,
             // SAFETY: the context is current. The element is only ever reduced into itself, and
             // nothing reads what that leaves in it.
-            connect_element: unsafe { cudarc::driver::result::malloc_sync(4) }
-                .map(|ptr| GpuResource::new(ptr, core::ptr::null_mut(), 4))
-                .expect("Can allocate the element communicators connect over."),
+            connect_element: unsafe {
+                cudarc::driver::result::malloc_sync(CONNECT_ELEMENT_SIZE as usize)
+            }
+            .map(|ptr| GpuResource::new(ptr, core::ptr::null_mut(), CONNECT_ELEMENT_SIZE))
+            .expect("Can allocate the element communicators connect over."),
             kernels: KernelLoader::new(CudaModules::new(compiler, backend)),
             compilation_options,
             profiler: EventProfiler::default(),
