@@ -72,8 +72,8 @@ hip = ["cubecl-hip"]
 # Compile HIP kernels with the C++ backend instead of the default LLVM one.
 hip-cpp = ["cubecl-hip?/cpp"]
 hip-rocwmma = ["cubecl-hip?/rocwmma"]
-metal = ["wgpu-msl"]
-metal-native = ["cubecl-metal"]
+# cubecl's own Metal runtime. `wgpu-msl` is wgpu compiling the same MSL.
+metal = ["cubecl-metal"]
 # The perf jitdump of the `cpu` runtime, for `CUBECL_JIT_SYMBOLS=perf`. Linux only.
 jitdump = ["cubecl-cpu?/jitdump"]
 # No effect, kept for compatibility: compiler dumps are always built. Set `CUBECL_DEBUG_PLIRON`.
