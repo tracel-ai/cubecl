@@ -450,6 +450,26 @@ impl Database {
     }
 }
 
+/// An environment's database read as a bundle, so it can fill another the way
+/// a shipped bundle does.
+impl crate::bundle::Bundle for Database {
+    fn get(&self, namespace: &str, key: &[u8]) -> Option<Bytes> {
+        Database::get(self, namespace, key)
+    }
+
+    fn scan(&self, namespace: &str, visit: &mut dyn FnMut(&[u8], &[u8])) {
+        Database::scan(self, namespace, visit);
+    }
+
+    fn namespaces(&self) -> Vec<String> {
+        Database::namespaces(self)
+    }
+
+    fn describe(&self) -> String {
+        format!("environment {}", self.location)
+    }
+}
+
 /// One insert on `connection`: the statement arbitrates, and only a declined
 /// write costs a second one, to fetch the value that won.
 fn insert_on(

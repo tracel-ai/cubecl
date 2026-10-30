@@ -55,20 +55,38 @@ pub struct ImportReport {
 /// [`environment::activate`](crate::environment::activate) beforehand to
 /// target another one.
 pub fn import(bundle: &dyn Bundle) -> ImportReport {
+    copy(bundle, |namespace| {
+        let target = storage::open(namespace);
+        move |batch: &mut dyn Iterator<Item = (Bytes, Bytes)>| {
+            target.insert_many(batch, Origin::Imported)
+        }
+    })
+}
+
+/// Copies every entry of `bundle` into the target `open` hands back for each
+/// namespace, in batches bounded by [`BATCH`] and [`BATCH_BYTES`]. Entries
+/// land under the target's insert-only rule.
+pub(crate) fn copy<Target>(
+    bundle: &dyn Bundle,
+    mut open: impl FnMut(&str) -> Target,
+) -> ImportReport
+where
+    Target: FnMut(&mut dyn Iterator<Item = (Bytes, Bytes)>) -> InsertSummary,
+{
     let mut report = ImportReport::default();
 
     for namespace in bundle.namespaces() {
-        let target = storage::open(&namespace);
+        let mut insert = open(&namespace);
 
         let mut batch: Vec<(Bytes, Bytes)> = Vec::with_capacity(BATCH);
         let mut batch_bytes = 0;
         let mut total = InsertSummary::default();
-        let commit = |batch: &mut Vec<(Bytes, Bytes)>, total: &mut InsertSummary| {
+        let mut commit = |batch: &mut Vec<(Bytes, Bytes)>, total: &mut InsertSummary| {
             if batch.is_empty() {
                 return;
             }
 
-            let summary = target.insert_many(&mut batch.drain(..), Origin::Imported);
+            let summary = insert(&mut batch.drain(..));
             total.stored += summary.stored;
             total.conflict += summary.conflict;
             total.failed += summary.failed;
