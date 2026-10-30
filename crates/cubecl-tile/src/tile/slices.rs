@@ -189,7 +189,9 @@ impl AxisSlices {
     pub(crate) fn lab_local_sums<E: Float>(&self) -> Array<E> {
         match &self.kind {
             AxisSlicesKind::Fragments(partition) => partition.lab_local_sums_along::<E>(),
-            _ => panic!("lab_local_sums: fragments only"),
+            AxisSlicesKind::Registers(_)
+            | AxisSlicesKind::Window(_)
+            | AxisSlicesKind::Fragment(_) => panic!("lab_local_sums: fragments only"),
         }
     }
 
@@ -197,7 +199,9 @@ impl AxisSlices {
     pub(crate) fn lab_sum_across_units<E: Float>(&self, values: &mut Array<E>) {
         match &self.kind {
             AxisSlicesKind::Fragments(partition) => partition.lab_sum_across_units::<E>(values),
-            _ => panic!("lab_sum_across_units: fragments only"),
+            AxisSlicesKind::Registers(_)
+            | AxisSlicesKind::Window(_)
+            | AxisSlicesKind::Fragment(_) => panic!("lab_sum_across_units: fragments only"),
         }
     }
 
