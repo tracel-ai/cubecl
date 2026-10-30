@@ -305,7 +305,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     /// Records that a task registered on `writer` writes `binding`, which a later user of the
     /// binding then aligns with until `writer` executes. A write by the owner need not be
     /// recorded: it already aligned with any pending writer, and executing that writer drops it.
-    pub fn record_write(&mut self, writer: StreamId, binding: &BufferBinding) {
+    fn record_write(&mut self, writer: StreamId, binding: &BufferBinding) {
         let owner = binding.stream;
         let memory = binding.memory.descriptor().id;
         self.foreign_writes
@@ -322,9 +322,20 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     }
 
     /// Registers a task for execution on a specific stream, ensuring stream alignment.
-    pub fn register(&mut self, stream_id: StreamId, task: B::Task, args_streams: &[StreamId]) {
+    ///
+    /// `written` names the buffers the task writes, so a later user of one aligns with this task.
+    pub fn register(
+        &mut self,
+        stream_id: StreamId,
+        task: B::Task,
+        args_streams: &[StreamId],
+        written: &[BufferBinding],
+    ) {
         // Align streams to ensure dependencies are handled correctly.
         self.align_streams(stream_id, args_streams);
+        for binding in written {
+            self.record_write(stream_id, binding);
+        }
 
         // Get the stream for the given stream ID and add the task to its queue.
         let current = self.pool.get_mut(&stream_id);

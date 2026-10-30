@@ -396,16 +396,18 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 let handle = desc.handle.clone();
                 let stream = server.scheduler.stream(&handle.stream);
                 let resource = stream.resource(desc.handle).map_err(ServerError::Io)?;
-                server.scheduler.record_write(stream_id, &handle);
                 let task = ScheduleTask::Write {
                     data,
                     buffer: resource,
-                    handle,
+                    handle: handle.clone(),
                 };
 
-                server
-                    .scheduler
-                    .register(stream_id, task, &server.streams_pool);
+                server.scheduler.register(
+                    stream_id,
+                    task,
+                    &server.streams_pool,
+                    core::slice::from_ref(&handle),
+                );
                 Ok(())
             });
         }
@@ -543,13 +545,11 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 shared_inputs,
             };
 
-            for b in written.drain(..) {
-                server.scheduler.record_write(stream_id, &b);
-            }
-            server.written_pool = written;
             server
                 .scheduler
-                .register(stream_id, task, &server.streams_pool);
+                .register(stream_id, task, &server.streams_pool, &written);
+            written.clear();
+            server.written_pool = written;
             Ok(())
         });
     }

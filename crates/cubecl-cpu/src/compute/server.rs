@@ -321,10 +321,12 @@ impl Server for CpuServer {
                 let buffer = ManagedResource::new(memory, resource);
                 let task = ScheduleTask::Write { data, buffer };
 
-                server.scheduler.record_write(stream_id, &handle);
-                server
-                    .scheduler
-                    .register(stream_id, task, &server.streams_pool);
+                server.scheduler.register(
+                    stream_id,
+                    task,
+                    &server.streams_pool,
+                    core::slice::from_ref(&handle),
+                );
                 Ok(())
             });
         }
@@ -477,13 +479,11 @@ impl Server for CpuServer {
                 .prepare_task(&loaded, count, bindings, stream_id)
                 .map_err(|err| ServerError::Launch(LaunchError::CompilationError(err)))?;
 
-            for b in written.drain(..) {
-                server.scheduler.record_write(stream_id, &b);
-            }
-            server.written_pool = written;
             server
                 .scheduler
-                .register(stream_id, task, &server.streams_pool);
+                .register(stream_id, task, &server.streams_pool, &written);
+            written.clear();
+            server.written_pool = written;
             Ok(())
         });
     }
