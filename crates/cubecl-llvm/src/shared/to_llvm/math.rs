@@ -42,6 +42,7 @@ macro_rules! lower_unary_intrinsic_arith {
 
 lower_unary_intrinsic_arith!(FAbsOp => "llvm.fabs");
 lower_unary_intrinsic_arith!(ExpOp => "llvm.exp");
+lower_unary_intrinsic_arith!(Exp2Op => "llvm.exp2");
 lower_unary_intrinsic_arith!(LogOp => "llvm.log");
 lower_unary_intrinsic_arith!(SinOp => "llvm.sin");
 lower_unary_intrinsic_arith!(CosOp => "llvm.cos");
