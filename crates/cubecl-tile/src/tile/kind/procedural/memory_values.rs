@@ -46,7 +46,21 @@ impl Tile {
 #[cube]
 impl MemoryValues {
     /// The value at `coordinates`, one along each of `axes` in order, as `T`.
-    pub fn read<T: Numeric>(&self, #[comptime] axes: Vec<Axis>, coordinates: &Coords<u32>) -> T {
+    pub fn read<T: Numeric>(&self, #[comptime] axes: Vec<Axis>, coordinates: &Sequence<u32>) -> T {
+        let mut at = Coords::<u32>::new();
+        #[unroll]
+        for p in 0..comptime!(axes.len()) {
+            at.push(*coordinates.index(p));
+        }
+        self.read_at::<T>(axes, &at)
+    }
+
+    /// [`read`](Self::read) at coordinates that keep their constness.
+    pub(crate) fn read_at<T: Numeric>(
+        &self,
+        #[comptime] axes: Vec<Axis>,
+        coordinates: &Coords<u32>,
+    ) -> T {
         let define!(Stored) = self.element;
         let logical = comptime!(self.memory.projection.logical_axes().to_vec());
         let mut position = Coords::<u32>::new();
@@ -74,7 +88,7 @@ impl<T: Numeric> Recipe<T> for MemoryValues {
         for p in 0..axes.len() {
             at.push(coordinates.at(p));
         }
-        self.read::<T>(axes, &at)
+        self.read_at::<T>(axes, &at)
     }
 }
 

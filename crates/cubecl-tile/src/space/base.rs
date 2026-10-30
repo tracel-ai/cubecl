@@ -184,12 +184,6 @@ impl Space {
         Space::from_extents(&extents)
     }
 
-    /// Every axis dynamic, extents resolved in-kernel from the tensors.
-    pub fn dynamic(axes: &[Axis]) -> Self {
-        let extents: Vec<_> = axes.iter().map(|&a| (a, Extent::Dynamic)).collect();
-        Space::from_extents(&extents)
-    }
-
     /// Construct directly from [`Extent`]s.
     pub(crate) fn from_extents(extents: &[(Axis, Extent)]) -> Self {
         Space::from_shape(Shape::new(extents))
@@ -364,7 +358,7 @@ impl Space {
 
     /// How many slices along `axis` the space holds: one for every index of its other axes. The
     /// extent of `axis` itself may be one a walk has yet to cut, which only the launch knows.
-    pub fn slices_along(&self, axis: Axis) -> usize {
+    pub(crate) fn slices_along(&self, axis: Axis) -> usize {
         self.axes()
             .filter(|&other| other != axis)
             .map(|other| self.extent(other))

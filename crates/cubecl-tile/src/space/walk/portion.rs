@@ -70,7 +70,7 @@ impl Portion {
 
     /// Whether `run`, one of the [`holders`](Portion::holders) of the `i`-th region the portion
     /// touches, starts there rather than in a region before it.
-    pub fn starts_in(&self, i: usize, run: usize) -> bool {
+    pub(crate) fn starts_in(&self, i: usize, run: usize) -> bool {
         run * self.run_length >= (self.first + i) * self.stride
     }
 

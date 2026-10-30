@@ -2,9 +2,9 @@
 
 use core::fmt::{self, Display, Formatter};
 
-use cubecl::zspace::{MetadataError, SmallVec, Tiling};
+use cubecl::zspace::{SmallVec, Tiling};
 
-use crate::{Axis, Geometry, Space};
+use crate::{Axis, Geometry, Refusal, Space};
 
 /// The most pieces a statement keeps on the stack: a few stated tiles and the rest of each axis.
 const PIECES: usize = 12;
@@ -178,23 +178,24 @@ impl StoragePartitioning {
 
     /// The buffer storing a tensor of `extents`: its dims in [`labels`](Self::labels)' order and
     /// its [`Tiling`].
-    pub fn physical(&self, extents: &[(Axis, usize)]) -> Result<Geometry, StorageMisfit> {
+    pub fn physical(&self, extents: &[(Axis, usize)]) -> Result<Geometry, Refusal> {
         let axes: SmallVec<[Axis; Space::MAX_RANK]> =
             extents.iter().map(|&(axis, _)| axis).collect();
         let named = |axis: &Axis| self.order.iter().filter(|&a| a == axis).count() == 1;
         if self.order.len() != axes.len() || !axes.iter().all(named) {
-            return Err(StorageMisfit::Order {
+            return Err(Refusal::StorageOrderUnmatched {
                 order: self.order.to_vec(),
                 axes: axes.to_vec(),
             });
         }
         let pieces = self.pieces(extents).map_err(|misfit| match misfit {
             TileMisfit::Unwhole { axis, extent, tile } => {
-                StorageMisfit::PartialTile { axis, extent, tile }
+                Refusal::StoredTileUnwhole { axis, extent, tile }
             }
             _ => unreachable!("only the rest of an axis is computed against its extent"),
         })?;
-        let tiling = Tiling::new(&self.fragments(&axes)).map_err(StorageMisfit::Unrecordable)?;
+        let tiling =
+            Tiling::new(&self.fragments(&axes)).map_err(Refusal::StoragePiecesUnrecordable)?;
         let strides: PieceList<usize> = pieces
             .iter()
             .scan(1, |run, piece| {
@@ -340,40 +341,6 @@ impl Display for TileMisfit {
     }
 }
 
-/// Why a [`StoragePartitioning`] cannot store a tensor ([`StoragePartitioning::physical`]).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum StorageMisfit {
-    /// The tiles along `axis` do not close its extent.
-    PartialTile {
-        axis: Axis,
-        extent: usize,
-        tile: usize,
-    },
-    /// The order does not name each of the tensor's axes once.
-    Order { order: Vec<Axis>, axes: Vec<Axis> },
-    /// More pieces than the buffer's metadata records ([`Tiling`]).
-    Unrecordable(MetadataError),
-}
-
-impl Display for StorageMisfit {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::PartialTile { axis, extent, tile } => write!(
-                f,
-                "axis {axis:?} runs {extent}, which is not a whole number of {tile}-wide tiles"
-            ),
-            Self::Order { order, axes } => write!(
-                f,
-                "the tiles follow {order:?}, but the tensor's axes are {axes:?}: the order names \
-                 each once"
-            ),
-            Self::Unrecordable(why) => {
-                write!(f, "the buffer's metadata cannot record its pieces: {why:?}")
-            }
-        }
-    }
-}
-
 /// One piece of a partitioning over a tensor: `count` of the piece below it along `axis`.
 #[derive(Clone, Copy, Debug)]
 struct Piece {
@@ -499,7 +466,7 @@ mod tests {
         let eight_rows = StorageLevels::new(&[(K, 8)]).grid(&[K, N]);
         assert_eq!(
             eight_rows.physical(&[(K, 12), (N, 4)]),
-            Err(StorageMisfit::PartialTile {
+            Err(Refusal::StoredTileUnwhole {
                 axis: K,
                 extent: 12,
                 tile: 8
@@ -508,7 +475,7 @@ mod tests {
         let one_axis = StorageLevels::new(&[(K, 4)]).grid(&[K]);
         assert!(matches!(
             one_axis.physical(&[(K, 12), (N, 4)]),
-            Err(StorageMisfit::Order { .. })
+            Err(Refusal::StorageOrderUnmatched { .. })
         ));
     }
 

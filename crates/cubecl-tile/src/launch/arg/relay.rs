@@ -103,7 +103,7 @@ impl<'a> Relay<'a> {
 
     /// Whether this cube takes its box's last turn, whose carry [`pass`](Relay::pass) hands on to
     /// the output. Uniform across the cube.
-    pub fn is_last(&self) -> bool {
+    pub(crate) fn is_last(&self) -> bool {
         self.turn + 1 == self.holders
     }
 

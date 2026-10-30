@@ -6,7 +6,6 @@ use cubecl::zspace::{SmallVec, Tiling};
 
 use cubecl::ir::ElemType;
 use cubecl::prelude::*;
-use cubecl::server::BufferBinding;
 
 use super::{boundaries::Boundaries, derivation::Derivation, labels::Labels};
 use crate::BoundaryPolicy;
@@ -332,23 +331,6 @@ pub struct Bound {
 }
 
 impl Bound {
-    /// This operand bound again over `buffers`, another buffer of the same layout: the tensor it
-    /// holds takes the next one and keeps the shape, strides and tiling it was settled at. A launch
-    /// that binds the same operands every step keeps its binding and changes only the addresses.
-    ///
-    /// `None` where `buffers` runs out, or where the operand aliases another input.
-    pub fn rebound(&self, buffers: &mut impl Iterator<Item = BufferBinding>) -> Option<Self> {
-        let tensor = match &self.tensor {
-            Some((tensor, element)) => Some((rebound_tensor(tensor, buffers.next()?)?, *element)),
-            None => None,
-        };
-        Some(Self {
-            tensor,
-            vector_size: self.vector_size,
-            spec: self.spec.clone(),
-        })
-    }
-
     /// The operand as the kernel's [`TileArg`](crate::TileArg) launch argument.
     pub fn arg(self) -> TileArgLaunch {
         let width = self.bound_width();
@@ -384,19 +366,3 @@ pub struct Unbound {
 /// One level's window along an operand's axes, in their order: the extent the launch cuts each axis
 /// to, and whether the kernel hands it down dynamic.
 type LevelWindow = SmallVec<[(Extent, bool); Space::MAX_RANK]>;
-
-/// `tensor` over `buffer` instead of its own: the shape, strides and tiling it was settled at kept.
-/// `None` for an alias of another input, which holds no buffer.
-pub(crate) fn rebound_tensor(tensor: &TensorArg, buffer: BufferBinding) -> Option<TensorArg> {
-    match tensor {
-        TensorArg::Handle { handle } => Some(TensorArg::Handle {
-            handle: TensorBinding {
-                handle: buffer,
-                strides: handle.strides.clone(),
-                shape: handle.shape.clone(),
-                tiling: handle.tiling,
-            },
-        }),
-        TensorArg::Alias { .. } => None,
-    }
-}
