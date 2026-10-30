@@ -54,23 +54,51 @@ impl UnitLines {
 
 #[cube]
 impl Memory {
-    /// The lines of this stage one unit moves; the stage shape must be static.
-    #[allow(dead_code)] // Reached through its expand, from `Stages::prefetched`.
-    pub(crate) fn unit_lines(&self) -> comptime_type!(UnitLines) {
+    /// The lines of this stage one unit moves, unless its shape is not static or its fill does not
+    /// state the units it spreads over.
+    #[allow(dead_code)] // Reached through its expand, from `unit_lines` and `fetched_scalars`.
+    fn known_unit_lines(&self) -> comptime_type!(Option<UnitLines>) {
         let stage_lines = self.stage_lines().constant();
         let fill = comptime!(self.access.fill);
-        comptime!(UnitLines::of(
-            stage_lines.expect("Memory: a stage fetched into registers has a static shape")
-                as usize,
-            fill,
-        ))
+        comptime!(
+            stage_lines
+                .filter(|_| fill.count > 0)
+                .map(|lines| UnitLines::of(lines as usize, fill))
+        )
     }
 
-    /// Scalars of this stage one unit holds in registers between fetch and store.
-    #[allow(dead_code)] // Reached through its expand, from `Stages::prefetched`.
-    pub(crate) fn fetched_scalars(&self) -> comptime_type!(usize) {
-        let lines = self.unit_lines();
-        comptime!(lines.scalars(self.store.vector_size))
+    /// The lines of this stage one unit moves; known wherever
+    /// [`fetches_straight`](Memory::fetches_straight) holds.
+    #[allow(dead_code)] // Reached through its expand, from `fetch_straight` and `store_fetched`.
+    fn unit_lines(&self) -> comptime_type!(UnitLines) {
+        let lines = self.known_unit_lines();
+        comptime!(lines.expect("Memory: a stage fetched into registers has a known share"))
+    }
+
+    /// Scalars of this stage one unit holds in registers between fetch and store, unless its share
+    /// is unknown.
+    #[allow(dead_code)] // Reached through its expand, from `Stages::prefetches_in_registers`.
+    pub(crate) fn fetched_scalars(&self) -> comptime_type!(Option<usize>) {
+        let lines = self.known_unit_lines();
+        comptime!(lines.map(|lines| lines.scalars(self.store.vector_size)))
+    }
+
+    /// Whether this stage is filled from `src` by copying its lines as they lie, each unit's share
+    /// known: all [`fetch_straight`](Memory::fetch_straight) moves.
+    #[allow(dead_code)] // Reached through its expand, from `Tile::fetches_straight_from`.
+    pub(crate) fn fetches_straight(&self, src: &Memory) -> comptime_type!(bool) {
+        let lines = self.known_unit_lines();
+        comptime!(
+            lines.is_some()
+                && self.store.packing.as_stored()
+                && src.store.packing.as_stored()
+                && self.access.whole
+                && !self.access.overhang.masks()
+                && self.access.write == Write::Replace
+                && self.store.vector_size == src.store.vector_size
+                && self.projection.is_direct()
+                && src.projection.is_direct()
+        )
     }
 
     /// This stage's line count.
@@ -136,17 +164,11 @@ impl Memory {
 
     /// Refuse a pairing this transport cannot move.
     fn refuse_unfetchable(&self, src: &Memory) {
+        let straight = self.fetches_straight(src);
         comptime!(assert!(
-            self.store.packing.as_stored()
-                && src.store.packing.as_stored()
-                && self.access.whole
-                && !self.access.overhang.masks()
-                && self.access.write == Write::Replace
-                && self.store.vector_size == src.store.vector_size
-                && self.projection.is_direct()
-                && src.projection.is_direct(),
-            "Memory::fetch_straight: only a plain, direct, whole stage filled at its source's \
-             width is fetched into registers"
+            straight,
+            "Memory::fetch_straight: only a plain, direct, whole stage of a known share, filled \
+             at its source's width, is fetched into registers"
         ));
     }
 }
