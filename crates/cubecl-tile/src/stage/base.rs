@@ -33,6 +33,12 @@ pub enum RowChunks {
 impl RowChunks {
     /// Bytes one chunk holds: the widest read one unit issues.
     pub const CHUNK_BYTES: usize = 16;
+
+    /// Bytes a stage's buffer starts on at least: one pass over the banks, the period the
+    /// chunks' swizzle repeats on. A chunk is not enough. The copy engine moves a stage's lines
+    /// 16 bytes a unit (`cp.async`), and into a stage that starts mid-sector each copy is split,
+    /// so every global sector it reads is fetched twice.
+    pub const STAGE_ALIGNMENT_BYTES: usize = 128;
 }
 
 /// How a value reaches the unit asking for it, out of the lines the plane holds.
