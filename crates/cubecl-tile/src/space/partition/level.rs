@@ -357,7 +357,7 @@ impl Level {
     }
 
     /// How many tiles this level takes along `axis`, where it names it.
-    pub fn count(&self, axis: Axis) -> Option<Count> {
+    pub(crate) fn count(&self, axis: Axis) -> Option<Count> {
         self.cuts.contains(axis).then(|| self.cuts.get(axis).count)
     }
 

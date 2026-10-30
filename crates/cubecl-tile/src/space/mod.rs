@@ -27,7 +27,7 @@ pub use coords::Coords;
 pub use coords::CoordsExpand;
 pub use extent::Shape;
 pub use partition::compute_scope::ComputeScope;
-pub use partition::count::Count;
+pub(crate) use partition::count::Count;
 pub use partition::coverage::Coverage;
 pub use partition::cube_order::{CubeOrder, swizzle};
 pub use partition::plane_order::{PlaneOrder, UnitCube};
