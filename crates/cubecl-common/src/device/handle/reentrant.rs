@@ -5,7 +5,9 @@ use cubecl_environment::sync::reentrant::{ReentrantMutex, ReentrantMutexGuard};
 use hashbrown::HashMap;
 use std::sync::Arc;
 
-use crate::device::handle::{DeviceHandleSpec, ServerUtilitiesHandle, ServiceCreationError};
+use crate::device::handle::{
+    DeviceHandleSpec, ServerUtilitiesHandle, ServiceCreationError, SpawnedCall,
+};
 use crate::device::{DeviceId, DeviceService};
 
 /// Handle for accessing a [`DeviceState`] associated with a specific device.
@@ -70,6 +72,13 @@ impl DeviceHandleSpec for ReentrantMutexDeviceHandle {
 
     fn submit<T: FnOnce(&mut dyn Any) + Send + 'static>(&self, task: T) {
         self.with_lock(task);
+    }
+
+    fn spawn<R: Send + 'static, T: FnOnce(&mut dyn Any) -> R + Send + 'static>(
+        &self,
+        task: T,
+    ) -> SpawnedCall<R> {
+        SpawnedCall::done(self.submit_blocking(task))
     }
 
     fn exclusive<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, super::CallError> {
