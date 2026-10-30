@@ -12,7 +12,7 @@ use cubecl::{ir::ElemType, prelude::*, std::tensor::TensorHandle, zspace::shape}
 use cubecl_tile::launch::Grid;
 use cubecl_tile::ops::matmul::MmaIo;
 use cubecl_tile::space::CubeOrder;
-use cubecl_tile::stage::RowChunks;
+use cubecl_tile::stage::{Prefetch, RowChunks};
 use cubecl_tile::*;
 
 use half::f16;
@@ -263,17 +263,7 @@ fn contract_staged(
     });
 }
 
-/// Which of the ring's schedules a staged test kernel drives.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(super) enum Schedule {
-    /// [`Stages::pipelined`]: the next region's slot filled ahead of the contraction.
-    AheadInSlots,
-    /// [`Stages::prefetched`]: the next region read into registers across the
-    /// contraction and written after it.
-    ThroughRegisters,
-}
-
-/// [`matmul_smem_ring`] under either of the ring's schedules.
+/// [`matmul_smem_ring`] under either of the ring's schedules ([`Prefetch`]).
 #[cube(launch)]
 fn matmul_smem_ring_scheduled(
     a: &TileArg<'_>,
@@ -283,7 +273,7 @@ fn matmul_smem_ring_scheduled(
     #[comptime] cubes: Level,
     #[comptime] steps: Level,
     #[comptime] depth: usize,
-    #[comptime] schedule: Schedule,
+    #[comptime] schedule: Prefetch,
     #[comptime] unrolled: bool,
 ) {
     let a = a.tile(&space);
@@ -302,24 +292,12 @@ fn matmul_smem_ring_scheduled(
             false => cube.over(&steps),
         };
         let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, depth, None);
-        match comptime!(schedule) {
-            Schedule::AheadInSlots => {
-                stages.pipelined(walk, |slot, region| {
-                    let c_r = c.at(region);
-                    slot.consume(|a_s, b_s| {
-                        contract_on_the_last_unit(&c_r, a_s, b_s);
-                    });
-                });
-            }
-            Schedule::ThroughRegisters => {
-                stages.prefetched(walk, |slot, region| {
-                    let c_r = c.at(region);
-                    slot.consume(|a_s, b_s| {
-                        contract_on_the_last_unit(&c_r, a_s, b_s);
-                    });
-                });
-            }
-        }
+        stages.walk(walk, schedule, |slot, region| {
+            let c_r = c.at(region);
+            slot.consume(|a_s, b_s| {
+                contract_on_the_last_unit(&c_r, a_s, b_s);
+            });
+        });
     }
 }
 
@@ -1159,7 +1137,7 @@ fn check_matmul_scheduled(
     k: usize,
     tiling: Levels,
     depth: usize,
-    schedule: Schedule,
+    schedule: Prefetch,
     units: u32,
     width: usize,
     unrolled: bool,
@@ -1240,7 +1218,7 @@ fn a_register_staged_ring_matches_a_slot_ahead_ring() {
         }
         for k in ks {
             for depth in [1, 2] {
-                for schedule in [Schedule::AheadInSlots, Schedule::ThroughRegisters] {
+                for schedule in [Prefetch::InSlots, Prefetch::InRegisters] {
                     check_matmul_scheduled(
                         edge,
                         edge,
@@ -1270,9 +1248,9 @@ fn every_walk_length_matches_the_whole_under_both_schedules() {
             .walk_every(&[K])
             .cubes(&[M, N])
     };
-    let schedules: [(Schedule, &[usize]); 2] = [
-        (Schedule::AheadInSlots, &[1, 2, 3]),
-        (Schedule::ThroughRegisters, &[1, 2]),
+    let schedules: [(Prefetch, &[usize]); 2] = [
+        (Prefetch::InSlots, &[1, 2, 3]),
+        (Prefetch::InRegisters, &[1, 2]),
     ];
     for regions in 1..=7 {
         for (schedule, depths) in schedules {

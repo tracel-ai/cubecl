@@ -133,8 +133,8 @@ impl<'a> Arg<'a, Labelled> {
         self
     }
 
-    /// This operand's values are `u32` words of `field`-wide values, each read whole
-    /// ([`Packing::Words`]): block scales as a block-scaled instruction takes them.
+    /// This operand's values are `u32` words of `field`-wide values, each word read whole: block
+    /// scales as a block-scaled instruction takes them.
     pub fn words(mut self, field: impl Into<Field>) -> Self {
         self.data.packing = Packing::Words {
             field: field.into(),

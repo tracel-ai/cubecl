@@ -102,24 +102,19 @@ impl StagesExpand<OperandPair> {
     }
 }
 
-impl Stages<OperandPair> {
+impl StagesExpand<OperandPair> {
     /// [`pipelined`](Stages::pipelined) with the next region's loads held in registers across the
-    /// current contraction.
+    /// current contraction: [`Prefetch::InRegisters`].
     ///
     /// Requires depth 1 or 2, every unit copying straight from a plain operand, and loads within
     /// [`Prefetch::fits`]; otherwise refused at expansion. Fixed operands, and operands whose
     /// stages keep their scales beside them, fall back to [`pipelined`](Stages::pipelined).
-    pub fn prefetched<F>(&mut self, _walk: Walk, _compute: F)
-    where
-        F: FnMut(&mut Slot<OperandPair>, &Region),
-    {
-        unexpanded!()
-    }
-}
-
-impl StagesExpand<OperandPair> {
-    pub fn __expand_prefetched_method<F>(&mut self, scope: &Scope, walk: WalkExpand, compute: F)
-    where
+    pub(crate) fn __expand_prefetched_method<F>(
+        &mut self,
+        scope: &Scope,
+        walk: WalkExpand,
+        compute: F,
+    ) where
         F: FnMut(&Scope, &mut SlotExpand<OperandPair>, &RegionExpand),
     {
         // Registers hold the values alone, so scales a stage keeps beside them are brought by the

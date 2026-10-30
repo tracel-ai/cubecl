@@ -202,7 +202,7 @@ impl Level {
     }
 
     /// The cubes the launch's units are grouped in, where it is a unit level spanning the launch.
-    pub fn unit_cube(&self) -> Option<UnitCube> {
+    pub(crate) fn unit_cube(&self) -> Option<UnitCube> {
         match self.launch_span {
             Some(LaunchSpan::Units(cube)) => Some(cube),
             _ => None,
