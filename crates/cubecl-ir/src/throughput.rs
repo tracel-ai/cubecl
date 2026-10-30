@@ -168,6 +168,7 @@ impl ThroughputKey {
 
 /// Why a device has no peak to report for a probe.
 #[derive(Error, Eq, PartialEq, Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ThroughputError {
     /// The device implements no such operation.
     #[error("unsupported")]

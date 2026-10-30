@@ -6,6 +6,7 @@ use alloc::string::String;
 /// Identity and properties of a device, as its driver reports before anything runs on it:
 /// enough to list the machine's devices, show them to a user and pick one.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub struct DeviceDescription {
     /// The name the device reports, e.g. `NVIDIA GeForce RTX 5070 Laptop GPU`.
@@ -18,6 +19,11 @@ pub struct DeviceDescription {
     pub max_memory: Option<u64>,
     /// The card the device runs on. `None` for a device that is not a card: a CPU or a software
     /// rasterizer.
+    ///
+    /// Never serialized, as in [`DeviceIdentity`](crate::DeviceIdentity): every id on a card is
+    /// local to the host that reported it, so a description read on another host would match that
+    /// host's own card at the same PCI address.
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub physical: Option<PhysicalDevice>,
     /// The architecture the runtime compiles for: the NVPTX target on CUDA, the
     /// `gcnArchName` on HIP, the LLVM CPU name on the CPU runtime.
@@ -46,6 +52,7 @@ impl DeviceDescription {
 
 /// What sort of device a [`DeviceDescription`] describes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum DeviceKind {
     /// A GPU with memory of its own.
@@ -58,4 +65,32 @@ pub enum DeviceKind {
     Cpu,
     /// Whatever the driver calls none of the above.
     Other,
+}
+
+#[cfg(all(test, feature = "serde"))]
+mod tests {
+    use super::*;
+
+    /// A description travels whole but for the card, whose ids only mean something on the host
+    /// that read them.
+    #[test]
+    fn a_description_travels_without_its_card() {
+        let mut description =
+            DeviceDescription::new("AMD Radeon 8060S Graphics", DeviceKind::Integrated);
+        description.max_memory = Some(64 << 30);
+        description.architecture = Some("gfx1151".into());
+        description.physical = Some(PhysicalDevice::default());
+
+        let read: DeviceDescription =
+            serde_json::from_str(&serde_json::to_string(&description).unwrap()).unwrap();
+
+        assert_eq!(read.physical, None);
+        assert_eq!(
+            read,
+            DeviceDescription {
+                physical: None,
+                ..description
+            }
+        );
+    }
 }
