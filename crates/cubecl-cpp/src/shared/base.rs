@@ -47,8 +47,8 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
-    mem2reg::Mem2RegPass, resolve_pending::ResolvePendingPass, sccp::SCCPPass,
-    simple_cse::SimpleCSEPass, sroa::SROAPass,
+    mem2reg::Mem2RegPass, resolve_pending::ResolvePendingPass, scalar_extract::ScalarExtractPass,
+    sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::compiler::{CompilationError, Compiler};
 use pliron::{
@@ -303,6 +303,8 @@ where
 
         func_passes.add_pass(SROAPass);
         func_passes.add_pass(SCCPPass);
+        // Ahead of the CSE, which merges the casts and widths each lane's load brings.
+        func_passes.add_pass(ScalarExtractPass::default());
         func_passes.add_pass(SimpleCSEPass::with_memory());
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(CanonicalizePass::default());
