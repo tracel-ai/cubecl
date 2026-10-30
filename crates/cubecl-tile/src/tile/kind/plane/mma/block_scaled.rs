@@ -117,10 +117,7 @@ fn refuse_unless_block_scaled<T: Numeric>(
     let as_stored = served_as_stored::<T>();
     let registers = codes_per_register(form, ident, m, n, k);
     comptime!({
-        let held = match ident {
-            MatrixIdent::A => form.lhs,
-            _ => form.rhs,
-        };
+        let held = form.codes(ident);
         let stored = match packing {
             Packing::Packed { field } => field.code().map(|code| (code, field.per_word())),
             Packing::Plain | Packing::Words { .. } => None,
@@ -206,7 +203,7 @@ fn codes_per_register(
     register_block_scaled_elements(form);
     let def = block_scaled_definition::<f32>(form, m, n, k);
     let elements = def.vector_size(ident);
-    comptime!(elements * held_per_element(form, ident))
+    comptime!(elements * BlockScaledOperands::values_per_element(form.codes(ident)))
 }
 
 /// Whether a fragment of `T` holds the codes as they are stored, which the block-scaled
@@ -334,7 +331,7 @@ pub(crate) fn load_block_scaled<C: Scalar, NV: Size, NS: Size>(
         LoadMethod::Manual => {
             // An element of the register holds `per_element` codes: an `e2m1x2` two.
             let per_register = def.vector_size(ident);
-            let per_element = comptime!(held_per_element(form, ident));
+            let per_element = comptime!(BlockScaledOperands::values_per_element(form.codes(ident)));
             let registers = def.vectors_per_lane(ident);
             #[unroll]
             for i in 0..registers {
@@ -415,7 +412,7 @@ fn load_block_scaled_ldmatrix<C: Scalar, WP: Size, NV: Size>(
     // An element of the register holds `per_element` codes, an `e2m1x2` two; a register is one
     // word.
     let per_register = def.vector_size(ident);
-    let per_element = comptime!(held_per_element(form, ident));
+    let per_element = comptime!(BlockScaledOperands::values_per_element(form.codes(ident)));
     let registers = def.vectors_per_lane(ident);
     let unit = UNIT_POS_PLANE;
     let row_in_matrix = unit % 8;
@@ -451,15 +448,6 @@ fn load_block_scaled_ldmatrix<C: Scalar, WP: Size, NV: Size>(
     for i in 0..registers {
         values[i] = Vector::<C, NV>::reinterpret(regs[i].extract(0usize));
     }
-}
-
-/// Codes one element of a register of `form`'s instruction holds in role `ident`: two for an
-/// `e2m1x2`, one otherwise.
-fn held_per_element(form: BlockScaledOperands, ident: MatrixIdent) -> usize {
-    BlockScaledOperands::values_per_element(match ident {
-        MatrixIdent::A => form.lhs,
-        _ => form.rhs,
-    })
 }
 
 /// Whether the device offers `ldmatrix`, which moves 16-bit cells: words of codes move as pairs of

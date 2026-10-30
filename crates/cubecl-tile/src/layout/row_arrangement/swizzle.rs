@@ -13,8 +13,6 @@ use crate::*;
 /// keyed on the axis before them, the rows a fragment reads together.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct ChunkSwizzle {
-    /// The physical axis holding a block's rows.
-    row_axis: usize,
     /// The first of the physical axes a block row's lines span, the last of them the innermost.
     line_axis: usize,
     /// Physical axes a block row's lines span: the innermost, and those merged before it.
@@ -90,7 +88,6 @@ impl ChunkSwizzle {
             return None;
         }
         Some(Self {
-            row_axis: rank - 1 - span,
             line_axis: rank - span,
             span,
             span_lines,
@@ -116,9 +113,10 @@ impl ChunkSwizzle {
         }
     }
 
-    /// The physical axis holding a block's rows, whose coordinate keys the swizzle.
+    /// The physical axis holding a block's rows, whose coordinate keys the swizzle: the one
+    /// before the row's lines.
     pub(crate) fn row_axis(&self) -> usize {
-        self.row_axis
+        self.line_axis - 1
     }
 
     /// The first of the physical axes a block row's lines span, whose coordinates the swizzle
