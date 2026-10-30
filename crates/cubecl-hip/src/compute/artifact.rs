@@ -42,7 +42,7 @@ impl HipArtifactCompiler {
 pub struct HipArtifact {
     pub entrypoint_name: String,
     pub shared_mem_bytes: usize,
-    pub binary: Vec<i8>,
+    pub binary: Vec<u8>,
     /// See [`HipCompiledKernel::io`](super::modules::HipCompiledKernel::io);
     /// defaulted for entries persisted before the field existed.
     #[serde(default)]
@@ -115,7 +115,7 @@ impl ArtifactCompiler for HipArtifactCompiler {
             // What the LLVM backend hands back is already a linked `ET_DYN`
             // code object, so no `hiprtc*` call belongs here.
             (_, Some(HipRepresentation::Llvm(module))) => {
-                (to_signed(&module.code_object), module.shared_memory_size)
+                (module.code_object.to_vec(), module.shared_memory_size)
             }
             // A precompiled kernel has no representation to read the size
             // from: it declares its shared memory statically, so the launch
@@ -192,7 +192,7 @@ fn compile_to_binary(
     source: &str,
     target: &str,
     line_tables: bool,
-) -> Result<Vec<i8>, CompilationError> {
+) -> Result<Vec<u8>, CompilationError> {
     let source = CString::new(source).map_err(|err| CompilationError::Generic {
         reason: format!("The generated source is not a valid C string: {err}"),
         backtrace: BackTrace::capture(),
@@ -268,8 +268,8 @@ fn compile_to_binary(
         let mut code_size: usize = 0;
         let status = cubecl_hip_sys::hiprtcGetCodeSize(program.0, &mut code_size);
         checked("hiprtcGetCodeSize", status)?;
-        let mut code = vec![0; code_size];
-        let status = cubecl_hip_sys::hiprtcGetCode(program.0, code.as_mut_ptr());
+        let mut code = vec![0u8; code_size];
+        let status = cubecl_hip_sys::hiprtcGetCode(program.0, code.as_mut_ptr().cast());
         checked("hiprtcGetCode", status)?;
         Ok(code)
     }
@@ -307,12 +307,4 @@ fn compilation_log(program: &RtcProgram) -> String {
         message += format!("\n    {line}").as_str();
     }
     message
-}
-
-/// A code object as the `c_char` slice the cache and `hipModuleLoadData` are written in.
-///
-/// `i8` and `u8` have the same layout, so this is the copy out of the compiler's buffer and
-/// nothing more.
-fn to_signed(bytes: &[u8]) -> Vec<i8> {
-    bytes.iter().map(|byte| *byte as i8).collect()
 }
