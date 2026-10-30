@@ -19,14 +19,14 @@ pub(crate) type Comm = *mut c_void;
 /// The identifier every rank of a group joins under.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub(crate) struct UniqueId {
+pub struct UniqueId {
     internal: [c_char; 128],
 }
 
 /// `ncclDataType_t`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum DataType {
+pub enum DataType {
     Int8 = 0,
     Uint8 = 1,
     Int32 = 2,
