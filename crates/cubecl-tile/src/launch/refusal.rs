@@ -2,7 +2,7 @@
 
 use core::fmt::{self, Display, Formatter};
 
-use cubecl::zspace::Tiling;
+use cubecl::zspace::{MetadataError, Tiling};
 
 use crate::{Axis, LineMisfit};
 
@@ -143,6 +143,19 @@ pub enum Refusal {
     /// [`codebook`](crate::TileArgLaunch::codebook) with a table of `entries`, fewer than the
     /// `2^bits` the indices name.
     CodebookTableShort { entries: usize, bits: usize },
+    /// [`physical`](crate::layout::StoragePartitioning::physical): the tiles along `axis` do not
+    /// close its extent.
+    StoredTileUnwhole {
+        axis: Axis,
+        extent: usize,
+        tile: usize,
+    },
+    /// [`physical`](crate::layout::StoragePartitioning::physical): the storage order does not name
+    /// each of the tensor's axes once.
+    StorageOrderUnmatched { order: Vec<Axis>, axes: Vec<Axis> },
+    /// [`physical`](crate::layout::StoragePartitioning::physical): more pieces than the buffer's
+    /// metadata records ([`Tiling`]).
+    StoragePiecesUnrecordable(MetadataError),
 }
 
 impl Display for Refusal {
@@ -354,6 +367,21 @@ impl Display for Refusal {
                 f,
                 "Indexing: a level cuts {axis:?}, the axis the entry places; a coordinate is the \
                  table's to state, and a run is placed whole before any level cuts it"
+            ),
+            Refusal::StoredTileUnwhole { axis, extent, tile } => write!(
+                f,
+                "StoragePartitioning::physical: axis {axis:?} runs {extent}, which is not a whole \
+                 number of {tile}-wide tiles"
+            ),
+            Refusal::StorageOrderUnmatched { order, axes } => write!(
+                f,
+                "StoragePartitioning::physical: the tiles follow {order:?}, but the tensor's axes \
+                 are {axes:?}: the order names each once"
+            ),
+            Refusal::StoragePiecesUnrecordable(why) => write!(
+                f,
+                "StoragePartitioning::physical: the buffer's metadata cannot record its pieces: \
+                 {why:?}"
             ),
         }
     }

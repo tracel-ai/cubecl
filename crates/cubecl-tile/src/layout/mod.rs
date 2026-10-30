@@ -17,6 +17,6 @@ pub use compaction::Compaction;
 pub use paging::{PageEntry, Paging};
 pub use projection::{DimsBuilder, Divisor, Offset, PhysicalAxisMap, Scale, split};
 pub use storage::{
-    ElemAlignment, LineMisfit, RuntimeGeometry, StorageLevels, StorageMisfit, StoragePartitioning,
-    TileMisfit, VectorTile,
+    ElemAlignment, LineMisfit, RuntimeGeometry, StorageLevels, StoragePartitioning, TileMisfit,
+    VectorTile,
 };
