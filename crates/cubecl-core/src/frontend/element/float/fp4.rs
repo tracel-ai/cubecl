@@ -22,15 +22,16 @@ impl CubePrimitive for e2m1 {
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    fn __expand_as_type(scope: &Scope) -> TypeHandle {
-        Float4E2M1Type::get(scope.ctx()).into()
-    }
-
     fn from_const_value(value: ConstantValue) -> Self {
         let ConstantValue::Float(value) = value else {
             unreachable!()
         };
         e2m1::from_f64(value)
+    }
+}
+impl ConstantTyped for e2m1 {
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        Float4E2M1Type::get(scope.ctx()).into()
     }
 }
 
@@ -65,10 +66,6 @@ impl CubePrimitive for e2m1x2 {
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    fn __expand_as_type(scope: &Scope) -> TypeHandle {
-        Float4E2M1x2Type::get(scope.ctx()).into()
-    }
-
     fn from_const_value(value: ConstantValue) -> Self {
         let ConstantValue::Float(value) = value else {
             unreachable!()
@@ -76,6 +73,11 @@ impl CubePrimitive for e2m1x2 {
         let val = e2m1::from_f64(value).to_bits();
         // Fill both values, not sure this is ever useful but it works
         e2m1x2::from_bits(val | (val << 4))
+    }
+}
+impl ConstantTyped for e2m1x2 {
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        Float4E2M1x2Type::get(scope.ctx()).into()
     }
 }
 

@@ -9,7 +9,7 @@ use cubecl_ir::{
 };
 use pliron::r#type::TypeHandle;
 
-use crate::{expand_assert, ir::Scope};
+use crate::{expand_assert, frontend::ConstantTyped, ir::Scope};
 use crate::{
     expand_error,
     frontend::{CubePrimitive, CubeType},
@@ -103,7 +103,7 @@ pub trait Reinterpret: CubePrimitive {
 
     fn __expand_reinterpret_vectorization<From: CubePrimitive>(scope: &Scope) -> usize {
         let type_size = From::__expand_size(scope);
-        type_size / Self::Scalar::__expand_size(scope)
+        type_size / <Self::Scalar as ConstantTyped>::__expand_size(scope)
     }
 }
 

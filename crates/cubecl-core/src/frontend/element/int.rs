@@ -69,16 +69,18 @@ macro_rules! impl_int {
             type Size = Const<1>;
             type WithScalar<S: Scalar> = S;
 
-            fn __expand_as_type(scope: &Scope) -> TypeHandle {
-                let width = IntKind::$kind.size_bits() as u32;
-                IntegerType::get(scope.ctx(), width, Signedness::Signed).into()
-            }
-
             fn from_const_value(value: ConstantValue) -> Self {
                 let ConstantValue::Int(value) = value else {
                     unreachable!()
                 };
                 value as $type
+            }
+        }
+
+        impl ConstantTyped for $type {
+            fn __expand_as_type(scope: &Scope) -> TypeHandle {
+                let width = IntKind::$kind.size_bits() as u32;
+                IntegerType::get(scope.ctx(), width, Signedness::Signed).into()
             }
         }
 

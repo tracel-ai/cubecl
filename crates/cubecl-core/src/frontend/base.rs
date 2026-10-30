@@ -1,6 +1,6 @@
 use cubecl_ir::Scope;
 
-use crate::frontend::{CubePrimitive, NativeExpand, init_mut_of_type};
+use crate::frontend::{ConstRuntimeAssign, CubeType, NativeExpand};
 
 #[macro_export]
 macro_rules! unexpanded {
@@ -67,8 +67,11 @@ pub fn unexpanded_value<T>() -> T {
 /// Used for `let x;` local bindings. These are technically immutable in Rust, but because they can
 /// be visible at a higher level scope than their assignment we need to allocate a slot of them at
 /// that level and treat them as mutable.
-pub fn uninit_local<T: CubePrimitive>(scope: &Scope) -> NativeExpand<T> {
-    init_mut_of_type(scope, T::__expand_as_type(scope)).into()
+pub fn uninit_local<T: CubeType>(scope: &Scope) -> NativeExpand<T>
+where
+    T::ExpandType: ConstRuntimeAssign<Expand = NativeExpand<T>>,
+{
+    T::ExpandType::const_init_mut(scope)
 }
 
 #[cfg(test)]

@@ -22,15 +22,16 @@ impl CubePrimitive for e4m3 {
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    fn __expand_as_type(scope: &Scope) -> TypeHandle {
-        Float8E4M3Type::get(scope.ctx()).into()
-    }
-
     fn from_const_value(value: ConstantValue) -> Self {
         let ConstantValue::Float(value) = value else {
             unreachable!()
         };
         e4m3::from_f64(value)
+    }
+}
+impl ConstantTyped for e4m3 {
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        Float8E4M3Type::get(scope.ctx()).into()
     }
 }
 
@@ -63,15 +64,16 @@ impl CubePrimitive for e5m2 {
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    fn __expand_as_type(scope: &Scope) -> TypeHandle {
-        Float8E5M2Type::get(scope.ctx()).into()
-    }
-
     fn from_const_value(value: ConstantValue) -> Self {
         let ConstantValue::Float(value) = value else {
             unreachable!()
         };
         e5m2::from_f64(value)
+    }
+}
+impl ConstantTyped for e5m2 {
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        Float8E5M2Type::get(scope.ctx()).into()
     }
 }
 
@@ -104,15 +106,16 @@ impl CubePrimitive for ue8m0 {
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    fn __expand_as_type(scope: &Scope) -> TypeHandle {
-        Float8E8M0Type::get(scope.ctx()).into()
-    }
-
     fn from_const_value(value: ConstantValue) -> Self {
         let ConstantValue::Float(value) = value else {
             unreachable!()
         };
         ue8m0::from_f64(value)
+    }
+}
+impl ConstantTyped for ue8m0 {
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        Float8E8M0Type::get(scope.ctx()).into()
     }
 }
 

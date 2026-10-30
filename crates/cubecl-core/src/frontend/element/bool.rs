@@ -42,7 +42,9 @@ impl CubePrimitive for bool {
         };
         value
     }
+}
 
+impl ConstantTyped for bool {
     fn __expand_as_type(scope: &Scope) -> TypeHandle {
         BoolType::get(scope.ctx()).into()
     }
