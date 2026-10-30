@@ -58,6 +58,20 @@ fn fp4_decodes_on_the_part_where_it_converts() {
     );
 }
 
+/// From `sm_89` an `e4m3` decode is the part's own conversion, a pair an instruction; before
+/// it, the software codec.
+#[test]
+fn e4m3_decodes_on_the_part_where_it_converts() {
+    let ptx = ptx_of(crate::shared::offline_kernels::e4m3_decode_kernel(), 89);
+    assert_eq!(
+        ptx.matches("cvt.rn.f16x2.e4m3x2").count(),
+        2,
+        "one conversion per pair of the word:\n{ptx}"
+    );
+    let ptx = ptx_of(crate::shared::offline_kernels::e4m3_decode_kernel(), 80);
+    assert!(!ptx.contains("e4m3x2"), "the software codec:\n{ptx}");
+}
+
 #[test]
 fn plane_moves_are_native_shuffles() {
     let ptx = ptx_of(plane_moves_kernel(), 60);
