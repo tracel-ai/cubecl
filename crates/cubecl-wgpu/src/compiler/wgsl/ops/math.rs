@@ -32,6 +32,9 @@ wgsl_op_with_out!(SAbsOp, FAbsOp; |op, ctx| {
 wgsl_op_with_out!(ExpOp; |op, ctx| {
     format!("exp({})", op.input(ctx).name(ctx))
 });
+wgsl_op_with_out!(Exp2Op; |op, ctx| {
+    format!("exp2({})", op.input(ctx).name(ctx))
+});
 wgsl_op_with_out!(LogOp; |op, ctx| {
     format!("log({})", op.input(ctx).name(ctx))
 });

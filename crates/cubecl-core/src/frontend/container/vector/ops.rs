@@ -243,6 +243,7 @@ impl<P: Scalar + Log1p, N: Size> Log1p for Vector<P, N> {}
 impl<P: Scalar + Expm1, N: Size> Expm1 for Vector<P, N> {}
 impl<P: Scalar + Erf, N: Size> Erf for Vector<P, N> {}
 impl<P: Scalar + Exp, N: Size> Exp for Vector<P, N> {}
+impl<P: Scalar + Exp2, N: Size> Exp2 for Vector<P, N> {}
 impl<P: Scalar + Powf, N: Size> Powf for Vector<P, N> {}
 impl<P: Scalar + Powi<I>, I: Scalar, N: Size> Powi<Vector<I, N>> for Vector<P, N> {}
 impl<P: Scalar + Sqrt, N: Size> Sqrt for Vector<P, N> {}

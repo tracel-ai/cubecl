@@ -92,6 +92,28 @@ function!(RcbrtOp, "rcbrt", no_half);
 // function!(FastInverseSqrt, "__frsqrt_rn", false);
 function!(ExpOp, "exp", packable, no_msl_bfloat);
 // function!(FastExp, "__expf", false);
+
+// On CUDA a float lowers to the hardware base-2 exponential (one `MUFU.EX2`). The libm `exp2f`
+// adds a denormal-range fixup around it; `exp2` promises no more than the hardware gives.
+shared_op_with_out!(Exp2Op, |op, ctx| {
+    let input = op.input(ctx);
+    if ctx.target() == Target::Cuda && input.is_float32(ctx) {
+        let input = input.name(ctx);
+        format!(
+            r#"[&] {{
+    float result;
+    asm("ex2.approx.ftz.f32 %0, %1;" : "=f"(result) : "f"({input}));
+    return result;
+}}()"#
+        )
+    } else {
+        let prefix = ctx.target().ty_prefix(ctx, input);
+        format!("{prefix}exp2({})", input.name(ctx))
+    }
+});
+unrolling!(Exp2Op);
+packable!(Exp2Op);
+no_msl_bfloat!(Exp2Op);
 function!(Expm1Op, "expm1", no_half);
 function!(CeilOp, "ceil", packable, no_msl_bfloat);
 function!(TruncOp, "trunc", packable, no_msl_bfloat);
@@ -436,6 +458,34 @@ mod tests {
         assert!(cpp.contains("log1p("), "expected a native call, got {cpp}");
         assert!(!cpp.contains(".ln()"), "expected no polyfill, got {cpp}");
         assert!(!should_lower, "CUDA must not take the polyfill: {cpp}");
+    }
+
+    /// `exp2`'s emission for an `f32` input.
+    fn exp2(target: Target) -> String {
+        let mut ctx = Context::new();
+        ctx.set_target(target);
+        let attr = ConstantValue::Float(0.5).as_attribute(&ctx, ElemType::Float(FloatKind::F32));
+        let attr = boxed_attr_cast(attr).unwrap();
+        let input = ConstantOp::new(&mut ctx, attr).get_result(&ctx);
+        let op = Exp2Op::new(&mut ctx, input);
+        OpToCPP::<Shared>::to_cpp(&op, &ctx)
+    }
+
+    #[test]
+    fn exp2_is_the_raw_hardware_instruction_on_cuda() {
+        let cpp = exp2(Target::Cuda);
+        assert!(
+            cpp.contains("ex2.approx.ftz.f32"),
+            "expected the raw instruction, got {cpp}"
+        );
+    }
+
+    #[test]
+    fn exp2_is_the_native_function_elsewhere() {
+        for target in [Target::Hip, Target::Metal] {
+            let cpp = exp2(target);
+            assert!(cpp.contains("exp2("), "expected a native call, got {cpp}");
+        }
     }
 
     #[test]
