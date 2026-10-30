@@ -516,6 +516,16 @@ fn mma_signature(a: &str, b: &str, cd: &str) -> String {
     }
 }
 
+#[derive(Debug, Error)]
+#[error(
+    "no `mma` instruction multiplies a {a} A fragment by a {b} B fragment: the floating-point \
+     forms take one element for both, the integer ones any pair of `s8` and `u8`"
+)]
+pub struct MmaOperandsMismatched {
+    a: String,
+    b: String,
+}
+
 pub(crate) fn mma_manual(
     op: &MmaManualOp,
     ctx: &mut Context,
@@ -545,6 +555,20 @@ pub(crate) fn mma_manual(
             .expect("one of the three has no form");
         return input_err!(op.loc(ctx), unsupported_elem(ctx, culprit));
     };
+
+    // The intrinsic is named for A's element alone where both operands share it, so a B of
+    // another element would reach instruction selection, which aborts the process rather than
+    // failing the compile.
+    let bytes = |name: &str| matches!(name, "s8" | "u8");
+    if a_name != b_name && !(bytes(a_name) && bytes(b_name)) {
+        return input_err!(
+            op.loc(ctx),
+            MmaOperandsMismatched {
+                a: a_elem.disp(ctx).to_string(),
+                b: b_elem.disp(ctx).to_string(),
+            }
+        );
+    }
 
     let a_val = registers_value(ctx, rw, a, a_vec_ty);
     let b_val = registers_value(ctx, rw, b, b_vec_ty);
