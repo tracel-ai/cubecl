@@ -354,7 +354,13 @@ impl<T: CubePrimitive> VectorizedExpand for ArrayExpand<T> {
     }
 }
 
-impl<T: CubePrimitive, const N: usize> List<T> for [T; N] {}
+// `len` needs to be implemented because array doesn't implement it directly and this one takes
+// priority over the one on slice
+impl<T: CubePrimitive, const N: usize> List<T> for [T; N] {
+    fn len(&self) -> usize {
+        N
+    }
+}
 impl<T: CubePrimitive, const N: usize> ListExpand<T> for NativeExpand<[T; N]> {
     fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
         self.__expand_len_method(scope).into_expand(scope)
