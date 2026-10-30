@@ -107,7 +107,14 @@ impl Memory {
         #[comptime] alignment: usize,
         #[comptime] owner: StageOwner,
     ) -> Tile {
-        let alignment = comptime!(alignment.max(RowChunks::CHUNK_BYTES));
+        // LAB: `CUBECL_LAB_STAGE_ALIGN=n` raises the floor.
+        let floor = comptime!(
+            std::env::var("CUBECL_LAB_STAGE_ALIGN")
+                .ok()
+                .and_then(|n| n.parse::<usize>().ok())
+                .unwrap_or(RowChunks::CHUNK_BYTES)
+        );
+        let alignment = comptime!(alignment.max(floor));
         let elem_bytes = T::size().comptime();
         let form = comptime!(StageForm::dense(
             &space,
