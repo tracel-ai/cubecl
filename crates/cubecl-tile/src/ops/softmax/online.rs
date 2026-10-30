@@ -106,9 +106,10 @@ impl<E: Float> OnlineSoftmax<E> {
     pub fn lab_step_unbiased(&mut self, score: &Tile, scale: E) -> Array<E> {
         let mut slices = score.along(self.axis);
         let mut seed = Array::<E>::new(self.slices);
+        let inverse = E::new(1.0) / scale;
         #[unroll]
         for i in 0..self.slices {
-            seed[i] = self.m[i] / scale;
+            seed[i] = self.m[i] * inverse;
         }
         let raw = slices.maxima::<E>(&seed);
         let mut max = Array::<E>::new(self.slices);
