@@ -409,6 +409,84 @@ impl MmaData {
         }
     }
 
+    /// `self[r, c] = exp(self[r, c] · scale + bias[r, c] − logsumexp[r, c])` over this fragment,
+    /// which lies at `origin` of a tile over `space`: each cell reads `logsumexp` where `broadcast`
+    /// puts it, a row's value or a column's ([`AxisSlices::probabilities`]).
+    pub(crate) fn probabilities_along<E: Float>(
+        &mut self,
+        scale: E,
+        bias: &Procedural,
+        logsumexp: &Memory,
+        #[comptime] space: Space,
+        #[comptime] broadcast: Broadcast,
+        #[comptime] origin: (usize, usize),
+    ) {
+        let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
+        let vector_size = def.vector_size(MatrixIdent::Accumulator);
+        let (row0, col0) = comptime!(origin);
+        let (first, per_row, per_col) = comptime!(broadcast.strides());
+        let size!(W) = 1usize;
+        let read = logsumexp.flat::<E, W>();
+        let acc = self.acc_registers_mut::<E>();
+        #[unroll]
+        for i in 0..acc.len() {
+            let mut vector = acc[i];
+            #[unroll]
+            for e in 0..vector_size {
+                let (row, col) = def.position_of_nth(
+                    UNIT_POS_PLANE,
+                    comptime!((i * vector_size + e) as u32),
+                    MatrixIdent::Accumulator,
+                );
+                let (row, col) = (row + comptime!(row0 as u32), col + comptime!(col0 as u32));
+                let score = vector.extract(e) * scale
+                    + bias.value_at::<E>(row, col, comptime!(space.clone()));
+                let at = first + row as usize * per_row + col as usize * per_col;
+                let held = read.read(at).extract(0usize);
+                vector.insert(e, AxisSlices::exp_minus_cell::<E>(score, held));
+            }
+            acc[i] = vector;
+        }
+    }
+
+    /// `self[r, c] = probabilities[r, c] · (self[r, c] − delta[r, c])` over this fragment and
+    /// `probabilities`, a fragment laid as this one is, at `origin` of a tile over `space`: each
+    /// cell reads `delta` where `broadcast` puts it ([`AxisSlices::softmax_gradient`]).
+    pub(crate) fn softmax_gradient_along<E: Float>(
+        &mut self,
+        probabilities: &MmaData,
+        delta: &Memory,
+        #[comptime] broadcast: Broadcast,
+        #[comptime] origin: (usize, usize),
+    ) {
+        let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
+        let vector_size = def.vector_size(MatrixIdent::Accumulator);
+        let (row0, col0) = comptime!(origin);
+        let (first, per_row, per_col) = comptime!(broadcast.strides());
+        let size!(W) = 1usize;
+        let read = delta.flat::<E, W>();
+        let held = probabilities.acc_registers::<E>();
+        let acc = self.acc_registers_mut::<E>();
+        #[unroll]
+        for i in 0..acc.len() {
+            let mut vector = acc[i];
+            let probability = held[i];
+            #[unroll]
+            for e in 0..vector_size {
+                let (row, col) = def.position_of_nth(
+                    UNIT_POS_PLANE,
+                    comptime!((i * vector_size + e) as u32),
+                    MatrixIdent::Accumulator,
+                );
+                let (row, col) = (row + comptime!(row0 as u32), col + comptime!(col0 as u32));
+                let at = first + row as usize * per_row + col as usize * per_col;
+                let gradient = vector.extract(e) - read.read(at).extract(0usize);
+                vector.insert(e, probability.extract(e) * gradient);
+            }
+            acc[i] = vector;
+        }
+    }
+
     /// `values[first + r]` written at cell `origin + r` of `window` for every row `r` this unit
     /// holds cells of, by the one unit holding the row's first column: each of the fragment's
     /// rows written once.

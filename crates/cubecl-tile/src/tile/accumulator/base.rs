@@ -657,16 +657,33 @@ impl Tile {
         lhs: &Tile,
         #[comptime] instruction: Instruction,
     ) -> Tile {
+        Tile::placed_accumulator::<EA>(
+            comptime!(walk.level.child(&walk.space).subspace(&axes)),
+            comptime!(walk.depth()),
+            comptime!(walk.parent.path.root_levels()),
+            lhs,
+            instruction,
+        )
+    }
+
+    /// A plane-resident accumulator over `space`, placed at `depth` of `levels` as
+    /// [`with_levels`](Tile::with_levels) places a tile, summing `lhs` times a factor in
+    /// `instruction`, opened at zero: [`stage_accumulator`](Tile::stage_accumulator) on a grid the
+    /// caller states, for a product contracted on its own grid of fragments rather than its walk's,
+    /// and contracted again before anything drains it.
+    pub fn placed_accumulator<EA: Numeric>(
+        #[comptime] space: Space,
+        #[comptime] depth: usize,
+        #[comptime] levels: Vec<Level>,
+        lhs: &Tile,
+        #[comptime] instruction: Instruction,
+    ) -> Tile {
         comptime!(assert!(
             !matches!(instruction, Instruction::Registers { .. }),
-            "Tile::stage_accumulator: a register block's accumulator is a unit's, opened on the \
+            "Tile::placed_accumulator: a register block's accumulator is a unit's, opened on the \
              output it drains into"
         ));
-        let place = comptime!(Placement::new(
-            walk.level.child(&walk.space).subspace(&axes),
-            walk.depth(),
-            walk.parent.path.root_levels(),
-        ));
+        let place = comptime!(Placement::new(space, depth, levels));
         let accumulation = comptime!(Accumulation::Contraction(Semiring::SUM_PROD));
         let mut acc = PlanePartition::mirror::<EA>(
             comptime!(place.space.clone()),
