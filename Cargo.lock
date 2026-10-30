@@ -1316,6 +1316,7 @@ dependencies = [
  "portable-atomic",
  "rustc_apfloat",
  "serde",
+ "serde_json",
  "smallvec",
  "spin",
  "thiserror 2.0.21",

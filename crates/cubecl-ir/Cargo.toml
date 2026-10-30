@@ -61,3 +61,4 @@ portable-atomic = { workspace = true }
 
 [dev-dependencies]
 ciborium = { workspace = true, features = ["std"] }
+serde_json = { workspace = true, features = ["std"] }

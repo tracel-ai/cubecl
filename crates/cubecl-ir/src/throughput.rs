@@ -1,0 +1,323 @@
+//! What a throughput probe measures, and what it reports: the keys a device's
+//! peaks are measured and cached under, and their readings.
+
+use crate::{ElemType, FloatKind};
+use alloc::{format, string::String};
+use core::time::Duration;
+use thiserror::Error;
+
+/// Configuration for a matrix multiplication (CMMA) operation.
+#[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ComputeCmmaConfig {
+    /// The data type used to store the running sum.
+    pub accumulator_type: AccumulatorType,
+    /// The spatial dimensions of the operation.
+    pub cmma_dims: CmmaDims,
+}
+
+/// The element type of the accumulator.
+pub type AccumulatorType = ElemType;
+
+/// The M, N, and K dimensions of a matrix multiplication.
+#[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct CmmaDims {
+    /// Rows in the output matrix.
+    pub m: usize,
+    /// Columns in the output matrix.
+    pub n: usize,
+    /// The shared inner dimension of the input matrices.
+    pub k: usize,
+}
+
+impl CmmaDims {
+    /// Returns the total iteration volume (M * N * K).
+    pub fn num_elems(&self) -> usize {
+        self.m * self.n * self.k
+    }
+}
+
+/// Bytes one buffer of a [`ThroughputMode::Memory`] probe moves per pass at its
+/// default working set. The probe's buffer is a multiple of this, and both are
+/// clamped to the device's maximum allocation when the probe runs.
+pub const DEFAULT_WORKING_SET_BYTES: u64 = 512 * 1024 * 1024;
+
+/// Which directions of traffic a memory probe issues.
+#[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum MemoryAccess {
+    /// Reads every byte and writes it back out. The ceiling for a kernel that
+    /// both loads and stores.
+    Copy,
+    /// Reads only, storing nothing. The ceiling for a kernel that streams data
+    /// it does not write back — a weight stream, a reduction, a gather. Such a
+    /// kernel legitimately exceeds [`Copy`](Self::Copy), because half of the
+    /// copy's traffic is a direction it never uses.
+    Read,
+    /// Writes only, reading nothing at the software level. The ceiling for a
+    /// kernel that streams stores it never reads back: an RNG fill, a memset,
+    /// a broadcast. Ordinary stores still carry read-for-ownership traffic on
+    /// cache-coherent hardware, and this probe's stores do too, which is what
+    /// makes it the honest ceiling for a kernel that uses ordinary stores
+    /// rather than a non-temporal one.
+    Write,
+}
+
+impl MemoryAccess {
+    /// How many buffers of equal size one pass touches: two for a copy (one in,
+    /// one out), one for a read or a write.
+    pub const fn buffers(&self) -> u64 {
+        match self {
+            Self::Copy => 2,
+            Self::Read | Self::Write => 1,
+        }
+    }
+
+    /// The working set of the single-size probe for this access, in bytes moved
+    /// per pass: [`DEFAULT_WORKING_SET_BYTES`] per buffer touched.
+    pub const fn default_working_set(&self) -> u64 {
+        DEFAULT_WORKING_SET_BYTES * self.buffers()
+    }
+}
+
+/// Represents the mode of a throughput computation.
+#[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum ThroughputMode {
+    /// Compute direct calculation without special hardware acceleration.
+    ///
+    /// The ceiling is for operands of `dtype`, not arithmetic performed in it:
+    /// where converting to f32 retires more, that is what the probe reports.
+    ComputeDirect {
+        /// The data type of the computation.
+        dtype: ElemType,
+    },
+    /// Compute cmma calculation with CMMA hardware acceleration.
+    ComputeCmma {
+        /// The data type of the computation.
+        dtype: ElemType,
+        /// The configuration of the CMMA operation.
+        config: ComputeCmmaConfig,
+    },
+    /// Traffic across the memory interface, as described by its [`MemorySpec`].
+    ///
+    /// `bytes` is the total one pass moves, so a
+    /// [`Copy`](MemoryAccess::Copy) splits it across two buffers where a
+    /// [`Read`](MemoryAccess::Read) takes it all from one.
+    Memory(MemorySpec),
+    /// Launch overhead measurement.
+    Launch,
+}
+
+/// What a memory mode asks of a probe.
+#[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
+pub struct MemorySpec {
+    /// Which directions of traffic to issue.
+    pub access: MemoryAccess,
+    /// The bytes one pass moves across the interface.
+    pub bytes: u64,
+}
+
+impl ThroughputMode {
+    /// `access` over as much as the interface will take at once.
+    pub const fn memory(access: MemoryAccess) -> Self {
+        Self::Memory(MemorySpec::new(access, access.default_working_set()))
+    }
+
+    /// What this mode asks of a memory probe, or `None` for the modes that do
+    /// not measure memory.
+    pub const fn memory_probe(&self) -> Option<MemorySpec> {
+        match self {
+            Self::Memory(spec) => Some(*spec),
+            Self::ComputeDirect { .. } | Self::ComputeCmma { .. } | Self::Launch => None,
+        }
+    }
+}
+
+impl MemorySpec {
+    /// A probe moving `bytes` per pass in the directions `access` names.
+    pub const fn new(access: MemoryAccess, bytes: u64) -> Self {
+        Self { access, bytes }
+    }
+}
+
+/// Represents a key/configuration used to identify the throughput of a computation.
+#[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+// Reject cached entries from an older key layout instead of silently ignoring their extra fields.
+#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
+pub struct ThroughputKey {
+    /// The mode of the throughput computation.
+    pub mode: ThroughputMode,
+}
+
+impl ThroughputKey {
+    /// Returns the data type of the computation.
+    pub fn dtype(&self) -> ElemType {
+        match self.mode {
+            ThroughputMode::ComputeDirect { dtype } => dtype,
+            ThroughputMode::ComputeCmma { dtype, .. } => dtype,
+            // For memory and launch throughput, we use a default element type (F32).
+            ThroughputMode::Memory(_) | ThroughputMode::Launch => ElemType::Float(FloatKind::F32),
+        }
+    }
+}
+
+/// Why a device has no peak to report for a probe.
+#[derive(Error, Eq, PartialEq, Clone, Copy, Debug)]
+pub enum ThroughputError {
+    /// The device implements no such operation.
+    #[error("unsupported")]
+    Unsupported,
+    /// The device's timer reported no elapsed time for any shape of the probe.
+    #[error("no timing")]
+    NoTiming,
+    /// The device could not allocate the buffers the probe runs over.
+    #[error("allocation failed")]
+    Allocation,
+    /// The probe's kernel did not run: it failed to compile or to launch, or
+    /// the device faulted under it.
+    #[error("launch failed")]
+    Launch,
+}
+
+/// Represents the throughput of a computation, including the number of operations and the duration.
+#[derive(Eq, PartialEq, Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ThroughputValue {
+    /// The number of operations performed depending of the mode during the computation.
+    pub ops_count: usize,
+    /// The duration of the computation.
+    pub duration: Duration,
+}
+
+impl ThroughputValue {
+    /// A zero-initialized throughput value, representing no operations or duration.
+    pub const ZERO: Self = Self {
+        ops_count: 0,
+        duration: Duration::ZERO,
+    };
+
+    /// Returns the operations per second.
+    pub fn ops_per_s(&self) -> f64 {
+        if self.duration.is_zero() {
+            return f64::NAN;
+        }
+        self.ops_count as f64 / self.duration.as_secs_f64()
+    }
+
+    /// Returns the bytes per second.
+    pub fn bytes_per_s(&self, key: &ThroughputKey) -> f64 {
+        if self.duration.is_zero() {
+            return f64::NAN;
+        }
+        (self.ops_count * key.dtype().size()) as f64 / self.duration.as_secs_f64()
+    }
+
+    /// Returns the duration per operation.
+    pub fn duration_per_op(&self) -> Duration {
+        if self.ops_count == 0 {
+            Duration::ZERO
+        } else {
+            Duration::from_secs_f64(self.duration.as_secs_f64() / self.ops_count as f64)
+        }
+    }
+
+    /// Formats the throughput value as a clean human-readable string.
+    pub fn format(&self, key: &ThroughputKey) -> String {
+        let (mut val_per_s, unit) = match key.mode {
+            ThroughputMode::ComputeDirect { .. } | ThroughputMode::ComputeCmma { .. } => {
+                (self.ops_per_s(), "OPS")
+            }
+            ThroughputMode::Memory(_) => (self.bytes_per_s(key), "bytes"),
+            ThroughputMode::Launch => {
+                let dur = self.duration_per_op();
+                if dur.is_zero() {
+                    return String::from("N/A");
+                }
+                return format!("{dur:?}/launch");
+            }
+        };
+
+        if val_per_s.is_nan() {
+            return String::from("N/A");
+        }
+
+        let suffixes = ["", "K", "M", "G", "T", "P", "E", "Z", "Y", "R", "Q"];
+        let mut suffix_idx = 0;
+
+        for _ in 0..suffixes.len() - 1 {
+            if val_per_s < 1000.0 {
+                break;
+            }
+            val_per_s /= 1000.0;
+            suffix_idx += 1;
+        }
+
+        format!("{val_per_s:.4} {}{unit}/s", suffixes[suffix_idx])
+    }
+}
+
+/// Constructs a compute [`ThroughputKey`] based on CMMA tile availability and types.
+pub fn compute_throughput_key(
+    cmma_tile: Option<(u32, u32, u32)>,
+    input_elem_type: ElemType,
+    acc_elem_type: ElemType,
+) -> ThroughputKey {
+    let mode = match cmma_tile {
+        Some((tile_m, tile_n, tile_k)) => ThroughputMode::ComputeCmma {
+            dtype: input_elem_type,
+            config: ComputeCmmaConfig {
+                accumulator_type: acc_elem_type,
+                cmma_dims: CmmaDims {
+                    m: tile_m as usize,
+                    n: tile_n as usize,
+                    k: tile_k as usize,
+                },
+            },
+        },
+        None => ThroughputMode::ComputeDirect {
+            dtype: acc_elem_type,
+        },
+    };
+
+    ThroughputKey { mode }
+}
+
+#[cfg(all(test, feature = "serde"))]
+mod tests {
+    use super::*;
+
+    /// The throughput cache keys on the serialized key, so a layout change
+    /// drops every measurement users have already paid for. That is what a
+    /// version bump is for; a change that is not one must leave these alone.
+    #[test]
+    fn a_memory_key_keeps_its_serialized_form() {
+        let encode = |mode| serde_json::to_string(&ThroughputKey { mode }).unwrap();
+
+        assert_eq!(
+            encode(ThroughputMode::memory(MemoryAccess::Copy)),
+            r#"{"mode":{"Memory":{"access":"Copy","bytes":1073741824}}}"#
+        );
+        assert_eq!(
+            encode(ThroughputMode::Memory(MemorySpec::new(
+                MemoryAccess::Read,
+                8192
+            ))),
+            r#"{"mode":{"Memory":{"access":"Read","bytes":8192}}}"#
+        );
+    }
+
+    /// A working set is part of the key, so two sizes of the same access are
+    /// separate measurements rather than one overwriting the other.
+    #[test]
+    fn a_working_set_is_part_of_the_key() {
+        let small = ThroughputMode::Memory(MemorySpec::new(MemoryAccess::Read, 8192));
+        let large = ThroughputMode::Memory(MemorySpec::new(MemoryAccess::Read, 16384));
+
+        assert_ne!(small, large);
+    }
+}

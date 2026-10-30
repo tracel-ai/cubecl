@@ -9,6 +9,7 @@ extern crate self as cubecl_ir;
 pub mod features;
 
 mod address;
+mod description;
 mod enum_set;
 mod properties;
 mod runtime_properties;
@@ -34,9 +35,11 @@ pub mod metadata;
 pub mod nvidia;
 pub mod rewrite;
 pub mod settings;
+pub mod throughput;
 pub mod types;
 
 pub use address::*;
+pub use description::*;
 pub use enum_set::*;
 pub use properties::*;
 pub use runtime_properties::*;
