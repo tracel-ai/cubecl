@@ -7,7 +7,10 @@ use cubecl_core::ir::{features::MmaConfig, settings::DebugInfo};
 use cubecl_core::prelude::*;
 use cubecl_core::runtime_tests::offline::{self, offline_device_properties};
 #[cfg(feature = "nvptx")]
-use cubecl_core::{ir::types::MatrixShape, prelude::barrier::Barrier};
+use cubecl_core::{
+    ir::types::MatrixShape,
+    prelude::barrier::{Barrier, copy_async},
+};
 use cubecl_runtime::kernel::CubeKernel;
 use half::bf16;
 #[cfg(feature = "nvptx")]
@@ -765,6 +768,37 @@ fn barrier_copies(input: &[f32], output: &mut [f32]) {
 pub(crate) fn barrier_copies_kernel() -> impl CubeKernel {
     barrier_copies::BarrierCopies::new(
         tma_settings(),
+        tma_properties(),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
+/// A unit's `copy_async` of a 16-byte vector, committed on a cube barrier.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn unit_async_copy(input: &[Vector<f32, Const<4>>], output: &mut [Vector<f32, Const<4>>]) {
+    let mut stage = Shared::<[Vector<f32, Const<4>>]>::new_aligned_slice(32usize, 16usize);
+    let unit = UNIT_POS as usize;
+
+    let landed = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
+    sync_cube();
+    copy_async(&input[unit..unit + 1], &mut stage[unit..unit + 1], 4u32);
+    landed.commit_copy_async();
+    landed.arrive_and_wait();
+
+    output[unit] = stage[31 - unit];
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn unit_async_copy_kernel() -> impl CubeKernel {
+    unit_async_copy::UnitAsyncCopy::new(
+        KernelSettings::new(
+            *CubeDim::new_1d(32),
+            ExecutionMode::Unchecked,
+            AddressType::U32,
+        ),
         tma_properties(),
         Arc::new(TargetProperties::default()),
         BufferCompilationArg { inplace: None },
