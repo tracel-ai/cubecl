@@ -158,6 +158,14 @@ impl<P: Payload<P> + Clone + CubeType<ExpandType: Clone>> Stages<P> {
         self.slot_mut(slot)
             .refill(&sources, region, comptime!(Refill::EveryRegion));
     }
+
+    /// LAB: [`fill`](Self::fill) for a region the caller knows lies inside its sources' runs: no
+    /// bounds check ([`Payload::inside_runs`]).
+    pub fn fill_inside(&mut self, #[comptime] slot: usize, region: &Region) {
+        let sources = self.sources.inside_runs();
+        self.slot_mut(slot)
+            .refill(&sources, region, comptime!(Refill::EveryRegion));
+    }
 }
 
 #[cube]
