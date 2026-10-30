@@ -5,5 +5,4 @@ pub(crate) mod online;
 
 pub use online::{
     OnlineSoftmax, OnlineSoftmaxExpand, OnlineSoftmaxState, OnlineSoftmaxStateExpand,
-    RelayedFactors, RelayedFactorsExpand,
 };

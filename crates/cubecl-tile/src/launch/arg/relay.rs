@@ -15,17 +15,14 @@ use crate::*;
 ///
 /// A cube opens its accumulator on the relayed [`tile`](Relay::tile), takes its turn with
 /// [`take`](Relay::take), drains into the tile, and passes it on with [`pass`](Relay::pass), every
-/// unit of the cube reaching both. A sum whose partials must be rescaled against one another before
-/// they add, as an online softmax's are, reads and rescales what the turns before it left
-/// ([`carried`](Relay::carried)) in its turn, then drains as any other. The relay publishes a
-/// turn's lines at device scope before passing the box on and acquires them after taking it, so it
+/// unit of the cube reaching both. The relay publishes a turn's lines at device scope before passing the box on and acquires them after taking it, so it
 /// runs only where the runtime hands one cube's writes to another within a dispatch
 /// (`device_memory_scope`), and reads its turn with a `u32` atomic add, which every GPU runtime
 /// offers. A waiting cube holds its place on the device: the relay rests on a box's earlier runs
 /// having started by the time a later one waits, which a grid whose runs are neighbours gives.
 #[derive(CubeType)]
 pub struct Relay<'a> {
-    /// The carry, read by the last turn and by a turn that rescales it.
+    /// The carry, read by the last turn.
     carry: Tile,
     /// The carry written in turns: replaced by the first, added into by the rest.
     sink: Tile,
@@ -86,19 +83,6 @@ impl<'a> Relay<'a> {
     /// first turn replaces what the box held; every later one adds into it.
     pub fn tile(&self) -> Tile {
         self.sink.at(&self.walk.region(0usize))
-    }
-
-    /// This cube's box of the carry as the turns before this one left it, to read and to rescale
-    /// in place once this cube has [`take`](Relay::take)n its turn and before it drains. It holds
-    /// nothing on the [first](Relay::is_first) turn, whose drain replaces it.
-    pub fn carried(&self) -> Tile {
-        self.carry.at(&self.walk.region(0usize))
-    }
-
-    /// Whether this cube takes its box's first turn, whose drain replaces what the carry held.
-    /// Uniform across the cube.
-    pub fn is_first(&self) -> bool {
-        self.turn == 0
     }
 
     /// Whether this cube takes its box's last turn, whose carry [`pass`](Relay::pass) hands on to

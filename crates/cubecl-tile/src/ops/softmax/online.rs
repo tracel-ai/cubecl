@@ -3,7 +3,6 @@
 
 use cubecl::prelude::*;
 
-use crate::launch::Relay;
 use crate::*;
 
 /// The running max `m` and sum `l` of every slice along `axis` of a score, in the registers of
@@ -32,16 +31,6 @@ enum SliceSlots {
     /// The `i`-th row the unit holds cells of in a manual-mma grid, a different slice on each
     /// unit: such a state merges with no other plane's slot by slot.
     Held,
-}
-
-/// What a plane's sum and the carry's rows are multiplied by in its cube's turn at a [`Relay`]
-/// ([`OnlineSoftmax::relayed`]), one factor a slice each, before the sum drains into the carry.
-#[derive(CubeType)]
-pub struct RelayedFactors<E: Float> {
-    /// For the plane's own sum.
-    pub sum: Array<E>,
-    /// For the carry's rows, what the turns before this one summed.
-    pub carried: Array<E>,
 }
 
 /// Every slice's running max and sum as they stand, undivided ([`OnlineSoftmax::state`]): what
@@ -188,57 +177,6 @@ impl<E: Float> OnlineSoftmax<E> {
             self.m[i] = max[i];
         }
         correction
-    }
-
-    /// What this plane's sum and the carry's rows are multiplied by in its cube's turn at `relay`,
-    /// where the cubes of the relay split this axis, each holding part of the same slices: the
-    /// cross-cube [`normalizer`](OnlineSoftmax::normalizer), the carry taking the turns' partials
-    /// one at a time.
-    ///
-    /// `carried_max` and `carried_sum` are this plane's window of the slices' state the relay
-    /// holds beside its carry: the max and sum every turn before this one merged. This plane
-    /// merges its own into them and leaves the result there for the next turn. Each factor is a
-    /// slice's `exp(max − merged max)`, of this plane's state for its sum and of the carried one
-    /// for the carry, both times `1 / L` of the merged sum on the last turn, so the carry that turn
-    /// hands on is the answer. The first turn reads nothing, its drain replacing the carry. A slice
-    /// every turn masked stays at zero.
-    ///
-    /// Every unit of every plane calls it once its cube has [`take`](Relay::take)n the turn; the
-    /// first unit of each plane writes the state, which the relay publishes with the carry. The
-    /// caller rescales the carry ([`Relay::carried`]) and its sum by the factors, then drains.
-    pub fn relayed(
-        &mut self,
-        relay: &Relay<'_>,
-        carried_max: &mut Tile,
-        carried_sum: &mut Tile,
-    ) -> RelayedFactors<E> {
-        self.refuse_merging("OnlineSoftmax::relayed");
-        let slices = self.slices;
-        let (first, last) = (relay.is_first(), relay.is_last());
-        let stored_max = carried_max.cells::<E>(slices);
-        let stored_sum = carried_sum.cells::<E>(slices);
-        let mut own = Array::<E>::new(slices);
-        let mut carried = Array::<E>::new(slices);
-        #[unroll]
-        for i in 0..slices {
-            let before_max = select(first, E::min_value(), stored_max[i]);
-            let before_sum = select(first, E::from_int(0), stored_sum[i]);
-            let merged = before_max.max(self.m[i]);
-            own[i] = AxisSlices::exp_minus_cell::<E>(self.m[i], merged);
-            carried[i] = AxisSlices::exp_minus_cell::<E>(before_max, merged);
-            self.l[i] = carried[i] * before_sum + own[i] * self.l[i];
-            self.m[i] = merged;
-        }
-        carried_max.set_cells(&self.m, slices);
-        carried_sum.set_cells(&self.l, slices);
-        let recip = self.recip_l();
-        #[unroll]
-        for i in 0..slices {
-            let normalize = select(last, recip[i], E::from_int(1));
-            own[i] *= normalize;
-            carried[i] *= normalize;
-        }
-        RelayedFactors::<E> { sum: own, carried }
     }
 
     /// Every slice's running max and sum as they stand, copied out: nothing is divided and the
