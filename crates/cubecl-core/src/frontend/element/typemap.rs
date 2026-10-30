@@ -489,6 +489,13 @@ impl<Marker: 'static> ExpNativeExpand for DynamicScalar<Marker> {
     }
 }
 
+impl<Marker: 'static> Exp2 for DynamicScalar<Marker> {}
+impl<Marker: 'static> Exp2NativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_exp2(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_exp2(scope, input)
+    }
+}
+
 impl<Marker: 'static> ModFloor for DynamicScalar<Marker> {}
 impl<Marker: 'static> ModFloorNativeExpand for DynamicScalar<Marker> {
     fn __expand_native_mod_floor(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue {
