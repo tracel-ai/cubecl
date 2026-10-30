@@ -185,6 +185,22 @@ impl AxisSlices {
         }
     }
 
+    /// LAB: [`sums`](Self::sums) over the unit's own cells only (fragments).
+    pub(crate) fn lab_local_sums<E: Float>(&self) -> Array<E> {
+        match &self.kind {
+            AxisSlicesKind::Fragments(partition) => partition.lab_local_sums_along::<E>(),
+            _ => panic!("lab_local_sums: fragments only"),
+        }
+    }
+
+    /// LAB: `values` summed across the units sharing each row (fragments).
+    pub(crate) fn lab_sum_across_units<E: Float>(&self, values: &mut Array<E>) {
+        match &self.kind {
+            AxisSlicesKind::Fragments(partition) => partition.lab_sum_across_units::<E>(values),
+            _ => panic!("lab_sum_across_units: fragments only"),
+        }
+    }
+
     /// `self[i, s] *= factors[i]`. A plane's fragments bounce through its scratch, met on
     /// `sync_plane`: every unit of the plane calls it.
     pub fn mul<E: Float>(&mut self, factors: &Array<E>) {

@@ -89,7 +89,11 @@ impl<E: Float> OnlineSoftmax<E> {
         slices.scale_add::<E>(scale, bias);
         let max = slices.maxima::<E>(&self.m);
         slices.exp_minus::<E>(&max);
-        let sum = slices.sums::<E>();
+        let sum = if comptime!(std::env::var("CUBECL_LAB_LOCAL_SUMS").is_ok()) {
+            slices.lab_local_sums::<E>()
+        } else {
+            slices.sums::<E>()
+        };
         let mut correction = Array::<E>::new(self.slices);
         #[unroll]
         for i in 0..self.slices {
@@ -98,6 +102,25 @@ impl<E: Float> OnlineSoftmax<E> {
             self.m[i] = max[i];
         }
         correction
+    }
+
+    /// LAB: under `CUBECL_LAB_LOCAL_SUMS` each unit's running sum covers its own cells only;
+    /// this sums them across the units sharing each row, once, after the last block. `score` is
+    /// any of the blocks, read for its layout.
+    pub fn lab_finalize_sums(&mut self, score: &Tile) {
+        if comptime!(std::env::var("CUBECL_LAB_LOCAL_SUMS").is_ok()) {
+            let slices = score.along(self.axis);
+            let mut l = Array::<E>::new(self.slices);
+            #[unroll]
+            for i in 0..self.slices {
+                l[i] = self.l[i];
+            }
+            slices.lab_sum_across_units::<E>(&mut l);
+            #[unroll]
+            for i in 0..self.slices {
+                self.l[i] = l[i];
+            }
+        }
     }
 
     /// LAB: [`step`](Self::step) for a block no bias touches, FlashInfer's way: the max over the
@@ -118,7 +141,11 @@ impl<E: Float> OnlineSoftmax<E> {
             max[i] = raw[i] * scale;
         }
         slices.lab_exp_scaled_minus::<E>(&max, scale);
-        let sum = slices.sums::<E>();
+        let sum = if comptime!(std::env::var("CUBECL_LAB_LOCAL_SUMS").is_ok()) {
+            slices.lab_local_sums::<E>()
+        } else {
+            slices.sums::<E>()
+        };
         let mut correction = Array::<E>::new(self.slices);
         #[unroll]
         for i in 0..self.slices {

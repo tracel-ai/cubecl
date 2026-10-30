@@ -1073,6 +1073,41 @@ impl PlanePartition {
         }
     }
 
+    /// LAB: each row's sum over the unit's own cells only, the units sharing the row not met.
+    pub(crate) fn lab_local_sums_along<E: Float>(&self) -> Array<E> {
+        let rows = self.at(0usize, 0usize).rows_per_unit::<E>();
+        let mut sums = Array::<E>::new(comptime!(self.m_tiles * rows));
+        #[unroll]
+        for i in 0..comptime!(self.m_tiles * rows) {
+            sums[i] = E::from_int(0);
+        }
+        #[unroll]
+        for mi in 0..self.m_tiles {
+            #[unroll]
+            for ni in 0..self.n_tiles {
+                self.at(mi, ni).manual_fragment().reduce_own_cells(
+                    &mut sums,
+                    comptime!(mi * rows),
+                    Monoid::Sum,
+                );
+            }
+        }
+        sums
+    }
+
+    /// LAB: `values`, one a row the unit holds cells of, summed across the units sharing each row.
+    pub(crate) fn lab_sum_across_units<E: Float>(&self, values: &mut Array<E>) {
+        let rows = self.at(0usize, 0usize).rows_per_unit::<E>();
+        #[unroll]
+        for mi in 0..self.m_tiles {
+            self.at(mi, 0usize).manual_fragment().reduce_across_units(
+                values,
+                comptime!(mi * rows),
+                Monoid::Sum,
+            );
+        }
+    }
+
     /// `slots` combined under `monoid` with every fragment's cells on each row, the unit's own
     /// first and then across the units that share the row: one exchange a row, however many
     /// fragments it spans.
