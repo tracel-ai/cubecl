@@ -78,12 +78,6 @@ impl Scratch {
         }
     }
 
-    /// Whether a fragment goes through shared memory on its way out; forced when partials are
-    /// summed.
-    pub fn bounces(self) -> bool {
-        !matches!(self, Scratch::None)
-    }
-
     /// This setting raised to bouncing where `bouncing` demands it.
     pub fn at_least_bouncing(self, bouncing: bool) -> Scratch {
         match (bouncing, self) {

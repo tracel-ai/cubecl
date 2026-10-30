@@ -6,7 +6,7 @@ extern crate cubecl_core as cubecl;
 
 pub(crate) mod algebra;
 mod comptime_only;
-pub mod dialect;
+pub(crate) mod dialect;
 pub mod launch;
 pub mod layout;
 pub mod ops;

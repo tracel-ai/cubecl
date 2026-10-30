@@ -4,4 +4,4 @@ mod level;
 #[cfg(feature = "sequential-levels")]
 mod sequential;
 
-pub use level::LevelOp;
+pub(crate) use level::LevelOp;
