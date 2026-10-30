@@ -664,19 +664,31 @@ impl ServerCommunication for CudaServer {
             .peer_rank(&pair(self.device_id, device_id_dst))?;
         let transfers = self.transfer_stream();
 
-        // The send reads the source, so it is worth no more than the work
-        // that wrote it; see `FailureStore::ensure_written`. Skipping this
-        // hands the peer stale bytes on a handle that carries no claim over
-        // there — the failure would be laundered across the device boundary.
-        self.streams.ensure_written([&desc.handle].into_iter())?;
-
-        let binding = desc.handle.clone();
+        // A source whose writer failed is still sent, since the peer's recv is already posted, and
+        // the refusal goes back to taint what arrives. Scratch stands in for one holding no memory.
+        let refusal = self
+            .streams
+            .ensure_written([&desc.handle].into_iter())
+            .err();
+        let unallocated = !desc.handle.memory.descriptor().is_allocated();
+        let mut scratch = None;
 
         // A command on the source server retrieves the resource from the right
         // memory pool, and aligns the current stream with the one the binding
         // was allocated on.
-        let mut command = self.command(stream_id, [&desc.handle].into_iter())?;
-        let resource = command.resource(binding)?;
+        let mut command = match unallocated {
+            false => self.command(stream_id, [&desc.handle].into_iter())?,
+            true => self.command_no_inputs(stream_id)?,
+        };
+        let resource = match unallocated {
+            false => command.resource(desc.handle.clone())?,
+            true => {
+                let handle = command.empty(desc.handle.size_in_used())?;
+                let resource = command.resource(handle.clone().binding())?;
+                scratch = Some(handle);
+                resource
+            }
+        };
         let stream = command.stream().sys;
 
         // Wait for the data to be ready on the compute stream.
@@ -687,7 +699,12 @@ impl ServerCommunication for CudaServer {
         // borrowed from another stream once this stream gets here: both wait for the send.
         Fence::new(transfers).wait_async(stream)?;
         drop(command);
-        Ok(())
+        drop(scratch);
+        refusal.map_or(Ok(()), Err)
+    }
+
+    fn taint_received(&mut self, received: BufferBinding, error: ServerError) {
+        self.taint_returned(error, &received);
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]

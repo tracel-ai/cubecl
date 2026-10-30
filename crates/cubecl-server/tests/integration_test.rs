@@ -144,6 +144,23 @@ fn a_transfer_between_devices_of_the_same_runtime_round_trips() {
 }
 
 #[test_log::test]
+fn a_refused_send_fails_the_read_of_what_its_peer_received() {
+    let mut source = Client::load::<DummyServer<Transported>>(DeviceId::new(0, 0));
+    let destination = Client::load::<DummyServer<Transported>>(DeviceId::new(0, 1));
+    let handle = source.create_from_slice(&[1u8, 2, 3, 4]);
+
+    let transferred = source.to_client(handle, &destination);
+    // The refusal is queued on the destination once the source has run the send.
+    cubecl_environment::future::block_on(source.sync()).unwrap();
+
+    let error = destination.read_one(transferred).unwrap_err();
+    assert!(
+        format!("{error}").contains("the dummy source was never written"),
+        "{error}"
+    );
+}
+
+#[test_log::test]
 #[should_panic(expected = "no transport between its devices")]
 fn a_transfer_without_a_device_transport_panics_on_the_caller() {
     let mut source = test_client(&DummyDevice);
