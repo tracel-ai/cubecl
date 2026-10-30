@@ -645,6 +645,28 @@ impl MmaData {
         sums
     }
 
+    /// LAB: `self[r, c] = exp(self[r, c] · scale − slices[first + r])`, one fused multiply-add
+    /// a cell, for a block no bias touched.
+    pub(crate) fn lab_exp_scaled_minus_along<E: Float>(
+        &mut self,
+        slices: &Array<E>,
+        scale: E,
+        #[comptime] first: usize,
+    ) {
+        let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
+        let vector_size = def.vector_size(MatrixIdent::Accumulator);
+        let acc = self.acc_registers_mut::<E>();
+        #[unroll]
+        for i in 0..acc.len() {
+            let mut vector = acc[i];
+            #[unroll]
+            for e in 0..vector_size {
+                vector.insert(e, (vector.extract(e) * scale - slices[first + i]).exp());
+            }
+            acc[i] = vector;
+        }
+    }
+
     /// `self[r, c] = exp(self[r, c] − slices[first + r])` ([`AxisSlices::exp_minus_cell`]).
     pub(crate) fn exp_minus_along<E: Float>(
         &mut self,

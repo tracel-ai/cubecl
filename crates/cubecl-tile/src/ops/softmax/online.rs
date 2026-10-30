@@ -100,6 +100,34 @@ impl<E: Float> OnlineSoftmax<E> {
         correction
     }
 
+    /// LAB: [`step`](Self::step) for a block no bias touches, FlashInfer's way: the max over the
+    /// raw scores, scaled once a row, then each cell's `exp(score · scale − max)` in one fused
+    /// multiply-add. The running max stays in scaled units.
+    pub fn lab_step_unbiased(&mut self, score: &Tile, scale: E) -> Array<E> {
+        let mut slices = score.along(self.axis);
+        let mut seed = Array::<E>::new(self.slices);
+        #[unroll]
+        for i in 0..self.slices {
+            seed[i] = self.m[i] / scale;
+        }
+        let raw = slices.maxima::<E>(&seed);
+        let mut max = Array::<E>::new(self.slices);
+        #[unroll]
+        for i in 0..self.slices {
+            max[i] = raw[i] * scale;
+        }
+        slices.lab_exp_scaled_minus::<E>(&max, scale);
+        let sum = slices.sums::<E>();
+        let mut correction = Array::<E>::new(self.slices);
+        #[unroll]
+        for i in 0..self.slices {
+            correction[i] = (self.m[i] - max[i]).exp();
+            self.l[i] = correction[i] * self.l[i] + sum[i];
+            self.m[i] = max[i];
+        }
+        correction
+    }
+
     /// What this plane's sum against the values is multiplied by once its last block is taken in:
     /// each slice's `1 / l`, or, where the cube's planes split this axis, each holding part of the
     /// same slices, the correction to the merged max times `1 / L` of the merged sum, so the

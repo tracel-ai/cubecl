@@ -144,6 +144,22 @@ impl AxisSlices {
         }
     }
 
+    /// LAB: `self[i, s] = exp(self[i, s] · scale − slices[i])` over fragments.
+    pub(crate) fn lab_exp_scaled_minus<E: Float>(&mut self, slices: &Array<E>, scale: E) {
+        match &mut self.kind {
+            AxisSlicesKind::Fragments(partition) => {
+                partition.lab_exp_scaled_minus_along::<E>(slices, scale)
+            }
+            AxisSlicesKind::Fragment(tile) => {
+                let mut fragment = tile.manual_fragment();
+                fragment.lab_exp_scaled_minus_along(slices, scale, 0usize)
+            }
+            AxisSlicesKind::Registers(_) | AxisSlicesKind::Window(_) => {
+                panic!("lab_exp_scaled_minus: fragments only")
+            }
+        }
+    }
+
     /// `self[i, s] = exp(self[i, s] − slices[i])` ([`exp_minus_cell`](Self::exp_minus_cell)).
     pub(crate) fn exp_minus<E: Float>(&mut self, slices: &Array<E>) {
         match &mut self.kind {
