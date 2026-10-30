@@ -90,7 +90,7 @@ function!(CbrtOp, "cbrt", no_half);
 function!(RcbrtOp, "rcbrt", no_half);
 // function!(FastSqrt, "__fsqrt_rn", false);
 // function!(FastInverseSqrt, "__frsqrt_rn", false);
-function!(ExpOp, "exp2f", packable, no_msl_bfloat); // LAB: exp is 2^x
+function!(ExpOp, "lab_ex2", packable, no_msl_bfloat); // LAB: exp is raw 2^x
 // function!(FastExp, "__expf", false);
 function!(Expm1Op, "expm1", no_half);
 function!(CeilOp, "ceil", packable, no_msl_bfloat);

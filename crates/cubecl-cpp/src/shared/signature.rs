@@ -41,6 +41,11 @@ shared_op!(DeclareInfoTypeOp, |_, ctx| {
     let state = ctx.aux_ty::<CompilationState>();
     let mut out = String::new();
     type_info_definition_sized(&mut out, ctx, &state.info).unwrap();
+    // LAB: `exp` lowers to this raw base-2 exponential (one `MUFU.EX2`, flushing denormals).
+    out.push_str(
+        "\nstatic __device__ __forceinline__ float lab_ex2(float x) { float y; \
+         asm(\"ex2.approx.ftz.f32 %0, %1;\" : \"=f\"(y) : \"f\"(x)); return y; }\n",
+    );
     out
 });
 
