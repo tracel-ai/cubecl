@@ -74,6 +74,7 @@ fn plane_attention<E: Float>(
     space: Partitioning,
     #[comptime] causal: bool,
     #[comptime] block_keys: usize,
+    #[comptime] unbiased: bool,
     #[define(E)] _dtype: ElemType,
 ) {
     let q = q.tile(&space);
@@ -127,7 +128,10 @@ fn plane_attention<E: Float>(
                     // The score's cells were stored in the fragments' layout; the softmax reads
                     // them slice by slice.
                     sync_plane();
-                    let correction = softmax.step(&score, &bias_s, scale);
+                    let correction = match comptime!(unbiased) {
+                        true => softmax.step_unbiased(&score, scale),
+                        false => softmax.step(&score, &bias_s, scale),
+                    };
                     p.copy_cast_from(&score);
                     // The probabilities land before the fragments load them.
                     sync_plane();
@@ -167,6 +171,7 @@ fn register_plane_attention<E: Float>(
     #[comptime] block_keys: usize,
     #[comptime] plane_rows: usize,
     #[comptime] ending: Ending,
+    #[comptime] unbiased: bool,
     #[define(E)] _dtype: ElemType,
 ) {
     let instruction = comptime!(Instruction::Mma {
@@ -215,7 +220,10 @@ fn register_plane_attention<E: Float>(
                         let mut cell = logits.at(&fragment);
                         cell.mma(&q_s.at(&fragment), &k_s.at(&fragment));
                     }
-                    let correction = softmax.step(&logits, &bias_s, scale);
+                    let correction = match comptime!(unbiased) {
+                        true => softmax.step_unbiased(&logits, scale),
+                        false => softmax.step(&logits, &bias_s, scale),
+                    };
                     let p = logits.cast::<E>();
                     acc.along(V).mul(&correction);
                     for fragment in stage.walk().routed(D, 0).unrolled() {
@@ -488,6 +496,20 @@ struct Case {
     planes: usize,
     along: PlanesAlong,
     causal: bool,
+    /// Every block taken in as one no bias touches ([`OnlineSoftmax::step_unbiased`]), for a
+    /// case that masks nothing.
+    unbiased: bool,
+}
+
+impl Case {
+    /// Whether the kernel takes its blocks in unbiased, checked against what the case masks.
+    fn unbiased(&self) -> bool {
+        assert!(
+            !self.unbiased || (self.attended == self.keys && !self.causal),
+            "a case that masks keys takes its blocks in with their bias"
+        );
+        self.unbiased
+    }
 }
 
 fn run<E: Float + CubeElement>(case: Case) {
@@ -520,6 +542,7 @@ fn run<E: Float + CubeElement>(case: Case) {
         planes,
         along,
         causal,
+        ..
     } = case;
     let launcher = implied(
         &client,
@@ -569,6 +592,7 @@ fn run<E: Float + CubeElement>(case: Case) {
         launcher.partitioning_arg(),
         causal,
         edge * block,
+        case.unbiased(),
         e_ty,
     );
     let out = HostData::from_tensor_handle(&client, out_handle, HostDataType::F32);
@@ -688,6 +712,7 @@ fn run_registers<E: Float + CubeElement>(case: Case, ending: Ending, run: usize)
         n * block,
         m * rows,
         ending,
+        case.unbiased(),
         e_ty,
     );
     let out = HostData::from_tensor_handle(&client, out_handle, HostDataType::F32);
@@ -1147,6 +1172,7 @@ const PREFILL: Case = Case {
     planes: 2,
     along: PlanesAlong::Queries,
     causal: false,
+    unbiased: false,
 };
 
 #[test]
@@ -1179,6 +1205,36 @@ fn plane_attention_in_f32() {
     });
 }
 
+/// [`PREFILL`] on `16 × 16 × 16` fragments, the one f16 shape some targets offer.
+const WIDE_PREFILL: Case = Case {
+    queries: 64,
+    head: 16,
+    value: 16,
+    edge: 16,
+    ..PREFILL
+};
+
+/// Every block stepped as one no bias touches, the max over the raw scores and each cell's
+/// exponential one multiply-add.
+#[test]
+fn plane_attention_steps_unbiased_blocks() {
+    for case in [PREFILL, WIDE_PREFILL] {
+        run::<half::f16>(Case {
+            unbiased: true,
+            ..case
+        });
+    }
+}
+
+#[test]
+fn plane_attention_on_wide_fragments_masks_causally_from_the_bottom_right() {
+    run::<half::f16>(Case {
+        attended: 50,
+        causal: true,
+        ..WIDE_PREFILL
+    });
+}
+
 /// A plane's rows of a prefill held in manual-mma registers: two fragments along the queries, a
 /// stage of four along the keys.
 const REGISTER_PREFILL: Case = Case {
@@ -1193,6 +1249,7 @@ const REGISTER_PREFILL: Case = Case {
     planes: 2,
     along: PlanesAlong::Queries,
     causal: false,
+    unbiased: false,
 };
 
 #[test]
@@ -1255,6 +1312,18 @@ fn register_plane_attention_contracts_a_run_of_two_score_fragments() {
         Ending::Normalized,
         2,
     );
+}
+
+/// [`register_plane_attention_matches_the_reference`] with every block stepped as one no bias
+/// touches, on the score where the units hold it: alone and in runs of two fragments.
+#[test]
+fn register_plane_attention_steps_unbiased_blocks() {
+    let case = Case {
+        unbiased: true,
+        ..REGISTER_PREFILL
+    };
+    run_registers::<half::f16>(case, Ending::Normalized, 1);
+    run_registers::<half::f16>(case, Ending::Normalized, 2);
 }
 
 /// Planes splitting the keys of the same queries: two, then four, each walking a share.
