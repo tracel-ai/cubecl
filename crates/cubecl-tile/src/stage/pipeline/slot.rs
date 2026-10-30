@@ -14,7 +14,7 @@ pub(crate) const FIRST_SLOT: usize = 0;
 #[derive(CubeType)]
 pub struct Slot<T: CubeType> {
     pub(crate) data: T,
-    pub(crate) pipeline: Meeting,
+    pub(crate) meeting: Meeting,
     /// When each operand of `T` is filled, in the order `T` holds them.
     #[cube(comptime)]
     pub(crate) refills: Vec<Refill>,
@@ -22,11 +22,11 @@ pub struct Slot<T: CubeType> {
 
 #[cube]
 impl<T: CubeType> Slot<T> {
-    /// Wrap an already-built payload and pipeline.
-    pub(crate) fn wrap(data: T, pipeline: Meeting, #[comptime] refills: Vec<Refill>) -> Slot<T> {
+    /// Wrap an already-built payload and meeting.
+    pub(crate) fn wrap(data: T, meeting: Meeting, #[comptime] refills: Vec<Refill>) -> Slot<T> {
         Slot::<T> {
             data,
-            pipeline,
+            meeting,
             refills,
         }
     }
@@ -37,72 +37,10 @@ impl<T: CubeType> Slot<T> {
         comptime!(self.refills.contains(&Refill::Once))
     }
 
-    /// Producer acquire: wait until the slot is free; a `Plane` slot waits on `sync_plane`.
-    #[allow(dead_code)] // Reached through its expand, from `Slot::fill` / `Slot::consume`.
-    pub(crate) fn acquire_write(&self) {
-        match &self.pipeline {
-            Meeting::Barrier { empty, writes, .. } => empty.wait_parity(*writes ^ 1),
-            Meeting::Cube => sync_cube(),
-            Meeting::Plane => sync_plane(),
-        }
-    }
-
-    /// Producer release: publish the fill, async copies included ([`Meeting::producers`] say
-    /// who arrives).
-    #[allow(dead_code)] // Reached through its expand, from `Slot::fill` / `Slot::consume`.
-    pub(crate) fn release_write(&mut self) {
-        match &mut self.pipeline {
-            Meeting::Barrier {
-                full,
-                all_publish,
-                commits,
-                elected,
-                writes,
-                ..
-            } => {
-                if *all_publish || UNIT_POS == *elected {
-                    // Handed over before the arrival, so the phase cannot flip on the arrivals
-                    // with this unit's copies still in flight.
-                    if *commits {
-                        full.commit_copy_async();
-                    }
-                    full.arrive();
-                }
-                *writes ^= 1;
-            }
-            Meeting::Cube | Meeting::Plane => {}
-        }
-    }
-
-    /// Consumer acquire: wait for the slot's fill.
-    #[allow(dead_code)] // Reached through its expand, from `Slot::fill` / `Slot::consume`.
-    pub(crate) fn acquire_read(&self) {
-        match &self.pipeline {
-            Meeting::Barrier { full, reads, .. } => full.wait_parity(*reads),
-            Meeting::Cube | Meeting::Plane => {}
-        }
-    }
-
-    /// Consumer release: free the slot.
-    #[allow(dead_code)] // Reached through its expand, from `Slot::fill` / `Slot::consume`.
-    pub(crate) fn release_read(&mut self) {
-        match &mut self.pipeline {
-            Meeting::Barrier { empty, reads, .. } => {
-                empty.arrive();
-                *reads ^= 1;
-            }
-            Meeting::Cube | Meeting::Plane => {}
-        }
-    }
-
     /// Publish this slot's last fill where no later fill will; call right before
     /// [`consume`](Slot::consume).
     pub fn publish(&self) {
-        match &self.pipeline {
-            Meeting::Cube => sync_cube(),
-            Meeting::Plane => sync_plane(),
-            Meeting::Barrier { .. } => {}
-        }
+        self.meeting.publish();
     }
 }
 
@@ -113,10 +51,10 @@ impl<P: Payload<P> + CubeType<ExpandType: Clone>> Slot<P> {
         let refills = comptime!(self.refills.clone());
         let writes = comptime!(refills.contains(&only));
         if comptime!(writes || only == Refill::EveryRegion) {
-            self.acquire_write();
+            self.meeting.acquire_write();
             self.data
-                .bring(src, &self.pipeline, region, comptime!(refills), only);
-            self.release_write();
+                .bring(src, &self.meeting, region, comptime!(refills), only);
+            self.meeting.release_write();
         }
     }
 }
@@ -134,9 +72,9 @@ impl SlotExpand<OperandPair> {
     where
         F: FnOnce(&Scope, &TileExpand, &TileExpand),
     {
-        self.__expand_acquire_read_method(scope);
+        self.meeting.__expand_acquire_read_method(scope);
         compute(scope, &self.data.lhs, &self.data.rhs);
-        self.__expand_release_read_method(scope);
+        self.meeting.__expand_release_read_method(scope);
     }
 }
 
@@ -152,8 +90,8 @@ impl SlotExpand<Tile> {
     where
         F: FnOnce(&Scope, &TileExpand),
     {
-        self.__expand_acquire_read_method(scope);
+        self.meeting.__expand_acquire_read_method(scope);
         compute(scope, &self.data);
-        self.__expand_release_read_method(scope);
+        self.meeting.__expand_release_read_method(scope);
     }
 }

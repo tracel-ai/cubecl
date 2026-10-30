@@ -47,7 +47,7 @@ impl Tile {
 
 /// Dispatches to the register nest by the accumulator's form.
 #[cube]
-pub(crate) fn reduce_leaf<Acc: Numeric, In: Numeric>(
+fn reduce_leaf<Acc: Numeric, In: Numeric>(
     acc: &mut Tile,
     input: &Tile,
     #[comptime] monoid: Monoid,

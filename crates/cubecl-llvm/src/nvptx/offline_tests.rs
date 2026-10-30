@@ -42,6 +42,22 @@ fn fp4_casts_compile_to_the_software_codec() {
     );
 }
 
+/// On a Blackwell part the decode is the part's own conversion, a pair an instruction; the
+/// encode stays the software codec, so no conversion to `e2m1x2` is emitted.
+#[test]
+fn fp4_decodes_on_the_part_where_it_converts() {
+    let ptx = ptx_of(crate::shared::offline_kernels::fp4_round_trip_kernel(), 120);
+    assert_eq!(
+        ptx.matches("cvt.rn.f16x2.e2m1x2").count(),
+        4,
+        "one conversion per pair of the word:\n{ptx}"
+    );
+    assert!(
+        !ptx.contains(".e2m1x2.f32"),
+        "the encode is the software codec:\n{ptx}"
+    );
+}
+
 #[test]
 fn plane_moves_are_native_shuffles() {
     let ptx = ptx_of(plane_moves_kernel(), 60);
@@ -647,6 +663,19 @@ fn unit_async_copies_complete_on_the_barrier() {
             "the commit arrives on the barrier on sm_{arch}:\n{ptx}"
         );
     }
+}
+
+/// A manual `mma` whose B element differs from A's is refused as a compile error, as the C++
+/// backend's compile of it fails, rather than reaching instruction selection, which aborts.
+#[test]
+fn an_mma_of_mismatched_operands_is_a_compile_error() {
+    let Err(error) = compile(crate::shared::offline_kernels::mismatched_mma_kernel(), 120) else {
+        panic!("no instruction takes a 16-bit A and an f32 B");
+    };
+    assert!(
+        format!("{error:?}").contains("no `mma` instruction multiplies"),
+        "{error:?}"
+    );
 }
 
 /// `memcpy_async` copies synchronously: on a unit barrier there is nothing to wait for, and a

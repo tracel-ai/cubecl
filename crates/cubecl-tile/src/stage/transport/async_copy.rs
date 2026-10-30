@@ -8,7 +8,7 @@
 //! sliver of each of many rows, and reads more from DRAM than the stage holds.
 //!
 //! Nothing here waits: the slot's barrier is handed the copies and flips once they land
-//! ([`Slot::release_write`](crate::Slot)), or a blocking copy waits on one of its own
+//! ([`Meeting::release_write`](crate::Meeting)), or a blocking copy waits on one of its own
 //! ([`Memory::load_from`]).
 
 use cubecl::{

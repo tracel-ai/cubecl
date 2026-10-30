@@ -139,6 +139,17 @@ impl Space {
     pub fn subspace(&self, axes: &[Axis]) -> Space {
         Space::from_shape(self.shape.subspace(axes))
     }
+
+    /// This box listed in `held`'s order where `held` spans the same axes, as it is otherwise:
+    /// the box a plane-resident accumulator writes through, its fragments' rows along its own
+    /// leading axes whatever order the memory it drains into lists them in.
+    pub(crate) fn in_order_of(&self, held: &Space) -> Space {
+        let same_axes = held.rank() == self.rank() && held.axes().all(|axis| self.contains(axis));
+        match same_axes {
+            true => self.subspace(&held.axes().collect::<Vec<_>>()),
+            false => self.clone(),
+        }
+    }
 }
 
 #[cube]
@@ -363,11 +374,7 @@ impl Space {
     /// The widest run along `axis` that divides both `widest` and this space's extent there: the
     /// widest line a buffer read in boxes of this space can hold without a box starting mid-line.
     pub(crate) fn whole_run(&self, axis: Axis, widest: usize) -> usize {
-        let (mut run, mut rest) = (widest, self.extent(axis));
-        while rest != 0 {
-            (run, rest) = (rest, run % rest);
-        }
-        run
+        gcd(widest, self.extent(axis))
     }
 }
 
