@@ -84,7 +84,11 @@ const SELECT: &str = "SELECT value FROM entries WHERE namespace = ?1 AND key = ?
 
 const SCAN: &str = "SELECT key, value, origin FROM entries WHERE namespace = ?1";
 
+const ENTRIES: &str = "SELECT namespace, key, value FROM entries";
+
 const PURGE: &str = "DELETE FROM entries WHERE namespace = ?1";
+
+const CLEAR: &str = "DELETE FROM entries";
 
 const PURGE_KEY: &str = "DELETE FROM entries WHERE namespace = ?1 AND key = ?2";
 
@@ -326,6 +330,47 @@ impl Database {
         summary
     }
 
+    /// Replaces every entry with those of `source`, stored as
+    /// [`Origin::Imported`], or with nothing without one. It is one
+    /// transaction: a failure to read `source` or to write here leaves this
+    /// database as it was.
+    ///
+    /// # Errors
+    ///
+    /// When `source` can't be read or this database can't be written.
+    #[cfg(native_cache)]
+    pub fn replace_with(&self, source: Option<&Database>) -> Result<(), String> {
+        let mut connection = self.connection.lock();
+        let source = source.map(|source| source.connection.lock());
+        let transaction =
+            drive(connection.transaction_with_behavior(write_transaction())).map_err(error)?;
+
+        let copied = (|| {
+            drive(transaction.execute(CLEAR, ()))?;
+            let Some(source) = &source else {
+                return Ok(());
+            };
+            let mut rows = drive(source.query(ENTRIES, ()))?;
+            while let Some(row) = drive(rows.next())? {
+                let namespace: String = row.get(0)?;
+                let key: Vec<u8> = row.get(1)?;
+                let value: Vec<u8> = row.get(2)?;
+                let params = (namespace, key, value, origin_code(Origin::Imported));
+                drive(transaction.execute(REPLACE, params))?;
+            }
+            Ok(())
+        })();
+
+        match copied {
+            Ok(()) => drive(transaction.commit()).map_err(error),
+            Err(err) => {
+                let _ = drive(transaction.rollback());
+                Err(error(err))
+            }
+        }
+        .inspect_err(|err| log::warn!("Unable to replace {}: {err}", self.location))
+    }
+
     /// Visits every entry of `namespace`.
     pub fn scan(&self, namespace: &str, visit: &mut dyn FnMut(&[u8], &[u8])) {
         self.scan_with_origin(namespace, &mut |key, value, _| visit(key, value));
@@ -447,26 +492,6 @@ impl Database {
             Ok(namespaces)
         })
         .unwrap_or_default()
-    }
-}
-
-/// An environment's database read as a bundle, so it can fill another the way
-/// a shipped bundle does.
-impl crate::bundle::Bundle for Database {
-    fn get(&self, namespace: &str, key: &[u8]) -> Option<Bytes> {
-        Database::get(self, namespace, key)
-    }
-
-    fn scan(&self, namespace: &str, visit: &mut dyn FnMut(&[u8], &[u8])) {
-        Database::scan(self, namespace, visit);
-    }
-
-    fn namespaces(&self) -> Vec<String> {
-        Database::namespaces(self)
-    }
-
-    fn describe(&self) -> String {
-        format!("environment {}", self.location)
     }
 }
 
@@ -832,7 +857,7 @@ async fn open_at_path(location: &str, access: Access) -> Result<turso::Database,
 /// Whether `a` and `b` name the same file, compared as written when either
 /// does not exist yet.
 #[cfg(native_cache)]
-fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
+pub fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         (Ok(a), Ok(b)) => a == b,
         _ => a == b,
