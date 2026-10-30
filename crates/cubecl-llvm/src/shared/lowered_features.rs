@@ -220,6 +220,12 @@ fn restrict_common(props: &mut DeviceProperties) {
         props.features.types.elem.remove(&ElemType::Complex(kind));
     }
 
+    // The fp6 formats are converted by the C++ backends alone: a cast from or to `e2m3` or `e3m2`
+    // has no lowering here, so a device offering them would hand over kernels that fail to compile.
+    for kind in [FloatKind::E2M3, FloatKind::E3M2] {
+        props.features.types.elem.remove(&ElemType::Float(kind));
+    }
+
     // Vectorized float atomics: the shared atomic lowering handles the scalar widths, and a
     // vector `atomicrmw` is not one instruction on either target.
     props
@@ -451,5 +457,33 @@ mod nvptx_tma_tests {
         let props = restricted(&[]);
         assert!(props.features.tma.is_empty());
         assert!(!props.features.types.opaque.contains(&OpaqueType::Barrier));
+    }
+
+    /// A Blackwell part advertising the fp6 formats, as the C++ backend's properties do, keeps
+    /// none: no cast from or to them lowers here.
+    #[test]
+    fn a_device_offering_fp6_keeps_none() {
+        use cubecl_core::ir::features::TypeUsage;
+
+        let mut props = (*device_properties(32)).clone();
+        for kind in [FloatKind::E2M3, FloatKind::E3M2] {
+            props.register_type_usage(ElemType::Float(kind), TypeUsage::Conversion);
+        }
+        restrict_features(
+            &mut props,
+            GpuTarget::Nvptx {
+                arch: SmArch::new(120, true),
+            },
+        );
+        for kind in [FloatKind::E2M3, FloatKind::E3M2] {
+            assert!(
+                !props
+                    .features
+                    .types
+                    .elem
+                    .contains_key(&ElemType::Float(kind)),
+                "{kind:?}"
+            );
+        }
     }
 }
