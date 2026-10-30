@@ -9,13 +9,11 @@ use cubecl_tile::procedural::Constant;
 use cubecl_tile::procedural::MemoryValues;
 use cubecl_tile::procedural::Phase;
 use cubecl_tile::procedural::Procedural;
-use cubecl_tile::procedural::Product;
 use cubecl_tile::procedural::Recipe;
 use cubecl_tile::procedural::RecipeCoords;
 use cubecl_tile::procedural::RecipeExpand;
 use cubecl_tile::procedural::Sum;
 use cubecl_tile::procedural::affine_along;
-use cubecl_tile::procedural::product_of;
 use cubecl_tile::procedural::sum_of;
 use cubecl_tile::*;
 
@@ -78,18 +76,18 @@ fn along_col<E: Float>(#[comptime] offset: ComptimeFloat<f32>) -> AffineCoordina
     )
 }
 
-/// The product recipe evaluated where it is read: every region of the walk copies its window of
+/// The sum recipe `row + col` evaluated where it is read: every region of the walk copies its window of
 /// the source straight into the output.
 #[cube(launch)]
-fn product_kernel_in_place<E: Float>(
+fn sum_kernel_in_place<E: Float>(
     output: &TileArg<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
-    let source = Procedural::new::<E, Product<AffineCoordinate<E>, AffineCoordinate<E>>>(
+    let source = Procedural::new::<E, Sum<AffineCoordinate<E>, AffineCoordinate<E>>>(
         comptime!(space.space().clone()),
-        product_of(
+        sum_of(
             affine_along(ROW, E::from_int(0), E::from_int(1)),
             affine_along(COL, E::from_int(0), E::from_int(1)),
         ),
@@ -101,15 +99,15 @@ fn product_kernel_in_place<E: Float>(
 /// The same recipe materialized into shared memory first: one slot fills each region's
 /// window cooperatively, and the output copies the stage. The grid must be the same either way.
 #[cube(launch)]
-fn product_kernel_staged<E: Float>(
+fn sum_kernel_staged<E: Float>(
     output: &TileArg<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
 ) {
-    let source = Procedural::new::<E, Product<AffineCoordinate<E>, AffineCoordinate<E>>>(
+    let source = Procedural::new::<E, Sum<AffineCoordinate<E>, AffineCoordinate<E>>>(
         comptime!(space.space().clone()),
-        product_of(
+        sum_of(
             affine_along(ROW, E::from_int(0), E::from_int(1)),
             affine_along(COL, E::from_int(0), E::from_int(1)),
         ),
@@ -391,7 +389,7 @@ fn offset(value: f32) -> ComptimeFloat<f32> {
 fn user_recipe_evaluates_in_place() {
     let h = Harness::new();
     let output = h.output();
-    product_kernel_in_place::launch(
+    sum_kernel_in_place::launch(
         &h.client,
         h.launcher.cube_count(),
         h.launcher.cube_dim(),
@@ -400,14 +398,14 @@ fn user_recipe_evaluates_in_place() {
         h.launcher.partitioning().level(0),
         h.dtype,
     );
-    assert_grid(&h.read(output), |row, col| (row * col) as f32);
+    assert_grid(&h.read(output), |row, col| (row + col) as f32);
 }
 
 #[test]
 fn user_recipe_materializes_through_a_staged_walk() {
     let h = Harness::new();
     let output = h.output();
-    product_kernel_staged::launch(
+    sum_kernel_staged::launch(
         &h.client,
         h.launcher.cube_count(),
         h.launcher.cube_dim(),
@@ -416,7 +414,7 @@ fn user_recipe_materializes_through_a_staged_walk() {
         h.launcher.partitioning().level(0),
         h.dtype,
     );
-    assert_grid(&h.read(output), |row, col| (row * col) as f32);
+    assert_grid(&h.read(output), |row, col| (row + col) as f32);
 }
 
 #[test]

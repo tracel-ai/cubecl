@@ -109,8 +109,12 @@ impl StagesExpand<OperandPair> {
     /// Requires depth 1 or 2, every unit copying straight from a plain operand, and loads within
     /// [`Prefetch::fits`]; otherwise refused at expansion. Fixed operands, and operands whose
     /// stages keep their scales beside them, fall back to [`pipelined`](Stages::pipelined).
-    pub(crate) fn __expand_prefetched_method<F>(&mut self, scope: &Scope, walk: WalkExpand, compute: F)
-    where
+    pub(crate) fn __expand_prefetched_method<F>(
+        &mut self,
+        scope: &Scope,
+        walk: WalkExpand,
+        compute: F,
+    ) where
         F: FnMut(&Scope, &mut SlotExpand<OperandPair>, &RegionExpand),
     {
         // Registers hold the values alone, so scales a stage keeps beside them are brought by the
