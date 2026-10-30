@@ -7,7 +7,9 @@ use cubecl::{
 
 use super::block_scaled::*;
 use super::widths::*;
-use crate::tile::kind::plane::load_matrix::{LDMATRIX_ROW_BYTES, along_k, load_ldmatrix};
+use crate::tile::kind::plane::load_matrix::{
+    LDMATRIX_ROW_BYTES, PairAxis, along_k, load_ldmatrix, load_ldmatrix_pair,
+};
 use crate::*;
 
 /// One manual-mma fragment: a role's registers plus the shape and transport it dispatches on.
@@ -330,6 +332,67 @@ impl MmaData {
                 io,
                 (m, n, k),
             ),
+        }
+    }
+
+    /// Whether this fragment loads out of `src`, its window, beside a neighbour of its grid in
+    /// one `ldmatrix` ([`load_pair_window`](Self::load_pair_window)): a plain `B` one instruction
+    /// deep, which the instruction loads by `ldmatrix`, holds two of the four matrices one reads.
+    pub(crate) fn pairs_from<T: Numeric>(&self, src: &Tile) -> comptime_type!(bool) {
+        let (m, n, k) = comptime!((self.m, self.n, self.k));
+        let io = comptime!(self.io);
+        let steps = lane_run_steps::<T>(m, n, k);
+        let serves = ldmatrix_serves::<T>(src, MatrixIdent::B, (k, n));
+        let rhs = match &self.fragment {
+            MmaFragment::Rhs(_) => comptime!(true),
+            MmaFragment::Lhs(_)
+            | MmaFragment::Acc(_)
+            | MmaFragment::LhsBlockScaled(..)
+            | MmaFragment::RhsBlockScaled(..) => comptime!(false),
+        };
+        comptime!(
+            rhs && steps == 1 && serves && io.load_method(MatrixIdent::B) == LoadMethod::LoadMatrix
+        )
+    }
+
+    /// This fragment and `second`, its neighbour along `along` in `src`, a window over both,
+    /// loaded by one `ldmatrix` ([`load_ldmatrix_pair`]), where [`pairs_from`](Self::pairs_from)
+    /// admits them.
+    pub(crate) fn load_pair_window<T: Numeric>(
+        &mut self,
+        second: &mut MmaData,
+        src: &Tile,
+        #[comptime] along: PairAxis,
+    ) {
+        let (m, n, k) = comptime!((self.m, self.n, self.k));
+        let layout = comptime!(self.layout);
+        let def = MmaDefinition::<T, T, T>::new(m, n, k);
+        let size!(W) = src.vector_size();
+        match &mut self.fragment {
+            MmaFragment::Rhs(first) => match &mut second.fragment {
+                MmaFragment::Rhs(other) => load_ldmatrix_pair::<T, W, NR, T, T, T>(
+                    src,
+                    first.at_mut::<T>(),
+                    other.at_mut::<T>(),
+                    &def,
+                    MatrixIdent::B,
+                    layout,
+                    (k, n),
+                    along,
+                ),
+                MmaFragment::Lhs(_)
+                | MmaFragment::Acc(_)
+                | MmaFragment::LhsBlockScaled(..)
+                | MmaFragment::RhsBlockScaled(..) => {
+                    panic!("MmaData::load_pair_window: a `B` pairs with a `B`")
+                }
+            },
+            MmaFragment::Lhs(_)
+            | MmaFragment::Acc(_)
+            | MmaFragment::LhsBlockScaled(..)
+            | MmaFragment::RhsBlockScaled(..) => {
+                panic!("MmaData::load_pair_window: only a `B` loads in pairs")
+            }
         }
     }
 
@@ -659,30 +722,8 @@ pub(crate) fn load_fragment<T: Numeric, N: Size, A: Numeric, B: Numeric, CD: Num
     #[comptime] edges: (usize, usize),
     #[comptime] k_offset: usize,
 ) {
-    // `ldmatrix` reads 16-byte rows of 16-bit served cells from shared memory, on a device that
-    // offers it for the element; any other window, or device, takes the manual load.
-    let offered = loads_matrix::<T>();
-    let gathered = src.gathered();
-    let shared = src.is_shared();
-    let element = src.stage_element();
-    let holds_served_values = comptime!(element.holds_values());
-    let served = src.vector_size();
-    // An element's size read at expansion, where the launch has registered it: inside
-    // `comptime!` the call would size the generic placeholder instead.
-    let elem_size = T::size().comptime();
-    let row_cells = comptime!(LDMATRIX_ROW_BYTES / elem_size);
-    // `ldmatrix` reads every row of its matrices: a window covering fewer has none to give it.
-    let whole = comptime!(covered_edges(&src.place.space, ident, edges) == edges);
-    let ldmatrix_serves = comptime!(
-        offered
-            && shared
-            && !gathered
-            && holds_served_values
-            && elem_size == 2
-            && ident != MatrixIdent::Accumulator
-            && row_cells.is_multiple_of(served)
-            && whole
-    );
+    // Any window `ldmatrix` does not read, or device that lacks it, takes the manual load.
+    let ldmatrix_serves = ldmatrix_serves::<T>(src, ident, edges);
     let method = comptime!(match ldmatrix_serves {
         true => io.load_method(ident),
         false => LoadMethod::Manual,
@@ -697,6 +738,39 @@ pub(crate) fn load_fragment<T: Numeric, N: Size, A: Numeric, B: Numeric, CD: Num
             load_ldmatrix::<T, W, N, A, B, CD>(src, fragment, def, ident, layout, edges, k_offset)
         }
     }
+}
+
+/// Whether `ldmatrix` reads an `ident` fragment of `edges` out of `src`: 16-byte rows of 16-bit
+/// served cells from shared memory, on a device that offers it for the element, the window
+/// covering every row of the fragment's matrices.
+#[cube]
+fn ldmatrix_serves<T: Numeric>(
+    src: &Tile,
+    #[comptime] ident: MatrixIdent,
+    #[comptime] edges: (usize, usize),
+) -> comptime_type!(bool) {
+    let offered = loads_matrix::<T>();
+    let gathered = src.gathered();
+    let shared = src.is_shared();
+    let element = src.stage_element();
+    let holds_served_values = comptime!(element.holds_values());
+    let served = src.vector_size();
+    // An element's size read at expansion, where the launch has registered it: inside
+    // `comptime!` the call would size the generic placeholder instead.
+    let elem_size = T::size().comptime();
+    let row_cells = comptime!(LDMATRIX_ROW_BYTES / elem_size);
+    // `ldmatrix` reads every row of its matrices: a window covering fewer has none to give it.
+    let whole = comptime!(covered_edges(&src.place.space, ident, edges) == edges);
+    comptime!(
+        offered
+            && shared
+            && !gathered
+            && holds_served_values
+            && elem_size == 2
+            && ident != MatrixIdent::Accumulator
+            && row_cells.is_multiple_of(served)
+            && whole
+    )
 }
 
 /// Whether the device offers `ldmatrix` for `T`, read off its properties at expansion.
