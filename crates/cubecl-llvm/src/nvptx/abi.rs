@@ -5,8 +5,8 @@ use crate::{
     prelude::*,
     shared::{
         builtins::InsertGpuBuiltinsPass,
-        fp4::Fp4Decode,
         metadata::{CtxGridConstants, rebuild_func_type},
+        native_decode::NativeDecode,
     },
 };
 use cubecl_core::ir::attributes::ATTR_TENSOR_MAP_BINDING;
@@ -95,10 +95,7 @@ impl TargetLowering for NvptxLowering {
         passes.add_pass(SSCMPre);
     }
 
-    fn fp4_decode(&self) -> Fp4Decode {
-        match crate::nvptx::fp4::decodes_e2m1x2(&self.arch) {
-            true => Fp4Decode::Native,
-            false => Fp4Decode::Software,
-        }
+    fn native_decodes(&self) -> &'static [NativeDecode] {
+        crate::nvptx::native_decode::native_decodes(&self.arch)
     }
 }
