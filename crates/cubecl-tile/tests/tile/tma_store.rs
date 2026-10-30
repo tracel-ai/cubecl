@@ -8,7 +8,7 @@ use crate::support::{HostData, HostDataType, TestInput};
 use cubecl::features::Tma;
 use cubecl::prelude::*;
 use cubecl::zspace::shape;
-use cubecl_tile::launch::{Destination, TmaBox, TmaOperand, TmaStored};
+use cubecl_tile::launch::{Destination, TmaBox, TmaStored};
 use cubecl_tile::*;
 
 const ROW: Axis = Axis(0);
@@ -87,22 +87,22 @@ fn a_box_stored_by_tma_lands_whole_and_clipped() {
         matrix,
         dtype,
     );
-    let out = TmaOperand {
+    let out = TileArgLaunch::tensor_map(
         map,
-        axes: vec![ROW, COL],
-        shape: TmaBox {
+        &[ROW, COL],
+        TmaBox {
             rows: ROWS as u32,
             cols: COLS as u32,
             batch: None,
             transposed: false,
         },
-    };
+    );
     store_by_tma::launch::<TmaStored>(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
         src.arg(),
-        out.arg(),
+        out,
         launcher.partitioning_arg(),
         dtype,
     );
