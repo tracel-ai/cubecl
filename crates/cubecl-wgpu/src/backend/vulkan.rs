@@ -374,16 +374,10 @@ fn register_features(
     let ash = adapter.shared_instance();
     let heaps = device_local_heaps(ash, adapter.raw_physical_device());
 
-    // The largest device-local heap, not the first: a driver is free to
-    // enumerate a small one ahead of the real thing, and some report the
-    // host-visible BAR window first, which would take a 16 GB card for 256 MB.
-    // On an integrated adapter the heap is system RAM, so this is the share the
-    // driver hands the GPU rather than a card's own memory.
-    //
     // Read before the checks below, because capacity is not a feature: it asks
     // only for the memory properties every Vulkan device reports, and a device
     // those checks decline runs on WGSL with its capacity still true.
-    if let Some(largest) = heaps.iter().map(|heap| heap.size).max() {
+    if let Some(largest) = capacity(&heaps) {
         props.memory.set_max_memory(largest);
     }
     // The compute units are hardware too, read here rather than with the properties
@@ -549,6 +543,15 @@ fn compute_units(adapter: &vulkan::Adapter) -> Option<u32> {
     ]
     .into_iter()
     .find(|&count| count > 0)
+}
+
+/// The largest device-local heap, not the first: a driver is free to
+/// enumerate a small one ahead of the real thing, and some report the
+/// host-visible BAR window first, which would take a 16 GB card for 256 MB.
+/// On an integrated adapter the heap is system RAM, so this is the share the
+/// driver hands the GPU rather than a card's own memory.
+fn capacity(heaps: &[MemoryHeap]) -> Option<u64> {
+    heaps.iter().map(|heap| heap.size).max()
 }
 
 /// The device-local heaps, in the order the driver reports them. Empty when
@@ -922,6 +925,18 @@ where
         });
     }
     Ok(compiled)
+}
+
+/// The capacity a client on `adapter` reports, read from its physical device
+/// alone, so describing a card opens no device on it. `None` for an adapter
+/// that is not Vulkan's.
+pub fn max_memory(adapter: &wgpu::Adapter) -> Option<u64> {
+    // SAFETY: the hal adapter is only read while `adapter` keeps it alive.
+    let hal_adapter = unsafe { adapter.as_hal::<hal::api::Vulkan>() }?;
+    capacity(&device_local_heaps(
+        hal_adapter.shared_instance(),
+        hal_adapter.raw_physical_device(),
+    ))
 }
 
 pub fn describe_card(adapter: &wgpu::Adapter, physical: &mut cubecl_ir::PhysicalDevice) {
