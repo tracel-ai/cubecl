@@ -48,7 +48,7 @@ pub struct OnlineSoftmaxState<E: Float> {
 #[cube]
 impl<E: Float> OnlineSoftmax<E> {
     /// The state of every slice along `axis` of a score held as `score` is, before any block is
-    /// taken in: each unit keeps the slices it holds cells of ([`Tile::slices_per_unit`]).
+    /// taken in: each unit keeps the slices it holds cells of.
     pub fn along(score: &Tile, #[comptime] axis: Axis) -> OnlineSoftmax<E> {
         let slices = score.slices_per_unit(axis);
         let slots = comptime!(match slices == score.place.space.slices_along(axis) {

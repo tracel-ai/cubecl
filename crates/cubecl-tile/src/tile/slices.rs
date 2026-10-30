@@ -217,7 +217,7 @@ impl AxisSlices {
     /// `self[c] = probabilities[c] · (self[c] − delta[c])`: a softmax's gradient against its
     /// scores, where `self` holds the gradient against its probabilities and `delta` is, for each
     /// softmax, `Σ probabilities · self` along the axis it ran along. `delta` broadcasts as
-    /// [`probabilities`](Self::probabilities)'s logsumexp does; the probabilities are cut as
+    /// [`probabilities`](AxisSlices::probabilities)'s logsumexp does; the probabilities are cut as
     /// `self` is, held by the same holder.
     pub fn softmax_gradient<E: Float>(&mut self, probabilities: &AxisSlices, delta: &Tile) {
         comptime!(assert!(

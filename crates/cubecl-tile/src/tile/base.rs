@@ -1194,7 +1194,7 @@ impl Tile {
     ///
     /// Words of block scales always give up the scales above them: the instruction reads the
     /// words undecoded, and holds no other scale. A decoded tile gives them up where the sum is
-    /// scaled in place ([`Instruction::scales_its_sum_in_place`]), since a load converting codes
+    /// scaled in place, since a load converting codes
     /// in lane runs takes one level of scales; under any other sum they ride the load, which
     /// multiplies by them as it decodes, rather than send the sum through shared memory.
     /// A tile indexing a table gives up none: only its copy decodes it.
