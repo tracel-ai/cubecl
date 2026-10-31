@@ -181,9 +181,8 @@ impl<E: CubePrimitive> Array<E> {
 }
 
 impl<T: CubePrimitive, const N: usize> NativeExpand<[T; N]> {
-    pub fn __expand_len_method(&self, scope: &cubecl::prelude::Scope) -> usize {
-        let ty = inner_array_ty(scope, self.value(scope));
-        ty.deref(scope.ctx()).length
+    pub fn __expand_len_method(&self, _: &Scope) -> usize {
+        N
     }
 }
 
