@@ -5,7 +5,7 @@ use cubecl_core::ir::dialect::general::{
 use pliron_llvm::{
     attributes::BytesAttr,
     function_call_utils::lookup_or_insert_function,
-    ops::{FPExtOp, FPTruncOp},
+    ops::{FPExtOp, FPTruncOp, GepIndex},
     types::ArrayType,
 };
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -247,7 +247,12 @@ impl ToLLVMDialect for ReinterpretCastOp {
         let old_op = self.get_operation();
 
         if out_ty.deref(ctx).is::<LlvmPointerType>() {
-            rewriter.replace_operation_with_values(ctx, old_op, vec![input]);
+            // GEP is needed to block promotion - promoting loads with differing types is illegal but
+            // currently not checked upstream so mem2reg may incorrectly promote.
+            let i8 = IntegerType::get(ctx, 8, Signedness::Signless).to_handle();
+            let gep = llvm::GetElementPtrOp::new(ctx, input, vec![GepIndex::Constant(0)], i8);
+            rewriter.insert_op(ctx, &gep);
+            rewriter.replace_operation(ctx, old_op, gep.get_operation());
             return Ok(());
         }
 
