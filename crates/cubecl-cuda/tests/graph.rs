@@ -3,7 +3,7 @@
 use cubecl_common::bytes::Bytes;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_core::runtime_tests::capture_status;
+use cubecl_core::runtime_tests::{capture_status, external_op};
 use cubecl_core::server::Handle;
 use cubecl_cuda::CudaRuntime;
 use cubecl_server::runtime::Runtime;
@@ -16,6 +16,15 @@ use std::sync::Mutex;
 /// per device, as in real use. Serialize the tests instead of relying on
 /// `--test-threads 1`.
 static CAPTURE_LOCK: Mutex<()> = Mutex::new(());
+
+/// A host-side callback is not replayable work: the capture it interrupts must
+/// fail rather than seal without it.
+#[test]
+fn cuda_external_op_is_refused_during_capture() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = CudaRuntime::client(&Default::default());
+    external_op::test_external_op_refused_during_capture::<CudaRuntime>(client);
+}
 
 #[cube(launch)]
 fn add_one(input: &[f32], output: &mut [f32]) {

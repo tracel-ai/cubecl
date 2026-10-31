@@ -21,6 +21,47 @@ mod tests {
     cubecl_std::testgen_quantized_view!(f32);
     cubecl_core::testgen_complex_validation!();
 
+    fn external_op_copy(
+        _stream: (),
+        src: crate::CpuBuffer,
+        dst: crate::CpuBuffer,
+        len: u64,
+    ) -> Result<(), cubecl_core::server::ServerError> {
+        assert_eq!(src.size, len);
+        assert_eq!(dst.size, len);
+        // The in-place case hands the same pointer as both the source and the
+        // destination, which `copy_nonoverlapping` forbids; it has nothing to
+        // copy anyway.
+        if src.ptr != dst.ptr {
+            // SAFETY: the test keeps both buffers alive until the operation
+            // and the read that follows it have completed.
+            unsafe {
+                core::ptr::copy_nonoverlapping(src.ptr, dst.ptr, len as usize);
+            }
+        }
+        Ok(())
+    }
+
+    fn external_op_fill(
+        _stream: (),
+        dst: crate::CpuBuffer,
+        len: u64,
+        value: u32,
+    ) -> Result<(), cubecl_core::server::ServerError> {
+        assert_eq!(dst.size, len);
+        let words = len as usize / core::mem::size_of::<u32>();
+        // SAFETY: the test fills a live 32-bit-aligned buffer of `len` bytes.
+        let out = unsafe { core::slice::from_raw_parts_mut(dst.ptr as *mut u32, words) };
+        out.fill(value);
+        Ok(())
+    }
+
+    fn external_op_size(buffer: &crate::CpuBuffer) -> u64 {
+        buffer.size
+    }
+
+    cubecl_core::testgen_external_op!(external_op_copy, external_op_fill, external_op_size);
+
     #[cube(launch_unchecked)]
     fn transcendentals<N: Size>(
         input: &[Vector<f32, N>],
