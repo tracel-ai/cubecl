@@ -547,6 +547,144 @@ pub fn test_accumulator_row_major<R: Runtime>(client: Client, cube_dimensions: C
     assert_eq!(test_simple_1_expected(), actual);
 }
 
+#[cube(launch)]
+/// Stores Lhs @ Rhs.T column-major, `m` x `n` x `k` tiles: `out` holds the product's transpose.
+pub fn kernel_store_col_major(
+    lhs: &[f16],
+    rhs: &[f16],
+    out: &mut [f32],
+    #[comptime] m: usize,
+    #[comptime] n: usize,
+    #[comptime] k: usize,
+) {
+    let a = cmma::Matrix::<f16>::from_slice(
+        cmma::MatrixIdent::A,
+        m,
+        n,
+        k,
+        cmma::MatrixLayout::RowMajor,
+        lhs,
+        k as u32,
+    );
+    let b = cmma::Matrix::<f16>::from_slice(
+        cmma::MatrixIdent::B,
+        m,
+        n,
+        k,
+        cmma::MatrixLayout::ColMajor,
+        rhs,
+        k as u32,
+    );
+    let c = cmma::Matrix::<f32>::from_value(
+        cmma::MatrixIdent::Accumulator,
+        m,
+        n,
+        k,
+        cmma::MatrixLayout::Undefined,
+        0.0,
+    );
+    cmma::execute(&a, &b, &c, &c);
+    cmma::store(out, &c, m as u32, cmma::MatrixLayout::ColMajor);
+}
+
+/// The device's first f16 x f16 -> f32 tile shape.
+fn first_f16_f32_tile(client: &Client) -> Option<(usize, usize, usize)> {
+    let config = client.features().matmul.cmma.iter().copied().find(|c| {
+        c.a_type == ElemType::Float(FloatKind::F16)
+            && c.b_type == ElemType::Float(FloatKind::F16)
+            && c.cd_type == ElemType::Float(FloatKind::F32)
+    })?;
+    Some((config.m as usize, config.n as usize, config.k as usize))
+}
+
+/// A column-major store on the device's first f16 x f16 -> f32 tile shape.
+pub fn test_store_col_major<R: Runtime>(client: Client, cube_dimensions: CubeDim) {
+    let Some((m, n, k)) = first_f16_f32_tile(&client) else {
+        return;
+    };
+    let lhs: Vec<f16> = (0..m * k).map(|i| f16::from_f32((i % 7) as f32)).collect();
+    let rhs: Vec<f16> = (0..n * k).map(|i| f16::from_f32((i % 5) as f32)).collect();
+    let mut expected = vec![0f32; m * n];
+    for i in 0..m {
+        for j in 0..n {
+            let product: f32 = (0..k)
+                .map(|t| lhs[i * k + t].to_f32() * rhs[j * k + t].to_f32())
+                .sum();
+            expected[j * m + i] = product;
+        }
+    }
+    let lhs = client.create_from_slice(f16::as_bytes(&lhs));
+    let rhs = client.create_from_slice(f16::as_bytes(&rhs));
+    let out = client.empty(core::mem::size_of::<f32>() * m * n);
+    unsafe {
+        kernel_store_col_major::launch(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            cube_dimensions,
+            BufferArg::from_raw_parts(lhs, m * k),
+            BufferArg::from_raw_parts(rhs, n * k),
+            BufferArg::from_raw_parts(out.clone(), m * n),
+            m,
+            n,
+            k,
+        )
+    };
+    let actual = client.read_one_unchecked(out);
+    assert_eq!(expected, f32::from_bytes(&actual));
+}
+
+#[cube(launch)]
+/// Loads an `m` x `n` accumulator column-major and stores it row-major.
+pub fn kernel_load_col_major(
+    input: &[f32],
+    out: &mut [f32],
+    #[comptime] m: usize,
+    #[comptime] n: usize,
+    #[comptime] k: usize,
+) {
+    let mut c = unsafe {
+        cmma::Matrix::<f32>::uninitialized(
+            cmma::MatrixIdent::Accumulator,
+            m,
+            n,
+            k,
+            cmma::MatrixLayout::Undefined,
+        )
+    };
+    cmma::load_with_layout(&mut c, input, m as u32, cmma::MatrixLayout::ColMajor);
+    cmma::store(out, &c, n as u32, cmma::MatrixLayout::RowMajor);
+}
+
+/// A column-major accumulator load on the device's first f16 x f16 -> f32 tile shape.
+pub fn test_load_col_major<R: Runtime>(client: Client, cube_dimensions: CubeDim) {
+    let Some((m, n, k)) = first_f16_f32_tile(&client) else {
+        return;
+    };
+    let expected: Vec<f32> = (0..m * n).map(|i| (i % 23) as f32).collect();
+    let mut input = vec![0f32; m * n];
+    for i in 0..m {
+        for j in 0..n {
+            input[j * m + i] = expected[i * n + j];
+        }
+    }
+    let input = client.create_from_slice(f32::as_bytes(&input));
+    let out = client.empty(core::mem::size_of::<f32>() * m * n);
+    unsafe {
+        kernel_load_col_major::launch(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            cube_dimensions,
+            BufferArg::from_raw_parts(input, m * n),
+            BufferArg::from_raw_parts(out.clone(), m * n),
+            m,
+            n,
+            k,
+        )
+    };
+    let actual = client.read_one_unchecked(out);
+    assert_eq!(expected, f32::from_bytes(&actual));
+}
+
 pub fn test_simple_1<R: Runtime>(client: Client, cube_dimensions: CubeDim) {
     test_simple_1_typed::<R, f16, f32>(client, cube_dimensions);
 }
@@ -2763,6 +2901,26 @@ macro_rules! testgen_cmma {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
             cubecl_core::runtime_tests::cmma::test_simple_1::<TestRuntime>(client, cube_dimensions);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_cmma_store_col_major() {
+            let client = TestRuntime::client(&Default::default());
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
+            cubecl_core::runtime_tests::cmma::test_store_col_major::<TestRuntime>(
+                client,
+                cube_dimensions,
+            );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_cmma_load_col_major() {
+            let client = TestRuntime::client(&Default::default());
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
+            cubecl_core::runtime_tests::cmma::test_load_col_major::<TestRuntime>(
+                client,
+                cube_dimensions,
+            );
         }
 
         #[$crate::runtime_tests::test_log::test]

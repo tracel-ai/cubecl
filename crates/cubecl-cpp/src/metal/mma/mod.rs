@@ -5,7 +5,7 @@ pub use manual::*;
 use core::cell::Ref;
 
 use cubecl_core::{
-    cmma::{MatrixLayout, MatrixShape, MatrixType},
+    cmma::{MatrixIdent, MatrixLayout, MatrixShape, MatrixType},
     ir::{
         dialect::matrix::{CastOp, FillOp, LoadOp, MultiplyAccumulateOp, StoreOp},
         interfaces::TypedExt,
@@ -57,11 +57,13 @@ metal_op!(LoadOp, |op, ctx| {
     let frag = op.matrix(ctx).name(ctx);
     let ptr = as_scalar_ptr(ctx, op.source(ctx));
     let stride = op.stride(ctx).name(ctx);
+    // As on CUDA: A and B load in their own layout, an accumulator in the load's.
     let mat_ty = matrix_ty(ctx, op.matrix(ctx));
-    let transpose = match mat_ty.layout {
-        MatrixLayout::RowMajor | MatrixLayout::Undefined => false,
-        MatrixLayout::ColMajor => true,
+    let layout = match mat_ty.ident {
+        MatrixIdent::A | MatrixIdent::B => mat_ty.layout,
+        MatrixIdent::Accumulator => op.layout(ctx).0,
     };
+    let transpose = matches!(layout, MatrixLayout::ColMajor);
     format!("simdgroup_load(*{frag}, {ptr}, {stride}, 0, {transpose});\n")
 });
 
@@ -69,9 +71,10 @@ metal_op!(StoreOp, |op, ctx| {
     let mat = op.matrix(ctx).name(ctx);
     let destination = as_scalar_ptr(ctx, op.destination(ctx));
     let stride = op.stride(ctx).name(ctx);
+    let transpose = matches!(op.layout(ctx).0, MatrixLayout::ColMajor);
     format!(
         "
-simdgroup_store(*{mat}, {destination}, {stride});
+simdgroup_store(*{mat}, {destination}, {stride}, 0, {transpose});
 simdgroup_barrier(mem_flags::mem_threadgroup);"
     )
 });
