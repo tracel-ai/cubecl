@@ -113,7 +113,6 @@ pub struct CompositeExtractOp {
 }
 
 fn composite_extract_type(ctx: &Context, aggregate: &Value, field: &IndexAttr) -> TypeHandle {
-    std::println!("ty: {}", aggregate.get_type(ctx).disp(ctx));
     let aggregate_ty = aggregate.get_type(ctx).deref(ctx);
     let aggregate_ty =
         type_cast::<dyn DestructurableTypeInterface>(&*aggregate_ty).expect("Should be aggregate");
