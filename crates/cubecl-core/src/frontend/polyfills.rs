@@ -203,9 +203,20 @@ pub fn expand_dp4a_polyfill(scope: &Scope, a: Value, b: Value, c: Value) -> Valu
     dp4a_polyfill::expand::<SizeA>(scope, a.into(), b.into(), c.into()).value(scope)
 }
 
+/// `ln(1 + x)` that stays accurate for small `|x|`.
+///
+/// `1 + x` rounds away the low bits of `x`, so `(1 + x).ln()` alone is 0 for tiny `x` and
+/// loses relative precision below about `1e-3`. Scaling by `x / ((1 + x) - 1)` corrects for
+/// that rounding (Goldberg's trick). When `1 + x` rounds to exactly 1 the answer is `x`; when
+/// `(1 + x) - 1 == x` (large or infinite `x`) no correction is needed, which also keeps
+/// `inf / inf` out of the result.
 #[cube]
-pub fn log1p<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
-    (input + Vector::one()).ln()
+pub fn log1p<T: Float, N: Size>(x: Vector<T, N>) -> Vector<T, N> {
+    let w = x + Vector::one();
+    let d = w - Vector::one();
+    let ln_w = w.ln();
+    let corrected = select_many(d.equal(&x), ln_w, ln_w * x / d);
+    select_many(d.equal(&Vector::zero()), x, corrected)
 }
 
 #[cube]
