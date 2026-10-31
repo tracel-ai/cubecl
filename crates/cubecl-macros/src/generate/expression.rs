@@ -521,11 +521,13 @@ impl Expression {
                 }
             }
 
-            Expression::Array { span, .. } => {
+            Expression::Array { span, elements } => {
                 if let Some(constant) = self.as_const(context) {
                     constant
                 } else {
-                    error!(*span, "Array expressions can't be used at runtime")
+                    let expand = frontend_type("NativeExpand");
+                    let elements = elements.iter().map(|it| it.to_tokens(context));
+                    quote_spanned![*span=>#expand::<[_; _]>::__expand_construct(scope, [#(#elements),*])]
                 }
             }
             Expression::Tuple { elements, .. } => {
@@ -537,11 +539,10 @@ impl Expression {
                 }
             }
             Expression::ArrayInit { init, len } => {
-                let init_ty = frontend_type("ArrayInit");
+                let expand = frontend_type("NativeExpand");
                 let init = init.to_tokens(context);
-                let len = len.to_tokens(context);
 
-                quote![#init_ty::new(#len, #init)]
+                quote![#expand::<[_; _]>::__expand_construct(scope, [#init; #len])]
             }
             Expression::VerbatimTerminated { tokens } => tokens.clone(),
             Expression::Reference { inner } => {

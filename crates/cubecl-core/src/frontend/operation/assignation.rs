@@ -132,13 +132,27 @@ pub mod index_mut {
         };
     }
 
+    impl<E: CubePrimitive, const N: usize> IndexMutExpand<NativeExpand<usize>>
+        for NativeExpand<[E; N]>
+    {
+        fn __expand_index_mut_method(
+            &mut self,
+            scope: &Scope,
+            index: NativeExpand<usize>,
+        ) -> &mut E::ExpandType {
+            self.__expand_as_mut_slice_method(scope)
+                .__expand_index_mut_method(scope, index)
+        }
+    }
+
     impl_index!(Array<E>, NativeExpand<Array<E>>);
     impl_index!(Tensor<E>, TensorExpand<E>);
     impl_index!(Shared<[E]>, NativeExpand<Shared<[E]>>);
 
-    impl_slice_ranges!(ArrayExpand<E>);
-    impl_slice_ranges!(TensorExpand<E>);
-    impl_slice_ranges!(NativeExpand<Shared<[E]>>);
+    impl_slice_ranges!([E: CubePrimitive] ArrayExpand<E>);
+    impl_slice_ranges!([E: CubePrimitive, const N: usize] NativeExpand<[E; N]>);
+    impl_slice_ranges!([E: CubePrimitive] TensorExpand<E>);
+    impl_slice_ranges!([E: CubePrimitive] NativeExpand<Shared<[E]>>);
 }
 
 pub mod index {
@@ -215,6 +229,19 @@ pub mod index {
                 }
             }
         };
+    }
+
+    impl<E: CubePrimitive, const N: usize> IndexExpand<NativeExpand<usize>> for NativeExpand<[E; N]> {
+        type Output = NativeExpand<E>;
+
+        fn __expand_index_method(
+            &self,
+            scope: &Scope,
+            index: NativeExpand<usize>,
+        ) -> &Self::Output {
+            self.__expand_as_slice_method(scope)
+                .__expand_index_method(scope, index)
+        }
     }
 
     impl_index!(Array<E>, NativeExpand<Array<E>>);

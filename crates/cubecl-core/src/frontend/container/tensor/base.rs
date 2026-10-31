@@ -1,4 +1,9 @@
-use crate::{ir::Scope, prelude::*, unexpanded};
+use crate::{
+    frontend::container::iter::{SizedContainer, SizedContainerExpand},
+    ir::Scope,
+    prelude::*,
+    unexpanded,
+};
 use alloc::boxed::Box;
 use core::ops::{Deref, DerefMut};
 use cubecl_ir::VectorSize;

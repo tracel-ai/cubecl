@@ -280,20 +280,10 @@ impl Expression {
                     }
                 }
             }
-            Expr::Repeat(repeat) => {
-                let span = repeat.span();
-                let len = Expression::from_expr(*repeat.len, context)?;
-                if !len.is_const() {
-                    Err(syn::Error::new(
-                        span,
-                        "Array initializer length must be known at compile time",
-                    ))?
-                }
-                Expression::ArrayInit {
-                    init: Box::new(Expression::from_expr(*repeat.expr, context)?),
-                    len: Box::new(len),
-                }
-            }
+            Expr::Repeat(repeat) => Expression::ArrayInit {
+                init: Box::new(Expression::from_expr(*repeat.expr, context)?),
+                len: repeat.len,
+            },
             Expr::Let(expr) => {
                 let span = expr.span();
                 let elem = Expression::from_expr(*expr.expr.clone(), context)?;

@@ -21,8 +21,9 @@ use cubecl_runtime::client::Client;
 
 use crate::{
     frontend::{
-        Cos, CosNativeExpand, Exp, ExpNativeExpand, Log, LogNativeExpand, Powf, PowfNativeExpand,
-        ScalarArgSettings, Sin, SinNativeExpand, Sqrt, SqrtNativeExpand, Tanh, TanhNativeExpand,
+        ConstantTyped, Cos, CosNativeExpand, Exp, ExpNativeExpand, Log, LogNativeExpand, Powf,
+        PowfNativeExpand, ScalarArgSettings, Sin, SinNativeExpand, Sqrt, SqrtNativeExpand, Tanh,
+        TanhNativeExpand,
         operation::{
             AddNativeExpand, DivNativeExpand, MulNativeExpand, NegNativeExpand,
             PartialEqNativeExpand, SubNativeExpand, binary_expand, unary_expand,
@@ -213,7 +214,9 @@ macro_rules! impl_complex {
                 };
                 <$primitive>::new(re as $float, im as $float)
             }
+        }
 
+        impl ConstantTyped for $primitive {
             fn __expand_as_type(scope: &Scope) -> TypeHandle {
                 <$ir_ty>::get(scope.ctx()).into()
             }

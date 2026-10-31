@@ -21,15 +21,16 @@ impl CubePrimitive for flex32 {
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    fn __expand_as_type(scope: &Scope) -> TypeHandle {
-        FloatFlex32Type::get(scope.ctx()).into()
-    }
-
     fn from_const_value(value: ConstantValue) -> Self {
         let ConstantValue::Float(value) = value else {
             unreachable!()
         };
         flex32::from_f64(value)
+    }
+}
+impl ConstantTyped for flex32 {
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        FloatFlex32Type::get(scope.ctx()).into()
     }
 }
 

@@ -25,16 +25,17 @@ macro_rules! declare_uint {
             type Size = Const<1>;
             type WithScalar<S: Scalar> = S;
 
-            fn __expand_as_type(scope: &Scope) -> TypeHandle {
-                let width = UIntKind::$kind.size_bits() as u32;
-                IntegerType::get(scope.ctx(), width, Signedness::Unsigned).into()
-            }
-
             fn from_const_value(value: ConstantValue) -> Self {
                 let ConstantValue::UInt(value) = value else {
                     unreachable!()
                 };
                 value as $primitive
+            }
+        }
+        impl ConstantTyped for $primitive {
+            fn __expand_as_type(scope: &Scope) -> TypeHandle {
+                let width = UIntKind::$kind.size_bits() as u32;
+                IntegerType::get(scope.ctx(), width, Signedness::Unsigned).into()
             }
         }
 
@@ -107,7 +108,8 @@ impl CubePrimitive for usize {
         };
         value as usize
     }
-
+}
+impl ConstantTyped for usize {
     fn __expand_as_type(scope: &Scope) -> TypeHandle {
         IndexType::get(scope.ctx()).into()
     }
@@ -178,7 +180,8 @@ impl CubePrimitive for isize {
         };
         value as isize
     }
-
+}
+impl ConstantTyped for isize {
     fn __expand_as_type(scope: &Scope) -> TypeHandle {
         scope
             .resolve_type::<Self>()

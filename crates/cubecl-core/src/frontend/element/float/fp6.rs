@@ -22,12 +22,13 @@ impl CubePrimitive for e2m3 {
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    fn __expand_as_type(scope: &Scope) -> TypeHandle {
-        Float6E2M3Type::get(scope.ctx()).into()
-    }
-
     fn from_const_value(_value: ConstantValue) -> Self {
         unimplemented!("e2m3 doesn't yet support conversion");
+    }
+}
+impl ConstantTyped for e2m3 {
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        Float6E2M3Type::get(scope.ctx()).into()
     }
 }
 
@@ -60,12 +61,13 @@ impl CubePrimitive for e3m2 {
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    fn __expand_as_type(scope: &Scope) -> TypeHandle {
-        Float6E3M2Type::get(scope.ctx()).into()
-    }
-
     fn from_const_value(_value: ConstantValue) -> Self {
         unimplemented!("e3m2 doesn't yet support conversion");
+    }
+}
+impl ConstantTyped for e3m2 {
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        Float6E3M2Type::get(scope.ctx()).into()
     }
 }
 

@@ -1,12 +1,16 @@
 use crate::prelude::*;
 use cubecl_core::ir::dialect::vector::{
-    self, CompositeExtractOp, CompositeInsertOp, VectorBroadcastOp, VectorExtractDynamicOp,
-    VectorInsertDynamicOp,
+    self, CompositeConstructOp, CompositeExtractOp, CompositeInsertOp, VectorBroadcastOp,
+    VectorExtractDynamicOp, VectorInsertDynamicOp,
 };
 use pliron::attribute::boxed_attr_cast;
 
 fn is_vector(ctx: &Context, ty: impl Typed) -> bool {
     ty.get_type(ctx).deref(ctx).is::<LlvmVectorType>()
+}
+
+fn is_array(ctx: &Context, ty: impl Typed) -> bool {
+    ty.get_type(ctx).deref(ctx).is::<LlvmArrayType>()
 }
 
 pub fn insert_splat(
@@ -31,6 +35,46 @@ pub fn insert_splat(
     splat.get_result(ctx)
 }
 
+pub fn insert_vector_construct(
+    ctx: &mut Context,
+    rewriter: &mut impl Inserter,
+    vec_ty: TypeHandle,
+    values: Vec<Value>,
+) -> Value {
+    let poison = llvm::PoisonOp::new(ctx, vec_ty);
+    rewriter.insert_op(ctx, &poison);
+
+    let mut composite = poison.get_result(ctx);
+    for (i, value) in values.into_iter().enumerate() {
+        let i = insert_i32_const(ctx, rewriter, i as i32);
+        let inserted = llvm::InsertElementOp::new(ctx, composite, value, i);
+        rewriter.insert_op(ctx, &inserted);
+        composite = inserted.get_result(ctx);
+    }
+
+    composite
+}
+
+pub fn insert_array_construct(
+    ctx: &mut Context,
+    rewriter: &mut impl Inserter,
+    arr_ty: TypeHandle,
+    values: Vec<Value>,
+) -> Value {
+    let poison = llvm::PoisonOp::new(ctx, arr_ty);
+    rewriter.insert_op(ctx, &poison);
+
+    let mut composite = poison.get_result(ctx);
+    for (i, value) in values.into_iter().enumerate() {
+        let i = vec![i as u32];
+        let inserted = llvm::InsertValueOp::new(ctx, composite, value, i);
+        rewriter.insert_op(ctx, &inserted);
+        composite = inserted.get_result(ctx);
+    }
+
+    composite
+}
+
 #[op_interface_impl]
 impl ToLLVMDialect for VectorBroadcastOp {
     fn rewrite(
@@ -46,6 +90,31 @@ impl ToLLVMDialect for VectorBroadcastOp {
         let scalar = self.input(ctx);
         let splat = insert_splat(ctx, rewriter, vec_ty, scalar, num_lanes);
         rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![splat]);
+
+        Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl ToLLVMDialect for CompositeConstructOp {
+    fn rewrite(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let res_ty = self.get_result(ctx).get_type(ctx);
+        let ty = cube_type_to_llvm(ctx, res_ty);
+
+        let values = self.values(ctx);
+        let composite = if is_vector(ctx, ty) {
+            insert_vector_construct(ctx, rewriter, ty, values)
+        } else if is_array(ctx, ty) {
+            insert_array_construct(ctx, rewriter, ty, values)
+        } else {
+            panic!("Unsupported type")
+        };
+        rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![composite]);
 
         Ok(())
     }
