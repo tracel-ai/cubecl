@@ -190,9 +190,10 @@ impl Display for Refusal {
             Refusal::UncheckableVectorEdge => write!(
                 f,
                 "Arg: the innermost axis is served in vector lines but is not provably in bounds \
-                 (it overhangs its tiling, or its map is affine and reaches past any extent stated \
-                 here); serve it scalar, or state BoundaryPolicy::Unchecked if the launch proves \
-                 its vector lines are in bounds"
+                 (it overhangs its tiling at an extent the width does not divide, or spans several \
+                 axes, or its map is affine and reaches past any extent stated here); serve it at \
+                 a width dividing its extent, scalar, or state BoundaryPolicy::Unchecked if the \
+                 launch proves its vector lines are in bounds"
             ),
             Refusal::GatherInnermostNotInLines => write!(
                 f,

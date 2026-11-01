@@ -65,7 +65,22 @@ impl Boundaries {
                 .is_some_and(|axes| axes.iter().all(|axis| !overhangs.contains(axis)))
         };
 
-        if width > 1 && !settled(coord_rank - 1) {
+        // Whether coordinate axis `pa` is checked whole lines at a time without clipping one: it
+        // is a single concrete axis, the map never reaches below its start, and `width` divides
+        // its extent, so every line lies wholly before the edge or wholly past it.
+        let whole_lines = |pa: usize| {
+            !projection.may_underflow()
+                && coords
+                    .physical_axis(pa)
+                    .flattened_axes(concrete)
+                    .is_some_and(|axes| match axes.as_slice() {
+                        [axis] => concrete.extent(*axis).is_multiple_of(width),
+                        _ => false,
+                    })
+        };
+
+        let innermost = coord_rank - 1;
+        if width > 1 && !settled(innermost) && !whole_lines(innermost) {
             return Err(Refusal::UncheckableVectorEdge);
         }
 

@@ -1037,28 +1037,23 @@ fn vector_size_falls_back_to_scalar() {
     );
 }
 
+/// An overhanging innermost axis is checked a line at a time against a bound counted in lines,
+/// so a width dividing its extent is admitted: k = 18 overhangs its leaf, and its 2-wide lines lie
+/// wholly before the edge or wholly past it.
 #[test]
-fn arg_checked_and_vectorized_is_refused() {
+fn arg_checked_and_vectorized_at_a_width_dividing_the_extent_is_admitted() {
     let client = cubecl::test_device().client();
-    // k = 18 overhangs its leaf, so the derived check is true: vectorizing must refuse.
-    //
-    // Two wide, not four: an axis overhanging a leaf of 4 has an extent 4 does not divide, so a
-    // 4-wide line would be refused by `Geometry::serves_lines` first and this would stop probing
-    // the bounds question. 18 is a whole number of 2-wide lines and still overhangs.
     let launch = {
         let (space, levels) = batched_space(1, 1, 64, 64, 18);
         implied(&client, Partitioning::new(space, levels), Form::Dynamic)
     };
-    let refused = launch
+    let admitted = launch
         .arg(binding(&client, &[64, 18]), f32::elem_type_native())
         .axes(&[M, K])
         .vectorize(2)
         .build()
         .err();
-    assert!(
-        matches!(refused, Some(Refusal::UncheckableVectorEdge)),
-        "{refused:?}"
-    );
+    assert!(admitted.is_none(), "{admitted:?}");
 }
 
 /// A contiguous dim the launch counts in blocks and a position inside one is in bounds as a single
