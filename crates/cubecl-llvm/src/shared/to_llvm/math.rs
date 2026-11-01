@@ -310,17 +310,25 @@ impl ToLLVMDialect for ShiftRightOp {
         &self,
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
-        operands_info: &OperandsInfo,
+        _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let lhs = self.lhs(ctx);
         let rhs = self.rhs(ctx);
-        // Shift signedness comes from the original operand type.
-        let original_lhs_ty = operands_info
-            .lookup_operand_history(lhs)
-            .first()
-            .copied()
-            .unwrap_or_else(|| lhs.get_type(ctx));
-        let op: &dyn OneResultInterface = if original_lhs_ty.is_signed_int(ctx) {
+        // Signedness comes from the shift's own (still unconverted) cube result type. The
+        // operand's history is wrong here: same-width int casts lower to their input, so
+        // `i32::cast_from(u) >> n` would see `u`'s unsigned origin.
+        let res_ty = self.get_result(ctx).get_type(ctx);
+        let elem_ty = res_ty.try_get_scalar_ty(ctx).unwrap_or(res_ty);
+        let signed = {
+            let elem = elem_ty.deref(ctx);
+            match elem.downcast_ref::<IntegerType>() {
+                Some(int) => int.is_signed(),
+                // `usize` is unsigned.
+                None if elem.is::<IndexType>() => false,
+                None => panic!("ShiftRightOp result is an integer or index"),
+            }
+        };
+        let op: &dyn OneResultInterface = if signed {
             &llvm::AShrOp::new(ctx, lhs, rhs)
         } else {
             &llvm::LShrOp::new(ctx, lhs, rhs)
