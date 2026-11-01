@@ -252,25 +252,19 @@ impl Launcher {
                 "Launcher::vector_size: axis {axis:?} must label each operand's innermost dim"
             );
         }
-        // A masked access is tested a line at a time, so a line straddling the edge would be
-        // clipped whole: an overhang along `axis` serves widths dividing its extent, which no line
-        // straddles, and one along another axis serves scalar.
+        // A masked access counts in lines and would clip wrongly, so overhangs serve scalar.
         let overhangs = self.overhangs();
-        let masked_across = operands
+        let masked = operands
             .iter()
-            .any(|(_, axes)| axes.iter().any(|a| *a != axis && overhangs.contains(a)));
-        if masked_across {
+            .any(|(_, axes)| axes.iter().any(|a| overhangs.contains(a)));
+        if masked {
             return 1;
         }
-        let edge = overhangs
-            .contains(&axis)
-            .then(|| self.concrete.extent(axis));
         let leaf = self.leaf_edge(axis);
         self.client
             .io_optimized_vector_sizes(type_size)
             .filter(|&v| {
                 leaf.is_multiple_of(v)
-                    && edge.is_none_or(|extent| extent.is_multiple_of(v))
                     && operands
                         .iter()
                         .all(|(g, axes)| g.serves(&[(axis, v)], axes).is_ok())

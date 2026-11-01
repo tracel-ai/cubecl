@@ -67,9 +67,15 @@ impl Boundaries {
 
         // Whether coordinate axis `pa` is checked whole lines at a time without clipping one: it
         // is a single concrete axis, the map never reaches below its start, and `width` divides
-        // its extent, so every line lies wholly before the edge or wholly past it.
+        // its extent, so every line lies wholly before the edge or wholly past it. Only a zeroing
+        // mask is tested a line at a time, as a clamp moves each element; and only one this
+        // launch's extent decides, since under `AnyExtent` the kernel serves extents the width
+        // need not divide.
+        let one_extent = !matches!(policy, Some(BoundaryPolicy::AnyExtent(_)));
         let whole_lines = |pa: usize| {
-            !projection.may_underflow()
+            one_extent
+                && boundary == Boundary::Zero
+                && !projection.may_underflow()
                 && coords
                     .physical_axis(pa)
                     .flattened_axes(concrete)

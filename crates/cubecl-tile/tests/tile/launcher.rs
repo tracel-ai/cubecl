@@ -1056,6 +1056,33 @@ fn arg_checked_and_vectorized_at_a_width_dividing_the_extent_is_admitted() {
     assert!(admitted.is_none(), "{admitted:?}");
 }
 
+/// A clamp moves each element to the edge, and `AnyExtent` serves extents the width need not
+/// divide: either refuses the same overhanging lines a zeroing mask admits.
+#[test]
+fn arg_vectorized_over_a_clamp_or_any_extent_is_refused() {
+    let client = cubecl::test_device().client();
+    let launch = {
+        let (space, levels) = batched_space(1, 1, 64, 64, 18);
+        implied(&client, Partitioning::new(space, levels), Form::Dynamic)
+    };
+    for policy in [
+        BoundaryPolicy::Every(Boundary::Clamp),
+        BoundaryPolicy::AnyExtent(Boundary::Zero),
+    ] {
+        let refused = launch
+            .arg(binding(&client, &[64, 18]), f32::elem_type_native())
+            .axes(&[M, K])
+            .boundary(policy)
+            .vectorize(2)
+            .build()
+            .err();
+        assert!(
+            matches!(refused, Some(Refusal::UncheckableVectorEdge)),
+            "{policy:?}: {refused:?}"
+        );
+    }
+}
+
 /// A contiguous dim the launch counts in blocks and a position inside one is in bounds as a single
 /// axis would be: where only the rows overhang, it takes lines wider than one and no mask, and
 /// the rows take the mask.

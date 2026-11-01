@@ -2,6 +2,7 @@
 //! the [`VectorRequirement`]s a kernel states, settled by [`Vectorization`].
 
 use crate::layout::ElemAlignment;
+use crate::{Axis, Space};
 
 /// Why an operand's width must be narrower than the device reads it at.
 ///
@@ -24,10 +25,9 @@ pub enum VectorRequirement<O> {
     Elementwise { operand: O },
     /// The launch binds `operand` masked, as it does where a tile reaches past the operand's edge
     /// along its contiguous axis: a masked access is tested a line at a time, so a line that
-    /// straddled the edge would be clipped whole. Where the operand's `extent` along that axis is
-    /// known, a width dividing it never straddles the edge, every line lying wholly before it or
-    /// wholly past it; where it is not (`None`, an extent stated at launch), the width is one.
-    Masked { operand: O, extent: Option<usize> },
+    /// straddled the edge would be clipped whole. A width dividing an extent the derivation knows
+    /// never straddles it ([`MaskedExtent`]).
+    Masked { operand: O, extent: MaskedExtent },
     /// A component lines `operand` together with `with`, one line of each per step, as a register
     /// block lines the rhs along `n` with its accumulator: the two share one width, the narrowest
     /// of what every operand lined with either admits alone.
@@ -40,7 +40,28 @@ pub enum VectorRequirement<O> {
     },
 }
 
+/// The edge a [`Masked`](VectorRequirement::Masked) operand's lines are tested against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaskedExtent {
+    /// The operand's extent along its contiguous axis, known when the launch is derived: every
+    /// line of a width dividing it lies wholly before the edge or wholly past it.
+    Known(usize),
+    /// An edge no derivation can divide — an extent stated only at launch, or a length the kernel
+    /// reads up to at run time — so the width is one.
+    Unknown,
+}
+
 impl<O: Copy + Eq> VectorRequirement<O> {
+    /// `operand` masked along `axis` of `space`, its contiguous axis: at the axis's extent where
+    /// the space states it, at an [`Unknown`](MaskedExtent::Unknown) edge where it is dynamic.
+    pub fn masked(operand: O, space: &Space, axis: Axis) -> Self {
+        let extent = match space.is_dynamic(axis) {
+            true => MaskedExtent::Unknown,
+            false => MaskedExtent::Known(space.extent(axis)),
+        };
+        VectorRequirement::Masked { operand, extent }
+    }
+
     /// The operand this requirement narrows.
     pub fn operand(&self) -> O {
         match self {
@@ -93,9 +114,10 @@ impl<O: Copy + Eq> VectorRequirement<O> {
         match self {
             VectorRequirement::Access { elements, .. } => elements.is_multiple_of(width),
             VectorRequirement::Elementwise { .. } => width == 1,
-            VectorRequirement::Masked { extent, .. } => {
-                extent.is_some_and(|extent| extent.is_multiple_of(width)) || width == 1
-            }
+            VectorRequirement::Masked { extent, .. } => match extent {
+                MaskedExtent::Known(extent) => extent.is_multiple_of(width),
+                MaskedExtent::Unknown => width == 1,
+            },
             VectorRequirement::Aligned { alignment, .. } => alignment.admits(width),
             // Settled across the operands it lines together by `width`, not by either alone.
             VectorRequirement::Together { .. } => true,
@@ -234,28 +256,28 @@ mod tests {
     }
 
     /// A masked operand binds at a width dividing its extent along its contiguous axis, so no
-    /// line straddles the edge; at one where the extent is stated only at launch.
+    /// line straddles the edge; at one where the edge is unknown.
     #[test]
     fn a_masked_operand_binds_at_a_width_dividing_its_extent() {
         let mut vectorization = Vectorization::new();
         vectorization.require(VectorRequirement::Masked {
             operand: 'a',
-            extent: Some(151_936),
+            extent: MaskedExtent::Known(151_936),
         });
         assert_eq!(vectorization.width('a', |_| 8), 8);
         vectorization.require(VectorRequirement::Masked {
             operand: 'b',
-            extent: Some(1_003),
+            extent: MaskedExtent::Known(1_003),
         });
         assert_eq!(vectorization.width('b', |_| 8), 1);
         vectorization.require(VectorRequirement::Masked {
             operand: 'c',
-            extent: Some(100),
+            extent: MaskedExtent::Known(100),
         });
         assert_eq!(vectorization.width('c', |_| 8), 4);
         vectorization.require(VectorRequirement::Masked {
             operand: 'd',
-            extent: None,
+            extent: MaskedExtent::Unknown,
         });
         assert_eq!(vectorization.width('d', |_| 8), 1);
     }
