@@ -8,8 +8,8 @@ use crate::{
     server::{
         BufferBinding, Collective, CommunicationId, ComputeWait, CopyDescriptor, CubeCount, Handle,
         KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
-        MemoryLayoutStrategy, ProfileError, ProfilingToken, ReduceOperation, Reduction, Server,
-        ServerError, ServerStorage, ServerUtilities,
+        MemoryLayoutStrategy, ProfileError, ProfilingToken, ReduceOperation, Reduction,
+        SendOutcome, Server, ServerError, ServerStorage, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -1214,27 +1214,23 @@ impl Client {
             src_descriptor.handle.size_in_used(),
         );
         let handle_cloned = handle.clone();
-        let received = handle.clone();
-        let peer = dst_server.clone();
+        let (report, sent) = SendOutcome::channel();
 
         // NCCL pairs sends and recvs in the order each device queues them.
         let _order = PEER_ORDER.lock();
 
         self.device.submit(move |server_src| {
-            if let Err(err) = server_src.send(src_descriptor, stream_id_src, device_id_dst) {
-                log::error!(
-                    "send to {device_id_dst:?} failed; the received buffer carries the failure: {err}"
-                );
-                peer.device.submit(move |server_dst| {
-                    server_dst.taint_received(received.binding(), err);
-                });
+            let result = server_src.send(src_descriptor, stream_id_src, device_id_dst);
+            if let Err(err) = &result {
+                log::error!("send to {device_id_dst:?} failed: {err}");
             }
+            report.report(result);
         });
 
         dst_server.device.submit(move |server_dst| {
             // A failed recv taints the destination handle, so the read that
             // consumes this transfer fails on the cause.
-            if let Err(err) = server_dst.recv(handle_cloned, stream_id_dst, device_id_src) {
+            if let Err(err) = server_dst.recv(handle_cloned, stream_id_dst, device_id_src, sent) {
                 log::error!(
                     "recv from {device_id_src:?} failed; the destination carries the failure: {err}"
                 );

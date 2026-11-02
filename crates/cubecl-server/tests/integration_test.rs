@@ -172,8 +172,6 @@ fn a_refused_send_fails_the_read_of_what_its_peer_received() {
     let handle = source.create_from_slice(&[1u8, 2, 3, 4]);
 
     let transferred = source.to_client(handle, &destination);
-    // The refusal is queued on the destination once the source has run the send.
-    cubecl_environment::future::block_on(source.sync()).unwrap();
 
     let error = destination.read_one(transferred).unwrap_err();
     assert!(

@@ -19,7 +19,8 @@ use cubecl_core::{
     prelude::*,
     server::{
         BufferBinding, ComputeWait, CopyDescriptor, Handle, KernelArguments, KernelResource,
-        ProfileError, ProfilingToken, Reduction, ServerCommunication, ServerError, ServerUtilities,
+        ProfileError, ProfilingToken, Reduction, SendOutcome, ServerCommunication, ServerError,
+        ServerUtilities,
     },
 };
 use cubecl_environment::future;
@@ -467,12 +468,9 @@ impl ServerCommunication for HipServer {
         handle: Handle,
         stream_id: StreamId,
         device_id_src: DeviceId,
+        sent: SendOutcome,
     ) -> Result<(), ServerError> {
-        CollectiveServer::recv(self, handle, stream_id, device_id_src)
-    }
-
-    fn taint_received(&mut self, received: BufferBinding, error: ServerError) {
-        CollectiveServer::taint_received(self, received, error);
+        CollectiveServer::recv(self, handle, stream_id, device_id_src, sent)
     }
 }
 

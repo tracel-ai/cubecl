@@ -27,8 +27,8 @@ use cubecl_server::{
     },
     server::{
         BufferBinding, CopyDescriptor, CubeCount, DeviceTransport, Handle, KernelArguments,
-        KernelResource, ProfileError, ProfilingToken, Server, ServerCommunication, ServerError,
-        ServerUtilities,
+        KernelResource, ProfileError, ProfilingToken, SendOutcome, Server, ServerCommunication,
+        ServerError, ServerUtilities,
     },
     storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
     timestamp_profiler::TimestampProfiler,
@@ -108,7 +108,7 @@ impl Marker for Isolated {}
 
 /// A marker for a dummy runtime that claims a transport reducing `f32`, so a collective reaches
 /// the checks that refuse it on the caller. Nothing behind it moves data: every send refuses, as
-/// one whose source was never written does, and every recv fills its destination with zeros.
+/// one whose source was never written does, so every recv taints its destination.
 #[derive(Debug)]
 pub enum Transported {}
 
@@ -170,6 +170,8 @@ impl KernelTask {
     }
 }
 
+/// Only a runtime that claims a transport reaches these: the client refuses a transfer on any
+/// other before it is queued.
 impl<M: Marker> ServerCommunication for DummyServer<M> {
     fn send(
         &mut self,
@@ -188,14 +190,15 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         handle: Handle,
         stream_id: StreamId,
         _device_id_src: DeviceId,
+        sent: SendOutcome,
     ) -> Result<(), ServerError> {
         let zeros = vec![0u8; handle.size() as usize];
-        self.bind_with_data(&zeros, handle, stream_id);
+        self.bind_with_data(&zeros, handle.clone(), stream_id);
+        if let Err(error) = sent.wait() {
+            self.taint(error.clone(), [&handle.binding()].into_iter());
+            return Err(error);
+        }
         Ok(())
-    }
-
-    fn taint_received(&mut self, received: BufferBinding, error: ServerError) {
-        self.taint(error, [&received].into_iter());
     }
 }
 

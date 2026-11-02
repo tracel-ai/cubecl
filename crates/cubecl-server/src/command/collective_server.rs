@@ -10,7 +10,7 @@ use super::{
 };
 use crate::server::{
     BufferBinding, CollectiveBuffer, CommunicationId, ComputeWait, CopyDescriptor, Handle,
-    ReduceOperation, Reduction, ServerError,
+    ReduceOperation, Reduction, SendOutcome, ServerError,
 };
 use crate::stream::{FailureStore, MultiStream};
 use alloc::{format, vec, vec::Vec};
@@ -339,8 +339,7 @@ pub trait CollectiveServer: Sized {
     ///
     /// # Errors
     ///
-    /// A source some failure left unwritten, sent anyway since the peer's recv may already be
-    /// posted, and the driver's refusal to join or send.
+    /// A source some failure left unwritten, and the driver's refusal to join or send.
     fn send(
         &mut self,
         desc: CopyDescriptor,
@@ -354,32 +353,19 @@ pub trait CollectiveServer: Sized {
         let peer = self.collectives().peer_rank(&devices)?;
         let transfers = self.transfer_stream();
 
-        // A source whose writer failed is still sent, since the peer's recv is already posted, and
-        // the refusal goes back to taint what arrives. Scratch stands in for one holding no memory.
-        let refusal = self
-            .streams()
-            .ensure_written([&desc.handle].into_iter())
-            .err();
-        let unallocated = !desc.handle.memory.descriptor().is_allocated();
-        let size = desc.handle.size_in_used();
-        let mut scratch = None;
+        // The send reads the source, so it is worth no more than the work that wrote it. Skipping
+        // this hands the peer stale bytes on a handle that carries no claim over there: the
+        // failure would be laundered across the device boundary.
+        self.streams().ensure_written([&desc.handle].into_iter())?;
+
+        let binding = desc.handle.clone();
+        let size = binding.size_in_used();
 
         // A command on the source server retrieves the resource from the right
         // memory pool, and aligns the current stream with the one the binding
         // was allocated on.
-        let mut command = match unallocated {
-            false => self.command(stream_id, [&desc.handle].into_iter())?,
-            true => self.command(stream_id, [].into_iter())?,
-        };
-        let resource = match unallocated {
-            false => command.resource(desc.handle.clone())?,
-            true => {
-                let handle = command.empty(size)?;
-                let resource = command.resource(handle.clone().binding())?;
-                scratch = Some(handle);
-                resource
-            }
-        };
+        let mut command = self.command(stream_id, [&desc.handle].into_iter())?;
+        let resource = command.resource(binding)?;
         let stream = command.stream().signal();
 
         Self::Driver::wait_for(transfers, stream)?;
@@ -389,14 +375,7 @@ pub trait CollectiveServer: Sized {
         // borrowed from another stream once this stream gets here: both wait for the send.
         Self::Driver::wait_for(stream, transfers)?;
         drop(command);
-        drop(scratch);
-        refusal.map_or(Ok(()), Err)
-    }
-
-    /// Makes a read of `received`, the destination of a [`recv`](Self::recv), fail on `error`,
-    /// the refusal of the send it was paired with.
-    fn taint_received(&mut self, received: BufferBinding, error: ServerError) {
-        self.streams().taint(error, [&received].into_iter());
+        Ok(())
     }
 
     /// Receives into `handle` what `device_id_src` sends with [`send`](Self::send).
@@ -409,6 +388,7 @@ pub trait CollectiveServer: Sized {
         handle: Handle,
         stream_id: StreamId,
         device_id_src: DeviceId,
+        sent: SendOutcome,
     ) -> Result<(), ServerError> {
         // Staged before the handle is consumed below.
         let destination = handle.clone().binding();
@@ -416,7 +396,7 @@ pub trait CollectiveServer: Sized {
         // Every failure from here leaves the destination holding whatever it
         // held, so a read of it has to fail on that rather than take those
         // bytes for a result.
-        match receive(self, handle, stream_id, device_id_src) {
+        match receive(self, handle, stream_id, device_id_src, sent) {
             Ok(()) => {
                 // The data is on its way, so an earlier failure that left the
                 // destination stale has nothing left to say about it.
@@ -536,6 +516,7 @@ fn receive<S: CollectiveServer>(
     handle: Handle,
     stream_id: StreamId,
     device_id_src: DeviceId,
+    sent: SendOutcome,
 ) -> Result<(), ServerError> {
     // Joined before anything that can fail or relocate: on a pair's first
     // transfer the peer's thread waits in its own join until this one arrives.
@@ -552,6 +533,10 @@ fn receive<S: CollectiveServer>(
     let resource = command.resource(handle.binding())?;
     let stream = command.stream().signal();
     drop(command);
+
+    // After the reservation, so a refusal has memory to taint. A send that refused posts nothing,
+    // and a recv posted without it would wait forever.
+    sent.wait()?;
 
     // Compute work queued before the reservation may still use its memory, and compute work
     // queued after it reads what arrives.
