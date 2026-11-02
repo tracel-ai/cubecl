@@ -71,14 +71,39 @@ impl Tiling {
         (0..logical_rank).map(|dim| self.levels(dim) + 1).collect()
     }
 
+    /// The physical dims each of `logical_rank` logical dims is stored as, coarsest first. The
+    /// buffer lists them level-major: every dim's coarsest fragment in logical order, then the
+    /// next fragment of each dim still that deep.
+    pub fn physical_dims(
+        self,
+        logical_rank: usize,
+    ) -> SmallVec<[SmallVec<[usize; MAX_FRAGMENTS]>; MAX_LOGICAL_DIMS]> {
+        let fragments = self.fragments(logical_rank);
+        let mut dims: SmallVec<[SmallVec<[usize; MAX_FRAGMENTS]>; MAX_LOGICAL_DIMS]> =
+            SmallVec::from_elem(SmallVec::new(), logical_rank);
+        let mut physical = 0;
+        for level in 0..MAX_FRAGMENTS {
+            for (dim, &count) in fragments.iter().enumerate() {
+                if level < count {
+                    dims[dim].push(physical);
+                    physical += 1;
+                }
+            }
+        }
+        dims
+    }
+
     /// The logical rank of a buffer of `rank` physical dims: one per dim, less
-    /// the extra fragments.
+    /// the extra fragments. Untiled, any rank, past [`MAX_LOGICAL_DIMS`] too.
     ///
     /// # Errors
     ///
     /// When `rank` holds fewer dims than the tiling's fragments, or a dim past
     /// the logical rank is tiled.
     pub fn logical_rank(self, rank: usize) -> Result<usize, MetadataError> {
+        if !self.is_tiled() {
+            return Ok(rank);
+        }
         let extra: usize = (0..MAX_LOGICAL_DIMS).map(|dim| self.levels(dim)).sum();
         let logical = rank
             .checked_sub(extra)
@@ -92,8 +117,13 @@ impl Tiling {
         self.0 != 0
     }
 
+    /// The extra fragments of logical dim `dim`: none past the dims a `u32` holds, which the
+    /// shift would overflow.
     fn levels(self, dim: usize) -> usize {
-        ((self.0 >> (4 * dim)) & 0b1111) as usize
+        match dim < MAX_LOGICAL_DIMS {
+            true => ((self.0 >> (4 * dim)) & 0b1111) as usize,
+            false => 0,
+        }
     }
 }
 
@@ -127,6 +157,24 @@ mod tests {
         assert!(tiling.logical_rank(4).is_err());
         assert!(tiling.logical_rank(2).is_err());
         assert_eq!(Tiling::UNTILED.logical_rank(4), Ok(4));
+    }
+
+    /// `[k, n]` stored `[k/32, n/64, 32, 64/8, 8]`: each dim's coarsest piece first, in logical
+    /// order, then the next level of each dim still that deep.
+    #[test]
+    fn physical_dims_are_level_major() {
+        let dims = Tiling::new(&[2, 3]).unwrap().physical_dims(2);
+        assert_eq!(dims[0].as_slice(), &[0, 2]);
+        assert_eq!(dims[1].as_slice(), &[1, 3, 4]);
+        assert_eq!(Tiling::UNTILED.physical_dims(3)[2].as_slice(), &[2]);
+    }
+
+    /// An untiled tensor may have more dims than a tiling describes, and its logical rank is
+    /// still its rank: every tensor's shape is read through it.
+    #[test]
+    fn an_untiled_buffer_of_any_rank_is_its_own_logical_rank() {
+        assert_eq!(Tiling::UNTILED.logical_rank(9), Ok(9));
+        assert_eq!(Tiling::UNTILED.fragments(9).as_slice(), &[1; 9]);
     }
 
     #[test]

@@ -223,6 +223,16 @@ impl Partitioning {
             .find(|level| level.coverage() == coverage)
     }
 
+    /// The tiles along `axis` that a level hands its units in turns, where one does.
+    pub fn distributed(&self, axis: Axis) -> Option<usize> {
+        self.levels
+            .iter()
+            .find_map(|level| match level.count(axis) {
+                Some(Count::Distributed(tiles)) => Some(tiles),
+                _ => None,
+            })
+    }
+
     /// The box one of `scope`'s instances covers: the space cut down through the level distributed
     /// over it. Panics where no level distributes over `scope`.
     pub fn box_of(&self, scope: ComputeScope) -> Space {
@@ -356,7 +366,7 @@ impl Partitioning {
     }
 
     /// The cubes the launch's units are grouped in, where a unit level spans the launch.
-    pub fn unit_cube(&self) -> Option<UnitCube> {
+    pub(crate) fn unit_cube(&self) -> Option<UnitCube> {
         self.levels.first().and_then(Level::unit_cube)
     }
 }

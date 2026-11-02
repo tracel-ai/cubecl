@@ -50,6 +50,7 @@ impl Tile {
     /// reach exclusively, one chunk each a round. Nothing is zeroed: every cell's first writer
     /// replaces it. It is served in lines as wide as this tile's, so a partial drains into it and
     /// its sum lands in this tile line for line.
+    #[doc(hidden)] // Public for its test only; `PlanesOutput` opens it.
     pub fn smem_cyclic_accumulation<A: Numeric>(
         &self,
         #[comptime] writers: usize,
@@ -144,6 +145,7 @@ impl<A: Numeric> SmemCyclicAccumulation<A> {
 
     /// [`drain`](SmemCyclicAccumulation::drain) for a partial over one `window` of the box, as a
     /// kernel that walks its planes itself holds one.
+    #[doc(hidden)] // Public for its test only.
     pub fn drain_at(&self, partial: &Tile, window: &Region, writer: usize) {
         let define!(Served) = partial.element;
         #[unroll]

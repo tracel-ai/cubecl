@@ -96,9 +96,9 @@ impl Memory {
     }
 
     /// [`smem`](Memory::smem) for the stage `owner` holds: the cube's one, or the calling plane's
-    /// own copy, with a minimum byte alignment on the buffer, never below one
-    /// [`RowChunks::CHUNK_BYTES`] chunk: an `ldmatrix` row address needs it. `units` is the
-    /// launch's cube size, `0` when unknown.
+    /// own copy, with a minimum byte alignment on the buffer, never below
+    /// [`RowChunks::STAGE_ALIGNMENT_BYTES`]: an `ldmatrix` row address needs a chunk, and the copy
+    /// engine a whole sector. `units` is the launch's cube size, `0` when unknown.
     pub(crate) fn smem_owned<T: Numeric>(
         #[comptime] space: Space,
         #[comptime] vector_size: usize,
@@ -107,7 +107,7 @@ impl Memory {
         #[comptime] alignment: usize,
         #[comptime] owner: StageOwner,
     ) -> Tile {
-        let alignment = comptime!(alignment.max(RowChunks::CHUNK_BYTES));
+        let alignment = comptime!(alignment.max(RowChunks::STAGE_ALIGNMENT_BYTES));
         let elem_bytes = T::size().comptime();
         let form = comptime!(StageForm::dense(
             &space,
@@ -230,8 +230,9 @@ impl Memory {
 
     /// [`smem`](Memory::smem) over the words a [`packed`](Packing::Packed) operand is stored in.
     ///
-    /// The buffer starts on `alignment` bytes, never below one [`RowChunks::CHUNK_BYTES`] chunk: an
-    /// `ldmatrix` row address needs it, and a TMA box the descriptor's swizzle span.
+    /// The buffer starts on `alignment` bytes, never below [`RowChunks::STAGE_ALIGNMENT_BYTES`]: an
+    /// `ldmatrix` row address needs a chunk, the copy engine a whole sector, and a TMA box the
+    /// descriptor's swizzle span.
     pub(crate) fn smem_packed<T: Numeric>(
         #[comptime] space: Space,
         #[comptime] vector_size: usize,
@@ -241,7 +242,7 @@ impl Memory {
         #[comptime] alignment: usize,
         #[comptime] owner: StageOwner,
     ) -> Tile {
-        let alignment = comptime!(alignment.max(RowChunks::CHUNK_BYTES));
+        let alignment = comptime!(alignment.max(RowChunks::STAGE_ALIGNMENT_BYTES));
         let word_bytes = u32::size().comptime();
         let form = comptime!(StageForm::dense(
             &space,

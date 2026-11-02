@@ -19,20 +19,6 @@ pub struct TmaBox {
     pub transposed: bool,
 }
 
-/// What the TMA family launches from: the tensor map, the axes it spans, and its box.
-pub struct TmaOperand {
-    pub map: TensorMapArg<Tiled>,
-    pub axes: Vec<Axis>,
-    pub shape: TmaBox,
-}
-
-impl TmaOperand {
-    /// The tensor map as an operand's values, served at the element it moves, under no scales.
-    pub fn arg(self) -> TileArgLaunch {
-        TileArgLaunch::tensor_map(self.map, &self.axes, self.shape)
-    }
-}
-
 impl TileArgLaunch {
     /// A TMA tensor map as a tile argument over `axes`: two, or three with `shape.batch` set.
     pub fn tensor_map(tensor_map: TensorMapArg<Tiled>, axes: &[Axis], shape: TmaBox) -> Self {
