@@ -366,7 +366,7 @@ impl Partitioning {
     }
 
     /// The cubes the launch's units are grouped in, where a unit level spans the launch.
-    pub fn unit_cube(&self) -> Option<UnitCube> {
+    pub(crate) fn unit_cube(&self) -> Option<UnitCube> {
         self.levels.first().and_then(Level::unit_cube)
     }
 }

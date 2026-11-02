@@ -13,10 +13,9 @@
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{ir::ElemType, prelude::*, zspace::shape};
 use cubecl_tile::ops::matmul::{LoadMethod, MmaIo};
-use cubecl_tile::stage::RowChunks;
+use cubecl_tile::stage::{Prefetch, RowChunks};
 use cubecl_tile::*;
 
-use super::matmul::Schedule;
 use super::{Form, implied};
 
 const M: Axis = Axis(0);
@@ -59,7 +58,7 @@ fn staged_k_walk<EA: Numeric>(
     #[comptime] inner: Level,
     #[comptime] storage: StageStorage,
     #[comptime] depth: usize,
-    #[comptime] schedule: Schedule,
+    #[comptime] schedule: Prefetch,
     #[comptime] leaf: Leaf,
     #[comptime] staging: Staging,
     #[define(EA)] _sum: ElemType,
@@ -128,7 +127,7 @@ fn staged(
     #[comptime] inner: Level,
     #[comptime] storage: StageStorage,
     #[comptime] depth: usize,
-    #[comptime] schedule: Schedule,
+    #[comptime] schedule: Prefetch,
     #[comptime] staging: Staging,
 ) {
     if comptime!(staging == Staging::StageAfterSmallAllocation) {
@@ -160,33 +159,18 @@ fn walk_stages(
     #[comptime] inner: Level,
     #[comptime] storage: StageStorage,
     #[comptime] depth: usize,
-    #[comptime] schedule: Schedule,
+    #[comptime] schedule: Prefetch,
 ) {
     let mut stages = Stages::smem(&walk, a, b, storage, depth, None);
-    match comptime!(schedule) {
-        Schedule::AheadInSlots => {
-            stages.pipelined(walk, |slot, region| {
-                let acc_o = acc.at(region);
-                slot.consume(|a_s, b_s| {
-                    for fragment in region.over(&inner).unrolled() {
-                        let mut acc_f = acc_o.at(&fragment);
-                        acc_f.mma(&a_s.at(&fragment), &b_s.at(&fragment));
-                    }
-                });
-            });
-        }
-        Schedule::ThroughRegisters => {
-            stages.prefetched(walk, |slot, region| {
-                let acc_o = acc.at(region);
-                slot.consume(|a_s, b_s| {
-                    for fragment in region.over(&inner).unrolled() {
-                        let mut acc_f = acc_o.at(&fragment);
-                        acc_f.mma(&a_s.at(&fragment), &b_s.at(&fragment));
-                    }
-                });
-            });
-        }
-    }
+    stages.walk(walk, schedule, |slot, region| {
+        let acc_o = acc.at(region);
+        slot.consume(|a_s, b_s| {
+            for fragment in region.over(&inner).unrolled() {
+                let mut acc_f = acc_o.at(&fragment);
+                acc_f.mma(&a_s.at(&fragment), &b_s.at(&fragment));
+            }
+        });
+    });
 }
 
 /// The `m × n × k` shape this device offers `leaf` at in `input` summed in `f32`: `16×16×16` where
@@ -256,7 +240,7 @@ struct Case {
     lhs_transposed: bool,
     /// Stages in flight.
     depth: usize,
-    schedule: Schedule,
+    schedule: Prefetch,
     leaf: Leaf,
     /// Where the fragments are read from.
     staging: Staging,
@@ -275,7 +259,7 @@ impl Case {
         transposed: false,
         lhs_transposed: false,
         depth: 1,
-        schedule: Schedule::AheadInSlots,
+        schedule: Prefetch::InSlots,
         leaf: Leaf::Mma,
         staging: Staging::Stage,
         input: ElemType::Float(cubecl::ir::FloatKind::F16),
@@ -501,7 +485,7 @@ fn a_weight_stored_along_k_is_read_where_it_lies() {
 #[test]
 fn an_arranged_stage_is_filled_ahead_and_through_registers() {
     for chunks in [RowChunks::Swizzled, RowChunks::Padded] {
-        for schedule in [Schedule::AheadInSlots, Schedule::ThroughRegisters] {
+        for schedule in [Prefetch::InSlots, Prefetch::InRegisters] {
             for transposed in [false, true] {
                 check(Case {
                     chunks,
@@ -537,7 +521,7 @@ fn the_fragment_api_reads_a_padded_stage() {
 fn an_arranged_stage_of_several_blocks_holds_the_product() {
     for chunks in [RowChunks::Swizzled, RowChunks::Padded] {
         for transposed in [false, true] {
-            for schedule in [Schedule::AheadInSlots, Schedule::ThroughRegisters] {
+            for schedule in [Prefetch::InSlots, Prefetch::InRegisters] {
                 check(Case {
                     chunks,
                     mn: 32,
@@ -589,7 +573,7 @@ fn the_fragment_api_reads_a_padded_stage_of_several_blocks() {
 fn the_ldmatrix_transport_reads_every_arrangement() {
     for chunks in [RowChunks::InOrder, RowChunks::Swizzled, RowChunks::Padded] {
         for transposed in [false, true] {
-            for schedule in [Schedule::AheadInSlots, Schedule::ThroughRegisters] {
+            for schedule in [Prefetch::InSlots, Prefetch::InRegisters] {
                 check(Case {
                     chunks,
                     transposed,

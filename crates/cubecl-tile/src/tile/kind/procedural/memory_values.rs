@@ -10,7 +10,7 @@ use crate::*;
 /// A memory tile's values, read one at a time at the coordinates they are asked at. An axis a
 /// read does not name is read where the tile's window sits on it, so a tile cut to one owner's
 /// batch and head reads that batch and head; a coordinate past the buffer reads zero. A recipe
-/// itself, evaluated at its own coordinates, so it composes with any other ([`Sum`](super::Sum)).
+/// itself, evaluated at its own coordinates, so it composes with any other ([`Sum`](crate::procedural::Sum)).
 #[derive(CubeType, Clone)]
 #[expand(derive(Clone))]
 pub struct MemoryValues {

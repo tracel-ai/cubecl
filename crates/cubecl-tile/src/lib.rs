@@ -18,6 +18,7 @@ pub(crate) mod tile;
 pub mod kind {
     pub use crate::tile::accumulator::planes_output::PlanesOutput;
     pub use crate::tile::accumulator::smem_accumulation::SmemAccumulation;
+    #[doc(hidden)]
     pub use crate::tile::accumulator::smem_cyclic::SmemCyclicAccumulation;
     pub use crate::tile::accumulator::smem_slots::SmemSlotsAccumulation;
     pub use crate::tile::kind::memory::base::{Boundary, Schedule, Storage, Write};
@@ -39,7 +40,6 @@ pub mod procedural {
     pub use crate::tile::kind::procedural::memory_values::{MemoryValues, MemoryValuesExpand};
     pub use crate::tile::kind::procedural::normalization::{DivGuard, TapSupport};
     pub use crate::tile::kind::procedural::phase::Phase;
-    pub use crate::tile::kind::procedural::product::{Product, product_of};
     pub use crate::tile::kind::procedural::separable::Factors;
     pub use crate::tile::kind::procedural::sum::{Sum, sum_of};
 }

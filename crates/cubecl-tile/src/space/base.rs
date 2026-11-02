@@ -302,7 +302,7 @@ impl Space {
     }
 
     /// The axes in this space but not in `output`: those contracted.
-    pub fn difference(&self, output: &Space) -> SmallVec<[Axis; Space::MAX_RANK]> {
+    pub(crate) fn difference(&self, output: &Space) -> SmallVec<[Axis; Space::MAX_RANK]> {
         self.axes().filter(|&axis| !output.contains(axis)).collect()
     }
 

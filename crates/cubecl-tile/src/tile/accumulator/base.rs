@@ -156,6 +156,7 @@ impl Tile {
 
     /// A register block over this tile's grid for a reduction over `input` under `monoid`, at
     /// the element `EA`, opened at its identity.
+    #[doc(hidden)] // Public for its regression test only.
     pub fn block_reducer<EA: Numeric>(
         &self,
         input: &Tile,
