@@ -228,17 +228,42 @@ fn register_fetched_widths(#[comptime] lhs: usize, #[comptime] rhs: usize) {
 
 #[cube]
 impl Stages<OperandPair> {
-    /// Registers holding one unit's fill of both operands across a contraction.
+    /// Whether [`prefetched`](Stages::prefetched) holds the next stage in registers; false in the
+    /// cases [`Prefetch::InRegisters`] lists.
+    pub fn prefetches_in_registers(&self) -> comptime_type!(bool) {
+        let staged = self.slots.index(FIRST_SLOT);
+        let fixed = staged.has_fixed();
+        let lhs_beside = self.sources.lhs.scales_beside();
+        let rhs_beside = self.sources.rhs.scales_beside();
+        let lhs_delivery = self.sources.lhs.delivery();
+        let rhs_delivery = self.sources.rhs.delivery();
+        let lhs_straight = staged.data.lhs.fetches_straight_from(&self.sources.lhs);
+        let rhs_straight = staged.data.rhs.fetches_straight_from(&self.sources.rhs);
+        let lhs_scalars = staged.data.lhs.fetched_scalars();
+        let rhs_scalars = staged.data.rhs.fetched_scalars();
+        comptime!(
+            !fixed
+                && !lhs_beside
+                && !rhs_beside
+                && self.fillers == 0
+                && self.depth <= 2
+                && lhs_delivery == Delivery::SyncPerUnit
+                && rhs_delivery == Delivery::SyncPerUnit
+                && lhs_straight
+                && rhs_straight
+                && matches!((lhs_scalars, rhs_scalars), (Some(l), Some(r)) if Prefetch::fits(l + r))
+        )
+    }
+
+    /// Registers holding one unit's fill of both operands across a contraction; only where
+    /// [`prefetches_in_registers`](Stages::prefetches_in_registers) holds.
     #[allow(dead_code)] // Reached through its expand, from `prefetched`.
     pub(crate) fn fetch_buffers<Lhs: Numeric, Rhs: Numeric>(&self) -> FetchBuffers<Lhs, Rhs> {
         let staged = self.slots.index(FIRST_SLOT);
         let lhs = staged.data.lhs.fetched_scalars();
         let rhs = staged.data.rhs.fetched_scalars();
-        comptime!(assert!(
-            Prefetch::fits(lhs + rhs),
-            "Stages: a fill fetched into registers holds {lhs} + {rhs} scalars a unit, past the \
-             {MOST_FETCHED_SCALARS} a unit keeps beside its contraction"
-        ));
+        let lhs = comptime!(lhs.expect("Stages: a register-staged fill has a known share"));
+        let rhs = comptime!(rhs.expect("Stages: a register-staged fill has a known share"));
         let lhs_width = staged.data.lhs.vector_size();
         let rhs_width = staged.data.rhs.vector_size();
         register_fetched_widths(lhs_width, rhs_width);
@@ -275,20 +300,6 @@ impl Stages<OperandPair> {
         let slot = self.slot_mut(slot);
         slot.data.lhs.store_fetched(lhs);
         slot.data.rhs.store_fetched(rhs);
-    }
-
-    /// Refuse stages a register-staged schedule cannot drive.
-    #[allow(dead_code)] // Reached through its expand, from `prefetched`.
-    pub(crate) fn assert_copied_by_every_unit(&self) {
-        let lhs = self.sources.lhs.delivery();
-        let rhs = self.sources.rhs.delivery();
-        comptime!(assert!(
-            self.fillers == 0 && lhs == Delivery::SyncPerUnit && rhs == Delivery::SyncPerUnit,
-            "Stages: a register-staged schedule fills its slots with every unit's own copy of \
-             memory; these stages are filled by {} plane(s) of their own, or their sources are \
-             delivered {lhs:?} and {rhs:?}",
-            self.fillers
-        ));
     }
 }
 
