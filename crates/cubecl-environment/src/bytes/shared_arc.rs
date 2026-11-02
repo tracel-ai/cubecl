@@ -92,6 +92,13 @@ impl AllocationController for SharedAllocationController {
         self.inner.property()
     }
 
+    fn may_alias_mutable_storage(&self) -> bool {
+        match self.controller.get() {
+            Some(controller) => controller.may_alias_mutable_storage(),
+            None => self.inner.may_alias_mutable_storage(),
+        }
+    }
+
     // The view length, known without copy-on-write (never materializes).
     fn capacity(&self) -> usize {
         self.len
