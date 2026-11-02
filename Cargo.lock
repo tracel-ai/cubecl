@@ -1254,6 +1254,7 @@ dependencies = [
  "cubecl-std",
  "derive-new",
  "half",
+ "libloading 0.8.9",
  "log",
  "paste",
  "serde",
