@@ -64,7 +64,6 @@ impl<C: WgpuCompiler> DeviceService for WgpuServer<C> {
 impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
     type Server = WgpuServer<C>;
     type Device = WgpuDevice;
-
     fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         if shape.is_empty() {
             return true;

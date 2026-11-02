@@ -95,4 +95,61 @@ mod tests {
     cubecl_core::testgen_complex_validation!();
     cubecl_core::testgen_profiling!();
     cubecl_core::testgen_profiling_nested!();
+
+    fn external_op_copy(
+        stream: cudarc::driver::sys::CUstream,
+        src: crate::CudaBuffer,
+        dst: crate::CudaBuffer,
+        len: u64,
+    ) -> Result<(), cubecl_core::server::ServerError> {
+        assert_eq!(src.size, len);
+        assert_eq!(dst.size, len);
+        // SAFETY: the test keeps both allocations alive until the stream has
+        // run the copy and the read that follows it.
+        unsafe {
+            cudarc::driver::sys::cuMemcpyDtoDAsync_v2(dst.ptr, src.ptr, len as usize, stream)
+                .result()
+                .map_err(|err| cubecl_core::server::ServerError::Generic {
+                    reason: format!("cuMemcpyDtoDAsync_v2 failed: {err:?}"),
+                    backtrace: cubecl_core::environment::backtrace::BackTrace::capture(),
+                })
+        }
+    }
+
+    fn external_op_fill(
+        stream: cudarc::driver::sys::CUstream,
+        dst: crate::CudaBuffer,
+        len: u64,
+        value: u32,
+    ) -> Result<(), cubecl_core::server::ServerError> {
+        assert_eq!(dst.size, len);
+        // SAFETY: the test fills a live device allocation of `len` bytes.
+        unsafe {
+            cudarc::driver::sys::cuMemsetD32Async(
+                dst.ptr,
+                value,
+                len as usize / core::mem::size_of::<u32>(),
+                stream,
+            )
+            .result()
+            .map_err(|err| cubecl_core::server::ServerError::Generic {
+                reason: format!("cuMemsetD32Async failed: {err:?}"),
+                backtrace: cubecl_core::environment::backtrace::BackTrace::capture(),
+            })
+        }
+    }
+
+    fn external_op_size(buffer: &crate::CudaBuffer) -> u64 {
+        buffer.size
+    }
+
+    cubecl_core::testgen_external_op!(external_op_copy, external_op_fill, external_op_size);
+
+    #[test]
+    fn external_op_retained_after_callback_returns() {
+        let client = TestRuntime::client(&Default::default());
+        cubecl_core::runtime_tests::external_op::test_external_op_retained_after_callback_returns::<
+            TestRuntime,
+        >(client, external_op_copy, external_op_size);
+    }
 }

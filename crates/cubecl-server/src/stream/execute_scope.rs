@@ -32,7 +32,11 @@ use crate::id::KernelId;
 use crate::memory_management::FailureId;
 use crate::server::{BufferBinding, ServerError};
 use crate::stream::{FailureStore, StreamCapture};
+use alloc::boxed::Box;
+use alloc::string::String;
 use alloc::vec::Vec;
+use core::any::Any;
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
 
 /// A server whose device work runs inside an [`ExecuteScope`].
@@ -268,4 +272,22 @@ pub fn failed_writing<S: WriteScoped>(
     error: ServerError,
 ) {
     let _ = ExecuteScope::over(server, stream, written).execute(|_| Err::<(), _>(error));
+}
+
+/// The error a panic inside an external operation is settled as.
+///
+/// The panic never leaves the write scope that was running the operation:
+/// the outputs keep the claim the scope put on them, exactly as a failed
+/// launch's would, and the device thread stays alive for the next submission.
+pub fn external_op_panicked(payload: Box<dyn Any + Send>) -> ServerError {
+    let message = payload
+        .downcast_ref::<&str>()
+        .map(|message| String::from(*message))
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| String::from("a panic with no message"));
+
+    ServerError::Generic {
+        reason: alloc::format!("an external operation panicked: {message}"),
+        backtrace: BackTrace::capture(),
+    }
 }

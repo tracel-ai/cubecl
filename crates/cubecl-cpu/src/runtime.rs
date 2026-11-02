@@ -17,7 +17,10 @@ use cubecl_server::{
     allocator::ContiguousMemoryLayoutPolicy,
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
     logging::ServerLogger,
-    runtime::{DeviceDescription, DeviceKind, DeviceUtilization, Runtime, UtilizationUnavailable},
+    runtime::{
+        DeviceDescription, DeviceKind, DeviceUtilization, NativeRuntime, Runtime,
+        UtilizationUnavailable,
+    },
 };
 use cubecl_std::tensor::is_contiguous;
 use std::sync::Arc;
@@ -280,6 +283,16 @@ impl DeviceService for CpuServer {
     }
 }
 
+/// One binding in the host's own terms: a host pointer and the offset-adjusted
+/// byte size it covers.
+#[derive(Clone, Copy, Debug)]
+pub struct CpuBuffer {
+    /// The host address the binding starts at.
+    pub ptr: *mut u8,
+    /// The binding's byte length.
+    pub size: u64,
+}
+
 impl Runtime for CpuRuntime {
     type Server = CpuServer;
     type Device = CpuDevice;
@@ -317,6 +330,11 @@ impl Runtime for CpuRuntime {
         description.architecture = Some(cubecl_llvm::host_cpu_target().0);
         Some(description)
     }
+}
+
+impl NativeRuntime for CpuRuntime {
+    type NativeStream = ();
+    type NativeBuffer = CpuBuffer;
 }
 
 #[cfg(test)]

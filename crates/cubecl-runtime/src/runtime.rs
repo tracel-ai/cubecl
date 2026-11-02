@@ -111,3 +111,24 @@ pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
         Err(UtilizationUnavailable::RuntimeReadsNoCounter)
     }
 }
+
+/// A runtime whose native stream and buffers can be handed to external
+/// libraries.
+///
+/// Only a backend that can queue an external operation implements this, so
+/// asking for [`Client::external_op`](crate::client::Client::external_op) with
+/// any other runtime is a compile error. The associated types are in the
+/// backend's own terms — a CUDA `CUstream` and device pointer, a HIP
+/// `hipStream_t` and device pointer, a host pointer and `()` on CPU — rather
+/// than a `u64` that happens to fit one of them.
+pub trait NativeRuntime: Runtime {
+    /// The stream external work is enqueued on: `CUstream` on CUDA,
+    /// `hipStream_t` on HIP, `()` on a runtime whose external operations run on
+    /// the host.
+    ///
+    /// Deliberately not `Send`: the stream is created and used on the device
+    /// thread, and the queued callback is the only part that crosses threads.
+    type NativeStream: Copy + 'static;
+    /// One binding in the backend's own terms, with its size.
+    type NativeBuffer: Copy + 'static;
+}
