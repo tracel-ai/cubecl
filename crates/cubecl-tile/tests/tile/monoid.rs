@@ -7,6 +7,7 @@ use cubecl_tile::Monoid;
 use cubecl_tile::space::UnitShare;
 
 /// One unit folds `input` from the monoid's identity, combining one value at a time.
+#[allow(clippy::needless_range_loop)] // a kernel loop indexes; it cannot iterate a slice
 #[cube(launch)]
 fn fold(input: &[f32], out: &mut [f32], #[comptime] monoid: Monoid) {
     let mut acc = Monoid::identity::<f32>(monoid);

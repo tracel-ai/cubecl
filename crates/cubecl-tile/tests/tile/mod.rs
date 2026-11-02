@@ -1,3 +1,4 @@
+mod argmax;
 mod async_copy;
 mod block_scaled;
 mod block_scaled_peak;
