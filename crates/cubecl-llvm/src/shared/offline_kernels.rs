@@ -372,17 +372,17 @@ pub(crate) fn bf16_math_kernel() -> impl CubeKernel {
     )
 }
 
-/// One tile product of `I` operands accumulating in `A`.
+/// One tile product of `A` by `B` accumulating in `CD`.
 #[cube(launch)]
-fn tile_product<I: Float, A: Float>(
-    lhs: &[I],
-    rhs: &[I],
-    out: &mut [A],
+fn tile_product<A: Scalar, B: Scalar, CD: Numeric>(
+    lhs: &[A],
+    rhs: &[B],
+    out: &mut [CD],
     #[comptime] m: usize,
     #[comptime] n: usize,
     #[comptime] k: usize,
 ) {
-    let a = cmma::Matrix::<I>::from_slice(
+    let a = cmma::Matrix::<A>::from_slice(
         cmma::MatrixIdent::A,
         m,
         n,
@@ -391,7 +391,7 @@ fn tile_product<I: Float, A: Float>(
         lhs,
         k as u32,
     );
-    let b = cmma::Matrix::<I>::from_slice(
+    let b = cmma::Matrix::<B>::from_slice(
         cmma::MatrixIdent::B,
         m,
         n,
@@ -400,22 +400,23 @@ fn tile_product<I: Float, A: Float>(
         rhs,
         k as u32,
     );
-    let c = cmma::Matrix::<A>::from_value(
+    let c = cmma::Matrix::<CD>::from_value(
         cmma::MatrixIdent::Accumulator,
         m,
         n,
         k,
         cmma::MatrixLayout::Undefined,
-        A::from_int(0),
+        CD::from_int(0),
     );
     cmma::execute(&a, &b, &c, &c);
     cmma::store(out, &c, n as u32, cmma::MatrixLayout::RowMajor);
 }
 
-/// One `(m, n, k)` tile product of `I` operands accumulating in `A`.
+/// One `(m, n, k)` tile product of `A` by `B` accumulating in `CD`.
 pub(crate) fn tile_product_kernel<
-    I: Float + cubecl_core::CubeElement,
-    A: Float + cubecl_core::CubeElement,
+    A: Scalar + cubecl_core::CubeElement,
+    B: Scalar + cubecl_core::CubeElement,
+    CD: Numeric + cubecl_core::CubeElement,
 >(
     (m, n, k): (usize, usize, usize),
 ) -> impl CubeKernel {
@@ -426,14 +427,14 @@ pub(crate) fn tile_product_kernel<
     );
     let mut props = (*device_properties(32)).clone();
     props.features.matmul.cmma.insert(MmaConfig {
-        a_type: I::cube_type(),
-        b_type: I::cube_type(),
-        cd_type: A::cube_type(),
+        a_type: A::cube_type(),
+        b_type: B::cube_type(),
+        cd_type: CD::cube_type(),
         m: m as u32,
         n: n as u32,
         k: k as u32,
     });
-    tile_product::TileProduct::<I, A>::new(
+    tile_product::TileProduct::<A, B, CD>::new(
         settings,
         Arc::new(props),
         Arc::new(TargetProperties::default()),
