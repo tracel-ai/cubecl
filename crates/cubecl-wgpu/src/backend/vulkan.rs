@@ -4,8 +4,7 @@ use core::{num::NonZeroU64, ptr::NonNull};
 use ash::vk::{
     self, API_VERSION_1_1, BufferDeviceAddressInfo, BufferUsageFlags,
     KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_NAME, MemoryAllocateFlags, MemoryAllocateFlagsInfo,
-    MemoryAllocateInfo, MemoryHeap, MemoryHeapFlags, MemoryPropertyFlags, PhysicalDevice,
-    SharingMode,
+    MemoryAllocateInfo, MemoryHeap, MemoryHeapFlags, PhysicalDevice, SharingMode,
 };
 use cubecl_core::{
     WgpuCompilationOptions,
@@ -29,13 +28,14 @@ use tracel_ash::{
     },
 };
 use wgpu::{
-    BufferUsages, BufferUses, DeviceDescriptor, Features, Limits,
+    DeviceDescriptor, Features, Limits,
     hal::{
         self,
         vulkan::{self, InstanceShared},
     },
 };
 
+use super::vulkan_memory::{map_buffer_usage, storage_memory_type};
 use crate::{HostPtr, WgpuCompiler, WgpuMemory};
 
 mod features;
@@ -231,38 +231,12 @@ pub(crate) fn create_storage_buffer(
 
     let requirements = unsafe { device.get_buffer_memory_requirements(buffer) };
 
-    let memory_props = unsafe { instance.get_physical_device_memory_properties(phys_device) };
-    let num_types = memory_props.memory_type_count as usize;
-    let memory_types = memory_props.memory_types.iter().take(num_types);
-
-    let find_type = |flags: MemoryPropertyFlags| {
-        memory_types
-            .clone()
-            .enumerate()
-            .filter(|(i, _)| requirements.memory_type_bits & (1 << *i) != 0)
-            .find(|(_, it)| it.property_flags.contains(flags))
-            .map(|(i, _)| i)
-    };
-
-    // On a discrete GPU, host-visible memory is the BAR window, often only 256 MiB.
-    let integrated = unsafe { instance.get_physical_device_properties(phys_device) }.device_type
-        == vk::PhysicalDeviceType::INTEGRATED_GPU;
-    let unified_type = integrated
-        .then(|| {
-            find_type(
-                MemoryPropertyFlags::DEVICE_LOCAL
-                    | MemoryPropertyFlags::HOST_VISIBLE
-                    | MemoryPropertyFlags::HOST_COHERENT,
-            )
-        })
-        .flatten();
-
-    let memory_type_idx = unified_type
-        .or_else(|| find_type(MemoryPropertyFlags::DEVICE_LOCAL))
-        .ok_or_else(|| IoError::Unknown {
-            description: "No device local heap found".into(),
-            backtrace: BackTrace::capture(),
-        })?;
+    let (memory_type_idx, unified) =
+        storage_memory_type(instance, phys_device, requirements.memory_type_bits, true)
+            .ok_or_else(|| IoError::Unknown {
+                description: "No device local heap found".into(),
+                backtrace: BackTrace::capture(),
+            })?;
 
     let mut alloc_flags =
         MemoryAllocateFlagsInfo::default().flags(MemoryAllocateFlags::DEVICE_ADDRESS);
@@ -289,16 +263,15 @@ pub(crate) fn create_storage_buffer(
     // Never unmapped: freeing the memory does it. Writing through the mapping is outside the
     // ownership wgpu-hal's `from_raw_managed` claims; it holds because wgpu never maps an
     // imported buffer itself, so recheck on a wgpu bump.
-    let host_ptr = match unified_type {
-        Some(_) => {
-            let ptr = unsafe {
-                device
-                    .map_memory(memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty())
-                    .map_err(|err| as_io_error(err, desc.size))?
-            };
-            NonNull::new(ptr as *mut u8).map(HostPtr)
-        }
-        None => None,
+    let host_ptr = if unified {
+        let ptr = unsafe {
+            device
+                .map_memory(memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty())
+                .map_err(|err| as_io_error(err, desc.size))?
+        };
+        NonNull::new(ptr as *mut u8).map(HostPtr)
+    } else {
+        None
     };
 
     let buffer = unsafe {
@@ -330,38 +303,6 @@ fn as_io_error(result: vk::Result, size: u64) -> IoError {
             backtrace: BackTrace::capture(),
         },
     }
-}
-
-fn map_buffer_usage(usage: BufferUsages) -> BufferUses {
-    let mut u = BufferUses::empty();
-    u.set(BufferUses::MAP_READ, usage.contains(BufferUsages::MAP_READ));
-    u.set(
-        BufferUses::MAP_WRITE,
-        usage.contains(BufferUsages::MAP_WRITE),
-    );
-    u.set(BufferUses::COPY_SRC, usage.contains(BufferUsages::COPY_SRC));
-    u.set(BufferUses::COPY_DST, usage.contains(BufferUsages::COPY_DST));
-    u.set(BufferUses::INDEX, usage.contains(BufferUsages::INDEX));
-    u.set(BufferUses::VERTEX, usage.contains(BufferUsages::VERTEX));
-    u.set(BufferUses::UNIFORM, usage.contains(BufferUsages::UNIFORM));
-    u.set(
-        BufferUses::STORAGE_READ_ONLY | BufferUses::STORAGE_READ_WRITE,
-        usage.contains(BufferUsages::STORAGE),
-    );
-    u.set(BufferUses::INDIRECT, usage.contains(BufferUsages::INDIRECT));
-    u.set(
-        BufferUses::QUERY_RESOLVE,
-        usage.contains(BufferUsages::QUERY_RESOLVE),
-    );
-    u.set(
-        BufferUses::BOTTOM_LEVEL_ACCELERATION_STRUCTURE_INPUT,
-        usage.contains(BufferUsages::BLAS_INPUT),
-    );
-    u.set(
-        BufferUses::TOP_LEVEL_ACCELERATION_STRUCTURE_INPUT,
-        usage.contains(BufferUsages::TLAS_INPUT),
-    );
-    u
 }
 
 /// Request device's supported features
