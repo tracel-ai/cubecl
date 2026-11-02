@@ -3,7 +3,7 @@
 use crate::{
     amdgpu::plane::lane_id,
     prelude::*,
-    shared::matrix::{convert_lanes, registers_as_vector, registers_value},
+    shared::matrix::{convert_lanes, elem_type, registers_as_vector, registers_value},
     shared::plane::bitcast,
 };
 use cubecl_core::ir::{
@@ -14,9 +14,8 @@ use cubecl_core::ir::{
         RowIndexOp, StMatrixOp, StoreOp,
     },
     features::MmaConfig,
-    types::{MatrixIdent, MatrixLayout, matrix::MatrixType},
+    types::{MatrixIdent, MatrixLayout, MatrixShape, matrix::MatrixType},
 };
-use pliron::r#type::type_cast;
 
 #[derive(Debug, Error)]
 #[error(
@@ -26,8 +25,12 @@ use pliron::r#type::type_cast;
 pub struct MatrixRelayoutUnsupported(MatrixIdent, MatrixIdent);
 
 #[derive(Debug, Error)]
-#[error("a k of {0} does not divide into {1}-deep WMMA instructions")]
-pub struct MatrixDepthUnsupported(usize, usize);
+#[error(
+    "no WMMA lowering for a {}x{}x{} tile: one is {INSTRUCTION_M}x{INSTRUCTION_N} and a \
+     multiple of {INSTRUCTION_K} deep",
+    .0.m, .0.n, .0.k
+)]
+pub struct MatrixShapeUnsupported(MatrixShape);
 
 #[derive(Debug, Error)]
 #[error("no {0:?} WMMA instruction multiplies {1:?} by {2:?} into {3:?}")]
@@ -38,19 +41,25 @@ fn pads_half_accumulator(generation: AmdWmma) -> bool {
     generation == AmdWmma::Rdna3
 }
 
-/// How deep along `k` every WMMA form this lowering emits is, on RDNA3 and RDNA4 alike.
+/// The shape of every WMMA form this lowering emits, on RDNA3 and RDNA4 alike.
+const INSTRUCTION_M: usize = 16;
+const INSTRUCTION_N: usize = 16;
 const INSTRUCTION_K: usize = 16;
 
 /// The tile depths offered: one instruction, or two in a row.
 const TILE_KS: [usize; 2] = [INSTRUCTION_K, 2 * INSTRUCTION_K];
 
-/// How many instructions a tile `k` deep takes, where it is a whole number of them.
+/// How many instructions a tile takes, where its output is one instruction's and its depth a
+/// whole number of them.
 ///
 /// A deeper tile is cut into consecutive slices of each lane's fragment. On RDNA4 a lane holds
 /// its half's run of `k`, so a slice pairs `k` from both halves the instruction would not, but A
 /// and B are sliced alike and the products summed are the same.
-fn instruction_steps(k: usize) -> Option<usize> {
-    (k > 0 && k.is_multiple_of(INSTRUCTION_K)).then_some(k / INSTRUCTION_K)
+fn instruction_steps(shape: MatrixShape) -> Option<usize> {
+    let MatrixShape { m, n, k } = shape;
+    let output = m == INSTRUCTION_M && n == INSTRUCTION_N;
+    let depth = k > 0 && k.is_multiple_of(INSTRUCTION_K);
+    (output && depth).then_some(k / INSTRUCTION_K)
 }
 
 /// The WMMA instruction a tile's element types select.
@@ -109,8 +118,8 @@ impl WmmaForm {
                     a_type: a,
                     b_type: b,
                     cd_type: cd,
-                    m: 16,
-                    n: 16,
+                    m: INSTRUCTION_M as u32,
+                    n: INSTRUCTION_N as u32,
                     k: k as u32,
                 })
             })
@@ -119,7 +128,7 @@ impl WmmaForm {
 
     /// The intrinsic's name up to its overloaded types.
     fn intrinsic(&self) -> String {
-        let shape = format!("16x16x{INSTRUCTION_K}");
+        let shape = format!("{INSTRUCTION_M}x{INSTRUCTION_N}x{INSTRUCTION_K}");
         match *self {
             WmmaForm::Half { ab, cd } => {
                 format!(
@@ -139,9 +148,24 @@ impl WmmaForm {
         }
     }
 
-    /// Whether the accumulator is 16 bits wide, which adds an `op_sel` operand.
-    fn half_accumulator(&self) -> bool {
-        matches!(self, WmmaForm::Half { cd, .. } if *cd != F32)
+    /// The `i1` operands the intrinsic takes around its fragments.
+    ///
+    /// Every 16-bit accumulator form takes `op_sel` last: RDNA3 selects a register half with it,
+    /// RDNA4 packs its accumulators and requires it to be 0. The integer forms take each
+    /// operand's signedness ahead of it, and a clamp last, off: an `i32` sum wraps.
+    fn flags(&self) -> WmmaFlags {
+        match *self {
+            WmmaForm::Half { cd, .. } if cd != F32 => WmmaFlags {
+                last: Some(false),
+                ..WmmaFlags::default()
+            },
+            WmmaForm::Half { .. } | WmmaForm::Fp8 { .. } => WmmaFlags::default(),
+            WmmaForm::Int8 { a_signed, b_signed } => WmmaFlags {
+                before_a: Some(a_signed),
+                before_b: Some(b_signed),
+                last: Some(false),
+            },
+        }
     }
 }
 
@@ -163,10 +187,12 @@ fn fp8_name(elem: ElemType) -> &'static str {
     }
 }
 
-fn elem_type(ctx: &Context, ty: TypeHandle) -> ElemType {
-    type_cast::<dyn ScalarType>(&*ty.deref(ctx))
-        .expect("a matrix element is a scalar")
-        .elem_type(ctx)
+/// The `i1` operands a WMMA intrinsic takes ahead of A, ahead of B and after the accumulator.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct WmmaFlags {
+    before_a: Option<bool>,
+    before_b: Option<bool>,
+    last: Option<bool>,
 }
 
 impl CtxWmma for Context {}
@@ -183,10 +209,6 @@ pub trait CtxWmma: ContextExt {
     }
 }
 
-fn is_half(ctx: &Context, elem: TypeHandle) -> bool {
-    elem.is_float16(ctx) || elem.is_bfloat16(ctx)
-}
-
 const ACCUMULATOR_REGISTERS: usize = 8;
 
 const LANES_PER_ROW: u32 = 16;
@@ -197,7 +219,8 @@ fn fragment_layout(ctx: &Context, matrix: &MatrixType) -> (usize, usize) {
     match matrix.ident {
         MatrixIdent::A | MatrixIdent::B => (generation.frag_ab_elems(matrix.shape.k), 1),
         MatrixIdent::Accumulator => {
-            let padded = is_half(ctx, matrix.elem_ty) && pads_half_accumulator(generation);
+            let half = matches!(elem_type(ctx, matrix.elem_ty), F16 | BF16);
+            let padded = half && pads_half_accumulator(generation);
             (ACCUMULATOR_REGISTERS, if padded { 2 } else { 1 })
         }
     }
@@ -543,22 +566,26 @@ fn shuffle(
     insert(ctx, rw, &op)
 }
 
-/// Emits the instructions for a tile `k` deep, or `None` where `k` is not a whole number of
-/// them.
+/// Emits the instructions for a tile, or `None` where no whole number of them makes its shape.
 fn emit_wmma(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
     form: WmmaForm,
-    k: usize,
+    shape: MatrixShape,
     (a_val, b_val, c_val): (Value, Value, Value),
     cd_ty: TypeHandle,
 ) -> Option<Value> {
-    let steps = instruction_steps(k)?;
+    let steps = instruction_steps(shape)?;
     let slice_width = ctx.wmma().frag_ab_elems(INSTRUCTION_K);
 
     let fragment_cd_ty = cd_ty;
     let c_val = wmma_operand(ctx, rw, c_val);
     let cd_ty = c_val.get_type(ctx);
+
+    // The flags are the same for every instruction, so each is built once.
+    let flags = form.flags();
+    let mut flag = |value: Option<bool>| value.map(|value| insert_bool_const(ctx, rw, value));
+    let (before_a, before_b, last) = (flag(flags.before_a), flag(flags.before_b), flag(flags.last));
 
     let mut acc = c_val;
     for step in 0..steps {
@@ -580,22 +607,13 @@ fn emit_wmma(
             llvm_mangled_ty(ctx, arg_ty),
         );
 
-        let args = match form {
-            // Every 16-bit accumulator form takes `op_sel`: RDNA3 selects a register half with
-            // it, RDNA4 packs its accumulators and requires it to be 0.
-            WmmaForm::Half { .. } if form.half_accumulator() => {
-                let low_half = insert_bool_const(ctx, rw, false);
-                vec![a_arg, b_arg, acc, low_half]
-            }
-            WmmaForm::Half { .. } | WmmaForm::Fp8 { .. } => vec![a_arg, b_arg, acc],
-            // Each operand's signedness ahead of it, and no clamping: an `i32` sum wraps.
-            WmmaForm::Int8 { a_signed, b_signed } => {
-                let a_sign = insert_bool_const(ctx, rw, a_signed);
-                let b_sign = insert_bool_const(ctx, rw, b_signed);
-                let clamp = insert_bool_const(ctx, rw, false);
-                vec![a_sign, a_arg, b_sign, b_arg, acc, clamp]
-            }
-        };
+        let args: Vec<Value> = before_a
+            .into_iter()
+            .chain([a_arg])
+            .chain(before_b)
+            .chain([b_arg, acc])
+            .chain(last)
+            .collect();
         let arg_tys = args.iter().map(|arg| arg.get_type(ctx)).collect();
 
         let fn_ty = FuncType::get(ctx, cd_ty, arg_tys, false);
@@ -657,9 +675,9 @@ pub(crate) fn multiply_accumulate(
     let b_val = load_fragment(ctx, rw, b, b_frag_ty);
     let c_val = load_fragment(ctx, rw, c, cd_frag_ty);
 
-    let k = a_ty.shape.k;
-    let Some(result) = emit_wmma(ctx, rw, form, k, (a_val, b_val, c_val), cd_frag_ty) else {
-        return input_err!(op.loc(ctx), MatrixDepthUnsupported(k, INSTRUCTION_K));
+    let shape = a_ty.shape;
+    let Some(result) = emit_wmma(ctx, rw, form, shape, (a_val, b_val, c_val), cd_frag_ty) else {
+        return input_err!(op.loc(ctx), MatrixShapeUnsupported(shape));
     };
     store_fragment(ctx, rw, d, result);
 
@@ -803,9 +821,9 @@ pub(crate) fn mma_manual(
     let b_val = registers_value(ctx, rw, b, b_ty);
     let c_val = registers_value(ctx, rw, c, cd_ty);
 
-    let k = op.shape(ctx).k;
-    let Some(result) = emit_wmma(ctx, rw, form, k, (a_val, b_val, c_val), cd_ty) else {
-        return input_err!(op.loc(ctx), MatrixDepthUnsupported(k, INSTRUCTION_K));
+    let shape = op.shape(ctx).0;
+    let Some(result) = emit_wmma(ctx, rw, form, shape, (a_val, b_val, c_val), cd_ty) else {
+        return input_err!(op.loc(ctx), MatrixShapeUnsupported(shape));
     };
     store_fragment(ctx, rw, d, result);
 
@@ -816,8 +834,8 @@ pub(crate) fn mma_manual(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cubecl_core::ir::types::MatrixScope;
     use cubecl_core::ir::types::scalar::{Float16Type, Float32Type};
-    use cubecl_core::ir::types::{MatrixScope, MatrixShape};
 
     fn matrix(ident: MatrixIdent, elem_ty: TypeHandle, k: usize) -> MatrixType {
         MatrixType {
@@ -870,17 +888,29 @@ mod tests {
         }
     }
 
+    fn shape(m: usize, n: usize, k: usize) -> MatrixShape {
+        MatrixShape { m, n, k }
+    }
+
     #[test]
     fn a_tile_deeper_than_the_instruction_is_several_of_them() {
-        assert_eq!(instruction_steps(16), Some(1));
-        assert_eq!(instruction_steps(32), Some(2));
+        assert_eq!(instruction_steps(shape(16, 16, 16)), Some(1));
+        assert_eq!(instruction_steps(shape(16, 16, 32)), Some(2));
     }
 
     #[test]
     fn a_tile_that_does_not_divide_has_no_lowering() {
-        assert_eq!(instruction_steps(24), None);
-        assert_eq!(instruction_steps(8), None);
-        assert_eq!(instruction_steps(0), None);
+        assert_eq!(instruction_steps(shape(16, 16, 24)), None);
+        assert_eq!(instruction_steps(shape(16, 16, 8)), None);
+        assert_eq!(instruction_steps(shape(16, 16, 0)), None);
+    }
+
+    /// Every instruction writes a 16x16 output, so a tile of any other has no lowering.
+    #[test]
+    fn a_tile_of_another_output_shape_has_no_lowering() {
+        assert_eq!(instruction_steps(shape(32, 8, 16)), None);
+        assert_eq!(instruction_steps(shape(16, 8, 32)), None);
+        assert_eq!(instruction_steps(shape(32, 32, 16)), None);
     }
 
     #[test]
@@ -921,7 +951,23 @@ mod tests {
         assert_eq!(fp8.intrinsic(), "llvm.amdgcn.wmma.f32.16x16x16.fp8.bf8");
         let half = WmmaForm::Half { ab: BF16, cd: BF16 };
         assert_eq!(half.intrinsic(), "llvm.amdgcn.wmma.bf16.16x16x16.bf16");
-        assert!(half.half_accumulator());
+        assert_eq!(
+            half.flags().last,
+            Some(false),
+            "a 16-bit accumulator takes op_sel"
+        );
+        let int8 = WmmaForm::Int8 {
+            a_signed: true,
+            b_signed: false,
+        };
+        assert_eq!(
+            int8.flags(),
+            WmmaFlags {
+                before_a: Some(true),
+                before_b: Some(false),
+                last: Some(false),
+            }
+        );
     }
 
     #[test]

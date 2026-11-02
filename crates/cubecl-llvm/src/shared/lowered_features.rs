@@ -178,9 +178,7 @@ fn advertise_amdgpu_matrix_forms(props: &mut DeviceProperties, wmma: Option<AmdW
     let configs = wmma
         .map(crate::amdgpu::matrix::WmmaForm::configs)
         .unwrap_or_default();
-    if !configs.is_empty() {
-        props.hardware.min_tensor_cores_dim = Some(16);
-    }
+    props.hardware.min_tensor_cores_dim = (!configs.is_empty()).then_some(16);
     let matmul = &mut props.features.matmul;
     matmul.cmma = configs.iter().copied().collect();
     matmul.mma = configs.into_iter().collect();
