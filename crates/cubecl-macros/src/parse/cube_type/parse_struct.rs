@@ -1,6 +1,6 @@
 use darling::{FromDeriveInput, FromField, ast::Data, uses_type_params, util::Flag};
 use quote::format_ident;
-use syn::{Attribute, Generics, Ident, Type, Visibility};
+use syn::{Attribute, Generics, Ident, Meta, Token, Type, Visibility, punctuated::Punctuated};
 
 use crate::{generate::RuntimeField, parse::harness::HarnessGate};
 
@@ -27,6 +27,29 @@ pub struct CubeTypeStruct {
     pub derive: Option<syn::Meta>,
     /// The gate of the `CubeHarness` impls, by `cfg(test)` when absent.
     pub harness: Option<HarnessGate>,
+    /// `#[repr(C)]`: the struct can be a buffer element (a record).
+    #[darling(skip)]
+    pub repr_c: bool,
+}
+
+/// Whether `attrs` declare `#[repr(C)]`. A record's fields are read at their `offset_of!`
+/// offsets with natural alignment, so `packed` is an error.
+pub fn parse_repr_c(attrs: &[Attribute]) -> syn::Result<bool> {
+    let mut repr_c = false;
+    for attr in attrs.iter().filter(|attr| attr.path().is_ident("repr")) {
+        let metas = attr.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)?;
+        for meta in metas {
+            if meta.path().is_ident("C") {
+                repr_c = true;
+            } else if meta.path().is_ident("packed") {
+                return Err(syn::Error::new_spanned(
+                    meta,
+                    "a `#[repr(C)]` cube type can't be `packed`: buffer record fields must be naturally aligned",
+                ));
+            }
+        }
+    }
+    Ok(repr_c)
 }
 
 #[derive(FromField, Clone, Debug)]

@@ -26,6 +26,7 @@ impl CubeTypeStruct {
             let deref_impl = self.deref_expand();
             let cube_type_impl = self.cube_type_impl();
             let expand_type_impl = self.expand_type_impl();
+            let record_impl = self.repr_c.then(|| self.record_impl());
 
             quote! {
                 #expand_ty
@@ -33,6 +34,57 @@ impl CubeTypeStruct {
                 #deref_impl
                 #cube_type_impl
                 #expand_type_impl
+                #record_impl
+            }
+        }
+    }
+
+    /// For a `#[repr(C)]` struct: a buffer record. Each field is a place at its `offset_of!`
+    /// word offset, so `&[Self]` is a kernel argument and `buf[i].field` reads one field.
+    fn record_impl(&self) -> TokenStream {
+        let record_field = prelude_type("RecordField");
+        let slice_element = prelude_type("SliceElement");
+        let buffer_elem = prelude_type("BufferElem");
+        let elem_ptr = prelude_type("ElemPtr");
+        let scope = prelude_type("Scope");
+
+        let name = &self.ident;
+        let name_expand = &self.name_expand;
+        let (generics, generic_names, _) = self.generics.split_for_impl();
+        let where_clause = bounded_where_clause(
+            &self.generics,
+            self.fields.clone(),
+            |ty| quote![#ty: #record_field + 'static],
+        );
+        let fields = self.fields.iter().map(|field| {
+            let ident = field.ident.as_ref().unwrap();
+            let ty = &field.ty;
+            quote! {
+                #ident: <#ty as #record_field>::__expand_record_field(
+                    scope,
+                    rec,
+                    word + ::core::mem::offset_of!(Self, #ident) / 4,
+                )
+            }
+        });
+
+        quote! {
+            impl #generics #record_field for #name #generic_names #where_clause {
+                fn __expand_record_field(scope: &#scope, rec: #elem_ptr, word: usize) -> Self::ExpandType {
+                    #name_expand {
+                        #(#fields),*
+                    }
+                }
+            }
+
+            impl #generics #slice_element for #name #generic_names #where_clause {
+                fn __expand_buffer_elem(scope: &#scope) -> #buffer_elem {
+                    #buffer_elem::record(scope, ::core::mem::size_of::<Self>())
+                }
+
+                fn __expand_place(scope: &#scope, elem: #elem_ptr) -> Self::ExpandType {
+                    <Self as #record_field>::__expand_record_field(scope, elem, 0)
+                }
             }
         }
     }

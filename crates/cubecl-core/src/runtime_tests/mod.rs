@@ -37,6 +37,7 @@ pub mod plane;
 pub mod profiling;
 pub mod properties;
 pub mod read_lazy;
+pub mod record;
 pub mod relocation;
 pub mod saturating;
 pub mod sequence;
@@ -183,6 +184,7 @@ macro_rules! testgen_untyped {
 
         cubecl_core::testgen_control_flow!();
         cubecl_core::testgen_native_array!();
+        cubecl_core::testgen_record!();
         cubecl_core::testgen_stream_errors!();
         cubecl_core::testgen_allocation_mode!();
         cubecl_core::testgen_out_of_memory!();

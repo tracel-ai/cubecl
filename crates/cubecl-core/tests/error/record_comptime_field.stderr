@@ -1,0 +1,5 @@
+error: a `#[repr(C)]` cube type is a buffer record and can't have comptime fields
+ --> tests/error/record_comptime_field.rs:9:5
+  |
+9 |     n: u32,
+  |     ^
