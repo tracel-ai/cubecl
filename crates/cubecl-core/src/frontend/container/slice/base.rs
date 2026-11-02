@@ -37,7 +37,7 @@ impl SliceVisibility for ReadOnly {}
 
 impl SliceVisibility for ReadWrite {}
 
-impl<E: CubePrimitive> SliceExpand<E> {
+impl<E: SliceElement> SliceExpand<E> {
     pub fn __extract_list(&self, scope: &Scope) -> Value {
         scope.extract_field(self.value(scope), SliceMetadata::LIST)
     }
@@ -563,7 +563,7 @@ Expected types to be the same, got [{}, {}]",
     }
 }
 
-pub fn from_raw_parts<E: CubePrimitive>(
+pub fn from_raw_parts<E: SliceElement>(
     scope: &Scope,
     list: Value,
     offset: NativeExpand<usize>,
@@ -577,7 +577,7 @@ pub fn from_raw_parts<E: CubePrimitive>(
     scope.register_with_result(&op).into()
 }
 
-impl<E: CubePrimitive> SliceExpand<E> {
+impl<E: SliceElement> SliceExpand<E> {
     /// Get the length of the slice.
     pub fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
         self.__extract_length(scope)
@@ -589,7 +589,47 @@ impl<E: CubePrimitive> SliceExpand<E> {
     }
 }
 
-impl<E: CubePrimitive> CubeType for [E] {
+/// A type that can be the element of a buffer, the `T` of a kernel argument `&[T]`.
+///
+/// Implemented for every [`CubePrimitive`], and by `#[derive(CubeType)]` for `#[repr(C)]`
+/// structs (see [`RecordField`]).
+pub trait SliceElement: CubeType + Sized + 'static {
+    /// The IR type and size of one buffer element.
+    #[doc(hidden)]
+    fn __expand_buffer_elem(scope: &Scope) -> BufferElem;
+
+    /// The place of the element `elem` points to.
+    #[doc(hidden)]
+    fn __expand_place(scope: &Scope, elem: ElemPtr) -> Self::ExpandType;
+}
+
+/// The IR type of one buffer element and its size in bytes.
+#[derive(Clone, Copy)]
+pub struct BufferElem {
+    pub(crate) ty: TypeHandle,
+    pub(crate) size: usize,
+}
+
+/// A pointer to one buffer element.
+#[derive(Clone, Copy)]
+pub struct ElemPtr {
+    pub(crate) ptr: Value,
+}
+
+impl<P: CubePrimitive> SliceElement for P {
+    fn __expand_buffer_elem(scope: &Scope) -> BufferElem {
+        BufferElem {
+            ty: P::__expand_as_type(scope),
+            size: P::__expand_size(scope),
+        }
+    }
+
+    fn __expand_place(_scope: &Scope, elem: ElemPtr) -> NativeExpand<P> {
+        elem.ptr.into()
+    }
+}
+
+impl<E: SliceElement> CubeType for [E] {
     type ExpandType = SliceExpand<E>;
 }
 
@@ -612,14 +652,14 @@ impl<E> DerefMut for NativeExpand<Box<[E]>> {
 }
 
 macro_rules! impl_expand_traits {
-    ($generic: ident, $ty: ty) => {
-        impl<$generic: CubePrimitive> AsMutExpand for $ty {
+    ($generic: ident: $bound: path, $ty: ty) => {
+        impl<$generic: $bound> AsMutExpand for $ty {
             fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
                 self
             }
         }
 
-        impl<$generic: CubePrimitive> IntoMut for $ty {
+        impl<$generic: $bound> IntoMut for $ty {
             fn into_mut(self, _scope: &Scope) -> Self {
                 self
             }
@@ -627,8 +667,8 @@ macro_rules! impl_expand_traits {
     };
 }
 
-impl_expand_traits!(E, SliceExpand<E>);
-impl_expand_traits!(E, NativeExpand<Box<[E]>>);
+impl_expand_traits!(E: SliceElement, SliceExpand<E>);
+impl_expand_traits!(E: CubePrimitive, NativeExpand<Box<[E]>>);
 
 impl<'a, E: CubePrimitive> From<&'a NativeExpand<Box<[E]>>> for &'a NativeExpand<[E]> {
     fn from(value: &'a NativeExpand<Box<[E]>>) -> Self {
@@ -760,7 +800,7 @@ impl<E: CubePrimitive> SliceExpand<E> {
     }
 }
 
-impl<E: CubePrimitive> IndexExpand<NativeExpand<usize>> for SliceExpand<E> {
+impl<E: SliceElement> IndexExpand<NativeExpand<usize>> for SliceExpand<E> {
     type Output = E::ExpandType;
 
     fn __expand_index_method(&self, scope: &Scope, index: NativeExpand<usize>) -> &Self::Output {
@@ -768,7 +808,7 @@ impl<E: CubePrimitive> IndexExpand<NativeExpand<usize>> for SliceExpand<E> {
     }
 }
 
-impl<E: CubePrimitive> IndexMutExpand<NativeExpand<usize>> for SliceExpand<E> {
+impl<E: SliceElement> IndexMutExpand<NativeExpand<usize>> for SliceExpand<E> {
     fn __expand_index_mut_method(
         &mut self,
         scope: &Scope,
@@ -800,36 +840,45 @@ impl<E: CubePrimitive> VectorizedExpand for NativeExpand<Box<[E]>> {
     }
 }
 
+/// The pointer to element `index` of `slice`.
+fn elem_ptr<E: SliceElement>(
+    scope: &Scope,
+    slice: &SliceExpand<E>,
+    index: NativeExpand<usize>,
+    checked: bool,
+) -> ElemPtr {
+    let list = slice.__extract_list(scope);
+    let offset = slice.__extract_offset(scope);
+    let index = offset.__expand_add_method(scope, index).read_value(scope);
+    ElemPtr {
+        ptr: index_expand(scope, list, index, checked),
+    }
+}
+
 mod read_offset {
     use super::*;
 
-    pub fn expand<'a, E: CubePrimitive>(
+    pub fn expand<'a, E: SliceElement>(
         scope: &Scope,
         slice: &SliceExpand<E>,
         index: NativeExpand<usize>,
         checked: bool,
     ) -> &'a <E as cubecl::prelude::CubeType>::ExpandType {
-        let list = slice.__extract_list(scope);
-        let offset = slice.__extract_offset(scope);
-        let index = offset.__expand_add_method(scope, index);
-
-        expand_index_native(scope, list, index, checked)
+        let elem = elem_ptr(scope, slice, index, checked);
+        scope.create_kernel_ref(E::__expand_place(scope, elem))
     }
 }
 
 mod write_offset {
     use super::*;
 
-    pub fn expand<'a, E: CubePrimitive>(
+    pub fn expand<'a, E: SliceElement>(
         scope: &Scope,
         slice: &SliceExpand<E>,
         index: <usize as CubeType>::ExpandType,
         checked: bool,
     ) -> &'a mut E::ExpandType {
-        let list = slice.__extract_list(scope);
-        let offset = slice.__extract_offset(scope);
-        let index = offset.__expand_add_method(scope, index);
-
-        expand_index_mut_native(scope, list, index, checked)
+        let elem = elem_ptr(scope, slice, index, checked);
+        scope.create_kernel_ref(E::__expand_place(scope, elem))
     }
 }
