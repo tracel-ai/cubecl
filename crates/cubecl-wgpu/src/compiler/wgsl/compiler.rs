@@ -4,6 +4,7 @@ use crate::compiler::wgsl::{
     builtin::{LowerBuiltinsPass, WorkgroupLayout},
     lower::LowerOpsWgslPass,
     metadata::declare_info,
+    ptr_cast::LowerPtrCastPass,
     rewrite_args, shared_memory_size, types,
 };
 use cubecl_server::kernel::BufferIOAttr;
@@ -149,6 +150,7 @@ impl WgslCompiler {
         )));
 
         func_passes.add_pass(LowerOpsWgslPass::default());
+        func_passes.add_pass(LowerPtrCastPass::default());
         func_passes.add_pass(LowerSaturatingArithmeticPass::default());
         func_passes.add_pass(LowerBuiltinsPass);
 
