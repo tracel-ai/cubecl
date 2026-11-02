@@ -9,7 +9,8 @@ use cubecl_environment::stream::StreamId;
 use cubecl_ir::{ElemType, FloatKind, UIntKind};
 use cubecl_server::client::{Client, ClientGroup, ClientGroupError, MemberBuffers};
 use cubecl_server::server::{
-    CubeCount, Handle, IoError, KernelArguments, Overlap, ReduceOperation, ServerError,
+    CopyDescriptor, CubeCount, Handle, IoError, KernelArguments, Overlap, ReduceOperation,
+    ServerError,
 };
 use cubecl_server::{
     local_tuner,
@@ -28,6 +29,27 @@ fn created_resource_is_the_same_when_read() {
     let obtained_resource = client.read_one(resource_description).unwrap().to_vec();
 
     assert_eq!(resource, obtained_resource)
+}
+
+/// A copying backend releases the source at materialization without changing the snapshot.
+#[test_log::test]
+fn lazy_read_releases_a_copied_source() {
+    let client = test_client(&DummyDevice);
+    let source = client.create_from_slice(&[1, 2, 3, 4]);
+    let bytes = client.read_lazy(CopyDescriptor::new(
+        source.clone(),
+        [4].into(),
+        [1].into(),
+        1,
+    ));
+    assert!(!source.can_mut());
+    assert_eq!(&*bytes, &[1, 2, 3, 4]);
+    assert!(!bytes.may_alias_mutable_storage());
+    assert!(source.can_mut(), "a completed copy must release the source");
+
+    client.write(&source, Bytes::from_bytes_vec(vec![9; 4]));
+    cubecl_environment::future::block_on(client.sync()).unwrap();
+    assert_eq!(&*bytes, &[1, 2, 3, 4]);
 }
 
 #[test_log::test]

@@ -21,6 +21,73 @@ mod tests {
     cubecl_std::testgen_quantized_view!(f32);
     cubecl_core::testgen_complex_validation!();
 
+    /// Lazy CPU snapshots remain zero-copy without permitting writes to their shared source.
+    #[test]
+    fn lazy_reads_hold_zero_copy_storage() {
+        use cubecl_core::server::CopyDescriptor;
+
+        let client = TestRuntime::client(&Default::default());
+        let handle = client.create_from_slice(&[1, 2, 3, 4]);
+        let eager = client.read_one_unchecked(handle.clone());
+        let mut lazy = client.read_lazy(CopyDescriptor::new(
+            handle.clone(),
+            [4].into(),
+            [1].into(),
+            1,
+        ));
+        assert_eq!(lazy.as_ptr(), eager.as_ptr(), "reads must remain zero-copy");
+        drop(eager);
+        assert!(!handle.can_mut(), "materializing must retain the source");
+        assert!(
+            lazy.may_alias_mutable_storage(),
+            "the source guard does not remove the alias"
+        );
+        assert!(
+            lazy.view(0, 1).is_err(),
+            "views must not bypass cached bytes"
+        );
+        lazy[0] = 8;
+        assert!(!lazy.may_alias_mutable_storage());
+        assert_eq!(&*client.read_one_unchecked(handle.clone()), &[1, 2, 3, 4]);
+        assert!(
+            handle.can_mut(),
+            "copy-on-write releases the aliased source"
+        );
+        assert_eq!(&*lazy, &[8, 2, 3, 4]);
+    }
+
+    /// Eager reads remain live aliases; shared views report aliasing until their own copy-on-write.
+    #[test]
+    fn eager_reads_preserve_source_mutability() {
+        use cubecl_common::bytes::Bytes;
+
+        let client = TestRuntime::client(&Default::default());
+        let handle = client.create_from_slice(&[1, 2, 3, 4]);
+        let bytes = client.read_one_unchecked(handle.clone());
+        assert!(
+            handle.can_mut(),
+            "eager reads must not retain a source handle"
+        );
+        assert!(bytes.may_alias_mutable_storage());
+        client.write(&handle, Bytes::from_bytes_vec(vec![5, 6, 7, 8]));
+        cubecl_environment::future::block_on(client.sync()).unwrap();
+        assert_eq!(&*bytes, &[5, 6, 7, 8], "eager reads remain live aliases");
+
+        let mut shared = bytes.shared();
+        assert!(
+            shared.may_alias_mutable_storage(),
+            "sharing must preserve alias information"
+        );
+        let view = shared.view(0, 2).unwrap();
+        assert!(view.may_alias_mutable_storage());
+        shared[0] = 9;
+        assert!(!shared.may_alias_mutable_storage());
+        assert!(
+            view.may_alias_mutable_storage(),
+            "another view still aliases the source"
+        );
+    }
+
     #[cube(launch_unchecked)]
     fn transcendentals<N: Size>(
         input: &[Vector<f32, N>],

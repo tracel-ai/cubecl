@@ -446,6 +446,7 @@ impl Client {
     /// Until that first access the [`Bytes`] hold `source`'s handle, so [`Handle::can_mut`] is
     /// false for it and a caller that honours it does not write the buffer in place: the data
     /// read is the data as it was at this call.
+    /// A zero-copy host read keeps holding the source until dropped or copied for mutation.
     #[cfg(not(target_family = "wasm"))]
     pub fn read_lazy(&self, source: CopyDescriptor<Handle>) -> Bytes {
         self.expect_local(&source.handle.clone().binding());
