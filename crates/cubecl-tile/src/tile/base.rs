@@ -348,6 +348,19 @@ impl Tile {
         }
     }
 
+    /// Whether this is a memory window whose rows step by one stride
+    /// ([`Memory::rows_step_by_stride`]).
+    pub(crate) fn rows_step_by_stride(&self) -> comptime_type!(bool) {
+        match &self.kind {
+            TileKind::Memory(m) => m.rows_step_by_stride(comptime!(self.place.space.clone())),
+            TileKind::Procedural(_)
+            | TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Lines(_) => comptime!(false),
+        }
+    }
+
     /// `Some(n)` for a recipe stating `n` separable factors, `None` otherwise.
     pub(crate) fn factors(&self) -> comptime_type!(Option<usize>) {
         match &self.kind {
