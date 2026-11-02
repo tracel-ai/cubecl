@@ -95,6 +95,7 @@ binop_to_spirv_dialect!(SimplePowOp => gl::PowOp);
 unop_to_spirv_dialect!(math::SAbsOp => gl::SAbsOp);
 unop_to_spirv_dialect!(math::FAbsOp => gl::FAbsOp);
 unop_to_spirv_dialect!(math::ExpOp => gl::ExpOp);
+unop_to_spirv_dialect!(math::Exp2Op => gl::Exp2Op);
 unop_to_spirv_dialect!(math::LogOp => gl::LogOp);
 unop_to_spirv_dialect!(math::IsNanOp => ops::IsNanOp);
 unop_to_spirv_dialect!(math::IsInfOp => ops::IsInfOp);

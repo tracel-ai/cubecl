@@ -553,6 +553,27 @@ test_unary_impl!(test_exp, F, Vector::exp, [
     }
 ]);
 
+test_unary_impl!(test_exp2, F, Vector::exp2, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0., 1., -1., 3., 0.5, -0.5, -10., 1.5],
+        expected: as_type![F: 1., 2., 0.5, 8., 1.414_213_6, 0.707_106_77, 0.000_976_562_5, 2.828_427_1]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 0., 1., -1., 3., 0.5, -0.5, -10., 1.5],
+        expected: as_type![F: 1., 2., 0.5, 8., 1.414_213_6, 0.707_106_77, 0.000_976_562_5, 2.828_427_1]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0., 1., -1., 3., 0.5, -0.5, -10., 1.5],
+        expected: as_type![F: 1., 2., 0.5, 8., 1.414_213_6, 0.707_106_77, 0.000_976_562_5, 2.828_427_1]
+    }
+]);
+
 test_unary_impl!(test_ln, F, Vector::ln, [
     {
         input_vectorization: 1,
@@ -1129,6 +1150,7 @@ macro_rules! testgen_unary {
             add_test!(test_cosh);
             add_test!(test_tanh);
             add_test!(test_exp);
+            add_test!(test_exp2);
             add_test!(test_ln);
             add_test!(test_asin);
             add_test!(test_acos);

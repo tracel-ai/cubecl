@@ -1,6 +1,8 @@
 //! The online softmax as a tile op: a score taken in along one axis, one block of it at a time,
 //! into each slice's running max and sum, where its holder already keeps the score.
 
+use core::f64::consts::LOG2_E;
+
 use cubecl::prelude::*;
 
 use crate::launch::Relay;
@@ -88,16 +90,29 @@ impl<E: Float> OnlineSoftmax<E> {
         let mut slices = score.along(self.axis);
         slices.scale_add::<E>(scale, bias);
         let max = slices.maxima::<E>(&self.m);
-        slices.exp_minus::<E>(&max);
-        let sum = slices.sums::<E>();
-        let mut correction = Array::<E>::new(self.slices);
+        self.exp_minus(&mut slices, E::from_int(1), &max);
+        self.take_in(&slices, &max)
+    }
+
+    /// [`step`](OnlineSoftmax::step) for a block no bias touches, one multiply-add and one exponential a
+    /// cell: the max is taken over the raw scores and scaled once a slice, and each cell's
+    /// `exp(score · scale − max)` is computed in place, `score · scale` never stored. `scale` is
+    /// positive, so the raw scores' max scales to the scaled scores' max.
+    pub fn step_unbiased(&mut self, score: &Tile, scale: E) -> Array<E> {
+        let mut slices = score.along(self.axis);
+        let mut floor = Array::<E>::new(self.slices);
         #[unroll]
         for i in 0..self.slices {
-            correction[i] = (self.m[i] - max[i]).exp();
-            self.l[i] = correction[i] * self.l[i] + sum[i];
-            self.m[i] = max[i];
+            floor[i] = E::min_value();
         }
-        correction
+        let raw = slices.maxima::<E>(&floor);
+        let mut max = Array::<E>::new(self.slices);
+        #[unroll]
+        for i in 0..self.slices {
+            max[i] = self.m[i].max(raw[i] * scale);
+        }
+        self.exp_minus(&mut slices, scale, &max);
+        self.take_in(&slices, &max)
     }
 
     /// What this plane's sum against the values is multiplied by once its last block is taken in:
@@ -306,6 +321,35 @@ impl<E: Float> OnlineSoftmax<E> {
             recip[i] = select(live, self.l[i].recip(), E::from_int(0));
         }
         recip
+    }
+
+    /// `slices[i, s] = exp(slices[i, s] · scale − max[i])`, zero along a slice whose max is
+    /// still the minimum value, nothing live in it yet. It runs in base 2, as the hardware does:
+    /// each slice's offset `max · log2(e)` once, then each cell's
+    /// `2^(score · scale · log2(e) − offset)`. A dead slice's offset is infinite.
+    fn exp_minus(&self, slices: &mut AxisSlices, scale: E, max: &Array<E>) {
+        let log2_e = E::new(LOG2_E);
+        let mut offsets = Array::<E>::new(self.slices);
+        #[unroll]
+        for i in 0..self.slices {
+            let live = max[i] > E::min_value();
+            offsets[i] = select(live, max[i] * log2_e, E::new(f64::INFINITY));
+        }
+        slices.exp2_scaled_minus::<E>(scale * log2_e, &offsets);
+    }
+
+    /// Move the slices' sum and max on past a block whose probabilities `slices` holds, under the
+    /// block's new `max`. Returns each slice's `exp(max before − max after)`.
+    fn take_in(&mut self, slices: &AxisSlices, max: &Array<E>) -> Array<E> {
+        let sum = slices.sums::<E>();
+        let mut correction = Array::<E>::new(self.slices);
+        #[unroll]
+        for i in 0..self.slices {
+            correction[i] = (self.m[i] - max[i]).exp();
+            self.l[i] = correction[i] * self.l[i] + sum[i];
+            self.m[i] = max[i];
+        }
+        correction
     }
 
     /// The state of `slices` slices before any block is taken in, its slots keeping `slots`.
