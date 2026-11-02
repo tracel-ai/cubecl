@@ -672,12 +672,19 @@ fn test_powi_int_cases<I: Int + Powi<i32> + CubeElement + Display>(
 pub fn test_powi_int<R: Runtime>(client: Client) {
     test_powi_int_cases(&client, &[3i32, 2, -3, 7], &[2, 3, 3, 0], &[9, 8, -27, 1]);
 
-    // Exercise truncation, signed overflow, exponent bit 31, and unsigned bases.
+    // Exercise truncation, signed overflow, negative exponents, and unsigned bases.
     macro_rules! check {
         ($ty:ty, $lhs:expr, $rhs:expr) => {{
             let lhs: [$ty; 8] = $lhs;
             let rhs: [i32; 8] = $rhs;
-            let expected: [$ty; 8] = core::array::from_fn(|i| lhs[i].wrapping_pow(rhs[i] as u32));
+            let expected: [$ty; 8] = core::array::from_fn(|i| match (lhs[i] as i128, rhs[i]) {
+                (_, exp @ 0..) => lhs[i].wrapping_pow(exp as u32),
+                // `1 / base^|exp|` truncates to 0 unless the base is 1 or -1.
+                (1, _) => 1,
+                (-1, exp) if exp % 2 == 0 => 1,
+                (-1, _) => lhs[i],
+                _ => 0,
+            });
             test_powi_int_cases(&client, &lhs, &rhs, &expected);
         }};
     }
@@ -711,6 +718,95 @@ pub fn test_powi_int<R: Runtime>(client: Client) {
         [u64::MAX, 4294967297, 3, 0, 3, 7, 2, 5],
         [2, 2, 40, 0, -1, 0, 64, 3]
     );
+}
+
+pub fn test_powi_int_negative_exponent<R: Runtime>(client: Client) {
+    // A negative exponent gives `1 / base^|exp|` truncated toward zero: 1 for a base of 1,
+    // 1 or -1 by parity for a base of -1, and 0 otherwise, including for a base of 0.
+    let exp = [-1, -3, -1, -2, -1, -2, i32::MIN, -31];
+    macro_rules! signed {
+        ($ty:ty) => {
+            test_powi_int_cases::<$ty>(
+                &client,
+                &[3, -3, 0, 1, -1, -1, -1, 2],
+                &exp,
+                &[0, 0, 0, 1, -1, 1, 1, 0],
+            );
+        };
+    }
+    signed!(i8);
+    signed!(i16);
+    signed!(i32);
+    signed!(i64);
+
+    // An unsigned base has no -1, so its maximum value goes to 0 like any other base above 1.
+    macro_rules! unsigned {
+        ($ty:ty) => {
+            test_powi_int_cases::<$ty>(
+                &client,
+                &[3, 0, 1, <$ty>::MAX, 2, 1, <$ty>::MAX, 7],
+                &exp,
+                &[0, 0, 1, 0, 0, 1, 0, 0],
+            );
+        };
+    }
+    unsigned!(u8);
+    unsigned!(u16);
+    unsigned!(u32);
+    unsigned!(u64);
+}
+
+#[cube(launch_unchecked)]
+fn test_powi_unsigned_kernel<I: Int, N: Size>(
+    lhs: &[Vector<I, N>],
+    rhs: &[Vector<u32, N>],
+    output: &mut [Vector<I, N>],
+) {
+    if ABSOLUTE_POS < rhs.len() {
+        output[ABSOLUTE_POS] = polyfills::powi_unsigned(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
+    }
+}
+
+pub fn test_powi_unsigned<R: Runtime>(client: Client) {
+    use cubecl_ir::features::TypeUsage;
+
+    // Exponents above `i32::MAX` stay powers, for signed and unsigned bases alike.
+    let rhs: [u32; 8] = [3_000_000_001, 1 << 31, u32::MAX, (1 << 31) + 1, 0, 1, 7, 40];
+    macro_rules! check {
+        ($ty:ty, $lhs:expr) => {{
+            let lhs: [$ty; 8] = $lhs;
+            let expected: [$ty; 8] = core::array::from_fn(|i| lhs[i].wrapping_pow(rhs[i]));
+
+            let uses = <$ty>::supported_uses(&client);
+            if uses.contains(TypeUsage::Arithmetic) && uses.contains(TypeUsage::Buffer) {
+                for vectorization in [1, 4] {
+                    let output_handle = client.empty(core::mem::size_of_val(&expected));
+                    let lhs_handle = client.create_from_slice(<$ty>::as_bytes(&lhs));
+                    let rhs_handle = client.create_from_slice(u32::as_bytes(&rhs));
+                    unsafe {
+                        test_powi_unsigned_kernel::launch_unchecked::<$ty>(
+                            &client,
+                            CubeCount::Static(1, 1, 1),
+                            CubeDim::new_1d((expected.len() / vectorization) as u32),
+                            vectorization,
+                            BufferArg::from_raw_parts(lhs_handle, expected.len()),
+                            BufferArg::from_raw_parts(rhs_handle, expected.len()),
+                            BufferArg::from_raw_parts(output_handle.clone(), expected.len()),
+                        )
+                    };
+                    assert_equals_exact::<$ty>(&client, output_handle, &expected);
+                }
+            }
+        }};
+    }
+    check!(i8, [3, -1, -1, -1, 0, -128, 2, -3]);
+    check!(u8, [3, 255, 5, 255, 0, 200, 2, 3]);
+    check!(i16, [3, -1, -1, -1, 0, i16::MIN, 2, -3]);
+    check!(u16, [3, u16::MAX, 5, u16::MAX, 0, 300, 2, 3]);
+    check!(i32, [3, -1, -1, -1, 0, i32::MIN, 2, -3]);
+    check!(u32, [3, u32::MAX, 5, u32::MAX, 0, 65536, 2, 3]);
+    check!(i64, [3, -1, -1, -1, 0, i64::MIN, 2, -3]);
+    check!(u64, [3, u64::MAX, 5, u64::MAX, 0, 4294967297, 2, 3]);
 }
 
 #[cube(launch_unchecked)]
@@ -1207,6 +1303,8 @@ macro_rules! testgen_binary_untyped {
             add_test!(test_mulhi);
             add_test!(test_dp4a);
             add_test!(test_powi_int);
+            add_test!(test_powi_int_negative_exponent);
+            add_test!(test_powi_unsigned);
             add_test!(test_powi_negative_near_one);
             add_test!(test_signed_remainder);
             add_test!(test_self_div);
