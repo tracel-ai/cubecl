@@ -10,8 +10,8 @@ use crate::space::UnitShare;
 /// operation and an identity, so the carrier says what each monoid it has does on it; a carrier
 /// without one refuses it when the kernel expands.
 ///
-/// Numbers and their vectors have all four monoids. [`Indexed`](crate::Indexed) has `Max` and
-/// `Min`.
+/// Numbers and their vectors have all four monoids. [`Indexed`](crate::Indexed) and
+/// [`TopK`](crate::TopK) have `Max` and `Min`.
 #[cube]
 pub trait Carrier: CubeType + Sized {
     /// `lhs ∗ rhs` under `monoid`.

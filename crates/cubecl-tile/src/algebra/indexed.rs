@@ -27,11 +27,7 @@ pub struct Indexed<E: Numeric, N: Size> {
 impl<E: Numeric, N: Size> Carrier for Indexed<E, N> {
     fn combine(lhs: Self, rhs: Self, #[comptime] monoid: Monoid) -> Self {
         ordered_only(monoid);
-        let keep_lhs = select_many(
-            same_value::<E, N>(lhs.value, rhs.value),
-            lhs.index.less_than(&rhs.index),
-            ahead::<E, N>(lhs.value, rhs.value, monoid),
-        );
+        let keep_lhs = wins::<E, N>(lhs, rhs, monoid);
         Indexed::<E, N> {
             value: select_many(keep_lhs, lhs.value, rhs.value),
             index: select_many(keep_lhs, lhs.index, rhs.index),
@@ -82,9 +78,23 @@ impl<E: Numeric, N: Size> Carrier for Indexed<E, N> {
     }
 }
 
+/// Where `lhs` wins over `rhs` under `monoid`: by value, then by the lower index.
+#[cube]
+pub(crate) fn wins<E: Numeric, N: Size>(
+    lhs: Indexed<E, N>,
+    rhs: Indexed<E, N>,
+    #[comptime] monoid: Monoid,
+) -> Vector<bool, N> {
+    select_many(
+        same_value::<E, N>(lhs.value, rhs.value),
+        lhs.index.less_than(&rhs.index),
+        ahead::<E, N>(lhs.value, rhs.value, monoid),
+    )
+}
+
 /// Refuses `Sum` and `Prod`, which an index has no meaning under.
 #[cube]
-fn ordered_only(#[comptime] monoid: Monoid) {
+pub(crate) fn ordered_only(#[comptime] monoid: Monoid) {
     comptime!(assert!(
         matches!(monoid, Monoid::Max | Monoid::Min),
         "Indexed: {monoid:?} has no meaning on an index; an Indexed combines under Max or Min"
