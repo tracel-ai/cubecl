@@ -19,6 +19,7 @@ mod launcher;
 mod leaf;
 mod leaves;
 mod matmul;
+mod monoid;
 mod online_softmax;
 mod packed;
 mod paged;
