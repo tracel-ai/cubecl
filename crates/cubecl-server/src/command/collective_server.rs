@@ -521,12 +521,12 @@ fn receive<S: CollectiveServer>(
     let comm = *server.collectives().transfers_with(device_id_src)?;
     let devices = pair(server.device_id(), device_id_src);
     let peer = server.collectives().peer_rank(&devices)?;
-    let size = handle.size();
+    let size = handle.size_in_used();
 
     // A command on the destination server reserves the memory the incoming
     // data lands in.
     let mut command = server.command(stream_id, [].into_iter())?;
-    let memory = command.reserve(size)?;
+    let memory = command.reserve(handle.size())?;
     command.bind(memory, handle.memory.clone())?;
     let resource = command.resource(handle.binding())?;
     let stream = command.stream().signal();
