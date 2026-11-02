@@ -415,7 +415,7 @@ mod tests {
         shared::operation::OpToCPP,
         target::{CtxTarget, Target},
     };
-    use cubecl_core::ir::{ComplexKind, ConstantValue, ElemType, FloatKind};
+    use cubecl_core::ir::{ConstantValue, ElemType, FloatKind};
     use pliron::{attribute::boxed_attr_cast, builtin::ops::ConstantOp};
 
     /// `log1p`'s native emission and whether this target needs the polyfill.

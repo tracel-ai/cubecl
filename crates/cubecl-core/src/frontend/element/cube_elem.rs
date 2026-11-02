@@ -2,7 +2,7 @@ use core::fmt::Debug;
 
 use crate::{
     self as cubecl, Assign, IntoRuntime,
-    frontend::{CanReadValue, ScalarPartialEq},
+    frontend::{CanReadValue, IntoExpand, RuntimeAssign, ScalarPartialEq},
     prelude::{Const, CubeDebug, IntoMut, Size},
     unexpanded,
 };
@@ -22,6 +22,7 @@ use super::{NativeAssign, NativeExpand};
 pub trait CubePrimitive:
     CubeType<ExpandType = NativeExpand<Self>>
     + NativeAssign
+    + ConstantTyped
     + CanReadValue
     + CubeDebug
     + Send
@@ -33,21 +34,6 @@ pub trait CubePrimitive:
     type Scalar: Scalar;
     type Size: Size;
     type WithScalar<S: Scalar>: CubePrimitive;
-
-    /// Return the element type to use on GPU.
-    fn as_type() -> TypeHandle {
-        unexpanded!()
-    }
-
-    /// Only native element types have a size.
-    fn size() -> usize {
-        size_of::<Self>()
-    }
-
-    /// Only native element types have a size.
-    fn size_bits() -> usize {
-        Self::size() * 8
-    }
 
     fn from_expand_elem(elem: ExpandValue) -> Self::ExpandType {
         NativeExpand::new(elem)
@@ -67,6 +53,33 @@ pub trait CubePrimitive:
         unexpanded!()
     }
 
+    fn __expand_packing_factor(scope: &Scope) -> usize {
+        Self::__expand_as_type(scope).packing_factor(scope.ctx())
+    }
+
+    fn __expand_vector_size(scope: &Scope) -> usize {
+        Self::__expand_as_type(scope).vector_size(scope.ctx())
+    }
+}
+
+/// Types that contain all the information needed to construct a runtime type. Implemented for most
+/// native types, but not `Array<T>` because it has a size defined at construction.
+pub trait ConstantTyped: CubeType<ExpandType = NativeExpand<Self>> + Sized {
+    /// Return the element type to use on GPU.
+    fn as_type() -> TypeHandle {
+        unexpanded!()
+    }
+
+    /// Only native element types have a size.
+    fn size() -> usize {
+        size_of::<Self>()
+    }
+
+    /// Only native element types have a size.
+    fn size_bits() -> usize {
+        Self::size() * 8
+    }
+
     fn __expand_as_type(scope: &Scope) -> TypeHandle;
 
     fn __expand_size(scope: &Scope) -> usize {
@@ -76,14 +89,12 @@ pub trait CubePrimitive:
     fn __expand_size_bits(scope: &Scope) -> usize {
         Self::__expand_size(scope) * 8
     }
+}
 
-    fn __expand_packing_factor(scope: &Scope) -> usize {
-        Self::__expand_as_type(scope).packing_factor(scope.ctx())
-    }
-
-    fn __expand_vector_size(scope: &Scope) -> usize {
-        Self::__expand_as_type(scope).vector_size(scope.ctx())
-    }
+/// `RuntimeAssign` for `ConstantTyped` types, doesn't need a reference element.
+pub trait ConstRuntimeAssign<T = <Self as IntoExpand>::Expand>: RuntimeAssign<T> {
+    /// Create a new mutable variable of this type in `scope`.
+    fn const_init_mut(scope: &Scope) -> Self::Expand;
 }
 
 pub trait CubePrimitiveExpand {
