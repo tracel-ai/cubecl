@@ -1,0 +1,14 @@
+error[E0277]: `u16` can't be a field of a buffer record
+ --> tests/error/record_small_field.rs:8:8
+  |
+8 |     b: u16,
+  |        ^^^ the trait `RecordField` is not implemented for `u16`
+  |
+  = note: record fields are f32, u32, i32, f64, u64, i64, or #[repr(C)] structs deriving CubeType
+  = help: the following other types implement trait `RecordField`:
+            f32
+            f64
+            i32
+            i64
+            u32
+            u64

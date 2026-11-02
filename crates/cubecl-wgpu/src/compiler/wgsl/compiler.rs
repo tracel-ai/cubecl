@@ -199,8 +199,11 @@ impl WgslCompiler {
 
 #[cfg(test)]
 mod tests {
-    use cubecl_core::{self as cubecl, Compiler, prelude::*};
+    use cubecl_core::{
+        self as cubecl, Compiler, prelude::*, runtime_tests::offline::offline_device_properties,
+    };
     use cubecl_ir::{metadata::Info, settings::Dim3};
+    use cubecl_server::compiler::CompilationError;
 
     use cubecl_server::kernel::KernelDefinition;
 
@@ -275,6 +278,83 @@ mod tests {
         assert_eq!(
             workgroup_size(Dim3::new_1d(64), axes_and_plane::expand),
             "@compute @workgroup_size(64, 1, 1)"
+        );
+    }
+
+    /// A buffer record of 4 byte fields.
+    #[derive(CubeType, Clone, Copy)]
+    #[repr(C)]
+    struct Observation {
+        x: f32,
+        cam: u32,
+    }
+
+    /// A buffer record with an 8 byte field.
+    #[derive(CubeType, Clone, Copy)]
+    #[repr(C)]
+    struct Wide {
+        tag: u32,
+        pad: u32,
+        value: f64,
+    }
+
+    #[cube(launch)]
+    fn read_observation(input: &mut [Observation], output: &mut [f32]) {
+        output[0] = input[0].x;
+        input[0].x = output[1];
+    }
+
+    #[cube(launch)]
+    fn read_wide(input: &[Wide], output: &mut [f64]) {
+        output[0] = input[0].value;
+    }
+
+    fn record_settings() -> KernelSettings {
+        KernelSettings::new(
+            *CubeDim::new_1d(1),
+            ExecutionMode::Unchecked,
+            AddressType::U32,
+        )
+    }
+
+    fn compile(kernel: impl cubecl_core::CubeKernel) -> Result<String, CompilationError> {
+        WgslCompiler
+            .compile(kernel.define(), &Default::default())
+            .map(|shader| shader.to_string())
+    }
+
+    /// A record buffer is an array of `u32` words; a field reads and writes its word through a
+    /// bitcast, as WGSL has no pointer casts.
+    #[test]
+    fn record_fields_are_bitcast_words() {
+        let properties = std::sync::Arc::new(offline_device_properties(32));
+        let kernel = read_observation::ReadObservation::new(
+            record_settings(),
+            properties,
+            std::sync::Arc::new(TargetProperties::default()),
+            BufferCompilationArg { inplace: None },
+            BufferCompilationArg { inplace: None },
+        );
+        let wgsl = compile(kernel).expect("the kernel compiles");
+        assert!(wgsl.contains("array<array<u32, 2>>"), "{wgsl}");
+        assert!(wgsl.contains("bitcast<f32>"), "the read:\n{wgsl}");
+        assert!(wgsl.contains("bitcast<u32>"), "the write:\n{wgsl}");
+    }
+
+    #[test]
+    fn an_8_byte_record_field_is_refused() {
+        let properties = std::sync::Arc::new(offline_device_properties(32));
+        let kernel = read_wide::ReadWide::new(
+            record_settings(),
+            properties,
+            std::sync::Arc::new(TargetProperties::default()),
+            BufferCompilationArg { inplace: None },
+            BufferCompilationArg { inplace: None },
+        );
+        let err = compile(kernel).expect_err("an 8 byte field has no WGSL form");
+        assert!(
+            err.to_string().contains("WGSL has no pointer casts"),
+            "{err}"
         );
     }
 }
