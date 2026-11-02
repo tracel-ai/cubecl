@@ -304,6 +304,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
 
         let mut streams = vec![stream_id];
         let mut resources = Vec::with_capacity(descriptors.len());
+        let mut bindings = Vec::with_capacity(descriptors.len());
         for desc in descriptors {
             if contiguous_strides(&desc.shape) != desc.strides {
                 return Box::pin(async {
@@ -319,6 +320,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 }
             }
             let stream = self.scheduler.stream(&desc.handle.stream);
+            bindings.push(desc.handle.clone());
             let resource = match stream.resource(desc.handle) {
                 Ok(val) => val,
                 Err(err) => return Box::pin(async move { Err(err.into()) }),
@@ -327,6 +329,14 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         }
 
         self.scheduler.execute_streams(streams);
+
+        // The writes enqueued above include ones the queue path can reject while
+        // it runs, and a rejection taints its destination. Ask again now that
+        // they have run, or this read would hand back bytes a refused write left
+        // alone.
+        if let Err(err) = self.scheduler.ensure_written(bindings.iter()) {
+            return Box::pin(async move { Err(err) });
+        }
 
         let stream = self.scheduler.stream(&stream_id);
         stream.read_resources(resources, stream_id)
@@ -396,6 +406,47 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 let handle = desc.handle.clone();
                 let stream = server.scheduler.stream(&handle.stream);
                 let resource = stream.resource(desc.handle).map_err(ServerError::Io)?;
+
+                // Checked here, against the resource the write will land in, and
+                // not when the stream executes the task: this scope names the
+                // stream that *owns* the allocation, so a rejection taints the
+                // memory whose bytes a later read would otherwise hand back
+                // unchanged. A rejection raised while the task executes would
+                // taint the caller's memory instead, and would land after this
+                // scope had already cleared the destination — a correct write
+                // queued behind a rejected one could never recover it.
+                //
+                // A write larger than the logical resource must never reach the
+                // physical buffer: on a shared page the overflow would land in a
+                // neighbour's bytes.
+                if data.len() as u64 > resource.size {
+                    return Err(ServerError::Validation {
+                        message: format!(
+                            "write of {} bytes exceeds the {}-byte resource",
+                            data.len(),
+                            resource.size
+                        ),
+                        backtrace: BackTrace::capture(),
+                    });
+                }
+                // A partial write has to be `COPY_BUFFER_ALIGNMENT`-aligned to be
+                // writable at all: below the boundary the staged path pads and
+                // would zero the tail, and the mapped one is a shortcut the write
+                // cannot rely on (a busy device, a device-local pool).
+                if (data.len() as u64) < resource.size
+                    && !(data.len() as u64).is_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT)
+                {
+                    return Err(ServerError::Validation {
+                        message: format!(
+                            "unaligned partial write of {} bytes into a {}-byte resource \
+                             cannot be written without changing the untouched tail",
+                            data.len(),
+                            resource.size
+                        ),
+                        backtrace: BackTrace::capture(),
+                    });
+                }
+
                 let task = ScheduleTask::Write {
                     data,
                     buffer: resource,
@@ -876,5 +927,123 @@ impl<C: WgpuCompiler> ServerStorage for WgpuServer<C> {
             binding.offset_start,
             binding.offset_end,
         )?)
+    }
+}
+
+/// The default-path write checks: what the server refuses to hand the queue, and
+/// what a refused write leaves for the next read. All of these run on
+/// device-local pools.
+#[cfg(all(test, not(target_family = "wasm")))]
+mod write_checks {
+    use crate::WgpuRuntime;
+    use cubecl_common::bytes::Bytes;
+    use cubecl_core::prelude::Client;
+    use cubecl_server::runtime::Runtime;
+
+    fn client() -> Client {
+        WgpuRuntime::<crate::AutoCompiler>::client(&Default::default())
+    }
+
+    #[test]
+    fn a_write_larger_than_the_resource_is_rejected() {
+        let client = client();
+        let handle = client.create_from_slice(&[1u8; 16]);
+
+        client.write(&handle, Bytes::from_bytes_vec(vec![7; 32]));
+
+        let error = client
+            .read_one(handle)
+            .expect_err("an oversized write must not reach the buffer")
+            .to_string();
+        assert!(
+            error.contains("exceeds the 16-byte resource"),
+            "the rejection has to name the logical size, got: {error}"
+        );
+    }
+
+    #[test]
+    fn an_unaligned_partial_write_is_refused() {
+        let client = client();
+        let handle = client.create_from_slice(&[1u8; 16]);
+
+        client.write(&handle, Bytes::from_bytes_vec(vec![9]));
+
+        let error = client
+            .read_one(handle)
+            .expect_err("no write path preserves an untouched unaligned tail")
+            .to_string();
+        assert!(
+            error.contains("unaligned partial write"),
+            "the refusal has to name the unaligned partial write, got: {error}"
+        );
+    }
+
+    #[test]
+    fn an_aligned_partial_write_leaves_the_tail_alone() {
+        let client = client();
+        let handle = client.create_from_slice(&[1u8; 16]);
+
+        client.write(&handle, Bytes::from_bytes_vec(vec![9; 8]));
+
+        let bytes = client.read_one(handle).expect("the write landed");
+        assert_eq!(&bytes[..8], &[9; 8]);
+        assert_eq!(
+            &bytes[8..],
+            &[1; 8],
+            "an aligned partial write must not pad over the untouched tail"
+        );
+    }
+
+    /// A write issued from another logical stream lands in a buffer this stream
+    /// owns, and its rejection has to taint that buffer: the owner's read would
+    /// otherwise hand back the bytes the write never wrote.
+    #[test]
+    fn a_rejected_write_taints_the_stream_that_owns_the_buffer() {
+        use cubecl_environment::config::RuntimeConfig;
+        use cubecl_environment::stream::StreamId;
+
+        let client = client();
+        let handle = client.create_from_slice(&[1u8; 16]);
+        let _ = client.read_one(handle.clone()).expect("created");
+
+        // A logical stream that folds onto a *different* pooled stream, so the
+        // write really executes somewhere other than the owner. With one pooled
+        // stream every write is the owner's own, and the distinction is moot.
+        let max_streams = cubecl_server::config::CubeClRuntimeConfig::get()
+            .streaming
+            .max_streams as u64;
+        if max_streams < 2 {
+            eprintln!("skipping the cross-stream rejection: one pooled stream");
+            return;
+        }
+        let other = StreamId {
+            value: StreamId::current().value + 1,
+        };
+        other.executes(|| client.write(&handle, Bytes::from_bytes_vec(vec![7; 32])));
+
+        let error = client
+            .read_one(handle)
+            .expect_err("the owner's read has to fail on the rejection")
+            .to_string();
+        assert!(
+            error.contains("exceeds the 16-byte resource"),
+            "the owner has to be told why, got: {error}"
+        );
+    }
+
+    /// A rejected write must not take a correct replacement with it: the second
+    /// write's scope clears the claim the rejection left on the destination.
+    #[test]
+    fn a_valid_write_behind_a_rejected_one_recovers_the_destination() {
+        let client = client();
+        let handle = client.create_from_slice(&[1u8; 16]);
+
+        client.write(&handle, Bytes::from_bytes_vec(vec![7; 32]));
+        client.write(&handle, Bytes::from_bytes_vec(vec![5; 16]));
+
+        assert_eq!(
+            &client.read_one(handle).expect("the second write landed")[..],
+            &[5; 16]
+        );
     }
 }
