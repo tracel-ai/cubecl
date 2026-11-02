@@ -275,6 +275,7 @@ fn matmul_smem_ring_scheduled(
     #[comptime] depth: usize,
     #[comptime] schedule: Prefetch,
     #[comptime] unrolled: bool,
+    #[comptime] streamed: bool,
 ) {
     let a = a.tile(&space);
     let b = b.tile(&space);
@@ -292,6 +293,17 @@ fn matmul_smem_ring_scheduled(
             false => cube.over(&steps),
         };
         let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, depth, None);
+        if comptime!(schedule == Prefetch::InRegisters) {
+            // A fallback to the slots would pass these tests too, so say where the stage waits:
+            // a walk of one region holds its operands fixed, which the slots fill once, and a
+            // ring deeper than two slots waits in them as well.
+            let in_registers = stages.prefetches_in_registers();
+            comptime!(assert_eq!(
+                in_registers,
+                streamed && depth <= 2,
+                "where a plain SyncPerUnit pair at depth {depth} waits"
+            ));
+        }
         stages.walk(walk, schedule, |slot, region| {
             let c_r = c.at(region);
             slot.consume(|a_s, b_s| {
@@ -1146,6 +1158,7 @@ fn check_matmul_scheduled(
     let client = cubecl::test_device().client();
     let levels = tiling.build();
     let tile_edge = leaf_edge(&levels, M);
+    let streamed = k > leaf_edge(&levels, K);
     let space = Space::new(&[(M, m), (N, n), (K, k)]);
     let partitioning = Partitioning::new(space.clone(), levels);
     let grid = Grid::Stated {
@@ -1178,6 +1191,7 @@ fn check_matmul_scheduled(
         depth,
         schedule,
         unrolled,
+        streamed,
     );
     assert_tiled_matmul(&client, c.handle(), m, n, k, tile_edge);
 }
@@ -1240,7 +1254,8 @@ fn a_register_staged_ring_matches_a_slot_ahead_ring() {
 /// Every walk of one to seven regions under both schedules, at every depth each takes, walked at
 /// runtime and unrolled: a ring runs the laps whose every region has the one ahead of it to fill
 /// with no branch around the fill, then the laps where the walk runs out with it. Walks shorter
-/// than the ring, one region past it, and ones whose last laps are two all land here.
+/// than the ring, one region past it, and ones whose last laps are two all land here; a register ring
+/// three deep prefetches into its slots.
 #[test]
 fn every_walk_length_matches_the_whole_under_both_schedules() {
     let tiling = || {
@@ -1250,7 +1265,7 @@ fn every_walk_length_matches_the_whole_under_both_schedules() {
     };
     let schedules: [(Prefetch, &[usize]); 2] = [
         (Prefetch::InSlots, &[1, 2, 3]),
-        (Prefetch::InRegisters, &[1, 2]),
+        (Prefetch::InRegisters, &[1, 2, 3]),
     ];
     for regions in 1..=7 {
         for (schedule, depths) in schedules {

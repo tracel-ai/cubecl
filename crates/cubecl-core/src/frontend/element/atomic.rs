@@ -187,17 +187,18 @@ impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
     type Size = Const<1>;
     type WithScalar<S: Scalar> = Atomic<S>;
 
-    fn __expand_as_type(scope: &Scope) -> TypeHandle {
-        let inner = Inner::__expand_as_type(scope);
-        AtomicType::get(scope.ctx(), inner).into()
-    }
-
     fn from_expand_elem(elem: ExpandValue) -> Self::ExpandType {
         NativeExpand::new(elem)
     }
 
     fn from_const_value(_value: ConstantValue) -> Self {
         panic!("Can't have constant atomic");
+    }
+}
+impl<Inner: CubePrimitive> ConstantTyped for Atomic<Inner> {
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        let inner = Inner::__expand_as_type(scope);
+        AtomicType::get(scope.ctx(), inner).into()
     }
 }
 

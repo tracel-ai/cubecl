@@ -104,6 +104,40 @@ impl Tile {
         }
     }
 
+    /// Whether this stage is filled from `src` by copying its lines as they lie, so that a fetch
+    /// can hold them in registers: not decoded, converted or rewidened by the fill.
+    #[allow(dead_code)] // Reached through its expand, from `Stages::prefetches_in_registers`.
+    pub(crate) fn fetches_straight_from(&self, src: &Tile) -> comptime_type!(bool) {
+        match &self.kind {
+            TileKind::Memory(stage) => {
+                let feeds = src.feeds_straight(stage);
+                comptime!(self.element == src.element && feeds)
+            }
+            TileKind::TmaGmem(_)
+            | TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(false),
+        }
+    }
+
+    /// Whether these values fill `stage` as their lines lie: memory its fill does not decode.
+    #[allow(dead_code)] // Reached through its expand, from `fetches_straight_from`.
+    fn feeds_straight(&self, stage: &Memory) -> comptime_type!(bool) {
+        match &self.kind {
+            TileKind::Memory(source) => {
+                let decodes = self.decodes();
+                let straight = stage.fetches_straight(source);
+                comptime!(!decodes && straight)
+            }
+            TileKind::TmaGmem(_)
+            | TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(false),
+        }
+    }
+
     /// Whether a cmma fragment draining into this tile goes through a scratch
     /// ([`FragmentDrain::Bounce`]): a destination that adds, overhangs, or has no address, or one
     /// whose element the fragment cannot be cast to in place (`in_place`, [`casts_in_place`]).
