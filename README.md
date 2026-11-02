@@ -1,39 +1,31 @@
 <div align="center">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/tracel-ai/cubecl/main/assets/logo-dark.svg">
-  <img src="https://raw.githubusercontent.com/tracel-ai/cubecl/main/assets/logo-light.svg" alt="CubeCL" width="400px"/>
-</picture>
+  <img src="assets/cubecl-symbol-gradient.svg" alt="The CubeCL logo" height="200"/>
+  <br /><br />
 
+[![Rust 1.95 or later](https://img.shields.io/badge/Rust-1.95%2B-a879b6?style=flat-square&logo=rust&logoColor=white)](https://crates.io/crates/cubecl)
+![License](https://img.shields.io/badge/License-MIT%2FApache--2.0-a879b6?style=flat-square)
+[![Current Crates.io Version](https://img.shields.io/crates/v/cubecl.svg?style=flat-square&color=a879b6)](https://crates.io/crates/cubecl)
+[![Test Status](https://img.shields.io/github/actions/workflow/status/tracel-ai/cubecl/ci.yml?branch=main&label=CI&style=flat-square)](https://github.com/tracel-ai/cubecl/actions/workflows/ci.yml)
 <br />
-<br />
+[![Discord](https://img.shields.io/discord/1038839012602941528.svg?label=Chat&style=flat-square&color=a879b6&logo=discord&logoColor=white)](https://discord.gg/KSBSPhAUCc)
+[![Documentation](https://img.shields.io/docsrs/cubecl?style=flat-square)](https://docs.rs/cubecl)
 
-[![Discord](https://img.shields.io/discord/1038839012602941528.svg?color=7289da&&logo=discord)](https://discord.gg/KSBSPhAUCc)
-[![Current Crates.io Version](https://img.shields.io/crates/v/cubecl.svg)](https://crates.io/crates/cubecl)
-[![Minimum Supported Rust Version](https://img.shields.io/crates/msrv/cubecl)](https://crates.io/crates/cubecl)
-[![Test Status](https://github.com/tracel-ai/cubecl/actions/workflows/ci.yml/badge.svg)](https://github.com/tracel-ai/cubecl/actions/workflows/ci.yml)
-[![Documentation](https://docs.rs/cubecl/badge.svg)](https://docs.rs/cubecl)
-![license](https://shields.io/badge/license-MIT%2FApache--2.0-blue)
-<br />
-[![NVIDIA](https://img.shields.io/badge/nvidia-cuda-82b432)](https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-cuda)
-[![AMD](https://img.shields.io/badge/amd-rocm-c22b23)](https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-hip)
-[![Apple](https://img.shields.io/badge/apple-metal-a2aaad)](https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-wgpu)
-[![WGPU](https://img.shields.io/badge/cross_platform-wgpu-008855)](https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-wgpu)
-[![CPU](https://img.shields.io/badge/cpu-llvm-4a6fa5)](https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-cpu)
+  <p><b>Write high-performance compute kernels once in Rust, and run them across GPUs and CPUs.</b></p>
+</div>
 
 ---
 
-**One codebase. More hardware choices.**
-<br/>
-Write your compute kernels in Rust. CubeCL translates them for different GPUs and CPUs, so you can reuse the same logic across hardware backends.
-<br/>
-
-</div>
-
-## TL;DR
+One codebase, more hardware choices. Write your compute kernels in Rust, and let CubeCL translate them for different GPUs and CPUs.
 
 CubeCL is a Rust language extension, a Just-in-Time compiler, and a set of runtimes for writing high-performance compute kernels.
 A single `#[cube]` Rust function is compiled on demand and runs on CUDA, HIP, Metal, Vulkan, WebGPU, or CPU, while still using the best instructions each platform offers.
 The programming model is low-level by design, so that a single kernel can reach peak performance on every backend it targets.
+
+[![NVIDIA](https://img.shields.io/badge/nvidia-cuda-82b432?style=flat-square)](https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-cuda)
+[![AMD](https://img.shields.io/badge/amd-rocm-c22b23?style=flat-square)](https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-hip)
+[![Apple](https://img.shields.io/badge/apple-metal-a2aaad?style=flat-square)](https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-wgpu)
+[![WGPU](https://img.shields.io/badge/cross_platform-wgpu-008855?style=flat-square)](https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-wgpu)
+[![CPU](https://img.shields.io/badge/cpu-llvm-4a6fa5?style=flat-square)](https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-cpu)
 
 ## Motivation
 
