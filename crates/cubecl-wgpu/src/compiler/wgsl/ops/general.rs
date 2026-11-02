@@ -152,12 +152,27 @@ impl AttrToWgsl for FloatAttr {
         // Format through f64 so finite f16/f32 values are represented exactly.
         // The rounded APFloat spelling of f32::MAX exceeds the valid f32 range.
         let value = float.value_to_f64(self.val);
-        let val = if value.is_finite() {
-            format!("{value:?}")
+        let ty = self.ty.to_wgsl(ctx);
+        if value.is_finite() {
+            format!("{ty}({value:?})")
         } else {
-            float.value_to_string(self.val)
-        };
-        format!("{}({val})", self.ty.to_wgsl(ctx))
+            non_finite_literal(&ty, value)
+        }
+    }
+}
+
+/// `value`, an infinity or a NaN, as an expression of the float type `ty`: WGSL spells neither, so
+/// its bits are cast. An `f16`'s are half of a `u32`, read back out of the pair; an `f64` widens
+/// the `f32`.
+fn non_finite_literal(ty: &str, value: f64) -> String {
+    let single = (value as f32).to_bits();
+    match ty {
+        "f16" => format!(
+            "bitcast<vec2<f16>>({:#x}u).x",
+            half::f16::from_f64(value).to_bits()
+        ),
+        "f64" => format!("f64(bitcast<f32>({single:#x}u))"),
+        _ => format!("bitcast<f32>({single:#x}u)"),
     }
 }
 
@@ -251,6 +266,29 @@ fn unroll_bool_or<T: Scalar, N: Size>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// WGSL spells no infinity or NaN: each is its type's bits, cast.
+    #[test]
+    fn non_finite_literals_are_cast_bits() {
+        let ctx = Context::new();
+        let literal =
+            |ty: TypeHandle, value: f64| FloatAttr::from_f64(&ctx, ty, value).to_wgsl(&ctx);
+        let f32_ty = Float32Type::get(&ctx).to_handle();
+        assert_eq!(literal(f32_ty, f64::INFINITY), "bitcast<f32>(0x7f800000u)");
+        assert_eq!(
+            literal(f32_ty, f64::NEG_INFINITY),
+            "bitcast<f32>(0xff800000u)"
+        );
+        assert_eq!(
+            non_finite_literal("f16", f64::INFINITY),
+            "bitcast<vec2<f16>>(0x7c00u).x"
+        );
+        assert_eq!(
+            non_finite_literal("f64", f64::NEG_INFINITY),
+            "f64(bitcast<f32>(0xff800000u))"
+        );
+        assert!(literal(f32_ty, f64::NAN).starts_with("bitcast<f32>(0x7fc"));
+    }
 
     #[test]
     fn f32_boundary_literals_preserve_value() {
