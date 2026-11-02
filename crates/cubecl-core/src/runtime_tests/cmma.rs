@@ -1381,8 +1381,9 @@ pub fn test_cmma_manual<
         .collect();
     let acc = vec![CD::from_int(0); m * n];
 
-    let lhs = client.create_from_slice(A::as_bytes(&lhs));
-    let rhs = client.create_from_slice(B::as_bytes(&rhs));
+    let (lhs_host, rhs_host) = (lhs, rhs);
+    let lhs = client.create_from_slice(A::as_bytes(&lhs_host));
+    let rhs = client.create_from_slice(B::as_bytes(&rhs_host));
     let out = client.create_from_slice(CD::as_bytes(&acc));
 
     unsafe {
@@ -1403,36 +1404,21 @@ pub fn test_cmma_manual<
     let actual = client.read_one_unchecked(out);
     let actual = CD::from_bytes(&actual);
 
-    // Calculate expected results (row-major order)
-    let mut expected = Vec::with_capacity(m * n);
-    for i in 0..m {
-        // For each output row
-        // For each output row
-        for j in 0..n {
-            // For each output column
-            // For each output column
-            let mut sum = 0;
-            for l in 0..k {
-                // Dot product over k-dimension
-                let lhs_val = (i * 2 + l) as i64; // LHS[i, l]
-                let rhs_val = (l * 3 + j) as i64; // RHS[l, j]
-                sum += lhs_val * rhs_val;
-            }
-            expected.push(CD::from_int(sum));
-        }
-    }
-
-    // Need tolerance for slight differences because CPU integer version isn't exactly the same
-    // as GPU MMA for fp8. 3% tolerance seems to work for both FP8 types.
-    // Existing approximate comparison requires `Float`, so just do a simple one here.
-    for (i, (expected_val, actual_val)) in expected.iter().zip(actual).enumerate() {
-        let expected_val = expected_val.to_f64().unwrap();
+    // The reference multiplies the operands as the device holds them, so fp8 rounding is part of
+    // the expected value. Only the f32 accumulation order may differ.
+    let lhs_values: Vec<f64> = lhs_host.iter().map(|v| v.to_f64().unwrap()).collect();
+    let rhs_values: Vec<f64> = rhs_host.iter().map(|v| v.to_f64().unwrap()).collect();
+    assert_eq!(actual.len(), m * n, "the kernel wrote no tile");
+    for (position, actual_val) in actual.iter().enumerate() {
+        let (i, j) = (position / n, position % n);
+        let products = (0..k).map(|l| lhs_values[i * k + l] * rhs_values[l * n + j]);
+        let expected_val: f64 = products.clone().sum();
+        let magnitude: f64 = products.map(f64::abs).sum();
         let actual_val = actual_val.to_f64().unwrap();
         let difference = (expected_val - actual_val).abs();
-        let max_difference = expected_val * 0.03;
-        if difference > max_difference {
+        if difference > magnitude * 1e-5 {
             panic!(
-                "Expected != actual at position {i}: (expected: {expected_val}, actual: {actual_val}, difference: {difference}, max_difference: {max_difference})"
+                "Expected != actual at position {position}: (expected: {expected_val}, actual: {actual_val}, difference: {difference})"
             )
         }
     }
