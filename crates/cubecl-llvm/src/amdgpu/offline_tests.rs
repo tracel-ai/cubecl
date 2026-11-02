@@ -98,13 +98,74 @@ fn bf16_computes_in_f32_without_a_bf16_alu() {
 fn half_precision_tiles_multiply_on_the_matrix_cores() {
     use half::{bf16, f16};
     for arch in ["gfx1151", "gfx1201"] {
-        let asm = asm_of(tile_product_kernel::<bf16, f32>((16, 16, 16)), arch);
+        let asm = asm_of(tile_product_kernel::<bf16, bf16, f32>((16, 16, 16)), arch);
         assert!(asm.contains("v_wmma_f32_16x16x16_bf16"), "{arch}:\n{asm}");
-        let asm = asm_of(tile_product_kernel::<bf16, bf16>((16, 16, 16)), arch);
+        let asm = asm_of(tile_product_kernel::<bf16, bf16, bf16>((16, 16, 16)), arch);
         assert!(asm.contains("v_wmma_bf16_16x16x16_bf16"), "{arch}:\n{asm}");
-        let asm = asm_of(tile_product_kernel::<f16, f16>((16, 16, 16)), arch);
+        let asm = asm_of(tile_product_kernel::<f16, f16, f16>((16, 16, 16)), arch);
         assert!(asm.contains("v_wmma_f16_16x16x16_f16"), "{arch}:\n{asm}");
     }
+}
+
+/// RDNA4 multiplies `e4m3` (`fp8`) and `e5m2` (`bf8`) operands into `f32`, each side its own
+/// format.
+#[test]
+fn fp8_tiles_multiply_on_rdna4_matrix_cores() {
+    use cubecl_core::{e4m3, e5m2};
+    let asm = asm_of(
+        tile_product_kernel::<e4m3, e4m3, f32>((16, 16, 16)),
+        "gfx1201",
+    );
+    assert!(asm.contains("v_wmma_f32_16x16x16_fp8_fp8"), "{asm}");
+    let asm = asm_of(
+        tile_product_kernel::<e4m3, e5m2, f32>((16, 16, 16)),
+        "gfx1201",
+    );
+    assert!(asm.contains("v_wmma_f32_16x16x16_fp8_bf8"), "{asm}");
+    let asm = asm_of(
+        tile_product_kernel::<e5m2, e4m3, f32>((16, 16, 16)),
+        "gfx1201",
+    );
+    assert!(asm.contains("v_wmma_f32_16x16x16_bf8_fp8"), "{asm}");
+    let asm = asm_of(
+        tile_product_kernel::<e5m2, e5m2, f32>((16, 16, 16)),
+        "gfx1201",
+    );
+    assert!(asm.contains("v_wmma_f32_16x16x16_bf8_bf8"), "{asm}");
+}
+
+/// An 8-bit integer product tells the instruction which operand is signed through `neg_lo`, and
+/// an unsigned pair sets none.
+#[test]
+fn int8_tiles_carry_each_operands_sign() {
+    for arch in ["gfx1151", "gfx1201"] {
+        let asm = asm_of(tile_product_kernel::<i8, u8, i32>((16, 16, 16)), arch);
+        assert!(asm.contains("v_wmma_i32_16x16x16_iu8"), "{arch}:\n{asm}");
+        assert!(asm.contains("neg_lo:[1,0,0]"), "{arch}: a signed:\n{asm}");
+        let asm = asm_of(tile_product_kernel::<u8, u8, i32>((16, 16, 16)), arch);
+        assert!(asm.contains("v_wmma_i32_16x16x16_iu8"), "{arch}:\n{asm}");
+        assert!(!asm.contains("neg_lo"), "{arch}: both unsigned:\n{asm}");
+    }
+}
+
+/// A tile 32 deep is two 16-deep instructions: neither generation has a 32-deep form for these
+/// operands.
+#[test]
+fn a_tile_two_instructions_deep_issues_two() {
+    use cubecl_core::e4m3;
+    use half::f16;
+    let count = |asm: &str, op: &str| asm.matches(op).count();
+    for arch in ["gfx1151", "gfx1201"] {
+        let asm = asm_of(tile_product_kernel::<f16, f16, f32>((16, 16, 32)), arch);
+        assert_eq!(count(&asm, "v_wmma_f32_16x16x16_f16"), 2, "{arch}:\n{asm}");
+        let asm = asm_of(tile_product_kernel::<i8, i8, i32>((16, 16, 32)), arch);
+        assert_eq!(count(&asm, "v_wmma_i32_16x16x16_iu8"), 2, "{arch}:\n{asm}");
+    }
+    let asm = asm_of(
+        tile_product_kernel::<e4m3, e4m3, f32>((16, 16, 32)),
+        "gfx1201",
+    );
+    assert_eq!(count(&asm, "v_wmma_f32_16x16x16_fp8_fp8"), 2, "{asm}");
 }
 
 /// A cube that waits on a counter reads what the cube before it wrote within the launch: the
