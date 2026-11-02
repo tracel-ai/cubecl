@@ -102,7 +102,7 @@ pub use cubecl_hip as hip;
 #[cfg(feature = "cpu")]
 pub use cubecl_cpu as cpu;
 
-#[cfg(feature = "metal-native")]
+#[cfg(feature = "metal")]
 pub use cubecl_metal as metal;
 
 /// The runtime this build tests on.

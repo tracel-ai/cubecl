@@ -21,6 +21,7 @@ pub trait Float:
     + FloatOps
     + ScalarNeg
     + ScalarExp
+    + ScalarExp2
     + ScalarLog
     + ScalarLog1p
     + ScalarExpm1

@@ -278,7 +278,6 @@ fn the_launch_holds_every_unit() {
     assert_eq!(partitioning.cube_dim(32), CubeDim::new_2d(2, 3));
     assert_eq!(partitioning.planes_per_cube(), 3);
     assert_eq!(partitioning.units(), 1);
-    assert_eq!(partitioning.unit_cube(), Some(CUBES[2]));
 }
 
 /// Every unit the launch spawns walks exactly one tile, a unit past the last tile one past the

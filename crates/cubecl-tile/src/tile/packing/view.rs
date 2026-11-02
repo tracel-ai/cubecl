@@ -84,7 +84,7 @@ pub(crate) fn values_at<F: Numeric, I: Numeric, WP: Size, NF: Size>(
     }
 }
 
-/// Pack `NF` values into one line of `NQ` words, the mirror of [`unpack_line`]: each value as
+/// Pack `NF` values into one line of `NQ` words, the mirror of `unpack_line`: each value as
 /// the code its field stores, the first in each word's low bits. Each value already lies on the
 /// field's grid, so a code reads back as the value it packs: an integer already rounded and in
 /// range, a float code already clamped to the format's range, a scale already rounded to its

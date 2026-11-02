@@ -25,9 +25,9 @@ pub struct GlobalOperand {
     pub write: Write,
     /// One per [`Scale::Dynamic`](crate::Scale) term and one per
     /// [`Divisor::Dynamic`](crate::Divisor) axis, by physical axis, divisor last.
-    pub coefficients: Coords<u32>,
+    pub(crate) coefficients: Coords<u32>,
     /// One signed value per [`Offset::Dynamic`](crate::Offset) axis.
-    pub offsets: Coords<i32>,
+    pub(crate) offsets: Coords<i32>,
     /// The table a pool of pages is read as sequences through, where the spec states
     /// [`paging`](TileSpec::paging).
     pub(crate) paging: ComptimeOption<PageTable>,
@@ -88,7 +88,7 @@ impl GlobalOperand {
 
     /// [`tensor`](GlobalOperand::tensor) for a gather with a runtime affine map.
     /// `coefficients` and `offsets` follow the field order; only their lengths are checked.
-    pub fn gathered<T: Numeric, E: CubePrimitive<Scalar = T>>(
+    pub(crate) fn gathered<T: Numeric, E: CubePrimitive<Scalar = T>>(
         tensor: &Tensor<E>,
         #[comptime] space: Space,
         #[comptime] spec: TileSpec,

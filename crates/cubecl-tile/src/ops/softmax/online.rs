@@ -1,9 +1,10 @@
 //! The online softmax as a tile op: a score taken in along one axis, one block of it at a time,
 //! into each slice's running max and sum, where its holder already keeps the score.
 
+use core::f64::consts::LOG2_E;
+
 use cubecl::prelude::*;
 
-use crate::launch::Relay;
 use crate::*;
 
 /// The running max `m` and sum `l` of every slice along `axis` of a score, in the registers of
@@ -34,16 +35,6 @@ enum SliceSlots {
     Held,
 }
 
-/// What a plane's sum and the carry's rows are multiplied by in its cube's turn at a [`Relay`]
-/// ([`OnlineSoftmax::relayed`]), one factor a slice each, before the sum drains into the carry.
-#[derive(CubeType)]
-pub struct RelayedFactors<E: Float> {
-    /// For the plane's own sum.
-    pub sum: Array<E>,
-    /// For the carry's rows, what the turns before this one summed.
-    pub carried: Array<E>,
-}
-
 /// Every slice's running max and sum as they stand, undivided ([`OnlineSoftmax::state`]): what
 /// a holder writes beside its unnormalized sum against the values where another merges its slices
 /// with other holders' parts of them.
@@ -59,7 +50,7 @@ pub struct OnlineSoftmaxState<E: Float> {
 #[cube]
 impl<E: Float> OnlineSoftmax<E> {
     /// The state of every slice along `axis` of a score held as `score` is, before any block is
-    /// taken in: each unit keeps the slices it holds cells of ([`Tile::slices_per_unit`]).
+    /// taken in: each unit keeps the slices it holds cells of.
     pub fn along(score: &Tile, #[comptime] axis: Axis) -> OnlineSoftmax<E> {
         let slices = score.slices_per_unit(axis);
         let slots = comptime!(match slices == score.place.space.slices_along(axis) {
@@ -88,16 +79,29 @@ impl<E: Float> OnlineSoftmax<E> {
         let mut slices = score.along(self.axis);
         slices.scale_add::<E>(scale, bias);
         let max = slices.maxima::<E>(&self.m);
-        slices.exp_minus::<E>(&max);
-        let sum = slices.sums::<E>();
-        let mut correction = Array::<E>::new(self.slices);
+        self.exp_minus(&mut slices, E::from_int(1), &max);
+        self.take_in(&slices, &max)
+    }
+
+    /// [`step`](OnlineSoftmax::step) for a block no bias touches, one multiply-add and one exponential a
+    /// cell: the max is taken over the raw scores and scaled once a slice, and each cell's
+    /// `exp(score · scale − max)` is computed in place, `score · scale` never stored. `scale` is
+    /// positive, so the raw scores' max scales to the scaled scores' max.
+    pub fn step_unbiased(&mut self, score: &Tile, scale: E) -> Array<E> {
+        let mut slices = score.along(self.axis);
+        let mut floor = Array::<E>::new(self.slices);
         #[unroll]
         for i in 0..self.slices {
-            correction[i] = (self.m[i] - max[i]).exp();
-            self.l[i] = correction[i] * self.l[i] + sum[i];
-            self.m[i] = max[i];
+            floor[i] = E::min_value();
         }
-        correction
+        let raw = slices.maxima::<E>(&floor);
+        let mut max = Array::<E>::new(self.slices);
+        #[unroll]
+        for i in 0..self.slices {
+            max[i] = self.m[i].max(raw[i] * scale);
+        }
+        self.exp_minus(&mut slices, scale, &max);
+        self.take_in(&slices, &max)
     }
 
     /// What this plane's sum against the values is multiplied by once its last block is taken in:
@@ -190,57 +194,6 @@ impl<E: Float> OnlineSoftmax<E> {
         correction
     }
 
-    /// What this plane's sum and the carry's rows are multiplied by in its cube's turn at `relay`,
-    /// where the cubes of the relay split this axis, each holding part of the same slices: the
-    /// cross-cube [`normalizer`](OnlineSoftmax::normalizer), the carry taking the turns' partials
-    /// one at a time.
-    ///
-    /// `carried_max` and `carried_sum` are this plane's window of the slices' state the relay
-    /// holds beside its carry: the max and sum every turn before this one merged. This plane
-    /// merges its own into them and leaves the result there for the next turn. Each factor is a
-    /// slice's `exp(max − merged max)`, of this plane's state for its sum and of the carried one
-    /// for the carry, both times `1 / L` of the merged sum on the last turn, so the carry that turn
-    /// hands on is the answer. The first turn reads nothing, its drain replacing the carry. A slice
-    /// every turn masked stays at zero.
-    ///
-    /// Every unit of every plane calls it once its cube has [`take`](Relay::take)n the turn; the
-    /// first unit of each plane writes the state, which the relay publishes with the carry. The
-    /// caller rescales the carry ([`Relay::carried`]) and its sum by the factors, then drains.
-    pub fn relayed(
-        &mut self,
-        relay: &Relay<'_>,
-        carried_max: &mut Tile,
-        carried_sum: &mut Tile,
-    ) -> RelayedFactors<E> {
-        self.refuse_merging("OnlineSoftmax::relayed");
-        let slices = self.slices;
-        let (first, last) = (relay.is_first(), relay.is_last());
-        let stored_max = carried_max.cells::<E>(slices);
-        let stored_sum = carried_sum.cells::<E>(slices);
-        let mut own = Array::<E>::new(slices);
-        let mut carried = Array::<E>::new(slices);
-        #[unroll]
-        for i in 0..slices {
-            let before_max = select(first, E::min_value(), stored_max[i]);
-            let before_sum = select(first, E::from_int(0), stored_sum[i]);
-            let merged = before_max.max(self.m[i]);
-            own[i] = AxisSlices::exp_minus_cell::<E>(self.m[i], merged);
-            carried[i] = AxisSlices::exp_minus_cell::<E>(before_max, merged);
-            self.l[i] = carried[i] * before_sum + own[i] * self.l[i];
-            self.m[i] = merged;
-        }
-        carried_max.set_cells(&self.m, slices);
-        carried_sum.set_cells(&self.l, slices);
-        let recip = self.recip_l();
-        #[unroll]
-        for i in 0..slices {
-            let normalize = select(last, recip[i], E::from_int(1));
-            own[i] *= normalize;
-            carried[i] *= normalize;
-        }
-        RelayedFactors::<E> { sum: own, carried }
-    }
-
     /// Every slice's running max and sum as they stand, copied out: nothing is divided and the
     /// state walks on unchanged.
     pub fn state(&self) -> OnlineSoftmaxState<E> {
@@ -306,6 +259,35 @@ impl<E: Float> OnlineSoftmax<E> {
             recip[i] = select(live, self.l[i].recip(), E::from_int(0));
         }
         recip
+    }
+
+    /// `slices[i, s] = exp(slices[i, s] · scale − max[i])`, zero along a slice whose max is
+    /// still the minimum value, nothing live in it yet. It runs in base 2, as the hardware does:
+    /// each slice's offset `max · log2(e)` once, then each cell's
+    /// `2^(score · scale · log2(e) − offset)`. A dead slice's offset is infinite.
+    fn exp_minus(&self, slices: &mut AxisSlices, scale: E, max: &Array<E>) {
+        let log2_e = E::new(LOG2_E);
+        let mut offsets = Array::<E>::new(self.slices);
+        #[unroll]
+        for i in 0..self.slices {
+            let live = max[i] > E::min_value();
+            offsets[i] = select(live, max[i] * log2_e, E::new(f64::INFINITY));
+        }
+        slices.exp2_scaled_minus::<E>(scale * log2_e, &offsets);
+    }
+
+    /// Move the slices' sum and max on past a block whose probabilities `slices` holds, under the
+    /// block's new `max`. Returns each slice's `exp(max before − max after)`.
+    fn take_in(&mut self, slices: &AxisSlices, max: &Array<E>) -> Array<E> {
+        let sum = slices.sums::<E>();
+        let mut correction = Array::<E>::new(self.slices);
+        #[unroll]
+        for i in 0..self.slices {
+            correction[i] = (self.m[i] - max[i]).exp();
+            self.l[i] = correction[i] * self.l[i] + sum[i];
+            self.m[i] = max[i];
+        }
+        correction
     }
 
     /// The state of `slices` slices before any block is taken in, its slots keeping `slots`.
