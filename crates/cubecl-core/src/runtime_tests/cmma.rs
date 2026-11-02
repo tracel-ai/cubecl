@@ -1688,12 +1688,18 @@ pub fn test_cmma_tile_product<
         return;
     }
 
-    // Whole numbers 0 through 8: `e5m2` holds no odd number above 8.
-    let small = |index: usize, salt: usize| ((index * 7 + salt) % 9) as i64;
+    // Whole numbers 0 through 8, `e5m2` holding no odd number above 8, shifted to -4 through 4
+    // for a type that holds negatives: a signed integer operand read as unsigned then reads
+    // 252 where it holds -4.
+    let small = |index: usize, salt: usize, signed: bool| {
+        ((index * 7 + salt) % 9) as i64 - if signed { 4 } else { 0 }
+    };
+    let a_signed = A::from(-1i64).is_some();
+    let b_signed = B::from(-1i64).is_some();
     // `lhs[row][l]` at `row * k + l`.
-    let lhs: Vec<i64> = (0..m * k).map(|index| small(index, 3)).collect();
+    let lhs: Vec<i64> = (0..m * k).map(|index| small(index, 3, a_signed)).collect();
     // `rhs[l][col]` at `col * k + l`, column major.
-    let rhs: Vec<i64> = (0..k * n).map(|index| small(index, 5)).collect();
+    let rhs: Vec<i64> = (0..k * n).map(|index| small(index, 5, b_signed)).collect();
 
     let lhs_typed: Vec<A> = lhs.iter().map(|value| A::from(*value).unwrap()).collect();
     let rhs_typed: Vec<B> = rhs.iter().map(|value| B::from(*value).unwrap()).collect();
@@ -1719,14 +1725,20 @@ pub fn test_cmma_tile_product<
     let actual = CD::from_bytes(&actual);
     assert_eq!(actual.len(), m * n, "the kernel wrote the whole tile");
 
+    // A float matrix core may lose a few bits of an `f32` sum where its products cancel (RDNA3's
+    // `f16` WMMA does), a misplaced lane a whole product. Below 1 for every integer form here,
+    // so those stay exact.
+    const LARGEST_ERROR_RELATIVE_TO_THE_SUM_OF_ABSOLUTE_PRODUCTS: f64 = 1e-5;
     for row in 0..m {
         for col in 0..n {
-            let expected: i64 = (0..k).map(|l| lhs[row * k + l] * rhs[col * k + l]).sum();
-            let actual = actual[row * n + col].to_i64().unwrap();
-            assert_eq!(
-                actual,
-                expected,
-                "{:?} x {:?} into {:?}, k {k}: out[{row}][{col}]",
+            let products = (0..k).map(|l| lhs[row * k + l] * rhs[col * k + l]);
+            let expected = products.clone().sum::<i64>() as f64;
+            let absolute = products.map(i64::abs).sum::<i64>() as f64;
+            let actual = actual[row * n + col].to_f64().unwrap();
+            assert!(
+                (actual - expected).abs()
+                    <= absolute * LARGEST_ERROR_RELATIVE_TO_THE_SUM_OF_ABSOLUTE_PRODUCTS,
+                "{:?} x {:?} into {:?}, k {k}: out[{row}][{col}] is {actual}, expected {expected}",
                 A::cube_type(),
                 B::cube_type(),
                 CD::cube_type()
