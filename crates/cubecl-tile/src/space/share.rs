@@ -2,6 +2,7 @@
 
 use cubecl::prelude::*;
 
+use crate::algebra::monoid::{max_keeping_nan, min_keeping_nan};
 use crate::{Axis, Carrier, ComputeScope, Count, Coverage, Level, Monoid, Space};
 
 /// What the plane's units each hold of a tile's cells once a units level is distributed.
@@ -86,7 +87,7 @@ impl UnitShare {
 #[cube]
 impl UnitShare {
     /// Combine the partials of one cell under `monoid`, leaving the total on every holder.
-    pub(crate) fn reduce_of<T: Carrier + CubePrimitive<Scalar: PlaneNumeric>>(
+    pub(crate) fn reduce_of<T: Carrier + Cast + CubePrimitive<Scalar: PlaneNumeric>>(
         value: T,
         #[comptime] share: UnitShare,
         #[comptime] monoid: Monoid,
@@ -96,8 +97,8 @@ impl UnitShare {
             UnitShare::Plane => match comptime!(monoid) {
                 Monoid::Sum => plane_sum(value),
                 Monoid::Prod => plane_prod(value),
-                Monoid::Max => plane_max(value),
-                Monoid::Min => plane_min(value),
+                Monoid::Max => plane_keeping_nan::<T>(value, plane_max(value), monoid),
+                Monoid::Min => plane_keeping_nan::<T>(value, plane_min(value), monoid),
             },
             UnitShare::Group { unit_bits } => {
                 let mut total = value;
@@ -114,9 +115,38 @@ impl UnitShare {
     }
 }
 
+/// `ordered`, the plane's max or min of `value` as the plane instruction gives it, with a NaN put
+/// back where any unit held one: the instruction drops NaN, the monoid keeps it.
+///
+/// Each unit sends `-inf` under `Max` (`+inf` under `Min`), or NaN where it holds one: its value
+/// pushed past that infinity and back, which only a NaN survives. The plane sums them, which keeps
+/// NaN, so the sum is that infinity or NaN; and combining `ordered` with it leaves `ordered`,
+/// infinities and zeros of either sign included, or gives NaN. Integers hold no NaN.
+#[cube]
+fn plane_keeping_nan<T: Carrier + Cast + CubePrimitive<Scalar: PlaneNumeric>>(
+    value: T,
+    ordered: T,
+    #[comptime] monoid: Monoid,
+) -> T {
+    let elem = elem_type_of::<T>();
+    if comptime!(elem.is_float()) {
+        let far = match comptime!(monoid) {
+            Monoid::Max => T::cast_from(f32::NEG_INFINITY),
+            _ => T::cast_from(f32::INFINITY),
+        };
+        let nan_or_far = match comptime!(monoid) {
+            Monoid::Max => max_keeping_nan::<T>(min_keeping_nan::<T>(value, far), far),
+            _ => min_keeping_nan::<T>(max_keeping_nan::<T>(value, far), far),
+        };
+        monoid.combine::<T>(ordered, plane_sum(nan_or_far))
+    } else {
+        ordered
+    }
+}
+
 impl UnitShare {
     /// Combine the partials of one cell under `monoid`, leaving the total on every holder.
-    pub fn reduce<T: Carrier + CubePrimitive<Scalar: PlaneNumeric>>(
+    pub fn reduce<T: Carrier + Cast + CubePrimitive<Scalar: PlaneNumeric>>(
         self,
         value: T,
         monoid: Monoid,
@@ -124,7 +154,7 @@ impl UnitShare {
         UnitShare::reduce_of::<T>(value, self, monoid)
     }
 
-    pub fn __expand_reduce_method<T: Carrier + CubePrimitive<Scalar: PlaneNumeric>>(
+    pub fn __expand_reduce_method<T: Carrier + Cast + CubePrimitive<Scalar: PlaneNumeric>>(
         self,
         scope: &Scope,
         value: T::ExpandType,
