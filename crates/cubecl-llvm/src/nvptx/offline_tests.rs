@@ -109,7 +109,10 @@ fn bf16_is_native_where_the_part_has_it() {
 #[test]
 fn bf16_tiles_multiply_on_the_tensor_cores() {
     for (m, n, k) in [(16, 16, 16), (32, 8, 16), (8, 32, 16)] {
-        let ptx = ptx_of(tile_product_kernel::<half::bf16, f32>((m, n, k)), 80);
+        let ptx = ptx_of(
+            tile_product_kernel::<half::bf16, half::bf16, f32>((m, n, k)),
+            80,
+        );
         let mma = format!("wmma.mma.sync.aligned.row.col.m{m}n{n}k{k}.f32.bf16.bf16.f32");
         assert!(ptx.contains(&mma), "{ptx}");
     }

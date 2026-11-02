@@ -129,6 +129,14 @@ fn register_array(ctx: &Context, info: &OperandsInfo, value: Value) -> CubeArray
     .expect("a manual matrix operand is an array of registers")
 }
 
+/// The element type of a matrix operand's scalar type.
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+pub(crate) fn elem_type(ctx: &Context, ty: TypeHandle) -> cubecl_core::ir::ElemType {
+    pliron::r#type::type_cast::<dyn ScalarType>(&*ty.deref(ctx))
+        .expect("a matrix element is a scalar")
+        .elem_type(ctx)
+}
+
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub(crate) fn registers_as_vector(
     ctx: &Context,
