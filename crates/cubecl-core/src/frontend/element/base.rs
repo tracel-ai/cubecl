@@ -1,5 +1,6 @@
 use super::{CubePrimitive, Numeric};
 use crate::{
+    frontend::ConstRuntimeAssign,
     ir::{ConstantValue, ExpandValue, Scope},
     prelude::{DynamicSize, KernelBuilder, KernelLauncher, Scalar, assign},
     unexpanded,
@@ -268,6 +269,12 @@ impl<T: CubePrimitive + IntoExpand<Expand = NativeExpand<T>>> RuntimeAssign for 
         init_mut_of_type(scope, T::__expand_as_type(scope)).into()
     }
 }
+#[diagnostic::do_not_recommend]
+impl<T: CubePrimitive + IntoExpand<Expand = NativeExpand<T>>> ConstRuntimeAssign for T {
+    fn const_init_mut(scope: &Scope) -> NativeExpand<T> {
+        init_mut_of_type(scope, T::__expand_as_type(scope)).into()
+    }
+}
 
 impl<T: NativeAssign + NativeCubeType + CanReadValue> Assign for NativeExpand<T> {
     fn __expand_assign_method(&mut self, scope: &Scope, value: Self) {
@@ -279,6 +286,11 @@ impl<T: NativeAssign + NativeCubeType + CanReadValue> Assign for NativeExpand<T>
 impl<T: NativeAssign + NativeCubeType + CanReadValue> RuntimeAssign for NativeExpand<T> {
     fn init_mut(&self, scope: &Scope) -> Self::Expand {
         T::elem_init_mut(scope, self.expand).into()
+    }
+}
+impl<T: CubePrimitive> ConstRuntimeAssign for NativeExpand<T> {
+    fn const_init_mut(scope: &Scope) -> Self::Expand {
+        init_mut_of_type(scope, T::__expand_as_type(scope)).into()
     }
 }
 
@@ -793,6 +805,15 @@ macro_rules! tuple_assign {
                 )*)
             }
         }
+
+        impl<$($P: ConstRuntimeAssign),*> ConstRuntimeAssign for ($($P,)*) {
+            #[allow(non_snake_case, unused, clippy::unused_unit)]
+            fn const_init_mut(scope: &Scope) -> Self::Expand {
+                ($(
+                    $P::const_init_mut(scope),
+                )*)
+            }
+        }
     }
 }
 
@@ -963,6 +984,9 @@ impl Assign for () {
 impl RuntimeAssign for () {
     fn init_mut(&self, _: &Scope) {}
 }
+impl ConstRuntimeAssign for () {
+    fn const_init_mut(_: &Scope) -> Self::Expand {}
+}
 
 impl IntoRuntime for () {
     fn __expand_runtime_method(self, _: &Scope) -> Self::ExpandType {
@@ -1000,6 +1024,28 @@ impl AsRefExpand for () {
 impl AsMutExpand for () {
     fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
+    }
+}
+
+impl<T: CubePrimitive + IntoExpand<Expand = NativeExpand<T>> + Debug, const N: usize> IntoExpand
+    for [T; N]
+{
+    type Expand = NativeExpand<[T; N]>;
+
+    fn into_expand(self, scope: &Scope) -> Self::Expand {
+        let values = self
+            .into_iter()
+            .map(|it| it.into_expand(scope))
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        NativeExpand::__expand_construct(scope, values)
+    }
+}
+
+impl<T: CubePrimitive + IntoRuntime + Debug, const N: usize> IntoRuntime for [T; N] {
+    fn __expand_runtime_method(self, scope: &Scope) -> Self::ExpandType {
+        self.into_expand(scope)
     }
 }
 

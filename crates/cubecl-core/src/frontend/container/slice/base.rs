@@ -4,7 +4,11 @@ use pliron::{builtin::ops::FuncOp, r#type::TypeHandle, value::DefiningEntity};
 
 use alloc::boxed::Box;
 
-use crate::{self as cubecl, unexpanded};
+use crate::{
+    self as cubecl,
+    frontend::container::iter::{SizedContainer, SizedContainerExpand},
+    unexpanded,
+};
 use cubecl::prelude::*;
 use cubecl_ir::{
     OpInserter, SliceMetadata, VectorSize,
@@ -731,7 +735,7 @@ impl<E: CubePrimitive> IndexMutExpand<NativeExpand<usize>> for SliceExpand<E> {
     }
 }
 
-impl_slice_ranges!(SliceExpand<E>);
+impl_slice_ranges!([E: CubePrimitive] SliceExpand<E>);
 
 impl<E: CubePrimitive> List<E> for [E] {}
 impl<E: CubePrimitive> ListExpand<E> for SliceExpand<E> {

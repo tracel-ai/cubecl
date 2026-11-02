@@ -52,6 +52,7 @@ impl<E: CubePrimitive, T: Deref<Target = SliceExpand<E>> + DerefMut> SliceOperat
 impl<E: CubePrimitive> SliceOperator<E> for Shared<[E]> {}
 impl<E: CubePrimitive> SliceOperator<E> for Tensor<E> {}
 impl<E: CubePrimitive> SliceOperator<E> for Array<E> {}
+impl<E: CubePrimitive, const N: usize> SliceOperator<E> for [E; N] {}
 
 #[cube]
 impl<E: CubePrimitive> Array<E> {
@@ -61,6 +62,15 @@ impl<E: CubePrimitive> Array<E> {
 
     pub fn as_mut_slice(&mut self) -> &mut [E] {
         intrinsic!(|_| self.deref_mut())
+    }
+}
+
+impl<E: CubePrimitive, const N: usize> NativeExpand<[E; N]> {
+    pub fn __expand_as_slice_method(&self, _: &Scope) -> &NativeExpand<[E]> {
+        self.deref()
+    }
+    pub fn __expand_as_mut_slice_method(&mut self, _: &Scope) -> &mut NativeExpand<[E]> {
+        self.deref_mut()
     }
 }
 
