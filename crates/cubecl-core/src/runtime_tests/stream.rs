@@ -1,5 +1,5 @@
 use crate::{self as cubecl};
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use cubecl::prelude::*;
 use cubecl_environment::stream::StreamId;
 use cubecl_runtime::runtime::Runtime;
@@ -55,6 +55,55 @@ pub fn test_stream<R: Runtime, F: Float + CubeElement>(client: Client) {
     assert_eq!(actual[0], F::new(1318936000.0));
 }
 
+#[cube(launch)]
+pub fn add_one(buffer: &mut [f32]) {
+    if ABSOLUTE_POS < buffer.len() {
+        buffer[ABSOLUTE_POS] += 1.0;
+    }
+}
+
+#[cube(launch)]
+pub fn copy(input: &[f32], output: &mut [f32]) {
+    if ABSOLUTE_POS < output.len() {
+        output[ABSOLUTE_POS] = input[ABSOLUTE_POS];
+    }
+}
+
+/// A buffer created on one stream, written in place on a second and read on a third, which shares
+/// no other buffer with the writer.
+pub fn test_write_on_another_stream_is_read(client: Client) {
+    let on_stream = |value| unsafe {
+        let mut c = client.clone();
+        c.set_stream(StreamId { value });
+        c
+    };
+    let (creator, writer, reader) = (on_stream(20000), on_stream(20001), on_stream(20002));
+
+    let len = 256;
+    let buffer = creator.create_from_slice(f32::as_bytes(&vec![0.0; len]));
+    unsafe {
+        add_one::launch(
+            &writer,
+            CubeCount::Static(len as u32 / 32, 1, 1),
+            CubeDim::new_1d(32),
+            BufferArg::from_raw_parts(buffer.clone(), len),
+        )
+    };
+    let output = reader.empty(len * core::mem::size_of::<f32>());
+    unsafe {
+        copy::launch(
+            &reader,
+            CubeCount::Static(len as u32 / 32, 1, 1),
+            CubeDim::new_1d(32),
+            BufferArg::from_raw_parts(buffer, len),
+            BufferArg::from_raw_parts(output.clone(), len),
+        )
+    };
+
+    let actual = reader.read_one_unchecked(output);
+    assert_eq!(f32::from_bytes(&actual), vec![1.0; len]);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_stream {
@@ -66,6 +115,22 @@ macro_rules! testgen_stream {
         fn test_stream() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::stream::test_stream::<TestRuntime, FloatType>(client);
+        }
+    };
+}
+
+#[allow(missing_docs)]
+#[macro_export]
+macro_rules! testgen_stream_untyped {
+    () => {
+        mod stream {
+            use super::*;
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_write_on_another_stream_is_read() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::stream::test_write_on_another_stream_is_read(client);
+            }
         }
     };
 }

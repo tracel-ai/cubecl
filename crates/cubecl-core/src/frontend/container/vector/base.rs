@@ -321,6 +321,11 @@ impl<P: Scalar, N: Size> CubePrimitive for Vector<P, N> {
     type Size = N;
     type WithScalar<S: Scalar> = Vector<S, N>;
 
+    fn from_const_value(value: ConstantValue) -> Self {
+        Self::new(P::from_const_value(value))
+    }
+}
+impl<P: Scalar, N: Size> ConstantTyped for Vector<P, N> {
     fn __expand_as_type(scope: &Scope) -> TypeHandle {
         let inner = P::__expand_as_type(scope);
         let vectorization = N::__expand_value(scope);
@@ -329,10 +334,6 @@ impl<P: Scalar, N: Size> CubePrimitive for Vector<P, N> {
         } else {
             inner
         }
-    }
-
-    fn from_const_value(value: ConstantValue) -> Self {
-        Self::new(P::from_const_value(value))
     }
 }
 

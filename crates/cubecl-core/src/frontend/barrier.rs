@@ -42,7 +42,9 @@ impl CubePrimitive for Barrier {
     fn from_const_value(_value: cubecl_ir::ConstantValue) -> Self {
         unreachable!("Can't create from const value")
     }
+}
 
+impl ConstantTyped for Barrier {
     fn __expand_as_type(scope: &Scope) -> TypeHandle {
         BarrierType::get(scope.ctx(), BarrierLevel::Cube).into()
     }

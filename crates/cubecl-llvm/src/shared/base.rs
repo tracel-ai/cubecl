@@ -6,6 +6,7 @@ use crate::nvptx::{
     codegen::{MetadataParams, NvptxEntry},
     ptx_version::PtxVersion,
 };
+use crate::shared::native_decode::NativeDecode;
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 use crate::shared::{
     buffer_params::AtomicReads, plane::CtxPlaneDim, shared_memory::CtxSharedMemory,
@@ -42,9 +43,8 @@ use cubecl_core::{
         rewrite::{CanonicalizePass, InheritLocationPass, LowerOpsPass, SimplifyOpsPass},
     },
     post_processing::{
-        bf16::LowerWideBf16CastPass,
-        bitwise::PromoteBitwisePass,
-        minifloat::{LowerMinifloatCastPass, LowerMinifloatComparePass},
+        bf16::LowerWideBf16CastPass, bitwise::PromoteBitwisePass,
+        minifloat::LowerMinifloatComparePass,
     },
     prelude::*,
 };
@@ -478,8 +478,7 @@ fn lower(
     func_passes.add_pass(InstCombinePass::default());
     // LLVM converts between `f32` and `bfloat`; a wider source would round twice through `f32`.
     func_passes.add_pass(LowerWideBf16CastPass::default());
-    func_passes.add_pass(LowerMinifloatCastPass::default());
-    target.fp4_decode().add_passes(&mut func_passes);
+    NativeDecode::add_codec_passes(target.native_decodes(), &mut func_passes);
     func_passes.add_pass(LowerMinifloatComparePass::default());
     func_passes.add_pass(LowerComplexOpPass::default());
     target.epilogue(&mut func_passes);

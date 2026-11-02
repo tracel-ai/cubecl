@@ -151,6 +151,15 @@ impl<S: ?Sized + 'static, I: DeviceHandleSpec> DeviceHandle<S, I> {
         self.handle.submit(move |state| task(cast(state)))
     }
 
+    /// Runs `task` without waiting for it, so calls to several devices can run at once.
+    pub fn spawn<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
+        &self,
+        task: T,
+    ) -> SpawnedCall<R> {
+        let cast = self.cast;
+        self.handle.spawn(move |state| task(cast(state)))
+    }
+
     pub fn flush_queue(&self) {
         self.handle.flush_queue();
     }

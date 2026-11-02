@@ -21,6 +21,7 @@ pub trait Float:
     + FloatOps
     + ScalarNeg
     + ScalarExp
+    + ScalarExp2
     + ScalarLog
     + ScalarLog1p
     + ScalarExpm1
@@ -135,16 +136,17 @@ macro_rules! impl_float {
             type Size = Const<1>;
             type WithScalar<S: Scalar> = S;
 
-            /// Return the element type to use on GPU
-            fn __expand_as_type(scope: &Scope) -> TypeHandle {
-                <$ty>::get(scope.ctx()).into()
-            }
-
             fn from_const_value(value: ConstantValue) -> Self {
                 let ConstantValue::Float(value) = value else {
                     unreachable!()
                 };
                 $new(value)
+            }
+        }
+
+        impl ConstantTyped for $primitive {
+            fn __expand_as_type(scope: &Scope) -> TypeHandle {
+                <$ty>::get(scope.ctx()).into()
             }
         }
 

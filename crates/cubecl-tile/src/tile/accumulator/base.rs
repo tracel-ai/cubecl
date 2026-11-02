@@ -78,12 +78,6 @@ impl Scratch {
         }
     }
 
-    /// Whether a fragment goes through shared memory on its way out; forced when partials are
-    /// summed.
-    pub fn bounces(self) -> bool {
-        !matches!(self, Scratch::None)
-    }
-
     /// This setting raised to bouncing where `bouncing` demands it.
     pub fn at_least_bouncing(self, bouncing: bool) -> Scratch {
         match (bouncing, self) {
@@ -162,6 +156,7 @@ impl Tile {
 
     /// A register block over this tile's grid for a reduction over `input` under `monoid`, at
     /// the element `EA`, opened at its identity.
+    #[doc(hidden)] // Public for its regression test only.
     pub fn block_reducer<EA: Numeric>(
         &self,
         input: &Tile,

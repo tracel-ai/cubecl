@@ -9,5 +9,5 @@ pub(crate) mod vector_tile;
 
 pub use elem_alignment::ElemAlignment;
 pub use geometry::{Geometry, LineMisfit, RuntimeGeometry};
-pub use partitioning::{StorageLevels, StorageMisfit, StoragePartitioning, TileMisfit};
+pub use partitioning::{StorageLevels, StoragePartitioning, TileMisfit};
 pub use vector_tile::VectorTile;

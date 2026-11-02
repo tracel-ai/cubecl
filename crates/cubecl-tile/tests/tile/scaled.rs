@@ -2806,6 +2806,7 @@ fn staged_stepped_scaled_matmul<A: Numeric>(
     #[comptime] unpacked: Unpacked,
     #[comptime] storage: StageStorage,
     #[comptime] decoded: ElemType,
+    #[comptime] prefetch: Prefetch,
     #[define(A)] _dtype: ElemType,
 ) {
     let a = a.tile(&space);
@@ -2829,7 +2830,7 @@ fn staged_stepped_scaled_matmul<A: Numeric>(
             1usize,
             comptime!(Some(decoded)),
         );
-        stages.walk(run, Prefetch::InSlots, |slot, stage| {
+        stages.walk(run, prefetch, |slot, stage| {
             let sum_stage = sum.at(stage);
             let scale_stage = scale_cube.at(stage);
             slot.consume(|a_stage, b_stage| {
@@ -2895,13 +2896,15 @@ impl StagesHeld {
 /// window of the staged words, scaled, once a block, and runs the block's two instructions out of
 /// the landing, summing in `f32`. The cube's planes split its rows and its columns as `planes`
 /// says: planes on the same columns land the same window of the weight, each in a landing of its
-/// own, and planes on the same rows read the same window of the activation.
+/// own, and planes on the same rows read the same window of the activation. The next stage waits
+/// where `prefetch` says.
 fn check_staged_stepped(
     scales: TileScales,
     elem: ElemType,
     planes: PlaneGrid,
     unpacked: Unpacked,
     stages: StagesHeld,
+    prefetch: Prefetch,
 ) {
     let (plane_rows, n_tiles, k_tiles, fragment) = (16, 2, 4, 8);
     let rows = plane_rows * planes.rows;
@@ -2944,12 +2947,13 @@ fn check_staged_stepped(
         unpacked,
         stages.storage(fragment),
         elem,
+        prefetch,
         dtype,
     );
     w.check(
         &client,
         c,
-        &format!("staged stepped {scales:?} {elem:?} {unpacked:?} {stages:?}"),
+        &format!("staged stepped {scales:?} {elem:?} {unpacked:?} {stages:?} {prefetch:?}"),
     );
 }
 
@@ -2961,6 +2965,7 @@ fn a_tile_ordered_weight_staged_as_its_words_lands_a_step_at_a_time() {
         PlaneGrid::ONE,
         Unpacked::ByEachPlane,
         StagesHeld::Strided,
+        Prefetch::InSlots,
     );
 }
 
@@ -2972,6 +2977,7 @@ fn a_tile_ordered_weight_staged_as_its_words_lands_a_step_at_a_time_under_byte_s
         PlaneGrid::ONE,
         Unpacked::ByEachPlane,
         StagesHeld::Strided,
+        Prefetch::InSlots,
     );
 }
 
@@ -2986,6 +2992,7 @@ fn a_tile_ordered_weight_staged_as_its_words_lands_a_step_at_a_time_in_halves() 
         PlaneGrid::ONE,
         Unpacked::ByEachPlane,
         StagesHeld::Strided,
+        Prefetch::InSlots,
     );
 }
 
@@ -3002,6 +3009,7 @@ fn a_tile_ordered_weight_staged_as_its_words_lands_a_step_at_a_time_for_every_pl
         },
         Unpacked::ByEachPlane,
         StagesHeld::Strided,
+        Prefetch::InSlots,
     );
 }
 
@@ -3018,6 +3026,7 @@ fn a_tile_ordered_weight_staged_as_its_words_lands_a_step_at_a_time_a_window_a_p
         },
         Unpacked::ByEachPlane,
         StagesHeld::Strided,
+        Prefetch::InSlots,
     );
 }
 
@@ -3032,6 +3041,21 @@ fn a_tile_ordered_weight_decoded_by_the_stage_fill_contracts_as_its_values() {
         PlaneGrid::ONE,
         Unpacked::ByTheFill,
         StagesHeld::Strided,
+        Prefetch::InSlots,
+    );
+}
+
+/// The same asked to wait in registers: a fill that decodes cannot copy its source straight into
+/// them, so the stage is contracted as the values it decodes to.
+#[test]
+fn a_stage_the_fill_decodes_contracts_as_its_values_when_registers_are_asked_for() {
+    check_staged_stepped(
+        TileScales::Ue4m3,
+        f16::elem_type_native(),
+        PlaneGrid::ONE,
+        Unpacked::ByTheFill,
+        StagesHeld::Strided,
+        Prefetch::InRegisters,
     );
 }
 
@@ -3047,6 +3071,7 @@ fn a_tile_ordered_weight_decoded_by_the_stage_fill_serves_every_plane_sharing_it
         },
         Unpacked::ByTheFill,
         StagesHeld::Strided,
+        Prefetch::InSlots,
     );
 }
 
@@ -3063,6 +3088,7 @@ fn a_tile_ordered_weight_decoded_by_the_stage_fill_lands_in_padded_blocks() {
         },
         Unpacked::ByTheFill,
         StagesHeld::InPaddedBlocks,
+        Prefetch::InSlots,
     );
 }
 

@@ -4,6 +4,7 @@ pub mod inst_combine;
 pub mod mem2reg;
 pub mod pre;
 pub mod resolve_pending;
+pub mod scalar_extract;
 pub mod sccp;
 pub mod simple_cse;
 pub mod sroa;

@@ -2,6 +2,8 @@ use crate::device::{DeviceId, DeviceService, ServerUtilitiesHandle};
 use alloc::boxed::Box;
 use alloc::string::String;
 use core::any::Any;
+#[cfg(feature = "std")]
+use cubecl_environment::future::channel::oneshot;
 
 /// An error returned by a blocking device call.
 ///
@@ -23,8 +25,8 @@ enum Failure {
 }
 
 impl CallError {
-    // Only the `channel` backend (active when `multi_threading` is set) calls these
-    // constructors.
+    // Only the `channel` backend (active when `multi_threading` is set) produces these
+    // errors.
     /// Builds an error from a panic payload captured by `catch_unwind`.
     #[cfg_attr(not(multi_threading), allow(dead_code))]
     pub(crate) fn from_panic(payload: Box<dyn Any + Send>) -> Self {
@@ -120,6 +122,46 @@ impl<R> CallResultExt<R> for Result<R, CallError> {
     }
 }
 
+/// A call [spawned](super::DeviceHandle::spawn) on a device that may still be running.
+#[must_use = "the call's result is lost unless it is joined"]
+pub struct SpawnedCall<R> {
+    state: SpawnedState<R>,
+}
+
+enum SpawnedState<R> {
+    /// The result is already known.
+    Done(Result<R, CallError>),
+    #[cfg(feature = "std")]
+    Running(oneshot::Receiver<Result<R, CallError>>),
+}
+
+impl<R> SpawnedCall<R> {
+    pub(crate) fn done(result: Result<R, CallError>) -> Self {
+        Self {
+            state: SpawnedState::Done(result),
+        }
+    }
+
+    #[cfg(feature = "std")]
+    pub(crate) fn running(receiver: oneshot::Receiver<Result<R, CallError>>) -> Self {
+        Self {
+            state: SpawnedState::Running(receiver),
+        }
+    }
+
+    /// Blocks until the call returns, failing as
+    /// [`submit_blocking`](super::DeviceHandle::submit_blocking) does.
+    pub fn join(self) -> Result<R, CallError> {
+        match self.state {
+            SpawnedState::Done(result) => result,
+            #[cfg(feature = "std")]
+            SpawnedState::Running(receiver) => receiver
+                .recv()
+                .unwrap_or_else(|_| Err(CallError::disconnected())),
+        }
+    }
+}
+
 impl core::fmt::Debug for CallError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match (&self.failure, self.message()) {
@@ -195,6 +237,14 @@ pub trait DeviceHandleSpec: Sized + Clone {
     ) -> Result<R, CallError>;
 
     fn submit<T: FnOnce(&mut dyn Any) + Send + 'static>(&self, task: T);
+
+    /// Runs `task` without waiting for it to return.
+    ///
+    /// A transport whose calls run on the caller's thread has run it by the time this returns.
+    fn spawn<R: Send + 'static, T: FnOnce(&mut dyn Any) -> R + Send + 'static>(
+        &self,
+        task: T,
+    ) -> SpawnedCall<R>;
 
     fn exclusive<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError>;
 

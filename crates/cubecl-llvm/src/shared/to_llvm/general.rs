@@ -5,7 +5,7 @@ use cubecl_core::ir::dialect::general::{
 use pliron_llvm::{
     attributes::BytesAttr,
     function_call_utils::lookup_or_insert_function,
-    ops::{FPExtOp, FPTruncOp},
+    ops::{FPExtOp, FPTruncOp, GepIndex},
     types::ArrayType,
 };
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -174,12 +174,19 @@ impl ToLLVMDialect for CastOp {
             .lookup_most_recent_type(self.input(ctx))
             .unwrap_or(self.input(ctx).get_type(ctx));
 
-        // A decode the pipeline left for the target: only a target that converts `e2m1x2` itself
-        // has one (`Fp4Decode::Native`).
+        // A decode the pipeline left for the target: only one that decodes the format itself
+        // has one ([`NativeDecode`](crate::shared::native_decode::NativeDecode)).
         #[cfg(feature = "nvptx")]
-        if ctx.target() == LlvmTarget::Nvptx && crate::shared::fp4::is_e2m1x2(ctx, in_ty) {
+        if ctx.target() == LlvmTarget::Nvptx
+            && let Some(format) = crate::shared::native_decode::NativeDecode::decoded_by(
+                ctx,
+                in_ty,
+                self.result_type(ctx),
+            )
+        {
             let res_ty = cube_type_to_llvm(ctx, self.result_type(ctx));
-            let value = crate::nvptx::fp4::decode_e2m1x2(ctx, rewriter, self.input(ctx), res_ty);
+            let input = self.input(ctx);
+            let value = crate::nvptx::native_decode::decode(ctx, rewriter, format, input, res_ty);
             rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![value]);
             return Ok(());
         }
@@ -240,7 +247,12 @@ impl ToLLVMDialect for ReinterpretCastOp {
         let old_op = self.get_operation();
 
         if out_ty.deref(ctx).is::<LlvmPointerType>() {
-            rewriter.replace_operation_with_values(ctx, old_op, vec![input]);
+            // GEP is needed to block promotion - promoting loads with differing types is illegal but
+            // currently not checked upstream so mem2reg may incorrectly promote.
+            let i8 = IntegerType::get(ctx, 8, Signedness::Signless).to_handle();
+            let gep = llvm::GetElementPtrOp::new(ctx, input, vec![GepIndex::Constant(0)], i8);
+            rewriter.insert_op(ctx, &gep);
+            rewriter.replace_operation(ctx, old_op, gep.get_operation());
             return Ok(());
         }
 

@@ -156,6 +156,12 @@ pub(crate) fn registers_value(
 ) -> Value {
     let ty = value.get_type(ctx);
     if ty.deref(ctx).is::<LlvmPointerType>() {
+        // GEP is needed to block promotion - promoting loads with differing types is illegal but
+        // currently not checked upstream so mem2reg incorrectly promotes.
+        use pliron_llvm::ops::GepIndex;
+        let i8 = IntegerType::get(ctx, 8, Signedness::Signless).to_handle();
+        let gep = llvm::GetElementPtrOp::new(ctx, value, vec![GepIndex::Constant(0)], i8);
+        let value = insert(ctx, rw, &gep);
         let op = llvm::LoadOp::new(ctx, value, vector_ty);
         return insert(ctx, rw, &op);
     }

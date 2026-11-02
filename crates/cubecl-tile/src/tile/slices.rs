@@ -78,7 +78,7 @@ impl Tile {
 impl Tile {
     /// Slices along `axis` one unit keeps a state for: the rows a manual-mma grid's unit holds
     /// cells of, which a reduction reads in its registers; every slice of any other holder.
-    pub fn slices_per_unit(&self, #[comptime] axis: Axis) -> comptime_type!(usize) {
+    pub(crate) fn slices_per_unit(&self, #[comptime] axis: Axis) -> comptime_type!(usize) {
         let define!(Served) = self.element;
         let every = comptime!(self.place.space.slices_along(axis));
         match &self.kind {
@@ -144,17 +144,21 @@ impl AxisSlices {
         }
     }
 
-    /// `self[i, s] = exp(self[i, s] − slices[i])` ([`exp_minus_cell`](Self::exp_minus_cell)).
-    pub(crate) fn exp_minus<E: Float>(&mut self, slices: &Array<E>) {
+    /// `self[i, s] = 2^(self[i, s] · scale − offsets[i])`: one multiply-add and one
+    /// [`exp2`](Exp2::exp2) a cell, the exponential as the hardware computes it. An infinite
+    /// offset sends its slice's cells to zero.
+    pub(crate) fn exp2_scaled_minus<E: Float>(&mut self, scale: E, offsets: &Array<E>) {
         match &mut self.kind {
-            AxisSlicesKind::Registers(block) => block.exp_minus_along::<E>(slices),
+            AxisSlicesKind::Registers(block) => block.exp2_scaled_minus_along::<E>(scale, offsets),
             AxisSlicesKind::Window(window) => {
-                window.exp_minus_along::<E>(slices, self.space.clone(), self.axis)
+                window.exp2_scaled_minus_along::<E>(scale, offsets, self.space.clone(), self.axis)
             }
-            AxisSlicesKind::Fragments(partition) => partition.exp_minus_along::<E>(slices),
+            AxisSlicesKind::Fragments(partition) => {
+                partition.exp2_scaled_minus_along::<E>(scale, offsets)
+            }
             AxisSlicesKind::Fragment(tile) => {
                 let mut fragment = tile.manual_fragment();
-                fragment.exp_minus_along(slices, 0usize)
+                fragment.exp2_scaled_minus_along(scale, offsets, 0usize)
             }
         }
     }
@@ -233,7 +237,7 @@ impl AxisSlices {
     /// `self[c] = probabilities[c] · (self[c] − delta[c])`: a softmax's gradient against its
     /// scores, where `self` holds the gradient against its probabilities and `delta` is, for each
     /// softmax, `Σ probabilities · self` along the axis it ran along. `delta` broadcasts as
-    /// [`probabilities`](Self::probabilities)'s logsumexp does; the probabilities are cut as
+    /// [`probabilities`](AxisSlices::probabilities)'s logsumexp does; the probabilities are cut as
     /// `self` is, held by the same holder: a unit's block, a plane's window, or a plane's
     /// manual-mma fragments laid alike.
     pub fn softmax_gradient<E: Float>(&mut self, probabilities: &AxisSlices, delta: &Tile) {
@@ -320,6 +324,11 @@ impl AxisSlices {
                  slot alike; only a manual-mma grid's units keep their own rows"
             ),
         }
+    }
+
+    /// `2^(value · scale − offset)`, a cell of [`exp2_scaled_minus`](Self::exp2_scaled_minus).
+    pub(crate) fn exp2_scaled_minus_cell<E: Float>(value: E, scale: E, offset: E) -> E {
+        (value * scale - offset).exp2()
     }
 
     /// `exp(value − slice)`, zero where `slice` is itself masked: a slice with nothing live yet,

@@ -165,7 +165,7 @@ pub(crate) fn relay_kernel(wait: Wait) -> impl CubeKernel {
 }
 
 /// A word read as four `e2m1x2` and cast to eight `f16`, then the eight cast back: what a reader
-/// of a packed fp4 weight does, through the software codec on every LLVM target.
+/// of a packed fp4 weight does.
 #[cfg(any(feature = "nvptx", feature = "amdgpu"))]
 #[cube(launch)]
 fn fp4_round_trip(words: &[u32], out: &mut [u32]) {
@@ -183,6 +183,31 @@ pub(crate) fn fp4_round_trip_kernel() -> impl CubeKernel {
         AddressType::U32,
     );
     fp4_round_trip::Fp4RoundTrip::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
+/// A word read as four `e4m3` scales and cast to four `f16`: what a reader of an NVFP4 weight's
+/// block scales does.
+#[cfg(feature = "nvptx")]
+#[cube(launch)]
+fn e4m3_decode(words: &[u32], out: &mut [Vector<half::f16, Const<4>>]) {
+    let scales = Vector::<cubecl_core::e4m3, Const<4>>::reinterpret(words[ABSOLUTE_POS]);
+    out[ABSOLUTE_POS] = Vector::cast_from(scales);
+}
+
+#[cfg(feature = "nvptx")]
+pub(crate) fn e4m3_decode_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    e4m3_decode::E4m3Decode::new(
         settings,
         device_properties(32),
         Arc::new(TargetProperties::default()),

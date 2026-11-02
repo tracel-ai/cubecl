@@ -367,8 +367,8 @@ impl RegisterData {
         maxima
     }
 
-    /// `self[i, s] = exp(self[i, s] − slices[i])` ([`AxisSlices::exp_minus_cell`]).
-    pub(crate) fn exp_minus_along<E: Float>(&mut self, slices: &Array<E>) {
+    /// `self[i, s] = 2^(self[i, s] · scale − offsets[i])` ([`AxisSlices::exp2_scaled_minus_cell`]).
+    pub(crate) fn exp2_scaled_minus_along<E: Float>(&mut self, scale: E, offsets: &Array<E>) {
         let data = self.data.at_mut::<E>();
         #[unroll]
         for r in 0..self.mr {
@@ -380,7 +380,7 @@ impl RegisterData {
                 for j in 0..self.vector_size {
                     line.insert(
                         j,
-                        AxisSlices::exp_minus_cell::<E>(line.extract(j), slices[r]),
+                        AxisSlices::exp2_scaled_minus_cell::<E>(line.extract(j), scale, offsets[r]),
                     );
                 }
                 data[at] = line;
