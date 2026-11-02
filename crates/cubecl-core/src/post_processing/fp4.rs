@@ -2,9 +2,8 @@
 //! can still decode and encode fp4 from the bits in a word.
 //!
 //! This is the fp4 counterpart of `cubecl_core::post_processing::minifloat`, and it exists for the
-//! same reason: `e2m1` conversion is a CUDA intrinsic and nothing else. Every other backend either
-//! has no 4-bit float type at all or can only move one around, so a quantized kernel that reaches
-//! for `e2m1x2::from_bits` runs on one vendor. The arithmetic below runs everywhere.
+//! same reason. The software decode runs on every backend, while a kernel that reaches for
+//! `e2m1x2::from_bits` is bound to the backends that convert or lower it.
 //!
 //! It does not go through the general minifloat path. That one reconstructs an `f32` bit pattern
 //! field by field, which is the only tractable way to cover eight exponent bits; `e2m1` has four

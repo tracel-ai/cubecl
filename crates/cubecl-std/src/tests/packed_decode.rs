@@ -255,6 +255,19 @@ pub fn test_e2m1_both_nibble_orders<R: Runtime>(client: Client) {
     }
 }
 
+/// The fp8 fields of a packed word through the quantized-read decoder.
+pub fn test_minifloat_fields<R: Runtime>(client: Client) {
+    for (value, cases) in [
+        (QuantValue::E4M3, E4M3_CASES),
+        (QuantValue::E5M2, E5M2_CASES),
+    ] {
+        for (words, expected) in cases {
+            let actual = unpack(&client, words, None, scheme(value));
+            assert_eq!(bits(&actual), bits(&expected), "{value:?} {words:x?}");
+        }
+    }
+}
+
 /// The software decoders on their edge codes, the format's own bits to `f32`.
 pub fn test_fp8_and_ue8m0_edge_codes<R: Runtime>(client: Client) {
     let cases = [
@@ -320,6 +333,12 @@ macro_rules! testgen_packed_decode {
                 cubecl_std::tests::packed_decode::test_e2m1_both_nibble_orders::<TestRuntime>(
                     client,
                 );
+            }
+
+            #[$crate::tests::test_log::test]
+            fn minifloat_fields() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_std::tests::packed_decode::test_minifloat_fields::<TestRuntime>(client);
             }
 
             #[$crate::tests::test_log::test]

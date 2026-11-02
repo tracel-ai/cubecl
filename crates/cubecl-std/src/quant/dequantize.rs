@@ -1,7 +1,8 @@
 use cubecl::prelude::*;
 use cubecl_common::quant::scheme::*;
-use cubecl_common::{e4m3, e5m2};
 use cubecl_core as cubecl;
+use cubecl_core::ir::types::Fp8Format;
+use cubecl_core::post_processing::minifloat::fp8_bits_to_f32;
 
 /// Dequantize a vector of values, where `vector_size * num_quants` is a power of two.
 /// Unaligned values can't be dequantized in place.
@@ -90,7 +91,7 @@ pub fn unpack_cast_u32<F: Numeric, NQ: Size, NF: Size>(
             let shift = packed_idx * size_bits;
             let value = (packed_val >> shift as u32) & mask;
 
-            let float_value = cast_masked::<F, NP>(value, table.clone(), scheme);
+            let float_value = decode_field::<F, NP>(value, table.clone(), scheme);
 
             #[unroll]
             for native_idx in 0..native_packing {
@@ -132,7 +133,7 @@ pub fn unpack_fields<F: Numeric, NF: Size>(
     for j in 0..NF::value() {
         let shift = (first + j as u32) * size_bits as u32;
         let field = (word >> shift) & mask;
-        let value = cast_masked::<F, N1>(field, table.clone(), scheme);
+        let value = decode_field::<F, N1>(field, table.clone(), scheme);
         out.insert(j, value.extract(0usize));
     }
     out
@@ -148,18 +149,15 @@ fn packing_mask(scheme: QuantScheme) -> u32 {
     (1u32 << bits) - 1
 }
 
-/// Cast a masked-out value in the low `n` bits of a `u32` to the specified float type.
-/// With a `table` the value is an index and the cast is its lookup; otherwise sign conversion
-/// is applied for integer quantization before casting to the float type,
-/// while minifloats are simply truncated to `u8`, reinterpreted and then cast.
-/// `e2m1` decodes its packed pair in software ([`e2m1_packed_bits_to_float`]) rather than through
-/// the `e2m1x2` type: that cast lowers on CUDA alone, and this is the decoder every quantized read
-/// on every backend goes through.
+/// Decode one packed field held in the low bits of `value` (a native pair for `e2m1`).
+/// With a `table` the field is an index; otherwise integers are sign extended and minifloats
+/// decoded. The software decode runs on every backend, while the `e2m1x2` cast is bound to the
+/// backends that convert or lower it.
 ///
 /// # Returns
 /// Two floating point numbers for `e2m1`, one for all other formats.
 #[cube]
-fn cast_masked<F: Numeric, N: Size>(
+fn decode_field<F: Numeric, N: Size>(
     value: u32,
     table: ComptimeOption<Box<[f32]>>,
     #[comptime] scheme: QuantScheme,
@@ -173,17 +171,22 @@ fn cast_masked<F: Numeric, N: Size>(
     }
 }
 
-/// The tableless arm of [`cast_masked`]: sign conversion for the integers, bit reinterpretation
-/// for the minifloats.
+/// The tableless arm of [`decode_field`]: sign conversion for the integers, software decode
+/// for the minifloats and `e2m1`.
 #[cube]
 fn cast_masked_plain<F: Numeric, N: Size>(
     value: u32,
     #[comptime] scheme: QuantScheme,
 ) -> Vector<F, N> {
     match scheme.value {
-        // For minifloat we can assume if they're supported then u8 is supported
-        QuantValue::E5M2 => Vector::<F, N>::cast_from(e5m2::from_bits(value as u8)),
-        QuantValue::E4M3 => Vector::<F, N>::cast_from(e4m3::from_bits(value as u8)),
+        QuantValue::E5M2 => Vector::<F, N>::cast_from(fp8_bits_to_f32::<N>(
+            Vector::<u32, N>::new(value),
+            Fp8Format::E5M2,
+        )),
+        QuantValue::E4M3 => Vector::<F, N>::cast_from(fp8_bits_to_f32::<N>(
+            Vector::<u32, N>::new(value),
+            Fp8Format::E4M3,
+        )),
         QuantValue::E2M1 => crate::quant::fp4::e2m1_packed_bits_to_float::<F, N>(value),
         QuantValue::Q8F
         | QuantValue::Q4F
