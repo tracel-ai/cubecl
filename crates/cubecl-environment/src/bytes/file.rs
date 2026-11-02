@@ -126,6 +126,11 @@ impl AllocationController for FileAllocationController {
         AllocationProperty::File
     }
 
+    fn may_alias_mutable_storage(&self) -> bool {
+        // File contents are copied into a private allocation, never mapped.
+        false
+    }
+
     // The file region size, known without reading the file (never materializes).
     fn capacity(&self) -> usize {
         self.size as usize
