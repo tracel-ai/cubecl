@@ -28,7 +28,7 @@ impl AmdWmma {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AMDArchitecture {
     // RDNA
-    // gfx1200, gfx1201 (RDNA4)
+    // gfx1200, gfx1201 (RDNA4). gfx1250 is no RDNA4: its WMMA forms differ.
     GFX12,
     // gfx1100, gfx1101, gfx1102
     GFX11,
@@ -77,7 +77,7 @@ impl AMDArchitecture {
 
     pub fn parse(arg: &str) -> Result<Self, String> {
         let norm = arg.to_lowercase();
-        if norm.starts_with("gfx12") {
+        if norm.starts_with("gfx120") {
             Ok(AMDArchitecture::GFX12)
         } else if norm.starts_with("gfx11") {
             Ok(AMDArchitecture::GFX11)
@@ -174,6 +174,7 @@ mod tests {
     fn a_device_has_one_wave_width_and_one_wmma() {
         for (name, plane_dim, wmma) in [
             ("gfx1201", Some(32), Some(AmdWmma::Rdna4)),
+            ("gfx1250", None, None),
             ("gfx1100", Some(32), Some(AmdWmma::Rdna3)),
             ("gfx1030", Some(32), None),
             ("gfx1010", Some(32), None),
