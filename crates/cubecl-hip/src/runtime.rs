@@ -1,6 +1,6 @@
 use crate::{
     compiler::{HipBackend, HipCompilationOptions},
-    compute::{HipServer, context::HipContext},
+    compute::{HipServer, communication, context::HipContext},
     device::AmdDevice,
 };
 use core::ffi::c_int;
@@ -230,7 +230,7 @@ impl DeviceService for HipServer {
         let hip_ctx = HipContext::new(comp_opts, device_props.clone(), fingerprint, backend);
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
-        let (utilities, captures) = ServerUtilities::init(
+        let (mut utilities, captures) = ServerUtilities::init(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "hip",
             device_props,
@@ -238,6 +238,11 @@ impl DeviceService for HipServer {
             logger,
             policy,
         );
+        // Loading RCCL takes most of a second, and a lone device has no peer to use it with.
+        if HipRuntime::enumerate_devices(0).len() > 1 {
+            utilities.device_transport =
+                communication::transport(utilities.properties.features.types.elem.keys().copied());
+        }
         let options = RuntimeOptions::default();
 
         let server = HipServer::new(
