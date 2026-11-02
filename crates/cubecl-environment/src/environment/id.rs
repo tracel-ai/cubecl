@@ -1,5 +1,6 @@
 //! Environments as values: named in the storage that keeps them, created
-//! empty, from a fork or from a bundle, activated and saved whole.
+//! empty, from a fork or from a bundle, merged into, activated and saved
+//! whole.
 //!
 //! The functions of [`environment`](super) act on this process's storage by
 //! name. An [`EnvironmentId`] also names the storage, so an environment of
@@ -33,7 +34,7 @@ pub struct EnvironmentBundle {
     pub bytes: Bytes,
 }
 
-/// What a new environment holds.
+/// What a new environment holds, or what a merge brings into one.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum EnvironmentOrigin {
     /// Nothing.
@@ -168,6 +169,43 @@ mod storage {
             Ok(previous)
         }
 
+        /// Brings what `origin` holds into the environment: an entry of
+        /// `origin` replaces the one the environment holds under the same key,
+        /// and every other entry stays. The environment may be active; it is
+        /// then activated again, so what reads it reads the merged entries.
+        /// The merge is one transaction, so a failure leaves the environment
+        /// as it was. Merging an environment into itself changes nothing.
+        ///
+        /// # Errors
+        ///
+        /// The environment or a fork's source lives in another process's
+        /// storage, the bundle does not read, or the storage refused the write.
+        pub fn merge(&self, origin: EnvironmentOrigin) -> Result<(), EnvironmentError> {
+            self.check_local()?;
+            if let EnvironmentOrigin::Fork(source) = &origin {
+                source.check_local()?;
+                if same_file(&source.path(), &self.path()) {
+                    return Ok(());
+                }
+            }
+            let staged = self.staged("merged");
+            let merged = self
+                .source(origin, &staged)
+                .and_then(|source| match source {
+                    Some(source) => self
+                        .open(Access::ReadWrite)?
+                        .merge_from(&source)
+                        .map_err(|reason| EnvironmentError::Storage { reason }),
+                    None => Ok(()),
+                });
+            discard(&staged);
+            merged?;
+            if same_file(&path(), &self.path()) {
+                self.activate()?;
+            }
+            Ok(())
+        }
+
         /// The environment serialized whole.
         ///
         /// # Errors
@@ -211,17 +249,30 @@ mod storage {
         /// Replaces what the environment holds with `origin`, once the source
         /// is known to read. A bundle is written to `staged` to be read.
         fn fill(&self, origin: EnvironmentOrigin, staged: &Path) -> Result<(), EnvironmentError> {
-            let source = match origin {
-                EnvironmentOrigin::Empty => None,
-                EnvironmentOrigin::Fork(source) => {
-                    source.check_local()?;
-                    if same_file(&source.path(), &self.path()) {
-                        return Err(EnvironmentError::SelfFork {
-                            name: self.name.clone(),
-                        });
-                    }
-                    Some(source.open(Access::ReadOnly)?)
+            if let EnvironmentOrigin::Fork(source) = &origin {
+                source.check_local()?;
+                if same_file(&source.path(), &self.path()) {
+                    return Err(EnvironmentError::SelfFork {
+                        name: self.name.clone(),
+                    });
                 }
+            }
+            let source = self.source(origin, staged)?;
+            self.open(Access::ReadWrite)?
+                .replace_with(source.as_ref())
+                .map_err(|reason| EnvironmentError::Storage { reason })
+        }
+
+        /// The database `origin` reads from, `None` for an empty one: a fork's
+        /// source, or a bundle written to `staged` and checked to read.
+        fn source(
+            &self,
+            origin: EnvironmentOrigin,
+            staged: &Path,
+        ) -> Result<Option<Database>, EnvironmentError> {
+            Ok(match origin {
+                EnvironmentOrigin::Empty => None,
+                EnvironmentOrigin::Fork(source) => Some(source.open(Access::ReadOnly)?),
                 EnvironmentOrigin::Bundle(bundle) => {
                     std::fs::write(staged, &*bundle.bytes).map_err(storage_error)?;
                     // Validates the manifest; the entries are then read as an
@@ -232,11 +283,7 @@ mod storage {
                             .map_err(|reason| EnvironmentError::Storage { reason })?,
                     )
                 }
-            };
-
-            self.open(Access::ReadWrite)?
-                .replace_with(source.as_ref())
-                .map_err(|reason| EnvironmentError::Storage { reason })
+            })
         }
 
         fn open(&self, access: Access) -> Result<Database, EnvironmentError> {

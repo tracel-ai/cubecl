@@ -340,13 +340,37 @@ impl Database {
     /// When `source` can't be read or this database can't be written.
     #[cfg(native_cache)]
     pub fn replace_with(&self, source: Option<&Database>) -> Result<(), String> {
+        self.copy_from(source, Copy::Replace)
+            .inspect_err(|err| log::warn!("Unable to replace {}: {err}", self.location))
+    }
+
+    /// Stores every entry of `source` as [`Origin::Imported`], over the one
+    /// this database holds under the same key; the keys only this database
+    /// holds keep their values. It is one transaction: a failure to read
+    /// `source` or to write here leaves this database as it was.
+    ///
+    /// # Errors
+    ///
+    /// When `source` can't be read or this database can't be written.
+    #[cfg(native_cache)]
+    pub fn merge_from(&self, source: &Database) -> Result<(), String> {
+        self.copy_from(Some(source), Copy::Merge)
+            .inspect_err(|err| log::warn!("Unable to merge into {}: {err}", self.location))
+    }
+
+    /// Writes `source`'s entries over this database's in one transaction,
+    /// clearing it first when `copy` replaces it.
+    #[cfg(native_cache)]
+    fn copy_from(&self, source: Option<&Database>, copy: Copy) -> Result<(), String> {
         let mut connection = self.connection.lock();
         let source = source.map(|source| source.connection.lock());
         let transaction =
             drive(connection.transaction_with_behavior(write_transaction())).map_err(error)?;
 
         let copied = (|| {
-            drive(transaction.execute(CLEAR, ()))?;
+            if copy == Copy::Replace {
+                drive(transaction.execute(CLEAR, ()))?;
+            }
             let Some(source) = &source else {
                 return Ok(());
             };
@@ -368,7 +392,6 @@ impl Database {
                 Err(error(err))
             }
         }
-        .inspect_err(|err| log::warn!("Unable to replace {}: {err}", self.location))
     }
 
     /// Visits every entry of `namespace`.
@@ -493,6 +516,16 @@ impl Database {
         })
         .unwrap_or_default()
     }
+}
+
+/// What a copy from another database does with the entries already here.
+#[cfg(native_cache)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Copy {
+    /// They go: the database holds the source's entries alone.
+    Replace,
+    /// They stay, but where the source holds the same key.
+    Merge,
 }
 
 /// One insert on `connection`: the statement arbitrates, and only a declined

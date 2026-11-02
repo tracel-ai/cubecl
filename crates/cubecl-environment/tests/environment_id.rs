@@ -70,6 +70,60 @@ fn a_fork_copies_what_its_source_holds_now() {
     assert_eq!(read(&fork, "after"), None);
 }
 
+/// A merge brings the source's entries in over the environment's own under
+/// the same key, and keeps every other.
+#[test]
+#[serial_test::serial]
+fn a_merge_keeps_what_the_environment_held_beside_what_it_brings() {
+    let _root = rooted();
+    let built = EnvironmentId::create("built", EnvironmentOrigin::Empty).unwrap();
+    warm(&built, &[("kernel", 1), ("shared", 10)]);
+    let application = EnvironmentId::create("application", EnvironmentOrigin::Empty).unwrap();
+    warm(&application, &[("other", 2), ("shared", 20)]);
+    environment::activate(environment::DEFAULT);
+
+    application
+        .merge(EnvironmentOrigin::Bundle(built.save().unwrap()))
+        .unwrap();
+
+    assert_eq!(read(&application, "kernel"), Some(1));
+    assert_eq!(read(&application, "other"), Some(2));
+    assert_eq!(read(&application, "shared"), Some(10));
+}
+
+/// The active environment takes a merge: what reads it afterwards reads the
+/// merged entries, and a fork's merge leaves its source as it was.
+#[test]
+#[serial_test::serial]
+fn the_active_environment_reads_what_is_merged_into_it() {
+    let _root = rooted();
+    let source = EnvironmentId::create("source", EnvironmentOrigin::Empty).unwrap();
+    warm(&source, &[("kernel", 1)]);
+    let active = EnvironmentId::create("active", EnvironmentOrigin::Empty).unwrap();
+    warm(&active, &[("own", 2)]);
+
+    active
+        .merge(EnvironmentOrigin::Fork(source.clone()))
+        .unwrap();
+
+    assert_eq!(store().get(&"kernel".to_string()).copied(), Some(1));
+    assert_eq!(read(&active, "own"), Some(2));
+    assert_eq!(read(&source, "own"), None);
+}
+
+/// A merge of an environment into itself changes nothing.
+#[test]
+#[serial_test::serial]
+fn an_environment_merged_into_itself_is_unchanged() {
+    let _root = rooted();
+    let id = EnvironmentId::create("itself", EnvironmentOrigin::Empty).unwrap();
+    warm(&id, &[("kernel", 1)]);
+
+    id.merge(EnvironmentOrigin::Fork(id.clone())).unwrap();
+
+    assert_eq!(read(&id, "kernel"), Some(1));
+}
+
 /// Replacing the active environment would pull entries from under the stores
 /// reading it.
 #[test]
