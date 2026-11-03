@@ -8,7 +8,7 @@
 //! number carried beside a lookup.
 //!
 //! The second half reads the same kind of pool with no walk over pages at all: the operand is
-//! placed by its table ([`TileArgLaunch::indexed`] keyed by the sequence and its positions), the
+//! placed by its table ([`TileTensorLaunch::indexed`] keyed by the sequence and its positions), the
 //! kernel walks logical positions, and the table is resolved where each line's offset is taken.
 #![allow(non_snake_case)]
 
@@ -45,8 +45,8 @@ const TABLE: [u32; SEQS * PAGES_PER_SEQ] = [2, 0, 3, 2];
 /// `out[b] = Σ kv[slot]` over the slots of the pages sequence `b` holds.
 #[cube(launch)]
 fn paged_sum_kernel<E: Numeric>(
-    kv: &TileArg<'_>,
-    out: &TileArg<'_>,
+    kv: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     table: &Tensor<u32>,
     space: Partitioning,
     #[comptime] seq: Level,
@@ -127,7 +127,7 @@ fn run(table: &[u32]) -> HostData {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             kv_handle.binding().into_tensor_arg(),
             f32_ty,
             1,
@@ -140,7 +140,7 @@ fn run(table: &[u32]) -> HostData {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             out_handle.clone().binding().into_tensor_arg(),
             f32_ty,
             1,
@@ -216,8 +216,8 @@ const PAGES: [[u32; PAGES_EACH]; SEQUENCES] = [[5, 0, 3], [1, 6, 2], [4, 4, 0]];
 
 /// `handle`, a `u32` page table `[sequences, pages_per_sequence]`, keyed by `keys`: the sequence
 /// whose pages it lists, then the positions they hold.
-fn page_table(handle: TensorHandle, keys: &[Axis]) -> TileArgLaunch {
-    TileArgLaunch::new(
+fn page_table(handle: TensorHandle, keys: &[Axis]) -> TileTensorLaunch {
+    TileTensorLaunch::new(
         handle.binding().into_tensor_arg(),
         u32::elem_type_native(),
         1,
@@ -265,9 +265,9 @@ impl Handing {
 /// `handing` names.
 #[cube(launch)]
 fn paged_read_sum_kernel<E: Numeric>(
-    pool: &TileArg<'_>,
+    pool: &TileTensor<'_>,
     lens: &Tensor<u32>,
-    out: &TileArg<'_>,
+    out: &TileTensor<'_>,
     #[comptime] from: usize,
     space: Partitioning,
     #[comptime] seq: Level,
@@ -365,13 +365,13 @@ fn run_paged_read_blocks(
         block,
         from,
         Handing::Nothing,
-        TileArgLaunch::indexed,
+        TileTensorLaunch::indexed,
     )
 }
 
-/// How a read places its pool by its table: [`TileArgLaunch::indexed`] or
-/// [`TileArgLaunch::indexed_covering`].
-type Bind = fn(TileArgLaunch, TileArgLaunch, Indexing) -> Result<TileArgLaunch, Refusal>;
+/// How a read places its pool by its table: [`TileTensorLaunch::indexed`] or
+/// [`TileTensorLaunch::indexed_covering`].
+type Bind = fn(TileTensorLaunch, TileTensorLaunch, Indexing) -> Result<TileTensorLaunch, Refusal>;
 
 /// [`run_paged_read_blocks`] through a table of `entries` laid out as `shape`, any rank, the pool
 /// bound by `bind`.
@@ -446,7 +446,7 @@ fn run_paged_read_table(
         launcher.cube_dim(),
         pool,
         lens_handle.binding().into_tensor_arg(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             out_handle.clone().binding().into_tensor_arg(),
             f32_ty,
             1,
@@ -469,9 +469,9 @@ fn run_paged_read_table(
 /// 0 keeps the alignment the levels prove; any other is a runtime shift that loses it.
 #[cube(launch)]
 fn paged_page_walk_sum_kernel<E: Numeric>(
-    pool: &TileArg<'_>,
+    pool: &TileTensor<'_>,
     lens: &Tensor<u32>,
-    out: &TileArg<'_>,
+    out: &TileTensor<'_>,
     #[comptime] from: usize,
     space: Partitioning,
     #[comptime] seq: Level,
@@ -564,7 +564,7 @@ fn run_paged_page_walk(lens: &[u32; SEQUENCES], step: usize, from: u32) -> HostD
         launcher.cube_dim(),
         pool,
         lens_handle.binding().into_tensor_arg(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             out_handle.clone().binding().into_tensor_arg(),
             f32_ty,
             1,
@@ -732,7 +732,7 @@ fn a_flat_walk_over_larger_pages_reads_each_sequence_through_its_table() {
             block,
             from,
             Handing::Nothing,
-            TileArgLaunch::indexed,
+            TileTensorLaunch::indexed,
         );
         let want = expected_paged_read_from(&lens, &rows(&PAGES), from, WALK_PAGE_LEN);
         for (b, row) in want.iter().enumerate() {
@@ -772,7 +772,7 @@ fn a_cut_handed_a_page_entry_reads_each_sequence_through_its_table() {
                 block,
                 from,
                 handing,
-                TileArgLaunch::indexed,
+                TileTensorLaunch::indexed,
             );
             let want = expected_paged_read_from(&lens, &rows(&PAGES), from, PAGE_LEN);
             for (b, row) in want.iter().enumerate() {
@@ -860,7 +860,7 @@ fn a_covering_table_reads_each_sequence_through_it() {
             READ_BLOCK,
             0,
             Handing::Nothing,
-            TileArgLaunch::indexed_covering,
+            TileTensorLaunch::indexed_covering,
         );
         for (b, row) in expected_paged_read(&lens).iter().enumerate() {
             for (f, cell) in row.iter().enumerate() {
@@ -1015,7 +1015,7 @@ fn a_paged_pool_binds_wherever_its_pages_lie() {
 /// `out = pool` over the sequences, every scale it carries applied, the pool and its scales read
 /// through the tables their bindings carry.
 #[cube(launch)]
-fn paged_dequantize_kernel(pool: &TileArg<'_>, out: &TileArg<'_>, space: Partitioning) {
+fn paged_dequantize_kernel(pool: &TileTensor<'_>, out: &TileTensor<'_>, space: Partitioning) {
     let pool = pool.tile(&space);
     let mut out = out.tile(&space);
     out.dequantize_from(&pool);

@@ -174,7 +174,7 @@ const WIDTH: usize = 2;
 /// width of two both values of a line would be one, and a store a line off would go unseen.
 #[cube(launch)]
 fn store<E: Float, V: Size, O: Destination>(
-    input: &TileArg<'_>,
+    input: &TileTensor<'_>,
     out: &O::Arg<E>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
@@ -299,8 +299,8 @@ const BLOCK: RegisterBlock = RegisterBlock::new(16);
 /// touch of the output, which is the shape of a kernel a fused epilogue is handed to.
 #[cube(launch)]
 fn contract<E: Numeric, EA: Numeric, O: Destination>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
     c: &O::Arg<E>,
     space: Partitioning,
     #[comptime] level: Level,

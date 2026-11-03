@@ -55,7 +55,7 @@ pub use algebra::indexed::Indexed;
 pub use algebra::monoid::Monoid;
 pub use algebra::semiring::Semiring;
 pub use algebra::top_k::{TOP_K_UNROLL_BUDGET, TopK};
-pub use launch::arg::tensor::{TileArg, TileArgLaunch};
+pub use launch::arg::tensor::{TileTensor, TileTensorLaunch};
 pub use launch::base::Launcher;
 pub use launch::spec::TileSpec;
 pub use layout::projection::Projection;

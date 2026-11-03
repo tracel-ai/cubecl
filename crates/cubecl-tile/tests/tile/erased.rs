@@ -47,7 +47,11 @@ impl<T: Float> Recipe<T> for Position {
 
 /// The store as it has always been: the operand's own buffer.
 #[cube(launch)]
-fn buffer_kernel<E: Float>(out: &TileArg<'_>, space: Partitioning, #[define(E)] _dtype: ElemType) {
+fn buffer_kernel<E: Float>(
+    out: &TileTensor<'_>,
+    space: Partitioning,
+    #[define(E)] _dtype: ElemType,
+) {
     let mut dst = out.tile(&space);
     let src =
         Procedural::new::<E, Position>(comptime!(space.space().clone()), Position {}).tile::<E>();
@@ -60,7 +64,7 @@ fn buffer_kernel<E: Float>(out: &TileArg<'_>, space: Partitioning, #[define(E)] 
 /// what makes the two comparable: nothing about the destination differs except
 /// that this one is addressed through [`Tile::of_sink`] and lands in a call.
 #[cube(launch)]
-fn sink_kernel<E: Float>(out: &TileArg<'_>, space: Partitioning, #[define(E)] _dtype: ElemType) {
+fn sink_kernel<E: Float>(out: &TileTensor<'_>, space: Partitioning, #[define(E)] _dtype: ElemType) {
     // The geometry a sink cannot be asked for, taken off the tensor behind it.
     let geometry =
         RuntimeGeometry::of_tensor::<Vector<E, Const<1>>>(out.lines::<E, Const<1>>(), 2usize);
@@ -82,7 +86,7 @@ fn sink_kernel<E: Float>(out: &TileArg<'_>, space: Partitioning, #[define(E)] _d
 /// The output launch argument, served at the output's element.
 macro_rules! output_arg {
     ($output:expr) => {
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             $output.clone().binding().into_tensor_arg(),
             $output.dtype,
             1,
@@ -164,9 +168,10 @@ fn a_sink_stores_where_a_buffer_stores() {
 /// The same sink store, with the destination's [`TileSpec`] and geometry derived on the host by
 /// [`Launcher::geometry`] instead of stated at the call site.
 ///
-/// The pair a fused store actually reaches for. The kernels above take their spec off a `TileArg`,
-/// but a destination written through a call has none, which is why `geometry` exists: it runs the
-/// derivation a bound operand runs and hands both halves, the spec *and* the settled geometry.
+/// The pair a fused store actually reaches for. The kernels above take their spec off a
+/// `TileTensor`, but a destination written through a call has none, which is why `geometry` exists:
+/// it runs the derivation a bound operand runs and hands both halves, the spec *and* the settled
+/// geometry.
 #[cube(launch)]
 fn derived_sink_kernel<E: Float>(
     out: &Tensor<Vector<E, Const<1>>>,
@@ -261,9 +266,9 @@ const BLOCK: RegisterBlock = RegisterBlock::new(16);
 /// comparison is between two kernels in one file rather than across suites.
 #[cube(launch)]
 fn buffer_matmul<EA: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(EA)] _acc_dtype: ElemType,
@@ -292,9 +297,9 @@ fn buffer_matmul<EA: Numeric>(
 /// cell once and never reads it back, so it asks a sink for nothing a sink does not have.
 #[cube(launch)]
 fn sink_matmul<E: Numeric, EA: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -336,9 +341,9 @@ fn sink_matmul<E: Numeric, EA: Numeric>(
 /// onto `write_view`. The leaf asks the same layout for the same coordinates, and a call answers.
 #[cube(launch)]
 fn source_matmul<E: Numeric, EA: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -543,7 +548,7 @@ fn masked_space(form: Form) -> Launcher {
 /// per *line*, so at a width of two both components of a line would carry one value and the test
 /// could not tell a masked store from a store one unit wide.
 #[cube(launch)]
-fn wide_buffer_kernel(input: &TileArg<'_>, out: &TileArg<'_>, space: Partitioning) {
+fn wide_buffer_kernel(input: &TileTensor<'_>, out: &TileTensor<'_>, space: Partitioning) {
     let src = input.tile(&space);
     let mut dst = out.tile(&space);
     dst.copy_from(&src);
@@ -552,8 +557,8 @@ fn wide_buffer_kernel(input: &TileArg<'_>, out: &TileArg<'_>, space: Partitionin
 /// [`sink_kernel`] at a served width of two, over the same masked nest.
 #[cube(launch)]
 fn wide_sink_kernel<E: Float>(
-    input: &TileArg<'_>,
-    out: &TileArg<'_>,
+    input: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -577,8 +582,8 @@ fn wide_sink_kernel<E: Float>(
 /// masked space: the read-side twin of [`wide_sink_kernel`].
 #[cube(launch)]
 fn wide_source_kernel<E: Float>(
-    input: &TileArg<'_>,
-    out: &TileArg<'_>,
+    input: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {

@@ -50,9 +50,9 @@ enum Leaf {
 /// fragment of `inner` at a time through `leaf`, the stage laid out as `storage`.
 #[cube(launch)]
 fn staged_k_walk<EA: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] outer: Level,
     #[comptime] inner: Level,
