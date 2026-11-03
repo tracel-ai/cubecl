@@ -19,8 +19,8 @@ use cubecl_core::{
     prelude::*,
     server::{
         BufferBinding, ComputeWait, CopyDescriptor, Handle, KernelArguments, KernelResource,
-        ProfileError, ProfilingToken, Reduction, SendOutcome, ServerCommunication, ServerError,
-        ServerUtilities,
+        ProfileError, ProfilingToken, Reduction, SendOutcome, SendReport, ServerCommunication,
+        ServerError, ServerUtilities,
     },
 };
 use cubecl_environment::future;
@@ -458,8 +458,9 @@ impl ServerCommunication for HipServer {
         desc: CopyDescriptor,
         stream_id: StreamId,
         device_id_dst: DeviceId,
+        sent: SendReport,
     ) -> Result<(), ServerError> {
-        CollectiveServer::send(self, desc, stream_id, device_id_dst)
+        CollectiveServer::send(self, desc, stream_id, device_id_dst, sent)
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]

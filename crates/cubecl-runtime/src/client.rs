@@ -1220,12 +1220,14 @@ impl Client {
         let _order = PEER_ORDER.lock();
 
         self.device.submit(move |server_src| {
-            let result = server_src.send(src_descriptor, stream_id_src, device_id_dst);
-            if let Err(err) = &result {
+            if let Err(err) = server_src.send(src_descriptor, stream_id_src, device_id_dst, report)
+            {
                 log::error!("send to {device_id_dst:?} failed: {err}");
             }
-            report.report(result);
         });
+        // Flushed before the recv is queued: called from the destination's own thread, the recv
+        // runs at once and waits on this send.
+        self.device.flush_queue();
 
         dst_server.device.submit(move |server_dst| {
             // A failed recv taints the destination handle, so the read that
@@ -1239,7 +1241,6 @@ impl Client {
 
         // On a pair's first transfer, the send and the recv each wait in the join for the other, so
         // neither may sit in a queue behind work that waits on this thread.
-        self.device.flush_queue();
         dst_server.device.flush_queue();
 
         handle

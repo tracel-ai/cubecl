@@ -27,8 +27,8 @@ use cubecl_server::{
     },
     server::{
         BufferBinding, CopyDescriptor, CubeCount, DeviceTransport, Handle, KernelArguments,
-        KernelResource, ProfileError, ProfilingToken, SendOutcome, Server, ServerCommunication,
-        ServerError, ServerUtilities,
+        KernelResource, ProfileError, ProfilingToken, SendOutcome, SendReport, Server,
+        ServerCommunication, ServerError, ServerUtilities,
     },
     storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
     timestamp_profiler::TimestampProfiler,
@@ -178,11 +178,14 @@ impl<M: Marker> ServerCommunication for DummyServer<M> {
         _desc: CopyDescriptor,
         _stream_id: StreamId,
         _device_id_dst: DeviceId,
+        sent: SendReport,
     ) -> Result<(), ServerError> {
-        Err(ServerError::Generic {
+        let refusal = ServerError::Generic {
             reason: "the dummy source was never written".into(),
             backtrace: BackTrace::capture(),
-        })
+        };
+        sent.report(Err(refusal.clone()));
+        Err(refusal)
     }
 
     fn recv(

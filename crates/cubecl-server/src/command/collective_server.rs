@@ -10,7 +10,7 @@ use super::{
 };
 use crate::server::{
     BufferBinding, CollectiveBuffer, CommunicationId, ComputeWait, CopyDescriptor, Handle,
-    ReduceOperation, Reduction, SendOutcome, ServerError,
+    ReduceOperation, Reduction, SendOutcome, SendReport, ServerError,
 };
 use crate::stream::{FailureStore, MultiStream};
 use alloc::{format, vec, vec::Vec};
@@ -345,6 +345,7 @@ pub trait CollectiveServer: Sized {
         desc: CopyDescriptor,
         stream_id: StreamId,
         device_id_dst: DeviceId,
+        sent: SendReport,
     ) -> Result<(), ServerError> {
         // Joined before anything that can fail: on a pair's first transfer the
         // peer's thread waits in its own join until this one arrives.
@@ -356,7 +357,10 @@ pub trait CollectiveServer: Sized {
         // The send reads the source, so it is worth no more than the work that wrote it. Skipping
         // this hands the peer stale bytes on a handle that carries no claim over there: the
         // failure would be laundered across the device boundary.
-        self.streams().ensure_written([&desc.handle].into_iter())?;
+        if let Err(refusal) = self.streams().ensure_written([&desc.handle].into_iter()) {
+            sent.report(Err(refusal.clone()));
+            return Err(refusal);
+        }
 
         let binding = desc.handle.clone();
         let size = binding.size_in_used();
@@ -370,6 +374,7 @@ pub trait CollectiveServer: Sized {
 
         Self::Driver::wait_for(transfers, stream)?;
         let bytes = Self::Driver::elements(BYTES, size)?;
+        sent.report(Ok(()));
         Self::Driver::send(&comm, &resource, bytes, peer, transfers)?;
         // This stream's pool may reuse the source from here, and dropping the command releases one
         // borrowed from another stream once this stream gets here: both wait for the send.

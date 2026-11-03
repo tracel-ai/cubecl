@@ -1161,14 +1161,16 @@ pub trait ServerCommunication {
     /// * `desc` - A descriptor specifying the data to be sent, including shape, strides, and binding.
     /// * `stream_id` - The stream ID associated with the server's operation.
     /// * `device_id_dst` - ID of the device receiving the data.
+    /// * `sent` - Tells the peer's [`recv`](Self::recv) whether to post.
     ///
     /// # Returns
     ///
     /// Returns a `Result` containing an `ServerError` if the operation fails.
     ///
-    /// A send that refuses posts nothing: its result reaches the peer's
-    /// [`recv`](Self::recv) through its [`SendOutcome`], which then posts
-    /// nothing either.
+    /// `sent` is reported before the send is posted, not after: the first
+    /// transfer of a pair connects it, and that waits for the peer's recv. A
+    /// send that refuses reports the refusal and posts nothing, and so does
+    /// one dropped without a report.
     ///
     /// # Errors
     ///
@@ -1179,6 +1181,7 @@ pub trait ServerCommunication {
         desc: CopyDescriptor,
         stream_id: StreamId,
         device_id_dst: DeviceId,
+        sent: SendReport,
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::Send))
     }
@@ -1235,7 +1238,8 @@ impl SendOutcome {
         (SendReport { result: sender }, Self { result: receiver })
     }
 
-    /// Block until the source's server has run the send.
+    /// Block until the source's server has reached the send, which holds this thread until the
+    /// source's queue gets there.
     ///
     /// # Errors
     ///
