@@ -1164,19 +1164,18 @@ pub trait ServerCommunication {
     ///
     /// Returns a `Result` containing an `ServerError` if the operation fails.
     ///
-    /// # Known limitation
+    /// # Refusals
     ///
-    /// Send and recv are posted fire-and-forget on two devices and block for
-    /// each other, so a send that refuses — a source whose writer failed,
-    /// above all — leaves the peer's already-posted recv waiting on its
-    /// communication stream with no way to recall it from here. The refusal
-    /// is still right: completing the send would launder stale bytes onto a
-    /// handle that carries no claim on the other device. Cross-device
-    /// failure propagation needs a design pass of its own.
+    /// The peer's recv may already be posted, and nothing recalls it, so a
+    /// source whose writer failed is still sent, from scratch memory of its
+    /// size when it holds none, and the refusal is returned: the caller hands
+    /// it to the peer's [`taint_received`](Self::taint_received), so the
+    /// bytes that arrived are never read as the source's.
     ///
     /// # Errors
     ///
-    /// The default returns [`ServerError::NoDeviceTransport`].
+    /// A source whose writer failed, sent anyway as above. The default
+    /// returns [`ServerError::NoDeviceTransport`].
     #[allow(unused_variables)]
     fn send(
         &mut self,
@@ -1211,6 +1210,14 @@ pub trait ServerCommunication {
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::Recv))
     }
+
+    /// Make a read of `received`, the destination of a [`recv`](Self::recv),
+    /// fail on `error`, the refusal of the send it was paired with.
+    ///
+    /// It arrives after the recv, so work queued on the destination in
+    /// between reads the scratch bytes unchecked.
+    #[allow(unused_variables)]
+    fn taint_received(&mut self, received: BufferBinding, error: ServerError) {}
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]

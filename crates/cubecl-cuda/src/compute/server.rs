@@ -515,6 +515,10 @@ impl ServerCommunication for CudaServer {
     ) -> Result<(), ServerError> {
         CollectiveServer::recv(self, handle, stream_id, device_id_src)
     }
+
+    fn taint_received(&mut self, received: BufferBinding, error: ServerError) {
+        CollectiveServer::taint_received(self, received, error);
+    }
 }
 
 impl CollectiveServer for CudaServer {

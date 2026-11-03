@@ -1214,21 +1214,20 @@ impl Client {
             src_descriptor.handle.size_in_used(),
         );
         let handle_cloned = handle.clone();
+        let received = handle.clone();
+        let peer = dst_server.clone();
 
         // NCCL pairs sends and recvs in the order each device queues them.
         let _order = PEER_ORDER.lock();
 
         self.device.submit(move |server_src| {
-            // A refused send has no local buffer to answer for, so the log is
-            // the whole local report. The peer's posted recv is left waiting
-            // on its communication stream — the recv cannot be recalled from
-            // here, and cross-device failure propagation needs a design pass
-            // of its own — so the wedge is named loudly rather than hidden
-            // behind a swallowed unwrap.
             if let Err(err) = server_src.send(src_descriptor, stream_id_src, device_id_dst) {
                 log::error!(
-                    "send to {device_id_dst:?} failed; the peer's recv is left waiting: {err}"
+                    "send to {device_id_dst:?} failed; the received buffer carries the failure: {err}"
                 );
+                peer.device.submit(move |server_dst| {
+                    server_dst.taint_received(received.binding(), err);
+                });
             }
         });
 
