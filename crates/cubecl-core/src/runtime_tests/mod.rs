@@ -21,6 +21,7 @@ pub mod complex;
 pub mod const_match;
 pub mod control_flow;
 pub mod debug;
+pub mod peer;
 pub mod different_rank;
 pub mod enums;
 pub mod file;
@@ -180,6 +181,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_to_client!();
         cubecl_core::testgen_all_reduce!();
         cubecl_core::testgen_collectives!();
+        cubecl_core::testgen_peer!();
 
         cubecl_core::testgen_control_flow!();
         cubecl_core::testgen_native_array!();
