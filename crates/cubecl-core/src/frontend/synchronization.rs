@@ -90,6 +90,27 @@ pub mod sync_storage {
     }
 }
 
+/// [`sync_storage`] at system scope: the release and acquire also reach the host and kernels on
+/// other devices that bind this memory.
+///
+/// Every unit of the cube must reach it. What this cube wrote before it, to its own device's
+/// storage or to a peer's, is visible to a kernel on another device that synchronizes at system
+/// scope after reading the signal this cube then publishes, and what such a kernel published
+/// before its signal is visible here once this cube read the signal and called it. Signal through
+/// an atomic at [`SyncScope::System`], such as [`Atomic::store_at`] and [`Atomic::load_at`]: a
+/// device-scope atomic does not reach the other device.
+///
+/// On a runtime that shares no memory between devices this is [`sync_storage`].
+pub fn sync_system() {}
+
+pub mod sync_system {
+    use super::*;
+
+    pub fn expand(scope: &Scope) {
+        scope.register(&SyncOp::new(scope.ctx_mut(), SyncScope::System));
+    }
+}
+
 /// `sync_async_proxy_shared` is a synchronization fence for the experimental SM 9.0+ copy
 /// functions, applying bidirectionally between the async proxy (i.e. TMA) and shared memory.
 /// Should be used after initializing the barriers, and before the copy operation.

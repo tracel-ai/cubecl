@@ -193,10 +193,12 @@ fn require_work_group_size(entry: &EntryFunction<'_>, cube_dim: Dim3) {
 /// What every atomic here may assume about the memory it touches, as the metadata the AMDGPU
 /// backend reads.
 ///
-/// Kernel buffers are device allocations: coarse-grained, and never another device's memory,
-/// so no atomic has to stay correct against a concurrent host or peer access. Without saying
-/// so, the backend expands float atomics to CAS loops on the parts whose native instruction
-/// is not coherent for fine-grained memory (RDNA3, CDNA2). An f32 add also ignores the
+/// Kernel buffers are device allocations: coarse-grained, and another device's memory only
+/// when a kernel binds a buffer a peer shared, so no device-scope atomic has to stay correct
+/// against a concurrent host or peer access. Without saying so, the backend expands float
+/// atomics to CAS loops on the parts whose native instruction is not coherent for fine-grained
+/// memory (RDNA3, CDNA2). A system-scope atomic is the one a kernel signals a peer device
+/// through, possibly in its memory, so it makes no such promise. An f32 add also ignores the
 /// denormal mode, where the native instruction flushes, which is the trade NVRTC's
 /// `atomicAdd(float*)` makes and the NVPTX target makes too.
 const DEVICE_LOCAL_ATOMIC: [&str; 2] = ["amdgpu.no.fine.grained.memory", "amdgpu.no.remote.memory"];
@@ -207,8 +209,10 @@ fn mark_atomics_device_local(entry: &EntryFunction<'_>) {
         let Some(op) = inst.atomic_rmw_op() else {
             continue;
         };
-        for kind in DEVICE_LOCAL_ATOMIC {
-            entry.set_flag_metadata(&inst, kind);
+        if !inst.is_system_scope() {
+            for kind in DEVICE_LOCAL_ATOMIC {
+                entry.set_flag_metadata(&inst, kind);
+            }
         }
         if op == LLVMAtomicRMWBinOp::LLVMAtomicRMWBinOpFAdd {
             entry.set_flag_metadata(&inst, DENORMAL_AGNOSTIC_ATOMIC);

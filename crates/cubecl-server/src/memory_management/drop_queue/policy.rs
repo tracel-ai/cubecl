@@ -1,4 +1,3 @@
-
 /// Defines the thresholds that determine when a [`PendingDropQueue`] should be
 /// flushed.
 ///

@@ -10,6 +10,7 @@ use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::modules::HipCompiledKernel;
 use crate::compute::{Captures, Window};
 use crate::compute::{Command, context::HipContext, driver::Hip, stream::HipStreamBackend};
+use cubecl_common::device::Device;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::server::{DeviceCaptures, ServerStorage};
 use cubecl_core::{
@@ -23,14 +24,13 @@ use cubecl_core::{
         ServerUtilities,
     },
 };
-use cubecl_common::device::Device;
-use cubecl_server::device::AmdDevice;
 use cubecl_environment::future;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_hip_sys::hipStream_t;
 use cubecl_server::command::{CollectiveServer, Collectives, Refused};
 use cubecl_server::compiler::ArtifactId;
+use cubecl_server::device::AmdDevice;
 use cubecl_server::metadata_cache::Lookup;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},

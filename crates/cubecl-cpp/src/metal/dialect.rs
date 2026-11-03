@@ -57,7 +57,8 @@ metal_op!(SyncOp, |op, ctx| {
         // more `threadgroup_barrier` in front of it did. So the release is stated before the
         // cube meets and the acquire after, and the barrier between them is what makes both the
         // whole cube's. `atomic_thread_fence` is MSL 3.2, the version this backend compiles at.
-        SyncScope::Device => {
+        // No memory is shared with another device, so the system is the device.
+        SyncScope::Device | SyncScope::System => {
             "atomic_thread_fence(mem_flags::mem_device, memory_order_seq_cst, thread_scope_device);\n\
              threadgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);\n\
              atomic_thread_fence(mem_flags::mem_device, memory_order_seq_cst, thread_scope_device);\n"

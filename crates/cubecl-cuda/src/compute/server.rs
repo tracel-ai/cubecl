@@ -2,6 +2,7 @@ use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::driver::Cuda;
 use crate::compute::modules::CudaCompiledKernel;
 use crate::compute::{Captures, Command, Window, context::CudaContext, stream::CudaStreamBackend};
+use cubecl_common::device::Device;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::server::{DeviceCaptures, ServerStorage};
 use cubecl_core::{
@@ -21,6 +22,7 @@ use cubecl_environment::future::{self, DynFut};
 use cubecl_environment::stream::StreamId;
 use cubecl_server::command::{CollectiveServer, Collectives, Refused};
 use cubecl_server::compiler::ArtifactId;
+use cubecl_server::device::CudaDevice;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
     execution::LaunchMode,
@@ -36,8 +38,6 @@ use cudarc::driver::sys::{
     CUstream, CUtensorMap, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapInterleave,
     CUtensorMapL2promotion, CUtensorMapSwizzle, cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
 };
-use cubecl_common::device::Device;
-use cubecl_server::device::CudaDevice;
 use std::collections::HashSet;
 use std::{ffi::c_void, sync::Arc};
 

@@ -7,10 +7,9 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
         BufferBinding, Collective, CommunicationId, ComputeWait, CopyDescriptor, CubeCount, Handle,
-        KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor, PeerBinding,
-        PeerMemory,
-        MemoryLayoutStrategy, ProfileError, ProfilingToken, ReduceOperation, Reduction, Server,
-        ServerError, ServerStorage, ServerUtilities,
+        KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
+        MemoryLayoutStrategy, PeerBinding, PeerMemory, ProfileError, ProfilingToken,
+        ReduceOperation, Reduction, Server, ServerError, ServerStorage, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -47,6 +46,15 @@ fn repeated_device(device_ids: &[DeviceId]) -> Option<DeviceId> {
         .iter()
         .enumerate()
         .find_map(|(i, id)| device_ids[..i].contains(id).then_some(*id))
+}
+
+/// Flushes the device's queue when dropped, whichever way the launch submitting to it returns.
+struct FlushOnDrop<'a>(&'a DeviceHandle<dyn Server>);
+
+impl Drop for FlushOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.flush_queue();
+    }
 }
 
 /// The `Client` is the entry point to require tasks from the `Server`.
@@ -1353,6 +1361,18 @@ impl Client {
         if let CubeCount::Dynamic(binding) = &count {
             self.expect_local(binding);
         }
+        // A kernel binding memory shared with peers may wait on a kernel of another device, or be
+        // the one such a kernel waits on, so it reaches its device now rather than when the
+        // queue would next be flushed: a host blocked on the other device would never flush it.
+        let _reach_device_now = bindings
+            .resources
+            .iter()
+            .any(|resource| match resource {
+                KernelResource::Buffer(binding) => binding.peer.is_some(),
+                KernelResource::Peer(_) => true,
+                KernelResource::TensorMap(_) => false,
+            })
+            .then(|| FlushOnDrop(&self.device));
         for resource in &mut bindings.resources {
             self.bind_peer(resource);
             if let Some(binding) = resource.local_binding() {

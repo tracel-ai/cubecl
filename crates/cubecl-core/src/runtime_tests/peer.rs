@@ -5,6 +5,7 @@ use crate::prelude::*;
 use alloc::{vec, vec::Vec};
 use cubecl_common::device::Device;
 use cubecl_environment::future::block_on;
+use cubecl_ir::dialect::synchronization::SyncScope;
 use cubecl_runtime::{client::Client, runtime::Runtime, server::Handle};
 
 const LEN: usize = 64;
@@ -96,7 +97,7 @@ pub fn test_a_kernel_reads_a_slice_of_a_peer_buffer<R: Runtime>() {
     let input = remote.create_from_slice(f32::as_bytes(&values(LEN)));
     let input = remote.share_with_peers(input).unwrap();
     let slice = input.offset_start((SKIP * size_of::<f32>()) as u64);
-    let output = local.create_from_slice(f32::as_bytes(&vec![0.0; LEN - SKIP]));
+    let output = local.create_from_slice(f32::as_bytes(&[0.0; LEN - SKIP]));
     block_on(remote.sync()).unwrap();
 
     scale(&local, slice, output.clone(), LEN - SKIP);
@@ -142,6 +143,157 @@ pub fn test_an_unshared_foreign_handle_is_refused<R: Runtime>() {
     assert!(launch.is_err(), "a handle never shared must not bind");
 }
 
+/// Elements the handshake kernels exchange: several cubes' worth, so every cube of the producer
+/// has to arrive before the consumer reads.
+const HANDOFF_LEN: usize = 1024;
+const HANDOFF_UNITS: u32 = 256;
+const HANDOFF_CUBES: u32 = (HANDOFF_LEN as u32) / HANDOFF_UNITS;
+/// How long a consumer waits for the flag before giving up, so a missing signal fails the test
+/// rather than hanging the device.
+const SPIN_LIMIT: u32 = 20_000_000;
+
+/// Write `token` everywhere in `data`, publish it at system scope, then raise `flag` once per
+/// cube. `data` and `flag` may live on another device.
+#[cube(launch)]
+fn produce(data: &mut [u32], flag: &mut [Atomic<u32>], token: u32) {
+    let i = ABSOLUTE_POS;
+    if i < data.len() {
+        data[i] = token;
+    }
+    // Release: what every unit of the cube wrote is visible to whoever acquires after the flag.
+    sync_system();
+    if UNIT_POS == 0 {
+        flag[0].fetch_add_at(1u32, comptime![SyncScope::System]);
+    }
+}
+
+/// Wait until `flag` reaches `arrivals`, then copy `data` to `out`. Each cube records the flag it
+/// saw in `seen`, so a consumer that gave up waiting tells apart from one that read stale data.
+#[cube(launch)]
+fn consume(
+    data: &mut [u32],
+    flag: &mut [Atomic<u32>],
+    out: &mut [u32],
+    seen_by_cube: &mut [u32],
+    arrivals: u32,
+    spin_limit: u32,
+) {
+    let mut seen = Shared::<u32>::new();
+    if UNIT_POS == 0 {
+        let mut spins = 0u32;
+        let mut arrived = flag[0].load_at(comptime![SyncScope::System]);
+        while arrived < arrivals && spins < spin_limit {
+            spins += 1u32;
+            arrived = flag[0].load_at(comptime![SyncScope::System]);
+        }
+        *seen = arrived;
+        seen_by_cube[CUBE_POS] = arrived;
+    }
+    // Acquire: what the producer published before raising the flag is visible here.
+    sync_system();
+    let i = ABSOLUTE_POS;
+    if i < out.len() {
+        out[i] = data[i];
+    }
+}
+
+fn zeros(client: &Client, len: usize) -> Handle {
+    client.create_from_slice(u32::as_bytes(&vec![0u32; len]))
+}
+
+/// Launch the consumer, returning the buffers it fills: the data it read, and the flag each
+/// cube saw.
+fn launch_consumer(client: &Client, data: Handle, flag: Handle) -> (Handle, Handle) {
+    let out = zeros(client, HANDOFF_LEN);
+    let seen = zeros(client, HANDOFF_CUBES as usize);
+    consume::launch(
+        client,
+        CubeCount::Static(HANDOFF_CUBES, 1, 1),
+        CubeDim::new_1d(HANDOFF_UNITS),
+        unsafe { BufferArg::from_raw_parts(data, HANDOFF_LEN) },
+        unsafe { BufferArg::from_raw_parts(flag, 1) },
+        unsafe { BufferArg::from_raw_parts(out.clone(), HANDOFF_LEN) },
+        unsafe { BufferArg::from_raw_parts(seen.clone(), HANDOFF_CUBES as usize) },
+        HANDOFF_CUBES,
+        SPIN_LIMIT,
+    );
+    (out, seen)
+}
+
+/// What the consumer read is the producer's `token`, after every cube saw every producer
+/// cube arrive.
+fn assert_handed_off(consumer: &Client, out: Handle, seen: Handle, token: u32) {
+    let seen = consumer.read_one(seen).unwrap();
+    assert_eq!(
+        u32::from_bytes(&seen),
+        vec![HANDOFF_CUBES; HANDOFF_CUBES as usize],
+        "token {token}: the flag each consumer cube saw"
+    );
+    let actual = consumer.read_one(out).unwrap();
+    let actual = u32::from_bytes(&actual);
+    let stale = actual.iter().filter(|value| **value != token).count();
+    assert_eq!(
+        stale,
+        0,
+        "token {token}: {stale} values read stale, first {:?}",
+        &actual[..8]
+    );
+}
+
+fn launch_producer(client: &Client, data: Handle, flag: Handle, token: u32) {
+    produce::launch(
+        client,
+        CubeCount::Static(HANDOFF_CUBES, 1, 1),
+        CubeDim::new_1d(HANDOFF_UNITS),
+        unsafe { BufferArg::from_raw_parts(data, HANDOFF_LEN) },
+        unsafe { BufferArg::from_raw_parts(flag, 1) },
+        token,
+    );
+}
+
+/// The producer writes into the consumer's memory and raises a flag there, while the consumer
+/// is already running and waiting on it: the two kernels hand data off with no host in between.
+pub fn test_a_kernel_pushes_data_to_a_waiting_peer_kernel<R: Runtime>() {
+    let Some((producer, consumer)) = peers::<R>() else {
+        return;
+    };
+    for token in [7u32, 11, 13] {
+        let data = consumer
+            .share_with_peers(zeros(&consumer, HANDOFF_LEN))
+            .unwrap();
+        let flag = consumer.share_with_peers(zeros(&consumer, 1)).unwrap();
+        block_on(consumer.sync()).unwrap();
+
+        let (out, seen) = launch_consumer(&consumer, data.clone(), flag.clone());
+        launch_producer(&producer, data, flag, token);
+
+        assert_handed_off(&consumer, out, seen, token);
+        block_on(producer.sync()).unwrap();
+    }
+}
+
+/// The producer writes its own memory and raises a flag in the consumer's, and the consumer
+/// reads the data from the producer's memory once it saw the flag.
+pub fn test_a_kernel_pulls_data_a_peer_kernel_published<R: Runtime>() {
+    let Some((producer, consumer)) = peers::<R>() else {
+        return;
+    };
+    for token in [7u32, 11, 13] {
+        let data = producer
+            .share_with_peers(zeros(&producer, HANDOFF_LEN))
+            .unwrap();
+        let flag = consumer.share_with_peers(zeros(&consumer, 1)).unwrap();
+        block_on(producer.sync()).unwrap();
+        block_on(consumer.sync()).unwrap();
+
+        let (out, seen) = launch_consumer(&consumer, data.clone(), flag.clone());
+        launch_producer(&producer, data, flag, token);
+
+        assert_handed_off(&consumer, out, seen, token);
+        block_on(producer.sync()).unwrap();
+    }
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_peer {
@@ -175,6 +327,20 @@ macro_rules! testgen_peer {
             #[$crate::runtime_tests::test_log::test]
             fn test_a_peer_buffer_outlives_its_handles_while_bound() {
                 cubecl_core::runtime_tests::peer::test_a_peer_buffer_outlives_its_handles_while_bound::<
+                    TestRuntime,
+                >();
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_a_kernel_pushes_data_to_a_waiting_peer_kernel() {
+                cubecl_core::runtime_tests::peer::test_a_kernel_pushes_data_to_a_waiting_peer_kernel::<
+                    TestRuntime,
+                >();
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_a_kernel_pulls_data_a_peer_kernel_published() {
+                cubecl_core::runtime_tests::peer::test_a_kernel_pulls_data_a_peer_kernel_published::<
                     TestRuntime,
                 >();
             }

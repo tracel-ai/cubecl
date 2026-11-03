@@ -453,6 +453,15 @@ impl Instruction<'_> {
             (!LLVMIsAAtomicRMWInst(self.inst).is_null()).then(|| LLVMGetAtomicRMWBinOp(self.inst))
         }
     }
+
+    /// Whether this atomic synchronizes at the system's scope, LLVM's unnamed one, which reaches
+    /// the host and peer devices.
+    pub(crate) fn is_system_scope(&self) -> bool {
+        /// `llvm::SyncScope::System`: the one id LLVM fixes besides `SingleThread`'s 0.
+        const SYSTEM: u32 = 1;
+        // SAFETY: the instruction is live, and only atomics are asked for their scope.
+        unsafe { llvm_sys::core::LLVMGetAtomicSyncScopeID(self.inst) == SYSTEM }
+    }
 }
 
 /// One parameter of an [`EntryFunction`], which is the only thing that hands one out: an index
