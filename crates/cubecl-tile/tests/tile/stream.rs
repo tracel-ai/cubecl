@@ -44,8 +44,8 @@ const REGIONS: usize = (ROWS / TILE_ROWS) * (COLS / TILE_COLS);
 /// branch: the runs abut, cover the grid once, and differ in length by at most one.
 #[cube(launch)]
 fn copy_run(
-    src: &TileArg<'_>,
-    dst: &TileArg<'_>,
+    src: &TileTensor<'_>,
+    dst: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] cubes: usize,
@@ -68,8 +68,8 @@ fn copy_run(
 /// regions rather than the same ones in another order.
 #[cube(launch)]
 fn copy_one_run(
-    src: &TileArg<'_>,
-    dst: &TileArg<'_>,
+    src: &TileTensor<'_>,
+    dst: &TileTensor<'_>,
     #[comptime] start: usize,
     #[comptime] steps: usize,
     space: Partitioning,
@@ -129,15 +129,19 @@ impl Harness {
     }
 
     /// `src` and `dst` as the launch arguments, served at the harness's element.
-    fn tile_args(&self, src: &TensorHandle, dst: &TensorHandle) -> (TileArgLaunch, TileArgLaunch) {
+    fn tile_tensors(
+        &self,
+        src: &TensorHandle,
+        dst: &TensorHandle,
+    ) -> (TileTensorLaunch, TileTensorLaunch) {
         (
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 src.clone().binding().into_tensor_arg(),
                 self.dtype,
                 1,
                 TileSpec::direct(&[ROW, COL]),
             ),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 dst.clone().binding().into_tensor_arg(),
                 self.dtype,
                 1,
@@ -154,7 +158,7 @@ fn runs_cover_the_grid(cubes: usize) {
     let h = Harness::new();
     let (src, want) = h.source();
     let dst = h.destination();
-    let (src_arg, dst_arg) = h.tile_args(&src, &dst);
+    let (src_arg, dst_arg) = h.tile_tensors(&src, &dst);
 
     copy_run::launch(
         &h.client,
@@ -199,7 +203,7 @@ fn a_run_starting_late_copies_the_regions_it_was_given() {
     let h = Harness::new();
     let (src, want) = h.source();
     let dst = h.destination();
-    let (src_arg, dst_arg) = h.tile_args(&src, &dst);
+    let (src_arg, dst_arg) = h.tile_tensors(&src, &dst);
 
     // Regions 3 and 4 of the row-major walk: the second half of row band 1, and the first half of
     // row band 2. A rectangle cannot name that pair either.
@@ -264,8 +268,8 @@ fn contract(acc: &Tile, a: &Tile, b: &Tile, region: &Region) {
 /// itself walked (a unit's run of `K`), or none where the step is the contraction's own.
 #[cube(launch)]
 fn stream_matmul<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
     out: &AccumulateArg<'_, E>,
     space: Partitioning,
     #[comptime] outer: Level,
@@ -310,8 +314,8 @@ fn stream_matmul<E: Numeric>(
 /// what any walk does.
 #[cube(launch)]
 fn stream_matmul_staged_rhs<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
     out: &AccumulateArg<'_, E>,
     space: Partitioning,
     #[comptime] outer: Level,
@@ -354,8 +358,8 @@ fn stream_matmul_staged_rhs<E: Numeric>(
 /// sharing that prefix ([`Walk::portion_of`]): the steps past it are no run's.
 #[cube(launch)]
 fn stream_matmul_prefix<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
     out: &AccumulateArg<'_, E>,
     space: Partitioning,
     prefix: usize,
@@ -440,13 +444,13 @@ fn run_shared_index(m: usize, n: usize, k: usize, runs: usize, rhs: RhsStage) ->
             &client,
             launcher.cube_count(),
             launcher.cube_dim(),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 a_handle.clone().binding().into_tensor_arg(),
                 dtype,
                 1,
                 TileSpec::direct(&[MM, KK]),
             ),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 b_handle.clone().binding().into_tensor_arg(),
                 dtype,
                 1,
@@ -467,13 +471,13 @@ fn run_shared_index(m: usize, n: usize, k: usize, runs: usize, rhs: RhsStage) ->
             &client,
             launcher.cube_count(),
             launcher.cube_dim(),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 a_handle.clone().binding().into_tensor_arg(),
                 dtype,
                 1,
                 TileSpec::direct(&[MM, KK]),
             ),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 b_handle.clone().binding().into_tensor_arg(),
                 dtype,
                 1,
@@ -533,13 +537,13 @@ fn run_shared_prefix(m: usize, n: usize, k: usize, runs: usize, prefix: usize) -
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_handle.binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::direct(&[MM, KK]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_handle.binding().into_tensor_arg(),
             dtype,
             1,
@@ -754,13 +758,13 @@ fn cubes_take_shares_while_the_units_cut_k_between_them() {
             &client,
             launcher.cube_count(),
             launcher.cube_dim(),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 a_handle.clone().binding().into_tensor_arg(),
                 dtype,
                 1,
                 TileSpec::direct(&[MM, KK]),
             ),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 b_handle.clone().binding().into_tensor_arg(),
                 dtype,
                 1,
@@ -804,10 +808,10 @@ fn cubes_take_shares_while_the_units_cut_k_between_them() {
 /// then hands it on, cast to the output's element `O`.
 #[cube(launch)]
 fn merged_stream_matmul(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    slots: &TileArg<'_>,
-    out: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    slots: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     arrivals: &[Atomic<u32>],
     space: Partitioning,
     #[comptime] steps: Level,
@@ -919,7 +923,7 @@ fn run_merged_stream<O: Float + CubeElement>(
     let spec =
         |axes: &[Axis]| TileSpec::direct(axes).boundary(BoundaryPolicy::Every(Boundary::Zero));
     let arg = |handle: &TensorHandle, axes: &[Axis]| {
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             handle.clone().binding().into_tensor_arg(),
             handle.dtype,
             1,

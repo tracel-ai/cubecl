@@ -26,8 +26,8 @@ pub struct TileSpec {
     /// Who moves this operand into a stage ([`delivery`](Self::delivery)).
     pub delivery: Delivery,
     /// The axes a page table resolves where the buffer is a pool of pages read as sequences
-    /// ([`TileArgLaunch::indexed`](crate::TileArgLaunch::indexed)); `None` for a buffer read where
-    /// it lies.
+    /// ([`TileTensorLaunch::indexed`](crate::TileTensorLaunch::indexed)); `None` for a buffer read
+    /// where it lies.
     pub paging: Option<Paging>,
 }
 
@@ -93,7 +93,7 @@ impl TileSpec {
     }
 
     /// This spec with its binding holding `u32` words of `field`-wide values, each word read
-    /// whole ([`Packing::Words`]): block scales as a block-scaled instruction takes them.
+    /// whole: block scales as a block-scaled instruction takes them.
     pub fn words(mut self, field: impl Into<Field>) -> Self {
         self.packing = Packing::Words {
             field: field.into(),

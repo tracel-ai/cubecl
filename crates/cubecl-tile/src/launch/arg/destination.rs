@@ -4,7 +4,7 @@
 use cubecl::prelude::*;
 
 use crate::{
-    Bound, Output, OutputArgs, Partitioning, Refusal, Tile, TileArg, TileArgLaunch, TmaOperand,
+    Bound, Output, OutputArgs, Partitioning, Refusal, Tile, TileTensor, TileTensorLaunch,
     kind::Write, launch::Unbound,
 };
 
@@ -71,8 +71,8 @@ impl DestinationLaunch for Buffered {
             Write::Replace => bound.output(),
             Write::Accumulate => bound.atomic(),
             Write::Exclusive(_) => panic!(
-                "Buffered: a relayed output is opened in the kernel with `TileArg::relay`, which \
-                 takes its turn counters beside it; bind the carry as a plain `TileArg`"
+                "Buffered: a relayed output is opened in the kernel with `TileTensor::relay`, \
+                 which takes its turn counters beside it; bind the carry as a plain `TileTensor`"
             ),
         }
     }
@@ -86,7 +86,7 @@ pub struct TmaStored;
 
 #[cube]
 impl Destination for TmaStored {
-    type Arg<E: Numeric> = TileArg<'static>;
+    type Arg<E: Numeric> = TileTensor<'static>;
 
     fn tile<E: Numeric, V: Size>(arg: &Self::Arg<E>, partitioning: &Partitioning) -> Tile {
         arg.tile(partitioning)
@@ -94,9 +94,9 @@ impl Destination for TmaStored {
 }
 
 impl DestinationLaunch for TmaStored {
-    type Operand = TmaOperand;
+    type Operand = TileTensorLaunch;
 
-    fn arg<E: Numeric>(operand: TmaOperand) -> TileArgLaunch {
-        operand.arg()
+    fn arg<E: Numeric>(operand: TileTensorLaunch) -> TileTensorLaunch {
+        operand
     }
 }

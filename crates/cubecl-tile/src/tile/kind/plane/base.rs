@@ -349,7 +349,7 @@ impl PlaneTile {
 /// `Clone` duplicates the handles, not the tiles.
 #[derive(CubeType, Clone)]
 #[expand(derive(Clone))]
-pub struct PlanePartition {
+pub(crate) struct PlanePartition {
     pub(crate) frags: Sequence<PlaneTile>,
     #[cube(comptime)]
     pub m_tiles: usize,
@@ -957,15 +957,64 @@ impl PlanePartition {
         }
     }
 
-    /// `self[r, c] = exp(self[r, c] − slices[r])` over every fragment.
-    pub(crate) fn exp_minus_along<E: Float>(&self, slices: &Array<E>) {
+    /// [`MmaData::probabilities_along`] over every fragment, each at its place in the grid.
+    pub(crate) fn probabilities_along<E: Float>(
+        &self,
+        scale: E,
+        bias: &Procedural,
+        logsumexp: &Memory,
+        #[comptime] space: Space,
+        #[comptime] broadcast: Broadcast,
+    ) {
+        #[unroll]
+        for mi in 0..self.m_tiles {
+            #[unroll]
+            for ni in 0..self.n_tiles {
+                let mut fragment = self.at(mi, ni).manual_fragment();
+                fragment.probabilities_along::<E>(
+                    scale,
+                    bias,
+                    logsumexp,
+                    comptime!(space.clone()),
+                    comptime!(broadcast.clone()),
+                    comptime!((mi * self.rows, ni * self.cols)),
+                );
+            }
+        }
+    }
+
+    /// [`MmaData::softmax_gradient_along`] over every fragment against the one at its place in
+    /// `probabilities`, a grid laid as this one is.
+    pub(crate) fn softmax_gradient_along<E: Float>(
+        &self,
+        probabilities: &PlanePartition,
+        delta: &Memory,
+        #[comptime] broadcast: Broadcast,
+    ) {
+        #[unroll]
+        for mi in 0..self.m_tiles {
+            #[unroll]
+            for ni in 0..self.n_tiles {
+                let mut fragment = self.at(mi, ni).manual_fragment();
+                fragment.softmax_gradient_along::<E>(
+                    &probabilities.at(mi, ni).manual_fragment(),
+                    delta,
+                    comptime!(broadcast.clone()),
+                    comptime!((mi * self.rows, ni * self.cols)),
+                );
+            }
+        }
+    }
+
+    /// `self[r, c] = 2^(self[r, c] · scale − offsets[r])` over every fragment.
+    pub(crate) fn exp2_scaled_minus_along<E: Float>(&self, scale: E, offsets: &Array<E>) {
         let rows = self.at(0usize, 0usize).rows_per_unit::<E>();
         #[unroll]
         for mi in 0..self.m_tiles {
             #[unroll]
             for ni in 0..self.n_tiles {
                 let mut fragment = self.at(mi, ni).manual_fragment();
-                fragment.exp_minus_along(slices, comptime!(mi * rows));
+                fragment.exp2_scaled_minus_along(scale, offsets, comptime!(mi * rows));
             }
         }
     }

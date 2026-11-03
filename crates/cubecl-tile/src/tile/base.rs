@@ -104,6 +104,40 @@ impl Tile {
         }
     }
 
+    /// Whether this stage is filled from `src` by copying its lines as they lie, so that a fetch
+    /// can hold them in registers: not decoded, converted or rewidened by the fill.
+    #[allow(dead_code)] // Reached through its expand, from `Stages::prefetches_in_registers`.
+    pub(crate) fn fetches_straight_from(&self, src: &Tile) -> comptime_type!(bool) {
+        match &self.kind {
+            TileKind::Memory(stage) => {
+                let feeds = src.feeds_straight(stage);
+                comptime!(self.element == src.element && feeds)
+            }
+            TileKind::TmaGmem(_)
+            | TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(false),
+        }
+    }
+
+    /// Whether these values fill `stage` as their lines lie: memory its fill does not decode.
+    #[allow(dead_code)] // Reached through its expand, from `fetches_straight_from`.
+    fn feeds_straight(&self, stage: &Memory) -> comptime_type!(bool) {
+        match &self.kind {
+            TileKind::Memory(source) => {
+                let decodes = self.decodes();
+                let straight = stage.fetches_straight(source);
+                comptime!(!decodes && straight)
+            }
+            TileKind::TmaGmem(_)
+            | TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(false),
+        }
+    }
+
     /// Whether a cmma fragment draining into this tile goes through a scratch
     /// ([`FragmentDrain::Bounce`]): a destination that adds, overhangs, or has no address, or one
     /// whose element the fragment cannot be cast to in place (`in_place`, [`casts_in_place`]).
@@ -306,6 +340,19 @@ impl Tile {
     pub fn is_shared(&self) -> comptime_type!(bool) {
         match &self.kind {
             TileKind::Memory(m) => comptime!(m.address == AddressSpace::Shared),
+            TileKind::Procedural(_)
+            | TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Lines(_) => comptime!(false),
+        }
+    }
+
+    /// Whether this is a memory window whose rows step by one stride
+    /// ([`Memory::rows_step_by_stride`]).
+    pub(crate) fn rows_step_by_stride(&self) -> comptime_type!(bool) {
+        match &self.kind {
+            TileKind::Memory(m) => m.rows_step_by_stride(comptime!(self.place.space.clone())),
             TileKind::Procedural(_)
             | TileKind::PlaneTile(_)
             | TileKind::PlanePartition(_)
@@ -660,7 +707,7 @@ impl Tile {
     }
 
     /// Multiply every partial this accumulator holds by `factor`, cast to its element.
-    pub fn scale_by<E: Numeric>(&mut self, factor: E) {
+    pub(crate) fn scale_by<E: Numeric>(&mut self, factor: E) {
         let define!(Served) = self.element;
         let factor = Served::cast_from(factor);
         match &mut self.kind {
@@ -1194,7 +1241,7 @@ impl Tile {
     ///
     /// Words of block scales always give up the scales above them: the instruction reads the
     /// words undecoded, and holds no other scale. A decoded tile gives them up where the sum is
-    /// scaled in place ([`Instruction::scales_its_sum_in_place`]), since a load converting codes
+    /// scaled in place, since a load converting codes
     /// in lane runs takes one level of scales; under any other sum they ride the load, which
     /// multiplies by them as it decodes, rather than send the sum through shared memory.
     /// A tile indexing a table gives up none: only its copy decodes it.
@@ -1224,8 +1271,8 @@ impl Tile {
 
     /// These values as indices into `table`, decoded only by [`copy_from`](Tile::copy_from) and
     /// [`decoded`](Tile::decoded): what an operand bound under a codebook
-    /// ([`TileArgLaunch::codebook`]) is served as.
-    #[allow(dead_code)] // Reached through its expand, from `TileArg::tile`.
+    /// ([`TileTensorLaunch::codebook`]) is served as.
+    #[allow(dead_code)] // Reached through its expand, from `TileTensor::tile`.
     pub(crate) fn lookup(&self, _table: &Tile) -> Tile {
         unexpanded!()
     }
@@ -1562,7 +1609,7 @@ impl TileExpand {
         if let TileKindExpand::Memory(memory) = &self.kind {
             assert!(
                 !memory.codebook.present(),
-                "{site}: these values are indices into a codebook (`TileArgLaunch::codebook`), \
+                "{site}: these values are indices into a codebook (`TileTensorLaunch::codebook`), \
                  which only a copy or a decoded read decodes; copy them into a stage first \
                  (`stage.copy_from(&w)`), or read them `decoded`"
             );

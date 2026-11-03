@@ -10,6 +10,7 @@ use crate::{
         registers::{RegisterForm, RegisterOperand},
     },
     prelude::*,
+    shared::matrix::elem_type,
 };
 use cubecl_core::ir::{
     ElemType, FloatKind, IntKind, UIntKind,
@@ -274,12 +275,6 @@ fn ptx_type(elem: ElemType) -> &'static str {
         ElemType::Int(IntKind::I32) => "s32",
         other => unreachable!("{other:?} is in no warpgroup MMA configuration"),
     }
-}
-
-fn elem_type(ctx: &Context, ty: TypeHandle) -> ElemType {
-    type_cast::<dyn ScalarType>(&*ty.deref(ctx))
-        .expect("a matrix element is a scalar")
-        .elem_type(ctx)
 }
 
 fn is_half(elem: ElemType) -> bool {

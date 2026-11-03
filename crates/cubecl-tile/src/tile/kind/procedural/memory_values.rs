@@ -10,7 +10,7 @@ use crate::*;
 /// A memory tile's values, read one at a time at the coordinates they are asked at. An axis a
 /// read does not name is read where the tile's window sits on it, so a tile cut to one owner's
 /// batch and head reads that batch and head; a coordinate past the buffer reads zero. A recipe
-/// itself, evaluated at its own coordinates, so it composes with any other ([`Sum`](super::Sum)).
+/// itself, evaluated at its own coordinates, so it composes with any other ([`Sum`](crate::procedural::Sum)).
 #[derive(CubeType, Clone)]
 #[expand(derive(Clone))]
 pub struct MemoryValues {
@@ -46,11 +46,28 @@ impl Tile {
 #[cube]
 impl MemoryValues {
     /// The value at `coordinates`, one along each of `axes` in order, as `T`.
-    pub fn read<T: Numeric>(&self, #[comptime] axes: Vec<Axis>, coordinates: &Coords<u32>) -> T {
+    pub fn read<T: Numeric>(&self, #[comptime] axes: Vec<Axis>, coordinates: &Sequence<u32>) -> T {
+        let mut at = Coords::<u32>::new();
+        #[unroll]
+        for p in 0..comptime!(axes.len()) {
+            at.push(*coordinates.index(p));
+        }
+        self.read_at::<T>(axes, &at)
+    }
+
+    /// [`read`](Self::read) at coordinates that keep their constness.
+    pub(crate) fn read_at<T: Numeric>(
+        &self,
+        #[comptime] axes: Vec<Axis>,
+        coordinates: &Coords<u32>,
+    ) -> T {
         let define!(Stored) = self.element;
         let logical = comptime!(self.memory.projection.logical_axes().to_vec());
         let mut position = Coords::<u32>::new();
-        #[allow(clippy::needless_range_loop)]
+        #[allow(
+            clippy::needless_range_loop,
+            reason = "an unrolled loop over a comptime range; `p` also reads the window's origin"
+        )]
         #[unroll]
         for p in 0..logical.len() {
             let axis = comptime!(logical[p]);
@@ -74,7 +91,7 @@ impl<T: Numeric> Recipe<T> for MemoryValues {
         for p in 0..axes.len() {
             at.push(coordinates.at(p));
         }
-        self.read::<T>(axes, &at)
+        self.read_at::<T>(axes, &at)
     }
 }
 

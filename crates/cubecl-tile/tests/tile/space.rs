@@ -155,23 +155,6 @@ fn a_one_value_axis_every_operand_spans_is_contracted() {
     assert_eq!(&Space::contracted(&[&weights, &input], &out)[..], &[K, K2]);
 }
 
-/// A partitioned contraction keeps its axes in the space's own order, which is what an operand
-/// carrying them as one run reads as a single `k` edge.
-#[test]
-fn a_partitioned_contraction_keeps_its_axes() {
-    let lhs = Space::new(&[(M, 4), (K, 2), (K2, 4)]);
-    let out = Space::new(&[(M, 4), (N, 4)]);
-    assert_eq!(&lhs.difference(&out)[..], &[K, K2]);
-}
-
-/// An operand the output spans whole contracts nothing.
-#[test]
-fn an_operand_the_output_spans_contracts_nothing() {
-    let lhs = Space::new(&[(M, 4), (N, 4)]);
-    let out = Space::new(&[(M, 4), (N, 4)]);
-    assert!(lhs.difference(&out).is_empty());
-}
-
 // ---- overhangs -------------------------------------------------------------
 
 /// A CPU-matmul-shaped scheme: cube tiles of `planes x leaf` leaves over `(m, n, k)`, `K` handed

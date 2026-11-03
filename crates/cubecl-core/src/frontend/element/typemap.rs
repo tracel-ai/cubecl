@@ -156,7 +156,7 @@ impl<Marker: 'static> Neg for DynamicScalar<Marker> {
 }
 impl<Marker: 'static> NegNativeExpand for DynamicScalar<Marker> {
     fn __expand_native_neg(scope: &Scope, this: ExpandValue) -> ExpandValue {
-        let ty = Self::__expand_as_type(scope);
+        let ty = <Self as ConstantTyped>::__expand_as_type(scope);
         if ty.is_int(scope.ctx()) {
             i32::__expand_native_neg(scope, this)
         } else {
@@ -326,16 +326,16 @@ impl<Marker: 'static> CubePrimitive for DynamicScalar<Marker> {
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    /// Return the element type to use on GPU
+    fn from_const_value(value: ConstantValue) -> Self {
+        Self::new(value)
+    }
+}
+impl<Marker: 'static> ConstantTyped for DynamicScalar<Marker> {
     fn __expand_as_type(scope: &Scope) -> TypeHandle {
         scope
             .resolve_type::<Self>()
             .expect("Type to be registered")
             .to_type(scope.ctx_mut())
-    }
-
-    fn from_const_value(value: ConstantValue) -> Self {
-        Self::new(value)
     }
 }
 
@@ -486,6 +486,13 @@ impl<Marker: 'static> Exp for DynamicScalar<Marker> {}
 impl<Marker: 'static> ExpNativeExpand for DynamicScalar<Marker> {
     fn __expand_native_exp(scope: &Scope, input: ExpandValue) -> ExpandValue {
         f32::__expand_native_exp(scope, input)
+    }
+}
+
+impl<Marker: 'static> Exp2 for DynamicScalar<Marker> {}
+impl<Marker: 'static> Exp2NativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_exp2(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_exp2(scope, input)
     }
 }
 

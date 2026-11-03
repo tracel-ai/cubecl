@@ -127,6 +127,10 @@ impl AllocationController for SharedBytesAllocationController {
         self.property
     }
 
+    fn may_alias_mutable_storage(&self) -> bool {
+        false
+    }
+
     // The underlying bytes length, known without copy-on-write (never materializes).
     fn capacity(&self) -> usize {
         self.bytes.len()

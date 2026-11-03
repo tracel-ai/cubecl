@@ -2,38 +2,24 @@
 
 use cubecl::prelude::*;
 
+use crate::Carrier;
 use crate::comptime_only;
 
-/// The ordering and arithmetic a [`Monoid`] needs of the values it combines.
-pub trait Carrier:
-    CubePartialOrd
-    + CubeAdd
-    + CubeMul
-    + core::ops::Add<Self, Output = Self>
-    + core::ops::Mul<Self, Output = Self>
-    + Sized
-{
-}
-
-impl<T> Carrier for T where
-    T: CubePartialOrd
-        + CubeAdd
-        + CubeMul
-        + core::ops::Add<Self, Output = Self>
-        + core::ops::Mul<Self, Output = Self>
-{
-}
-
 /// An identity and an associative operation, used by everything that merges values.
+///
+/// On floats, `Max` and `Min` keep NaN: a NaN on either side is the result, as `max(NaN, x)` is
+/// in a reduction that must not hide one. Their identities are `-inf` and `+inf`, so a run of
+/// `-inf` stays `-inf` under `Max`, where the lowest finite value would replace it. On integers
+/// they are the plain order, with the type's bounds as identities.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Monoid {
     /// `acc + val`, identity `0`.
     Sum,
     /// `acc * val`, identity `1`.
     Prod,
-    /// `max(acc, val)`, identity the lowest value of the element.
+    /// `max(acc, val)`, NaN kept; identity `-inf` on floats, the lowest value on integers.
     Max,
-    /// `min(acc, val)`, identity the highest value of the element.
+    /// `min(acc, val)`, NaN kept; identity `+inf` on floats, the highest value on integers.
     Min,
 }
 
@@ -41,21 +27,25 @@ pub enum Monoid {
 impl Monoid {
     /// This monoid's identity element; a masked read past an operand's extent must return it.
     pub fn identity<E: Numeric>(#[comptime] monoid: Monoid) -> E {
+        let elem = elem_type_of::<E>();
+        let float = comptime!(elem.is_float());
         match comptime!(monoid) {
             Monoid::Sum => E::from_int(0),
             Monoid::Prod => E::from_int(1),
-            Monoid::Max => E::min_value(),
-            Monoid::Min => E::max_value(),
-        }
-    }
-
-    /// `lhs ∗ rhs`, pointwise on vectors.
-    fn combine_of<T: Carrier>(lhs: T, rhs: T, #[comptime] monoid: Monoid) -> T {
-        match comptime!(monoid) {
-            Monoid::Sum => lhs + rhs,
-            Monoid::Prod => lhs * rhs,
-            Monoid::Max => max(lhs, rhs),
-            Monoid::Min => min(lhs, rhs),
+            Monoid::Max => {
+                if float {
+                    E::cast_from(f32::NEG_INFINITY)
+                } else {
+                    E::min_value()
+                }
+            }
+            Monoid::Min => {
+                if float {
+                    E::cast_from(f32::INFINITY)
+                } else {
+                    E::max_value()
+                }
+            }
         }
     }
 
@@ -74,10 +64,10 @@ impl Monoid {
     }
 }
 
-/// `monoid.combine(a, b)`, hand-written since a comptime-only type has no `{Name}Expand`.
+/// `monoid.combine(a, b)`, the carrier's [`Carrier::combine`]; hand-written since a comptime-only type has no `{Name}Expand`.
 impl Monoid {
     pub fn combine<T: Carrier>(self, lhs: T, rhs: T) -> T {
-        Monoid::combine_of::<T>(lhs, rhs, self)
+        T::combine(lhs, rhs, self)
     }
 
     pub fn __expand_combine_method<T: Carrier>(
@@ -86,7 +76,7 @@ impl Monoid {
         lhs: T::ExpandType,
         rhs: T::ExpandType,
     ) -> T::ExpandType {
-        Monoid::__expand_combine_of::<T>(scope, lhs, rhs, self)
+        T::__expand_combine(scope, lhs, rhs, self)
     }
 }
 

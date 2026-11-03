@@ -27,10 +27,18 @@ impl Tile {
         g.window_view::<T, W>(comptime!(Guard::Checked))
     }
 
-    /// Scalars of this stage one unit holds in registers across a contraction.
-    #[allow(dead_code)] // Reached through its expand, from `Stages::prefetched`.
-    pub(crate) fn fetched_scalars(&self) -> comptime_type!(usize) {
-        self.mem("fetched_scalars").fetched_scalars()
+    /// Scalars of this stage one unit holds in registers across a contraction; none for a tile
+    /// that is not a memory window or whose share is unknown.
+    #[allow(dead_code)] // Reached through its expand, from `Stages::prefetches_in_registers`.
+    pub(crate) fn fetched_scalars(&self) -> comptime_type!(Option<usize>) {
+        match &self.kind {
+            TileKind::Memory(m) => m.fetched_scalars(),
+            TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(None),
+        }
     }
 
     /// Free the shared memory this stage is held in; a stage of a call has none.
@@ -381,6 +389,27 @@ impl Memory {
             .physical_strides
             .at(row)
             .times(comptime!(self.store.vector_size as u32).runtime())
+    }
+
+    /// Whether each row of this window is one run of cells, the next row a fixed stride on: a
+    /// direct, untiled store, its rows unswizzled and never paged, read with no overhang to mask,
+    /// and every axis of `space` but the last two a single cell. The second-to-last axis then
+    /// steps through the rows by [`row_stride_at`](Memory::row_stride_at) and the last through a
+    /// row's cells, so a cell lies its row times the stride plus its column past the first.
+    pub(crate) fn rows_step_by_stride(&self, #[comptime] space: Space) -> comptime_type!(bool) {
+        comptime!({
+            let rank = space.rank();
+            self.access.storage == WindowStorage::Stored(Storage::Strided)
+                && self.projection.is_direct()
+                && !self.layout.projection.is_tiled()
+                && self.layout.paging.is_none()
+                && self.layout.rows.rows_are_runs()
+                && !self.access.overhang.masks()
+                && self.store.packing == Packing::Plain
+                && rank >= 2
+                && (0..rank - 2)
+                    .all(|p| !space.is_dynamic(space.axis_at(p)) && space.extent_at(p) == 1)
+        })
     }
 
     /// Re-view this buffer through `layout` as a [`Masked`] carrying its own mask flag.

@@ -34,6 +34,7 @@ pub fn test_read_lazy<R: Runtime>(client: Client) {
         // `len()` and `capacity()` must be no-copy: they must not pull the data off the device.
         assert_eq!(lazy.len(), bytes_expected.len());
         assert_eq!(lazy.capacity(), bytes_expected.len());
+        assert!(lazy.may_alias_mutable_storage());
 
         // A no-copy read must refuse rather than materialize.
         assert!(
@@ -47,7 +48,7 @@ pub fn test_read_lazy<R: Runtime>(client: Client) {
         // None of the above triggered a device-to-host copy.
         assert!(
             matches!(lazy.property(), AllocationProperty::Device),
-            "len()/capacity()/no-copy read must not materialize the device buffer"
+            "metadata queries and no-copy reads must not materialize the device buffer"
         );
 
         // A device view is itself lazy and reads only its byte sub-range when materialized.
@@ -86,7 +87,7 @@ pub fn test_read_lazy<R: Runtime>(client: Client) {
     );
 }
 
-/// A pending lazy read, and a view of it, hold the source until their bytes are on the host.
+/// A pending view must retain the source independently of its parent lazy read.
 pub fn test_read_lazy_holds_its_source<R: Runtime>(client: Client) {
     let data = [1i32, 2, 3, 4];
     let elem_size = size_of::<i32>();
@@ -112,16 +113,18 @@ pub fn test_read_lazy_holds_its_source<R: Runtime>(client: Client) {
         .view(0, elem_size)
         .expect("a contiguous device buffer supports views");
 
-    let _: &[u8] = &lazy;
+    assert_eq!(i32::from_bytes(&lazy), &data);
+    drop(lazy);
     assert!(
         !handle.can_mut(),
-        "a pending view must hold its source after the parent is read"
+        "a pending view must hold its source after the parent is dropped"
     );
 
-    let _: &[u8] = &view;
+    assert_eq!(i32::from_bytes(&view), &data[..1]);
+    drop(view);
     assert!(
         handle.can_mut(),
-        "materialized reads must let go of their source"
+        "dropping the reads must release the source"
     );
 }
 

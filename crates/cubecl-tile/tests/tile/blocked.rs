@@ -43,9 +43,9 @@ const BLOCK: RegisterBlock = RegisterBlock::new(16);
 /// `C = A · B`, whichever axes the operands spell their contraction over.
 #[cube(launch)]
 fn matmul(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
@@ -62,10 +62,10 @@ fn matmul(
 /// `C = (A ⊗ S) · B`, the scales an operand like the other two.
 #[cube(launch)]
 fn scaled_matmul(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] side: Scaled,
@@ -123,19 +123,19 @@ fn one_contracted_axis_is_the_reference() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::direct(&[M, K]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::direct(&[K, N]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -198,7 +198,7 @@ fn a_partitioned_axis_contracts_the_same() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -210,7 +210,7 @@ fn a_partitioned_axis_contracts_the_same() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -222,7 +222,7 @@ fn a_partitioned_axis_contracts_the_same() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -292,7 +292,7 @@ fn scales_omit_the_axis_inside_the_block() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -304,7 +304,7 @@ fn scales_omit_the_axis_inside_the_block() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -316,7 +316,7 @@ fn scales_omit_the_axis_inside_the_block() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -327,7 +327,7 @@ fn scales_omit_the_axis_inside_the_block() {
                 &[PhysicalAxisMap::of(M), PhysicalAxisMap::of(KB)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -398,13 +398,13 @@ fn a_split_output_axis_contracts_the_same() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::direct(&[M, K]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -416,7 +416,7 @@ fn a_split_output_axis_contracts_the_same() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -496,13 +496,13 @@ fn scales_omit_the_axis_inside_the_column_block() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::direct(&[M, K]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -514,7 +514,7 @@ fn scales_omit_the_axis_inside_the_column_block() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -522,7 +522,7 @@ fn scales_omit_the_axis_inside_the_column_block() {
             // not an axis here at all: the scale varies over the block index alone.
             TileSpec::new(Projection::new(&[K, NB], &[PhysicalAxisMap::of(NB)])),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -559,9 +559,9 @@ fn scales_omit_the_axis_inside_the_column_block() {
 /// is one whole line and `NB` counts them.
 #[cube(launch)]
 fn wide_matmul(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
@@ -613,13 +613,13 @@ fn a_split_output_axis_serves_lines_one_block_wide() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::direct(&[M, K]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             inside,
@@ -631,7 +631,7 @@ fn a_split_output_axis_serves_lines_one_block_wide() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             inside,
@@ -663,10 +663,10 @@ fn a_split_output_axis_serves_lines_one_block_wide() {
 /// `C = A · (B ⊗ S)` with the scales served as lines, as many a read as they are bound wide.
 #[cube(launch)]
 fn wide_scaled_matmul(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
@@ -729,13 +729,13 @@ fn scales_are_served_several_at_a_time() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::direct(&[M, K]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -747,7 +747,7 @@ fn scales_are_served_several_at_a_time() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             dtype,
             units,
@@ -755,7 +755,7 @@ fn scales_are_served_several_at_a_time() {
             // vary over, so one read serves `units` different scales.
             TileSpec::new(Projection::new(&[K, NB], &[PhysicalAxisMap::of(NB)])),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -791,9 +791,9 @@ fn scales_are_served_several_at_a_time() {
 /// innermost axis.
 #[cube(launch)]
 fn promoted_matmul<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -852,13 +852,13 @@ fn a_promoted_accumulator_spans_a_split_output_axis() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::direct(&[M, K]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -870,7 +870,7 @@ fn a_promoted_accumulator_spans_a_split_output_axis() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -905,10 +905,10 @@ fn a_promoted_accumulator_spans_a_split_output_axis() {
 /// four column blocks still arrive in one read.
 #[cube(launch)]
 fn wide_scaled_promoted<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -974,13 +974,13 @@ fn a_promoted_accumulator_takes_scales_by_the_line() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::direct(&[M, K]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -992,13 +992,13 @@ fn a_promoted_accumulator_takes_scales_by_the_line() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             dtype,
             units,
             TileSpec::new(Projection::new(&[K, NB], &[PhysicalAxisMap::of(NB)])),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -1033,10 +1033,10 @@ fn a_promoted_accumulator_takes_scales_by_the_line() {
 /// [`wide_scaled_matmul`] with the scales at their own element type as well as their own width.
 #[cube(launch)]
 fn wide_typed_scaled_matmul(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
@@ -1099,13 +1099,13 @@ fn scales_keep_their_own_element_when_served_as_lines() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::direct(&[M, K]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1117,13 +1117,13 @@ fn scales_keep_their_own_element_when_served_as_lines() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_t.binding().into_tensor_arg(),
             scale_dtype,
             units,
             TileSpec::new(Projection::new(&[K, NB], &[PhysicalAxisMap::of(NB)])),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,

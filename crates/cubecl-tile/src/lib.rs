@@ -18,6 +18,7 @@ pub(crate) mod tile;
 pub mod kind {
     pub use crate::tile::accumulator::planes_output::PlanesOutput;
     pub use crate::tile::accumulator::smem_accumulation::SmemAccumulation;
+    #[doc(hidden)]
     pub use crate::tile::accumulator::smem_cyclic::SmemCyclicAccumulation;
     pub use crate::tile::accumulator::smem_slots::SmemSlotsAccumulation;
     pub use crate::tile::kind::memory::base::{Boundary, Schedule, Storage, Write};
@@ -39,7 +40,6 @@ pub mod procedural {
     pub use crate::tile::kind::procedural::memory_values::{MemoryValues, MemoryValuesExpand};
     pub use crate::tile::kind::procedural::normalization::{DivGuard, TapSupport};
     pub use crate::tile::kind::procedural::phase::Phase;
-    pub use crate::tile::kind::procedural::product::{Product, product_of};
     pub use crate::tile::kind::procedural::separable::Factors;
     pub use crate::tile::kind::procedural::sum::{Sum, sum_of};
 }
@@ -50,9 +50,12 @@ pub(crate) use comptime_only::comptime_only;
 #[allow(unused_imports)]
 pub(crate) use {algebra::*, launch::*, layout::*, ops::*, space::*, stage::*, tile::*};
 
-pub use algebra::monoid::{Carrier, Monoid};
+pub use algebra::carrier::Carrier;
+pub use algebra::indexed::Indexed;
+pub use algebra::monoid::Monoid;
 pub use algebra::semiring::Semiring;
-pub use launch::arg::tensor::{TileArg, TileArgLaunch};
+pub use algebra::top_k::{TOP_K_UNROLL_BUDGET, TopK};
+pub use launch::arg::tensor::{TileTensor, TileTensorLaunch};
 pub use launch::base::Launcher;
 pub use launch::spec::TileSpec;
 pub use layout::projection::Projection;

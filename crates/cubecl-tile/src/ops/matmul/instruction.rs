@@ -25,7 +25,7 @@ impl Instruction {
     /// cells and a manual-mma fragment's are each unit's own registers. A cmma fragment hides
     /// which unit holds a cell, so it is scaled only through a round trip in shared memory, and a
     /// warpgroup's sum only once its MMAs land.
-    pub fn scales_its_sum_in_place(self) -> bool {
+    pub(crate) fn scales_its_sum_in_place(self) -> bool {
         match self {
             Self::Registers { .. } | Self::Mma { .. } => true,
             Self::Cmma | Self::Wgmma => false,

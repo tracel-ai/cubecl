@@ -1,5 +1,5 @@
-//! A table of `u32` entries an operand carries ([`TileArgLaunch::indexed`]), read where its window
-//! is cut: each row's expert, each tile's group, each group's run of rows.
+//! A table of `u32` entries an operand carries ([`TileTensorLaunch::indexed`]), read where its
+//! window is cut: each row's expert, each tile's group, each group's run of rows.
 //!
 //! The table's dims are its key axes, in order: it holds one entry per tile of the first level of
 //! the nest that cuts them, the same entry a kernel would read off `region.coord(key)` itself.
@@ -15,7 +15,7 @@ use crate::stage::pipeline::payload::base::StageOperand;
 use crate::*;
 
 /// What an operand's table entry places. The table's own dims are its keys
-/// ([`TileArgLaunch::indexed`]).
+/// ([`TileTensorLaunch::indexed`]).
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Indexing {
     /// The entry is the operand's coordinate along `axis`, which no level may cut: each row's
@@ -151,14 +151,14 @@ pub(crate) struct IndexTable {
     #[cube(comptime)]
     pub(crate) placed: bool,
     /// Whether the entry read names a coordinate of the axis, or a run of at least one; `true`
-    /// until it is read ([`Tile::entry_in_range`]).
+    /// until it is read. A walk within a tile whose entry is out of range takes no step.
     in_range: bool,
 }
 
 #[cube]
 impl IndexTable {
     /// `table`, its dims the `keys`, placing as `indexing` says.
-    #[allow(dead_code)] // Reached through its expand, from `TileArg::tile`.
+    #[allow(dead_code)] // Reached through its expand, from `TileTensor::tile`.
     pub(crate) fn new(
         table: &Tensor<u32>,
         #[comptime] keys: Vec<Axis>,
@@ -229,12 +229,6 @@ fn nonempty(from: u32, until: u32) -> bool {
     from < until
 }
 
-/// What a tile with no table to read answers: its window is where it lies.
-#[cube]
-fn no_table() -> bool {
-    true
-}
-
 /// Where the first entry lies: the one a table no level's keys cut is read at.
 #[cube]
 fn first_entry() -> u32 {
@@ -242,15 +236,6 @@ fn first_entry() -> u32 {
 }
 
 impl Tile {
-    /// Whether the entry this tile's table placed it with names a coordinate of the axis it
-    /// places, or a run of at least one row: `false` for an entry past a stack of slabs, as a
-    /// padding row's route or a padding tile's group names. Such a tile holds nothing, so a walk
-    /// within it ([`Region::walk_within`]) takes no step. `true` for a tile with no table, or none
-    /// read yet.
-    pub fn entry_in_range(&self) -> bool {
-        cubecl::unexpanded!()
-    }
-
     /// This tile with its table read where `step` cuts the table's keys: its window, and the
     /// windows of the scales it carries that span the axis the entry places, placed by the entry.
     /// Any other tile, or step, as it is.
@@ -259,30 +244,20 @@ impl Tile {
     }
 
     /// This tile with `table` to read where a step cuts its keys.
-    #[allow(dead_code)] // Reached through its expand, from `TileArg::tile`.
+    #[allow(dead_code)] // Reached through its expand, from `TileTensor::tile`.
     pub(crate) fn with_index(self, _table: IndexTable) -> Tile {
         cubecl::unexpanded!()
     }
 
     /// This tile with its table read at its first entry: what a table whose keys no level cuts
     /// holds, the keys being one tile.
-    #[allow(dead_code)] // Reached through its expand, from `TileArg::tile`.
+    #[allow(dead_code)] // Reached through its expand, from `TileTensor::tile`.
     pub(crate) fn indexed_whole(self) -> Tile {
         cubecl::unexpanded!()
     }
 }
 
 impl TileExpand {
-    pub fn __expand_entry_in_range_method(&self, scope: &Scope) -> NativeExpand<bool> {
-        match &self.kind {
-            TileKindExpand::Memory(MemoryExpand {
-                index: ComptimeOptionExpand::Some(table),
-                ..
-            }) => table.in_range,
-            _ => no_table::expand(scope),
-        }
-    }
-
     pub(crate) fn __expand_indexed_at_method(self, scope: &Scope, step: &StepExpand) -> TileExpand {
         let TileKindExpand::Memory(memory) = &self.kind else {
             return self;
