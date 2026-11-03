@@ -1,3 +1,4 @@
+mod argmax;
 mod async_copy;
 mod block_scaled;
 mod block_scaled_peak;
@@ -44,6 +45,7 @@ mod stored_window;
 mod stream;
 mod tma_folded;
 mod tma_store;
+mod top_k;
 mod vector_tile;
 mod wgmma;
 

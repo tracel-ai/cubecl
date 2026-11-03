@@ -19,7 +19,9 @@ use cubecl_ir::{
     },
     interfaces::{TypedExt, aliasing::PointerExt},
     pliron::{context::Context, printable::Printable, r#type::Typed, value::Value},
-    types::{ArrayType, PointerType, RuntimeArrayType, VectorType, aggregate::SliceType},
+    types::{
+        ArrayType, AtomicType, PointerType, RuntimeArrayType, VectorType, aggregate::SliceType,
+    },
 };
 
 pub type SliceExpand<T> = NativeExpand<[T]>;
@@ -153,6 +155,42 @@ impl<E: Scalar, N: Size> SliceExpand<Vector<E, N>> {
     }
 }
 
+/// A slice of atomic scalars viewed as atomic vectors: what a vector atomic operation, such as an
+/// add of a whole vector at once, takes. The slice's offset and length must be multiples of the
+/// vector size.
+pub trait SliceAtomicVectorExt<E: Scalar> {
+    fn with_vector_size<N: Size>(&self) -> &[Atomic<Vector<E, N>>] {
+        unexpanded!()
+    }
+    fn __expand_with_vector_size<'infer, N: Size>(
+        scope: &Scope,
+        this: &'infer SliceExpand<Atomic<E>>,
+    ) -> &'infer SliceExpand<Atomic<Vector<E, N>>> {
+        this.__expand_with_vector_size_method(scope)
+    }
+}
+
+impl<E: Scalar> SliceAtomicVectorExt<E> for [Atomic<E>] {}
+
+impl<E: Scalar> SliceExpand<Atomic<E>> {
+    pub fn __expand_with_vector_size_method<'infer, N: Size>(
+        &'infer self,
+        scope: &Scope,
+    ) -> &'infer SliceExpand<Atomic<Vector<E, N>>> {
+        let vector_size = N::__expand_value(scope);
+        let list = self.__extract_list(scope);
+        let length = self.__extract_length(scope);
+        let offset = self.__extract_offset(scope);
+
+        let new_ptr_ty = change_list_vectorization(scope.ctx_mut(), list, vector_size);
+        let reinterpret = ReinterpretCastOp::new(scope.ctx_mut(), new_ptr_ty, list);
+        let new_ptr = scope.register_with_result(&reinterpret);
+        let offset = offset.__expand_div_method(scope, vector_size.into());
+        let length = length.__expand_div_method(scope, vector_size.into());
+        scope.create_kernel_ref(from_raw_parts(scope, new_ptr, offset, length))
+    }
+}
+
 // This is really annoying but does have a lot more checks for invariants than before
 fn change_list_vectorization(ctx: &Context, list: Value, new_vec: usize) -> TypeHandle {
     let current_vec = list.vector_size(ctx);
@@ -172,28 +210,33 @@ fn change_list_vectorization(ctx: &Context, list: Value, new_vec: usize) -> Type
     };
     if let Some(ArrayType { inner, length }) = arr {
         let new_length = length * current_vec / new_vec;
-        let scalar_ty = inner.scalar_ty(ctx);
-        let new_vector_ty = if new_vec > 1 {
-            VectorType::get(ctx, scalar_ty, new_vec).into()
-        } else {
-            scalar_ty
-        };
+        let new_vector_ty = revectorized(ctx, inner, new_vec);
         let new_arr_ty = ArrayType::get(ctx, new_vector_ty, new_length).into();
         let new_ptr_ty = PointerType::get(ctx, new_arr_ty, address_space);
         return new_ptr_ty.into();
     }
     if let Some(RuntimeArrayType { inner }) = runtime_arr {
-        let scalar_ty = inner.scalar_ty(ctx);
-        let new_vector_ty = if new_vec > 1 {
-            VectorType::get(ctx, scalar_ty, new_vec).into()
-        } else {
-            scalar_ty
-        };
+        let new_vector_ty = revectorized(ctx, inner, new_vec);
         let new_arr_ty = RuntimeArrayType::get(ctx, new_vector_ty).into();
         let new_ptr_ty = PointerType::get(ctx, new_arr_ty, address_space);
         return new_ptr_ty.into();
     }
     unreachable!("Should be static or dynamic array")
+}
+
+/// A list's element type at `new_vec` of its scalar, an atomic element staying atomic.
+fn revectorized(ctx: &Context, element: TypeHandle, new_vec: usize) -> TypeHandle {
+    let atomic = element.deref(ctx).downcast_ref::<AtomicType>().is_some();
+    let scalar_ty = element.scalar_ty(ctx);
+    let vector_ty = if new_vec > 1 {
+        VectorType::get(ctx, scalar_ty, new_vec).into()
+    } else {
+        scalar_ty
+    };
+    match atomic {
+        true => AtomicType::get(ctx, vector_ty).into(),
+        false => vector_ty,
+    }
 }
 
 pub trait SliceExt<E: CubePrimitive> {
