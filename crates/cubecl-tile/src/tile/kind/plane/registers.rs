@@ -95,6 +95,16 @@ pub(crate) fn assert_whole_cells(contracted_per_step: usize, vector_size: usize,
     );
 }
 
+/// The axes a block of `rows` by `cols` scalars reads and writes `window` through: `axes`, which
+/// were stated on the tile it was opened on, or found afresh in a window of another rank.
+fn window_axes(axes: MatrixAxes, rows: usize, cols: usize, window: &Space) -> MatrixAxes {
+    if axes.rows(window) == rows && axes.cols(window) == cols {
+        axes
+    } else {
+        MatrixAxes::new(window, rows, cols).unwrap_or(axes)
+    }
+}
+
 /// Bind the block width `RA` for what follows. A kernel may hold blocks of several widths, as an
 /// attention unit holds a score one value a cell beside its output's lines, so every block binds
 /// its own before it touches its lines.
@@ -242,7 +252,9 @@ impl RegisterData {
         register_block_size(self.vector_size);
         let data = self.data.at_mut::<T>();
         let define!(Source) = src.read_element();
-        let source = src.matrix_packed::<Source, RA>(comptime!(self.axes), 0usize);
+        let cols = comptime!(self.nr * self.vector_size);
+        let axes = comptime!(window_axes(self.axes, self.mr, cols, &src.place.space));
+        let source = src.matrix_packed::<Source, RA>(axes, 0usize);
         #[unroll]
         for i in 0..comptime!(self.mr) {
             #[unroll]
@@ -282,7 +294,9 @@ impl RegisterData {
         let mem_write = comptime!(mem.access.write);
         let unit_share = comptime!(mem.unit_share);
         let monoid = comptime!(self.accumulation.monoid());
-        let mut sink = mem.matrix_mut::<Out, A>(0usize, comptime!(self.axes), space);
+        let cols = comptime!(self.nr * cells_per_line(self.contracted_per_step, self.vector_size));
+        let axes = comptime!(window_axes(self.axes, self.mr, cols, &space));
+        let mut sink = mem.matrix_mut::<Out, A>(0usize, axes, space);
 
         // Split at comptime: a per-line `match` plus a unit guard breaks the CPU backend.
         match comptime!(Drain::of(unit_share, mem_write)) {

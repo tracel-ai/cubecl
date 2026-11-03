@@ -9,6 +9,7 @@ use cubecl_tile::*;
 const P: Axis = Axis(0);
 const K: Axis = Axis(1);
 const N: Axis = Axis(2);
+const KEPT: Axis = Axis(3);
 
 const BLOCK: RegisterBlock = RegisterBlock::new(256);
 
@@ -48,6 +49,27 @@ fn update_kernel(
     first.copy_from(&held);
     held.scale_by::<f32>(factor);
     out.copy_from(&held);
+}
+
+/// The block stored into one slice of a tile with an axis it lacks, and seeded back out of it.
+#[cube(launch)]
+fn kept_kernel(
+    lhs: &TileArg<'_>,
+    state: &TileArg<'_>,
+    kept: &TileArg<'_>,
+    out: &TileArg<'_>,
+    space: Partitioning,
+) {
+    let (lhs, state, kept) = (lhs.tile(&space), state.tile(&space), kept.tile(&space));
+    let mut out = out.tile(&space);
+    let block = comptime!(Instruction::Registers { config: BLOCK });
+    let mut held = state.accumulator::<f32>(&lhs, &state, block, Semiring::SUM_PROD);
+    held.copy_from(&state);
+    let mut slice = kept.within(KEPT, 1usize, 2usize);
+    slice.copy_from(&held);
+    let mut back = state.accumulator::<f32>(&lhs, &state, block, Semiring::SUM_PROD);
+    back.copy_from(&slice);
+    out.copy_from(&back);
 }
 
 fn arange(client: &Client, space: Space) -> TileInput {
@@ -176,6 +198,43 @@ fn a_seed_reads_zero_past_the_end_of_a_short_window() {
                     want as f32,
                     "width {width}, cell [{row}, {col}]"
                 );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_block_stores_into_and_seeds_from_a_window_with_an_axis_it_lacks() {
+    let client = cubecl::test_device().client();
+    let (k, n) = (8, 8);
+    let space = Space::new(&[(KEPT, 2), (P, 1), (K, k), (N, n)]);
+    for width in widths(&client) {
+        let launcher = uncut(&client, &space, &space);
+        let lhs = zeros(&client, space.subspace(&[P, K]));
+        let state = arange(&client, space.subspace(&[K, N]));
+        let kept = zeros(&client, space.subspace(&[KEPT, K, N]));
+        let out = zeros(&client, space.subspace(&[K, N]));
+        kept_kernel::launch(
+            &client,
+            launcher.cube_count(),
+            launcher.cube_dim(),
+            lhs.arg(&launcher, width),
+            state.arg(&launcher, width),
+            kept.arg(&launcher, width),
+            out.arg(&launcher, width),
+            launcher.partitioning_arg(),
+        );
+        for row in 0..k {
+            for col in 0..n {
+                let want = (row * n + col) as f32;
+                let at = format!("width {width}, cell [{row}, {col}]");
+                assert_eq!(
+                    cell(&kept, &client, &[0, row, col]),
+                    0.0,
+                    "{at}, other slice"
+                );
+                assert_eq!(cell(&kept, &client, &[1, row, col]), want, "{at}, stored");
+                assert_eq!(cell(&out, &client, &[row, col]), want, "{at}, seeded back");
             }
         }
     }
