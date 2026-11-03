@@ -124,9 +124,9 @@ macro_rules! atomic_binop {
     };
 }
 
-/// An add whose old value nothing reads, of a scalar: `red`, which hands nothing back, so the add
-/// issues and the thread moves on, where `atom` waits for the old value to return. A vector add
-/// keeps `atom`, whose form this lowering already states.
+/// An add whose old value nothing reads: `red`, which hands nothing back, so the add issues and the
+/// thread moves on, where `atom` waits for the old value to return. PTX adds a vector by `red`
+/// into global memory only, which is the only memory vector atomics address.
 macro_rules! atomic_add {
     ($ty: ty) => {
         #[op_interface_impl]
@@ -140,10 +140,11 @@ macro_rules! atomic_add {
                 let vec = atom_vec(ctx, value);
                 let ftz = atom_ftz(ctx, value);
                 let ty = atom_ty(ctx, value);
-                let unread = result.num_uses(ctx) == 0 && vec.is_empty();
+                let unread = result.num_uses(ctx) == 0;
                 let registers = as_registers(scope, value);
                 if unread {
-                    let ptx = format!("red.relaxed.add{ftz}.{ty} [$0], $1;");
+                    let space = if vec.is_empty() { "" } else { ".global" };
+                    let ptx = format!("red.relaxed.gpu{space}.add{ftz}{vec}.{ty} [$0], $1;");
                     let op = InlinePtxOp::new_volatile(ctx, None, ptx, vec![ptr, registers]);
                     op.set_clobbers(ctx, vec!["memory".to_string()]);
                     scope.register(&op);
