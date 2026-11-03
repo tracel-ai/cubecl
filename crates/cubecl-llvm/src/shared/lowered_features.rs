@@ -200,6 +200,12 @@ fn restrict_common(props: &mut DeviceProperties) {
     // No clusters. `memcpy_async` lowers with the barriers.
     props.features.cube_cluster = false;
 
+    // A unit's async copies complete on a barrier, and the C++ backend never advertises them
+    // without one: a device left without the barrier type keeps no `copy_async`.
+    if !props.features.types.opaque.contains(&OpaqueType::Barrier) {
+        props.features.copy_async = false;
+    }
+
     // `bf16` atomics have no test on any target this backend lowers for, so they are not
     // offered until one checks the read-modify-write LLVM expands them into.
     props
@@ -485,21 +491,40 @@ mod nvptx_tma_tests {
         assert!(props.features.types.opaque.contains(&OpaqueType::Barrier));
     }
 
-    /// NVPTX lowers `copy_async` to `cp.async`, so a device keeps it exactly when its C++
-    /// backend advertised it: from `sm_80`, with or without TMA.
+    /// NVPTX lowers `copy_async` to `cp.async`, so a device that keeps its barriers keeps the
+    /// `copy_async` its C++ backend advertised.
     #[test]
-    fn a_device_keeps_the_copy_async_it_advertises() {
+    fn a_device_with_barriers_keeps_the_copy_async_it_advertises() {
         for advertised in [true, false] {
             let mut props = (*device_properties(32)).clone();
+            props.register_opaque_type(OpaqueType::Barrier);
+            props.register_opaque_type(OpaqueType::TensorMap);
+            props.features.tma.insert(Tma::Base);
             props.features.copy_async = advertised;
             restrict_features(
                 &mut props,
                 GpuTarget::Nvptx {
-                    arch: SmArch::new(80, true),
+                    arch: SmArch::new(90, true),
                 },
             );
             assert_eq!(props.features.copy_async, advertised);
         }
+    }
+
+    /// A device without TMA keeps no barrier, so it keeps no `copy_async` either, though its C++
+    /// backend advertised it from `sm_80`: the copies would have nothing to complete on.
+    #[test]
+    fn a_device_without_barriers_keeps_no_copy_async() {
+        let mut props = (*device_properties(32)).clone();
+        props.register_opaque_type(OpaqueType::Barrier);
+        props.features.copy_async = true;
+        restrict_features(
+            &mut props,
+            GpuTarget::Nvptx {
+                arch: SmArch::new(80, true),
+            },
+        );
+        assert!(!props.features.copy_async);
     }
 
     /// Hopper alone gets warpgroup MMA.
