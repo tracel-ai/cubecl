@@ -17,6 +17,12 @@ use crate::{CanMaterialize, HasSideEffects, interfaces::Synchronizes, prelude::*
 /// afterwards. Only a runtime whose
 /// [`device_memory_scope`](crate::Features::device_memory_scope) is set promises that second
 /// half; the others give the cube barrier alone.
+///
+/// [`System`](SyncScope::System) reaches past the device: what a cube wrote before it is visible to
+/// the host and to kernels on other devices that bind this memory, and what they published before
+/// it is visible here after it. That is what kernels on different devices hand each other data
+/// through. A runtime that shares no memory between devices gives it the meaning of
+/// [`Device`](SyncScope::Device), since nothing outside the device can see its memory.
 #[format]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
 pub enum SyncScope {
@@ -24,6 +30,7 @@ pub enum SyncScope {
     Plane,
     Cube,
     Device,
+    System,
 }
 
 #[pliron_attr(name = "cube.sync_scope", format = "$0", verifier = "succ")]

@@ -40,6 +40,16 @@ impl LowerOp for SyncOp {
                 #[cfg(feature = "nvptx")]
                 LlvmTarget::Nvptx => crate::nvptx::synchronization::lower_sync_storage(scope),
             },
+            // The same, with the release and acquire reaching the host and peer devices.
+            SyncScope::System => match target {
+                LlvmTarget::Cpu => {
+                    panic!("System wide synchronization is not supported by the CPU runtime")
+                }
+                #[cfg(feature = "amdgpu")]
+                LlvmTarget::AmdGpu => crate::amdgpu::synchronization::lower_sync_system(scope),
+                #[cfg(feature = "nvptx")]
+                LlvmTarget::Nvptx => crate::nvptx::synchronization::lower_sync_system(scope),
+            },
         }
         vec![]
     }

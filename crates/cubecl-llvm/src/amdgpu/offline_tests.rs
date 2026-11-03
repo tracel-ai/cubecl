@@ -2,7 +2,8 @@
 
 use crate::shared::offline_kernels::{
     Wait, bf16_math_kernel, keep_largest_kernel, nested_calls_with_source_kernel,
-    plane_moves_kernel, relay_kernel, scale_kernel, tally_kernel, tile_product_kernel,
+    peer_tally_kernel, plane_moves_kernel, relay_kernel, scale_kernel, tally_kernel,
+    tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{
@@ -198,6 +199,39 @@ fn a_dropped_atomic_add_keeps_the_promises() {
         "the input:\n{params:#?}"
     );
     assert!(params[1].contains("noalias"), "the output:\n{params:#?}");
+}
+
+/// A `Peer` buffer may be written by another device while the kernel runs, so it is promised
+/// nothing, and an atomic on it synchronizes at system scope and is not promised device-local
+/// memory, which would make a float add one that is not atomic across the link. The kernel's
+/// own buffers keep their promises.
+#[test]
+fn a_peer_buffer_is_promised_nothing() {
+    let params = entry_params(peer_tally_kernel(), "gfx1151");
+    assert!(
+        !params[2].contains("noalias") && !params[2].contains("readonly"),
+        "a peer may write the tally:\n{params:#?}"
+    );
+    assert!(
+        params[0].contains("noalias") && params[0].contains("readonly"),
+        "the input:\n{params:#?}"
+    );
+    assert!(params[1].contains("noalias"), "the output:\n{params:#?}");
+    let module = module_of(peer_tally_kernel(), &GfxArch::parse("gfx1151"));
+    let add = module
+        .ir
+        .lines()
+        .find(|line| line.contains("atomicrmw add"))
+        .expect("the kernel counts into the tally");
+    assert!(
+        !add.contains("syncscope"),
+        "an atomic on a peer buffer synchronizes at system scope: {add}"
+    );
+    assert!(
+        !module.ir.contains("amdgpu.no.remote.memory"),
+        "an atomic of a peer kernel may touch remote memory:\n{}",
+        module.ir
+    );
 }
 
 #[test]

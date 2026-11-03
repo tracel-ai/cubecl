@@ -1,5 +1,5 @@
 use cubecl_core::ir::{
-    attributes::{ATTR_TENSOR_MAP_BINDING, EntrypointInterface, FuncInterface},
+    attributes::{ATTR_PEER_BINDING, ATTR_TENSOR_MAP_BINDING, EntrypointInterface, FuncInterface},
     interfaces::TypedExt,
     settings::Dim3,
 };
@@ -83,7 +83,10 @@ fn gen_param(ctx: &Context, func: &FuncOp, i: usize, arg: Value) -> String {
     }
     segments.push(arg.get_type(ctx).to_cpp(ctx));
     segments.push("const".into());
-    if arg.is_ptr(ctx) || arg.is_uniform_ptr(ctx) {
+    // Another device may write a peer buffer while the kernel runs, so it is not promised
+    // unaliased, which would let NVCC load it through the non-coherent cache.
+    let restrict = !func.has_arg_attr(ctx, i, &ATTR_PEER_BINDING);
+    if restrict && (arg.is_ptr(ctx) || arg.is_uniform_ptr(ctx)) {
         segments.push("__restrict__".into());
     }
     segments.push(arg.name(ctx).to_string());

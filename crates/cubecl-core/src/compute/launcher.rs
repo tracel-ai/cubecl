@@ -1,12 +1,14 @@
 use alloc::{boxed::Box, vec::Vec};
 
-use crate::prelude::{BufferArg, TensorArg, TensorMapArg, TensorMapKind};
+use crate::prelude::{BufferArg, PeerArg, TensorArg, TensorMapArg, TensorMapKind};
 use crate::{InfoBuilder, ScalarArgType};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
 use cubecl_ir::{AddressType, ElemType, Scope, settings::KernelSettings};
 use cubecl_runtime::kernel::BufferIOAttr;
-use cubecl_runtime::server::{BufferBinding, CubeCount, KernelResource, TensorMapBinding};
+use cubecl_runtime::server::{
+    BufferBinding, CubeCount, KernelResource, PeerBinding, TensorMapBinding,
+};
 use cubecl_runtime::{client::Client, kernel::CubeKernel, server::KernelArguments};
 
 #[cfg(feature = "std")]
@@ -147,7 +149,7 @@ impl KernelLauncher {
             // still be a store's destination — so the declaration is clamped
             // to the same answer the visibility analysis gives it.
             KernelResource::TensorMap(_) => BufferIOAttr::ReadWrite,
-            KernelResource::Buffer(_) => self.declaring,
+            KernelResource::Buffer(_) | KernelResource::Peer(_) => self.declaring,
         };
         self.declared_io.push(io);
         self.resources.push(resource);
@@ -203,6 +205,23 @@ impl KernelLauncher {
         let address_type = self.address_type;
         self.with_info(|info| info.metadata.register_buffer(buffer_len, address_type));
         Some(array.handle)
+    }
+
+    /// Push a buffer in memory shared with peers to the state. It is bound as a peer binding
+    /// whichever device it lives on, which is what tells the client the kernel declared it
+    /// shared; on its own device, the client binds it as an ordinary buffer.
+    pub fn register_peer(&mut self, buffer: PeerArg, elem_size: usize) {
+        let binding = self
+            .process_buffer(
+                BufferArg::Handle {
+                    handle: buffer.handle,
+                },
+                elem_size,
+            )
+            .expect("a handle is no alias");
+        let peer = PeerBinding::new(binding)
+            .expect("a peer argument is built from a handle shared with its peers");
+        self.push_resource(KernelResource::Peer(peer));
     }
 
     /// Push a new tensor to the state.

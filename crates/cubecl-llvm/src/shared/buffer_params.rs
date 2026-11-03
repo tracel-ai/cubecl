@@ -27,22 +27,29 @@ use pliron::{
 /// served from a cache the acquire does not invalidate. The buffers it only reads, which no cube
 /// writes, keep both.
 ///
+/// A `Peer` buffer, in memory shared with the other devices, may be written by a kernel on
+/// another device while this one runs, so it is promised nothing: a read-only one loaded through
+/// the non-coherent cache, or hoisted above the acquire, would read what the buffer held before
+/// the peer's writes landed. The kernel's other buffers keep their promises.
+///
 /// A tensor map is a binding like any other, so it never overlaps another binding either. Its
 /// parameter is the map itself, passed by value, so it is no buffer and gets no attribute.
 ///
-/// `entry`'s parameters are the bindings in binding order, `tensor_maps` among them, followed by
+/// `entry`'s parameters are the bindings in binding order, `peers` and `tensor_maps` among them,
+/// followed by
 /// `metadata_params` metadata parameters. An LLVM without one of the two attributes gets the
 /// other alone.
 pub(crate) fn annotate_buffer_params(
     entry: &EntryFunction<'_>,
     io: &[BufferIOAttr],
     atomic_reads: &AtomicReads,
+    peers: &[usize],
     tensor_maps: &[usize],
     metadata_params: u32,
 ) {
     let (buffers, metadata) = entry.split_params(metadata_params);
     let buffers = buffers.enumerate().map(|(binding, param)| {
-        let promise = if tensor_maps.contains(&binding) {
+        let promise = if tensor_maps.contains(&binding) || peers.contains(&binding) {
             Promise::Nothing
         } else {
             Promise::of_buffer(io.get(binding).copied(), binding, atomic_reads)

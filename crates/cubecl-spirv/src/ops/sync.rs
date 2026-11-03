@@ -31,7 +31,8 @@ impl ToSpirvDialectOp for SyncOp {
         let (scope_exec, scope_mem) = match scope {
             SyncScope::Plane => (Scope::Subgroup, Scope::Subgroup),
             SyncScope::Cube => (Scope::Workgroup, Scope::Workgroup),
-            SyncScope::Device => (Scope::Workgroup, Scope::Device),
+            // No memory is shared with another device, so the system is the device.
+            SyncScope::Device | SyncScope::System => (Scope::Workgroup, Scope::Device),
             SyncScope::Unit => {
                 rewriter.erase_operation(ctx, self.get_operation());
                 return Ok(());
@@ -46,7 +47,7 @@ impl ToSpirvDialectOp for SyncOp {
             }
             // Under the Vulkan memory model a barrier orders, but only availability and visibility
             // operations carry one workgroup's plain writes to another at device scope.
-            SyncScope::Device => {
+            SyncScope::Device | SyncScope::System => {
                 MemorySemantics::ACQUIRE_RELEASE
                     | MemorySemantics::UNIFORM_MEMORY
                     | MemorySemantics::WORKGROUP_MEMORY

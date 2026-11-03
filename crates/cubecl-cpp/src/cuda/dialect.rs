@@ -71,6 +71,8 @@ cuda_op!(SyncOp, |op, ctx| {
         // `__syncthreads` orders this block's memory for this block. The fence is what carries
         // the writes out to device scope, so a cube that synchronizes later reads them.
         SyncScope::Device => "__threadfence();\n__syncthreads();\n",
+        // The same at the system's scope, which reaches the host and peer devices.
+        SyncScope::System => "__threadfence_system();\n__syncthreads();\n__threadfence_system();\n",
         SyncScope::Unit => "",
     }
     .into()

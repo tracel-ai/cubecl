@@ -7,11 +7,15 @@ const S_BARRIER: &str = "llvm.amdgcn.s.barrier";
 const WAVE_BARRIER: &str = "llvm.amdgcn.wave.barrier";
 
 fn fence(scope: &Scope, sync_scope: &str, ordering: AtomicOrderingAttr) {
-    let fence = llvm::FenceOp::new(
-        scope.ctx_mut(),
-        ordering,
+    fence_at(
+        scope,
         SyncScopeAttr::NamedScope(sync_scope.into()),
+        ordering,
     );
+}
+
+fn fence_at(scope: &Scope, sync_scope: SyncScopeAttr, ordering: AtomicOrderingAttr) {
+    let fence = llvm::FenceOp::new(scope.ctx_mut(), ordering, sync_scope);
     scope.register(&fence);
 }
 
@@ -43,4 +47,13 @@ pub fn lower_sync_storage(scope: &Scope) {
     fence(scope, "agent", AtomicOrderingAttr::AcqRel);
     barrier(scope, S_BARRIER);
     fence(scope, "agent", AtomicOrderingAttr::AcqRel);
+}
+
+/// [`lower_sync_storage`] fenced at the system's scope, LLVM's unnamed one: the release writes
+/// back what the caches hold for the host and peer devices to read, and the acquire invalidates
+/// what they may have written behind them.
+pub fn lower_sync_system(scope: &Scope) {
+    fence_at(scope, SyncScopeAttr::System, AtomicOrderingAttr::AcqRel);
+    barrier(scope, S_BARRIER);
+    fence_at(scope, SyncScopeAttr::System, AtomicOrderingAttr::AcqRel);
 }
