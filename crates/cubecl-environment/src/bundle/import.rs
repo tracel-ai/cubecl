@@ -1,8 +1,11 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use alloc::boxed::Box;
+use core::convert::Infallible;
+
 use crate::bytes::Bytes;
-use crate::persistence::{InsertSummary, Origin, storage};
+use crate::persistence::{InsertSummary, Origin, Storage, storage};
 
 use super::Bundle;
 
@@ -55,10 +58,28 @@ pub struct ImportReport {
 /// [`environment::activate`](crate::environment::activate) beforehand to
 /// target another one.
 pub fn import(bundle: &dyn Bundle) -> ImportReport {
+    let opened: Result<_, Infallible> =
+        import_into(bundle, |namespace| Ok(storage::open(namespace)));
+    let Ok(report) = opened;
+    report
+}
+
+/// Copies every entry of `bundle` into the storage `open` answers for each of
+/// its namespaces, under the rules of [`import`]: what an environment that is
+/// not the active one is filled through.
+///
+/// # Errors
+///
+/// The first error `open` answers. The namespaces imported before it stay
+/// imported, which is harmless: importing again skips them.
+pub(crate) fn import_into<E>(
+    bundle: &dyn Bundle,
+    open: impl Fn(&str) -> Result<Box<dyn Storage>, E>,
+) -> Result<ImportReport, E> {
     let mut report = ImportReport::default();
 
     for namespace in bundle.namespaces() {
-        let target = storage::open(&namespace);
+        let target = open(&namespace)?;
 
         let mut batch: Vec<(Bytes, Bytes)> = Vec::with_capacity(BATCH);
         let mut batch_bytes = 0;
@@ -107,5 +128,5 @@ pub fn import(bundle: &dyn Bundle) -> ImportReport {
         report.skipped,
     );
 
-    report
+    Ok(report)
 }
