@@ -50,8 +50,11 @@ pub(crate) use comptime_only::comptime_only;
 #[allow(unused_imports)]
 pub(crate) use {algebra::*, launch::*, layout::*, ops::*, space::*, stage::*, tile::*};
 
-pub use algebra::monoid::{Carrier, Monoid};
+pub use algebra::carrier::Carrier;
+pub use algebra::indexed::Indexed;
+pub use algebra::monoid::Monoid;
 pub use algebra::semiring::Semiring;
+pub use algebra::top_k::{TOP_K_UNROLL_BUDGET, TopK};
 pub use launch::arg::tensor::{TileArg, TileArgLaunch};
 pub use launch::base::Launcher;
 pub use launch::spec::TileSpec;
