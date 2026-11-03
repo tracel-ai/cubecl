@@ -193,6 +193,88 @@ pub fn test_sync_plane_storage<R: Runtime>(client: Client) {
     assert_eq!(actual, &expected);
 }
 
+/// Each round every unit writes two slots of its plane's shared window, its own and the one a
+/// plane further, meets its plane at [`sync_plane()`], and reads the two neighbouring slots at
+/// twice its own position, the way a cooperative matrix load reads its cells; it meets its plane
+/// again before the next round overwrites them. A barrier that orders a unit's first store but
+/// not its second hands back the previous round's value.
+#[cube(launch)]
+fn kernel_test_sync_plane_two_stores(out: &mut [u32], #[comptime] units: usize) {
+    let mut slots = Shared::<[u32]>::new_slice(comptime!(2 * units));
+    let lane = UNIT_POS_PLANE as usize;
+    let plane = PLANE_DIM as usize;
+    let base = PLANE_POS as usize * 2 * plane;
+    let unit = UNIT_POS as usize;
+    let cube = CUBE_POS;
+    for round in 0..ROUNDS {
+        let value = (round * 2 * units) as u32;
+        slots[base + lane] = value + (base + lane) as u32;
+        slots[base + plane + lane] = value + (base + plane + lane) as u32;
+        sync_plane();
+        let at = ((cube * ROUNDS + round) * units + unit) * 2;
+        out[at] = slots[base + 2 * lane];
+        out[at + 1] = slots[base + 2 * lane + 1];
+        sync_plane();
+    }
+}
+
+const ROUNDS: usize = 64;
+
+/// A plane's units read both of each other's shared writes past [`sync_plane()`], round after
+/// round, across many cubes.
+pub fn test_sync_plane_two_stores<R: Runtime>(client: Client) {
+    if !client.features().plane.contains(Plane::Sync) {
+        // We can't execute the test, skip.
+        return;
+    }
+
+    let cubes = 1024usize;
+    let units = client.properties().hardware.plane_size_max as usize;
+    let count = cubes * ROUNDS * units * 2;
+    let out = client.empty(count * core::mem::size_of::<u32>());
+    let plane_dim = client.empty(core::mem::size_of::<u32>());
+
+    kernel_test_plane_dim::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(units as u32),
+        unsafe { BufferArg::from_raw_parts(plane_dim.clone(), 1) },
+    );
+    kernel_test_sync_plane_two_stores::launch(
+        &client,
+        CubeCount::Static(cubes as u32, 1, 1),
+        CubeDim::new_1d(units as u32),
+        unsafe { BufferArg::from_raw_parts(out.clone(), count) },
+        units,
+    );
+
+    let plane = u32::from_bytes(&client.read_one_unchecked(plane_dim))[0] as usize;
+    let actual = client.read_one_unchecked(out);
+    let actual = u32::from_bytes(&actual);
+    let mut expected = Vec::with_capacity(count);
+    for _cube in 0..cubes {
+        for round in 0..ROUNDS {
+            let value = round * 2 * units;
+            for unit in 0..units {
+                let base = unit / plane * 2 * plane;
+                let read = base + 2 * (unit % plane);
+                expected.push((value + read) as u32);
+                expected.push((value + read + 1) as u32);
+            }
+        }
+    }
+    let wrong = actual.iter().zip(&expected).filter(|(a, e)| a != e).count();
+    assert_eq!(wrong, 0, "{wrong} of {count} reads saw a stale slot");
+}
+
+/// The plane size the device runs at.
+#[cube(launch)]
+fn kernel_test_plane_dim(out: &mut [u32]) {
+    if UNIT_POS == 0 {
+        out[0] = PLANE_DIM;
+    }
+}
+
 #[cube(launch)]
 /// All 64 elements should be 1
 fn kernel_test_sync_cube_shared<F: Float>(out: &mut [F]) {
@@ -683,6 +765,14 @@ macro_rules! testgen_sync_plane {
         fn test_sync_plane_storage() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::synchronization::test_sync_plane_storage::<TestRuntime>(
+                client,
+            );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_sync_plane_two_stores() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::synchronization::test_sync_plane_two_stores::<TestRuntime>(
                 client,
             );
         }
