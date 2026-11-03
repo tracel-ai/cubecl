@@ -59,9 +59,9 @@ impl AsyncStage for GroupMma {
 /// `c = a · bᵀ`, each cube's box walked a stage of `K` at a time.
 #[cube(launch)]
 fn wgmma_walk(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] cubes: Level,
     #[comptime] storage: StageStorage,
@@ -166,7 +166,7 @@ fn tma_matrix(
     (stage_rows, stage_cols): (usize, usize),
     axes: [Axis; 2],
     swizzle: TensorMapSwizzle,
-) -> TileArgLaunch {
+) -> TileTensorLaunch {
     let handle = client.create_from_slice(half::f16::as_bytes(values));
     let tensor = unsafe {
         TensorArg::from_raw_parts(
@@ -183,7 +183,7 @@ fn tma_matrix(
         half::f16::elem_type_native(),
     )
     .with_swizzle(swizzle);
-    TileArgLaunch::tensor_map(
+    TileTensorLaunch::tensor_map(
         map,
         &axes,
         TmaBox {
@@ -247,7 +247,7 @@ fn check_wgmma_walk(m: usize, n: usize, k: usize, depth: usize) {
         launcher.cube_dim(),
         a,
         b,
-        TileArgLaunch::new(c, f32::elem_type_native(), 1, TileSpec::direct(&[M, N])),
+        TileTensorLaunch::new(c, f32::elem_type_native(), 1, TileSpec::direct(&[M, N])),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
         storage,

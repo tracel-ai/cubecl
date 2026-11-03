@@ -85,45 +85,45 @@ pub enum Refusal {
     /// A TMA box lands its rows dense, at most swizzled within one span, and the stage keeps them
     /// as `why` says.
     RowsNoDescriptorLands { why: &'static str },
-    /// [`indexed`](crate::TileArgLaunch::indexed) over a pool of pages on a gathered or
+    /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages on a gathered or
     /// storage-tiled operand: a page is resolved coordinate by coordinate over a plain buffer's
     /// labelled dims.
     PagingOfAStatedLayout,
-    /// [`indexed`](crate::TileArgLaunch::indexed) over a pool of pages naming an axis no dim of the
-    /// operand is labelled with.
+    /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages naming an axis no dim of
+    /// the operand is labelled with.
     PagingOfAnUnlabelledAxis(Axis),
-    /// [`indexed`](crate::TileArgLaunch::indexed) over a pool of pages naming one dim for both the
-    /// pages and their positions.
+    /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages naming one dim for both
+    /// the pages and their positions.
     PagingOfOneDim(Axis),
-    /// [`indexed`](crate::TileArgLaunch::indexed) over a pool of pages with the pages along the
+    /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages with the pages along the
     /// innermost dim, this axis's: a line runs along it, so one line would span pages.
     PagesAlongALine(Axis),
-    /// [`indexed`](crate::TileArgLaunch::indexed) over a pool of pages on a pool of no pages, or of
-    /// pages of no positions: there is no page for a table entry to read.
+    /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages on a pool of no pages, or
+    /// of pages of no positions: there is no page for a table entry to read.
     PagingOfAnEmptyPool,
-    /// [`indexed`](crate::TileArgLaunch::indexed) over a pool of pages on an operand moved by runs
-    /// (a bulk copy, a tensor map): the table resolves one line at a time.
+    /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages on an operand moved by
+    /// runs (a bulk copy, a tensor map): the table resolves one line at a time.
     PagingMovedByRuns,
-    /// [`indexed`](crate::TileArgLaunch::indexed) over a pool of pages whose scales span its pages
-    /// or positions unplaced: they are a pool of their own, placed by the same table before they
-    /// are stated.
+    /// [`indexed`](crate::TileTensorLaunch::indexed) over a pool of pages whose scales span its
+    /// pages or positions unplaced: they are a pool of their own, placed by the same table before
+    /// they are stated.
     ScalesOfAPoolUnpaged,
-    /// [`indexed`](crate::TileArgLaunch::indexed) with a table that is not plain `u32` entries,
+    /// [`indexed`](crate::TileTensorLaunch::indexed) with a table that is not plain `u32` entries,
     /// one a line: an entry is a coordinate.
     IndexTableNotU32,
-    /// [`indexed`](crate::TileArgLaunch::indexed) with a table of `rank` dims keyed by `keys`
+    /// [`indexed`](crate::TileTensorLaunch::indexed) with a table of `rank` dims keyed by `keys`
     /// axes: a table holds one dim per key.
     IndexTableRank { keys: usize, rank: usize },
-    /// [`indexed`](crate::TileArgLaunch::indexed) on a tensor map, or on a gathered, storage-tiled
-    /// or paged operand: an entry moves a window of a plain buffer's labelled dims.
+    /// [`indexed`](crate::TileTensorLaunch::indexed) on a tensor map, or on a gathered,
+    /// storage-tiled or paged operand: an entry moves a window of a plain buffer's labelled dims.
     IndexOfAStatedLayout,
-    /// [`indexed`](crate::TileArgLaunch::indexed) placing an axis the operand does not span.
+    /// [`indexed`](crate::TileTensorLaunch::indexed) placing an axis the operand does not span.
     IndexOfAnAxisNotSpanned(Axis),
-    /// [`indexed`](crate::TileArgLaunch::indexed) placing the innermost axis, this one, which the
-    /// operand reads more than one value a line along: an entry is an element, and a line would
+    /// [`indexed`](crate::TileTensorLaunch::indexed) placing the innermost axis, this one, which
+    /// the operand reads more than one value a line along: an entry is an element, and a line would
     /// straddle two of them.
     IndexAlongALine(Axis),
-    /// [`indexed`](crate::TileArgLaunch::indexed) with no key, or keyed by the axis it places.
+    /// [`indexed`](crate::TileTensorLaunch::indexed) with no key, or keyed by the axis it places.
     IndexKeyedByItsAxis(Axis),
     /// [`Indexing::Run`](crate::Indexing::Run) keyed by this many axes: a run's end is the next
     /// entry along its one key.
@@ -134,13 +134,13 @@ pub enum Refusal {
     /// An indexed operand under a nest that cuts the axis its entry places: a coordinate is the
     /// table's to state, and a run is placed whole before any level cuts it.
     IndexedAxisCut(Axis),
-    /// [`codebook`](crate::TileArgLaunch::codebook) on values not stored as indices
+    /// [`codebook`](crate::TileTensorLaunch::codebook) on values not stored as indices
     /// ([`Field::Index`](crate::Field::Index)).
     CodebookOfValuesNotIndices,
-    /// [`codebook`](crate::TileArgLaunch::codebook) with a table that is not a plain one-dim
+    /// [`codebook`](crate::TileTensorLaunch::codebook) with a table that is not a plain one-dim
     /// buffer read one value a line.
     CodebookTableNotPlain,
-    /// [`codebook`](crate::TileArgLaunch::codebook) with a table of `entries`, fewer than the
+    /// [`codebook`](crate::TileTensorLaunch::codebook) with a table of `entries`, fewer than the
     /// `2^bits` the indices name.
     CodebookTableShort { entries: usize, bits: usize },
     /// [`physical`](crate::layout::StoragePartitioning::physical): the tiles along `axis` do not
@@ -276,84 +276,85 @@ impl Display for Refusal {
             ),
             Refusal::PagingOfAStatedLayout => write!(
                 f,
-                "TileArgLaunch::indexed: a page is resolved coordinate by coordinate over a plain \
-                 buffer's labelled dims, so a gathered mapping or a storage-tiled binding has no \
-                 reading here"
+                "TileTensorLaunch::indexed: a page is resolved coordinate by coordinate over a \
+                 plain buffer's labelled dims, so a gathered mapping or a storage-tiled binding \
+                 has no reading here"
             ),
             Refusal::PagingOfAnUnlabelledAxis(axis) => write!(
                 f,
-                "TileArgLaunch::indexed: {axis:?} labels no dim of this operand, so no dim holds \
-                 its pages"
+                "TileTensorLaunch::indexed: {axis:?} labels no dim of this operand, so no dim \
+                 holds its pages"
             ),
             Refusal::PagingOfOneDim(axis) => write!(
                 f,
-                "TileArgLaunch::indexed: {axis:?} names the pages and their positions both, on one \
-                 dim"
+                "TileTensorLaunch::indexed: {axis:?} names the pages and their positions both, on \
+                 one dim"
             ),
             Refusal::PagesAlongALine(axis) => write!(
                 f,
-                "TileArgLaunch::indexed: the pages along {axis:?} lie on the innermost dim, which \
-                 a line runs along, so a line would span pages"
+                "TileTensorLaunch::indexed: the pages along {axis:?} lie on the innermost dim, \
+                 which a line runs along, so a line would span pages"
             ),
             Refusal::PagingOfAnEmptyPool => write!(
                 f,
-                "TileArgLaunch::indexed: the pool holds no page, or its pages no position, for a \
-                 table entry to read"
+                "TileTensorLaunch::indexed: the pool holds no page, or its pages no position, for \
+                 a table entry to read"
             ),
             Refusal::ScalesOfAPoolUnpaged => write!(
                 f,
-                "TileArgLaunch::indexed: the scales of a pool of pages span its pages or \
+                "TileTensorLaunch::indexed: the scales of a pool of pages span its pages or \
                  positions, so they are a pool of their own, placed by the same table before they \
                  are stated"
             ),
             Refusal::PagingMovedByRuns => write!(
                 f,
-                "TileArgLaunch::indexed: a page table is resolved a line at a time, so a delivery \
-                 that moves runs has no reading through it"
+                "TileTensorLaunch::indexed: a page table is resolved a line at a time, so a \
+                 delivery that moves runs has no reading through it"
             ),
             Refusal::CodebookOfValuesNotIndices => write!(
                 f,
-                "TileArgLaunch::codebook: a codebook is read through values stored as indices \
+                "TileTensorLaunch::codebook: a codebook is read through values stored as indices \
                  (`Field::Index`)"
             ),
             Refusal::CodebookTableNotPlain => write!(
                 f,
-                "TileArgLaunch::codebook: the table is a plain one-dim buffer, one value a line"
+                "TileTensorLaunch::codebook: the table is a plain one-dim buffer, one value a line"
             ),
             Refusal::CodebookTableShort { entries, bits } => write!(
                 f,
-                "TileArgLaunch::codebook: {bits}-bit indices name {} entries; the table holds \
+                "TileTensorLaunch::codebook: {bits}-bit indices name {} entries; the table holds \
                  {entries}",
                 1usize << bits
             ),
             Refusal::IndexTableNotU32 => write!(
                 f,
-                "TileArgLaunch::indexed: a table holds plain u32 entries, one a line, each a \
+                "TileTensorLaunch::indexed: a table holds plain u32 entries, one a line, each a \
                  coordinate"
             ),
             Refusal::IndexTableRank { keys, rank } => write!(
                 f,
-                "TileArgLaunch::indexed: the table has {rank} dims and {keys} keys; it holds one dim \
-                 per key"
+                "TileTensorLaunch::indexed: the table has {rank} dims and {keys} keys; it holds \
+                 one dim per key"
             ),
             Refusal::IndexOfAStatedLayout => write!(
                 f,
-                "TileArgLaunch::indexed: an entry moves the window of a plain buffer over its \
+                "TileTensorLaunch::indexed: an entry moves the window of a plain buffer over its \
                  labelled dims, which a tensor map, a gathered, storage-tiled or paged operand is not"
             ),
             Refusal::IndexOfAnAxisNotSpanned(axis) => write!(
                 f,
-                "TileArgLaunch::indexed: the entry places {axis:?}, which the operand does not span"
+                "TileTensorLaunch::indexed: the entry places {axis:?}, which the operand does not \
+                 span"
             ),
             Refusal::IndexAlongALine(axis) => write!(
                 f,
-                "TileArgLaunch::indexed: the entry places {axis:?}, the innermost axis, which the \
-                 operand reads more than one value a line along; bind it one value a line"
+                "TileTensorLaunch::indexed: the entry places {axis:?}, the innermost axis, which \
+                 the operand reads more than one value a line along; bind it one value a line"
             ),
             Refusal::IndexKeyedByItsAxis(axis) => write!(
                 f,
-                "TileArgLaunch::indexed: the table is keyed by no axis, or by {axis:?}, the axis its \
-                 entry places"
+                "TileTensorLaunch::indexed: the table is keyed by no axis, or by {axis:?}, the \
+                 axis its entry places"
             ),
             Refusal::RunKeyedByMany(keys) => write!(
                 f,

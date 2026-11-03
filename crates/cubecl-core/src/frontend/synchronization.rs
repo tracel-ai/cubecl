@@ -77,9 +77,12 @@ pub mod sync_plane_storage {
 ///
 /// **Only where the runtime says so.** WebGPU's memory model promises nothing across workgroups,
 /// so on a backend whose
-/// [`device_memory_scope`](cubecl_ir::Features::device_memory_scope) is `false` this is a cube
+/// [`device_memory_scope`] is `false` this is a cube
 /// barrier and no more, and a cube reading another's writes may read them stale. Ask before
 /// launching a kernel that depends on the promise.
+///
+/// [`sync_cube`]: fn@sync_cube
+/// [`device_memory_scope`]: cubecl_ir::features::Features::device_memory_scope
 pub fn sync_storage() {}
 
 pub mod sync_storage {
@@ -113,6 +116,9 @@ pub mod sync_async_proxy_shared {
 /// [`sync_cube`] plus a plain load.
 ///
 /// Use [`workgroup_uniform_load_atomic`] for `Atomic<E>`.
+///
+/// [`sync_cube`]: fn@sync_cube
+/// [`workgroup_uniform_load_atomic`]: fn@workgroup_uniform_load_atomic
 #[allow(unused_variables)]
 pub fn workgroup_uniform_load<E: CubePrimitive>(reference: &E) -> E {
     unexpanded!()
@@ -140,6 +146,8 @@ pub mod workgroup_uniform_load {
 /// Atomic counterpart of [`workgroup_uniform_load`]: barrier + atomic load,
 /// returning the underlying numeric (WGSL's atomic `workgroupUniformLoad`
 /// overload).
+///
+/// [`workgroup_uniform_load`]: fn@workgroup_uniform_load
 #[allow(unused_variables)]
 pub fn workgroup_uniform_load_atomic<E: CubePrimitive<Scalar: Numeric>>(
     reference: &Atomic<E>,

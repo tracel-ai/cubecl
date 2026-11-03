@@ -7,8 +7,8 @@ use cubecl::zspace::shape;
 use cubecl::{bytes::Bytes, prelude::*, quant::scheme::QuantValue, std::tensor::TensorHandle};
 use cubecl_common::e2m1;
 use cubecl_tile::{
-    Axis, Launcher, Level, Levels, Partitioning, Projection, Space, StageStorage, TileArg,
-    TileArgLaunch, TileSpec,
+    Axis, Launcher, Level, Levels, Partitioning, Projection, Space, StageStorage, TileSpec,
+    TileTensor, TileTensorLaunch,
     launch::Grid,
     layout::{StorageLevels, StoragePartitioning, VectorTile},
 };
@@ -24,9 +24,9 @@ const KI: Axis = Axis(2);
 /// wide.
 #[cube(launch)]
 fn tiled_scaled_copy(
-    values: &TileArg<'_>,
-    scales: &TileArg<'_>,
-    output: &TileArg<'_>,
+    values: &TileTensor<'_>,
+    scales: &TileTensor<'_>,
+    output: &TileTensor<'_>,
     space: Partitioning,
 ) {
     let values = values.tile(&space);
@@ -39,9 +39,9 @@ fn tiled_scaled_copy(
 /// staged packed over `level`'s region, decoded out of the stage.
 #[cube(launch)]
 fn tiled_packed_stage(
-    values: &TileArg<'_>,
-    scales: &TileArg<'_>,
-    output: &TileArg<'_>,
+    values: &TileTensor<'_>,
+    scales: &TileTensor<'_>,
+    output: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
@@ -151,19 +151,19 @@ fn check_tiled(storage: StoragePartitioning, cols: usize, words_per_load: usize,
             &client,
             count,
             dim,
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 w_tensor.binding().into_tensor_arg(),
                 u32::elem_type_native(),
                 words_per_load,
                 w_spec,
             ),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 s_tensor.binding().into_tensor_arg(),
                 dtype,
                 1,
                 TileSpec::direct(&[N, KB]),
             ),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 out.clone().binding().into_tensor_arg(),
                 dtype,
                 4,
@@ -189,19 +189,19 @@ fn check_tiled(storage: StoragePartitioning, cols: usize, words_per_load: usize,
                 &client,
                 count,
                 dim,
-                TileArgLaunch::new(
+                TileTensorLaunch::new(
                     w_tensor.binding().into_tensor_arg(),
                     u32::elem_type_native(),
                     words_per_load,
                     w_spec,
                 ),
-                TileArgLaunch::new(
+                TileTensorLaunch::new(
                     s_tensor.binding().into_tensor_arg(),
                     dtype,
                     1,
                     TileSpec::direct(&[N, KB]),
                 ),
-                TileArgLaunch::new(
+                TileTensorLaunch::new(
                     out.clone().binding().into_tensor_arg(),
                     dtype,
                     4,

@@ -32,10 +32,10 @@ const TILE: usize = 16;
 /// drains once.
 #[cube(launch)]
 fn tile_order_one_row_product<E: Numeric>(
-    x: &TileArg<'_>,
-    w: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    x: &TileTensor<'_>,
+    w: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -139,25 +139,25 @@ fn tile_order_reads_two_words_by_two_columns_a_load() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             x_tensor.binding().into_tensor_arg(),
             dtype,
             BLOCK,
             TileSpec::direct(&[M, KB, KI]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             w_tensor.binding().into_tensor_arg(),
             u32::elem_type_native(),
             load_words,
             w_spec,
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_tensor.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
             s_spec,
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,

@@ -1,4 +1,3 @@
-use core::f32;
 use core::{
     cmp::Ordering,
     ops::{Div, DivAssign, Mul, MulAssign, Rem, RemAssign},
