@@ -55,19 +55,20 @@ fn update_kernel(
 #[cube(launch)]
 fn kept_kernel(
     lhs: &TileArg<'_>,
+    delta: &TileArg<'_>,
     state: &TileArg<'_>,
     kept: &TileArg<'_>,
     out: &TileArg<'_>,
     space: Partitioning,
 ) {
-    let (lhs, state, kept) = (lhs.tile(&space), state.tile(&space), kept.tile(&space));
-    let mut out = out.tile(&space);
+    let (lhs, delta, state) = (lhs.tile(&space), delta.tile(&space), state.tile(&space));
+    let (kept, mut out) = (kept.tile(&space), out.tile(&space));
     let block = comptime!(Instruction::Registers { config: BLOCK });
-    let mut held = state.accumulator::<f32>(&lhs, &state, block, Semiring::SUM_PROD);
+    let mut held = state.accumulator::<f32>(&lhs, &delta, block, Semiring::SUM_PROD);
     held.copy_from(&state);
     let mut slice = kept.within(KEPT, 1usize, 2usize);
     slice.copy_from(&held);
-    let mut back = state.accumulator::<f32>(&lhs, &state, block, Semiring::SUM_PROD);
+    let mut back = state.accumulator::<f32>(&lhs, &delta, block, Semiring::SUM_PROD);
     back.copy_from(&slice);
     out.copy_from(&back);
 }
@@ -211,6 +212,7 @@ fn a_block_stores_into_and_seeds_from_a_window_with_an_axis_it_lacks() {
     for width in widths(&client) {
         let launcher = uncut(&client, &space, &space);
         let lhs = zeros(&client, space.subspace(&[P, K]));
+        let delta = zeros(&client, space.subspace(&[P, N]));
         let state = arange(&client, space.subspace(&[K, N]));
         let kept = zeros(&client, space.subspace(&[KEPT, K, N]));
         let out = zeros(&client, space.subspace(&[K, N]));
@@ -219,6 +221,7 @@ fn a_block_stores_into_and_seeds_from_a_window_with_an_axis_it_lacks() {
             launcher.cube_count(),
             launcher.cube_dim(),
             lhs.arg(&launcher, width),
+            delta.arg(&launcher, width),
             state.arg(&launcher, width),
             kept.arg(&launcher, width),
             out.arg(&launcher, width),
