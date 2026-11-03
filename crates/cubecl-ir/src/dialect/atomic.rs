@@ -4,11 +4,16 @@ use crate::{
     CanMaterialize, HasSideEffects,
     dialect::{
         ptr_value_ty,
-        synchronization::{SyncScope, SyncScopeAttr},
+        synchronization::{SyncOp, SyncScope, SyncScopeAttr},
     },
     prelude::*,
 };
-use pliron::{context::Ptr, dict_key, operation::Operation};
+use pliron::{
+    context::Ptr,
+    dict_key,
+    graph::walkers::{IRNode, WALKCONFIG_PREORDER_FORWARD, uninterruptible::immutable::walk_op},
+    operation::Operation,
+};
 
 dict_key!(
     /// Key of the scope an atomic synchronizes at, when it is not the device's.
@@ -27,6 +32,33 @@ pub fn atomic_scope(ctx: &Context, op: Ptr<Operation>) -> SyncScope {
         .get::<SyncScopeAttr>(&ATTR_KEY_ATOMIC_SCOPE)
         .map(|attr| attr.0)
         .unwrap_or(SyncScope::Device)
+}
+
+/// Whether any operation under `root` synchronizes at [`SyncScope::System`], an atomic or a sync.
+///
+/// Such a kernel hands data to or from kernels on other devices within its launch, so any of its
+/// buffers may change under it while it runs: no buffer is promised to stay unwritten or unaliased,
+/// and a load must not come from a cache that a system acquire does not invalidate.
+pub fn synchronizes_at_system_scope(ctx: &Context, root: Ptr<Operation>) -> bool {
+    let mut found = false;
+    walk_op(
+        ctx,
+        &mut found,
+        &WALKCONFIG_PREORDER_FORWARD,
+        root,
+        |ctx, found, node| {
+            let IRNode::Operation(op) = node else {
+                return;
+            };
+            if *found {
+                return;
+            }
+            let sync = Operation::get_op::<SyncOp>(op, ctx)
+                .is_some_and(|sync| sync.scope(ctx).0 == SyncScope::System);
+            *found = sync || atomic_scope(ctx, op) == SyncScope::System;
+        },
+    );
+    found
 }
 
 /// Make the atomic `op` synchronize at `scope` (see [`atomic_scope`]).

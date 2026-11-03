@@ -27,7 +27,7 @@ use cubecl_common::{
     profile::ProfileDuration,
 };
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::collections::HashSet;
+use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::RwLock;
@@ -144,6 +144,9 @@ pub struct ServerUtilities {
     pub check_mode: BoundsCheckMode,
     /// A set containing the ids for which the inter-device communication has already been initialized.
     pub initialized_comms: RwLock<HashSet<CommunicationId>>,
+    /// Whether kernels on this device can address the memory of another device of the runtime,
+    /// asked of the device once per pair.
+    pub peer_access: RwLock<HashMap<DeviceId, bool>>,
     /// The graph captures under way on the device, read-only: the streams update them through
     /// the [`DeviceCaptures`] [`init`](Self::init) returns alongside.
     pub captures: CaptureStatus,
@@ -224,6 +227,7 @@ impl ServerUtilities {
             device_transport: None,
             check_mode: CubeClRuntimeConfig::get().compilation.check_mode,
             initialized_comms: RwLock::new(HashSet::default()),
+            peer_access: RwLock::new(HashMap::default()),
             captures: captures.status(),
         };
 
@@ -1239,6 +1243,17 @@ pub trait ServerCommunication {
     fn peer_address(&mut self, binding: BufferBinding) -> Result<u64, ServerError> {
         Err(ServerError::no_device_transport(Collective::PeerAccess))
     }
+
+    /// A kernel on another device finished enqueuing the writes it makes to
+    /// `written`, buffers of this device: the failure that stopped it, or
+    /// `None` when it was enqueued.
+    ///
+    /// A failure taints them as a failed launch here would, so a read fails
+    /// on the cause, and an enqueued write releases a failure they carried.
+    /// The default does nothing: a runtime without peer access never shares
+    /// a buffer.
+    #[allow(unused_variables)]
+    fn peer_wrote(&mut self, written: Vec<BufferBinding>, error: Option<ServerError>) {}
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -1663,6 +1678,41 @@ impl KernelArguments {
             KernelResource::Peer(peer) => Some(peer),
             _ => None,
         })
+    }
+
+    /// The memory of other devices this launch reads, by the same fallback
+    /// chain as [`buffers_read`](Self::buffers_read).
+    pub fn peers_read<'a>(
+        &'a self,
+        io: Option<&'a [BufferIOAttr]>,
+    ) -> impl Iterator<Item = &'a PeerBinding> {
+        self.peers_where(io, BufferIOAttr::is_readable)
+    }
+
+    /// The memory of other devices this launch writes, by the same fallback
+    /// chain as [`buffers_written`](Self::buffers_written).
+    pub fn peers_written<'a>(
+        &'a self,
+        io: Option<&'a [BufferIOAttr]>,
+    ) -> impl Iterator<Item = &'a PeerBinding> {
+        self.peers_where(io, BufferIOAttr::is_writable)
+    }
+
+    fn peers_where<'a>(
+        &'a self,
+        io: Option<&'a [BufferIOAttr]>,
+        mode: fn(&BufferIOAttr) -> bool,
+    ) -> impl Iterator<Item = &'a PeerBinding> {
+        self.resources
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, resource)| {
+                let KernelResource::Peer(peer) = resource else {
+                    return None;
+                };
+                let used = self.io_attr(io, index).as_ref().map(mode).unwrap_or(true);
+                used.then_some(peer)
+            })
     }
 
     /// The memory this launch was given.

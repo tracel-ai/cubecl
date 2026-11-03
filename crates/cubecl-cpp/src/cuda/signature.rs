@@ -1,5 +1,6 @@
 use cubecl_core::ir::{
     attributes::{ATTR_TENSOR_MAP_BINDING, EntrypointInterface, FuncInterface},
+    dialect::atomic::synchronizes_at_system_scope,
     interfaces::TypedExt,
     settings::Dim3,
 };
@@ -13,6 +14,7 @@ use pliron::{
     },
     context::Context,
     dict_key,
+    op::Op,
     r#type::Typed,
     value::Value,
 };
@@ -63,16 +65,21 @@ cuda_op!(FuncOp, |op, ctx| {
 
     let entry_block = op.get_entry_block(ctx);
 
+    // Another device may write any buffer of a kernel that synchronizes with it, so none is
+    // promised unaliased, which would let NVCC load a read-only one through the non-coherent cache.
+    let restrict = !synchronizes_at_system_scope(ctx, op.get_operation());
     let block = entry_block.deref(ctx);
     let params = block.arguments().enumerate();
-    let params = params.map(|(i, arg)| gen_param(ctx, op, i, arg)).join(", ");
+    let params = params
+        .map(|(i, arg)| gen_param(ctx, op, i, arg, restrict))
+        .join(", ");
 
     let body = block_to_cpp(ctx, entry_block);
 
     format!("{attributes} {func_name}({params}) {{\n{body}\n}}\n")
 });
 
-fn gen_param(ctx: &Context, func: &FuncOp, i: usize, arg: Value) -> String {
+fn gen_param(ctx: &Context, func: &FuncOp, i: usize, arg: Value, restrict: bool) -> String {
     let mut segments = vec![];
 
     if func.has_arg_attr(ctx, i, &ATTR_GRID_CONSTANT) {
@@ -83,7 +90,7 @@ fn gen_param(ctx: &Context, func: &FuncOp, i: usize, arg: Value) -> String {
     }
     segments.push(arg.get_type(ctx).to_cpp(ctx));
     segments.push("const".into());
-    if arg.is_ptr(ctx) || arg.is_uniform_ptr(ctx) {
+    if restrict && (arg.is_ptr(ctx) || arg.is_uniform_ptr(ctx)) {
         segments.push("__restrict__".into());
     }
     segments.push(arg.name(ctx).to_string());

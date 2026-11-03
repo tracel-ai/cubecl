@@ -2,7 +2,8 @@
 
 use crate::shared::offline_kernels::{
     Wait, bf16_math_kernel, keep_largest_kernel, nested_calls_with_source_kernel,
-    plane_moves_kernel, relay_kernel, scale_kernel, tally_kernel, tile_product_kernel,
+    peer_tally_kernel, plane_moves_kernel, relay_kernel, scale_kernel, tally_kernel,
+    tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{
@@ -198,6 +199,26 @@ fn a_dropped_atomic_add_keeps_the_promises() {
         "the input:\n{params:#?}"
     );
     assert!(params[1].contains("noalias"), "the output:\n{params:#?}");
+}
+
+/// A kernel that synchronizes at system scope may see any buffer written by another device while
+/// it runs, so none is promised unaliased or unwritten, and none of its atomics is promised
+/// device-local memory, which would make a float add one that is not atomic across the link.
+#[test]
+fn a_kernel_synchronizing_with_peers_promises_nothing() {
+    let params = entry_params(peer_tally_kernel(), "gfx1151");
+    for (binding, name) in [(0, "input"), (1, "output"), (2, "tally")] {
+        assert!(
+            !params[binding].contains("noalias") && !params[binding].contains("readonly"),
+            "`{name}` may be written by a peer:\n{params:#?}"
+        );
+    }
+    let module = module_of(peer_tally_kernel(), &GfxArch::parse("gfx1151"));
+    assert!(
+        !module.ir.contains("amdgpu.no.remote.memory"),
+        "an atomic of a peer kernel may touch remote memory:\n{}",
+        module.ir
+    );
 }
 
 #[test]

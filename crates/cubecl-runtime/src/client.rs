@@ -306,27 +306,73 @@ impl Client {
         TypeId::of::<S>() == self.service_id().service
     }
 
+    /// Whether `resource` is a buffer of another device of this runtime that
+    /// its owner shared with its peers, which a kernel here binds as a peer.
+    fn is_peer_buffer(&self, resource: &KernelResource) -> bool {
+        matches!(resource, KernelResource::Buffer(binding) if self.is_peer_buffer_binding(binding))
+    }
+
+    /// `resource` as a kernel here binds it: a buffer of another device that
+    /// its owner shared becomes a peer binding. Anything else is left for the
+    /// locality check to judge.
+    ///
+    /// # Panics
+    ///
+    /// On a peer binding of this device or of another runtime, on shared
+    /// memory that is not the memory the handle names, and on memory of a
+    /// device this one cannot address: each is a bug in the caller, and the
+    /// alternative to stopping here is a kernel dereferencing an address that
+    /// means nothing on this device.
+    #[track_caller]
+    fn bind_peer(&self, resource: KernelResource) -> KernelResource {
+        let own = self.service_id();
+        let peer = match resource {
+            KernelResource::Buffer(binding) if self.is_peer_buffer_binding(&binding) => {
+                PeerBinding::new(binding)
+                    .expect("the shared memory a handle carries is the memory it names")
+            }
+            KernelResource::Peer(peer) => {
+                let service = peer.binding().service;
+                assert!(
+                    service.service == own.service && service != own,
+                    "a peer binding of {service} was launched on {own}"
+                );
+                peer
+            }
+            resource => return resource,
+        };
+        let device = peer.binding().service.device;
+        assert!(
+            self.reaches_peer(device),
+            "{own} cannot address the memory of {device:?}: check `can_access_peer` before \
+             launching with a buffer of another device"
+        );
+        KernelResource::Peer(peer)
+    }
+
+    /// [`is_peer_buffer`](Self::is_peer_buffer) for a binding.
+    fn is_peer_buffer_binding(&self, binding: &BufferBinding) -> bool {
+        let own = self.service_id();
+        binding.service != own && binding.service.service == own.service && binding.peer.is_some()
+    }
+
+    /// Whether kernels on this device can address the memory of `device`,
+    /// another of this runtime, asked of the device once per pair.
+    fn reaches_peer(&self, device: DeviceId) -> bool {
+        if let Some(reaches) = self.utilities.peer_access.read().get(&device) {
+            return *reaches;
+        }
+        let reaches = self
+            .device
+            .submit_blocking(move |server| server.can_access_peer(device))
+            .unwrap_or(false);
+        self.utilities.peer_access.write().insert(device, reaches);
+        reaches
+    }
+
     /// Whether `binding` addresses this client's device. Memory coordinates
     /// mean nothing on another device, so a foreign binding is refused here,
     /// before anything is submitted, rather than read there.
-    /// Turn a buffer of another device of this runtime, shared with its
-    /// peers, into the peer binding a kernel here binds it through. Anything
-    /// else is left for the locality check to judge.
-    fn bind_peer(&self, resource: &mut KernelResource) {
-        let KernelResource::Buffer(binding) = resource else {
-            return;
-        };
-        let own = self.service_id();
-        if binding.service == own
-            || binding.service.service != own.service
-            || binding.peer.is_none()
-        {
-            return;
-        }
-        let peer = PeerBinding::new(binding.clone()).expect("checked that it was shared");
-        *resource = KernelResource::Peer(peer);
-    }
-
     fn local(&self, binding: &BufferBinding) -> Result<(), ServerError> {
         let client = self.service_id();
         if binding.service == client {
@@ -958,6 +1004,10 @@ impl Client {
     /// Only devices of the same runtime reach each other's memory, and only
     /// where the hardware and the driver allow it: a device answers `false`
     /// for itself and for a runtime with no peer access at all.
+    ///
+    /// Reaching it means a kernel here can load from, store to, and run
+    /// system-scope atomics on that memory, which is what kernels on two
+    /// devices hand data off through.
     pub fn can_access_peer(&self, peer: &Self) -> bool {
         let peer_device = peer.device.device_id();
         if peer.service_id().service != self.service_id().service
@@ -965,9 +1015,7 @@ impl Client {
         {
             return false;
         }
-        self.device
-            .submit_blocking(move |server| server.can_access_peer(peer_device))
-            .unwrap_or(false)
+        self.reaches_peer(peer_device)
     }
 
     /// `handle`, shared with the other devices of this runtime: kernels
@@ -978,21 +1026,31 @@ impl Client {
     /// The memory stays in place for as long as the returned handle or any
     /// clone of it lives, so share a buffer that is used many times, such as
     /// one a group of kernels exchanges data through, rather than every
-    /// temporary.
+    /// temporary. Use the returned handle on this device too: work through
+    /// it is what tells peers the memory failed or was written again.
     ///
     /// Nothing orders a peer's accesses against this device's work. A kernel
     /// on another device reads what the memory holds when it runs, so
     /// [`sync`](Self::sync) this client first, or hand off inside the kernels
     /// through system-scope atomics. The same holds the other way: sync the
-    /// peer before this device reads what the peer's kernel wrote. A failed
-    /// peer kernel does not taint the memory it was writing here.
+    /// peer before this device reads what the peer's kernel wrote.
+    ///
+    /// Failures cross over. A peer kernel reading the memory after work here
+    /// that should have written it failed does not run, and its outputs carry
+    /// that failure. A peer kernel that fails to write it taints it here, so
+    /// a read fails on the cause once the peer was synced.
+    ///
+    /// An atomic a kernel runs on another device's memory synchronizes at
+    /// `SyncScope::System`: a device-scope atomic may compile to an instruction
+    /// that is not atomic across the link between the devices.
     ///
     /// # Errors
     ///
     /// [`ServerError::NoDeviceTransport`] on a runtime without peer access,
     /// [`ServerError::ForeignHandle`] for a handle of another client, and the
     /// failure the buffer carries.
-    pub fn share_with_peers(&self, mut handle: Handle) -> Result<Handle, ServerError> {
+    pub fn share_with_peers(&self, handle: &Handle) -> Result<Handle, ServerError> {
+        let mut handle = handle.clone();
         let binding = handle.clone().binding();
         self.local(&binding)?;
         // The address of the allocation's first byte: a peer binding adds the
@@ -1008,7 +1066,7 @@ impl Client {
             .device
             .submit_blocking(move |server| server.peer_address(whole))
             .closed_as_error()?;
-        handle.peer = Some(PeerMemory::new(pin, address));
+        handle.peer = Some(PeerMemory::new(pin, address, self.device.clone()));
         Ok(handle)
     }
 
@@ -1364,21 +1422,42 @@ impl Client {
         // A kernel binding memory shared with peers may wait on a kernel of another device, or be
         // the one such a kernel waits on, so it reaches its device now rather than when the
         // queue would next be flushed: a host blocked on the other device would never flush it.
-        let _reach_device_now = bindings
-            .resources
-            .iter()
-            .any(|resource| match resource {
-                KernelResource::Buffer(binding) => binding.peer.is_some(),
-                KernelResource::Peer(_) => true,
-                KernelResource::TensorMap(_) => false,
-            })
-            .then(|| FlushOnDrop(&self.device));
-        for resource in &mut bindings.resources {
-            self.bind_peer(resource);
+        if bindings.resources.iter().any(|resource| {
+            self.is_peer_buffer(resource) || matches!(resource, KernelResource::Peer(_))
+        }) {
+            let resources = core::mem::take(&mut bindings.resources);
+            bindings.resources = resources
+                .into_iter()
+                .map(|resource| self.bind_peer(resource))
+                .collect();
+        }
+        for resource in &bindings.resources {
             if let Some(binding) = resource.local_binding() {
                 self.expect_local(binding);
             }
         }
+        // A kernel binding another device's memory, or writing memory this
+        // device shared, may wait on a kernel of another device or be the one
+        // such a kernel waits on, so it reaches its device now rather than
+        // when the queue would next be flushed: a host blocked on the other
+        // device would never flush it. A kernel only reading shared memory,
+        // weights above all, hands nothing off and keeps the batching.
+        let _reach_device_now = bindings
+            .resources
+            .iter()
+            .enumerate()
+            .any(|(index, resource)| match resource {
+                KernelResource::Peer(_) => true,
+                KernelResource::Buffer(binding) => {
+                    binding.peer.is_some()
+                        && bindings
+                            .declared_io
+                            .get(index)
+                            .is_none_or(|io| io.is_writable())
+                }
+                KernelResource::TensorMap(_) => false,
+            })
+            .then(|| FlushOnDrop(&self.device));
 
         crate::launched::note(|| kernel.id());
 

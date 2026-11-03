@@ -127,12 +127,24 @@ impl<F: Fence> PendingDropQueue<F> {
 
     /// Keep `binding`, memory of another device, allocated and in place
     /// until the device finished the work queued so far, the kernel that
-    /// binds it included. Its size counts toward the flushing policy, since
-    /// holding it keeps the other device from reusing the memory.
+    /// binds it included.
+    ///
+    /// It counts toward the policy as an entry and not by its size: holding it
+    /// costs this device nothing, and a size-driven flush after each large
+    /// peer buffer would make every such launch wait on the one before. A
+    /// sync drains whatever peer memory is still held, so it does not stay
+    /// pinned on its owner for as long as this stream idles.
     pub(crate) fn hold_peer(&mut self, binding: BufferBinding) {
-        self.policy_state
-            .register(usize::try_from(binding.size_in_used()).unwrap_or(usize::MAX));
+        self.policy_state.register(0);
         self.staged.push(Held::Peer(binding));
+    }
+
+    /// Whether the queue holds memory of another device.
+    pub(crate) fn holds_peers(&self) -> bool {
+        self.staged
+            .iter()
+            .chain(&self.pending)
+            .any(|held| matches!(held, Held::Peer(_)))
     }
 
     /// Returns `true` when the staged batch is large enough to justify a

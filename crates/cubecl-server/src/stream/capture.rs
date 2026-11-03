@@ -52,6 +52,11 @@ pub struct StreamCapture {
     /// plain heap. A window that never seals drops them here: its copies
     /// never ran and now never will.
     retained_host: Vec<Bytes>,
+    /// The memory of other devices the recorded launches bind, held while the
+    /// window is open and handed to the graph it seals into. A replay
+    /// dereferences the same addresses, so the memory must stay in place on
+    /// its owner for as long as the graph lives.
+    retained_peers: Vec<BufferBinding>,
     /// The failure that doomed the window, if one did — work inside it failed
     /// or was skipped, so the recording is missing an operation. Sealing it
     /// would hand back a graph silently missing that work, and the replay
@@ -70,6 +75,7 @@ impl StreamCapture {
             touched: Vec::new(),
             primed: Vec::new(),
             retained_host: Vec::new(),
+            retained_peers: Vec::new(),
             failed: None,
         }
     }
@@ -187,6 +193,24 @@ impl StreamCapture {
         core::mem::take(&mut self.retained_host)
     }
 
+    /// Hold `binding`, memory of another device a recorded launch binds, for
+    /// as long as the graph the window seals into lives.
+    ///
+    /// Only meaningful while recording, as [`retain_host`](Self::retain_host).
+    pub fn retain_peer(&mut self, binding: BufferBinding) {
+        debug_assert!(
+            self.state.is_recording(),
+            "peer memory is the window's to retain only while it records"
+        );
+        self.retained_peers.push(binding);
+    }
+
+    /// The memory of other devices the recorded launches bind, taken as the
+    /// window closes, as [`take_retained_host`](Self::take_retained_host).
+    pub fn take_retained_peers(&mut self) -> Vec<BufferBinding> {
+        core::mem::take(&mut self.retained_peers)
+    }
+
     /// The failure that doomed this window, taken as it closes. `Some` means
     /// the recording is missing at least one operation and must not seal.
     pub fn take_failure(&mut self) -> Option<ServerError> {
@@ -279,6 +303,7 @@ impl StreamCapture {
         self.touched.clear();
         self.primed.clear();
         self.retained_host.clear();
+        self.retained_peers.clear();
         self.failed = None;
     }
 }

@@ -2,7 +2,7 @@
 
 use crate as cubecl;
 use crate::prelude::*;
-use alloc::{vec, vec::Vec};
+use alloc::{string::ToString, vec, vec::Vec};
 use cubecl_common::device::Device;
 use cubecl_environment::future::block_on;
 use cubecl_ir::dialect::synchronization::SyncScope;
@@ -59,7 +59,7 @@ pub fn test_a_kernel_reads_a_peer_buffer<R: Runtime>() {
         return;
     };
     let input = remote.create_from_slice(f32::as_bytes(&values(LEN)));
-    let input = remote.share_with_peers(input).unwrap();
+    let input = remote.share_with_peers(&input).unwrap();
     let output = local.create_from_slice(f32::as_bytes(&vec![0.0; LEN]));
     // Nothing orders the peer's upload before the kernel reading it.
     block_on(remote.sync()).unwrap();
@@ -77,7 +77,7 @@ pub fn test_a_kernel_writes_a_peer_buffer<R: Runtime>() {
     };
     let input = local.create_from_slice(f32::as_bytes(&values(LEN)));
     let output = remote.create_from_slice(f32::as_bytes(&vec![0.0; LEN]));
-    let output = remote.share_with_peers(output).unwrap();
+    let output = remote.share_with_peers(&output).unwrap();
     block_on(remote.sync()).unwrap();
 
     scale(&local, input, output.clone(), LEN);
@@ -95,7 +95,7 @@ pub fn test_a_kernel_reads_a_slice_of_a_peer_buffer<R: Runtime>() {
     };
     const SKIP: usize = 16;
     let input = remote.create_from_slice(f32::as_bytes(&values(LEN)));
-    let input = remote.share_with_peers(input).unwrap();
+    let input = remote.share_with_peers(&input).unwrap();
     let slice = input.offset_start((SKIP * size_of::<f32>()) as u64);
     let output = local.create_from_slice(f32::as_bytes(&[0.0; LEN - SKIP]));
     block_on(remote.sync()).unwrap();
@@ -116,7 +116,7 @@ pub fn test_a_peer_buffer_outlives_its_handles_while_bound<R: Runtime>() {
     let output = local.create_from_slice(f32::as_bytes(&vec![0.0; LEN]));
     {
         let input = remote.create_from_slice(f32::as_bytes(&values(LEN)));
-        let input = remote.share_with_peers(input).unwrap();
+        let input = remote.share_with_peers(&input).unwrap();
         block_on(remote.sync()).unwrap();
         scale(&local, input, output.clone(), LEN);
     }
@@ -259,9 +259,9 @@ pub fn test_a_kernel_pushes_data_to_a_waiting_peer_kernel<R: Runtime>() {
     };
     for token in [7u32, 11, 13] {
         let data = consumer
-            .share_with_peers(zeros(&consumer, HANDOFF_LEN))
+            .share_with_peers(&zeros(&consumer, HANDOFF_LEN))
             .unwrap();
-        let flag = consumer.share_with_peers(zeros(&consumer, 1)).unwrap();
+        let flag = consumer.share_with_peers(&zeros(&consumer, 1)).unwrap();
         block_on(consumer.sync()).unwrap();
 
         let (out, seen) = launch_consumer(&consumer, data.clone(), flag.clone());
@@ -280,9 +280,9 @@ pub fn test_a_kernel_pulls_data_a_peer_kernel_published<R: Runtime>() {
     };
     for token in [7u32, 11, 13] {
         let data = producer
-            .share_with_peers(zeros(&producer, HANDOFF_LEN))
+            .share_with_peers(&zeros(&producer, HANDOFF_LEN))
             .unwrap();
-        let flag = consumer.share_with_peers(zeros(&consumer, 1)).unwrap();
+        let flag = consumer.share_with_peers(&zeros(&consumer, 1)).unwrap();
         block_on(producer.sync()).unwrap();
         block_on(consumer.sync()).unwrap();
 
@@ -292,6 +292,101 @@ pub fn test_a_kernel_pulls_data_a_peer_kernel_published<R: Runtime>() {
         assert_handed_off(&consumer, out, seen, token);
         block_on(producer.sync()).unwrap();
     }
+}
+
+fn launch_rejected_into(client: &Client, out: Handle, reason: &str) {
+    unsafe {
+        super::stream_errors::rejected::launch_unchecked(
+            client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(1),
+            BufferArg::from_raw_parts(out, 1),
+            reason.into(),
+        )
+    };
+}
+
+fn launch_copy(client: &Client, input: Handle, out: Handle, len: usize) {
+    super::stream_errors::copy::launch(
+        client,
+        CubeCount::new_single(),
+        CubeDim::new_1d(len as u32),
+        unsafe { BufferArg::from_raw_parts(input, len) },
+        unsafe { BufferArg::from_raw_parts(out, len) },
+    );
+}
+
+/// Shared memory carried over to a handle of other memory does not bind: the
+/// address would point a kernel at bytes the handle does not name.
+pub fn test_shared_memory_of_another_buffer_is_refused<R: Runtime>() {
+    let Some((local, remote)) = peers::<R>() else {
+        return;
+    };
+    let shared = remote.share_with_peers(&zeros(&remote, 1)).unwrap();
+    let mut forged = zeros(&remote, 1);
+    forged.peer = shared.peer.clone();
+    let out = zeros(&local, 1);
+    let launch = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        launch_copy(&local, forged, out, 1)
+    }));
+    assert!(
+        launch.is_err(),
+        "a handle carrying another buffer's address must not bind"
+    );
+}
+
+/// A peer kernel that never ran leaves the memory it was going to write on its
+/// owner carrying the failure, so a read there names the cause.
+pub fn test_a_failed_peer_kernel_taints_the_memory_it_was_writing<R: Runtime>() {
+    let Some((local, remote)) = peers::<R>() else {
+        return;
+    };
+    let output = remote.share_with_peers(&zeros(&remote, 1)).unwrap();
+    block_on(remote.sync()).unwrap();
+
+    launch_rejected_into(&local, output.clone(), "peer writer");
+    block_on(local.sync()).unwrap();
+
+    let err = remote
+        .read_one(output)
+        .expect_err("the peer kernel never wrote the buffer")
+        .to_string();
+    assert!(
+        err.contains("peer writer"),
+        "the read must name the peer's failure, got: {err}"
+    );
+}
+
+/// A peer kernel reading memory whose owner failed to write it does not run,
+/// and its outputs carry the owner's failure. Writing the memory again on its
+/// owner lets the peer read it.
+pub fn test_a_peer_kernel_does_not_run_on_a_failed_owner_write<R: Runtime>() {
+    let Some((local, remote)) = peers::<R>() else {
+        return;
+    };
+    let input = remote.share_with_peers(&zeros(&remote, 1)).unwrap();
+    launch_rejected_into(&remote, input.clone(), "owner writer");
+    block_on(remote.sync()).unwrap();
+
+    let out = zeros(&local, 1);
+    launch_copy(&local, input.clone(), out.clone(), 1);
+    let err = local
+        .read_one(out)
+        .expect_err("the peer kernel must not run on a failed input")
+        .to_string();
+    assert!(
+        err.contains("owner writer"),
+        "the read must name the owner's failure, got: {err}"
+    );
+
+    remote.write(
+        &input,
+        cubecl_common::bytes::Bytes::from_bytes_vec(u32::as_bytes(&[5u32]).to_vec()),
+    );
+    block_on(remote.sync()).unwrap();
+    let out = zeros(&local, 1);
+    launch_copy(&local, input, out.clone(), 1);
+    assert_eq!(u32::from_bytes(&local.read_one(out).unwrap()), [5]);
 }
 
 #[allow(missing_docs)]
@@ -341,6 +436,27 @@ macro_rules! testgen_peer {
             #[$crate::runtime_tests::test_log::test]
             fn test_a_kernel_pulls_data_a_peer_kernel_published() {
                 cubecl_core::runtime_tests::peer::test_a_kernel_pulls_data_a_peer_kernel_published::<
+                    TestRuntime,
+                >();
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_shared_memory_of_another_buffer_is_refused() {
+                cubecl_core::runtime_tests::peer::test_shared_memory_of_another_buffer_is_refused::<
+                    TestRuntime,
+                >();
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_a_failed_peer_kernel_taints_the_memory_it_was_writing() {
+                cubecl_core::runtime_tests::peer::test_a_failed_peer_kernel_taints_the_memory_it_was_writing::<
+                    TestRuntime,
+                >();
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_a_peer_kernel_does_not_run_on_a_failed_owner_write() {
+                cubecl_core::runtime_tests::peer::test_a_peer_kernel_does_not_run_on_a_failed_owner_write::<
                     TestRuntime,
                 >();
             }

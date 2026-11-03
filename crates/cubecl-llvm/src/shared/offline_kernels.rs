@@ -224,6 +224,31 @@ fn tally(input: &[f32], output: &mut [f32], tally: &[Atomic<u32>]) {
     tally[0].fetch_add(1u32);
 }
 
+/// [`tally`] in a kernel that synchronizes at system scope, as one handing data to a kernel on
+/// another device does: any of its buffers may be a peer's memory, written while it runs.
+#[cube(launch)]
+fn peer_tally(input: &[f32], output: &mut [f32], tally: &[Atomic<u32>]) {
+    sync_system();
+    output[ABSOLUTE_POS] = input[ABSOLUTE_POS] * 2.0;
+    tally[0].fetch_add(1u32);
+}
+
+pub(crate) fn peer_tally_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    peer_tally::PeerTally::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 pub(crate) fn tally_kernel() -> impl CubeKernel {
     let settings = KernelSettings::new(
         *CubeDim::new_1d(32),

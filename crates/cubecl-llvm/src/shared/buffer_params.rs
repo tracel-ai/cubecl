@@ -1,11 +1,17 @@
 //! Aliasing and access attributes on a GPU kernel's buffer parameters.
 
 use crate::{
-    prelude::{AddressSpace, BufferIOAttr, Context, CubePointerType, Op, Operation, Ptr},
+    prelude::{
+        AddressSpace, BufferIOAttr, Context, CubePointerType, Op, Operation, Ptr, SyncScopeAttr,
+        llvm,
+    },
     shared::llvm_module::EntryFunction,
 };
 use cubecl_core::ir::{
-    dialect::{atomic::AtomicLoadOp, base::OperationPtrExt},
+    dialect::{
+        atomic::{AtomicLoadOp, synchronizes_at_system_scope},
+        base::OperationPtrExt,
+    },
     interfaces::side_effects::{MemoryEffect, MemoryEffectsOp},
 };
 use pliron::{
@@ -13,6 +19,7 @@ use pliron::{
     op::op_cast,
     r#type::Typed,
 };
+use pliron_llvm::op_interfaces::SyncScopeInterface;
 
 /// Marks the buffer parameters `noalias`, and the read-only ones `readonly`, from the recorded
 /// access modes, wherever no cube writes them within the launch; the metadata gets both.
@@ -26,6 +33,11 @@ use pliron::{
 /// promised anything: with the attributes, AMDGPU makes a read after the acquire a scalar load,
 /// served from a cache the acquire does not invalidate. The buffers it only reads, which no cube
 /// writes, keep both.
+///
+/// A kernel that synchronizes at system scope hands data to or from kernels on other devices
+/// within its launch, so another device may write any of its buffers while it runs. None is
+/// promised anything: a read-only one loaded through the non-coherent cache, or hoisted above the
+/// acquire, would read what the buffer held before the peer's writes landed.
 ///
 /// A tensor map is a binding like any other, so it never overlaps another binding either. Its
 /// parameter is the map itself, passed by value, so it is no buffer and gets no attribute.
@@ -85,8 +97,12 @@ pub enum AtomicReads {
 
 impl AtomicReads {
     /// Read off the cube dialect under `root`, before it is lowered, while every pointer's type
-    /// still names the binding it addresses.
+    /// still names the binding it addresses. A kernel that synchronizes at system scope may see
+    /// any of its buffers written by another device, so it reads as [`Self::Unattributed`].
     pub(crate) fn of(ctx: &Context, root: Ptr<Operation>) -> Self {
+        if synchronizes_at_system_scope(ctx, root) || fences_at_system_scope(ctx, root) {
+            return Self::Unattributed;
+        }
         let mut reads = Self::None;
         walk_op(
             ctx,
@@ -165,4 +181,26 @@ impl Promise {
             _ => Self::Distinct,
         }
     }
+}
+
+/// Whether an LLVM fence under `root` synchronizes at the system's scope: a cube sync at
+/// [`SyncScope::System`](cubecl_core::ir::dialect::synchronization::SyncScope::System) is
+/// lowered to those before [`AtomicReads::of`] looks, while the atomics keep their scope as an
+/// attribute until later.
+fn fences_at_system_scope(ctx: &Context, root: Ptr<Operation>) -> bool {
+    let mut found = false;
+    walk_op(
+        ctx,
+        &mut found,
+        &WALKCONFIG_PREORDER_FORWARD,
+        root,
+        |ctx, found, node| {
+            let IRNode::Operation(op) = node else {
+                return;
+            };
+            *found |= Operation::get_op::<llvm::FenceOp>(op, ctx)
+                .is_some_and(|fence| fence.syncscope(ctx) == SyncScopeAttr::System);
+        },
+    );
+    found
 }

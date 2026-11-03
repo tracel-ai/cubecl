@@ -20,7 +20,7 @@ use cubecl_core::{
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::{self, DynFut};
 use cubecl_environment::stream::StreamId;
-use cubecl_server::command::{CollectiveServer, Collectives, Refused};
+use cubecl_server::command::{CollectiveServer, Collectives, PeerLaunch, Refused};
 use cubecl_server::compiler::ArtifactId;
 use cubecl_server::device::CudaDevice;
 use cubecl_server::{
@@ -32,7 +32,10 @@ use cubecl_server::{
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, StreamMemoryReport},
     server::Server,
     storage::{ComputeStorage, ManagedResource},
-    stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
+    stream::{
+        ExecuteScope, FailureStore, MultiStream, ScopedOutcome, StreamCapture, WriteScoped,
+        failed_writing,
+    },
 };
 use cudarc::driver::sys::{
     CUstream, CUtensorMap, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapInterleave,
@@ -210,6 +213,9 @@ impl Server for CudaServer {
         }
         let kernel_id = id.kernel;
         let io = loaded.io.as_deref();
+        // What the launch does with memory of other devices, settled with
+        // their owners however the launch ends.
+        let peers = PeerLaunch::new(&bindings, io);
 
         // The count resolves before the scope opens, because entering the
         // scope replaces whatever claim the outputs carry — and a count that
@@ -224,6 +230,7 @@ impl Server for CudaServer {
                 // count buffer travels to everything downstream of it.
                 let mut written = self.write_set();
                 written.extend(bindings.buffers_written(io).cloned());
+                peers.failed(&err);
                 failed_writing(self, stream_id, written, err);
                 return;
             }
@@ -242,7 +249,14 @@ impl Server for CudaServer {
         // the launch instead, and the scope settles that too.
         let mut written = self.write_set();
         written.extend(bindings.buffers_written(io).cloned());
-        ExecuteScope::launching(
+        // A peer input that carries a failure stops the launch as a failed
+        // input of this device would: nothing runs on its stale bytes.
+        if let Some(error) = peers.input_failure() {
+            peers.failed(&error);
+            failed_writing(self, stream_id, written, error);
+            return;
+        }
+        let outcome = ExecuteScope::launching(
             self,
             kernel_id.clone(),
             stream_id,
@@ -250,6 +264,10 @@ impl Server for CudaServer {
             written,
         )
         .execute(|server| server.launch_checked(kernel_id, &loaded, count, bindings, stream_id));
+        match outcome {
+            ScopedOutcome::Executed(()) => peers.enqueued(),
+            ScopedOutcome::Failed(error) | ScopedOutcome::Skipped(error) => peers.failed(&error),
+        }
     }
 
     fn check(
@@ -524,22 +542,40 @@ impl ServerCommunication for CudaServer {
     }
 
     fn can_access_peer(&mut self, peer: DeviceId) -> bool {
+        use cudarc::driver::sys::CUdevice_P2PAttribute as Attribute;
         let (Ok(own), Ok(other)) = (cuda_device(self.device_id), cuda_device(peer)) else {
             return false;
         };
-        let mut can = 0;
-        // SAFETY: `can` is a valid stack variable the driver writes through.
-        let status = unsafe { cudarc::driver::sys::cuDeviceCanAccessPeer(&mut can, own, other) };
-        status.result().is_ok() && can != 0
+        // Kernels on two devices hand data off through system-scope atomics
+        // on one's memory, so plain loads and stores are not enough: over a
+        // PCIe link without atomics, the producer's flag updates can be lost.
+        let attribute = |attribute| {
+            let mut value = 0;
+            // SAFETY: `value` is a valid stack variable the driver writes through.
+            let status = unsafe {
+                cudarc::driver::sys::cuDeviceGetP2PAttribute(&mut value, attribute, own, other)
+            };
+            status.result().is_ok() && value != 0
+        };
+        attribute(Attribute::CU_DEVICE_P2P_ATTRIBUTE_ACCESS_SUPPORTED)
+            && attribute(Attribute::CU_DEVICE_P2P_ATTRIBUTE_NATIVE_ATOMIC_SUPPORTED)
     }
 
     fn peer_address(&mut self, binding: BufferBinding) -> Result<u64, ServerError> {
-        // A peer reads these bytes with nothing ordering it behind a failed
-        // write here, so a buffer that carries a failure is not handed out.
-        self.streams.ensure_written([&binding].into_iter())?;
+        // The same claim check a read makes: a peer reads these bytes with
+        // nothing ordering it behind a failed write here.
         let stream = binding.stream;
-        let mut command = self.command(stream, [&binding].into_iter())?;
-        Ok(command.resource(binding)?.ptr)
+        Ok(self.get_resource(binding, stream)?.resource().ptr)
+    }
+
+    fn peer_wrote(&mut self, written: Vec<BufferBinding>, error: Option<ServerError>) {
+        let Some(stream) = written.first().map(|binding| binding.stream) else {
+            return;
+        };
+        match error {
+            Some(error) => failed_writing(self, stream, written, error),
+            None => self.streams.written(written.iter()),
+        }
     }
 }
 
@@ -563,10 +599,20 @@ impl CudaServer {
             return Ok(());
         }
         let device = cuda_device(peer)?;
+        // Access is granted to the current context, so this device's is made
+        // current first rather than trusting whatever the thread last set.
+        self.ctx
+            .unsafe_set_current()
+            .map_err(|err| ServerError::Generic {
+                reason: format!(
+                    "making the context of {:?} current failed: {err}",
+                    self.device_id
+                ),
+                backtrace: BackTrace::capture(),
+            })?;
         // SAFETY: the peer's primary context is retained for the call and
         // released after: its own server holds it for as long as it runs, and
-        // the access lives as long as both contexts do. The server thread has
-        // this device's context current, which is the one granted access.
+        // the access lives as long as both contexts do.
         let status = unsafe {
             let peer_ctx = cudarc::driver::result::primary_ctx::retain(device).map_err(|err| {
                 ServerError::Generic {
@@ -738,7 +784,9 @@ impl CudaServer {
             // shares them, an autotune sweep above all.
             let mut written = self.write_set();
             written.extend(bindings.buffers_written(None).cloned());
-            failed_writing(self, stream_id, written, ServerError::Launch(err));
+            let err = ServerError::Launch(err);
+            PeerLaunch::new(bindings, None).failed(&err);
+            failed_writing(self, stream_id, written, err);
         } else {
             self.profile_failure(&ServerError::Launch(err));
         }
@@ -843,15 +891,15 @@ impl CudaServer {
             .cpp
             .supports_features
             .grid_constants;
-        let peers: Vec<PeerBinding> = bindings.peers().cloned().collect();
-        for peer in &peers {
-            self.enable_peer(peer.binding.service.device)?;
+        for peer in bindings.peers() {
+            self.enable_peer(peer.binding().service.device)?;
         }
         // The kernel argument a peer buffer is passed through: the driver
         // copies the arguments when the launch is enqueued, so these only have
         // to outlive the call.
-        let peer_addresses: Vec<u64> = peers.iter().map(|peer| peer.address).collect();
+        let peer_addresses: Vec<u64> = bindings.peers().map(PeerBinding::address).collect();
         let mut peer_slots = peer_addresses.iter();
+        let mut peers = Vec::with_capacity(peer_addresses.len());
 
         let mut command = self.command(stream_id, bindings.buffers())?;
 
@@ -899,9 +947,10 @@ impl CudaServer {
                     resources.push(&*tensor_map as *const _ as *mut c_void);
                     tensor_maps.push(tensor_map);
                 }
-                KernelResource::Peer(_) => {
+                KernelResource::Peer(peer) => {
                     let slot = peer_slots.next().expect("one slot per peer binding");
                     resources.push(std::ptr::from_ref(slot) as *mut c_void);
+                    peers.push(peer);
                 }
             }
         }
