@@ -13,12 +13,12 @@
 //! [`AxisSlices::softmax_gradient`]: cubecl_tile::AxisSlices::softmax_gradient
 //! [`Tile::dot`]: cubecl_tile::Tile::dot
 
-use crate::support::{HostData, HostDataType, TestInput};
+use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{client::Client, prelude::*, zspace::Shape};
 use cubecl_tile::{
-    Axis, Instruction, Levels, Partitioning, RegisterBlock, Semiring, Space, TileArg,
-    TileArgLaunch, TileSpec,
-    ops::softmax::OnlineSoftmax,
+    Axis, Instruction, Levels, MmaOperands, Partitioning, RegisterBlock, Semiring, Space,
+    StageStorage, Stages, Tile, TileArg, TileArgLaunch, TileSpec,
+    ops::{matmul::MmaIo, softmax::OnlineSoftmax},
     procedural::{Procedural, Reads, Recipe, RecipeCoords, RecipeExpand},
 };
 
@@ -175,6 +175,127 @@ fn by_keys(
                     .softmax_gradient::<f32>(&score.along(Q), &delta_u.at(&step));
                 gradient.drained_into(&score_gradient_u.at(&step));
             }
+        }
+    }
+}
+
+/// Every plane owning its rows of the scores, keys or queries, holding them in manual-mma
+/// fragments: a step of the other axis at a time, the probabilities and the gradient against the
+/// scores taken in the registers that hold them, then drained. Keys first, each cell reads its
+/// query's logsumexp and dot product along its column; queries first, along its row.
+#[cube(launch)]
+#[allow(clippy::too_many_arguments)]
+fn by_plane_fragments(
+    query: &TileArg<'_>,
+    key: &TileArg<'_>,
+    value: &TileArg<'_>,
+    out_gradient: &TileArg<'_>,
+    logsumexp: &TileArg<'_>,
+    delta: &TileArg<'_>,
+    score_gradient: &TileArg<'_>,
+    keys: u32,
+    queries: u32,
+    scale: f32,
+    space: Partitioning,
+    #[comptime] keys_first: bool,
+) {
+    let instruction = comptime!(Instruction::Mma {
+        io: MmaIo::default(),
+        operands: MmaOperands::Plain,
+    });
+    // The plane owns `rows` and walks `cols`; the score is `rows · colsᵀ` over the head, its
+    // gradient against the probabilities `rows' · cols'ᵀ` over the value.
+    let (owned, walked) = comptime!(match keys_first {
+        true => (S, Q),
+        false => (Q, S),
+    });
+    let (query, key) = (query.tile(&space), key.tile(&space));
+    let (value, out_gradient) = (value.tile(&space), out_gradient.tile(&space));
+    let (logsumexp, delta) = (logsumexp.tile(&space), delta.tile(&space));
+    let score_gradient = score_gradient.tile(&space);
+    let bias = Procedural::new::<f32, Causal>(
+        comptime!(space.space().subspace(&[owned, walked])),
+        Causal { keys, queries },
+    )
+    .tile_in::<f32>(&space);
+    let (rows, cols, rows_gradient, cols_gradient) = match comptime!(keys_first) {
+        true => (
+            key.clone(),
+            query.clone(),
+            value.clone(),
+            out_gradient.clone(),
+        ),
+        false => (
+            query.clone(),
+            key.clone(),
+            out_gradient.clone(),
+            value.clone(),
+        ),
+    };
+    for cube in space {
+        for plane in cube {
+            let walk = plane.walk();
+            let mut rows_s = rows
+                .at(&plane)
+                .stage_for(&walk, StageStorage::Strided, None);
+            rows_s.copy_from(&rows.at(&plane));
+            let mut rows_gradient_s =
+                rows_gradient
+                    .at(&plane)
+                    .stage_for(&walk, StageStorage::Strided, None);
+            rows_gradient_s.copy_from(&rows_gradient.at(&plane));
+            sync_plane();
+            let scores = Tile::stage_accumulator::<f32>(
+                &walk,
+                comptime!(vec![owned, walked]),
+                &rows_s,
+                instruction,
+            );
+            let gradients = Tile::stage_accumulator::<f32>(
+                &walk,
+                comptime!(vec![owned, walked]),
+                &rows_gradient_s,
+                instruction,
+            );
+            let (bias_p, logsumexp_p) = (bias.at(&plane), logsumexp.at(&plane));
+            let (delta_p, score_gradient_p) = (delta.at(&plane), score_gradient.at(&plane));
+            let mut stages = Stages::smem(
+                &walk,
+                &cols.at(&plane),
+                &cols_gradient.at(&plane),
+                StageStorage::Strided,
+                1usize,
+                None,
+            );
+            stages.pipelined(walk, |slot, stage| {
+                let bias_s = bias_p.at(stage);
+                slot.consume(|cols_s, cols_gradient_s| {
+                    let mut score = scores.clone();
+                    score.reset();
+                    for fragment in stage.walk().routed(V, 0).unrolled() {
+                        let mut cell = score.at(&fragment);
+                        cell.mma(&rows_s.at(&fragment), &cols_s.at(&fragment));
+                    }
+                    score.along(walked).probabilities::<f32>(
+                        scale,
+                        &bias_s,
+                        &logsumexp_p.at(stage),
+                    );
+                    let mut gradient = gradients.clone();
+                    gradient.reset();
+                    for fragment in stage.walk().routed(D, 0).unrolled() {
+                        let mut cell = gradient.at(&fragment);
+                        cell.mma(
+                            &rows_gradient_s.at(&fragment),
+                            &cols_gradient_s.at(&fragment),
+                        );
+                    }
+                    gradient
+                        .along(walked)
+                        .softmax_gradient::<f32>(&score.along(walked), &delta_p.at(stage));
+                    gradient.drained_into(&score_gradient_p.at(stage));
+                });
+            });
         }
     }
 }
@@ -553,4 +674,147 @@ fn an_online_softmax_leaves_its_logsumexp() {
         [queries, 1],
         &reference.logsumexp,
     );
+}
+
+/// Whether `client` offers the `m16n8k16` instruction on `f16` summing in `f32`, which the plane
+/// fragment tests run.
+fn offers_f16_mma(client: &Client) -> bool {
+    let (f16_ty, f32_ty) = (half::f16::elem_type_native(), f32::elem_type_native());
+    client.properties().features.matmul.mma.iter().any(|cfg| {
+        cfg.a_type == f16_ty
+            && cfg.b_type == f16_ty
+            && cfg.cd_type == f32_ty
+            && [cfg.m, cfg.n, cfg.k] == [16, 8, 16]
+    })
+}
+
+/// `handle`, an `f32` tensor of `shape`, copied to `f16`: the test's values are multiples of
+/// 1/512 within ±2, which `f16` holds exactly, so the host reference holds for the copy.
+fn as_f16(
+    client: &Client,
+    handle: &cubecl::std::tensor::TensorHandle,
+    shape: [usize; 2],
+) -> cubecl::std::tensor::TensorHandle {
+    let host = HostData::from_tensor_handle(client, handle.clone(), HostDataType::F32);
+    TestInput::builder(client.clone(), Shape::new(shape))
+        .dtype(half::f16::elem_type_native())
+        .custom(
+            (0..shape[0] * shape[1])
+                .map(|at| host.get_f32(&[at / shape[1], at % shape[1]]))
+                .collect(),
+        )
+        .generate_without_host_data()
+}
+
+/// Planes holding their scores in manual-mma fragments take the probabilities and the gradient
+/// against the scores in place, keys first as a walk owned by the keys holds them, or queries
+/// first: each against the host's gradient, in that orientation.
+fn plane_fragments_take_the_softmax_gradient(keys_first: bool) {
+    let client: Client = cubecl::test_device().client();
+    if !offers_f16_mma(&client) {
+        ValidationResult::Skipped("no m16n8k16 f16 instruction summing in f32".to_string())
+            .enforce();
+        return;
+    }
+    let case = Case {
+        queries: 32,
+        keys: 32,
+        head: 16,
+        value: 16,
+        rows: 1,
+        block: 2,
+        units: 1,
+    };
+    let (reference, [query, key, value, out_gradient]) = case.reference(&client);
+    let (queries, keys) = (case.queries, case.keys);
+    let query = as_f16(&client, &query, [queries, case.head]);
+    let key = as_f16(&client, &key, [keys, case.head]);
+    let value = as_f16(&client, &value, [keys, case.value]);
+    let out_gradient = as_f16(&client, &out_gradient, [queries, case.value]);
+    let logsumexp = device(&client, Shape::new([queries]), &reference.logsumexp);
+    let delta = device(&client, Shape::new([queries]), &reference.delta);
+    let (owned, walked, owned_extent, walked_extent) = match keys_first {
+        true => (S, Q, keys, queries),
+        false => (Q, S, queries, keys),
+    };
+    let score_gradient = zeros(&client, Shape::new([owned_extent, walked_extent]));
+    // A plane owns sixteen rows, one instruction's `m`, and walks the other axis two `n8`
+    // fragments a step; a cube is one plane.
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[
+                (owned, owned_extent),
+                (walked, walked_extent),
+                (D, case.head),
+                (V, case.value),
+            ]),
+            Levels::leaf(&[(owned, 16), (walked, 8), (D, 16), (V, 16)])
+                .walk(&[(walked, case.block)])
+                .walk_every(&[walked])
+                .planes(&[(owned, 1)])
+                .cubes(&[owned])
+                .build(),
+        ),
+        Form::Static,
+    );
+    let f16_ty = half::f16::elem_type_native();
+    let input = |handle: &cubecl::std::tensor::TensorHandle, axes: &[Axis]| {
+        TileArgLaunch::new(
+            handle.clone().binding().into_tensor_arg(),
+            f16_ty,
+            1,
+            TileSpec::direct(axes),
+        )
+    };
+    by_plane_fragments::launch(
+        &client,
+        launcher.cube_count(),
+        launcher.cube_dim(),
+        input(&query, &[Q, D]),
+        input(&key, &[S, D]),
+        input(&value, &[S, V]),
+        input(&out_gradient, &[Q, V]),
+        arg(&logsumexp, &[Q]),
+        arg(&delta, &[Q]),
+        arg(&score_gradient, &[owned, walked]),
+        keys as u32,
+        queries as u32,
+        case.scale(),
+        launcher.partitioning_arg(),
+        keys_first,
+    );
+    let score_gradient = HostData::from_tensor_handle(&client, score_gradient, HostDataType::F32);
+    let expected: Vec<f64> = match keys_first {
+        true => (0..keys * queries)
+            .map(|at| reference.score_gradient[(at % queries) * keys + at / queries])
+            .collect(),
+        false => reference.score_gradient.clone(),
+    };
+    // f16 operands into f32 sums: a few ulps of a value near one.
+    for i in 0..owned_extent {
+        for j in 0..walked_extent {
+            let (got, want) = (
+                score_gradient.get_f32(&[i, j]) as f64,
+                expected[i * walked_extent + j],
+            );
+            assert!(
+                (got - want).abs() <= 2e-3 * (1. + want.abs()),
+                "score_gradient[{i}, {j}] = {got}, expected {want} (keys first: {keys_first})"
+            );
+        }
+    }
+}
+
+/// A walk owned by the keys holds its scores keys first, in fragments: each cell reads its
+/// query's logsumexp and dot product along its column.
+#[test]
+fn plane_fragments_take_the_softmax_gradient_keys_first() {
+    plane_fragments_take_the_softmax_gradient(true);
+}
+
+/// A walk owned by the queries holds them queries first: each cell reads its row's.
+#[test]
+fn plane_fragments_take_the_softmax_gradient_queries_first() {
+    plane_fragments_take_the_softmax_gradient(false);
 }
