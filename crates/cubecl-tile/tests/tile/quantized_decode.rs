@@ -33,10 +33,10 @@ const KI: Axis = Axis(3);
 #[cube(launch)]
 #[allow(clippy::too_many_arguments)]
 fn quantized_decode(
-    w: &TileArg<'_>,
-    x: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    out: &TileArg<'_>,
+    w: &TileTensor<'_>,
+    x: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] budget: usize,
 ) {
@@ -82,10 +82,10 @@ fn quantized_decode(
 #[cube(launch)]
 #[allow(clippy::too_many_arguments)]
 fn quantized_decode_promoted<E: Numeric>(
-    w: &TileArg<'_>,
-    x: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    out: &TileArg<'_>,
+    w: &TileTensor<'_>,
+    x: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] budget: usize,
     #[define(E)] _dtype: ElemType,

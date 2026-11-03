@@ -137,9 +137,9 @@ fn assert_matmul_arange(client: &Client, handle: TensorHandle, m: usize, n: usiz
 /// instruction under `config` on each `inner` region, summing under `semiring` from its identity.
 #[cube(launch)]
 fn matmul_in_place<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] outer: Level,
     #[comptime] runs: Option<Level>,
@@ -209,9 +209,9 @@ fn contract_in_place<E: Numeric>(
 /// regions in flight through the stages.
 #[cube(launch)]
 fn matmul_smem_ring(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] cubes: Level,
     #[comptime] runs: Option<Level>,
@@ -266,9 +266,9 @@ fn contract_staged(
 /// [`matmul_smem_ring`] under either of the ring's schedules ([`Prefetch`]).
 #[cube(launch)]
 fn matmul_smem_ring_scheduled(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] cubes: Level,
     #[comptime] steps: Level,
@@ -329,9 +329,9 @@ fn contract_on_the_last_unit(c: &Tile, a: &Tile, b: &Tile) {
 /// init.
 #[cube(launch)]
 fn matmul_smem_ring_accumulate(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] depth: usize,
@@ -354,9 +354,9 @@ fn matmul_smem_ring_accumulate(
 /// `c = a · b` with the lhs alone staged, the rhs read where it lies, `depth` regions in flight.
 #[cube(launch)]
 fn matmul_lhs_smem_ring(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] depth: usize,
@@ -382,9 +382,9 @@ fn matmul_lhs_smem_ring(
 /// its innermost axis out to whole lines an unvectorized global read could not give.
 #[cube(launch)]
 fn matmul_padded_rhs_stage(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] width: usize,
@@ -422,9 +422,9 @@ fn matmul_padded_rhs_stage(
 /// the lhs where it lies, the inner one stages it `width` wide.
 #[cube(launch)]
 fn matmul_padded_lhs_stage_two_levels(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] outer: Level,
     #[comptime] inner: Level,
@@ -468,9 +468,9 @@ fn matmul_padded_lhs_stage_two_levels(
 /// the inner walks the stage's final tiles where they lie.
 #[cube(launch)]
 fn matmul_two_levels_smem_then_in_place(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] outer: Level,
     #[comptime] inner: Level,
@@ -499,9 +499,9 @@ fn matmul_two_levels_smem_then_in_place(
 /// Two levels, both staging: the inner stages restages each final tile out of the outer stage.
 #[cube(launch)]
 fn matmul_two_levels_smem_then_smem(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] outer: Level,
     #[comptime] inner: Level,
@@ -549,9 +549,9 @@ fn matmul_two_levels_smem_then_smem(
 /// on drain.
 #[cube(launch)]
 fn promoted_matmul_in_place<EA: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] config: RegisterBlock,
@@ -578,9 +578,9 @@ fn promoted_matmul_in_place<EA: Numeric>(
 /// block is opened per plane region and contracted along the inner K walk.
 #[cube(launch)]
 fn promoted_matmul_two_levels_in_place<EA: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] config: RegisterBlock,
     #[define(EA)] _acc_dtype: ElemType,
@@ -613,9 +613,9 @@ fn promoted_matmul_two_levels_in_place<EA: Numeric>(
 /// and hands every region comptime coordinates.
 #[cube(launch)]
 fn block_matmul_two_levels_smem_below<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] outer: Level,
     #[comptime] inner: Level,
@@ -655,9 +655,9 @@ fn block_matmul_two_levels_smem_below<E: Numeric>(
 /// global memory the epilogue.
 #[cube(launch)]
 fn cmma_matmul_k_walk<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] storage: StageStorage,
@@ -683,9 +683,9 @@ fn cmma_matmul_k_walk<E: Numeric>(
 /// `io`'s.
 #[cube(launch)]
 fn mma_matmul_k_walk<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] io: MmaIo,
@@ -719,9 +719,9 @@ fn mma_matmul_k_walk<E: Numeric>(
 /// every K step.
 #[cube(launch)]
 fn cmma_matmul_two_levels_planes<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] outer: Level,
     #[comptime] inner: Level,
@@ -766,9 +766,9 @@ fn cmma_matmul_two_levels_planes<E: Numeric>(
 /// execute out of the stage.
 #[cube(launch)]
 fn cmma_matmul_three_levels_planes_fragments<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] stage: Level,
     #[comptime] plane: Level,
@@ -818,9 +818,9 @@ fn cmma_matmul_three_levels_planes_fragments<E: Numeric>(
 /// call: the grid walks its fragment level itself.
 #[cube(launch)]
 fn cmma_matmul_partition_in_one_call<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] stage: Level,
     #[comptime] plane: Level,
@@ -866,9 +866,9 @@ fn cmma_matmul_partition_in_one_call<E: Numeric>(
 /// column loaded once above, and an M-only fragment walk; both fragment walks unroll (they select).
 #[cube(launch)]
 fn cmma_matmul_five_levels<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] stage: Level,
     #[comptime] plane: Level,
@@ -1125,7 +1125,7 @@ enum Binding {
 
 impl Binding {
     /// `input`, stored in tiles once, as an operand of `launcher` bound `width` wide.
-    fn arg(self, input: &TileInput, launcher: &Launcher, width: usize) -> TileArgLaunch {
+    fn arg(self, input: &TileInput, launcher: &Launcher, width: usize) -> TileTensorLaunch {
         match self {
             Binding::Launch => input.arg(launcher, width),
             Binding::Stated => {
@@ -1133,7 +1133,7 @@ impl Binding {
                 let axes: Vec<Axis> = (0..space.rank()).map(|i| space.axis_at(i)).collect();
                 let mut spec = TileSpec::new(Projection::tiled(&axes, &axes.repeat(2)));
                 spec.units = launcher.cube_dim().num_elems() as usize;
-                TileArgLaunch::new(input.tensor_arg(1), input.handle().dtype, width, spec)
+                TileTensorLaunch::new(input.tensor_arg(1), input.handle().dtype, width, spec)
             }
         }
     }
@@ -2728,9 +2728,9 @@ fn a_plane_stages_its_own_walk() {
 /// plane's own copy, filled by its units and met on `sync_plane`, and no other plane waits on them.
 #[cube(launch)]
 fn plane_staged_matmul<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] depth: usize,
     #[define(E)] _dtype: ElemType,
@@ -2772,9 +2772,9 @@ fn plane_staged_matmul<E: Numeric>(
 /// matrix forms load fragments, and that difference is the engine's.
 #[cube(launch)]
 fn matmul_on_a_stated_instruction<EA: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] instruction: Instruction,
     #[define(EA)] _acc_dtype: ElemType,
@@ -3153,19 +3153,19 @@ fn check_a_promoted_step_sums_wider_than_its_output(config: RegisterBlock) {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a.binding().into_tensor_arg(),
             out,
             4,
             TileSpec::direct(&[M, K]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b.binding().into_tensor_arg(),
             out,
             4,
             TileSpec::direct(&[N, K]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             out,
             1,
@@ -3577,9 +3577,9 @@ fn check_cmma_matmul_k_walk_with(
 /// way that accumulator wants them.
 #[cube(launch)]
 fn staged_matmul_on_a_stated_instruction<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] storage: StageStorage,

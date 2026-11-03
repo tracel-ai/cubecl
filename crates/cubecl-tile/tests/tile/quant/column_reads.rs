@@ -25,10 +25,10 @@ const PER_WORD: usize = 8;
 /// into a register block that lives across the walk over `K` and drains once.
 #[cube(launch)]
 fn column_one_row_product<E: Numeric>(
-    x: &TileArg<'_>,
-    w: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    x: &TileTensor<'_>,
+    w: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -61,10 +61,10 @@ fn column_one_row_product<E: Numeric>(
 /// block seeded from it and committed back ([`Tile::mma`]).
 #[cube(launch)]
 fn column_one_row_product_in_memory(
-    x: &TileArg<'_>,
-    w: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    x: &TileTensor<'_>,
+    w: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
 ) {
     let x = x.tile(&space);
@@ -222,25 +222,25 @@ fn one_row_product_against_the_reference(
                 &client,
                 launcher.cube_count(),
                 launcher.cube_dim(),
-                TileArgLaunch::new(
+                TileTensorLaunch::new(
                     x_tensor.binding().into_tensor_arg(),
                     dtype,
                     PER_WORD,
                     TileSpec::direct(&[M, KB, KI]),
                 ),
-                TileArgLaunch::new(
+                TileTensorLaunch::new(
                     w_tensor.binding().into_tensor_arg(),
                     u32::elem_type_native(),
                     columns,
                     w_spec,
                 ),
-                TileArgLaunch::new(
+                TileTensorLaunch::new(
                     s_tensor.binding().into_tensor_arg(),
                     dtype,
                     scale_width,
                     s_spec,
                 ),
-                TileArgLaunch::new(
+                TileTensorLaunch::new(
                     c.clone().binding().into_tensor_arg(),
                     dtype,
                     1,
