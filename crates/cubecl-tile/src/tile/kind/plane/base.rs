@@ -279,9 +279,7 @@ impl PlaneTile {
                 }
             },
             PlaneTile::Mma(d) => d.load_window::<T>(src, load),
-            PlaneTile::Registers(_) => {
-                panic!("PlaneTile::load_window: a register accumulator is not a fill sink")
-            }
+            PlaneTile::Registers(d) => d.load_window::<T>(src),
             PlaneTile::Wgmma(_) => {
                 panic!("PlaneTile::load_window: a warpgroup accumulator is not a fill sink")
             }

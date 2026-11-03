@@ -31,6 +31,7 @@ mod recursive;
 mod reduce;
 mod references;
 mod register_attention;
+mod register_block_rhs;
 mod relay;
 mod routed;
 mod row_chunks;

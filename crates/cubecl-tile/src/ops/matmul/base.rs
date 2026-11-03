@@ -366,15 +366,15 @@ impl PlaneTile {
                 rhs.refuse_factor("PlaneTile::Wgmma");
                 d.mma::<E, EL, ER>(lhs, rhs, out)
             }
-            PlaneTile::Registers(d) => match &lhs.kind {
+            PlaneTile::Registers(d) => match &rhs.kind {
                 TileKind::PlaneTile(block) => match block {
-                    PlaneTile::Registers(block) => d.mma_block::<E, EL, ER>(block, rhs),
+                    PlaneTile::Registers(block) => d.mma_over_block::<E, EL, ER>(lhs, block, out),
                     PlaneTile::Cmma(_) | PlaneTile::Mma(_) | PlaneTile::Wgmma(_) => panic!(
                         "mma: a register block contracts a register block it holds, or memory"
                     ),
                 },
                 TileKind::PlanePartition(block) => match block.fragment() {
-                    PlaneTile::Registers(block) => d.mma_block::<E, EL, ER>(&block, rhs),
+                    PlaneTile::Registers(block) => d.mma_over_block::<E, EL, ER>(lhs, &block, out),
                     PlaneTile::Cmma(_) | PlaneTile::Mma(_) | PlaneTile::Wgmma(_) => panic!(
                         "mma: a register block contracts a register block it holds, or memory"
                     ),
@@ -382,16 +382,33 @@ impl PlaneTile {
                 TileKind::Memory(_)
                 | TileKind::TmaGmem(_)
                 | TileKind::Procedural(_)
-                | TileKind::Lines(_) => {
-                    let rhs_along_k = comptime!(
-                        lhs.place
-                            .space
-                            .contains(rhs.place.space.axis_at(rhs.place.space.rank() - 1))
-                    );
-                    // A register block reads its lhs along `k`.
-                    strided_2d(lhs, rhs, comptime!(out.clone()), false, rhs_along_k);
-                    d.mma::<E, EL, ER>(lhs, rhs, out)
-                }
+                | TileKind::Lines(_) => match &lhs.kind {
+                    TileKind::PlaneTile(block) => match block {
+                        PlaneTile::Registers(block) => d.mma_block::<E, EL, ER>(block, rhs),
+                        PlaneTile::Cmma(_) | PlaneTile::Mma(_) | PlaneTile::Wgmma(_) => panic!(
+                            "mma: a register block contracts a register block it holds, or memory"
+                        ),
+                    },
+                    TileKind::PlanePartition(block) => match block.fragment() {
+                        PlaneTile::Registers(block) => d.mma_block::<E, EL, ER>(&block, rhs),
+                        PlaneTile::Cmma(_) | PlaneTile::Mma(_) | PlaneTile::Wgmma(_) => panic!(
+                            "mma: a register block contracts a register block it holds, or memory"
+                        ),
+                    },
+                    TileKind::Memory(_)
+                    | TileKind::TmaGmem(_)
+                    | TileKind::Procedural(_)
+                    | TileKind::Lines(_) => {
+                        let rhs_along_k = comptime!(
+                            lhs.place
+                                .space
+                                .contains(rhs.place.space.axis_at(rhs.place.space.rank() - 1))
+                        );
+                        // A register block reads its lhs along `k`.
+                        strided_2d(lhs, rhs, comptime!(out.clone()), false, rhs_along_k);
+                        d.mma::<E, EL, ER>(lhs, rhs, out)
+                    }
+                },
             },
         }
     }

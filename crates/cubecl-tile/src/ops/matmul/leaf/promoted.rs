@@ -188,4 +188,76 @@ impl RegisterData {
             }
         }
     }
+
+    /// `self += lhs · rhs` where `rhs` is a register block over this one's lines, its rows the
+    /// steps of the contraction, and `lhs` a memory window read a value at a time, lined along
+    /// the contraction or along this block's rows. A contraction of extent one is a rank-1 update.
+    pub(crate) fn mma_over_block<T: Numeric, EL: Numeric, ER: Numeric>(
+        &mut self,
+        lhs: &Tile,
+        rhs: &RegisterData,
+        #[comptime] out: Space,
+    ) {
+        let data = self.data.at_mut::<T>();
+        let semiring = comptime!(self.accumulation.semiring("RegisterData::mma_over_block"));
+        register_block_size(self.vector_size);
+        comptime!(assert!(
+            self.contracted_per_step == 1,
+            "RegisterData::mma_over_block: this block's lines are the rhs block's, not runs of \
+             its contraction"
+        ));
+        comptime!(assert_whole_cells(
+            rhs.contracted_per_step,
+            rhs.vector_size,
+            "RegisterData::mma_over_block"
+        ));
+        comptime!(assert!(
+            rhs.nr == self.nr && rhs.vector_size == self.vector_size,
+            "RegisterData::mma_over_block: the rhs block has {} lines of {} a row and this one \
+             {} of {}; they are the same lines",
+            rhs.nr,
+            rhs.vector_size,
+            self.nr,
+            self.vector_size
+        ));
+        lhs.refuse_factor("RegisterData::mma_over_block");
+        let (mr, nr, kc) = (self.mr, self.nr, rhs.mr);
+        let lw = lhs.vector_size();
+        let size!(L) = lw;
+        let lined_along_k =
+            comptime!(!out.contains(lhs.place.space.axis_at(lhs.place.space.rank() - 1)));
+        let (rows, cols) = comptime!(if lined_along_k { (mr, kc) } else { (kc, mr) });
+        let lhs_axes = comptime!(
+            MatrixAxes::new(&lhs.place.space, rows, cols).unwrap_or_else(|e| panic!("{e}"))
+        );
+        let lhs_mat = lhs.matrix_packed::<EL, L>(lhs_axes, 0usize);
+        // Each line is loaded once: the values of a line are read across several steps.
+        let lines = comptime!(cols.div_ceil(lw));
+        let mut lhs_lines = Array::<Vector<T, L>>::new(comptime!(rows * lines));
+        #[unroll]
+        for r in 0..rows {
+            #[unroll]
+            for l in 0..lines {
+                lhs_lines[r * lines + l] = Vector::<T, L>::cast_from(
+                    lhs_mat.read(((r as u32).runtime(), (l as u32).runtime())),
+                );
+            }
+        }
+        let unroll = comptime!(mr * nr * self.vector_size <= self.config.budget);
+        #[unroll]
+        for k in 0..kc {
+            #[unroll]
+            for i in 0..mr {
+                let (r, c) = comptime!(if lined_along_k { (i, k) } else { (k, i) });
+                let line = lhs_lines[comptime!(r * lines + c / lw)];
+                let a = Vector::<T, RA>::cast_from(line.extract(comptime!(c % lw)));
+                #[unroll(unroll)]
+                for n in 0..nr {
+                    let at = i * nr + n;
+                    let b = Vector::<T, RA>::cast_from(rhs.data.at::<ER>()[k * nr + n]);
+                    data[at] = semiring.step::<Vector<T, RA>>(a, b, data[at]);
+                }
+            }
+        }
+    }
 }

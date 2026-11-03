@@ -225,6 +225,35 @@ impl RegisterData {
 
 #[cube]
 impl RegisterData {
+    /// Seed the block from `src`, a memory window in the block's own axis order, casting up to
+    /// its element. A window shorter than the block reads zero in the overhang.
+    pub(crate) fn load_window<T: Numeric>(&mut self, src: &Tile) {
+        comptime!(assert_whole_cells(
+            self.contracted_per_step,
+            self.vector_size,
+            "RegisterData::load_window"
+        ));
+        let width = src.vector_size();
+        comptime!(assert!(
+            width == self.vector_size,
+            "RegisterData::load_window: the block's lines are {} wide and the window serves {width}",
+            self.vector_size
+        ));
+        register_block_size(self.vector_size);
+        let data = self.data.at_mut::<T>();
+        let define!(Source) = src.read_element();
+        let source = src.matrix_packed::<Source, RA>(comptime!(self.axes), 0usize);
+        #[unroll]
+        for i in 0..comptime!(self.mr) {
+            #[unroll]
+            for n in 0..comptime!(self.nr) {
+                data[comptime!(i * self.nr + n)] = Vector::<T, RA>::cast_from(
+                    source.read(((i as u32).runtime(), (n as u32).runtime())),
+                );
+            }
+        }
+    }
+
     /// Write the block into `mem`'s window, casting down to its element. A block of partials sums
     /// each line's lanes into its cell on the way out, into a sink one value a cell.
     pub(crate) fn store_cast_window<T: Numeric, Out: Numeric>(
