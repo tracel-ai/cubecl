@@ -10,7 +10,8 @@ use crate::config::autotune::BenchConfig;
 use crate::server::ServerError;
 use crate::tune::Evictor;
 use crate::tune::patience::PatienceTable;
-use crate::tune::sampler::{SampleSet, measured};
+use crate::tune::sampler::SampleSet;
+use crate::tune::tuner::measured;
 use crate::tune::{
     AutotuneError, AutotuneOutcome, AutotuneOutput, AutotuneResult, Batch, TuneFn, TuneInputs,
     TunePlan,

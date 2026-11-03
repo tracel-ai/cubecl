@@ -3,7 +3,7 @@ use alloc::boxed::Box;
 use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::profile::ProfileDuration;
+use cubecl_common::profile::{ProfileDuration, ProfileTicks};
 use derive_more::Display;
 
 use core::time::Duration;
@@ -22,7 +22,6 @@ use crate::execution::{ProcessMode, TuneOutcome, TuneRegistration};
 use crate::server::LaunchError;
 #[cfg(not(target_family = "wasm"))]
 use crate::server::ServerError;
-use crate::tune::sampler::measured;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
 use cubecl_environment::config::RuntimeConfig;
 
@@ -689,6 +688,15 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 }
 
+/// A resolved sample's time, or `None` where it is no time: unmeasured, or zero. No launch that
+/// ran takes zero; a zero is a window that timed nothing, such as a candidate whose kernel never
+/// launched, and recorded it would be the fastest sample in the round and end it on the spot.
+pub(crate) fn measured(ticks: Option<ProfileTicks>) -> Option<Duration> {
+    ticks
+        .map(|ticks| ticks.duration())
+        .filter(|duration| !duration.is_zero())
+}
+
 /// Await every sample of a single benchmark and fold them into one result.
 ///
 /// The samples are resolved concurrently: a profile only submits its readback when
@@ -973,5 +981,23 @@ fn check_equivalence<O: AutotuneOutput>(reference: &O, other: O, decisions_enabl
     } else {
         reference.check_equivalence(other);
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cubecl_common::profile::Instant;
+
+    #[test]
+    fn a_zero_sample_is_no_time() {
+        let now = Instant::now();
+        assert_eq!(measured(Some(ProfileTicks::from_start_end(now, now))), None);
+        assert_eq!(measured(None), None);
+        let later = now + Duration::from_micros(3);
+        assert_eq!(
+            measured(Some(ProfileTicks::from_start_end(now, later))),
+            Some(Duration::from_micros(3))
+        );
     }
 }
