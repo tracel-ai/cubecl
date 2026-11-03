@@ -8,6 +8,11 @@ use crate::algebra::indexed::{ordered_only, wins};
 use crate::space::UnitShare;
 use crate::{Carrier, Indexed, Monoid};
 
+/// The most steps a `K`-by-`K` walk of a [`TopK`] is unrolled to: past it, as for the `k = 300`
+/// of an object-detection head, the walks stay loops, since unrolled the kernel grows with `K²`
+/// and the backend compilers stop returning from it.
+pub const TOP_K_UNROLL_BUDGET: usize = 1024;
+
 /// The `K` best values seen, each with the index it was read at, best first, pointwise on
 /// vectors: `Monoid::Max` over it is the top-k, `Monoid::Min` the bottom-k.
 ///
@@ -30,7 +35,8 @@ pub struct TopK<E: Numeric, N: Size, K: Size> {
 #[cube]
 impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
     /// This list with `value`, read at `index`, kept if it is among the `K` best: the one-item
-    /// combine, `K` steps where combining with a list of one is `K * K`.
+    /// combine, `K` steps where combining with a list of one is `K * K`. Its walk unrolls
+    /// within [`TOP_K_UNROLL_BUDGET`], as every walk of a `K`-by-`K` nest does.
     pub fn insert(
         self,
         value: Vector<E, N>,
@@ -43,7 +49,7 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
         let mut indices = Array::new(k);
         let mut value = value;
         let mut index = index;
-        #[unroll]
+        #[unroll(k * k <= TOP_K_UNROLL_BUDGET)]
         for j in 0..k {
             let kept = Indexed::<E, N> {
                 value: self.values[j],
@@ -67,9 +73,10 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
 impl<E: Numeric, N: Size, K: Size> Carrier for TopK<E, N, K> {
     fn combine(lhs: Self, rhs: Self, #[comptime] monoid: Monoid) -> Self {
         ordered_only(monoid);
+        let k = K::value();
         let mut total = lhs;
-        #[unroll]
-        for j in 0..K::value() {
+        #[unroll(k * k <= TOP_K_UNROLL_BUDGET)]
+        for j in 0..k {
             total = total.insert(rhs.values[j], rhs.indices[j], monoid);
         }
         total
@@ -111,7 +118,7 @@ impl<E: Numeric, N: Size, K: Size> Carrier for TopK<E, N, K> {
                 }
                 let mut values = Array::new(k);
                 let mut indices = Array::new(k);
-                #[unroll]
+                #[unroll(k * k <= TOP_K_UNROLL_BUDGET)]
                 for round in 0..k {
                     let head = Indexed::<E, N> {
                         value: held_values[0],
@@ -121,7 +128,7 @@ impl<E: Numeric, N: Size, K: Size> Carrier for TopK<E, N, K> {
                     values[round] = best.value;
                     indices[round] = best.index;
                     let taken = held_indices[0].equal(&best.index);
-                    #[unroll]
+                    #[unroll(k * k <= TOP_K_UNROLL_BUDGET)]
                     for j in 0..comptime!(k - 1) {
                         held_values[j] = select_many(taken, held_values[j + 1], held_values[j]);
                         held_indices[j] = select_many(taken, held_indices[j + 1], held_indices[j]);
