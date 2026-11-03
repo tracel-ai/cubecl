@@ -184,26 +184,12 @@ such as model weights.
 - `enforced`: every allocation is persistent. May cause out-of-memory errors when tensor sizes
   vary.
 
-**CUDA allocator** (`[memory.cuda] allocator`): selects how the CUDA backend obtains backing memory
-for CubeCL's pools. Other backends ignore this setting.
-
-- `sync` (default): uses synchronous CUDA allocation/free, avoiding the additional CUDA
-  async memory pool. Allocating or releasing pages may synchronize GPU work.
-- `async`: uses CUDA's stream-ordered allocation/free, which can preserve concurrency
-  when pages change but may reserve additional backing memory. If async allocation
-  fails, that allocation falls back to synchronous allocation/free.
-
-Both modes reuse CubeCL's existing pools.
-
 **Example:**
 
 ```toml
 [memory]
 logger = { level = "basic", stdout = true }
 persistent_memory = "enabled"
-
-[memory.cuda]
-allocator = "sync" # or "async"
 ```
 
 The memory pools have no entry in the config file.

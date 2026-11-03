@@ -309,6 +309,7 @@ impl<M: Marker> Server for DummyServer<M> {
             .map(|res| match res {
                 KernelResource::Buffer(binding) => binding,
                 KernelResource::TensorMap(tensor_map) => tensor_map.binding,
+                KernelResource::Peer(_) => unreachable!("the dummy server shares no memory"),
             })
             .map(|b| {
                 self.memory_management

@@ -8,8 +8,9 @@ wgsl_op!(SyncOp, |op, ctx| {
     match op.scope(ctx).0 {
         SyncScope::Plane | SyncScope::Cube => "workgroupBarrier();\n".into(),
         // The storage half is all WGSL can say across workgroups, and the workgroup
-        // barrier is the cube scope this one contains.
-        SyncScope::Device => "storageBarrier();\nworkgroupBarrier();\n".into(),
+        // barrier is the cube scope this one contains. No memory is shared with another
+        // device, so the system is the device.
+        SyncScope::Device | SyncScope::System => "storageBarrier();\nworkgroupBarrier();\n".into(),
         SyncScope::Unit => "".into(),
     }
 });

@@ -8,8 +8,8 @@ use crate::{
     server::{
         BufferBinding, Collective, CommunicationId, ComputeWait, CopyDescriptor, CubeCount, Handle,
         KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
-        MemoryLayoutStrategy, ProfileError, ProfilingToken, ReduceOperation, Reduction, Server,
-        ServerError, ServerStorage, ServerUtilities,
+        MemoryLayoutStrategy, PeerBinding, PeerMemory, ProfileError, ProfilingToken,
+        ReduceOperation, Reduction, Server, ServerError, ServerStorage, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -46,6 +46,15 @@ fn repeated_device(device_ids: &[DeviceId]) -> Option<DeviceId> {
         .iter()
         .enumerate()
         .find_map(|(i, id)| device_ids[..i].contains(id).then_some(*id))
+}
+
+/// Flushes the device's queue when dropped.
+struct FlushOnDrop<'a>(&'a DeviceHandle<dyn Server>);
+
+impl Drop for FlushOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.flush_queue();
+    }
 }
 
 /// The `Client` is the entry point to require tasks from the `Server`.
@@ -295,6 +304,45 @@ impl Client {
     /// before a downcast on the device thread turns the mismatch into a panic.
     fn is_service<S: 'static>(&self) -> bool {
         TypeId::of::<S>() == self.service_id().service
+    }
+
+    /// A `Peer` argument as bound here: an ordinary buffer on its own device,
+    /// a peer binding on another.
+    ///
+    /// # Panics
+    ///
+    /// On memory of another runtime, or of a device this one cannot address.
+    #[track_caller]
+    fn bind_peer(&self, peer: PeerBinding) -> KernelResource {
+        let own = self.service_id();
+        let service = peer.binding().service;
+        if service == own {
+            return KernelResource::Buffer(peer.into_binding());
+        }
+        assert!(
+            service.service == own.service,
+            "a peer buffer of {service} was launched on {own}, of another runtime"
+        );
+        assert!(
+            self.reaches_peer(service.device),
+            "{own} cannot address the memory of {:?}: check `can_access_peer` before \
+             launching with a buffer of another device",
+            service.device
+        );
+        KernelResource::Peer(peer)
+    }
+
+    /// Whether kernels here can address the memory of `device`, cached per pair.
+    fn reaches_peer(&self, device: DeviceId) -> bool {
+        if let Some(reaches) = self.utilities.peer_access.read().get(&device) {
+            return *reaches;
+        }
+        let reaches = self
+            .device
+            .submit_blocking(move |server| server.can_access_peer(device))
+            .unwrap_or(false);
+        self.utilities.peer_access.write().insert(device, reaches);
+        reaches
     }
 
     /// Whether `binding` addresses this client's device. Memory coordinates
@@ -925,6 +973,51 @@ impl Client {
             });
     }
 
+    /// Whether kernels launched through this client can load, store and run
+    /// atomics on memory `peer` [shared](Self::share_with_peers).
+    pub fn can_access_peer(&self, peer: &Self) -> bool {
+        let peer_device = peer.device.device_id();
+        if peer.service_id().service != self.service_id().service
+            || peer_device == self.device.device_id()
+        {
+            return false;
+        }
+        self.reaches_peer(peer_device)
+    }
+
+    /// `handle`, shared with the other devices of this runtime, which bind it
+    /// through a `Peer` kernel parameter. The memory stays in place while the
+    /// returned handle lives.
+    ///
+    /// Nothing orders a peer's accesses against this device's work: sync the
+    /// writing device first, or hand off inside the kernels with system-scope
+    /// atomics.
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::NoDeviceTransport`] on a runtime without peer access,
+    /// [`ServerError::ForeignHandle`] for a handle of another client, and the
+    /// failure the buffer carries.
+    pub fn share_with_peers(&self, handle: &Handle) -> Result<Handle, ServerError> {
+        let mut handle = handle.clone();
+        let binding = handle.clone().binding();
+        self.local(&binding)?;
+        // Peer bindings add their own offsets to the allocation's address.
+        let whole = BufferBinding {
+            offset_start: None,
+            offset_end: None,
+            peer: None,
+            ..binding
+        };
+        let pin = whole.memory.clone();
+        let address = self
+            .device
+            .submit_blocking(move |server| server.peer_address(whole))
+            .closed_as_error()?;
+        handle.peer = Some(PeerMemory::new(pin, address, self.device.clone()));
+        Ok(handle)
+    }
+
     /// Transfer data from one client to another.
     ///
     /// `src` must be this client's. The bytes go device to device when both
@@ -1262,7 +1355,7 @@ impl Client {
         &self,
         kernel: Box<dyn CubeKernel>,
         count: CubeCount,
-        bindings: KernelArguments,
+        mut bindings: KernelArguments,
         stream_id: StreamId,
     ) {
         // No work, and some drivers reject a zero grid dim.
@@ -1274,11 +1367,28 @@ impl Client {
         if let CubeCount::Dynamic(binding) = &count {
             self.expect_local(binding);
         }
+        // A kernel with a `Peer` parameter may wait on another device, so it is
+        // flushed now: a host blocked on that device would never flush it.
+        let _reach_device_now = bindings
+            .peers()
+            .next()
+            .is_some()
+            .then(|| FlushOnDrop(&self.device));
+        if bindings.peers().next().is_some() {
+            let resources = core::mem::take(&mut bindings.resources);
+            bindings.resources = resources
+                .into_iter()
+                .map(|resource| match resource {
+                    KernelResource::Peer(peer) => self.bind_peer(peer),
+                    resource => resource,
+                })
+                .collect();
+        }
+        // Another device's memory binds only through a `Peer` parameter.
         for resource in &bindings.resources {
-            self.expect_local(match resource {
-                KernelResource::Buffer(binding) => binding,
-                KernelResource::TensorMap(map) => &map.binding,
-            });
+            if let Some(binding) = resource.local_binding() {
+                self.expect_local(binding);
+            }
         }
 
         crate::launched::note(|| kernel.id());

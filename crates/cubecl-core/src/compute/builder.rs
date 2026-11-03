@@ -51,6 +51,13 @@ impl KernelBuilder {
         self.scope.global(id, None, value_ty)
     }
 
+    /// Register a buffer in memory shared with the other devices of the runtime, and return the
+    /// [element](Value) to be used for kernel expansion.
+    pub fn peer_buffer(&mut self, value_ty: TypeHandle) -> Value {
+        let id = self.inc_buffer_id();
+        self.scope.peer_global(id, value_ty)
+    }
+
     /// Register a tensor and return the [element](Value) to be used for kernel expansion.
     pub fn tensor(&mut self, value_ty: TypeHandle) -> Value {
         let id = self.inc_buffer_id();

@@ -44,6 +44,8 @@ __builtin_amdgcn_wave_barrier();\n"
         // As on CUDA: `__syncthreads` is the block's own ordering, and the fence is what makes
         // this block's writes visible to the others.
         SyncScope::Device => "__threadfence();\n__syncthreads();\n",
+        // The same at the system's scope, which reaches the host and peer devices.
+        SyncScope::System => "__threadfence_system();\n__syncthreads();\n__threadfence_system();\n",
         SyncScope::Unit => "",
     }
     .into()

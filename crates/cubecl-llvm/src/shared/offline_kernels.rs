@@ -224,6 +224,30 @@ fn tally(input: &[f32], output: &mut [f32], tally: &[Atomic<u32>]) {
     tally[0].fetch_add(1u32);
 }
 
+/// [`tally`] counting into a `Peer` buffer, which kernels on other devices reach while it runs.
+#[cube(launch)]
+fn peer_tally(input: &[f32], output: &mut [f32], tally: &Peer<[Atomic<u32>]>) {
+    output[ABSOLUTE_POS] = input[ABSOLUTE_POS] * 2.0;
+    sync_system();
+    tally[0].fetch_add(1u32);
+}
+
+pub(crate) fn peer_tally_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    peer_tally::PeerTally::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        PeerCompilationArg,
+    )
+}
+
 pub(crate) fn tally_kernel() -> impl CubeKernel {
     let settings = KernelSettings::new(
         *CubeDim::new_1d(32),

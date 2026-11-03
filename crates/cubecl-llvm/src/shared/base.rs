@@ -294,7 +294,11 @@ impl PlironCompiler {
         ctx.set_plane_dim(plane_dim);
         ctx.set_wmma(arch.wmma());
 
-        let Lowered { io, atomic_reads } = lower(&mut ctx, &ir, &AmdGpuLowering { plane_dim })?;
+        let Lowered {
+            io,
+            atomic_reads,
+            peers,
+        } = lower(&mut ctx, &ir, &AmdGpuLowering { plane_dim })?;
 
         let shared_memory_size = ctx.shared_memory_size();
 
@@ -308,6 +312,7 @@ impl PlironCompiler {
                 shared_memory_size,
                 io,
                 atomic_reads,
+                peers,
             },
             kernel.settings.debug_info,
         )
@@ -339,8 +344,11 @@ impl PlironCompiler {
         ctx.set_plane_dim(plane_dim);
 
         let tensor_maps = crate::nvptx::tensor_map::TensorMapParams::new(&ctx, ir.entry_func);
-        let Lowered { io, atomic_reads } =
-            lower(&mut ctx, &ir, &NvptxLowering { plane_dim, arch })?;
+        let Lowered {
+            io,
+            atomic_reads,
+            peers,
+        } = lower(&mut ctx, &ir, &NvptxLowering { plane_dim, arch })?;
 
         let shared_memory_size = ctx.shared_memory_size();
 
@@ -364,6 +372,7 @@ impl PlironCompiler {
                 shared_memory_size,
                 io,
                 atomic_reads,
+                peers,
                 metadata,
                 tensor_maps,
             },
@@ -452,6 +461,9 @@ struct Lowered {
     /// The global buffers the kernel's atomics read.
     #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
     atomic_reads: AtomicReads,
+    /// The bindings of buffers in memory shared with peers.
+    #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+    peers: Vec<usize>,
 }
 
 fn lower(
@@ -518,6 +530,8 @@ fn lower(
     let io = cubecl_core::ir::attributes::buffer_io_by_position(ctx, entry_func);
     #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
     let atomic_reads = AtomicReads::of(ctx, module_op);
+    #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+    let peers = cubecl_core::ir::attributes::peer_buffer_positions(ctx, entry_func);
 
     let mut passes = OpPass::<ModuleOp, Passes>::default();
     passes.add_pass(NestedOpsPass::new(lowering_passes));
@@ -537,6 +551,8 @@ fn lower(
         io,
         #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
         atomic_reads,
+        #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+        peers,
     })
 }
 

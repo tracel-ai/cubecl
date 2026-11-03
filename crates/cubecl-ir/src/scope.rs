@@ -42,8 +42,9 @@ use crate::{
     AddressSpace, AddressType, DeviceProperties, ElemType, FastMath, TargetProperties, TypeHash,
     arena::DropBump,
     attributes::{
-        ATTR_BUFFER_BINDING, ATTR_KEY_ARG_ATTRS, ATTR_TENSOR_MAP_BINDING, BoolAttr,
-        BufferBindingAttr, EntrypointAbiAttr, EntrypointInterface, FuncInterface, IndexAttr,
+        ATTR_BUFFER_BINDING, ATTR_KEY_ARG_ATTRS, ATTR_PEER_BINDING, ATTR_TENSOR_MAP_BINDING,
+        BoolAttr, BufferBindingAttr, EntrypointAbiAttr, EntrypointInterface, FuncInterface,
+        IndexAttr, peer_buffer_positions,
     },
     debug::{DebugState, LocationListener},
     dialect::{
@@ -939,6 +940,33 @@ impl Scope {
         );
 
         entry_func.get_entry_block(ctx).deref(ctx).get_argument(id)
+    }
+
+    /// Obtain the index-th buffer, in memory shared with peers (see [`ATTR_PEER_BINDING`]).
+    pub fn peer_global(&self, buffer_pos: usize, value_ty: TypeHandle) -> Value {
+        let value = self.global(buffer_pos, None, value_ty);
+        let entry_func = self.state().entry_func;
+        let ctx = self.ctx_mut();
+        let id = entry_func
+            .get_entry_block(ctx)
+            .deref(ctx)
+            .get_num_arguments()
+            - 1;
+        entry_func.set_arg_attr_unit(ctx, id, &ATTR_PEER_BINDING);
+        value
+    }
+
+    /// Whether `ptr` points into a buffer in memory shared with peers.
+    pub fn is_peer_pointer(&self, ptr: Value) -> bool {
+        let ctx = self.ctx();
+        let binding = match ptr.get_type(ctx).deref(ctx).downcast_ref::<PointerType>() {
+            Some(PointerType {
+                address_space: AddressSpace::Global(binding),
+                ..
+            }) => *binding,
+            _ => return false,
+        };
+        peer_buffer_positions(ctx, self.state().entry_func).contains(&binding)
     }
 
     /// Obtain the index-th tensor map

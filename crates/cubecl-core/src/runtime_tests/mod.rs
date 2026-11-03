@@ -33,6 +33,7 @@ pub mod native_array;
 pub mod numeric;
 pub mod offline;
 pub mod out_of_memory;
+pub mod peer;
 pub mod plane;
 pub mod profiling;
 pub mod properties;
@@ -180,6 +181,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_to_client!();
         cubecl_core::testgen_all_reduce!();
         cubecl_core::testgen_collectives!();
+        cubecl_core::testgen_peer!();
 
         cubecl_core::testgen_control_flow!();
         cubecl_core::testgen_native_array!();
