@@ -20,7 +20,9 @@ use crate::memory_management::{
     ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, PageGuard, PageUpdate,
     StreamMemoryReport,
 };
-use crate::server::{BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ServerError};
+use crate::server::{
+    BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, PeerBinding, ServerError,
+};
 use crate::storage::ManagedResource;
 use crate::stream::ResolvedStreams;
 use crate::stream::TouchedPage;
@@ -545,6 +547,17 @@ impl<'a, D: Driver> Command<'a, D> {
         let fence = D::Stream::fence(self.streams.current().signal());
 
         Box::pin(async move { fence.wait() })
+    }
+
+    /// Keep `peers`, memory of other devices the next kernel binds, allocated
+    /// and in place there until the current stream is past that kernel. Their
+    /// owners order nothing against this stream, so this queue is what tells
+    /// them the memory is still in use.
+    pub fn hold_peers(&mut self, peers: impl IntoIterator<Item = PeerBinding>) {
+        let queue = self.streams.current().drop_queue();
+        for peer in peers {
+            queue.hold_peer(peer.binding);
+        }
     }
 
     /// Enqueue an already-compiled kernel on the current stream.

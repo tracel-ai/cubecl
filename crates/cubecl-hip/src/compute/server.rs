@@ -19,9 +19,12 @@ use cubecl_core::{
     prelude::*,
     server::{
         BufferBinding, ComputeWait, CopyDescriptor, Handle, KernelArguments, KernelResource,
-        ProfileError, ProfilingToken, Reduction, ServerCommunication, ServerError, ServerUtilities,
+        PeerBinding, ProfileError, ProfilingToken, Reduction, ServerCommunication, ServerError,
+        ServerUtilities,
     },
 };
+use cubecl_common::device::Device;
+use cubecl_server::device::AmdDevice;
 use cubecl_environment::future;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
@@ -40,12 +43,19 @@ use cubecl_server::{
     storage::{ComputeStorage, ManagedResource},
     stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
 };
+use std::collections::HashSet;
 use std::sync::Arc;
+
+use crate::compute::status::checked;
 
 #[derive(Debug)]
 pub struct HipServer {
     ctx: HipContext,
     device_id: DeviceId,
+    /// The devices whose memory kernels here can address: peer access is
+    /// enabled once per pair, the first time a kernel binds that device's
+    /// memory.
+    peers: HashSet<DeviceId>,
     streams: MultiStream<HipStreamBackend>,
     utilities: Arc<ServerUtilities>,
     collectives: Collectives<Hip>,
@@ -470,6 +480,46 @@ impl ServerCommunication for HipServer {
     ) -> Result<(), ServerError> {
         CollectiveServer::recv(self, handle, stream_id, device_id_src)
     }
+
+    fn can_access_peer(&mut self, peer: DeviceId) -> bool {
+        let own = AmdDevice::from_id(self.device_id).index as i32;
+        let other = AmdDevice::from_id(peer).index as i32;
+        let mut can = 0;
+        // SAFETY: `can` is a valid stack variable HIP writes through.
+        let status = unsafe { cubecl_hip_sys::hipDeviceCanAccessPeer(&mut can, own, other) };
+        checked("hipDeviceCanAccessPeer", status).is_ok() && can != 0
+    }
+
+    fn peer_address(&mut self, binding: BufferBinding) -> Result<u64, ServerError> {
+        // A peer reads these bytes with nothing ordering it behind a failed
+        // write here, so a buffer that carries a failure is not handed out.
+        self.streams.ensure_written([&binding].into_iter())?;
+        let stream = binding.stream;
+        let mut command = self.command(stream, [&binding].into_iter())?;
+        Ok(command.resource(binding)?.ptr as u64)
+    }
+}
+
+impl HipServer {
+    /// Let kernels on this device address the memory of `peer`, once.
+    ///
+    /// HIP maps every allocation of the peer, present and future, into this
+    /// device's address space, so the address the peer resolved is the one a
+    /// kernel here dereferences.
+    fn enable_peer(&mut self, peer: DeviceId) -> Result<(), ServerError> {
+        if self.peers.contains(&peer) {
+            return Ok(());
+        }
+        let index = AmdDevice::from_id(peer).index as i32;
+        // SAFETY: the server thread has its own device current, which is the
+        // device the access is granted to.
+        let status = unsafe { cubecl_hip_sys::hipDeviceEnablePeerAccess(index, 0) };
+        if status != cubecl_hip_sys::hipError_t_hipErrorPeerAccessAlreadyEnabled {
+            checked("hipDeviceEnablePeerAccess", status)?;
+        }
+        self.peers.insert(peer);
+        Ok(())
+    }
 }
 
 impl CollectiveServer for HipServer {
@@ -545,6 +595,7 @@ impl HipServer {
         Self {
             ctx,
             device_id,
+            peers: HashSet::new(),
             streams: MultiStream::new(
                 utilities.logger.clone(),
                 HipStreamBackend::new(
@@ -708,6 +759,16 @@ impl HipServer {
         bindings: KernelArguments,
         stream_id: StreamId,
     ) -> Result<(), ServerError> {
+        let peers: Vec<PeerBinding> = bindings.peers().cloned().collect();
+        for peer in &peers {
+            self.enable_peer(peer.binding.service.device)?;
+        }
+        // The kernel argument a peer buffer is passed through: HIP copies the
+        // arguments when the launch is enqueued, so these only have to
+        // outlive the call.
+        let peer_addresses: Vec<u64> = peers.iter().map(|peer| peer.address).collect();
+        let mut peer_slots = peer_addresses.iter();
+
         let mut command = self.command(stream_id, bindings.buffers())?;
 
         let KernelArguments {
@@ -724,12 +785,21 @@ impl HipServer {
             .map(|res| match res {
                 KernelResource::Buffer(b) => command.resource(b),
                 KernelResource::TensorMap(_) => panic!("Can't use tensor maps on HIP"),
+                KernelResource::Peer(peer) => {
+                    let slot = peer_slots.next().expect("one slot per peer binding");
+                    Ok(GpuResource::new(
+                        *slot as cubecl_hip_sys::hipDeviceptr_t,
+                        std::ptr::from_ref(slot) as *mut std::ffi::c_void,
+                        peer.size(),
+                    ))
+                }
             })
             .collect::<Result<Vec<_>, _>>()?;
 
         resources.push(command.resource(info_handle.binding())?);
 
         command.kernel(&kernel_id, kernel, count, &mut resources)?;
+        command.hold_peers(peers);
 
         Ok(())
     }

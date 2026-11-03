@@ -12,7 +12,7 @@ use crate::{
         ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode, StreamMemoryReport,
     },
     poison::DevicePoison,
-    server::{BufferBinding, KernelResource},
+    server::{BufferBinding, KernelResource, PeerBinding},
     storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
@@ -372,6 +372,8 @@ pub enum Collective {
     Recv,
     /// Waiting for queued collectives to finish.
     SyncCollective,
+    /// Letting kernels on other devices bind a device's memory.
+    PeerAccess,
 }
 
 impl Display for Collective {
@@ -386,6 +388,7 @@ impl Display for Collective {
             Self::Send => "send",
             Self::Recv => "recv",
             Self::SyncCollective => "sync_collective",
+            Self::PeerAccess => "peer_access",
         })
     }
 }
@@ -1211,6 +1214,31 @@ pub trait ServerCommunication {
     ) -> Result<(), ServerError> {
         Err(ServerError::no_device_transport(Collective::Recv))
     }
+
+    /// Whether kernels on this device can bind memory of `peer`, another
+    /// device of the same runtime.
+    ///
+    /// The default answers `false`.
+    #[allow(unused_variables)]
+    fn can_access_peer(&mut self, peer: DeviceId) -> bool {
+        false
+    }
+
+    /// The device address of the first byte of the allocation `binding`
+    /// names, for kernels on other devices to bind.
+    ///
+    /// The caller keeps the allocation bound for as long as it hands the
+    /// address out, which keeps it in place.
+    ///
+    /// # Errors
+    ///
+    /// The failure the buffer carries, so a peer never reads bytes a failed
+    /// launch left unwritten, and a binding that names no live allocation.
+    /// The default returns [`ServerError::NoDeviceTransport`].
+    #[allow(unused_variables)]
+    fn peer_address(&mut self, binding: BufferBinding) -> Result<u64, ServerError> {
+        Err(ServerError::no_device_transport(Collective::PeerAccess))
+    }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -1620,11 +1648,20 @@ impl KernelArguments {
         self
     }
 
-    /// The buffers this launch was given.
+    /// The buffers of this device this launch was given. Memory of other
+    /// devices is left out: no stream here orders it, and no failure here
+    /// taints it.
     pub fn buffers(&self) -> impl Iterator<Item = &BufferBinding> {
-        self.resources.iter().map(|resource| match resource {
-            KernelResource::Buffer(binding) => binding,
-            KernelResource::TensorMap(tensor_map) => &tensor_map.binding,
+        self.resources
+            .iter()
+            .filter_map(KernelResource::local_binding)
+    }
+
+    /// The memory of other devices this launch binds.
+    pub fn peers(&self) -> impl Iterator<Item = &PeerBinding> {
+        self.resources.iter().filter_map(|resource| match resource {
+            KernelResource::Peer(peer) => Some(peer),
+            _ => None,
         })
     }
 
@@ -1650,9 +1687,11 @@ impl KernelArguments {
         &'a self,
         io: Option<&'a [BufferIOAttr]>,
     ) -> impl Iterator<Item = &'a BufferBinding> {
-        self.buffers()
+        self.resources
+            .iter()
             .enumerate()
-            .filter_map(move |(index, binding)| {
+            .filter_map(move |(index, resource)| {
+                let binding = resource.local_binding()?;
                 let written = self
                     .io_attr(io, index)
                     .map(|io| io.is_writable())
@@ -1674,9 +1713,11 @@ impl KernelArguments {
         &'a self,
         io: Option<&'a [BufferIOAttr]>,
     ) -> impl Iterator<Item = &'a BufferBinding> {
-        self.buffers()
+        self.resources
+            .iter()
             .enumerate()
-            .filter_map(move |(index, binding)| {
+            .filter_map(move |(index, resource)| {
+                let binding = resource.local_binding()?;
                 let read = self
                     .io_attr(io, index)
                     .map(|io| io.is_readable())

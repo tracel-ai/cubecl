@@ -147,7 +147,7 @@ impl KernelLauncher {
             // still be a store's destination — so the declaration is clamped
             // to the same answer the visibility analysis gives it.
             KernelResource::TensorMap(_) => BufferIOAttr::ReadWrite,
-            KernelResource::Buffer(_) => self.declaring,
+            KernelResource::Buffer(_) | KernelResource::Peer(_) => self.declaring,
         };
         self.declared_io.push(io);
         self.resources.push(resource);

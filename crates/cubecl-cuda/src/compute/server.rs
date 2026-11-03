@@ -11,8 +11,8 @@ use cubecl_core::{
     prelude::*,
     server::{
         BufferBinding, ComputeWait, CopyDescriptor, Handle, KernelArguments, KernelResource,
-        LaunchError, ProfileError, ProfilingToken, Reduction, ServerCommunication, ServerError,
-        ServerUtilities, TensorMapBinding, TensorMapMeta,
+        LaunchError, PeerBinding, ProfileError, ProfilingToken, Reduction, ServerCommunication,
+        ServerError, ServerUtilities, TensorMapBinding, TensorMapMeta,
     },
     zspace::SmallVec,
 };
@@ -36,6 +36,9 @@ use cudarc::driver::sys::{
     CUstream, CUtensorMap, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapInterleave,
     CUtensorMapL2promotion, CUtensorMapSwizzle, cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
 };
+use cubecl_common::device::Device;
+use cubecl_server::device::CudaDevice;
+use std::collections::HashSet;
 use std::{ffi::c_void, sync::Arc};
 
 /// Stage `words` into a device buffer, reusing a cached one when a launch has
@@ -77,6 +80,10 @@ fn info_buffer(command: &mut Command<'_>, words: &[u64]) -> Result<Handle, Serve
 pub struct CudaServer {
     ctx: CudaContext,
     device_id: DeviceId,
+    /// The devices whose memory kernels here can address: peer access is
+    /// enabled once per pair, the first time a kernel binds that device's
+    /// memory.
+    peers: HashSet<DeviceId>,
     streams: MultiStream<CudaStreamBackend>,
     utilities: Arc<ServerUtilities>,
     /// The groups this device has joined — see [`Collectives`].
@@ -515,6 +522,72 @@ impl ServerCommunication for CudaServer {
     ) -> Result<(), ServerError> {
         CollectiveServer::recv(self, handle, stream_id, device_id_src)
     }
+
+    fn can_access_peer(&mut self, peer: DeviceId) -> bool {
+        let (Ok(own), Ok(other)) = (cuda_device(self.device_id), cuda_device(peer)) else {
+            return false;
+        };
+        let mut can = 0;
+        // SAFETY: `can` is a valid stack variable the driver writes through.
+        let status = unsafe { cudarc::driver::sys::cuDeviceCanAccessPeer(&mut can, own, other) };
+        status.result().is_ok() && can != 0
+    }
+
+    fn peer_address(&mut self, binding: BufferBinding) -> Result<u64, ServerError> {
+        // A peer reads these bytes with nothing ordering it behind a failed
+        // write here, so a buffer that carries a failure is not handed out.
+        self.streams.ensure_written([&binding].into_iter())?;
+        let stream = binding.stream;
+        let mut command = self.command(stream, [&binding].into_iter())?;
+        Ok(command.resource(binding)?.ptr)
+    }
+}
+
+/// The driver's handle on the device `device_id` names.
+fn cuda_device(device_id: DeviceId) -> Result<cudarc::driver::sys::CUdevice, ServerError> {
+    let index = CudaDevice::from_id(device_id).index as i32;
+    cudarc::driver::result::device::get(index).map_err(|err| ServerError::Generic {
+        reason: format!("cuDeviceGet({index}) failed: {err}"),
+        backtrace: BackTrace::capture(),
+    })
+}
+
+impl CudaServer {
+    /// Let kernels on this device address the memory of `peer`, once.
+    ///
+    /// Unified addressing maps every allocation of the peer, present and
+    /// future, into this context, so the address the peer resolved is the one
+    /// a kernel here dereferences.
+    fn enable_peer(&mut self, peer: DeviceId) -> Result<(), ServerError> {
+        if self.peers.contains(&peer) {
+            return Ok(());
+        }
+        let device = cuda_device(peer)?;
+        // SAFETY: the peer's primary context is retained for the call and
+        // released after: its own server holds it for as long as it runs, and
+        // the access lives as long as both contexts do. The server thread has
+        // this device's context current, which is the one granted access.
+        let status = unsafe {
+            let peer_ctx = cudarc::driver::result::primary_ctx::retain(device).map_err(|err| {
+                ServerError::Generic {
+                    reason: format!("retaining the context of {peer:?} failed: {err}"),
+                    backtrace: BackTrace::capture(),
+                }
+            })?;
+            let status = cudarc::driver::sys::cuCtxEnablePeerAccess(peer_ctx, 0);
+            // Releasing what was retained above cannot fail on a live device.
+            let _ = cudarc::driver::result::primary_ctx::release(device);
+            status
+        };
+        if status != cudarc::driver::sys::CUresult::CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED {
+            status.result().map_err(|err| ServerError::Generic {
+                reason: format!("cuCtxEnablePeerAccess to {peer:?} failed: {err}"),
+                backtrace: BackTrace::capture(),
+            })?;
+        }
+        self.peers.insert(peer);
+        Ok(())
+    }
 }
 
 impl CollectiveServer for CudaServer {
@@ -591,6 +664,7 @@ impl CudaServer {
         Self {
             ctx,
             device_id,
+            peers: HashSet::new(),
             streams: MultiStream::new(
                 utilities.logger.clone(),
                 CudaStreamBackend::new(
@@ -770,6 +844,16 @@ impl CudaServer {
             .cpp
             .supports_features
             .grid_constants;
+        let peers: Vec<PeerBinding> = bindings.peers().cloned().collect();
+        for peer in &peers {
+            self.enable_peer(peer.binding.service.device)?;
+        }
+        // The kernel argument a peer buffer is passed through: the driver
+        // copies the arguments when the launch is enqueued, so these only have
+        // to outlive the call.
+        let peer_addresses: Vec<u64> = peers.iter().map(|peer| peer.address).collect();
+        let mut peer_slots = peer_addresses.iter();
+
         let mut command = self.command(stream_id, bindings.buffers())?;
 
         let (info_const, info_binding) = if grid_constants {
@@ -816,6 +900,10 @@ impl CudaServer {
                     resources.push(&*tensor_map as *const _ as *mut c_void);
                     tensor_maps.push(tensor_map);
                 }
+                KernelResource::Peer(_) => {
+                    let slot = peer_slots.next().expect("one slot per peer binding");
+                    resources.push(std::ptr::from_ref(slot) as *mut c_void);
+                }
             }
         }
 
@@ -825,6 +913,7 @@ impl CudaServer {
         resources.extend(info_const);
 
         command.kernel(&kernel_id, kernel, count, &mut resources)?;
+        command.hold_peers(peers);
 
         Ok(())
     }

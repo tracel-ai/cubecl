@@ -7,7 +7,8 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
         BufferBinding, Collective, CommunicationId, ComputeWait, CopyDescriptor, CubeCount, Handle,
-        KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
+        KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor, PeerBinding,
+        PeerMemory,
         MemoryLayoutStrategy, ProfileError, ProfilingToken, ReduceOperation, Reduction, Server,
         ServerError, ServerStorage, ServerUtilities,
     },
@@ -300,6 +301,24 @@ impl Client {
     /// Whether `binding` addresses this client's device. Memory coordinates
     /// mean nothing on another device, so a foreign binding is refused here,
     /// before anything is submitted, rather than read there.
+    /// Turn a buffer of another device of this runtime, shared with its
+    /// peers, into the peer binding a kernel here binds it through. Anything
+    /// else is left for the locality check to judge.
+    fn bind_peer(&self, resource: &mut KernelResource) {
+        let KernelResource::Buffer(binding) = resource else {
+            return;
+        };
+        let own = self.service_id();
+        if binding.service == own
+            || binding.service.service != own.service
+            || binding.peer.is_none()
+        {
+            return;
+        }
+        let peer = PeerBinding::new(binding.clone()).expect("checked that it was shared");
+        *resource = KernelResource::Peer(peer);
+    }
+
     fn local(&self, binding: &BufferBinding) -> Result<(), ServerError> {
         let client = self.service_id();
         if binding.service == client {
@@ -925,6 +944,66 @@ impl Client {
             });
     }
 
+    /// Whether kernels launched through this client can bind memory `peer`
+    /// [shared](Self::share_with_peers).
+    ///
+    /// Only devices of the same runtime reach each other's memory, and only
+    /// where the hardware and the driver allow it: a device answers `false`
+    /// for itself and for a runtime with no peer access at all.
+    pub fn can_access_peer(&self, peer: &Self) -> bool {
+        let peer_device = peer.device.device_id();
+        if peer.service_id().service != self.service_id().service
+            || peer_device == self.device.device_id()
+        {
+            return false;
+        }
+        self.device
+            .submit_blocking(move |server| server.can_access_peer(peer_device))
+            .unwrap_or(false)
+    }
+
+    /// `handle`, shared with the other devices of this runtime: kernels
+    /// launched on a device that [can access](Self::can_access_peer) this one
+    /// bind it like one of their own buffers, and read and write this
+    /// device's memory directly.
+    ///
+    /// The memory stays in place for as long as the returned handle or any
+    /// clone of it lives, so share a buffer that is used many times, such as
+    /// one a group of kernels exchanges data through, rather than every
+    /// temporary.
+    ///
+    /// Nothing orders a peer's accesses against this device's work. A kernel
+    /// on another device reads what the memory holds when it runs, so
+    /// [`sync`](Self::sync) this client first, or hand off inside the kernels
+    /// through system-scope atomics. The same holds the other way: sync the
+    /// peer before this device reads what the peer's kernel wrote. A failed
+    /// peer kernel does not taint the memory it was writing here.
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::NoDeviceTransport`] on a runtime without peer access,
+    /// [`ServerError::ForeignHandle`] for a handle of another client, and the
+    /// failure the buffer carries.
+    pub fn share_with_peers(&self, mut handle: Handle) -> Result<Handle, ServerError> {
+        let binding = handle.clone().binding();
+        self.local(&binding)?;
+        // The address of the allocation's first byte: a peer binding adds the
+        // offsets of whatever slice of it a kernel binds.
+        let whole = BufferBinding {
+            offset_start: None,
+            offset_end: None,
+            peer: None,
+            ..binding
+        };
+        let pin = whole.memory.clone();
+        let address = self
+            .device
+            .submit_blocking(move |server| server.peer_address(whole))
+            .closed_as_error()?;
+        handle.peer = Some(PeerMemory::new(pin, address));
+        Ok(handle)
+    }
+
     /// Transfer data from one client to another.
     ///
     /// `src` must be this client's. The bytes go device to device when both
@@ -1262,7 +1341,7 @@ impl Client {
         &self,
         kernel: Box<dyn CubeKernel>,
         count: CubeCount,
-        bindings: KernelArguments,
+        mut bindings: KernelArguments,
         stream_id: StreamId,
     ) {
         // No work, and some drivers reject a zero grid dim.
@@ -1274,11 +1353,11 @@ impl Client {
         if let CubeCount::Dynamic(binding) = &count {
             self.expect_local(binding);
         }
-        for resource in &bindings.resources {
-            self.expect_local(match resource {
-                KernelResource::Buffer(binding) => binding,
-                KernelResource::TensorMap(map) => &map.binding,
-            });
+        for resource in &mut bindings.resources {
+            self.bind_peer(resource);
+            if let Some(binding) = resource.local_binding() {
+                self.expect_local(binding);
+            }
         }
 
         crate::launched::note(|| kernel.id());
