@@ -187,6 +187,10 @@ impl AllocationController for NativeAllocationController<'_> {
         AllocationProperty::Native
     }
 
+    fn may_alias_mutable_storage(&self) -> bool {
+        false
+    }
+
     // SAFETY: Per type invariants, we only take in memory allocated with the rust core allocator.
     fn try_detach(&mut self) -> Option<NonNull<u8>> {
         let ptr = self.allocation.ptr;
