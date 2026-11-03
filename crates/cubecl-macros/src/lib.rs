@@ -8,7 +8,7 @@ use parse::{
     cube_impl::CubeImpl,
     cube_trait::{CubeTrait, CubeTraitImpl},
     helpers::RemoveHelpers,
-    kernel::{Launch, from_tokens},
+    kernel::{KernelArgs, Launch, from_tokens},
 };
 use proc_macro::TokenStream;
 use quote::quote;
@@ -20,7 +20,8 @@ use crate::{
         into_runtime::generate_into_runtime,
     },
     parse::{
-        cube_type::generate_cube_type, derive_expand::generate_derive_expand,
+        cube_type::{generate_cube_harness, generate_cube_type},
+        derive_expand::generate_derive_expand,
         helpers::ReplaceDefines,
     },
 };
@@ -42,6 +43,16 @@ mod statement;
 /// * `debug` - panics after generation to print the output to console
 /// * `create_dummy_kernel` - Generates a function to create a kernel without launching it. Used for
 ///   testing.
+/// * `harness` - generates a `harness` function that runs the function on a single unit of a
+///   runtime and returns its result to the host, so a test can call `f::harness::<R>(..)` instead
+///   of writing a kernel, buffers and a read back by hand. Every parameter must be a scalar, a
+///   slice or array of scalars, a comptime scalar or a cube type that derives `CubeHarness`, and
+///   the function must return them or a tuple of them, or nothing when it writes into a mutable
+///   slice. The harness is gated:
+///   * `harness` - same as `harness(cfg(test))`
+///   * `harness(cfg(<predicate>))` - compiled under `#[cfg(<predicate>)]`. The predicate is
+///     evaluated in the crate using the macro, so `feature = "..."` names one of its features.
+///   * `harness(always)` - ungated
 ///
 /// # Trait arguments
 /// * `expand_base_traits` - base traits for the expanded "second half" of a trait with methods.
@@ -55,6 +66,20 @@ mod statement;
 ///     a + b
 /// }
 /// ```
+///
+/// # Harness example
+///
+/// ```ignored
+/// #[cube(harness)]
+/// fn add<F: Float>(x: F, y: F) -> F {
+///     x + y
+/// }
+///
+/// #[test]
+/// fn adds() {
+///     assert_eq!(add::harness::<CpuRuntime, f32>(1.0, 2.0), 3.0);
+/// }
+/// ```
 #[proc_macro_attribute]
 pub fn cube(args: TokenStream, input: TokenStream) -> TokenStream {
     match cube_impl(args, input.clone()) {
@@ -65,7 +90,14 @@ pub fn cube(args: TokenStream, input: TokenStream) -> TokenStream {
 
 fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
     let mut item: Item = syn::parse(input)?;
-    let args = from_tokens(args.into())?;
+    let args: KernelArgs = from_tokens(args.into())?;
+
+    if args.harness.is_some() && !matches!(item, Item::Fn(_)) {
+        return Err(syn::Error::new_spanned(
+            item,
+            "`harness` is only supported on functions",
+        ));
+    }
 
     let tokens = match item.clone() {
         Item::Fn(kernel) => {
@@ -140,6 +172,29 @@ pub fn module_derive_cube_launch(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(CubeType, attributes(cube, expand))]
 pub fn module_derive_cube_type(input: TokenStream) -> TokenStream {
     gen_cube_type(input, false)
+}
+
+/// Derive macro to let a cube type cross between the host and a cube
+/// function's `harness`, as an input or an output. The type must also derive
+/// `CubeType` and `CubeLaunch`.
+///
+/// Its impls are gated like a harness, by `cfg(test)` unless another gate is
+/// given with `#[cube(harness(cfg(<predicate>)))]` or `#[cube(harness(always))]`.
+/// It must be at least as permissive as the gate of every harness using the
+/// type.
+#[proc_macro_derive(CubeHarness, attributes(cube, launch))]
+pub fn module_derive_cube_harness(input: TokenStream) -> TokenStream {
+    let parsed = syn::parse(input);
+
+    let input = match &parsed {
+        Ok(val) => val,
+        Err(err) => return err.to_compile_error().into(),
+    };
+
+    match generate_cube_harness(input) {
+        Ok(val) => val.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
 }
 
 fn gen_cube_type(input: TokenStream, with_launch: bool) -> TokenStream {

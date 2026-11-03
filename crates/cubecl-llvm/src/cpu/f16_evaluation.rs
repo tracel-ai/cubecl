@@ -3,12 +3,12 @@
 use crate::prelude::*;
 use cubecl_core::ir::{
     dialect::{
-        branch::{RangeLoopOp, WhileOp},
         cmp::{FMaxOp, FMinOp},
         general::CastOp,
         math::{FAddOp, FDivOp, FMulOp, FNegOp, FRemOp, FSubOp, FmaOp, RecipOp, RsqrtOp, SqrtOp},
         memory::{DeclareVariableOp, LoadOp, StoreOp},
     },
+    interfaces::control_flow::LoopLikeOpInterface,
     try_cast_op,
     types::{
         PointerType, VectorType,
@@ -164,7 +164,7 @@ fn widen(
     let cast = CastOp::new(ctx, wide_ty, value);
     match value.defining_op() {
         Some(definition) => cast.get_operation().insert_after(ctx, definition),
-        None => match value.get_defining_block(ctx) {
+        None => match value.get_parent_block(ctx) {
             Some(block) => cast.get_operation().insert_at_front(block, ctx),
             None => cast.get_operation().insert_before(ctx, user),
         },
@@ -431,7 +431,7 @@ fn loop_depth(ctx: &Context, op: Ptr<Operation>) -> usize {
     let mut depth = 0;
     let mut current = op;
     while let Some(parent) = current.deref(ctx).get_parent_op(ctx) {
-        if parent.is_op::<RangeLoopOp>(ctx) || parent.is_op::<WhileOp>(ctx) {
+        if parent.impls::<dyn LoopLikeOpInterface>(ctx) {
             depth += 1;
         }
         current = parent;

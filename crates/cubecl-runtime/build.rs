@@ -13,4 +13,10 @@ fn main() {
         exclusive_memory_only: { any(feature = "exclusive-memory-only", target_family = "wasm") },
         multi_threading: { all(feature = "std", not(target_family = "wasm")) },
     }
+
+    // Cargo sets `DEBUG` from the `debug` key of the profile this crate is built with.
+    println!("cargo::rustc-check-cfg=cfg(cubecl_debug_info)");
+    if std::env::var("DEBUG").is_ok_and(|debug| debug == "true") {
+        println!("cargo:rustc-cfg=cubecl_debug_info");
+    }
 }

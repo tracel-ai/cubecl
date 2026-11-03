@@ -27,6 +27,10 @@ impl AllocationController for CpuAllocController {
         AllocationProperty::Other
     }
 
+    fn may_alias_mutable_storage(&self) -> bool {
+        self.private.is_none()
+    }
+
     /// SAFETY:
     /// - The caller must ensure only initialized memory is written.
     // Reads are zero-copy: the returned memory aliases the live pool allocation, which the

@@ -28,7 +28,7 @@ impl AmdWmma {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AMDArchitecture {
     // RDNA
-    // gfx1200, gfx1201 (RDNA4)
+    // gfx1200, gfx1201 (RDNA4). gfx1250 is no RDNA4: its WMMA forms differ.
     GFX12,
     // gfx1100, gfx1101, gfx1102
     GFX11,
@@ -36,6 +36,9 @@ pub enum AMDArchitecture {
     GFX103,
     // gfx1010 through gfx1013 (RDNA1): wave32, but no WMMA, which arrives with RDNA3
     GFX101,
+    // GCN5 (Vega)
+    // gfx900, gfx902, gfx904, gfx906, gfx909, gfx90c: wave64, with neither WMMA nor MFMA
+    GFX9,
     // CDNA
     GFX908,
     GFX90A,
@@ -64,14 +67,17 @@ impl AMDArchitecture {
             | AMDArchitecture::GFX103
             | AMDArchitecture::GFX11
             | AMDArchitecture::GFX12 => Some(32),
-            AMDArchitecture::GFX908 | AMDArchitecture::GFX90A | AMDArchitecture::GFX94 => Some(64),
+            AMDArchitecture::GFX9
+            | AMDArchitecture::GFX908
+            | AMDArchitecture::GFX90A
+            | AMDArchitecture::GFX94 => Some(64),
             AMDArchitecture::Other => None,
         }
     }
 
     pub fn parse(arg: &str) -> Result<Self, String> {
         let norm = arg.to_lowercase();
-        if norm.starts_with("gfx12") {
+        if norm.starts_with("gfx120") {
             Ok(AMDArchitecture::GFX12)
         } else if norm.starts_with("gfx11") {
             Ok(AMDArchitecture::GFX11)
@@ -83,6 +89,11 @@ impl AMDArchitecture {
             Ok(AMDArchitecture::GFX908)
         } else if norm == "gfx90a" {
             Ok(AMDArchitecture::GFX90A)
+        } else if matches!(
+            norm.as_str(),
+            "gfx900" | "gfx902" | "gfx904" | "gfx906" | "gfx909" | "gfx90c"
+        ) {
+            Ok(AMDArchitecture::GFX9)
         } else if norm.starts_with("gfx94") {
             Ok(AMDArchitecture::GFX94)
         } else {
@@ -163,9 +174,11 @@ mod tests {
     fn a_device_has_one_wave_width_and_one_wmma() {
         for (name, plane_dim, wmma) in [
             ("gfx1201", Some(32), Some(AmdWmma::Rdna4)),
+            ("gfx1250", None, None),
             ("gfx1100", Some(32), Some(AmdWmma::Rdna3)),
             ("gfx1030", Some(32), None),
             ("gfx1010", Some(32), None),
+            ("gfx90c", Some(64), None),
             ("gfx90a", Some(64), None),
             ("gfx942", Some(64), None),
         ] {
@@ -184,6 +197,27 @@ mod tests {
         assert_eq!(GfxArch::parse("gfx1010").plane_dim(), Some(32));
         assert_eq!(GfxArch::parse("gfx1030").plane_dim(), Some(32));
         assert_eq!(GfxArch::parse("gfx1010").wmma(), None);
+    }
+
+    /// GCN5 shares the `gfx90` prefix with CDNA1 and CDNA2, which have MFMA.
+    #[test]
+    fn gcn5_is_not_cdna() {
+        for name in [
+            "gfx900",
+            "gfx902",
+            "gfx904",
+            "gfx906",
+            "gfx909",
+            "gfx90c:xnack+",
+        ] {
+            assert_eq!(
+                GfxArch::parse(name).family(),
+                AMDArchitecture::GFX9,
+                "{name}"
+            );
+        }
+        assert_eq!(GfxArch::parse("gfx908").family(), AMDArchitecture::GFX908);
+        assert_eq!(GfxArch::parse("gfx90a").family(), AMDArchitecture::GFX90A);
     }
 
     /// An architecture the table has never heard of reports no width rather than guessing

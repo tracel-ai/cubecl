@@ -19,7 +19,7 @@ use cubecl_server::id::KernelId;
 use cubecl_server::memory_management::drop_queue::PendingDropQueue;
 use cubecl_server::memory_management::{ManagedMemoryBinding, MemoryManagement};
 use cubecl_server::metadata_cache::MetadataInfoCache;
-use cubecl_server::server::{Handle, IoError, LaunchError};
+use cubecl_server::server::{Handle, IoError, LaunchError, ServerError};
 use cubecl_server::storage::PinnedMemoryAllocController;
 use cubecl_server::stream::StreamCapture;
 
@@ -59,7 +59,7 @@ impl DeviceStream for Stream {
 }
 
 /// HIP, as the shared command sees it.
-pub(crate) struct Hip;
+pub struct Hip;
 
 impl Driver for Hip {
     type Backend = HipStreamBackend;
@@ -212,5 +212,12 @@ impl Driver for Hip {
         args: &mut [GpuResource],
     ) -> Result<(), LaunchError> {
         ctx.execute_task(stream, id, kernel, count, args)
+    }
+
+    fn wait_outside_streams(ctx: &mut HipContext) -> Result<(), ServerError> {
+        // Collectives and transfers run on streams of their own: one still
+        // reading or writing an allocation has to finish before it moves.
+        Fence::new(ctx.comm_stream).wait_sync()?;
+        Fence::new(ctx.transfer_stream).wait_sync()
     }
 }

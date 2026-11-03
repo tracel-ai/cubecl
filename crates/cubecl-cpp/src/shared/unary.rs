@@ -92,6 +92,28 @@ function!(RcbrtOp, "rcbrt", no_half);
 // function!(FastInverseSqrt, "__frsqrt_rn", false);
 function!(ExpOp, "exp", packable, no_msl_bfloat);
 // function!(FastExp, "__expf", false);
+
+// On CUDA a float lowers to the hardware base-2 exponential (one `MUFU.EX2`). The libm `exp2f`
+// adds a denormal-range fixup around it; `exp2` promises no more than the hardware gives.
+shared_op_with_out!(Exp2Op, |op, ctx| {
+    let input = op.input(ctx);
+    if ctx.target() == Target::Cuda && input.is_float32(ctx) {
+        let input = input.name(ctx);
+        format!(
+            r#"[&] {{
+    float result;
+    asm("ex2.approx.ftz.f32 %0, %1;" : "=f"(result) : "f"({input}));
+    return result;
+}}()"#
+        )
+    } else {
+        let prefix = ctx.target().ty_prefix(ctx, input);
+        format!("{prefix}exp2({})", input.name(ctx))
+    }
+});
+unrolling!(Exp2Op);
+packable!(Exp2Op);
+no_msl_bfloat!(Exp2Op);
 function!(Expm1Op, "expm1", no_half);
 function!(CeilOp, "ceil", packable, no_msl_bfloat);
 function!(TruncOp, "trunc", packable, no_msl_bfloat);
@@ -101,6 +123,7 @@ function!(RoundOp, "rint", packable, no_msl_bfloat);
 // function!(FastTanhOp, "__tanhf", false);
 
 function!(ErfOp, "erf", no_half);
+function!(Log1pOp, "log1p", no_half);
 
 shared_op_with_out!(SAbsOp, |op, ctx| {
     format!("abs({})", op.input(ctx).name(ctx))
@@ -309,12 +332,17 @@ fn trailing_zeros<T: Int, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {
 }
 
 #[cube]
+pub(crate) fn tanh_via_f32<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
+    Vector::cast_from(Vector::<f32, N>::cast_from(input).tanh())
+}
+
+#[cube]
 fn count_ones<T: Scalar, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {
     Vector::<u32, N>::cast_from(Vector::<u32, N>::cast_from(input).count_ones())
 }
 
 lower_unop!(RecipOp, recip);
-lower_unop!(Log1pOp, log1p);
+lower_unop!(Log1pOp, log1p, |_, ctx| ctx.target() == Target::Metal);
 lower_unop!(DegreesOp, to_degrees);
 lower_unop!(RadiansOp, to_radians);
 lower_unop!(FindFirstSetOp, find_first_set, |_, ctx| {
@@ -398,5 +426,74 @@ impl LowerOp for AtomicUniformLoadOp {
         ));
         let ptr = self.ptr(scope.ctx());
         vec![scope.register_with_result(&AtomicLoadOp::new(scope.ctx_mut(), ptr))]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        shared::lowering::LowerOp,
+        shared::operation::OpToCPP,
+        target::{CtxTarget, Target},
+    };
+    use cubecl_core::ir::{ConstantValue, ElemType, FloatKind};
+    use pliron::{attribute::boxed_attr_cast, builtin::ops::ConstantOp};
+
+    /// `log1p`'s native emission and whether this target needs the polyfill.
+    fn log1p(target: Target) -> (String, bool) {
+        let mut ctx = Context::new();
+        ctx.set_target(target);
+        let attr = ConstantValue::Float(1.0e-7).as_attribute(&ctx, ElemType::Float(FloatKind::F32));
+        let attr = boxed_attr_cast(attr).unwrap();
+        let input = ConstantOp::new(&mut ctx, attr).get_result(&ctx);
+        let op = Log1pOp::new(&mut ctx, input);
+        let should_lower = <Log1pOp as LowerOp<Shared>>::should_lower(&op, &ctx);
+        (OpToCPP::<Shared>::to_cpp(&op, &ctx), should_lower)
+    }
+
+    #[test]
+    fn log1p_is_emitted_natively_where_the_target_has_it() {
+        let (cpp, should_lower) = log1p(Target::Cuda);
+        assert!(cpp.contains("log1p("), "expected a native call, got {cpp}");
+        assert!(!cpp.contains(".ln()"), "expected no polyfill, got {cpp}");
+        assert!(!should_lower, "CUDA must not take the polyfill: {cpp}");
+    }
+
+    /// `exp2`'s emission for an `f32` input.
+    fn exp2(target: Target) -> String {
+        let mut ctx = Context::new();
+        ctx.set_target(target);
+        let attr = ConstantValue::Float(0.5).as_attribute(&ctx, ElemType::Float(FloatKind::F32));
+        let attr = boxed_attr_cast(attr).unwrap();
+        let input = ConstantOp::new(&mut ctx, attr).get_result(&ctx);
+        let op = Exp2Op::new(&mut ctx, input);
+        OpToCPP::<Shared>::to_cpp(&op, &ctx)
+    }
+
+    #[test]
+    fn exp2_is_the_raw_hardware_instruction_on_cuda() {
+        let cpp = exp2(Target::Cuda);
+        assert!(
+            cpp.contains("ex2.approx.ftz.f32"),
+            "expected the raw instruction, got {cpp}"
+        );
+    }
+
+    #[test]
+    fn exp2_is_the_native_function_elsewhere() {
+        for target in [Target::Hip, Target::Metal] {
+            let cpp = exp2(target);
+            assert!(cpp.contains("exp2("), "expected a native call, got {cpp}");
+        }
+    }
+
+    #[test]
+    fn log1p_keeps_the_polyfill_where_the_target_lacks_it() {
+        let (_, should_lower) = log1p(Target::Metal);
+        assert!(
+            should_lower,
+            "MSL has no log1p, so Metal needs the polyfill"
+        );
     }
 }

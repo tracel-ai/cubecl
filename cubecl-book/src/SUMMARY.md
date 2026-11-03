@@ -22,3 +22,4 @@
   - [WebAssembly Startup](./advanced-usage/webassembly.md)
   - [Configuration](./advanced-usage/config.md)
   - [Math Optimizations](./advanced-usage/math_optimizations.md)
+  - [Profiling Kernels](./advanced-usage/profiling.md)

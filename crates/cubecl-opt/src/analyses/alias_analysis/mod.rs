@@ -81,6 +81,9 @@ impl AliasAnalysisStack {
                     effect_res &= analysis.mod_ref(ctx, lhs_effect, rhs_effect);
                 }
                 result |= effect_res;
+                if result == ModRefResult::ModRef {
+                    return result;
+                }
             }
         }
 

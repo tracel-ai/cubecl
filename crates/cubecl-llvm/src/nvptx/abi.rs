@@ -6,10 +6,12 @@ use crate::{
     shared::{
         builtins::InsertGpuBuiltinsPass,
         metadata::{CtxGridConstants, rebuild_func_type},
+        native_decode::NativeDecode,
     },
 };
 use cubecl_core::ir::attributes::ATTR_TENSOR_MAP_BINDING;
-use cubecl_opt::passes::alloc_shared_memory::AllocateSharedMemoryBlockPass;
+use cubecl_core::ir::nvidia::SmArch;
+use cubecl_opt::passes::{alloc_shared_memory::AllocateSharedMemoryBlockPass, pre::SSCMPre};
 
 #[derive(Debug, Default)]
 pub struct PtxKernelParams;
@@ -69,6 +71,8 @@ impl EntryArgLayout for PtxKernelParams {
 pub struct NvptxLowering {
     /// Device warp width.
     pub plane_dim: u32,
+    /// The device compiled for.
+    pub arch: SmArch,
 }
 
 impl TargetLowering for NvptxLowering {
@@ -85,5 +89,13 @@ impl TargetLowering for NvptxLowering {
 
     fn arg_layout(&self) -> Box<dyn EntryArgLayout> {
         Box::new(PtxKernelParams)
+    }
+
+    fn pre(&self, passes: &mut OpPass<ModuleOp, Passes>) {
+        passes.add_pass(SSCMPre);
+    }
+
+    fn native_decodes(&self) -> &'static [NativeDecode] {
+        crate::nvptx::native_decode::native_decodes(&self.arch)
     }
 }

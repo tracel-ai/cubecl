@@ -21,7 +21,7 @@ workspace = true
 
 [features]
 default = []
-export_tests = ["test-log/trace"]
+export_tests = ["dep:approx", "test-log/trace"]
 
 tracing = [
     "cubecl-common/tracing",
@@ -31,6 +31,7 @@ tracing = [
 
 
 [dependencies]
+approx = { workspace = true, optional = true }
 test-log = { workspace = true, optional = true }
 
 cubecl-common = { workspace = true, features = [

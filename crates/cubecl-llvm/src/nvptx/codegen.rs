@@ -11,15 +11,22 @@ use crate::{
     shared::{
         NvptxModule,
         buffer_params::{AtomicReads, annotate_buffer_params},
+        debug_info::{check_debug_info, convert_module},
         llvm_module::{EntryFunction, LlvmModule, TargetMachine, TargetSpec},
         llvm_options::{read_llvm_options, set_llvm_option},
         math_library::redirect_intrinsics,
     },
 };
-use cubecl_core::ir::{nvidia::SmArch, settings::Dim3};
-use llvm_sys::target_machine::{LLVMCodeGenFileType, LLVMRelocMode};
-use pliron_llvm::{llvm_sys::core::LLVMContext, to_llvm_ir};
-use std::{ffi::CStr, sync::Once};
+use cubecl_core::{
+    codegen::KernelDump,
+    ir::{
+        nvidia::SmArch,
+        settings::{DebugInfo, Dim3},
+    },
+};
+use llvm_sys::target_machine::{LLVMCodeGenFileType, LLVMCodeModel, LLVMRelocMode};
+use pliron_llvm::llvm_sys::core::LLVMContext;
+use std::{ffi::CStr, fmt::Write, sync::Once};
 
 const TRIPLE: &CStr = c"nvptx64-nvidia-cuda";
 
@@ -37,6 +44,14 @@ static INIT_NVPTX: Once = Once::new();
 /// trade: a denormal lost in an atomic sum, for an atomic that is not a retry loop.
 const ALLOW_FTZ_ATOMICS: &CStr = c"nvptx-allow-ftz-atomics";
 
+/// The size a loop may grow to when LLVM unrolls it, raised from the `O3` default of 300 to what
+/// keeps a tile kernel's inner loops unrolled, as NVVM leaves them. At 300 the packed staged
+/// matmul keeps its fragment loops rolled, a quarter of NVRTC's `HMMA` per body, and runs a
+/// quarter slower; at 1000 it is within a few percent of NVRTC, and the float staged matmul on
+/// rows and tiles gains up to a tenth, with no family's fastest setting slower. LLVM holds it as
+/// global state, so it is set once with the target, and applies to every kernel compiled after.
+const UNROLL_THRESHOLD: (&CStr, &CStr) = (c"unroll-threshold", c"1000");
+
 fn init_nvptx() {
     INIT_NVPTX.call_once(|| unsafe {
         llvm_sys::target::LLVMInitializeNVPTXTargetInfo();
@@ -47,6 +62,8 @@ fn init_nvptx() {
         // An LLVM without the option still compiles correct kernels, with CAS-loop atomics;
         // `a_float_atomic_add_is_the_native_instruction` is what notices.
         let _ = set_llvm_option(ALLOW_FTZ_ATOMICS, c"true");
+        let (name, value) = UNROLL_THRESHOLD;
+        let _ = set_llvm_option(name, value);
     });
 }
 
@@ -92,22 +109,23 @@ pub fn emit_ptx(
     arch: &SmArch,
     ptx_version: Option<PtxVersion>,
     entry: NvptxEntry,
+    debug_info: DebugInfo,
 ) -> Result<NvptxModule, String> {
     let eff_arch = effective_arch(arch, ptx_version);
     let llvm_ctx = LLVMContext::default();
     let converted =
-        to_llvm_ir::convert_module(ctx, &llvm_ctx, module).map_err(|err| err.to_string())?;
+        convert_module(ctx, &llvm_ctx, module, debug_info, false).map_err(|err| err.to_string())?;
 
-    let module = LlvmModule::new(&converted.to_string())?;
+    let ir = name_inlined_functions(directives_only(converted.to_string(), debug_info));
+    let module = LlvmModule::new(&ir)?;
+    check_debug_info(&module, entrypoint, debug_info);
     finalize(&module, entrypoint, &eff_arch, &entry)?;
     let ir = module.print();
+    // Written before the compile, so a kernel LLVM aborts on leaves its module behind.
+    let dump = KernelDump::new(entrypoint);
+    dump.write("nvptx.ll", || &ir);
     let ptx = compile(module, &eff_arch, ptx_version)?;
-
-    #[cfg(feature = "pliron-dump")]
-    if let Some(dir) = crate::cpu::jit::engine::ir_dump_path(entrypoint) {
-        let _ = std::fs::write(dir.join("nvptx.ll"), &ir);
-        let _ = std::fs::write(dir.join("nvptx.ptx"), &ptx);
-    }
+    dump.write("nvptx.ptx", || &ptx);
 
     Ok(NvptxModule {
         ptx: as_c_chars(&ptx),
@@ -116,6 +134,49 @@ pub fn emit_ptx(
         shared_memory_size: entry.shared_memory_size,
         io: entry.io,
     })
+}
+
+/// `ir` with the debug data of each compile unit as `DebugDirectivesOnly`: only the `.file` and
+/// `.loc` directives, as `nvcc -lineinfo` gives. With line tables or full debug data, NVPTX writes
+/// `.target <sm>, debug`, and the driver then compiles the kernel for a debugger, which changes the
+/// optimization. The LLVM C API cannot create this kind, so the IR text is changed.
+fn directives_only(ir: String, level: DebugInfo) -> String {
+    let kind = match level {
+        DebugInfo::None => return ir,
+        DebugInfo::LineTables => "emissionKind: LineTablesOnly",
+        DebugInfo::Full => "emissionKind: FullDebug",
+    };
+    ir.replace(kind, "emissionKind: DebugDirectivesOnly")
+}
+
+/// `ir` with a linkage name on each `DISubprogram` that has none: the inlined `#[cube]`
+/// functions. NVPTX gives each `.loc` with `inlined_at` the linkage name of its function as
+/// `function_name`, and `ptxas` copies it to the cubin. Without a linkage name, the name is
+/// empty, and the inline frames in Nsight Compute have no name. The linkage name is the name,
+/// because an inlined function has no symbol.
+fn name_inlined_functions(ir: String) -> String {
+    const NAME: &str = "DISubprogram(name: \"";
+    if !ir.contains(NAME) {
+        return ir;
+    }
+    let mut named = String::with_capacity(ir.len());
+    for line in ir.split_inclusive('\n') {
+        // The end of `name: "<name>"`, and the name.
+        let name = line.find(NAME).and_then(|start| {
+            let start = start + NAME.len();
+            let len = line[start..].find('"')?;
+            Some((start + len + 1, &line[start..start + len]))
+        });
+        match name {
+            Some((end, name)) if !line.contains("linkageName:") => {
+                named.push_str(&line[..end]);
+                let _ = write!(named, ", linkageName: \"{name}\"");
+                named.push_str(&line[end..]);
+            }
+            _ => named.push_str(line),
+        }
+    }
+    named
 }
 
 /// Minimum PTX ISA version required by LLVM for `arch_version` (`sm_103a` / `sm_121a` require PTX 8.8).
@@ -215,6 +276,7 @@ fn compile(
         cpu: &eff_arch.target_cpu(),
         features: &features,
         reloc: LLVMRelocMode::LLVMRelocDefault,
+        code_model: LLVMCodeModel::LLVMCodeModelDefault,
     })?;
     machine.set_data_layout(&module);
 

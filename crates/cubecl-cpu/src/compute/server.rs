@@ -41,6 +41,7 @@ pub struct CpuServer {
     kernels: KernelLoader<CpuKernelCompiler>,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
+    written_pool: Vec<BufferBinding>,
 }
 
 impl WriteScoped for CpuServer {
@@ -94,6 +95,7 @@ impl CpuServer {
                 store,
             )),
             streams_pool: Vec::new(),
+            written_pool: Vec::new(),
         }
     }
 
@@ -248,8 +250,10 @@ impl Server for CpuServer {
 
         // Since we do a zero-copy read, we can collect bytes before synching the streams.
         for desc in descriptors {
-            if !streams.contains(&desc.handle.stream) {
-                streams.push(desc.handle.stream);
+            for stream in self.scheduler.streams_to_align(&desc.handle) {
+                if !streams.contains(&stream) {
+                    streams.push(stream);
+                }
             }
             // The resource lives in the memory management of the stream that
             // owns the handle, which is not always the reader's.
@@ -302,18 +306,27 @@ impl Server for CpuServer {
                 }
 
                 // The write is registered on the caller, so name the
-                // stream that owns the handle as an argument: its queued
+                // streams with work queued on the handle as arguments: that
                 // work has to land before this write overwrites the same
                 // memory.
-                let owner = desc.handle.stream;
-                let stream = server.scheduler.stream(&owner);
+                server.streams_pool.clear();
+                server
+                    .streams_pool
+                    .extend(server.scheduler.streams_to_align(&desc.handle));
+                let handle = desc.handle.clone();
+                let stream = server.scheduler.stream(&desc.handle.stream);
                 let memory = desc.handle.memory.clone();
                 let resource = stream.get_resource(desc.handle).map_err(ServerError::Io)?;
                 // No page guard, as for a launch's bindings.
                 let buffer = ManagedResource::new(memory, resource);
                 let task = ScheduleTask::Write { data, buffer };
 
-                server.scheduler.register(stream_id, task, &[owner]);
+                server.scheduler.register(
+                    stream_id,
+                    task,
+                    &server.streams_pool,
+                    core::slice::from_ref(&handle),
+                );
                 Ok(())
             });
         }
@@ -449,7 +462,18 @@ impl Server for CpuServer {
                     };
                     Some(b)
                 })
-                .for_each(|b| server.streams_pool.push(b.stream));
+                .for_each(|b| {
+                    server
+                        .streams_pool
+                        .extend(server.scheduler.streams_to_align(b))
+                });
+            let mut written = core::mem::take(&mut server.written_pool);
+            written.extend(
+                bindings
+                    .buffers_written(io)
+                    .filter(|b| b.stream != stream_id)
+                    .cloned(),
+            );
             let bindings = server.prepare_bindings(bindings);
             let task = server
                 .prepare_task(&loaded, count, bindings, stream_id)
@@ -457,7 +481,9 @@ impl Server for CpuServer {
 
             server
                 .scheduler
-                .register(stream_id, task, &server.streams_pool);
+                .register(stream_id, task, &server.streams_pool, &written);
+            written.clear();
+            server.written_pool = written;
             Ok(())
         });
     }
@@ -550,9 +576,7 @@ impl ServerStorage for CpuServer {
         // whatever was there before.
         self.scheduler.ensure_written([&binding].into_iter())?;
         let mut streams = vec![stream_id];
-        if binding.stream != stream_id {
-            streams.push(binding.stream);
-        }
+        streams.extend(self.scheduler.streams_to_align(&binding));
         self.scheduler.execute_streams(streams);
 
         let stream = self.scheduler.stream(&binding.stream);

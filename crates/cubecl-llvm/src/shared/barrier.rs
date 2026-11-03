@@ -10,8 +10,8 @@ use crate::{
 };
 use cubecl_core::ir::{
     dialect::barrier::{
-        ArriveAndExpectTxOp, ArriveAndWaitOp, ArriveOp, ExpectTxOp, InitOp, MemCopyAsyncOp,
-        MemCopyAsyncTxOp, WaitOp, WaitParityOp,
+        ArriveAndExpectTxOp, ArriveAndWaitOp, ArriveOp, CommitCopyAsyncOp, CopyAsyncOp, ExpectTxOp,
+        InitOp, MemCopyAsyncOp, MemCopyAsyncTxOp, WaitOp, WaitParityOp,
     },
     types::barrier::BarrierTokenType,
 };
@@ -42,6 +42,8 @@ barrier_op!(ExpectTxOp, expect_tx);
 barrier_op!(WaitOp, wait);
 barrier_op!(WaitParityOp, wait_parity);
 barrier_op!(ArriveAndWaitOp, arrive_and_wait);
+barrier_op!(CommitCopyAsyncOp, commit_copy_async);
 
 nvptx_only!(MemCopyAsyncTxOp, barrier::memcpy_async_tx);
 nvptx_only!(MemCopyAsyncOp, barrier::memcpy_async);
+nvptx_only!(CopyAsyncOp, barrier::copy_async);

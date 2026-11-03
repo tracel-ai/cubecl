@@ -1,10 +1,20 @@
+use core::ops::Range;
+
+use alloc::{format, string::ToString};
 use pliron::{
     attribute::AttrObj,
     basic_block::BasicBlock,
-    builtin::attributes::IntegerAttr,
+    builtin::{
+        attributes::{IdentifierAttr, IntegerAttr},
+        ops::FuncOp,
+        types::FunctionType,
+    },
+    identifier::Identifier,
     irbuild::inserter::OpInsertionPoint,
     linked_list::ContainsLinkedList,
+    printable::Printable,
     region::Region,
+    symbol_table::SymbolTableCollection,
     utils::{
         apint::APInt,
         const_bound_n::I,
@@ -16,15 +26,16 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    CanMaterialize, NoMemoryEffect, Pure, RecursiveMemoryEffects, RecursiveSideEffects,
-    RecursivelySpeculatable, ReturnLike,
+    CanMaterialize, HasSideEffects, NoMemoryEffect, Pure, RecursiveMemoryEffects,
+    RecursiveSideEffects, RecursivelySpeculatable, ReturnLike,
     attributes::{BoolAttr, IntegerVecAttr, ZeroAttr},
-    dialect::scf::block_mem_val,
+    dialect::{general::SymbolUserOpVerifyErr, scf::block_mem_val},
     interfaces::{
         CanonicalizeInterface,
         control_flow::{
-            InvocationBounds, RegionBranchOpInterface, RegionBranchTerminatorOpInterface,
-            RegionPredecessor, RegionSuccessor,
+            InvocationBounds, LoopLikeOpInterface, MutableRegionBranchTerminatorOpInterface,
+            RegionBranchOpInterface, RegionBranchTerminatorOpInterface, RegionPredecessor,
+            RegionSuccessor,
         },
         memory_slot::{
             MemoryRegionPredecessor, MemorySSAContext, MemorySSARegionOpInterface, MemoryValue,
@@ -57,7 +68,11 @@ pub enum YieldOpVerifyErr {
     MissingParentOp,
 }
 
-#[pliron_op(name = "branch.yield", format = "`(` operands(CharSpace(`,`)) `)`")]
+#[pliron_op(
+    name = "branch.yield",
+    format = "`(` operands(CharSpace(`,`)) `)`",
+    verifier = "succ"
+)]
 #[op_interfaces(IsTerminatorInterface, NResultsInterface<0>)]
 #[op_traits(Pure, ReturnLike, CanMaterialize)]
 pub struct YieldOp;
@@ -70,32 +85,6 @@ impl YieldOp {
 
     pub fn yield_values(&self, ctx: &Context) -> Vec<Value> {
         self.get_operation().operands(ctx)
-    }
-}
-
-impl Verify for YieldOp {
-    fn verify(&self, ctx: &Context) -> pliron::result::Result<()> {
-        let Some(parent_op) = self.get_operation().deref(ctx).get_parent_op(ctx) else {
-            return verify_err!(self.loc(ctx), YieldOpVerifyErr::MissingParentOp);
-        };
-
-        let expected_types: Vec<_> = parent_op
-            .deref(ctx)
-            .results()
-            .map(|r| r.get_type(ctx))
-            .collect();
-        let actual_types: Vec<_> = self
-            .get_operation()
-            .deref(ctx)
-            .operands()
-            .map(|o| o.get_type(ctx))
-            .collect();
-
-        if expected_types != actual_types {
-            return verify_err!(self.loc(ctx), YieldOpVerifyErr::OperandTypeMismatch);
-        }
-
-        Ok(())
     }
 }
 
@@ -185,16 +174,16 @@ impl RegionBranchTerminatorOpInterface for ConditionOp {
 }
 
 #[op_interface_impl]
+impl MutableRegionBranchTerminatorOpInterface for ConditionOp {
+    fn add_successor_operand(&self, ctx: &mut Context, _: RegionSuccessor, value: Value) {
+        Operation::push_operand(self.get_operation(), ctx, value);
+    }
+}
+
+#[op_interface_impl]
 impl UniformRegionTerminatorOpInterface for ConditionOp {
-    fn successor_region_uniformity(
-        &self,
-        ctx: &Context,
-        operands: &[Uniformity],
-    ) -> Vec<Uniformity> {
-        self.all_successor_regions(ctx)
-            .iter()
-            .map(|_| operands[0])
-            .collect()
+    fn successor_region_uniformity(&self, _: &Context, operands: &[Uniformity]) -> Uniformity {
+        operands[0]
     }
 }
 
@@ -239,6 +228,101 @@ impl UnreachableOp {
     pub fn new(ctx: &mut Context) -> Self {
         let op = Operation::new(ctx, Self::get_concrete_op_info(), vec![], vec![], vec![], 0);
         Self { op }
+    }
+}
+
+#[pliron_op(
+    name = "branch.call",
+    format = "`@` attr($callee, $IdentifierAttr) ` (` operands(CharSpace(`,`)) `) : ` typesig",
+    verifier = "succ",
+    attributes = (callee: IdentifierAttr)
+)]
+#[op_traits(CanMaterialize)]
+pub struct CallOp;
+
+impl CallOp {
+    pub fn new(
+        ctx: &mut Context,
+        result_types: Vec<TypeHandle>,
+        callee: Identifier,
+        operands: Vec<Value>,
+    ) -> Self {
+        let op = Self {
+            op: Operation::new(
+                ctx,
+                Self::get_concrete_op_info(),
+                result_types,
+                operands,
+                vec![],
+                0,
+            ),
+        };
+        op.set_attr_callee(ctx, callee.into());
+        op
+    }
+
+    pub fn callee(&self, ctx: &Context) -> Identifier {
+        self.get_attr_callee(ctx).unwrap().as_ref().clone()
+    }
+}
+
+#[op_interface_impl]
+impl CallOpInterface for CallOp {
+    verify_op_succ!();
+
+    fn callee(&self, ctx: &Context) -> CallOpCallable {
+        CallOpCallable::Direct(self.callee(ctx))
+    }
+
+    fn arg_range(&self, ctx: &Context) -> Range<usize> {
+        0..self.get_operation().deref(ctx).get_num_operands()
+    }
+
+    fn callee_type(&self, ctx: &Context) -> TypeHandle {
+        let op = self.get_operation().deref(ctx);
+        let arg_types = op.operand_types(ctx).collect();
+        let res_types = op.result_types().collect();
+        FunctionType::get(ctx, arg_types, res_types).to_handle()
+    }
+}
+
+#[op_interface_impl]
+impl SymbolUserOpInterface for CallOp {
+    fn verify_symbol_uses(
+        &self,
+        ctx: &Context,
+        symbol_tables: &mut SymbolTableCollection,
+    ) -> Result<()> {
+        let callee_sym = self.callee(ctx);
+        let Some(callee) =
+            symbol_tables.lookup_symbol_in_nearest_table(ctx, self.get_operation(), &callee_sym)
+        else {
+            // External callee
+            return Ok(());
+        };
+        let Some(func_op) = (&*callee as &dyn Op).downcast_ref::<FuncOp>() else {
+            return verify_err!(
+                self.loc(ctx),
+                SymbolUserOpVerifyErr::NotFunc(callee_sym.to_string())
+            );
+        };
+        let func_op_ty = func_op.get_type(ctx);
+
+        if func_op_ty != self.callee_type(ctx) {
+            return verify_err!(
+                self.loc(ctx),
+                SymbolUserOpVerifyErr::FuncTypeErr(format!(
+                    "expected {}, got {}",
+                    func_op_ty.disp(ctx),
+                    self.callee_type(ctx).disp(ctx)
+                ))
+            );
+        }
+        Ok(())
+    }
+
+    fn used_symbols(&self, ctx: &Context) -> Vec<Identifier> {
+        vec![self.callee(ctx)]
     }
 }
 
@@ -771,6 +855,9 @@ impl RegionBranchOpInterface for RangeLoopOp {
 }
 
 #[op_interface_impl]
+impl LoopLikeOpInterface for RangeLoopOp {}
+
+#[op_interface_impl]
 impl ConditionallySpeculatable for RangeLoopOp {
     fn speculatability(&self, ctx: &Context) -> Speculatability {
         if let Some(constant_step) = self.constant_step(ctx)
@@ -793,7 +880,7 @@ impl ConditionallySpeculatable for RangeLoopOp {
     NRegionsInterface<2>,
     SingleBlockRegionInterface
 )]
-#[op_traits(RecursiveMemoryEffects, RecursiveSideEffects)]
+#[op_traits(RecursiveMemoryEffects, HasSideEffects)]
 pub struct WhileOp;
 
 impl WhileOp {
@@ -916,3 +1003,6 @@ impl RegionBranchOpInterface for WhileOp {
         vec![]
     }
 }
+
+#[op_interface_impl]
+impl LoopLikeOpInterface for WhileOp {}

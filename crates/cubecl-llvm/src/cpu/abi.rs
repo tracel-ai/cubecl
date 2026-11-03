@@ -9,6 +9,7 @@ use crate::{
     shared::metadata::{load_table, rebuild_func_type, table_ty},
 };
 use core::cell::RefCell;
+use cubecl_opt::passes::pre::LCMPre;
 use cubecl_runtime::config::compilation::F16Evaluation;
 use std::rc::Rc;
 
@@ -106,6 +107,10 @@ impl TargetLowering for CpuLowering {
 
     fn arg_layout(&self) -> Box<dyn EntryArgLayout> {
         Box::new(TableArgs::new(self.shared_memories.clone()))
+    }
+
+    fn pre(&self, passes: &mut OpPass<ModuleOp, Passes>) {
+        passes.add_pass(LCMPre);
     }
 }
 

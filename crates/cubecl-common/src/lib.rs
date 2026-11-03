@@ -25,7 +25,9 @@ pub mod device;
 
 /// Device handle module.
 pub mod device_handle {
-    pub use super::device::handle::{CallError, CallResultExt, DeviceHandle, ServiceCreationError};
+    pub use super::device::handle::{
+        CallError, CallResultExt, DeviceHandle, ServiceCreationError, SpawnedCall,
+    };
 }
 
 /// Utilities module to manipulate bytes.
@@ -68,3 +70,8 @@ pub use float::*;
 mod ratio;
 
 pub use ratio::*;
+
+/// Polyfills for things that aren't great in normal Rust (just powi right now)
+mod polyfill;
+
+pub use polyfill::*;

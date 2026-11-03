@@ -1,5 +1,5 @@
 use cubecl_ir::{
-    dialect::synchronization::{SyncOp, SyncScope},
+    dialect::synchronization::{SyncOp, SyncPlaneStorageOp, SyncScope},
     prelude::*,
 };
 use pliron_spirv::ops::ControlBarrierOp;
@@ -57,6 +57,29 @@ impl ToSpirvDialectOp for SyncOp {
         };
 
         let sync = ControlBarrierOp::new(ctx, scope_exec, scope_mem, semantics);
+        rewriter.append_op(ctx, &sync);
+        rewriter.erase_operation(ctx, self.get_operation());
+        Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl ToSpirvDialectOp for SyncPlaneStorageOp {
+    fn to_spirv_dialect(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        // A subgroup barrier over the storage class as well as the workgroup's. As at device
+        // scope, the availability and visibility operations are what carry one unit's plain
+        // writes to the others under the Vulkan memory model, here at the subgroup's scope.
+        let semantics = MemorySemantics::ACQUIRE_RELEASE
+            | MemorySemantics::UNIFORM_MEMORY
+            | MemorySemantics::WORKGROUP_MEMORY
+            | MemorySemantics::MAKE_AVAILABLE
+            | MemorySemantics::MAKE_VISIBLE;
+        let sync = ControlBarrierOp::new(ctx, Scope::Subgroup, Scope::Subgroup, semantics);
         rewriter.append_op(ctx, &sync);
         rewriter.erase_operation(ctx, self.get_operation());
         Ok(())

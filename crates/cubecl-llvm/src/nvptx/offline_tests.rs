@@ -1,13 +1,15 @@
 //! Real kernels compiled to PTX without a device, checked on the assembly.
 
 use crate::shared::offline_kernels::{
-    ProductA, Wait, bf16_math_kernel, keep_largest_kernel, plane_moves_kernel, relay_kernel,
-    scale_kernel, strided_walk_kernel, tally_kernel, tile_product_kernel,
+    ProductA, Wait, bf16_math_kernel, keep_largest_kernel, nested_calls_kernel,
+    nested_calls_with_source_kernel, plane_moves_kernel, relay_kernel, scale_kernel,
+    strided_walk_kernel, tally_kernel, tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{PlironArtifact, PlironCompiler, PlironOptions, nvptx::ptx_version::PtxVersion};
 use cubecl_core::Compiler;
-use cubecl_core::ir::{AddressType, nvidia::SmArch};
+use cubecl_core::ir::{AddressType, nvidia::SmArch, settings::DebugInfo};
+use cubecl_core::runtime_tests::offline::SOURCE_PATH;
 use cubecl_runtime::kernel::CubeKernel;
 use std::ffi::CStr;
 
@@ -23,6 +25,51 @@ fn a_1d_cube_reads_only_the_x_thread_id() {
         !ptx.contains("%tid.y") && !ptx.contains("%tid.z"),
         "an axis of one unit is zero, not a register:\n{ptx}"
     );
+}
+
+/// An `e2m1x2` cast compiles on a part with no fp4 conversion of its own, an L4's: the codec is
+/// integer work on the word and `f16` pairs, and no fp4 conversion instruction is emitted.
+#[test]
+fn fp4_casts_compile_to_the_software_codec() {
+    let ptx = ptx_of(crate::shared::offline_kernels::fp4_round_trip_kernel(), 89);
+    assert!(
+        !ptx.contains("e2m1"),
+        "no fp4 conversion instruction:\n{ptx}"
+    );
+    assert!(
+        ptx.contains("shr") || ptx.contains("bfe"),
+        "the codes are shifted out:\n{ptx}"
+    );
+}
+
+/// On a Blackwell part the decode is the part's own conversion, a pair an instruction; the
+/// encode stays the software codec, so no conversion to `e2m1x2` is emitted.
+#[test]
+fn fp4_decodes_on_the_part_where_it_converts() {
+    let ptx = ptx_of(crate::shared::offline_kernels::fp4_round_trip_kernel(), 120);
+    assert_eq!(
+        ptx.matches("cvt.rn.f16x2.e2m1x2").count(),
+        4,
+        "one conversion per pair of the word:\n{ptx}"
+    );
+    assert!(
+        !ptx.contains(".e2m1x2.f32"),
+        "the encode is the software codec:\n{ptx}"
+    );
+}
+
+/// From `sm_89` an `e4m3` decode is the part's own conversion, a pair an instruction; before
+/// it, the software codec.
+#[test]
+fn e4m3_decodes_on_the_part_where_it_converts() {
+    let ptx = ptx_of(crate::shared::offline_kernels::e4m3_decode_kernel(), 89);
+    assert_eq!(
+        ptx.matches("cvt.rn.f16x2.e4m3x2").count(),
+        2,
+        "one conversion per pair of the word:\n{ptx}"
+    );
+    let ptx = ptx_of(crate::shared::offline_kernels::e4m3_decode_kernel(), 80);
+    assert!(!ptx.contains("e4m3x2"), "the software codec:\n{ptx}");
 }
 
 #[test]
@@ -62,7 +109,10 @@ fn bf16_is_native_where_the_part_has_it() {
 #[test]
 fn bf16_tiles_multiply_on_the_tensor_cores() {
     for (m, n, k) in [(16, 16, 16), (32, 8, 16), (8, 32, 16)] {
-        let ptx = ptx_of(tile_product_kernel::<half::bf16, f32>((m, n, k)), 80);
+        let ptx = ptx_of(
+            tile_product_kernel::<half::bf16, half::bf16, f32>((m, n, k)),
+            80,
+        );
         let mma = format!("wmma.mma.sync.aligned.row.col.m{m}n{n}k{k}.f32.bf16.bf16.f32");
         assert!(ptx.contains(&mma), "{ptx}");
     }
@@ -125,6 +175,90 @@ fn loop_body(ptx: &str) -> Option<String> {
         let back_edge = format!("bra \t{label};");
         if let Some(end) = lines[start..].iter().position(|l| l.contains(&back_edge)) {
             return Some(lines[start..=start + end].join("\n"));
+        }
+    }
+    None
+}
+
+/// With debug data, the PTX has the `.file` and `.loc` directives, but its `.target` has no
+/// `debug`: with `debug`, the driver compiles the kernel for a debugger, which changes the
+/// optimization. `ptxas` rejects a `.file` directive with a source text, so full debug data gives
+/// NVPTX no text.
+#[test]
+fn debug_data_is_line_directives_only() {
+    for ptx in [
+        ptx_of(nested_calls_kernel(DebugInfo::LineTables), 60),
+        ptx_of(nested_calls_with_source_kernel(), 60),
+    ] {
+        assert!(ptx.contains(".loc"), "no line table:\n{ptx}");
+        let target = ptx
+            .lines()
+            .find(|line| line.starts_with(".target"))
+            .unwrap_or_else(|| panic!("no `.target`:\n{ptx}"));
+        assert!(!target.contains("debug"), "{target}");
+        assert!(
+            ptx.lines()
+                .filter(|line| line.trim_start().starts_with(".file"))
+                .all(|line| !line.contains(" source ")),
+            "{ptx}"
+        );
+    }
+}
+
+/// `ptxas` cannot take the source text, so the `.file` directive gives the absolute path of the
+/// file on this computer: Nsight Compute and `cuda-gdb` then find it from any directory.
+#[test]
+fn the_file_directive_is_the_absolute_path() {
+    let ptx = ptx_of(nested_calls_kernel(DebugInfo::LineTables), 60);
+    let path = ptx
+        .lines()
+        .find_map(|line| line.trim_start().strip_prefix(".file\t1 \""))
+        .and_then(|rest| rest.split_once('"'))
+        .map_or_else(|| panic!("no `.file 1`:\n{ptx}"), |(path, _)| path);
+    assert!(path.ends_with(SOURCE_PATH), "{path}");
+    assert!(std::path::Path::new(path).is_absolute(), "{path}");
+    assert!(std::path::Path::new(path).is_file(), "{path}");
+}
+
+/// Each inlined `#[cube]` function is a `.loc` with `inlined_at` and the name of the function.
+/// `ptxas` copies the name to the cubin, and Nsight Compute shows it in the inline frames.
+#[test]
+fn inlined_functions_are_named_inline_frames() {
+    let ptx = ptx_of(nested_calls_kernel(DebugInfo::LineTables), 60);
+    let labels: Vec<&str> = ptx
+        .lines()
+        .filter_map(|line| line.split_once("function_name ")?.1.split_once(','))
+        .map(|(label, _)| label)
+        .collect();
+    assert!(!labels.is_empty(), "no inline frame:\n{ptx}");
+    for name in ["doubled", "square_third"] {
+        let label = ptx_string_label(&ptx, name).unwrap_or_else(|| panic!("no `{name}`:\n{ptx}"));
+        assert!(
+            labels.contains(&label.as_str()),
+            "`{name}` is not a frame:\n{ptx}"
+        );
+    }
+}
+
+/// The label of the `.debug_str` string `text` in `ptx`. NVPTX writes each string as one
+/// `.b8` line for each byte, after its label.
+fn ptx_string_label(ptx: &str, text: &str) -> Option<String> {
+    let mut lines = ptx.lines().peekable();
+    while let Some(line) = lines.next() {
+        let Some(label) = line.strip_suffix(':') else {
+            continue;
+        };
+        let mut bytes = Vec::new();
+        while let Some(byte) = lines
+            .peek()
+            .and_then(|line| line.trim_start().strip_prefix(".b8 "))
+            .and_then(|rest| rest.split_whitespace().next()?.parse::<u8>().ok())
+        {
+            bytes.push(byte);
+            lines.next();
+        }
+        if bytes.last() == Some(&0) && bytes[..bytes.len() - 1] == *text.as_bytes() {
+            return Some(label.to_string());
         }
     }
     None
@@ -525,6 +659,39 @@ fn an_im2col_load_and_a_bulk_copy_share_a_barrier() {
     assert!(
         ptx.contains("mbarrier.try_wait.parity.shared::cta.b64"),
         "{ptx}"
+    );
+}
+
+/// A unit's `copy_async` is the copy engine's `cp.async`, as the C++ backend issues it, and its
+/// commit arrives on the cube barrier the units then wait on.
+#[test]
+fn unit_async_copies_complete_on_the_barrier() {
+    for arch in [90, 120] {
+        let ptx = ptx_of(
+            crate::shared::offline_kernels::unit_async_copy_kernel(),
+            arch,
+        );
+        assert!(
+            ptx.contains("cp.async.cg.shared.global"),
+            "a 16-byte copy through L2 on sm_{arch}:\n{ptx}"
+        );
+        assert!(
+            ptx.contains("cp.async.mbarrier.arrive.shared"),
+            "the commit arrives on the barrier on sm_{arch}:\n{ptx}"
+        );
+    }
+}
+
+/// A manual `mma` whose B element differs from A's is refused as a compile error, as the C++
+/// backend's compile of it fails, rather than reaching instruction selection, which aborts.
+#[test]
+fn an_mma_of_mismatched_operands_is_a_compile_error() {
+    let Err(error) = compile(crate::shared::offline_kernels::mismatched_mma_kernel(), 120) else {
+        panic!("no instruction takes a 16-bit A and an f32 B");
+    };
+    assert!(
+        format!("{error:?}").contains("no `mma` instruction multiplies"),
+        "{error:?}"
     );
 }
 

@@ -9,22 +9,24 @@
 use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::modules::HipCompiledKernel;
 use crate::compute::{Captures, Window};
-use crate::compute::{Command, context::HipContext, stream::HipStreamBackend};
+use crate::compute::{Command, context::HipContext, driver::Hip, stream::HipStreamBackend};
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::server::{DeviceCaptures, ServerStorage};
 use cubecl_core::{
     MemoryConfiguration,
+    device::DeviceId,
     ir::MemoryDeviceProperties,
     prelude::*,
     server::{
-        BufferBinding, CopyDescriptor, Handle, KernelArguments, KernelResource, ProfileError,
-        ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
+        BufferBinding, ComputeWait, CopyDescriptor, Handle, KernelArguments, KernelResource,
+        ProfileError, ProfilingToken, Reduction, ServerCommunication, ServerError, ServerUtilities,
     },
 };
 use cubecl_environment::future;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
-use cubecl_server::command::{DeviceStream, Refused};
+use cubecl_hip_sys::hipStream_t;
+use cubecl_server::command::{CollectiveServer, Collectives, Refused};
 use cubecl_server::compiler::ArtifactId;
 use cubecl_server::metadata_cache::Lookup;
 use cubecl_server::{
@@ -38,24 +40,23 @@ use cubecl_server::{
     storage::{ComputeStorage, ManagedResource},
     stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
 };
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct HipServer {
     ctx: HipContext,
+    device_id: DeviceId,
     streams: MultiStream<HipStreamBackend>,
     utilities: Arc<ServerUtilities>,
+    collectives: Collectives<Hip>,
     /// The graphs this server has captured — see [`Captures`].
     graphs: Captures,
-    /// Allocation modes set on streams that did not exist yet, applied when the stream is
-    /// created rather than creating it only to hold the mode.
-    pending_allocation_modes: HashMap<StreamId, MemoryAllocationMode>,
 }
 
 // SAFETY: `HipServer` is only accessed from one thread at a time via the `DeviceHandle`
 // (which serializes access through either a mutex or a dedicated runner thread depending
-// on the selected channel feature). The HIP context and streams it manages are never
-// shared across threads without synchronization.
+// on the selected channel feature). The HIP context, streams, and RCCL communicators it
+// manages are never shared across threads without synchronization.
 unsafe impl Send for HipServer {}
 
 impl Server for HipServer {
@@ -380,16 +381,132 @@ impl Server for HipServer {
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
-        match self.streams.try_stream_mut(&stream_id) {
-            Some(stream) => stream.device_memory().mode(mode),
-            None => {
-                self.pending_allocation_modes.insert(stream_id, mode);
-            }
+        // A failed stream creation is reported by the next command on it.
+        if let Ok(mut command) = self.command_no_inputs(stream_id) {
+            command.allocation_mode(mode);
         }
     }
 }
 
-impl ServerCommunication for HipServer {}
+impl ServerCommunication for HipServer {
+    fn comm_init(&mut self, device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
+        CollectiveServer::comm_init(self, device_ids)
+    }
+
+    fn all_reduce(
+        &mut self,
+        src: BufferBinding,
+        dst: BufferBinding,
+        reduction: Reduction,
+        stream_id: StreamId,
+        device_ids: Vec<DeviceId>,
+        wait: ComputeWait,
+    ) -> Result<(), ServerError> {
+        CollectiveServer::all_reduce(self, src, dst, reduction, stream_id, device_ids, wait)
+    }
+
+    fn all_gather(
+        &mut self,
+        src: BufferBinding,
+        dst: BufferBinding,
+        stream_id: StreamId,
+        device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        CollectiveServer::all_gather(self, src, dst, stream_id, device_ids)
+    }
+
+    fn reduce_scatter(
+        &mut self,
+        src: BufferBinding,
+        dst: BufferBinding,
+        reduction: Reduction,
+        stream_id: StreamId,
+        device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        CollectiveServer::reduce_scatter(self, src, dst, reduction, stream_id, device_ids)
+    }
+
+    fn broadcast(
+        &mut self,
+        src: Option<BufferBinding>,
+        dst: BufferBinding,
+        stream_id: StreamId,
+        root: DeviceId,
+        device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        CollectiveServer::broadcast(self, src, dst, stream_id, root, device_ids)
+    }
+
+    fn all_to_all(
+        &mut self,
+        src: BufferBinding,
+        dst: BufferBinding,
+        stream_id: StreamId,
+        device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        CollectiveServer::all_to_all(self, src, dst, stream_id, device_ids)
+    }
+
+    fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        CollectiveServer::sync_collective(self, stream_id)
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(desc)))]
+    fn send(
+        &mut self,
+        desc: CopyDescriptor,
+        stream_id: StreamId,
+        device_id_dst: DeviceId,
+    ) -> Result<(), ServerError> {
+        CollectiveServer::send(self, desc, stream_id, device_id_dst)
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
+    fn recv(
+        &mut self,
+        handle: Handle,
+        stream_id: StreamId,
+        device_id_src: DeviceId,
+    ) -> Result<(), ServerError> {
+        CollectiveServer::recv(self, handle, stream_id, device_id_src)
+    }
+}
+
+impl CollectiveServer for HipServer {
+    type Driver = Hip;
+
+    fn device_id(&self) -> DeviceId {
+        self.device_id
+    }
+
+    fn collectives(&mut self) -> &mut Collectives<Hip> {
+        &mut self.collectives
+    }
+
+    fn streams(&mut self) -> &mut MultiStream<HipStreamBackend> {
+        &mut self.streams
+    }
+
+    fn command<'a>(
+        &mut self,
+        stream_id: StreamId,
+        handles: impl Iterator<Item = &'a BufferBinding>,
+    ) -> Result<Command<'_>, ServerError> {
+        HipServer::command(self, stream_id, handles)
+    }
+
+    fn comm_stream(&self) -> hipStream_t {
+        self.ctx.comm_stream
+    }
+
+    fn transfer_stream(&self) -> hipStream_t {
+        self.ctx.transfer_stream
+    }
+
+    fn connect_element(&self) -> &GpuResource {
+        &self.ctx.connect_element
+    }
+}
 
 impl WriteScoped for HipServer {
     type Streams = MultiStream<HipStreamBackend>;
@@ -423,8 +540,11 @@ impl HipServer {
         let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
 
+        let device_id = utilities.service.device;
+
         Self {
             ctx,
+            device_id,
             streams: MultiStream::new(
                 utilities.logger.clone(),
                 HipStreamBackend::new(
@@ -438,8 +558,8 @@ impl HipServer {
                 max_streams,
             ),
             utilities: Arc::new(utilities),
+            collectives: Collectives::new(device_id),
             graphs: Captures::default(),
-            pending_allocation_modes: HashMap::new(),
         }
     }
 
@@ -452,10 +572,7 @@ impl HipServer {
         stream_id: StreamId,
         handles: impl Iterator<Item = &'a BufferBinding>,
     ) -> Result<Command<'_>, ServerError> {
-        let mut streams = self.streams.resolve(stream_id, handles)?;
-        if let Some(mode) = self.pending_allocation_modes.remove(&stream_id) {
-            streams.current().device_memory().mode(mode);
-        }
+        let streams = self.streams.resolve(stream_id, handles)?;
         Ok(Command::new(&mut self.ctx, streams, self.utilities.service))
     }
 

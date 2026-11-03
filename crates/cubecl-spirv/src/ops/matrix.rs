@@ -6,8 +6,8 @@ use pliron::{
 use pliron_spirv::{
     ops::{
         CompositeConstructOp, ShiftRightLogicalOp,
+        ext::{CooperativeMatrixConvertUseOp, CooperativeMatrixPerElementOpOp},
         khr::{CooperativeMatrixLoadOp, CooperativeMatrixMulAddOp, CooperativeMatrixStoreOp},
-        nv::{CooperativeMatrixConvertOp, CooperativeMatrixPerElementOpOp},
     },
     types::{PointerType, khr::CooperativeMatrixType},
 };
@@ -198,7 +198,7 @@ impl ToSpirvDialectOp for ssa_matrix::CastOp {
         let output_ident = matrix_ident(ctx, out_ty);
 
         let value_out = if elem_in == elem_out && input_ident != output_ident {
-            let cast = CooperativeMatrixConvertOp::new(ctx, out_ty, mat_in);
+            let cast = CooperativeMatrixConvertUseOp::new(ctx, out_ty, mat_in);
             rewriter.append_op_with_result(ctx, &cast)
         } else {
             cast(ctx, rewriter, mat_in, elem_in, self.result_type(ctx))

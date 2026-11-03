@@ -84,7 +84,11 @@ const SELECT: &str = "SELECT value FROM entries WHERE namespace = ?1 AND key = ?
 
 const SCAN: &str = "SELECT key, value, origin FROM entries WHERE namespace = ?1";
 
+const ENTRIES: &str = "SELECT namespace, key, value FROM entries";
+
 const PURGE: &str = "DELETE FROM entries WHERE namespace = ?1";
+
+const CLEAR: &str = "DELETE FROM entries";
 
 const PURGE_KEY: &str = "DELETE FROM entries WHERE namespace = ?1 AND key = ?2";
 
@@ -326,6 +330,47 @@ impl Database {
         summary
     }
 
+    /// Replaces every entry with those of `source`, stored as
+    /// [`Origin::Imported`], or with nothing without one. It is one
+    /// transaction: a failure to read `source` or to write here leaves this
+    /// database as it was.
+    ///
+    /// # Errors
+    ///
+    /// When `source` can't be read or this database can't be written.
+    #[cfg(native_cache)]
+    pub fn replace_with(&self, source: Option<&Database>) -> Result<(), String> {
+        let mut connection = self.connection.lock();
+        let source = source.map(|source| source.connection.lock());
+        let transaction =
+            drive(connection.transaction_with_behavior(write_transaction())).map_err(error)?;
+
+        let copied = (|| {
+            drive(transaction.execute(CLEAR, ()))?;
+            let Some(source) = &source else {
+                return Ok(());
+            };
+            let mut rows = drive(source.query(ENTRIES, ()))?;
+            while let Some(row) = drive(rows.next())? {
+                let namespace: String = row.get(0)?;
+                let key: Vec<u8> = row.get(1)?;
+                let value: Vec<u8> = row.get(2)?;
+                let params = (namespace, key, value, origin_code(Origin::Imported));
+                drive(transaction.execute(REPLACE, params))?;
+            }
+            Ok(())
+        })();
+
+        match copied {
+            Ok(()) => drive(transaction.commit()).map_err(error),
+            Err(err) => {
+                let _ = drive(transaction.rollback());
+                Err(error(err))
+            }
+        }
+        .inspect_err(|err| log::warn!("Unable to replace {}: {err}", self.location))
+    }
+
     /// Visits every entry of `namespace`.
     pub fn scan(&self, namespace: &str, visit: &mut dyn FnMut(&[u8], &[u8])) {
         self.scan_with_origin(namespace, &mut |key, value, _| visit(key, value));
@@ -447,6 +492,27 @@ impl Database {
             Ok(namespaces)
         })
         .unwrap_or_default()
+    }
+}
+
+/// An environment's database reads as a bundle: a bundle file carries the
+/// same schema, so what one environment holds imports into another the way a
+/// shipped bundle does.
+impl crate::bundle::Bundle for Database {
+    fn get(&self, namespace: &str, key: &[u8]) -> Option<Bytes> {
+        Database::get(self, namespace, key)
+    }
+
+    fn scan(&self, namespace: &str, visit: &mut dyn FnMut(&[u8], &[u8])) {
+        Database::scan(self, namespace, visit);
+    }
+
+    fn namespaces(&self) -> Vec<String> {
+        Database::namespaces(self)
+    }
+
+    fn describe(&self) -> String {
+        self.location.clone()
     }
 }
 
@@ -717,11 +783,58 @@ async fn open_database(location: &str) -> Result<turso::Database, turso::Error> 
             .map_err(|error| turso::Error::IoError(error.kind(), "creating the cache directory"))?;
     }
 
+    // Windows' I/O backend never shares a WAL, so it isn't asked to: its
+    // refusal would only be recognized by its wording.
+    if cfg!(windows) {
+        log::info!("cubecl cache: opening {location} for this process alone");
+        return open_writable(location, false).await;
+    }
+
+    match open_writable(location, true).await {
+        // Writable for this process alone is still a cache that outlives the
+        // run. Passed up, the refusal lands in the read-only fallback instead:
+        // a new file doesn't open there at all, and an existing one opens
+        // unable to take a single write.
+        Err(err) if multiprocess_wal_unsupported(&err) => {
+            log::info!("cubecl cache: {err}; opening {location} for this process alone");
+            open_writable(location, false).await
+        }
+        opened => opened,
+    }
+}
+
+/// Opens `location` writable, its WAL shared between processes when
+/// `multiprocess`.
+///
+/// Without it, the engine locks the file for the process that opened it. A
+/// second process sharing the cache root is refused a writable open and takes
+/// the read-only fallback, as it would for any file it can't write: it reads
+/// what the first one stored, but can't add to it.
+#[cfg(native_cache)]
+async fn open_writable(
+    location: &str,
+    multiprocess: bool,
+) -> Result<turso::Database, turso::Error> {
     turso::Builder::new_local(location)
-        // Turso's Windows I/O backend does not support shared WAL coordination.
-        .experimental_multiprocess_wal(!cfg!(target_os = "windows"))
+        .experimental_multiprocess_wal(multiprocess)
         .build()
         .await
+}
+
+/// Whether `err` is the engine declining to share a file's WAL between
+/// processes.
+///
+/// It declines wherever it can't coordinate the WAL through shared memory:
+/// on Windows, whose I/O backend has no such coordination and which
+/// [`open_database`] therefore never asks; on network and cluster file
+/// systems (NFS, SMB, Lustre, Ceph, 9p, ...), whose shared memory isn't
+/// coherent between hosts; and for in-memory databases. Every one of
+/// them reaches the SDK as a plain [`turso::Error::Error`], the variant most
+/// engine errors map to, so the message is the only thing that sets them
+/// apart from a failure that single-process mode would hit just the same.
+#[cfg(native_cache)]
+fn multiprocess_wal_unsupported(err: &turso::Error) -> bool {
+    matches!(err, turso::Error::Error(message) if message.contains("multiprocess WAL is not supported"))
 }
 
 /// A database nobody may write, served as it is: a cache root in a container
@@ -765,7 +878,7 @@ async fn open_at_path(location: &str, access: Access) -> Result<turso::Database,
 /// Whether `a` and `b` name the same file, compared as written when either
 /// does not exist yet.
 #[cfg(native_cache)]
-fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
+pub fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         (Ok(a), Ok(b)) => a == b,
         _ => a == b,
@@ -1340,6 +1453,46 @@ mod tests {
 
         let reopened = TursoStorage::open("kept".to_string()).unwrap();
         assert_eq!(reopened.get(b"key"), Some(Bytes::from_bytes_vec(vec![7])));
+    }
+
+    /// Where the engine won't share a file's WAL between processes, the file
+    /// still opens writable, for this process alone, rather than failing into
+    /// the read-only fallback, which can't open a file that isn't an
+    /// environment yet.
+    ///
+    /// Windows and network file systems are where this matters, and CI runs on
+    /// neither. An in-memory location is declined by the same check, with the
+    /// same error, on every platform.
+    #[test_log::test]
+    #[cfg_attr(miri, ignore)]
+    fn a_location_without_a_shared_wal_opens_for_this_process() {
+        let database = block_on(open_database(":memory:")).unwrap();
+        migrate(&database).unwrap();
+
+        let connection = connect(&database).unwrap();
+        assert_eq!(
+            insert_on(&connection, "kernels", b"key", b"1", Origin::Local).unwrap(),
+            Insertion::Stored
+        );
+    }
+
+    /// The fallback keys on the engine's message, so it is pinned here: an
+    /// engine that rewords the refusal must fail this test, not quietly send
+    /// every such location back to the read-only fallback.
+    ///
+    /// Only where the engine coordinates WALs at all, 64-bit Unix and Windows;
+    /// elsewhere it ignores the request rather than refusing it.
+    #[test_log::test]
+    #[cfg_attr(miri, ignore)]
+    #[cfg(all(any(unix, windows), target_pointer_width = "64"))]
+    fn the_engine_declines_a_shared_wal_in_words_we_recognize() {
+        let Err(err) = block_on(open_writable(":memory:", true)) else {
+            panic!("an in-memory database must not get a shared WAL");
+        };
+        assert!(
+            multiprocess_wal_unsupported(&err),
+            "unrecognized refusal: {err}"
+        );
     }
 
     /// Two independent connections to one file, which is what two processes

@@ -609,7 +609,8 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
     /// Lowers a kernel the store did not hold.
     fn lower(&mut self, compiler: &T::Compiler, logger: &ServerLogger) {
         let started = Instant::now();
-        self.step = match compiler.lower(self.kernel, &self.id, &mut self.recording, logger) {
+        let (kernel, id, recording) = (self.kernel, &self.id, &mut self.recording);
+        self.step = match contained(|| compiler.lower(kernel, id, recording, logger)) {
             Ok(lowered) => Step::Lowered {
                 source: T::Compiler::source(&lowered).map(String::from),
                 lowered,
@@ -667,7 +668,8 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
         };
 
         let started = Instant::now();
-        self.step = match compiler.finalize(&self.id, lowered) {
+        let id = &self.id;
+        self.step = match contained(|| compiler.finalize(id, lowered)) {
             Ok(artifact) => Step::Ready {
                 artifact,
                 source,
@@ -750,6 +752,34 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
             stored,
         }
     }
+}
+
+/// Runs one kernel's compiler step, a panic inside it becoming that kernel's
+/// failure with the panic's message.
+///
+/// A batch compiles many kernels at once, and every launch of the batch
+/// waits on it: left to unwind, one kernel the compiler cannot handle would
+/// fail the load of every other kernel compiled beside it, and an autotune
+/// round would blame each of its candidates for the one that broke.
+fn contained<R>(step: impl FnOnce() -> Result<R, LaunchError>) -> Result<R, LaunchError> {
+    #[cfg(feature = "std")]
+    {
+        std::panic::catch_unwind(core::panic::AssertUnwindSafe(step)).unwrap_or_else(|payload| {
+            let message = payload
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| payload.downcast_ref::<&str>().copied())
+                .unwrap_or("no message");
+            Err(LaunchError::CompilationError(
+                crate::compiler::CompilationError::Generic {
+                    reason: alloc::format!("the compiler panicked: {message}"),
+                    backtrace: cubecl_environment::backtrace::BackTrace::capture(),
+                },
+            ))
+        })
+    }
+    #[cfg(not(feature = "std"))]
+    step()
 }
 
 /// Runs `work` on every job, on up to `parallelism` threads at once, each
@@ -980,8 +1010,8 @@ mod tests {
         core::mem::drop(tune);
     }
 
-    /// A batch that panics leaves no kernel of it registered and unsettled:
-    /// those it never finished settle as failed.
+    /// A batch with a kernel that panics settles every kernel of it, the one
+    /// that panicked as failed and every other one as it would have.
     #[test]
     #[serial_test::serial(records)]
     fn a_panicking_batch_settles_every_kernel() {
@@ -995,17 +1025,12 @@ mod tests {
         for number in 0..4 {
             loader.enqueue(Box::new(Numbered(number)), ());
         }
-        let _ = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
-            let _ = loader.load(&Numbered(4), &id(4), &logger);
-        }))
-        .expect_err("the load panics");
+        loader.load(&Numbered(4), &id(4), &logger).unwrap();
         let statistics = collector.statistics().compilation;
         assert_eq!(statistics.registered, 5);
         assert_eq!(statistics.settled(), 5);
-        assert!(
-            statistics.abandoned >= 1,
-            "the kernels the panic left unfinished are abandoned"
-        );
+        assert_eq!(statistics.failed, 1, "only the kernel that panicked");
+        assert_eq!(statistics.abandoned, 0);
         core::mem::drop(tune);
     }
 
@@ -1129,26 +1154,28 @@ mod tests {
         assert_eq!(loader.get(&id(1)), Some(&1));
     }
 
-    /// A kernel that panics on a compiling thread panics the load with its
-    /// own message, as it would on one thread.
+    /// A kernel that panics on a compiling thread fails its own load, with
+    /// its message, and only its own: every other kernel of the batch loads.
     #[test]
     #[serial_test::serial(records)]
-    fn a_panic_keeps_its_message() {
+    fn a_panic_fails_only_its_own_kernel() {
         let mut loader = loader(4);
         loader.target.compiler.panicking = Some(2);
         let logger = ServerLogger::default();
         for number in 0..4 {
             loader.enqueue(Box::new(Numbered(number)), ());
         }
-        let panic = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
-            let _ = loader.load(&Numbered(4), &id(4), &logger);
-        }))
-        .expect_err("the load panics");
-        let message = panic
-            .downcast_ref::<String>()
-            .map(String::as_str)
-            .or_else(|| panic.downcast_ref::<&str>().copied());
-        assert_eq!(message, Some("kernel 2 panicked"));
+        loader.load(&Numbered(4), &id(4), &logger).unwrap();
+        for number in [0, 1, 3] {
+            assert_eq!(loader.get(&id(number)), Some(&number));
+        }
+        let err = loader
+            .load(&Numbered(2), &id(2), &logger)
+            .expect_err("the kernel that panicked fails");
+        assert!(
+            alloc::format!("{err}").contains("kernel 2 panicked"),
+            "the failure keeps the panic's message: {err}"
+        );
     }
 
     /// A batch is recorded once, with the wall time its kernels' work, spread

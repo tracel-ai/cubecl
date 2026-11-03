@@ -1,13 +1,22 @@
+//! The Metal compute server: the device's streams, its compiled pipelines,
+//! and the graphs it has captured.
+//!
+//! Every entry point here is a [`Server`] method, and the ones that write
+//! device memory run inside a [write scope](WriteScoped) — the taint
+//! bookkeeping is not spelled out on the failure paths, because a path that
+//! forgot it would be silent.
+
+use crate::compute::driver::MetalBindings;
+use crate::compute::{Captures, Command, Window};
 use crate::{
-    compute::context::MetalContext,
-    compute::stream::MetalStreamBackend,
-    memory::{MetalBufferHandle, MetalStorage},
+    compute::context::MetalContext, compute::pipelines::MetalCompiledKernel,
+    compute::stream::MetalStreamBackend, memory::MetalStorage,
 };
 use cubecl_common::{
     bytes::Bytes,
     profile::{Duration, Instant, ProfileDuration, ProfileTicks},
 };
-use cubecl_core::server::ServerStorage;
+use cubecl_core::server::{DeviceCaptures, ServerStorage};
 use cubecl_core::{
     MemoryConfiguration,
     prelude::*,
@@ -16,36 +25,25 @@ use cubecl_core::{
         ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
     },
 };
-use cubecl_environment::future::DynFut;
+use cubecl_environment::future::{self, DynFut};
 use cubecl_environment::stream::StreamId;
+use cubecl_server::command::{DeviceStream, Refused};
 use cubecl_server::compiler::ArtifactId;
-use cubecl_server::memory_management::Cleanup;
-use cubecl_server::memory_management::PageUpdate;
 use cubecl_server::{
     execution::LaunchMode,
+    id::GraphId,
     kernel::CubeKernel,
     logging::ServerLogger,
-    memory_management::{
-        ManagedMemoryHandle,
-        relocation::{RelocatingStreams, RelocationNeed, RelocationReason},
-    },
+    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, StreamMemoryReport},
     server::Server,
     storage::{ComputeStorage, ManagedResource},
-    stream::{
-        EventStreamBackend, ExecuteScope, FailureStore, MultiStream, ResolvedStreams, WriteScoped,
-        failed_writing,
-    },
+    stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
     timestamp_profiler::TimestampProfiler,
 };
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLCommandBuffer, MTLDevice};
 use std::sync::Arc;
-
-enum DispatchInfo {
-    Static(u32, u32, u32),
-    Dynamic(BufferBinding),
-}
 
 /// Metal compute server.
 #[derive(Debug)]
@@ -54,6 +52,8 @@ pub struct MetalServer {
     streams: MultiStream<MetalStreamBackend>,
     pub(crate) utilities: Arc<ServerUtilities>,
     timestamps: TimestampProfiler,
+    /// The graphs this server has captured — see [`Captures`].
+    graphs: Captures,
 }
 
 impl MetalServer {
@@ -62,6 +62,7 @@ impl MetalServer {
         mem_props: cubecl_ir::MemoryDeviceProperties,
         mem_config: MemoryConfiguration,
         utilities: Arc<ServerUtilities>,
+        captures: DeviceCaptures,
     ) -> Self {
         let logger = utilities.logger.clone();
 
@@ -74,7 +75,8 @@ impl MetalServer {
             compilation_options,
         );
 
-        let backend = MetalStreamBackend::new(device, mem_props, mem_config, logger.clone());
+        let backend =
+            MetalStreamBackend::new(device, mem_props, mem_config, logger.clone(), captures);
 
         let config = {
             use cubecl_server::config::RuntimeConfig;
@@ -87,6 +89,7 @@ impl MetalServer {
             streams: MultiStream::new(logger, backend, max_streams),
             utilities,
             timestamps: TimestampProfiler::default(),
+            graphs: Captures::default(),
         }
     }
 }
@@ -94,88 +97,140 @@ impl MetalServer {
 // SAFETY: Only accessed from the server thread. GPU work is serialized through command queue ordering.
 unsafe impl Send for MetalServer {}
 
-/// Resolves a binding's GPU resource from its origin stream ([`Binding::stream`]),
-/// not the stream issuing work. Each stream owns its own `memory_management`, so a
-/// buffer only lives in its origin's manager.
-fn resolve_origin_resource(
-    resolved: &mut ResolvedStreams<'_, MetalStreamBackend>,
-    binding: &BufferBinding,
-) -> Result<(MetalBufferHandle, u64), IoError> {
-    let stream = resolved.get(&binding.stream);
-
-    let mut storage_handle = stream
-        .memory_management
-        .get_storage(binding.memory.clone())?;
-    if let Some(offset) = binding.offset_start {
-        storage_handle = storage_handle.offset_start(offset);
-    }
-    if let Some(offset) = binding.offset_end {
-        storage_handle = storage_handle.offset_end(offset);
-    }
-
-    let offset = storage_handle.offset();
-    let resource = stream.memory_management.storage().get(&storage_handle)?;
-
-    Ok((resource, offset))
-}
-
-/// Reads a pitched row-major buffer into packed bytes. `can_read_tensor` keeps the pitch at
-/// the row level, so the copy collapses to 2D: a contiguous inner row, `pitch` bytes apart.
-fn read_pitched(src: *const u8, shape: &[usize], strides: &[usize], elem_size: usize) -> Vec<u8> {
-    let rank = shape.len();
-    let total = shape.iter().product::<usize>() * elem_size;
-    if total == 0 {
-        return Vec::new();
-    }
-    let pitched = rank > 1 && strides[rank - 2] != *shape.last().unwrap_or(&1);
-    if !pitched {
-        return unsafe { std::slice::from_raw_parts(src, total) }.to_vec();
-    }
-
-    let width = shape[rank - 1] * elem_size;
-    let rows = shape[..rank - 1].iter().product::<usize>();
-    let pitch = strides[rank - 2] * elem_size;
-
-    let mut out = vec![0u8; total];
-    for row in 0..rows {
-        let src_row = unsafe { std::slice::from_raw_parts(src.add(row * pitch), width) };
-        out[row * width..(row + 1) * width].copy_from_slice(src_row);
-    }
-    out
-}
-
-/// Writes packed bytes into a pitched row-major buffer — the inverse of [`read_pitched`].
-fn write_pitched(dst: *mut u8, data: &[u8], shape: &[usize], strides: &[usize], elem_size: usize) {
-    let rank = shape.len();
-    let total = shape.iter().product::<usize>() * elem_size;
-    if total == 0 {
-        return;
-    }
-    assert!(
-        data.len() >= total,
-        "input shorter than logical tensor bytes"
-    );
-    let pitched = rank > 1 && strides[rank - 2] != *shape.last().unwrap_or(&1);
-    if !pitched {
-        unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), dst, total) };
-        return;
-    }
-
-    let width = shape[rank - 1] * elem_size;
-    let rows = shape[..rank - 1].iter().product::<usize>();
-    let pitch = strides[rank - 2] * elem_size;
-
-    for row in 0..rows {
-        let src_row = &data[row * width..(row + 1) * width];
-        unsafe { std::ptr::copy_nonoverlapping(src_row.as_ptr(), dst.add(row * pitch), width) };
-    }
-}
-
 impl MetalServer {
+    fn command_no_inputs(&mut self, stream_id: StreamId) -> Result<Command<'_>, ServerError> {
+        self.command(stream_id, [].into_iter())
+    }
+
+    fn command<'a>(
+        &mut self,
+        stream_id: StreamId,
+        handles: impl Iterator<Item = &'a BufferBinding>,
+    ) -> Result<Command<'_>, ServerError> {
+        let streams = self.streams.resolve(stream_id, handles)?;
+        Ok(Command::new(
+            &mut self.context,
+            streams,
+            self.utilities.service,
+        ))
+    }
+
     /// Mark every open profile invalid: a failure inside a profiling window
     /// invalidates the measurement. A no-op with no profile open.
     fn profile_failure(&mut self, error: &ServerError) {
         self.timestamps.failure(error);
+    }
+
+    /// Compile `kernel` if this is the first launch of it, and return its
+    /// pipeline — or `None` when that failed, in which case the outputs the
+    /// launch was given now carry the compilation error.
+    ///
+    /// Compilation comes first — memoized, so a launch after the first pays a
+    /// map lookup — because the write scope stages what the compiled kernel
+    /// says it writes. A kernel that fails to compile has no IR and no
+    /// compiled answer, so the caller's declared IO decides: only the
+    /// declared outputs are left carrying the failure, never the buffers the
+    /// kernel was only going to read — tainting those would refuse every
+    /// later launch that shares them, an autotune sweep above all.
+    ///
+    /// A discarded launch claims none. It was never going to write, so a
+    /// failure in it leaves nothing stale, and tainting its buffers would fail
+    /// unrelated reads of memory the run deliberately left alone.
+    fn load_or_fail(
+        &mut self,
+        kernel: Box<dyn CubeKernel>,
+        id: &ArtifactId<()>,
+        bindings: &KernelArguments,
+        stream_id: StreamId,
+        launch_mode: LaunchMode,
+    ) -> Option<MetalCompiledKernel> {
+        let err = match self.context.load(&*kernel, id, &self.utilities.logger) {
+            Ok(compiled) => return Some(compiled),
+            Err(err) => err,
+        };
+        if !launch_mode.discards_launch() {
+            let mut written = self.write_set();
+            written.extend(bindings.buffers_written(None).cloned());
+            failed_writing(self, stream_id, written, ServerError::Launch(err));
+        } else {
+            self.profile_failure(&ServerError::Launch(err));
+        }
+        None
+    }
+
+    /// The grid dimensions this launch runs with, host-read from the count
+    /// buffer when the count is dynamic.
+    ///
+    /// Read on the host rather than dispatched indirectly, because a captured
+    /// graph's commands carry their grid by value: one way to launch, inside
+    /// a capture window and out of it.
+    ///
+    /// Resolved before the launch's scope opens — see the call site — so the
+    /// count buffer is checked here the way the scope checks every other
+    /// read: grid dimensions taken from bytes a failure left unwritten
+    /// dispatch an absurd grid or scatter into memory that carried no
+    /// failure at all.
+    ///
+    /// # Errors
+    ///
+    /// The failure the count buffer carries, and the readback's own — which
+    /// includes the refusal inside a capture window, where the count a later
+    /// replay needs is not known yet.
+    fn resolve_cube_count(
+        &mut self,
+        count: CubeCount,
+        stream_id: StreamId,
+    ) -> Result<(u32, u32, u32), ServerError> {
+        match count {
+            CubeCount::Static(x, y, z) => Ok((x, y, z)),
+            CubeCount::Dynamic(binding) => {
+                self.streams.ensure_written([&binding].into_iter())?;
+                let mut command = self.command(stream_id, [&binding].into_iter())?;
+                let data = future::block_on(command.read_async(vec![CopyDescriptor::new(
+                    binding,
+                    [3].into(),
+                    [1].into(),
+                    4,
+                )]))?;
+                let data = bytemuck::cast_slice(&data[0]);
+                assert!(
+                    data.len() == 3,
+                    "Dynamic cube count should contain 3 values"
+                );
+                Ok((data[0], data[1], data[2]))
+            }
+        }
+    }
+
+    fn launch_checked(
+        &mut self,
+        kernel_id: KernelId,
+        kernel: &MetalCompiledKernel,
+        count: (u32, u32, u32),
+        bindings: KernelArguments,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        let mut command = self.command(stream_id, bindings.buffers())?;
+
+        let KernelArguments {
+            resources, info, ..
+        } = bindings;
+
+        let buffers = resources
+            .into_iter()
+            .map(|resource| match resource {
+                KernelResource::Buffer(binding) => command.resource(binding),
+                KernelResource::TensorMap(_) => panic!("Tensor maps not supported on Metal"),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut bindings = MetalBindings {
+            buffers,
+            info: info.data,
+        };
+
+        command
+            .kernel(&kernel_id, kernel, count, &mut bindings)
+            .map_err(ServerError::from)
     }
 }
 
@@ -192,6 +247,12 @@ impl WriteScoped for MetalServer {
         // Measured per device on this backend, so the scope's stream does not
         // narrow which measurement a failure invalidates.
         self.profile_failure(error);
+    }
+
+    fn capturing(&mut self, stream: StreamId) -> Option<&mut StreamCapture> {
+        self.streams
+            .try_stream_mut(&stream)
+            .map(|stream| &mut stream.capturing)
     }
 }
 
@@ -222,28 +283,17 @@ impl Server for MetalServer {
         size: u64,
         stream_id: StreamId,
     ) -> Result<(), ServerError> {
-        let mut resolved = self
-            .streams
-            .resolve(stream_id, std::iter::empty())
-            .expect("creating a Metal stream never fails");
-        let cursor = resolved.cursor;
-        Relocating(&mut resolved).relocate_when_wanted();
-        let (stream, failures) = resolved.current_and_failures();
-        let allocated = stream
-            .memory_management
-            .reserve(size, PageUpdate::Allow, failures)
-            .and_then(|reserved| {
-                stream
-                    .memory_management
-                    .bind(reserved, memory.clone(), cursor, failures)
-            });
-        if let Err(err) = allocated {
-            // Nothing to allocate: the buffer carries the error instead.
-            let err = ServerError::from(err);
-            failures.fail_unallocated(&memory, err.clone());
-            return Err(err);
+        let result = self.command_no_inputs(stream_id).and_then(|mut command| {
+            command
+                .initialize_memory(memory.clone(), size)
+                .map_err(ServerError::from)
+        });
+        // No stream to allocate on, or no memory to allocate: the buffer carries the
+        // error instead.
+        if let Err(error) = &result {
+            self.streams.fail_unallocated(&memory, error.clone());
         }
-        Ok(())
+        result
     }
 
     fn read(
@@ -251,8 +301,6 @@ impl Server for MetalServer {
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
-        use objc2_metal::MTLBuffer;
-
         // Buffers another stream wrote are only as good as the work that wrote
         // them; see `FailureStore::ensure_written`.
         if let Err(err) = self
@@ -262,101 +310,25 @@ impl Server for MetalServer {
             return Box::pin(async move { Err(err) });
         }
 
-        let mut resolved = self
-            .streams
-            .resolve(stream_id, descriptors.iter().map(|d| &d.handle))
-            .expect("creating a Metal stream never fails");
-
-        // Flush, wait, then read.
-        let (stream, failures) = resolved.current_and_failures();
-        let event = MetalStreamBackend::flush(stream, failures);
-
-        if let Err(e) = MetalStreamBackend::wait_event_sync(event) {
-            return Box::pin(async move { Err(e) });
-        }
-
-        let results: Result<Vec<_>, ServerError> = descriptors
-            .iter()
-            .map(|descriptor| {
-                let (resource, offset) = resolve_origin_resource(&mut resolved, &descriptor.handle)
-                    .map_err(ServerError::from)?;
-
-                if descriptor.shape.iter().product::<usize>() * descriptor.elem_size == 0 {
-                    return Ok(Bytes::from_bytes_vec(Vec::new()));
-                }
-                let buffer = resource.inner();
-                let protocol_obj: &ProtocolObject<dyn MTLBuffer> = buffer.as_ref();
-                let base_ptr = protocol_obj.contents().as_ptr() as *const u8;
-                let src_ptr = unsafe { base_ptr.add(offset as usize) };
-                let bytes = read_pitched(
-                    src_ptr,
-                    &descriptor.shape,
-                    &descriptor.strides,
-                    descriptor.elem_size,
-                );
-
-                Ok(Bytes::from_bytes_vec(bytes))
-            })
-            .collect();
-
-        Box::pin(async move { results })
+        let mut command = match self.command(stream_id, descriptors.iter().map(|d| &d.handle)) {
+            Ok(command) => command,
+            Err(err) => return Box::pin(async move { Err(err) }),
+        };
+        Box::pin(command.read_async(descriptors))
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
-        use objc2_metal::MTLBuffer;
-
-        let mut resolved = self
-            .streams
-            .resolve(stream_id, descriptors.iter().map(|(d, _)| &d.handle))
-            .expect("creating a Metal stream never fails");
-
-        let (stream, failures) = resolved.current_and_failures();
-        let event = MetalStreamBackend::flush(stream, failures);
-        if let Err(err) = MetalStreamBackend::wait_event_sync(event) {
-            core::mem::drop(resolved);
-            // Nothing is copied, so every destination this call was given is
-            // left as it was — taint them, or a read of one on another
-            // logical stream finds no failure to fail on and copies stale
-            // bytes.
-            let mut written = self.write_set();
-            written.extend(descriptors.iter().map(|(desc, _)| desc.handle.clone()));
-            failed_writing(self, stream_id, written, err);
-            return;
-        }
-        core::mem::drop(resolved);
-
+        // Each copy runs in its own scope over its destination: the copy
+        // fills it, which is what releases an earlier failure's hold on
+        // it — a caller recovers by writing from the host as much as by
+        // relaunching — and a failure leaves it as it was, which is what
+        // a later read of it has to fail on.
         for (descriptor, data) in descriptors {
-            // Each copy runs in its own scope over its destination: the copy
-            // fills it, which is what releases an earlier failure's hold on
-            // it — a caller recovers by writing from the host as much as by
-            // relaunching — and a failure leaves it as it was, which is what
-            // a later read of it has to fail on.
             let mut written = self.write_set();
             written.push(descriptor.handle.clone());
             ExecuteScope::over(self, stream_id, written).execute(|server| {
-                let mut resolved = server
-                    .streams
-                    .resolve(stream_id, [&descriptor.handle].into_iter())
-                    .expect("creating a Metal stream never fails");
-                let (resource, offset) = resolve_origin_resource(&mut resolved, &descriptor.handle)
-                    .map_err(ServerError::Io)?;
-
-                if descriptor.shape.iter().product::<usize>() * descriptor.elem_size == 0 {
-                    return Ok(());
-                }
-                let buffer = resource.inner();
-                let protocol_obj: &ProtocolObject<dyn MTLBuffer> = buffer.as_ref();
-                let base_ptr = protocol_obj.contents().as_ptr() as *mut u8;
-                let dst_ptr = unsafe { base_ptr.add(offset as usize) };
-
-                write_pitched(
-                    dst_ptr,
-                    &data,
-                    &descriptor.shape,
-                    &descriptor.strides,
-                    descriptor.elem_size,
-                );
-                Ok(())
+                let mut command = server.command(stream_id, [&descriptor.handle].into_iter())?;
+                command.write_to_gpu(descriptor, data).map_err(Into::into)
             });
         }
     }
@@ -369,20 +341,6 @@ impl Server for MetalServer {
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) {
-        use objc2_metal::{MTLBuffer, MTLComputeCommandEncoder, MTLDevice, MTLResourceOptions};
-
-        // Compilation comes first — memoized, so a launch after the first
-        // pays a map lookup — because the write scope stages what the
-        // compiled kernel says it writes. A kernel that fails to compile has
-        // no IR and no compiled answer, so the caller's declared IO decides:
-        // only the declared outputs are left carrying the failure, never the
-        // buffers the kernel was only going to read — tainting those would
-        // refuse every later launch that shares them, an autotune sweep
-        // above all.
-        //
-        // A discarded launch stages none either way. It was never going to write, so a
-        // failure in it leaves nothing stale, and tainting its buffers would
-        // fail unrelated reads of memory the run deliberately left alone.
         if launch_mode == LaunchMode::Queue {
             self.context.queue(kernel);
             return;
@@ -391,25 +349,40 @@ impl Server for MetalServer {
             kernel: kernel.id(),
             variant: (),
         };
-        let compiled = self.context.load(&*kernel, &id, &self.utilities.logger);
-        let compiled = match compiled {
-            Ok(compiled) => compiled,
-            Err(err) => {
-                if !launch_mode.discards_launch() {
-                    let mut written = self.write_set();
-                    written.extend(bindings.buffers_written(None).cloned());
-                    failed_writing(self, stream_id, written, ServerError::Launch(err));
-                } else {
-                    self.profile_failure(&ServerError::Launch(err));
-                }
-                return;
-            }
+        let Some(compiled) = self.load_or_fail(kernel, &id, &bindings, stream_id, launch_mode)
+        else {
+            return;
         };
+        // A discarded launch stops right here, after compilation and before
+        // anything that touches a buffer.
         if launch_mode.discards_launch() {
             return;
         }
         let kernel_id = id.kernel;
         let io = compiled.io.clone();
+
+        // The count resolves before the scope opens, because entering the
+        // scope replaces whatever claim the outputs carry — and a count that
+        // resolves to zero dispatches nothing, so those claims must be left
+        // exactly as they were, which no exit can restore once entry took
+        // them.
+        let count = match self.resolve_cube_count(count, stream_id) {
+            Ok(count) => count,
+            Err(err) => {
+                // The launch cannot run, so its outputs take the failure
+                // exactly as a failed launch's would: a tainted or unreadable
+                // count buffer travels to everything downstream of it.
+                let mut written = self.write_set();
+                written.extend(bindings.buffers_written(io.as_deref()).cloned());
+                failed_writing(self, stream_id, written, err);
+                return;
+            }
+        };
+        // Zero threadgroups writes nothing — no scope opens, so a claim an
+        // earlier failure holds on the outputs stays exactly where it was.
+        if count.0 == 0 || count.1 == 0 || count.2 == 0 {
+            return;
+        }
 
         // The scope claims what the launch writes until the body proves the
         // work enqueued, so a failure — or a panic — anywhere in it leaves a
@@ -418,178 +391,14 @@ impl Server for MetalServer {
         // the launch instead, and the scope settles that too.
         let mut written = self.write_set();
         written.extend(bindings.buffers_written(io.as_deref()).cloned());
-        // A dynamic count travels outside `resources`, so `buffers_read`
-        // never names it — yet the dispatch reads it as its grid dimensions,
-        // which is exactly the garbage-as-cube-count read the skip exists to
-        // prevent.
-        let count_read = match &count {
-            CubeCount::Dynamic(binding) => Some(binding),
-            CubeCount::Static(..) => None,
-        };
         ExecuteScope::launching(
             self,
-            kernel_id,
+            kernel_id.clone(),
             stream_id,
-            bindings.buffers_read(io.as_deref()).chain(count_read),
+            bindings.buffers_read(io.as_deref()),
             written,
         )
-        .execute(|server| {
-            let dispatch_info = match count {
-                CubeCount::Static(x, y, z) => DispatchInfo::Static(x, y, z),
-                CubeCount::Dynamic(binding) => DispatchInfo::Dynamic(binding),
-            };
-
-            // Resolve every binding (including the dynamic count) so the current stream
-            // waits on each binding's origin stream before dispatching.
-            let mut resolved = server.streams.resolve(
-                stream_id,
-                bindings
-                    .resources
-                    .iter()
-                    .map(|res| match res {
-                        KernelResource::Buffer(binding) => binding,
-                        KernelResource::TensorMap(_) => {
-                            panic!("Tensor maps not supported on Metal")
-                        }
-                    })
-                    .chain(match &dispatch_info {
-                        DispatchInfo::Dynamic(binding) => Some(binding),
-                        DispatchInfo::Static(..) => None,
-                    }),
-            )
-            .expect("creating a Metal stream never fails");
-
-            let mut resources = Vec::with_capacity(bindings.resources.len());
-            let mut total_buffer_bytes: usize = 0;
-            for binding in bindings.resources.iter() {
-                let binding = match binding {
-                    KernelResource::Buffer(binding) => binding,
-                    KernelResource::TensorMap(_) => {
-                        panic!("Tensor maps not supported on Metal")
-                    }
-                };
-                let (resource, offset) = resolve_origin_resource(&mut resolved, binding)
-                    .map_err(ServerError::Io)?;
-
-                total_buffer_bytes += binding.size_in_used() as usize;
-
-                resources.push((resource, offset));
-            }
-
-            // The indirect count buffer is read GPU-side, so it too comes from its origin stream.
-            let indirect_buffer_info = match &dispatch_info {
-                DispatchInfo::Dynamic(binding) => Some(
-                    resolve_origin_resource(&mut resolved, binding).map_err(ServerError::Io)?,
-                ),
-                _ => None,
-            };
-
-            // Work is issued on the current stream; resources above came from their origins.
-            let (stream, failures) = resolved.current_and_failures();
-
-            let device = stream.device.clone();
-            let active = stream.get_or_create_encoder();
-            let encoder = &active.encoder;
-
-            (*encoder).setComputePipelineState(&compiled.pipeline);
-
-            for (index, (resource, offset)) in resources.iter().enumerate() {
-                let buffer: &ProtocolObject<dyn MTLBuffer> = resource.inner().as_ref();
-                unsafe {
-                    (*encoder).setBuffer_offset_atIndex(Some(buffer), *offset as usize, index);
-                }
-            }
-
-            let buffer_index = resources.len();
-
-            if !bindings.info.data.is_empty() {
-                let info_bytes: &[u8] = bytemuck::cast_slice(&bindings.info.data);
-                if info_bytes.len() <= 4096 {
-                    use std::ptr::NonNull;
-                    unsafe {
-                        (*encoder).setBytes_length_atIndex(
-                            NonNull::new(info_bytes.as_ptr() as *mut _).unwrap(),
-                            info_bytes.len(),
-                            buffer_index,
-                        );
-                    }
-                } else {
-                    use std::ptr::NonNull;
-                    let info_buffer = unsafe {
-                        (*device).newBufferWithBytes_length_options(
-                            NonNull::new(info_bytes.as_ptr() as *mut _).unwrap(),
-                            info_bytes.len(),
-                            MTLResourceOptions::StorageModeShared,
-                        )
-                    };
-                    match info_buffer {
-                        Some(buf) => {
-                            unsafe {
-                                (*encoder).setBuffer_offset_atIndex(Some(&buf), 0, buffer_index);
-                            }
-                            active.temporaries.push(buf);
-                        }
-                        None => {
-                            return Err(ServerError::Generic {
-                                reason: format!(
-                                    "failed to allocate a {} B Metal buffer for the kernel's \
-                                     metadata",
-                                    info_bytes.len()
-                                ),
-                                backtrace: cubecl_environment::backtrace::BackTrace::capture(),
-                            });
-                        }
-                    }
-                }
-            }
-
-            let cube_dim = compiled.cube_dim;
-            let threads_per_threadgroup = objc2_metal::MTLSize {
-                width: cube_dim.x as usize,
-                height: cube_dim.y as usize,
-                depth: cube_dim.z as usize,
-            };
-
-            match dispatch_info {
-                DispatchInfo::Static(grid_x, grid_y, grid_z) => {
-                    let threadgroups = objc2_metal::MTLSize {
-                        width: grid_x as usize,
-                        height: grid_y as usize,
-                        depth: grid_z as usize,
-                    };
-
-                    (*encoder).dispatchThreadgroups_threadsPerThreadgroup(
-                        threadgroups,
-                        threads_per_threadgroup,
-                    );
-                }
-                DispatchInfo::Dynamic(_) => {
-                    let (resource, offset) = indirect_buffer_info.unwrap();
-                    let buffer: &ProtocolObject<dyn MTLBuffer> = resource.inner().as_ref();
-
-                    unsafe {
-                        (*encoder)
-                            .dispatchThreadgroupsWithIndirectBuffer_indirectBufferOffset_threadsPerThreadgroup(
-                                buffer,
-                                offset as usize,
-                                threads_per_threadgroup,
-                            );
-                    }
-                }
-            }
-
-            stream.batch_ops += 1;
-            stream.batch_bytes += total_buffer_bytes;
-
-            let needs_flush = stream.batch_ops > stream.max_ops_per_batch
-                || (stream.batch_bytes >> 20) > stream.max_mb_per_batch;
-
-            if needs_flush {
-                MetalStreamBackend::flush(stream, failures);
-            }
-
-            Ok(())
-        });
+        .execute(|server| server.launch_checked(kernel_id, &compiled, count, bindings, stream_id));
     }
 
     fn sync(
@@ -602,14 +411,10 @@ impl Server for MetalServer {
         if let Err(err) = self.streams.ensure_written(handles.iter()) {
             return Box::pin(async move { Err(err) });
         }
-        let mut resolved = self
-            .streams
-            .resolve(stream_id, std::iter::empty())
-            .expect("creating a Metal stream never fails");
-        let (stream, failures) = resolved.current_and_failures();
-        let fence = MetalStreamBackend::flush(stream, failures);
-
-        Box::pin(async move { MetalStreamBackend::wait_event_sync(fence) })
+        match self.command_no_inputs(stream_id) {
+            Ok(mut command) => command.sync(),
+            Err(err) => Box::pin(async move { Err(err) }),
+        }
     }
 
     fn check(
@@ -627,27 +432,94 @@ impl Server for MetalServer {
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         // A flush reports nothing: a failure lives on the buffers the work
         // left unwritten, and a read of one of them is what surfaces it.
-        let mut resolved = self
-            .streams
-            .resolve(stream_id, std::iter::empty())
-            .expect("creating a Metal stream never fails");
-        let (stream, failures) = resolved.current_and_failures();
-        MetalStreamBackend::flush(stream, failures);
+        let mut command = self.command_no_inputs(stream_id)?;
+        command.stream().queue().flush();
         Ok(())
     }
 
+    fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let mut command = self.command_no_inputs(stream_id)?;
+        Window::on(&mut command).prepare(stream_id)
+    }
+
+    fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let mut command = self.command_no_inputs(stream_id)?;
+        Window::on(&mut command).begin()
+    }
+
+    fn end_capture(&mut self, stream_id: StreamId) -> Result<GraphId, ServerError> {
+        let id = GraphId::new();
+        let instantiated = {
+            let mut command = self.command_no_inputs(stream_id)?;
+            Window::on(&mut command).instantiate(stream_id, id)
+        };
+        match instantiated {
+            Ok(graph) => {
+                self.graphs.insert(id, graph);
+                Ok(id)
+            }
+            // No graph is handed back, so the recorded launches never run:
+            // every buffer they were given is left as it was. The caller gets
+            // the error below; the taint is what makes a read of one of those
+            // buffers fail on some other stream, which heard nothing.
+            Err(Refused { error, written }) => {
+                self.streams.taint(error.clone(), written.iter());
+                Err(error)
+            }
+        }
+    }
+
+    fn replay(&mut self, graph: GraphId, stream_id: StreamId) -> Result<(), ServerError> {
+        // A replay writes the buffers its recorded launches were given, so it
+        // takes the same scope over that write set and settles it: a failed
+        // enqueue leaves them carrying the failure, and the next replay that
+        // lands releases the claim.
+        let mut written = self.write_set();
+        self.graphs.extend_written(graph, &mut written);
+        ExecuteScope::over(self, stream_id, written)
+            .execute(|server| {
+                let mut streams = server.streams.resolve(stream_id, [].into_iter())?;
+                server.graphs.replay(graph, streams.current())
+            })
+            .into_result()
+    }
+
+    fn graph_destroy(&mut self, graph: GraphId, stream_id: StreamId) {
+        // No-op for an unknown id (e.g. a double release), and nothing to sync
+        // for either.
+        if !self.graphs.contains(graph) {
+            return;
+        }
+        // What this graph's replays write, taken before the graph goes: if the
+        // wait below fails, these are the buffers a replay may not have
+        // finished writing, and the failure belongs to them.
+        let mut written = Vec::new();
+        self.graphs.extend_written(graph, &mut written);
+
+        // Wait for in-flight replays before dropping the executable: `replay`
+        // returns at enqueue time, so one may still be running against it. A
+        // failed wait means no replay is still running, so destroying is safe.
+        let synced = future::block_on(self.sync(Vec::new(), stream_id));
+        let stream = self.streams.try_stream_mut(&stream_id);
+        self.graphs.destroy(graph, stream);
+        if let Err(err) = synced {
+            failed_writing(self, stream_id, written, err);
+        }
+    }
+
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
+        self.streams
+            .resolve(stream_id, [].into_iter())?
+            .current()
+            .reject_while_recording("start_profile")?;
         // Drain prior work so the window only contains command buffers committed from here on.
-        if let Err(err) = cubecl_environment::future::block_on(self.sync(Vec::new(), stream_id)) {
+        if let Err(err) = future::block_on(self.sync(Vec::new(), stream_id)) {
             log::warn!("{err}");
         }
-        // Begin collecting this window's work-bearing command buffers on the stream.
-        self.streams
-            .resolve(stream_id, std::iter::empty())
-            .expect("creating a Metal stream never fails")
-            .current()
-            .profiling = Some(Vec::new());
-        Ok(self.timestamps.start())
+        let mut streams = self.streams.resolve(stream_id, [].into_iter())?;
+        let token = self.timestamps.start();
+        streams.current().queue().profile_windows.open(&token);
+        Ok(token)
     }
 
     fn end_profile(
@@ -655,29 +527,22 @@ impl Server for MetalServer {
         stream_id: StreamId,
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
-        // Flush the final encoder and wait for GPU completion so timestamps are valid.
-        if let Err(err) = cubecl_environment::future::block_on(self.sync(Vec::new(), stream_id)) {
-            // Drop any collected buffers so a retry can't accumulate stale work.
-            self.streams
-                .resolve(stream_id, std::iter::empty())
-                .expect("creating a Metal stream never fails")
-                .current()
-                .profiling = None;
+        // Flush the final batch and wait for GPU completion so timestamps are valid.
+        if let Err(err) = future::block_on(self.sync(Vec::new(), stream_id)) {
             self.timestamps.failure(&err);
         }
 
-        // The collector disarms whatever the token says below: left armed, it
-        // would retain every later flush's command buffer until the next
-        // start_profile — and a failed profile is exactly when the token
-        // errors, since a failure anywhere in the window lands in it.
-        let buffers = self
-            .streams
-            .resolve(stream_id, std::iter::empty())
-            .expect("creating a Metal stream never fails")
-            .current()
-            .profiling
-            .take()
-            .unwrap_or_default();
+        // The window closes whatever the token says below: left open, it
+        // would retain every later flush's command buffer — and a failed
+        // profile is exactly when the token errors, since a failure anywhere
+        // in the window lands in it.
+        let buffers = match self.streams.resolve(stream_id, [].into_iter()) {
+            Ok(mut streams) => streams.current().queue().profile_windows.close(&token),
+            Err(err) => {
+                self.timestamps.abandon(token);
+                return Err(ProfileError::from(&err));
+            }
+        };
 
         // Clear the token (propagates any recorded profiling error). Its system-time result
         // is discarded in favor of GPU timestamps below.
@@ -716,184 +581,29 @@ impl Server for MetalServer {
     }
 
     fn abandon_profile(&mut self, stream_id: StreamId, token: ProfilingToken) {
-        // Disarm the collector and drop what it has retained: left armed it
-        // would hold every later flush's command buffers until the next
-        // `start_profile`. No sync, which is the whole difference from
-        // `end_profile`: nothing is going to read these timestamps.
-        self.streams
-            .resolve(stream_id, std::iter::empty())
-            .expect("creating a Metal stream never fails")
-            .current()
-            .profiling = None;
+        // Close the window and drop what it retained: left open it would hold
+        // every later flush's command buffers. No sync, which is the whole
+        // difference from `end_profile`: nothing is going to read these
+        // timestamps.
+        if let Some(stream) = self.streams.try_stream_mut(&stream_id) {
+            stream.queue().profile_windows.close(&token);
+        }
         self.timestamps.abandon(token);
     }
 
-    fn memory_report(
-        &mut self,
-        stream_id: StreamId,
-    ) -> Option<cubecl_server::memory_management::StreamMemoryReport> {
-        let mut resolved = self
-            .streams
-            .resolve(stream_id, std::iter::empty())
-            .expect("creating a Metal stream never fails");
-        Some(cubecl_server::memory_management::StreamMemoryReport {
-            stream: stream_id,
-            pools: resolved.current().memory_management.memory_report(),
-            auxiliary: Vec::new(),
-        })
+    fn memory_report(&mut self, stream_id: StreamId) -> Option<StreamMemoryReport> {
+        self.command_no_inputs(stream_id)
+            .ok()
+            .map(|mut command| command.memory_report())
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        let mut resolved = self
-            .streams
-            .resolve(stream_id, std::iter::empty())
-            .expect("creating a Metal stream never fails");
-        Relocating(&mut resolved).reclaim()
+        self.command_no_inputs(stream_id)?.memory_cleanup()
     }
 
-    fn allocation_mode(
-        &mut self,
-        mode: cubecl_server::memory_management::MemoryAllocationMode,
-        stream_id: StreamId,
-    ) {
-        let mut resolved = self
-            .streams
-            .resolve(stream_id, std::iter::empty())
-            .expect("creating a Metal stream never fails");
-        resolved.current().memory_management.mode(mode);
-    }
-}
-
-/// A command's streams, as relocating the current stream's memory needs them.
-struct Relocating<'r, 'a>(&'r mut ResolvedStreams<'a, MetalStreamBackend>);
-
-impl RelocatingStreams for Relocating<'_, '_> {
-    /// Never: Metal records no graphs.
-    fn recording(&mut self) -> bool {
-        false
-    }
-
-    fn has_outdated(&mut self) -> bool {
-        self.0.current().memory_management.has_outdated()
-    }
-
-    fn relocation_need(&mut self) -> RelocationNeed {
-        self.0.current().memory_management.relocation_need()
-    }
-
-    fn bytes_allocated(&mut self) -> u64 {
-        self.0
-            .all()
-            .map(|stream| stream.memory_management.bytes_allocated())
-            .sum()
-    }
-
-    /// Commit every stream's open batch and wait for everything it submitted.
-    fn finish(&mut self) {
-        for stream in self.0.all() {
-            stream.finish();
-        }
-    }
-
-    fn cleanup_memory(&mut self) {
-        let (stream, failures) = self.0.current_and_failures();
-        stream
-            .memory_management
-            .cleanup(Cleanup::Explicit, failures);
-    }
-
-    fn relocate_memory(&mut self, reason: RelocationReason) {
-        let (stream, failures) = self.0.current_and_failures();
-        stream.relocate(reason, failures);
-    }
-
-    fn device_has_outdated(&mut self) -> bool {
-        self.0
-            .all()
-            .any(|stream| stream.memory_management.has_outdated())
-    }
-
-    fn relocate_device_memory(&mut self, reason: RelocationReason) {
-        for stream_id in self.0.stream_ids() {
-            let (stream, failures) = self.0.get_and_failures(&stream_id);
-            if stream.memory_management.has_outdated() {
-                stream.relocate(reason, failures);
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod pitched_tests {
-    use super::{read_pitched, write_pitched};
-
-    #[test]
-    fn pitched_round_trip() {
-        // (shape, strides, element bytes): packed and pitched layouts.
-        let cases: &[(&[usize], &[usize], usize)] = &[
-            (&[6], &[1], 2),
-            (&[2, 3], &[3, 1], 2),
-            (&[2, 3, 1], &[3, 1, 1], 4), // Packed HWC1.
-            (&[2, 2, 3, 2], &[12, 6, 2, 1], 2),
-            (&[2, 3], &[4, 1], 2),
-            (&[2, 2, 3, 2], &[24, 12, 4, 1], 2),
-        ];
-        for &(shape, strides, elem_size) in cases {
-            let rank = shape.len();
-            let width = shape[rank - 1] * elem_size;
-            let rows = shape[..rank - 1].iter().product::<usize>();
-            let pitch = if rank == 1 {
-                width
-            } else {
-                strides[rank - 2] * elem_size
-            };
-            let total = rows * width;
-            // Extra input bytes must not be copied, even for a rank-one tensor.
-            let data: Vec<u8> = (0..total + 5).map(|i| i as u8).collect();
-            for offset in [0, 7] {
-                let mut buffer = vec![0xa5; offset + rows * pitch + 9];
-                let mut expected = buffer.clone();
-                for row in 0..rows {
-                    expected[offset + row * pitch..offset + row * pitch + width]
-                        .copy_from_slice(&data[row * width..(row + 1) * width]);
-                }
-                let dst = unsafe { buffer.as_mut_ptr().add(offset) };
-                write_pitched(dst, &data, shape, strides, elem_size);
-                assert_eq!(buffer, expected, "shape={shape:?}, offset={offset}");
-                let src = unsafe { buffer.as_ptr().add(offset) };
-                assert_eq!(read_pitched(src, shape, strides, elem_size), data[..total]);
-            }
-        }
-    }
-
-    #[test]
-    fn short_input_panics_before_copy() {
-        for (shape, strides) in [
-            (&[6][..], &[1][..]),
-            (&[2, 3][..], &[3, 1][..]),
-            (&[2, 3][..], &[4, 1][..]),
-        ] {
-            let mut buffer = [0xa5; 16];
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                write_pitched(buffer.as_mut_ptr(), &[0; 5], shape, strides, 1);
-            }));
-            assert!(result.is_err());
-            assert_eq!(buffer, [0xa5; 16]);
-        }
-    }
-
-    #[test]
-    fn empty_copies_accept_null_pointers() {
-        let cases: &[(&[usize], &[usize], usize)] = &[
-            (&[0], &[1], 1),
-            (&[0, 3], &[4, 1], 2),
-            (&[2, 0], &[0, 1], 2),
-            (&[2, 0, 3, 1], &[0, 3, 1, 1], 4),
-            (&[2, 3], &[3, 1], 0),
-        ];
-        for &(shape, strides, elem_size) in cases {
-            assert!(read_pitched(std::ptr::null(), shape, strides, elem_size).is_empty());
-            write_pitched(std::ptr::null_mut(), &[], shape, strides, elem_size);
+    fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
+        if let Ok(mut command) = self.command_no_inputs(stream_id) {
+            command.stream().device_memory().mode(mode);
         }
     }
 }
@@ -910,17 +620,7 @@ impl ServerStorage for MetalServer {
         // filled reports the failure rather than handing back a pointer to
         // whatever was there before.
         self.streams.ensure_written([&binding].into_iter())?;
-        let mut resolved = self
-            .streams
-            .resolve(stream_id, std::iter::once(&binding))
-            .expect("creating a Metal stream never fails");
-        // Resolve from the binding's origin stream; see `resolve_origin_resource`.
-        let stream = resolved.get(&binding.stream);
-
-        Ok(stream.memory_management.managed_resource(
-            binding.memory,
-            binding.offset_start,
-            binding.offset_end,
-        )?)
+        let mut command = self.command(stream_id, [&binding].into_iter())?;
+        Ok(command.managed_resource(binding)?)
     }
 }

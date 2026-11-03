@@ -1,5 +1,6 @@
 use super::{CubePrimitive, Numeric};
 use crate::{
+    frontend::ConstRuntimeAssign,
     ir::{ConstantValue, ExpandValue, Scope},
     prelude::{DynamicSize, KernelBuilder, KernelLauncher, Scalar, assign},
     unexpanded,
@@ -8,13 +9,15 @@ use alloc::{boxed::Box, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
 use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
 use cubecl_ir::{
-    VectorSize, ident,
+    VectorSize,
+    attributes::ZeroAttr,
+    ident,
     interfaces::TypedExt,
     pliron::{printable::Printable, r#type::Typed, value::Value},
     types::PointerType,
 };
 use half::{bf16, f16};
-use pliron::{builtin::given_names::set_operation_result_name, r#type::TypeHandle};
+use pliron::r#type::TypeHandle;
 use variadics_please::{all_tuples, all_tuples_enumerated};
 
 /// Types used in a cube function must implement this trait
@@ -266,6 +269,12 @@ impl<T: CubePrimitive + IntoExpand<Expand = NativeExpand<T>>> RuntimeAssign for 
         init_mut_of_type(scope, T::__expand_as_type(scope)).into()
     }
 }
+#[diagnostic::do_not_recommend]
+impl<T: CubePrimitive + IntoExpand<Expand = NativeExpand<T>>> ConstRuntimeAssign for T {
+    fn const_init_mut(scope: &Scope) -> NativeExpand<T> {
+        init_mut_of_type(scope, T::__expand_as_type(scope)).into()
+    }
+}
 
 impl<T: NativeAssign + NativeCubeType + CanReadValue> Assign for NativeExpand<T> {
     fn __expand_assign_method(&mut self, scope: &Scope, value: Self) {
@@ -277,6 +286,11 @@ impl<T: NativeAssign + NativeCubeType + CanReadValue> Assign for NativeExpand<T>
 impl<T: NativeAssign + NativeCubeType + CanReadValue> RuntimeAssign for NativeExpand<T> {
     fn init_mut(&self, scope: &Scope) -> Self::Expand {
         T::elem_init_mut(scope, self.expand).into()
+    }
+}
+impl<T: CubePrimitive> ConstRuntimeAssign for NativeExpand<T> {
+    fn const_init_mut(scope: &Scope) -> Self::Expand {
+        init_mut_of_type(scope, T::__expand_as_type(scope)).into()
     }
 }
 
@@ -791,6 +805,15 @@ macro_rules! tuple_assign {
                 )*)
             }
         }
+
+        impl<$($P: ConstRuntimeAssign),*> ConstRuntimeAssign for ($($P,)*) {
+            #[allow(non_snake_case, unused, clippy::unused_unit)]
+            fn const_init_mut(scope: &Scope) -> Self::Expand {
+                ($(
+                    $P::const_init_mut(scope),
+                )*)
+            }
+        }
     }
 }
 
@@ -815,8 +838,7 @@ impl<T: NativeAssign + NativeCubeType + CanReadValue> IntoMut for NativeExpand<T
 
 impl<T: ?Sized> CubeDebug for NativeExpand<T> {
     fn set_debug_name(&self, scope: &Scope, name: &'static str) {
-        let op = self.value(scope).defining_op().unwrap();
-        set_operation_result_name(scope.ctx(), op, 0, Some(ident(name)));
+        self.value(scope).set_name(scope.ctx(), Some(ident(name)));
     }
 }
 
@@ -863,6 +885,18 @@ impl<T: Scalar + Into<ConstantValue>> NativeExpand<T> {
         let value = self.constant().unwrap();
         T::from_const_value(value)
     }
+}
+
+pub(crate) fn zeroed_mut_of_type(scope: &Scope, mut ty: TypeHandle) -> ExpandValue {
+    let ctx = scope.ctx();
+    if let Some(PointerType { inner, .. }) = ty.deref(ctx).downcast_ref() {
+        ty = *inner;
+    }
+    if ty.is_ptr(ctx) {
+        panic!("tried initializing mut for ptr {}", ty.disp(ctx));
+    }
+    let zero = ZeroAttr::new(ty);
+    scope.create_local_mut(ty, Some(zero.into())).into()
 }
 
 pub(crate) fn init_mut_of_type(scope: &Scope, mut ty: TypeHandle) -> ExpandValue {
@@ -950,6 +984,9 @@ impl Assign for () {
 impl RuntimeAssign for () {
     fn init_mut(&self, _: &Scope) {}
 }
+impl ConstRuntimeAssign for () {
+    fn const_init_mut(_: &Scope) -> Self::Expand {}
+}
 
 impl IntoRuntime for () {
     fn __expand_runtime_method(self, _: &Scope) -> Self::ExpandType {
@@ -987,6 +1024,28 @@ impl AsRefExpand for () {
 impl AsMutExpand for () {
     fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
+    }
+}
+
+impl<T: CubePrimitive + IntoExpand<Expand = NativeExpand<T>> + Debug, const N: usize> IntoExpand
+    for [T; N]
+{
+    type Expand = NativeExpand<[T; N]>;
+
+    fn into_expand(self, scope: &Scope) -> Self::Expand {
+        let values = self
+            .into_iter()
+            .map(|it| it.into_expand(scope))
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        NativeExpand::__expand_construct(scope, values)
+    }
+}
+
+impl<T: CubePrimitive + IntoRuntime + Debug, const N: usize> IntoRuntime for [T; N] {
+    fn __expand_runtime_method(self, scope: &Scope) -> Self::ExpandType {
+        self.into_expand(scope)
     }
 }
 

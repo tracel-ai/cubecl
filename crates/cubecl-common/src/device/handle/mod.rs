@@ -9,6 +9,12 @@ use core::any::Any;
 #[allow(dead_code)]
 mod channel;
 
+#[cfg(feature = "std")]
+mod placement;
+
+#[cfg(feature = "std")]
+mod exit;
+
 #[allow(dead_code)]
 mod mutex;
 
@@ -70,6 +76,36 @@ impl<S: DeviceService, I: DeviceHandleSpec> DeviceHandle<S, I> {
             cast: downcast::<S>,
         }
     }
+
+    /// Stops serving `S` on `device_id` now, though handles to it remain, and drops it on its
+    /// runner.
+    ///
+    /// Everything queued ahead of the close runs; every call after it is answered an error
+    /// ([`CallError::is_closed`]) instead of reaching the service, and `S` is not started on
+    /// the device again. Other services on the same runner keep serving. Only for process
+    /// exit, before the runtime under `S` is torn down, when the threads holding handles will
+    /// never drop them; [`close_at_exit`](Self::close_at_exit) is how a runtime asks for it.
+    ///
+    /// # Errors
+    ///
+    /// When called from inside a call on the service's own runner, which holds the service, or
+    /// when the runner does not reach the close in time. The service may still be serving.
+    pub fn close(device_id: DeviceId) -> Result<(), ServiceCloseError> {
+        I::close::<S>(device_id)
+    }
+
+    /// Closes `S` on `device_id` as the process exits, ahead of the exit teardown of the
+    /// libraries it calls into.
+    ///
+    /// On Linux with glibc the close runs as the main thread exits, before any exit handler.
+    /// Elsewhere, and for an exit from another thread, it runs from an exit handler registered
+    /// by the first call, ahead of the teardown registered before it: a runtime calls this once
+    /// its library is loaded and the device set up. Once the process is exiting, no service is
+    /// started on any device.
+    #[cfg(multi_threading)]
+    pub fn close_at_exit(device_id: DeviceId) {
+        exit::close_at_exit(device_id, core::any::TypeId::of::<S>(), Self::close);
+    }
 }
 
 #[allow(missing_docs)]
@@ -113,6 +149,15 @@ impl<S: ?Sized + 'static, I: DeviceHandleSpec> DeviceHandle<S, I> {
     pub fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
         let cast = self.cast;
         self.handle.submit(move |state| task(cast(state)))
+    }
+
+    /// Runs `task` without waiting for it, so calls to several devices can run at once.
+    pub fn spawn<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
+        &self,
+        task: T,
+    ) -> SpawnedCall<R> {
+        let cast = self.cast;
+        self.handle.spawn(move |state| task(cast(state)))
     }
 
     pub fn flush_queue(&self) {

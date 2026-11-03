@@ -11,7 +11,6 @@ use crate::{
 use cubecl_core::ir::dialect::tma::{
     CommitGroupOp, TmaLoadIm2colOp, TmaLoadOp, TmaStoreOp, WaitGroupOp, WaitGroupReadOp,
 };
-use pliron::location::Location;
 
 const COMMIT_GROUP: &str = "llvm.nvvm.cp.async.bulk.commit.group";
 const WAIT_GROUP: &str = "llvm.nvvm.cp.async.bulk.wait.group";
@@ -52,13 +51,13 @@ pub struct TmaOperandType {
 }
 
 /// The cube's coordinates are outermost first; PTX takes the innermost first. Each is sign
-/// extended or truncated to the width of its kind.
+/// extended or truncated to the width of its kind. An error has the location of `op`.
 fn coordinates(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
     values: Vec<Value>,
     kind: CoordinateKind,
-    loc: Location,
+    op: Ptr<Operation>,
 ) -> Result<Vec<Value>> {
     values
         .into_iter()
@@ -68,7 +67,7 @@ fn coordinates(
                 Some(value) => Ok(value),
                 None => {
                     let ty = value.get_type(ctx).disp(ctx).to_string();
-                    input_err!(loc.clone(), TmaOperandType { kind, ty })
+                    input_err!(op.deref(ctx).loc(), TmaOperandType { kind, ty })
                 }
             },
         )
@@ -111,13 +110,13 @@ pub(crate) fn load(
     rw: &mut DialectConversionRewriter,
     info: &OperandsInfo,
 ) -> Result<()> {
-    let loc = op.loc(ctx);
+    let at = op.get_operation();
     let rank = op.rank(ctx);
     let destination = NvptxSpace::SharedCluster.cast(ctx, rw, op.destination(ctx));
-    let barrier = Barrier::new(ctx, rw, info, op.barrier(ctx)).mbarrier(loc.clone())?;
+    let barrier = Barrier::new(ctx, rw, info, op.barrier(ctx)).mbarrier(ctx, at)?;
     let tensor_map = op.tensor_map(ctx);
     let indices = op.indices(ctx);
-    let coords = coordinates(ctx, rw, indices, CoordinateKind::Tensor, loc)?;
+    let coords = coordinates(ctx, rw, indices, CoordinateKind::Tensor, at)?;
 
     let mut args = vec![destination, barrier, tensor_map];
     args.extend(coords);
@@ -135,15 +134,15 @@ pub(crate) fn load_im2col(
     rw: &mut DialectConversionRewriter,
     info: &OperandsInfo,
 ) -> Result<()> {
-    let loc = op.loc(ctx);
+    let at = op.get_operation();
     let rank = op.rank(ctx);
     let destination = NvptxSpace::SharedCluster.cast(ctx, rw, op.destination(ctx));
-    let barrier = Barrier::new(ctx, rw, info, op.barrier(ctx)).mbarrier(loc.clone())?;
+    let barrier = Barrier::new(ctx, rw, info, op.barrier(ctx)).mbarrier(ctx, at)?;
     let tensor_map = op.tensor_map(ctx);
     let indices = op.indices(ctx);
     let offsets = op.offsets(ctx);
-    let coords = coordinates(ctx, rw, indices, CoordinateKind::Tensor, loc.clone())?;
-    let offsets = coordinates(ctx, rw, offsets, CoordinateKind::Im2colOffset, loc)?;
+    let coords = coordinates(ctx, rw, indices, CoordinateKind::Tensor, at)?;
+    let offsets = coordinates(ctx, rw, offsets, CoordinateKind::Im2colOffset, at)?;
 
     let mut args = vec![destination, barrier, tensor_map];
     args.extend(coords);
@@ -162,12 +161,12 @@ pub(crate) fn store(
     rw: &mut DialectConversionRewriter,
     _operands_info: &OperandsInfo,
 ) -> Result<()> {
-    let loc = op.loc(ctx);
+    let at = op.get_operation();
     let rank = op.rank(ctx);
     let source = NvptxSpace::Shared.cast(ctx, rw, op.source(ctx));
     let tensor_map = op.tensor_map(ctx);
     let indices = op.indices(ctx);
-    let coords = coordinates(ctx, rw, indices, CoordinateKind::Tensor, loc)?;
+    let coords = coordinates(ctx, rw, indices, CoordinateKind::Tensor, at)?;
 
     let mut args = vec![source, tensor_map];
     args.extend(coords);

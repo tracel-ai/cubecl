@@ -321,7 +321,10 @@ const EXCLUDED_CAPS: &[Capability] = {
     DeviceEnqueue, LiteralSampler, SubgroupDispatch, NamedBarrier, PipeStorage]
 };
 const PREFERRED_CAPS: &[Capability] = &[Capability::GroupNonUniformArithmetic];
-const PREFERRED_EXTS: &[&str] = &["SPV_KHR_physical_storage_buffer"];
+const PREFERRED_EXTS: &[&str] = &[
+    "SPV_KHR_physical_storage_buffer",
+    "SPV_NV_cooperative_matrix2", // Migrate to shared one eventually
+];
 
 /// Capabilities can require other capabilities which require other capabilities, and each can
 /// require extensions/a minimum version. So add them all recursively.

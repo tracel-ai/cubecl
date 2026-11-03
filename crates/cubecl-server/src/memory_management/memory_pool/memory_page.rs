@@ -312,11 +312,14 @@ impl MemoryPage {
                     slice.tainted.clear(failures);
                 }
                 MemoryTaskStatus::Ignoring => {
+                    // A slice before the first merge keeps its position.
                     let slice_pos_updated = self.slices_tmp.len();
-                    slice
-                        .handle
-                        .descriptor()
-                        .update_slice(slice_pos_updated as u32);
+                    if slice_pos_updated != index {
+                        slice
+                            .handle
+                            .descriptor()
+                            .update_slice(slice_pos_updated as u32);
+                    }
                     self.slices_tmp.push(slice);
                 }
                 MemoryTaskStatus::Completed => {
@@ -339,43 +342,27 @@ impl MemoryPage {
         core::mem::swap(&mut self.slices, &mut self.slices_tmp);
     }
 
+    /// Places `new_slice` right after the slice at `index_previous`, which keeps
+    /// `reserved_size_previous` of its storage. Only the slices after the new one
+    /// move, so only their descriptors learn a new position: a reservation splits
+    /// a slice on every launch that allocates, and a page holds many.
     fn add_new_slice(
         &mut self,
         index_previous: usize,
         reserved_size_previous: u64,
         new_slice: Slice,
     ) {
-        self.slices_tmp.clear();
+        self.slices[index_previous].storage.utilization.size = reserved_size_previous;
 
-        let mut new_slice = Some(new_slice);
+        let index_new = index_previous + 1;
+        let mut location = self.location_base;
+        location.slice = index_new as u32;
+        new_slice.descriptor().update_location(location);
+        self.slices.insert(index_new, new_slice);
 
-        let mut index_current = 0;
-        for mut slice in self.slices.drain(..) {
-            if index_current == index_previous {
-                let slice_pos_updated = self.slices_tmp.len() as u32;
-                slice.storage.utilization.size = reserved_size_previous;
-                slice.handle.descriptor().update_slice(slice_pos_updated);
-                self.slices_tmp.push(slice);
-                index_current += 1;
-
-                // New slice
-                let slice_pos_updated = self.slices_tmp.len() as u32;
-                let new_slice = new_slice.take().unwrap();
-                let mut location = self.location_base;
-                location.slice = slice_pos_updated;
-                new_slice.descriptor().update_location(location);
-
-                self.slices_tmp.push(new_slice);
-                index_current += 1;
-            } else {
-                let slice_pos_updated = self.slices_tmp.len() as u32;
-                slice.handle.descriptor().update_slice(slice_pos_updated);
-                self.slices_tmp.push(slice);
-                index_current += 1;
-            }
+        for (index, slice) in self.slices.iter().enumerate().skip(index_new + 1) {
+            slice.descriptor().update_slice(index as u32);
         }
-
-        core::mem::swap(&mut self.slices, &mut self.slices_tmp);
     }
 
     fn memory_job(&self) -> MemoryJob {

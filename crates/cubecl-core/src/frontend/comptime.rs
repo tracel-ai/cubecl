@@ -1,12 +1,12 @@
 use crate as cubecl;
-use alloc::rc::Rc;
+use alloc::sync::Arc;
 use cubecl::prelude::*;
 use cubecl_ir::{DeviceProperties, HardwareProperties};
 use cubecl_macros::intrinsic;
 
 /// Retrieves the [`device_properties`](DeviceProperties).
 #[cube]
-pub fn device_properties() -> comptime_type!(Rc<DeviceProperties>) {
+pub fn device_properties() -> comptime_type!(Arc<DeviceProperties>) {
     intrinsic!(|scope| scope.state().device_properties.as_ref().unwrap().clone())
 }
 

@@ -10,6 +10,7 @@ use crate::{
         registers::{RegisterForm, RegisterOperand},
     },
     prelude::*,
+    shared::matrix::elem_type,
 };
 use cubecl_core::ir::{
     ElemType, FloatKind, IntKind, UIntKind,
@@ -276,12 +277,6 @@ fn ptx_type(elem: ElemType) -> &'static str {
     }
 }
 
-fn elem_type(ctx: &Context, ty: TypeHandle) -> ElemType {
-    type_cast::<dyn ScalarType>(&*ty.deref(ctx))
-        .expect("a matrix element is a scalar")
-        .elem_type(ctx)
-}
-
 fn is_half(elem: ElemType) -> bool {
     matches!(
         elem,
@@ -317,10 +312,9 @@ pub(crate) fn wgmma(
     rw: &mut DialectConversionRewriter,
     operands_info: &OperandsInfo,
 ) -> Result<()> {
-    let loc = op.loc(ctx);
     match issue(op, ctx, rw, operands_info) {
         Ok(()) => Ok(()),
-        Err(err) => input_err!(loc, err),
+        Err(err) => input_err!(op.loc(ctx), err),
     }
 }
 

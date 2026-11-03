@@ -7,7 +7,7 @@ use cubecl_server::compiler::{ArtifactId, ArtifactStore, CompilationError, Compi
 use cubecl_server::kernel::BufferIOAttr;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
-use objc2_metal::{MTLComputePipelineState, MTLDevice};
+use objc2_metal::{MTLComputePipelineState, MTLDevice, MTLSize};
 
 /// A compute pipeline and what launching it needs.
 #[derive(Debug, Clone)]
@@ -20,6 +20,17 @@ pub struct MetalCompiledKernel {
     /// the answer existed, which the launch path reads as every buffer both
     /// read and written.
     pub(crate) io: Option<std::sync::Arc<[BufferIOAttr]>>,
+}
+
+impl MetalCompiledKernel {
+    /// The threadgroup every dispatch of the kernel runs: its cube dim.
+    pub(crate) fn threads_per_threadgroup(&self) -> MTLSize {
+        MTLSize {
+            width: self.cube_dim.x as usize,
+            height: self.cube_dim.y as usize,
+            depth: self.cube_dim.z as usize,
+        }
+    }
 }
 
 /// Builds Metal pipelines for one device, from the MSL store when it holds the

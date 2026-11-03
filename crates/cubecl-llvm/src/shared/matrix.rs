@@ -4,9 +4,9 @@ use crate::{prelude::*, shared::to_llvm::lower_by_target};
 use cubecl_core::{
     ir::{
         dialect::matrix::{
-            CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp,
-            RowIndexOp, StMatrixOp, StoreOp, WgmmaCommitGroupOp, WgmmaDescriptorOp, WgmmaFenceOp,
-            WgmmaFenceOperandOp, WgmmaOp, WgmmaWaitGroupOp,
+            CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MmaManualScaledOp,
+            MultiplyAccumulateOp, RowIndexOp, StMatrixOp, StoreOp, WgmmaCommitGroupOp,
+            WgmmaDescriptorOp, WgmmaFenceOp, WgmmaFenceOperandOp, WgmmaOp, WgmmaWaitGroupOp,
         },
         types::matrix::MatrixType,
     },
@@ -65,6 +65,8 @@ dispatch_matrix_op!(CastOp, cast);
 dispatch_matrix_op!(RowIndexOp, row_index);
 dispatch_matrix_op!(ColIndexOp, col_index);
 dispatch_matrix_op!(MmaManualOp, mma_manual);
+// The block-scaled `mma` is Blackwell's alone, so only NVPTX lowers it.
+dispatch_matrix_op!(MmaManualScaledOp, ["nvptx" Nvptx => crate::nvptx::matrix::mma_manual_scaled]);
 dispatch_matrix_op!(LdMatrixOp, ld_matrix);
 dispatch_matrix_op!(StMatrixOp, st_matrix);
 
@@ -127,6 +129,14 @@ fn register_array(ctx: &Context, info: &OperandsInfo, value: Value) -> CubeArray
     .expect("a manual matrix operand is an array of registers")
 }
 
+/// The element type of a matrix operand's scalar type.
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+pub(crate) fn elem_type(ctx: &Context, ty: TypeHandle) -> cubecl_core::ir::ElemType {
+    pliron::r#type::type_cast::<dyn ScalarType>(&*ty.deref(ctx))
+        .expect("a matrix element is a scalar")
+        .elem_type(ctx)
+}
+
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub(crate) fn registers_as_vector(
     ctx: &Context,
@@ -154,6 +164,12 @@ pub(crate) fn registers_value(
 ) -> Value {
     let ty = value.get_type(ctx);
     if ty.deref(ctx).is::<LlvmPointerType>() {
+        // GEP is needed to block promotion - promoting loads with differing types is illegal but
+        // currently not checked upstream so mem2reg incorrectly promotes.
+        use pliron_llvm::ops::GepIndex;
+        let i8 = IntegerType::get(ctx, 8, Signedness::Signless).to_handle();
+        let gep = llvm::GetElementPtrOp::new(ctx, value, vec![GepIndex::Constant(0)], i8);
+        let value = insert(ctx, rw, &gep);
         let op = llvm::LoadOp::new(ctx, value, vector_ty);
         return insert(ctx, rw, &op);
     }

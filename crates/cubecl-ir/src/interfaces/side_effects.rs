@@ -1,8 +1,8 @@
 use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign};
 
-use pliron::{builtin::ops::ConstantOp, opts::dce::SideEffects, printable::Printable};
+use pliron::{opts::dce::SideEffects, printable::Printable};
 
-use crate::{AddressSpace, NoMemoryEffect, dialect::OperationExt, prelude::*};
+use crate::{AddressSpace, dialect::OperationExt, prelude::*};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum ModRefResult {
@@ -143,8 +143,6 @@ pub trait MemoryEffectsOp {
         !self.memory_effects(ctx).is_empty()
     }
 }
-
-NoMemoryEffect!(ConstantOp);
 
 pub fn has_memory_side_effects(effects: &[MemoryEffect]) -> bool {
     effects.iter().any(|effect| effect.modifies())

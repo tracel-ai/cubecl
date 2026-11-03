@@ -3,7 +3,7 @@ use pliron::{attribute::AttrObj, opts::constants::ConstFoldInterface, printable:
 use smallvec::SmallVec;
 
 use crate::analyses::dataflow_solver::{
-    DataflowSolver, ReadRef, WriteRef,
+    DataflowAnalysis, DataflowSolver, ReadRef, WriteRef,
     dead_code::DeadCodeAnalysis,
     sparse::{LatticeValue, SparseForward, SparseForwardDataflowAnalysis, SparseLattice},
 };
@@ -62,8 +62,8 @@ pub struct SparseConstantPropagation;
 impl SparseForwardDataflowAnalysis for SparseConstantPropagation {
     type LatticeValue = ConstantValue;
 
-    fn verify(solver: &DataflowSolver, _ctx: &Context, _root: Ptr<Operation>) -> Result<()> {
-        solver.require_loaded::<DeadCodeAnalysis>()
+    fn on_load(&self, solver: &mut DataflowSolver) {
+        solver.ensure_loaded(DeadCodeAnalysis::default);
     }
 
     fn visit_operation(
@@ -122,5 +122,33 @@ impl SparseForwardDataflowAnalysis for SparseConstantPropagation {
         lattice: &WriteRef<ConstantLattice>,
     ) {
         solver.update_state(ctx, lattice, |it| it.join(&ConstantValue::Unknown));
+    }
+}
+
+/// A dummy version of SCCP that can be used by [`DeadCode`] when constant propagation is not required.
+/// Every analysis depends on dead code, so this can make it cheaper when dead branches are
+/// irrelevant, i.e. only the [`PredecessorState`] is needed, or the analysis is run after constant
+/// branches have already been folded.
+///
+/// Should be loaded before [`DeadCode`] so that can immediately propagate into all branches.
+#[derive(Default)]
+pub struct DummySparseConstantPropagation;
+
+impl DataflowAnalysis for DummySparseConstantPropagation {
+    fn initialize(
+        &mut self,
+        mut solver: &DataflowSolver,
+        ctx: &Context,
+        root: Ptr<Operation>,
+    ) -> Result<()> {
+        visit_all_values(ctx, &mut solver, root, |ctx, solver, value| {
+            let lattice = solver.get_or_create_mut::<ConstantLattice>(value);
+            solver.update_state(ctx, &lattice, |it| it.join(&ConstantValue::Unknown));
+        });
+        Ok(())
+    }
+
+    fn visit(&self, _: &DataflowSolver, _: &Context, _: super::ProgramPoint) -> Result<()> {
+        Ok(())
     }
 }

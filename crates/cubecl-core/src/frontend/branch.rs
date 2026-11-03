@@ -31,7 +31,7 @@ use crate::{
     IntoRuntime,
     frontend::{
         CubePrimitive, ReadValue, RuntimeAssign, assign, assign_binop_expand, binary_expand,
-        init_mut_of_type,
+        zeroed_mut_of_type,
     },
     prelude::{CubeEnum, ExpandTypeClone},
 };
@@ -74,7 +74,7 @@ pub trait Iterable: Sized {
 /// the whole loop machinery once per loop written anywhere — thousands of
 /// near-identical copies in a kernel-heavy crate. So this is a shim: it erases
 /// the body to a trait object straight away and hands off to
-/// [`for_expand_dyn`], which expands once per iterable. Expansion runs on the
+/// `for_expand_dyn`, which expands once per iterable. Expansion runs on the
 /// host while building a kernel, never on the device, so the indirection costs
 /// nothing that reaches the GPU.
 pub fn for_expand<I: Iterable>(
@@ -777,7 +777,7 @@ pub trait EarlyReturnable {
 
 impl<T: CubePrimitive> EarlyReturnable for NativeExpand<T> {
     fn init_value(scope: &Scope) -> Option<Value> {
-        Some(init_mut_of_type(scope, T::__expand_as_type(scope)).value(scope))
+        Some(zeroed_mut_of_type(scope, T::__expand_as_type(scope)).value(scope))
     }
     fn from_value(scope: &Scope, value: Option<Value>) -> Self {
         read_value(scope, value.unwrap()).into()

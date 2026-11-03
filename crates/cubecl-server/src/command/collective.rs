@@ -9,7 +9,7 @@
 //! What does not is [`CollectiveDriver`]: agreeing the identifier, joining,
 //! naming an element type, and the operations themselves.
 
-use super::{DeviceResource, Driver};
+use super::{DeviceResource, DeviceStream, Driver};
 use crate::server::{CommunicationId, ReduceOperation, ServerError};
 use alloc::{format, vec, vec::Vec};
 use cubecl_common::device::DeviceId;
@@ -17,17 +17,30 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
 use cubecl_ir::ElemType;
 
+/// The driver's handle for a stream.
+pub type StreamSignal<D> = <<D as Driver>::Stream as DeviceStream>::Signal;
+
 /// A driver that can run collectives across devices.
 pub trait CollectiveDriver: Driver {
     /// This device's membership of one group, joined once and kept.
-    type Communicator;
+    type Communicator: Copy;
     /// The identifier every rank of a group joins under.
     type UniqueId: Copy;
     /// How the driver names an element type.
     type DataType: Copy;
-    /// The stream collectives are issued on, kept apart from the compute
-    /// streams so a collective never blocks one.
-    type CommStream: Copy;
+
+    /// The library's name, as a refusal names it.
+    const LIBRARY: &'static str;
+
+    /// Make `stream` wait, on the device, for the work queued on `queued_on` so far.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to record or wait on the event.
+    fn wait_for(
+        stream: StreamSignal<Self>,
+        queued_on: StreamSignal<Self>,
+    ) -> Result<(), ServerError>;
 
     /// The identifier the group `id` names joins under.
     ///
@@ -52,15 +65,37 @@ pub trait CollectiveDriver: Driver {
         rank: usize,
     ) -> Result<Self::Communicator, ServerError>;
 
+    /// How the driver names `dtype`, or `None` when it runs no collective over it.
+    fn data_type(dtype: ElemType) -> Option<Self::DataType>;
+
     /// The elements of `dtype` that `size` bytes hold, as the driver names them.
     ///
     /// # Errors
     ///
-    /// An element type the driver has no name for, and a size that is not whole elements.
-    /// Reported rather than fatal: a collective is one operation among many, and
-    /// refusing it is not a reason to take the process down. The caller can pick
-    /// another type, or another way to move the tensor.
-    fn elements(dtype: ElemType, size: u64) -> Result<Elements<Self::DataType>, ServerError>;
+    /// An element type the driver has no name for, and a size that is not whole elements,
+    /// whose last bytes the driver would leave out. Reported rather than fatal: a collective is
+    /// one operation among many, and refusing it is not a reason to take the process down. The
+    /// caller can pick another type, or another way to move the tensor.
+    fn elements(dtype: ElemType, size: u64) -> Result<Elements<Self::DataType>, ServerError> {
+        let data_type = Self::data_type(dtype).ok_or_else(|| ServerError::Generic {
+            reason: format!(
+                "{} has no data type for {dtype:?}, so no collective over it",
+                Self::LIBRARY
+            ),
+            backtrace: BackTrace::capture(),
+        })?;
+        let width = dtype.size() as u64;
+        if !size.is_multiple_of(width) {
+            return Err(ServerError::Generic {
+                reason: format!("{size} bytes are not whole {dtype:?} elements"),
+                backtrace: BackTrace::capture(),
+            });
+        }
+        Ok(Elements {
+            data_type,
+            count: (size / width) as usize,
+        })
+    }
 
     /// Reduce `src` across the group into `dst` on every rank.
     ///
@@ -73,7 +108,7 @@ pub trait CollectiveDriver: Driver {
         dst: &DeviceResource<Self>,
         elements: Elements<Self::DataType>,
         op: ReduceOperation,
-        stream: Self::CommStream,
+        stream: StreamSignal<Self>,
     ) -> Result<(), ServerError>;
 
     /// Write every rank's `src` of `elements`, concatenated in rank order, to `dst`.
@@ -86,7 +121,7 @@ pub trait CollectiveDriver: Driver {
         src: &DeviceResource<Self>,
         dst: &DeviceResource<Self>,
         elements: Elements<Self::DataType>,
-        stream: Self::CommStream,
+        stream: StreamSignal<Self>,
     ) -> Result<(), ServerError>;
 
     /// Reduce every rank's `src` and write this rank's chunk of `elements` to `dst`.
@@ -100,7 +135,7 @@ pub trait CollectiveDriver: Driver {
         dst: &DeviceResource<Self>,
         elements: Elements<Self::DataType>,
         op: ReduceOperation,
-        stream: Self::CommStream,
+        stream: StreamSignal<Self>,
     ) -> Result<(), ServerError>;
 
     /// Write rank `root`'s `src` of `elements` to `dst` on every rank. Only `root` has a `src`.
@@ -114,7 +149,7 @@ pub trait CollectiveDriver: Driver {
         dst: &DeviceResource<Self>,
         elements: Elements<Self::DataType>,
         root: usize,
-        stream: Self::CommStream,
+        stream: StreamSignal<Self>,
     ) -> Result<(), ServerError>;
 
     /// Send chunk `r` of `src` to rank `r` and write the chunk rank `r` sends to chunk `r` of
@@ -122,14 +157,15 @@ pub trait CollectiveDriver: Driver {
     ///
     /// # Errors
     ///
-    /// The driver's refusal to enqueue the exchange.
+    /// A source and destination that overlap, whose sends would read chunks its receives are
+    /// overwriting, and the driver's refusal to enqueue the exchange.
     fn all_to_all(
         comm: &Self::Communicator,
         src: &DeviceResource<Self>,
         dst: &DeviceResource<Self>,
         elements: Elements<Self::DataType>,
         ranks: usize,
-        stream: Self::CommStream,
+        stream: StreamSignal<Self>,
     ) -> Result<(), ServerError>;
 
     /// Send `src` to `peer`.
@@ -142,7 +178,7 @@ pub trait CollectiveDriver: Driver {
         src: &DeviceResource<Self>,
         elements: Elements<Self::DataType>,
         peer: usize,
-        stream: Self::CommStream,
+        stream: StreamSignal<Self>,
     ) -> Result<(), ServerError>;
 
     /// Receive into `dst` from `peer`.
@@ -155,7 +191,7 @@ pub trait CollectiveDriver: Driver {
         dst: &DeviceResource<Self>,
         elements: Elements<Self::DataType>,
         peer: usize,
-        stream: Self::CommStream,
+        stream: StreamSignal<Self>,
     ) -> Result<(), ServerError>;
 }
 

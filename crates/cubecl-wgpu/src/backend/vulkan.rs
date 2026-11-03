@@ -418,6 +418,7 @@ fn register_features(
     comp_options.vulkan.supports_dp4a = extended_feat
         .shader_integer_dot_product
         .is_some_and(|it| it.shader_integer_dot_product == TRUE);
+    comp_options.vulkan.supports_non_semantic_info = extended_feat.non_semantic_info.is_some();
 
     props.features.plane.insert(Plane::Sync);
     // SPIR-V spells the device scope on the barrier itself: `OpControlBarrier` with a
@@ -598,8 +599,6 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         props.register_type_usage(ty, TypeUsage::all());
     }
 
-    // The extension atomics below are the buffer ones: their shared-memory counterparts
-    // (`shaderSharedFloat32AtomicAdd`, ...) are features of their own, never enabled.
     for ty in default_atomic_types {
         props.register_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
         props.register_shared_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
@@ -702,6 +701,20 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         if atomic_float.shader_buffer_float64_atomic_add == TRUE {
             props.register_atomic_type_usage(
                 Type::atomic(ElemType::Float(FloatKind::F64)),
+                AtomicUsage::Add,
+            );
+        }
+        // The shared-memory atomics are features of their own, enabled beside the buffer ones:
+        // the device is created with every feature its query reported.
+        if atomic_float.shader_shared_float32_atomics == TRUE {
+            props.register_shared_atomic_type_usage(
+                Type::atomic(ElemType::Float(FloatKind::F32)),
+                AtomicUsage::LoadStore | AtomicUsage::Exchange,
+            );
+        }
+        if atomic_float.shader_shared_float32_atomic_add == TRUE {
+            props.register_shared_atomic_type_usage(
+                Type::atomic(ElemType::Float(FloatKind::F32)),
                 AtomicUsage::Add,
             );
         }

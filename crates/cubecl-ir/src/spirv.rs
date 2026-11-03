@@ -1,9 +1,9 @@
 use alloc::{vec, vec::Vec};
 
 use crate::{
-    NoMemoryEffect, PropagatesUniformity,
+    CanMaterialize, NoMemoryEffect, PropagatesUniformity,
     interfaces::{
-        AlignedType, MaybeVectorizedType, ScalarizableType, TypedExt,
+        AlignedType, ConstantLike, MaybeVectorizedType, ScalarizableType, TypedExt,
         memory_slot::PromotableRegionOpInterface,
         side_effects::{MemoryEffect, MemoryEffectsOp},
         uniformity::{UniformOpInterface, Uniformity},
@@ -24,13 +24,23 @@ use pliron::{
     value::Value,
 };
 use pliron_spirv::{
-    ops::{AccessChainOp, GlobalVariableOp, InBoundsAccessChainOp, LoadOp, LoopOp, SelectionOp},
+    ops::{
+        AccessChainOp, AddressOfOp, GlobalVariableOp, InBoundsAccessChainOp, LoadOp, LoopOp,
+        SelectionOp,
+    },
     spirv::StorageClass,
     types::{ArrayType, FloatType, PointerType, VectorType, khr::CooperativeMatrixType},
 };
 
+#[op_interface_impl]
+impl ConstantLike for AddressOfOp {}
+CanMaterialize!(AddressOfOp);
+
+CanMaterialize!(InBoundsAccessChainOp);
 NoMemoryEffect!(InBoundsAccessChainOp);
 PropagatesUniformity!(InBoundsAccessChainOp);
+
+CanMaterialize!(AccessChainOp);
 NoMemoryEffect!(AccessChainOp);
 PropagatesUniformity!(AccessChainOp);
 
@@ -56,6 +66,7 @@ impl MemoryEffectsOp for LoadOp {
     }
 }
 
+CanMaterialize!(LoadOp);
 PropagatesUniformity!(LoadOp);
 
 #[op_interface_impl]
@@ -80,6 +91,7 @@ impl UniformOpInterface for GlobalVariableOp {
     }
 }
 
+CanMaterialize!(GlobalVariableOp);
 scalar!(FloatType);
 
 #[type_interface_impl]

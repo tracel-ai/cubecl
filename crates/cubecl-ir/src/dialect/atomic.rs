@@ -1,6 +1,6 @@
 use cubecl_macros_internal::{cube_op, op_traits};
 
-use crate::{CanMaterialize, HasSideEffects, NoSideEffects, dialect::ptr_value_ty, prelude::*};
+use crate::{CanMaterialize, HasSideEffects, dialect::ptr_value_ty, prelude::*};
 
 macro_rules! atomic_binop {
     ($name: literal, $ty: ident) => {
@@ -32,7 +32,7 @@ atomic_binop!("atomic.xor", AtomicXorOp);
 
 #[cube_op(name = "atomic.load")]
 #[result_ty(from_inputs = ptr_value_ty)]
-#[op_traits(CanMaterialize, NoSideEffects)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct AtomicLoadOp {
     #[operand(ptr_read)]
     pub ptr: Value,

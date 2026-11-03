@@ -76,6 +76,8 @@ mod tests {
     // operation is refused, which is what the LLVM backend must do and what the C++ backend
     // never reaches.
     cubecl_core::testgen_all!(f32: [f16, bf16, f32, f64], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
+    // The launch counts shared memory as the allocator lays it out, freed bytes reused.
+    cubecl_core::testgen_shared_freed_in_a_loop!();
 
     cubecl_core::testgen_launch_dynamic_count!();
     cubecl_std::testgen!();

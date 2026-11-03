@@ -177,6 +177,12 @@ impl DeviceService for CudaServer {
                 get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT).unwrap() as u32,
             );
             let num_tensor_cores = tensor_cores_per_sm(&arch);
+            // `None` rather than `Some(0)` where the driver reports no L2, as the field asks.
+            let last_level_cache_size =
+                get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE)
+                    .ok()
+                    .and_then(|bytes| usize::try_from(bytes).ok())
+                    .filter(|&bytes| bytes > 0);
 
             comp_opts.warp_size = warp_size as usize;
 
@@ -198,7 +204,7 @@ impl DeviceService for CudaServer {
                     Some(8)
                 },
                 num_cpu_cores: None,
-                last_level_cache_size: None,
+                last_level_cache_size,
                 max_vector_size: VectorSize::MAX,
                 cube_mma_reserved_shared_memory: 0,
             }
@@ -374,6 +380,7 @@ impl DeviceService for CudaServer {
         // major version. Try to keep this up to date with new arch major revisions if they also
         // implement it.
         if arch_major == 10 || arch_major == 11 || arch_major == 12 {
+            comp_opts.supports_features.byte_pair_conversion = true;
             device_props
                 .register_type_usage(ElemType::Float(FloatKind::E2M1), TypeUsage::Conversion);
             device_props.register_type_usage(
@@ -396,6 +403,15 @@ impl DeviceService for CudaServer {
             if CUDA_VERSION >= 12080 {
                 device_props.features.tma.insert(Tma::SwizzleAtomicity);
             }
+        } else {
+            // Before sm_100 the part converts no fp4 itself, and both compilers decode it in
+            // software: cuda_fp4.h's own path, cubecl-llvm's codec. Emulated, a packed reader
+            // decodes the word's bits as `f16` pairs rather than code by code.
+            device_props.register_type_usage(
+                ElemType::Float(FloatKind::E2M1x2),
+                TypeUsage::Conversion | TypeUsage::Buffer,
+            );
+            device_props.register_emulated_conversion(ElemType::Float(FloatKind::E2M1x2));
         }
 
         device_props.features.memory_reinterpret = true;

@@ -95,6 +95,12 @@ impl From<&ServerError> for ProfileError {
     }
 }
 
+impl From<ServerError> for ProfileError {
+    fn from(error: ServerError) -> Self {
+        ProfileError::Server(Box::new(error))
+    }
+}
+
 impl core::fmt::Debug for ProfileError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(format_args!("{self}"))
@@ -881,6 +887,20 @@ pub trait Server:
 
     /// Enable collecting timestamps.
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError>;
+
+    /// Enable collecting timestamps from the next kernel launched on the
+    /// stream, for a window that holds one launch.
+    ///
+    /// A window opened where the stream is also holds the host preparing that
+    /// launch, which an idle device counts as device time. A backend that can
+    /// stamp the launch itself overrides this; the default opens the window
+    /// where the stream is, as [`start_profile`](Self::start_profile) does.
+    fn start_profile_at_launch(
+        &mut self,
+        stream_id: StreamId,
+    ) -> Result<ProfilingToken, ServerError> {
+        self.start_profile(stream_id)
+    }
 
     /// Disable collecting timestamps.
     fn end_profile(
@@ -1694,17 +1714,33 @@ impl MetadataBindingInfo {
     }
 }
 
-/// A binding with shape and stride info for non-contiguous reading
-#[derive(new, Debug)]
-pub struct CopyDescriptor {
-    /// Binding for the memory resource
-    pub handle: BufferBinding,
+/// A buffer and the layout of a copy to or from it.
+///
+/// A copy queued at the call holds a [`BufferBinding`]: its stream orders it before any later
+/// in-place write. A copy deferred past the call holds the [`Handle`], so [`Handle::can_mut`]
+/// stays false until it runs.
+#[derive(new, Clone, Debug)]
+pub struct CopyDescriptor<B = BufferBinding> {
+    /// The memory resource
+    pub handle: B,
     /// Shape of the resource
     pub shape: Shape,
     /// Strides of the resource
     pub strides: Strides,
     /// Size of each element in the resource
     pub elem_size: usize,
+}
+
+impl CopyDescriptor<Handle> {
+    /// The same read, holding only a binding of the buffer.
+    pub fn binding(self) -> CopyDescriptor {
+        CopyDescriptor {
+            handle: self.handle.binding(),
+            shape: self.shape,
+            strides: self.strides,
+            elem_size: self.elem_size,
+        }
+    }
 }
 
 /// A tensor map used with TMA ops

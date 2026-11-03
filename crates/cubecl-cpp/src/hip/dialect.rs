@@ -8,7 +8,7 @@ macro_rules! hip_op {
         }
     };
 }
-use cubecl_core::ir::dialect::synchronization::{SyncOp, SyncScope};
+use cubecl_core::ir::dialect::synchronization::{SyncOp, SyncPlaneStorageOp, SyncScope};
 pub(super) use hip_op;
 
 macro_rules! hip_op_with_out {
@@ -47,4 +47,12 @@ __builtin_amdgcn_wave_barrier();\n"
         SyncScope::Unit => "",
     }
     .into()
+});
+
+// The plane barrier's wavefront fence orders every address space, global included.
+hip_op!(SyncPlaneStorageOp, |_, _| {
+    "
+__builtin_amdgcn_fence(__ATOMIC_ACQ_REL, \"wavefront\");
+__builtin_amdgcn_wave_barrier();\n"
+        .into()
 });

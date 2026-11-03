@@ -415,7 +415,9 @@ impl ElemType {
                 FloatKind::UE8M0 => 0.5 * (ue8m0::MAX.to_f64() - ue8m0::MIN.to_f64()),
                 FloatKind::F16 => half::f16::EPSILON.to_f64(),
                 FloatKind::BF16 => 0.0078125, // bf16 epsilon ≈ 2^-7
-                FloatKind::Flex32 | FloatKind::F32 | FloatKind::TF32 => f32::EPSILON.into(),
+                FloatKind::Flex32 | FloatKind::F32 => f32::EPSILON.into(),
+                // Ten bits of mantissa: what an `f32` rounded for a tf32 instruction keeps.
+                FloatKind::TF32 => 2f64.powi(-10),
                 FloatKind::F64 => f64::EPSILON,
             },
             ElemType::Index | ElemType::Int(_) | ElemType::UInt(_) => 1.0, // step of 1
