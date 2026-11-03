@@ -48,7 +48,7 @@ fn repeated_device(device_ids: &[DeviceId]) -> Option<DeviceId> {
         .find_map(|(i, id)| device_ids[..i].contains(id).then_some(*id))
 }
 
-/// Flushes the device's queue when dropped, whichever way the launch submitting to it returns.
+/// Flushes the device's queue when dropped.
 struct FlushOnDrop<'a>(&'a DeviceHandle<dyn Server>);
 
 impl Drop for FlushOnDrop<'_> {
@@ -306,15 +306,12 @@ impl Client {
         TypeId::of::<S>() == self.service_id().service
     }
 
-    /// A buffer a kernel declared `Peer`, as a kernel here binds it: memory of
-    /// this device is an ordinary buffer, which its own kernels address like
-    /// any other, and memory of another device stays a peer binding.
+    /// A `Peer` argument as bound here: an ordinary buffer on its own device,
+    /// a peer binding on another.
     ///
     /// # Panics
     ///
-    /// On memory of another runtime, and of a device this one cannot address:
-    /// each is a bug in the caller, and the alternative to stopping here is a
-    /// kernel dereferencing an address that means nothing on this device.
+    /// On memory of another runtime, or of a device this one cannot address.
     #[track_caller]
     fn bind_peer(&self, peer: PeerBinding) -> KernelResource {
         let own = self.service_id();
@@ -335,8 +332,7 @@ impl Client {
         KernelResource::Peer(peer)
     }
 
-    /// Whether kernels on this device can address the memory of `device`,
-    /// another of this runtime, asked of the device once per pair.
+    /// Whether kernels here can address the memory of `device`, cached per pair.
     fn reaches_peer(&self, device: DeviceId) -> bool {
         if let Some(reaches) = self.utilities.peer_access.read().get(&device) {
             return *reaches;
@@ -977,16 +973,8 @@ impl Client {
             });
     }
 
-    /// Whether kernels launched through this client can bind memory `peer`
-    /// [shared](Self::share_with_peers).
-    ///
-    /// Only devices of the same runtime reach each other's memory, and only
-    /// where the hardware and the driver allow it: a device answers `false`
-    /// for itself and for a runtime with no peer access at all.
-    ///
-    /// Reaching it means a kernel here can load from, store to, and run
-    /// system-scope atomics on that memory, which is what kernels on two
-    /// devices hand data off through.
+    /// Whether kernels launched through this client can load, store and run
+    /// atomics on memory `peer` [shared](Self::share_with_peers).
     pub fn can_access_peer(&self, peer: &Self) -> bool {
         let peer_device = peer.device.device_id();
         if peer.service_id().service != self.service_id().service
@@ -997,29 +985,13 @@ impl Client {
         self.reaches_peer(peer_device)
     }
 
-    /// `handle`, shared with the other devices of this runtime: a kernel
-    /// launched on a device that [can access](Self::can_access_peer) this one
-    /// takes it through a `Peer` parameter, and reads and writes this
-    /// device's memory directly. Kernels here take it through a `Peer`
-    /// parameter too when they hand data off with peers, and through an
-    /// ordinary one otherwise.
+    /// `handle`, shared with the other devices of this runtime, which bind it
+    /// through a `Peer` kernel parameter. The memory stays in place while the
+    /// returned handle lives.
     ///
-    /// The memory stays in place for as long as the returned handle or any
-    /// clone of it lives, so share a buffer that is used many times, such as
-    /// one a group of kernels exchanges data through, rather than every
-    /// temporary. Use the returned handle on this device too: work through
-    /// it is what tells peers the memory failed or was written again.
-    ///
-    /// Nothing orders a peer's accesses against this device's work. A kernel
-    /// on another device reads what the memory holds when it runs, so
-    /// [`sync`](Self::sync) this client first, or hand off inside the kernels
-    /// through system-scope atomics. The same holds the other way: sync the
-    /// peer before this device reads what the peer's kernel wrote.
-    ///
-    /// Failures cross over. A peer kernel reading the memory after work here
-    /// that should have written it failed does not run, and its outputs carry
-    /// that failure. A peer kernel that fails to write it taints it here, so
-    /// a read fails on the cause once the peer was synced.
+    /// Nothing orders a peer's accesses against this device's work: sync the
+    /// writing device first, or hand off inside the kernels with system-scope
+    /// atomics.
     ///
     /// # Errors
     ///
@@ -1030,8 +1002,7 @@ impl Client {
         let mut handle = handle.clone();
         let binding = handle.clone().binding();
         self.local(&binding)?;
-        // The address of the allocation's first byte: a peer binding adds the
-        // offsets of whatever slice of it a kernel binds.
+        // Peer bindings add their own offsets to the allocation's address.
         let whole = BufferBinding {
             offset_start: None,
             offset_end: None,
@@ -1396,12 +1367,8 @@ impl Client {
         if let CubeCount::Dynamic(binding) = &count {
             self.expect_local(binding);
         }
-        // A kernel with a `Peer` parameter may wait on a kernel of another
-        // device, or be the one such a kernel waits on, so it reaches its
-        // device now rather than when the queue would next be flushed: a host
-        // blocked on the other device would never flush it. A kernel reading
-        // shared memory through an ordinary parameter, weights above all,
-        // hands nothing off and keeps the batching.
+        // A kernel with a `Peer` parameter may wait on another device, so it is
+        // flushed now: a host blocked on that device would never flush it.
         let _reach_device_now = bindings
             .peers()
             .next()
@@ -1417,9 +1384,7 @@ impl Client {
                 })
                 .collect();
         }
-        // A buffer of another device bound through an ordinary parameter is
-        // refused here, shared or not: only a `Peer` parameter tells the
-        // kernel another device reaches it.
+        // Another device's memory binds only through a `Peer` parameter.
         for resource in &bindings.resources {
             if let Some(binding) = resource.local_binding() {
                 self.expect_local(binding);
