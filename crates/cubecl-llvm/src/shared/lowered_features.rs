@@ -3,8 +3,8 @@
 //! A GPU runtime's properties come from its C++ backend, which gained each generation's hardware
 //! features as they shipped. The LLVM backend runs ordinary kernels: arithmetic, memory, shared
 //! memory, the plane operations, the two barriers and the matrix instructions it has register
-//! shapes for, plus Hopper's TMA and warpgroup MMA and Blackwell's block-scaled fp4 MMA on
-//! NVPTX. Everything else is taken away here rather than left to fail at compile time, because a
+//! shapes for, plus the copy engine's unit copies (`cp.async`), Hopper's TMA and warpgroup MMA and
+//! Blackwell's block-scaled fp4 MMA on NVPTX. Everything else is taken away here rather than left to fail at compile time, because a
 //! consumer picks its algorithm off these properties — cubek's matmul selectors ask for `mma`
 //! before they ask anything else — and an advertisement that cannot be honoured is a launch that
 //! fails rather than one that falls back.
@@ -55,6 +55,8 @@ pub fn restrict_features(props: &mut DeviceProperties, target: GpuTarget) {
         GpuTarget::AmdGpu { wmma } => {
             advertise_amdgpu_matrix_forms(props, wmma);
             props.features.matmul.scaled_mma = Default::default();
+            // `copy_async` lowers to NVPTX's `cp.async` alone.
+            props.features.copy_async = false;
             remove_tma(props);
         }
     }
@@ -195,9 +197,8 @@ fn restrict_common(props: &mut DeviceProperties) {
         props.hardware.min_tensor_cores_dim = None;
     }
 
-    // No clusters, and no `copy_async` (`cp.async`). `memcpy_async` lowers with the barriers.
+    // No clusters. `memcpy_async` lowers with the barriers.
     props.features.cube_cluster = false;
-    props.features.copy_async = false;
 
     // `bf16` atomics have no test on any target this backend lowers for, so they are not
     // offered until one checks the read-modify-write LLVM expands them into.
@@ -247,6 +248,20 @@ mod tests {
         amd::GfxArch,
         features::{AtomicUsage, MmaConfig, TypeUsage},
     };
+
+    /// `copy_async` has no AMDGPU lowering, so a part keeps none whatever it advertised.
+    #[test]
+    fn a_part_keeps_no_copy_async() {
+        let mut props = advertising_every_matrix_form();
+        props.features.copy_async = true;
+        restrict_features(
+            &mut props,
+            GpuTarget::AmdGpu {
+                wmma: GfxArch::parse("gfx1201").wmma(),
+            },
+        );
+        assert!(!props.features.copy_async);
+    }
 
     /// A part with no WMMA has no matrix lowering at all, so it must offer none.
     #[test]
@@ -468,7 +483,23 @@ mod nvptx_tma_tests {
         assert!(!props.features.tma.contains(Tma::Im2colWide));
         assert!(props.features.types.opaque.contains(&OpaqueType::TensorMap));
         assert!(props.features.types.opaque.contains(&OpaqueType::Barrier));
-        assert!(!props.features.copy_async);
+    }
+
+    /// NVPTX lowers `copy_async` to `cp.async`, so a device keeps it exactly when its C++
+    /// backend advertised it: from `sm_80`, with or without TMA.
+    #[test]
+    fn a_device_keeps_the_copy_async_it_advertises() {
+        for advertised in [true, false] {
+            let mut props = (*device_properties(32)).clone();
+            props.features.copy_async = advertised;
+            restrict_features(
+                &mut props,
+                GpuTarget::Nvptx {
+                    arch: SmArch::new(80, true),
+                },
+            );
+            assert_eq!(props.features.copy_async, advertised);
+        }
     }
 
     /// Hopper alone gets warpgroup MMA.
