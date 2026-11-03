@@ -98,26 +98,22 @@ pub(crate) fn assert_whole_cells(contracted_per_step: usize, vector_size: usize,
 }
 
 /// The axes a block opened on `space` through `axes` reads and writes `window` through: its row
-/// and column groups found by identity, however many batch axes either tile lists.
-///
-/// # Panics
-///
-/// Where `window` lacks one of those axes, or does not end with them side by side.
+/// and column axes found by identity, which the window must end in, with the block's columns.
 fn window_axes(space: &Space, axes: MatrixAxes, window: &Space) -> MatrixAxes {
     let held: Vec<Axis> = (axes.row_split..space.rank())
         .map(|p| space.axis_at(p))
         .collect();
+    let first = window.rank().saturating_sub(held.len());
+    let ends_in_them = window.rank() >= held.len()
+        && held.iter().enumerate().all(|(i, &axis)| {
+            window.axis_at(first + i) == axis
+                && (axes.row_split + i < axes.col_split
+                    || window.extent_raw(axis) == space.extent_raw(axis))
+        });
     assert!(
-        held.iter().all(|&axis| window.contains(axis)),
-        "RegisterData: the block's {held:?} are not all axes of the window"
-    );
-    let first = window.position(held[0]);
-    assert!(
-        held.iter()
-            .enumerate()
-            .all(|(i, &axis)| window.position(axis) == first + i)
-            && first + held.len() == window.rank(),
-        "RegisterData: a window ends in the block's {held:?} side by side, and this one does not"
+        ends_in_them,
+        "RegisterData: a window ends in the block's {held:?} side by side with its columns whole, \
+         and this one does not"
     );
     MatrixAxes {
         row_split: first,
@@ -598,12 +594,18 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "does not")]
+    fn a_window_short_of_the_blocks_columns_is_refused() {
+        resolved(&[(K, 8), (V, 6)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "does not")]
     fn a_transposed_window_is_refused() {
         resolved(&[(V, 8), (K, 8)]);
     }
 
     #[test]
-    #[should_panic(expected = "not all axes")]
+    #[should_panic(expected = "does not")]
     fn a_window_lacking_a_matrix_axis_is_refused() {
         resolved(&[(KEPT, 8), (V, 8)]);
     }

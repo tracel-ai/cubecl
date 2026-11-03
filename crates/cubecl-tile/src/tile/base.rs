@@ -336,6 +336,21 @@ impl Tile {
         }
     }
 
+    /// This window with every unit already holding its whole cells, so a store lands what a unit
+    /// holds and combines nothing across them, whatever axes the units split.
+    pub fn held_whole_by_each_unit(&self) -> Tile {
+        let mut tile = self.clone();
+        match &mut tile.kind {
+            TileKind::Memory(g) => comptime!(g.unit_share = UnitShare::Repeated),
+            TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => panic!("Tile::held_whole_by_each_unit: a memory window only"),
+        }
+        tile
+    }
+
     /// Whether this tile is held in the plane's registers or fragments.
     pub(crate) fn is_plane_resident(&self) -> comptime_type!(bool) {
         match &self.kind {
