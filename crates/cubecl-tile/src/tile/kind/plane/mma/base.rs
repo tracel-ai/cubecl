@@ -821,6 +821,11 @@ pub(crate) fn load_fragment<T: Numeric, N: Size, A: Numeric, B: Numeric, CD: Num
     });
     // A whole stage window whose rows step by one stride reads its cells at offsets the unit
     // finds once; any other window reads each cell through its view.
+    let gathered = src.gathered();
+    let shared = src.is_shared();
+    let element = src.stage_element();
+    let holds_served_values = comptime!(element.holds_values());
+    let whole = comptime!(covered_edges(&src.place.space, ident, edges) == edges);
     let stepped = src.rows_step_by_stride();
     let strided = comptime!(shared && !gathered && holds_served_values && whole && stepped);
     match method {
