@@ -26,12 +26,13 @@ use cubecl_zspace::striding::has_contiguous_row_major_strides;
 /// Until the first access the controller holds the source's [`Handle`], so
 /// [`Handle::can_mut`] is false for it and a caller that honours it does not write the buffer in
 /// place: the data read is the data as it was at [`read_lazy`]. The source is let go once the
-/// bytes are on the host.
+/// host bytes are independent of it. A zero-copy host read retains the handle until dropped
+/// or copied for mutation.
 ///
 /// [`read_lazy`]: Client::read_lazy
 pub struct LazyDeviceController {
     client: Client,
-    /// The source until its bytes are on the host.
+    /// The source until the host bytes no longer alias it.
     source: Mutex<Option<CopyDescriptor<Handle>>>,
     /// The host byte length, known without the source.
     len: usize,
@@ -83,7 +84,9 @@ impl LazyDeviceController {
                 )
                 .map_err(|err| AccessError::Read(format!("{err:?}")))
             })?;
-        self.source.lock().take();
+        if !bytes.may_alias_mutable_storage() {
+            self.source.lock().take();
+        }
         Ok(bytes)
     }
 }
@@ -105,6 +108,13 @@ impl AllocationController for LazyDeviceController {
         }
     }
 
+    fn may_alias_mutable_storage(&self) -> bool {
+        match self.materialized.get() {
+            Some(bytes) => bytes.may_alias_mutable_storage(),
+            None => true,
+        }
+    }
+
     // The host byte length, known without materializing.
     fn capacity(&self) -> usize {
         self.len
@@ -113,7 +123,10 @@ impl AllocationController for LazyDeviceController {
     /// A zero-copy (until materialized) device sub-view over the byte range `[start, end)`:
     /// a new lazy controller that, when read, copies only those bytes off the device.
     fn view(&self, start: usize, end: usize) -> Option<Box<dyn AllocationController>> {
-        // The source is let go once the bytes are on the host, which have no sub-view to take.
+        // Aliasing host bytes can still hold the source; views must not bypass cached data.
+        if self.materialized.get().is_some() {
+            return None;
+        }
         let source = self.source.lock().clone()?;
         if start > end || end > self.len {
             return None;
@@ -159,8 +172,13 @@ impl AllocationController for LazyDeviceController {
             .get_mut()
             .expect("materialized must be set after init");
         let slice: &mut [u8] = bytes;
-        // SAFETY: same layout as above; every byte is initialized.
-        Ok(unsafe { core::slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), slice.len()) })
+        let (ptr, len) = (slice.as_mut_ptr(), slice.len());
+        if !bytes.may_alias_mutable_storage() {
+            self.source.lock().take();
+        }
+        // SAFETY: every byte is initialized. Querying aliasing does not invalidate the
+        // pointer, and the source is released only when the host bytes are independent.
+        Ok(unsafe { core::slice::from_raw_parts_mut(ptr.cast(), len) })
     }
 
     unsafe fn copy_into(&self, buf: &mut [u8]) {

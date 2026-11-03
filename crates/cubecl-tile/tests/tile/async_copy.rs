@@ -41,9 +41,9 @@ fn has_copy_engine(client: &Client) -> bool {
 /// the one contracted: the pipelined schedule, its slots published through the barrier.
 #[cube(launch)]
 fn ring_matmul(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] depth: usize,
 ) {
@@ -71,8 +71,8 @@ fn ring_matmul(
 /// and the wait a kernel without a pipeline runs.
 #[cube(launch)]
 fn staged_copy(
-    src: &TileArg<'_>,
-    dst: &TileArg<'_>,
+    src: &TileTensor<'_>,
+    dst: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
@@ -93,8 +93,8 @@ fn staged_copy(
 /// of it unpacks.
 #[cube(launch)]
 fn staged_packed_copy(
-    src: &TileArg<'_>,
-    dst: &TileArg<'_>,
+    src: &TileTensor<'_>,
+    dst: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
@@ -222,8 +222,8 @@ fn staged_copy_with(
         &client,
         CubeCount::new_single(),
         launcher.cube_dim(),
-        TileArgLaunch::new(src.binding().into_tensor_arg(), dtype, 1, src_spec),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(src.binding().into_tensor_arg(), dtype, 1, src_spec),
+        TileTensorLaunch::new(
             dst.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -311,13 +311,13 @@ fn staged_packed_copy_with(
         &client,
         CubeCount::new_single(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             input.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
             TileSpec::direct(&[M, N]).packed(field).delivery(delivery),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             output.clone().binding().into_tensor_arg(),
             dtype,
             factor,
@@ -405,13 +405,13 @@ fn staged_packed_copy_of_split_rows(axes: [Axis; 3]) {
         &client,
         CubeCount::new_single(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             input.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
             TileSpec::new(words_over).packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             output.clone().binding().into_tensor_arg(),
             dtype,
             4,

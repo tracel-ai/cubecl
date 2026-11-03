@@ -1,7 +1,7 @@
 //! An output several instances accumulate into, as a single launch argument.
 
 use cubecl::define_size;
-use cubecl::ir::{ExpandValue, VectorSize};
+use cubecl::ir::{ExpandValue, VectorSize, features::AtomicUsage};
 use cubecl::prelude::*;
 use cubecl::unexpanded;
 use cubecl_std::tensor::{
@@ -104,16 +104,42 @@ impl<E: Numeric> ErasedTensorOperationsExpand<E> for AtomicAccumulate<E> {
 
 impl<E: Numeric> WritesLines<E> for AtomicAccumulate<E> {}
 
-/// Accumulate one line into the buffer: `N` scalar adds at the line's own offset.
+/// Accumulate one line into the buffer, at the line's own offset: one add of the whole line where
+/// the device adds a vector of `E` atomically at that width, `N` scalar adds otherwise.
 #[cube]
 fn accumulate_line<E: Numeric, N: Size>(
     values: &Tensor<Atomic<E>>,
     index: usize,
     value: Vector<E, N>,
 ) {
-    let base = index * N::value();
-    #[unroll]
-    for k in 0..N::value() {
-        values[base + k].fetch_add(value.extract(k));
+    let (width, adds) = (N::value(), adds_lines::<E, N>());
+    if comptime!(width > 1 && adds) {
+        let lines = values.as_slice().with_vector_size::<N>();
+        lines[index].fetch_add(value);
+    } else {
+        let base = index * N::value();
+        #[unroll]
+        for k in 0..N::value() {
+            values[base + k].fetch_add(value.extract(k));
+        }
     }
+}
+
+/// Whether the device adds a vector of `N` `E`s atomically, read off its properties at expansion.
+// `E` and `N` are read by the expansion, which is where a type has its element and size.
+#[allow(clippy::extra_unused_type_parameters)]
+#[cube]
+fn adds_lines<E: Numeric, N: Size>() -> comptime_type!(bool) {
+    intrinsic!(|scope| {
+        let line = Type::atomic(E::elem_type(scope).with_vector_size(N::__expand_value(scope)));
+        scope
+            .state()
+            .device_properties
+            .as_ref()
+            .is_some_and(|properties| {
+                properties
+                    .atomic_type_usage(line)
+                    .contains(AtomicUsage::Add)
+            })
+    })
 }

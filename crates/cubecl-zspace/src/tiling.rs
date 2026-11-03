@@ -30,7 +30,8 @@ pub const MAX_LOGICAL_DIMS: usize = 8;
 /// The most fragments one logical dim is stored as.
 pub const MAX_FRAGMENTS: usize = 16;
 
-/// How many fragments each logical dim is stored as. See the [module doc](self).
+/// How many fragments each logical dim is stored as: four bits a dim, holding its fragments minus
+/// one, the physical dims level-major, coarsest first.
 ///
 /// `Default` is untiled, and so is `0`.
 #[derive(

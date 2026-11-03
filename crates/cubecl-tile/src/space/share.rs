@@ -83,54 +83,20 @@ impl UnitShare {
     }
 }
 
-#[cube]
 impl UnitShare {
     /// Combine the partials of one cell under `monoid`, leaving the total on every holder.
-    pub(crate) fn reduce_of<T: Carrier + CubePrimitive<Scalar: PlaneNumeric>>(
-        value: T,
-        #[comptime] share: UnitShare,
-        #[comptime] monoid: Monoid,
-    ) -> T {
-        match comptime!(share) {
-            UnitShare::Repeated | UnitShare::Whole => value,
-            UnitShare::Plane => match comptime!(monoid) {
-                Monoid::Sum => plane_sum(value),
-                Monoid::Prod => plane_prod(value),
-                Monoid::Max => plane_max(value),
-                Monoid::Min => plane_min(value),
-            },
-            UnitShare::Group { unit_bits } => {
-                let mut total = value;
-                #[unroll]
-                for bit in 0..comptime!(usize::BITS - unit_bits.leading_zeros()) {
-                    if comptime!(unit_bits & (1 << bit) != 0) {
-                        total = monoid
-                            .combine::<T>(total, plane_shuffle_xor(total, comptime!(1u32 << bit)));
-                    }
-                }
-                total
-            }
-        }
-    }
-}
-
-impl UnitShare {
-    /// Combine the partials of one cell under `monoid`, leaving the total on every holder.
-    pub fn reduce<T: Carrier + CubePrimitive<Scalar: PlaneNumeric>>(
-        self,
-        value: T,
-        monoid: Monoid,
-    ) -> T {
-        UnitShare::reduce_of::<T>(value, self, monoid)
+    /// The carrier's [`Carrier::across`].
+    pub fn reduce<T: Carrier>(self, value: T, monoid: Monoid) -> T {
+        T::across(value, self, monoid)
     }
 
-    pub fn __expand_reduce_method<T: Carrier + CubePrimitive<Scalar: PlaneNumeric>>(
+    pub fn __expand_reduce_method<T: Carrier>(
         self,
         scope: &Scope,
         value: T::ExpandType,
         monoid: Monoid,
     ) -> T::ExpandType {
-        UnitShare::__expand_reduce_of::<T>(scope, value, self, monoid)
+        T::__expand_across(scope, value, self, monoid)
     }
 }
 

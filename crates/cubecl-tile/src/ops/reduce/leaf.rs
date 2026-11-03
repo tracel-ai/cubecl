@@ -277,6 +277,10 @@ fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
 
 /// Every cell of a tile over `acc_space`, in order: the dot product of `lhs`'s and `rhs`'s runs
 /// across the axes they span beyond it ([`Tile::dot`](crate::Tile::dot)).
+///
+/// Where the run spans the factors' innermost axis, as a row of the output does along its value
+/// dim, each line read is summed whole, its components in turn; otherwise each cell reads one
+/// component of each line it meets.
 #[cube]
 pub(crate) fn dot_cells<E: Float, Lhs: Numeric, Rhs: Numeric, V: Size>(
     lhs: &Tile,
@@ -289,35 +293,59 @@ pub(crate) fn dot_cells<E: Float, Lhs: Numeric, Rhs: Numeric, V: Size>(
     let total_acc = comptime!(layout.total_acc);
     let lhs_view = lhs.nd_packed::<Lhs, V>(comptime!(Guard::Checked));
     let rhs_view = rhs.nd_packed::<Rhs, V>(comptime!(Guard::Checked));
+    let whole_lines = comptime!(layout.sums_whole_lines(&in_space, vw));
     let mut cells = Array::<E>::new(total_acc);
     #[unroll]
     for a in 0..total_acc {
         let acc_coords =
             Coords::constant(comptime!(layout.acc_extents.clone())).unravel(comptime!(a as u32));
         let mut sum = E::from_int(0);
-        for p in 0..comptime!(layout.kc) {
-            let reduce_coords =
-                Coords::constant(comptime!(layout.reduce_extents.clone())).unravel(p.cast::<u32>());
-            let coords = resolve_nd_coords(
-                &in_space,
-                &acc_space,
-                &layout.reduce_axes,
-                &acc_coords,
-                &reduce_coords,
-                vw,
-                AccCoords::Cells,
-            );
-            let component = resolve_reduce_component(
-                &in_space,
-                &acc_space,
-                &layout.reduce_axes,
-                &acc_coords,
-                &reduce_coords,
-                vw,
-            );
-            let left = E::cast_from(lhs_view.read(coords.clone()).extract_dynamic(component));
-            let right = E::cast_from(rhs_view.read(coords).extract_dynamic(component));
-            sum += left * right;
+        if comptime!(whole_lines) {
+            // The innermost run counted in lines: its coordinate is already the line's.
+            let line_extents = comptime!(layout.line_extents(vw));
+            for p in 0..comptime!(layout.kc / vw) {
+                let reduce_coords =
+                    Coords::constant(comptime!(line_extents.clone())).unravel(p.cast::<u32>());
+                let coords = resolve_nd_coords(
+                    &in_space,
+                    &acc_space,
+                    &layout.reduce_axes,
+                    &acc_coords,
+                    &reduce_coords,
+                    1usize,
+                    AccCoords::Cells,
+                );
+                let (left, right) = (lhs_view.read(coords.clone()), rhs_view.read(coords));
+                #[unroll]
+                for c in 0..vw {
+                    sum += E::cast_from(left.extract(c)) * E::cast_from(right.extract(c));
+                }
+            }
+        } else {
+            for p in 0..comptime!(layout.kc) {
+                let reduce_coords = Coords::constant(comptime!(layout.reduce_extents.clone()))
+                    .unravel(p.cast::<u32>());
+                let coords = resolve_nd_coords(
+                    &in_space,
+                    &acc_space,
+                    &layout.reduce_axes,
+                    &acc_coords,
+                    &reduce_coords,
+                    vw,
+                    AccCoords::Cells,
+                );
+                let component = resolve_reduce_component(
+                    &in_space,
+                    &acc_space,
+                    &layout.reduce_axes,
+                    &acc_coords,
+                    &reduce_coords,
+                    vw,
+                );
+                let left = E::cast_from(lhs_view.read(coords.clone()).extract_dynamic(component));
+                let right = E::cast_from(rhs_view.read(coords).extract_dynamic(component));
+                sum += left * right;
+            }
         }
         cells[a] = sum;
     }
@@ -353,6 +381,27 @@ impl ReduceLayout {
             acc_extents,
             total_acc,
         }
+    }
+
+    /// Whether the run spans `in_space`'s innermost axis, in whole lines of `width`: the last
+    /// axis it contracts is the input's innermost, and its extent a multiple of the width.
+    fn sums_whole_lines(&self, in_space: &Space, width: usize) -> bool {
+        let innermost = in_space.axis_at(in_space.rank() - 1);
+        width > 1
+            && self.reduce_axes.last() == Some(&innermost)
+            && self
+                .reduce_extents
+                .last()
+                .is_some_and(|extent| extent % width == 0)
+    }
+
+    /// The run's extents with its innermost one counted in lines of `width`.
+    fn line_extents(&self, width: usize) -> Vec<usize> {
+        let mut extents = self.reduce_extents.clone();
+        if let Some(last) = extents.last_mut() {
+            *last /= width;
+        }
+        extents
     }
 }
 

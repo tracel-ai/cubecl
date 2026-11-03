@@ -348,6 +348,19 @@ impl Tile {
         }
     }
 
+    /// Whether this is a memory window whose rows step by one stride
+    /// ([`Memory::rows_step_by_stride`]).
+    pub(crate) fn rows_step_by_stride(&self) -> comptime_type!(bool) {
+        match &self.kind {
+            TileKind::Memory(m) => m.rows_step_by_stride(comptime!(self.place.space.clone())),
+            TileKind::Procedural(_)
+            | TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Lines(_) => comptime!(false),
+        }
+    }
+
     /// `Some(n)` for a recipe stating `n` separable factors, `None` otherwise.
     pub(crate) fn factors(&self) -> comptime_type!(Option<usize>) {
         match &self.kind {
@@ -1258,8 +1271,8 @@ impl Tile {
 
     /// These values as indices into `table`, decoded only by [`copy_from`](Tile::copy_from) and
     /// [`decoded`](Tile::decoded): what an operand bound under a codebook
-    /// ([`TileArgLaunch::codebook`]) is served as.
-    #[allow(dead_code)] // Reached through its expand, from `TileArg::tile`.
+    /// ([`TileTensorLaunch::codebook`]) is served as.
+    #[allow(dead_code)] // Reached through its expand, from `TileTensor::tile`.
     pub(crate) fn lookup(&self, _table: &Tile) -> Tile {
         unexpanded!()
     }
@@ -1596,7 +1609,7 @@ impl TileExpand {
         if let TileKindExpand::Memory(memory) = &self.kind {
             assert!(
                 !memory.codebook.present(),
-                "{site}: these values are indices into a codebook (`TileArgLaunch::codebook`), \
+                "{site}: these values are indices into a codebook (`TileTensorLaunch::codebook`), \
                  which only a copy or a decoded read decodes; copy them into a stage first \
                  (`stage.copy_from(&w)`), or read them `decoded`"
             );

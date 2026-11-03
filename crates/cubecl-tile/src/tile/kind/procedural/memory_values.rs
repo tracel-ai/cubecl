@@ -64,7 +64,10 @@ impl MemoryValues {
         let define!(Stored) = self.element;
         let logical = comptime!(self.memory.projection.logical_axes().to_vec());
         let mut position = Coords::<u32>::new();
-        #[allow(clippy::needless_range_loop)]
+        #[allow(
+            clippy::needless_range_loop,
+            reason = "an unrolled loop over a comptime range; `p` also reads the window's origin"
+        )]
         #[unroll]
         for p in 0..logical.len() {
             let axis = comptime!(logical[p]);

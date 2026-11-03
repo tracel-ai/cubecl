@@ -26,8 +26,8 @@ pub struct TileSpec {
     /// Who moves this operand into a stage ([`delivery`](Self::delivery)).
     pub delivery: Delivery,
     /// The axes a page table resolves where the buffer is a pool of pages read as sequences
-    /// ([`TileArgLaunch::indexed`](crate::TileArgLaunch::indexed)); `None` for a buffer read where
-    /// it lies.
+    /// ([`TileTensorLaunch::indexed`](crate::TileTensorLaunch::indexed)); `None` for a buffer read
+    /// where it lies.
     pub paging: Option<Paging>,
 }
 
