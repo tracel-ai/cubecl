@@ -47,7 +47,10 @@ pub(crate) enum DeepLoad {
 }
 
 /// One role's register array, each role at its own width (`NL`/`NR`/`NA`), at the element the
-/// fragment holds.
+/// fragment holds. Every role's registers are a [`Raw`] handle: a mutable binding of a bare
+/// [`Array`] copies it, so a grid's fragment loaded through a handle to it
+/// ([`PlanePartition::fill_from`]) would fill the copy and leave the fragment's own registers
+/// unwritten.
 #[expect(
     dead_code,
     reason = "built through the expand type's generated constructors"
@@ -59,13 +62,13 @@ pub(crate) enum MmaFragment {
     Rhs(Raw<Registers<NR>>),
     Acc(Raw<Registers<NA>>),
     /// A block-scaled `A`: its codes as the instruction takes them (`e2m1` two a byte for an
-    /// `e2m1x2` register), and the scales of the row this unit's scale register serves, the one
-    /// register an array of one holds, so a handle to the fragment loads the registers the
-    /// fragment holds. Its elements are the instruction's form's
-    /// ([`BlockScaledOperands`](crate::BlockScaledOperands)).
-    LhsBlockScaled(Array<Vector<LhsCodes, NLB>>, Array<Vector<BlockScale, NSB>>),
-    /// A block-scaled `B`, as [`LhsBlockScaled`](Self::LhsBlockScaled) is an `A`.
-    RhsBlockScaled(Array<Vector<RhsCodes, NRB>>, Array<Vector<BlockScale, NSB>>),
+    /// `e2m1x2` register), held at [`LhsCodes`], and the scales of the row this unit's scale
+    /// register serves, the one register an array of one holds, at [`BlockScale`]. Its elements
+    /// are the instruction's form's ([`BlockScaledOperands`](crate::BlockScaledOperands)).
+    LhsBlockScaled(Raw<Registers<NLB>>, Raw<Registers<NSB>>),
+    /// A block-scaled `B`, as [`LhsBlockScaled`](Self::LhsBlockScaled) is an `A`, its codes at
+    /// [`RhsCodes`].
+    RhsBlockScaled(Raw<Registers<NRB>>, Raw<Registers<NSB>>),
 }
 
 #[cube]
@@ -191,12 +194,16 @@ impl MmaData {
         register_block_scaled_sizes(&def, ident);
         let fragment = match comptime!(ident) {
             MatrixIdent::A => MmaFragment::new_LhsBlockScaled(
-                Array::new(def.vectors_per_lane(MatrixIdent::A)),
-                Array::new(1usize),
+                Raw::<Registers<NLB>>::of::<LhsCodes>(Array::new(
+                    def.vectors_per_lane(MatrixIdent::A),
+                )),
+                Raw::<Registers<NSB>>::of::<BlockScale>(Array::new(1usize)),
             ),
             MatrixIdent::B => MmaFragment::new_RhsBlockScaled(
-                Array::new(def.vectors_per_lane(MatrixIdent::B)),
-                Array::new(1usize),
+                Raw::<Registers<NRB>>::of::<RhsCodes>(Array::new(
+                    def.vectors_per_lane(MatrixIdent::B),
+                )),
+                Raw::<Registers<NSB>>::of::<BlockScale>(Array::new(1usize)),
             ),
             MatrixIdent::Accumulator => {
                 panic!("MmaData::block_scaled: an accumulator carries no scales")
@@ -312,8 +319,8 @@ impl MmaData {
             ),
             MmaFragment::LhsBlockScaled(values, scales) => load_block_scaled(
                 src,
-                values,
-                scales,
+                values.at_mut::<LhsCodes>(),
+                scales.at_mut::<BlockScale>(),
                 comptime!(form.expect("a block-scaled fragment is held under its form")),
                 MatrixIdent::A,
                 layout,
@@ -322,8 +329,8 @@ impl MmaData {
             ),
             MmaFragment::RhsBlockScaled(values, scales) => load_block_scaled(
                 src,
-                values,
-                scales,
+                values.at_mut::<RhsCodes>(),
+                scales.at_mut::<BlockScale>(),
                 comptime!(form.expect("a block-scaled fragment is held under its form")),
                 MatrixIdent::B,
                 layout,

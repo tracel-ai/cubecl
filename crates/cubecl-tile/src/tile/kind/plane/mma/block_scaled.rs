@@ -470,14 +470,15 @@ fn loads_words_as_matrix() -> comptime_type!(bool) {
 }
 
 /// `acc += lhs · rhs` over two block-scaled operand fragments via
-/// `MmaDefinition::execute_scaled`.
+/// `MmaDefinition::execute_scaled`, each fragment's registers named at the elements it holds
+/// ([`MmaFragment::LhsBlockScaled`]).
 #[cube]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn mma_execute_block_scaled<A: Numeric>(
-    lhs: &Array<Vector<LhsCodes, NLB>>,
-    lhs_scales: &Array<Vector<BlockScale, NSB>>,
-    rhs: &Array<Vector<RhsCodes, NRB>>,
-    rhs_scales: &Array<Vector<BlockScale, NSB>>,
+    lhs: &Raw<Registers<NLB>>,
+    lhs_scales: &Raw<Registers<NSB>>,
+    rhs: &Raw<Registers<NRB>>,
+    rhs_scales: &Raw<Registers<NSB>>,
     acc: &mut Array<Vector<A, NA>>,
     #[comptime] form: BlockScaledOperands,
     #[comptime] m: usize,
@@ -486,7 +487,13 @@ pub(crate) fn mma_execute_block_scaled<A: Numeric>(
 ) {
     register_block_scaled_elements(form);
     let def = block_scaled_definition::<A>(form, m, n, k);
-    let out = def.execute_scaled(lhs, rhs, &*acc, lhs_scales[0], rhs_scales[0]);
+    let out = def.execute_scaled(
+        lhs.at::<LhsCodes>(),
+        rhs.at::<RhsCodes>(),
+        &*acc,
+        lhs_scales.at::<BlockScale>()[0],
+        rhs_scales.at::<BlockScale>()[0],
+    );
     let num = def.vectors_per_lane(MatrixIdent::Accumulator);
     #[unroll]
     for i in 0..num {
