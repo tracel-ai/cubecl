@@ -57,7 +57,7 @@ impl DeviceStream for Stream {
 }
 
 /// CUDA, as the shared command sees it.
-pub(crate) struct Cuda;
+pub struct Cuda;
 
 impl Driver for Cuda {
     type Backend = CudaStreamBackend;
