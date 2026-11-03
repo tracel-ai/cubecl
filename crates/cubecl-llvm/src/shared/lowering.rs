@@ -2,7 +2,10 @@
 
 use pliron::builtin::ops::ModuleOp;
 
-use crate::prelude::{EntryArgLayout, FuncOp, OpPass, Passes};
+use crate::{
+    prelude::{EntryArgLayout, FuncOp, OpPass, Passes},
+    shared::native_decode::NativeDecode,
+};
 
 /// Target passes and kernel argument layout.
 pub trait TargetLowering {
@@ -19,4 +22,9 @@ pub trait TargetLowering {
 
     /// Kernel argument layout.
     fn arg_layout(&self) -> Box<dyn EntryArgLayout>;
+
+    /// The minifloats the target decodes into floats itself ([`NativeDecode`]).
+    fn native_decodes(&self) -> &'static [NativeDecode] {
+        &[]
+    }
 }

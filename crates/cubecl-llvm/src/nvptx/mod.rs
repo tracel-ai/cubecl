@@ -8,6 +8,7 @@ pub mod codegen;
 pub(crate) mod inline_asm;
 pub mod libdevice;
 pub mod matrix;
+pub(crate) mod native_decode;
 #[cfg(test)]
 mod offline_tests;
 pub mod plane;

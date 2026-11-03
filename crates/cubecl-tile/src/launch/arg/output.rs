@@ -2,13 +2,13 @@
 
 use cubecl::prelude::*;
 
-use crate::{AccumulateArg, AccumulateArgLaunch, Bound, Partitioning, Tile, TileArg};
+use crate::{AccumulateArg, AccumulateArgLaunch, Bound, Partitioning, Tile, TileTensor};
 
-/// The operand a kernel leaves by: a tensor read and replaced ([`TileArg`]), or an atomic tensor
+/// The operand a kernel leaves by: a tensor read and replaced ([`TileTensor`]), or an atomic tensor
 /// added into and never read ([`AccumulateArg`]).
 #[derive(CubeType, CubeLaunch)]
 pub enum Output<'a, E: Numeric> {
-    Tensor(TileArg<'a>),
+    Tensor(TileTensor<'a>),
     Atomic(AccumulateArg<'a, E>),
 }
 

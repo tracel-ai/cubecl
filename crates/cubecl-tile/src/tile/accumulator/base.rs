@@ -2,7 +2,7 @@
 
 use cubecl::prelude::*;
 
-use crate::ops::matmul::leaf::memory;
+use crate::ops::matmul::leaf::{Side, memory};
 use crate::*;
 
 /// The shape a plane-resident accumulator is opened at: `tiles` per plane, each `m × n`.
@@ -78,12 +78,6 @@ impl Scratch {
         }
     }
 
-    /// Whether a fragment goes through shared memory on its way out; forced when partials are
-    /// summed.
-    pub fn bounces(self) -> bool {
-        !matches!(self, Scratch::None)
-    }
-
     /// This setting raised to bouncing where `bouncing` demands it.
     pub fn at_least_bouncing(self, bouncing: bool) -> Scratch {
         match (bouncing, self) {
@@ -149,7 +143,7 @@ impl Tile {
                 }
                 let vector_size = self.vector_size();
                 accumulator_in::<EA>(
-                    self,
+                    comptime!(rows_along(&self.place, &lhs.place.space, &rhs.place.space)),
                     lhs,
                     instruction,
                     vector_size,
@@ -162,6 +156,7 @@ impl Tile {
 
     /// A register block over this tile's grid for a reduction over `input` under `monoid`, at
     /// the element `EA`, opened at its identity.
+    #[doc(hidden)] // Public for its regression test only.
     pub fn block_reducer<EA: Numeric>(
         &self,
         input: &Tile,
@@ -170,7 +165,7 @@ impl Tile {
     ) -> Tile {
         let vector_size = self.vector_size();
         accumulator_in::<EA>(
-            self,
+            comptime!(self.place.clone()),
             input,
             comptime!(Instruction::Registers { config }),
             vector_size,
@@ -587,7 +582,7 @@ fn register_accumulator<EA: Numeric>(
         (false, _) => rw,
     });
     accumulator_in::<EA>(
-        out,
+        comptime!(out.place.clone()),
         lhs,
         comptime!(Instruction::Registers { config }),
         width,
@@ -596,10 +591,28 @@ fn register_accumulator<EA: Numeric>(
     )
 }
 
+/// `place`, the output's, as an accumulator of `rows · cols` lays it: its rows along the free
+/// axes of the factor handed over first. The output's own order where its innermost axes are
+/// `cols`'s; else its two trailing groups exchanged, every axis above them where it was, so the
+/// first factor fills the instruction's `A` whichever of the product's operands it is.
+fn rows_along(place: &Placement, rows: &Space, cols: &Space) -> Placement {
+    let space = &place.space;
+    if Side::of(rows, space) == Side::Lhs {
+        return place.clone();
+    }
+    let axes = MatrixAxes::accumulator(space, cols);
+    let order: Vec<Axis> = (0..axes.row_split)
+        .chain(axes.col_split..space.rank())
+        .chain(axes.row_split..axes.col_split)
+        .map(|p| space.axis_at(p))
+        .collect();
+    Placement::new(space.subspace(&order), place.depth, place.levels.clone())
+}
+
 /// The plane-resident grid an accumulator gathers in, in `form`, at its identity.
 #[cube]
 fn accumulator_in<EA: Numeric>(
-    out: &Tile,
+    #[comptime] out: Placement,
     lhs: &Tile,
     #[comptime] form: Instruction,
     #[comptime] vector_size: usize,
@@ -613,15 +626,15 @@ fn accumulator_in<EA: Numeric>(
          not {accumulation:?}; contract in a register block to sum under another"
     ));
     let mut acc = PlanePartition::mirror::<EA>(
-        comptime!(out.place.space.clone()),
-        comptime!(MatrixAxes::accumulator(&out.place.space, &lhs.place.space)),
+        comptime!(out.space.clone()),
+        comptime!(MatrixAxes::accumulator(&out.space, &lhs.place.space)),
         comptime!(form),
-        comptime!(GridShape::new(&out.place, &lhs.place.space)),
+        comptime!(GridShape::new(&out, &lhs.place.space)),
         vector_size,
         contracted_per_step,
         accumulation,
-        comptime!(out.place.depth),
-        comptime!(out.place.levels.clone()),
+        comptime!(out.depth),
+        comptime!(out.levels.clone()),
     );
     acc.init_identity::<EA>(comptime!(accumulation.monoid()));
     acc

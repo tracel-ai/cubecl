@@ -60,6 +60,10 @@ impl AllocationController for PinnedMemoryAllocController {
         AllocationProperty::Pinned
     }
 
+    fn may_alias_mutable_storage(&self) -> bool {
+        false
+    }
+
     // Pinned host memory is always host-resident: the policy never forces a
     // copy here.
     unsafe fn memory_mut(

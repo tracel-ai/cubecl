@@ -6,6 +6,7 @@ use crate::nvptx::{
     codegen::{MetadataParams, NvptxEntry},
     ptx_version::PtxVersion,
 };
+use crate::shared::native_decode::NativeDecode;
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 use crate::shared::{
     buffer_params::AtomicReads, plane::CtxPlaneDim, shared_memory::CtxSharedMemory,
@@ -42,10 +43,8 @@ use cubecl_core::{
         rewrite::{CanonicalizePass, InheritLocationPass, LowerOpsPass, SimplifyOpsPass},
     },
     post_processing::{
-        bf16::LowerWideBf16CastPass,
-        bitwise::PromoteBitwisePass,
-        fp4::{LowerFp4Cast, LowerFp4CastPass},
-        minifloat::{Fp8Container, LowerMinifloatCastPass, LowerMinifloatComparePass},
+        bf16::LowerWideBf16CastPass, bitwise::PromoteBitwisePass,
+        minifloat::LowerMinifloatComparePass,
     },
     prelude::*,
 };
@@ -340,7 +339,8 @@ impl PlironCompiler {
         ctx.set_plane_dim(plane_dim);
 
         let tensor_maps = crate::nvptx::tensor_map::TensorMapParams::new(&ctx, ir.entry_func);
-        let Lowered { io, atomic_reads } = lower(&mut ctx, &ir, &NvptxLowering { plane_dim })?;
+        let Lowered { io, atomic_reads } =
+            lower(&mut ctx, &ir, &NvptxLowering { plane_dim, arch })?;
 
         let shared_memory_size = ctx.shared_memory_size();
 
@@ -478,13 +478,7 @@ fn lower(
     func_passes.add_pass(InstCombinePass::default());
     // LLVM converts between `f32` and `bfloat`; a wider source would round twice through `f32`.
     func_passes.add_pass(LowerWideBf16CastPass::default());
-    func_passes.add_pass(LowerMinifloatCastPass::default());
-    // No LLVM target converts `e2m1x2` itself, so every cast from or to it is the software codec,
-    // its decode through `f16` pairs, which every target holds.
-    func_passes.add_pass(LowerFp4CastPass::new(LowerFp4Cast::new(
-        true,
-        Fp8Container::Bytes,
-    )));
+    NativeDecode::add_codec_passes(target.native_decodes(), &mut func_passes);
     func_passes.add_pass(LowerMinifloatComparePass::default());
     func_passes.add_pass(LowerComplexOpPass::default());
     target.epilogue(&mut func_passes);

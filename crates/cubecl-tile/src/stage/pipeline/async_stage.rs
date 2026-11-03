@@ -56,17 +56,17 @@ impl Stages<OperandPair> {
                 if index < total {
                     let region = walk.region(index);
                     let held = self.slots.index_mut(slot);
-                    held.acquire_read();
+                    held.meeting.acquire_read();
                     let reads = stage.issue(&region, &held.data.lhs, &held.data.rhs);
                     if comptime!(depth == 1) {
                         reads.wait();
-                        held.release_read();
+                        held.meeting.release_read();
                     } else {
                         let previous = comptime!((slot + depth - 1) % depth);
                         issued.index(previous).wait();
                         // The first stage has no slot before it to free.
                         if index > 0 {
-                            self.slots.index_mut(previous).release_read();
+                            self.slots.index_mut(previous).meeting.release_read();
                         }
                         *issued.index_mut(slot) = reads;
                     }
@@ -81,7 +81,7 @@ impl Stages<OperandPair> {
             for slot in 0..depth {
                 if total > 0 && slot == last {
                     issued.index(slot).wait();
-                    self.slots.index_mut(slot).release_read();
+                    self.slots.index_mut(slot).meeting.release_read();
                 }
             }
         }

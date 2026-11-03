@@ -67,6 +67,13 @@ const_eval!(ExpOp, {
     FloatAttr(f16, bf16, f32, f64): |inp| inp.exp(),
 });
 
+// `2^x` at the precision GPUs compute it natively: within a couple of ulp, and a result below
+// the normal range may flush to zero.
+pure_unop!("math.exp2", Exp2Op);
+const_eval!(Exp2Op, {
+    FloatAttr(f16, bf16, f32, f64): |inp| inp.exp2(),
+});
+
 pure_unop!("math.log", LogOp);
 const_eval!(LogOp, {
     FloatAttr(f16, bf16, f32, f64): |inp| inp.ln(),

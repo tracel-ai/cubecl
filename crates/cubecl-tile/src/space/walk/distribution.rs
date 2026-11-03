@@ -24,10 +24,8 @@ pub(crate) struct Distribution {
     /// The grid dimension a cube level's axis rides.
     pub(crate) dim: Option<CubeAxis>,
     pub(crate) spread: Spread,
-    /// The workers an [`AllAcross`](Count::AllAcross) axis is distributed to in runs.
-    pub(crate) across: Option<usize>,
-    /// Whether the tiles are taken in turns by as many units as the launch runs.
-    pub(crate) in_turns: bool,
+    /// Who the axis's tiles are dealt to.
+    pub(crate) workers: Workers,
     /// Whether the host proved every worker's run whole, so the kernel skips clamping it.
     pub(crate) divides: bool,
     /// The later axes sharing this axis's hardware dimension.
@@ -36,6 +34,18 @@ pub(crate) struct Distribution {
     pub(crate) unspanned: usize,
     /// Which of the two jointly decoded in-plane positions this axis takes, when swizzled.
     pub(crate) swizzled: Option<usize>,
+}
+
+/// Who a distributed axis's tiles are dealt to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Workers {
+    /// One instance of the scope per tile of the grid.
+    Grid,
+    /// This many workers, each taking a run of tiles ([`AllAcross`](Count::AllAcross)).
+    Across(usize),
+    /// As many units as the launch runs a plane wide, taking the tiles in turns
+    /// ([`Distributed`](Count::Distributed)).
+    LaunchUnits,
 }
 
 impl AxisDistribution {
@@ -62,11 +72,11 @@ impl AxisDistribution {
                 .expect("a level that distributes an axis distributes it over a scope"),
             dim,
             spread: level.cut(axis).spread,
-            across: match level.cut(axis).count {
-                Count::AllAcross(workers) => Some(workers),
-                Count::Stated(_) | Count::All | Count::Distributed(_) => None,
+            workers: match level.cut(axis).count {
+                Count::AllAcross(workers) => Workers::Across(workers),
+                Count::Distributed(_) => Workers::LaunchUnits,
+                Count::Stated(_) | Count::All => Workers::Grid,
             },
-            in_turns: matches!(level.cut(axis).count, Count::Distributed(_)),
             divides: AxisDistribution::divides(level, space, axis),
             inner: ((p + 1)..space.rank()).filter(|&q| same_dim(q)).collect(),
             unspanned: AxisDistribution::unspanned_weight(level, space, axis),

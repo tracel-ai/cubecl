@@ -20,7 +20,7 @@ use crate::*;
 /// others' parts into.
 #[cube]
 pub(crate) fn adding_tile<E: Numeric, V: Size>(
-    arg: &TileArg<'_>,
+    arg: &TileTensor<'_>,
     partitioning: &Partitioning,
     first: bool,
 ) -> Tile {

@@ -3,10 +3,11 @@
 //! A GPU runtime's properties come from its C++ backend, which gained each generation's hardware
 //! features as they shipped. The LLVM backend runs ordinary kernels: arithmetic, memory, shared
 //! memory, the plane operations, the two barriers and the matrix instructions it has register
-//! shapes for, plus Hopper's TMA and warpgroup MMA on NVPTX. Everything else is taken away here
-//! rather than left to fail at compile time, because a consumer picks its algorithm off these
-//! properties — cubek's matmul selectors ask for `mma` before they ask anything else — and an
-//! advertisement that cannot be honoured is a launch that fails rather than one that falls back.
+//! shapes for, plus Hopper's TMA and warpgroup MMA and Blackwell's block-scaled fp4 MMA on
+//! NVPTX. Everything else is taken away here rather than left to fail at compile time, because a
+//! consumer picks its algorithm off these properties — cubek's matmul selectors ask for `mma`
+//! before they ask anything else — and an advertisement that cannot be honoured is a launch that
+//! fails rather than one that falls back.
 //! The CPU runtime builds its properties from what this backend lowers, so it has nothing to
 //! narrow.
 
@@ -20,6 +21,7 @@ use cubecl_core::ir::{
     types::{LdMatrixForm, StMatrixForm},
 };
 
+#[cfg(any(test, feature = "nvptx"))]
 const HALF: ElemType = ElemType::Float(FloatKind::F16);
 const BF16: ElemType = ElemType::Float(FloatKind::BF16);
 
@@ -44,13 +46,15 @@ pub fn restrict_features(props: &mut DeviceProperties, target: GpuTarget) {
         #[cfg(feature = "nvptx")]
         GpuTarget::Nvptx { arch } => {
             keep_nvptx_matrix_forms(props);
+            keep_nvptx_scaled_forms(props);
             keep_nvptx_tma(props);
             let configs = crate::nvptx::wgmma::configs(arch);
             props.features.matmul.wgmma.extend(configs.iter().copied());
         }
         #[cfg(feature = "amdgpu")]
         GpuTarget::AmdGpu { wmma } => {
-            keep_amdgpu_matrix_forms(props, wmma);
+            advertise_amdgpu_matrix_forms(props, wmma);
+            props.features.matmul.scaled_mma = Default::default();
             remove_tma(props);
         }
     }
@@ -142,32 +146,49 @@ fn keep_nvptx_matrix_forms(props: &mut DeviceProperties) {
         .retain(|form| *form == StMatrixForm::M8N8B16);
 }
 
-/// Keeps the matrix forms AMDGPU lowers. The matrix lowering is RDNA's WMMA with `f16` or `bf16`
-/// operands accumulating in their own type or `f32`: CDNA's MFMA and the integer and fp8 WMMA
-/// forms have none. The plane operations work under
-/// divergence, since they read the active lanes from `exec`, so they are left as advertised.
+/// Keeps the block-scaled `mma` forms NVPTX lowers: `e2m1x2` pairs into `f32`, scaled two times
+/// along `k` by `ue8m0` (MXFP4) or four times by `ue4m3` or `ue8m0` (NVFP4). The `mxf8f6f4`
+/// forms, a scale for all of `k`, have no lowering.
+#[cfg(feature = "nvptx")]
+fn keep_nvptx_scaled_forms(props: &mut DeviceProperties) {
+    let pairs = ElemType::Float(FloatKind::E2M1x2);
+    let ue8m0 = ElemType::Float(FloatKind::UE8M0);
+    let e4m3 = ElemType::Float(FloatKind::E4M3);
+    props.features.matmul.scaled_mma.retain(|config| {
+        let operands = config.a_type == pairs
+            && config.b_type == pairs
+            && config.cd_type == ElemType::Float(FloatKind::F32);
+        let scales = match config.scales_factor {
+            2 => config.scales_type == ue8m0,
+            4 => config.scales_type == ue8m0 || config.scales_type == e4m3,
+            _ => false,
+        };
+        operands && scales
+    });
+}
+
+/// Advertises the matrix forms AMDGPU lowers, in place of the ones the C++ backend's rocWMMA
+/// table offers: RDNA's WMMA for `f16` and `bf16` operands accumulating in their own type or `f32`,
+/// 8-bit integers into `i32`, and on RDNA4 `e4m3` and `e5m2` into `f32`
+/// ([`WmmaForm::configs`](crate::amdgpu::matrix::WmmaForm::configs)). CDNA's MFMA has no
+/// lowering. The plane operations work under divergence, since they read the active lanes from
+/// `exec`, so they are left as advertised.
 #[cfg(feature = "amdgpu")]
-fn keep_amdgpu_matrix_forms(props: &mut DeviceProperties, wmma: Option<AmdWmma>) {
-    let lowered = |a: ElemType, b: ElemType, cd: ElemType| {
-        let operands = (a == HALF || a == BF16) && b == a;
-        let accumulator = cd == a || cd == ElemType::Float(FloatKind::F32);
-        wmma.is_some() && operands && accumulator
-    };
+fn advertise_amdgpu_matrix_forms(props: &mut DeviceProperties, wmma: Option<AmdWmma>) {
+    let configs = wmma
+        .map(crate::amdgpu::matrix::WmmaForm::configs)
+        .unwrap_or_default();
+    props.hardware.min_tensor_cores_dim = (!configs.is_empty()).then_some(16);
     let matmul = &mut props.features.matmul;
-    matmul
-        .cmma
-        .retain(|config| lowered(config.a_type, config.b_type, config.cd_type));
-    matmul
-        .mma
-        .retain(|config| lowered(config.a_type, config.b_type, config.cd_type));
+    matmul.cmma = configs.iter().copied().collect();
+    matmul.mma = configs.into_iter().collect();
 }
 
 /// What neither GPU target lowers.
 fn restrict_common(props: &mut DeviceProperties) {
-    // The cube-level matrix API, and the scaled instructions with their `block_scale` operands.
+    // The cube-level matrix API.
     let matmul = &mut props.features.matmul;
     matmul.cube_mma = Default::default();
-    matmul.scaled_mma = Default::default();
     matmul.cmma_tensor_addressing = false;
     if matmul.cmma.is_empty() && matmul.mma.is_empty() {
         props.hardware.num_tensor_cores = None;
@@ -195,6 +216,12 @@ fn restrict_common(props: &mut DeviceProperties) {
     props.features.types.complex.clear();
     for kind in [ComplexKind::C32, ComplexKind::C64] {
         props.features.types.elem.remove(&ElemType::Complex(kind));
+    }
+
+    // The fp6 formats are converted by the C++ backends alone: a cast from or to `e2m3` or `e3m2`
+    // has no lowering here, so a device offering them would hand over kernels that fail to compile.
+    for kind in [FloatKind::E2M3, FloatKind::E3M2] {
+        props.features.types.elem.remove(&ElemType::Float(kind));
     }
 
     // Vectorized float atomics: the shared atomic lowering handles the scalar widths, and a
@@ -230,19 +257,47 @@ mod tests {
         assert_eq!(props.hardware.num_tensor_cores, None);
     }
 
-    /// The lowering has register shapes for `f16` and `bf16` operands alone: the integer and fp8
-    /// forms rocWMMA advertises would fail to compile.
+    /// RDNA4 offers what its lowering emits, fp8 among it, whatever the C++ backend's table
+    /// said: a form only that table had is gone, and one it lacked or garbled is there.
     #[test]
-    fn rdna_keeps_the_half_precision_forms_only() {
+    fn rdna4_offers_the_forms_its_lowering_emits() {
         let props = restricted_for("gfx1201");
-        for kept in [&props.features.matmul.cmma, &props.features.matmul.mma] {
-            assert_eq!(kept.len(), 3, "{kept:?}");
-            assert!(
-                kept.iter()
-                    .all(|config| config.a_type == HALF || config.a_type == BF16),
-                "{kept:?}"
-            );
+        let e4m3 = ElemType::Float(FloatKind::E4M3);
+        let e5m2 = ElemType::Float(FloatKind::E5M2);
+        let f32 = ElemType::Float(FloatKind::F32);
+        for offered in [&props.features.matmul.cmma, &props.features.matmul.mma] {
+            assert!(offered.contains(&MmaConfig {
+                b_type: e5m2,
+                k: 32,
+                ..config(e4m3, f32)
+            }));
+            assert!(offered.contains(&config(
+                ElemType::Int(IntKind::I8),
+                ElemType::Int(IntKind::I32)
+            )));
+            assert!(!offered.contains(&MmaConfig {
+                m: 32,
+                n: 32,
+                ..config(HALF, f32)
+            }));
         }
+        assert_eq!(props.hardware.min_tensor_cores_dim, Some(16));
+    }
+
+    /// RDNA3 has no fp8 WMMA.
+    #[test]
+    fn rdna3_offers_no_fp8_form() {
+        let props = restricted_for("gfx1151");
+        let e4m3 = ElemType::Float(FloatKind::E4M3);
+        assert!(!props.features.matmul.mma.is_empty());
+        assert!(
+            props
+                .features
+                .matmul
+                .mma
+                .iter()
+                .all(|config| config.a_type != e4m3)
+        );
     }
 
     /// `bf16` lowers as LLVM `bfloat`, arithmetic and conversions alike; its atomics are not
@@ -283,6 +338,7 @@ mod tests {
         }
     }
 
+    /// What the C++ backend may hand over: forms the lowering has, and a CDNA form it does not.
     fn advertising_every_matrix_form() -> DeviceProperties {
         let mut props = (*device_properties(32)).clone();
         let f32 = ElemType::Float(FloatKind::F32);
@@ -291,6 +347,11 @@ mod tests {
             config(HALF, HALF),
             config(ElemType::Float(FloatKind::BF16), f32),
             config(ElemType::Int(IntKind::I8), ElemType::Int(IntKind::I32)),
+            MmaConfig {
+                m: 32,
+                n: 32,
+                ..config(HALF, f32)
+            },
         ];
         props.features.matmul.cmma.extend(forms);
         props.features.matmul.mma.extend(forms);
@@ -428,5 +489,33 @@ mod nvptx_tma_tests {
         let props = restricted(&[]);
         assert!(props.features.tma.is_empty());
         assert!(!props.features.types.opaque.contains(&OpaqueType::Barrier));
+    }
+
+    /// A Blackwell part advertising the fp6 formats, as the C++ backend's properties do, keeps
+    /// none: no cast from or to them lowers here.
+    #[test]
+    fn a_device_offering_fp6_keeps_none() {
+        use cubecl_core::ir::features::TypeUsage;
+
+        let mut props = (*device_properties(32)).clone();
+        for kind in [FloatKind::E2M3, FloatKind::E3M2] {
+            props.register_type_usage(ElemType::Float(kind), TypeUsage::Conversion);
+        }
+        restrict_features(
+            &mut props,
+            GpuTarget::Nvptx {
+                arch: SmArch::new(120, true),
+            },
+        );
+        for kind in [FloatKind::E2M3, FloatKind::E3M2] {
+            assert!(
+                !props
+                    .features
+                    .types
+                    .elem
+                    .contains_key(&ElemType::Float(kind)),
+                "{kind:?}"
+            );
+        }
     }
 }

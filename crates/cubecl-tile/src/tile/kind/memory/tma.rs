@@ -30,7 +30,7 @@ pub(crate) struct TmaData {
     /// How the values sit in the cells the descriptor moves.
     #[cube(comptime)]
     pub(crate) packing: Packing,
-    /// The cells a line of a stage it fills holds ([`TileArgLaunch::served_wide`]).
+    /// The cells a line of a stage it fills holds ([`TileTensorLaunch::served_wide`]).
     #[cube(comptime)]
     pub(crate) width: usize,
 }

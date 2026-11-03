@@ -36,7 +36,7 @@ const PITCH: usize = 32;
 /// `out` written with `input`, as the destination's write says: replaced or added atomically.
 #[cube(launch)]
 fn store<E: Float, V: Size, O: Destination>(
-    input: &TileArg<'_>,
+    input: &TileTensor<'_>,
     out: &O::Arg<E>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
@@ -48,7 +48,7 @@ fn store<E: Float, V: Size, O: Destination>(
 
 /// `out` written with `input` cast to the output's element.
 #[cube(launch)]
-fn store_cast(input: &TileArg<'_>, out: &TileArg<'_>, space: Partitioning) {
+fn store_cast(input: &TileTensor<'_>, out: &TileTensor<'_>, space: Partitioning) {
     let src = input.tile(&space);
     let mut dst = out.tile(&space);
     dst.copy_cast_from(&src);
@@ -202,10 +202,10 @@ fn a_memory_window_lands_in_a_narrower_output_through_a_cast() {
 /// casts the sum into the `f16` output.
 #[cube(launch)]
 fn relayed_split_matmul(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    carry: &TileArg<'_>,
-    out: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    carry: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     turns: &[Atomic<u32>],
     space: Partitioning,
 ) {
@@ -306,25 +306,25 @@ fn run_relayed_split(
             &client,
             launcher.cube_count(),
             launcher.cube_dim(),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 a.clone().binding().into_tensor_arg(),
                 f32_ty,
                 1,
                 TileSpec::direct(&[M, K]),
             ),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 b.clone().binding().into_tensor_arg(),
                 f32_ty,
                 1,
                 TileSpec::direct(&[K, N]),
             ),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 carry.clone().binding().into_tensor_arg(),
                 f32_ty,
                 1,
                 TileSpec::direct(&[M, N]),
             ),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 out.clone().binding().into_tensor_arg(),
                 f16_ty,
                 1,

@@ -59,6 +59,12 @@ impl RecordedDispatch {
     fn bind_count(&self) -> usize {
         self.bindings.buffers.len() + usize::from(!self.bindings.info.is_empty())
     }
+
+    /// The bytes the dispatch's metadata takes in the graph's metadata
+    /// buffer: its size, up to the next [`INFO_ALIGNMENT`] boundary.
+    fn info_span(&self) -> usize {
+        size_of_val(self.bindings.info.as_slice()).next_multiple_of(INFO_ALIGNMENT)
+    }
 }
 
 /// An instantiated graph: its commands, or `None` for a window that recorded
@@ -179,8 +185,7 @@ impl Commands {
                         dispatch.bindings.buffers.len(),
                     )
                 };
-                info_offset +=
-                    size_of_val(dispatch.bindings.info.as_slice()).next_multiple_of(INFO_ALIGNMENT);
+                info_offset += dispatch.info_span();
             }
             command.concurrentDispatchThreadgroups_threadsPerThreadgroup(
                 dispatch.threadgroups,
@@ -223,12 +228,7 @@ impl Commands {
         device: &ProtocolObject<dyn MTLDevice>,
         recording: &[RecordedDispatch],
     ) -> Result<Option<Retained<ProtocolObject<dyn MTLBuffer>>>, ServerError> {
-        let size: usize = recording
-            .iter()
-            .map(|dispatch| {
-                size_of_val(dispatch.bindings.info.as_slice()).next_multiple_of(INFO_ALIGNMENT)
-            })
-            .sum();
+        let size: usize = recording.iter().map(RecordedDispatch::info_span).sum();
         if size == 0 {
             return Ok(None);
         }
@@ -246,7 +246,7 @@ impl Commands {
             // SAFETY: the buffer is fresh, so nothing else reads or writes
             // it, and it was sized for every dispatch's aligned metadata.
             unsafe { std::ptr::copy_nonoverlapping(info.as_ptr(), base.add(offset), info.len()) };
-            offset += info.len().next_multiple_of(INFO_ALIGNMENT);
+            offset += dispatch.info_span();
         }
         Ok(Some(buffer))
     }

@@ -6,7 +6,7 @@ use cubecl_std::tensor::layout::CoordsDyn;
 use crate::*;
 
 use super::base::GatherProblem;
-use crate::ops::contraction::resolve_nd_coords;
+use crate::ops::contraction::{AccCoords, resolve_nd_coords};
 
 /// One operand read at accumulator cell `(row, col)` of batch matrix `batch`.
 #[cube]
@@ -56,7 +56,7 @@ pub(super) fn cell_position(
         &acc_coords,
         reduce_coords,
         width,
-        false,
+        AccCoords::Lines,
     )
 }
 

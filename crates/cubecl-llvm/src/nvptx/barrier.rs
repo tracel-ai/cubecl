@@ -17,8 +17,8 @@ use crate::{
 };
 use cubecl_core::ir::{
     dialect::barrier::{
-        ArriveAndExpectTxOp, ArriveAndWaitOp, ArriveOp, ExpectTxOp, InitOp, MemCopyAsyncOp,
-        MemCopyAsyncTxOp, WaitOp, WaitParityOp,
+        ArriveAndExpectTxOp, ArriveAndWaitOp, ArriveOp, CommitCopyAsyncOp, CopyAsyncOp, ExpectTxOp,
+        InitOp, MemCopyAsyncOp, MemCopyAsyncTxOp, WaitOp, WaitParityOp,
     },
     types::barrier::{BarrierLevel, BarrierType},
 };
@@ -29,6 +29,10 @@ const INIT: &str = "llvm.nvvm.mbarrier.init.shared";
 const ARRIVE_COUNT: &str = "llvm.nvvm.mbarrier.arrive.scope.cta.space.cta";
 const EXPECT_TX: &str = "llvm.nvvm.mbarrier.expect.tx.scope.cta.space.cta";
 const BULK_GLOBAL_TO_SHARED: &str = "llvm.nvvm.cp.async.bulk.global.to.shared.cluster";
+// The form that raises the barrier's pending count before it arrives, so the copies complete on
+// the phase without counting as one of its arrivals.
+const COPY_ASYNC_ARRIVE: &str = "llvm.nvvm.cp.async.mbarrier.arrive.shared";
+const COPY_ASYNC_WAIT_ALL: &str = "llvm.nvvm.cp.async.wait.all";
 
 #[derive(Debug, Error)]
 #[error(
@@ -266,6 +270,50 @@ pub(crate) fn memcpy_async_tx(
     args.extend(no_multicast_or_cache_hint(ctx, rw));
     call_void(ctx, rw, BULK_GLOBAL_TO_SHARED, args);
 
+    rw.erase_operation(ctx, op.get_operation());
+    Ok(())
+}
+
+/// A unit's copy of `copy_length` bytes from global to shared memory on the copy engine
+/// (`cp.async`), as the C++ backend issues it: through L2 alone (`cg`) for 16 bytes, through L1
+/// (`ca`) for 4 and 8. A checked copy reads `source_length` bytes and fills the rest with zeros.
+/// It completes on a barrier through [`commit_copy_async`].
+pub(crate) fn copy_async(
+    op: &CopyAsyncOp,
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    _info: &OperandsInfo,
+) -> Result<()> {
+    let bytes = op.copy_length(ctx).0;
+    let cache = if bytes == 16 { "cg" } else { "ca" };
+    let destination = NvptxSpace::Shared.cast(ctx, rw, op.destination(ctx));
+    let source = NvptxSpace::Global.cast(ctx, rw, op.source(ctx));
+    let mut args = vec![destination, source];
+    let read = if op.checked(ctx).0 {
+        args.push(u32_operand(ctx, rw, op.source_length(ctx)));
+        ".s"
+    } else {
+        ""
+    };
+    let name = format!("llvm.nvvm.cp.async.{cache}.shared.global.{bytes}{read}");
+    call_void(ctx, rw, &name, args);
+
+    rw.erase_operation(ctx, op.get_operation());
+    Ok(())
+}
+
+/// Completes the unit's earlier [`copy_async`] copies on the barrier. A cube barrier's phase
+/// waits for them; a unit barrier's wait is dropped, so the unit waits for its copies here.
+pub(crate) fn commit_copy_async(
+    op: &CommitCopyAsyncOp,
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    info: &OperandsInfo,
+) -> Result<()> {
+    match Barrier::new(ctx, rw, info, op.barrier(ctx)) {
+        Barrier::Cube(barrier) => call_void(ctx, rw, COPY_ASYNC_ARRIVE, vec![barrier]),
+        Barrier::Unit => call_void(ctx, rw, COPY_ASYNC_WAIT_ALL, Vec::new()),
+    }
     rw.erase_operation(ctx, op.get_operation());
     Ok(())
 }

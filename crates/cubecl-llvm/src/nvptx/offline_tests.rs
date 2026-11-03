@@ -42,6 +42,36 @@ fn fp4_casts_compile_to_the_software_codec() {
     );
 }
 
+/// On a Blackwell part the decode is the part's own conversion, a pair an instruction; the
+/// encode stays the software codec, so no conversion to `e2m1x2` is emitted.
+#[test]
+fn fp4_decodes_on_the_part_where_it_converts() {
+    let ptx = ptx_of(crate::shared::offline_kernels::fp4_round_trip_kernel(), 120);
+    assert_eq!(
+        ptx.matches("cvt.rn.f16x2.e2m1x2").count(),
+        4,
+        "one conversion per pair of the word:\n{ptx}"
+    );
+    assert!(
+        !ptx.contains(".e2m1x2.f32"),
+        "the encode is the software codec:\n{ptx}"
+    );
+}
+
+/// From `sm_89` an `e4m3` decode is the part's own conversion, a pair an instruction; before
+/// it, the software codec.
+#[test]
+fn e4m3_decodes_on_the_part_where_it_converts() {
+    let ptx = ptx_of(crate::shared::offline_kernels::e4m3_decode_kernel(), 89);
+    assert_eq!(
+        ptx.matches("cvt.rn.f16x2.e4m3x2").count(),
+        2,
+        "one conversion per pair of the word:\n{ptx}"
+    );
+    let ptx = ptx_of(crate::shared::offline_kernels::e4m3_decode_kernel(), 80);
+    assert!(!ptx.contains("e4m3x2"), "the software codec:\n{ptx}");
+}
+
 #[test]
 fn plane_moves_are_native_shuffles() {
     let ptx = ptx_of(plane_moves_kernel(), 60);
@@ -79,7 +109,10 @@ fn bf16_is_native_where_the_part_has_it() {
 #[test]
 fn bf16_tiles_multiply_on_the_tensor_cores() {
     for (m, n, k) in [(16, 16, 16), (32, 8, 16), (8, 32, 16)] {
-        let ptx = ptx_of(tile_product_kernel::<half::bf16, f32>((m, n, k)), 80);
+        let ptx = ptx_of(
+            tile_product_kernel::<half::bf16, half::bf16, f32>((m, n, k)),
+            80,
+        );
         let mma = format!("wmma.mma.sync.aligned.row.col.m{m}n{n}k{k}.f32.bf16.bf16.f32");
         assert!(ptx.contains(&mma), "{ptx}");
     }
@@ -626,6 +659,39 @@ fn an_im2col_load_and_a_bulk_copy_share_a_barrier() {
     assert!(
         ptx.contains("mbarrier.try_wait.parity.shared::cta.b64"),
         "{ptx}"
+    );
+}
+
+/// A unit's `copy_async` is the copy engine's `cp.async`, as the C++ backend issues it, and its
+/// commit arrives on the cube barrier the units then wait on.
+#[test]
+fn unit_async_copies_complete_on_the_barrier() {
+    for arch in [90, 120] {
+        let ptx = ptx_of(
+            crate::shared::offline_kernels::unit_async_copy_kernel(),
+            arch,
+        );
+        assert!(
+            ptx.contains("cp.async.cg.shared.global"),
+            "a 16-byte copy through L2 on sm_{arch}:\n{ptx}"
+        );
+        assert!(
+            ptx.contains("cp.async.mbarrier.arrive.shared"),
+            "the commit arrives on the barrier on sm_{arch}:\n{ptx}"
+        );
+    }
+}
+
+/// A manual `mma` whose B element differs from A's is refused as a compile error, as the C++
+/// backend's compile of it fails, rather than reaching instruction selection, which aborts.
+#[test]
+fn an_mma_of_mismatched_operands_is_a_compile_error() {
+    let Err(error) = compile(crate::shared::offline_kernels::mismatched_mma_kernel(), 120) else {
+        panic!("no instruction takes a 16-bit A and an f32 B");
+    };
+    assert!(
+        format!("{error:?}").contains("no `mma` instruction multiplies"),
+        "{error:?}"
     );
 }
 

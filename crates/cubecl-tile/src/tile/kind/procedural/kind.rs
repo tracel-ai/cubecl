@@ -209,12 +209,6 @@ impl Procedural {
 
 impl Vectorized for Procedural {}
 
-impl ProceduralExpand {
-    pub(crate) fn factor_count(&self, scope: &Scope) -> Option<usize> {
-        self.recipe.__expand_factorization_method(scope)
-    }
-}
-
 impl VectorizedExpand for ProceduralExpand {
     fn __expand_vector_size_method(&self, _scope: &Scope) -> VectorSize {
         1
@@ -404,7 +398,7 @@ impl ProceduralExpand {
         guard: DivGuard,
     ) -> ProceduralExpand {
         assert!(
-            self.factor_count(scope).is_some(),
+            self.__expand_factorization_method(scope).is_some(),
             "Procedural::normalized: the recipe states no separable factorization"
         );
         self.normalization = Some(Normalization::new(taps, guard, self.space.clone()));

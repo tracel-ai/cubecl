@@ -38,12 +38,6 @@ impl Spans {
     }
 }
 
-/// The pages `positions` consecutive positions may reach from an origin aligned to `alignment`,
-/// which divides `page_size`.
-fn pages_reached(positions: usize, alignment: usize, page_size: usize) -> usize {
-    (page_size - alignment + positions.max(1) - 1) / page_size + 1
-}
-
 /// A window's extent along the paged axes, `None` where no level fixes it, and what its origin is
 /// aligned to along the positions.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -60,16 +54,22 @@ impl PagedWindow {
         match (self.sequences, self.positions) {
             (Some(1), Some(positions)) => {
                 let alignment = gcd(self.origin_alignment, page_size);
-                match pages_reached(positions, alignment, page_size) {
+                match Self::pages_reached(positions, alignment, page_size) {
                     pages if pages <= MAX_PINNED_PAGES => Spans::Pages {
                         pages,
-                        unaligned: pages_reached(positions, 1, page_size),
+                        unaligned: Self::pages_reached(positions, 1, page_size),
                     },
                     _ => Spans::Any,
                 }
             }
             _ => Spans::Any,
         }
+    }
+
+    /// The pages `positions` consecutive positions may reach from an origin aligned to
+    /// `alignment`, which divides `page_size`.
+    fn pages_reached(positions: usize, alignment: usize, page_size: usize) -> usize {
+        (page_size - alignment + positions.max(1) - 1) / page_size + 1
     }
 }
 

@@ -1381,8 +1381,9 @@ pub fn test_cmma_manual<
         .collect();
     let acc = vec![CD::from_int(0); m * n];
 
-    let lhs = client.create_from_slice(A::as_bytes(&lhs));
-    let rhs = client.create_from_slice(B::as_bytes(&rhs));
+    let (lhs_host, rhs_host) = (lhs, rhs);
+    let lhs = client.create_from_slice(A::as_bytes(&lhs_host));
+    let rhs = client.create_from_slice(B::as_bytes(&rhs_host));
     let out = client.create_from_slice(CD::as_bytes(&acc));
 
     unsafe {
@@ -1403,36 +1404,21 @@ pub fn test_cmma_manual<
     let actual = client.read_one_unchecked(out);
     let actual = CD::from_bytes(&actual);
 
-    // Calculate expected results (row-major order)
-    let mut expected = Vec::with_capacity(m * n);
-    for i in 0..m {
-        // For each output row
-        // For each output row
-        for j in 0..n {
-            // For each output column
-            // For each output column
-            let mut sum = 0;
-            for l in 0..k {
-                // Dot product over k-dimension
-                let lhs_val = (i * 2 + l) as i64; // LHS[i, l]
-                let rhs_val = (l * 3 + j) as i64; // RHS[l, j]
-                sum += lhs_val * rhs_val;
-            }
-            expected.push(CD::from_int(sum));
-        }
-    }
-
-    // Need tolerance for slight differences because CPU integer version isn't exactly the same
-    // as GPU MMA for fp8. 3% tolerance seems to work for both FP8 types.
-    // Existing approximate comparison requires `Float`, so just do a simple one here.
-    for (i, (expected_val, actual_val)) in expected.iter().zip(actual).enumerate() {
-        let expected_val = expected_val.to_f64().unwrap();
+    // The reference multiplies the operands as the device holds them, so fp8 rounding is part of
+    // the expected value. Only the f32 accumulation order may differ.
+    let lhs_values: Vec<f64> = lhs_host.iter().map(|v| v.to_f64().unwrap()).collect();
+    let rhs_values: Vec<f64> = rhs_host.iter().map(|v| v.to_f64().unwrap()).collect();
+    assert_eq!(actual.len(), m * n, "the kernel wrote no tile");
+    for (position, actual_val) in actual.iter().enumerate() {
+        let (i, j) = (position / n, position % n);
+        let products = (0..k).map(|l| lhs_values[i * k + l] * rhs_values[l * n + j]);
+        let expected_val: f64 = products.clone().sum();
+        let magnitude: f64 = products.map(f64::abs).sum();
         let actual_val = actual_val.to_f64().unwrap();
         let difference = (expected_val - actual_val).abs();
-        let max_difference = expected_val * 0.03;
-        if difference > max_difference {
+        if difference > magnitude * 1e-5 {
             panic!(
-                "Expected != actual at position {i}: (expected: {expected_val}, actual: {actual_val}, difference: {difference}, max_difference: {max_difference})"
+                "Expected != actual at position {position}: (expected: {expected_val}, actual: {actual_val}, difference: {difference})"
             )
         }
     }
@@ -1548,9 +1534,9 @@ pub fn test_cmma_manual_fp8_matches_cpu_reference<
 >(
     client: Client,
     cube_dimensions: CubeDim,
+    (m, n, k): (usize, usize, usize),
 ) {
     const LARGEST_ERROR_RELATIVE_TO_THE_SUM_OF_ABSOLUTE_PRODUCTS: f64 = 1e-3;
-    let (m, n, k) = (16, 8, 32);
     if !client.features().matmul.mma.contains(&MmaConfig {
         a_type: A::cube_type(),
         b_type: B::cube_type(),
@@ -1611,6 +1597,137 @@ pub fn test_cmma_manual_fp8_matches_cpu_reference<
                     <= sum_of_absolute_products
                         * LARGEST_ERROR_RELATIVE_TO_THE_SUM_OF_ABSOLUTE_PRODUCTS,
                 "out[{row}][{col}]: expected {expected}, got {actual}"
+            );
+        }
+    }
+}
+
+/// One tile product through the fragment API, `A` row major and `B` column major.
+#[cube(launch)]
+pub fn kernel_tile_product<A: Scalar, B: Scalar, CD: Numeric>(
+    lhs: &[A],
+    rhs: &[B],
+    out: &mut [CD],
+    #[comptime] m: usize,
+    #[comptime] n: usize,
+    #[comptime] k: usize,
+) {
+    let a = cmma::Matrix::<A>::from_slice(
+        MatrixIdent::A,
+        m,
+        n,
+        k,
+        MatrixLayout::RowMajor,
+        lhs,
+        k as u32,
+    );
+    let b = cmma::Matrix::<B>::from_slice(
+        MatrixIdent::B,
+        m,
+        n,
+        k,
+        MatrixLayout::ColMajor,
+        rhs,
+        k as u32,
+    );
+    let c = cmma::Matrix::<CD>::from_value(
+        MatrixIdent::Accumulator,
+        m,
+        n,
+        k,
+        MatrixLayout::Undefined,
+        CD::from_int(0),
+    );
+    cmma::execute(&a, &b, &c, &c);
+    cmma::store(out, &c, n as u32, MatrixLayout::RowMajor);
+}
+
+/// A tile product through the fragment API equals the CPU's exactly, whatever the operand types.
+///
+/// Every operand is a small whole number, which every 8-bit and 16-bit format holds exactly and
+/// whose sums an `f16` accumulator holds too (a `bf16` one does not), so a fragment whose lanes
+/// sit where the instruction does not read them shows up as a wrong cell rather than as rounding.
+pub fn test_cmma_tile_product<
+    R: Runtime,
+    A: CubeElement + Scalar + NumCast,
+    B: CubeElement + Scalar + NumCast,
+    CD: CubeElement + Numeric,
+>(
+    client: Client,
+    cube_dimensions: CubeDim,
+    (m, n, k): (usize, usize, usize),
+) {
+    if !client.features().matmul.cmma.contains(&MmaConfig {
+        a_type: A::cube_type(),
+        b_type: B::cube_type(),
+        cd_type: CD::cube_type(),
+        m: m as u32,
+        n: n as u32,
+        k: k as u32,
+    }) {
+        println!(
+            "Skipping test for a: {:?} b: {:?}, cd: {:?}, m: {m}, n: {n}, k: {k}",
+            A::cube_type(),
+            B::cube_type(),
+            CD::cube_type()
+        );
+        return;
+    }
+
+    // Whole numbers 0 through 8, `e5m2` holding no odd number above 8, shifted to -4 through 4
+    // for a type that holds negatives: a signed integer operand read as unsigned then reads
+    // 252 where it holds -4.
+    let small = |index: usize, salt: usize, signed: bool| {
+        ((index * 7 + salt) % 9) as i64 - if signed { 4 } else { 0 }
+    };
+    let a_signed = A::from(-1i64).is_some();
+    let b_signed = B::from(-1i64).is_some();
+    // `lhs[row][l]` at `row * k + l`.
+    let lhs: Vec<i64> = (0..m * k).map(|index| small(index, 3, a_signed)).collect();
+    // `rhs[l][col]` at `col * k + l`, column major.
+    let rhs: Vec<i64> = (0..k * n).map(|index| small(index, 5, b_signed)).collect();
+
+    let lhs_typed: Vec<A> = lhs.iter().map(|value| A::from(*value).unwrap()).collect();
+    let rhs_typed: Vec<B> = rhs.iter().map(|value| B::from(*value).unwrap()).collect();
+    let lhs_handle = client.create_from_slice(A::as_bytes(&lhs_typed));
+    let rhs_handle = client.create_from_slice(B::as_bytes(&rhs_typed));
+    let out = client.empty(m * n * size_of::<CD>());
+
+    unsafe {
+        kernel_tile_product::launch::<A, B, CD>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            cube_dimensions,
+            BufferArg::from_raw_parts(lhs_handle, m * k),
+            BufferArg::from_raw_parts(rhs_handle, k * n),
+            BufferArg::from_raw_parts(out.clone(), m * n),
+            m,
+            n,
+            k,
+        )
+    };
+
+    let actual = client.read_one_unchecked(out);
+    let actual = CD::from_bytes(&actual);
+    assert_eq!(actual.len(), m * n, "the kernel wrote the whole tile");
+
+    // A float matrix core may lose a few bits of an `f32` sum where its products cancel (RDNA3's
+    // `f16` WMMA does), a misplaced lane a whole product. Below 1 for every integer form here,
+    // so those stay exact.
+    const LARGEST_ERROR_RELATIVE_TO_THE_SUM_OF_ABSOLUTE_PRODUCTS: f64 = 1e-5;
+    for row in 0..m {
+        for col in 0..n {
+            let products = (0..k).map(|l| lhs[row * k + l] * rhs[col * k + l]);
+            let expected = products.clone().sum::<i64>() as f64;
+            let absolute = products.map(i64::abs).sum::<i64>() as f64;
+            let actual = actual[row * n + col].to_f64().unwrap();
+            assert!(
+                (actual - expected).abs()
+                    <= absolute * LARGEST_ERROR_RELATIVE_TO_THE_SUM_OF_ABSOLUTE_PRODUCTS,
+                "{:?} x {:?} into {:?}, k {k}: out[{row}][{col}] is {actual}, expected {expected}",
+                A::cube_type(),
+                B::cube_type(),
+                CD::cube_type()
             );
         }
     }
@@ -2837,6 +2954,16 @@ macro_rules! testgen_cmma {
 
             // HIP
             test::<f16, f16, f32>(16, 16, 16);
+            test::<f16, f16, f32>(16, 16, 32);
+            test::<i8, i8, i32>(16, 16, 16);
+            test::<i8, u8, i32>(16, 16, 16);
+            test::<u8, i8, i32>(16, 16, 32);
+            test::<u8, u8, i32>(16, 16, 32);
+            // HIP, RDNA4
+            test::<e4m3, e4m3, f32>(16, 16, 16);
+            test::<e5m2, e5m2, f32>(16, 16, 16);
+            test::<e4m3, e5m2, f32>(16, 16, 32);
+            test::<e5m2, e4m3, f32>(16, 16, 32);
             // bf16 is broken in general right now, it generates a conflicting `__bf16_2` type
             //test::<bf16, bf16, f32>(16, 16, 16);
 
@@ -2885,20 +3012,67 @@ macro_rules! testgen_cmma {
             use cubecl_common::{e4m3, e5m2};
             use cubecl_core::num_traits::cast::NumCast;
 
-            fn test<A: CubeElement + Scalar + NumCast, B: CubeElement + Scalar + NumCast>() {
+            fn test<A: CubeElement + Scalar + NumCast, B: CubeElement + Scalar + NumCast>(
+                shape: (usize, usize, usize),
+            ) {
                 let client = TestRuntime::client(&Default::default());
                 let cube_dimensions = cube_dim::<TestRuntime>(&client);
                 cubecl_core::runtime_tests::cmma::test_cmma_manual_fp8_matches_cpu_reference::<
                     TestRuntime,
                     A,
                     B,
-                >(client, cube_dimensions)
+                >(client, cube_dimensions, shape)
             }
 
-            test::<e4m3, e4m3>();
-            test::<e4m3, e5m2>();
-            test::<e5m2, e4m3>();
-            test::<e5m2, e5m2>();
+            for shape in [
+                // CUDA
+                (16, 8, 32),
+                // HIP, RDNA4
+                (16, 16, 16),
+                (16, 16, 32),
+            ] {
+                test::<e4m3, e4m3>(shape);
+                test::<e4m3, e5m2>(shape);
+                test::<e5m2, e4m3>(shape);
+                test::<e5m2, e5m2>(shape);
+            }
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_cmma_tile_product() {
+            use cubecl_common::{e4m3, e5m2};
+            use cubecl_core::num_traits::cast::NumCast;
+            use half::{bf16, f16};
+
+            fn test<
+                A: CubeElement + Scalar + NumCast,
+                B: CubeElement + Scalar + NumCast,
+                CD: CubeElement + Numeric,
+            >() {
+                for k in [16, 32] {
+                    let client = TestRuntime::client(&Default::default());
+                    let cube_dimensions = cube_dim::<TestRuntime>(&client);
+                    cubecl_core::runtime_tests::cmma::test_cmma_tile_product::<
+                        TestRuntime,
+                        A,
+                        B,
+                        CD,
+                    >(client, cube_dimensions, (16, 16, k))
+                }
+            }
+
+            test::<f16, f16, f32>();
+            test::<f16, f16, f16>();
+            test::<bf16, bf16, f32>();
+            // No `bf16` accumulator: it rounds sums above 256, so the product is not exact.
+            test::<i8, i8, i32>();
+            test::<i8, u8, i32>();
+            test::<u8, i8, i32>();
+            test::<u8, u8, i32>();
+            test::<e4m3, e4m3, f32>();
+            test::<e4m3, e5m2, f32>();
+            test::<e5m2, e4m3, f32>();
+            test::<e5m2, e5m2, f32>();
         }
 
         #[$crate::runtime_tests::test_log::test]
