@@ -30,9 +30,9 @@ const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
 /// memory and the sum stored once.
 #[cube(launch)]
 fn smem_split_matmul<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -66,9 +66,9 @@ fn smem_split_matmul<E: Numeric>(
 /// slice every round, landing one chunk a round, the cube synchronized between rounds.
 #[cube(launch)]
 fn smem_cyclic_split_matmul<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] planes: usize,
     #[define(E)] _dtype: ElemType,
@@ -162,19 +162,19 @@ fn run(
             &client,
             launcher.cube_count(),
             launcher.cube_dim(),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 a_handle.clone().binding().into_tensor_arg(),
                 dtype,
                 1,
                 TileSpec::direct(&[M, K]),
             ),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 b_handle.clone().binding().into_tensor_arg(),
                 dtype,
                 1,
                 TileSpec::direct(&[K, N]),
             ),
-            TileArgLaunch::new(
+            TileTensorLaunch::new(
                 out.clone().binding().into_tensor_arg(),
                 dtype,
                 1,
@@ -197,7 +197,7 @@ fn run(
                 &client,
                 launcher.cube_count(),
                 launcher.cube_dim(),
-                TileArgLaunch::new(
+                TileTensorLaunch::new(
                     a_handle.clone().binding().into_tensor_arg(),
                     dtype,
                     1,
@@ -337,9 +337,9 @@ fn cyclic_rounds_sum_the_same_every_run() {
 /// is opened with.
 #[cube(launch)]
 fn fragment_matmul_into_a_short_window<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] copies: bool,
     #[define(E)] _output: ElemType,
@@ -488,9 +488,9 @@ fn short_window_matmul(copies: bool) {
 /// counts, per cube, the cells that turned.
 #[cube(launch)]
 fn smem_split_fragment_matmul<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     touched: &mut Tensor<f32>,
     space: Partitioning,
     #[define(E)] _sum: ElemType,

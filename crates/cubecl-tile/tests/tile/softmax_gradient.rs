@@ -16,8 +16,8 @@
 use crate::support::{HostData, HostDataType, TestInput};
 use cubecl::{client::Client, prelude::*, zspace::Shape};
 use cubecl_tile::{
-    Axis, Instruction, Levels, Partitioning, RegisterBlock, Semiring, Space, TileArg,
-    TileArgLaunch, TileSpec,
+    Axis, Instruction, Levels, Partitioning, RegisterBlock, Semiring, Space, TileSpec, TileTensor,
+    TileTensorLaunch,
     ops::softmax::OnlineSoftmax,
     procedural::{Procedural, Reads, Recipe, RecipeCoords, RecipeExpand},
 };
@@ -56,14 +56,14 @@ impl Reads for CausalExpand {
 #[cube(launch)]
 #[allow(clippy::too_many_arguments)]
 fn by_queries(
-    query: &TileArg<'_>,
-    key: &TileArg<'_>,
-    value: &TileArg<'_>,
-    out: &TileArg<'_>,
-    out_gradient: &TileArg<'_>,
-    logsumexp: &TileArg<'_>,
-    delta: &TileArg<'_>,
-    score_gradient: &TileArg<'_>,
+    query: &TileTensor<'_>,
+    key: &TileTensor<'_>,
+    value: &TileTensor<'_>,
+    out: &TileTensor<'_>,
+    out_gradient: &TileTensor<'_>,
+    logsumexp: &TileTensor<'_>,
+    delta: &TileTensor<'_>,
+    score_gradient: &TileTensor<'_>,
     keys: u32,
     queries: u32,
     scale: f32,
@@ -121,13 +121,13 @@ fn by_queries(
 #[cube(launch)]
 #[allow(clippy::too_many_arguments)]
 fn by_keys(
-    query: &TileArg<'_>,
-    key: &TileArg<'_>,
-    value: &TileArg<'_>,
-    out_gradient: &TileArg<'_>,
-    logsumexp: &TileArg<'_>,
-    delta: &TileArg<'_>,
-    score_gradient: &TileArg<'_>,
+    query: &TileTensor<'_>,
+    key: &TileTensor<'_>,
+    value: &TileTensor<'_>,
+    out_gradient: &TileTensor<'_>,
+    logsumexp: &TileTensor<'_>,
+    delta: &TileTensor<'_>,
+    score_gradient: &TileTensor<'_>,
     keys: u32,
     queries: u32,
     scale: f32,
@@ -184,9 +184,9 @@ fn by_keys(
 #[cube(launch)]
 #[allow(clippy::too_many_arguments)]
 fn logsumexp_of(
-    query: &TileArg<'_>,
-    key: &TileArg<'_>,
-    logsumexp: &TileArg<'_>,
+    query: &TileTensor<'_>,
+    key: &TileTensor<'_>,
+    logsumexp: &TileTensor<'_>,
     keys: u32,
     queries: u32,
     scale: f32,
@@ -361,8 +361,8 @@ fn zeros(client: &Client, shape: Shape) -> cubecl::std::tensor::TensorHandle {
 }
 
 /// `handle` bound as a tile over `axes`.
-fn arg(handle: &cubecl::std::tensor::TensorHandle, axes: &[Axis]) -> TileArgLaunch {
-    TileArgLaunch::new(
+fn arg(handle: &cubecl::std::tensor::TensorHandle, axes: &[Axis]) -> TileTensorLaunch {
+    TileTensorLaunch::new(
         handle.clone().binding().into_tensor_arg(),
         f32::elem_type_native(),
         1,

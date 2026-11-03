@@ -2,7 +2,8 @@
 //!
 //! A packed tensor is *values*, stored small. Saying so takes one fact (how wide a field is and
 //! how it reads back) that belongs to the values, not to a quantization scheme: there are no
-//! scales here. The tile serves the values the words hold ([`TileArg::tile`]) and the read unpacks.
+//! scales here. The tile serves the values the words hold ([`TileTensor::tile`]) and the read
+//! unpacks.
 //!
 //! What a *quantized* operand adds on top is its scales, which are their own tensor and their own
 //! operand; multiplying them in is a verb the kernel writes ([`Tile::mm_scaled`], see
@@ -43,7 +44,7 @@ const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
 /// A packed operand copied into a plain one: the words unpack at the read, and nothing in the
 /// kernel, the spec or the launch mentions a scale.
 #[cube(launch)]
-fn packed_copy(input: &TileArg<'_>, output: &TileArg<'_>, space: Partitioning) {
+fn packed_copy(input: &TileTensor<'_>, output: &TileTensor<'_>, space: Partitioning) {
     let input = input.tile(&space);
     let mut output = output.tile(&space);
     output.copy_from(&input);
@@ -53,10 +54,10 @@ fn packed_copy(input: &TileArg<'_>, output: &TileArg<'_>, space: Partitioning) {
 /// operands, one verb.
 #[cube(launch)]
 fn packed_matmul(
-    w: &TileArg<'_>,
-    x: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    w: &TileTensor<'_>,
+    x: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
@@ -75,11 +76,11 @@ fn packed_matmul(
 /// [`packed_matmul`] with two scale levels: `nvfp4`'s shape.
 #[cube(launch)]
 fn nvfp4_shaped_matmul(
-    w: &TileArg<'_>,
-    x: &TileArg<'_>,
-    blocks: &TileArg<'_>,
-    global: &TileArg<'_>,
-    c: &TileArg<'_>,
+    w: &TileTensor<'_>,
+    x: &TileTensor<'_>,
+    blocks: &TileTensor<'_>,
+    global: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
@@ -172,7 +173,7 @@ fn nvfp4_shaped_decode() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             w_tensor.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
@@ -185,7 +186,7 @@ fn nvfp4_shaped_decode() {
             ))
             .packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             x_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -197,7 +198,7 @@ fn nvfp4_shaped_decode() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -207,14 +208,14 @@ fn nvfp4_shaped_decode() {
                 &[PhysicalAxisMap::of(M), PhysicalAxisMap::of(KB)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             g_tensor.binding().into_tensor_arg(),
             dtype,
             1,
             // The same axes, addressing neither: one value over all their tiles.
             TileSpec::new(Projection::new(&[M, KB], &[PhysicalAxisMap::broadcast()])),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -247,10 +248,10 @@ fn nvfp4_shaped_decode() {
 /// written on the other factor, and their axes are checked against it.
 #[cube(launch)]
 fn packed_matmul_rhs(
-    x: &TileArg<'_>,
-    w: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    x: &TileTensor<'_>,
+    w: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
@@ -271,10 +272,10 @@ fn packed_matmul_rhs(
 /// the accumulator's element as always: a value is whatever its tensor holds, as a scale is.
 #[cube(launch)]
 fn native_matmul(
-    w: &TileArg<'_>,
-    x: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    w: &TileTensor<'_>,
+    x: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
@@ -296,10 +297,10 @@ fn native_matmul(
 /// walk. `N` spreads across cubes, which is all a one-row product has to spread.
 #[cube(launch)]
 fn packed_one_row_product<E: Numeric>(
-    x: &TileArg<'_>,
-    w: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    x: &TileTensor<'_>,
+    w: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -333,10 +334,10 @@ fn packed_one_row_product<E: Numeric>(
 /// `ue8m0` or `ue4m3` scale is read in its own width, and nothing widens it on the host.
 #[cube(launch)]
 fn packed_matmul_byte_scales(
-    w: &TileArg<'_>,
-    x: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    w: &TileTensor<'_>,
+    x: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
@@ -355,10 +356,10 @@ fn packed_matmul_byte_scales(
 /// [`packed_one_row_product`] with byte scales on the rhs, into the promoted block.
 #[cube(launch)]
 fn packed_one_row_product_byte_scales<E: Numeric>(
-    x: &TileArg<'_>,
-    w: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    x: &TileTensor<'_>,
+    w: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -392,10 +393,10 @@ fn packed_one_row_product_byte_scales<E: Numeric>(
 #[cube(launch)]
 #[allow(clippy::too_many_arguments)]
 fn packed_cmma_rhs<E: Numeric>(
-    x: &TileArg<'_>,
-    w: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    x: &TileTensor<'_>,
+    w: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -420,10 +421,10 @@ fn packed_cmma_rhs<E: Numeric>(
 #[cube(launch)]
 #[allow(clippy::too_many_arguments)]
 fn packed_cmma_rhs_dequantized<E: Numeric>(
-    x: &TileArg<'_>,
-    w: &TileArg<'_>,
-    scale: &TileArg<'_>,
-    c: &TileArg<'_>,
+    x: &TileTensor<'_>,
+    w: &TileTensor<'_>,
+    scale: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] element: ElemType,
@@ -491,13 +492,13 @@ fn eight_bit_fields_unpack_on_read() {
         &client,
         CubeCount::new_single(),
         CubeDim::new_single(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             input.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
             TileSpec::direct(&[M, N]).packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             output.clone().binding().into_tensor_arg(),
             dtype,
             factor,
@@ -566,13 +567,13 @@ fn four_bit_fields_unpack_on_read() {
         &client,
         CubeCount::new_single(),
         CubeDim::new_single(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             input.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
             TileSpec::direct(&[M, N]).packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             output.clone().binding().into_tensor_arg(),
             dtype,
             factor,
@@ -680,13 +681,13 @@ fn check_fp4_codes_unpack(client: &Client, field: Field) {
         client,
         CubeCount::new_single(),
         CubeDim::new_single(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             input.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
             TileSpec::direct(&[M, N]).packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             output.clone().binding().into_tensor_arg(),
             dtype,
             factor,
@@ -755,13 +756,13 @@ fn two_bit_fields_unpack_on_read() {
         &client,
         CubeCount::new_single(),
         CubeDim::new_single(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             input.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
             TileSpec::direct(&[M, N]).packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             output.clone().binding().into_tensor_arg(),
             dtype,
             factor,
@@ -854,7 +855,7 @@ fn a_packed_operand_contracts_against_its_scales() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             w_tensor.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
@@ -867,7 +868,7 @@ fn a_packed_operand_contracts_against_its_scales() {
             ))
             .packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             x_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -879,7 +880,7 @@ fn a_packed_operand_contracts_against_its_scales() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -889,7 +890,7 @@ fn a_packed_operand_contracts_against_its_scales() {
                 &[PhysicalAxisMap::of(M), PhysicalAxisMap::of(KB)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -982,7 +983,7 @@ fn eight_bit_fields_contract_against_their_scales() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             w_tensor.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
@@ -995,7 +996,7 @@ fn eight_bit_fields_contract_against_their_scales() {
             ))
             .packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             x_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1007,7 +1008,7 @@ fn eight_bit_fields_contract_against_their_scales() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1016,7 +1017,7 @@ fn eight_bit_fields_contract_against_their_scales() {
                 &[PhysicalAxisMap::of(M), PhysicalAxisMap::of(KB)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -1113,7 +1114,7 @@ fn a_summing_walk_takes_its_scales_several_at_a_time() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             w_tensor.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
@@ -1126,7 +1127,7 @@ fn a_summing_walk_takes_its_scales_several_at_a_time() {
             ))
             .packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             x_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1138,7 +1139,7 @@ fn a_summing_walk_takes_its_scales_several_at_a_time() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_tensor.binding().into_tensor_arg(),
             dtype,
             2,
@@ -1148,7 +1149,7 @@ fn a_summing_walk_takes_its_scales_several_at_a_time() {
                 &[PhysicalAxisMap::of(M), PhysicalAxisMap::of(KB)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -1253,7 +1254,7 @@ fn a_packed_rhs_contracts_against_its_scales() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             x_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1265,7 +1266,7 @@ fn a_packed_rhs_contracts_against_its_scales() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             w_tensor.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
@@ -1278,7 +1279,7 @@ fn a_packed_rhs_contracts_against_its_scales() {
             ))
             .packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1290,7 +1291,7 @@ fn a_packed_rhs_contracts_against_its_scales() {
                 &[PhysicalAxisMap::of(KB), PhysicalAxisMap::of(NB)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             factor,
@@ -1401,7 +1402,7 @@ fn an_eight_bit_packed_rhs_contracts_against_its_scales() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             x_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1413,7 +1414,7 @@ fn an_eight_bit_packed_rhs_contracts_against_its_scales() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             w_tensor.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
@@ -1426,7 +1427,7 @@ fn an_eight_bit_packed_rhs_contracts_against_its_scales() {
             ))
             .packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1438,7 +1439,7 @@ fn an_eight_bit_packed_rhs_contracts_against_its_scales() {
                 &[PhysicalAxisMap::of(KB), PhysicalAxisMap::of(NB)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             factor,
@@ -1552,7 +1553,7 @@ fn several_lines_may_share_one_scale() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             x_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1564,7 +1565,7 @@ fn several_lines_may_share_one_scale() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             w_tensor.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
@@ -1577,7 +1578,7 @@ fn several_lines_may_share_one_scale() {
             ))
             .packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1589,7 +1590,7 @@ fn several_lines_may_share_one_scale() {
                 &[PhysicalAxisMap::of(KB), PhysicalAxisMap::of(NB)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             factor,
@@ -1674,7 +1675,7 @@ fn an_i8_operand_contracts_against_its_scales() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             w_tensor.binding().into_tensor_arg(),
             i8::elem_type_native(),
             1,
@@ -1686,7 +1687,7 @@ fn an_i8_operand_contracts_against_its_scales() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             x_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1698,7 +1699,7 @@ fn an_i8_operand_contracts_against_its_scales() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1707,7 +1708,7 @@ fn an_i8_operand_contracts_against_its_scales() {
                 &[PhysicalAxisMap::of(M), PhysicalAxisMap::of(KB)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -1814,7 +1815,7 @@ fn a_packed_decode_runs_in_this_spelling() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             x_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1826,7 +1827,7 @@ fn a_packed_decode_runs_in_this_spelling() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             w_tensor.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
@@ -1839,7 +1840,7 @@ fn a_packed_decode_runs_in_this_spelling() {
             ))
             .packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1851,7 +1852,7 @@ fn a_packed_decode_runs_in_this_spelling() {
                 &[PhysicalAxisMap::of(KB), PhysicalAxisMap::of(NB)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             factor,
@@ -1959,7 +1960,7 @@ fn an_eight_bit_decode_runs_in_this_spelling() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             x_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1971,7 +1972,7 @@ fn an_eight_bit_decode_runs_in_this_spelling() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             w_tensor.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
@@ -1984,7 +1985,7 @@ fn an_eight_bit_decode_runs_in_this_spelling() {
             ))
             .packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -1996,7 +1997,7 @@ fn an_eight_bit_decode_runs_in_this_spelling() {
                 &[PhysicalAxisMap::of(KB), PhysicalAxisMap::of(NB)],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             factor,
@@ -2029,9 +2030,9 @@ fn an_eight_bit_decode_runs_in_this_spelling() {
 /// accumulator through the plain `mm`.
 #[cube(launch)]
 fn packed_one_row_product_unscaled<E: Numeric>(
-    x: &TileArg<'_>,
-    w: &TileArg<'_>,
-    c: &TileArg<'_>,
+    x: &TileTensor<'_>,
+    w: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
 ) {
@@ -2131,7 +2132,7 @@ fn a_packed_rhs_drains_from_a_promoted_accumulator() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             x_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -2143,7 +2144,7 @@ fn a_packed_rhs_drains_from_a_promoted_accumulator() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             w_tensor.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
@@ -2156,7 +2157,7 @@ fn a_packed_rhs_drains_from_a_promoted_accumulator() {
             ))
             .packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             factor,
@@ -2274,13 +2275,13 @@ fn check_fp8_codes_unpack(client: &Client, value: QuantValue, field: Field) {
         client,
         CubeCount::new_single(),
         CubeDim::new_single(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             input.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
             TileSpec::direct(&[M, N]).packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             output.clone().binding().into_tensor_arg(),
             dtype,
             factor,
@@ -2391,13 +2392,13 @@ fn check_ue8m0_scales(block: usize, blocks: usize) {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             w_tensor.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
             TileSpec::new(w_projection.clone()).packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             x_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -2409,13 +2410,13 @@ fn check_ue8m0_scales(block: usize, blocks: usize) {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_tensor.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
             TileSpec::new(w_projection.scales_per(KB)).packed(Fp8Format::UE8M0),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -2551,13 +2552,13 @@ fn check_float_scales(kind: FloatKind, block: usize, blocks: usize) {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             w_tensor.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
             TileSpec::new(w_projection.clone()).packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             x_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -2569,13 +2570,13 @@ fn check_float_scales(kind: FloatKind, block: usize, blocks: usize) {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_tensor.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
             TileSpec::new(w_projection.scales_per(KB)).packed(kind),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -2685,7 +2686,7 @@ fn e4m3_scales_reach_the_promoted_block() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             x_tensor.binding().into_tensor_arg(),
             dtype,
             1,
@@ -2697,7 +2698,7 @@ fn e4m3_scales_reach_the_promoted_block() {
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             w_tensor.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
@@ -2710,7 +2711,7 @@ fn e4m3_scales_reach_the_promoted_block() {
             ))
             .packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_tensor.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
@@ -2720,7 +2721,7 @@ fn e4m3_scales_reach_the_promoted_block() {
             ))
             .packed(QuantValue::E4M3),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             dtype,
             factor,
@@ -2843,7 +2844,7 @@ fn a_packed_rhs_reaches_the_tensor_cores() {
     );
 
     let x_arg = || {
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             x_tensor.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -2857,7 +2858,7 @@ fn a_packed_rhs_reaches_the_tensor_cores() {
         )
     };
     let w_arg = || {
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             w_tensor.clone().binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
@@ -2872,7 +2873,7 @@ fn a_packed_rhs_reaches_the_tensor_cores() {
         )
     };
     let s_arg = || {
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             s_tensor.clone().binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
@@ -2884,7 +2885,7 @@ fn a_packed_rhs_reaches_the_tensor_cores() {
         )
     };
     let out_arg = |out: &TensorHandle| {
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             out.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -2959,9 +2960,9 @@ fn a_packed_rhs_reaches_the_tensor_cores() {
 /// `output = unpack(input) ⊗ scales`: the decode a kernel states by copying its scaled values.
 #[cube(launch)]
 fn packed_scaled_copy(
-    input: &TileArg<'_>,
-    scales: &TileArg<'_>,
-    output: &TileArg<'_>,
+    input: &TileTensor<'_>,
+    scales: &TileTensor<'_>,
+    output: &TileTensor<'_>,
     space: Partitioning,
 ) {
     let input = input.tile(&space);
@@ -3031,19 +3032,19 @@ fn a_copy_of_scaled_packed_fields_decodes_them() {
         &client,
         CubeCount::new_single(),
         CubeDim::new_single(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             input.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
             TileSpec::new(projection.clone()).packed(field),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             scales_t.binding().into_tensor_arg(),
             f32::elem_type_native(),
             1,
             TileSpec::new(projection.scales_per(KB)),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             output.clone().binding().into_tensor_arg(),
             dtype,
             factor,
@@ -3070,7 +3071,7 @@ const TBL: Axis = Axis(6);
 
 /// `output = table[input] ⊗ scales`, the input bound under its codebook and its scales.
 #[cube(launch)]
-fn looked_up_copy(input: &TileArg<'_>, output: &TileArg<'_>, space: Partitioning) {
+fn looked_up_copy(input: &TileTensor<'_>, output: &TileTensor<'_>, space: Partitioning) {
     let input = input.tile(&space);
     let mut output = output.tile(&space);
     output.dequantize_from(&input);
@@ -3149,20 +3150,20 @@ fn check_looked_up_copy(bits: usize, width: usize) {
             PhysicalAxisMap::disjoint(&[(KB, block), (KI, 1)]),
         ],
     );
-    let input = TileArgLaunch::new(
+    let input = TileTensorLaunch::new(
         input.binding().into_tensor_arg(),
         u32::elem_type_native(),
         1,
         TileSpec::new(projection.clone()).packed(Field::Index { bits }),
     )
-    .codebook(TileArgLaunch::new(
+    .codebook(TileTensorLaunch::new(
         table_t.binding().into_tensor_arg(),
         f32::elem_type_native(),
         1,
         TileSpec::direct(&[TBL]),
     ))
     .expect("a plain table of an entry per index")
-    .scales(TileArgLaunch::new(
+    .scales(TileTensorLaunch::new(
         scales_t.binding().into_tensor_arg(),
         f32::elem_type_native(),
         1,
@@ -3173,7 +3174,7 @@ fn check_looked_up_copy(bits: usize, width: usize) {
         CubeCount::new_single(),
         CubeDim::new_single(),
         input,
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             output.clone().binding().into_tensor_arg(),
             dtype,
             width,
@@ -3208,7 +3209,7 @@ enum LineRead {
 /// in `output`.
 #[cube(launch)]
 fn decoded_lines<N: Size>(
-    input: &TileArg<'_>,
+    input: &TileTensor<'_>,
     output: &mut Tensor<Vector<f32, N>>,
     space: Partitioning,
     #[comptime] lines: usize,
@@ -3307,7 +3308,7 @@ fn check_decoded_lines(field: Field, width: usize, read: LineRead) {
         .generate_without_host_data();
 
     let space = Space::new(&[(M, rows), (N, cols)]);
-    let mut input = TileArgLaunch::new(
+    let mut input = TileTensorLaunch::new(
         input.binding().into_tensor_arg(),
         u32::elem_type_native(),
         1,
@@ -3319,7 +3320,7 @@ fn check_decoded_lines(field: Field, width: usize, read: LineRead) {
             .custom(table.clone())
             .generate_with_f32_host_data();
         input = input
-            .codebook(TileArgLaunch::new(
+            .codebook(TileTensorLaunch::new(
                 table_t.binding().into_tensor_arg(),
                 f32::elem_type_native(),
                 1,
@@ -3327,7 +3328,7 @@ fn check_decoded_lines(field: Field, width: usize, read: LineRead) {
             ))
             .expect("a plain table of an entry per index");
     }
-    let input = input.scales(TileArgLaunch::new(
+    let input = input.scales(TileTensorLaunch::new(
         scales_t.binding().into_tensor_arg(),
         f32::elem_type_native(),
         1,
@@ -3362,7 +3363,7 @@ fn check_decoded_lines(field: Field, width: usize, read: LineRead) {
 /// would be read as values it does not hold, so the binding refuses it.
 #[test]
 #[should_panic(
-    expected = "TileArgLaunch: a packed operand is bound at the u32 words its buffer \
+    expected = "TileTensorLaunch: a packed operand is bound at the u32 words its buffer \
                            holds, not"
 )]
 fn a_packed_operand_is_bound_at_its_words() {
@@ -3372,7 +3373,7 @@ fn a_packed_operand_is_bound_at_its_words() {
         client.create_from_slice(u32::as_bytes(&[0])),
         u32::elem_type_native(),
     );
-    TileArgLaunch::new(
+    TileTensorLaunch::new(
         words.binding().into_tensor_arg(),
         f16::elem_type_native(),
         1,
@@ -3384,8 +3385,8 @@ fn a_packed_operand_is_bound_at_its_words() {
 /// and the stage copied out as it holds it.
 #[cube(launch)]
 fn word_field_staged_for_a_walk(
-    input: &TileArg<'_>,
-    output: &TileArg<'_>,
+    input: &TileTensor<'_>,
+    output: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] decoded: Option<cubecl::ir::ElemType>,
 ) {
@@ -3430,13 +3431,13 @@ fn staged_for_a_walk(values: &[f32], decoded: Option<cubecl::ir::ElemType>) -> V
         &client,
         CubeCount::new_single(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             input.binding().into_tensor_arg(),
             u32::elem_type_native(),
             1,
             TileSpec::direct(&[M, N]).packed(Field::Float(FloatKind::F32)),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             output.clone().binding().into_tensor_arg(),
             dtype,
             1,

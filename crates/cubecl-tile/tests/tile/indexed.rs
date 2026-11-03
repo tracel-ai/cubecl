@@ -1,5 +1,5 @@
-//! Operands that carry their indices ([`TileArgLaunch::indexed`]): a table of `u32` entries rides
-//! the operand like a scale, and the tile reads it where its window is cut.
+//! Operands that carry their indices ([`TileTensorLaunch::indexed`]): a table of `u32` entries
+//! rides the operand like a scale, and the tile reads it where its window is cut.
 //!
 //! The kernels here read no table and route no walk. Routed rows and grouped tiles are one kernel
 //! under two tables: the weights' expert is their own, read at the step that cuts the rows, one
@@ -86,12 +86,12 @@ fn assert_cells(got: &HostData, want: &[Vec<f32>], what: &str) {
 }
 
 /// A `u32` table of `entries` over `keys`, one dim each, shaped `shape`.
-fn table(client: &Client, entries: &[u32], shape: Shape, keys: &[Axis]) -> TileArgLaunch {
+fn table(client: &Client, entries: &[u32], shape: Shape, keys: &[Axis]) -> TileTensorLaunch {
     let handle = TestInput::builder(client.clone(), shape)
         .dtype(u32::elem_type_native())
         .custom(entries.iter().map(|&e| e as f32).collect())
         .generate_without_host_data();
-    TileArgLaunch::new(
+    TileTensorLaunch::new(
         handle.binding().into_tensor_arg(),
         u32::elem_type_native(),
         1,
@@ -108,8 +108,8 @@ fn unwritten_output(client: &Client) -> TensorHandle {
         .generate_without_host_data()
 }
 
-fn f32_arg(handle: TensorHandle, spec: TileSpec) -> TileArgLaunch {
-    TileArgLaunch::new(
+fn f32_arg(handle: TensorHandle, spec: TileSpec) -> TileTensorLaunch {
+    TileTensorLaunch::new(
         handle.binding().into_tensor_arg(),
         f32::elem_type_native(),
         1,
@@ -122,9 +122,9 @@ fn f32_arg(handle: TensorHandle, spec: TileSpec) -> TileArgLaunch {
 /// is the table the weights carry.
 #[cube(launch)]
 fn indexed_matmul_kernel(
-    x: &TileArg<'_>,
-    w: &TileArg<'_>,
-    out: &TileArg<'_>,
+    x: &TileTensor<'_>,
+    w: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] rows: Level,
 ) {
@@ -144,9 +144,9 @@ fn indexed_matmul_kernel(
 /// weights span no axis that walk steps, so only their table tells the plan to refill the stage.
 #[cube(launch)]
 fn indexed_staged_matmul_kernel(
-    x: &TileArg<'_>,
-    w: &TileArg<'_>,
-    out: &TileArg<'_>,
+    x: &TileTensor<'_>,
+    w: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] rows: Level,
 ) {
@@ -171,9 +171,9 @@ fn indexed_staged_matmul_kernel(
 /// holds none, and its rows drain the empty sum, with no branch in the kernel.
 #[cube(launch)]
 fn indexed_walking_matmul_kernel<E: Numeric>(
-    x: &TileArg<'_>,
-    w: &TileArg<'_>,
-    out: &TileArg<'_>,
+    x: &TileTensor<'_>,
+    w: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] rows: Level,
     #[define(E)] _dtype: ElemType,
@@ -425,7 +425,7 @@ fn a_routed_packed_operand_reads_its_scales_at_the_same_expert() {
         .custom(vec![-1.0; ROWS * FEATURES])
         .generate_without_host_data();
 
-    let w = TileArgLaunch::new(
+    let w = TileTensorLaunch::new(
         w.binding().into_tensor_arg(),
         u32::elem_type_native(),
         1,
@@ -444,7 +444,7 @@ fn a_routed_packed_operand_reads_its_scales_at_the_same_expert() {
         launcher.cube_dim(),
         f32_arg(x, TileSpec::direct(&[M, K])),
         w,
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             out.clone().binding().into_tensor_arg(),
             f32_ty,
             factor,
@@ -484,8 +484,8 @@ const BLOCK: usize = 4;
 /// activations place themselves at. The walk is the run's, so a group of no rows takes no step.
 #[cube(launch)]
 fn indexed_ragged_sum_kernel<E: Numeric>(
-    packed: &TileArg<'_>,
-    out: &TileArg<'_>,
+    packed: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] group: Level,
     #[comptime] block: Level,
@@ -509,8 +509,8 @@ fn indexed_ragged_sum_kernel<E: Numeric>(
 /// it is summed, `depth` stages in flight. The blocks are the group's walk over its run.
 #[cube(launch)]
 fn indexed_staged_ragged_sum_kernel<E: Numeric>(
-    packed: &TileArg<'_>,
-    out: &TileArg<'_>,
+    packed: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] group: Level,
     #[comptime] depth: usize,
@@ -727,8 +727,8 @@ fn a_run_that_ends_before_it_starts_is_empty() {
 /// run, read as the tile is served, and the walk is that run's.
 #[cube(launch)]
 fn indexed_whole_sum_kernel<E: Numeric>(
-    packed: &TileArg<'_>,
-    out: &TileArg<'_>,
+    packed: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] block: Level,
     #[define(E)] _dtype: ElemType,
@@ -798,7 +798,7 @@ const COLUMN: usize = 2;
 /// alone; the region's walk steps every column tile, each over the run the rows hold.
 #[cube(launch)]
 fn run_steps_kernel(
-    x: &TileArg<'_>,
+    x: &TileTensor<'_>,
     steps: &mut Tensor<f32>,
     space: Partitioning,
     #[comptime] group: Level,
@@ -875,12 +875,12 @@ mod refused {
     use super::*;
 
     /// The weights, read four values a line along `N`.
-    fn weights(client: &Client) -> TileArgLaunch {
+    fn weights(client: &Client) -> TileTensorLaunch {
         let handle = TestInput::builder(client.clone(), Shape::new([EXPERTS, FEATURES, FEATURES]))
             .dtype(f32::elem_type_native())
             .zeros()
             .generate_without_host_data();
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             handle.binding().into_tensor_arg(),
             f32::elem_type_native(),
             FEATURES,
@@ -888,7 +888,7 @@ mod refused {
         )
     }
 
-    fn refusal(table: TileArgLaunch, indexing: Indexing) -> Refusal {
+    fn refusal(table: TileTensorLaunch, indexing: Indexing) -> Refusal {
         let client = cubecl::test_device().client();
         match weights(&client).indexed(table, indexing) {
             Ok(_) => panic!("the statement was taken"),

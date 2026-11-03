@@ -30,9 +30,9 @@ const FORMS: [Form<'static>; 4] = [
 /// under the planes are the units and the walk, in whichever order the walk puts them.
 #[cube(launch)]
 fn contract<E: Numeric>(
-    x: &TileArg<'_>,
-    w: &TileArg<'_>,
-    out: &TileArg<'_>,
+    x: &TileTensor<'_>,
+    w: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] budget: usize,
     #[define(E)] _dtype: ElemType,

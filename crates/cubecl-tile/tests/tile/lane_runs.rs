@@ -21,8 +21,8 @@ use cubecl_common::{e2m1, e4m3};
 use cubecl_tile::stage::RowChunks;
 use cubecl_tile::{
     Axis, Instruction, Level, Levels, MmaOperands, Partitioning, Projection, Semiring, Space,
-    StageStorage, Stages, TileArg, TileArgLaunch, TileSpec, kind::Field, layout::PhysicalAxisMap,
-    ops::matmul::MmaIo,
+    StageStorage, Stages, TileSpec, TileTensor, TileTensorLaunch, kind::Field,
+    layout::PhysicalAxisMap, ops::matmul::MmaIo,
 };
 use half::f16;
 
@@ -77,9 +77,9 @@ enum First {
 #[cube(launch)]
 #[allow(clippy::too_many_arguments)]
 fn lane_run_matmul(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[comptime] staged: Staged,
@@ -241,19 +241,19 @@ fn check_plain_handed(k: usize, width_a: usize, width_b: usize, first: First) {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             tensor(a_handle, rows, k),
             f16::elem_type_native(),
             width_a,
             TileSpec::direct(&[M, K]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             tensor(b_handle, cols, k),
             f16::elem_type_native(),
             width_b,
             TileSpec::direct(&[N, K]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             c.dtype,
             1,
