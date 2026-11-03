@@ -2,8 +2,8 @@
 //! a state held in registers across products that read it and write it.
 
 use super::uncut;
-use crate::support::{HostData, HostDataType, TileInput};
-use cubecl::{client::Client, prelude::*};
+use crate::support::{HostData, HostDataType, TileInput, ValidationResult};
+use cubecl::{client::Client, ir::features::TypeUsage, prelude::*};
 use cubecl_tile::*;
 
 const P: Axis = Axis(0);
@@ -12,12 +12,20 @@ const N: Axis = Axis(2);
 const KEPT: Axis = Axis(3);
 
 const BLOCK: RegisterBlock = RegisterBlock::new(256);
+/// Under the block's cells, so the product walks its columns at runtime.
+const OVER_BUDGET: RegisterBlock = RegisterBlock::new(8);
 
 /// `out[p, n] = Σ_k lhs[p, k] · state[k, n]`, the state in registers.
 #[cube(launch)]
-fn recall_kernel(lhs: &TileArg<'_>, state: &TileArg<'_>, out: &TileArg<'_>, space: Partitioning) {
+fn recall_kernel(
+    lhs: &TileArg<'_>,
+    state: &TileArg<'_>,
+    out: &TileArg<'_>,
+    space: Partitioning,
+    #[comptime] config: RegisterBlock,
+) {
     let (lhs, state, out) = (lhs.tile(&space), state.tile(&space), out.tile(&space));
-    let block = comptime!(Instruction::Registers { config: BLOCK });
+    let block = comptime!(Instruction::Registers { config });
     let mut held = state.accumulator::<f32>(&lhs, &state, block, Semiring::SUM_PROD);
     held.copy_from(&state);
     let mut sum = out.accumulator::<f32>(&lhs, &state, block, Semiring::SUM_PROD);
@@ -74,7 +82,14 @@ fn kept_kernel(
 }
 
 fn arange(client: &Client, space: Space) -> TileInput {
-    TileInput::builder(client, space).untiled().arange()
+    arange_as(client, space, f32::elem_type_native())
+}
+
+fn arange_as(client: &Client, space: Space, dtype: ElemType) -> TileInput {
+    TileInput::builder(client, space)
+        .untiled()
+        .dtype(dtype)
+        .arange()
 }
 
 fn zeros(client: &Client, space: Space) -> TileInput {
@@ -90,15 +105,14 @@ fn widths(client: &Client) -> impl Iterator<Item = usize> {
     [1, 2, 4].into_iter().filter(move |&w| w <= widest)
 }
 
-#[test]
-fn a_block_rhs_contracts_along_an_lhs_lined_along_the_contraction() {
+/// `recall_kernel` over `[P, K] · [K, N]`, the operands stored as `dtype`.
+fn recall(p: usize, k: usize, n: usize, config: RegisterBlock, dtype: ElemType) {
     let client = cubecl::test_device().client();
-    let (p, k, n) = (2, 8, 8);
     let space = Space::new(&[(P, p), (K, k), (N, n)]);
     for width in widths(&client) {
         let launcher = uncut(&client, &space, &space);
-        let lhs = arange(&client, space.subspace(&[P, K]));
-        let state = arange(&client, space.subspace(&[K, N]));
+        let lhs = arange_as(&client, space.subspace(&[P, K]), dtype);
+        let state = arange_as(&client, space.subspace(&[K, N]), dtype);
         let out = zeros(&client, space.subspace(&[P, N]));
         recall_kernel::launch(
             &client,
@@ -108,6 +122,7 @@ fn a_block_rhs_contracts_along_an_lhs_lined_along_the_contraction() {
             state.arg(&launcher, width),
             out.arg(&launcher, width),
             launcher.partitioning_arg(),
+            config,
         );
         for row in 0..p {
             for col in 0..n {
@@ -123,9 +138,29 @@ fn a_block_rhs_contracts_along_an_lhs_lined_along_the_contraction() {
 }
 
 #[test]
+fn a_block_rhs_contracts_along_an_lhs_lined_along_the_contraction() {
+    recall(2, 12, 8, BLOCK, f32::elem_type_native());
+}
+
+#[test]
+fn a_block_rhs_over_budget_walks_its_columns() {
+    recall(2, 12, 8, OVER_BUDGET, f32::elem_type_native());
+}
+
+#[test]
+fn a_block_rhs_seeded_and_contracted_from_f16_values() {
+    let client = cubecl::test_device().client();
+    if !half::f16::supported_uses(&client).contains(TypeUsage::Conversion) {
+        ValidationResult::Skipped("backend has no native f16".to_string()).enforce();
+        return;
+    }
+    recall(2, 12, 8, BLOCK, half::f16::elem_type_native());
+}
+
+#[test]
 fn a_block_rhs_of_one_row_is_a_rank_one_update_along_the_rows() {
     let client = cubecl::test_device().client();
-    let (k, n) = (8, 8);
+    let (k, n) = (12, 8);
     let factor = 0.5f32;
     let space = Space::new(&[(P, 1), (K, k), (N, n)]);
     for width in widths(&client) {
@@ -169,7 +204,7 @@ fn a_block_rhs_of_one_row_is_a_rank_one_update_along_the_rows() {
 #[test]
 fn a_seed_reads_zero_past_the_end_of_a_short_window() {
     let client = cubecl::test_device().client();
-    let (real, k, n) = (3, 8, 8);
+    let (real, k, n) = (3, 12, 8);
     let space = Space::new(&[(P, 1), (K, k), (N, n)]);
     let short = Space::new(&[(K, real), (N, n)]);
     for width in widths(&client) {
@@ -207,7 +242,7 @@ fn a_seed_reads_zero_past_the_end_of_a_short_window() {
 #[test]
 fn a_block_stores_into_and_seeds_from_a_window_with_an_axis_it_lacks() {
     let client = cubecl::test_device().client();
-    let (k, n) = (8, 8);
+    let (k, n) = (12, 8);
     let space = Space::new(&[(KEPT, 2), (P, 1), (K, k), (N, n)]);
     for width in widths(&client) {
         let launcher = uncut(&client, &space, &space);

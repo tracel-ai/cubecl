@@ -12,7 +12,7 @@ use cubecl::{
     quant::scheme::{QuantScheme, QuantValue},
     zspace::{Shape, Tiling},
 };
-use cubecl::{frontend::Scalar, std::tensor::TensorHandle};
+use cubecl::{frontend::Scalar, ir::ElemType, std::tensor::TensorHandle};
 use cubecl_tile::{
     Axis, Launcher, Space, TileArgLaunch, TileSpec,
     kind::Field,
@@ -44,6 +44,7 @@ impl TileInput {
             client: client.clone(),
             space,
             levels: None,
+            dtype: f32::elem_type_native(),
         }
     }
 
@@ -150,9 +151,16 @@ pub struct TileInputBuilder {
     client: Client,
     space: Space,
     levels: Option<Vec<TileLevel>>,
+    dtype: ElemType,
 }
 
 impl TileInputBuilder {
+    /// Store the tile as `dtype` instead of `f32`.
+    pub fn dtype(mut self, dtype: ElemType) -> Self {
+        self.dtype = dtype;
+        self
+    }
+
     /// Divide the current tile into `counts[axis]` sub-tiles per axis: a finer
     /// level. Chain for recursion: `.split(&[4, 4]).split(&[2, 2])`.
     pub fn split(mut self, counts: &[usize]) -> Self {
@@ -272,7 +280,7 @@ impl TileInputBuilder {
         for block in &blocks {
             dims.extend_from_slice(block);
         }
-        let builder = TestInput::builder(self.client, Shape::from(dims));
+        let builder = TestInput::builder(self.client, Shape::from(dims)).dtype(self.dtype);
         TileInput::new(
             fill(builder).generate_without_host_data(),
             self.space,
