@@ -59,7 +59,9 @@ pub(crate) struct RegisterData {
     /// Lines per row: `n / vector_size`, or `n` where a line holds one cell's partials.
     #[cube(comptime)]
     pub(crate) nr: usize,
-    /// The sink's matrix this block was sized against.
+    /// The space this block was opened on, and the matrix it spans there.
+    #[cube(comptime)]
+    pub(crate) space: Space,
     #[cube(comptime)]
     pub(crate) axes: MatrixAxes,
     /// Execution configuration for this register leaf.
@@ -95,13 +97,31 @@ pub(crate) fn assert_whole_cells(contracted_per_step: usize, vector_size: usize,
     );
 }
 
-/// The axes a block of `rows` by `cols` scalars reads and writes `window` through: `axes`, which
-/// were stated on the tile it was opened on, or found afresh in a window of another rank.
-fn window_axes(axes: MatrixAxes, rows: usize, cols: usize, window: &Space) -> MatrixAxes {
-    if axes.rows(window) == rows && axes.cols(window) == cols {
-        axes
-    } else {
-        MatrixAxes::new(window, rows, cols).unwrap_or(axes)
+/// The axes a block opened on `space` through `axes` reads and writes `window` through: its row
+/// and column groups found by identity, however many batch axes either tile lists.
+///
+/// # Panics
+///
+/// Where `window` lacks one of those axes, or does not end with them side by side.
+fn window_axes(space: &Space, axes: MatrixAxes, window: &Space) -> MatrixAxes {
+    let held: Vec<Axis> = (axes.row_split..space.rank())
+        .map(|p| space.axis_at(p))
+        .collect();
+    assert!(
+        held.iter().all(|&axis| window.contains(axis)),
+        "RegisterData: the block's {held:?} are not all axes of the window"
+    );
+    let first = window.position(held[0]);
+    assert!(
+        held.iter()
+            .enumerate()
+            .all(|(i, &axis)| window.position(axis) == first + i)
+            && first + held.len() == window.rank(),
+        "RegisterData: a window ends in the block's {held:?} side by side, and this one does not"
+    );
+    MatrixAxes {
+        row_split: first,
+        col_split: first + axes.col_split - axes.row_split,
     }
 }
 
@@ -124,6 +144,7 @@ impl RegisterData {
     pub(crate) fn alloc<T: Numeric>(
         #[comptime] m: usize,
         #[comptime] n: usize,
+        #[comptime] space: Space,
         #[comptime] axes: MatrixAxes,
         #[comptime] vector_size: usize,
         #[comptime] contracted_per_step: usize,
@@ -148,6 +169,7 @@ impl RegisterData {
             contracted_per_step,
             mr: m,
             nr,
+            space,
             axes,
             config,
             accumulation,
@@ -236,8 +258,16 @@ impl RegisterData {
 #[cube]
 impl RegisterData {
     /// Seed the block from `src`, a memory window in the block's own axis order, casting up to
-    /// its element. A window shorter than the block reads zero in the overhang.
+    /// its element. A window with fewer rows than the block reads zero in the rows past its end.
+    /// A window the units hold partials of is refused: each would seed the whole sum.
     pub(crate) fn load_window<T: Numeric>(&mut self, src: &Tile) {
+        let mem = src.mem("RegisterData::load_window");
+        let unit_share = comptime!(mem.unit_share);
+        comptime!(assert!(
+            !unit_share.reduces(),
+            "RegisterData::load_window: the window's cells are partials across the units \
+             ({unit_share:?}), and every unit would seed the whole sum"
+        ));
         comptime!(assert_whole_cells(
             self.contracted_per_step,
             self.vector_size,
@@ -252,8 +282,7 @@ impl RegisterData {
         register_block_size(self.vector_size);
         let data = self.data.at_mut::<T>();
         let define!(Source) = src.read_element();
-        let cols = comptime!(self.nr * self.vector_size);
-        let axes = comptime!(window_axes(self.axes, self.mr, cols, &src.place.space));
+        let axes = comptime!(window_axes(&self.space, self.axes, &src.place.space));
         let source = src.matrix_packed::<Source, RA>(axes, 0usize);
         #[unroll]
         for i in 0..comptime!(self.mr) {
@@ -294,8 +323,7 @@ impl RegisterData {
         let mem_write = comptime!(mem.access.write);
         let unit_share = comptime!(mem.unit_share);
         let monoid = comptime!(self.accumulation.monoid());
-        let cols = comptime!(self.nr * cells_per_line(self.contracted_per_step, self.vector_size));
-        let axes = comptime!(window_axes(self.axes, self.mr, cols, &space));
+        let axes = comptime!(window_axes(&self.space, self.axes, &space));
         let mut sink = mem.matrix_mut::<Out, A>(0usize, axes, space);
 
         // Split at comptime: a per-line `match` plus a unit guard breaks the CPU backend.
@@ -521,5 +549,62 @@ impl RegisterData {
             sums[r] = slice;
         }
         sums
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const B: Axis = Axis(0);
+    const KH: Axis = Axis(1);
+    const G: Axis = Axis(2);
+    const K: Axis = Axis(3);
+    const V: Axis = Axis(4);
+    const KEPT: Axis = Axis(5);
+
+    fn resolved(window: &[(Axis, usize)]) -> (usize, usize) {
+        let space = Space::new(&[(B, 2), (KH, 2), (G, 2), (K, 8), (V, 8)]);
+        let axes = MatrixAxes {
+            row_split: 3,
+            col_split: 4,
+        };
+        let found = window_axes(&space, axes, &Space::new(window));
+        (found.row_split, found.col_split)
+    }
+
+    /// Only the block's rows and columns are looked for, whatever else leads the window.
+    #[test]
+    fn a_window_ending_in_the_blocks_matrix_is_found_whatever_leads_it() {
+        assert_eq!(resolved(&[(K, 8), (V, 8)]), (0, 1));
+        assert_eq!(resolved(&[(B, 2), (KH, 2), (G, 2), (K, 8), (V, 8)]), (3, 4));
+        assert_eq!(
+            resolved(&[(KEPT, 2), (B, 2), (KH, 2), (G, 2), (K, 8), (V, 8)]),
+            (4, 5)
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "does not")]
+    fn an_axis_trailing_the_blocks_matrix_is_refused() {
+        resolved(&[(K, 8), (V, 8), (KEPT, 8)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "does not")]
+    fn an_axis_between_the_blocks_matrix_axes_is_refused() {
+        resolved(&[(K, 8), (KEPT, 8), (V, 8)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "does not")]
+    fn a_transposed_window_is_refused() {
+        resolved(&[(V, 8), (K, 8)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "not all axes")]
+    fn a_window_lacking_a_matrix_axis_is_refused() {
+        resolved(&[(KEPT, 8), (V, 8)]);
     }
 }

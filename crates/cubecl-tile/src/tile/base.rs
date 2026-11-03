@@ -336,6 +336,31 @@ impl Tile {
         }
     }
 
+    /// Whether this tile is held in the plane's registers or fragments.
+    pub(crate) fn is_plane_resident(&self) -> comptime_type!(bool) {
+        match &self.kind {
+            TileKind::PlaneTile(_) | TileKind::PlanePartition(_) => comptime!(true),
+            TileKind::Memory(_)
+            | TileKind::Procedural(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Lines(_) => comptime!(false),
+        }
+    }
+
+    /// The register block this tile holds; panics for anything else.
+    pub(crate) fn register_block(&self) -> RegisterData {
+        match &self.kind {
+            TileKind::PlaneTile(tile) => tile.register_block(),
+            TileKind::PlanePartition(partition) => partition.fragment().register_block(),
+            TileKind::Memory(_)
+            | TileKind::Procedural(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Lines(_) => {
+                panic!("Tile::register_block: this tile is not a register block")
+            }
+        }
+    }
+
     /// Whether this tile is backed by shared memory, the only space a `sync_cube()` orders.
     pub fn is_shared(&self) -> comptime_type!(bool) {
         match &self.kind {

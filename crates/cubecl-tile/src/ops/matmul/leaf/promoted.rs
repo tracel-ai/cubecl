@@ -154,6 +154,7 @@ impl RegisterData {
             lhs.mr,
             self.mr
         ));
+        rhs.refuse_factor("RegisterData::mma_block");
         let vw = rhs.vector_size();
         comptime!(assert!(
             vw == self.vector_size,
@@ -244,8 +245,13 @@ impl RegisterData {
             }
         }
         let unroll = comptime!(mr * nr * self.vector_size <= self.config.budget);
+        let mut b = Array::<Vector<T, RA>>::new(nr);
         #[unroll]
         for k in 0..kc {
+            #[unroll(unroll)]
+            for n in 0..nr {
+                b[n] = Vector::<T, RA>::cast_from(rhs.data.at::<ER>()[k * nr + n]);
+            }
             #[unroll]
             for i in 0..mr {
                 let (r, c) = comptime!(if lined_along_k { (i, k) } else { (k, i) });
@@ -254,8 +260,7 @@ impl RegisterData {
                 #[unroll(unroll)]
                 for n in 0..nr {
                     let at = i * nr + n;
-                    let b = Vector::<T, RA>::cast_from(rhs.data.at::<ER>()[k * nr + n]);
-                    data[at] = semiring.step::<Vector<T, RA>>(a, b, data[at]);
+                    data[at] = semiring.step::<Vector<T, RA>>(a, b[n], data[at]);
                 }
             }
         }

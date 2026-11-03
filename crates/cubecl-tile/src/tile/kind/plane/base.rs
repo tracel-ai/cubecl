@@ -63,6 +63,7 @@ impl PlaneTile {
         #[comptime] form: Instruction,
         #[comptime] m: usize,
         #[comptime] n: usize,
+        #[comptime] space: Space,
         #[comptime] axes: MatrixAxes,
         #[comptime] k: usize,
         #[comptime] vector_size: usize,
@@ -89,6 +90,7 @@ impl PlaneTile {
                 PlaneTile::new_Registers(RegisterData::alloc::<T>(
                     m,
                     n,
+                    space,
                     axes,
                     vector_size,
                     contracted_per_step,
@@ -97,6 +99,16 @@ impl PlaneTile {
                 ))
             }
             Instruction::Wgmma => PlaneTile::new_Wgmma(WgmmaData::new::<T>(m, n, axes)),
+        }
+    }
+
+    /// The register block this tile is; panics for any other.
+    pub(crate) fn register_block(&self) -> RegisterData {
+        match self {
+            PlaneTile::Registers(block) => block.clone(),
+            PlaneTile::Cmma(_) | PlaneTile::Mma(_) | PlaneTile::Wgmma(_) => {
+                panic!("PlaneTile::register_block: this fragment is not a register block")
+            }
         }
     }
 
@@ -593,6 +605,7 @@ impl PlanePartition {
                     form,
                     m,
                     n,
+                    comptime!(space.clone()),
                     axes,
                     k,
                     vector_size,
