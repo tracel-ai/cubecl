@@ -34,6 +34,16 @@ pub struct TopK<E: Numeric, N: Size, K: Size> {
 
 #[cube]
 impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
+    /// The list holding `values`, best first, each read at its index in `indices`: a list stored
+    /// apart and read back.
+    pub fn new(values: Array<Vector<E, N>>, indices: Array<Vector<u32, N>>) -> Self {
+        TopK::<E, N, K> {
+            values,
+            indices,
+            k: comptime!(PhantomData),
+        }
+    }
+
     /// This list with `value`, read at `index`, kept if it is among the `K` best: the one-item
     /// combine, `K` steps where combining with a list of one is `K * K`. Its walk unrolls
     /// within [`TOP_K_UNROLL_BUDGET`], as every walk of a `K`-by-`K` nest does.
