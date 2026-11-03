@@ -39,6 +39,37 @@ pub(crate) fn scale_kernel(address_type: AddressType) -> impl CubeKernel {
     )
 }
 
+/// A buffer record: two coordinates and two indices, 16 bytes.
+#[derive(CubeType, Clone, Copy)]
+#[repr(C)]
+pub(crate) struct Observation {
+    x: f32,
+    y: f32,
+    cam: u32,
+    point: u32,
+}
+
+#[cube(launch)]
+fn record_fields(obs: &[Observation], output: &mut [f32]) {
+    let o = obs[ABSOLUTE_POS];
+    output[ABSOLUTE_POS] = o.x + o.y + f32::cast_from(o.cam + o.point);
+}
+
+pub(crate) fn record_fields_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(64),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    record_fields::RecordFields::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 #[cube(launch)]
 fn plane_moves(input: &[f32], output: &mut [f32]) {
     let value = input[UNIT_POS as usize];

@@ -3,6 +3,7 @@ mod compiler;
 pub mod lower;
 pub mod metadata;
 pub mod ops;
+pub mod ptr_cast;
 pub mod shader;
 pub mod to_wgsl;
 pub mod types;

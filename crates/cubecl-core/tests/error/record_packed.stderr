@@ -1,0 +1,5 @@
+error: a `#[repr(C)]` cube type can't be `packed`: buffer record fields must be naturally aligned
+ --> tests/error/record_packed.rs:5:11
+  |
+5 | #[repr(C, packed)]
+  |           ^^^^^^
