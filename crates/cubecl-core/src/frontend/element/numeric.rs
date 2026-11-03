@@ -85,8 +85,10 @@ pub trait Numeric:
     }
 }
 
-/// Similar to [`ArgSettings`], however only for scalar types that don't depend on the [Runtime]
+/// Similar to `ArgSettings`, however only for scalar types that don't depend on the [`Runtime`]
 /// trait.
+///
+/// [`Runtime`]: cubecl_runtime::runtime::Runtime
 pub trait ScalarArgSettings: Send + Sync + Scalar {
     /// Register the information to the [`KernelLauncher`].
     fn register(&self, launcher: &mut KernelLauncher);

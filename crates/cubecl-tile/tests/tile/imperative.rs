@@ -23,9 +23,9 @@ const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
 /// the leaf running the software instruction on the block's final tiles.
 #[cube(launch)]
 fn ring_matmul(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] depth: usize,
 ) {
@@ -55,7 +55,12 @@ fn ring_matmul(
 /// the shape a specialized kernel takes. With no plane set aside to fill, every plane computes,
 /// so the fill arm is emitted and never entered and the compute arm does both halves itself.
 #[cube(launch)]
-fn role_split_matmul(a: &TileArg<'_>, b: &TileArg<'_>, c: &TileArg<'_>, space: Partitioning) {
+fn role_split_matmul(
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
+    space: Partitioning,
+) {
     let a = a.tile(&space);
     let b = b.tile(&space);
     let mut c = c.tile(&space);

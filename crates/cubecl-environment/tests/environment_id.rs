@@ -4,12 +4,22 @@ use cubecl_environment::bytes::Bytes;
 use cubecl_environment::environment::{
     self, EnvironmentBundle, EnvironmentError, EnvironmentId, EnvironmentOrigin,
 };
-use cubecl_environment::persistence::{Namespace, Store, StoreOptions};
+use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOptions};
 
 // The active environment is process-global, so these tests are serialized.
 
 fn store() -> Store<String, u32> {
     Store::new(StoreOptions::new().storage(Namespace::scoped("environment-id", "entries")))
+}
+
+/// A store that reads the storage on a miss, as the kernel and autotune
+/// caches do.
+fn lazy_store() -> Store<String, u32> {
+    Store::new(
+        StoreOptions::new()
+            .storage(Namespace::scoped("environment-id", "entries"))
+            .cache(CacheOption::Lazy),
+    )
 }
 
 /// Activates `id` and writes `entries` into it, as a build would.
@@ -68,6 +78,122 @@ fn a_fork_copies_what_its_source_holds_now() {
 
     assert_eq!(read(&fork, "before"), Some(1));
     assert_eq!(read(&fork, "after"), None);
+}
+
+/// A merge brings in the keys the environment lacks and leaves the ones it
+/// holds as they were: it adds what another environment computed, and never
+/// changes a value something may already have read.
+#[test]
+#[serial_test::serial]
+fn a_merge_keeps_what_the_environment_held_beside_what_it_brings() {
+    let _root = rooted();
+    let built = EnvironmentId::create("built", EnvironmentOrigin::Empty).unwrap();
+    warm(&built, &[("kernel", 1), ("shared", 10)]);
+    let application = EnvironmentId::create("application", EnvironmentOrigin::Empty).unwrap();
+    warm(&application, &[("other", 2), ("shared", 20)]);
+    environment::activate(environment::DEFAULT);
+
+    application
+        .merge(EnvironmentOrigin::Bundle(built.save().unwrap()))
+        .unwrap();
+
+    assert_eq!(read(&application, "kernel"), Some(1));
+    assert_eq!(read(&application, "other"), Some(2));
+    assert_eq!(read(&application, "shared"), Some(20));
+}
+
+/// A merge into the active environment does not switch it, and a store
+/// opened before the merge reads the merged keys.
+///
+/// A switch makes every backend drop and recompile its kernels, so a merge
+/// that switched would cost a recompilation per merged model.
+#[test]
+#[serial_test::serial]
+fn a_merge_into_the_active_environment_does_not_switch_it() {
+    let _root = rooted();
+    let source = EnvironmentId::create("source", EnvironmentOrigin::Empty).unwrap();
+    warm(&source, &[("kernel", 1)]);
+    let active = EnvironmentId::create("active", EnvironmentOrigin::Empty).unwrap();
+    warm(&active, &[("own", 2)]);
+    let mut opened = lazy_store();
+    assert_eq!(opened.get_mut(&"own".to_string()).copied(), Some(2));
+    let generation = environment::generation();
+
+    active
+        .merge(EnvironmentOrigin::Fork(source.clone()))
+        .unwrap();
+
+    assert_eq!(environment::generation(), generation);
+    assert_eq!(EnvironmentId::active(), active);
+    assert_eq!(opened.get_mut(&"kernel".to_string()).copied(), Some(1));
+    assert_eq!(opened.get_mut(&"own".to_string()).copied(), Some(2));
+    assert_eq!(read(&source, "own"), None);
+}
+
+/// Merging nothing, or an environment into itself, changes nothing and
+/// switches nothing.
+#[test]
+#[serial_test::serial]
+fn a_merge_that_brings_nothing_changes_nothing() {
+    let _root = rooted();
+    let id = EnvironmentId::create("itself", EnvironmentOrigin::Empty).unwrap();
+    warm(&id, &[("kernel", 1)]);
+    let generation = environment::generation();
+
+    id.merge(EnvironmentOrigin::Fork(id.clone())).unwrap();
+    id.merge(EnvironmentOrigin::Empty).unwrap();
+
+    assert_eq!(environment::generation(), generation);
+    assert_eq!(store().get(&"kernel".to_string()).copied(), Some(1));
+}
+
+/// A merged entry is imported: a value computed here replaces it, so a stale
+/// merged environment never wedges the application it was merged into.
+#[test]
+#[serial_test::serial]
+fn a_value_computed_here_replaces_a_merged_one() {
+    let _root = rooted();
+    let built = EnvironmentId::create("built", EnvironmentOrigin::Empty).unwrap();
+    warm(&built, &[("kernel", 1)]);
+    let application = EnvironmentId::create("application", EnvironmentOrigin::Empty).unwrap();
+    application.activate().unwrap();
+
+    application.merge(EnvironmentOrigin::Fork(built)).unwrap();
+    lazy_store().insert("kernel".to_string(), 2).unwrap();
+
+    assert_eq!(read(&application, "kernel"), Some(2));
+}
+
+/// Two merges into one environment at once both land: each stages its bundle
+/// in a file of its own.
+#[test]
+#[serial_test::serial]
+fn concurrent_merges_into_one_environment_both_land() {
+    let _root = rooted();
+    let mut bundles = Vec::new();
+    for (name, key) in [("first", "first-kernel"), ("second", "second-kernel")] {
+        let built = EnvironmentId::create(name, EnvironmentOrigin::Empty).unwrap();
+        let entries: Vec<(String, u32)> = (0..200).map(|i| (format!("{key}-{i}"), i)).collect();
+        let entries: Vec<(&str, u32)> = entries.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+        warm(&built, &entries);
+        bundles.push(built.save().unwrap());
+    }
+    environment::activate(environment::DEFAULT);
+    let application = EnvironmentId::create("application", EnvironmentOrigin::Empty).unwrap();
+
+    std::thread::scope(|scope| {
+        for bundle in bundles {
+            let application = &application;
+            scope.spawn(move || {
+                application
+                    .merge(EnvironmentOrigin::Bundle(bundle))
+                    .unwrap()
+            });
+        }
+    });
+
+    assert_eq!(read(&application, "first-kernel-199"), Some(199));
+    assert_eq!(read(&application, "second-kernel-199"), Some(199));
 }
 
 /// Replacing the active environment would pull entries from under the stores

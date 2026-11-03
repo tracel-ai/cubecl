@@ -228,7 +228,7 @@ fn register_fetched_widths(#[comptime] lhs: usize, #[comptime] rhs: usize) {
 
 #[cube]
 impl Stages<OperandPair> {
-    /// Whether [`prefetched`](Stages::prefetched) holds the next stage in registers; false in the
+    /// Whether `prefetched` holds the next stage in registers; false in the
     /// cases [`Prefetch::InRegisters`] lists.
     pub fn prefetches_in_registers(&self) -> comptime_type!(bool) {
         let staged = self.slots.index(FIRST_SLOT);

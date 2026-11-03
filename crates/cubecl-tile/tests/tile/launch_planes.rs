@@ -42,8 +42,8 @@ const UNITS: usize = 2;
 /// `c += a · b`, every plane of the launch its tile.
 #[cube(launch)]
 fn launch_plane_matmul<O: Destination>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
     c: &O::Arg<f32>,
     space: Partitioning,
 ) {
@@ -57,8 +57,8 @@ fn launch_plane_matmul<O: Destination>(
 /// `c += a · b`, every plane of every cube its tile: the control.
 #[cube(launch)]
 fn cube_plane_matmul<O: Destination>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
     c: &O::Arg<f32>,
     space: Partitioning,
 ) {
@@ -253,13 +253,13 @@ fn run(problem: Problem, planes: &Planes, dealt: Dealt<'_>) -> Option<HostData> 
         .build()
         .unwrap();
 
-    let a_arg = TileArgLaunch::new(
+    let a_arg = TileTensorLaunch::new(
         a_handle.binding().into_tensor_arg(),
         dtype,
         1,
         TileSpec::direct(&[M, K]).boundary(policy),
     );
-    let b_arg = TileArgLaunch::new(
+    let b_arg = TileTensorLaunch::new(
         b_handle.binding().into_tensor_arg(),
         dtype,
         1,

@@ -24,7 +24,12 @@ const CI: Axis = Axis(2);
 /// `out = weights ⊗ scales`. The weights arrive packed and unpack at the read; the scales
 /// broadcast over the axis they omit. Neither fact is stated here; both are the operands'.
 #[cube(launch)]
-fn dequantize(weights: &TileArg<'_>, scales: &TileArg<'_>, out: &TileArg<'_>, space: Partitioning) {
+fn dequantize(
+    weights: &TileTensor<'_>,
+    scales: &TileTensor<'_>,
+    out: &TileTensor<'_>,
+    space: Partitioning,
+) {
     let weights = weights.tile(&space);
     let scales = scales.tile(&space);
     let mut out = out.tile(&space);

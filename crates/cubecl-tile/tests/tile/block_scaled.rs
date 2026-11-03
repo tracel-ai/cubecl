@@ -16,7 +16,7 @@ use cubecl::{
 use cubecl_common::{e2m1, e4m3};
 use cubecl_tile::{
     Axis, BlockScaledOperands, Instruction, Level, Levels, MmaOperands, Partitioning, Projection,
-    Semiring, Space, StageStorage, Stages, TileArg, TileArgLaunch, TileSpec, kind::Field,
+    Semiring, Space, StageStorage, Stages, TileSpec, TileTensor, TileTensorLaunch, kind::Field,
     layout::PhysicalAxisMap, ops::matmul::MmaIo,
 };
 
@@ -48,11 +48,11 @@ const STEP: usize = 64;
 /// instruction, the block scales applied to each stage as numbers.
 #[cube(launch)]
 fn block_scaled_matmul<E: Numeric>(
-    a: &TileArg<'_>,
-    a_scales: &TileArg<'_>,
-    b: &TileArg<'_>,
-    b_scales: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    a_scales: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    b_scales: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -90,9 +90,9 @@ fn block_scaled_matmul<E: Numeric>(
 /// drains.
 #[cube(launch)]
 fn block_scaled_matmul_under_words<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    c: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    c: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
     #[define(E)] _dtype: ElemType,
@@ -191,9 +191,9 @@ fn check_block_scaled(k: usize, globals: Option<(f32, f32)>) {
         let word = client.create_from_slice(f32::as_bytes(&[value]));
         let spec = TileSpec::new(Projection::new(&[M, N, K], &[PhysicalAxisMap::broadcast()]))
             .packed(Field::Float(FloatKind::F32));
-        TileArgLaunch::new(tensor(word, 1, 1), u32::elem_type_native(), 1, spec)
+        TileTensorLaunch::new(tensor(word, 1, 1), u32::elem_type_native(), 1, spec)
     };
-    let out = TileArgLaunch::new(
+    let out = TileTensorLaunch::new(
         c.clone().binding().into_tensor_arg(),
         element,
         1,
@@ -221,7 +221,7 @@ fn check_block_scaled(k: usize, globals: Option<(f32, f32)>) {
                     &[PhysicalAxisMap::of(axis), PhysicalAxisMap::of(K).over(STEP)],
                 ))
                 .words(Field::Fp8(Fp8Format::E4M3));
-                TileArgLaunch::new(
+                TileTensorLaunch::new(
                     tensor(handle, rows, k / STEP),
                     u32::elem_type_native(),
                     1,
@@ -229,7 +229,7 @@ fn check_block_scaled(k: usize, globals: Option<(f32, f32)>) {
                 )
             };
             let operand = |words, rows: usize, axis: Axis, scales: &[f32], global_value: f32| {
-                TileArgLaunch::new(tensor(words, rows, k), stored, 1, values(axis))
+                TileTensorLaunch::new(tensor(words, rows, k), stored, 1, values(axis))
                     .scales(word_scales(scales, rows, axis))
                     .scales(global(global_value))
             };
@@ -252,10 +252,10 @@ fn check_block_scaled(k: usize, globals: Option<(f32, f32)>) {
                 &client,
                 launcher.cube_count(),
                 launcher.cube_dim(),
-                TileArgLaunch::new(tensor(a_words, m, k), stored, 1, values(M)),
-                TileArgLaunch::new(tensor(a_scales, m, k / BLOCK), element, 1, scales(M)),
-                TileArgLaunch::new(tensor(b_words, n, k), stored, 1, values(N)),
-                TileArgLaunch::new(tensor(b_scales, n, k / BLOCK), element, 1, scales(N)),
+                TileTensorLaunch::new(tensor(a_words, m, k), stored, 1, values(M)),
+                TileTensorLaunch::new(tensor(a_scales, m, k / BLOCK), element, 1, scales(M)),
+                TileTensorLaunch::new(tensor(b_words, n, k), stored, 1, values(N)),
+                TileTensorLaunch::new(tensor(b_scales, n, k / BLOCK), element, 1, scales(N)),
                 out,
                 launcher.partitioning_arg(),
                 launcher.partitioning().level(0),
@@ -357,13 +357,13 @@ fn check_block_scaled_in_blocks(k: usize, (a_global, b_global): (f32, f32)) {
     let words = u32::elem_type_native();
     let element = f32::elem_type_native();
     let operand = |codes: Vec<u32>, scales: Vec<u32>, rows: usize, axis: Axis, global: f32| {
-        let values = TileArgLaunch::new(
+        let values = TileTensorLaunch::new(
             tensor(client.create_from_slice(u32::as_bytes(&codes)), rows, k),
             words,
             1,
             TileSpec::new(along_k(axis)).packed(Field::Quant(QuantValue::E2M1)),
         );
-        let block_scales = TileArgLaunch::new(
+        let block_scales = TileTensorLaunch::new(
             tensor(
                 client.create_from_slice(u32::as_bytes(&scales)),
                 rows,
@@ -380,7 +380,7 @@ fn check_block_scaled_in_blocks(k: usize, (a_global, b_global): (f32, f32)) {
             ))
             .words(Field::Fp8(Fp8Format::E4M3)),
         );
-        let global = TileArgLaunch::new(
+        let global = TileTensorLaunch::new(
             tensor(client.create_from_slice(f32::as_bytes(&[global])), 1, 1),
             words,
             1,
@@ -410,7 +410,7 @@ fn check_block_scaled_in_blocks(k: usize, (a_global, b_global): (f32, f32)) {
             N,
             b_global,
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             c.clone().binding().into_tensor_arg(),
             element,
             1,

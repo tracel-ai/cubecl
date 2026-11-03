@@ -46,9 +46,9 @@ const REGISTER_BLOCK: RegisterBlock = RegisterBlock::new(16);
 /// the partials buffer needs no zeroing.
 #[cube(launch)]
 fn split_partials(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
-    partials: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    partials: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
@@ -66,8 +66,8 @@ fn split_partials(
 /// The second pass: sum the split axis away.
 #[cube(launch)]
 fn reduce_splits(
-    partials: &TileArg<'_>,
-    out: &TileArg<'_>,
+    partials: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
 ) {
@@ -123,7 +123,7 @@ fn run_split_contraction(m: usize, n: usize, k: usize, splits: usize) -> (HostDa
         &client,
         split_space.cube_count(),
         split_space.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_handle.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -135,7 +135,7 @@ fn run_split_contraction(m: usize, n: usize, k: usize, splits: usize) -> (HostDa
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_handle.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -147,7 +147,7 @@ fn run_split_contraction(m: usize, n: usize, k: usize, splits: usize) -> (HostDa
                 ],
             )),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             partials.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -170,13 +170,13 @@ fn run_split_contraction(m: usize, n: usize, k: usize, splits: usize) -> (HostDa
         &client,
         reduce_space.cube_count(),
         reduce_space.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             partials.clone().binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::direct(&[KB, M, N]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             out.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -316,8 +316,8 @@ const K: Axis = Axis(4);
 /// the destination, which is the one shape a write-only sum admits.
 #[cube(launch)]
 fn atomic_split_matmul<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
     out: &AccumulateArg<'_, E>,
     space: Partitioning,
     #[comptime] level: Level,
@@ -350,8 +350,8 @@ fn atomic_split_matmul<E: Numeric>(
 /// every unit a writer on the drain.
 #[cube(launch)]
 fn atomic_split_matmul_by_unit<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
     out: &AccumulateArg<'_, E>,
     space: Partitioning,
     #[comptime] cubes: Level,
@@ -415,13 +415,13 @@ fn run_atomic_split_contraction(m: usize, n: usize, k: usize, splits: usize) -> 
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_handle.clone().binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::direct(&[M, K]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_handle.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -553,13 +553,13 @@ fn an_atomic_drain_with_units_of_their_own() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_handle.clone().binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::direct(&[M, K]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_handle.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -640,13 +640,13 @@ fn an_atomic_drain_sums_across_planes() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_handle.clone().binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::direct(&[M, K]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_handle.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -686,8 +686,8 @@ fn an_atomic_drain_sums_across_planes() {
 /// nothing is ever read back, because the atomic add is itself the read-modify-write.
 #[cube(launch)]
 fn atomic_split_matmul_in_place<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
     out: &AccumulateArg<'_, E>,
     space: Partitioning,
     #[comptime] level: Level,
@@ -746,13 +746,13 @@ fn a_summing_output_contracts_in_place() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_handle.clone().binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::direct(&[M, K]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_handle.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -792,8 +792,8 @@ fn a_summing_output_contracts_in_place() {
 /// fragments, the accumulator opened with a scratch and drained through the summing sink.
 #[cube(launch)]
 fn atomic_split_cmma<E: Numeric>(
-    a: &TileArg<'_>,
-    b: &TileArg<'_>,
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
     out: &AccumulateArg<'_, E>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
@@ -892,13 +892,13 @@ fn run_atomic_split_cmma(k: usize, splits: usize) -> HostData {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             a_handle.clone().binding().into_tensor_arg(),
             dtype,
             1,
             TileSpec::direct(&[M, K]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             b_handle.clone().binding().into_tensor_arg(),
             dtype,
             1,
@@ -963,7 +963,7 @@ fn adds_atomically(client: &cubecl::client::Client) -> bool {
 /// layout walk either way and prove nothing about the condition.
 #[cube(launch)]
 fn copy_into_summing<E: Numeric>(
-    src: &TileArg<'_>,
+    src: &TileTensor<'_>,
     out: &AccumulateArg<'_, E>,
     space: Partitioning,
     #[define(E)] _dtype: ElemType,
@@ -1009,7 +1009,7 @@ fn a_copy_into_a_summing_output_adds() {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             src.clone().binding().into_tensor_arg(),
             dtype,
             1,

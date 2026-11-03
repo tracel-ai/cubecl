@@ -3,15 +3,15 @@
 use cubecl::prelude::*;
 
 use crate::launch::arg::adding::adding_tile;
-use crate::launch::arg::tensor::TileArgExpand;
+use crate::launch::arg::tensor::TileTensorExpand;
 use crate::space::partition::GridCount;
 use crate::*;
 
 /// One output box, relayed by the cubes a [`Levels::across`] split hands it: each contracts its
 /// own run, then takes its turn at the box's carry in the order of the runs. The first turn writes
 /// its partial, each after adds its own into what is there a line at a time, and the last hands the
-/// sum on to the output. The carry is the [`TileArg`] the relay was opened on; the turns are passed
-/// on through `turns`, one counter a cube ([`Partitioning::relay_counters`]).
+/// sum on to the output. The carry is the [`TileTensor`] the relay was opened on; the turns are
+/// passed on through `turns`, one counter a cube ([`Partitioning::relay_counters`]).
 ///
 /// A cube opens its accumulator on the relayed [`tile`](Relay::tile), takes its turn with
 /// [`take`](Relay::take), drains into the tile, and passes it on with [`pass`](Relay::pass), every
@@ -38,7 +38,7 @@ pub struct Relay<'a> {
 }
 
 #[cube]
-impl<'a> TileArg<'a> {
+impl<'a> TileTensor<'a> {
     /// This operand as the carry of a [`Relay`]: the box the cubes splitting the contraction
     /// along its [`across`](Levels::across) axis take their turns at, under `partitioning`, whose
     /// first level is the cube level. `turns` arrives holding zero and is left holding zero.
@@ -203,8 +203,8 @@ impl Relay<'_> {
         assert!(
             level.coverage() == Coverage::Distribute(ComputeScope::Cube)
                 && level.shared_by().is_none(),
-            "TileArg::relay: the first level must hand each cube its own boxes; a relay's turns are \
-             taken by the cubes of one box"
+            "TileTensor::relay: the first level must hand each cube its own boxes; a relay's turns \
+             are taken by the cubes of one box"
         );
         let split: Vec<usize> = (0..space.space().rank())
             .filter(|&p| {
@@ -215,8 +215,8 @@ impl Relay<'_> {
             .collect();
         assert!(
             split.len() == 1,
-            "TileArg::relay: the carry must leave out exactly one axis the cube level spreads across \
-             cubes (`Levels::across`), the one whose runs take the turns; it leaves out {}",
+            "TileTensor::relay: the carry must leave out exactly one axis the cube level spreads \
+             across cubes (`Levels::across`), the one whose runs take the turns; it leaves out {}",
             split.len()
         );
         split[0]
