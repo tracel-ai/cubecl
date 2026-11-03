@@ -1,6 +1,7 @@
 use cubecl_core::ir::{
-    attributes::EntrypointInterface, dialect::atomic::synchronizes_at_system_scope,
-    interfaces::TypedExt, prelude::*,
+    attributes::{ATTR_PEER_BINDING, EntrypointInterface, FuncInterface},
+    interfaces::TypedExt,
+    prelude::*,
 };
 use itertools::Itertools;
 use pliron::builtin::{
@@ -44,12 +45,13 @@ hip_op!(FuncOp, |op, ctx| {
 
     let entry_block = op.get_entry_block(ctx);
 
-    // Another device may write any buffer of a kernel that synchronizes with it, so none is
-    // promised unaliased.
-    let restrict = !synchronizes_at_system_scope(ctx, op.get_operation());
     let block = entry_block.deref(ctx);
-    let params = block.arguments();
-    let params = params.map(|arg| gen_param(ctx, arg, restrict)).join(", ");
+    let params = block.arguments().enumerate();
+    // Another device may write a peer buffer while the kernel runs, so it is not promised
+    // unaliased.
+    let params = params
+        .map(|(i, arg)| gen_param(ctx, arg, !op.has_arg_attr(ctx, i, &ATTR_PEER_BINDING)))
+        .join(", ");
 
     let body = block_to_cpp(ctx, entry_block);
 

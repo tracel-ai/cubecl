@@ -5,16 +5,45 @@ use crate::prelude::*;
 use alloc::{string::ToString, vec, vec::Vec};
 use cubecl_common::device::Device;
 use cubecl_environment::future::block_on;
-use cubecl_ir::dialect::synchronization::SyncScope;
 use cubecl_runtime::{client::Client, runtime::Runtime, server::Handle};
 
 const LEN: usize = 64;
+
+#[cube(launch)]
+fn scale_from_peer(input: &Peer<[f32]>, output: &mut [f32]) {
+    let i = ABSOLUTE_POS;
+    if i < output.len() {
+        output[i] = input[i] * 2.0;
+    }
+}
+
+#[cube(launch)]
+fn scale_to_peer(input: &[f32], output: &mut Peer<[f32]>) {
+    let i = ABSOLUTE_POS;
+    if i < output.len() {
+        output[i] = input[i] * 2.0;
+    }
+}
 
 #[cube(launch)]
 fn scale_into(input: &[f32], output: &mut [f32]) {
     let i = ABSOLUTE_POS;
     if i < output.len() {
         output[i] = input[i] * 2.0;
+    }
+}
+
+/// A launch the compiler refuses, writing a peer buffer it never reaches.
+#[cube(launch_unchecked)]
+fn rejected_into_peer(out: &mut Peer<[u32]>, #[comptime] reason: alloc::string::String) {
+    push_validation_error(reason);
+    out[0] = 1u32;
+}
+
+#[cube(launch)]
+fn copy_from_peer(input: &Peer<[u32]>, out: &mut [u32]) {
+    if ABSOLUTE_POS < out.len() {
+        out[ABSOLUTE_POS] = input[ABSOLUTE_POS];
     }
 }
 
@@ -37,6 +66,34 @@ fn peers<R: Runtime>() -> Option<(Client, Client)> {
 
 fn values(len: usize) -> Vec<f32> {
     (0..len).map(|i| i as f32 + 1.0).collect()
+}
+
+fn zeros(client: &Client, len: usize) -> Handle {
+    client.create_from_slice(u32::as_bytes(&vec![0u32; len]))
+}
+
+fn peer_arg(handle: &Handle, len: usize) -> PeerArg {
+    unsafe { PeerArg::from_raw_parts(handle, len) }
+}
+
+fn scale_from(client: &Client, input: &Handle, output: Handle, len: usize) {
+    scale_from_peer::launch(
+        client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(len as u32),
+        peer_arg(input, len),
+        unsafe { BufferArg::from_raw_parts(output, len) },
+    );
+}
+
+fn scale_to(client: &Client, input: Handle, output: &Handle, len: usize) {
+    scale_to_peer::launch(
+        client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(len as u32),
+        unsafe { BufferArg::from_raw_parts(input, len) },
+        peer_arg(output, len),
+    );
 }
 
 fn scale(client: &Client, input: Handle, output: Handle, len: usize) {
@@ -64,7 +121,7 @@ pub fn test_a_kernel_reads_a_peer_buffer<R: Runtime>() {
     // Nothing orders the peer's upload before the kernel reading it.
     block_on(remote.sync()).unwrap();
 
-    scale(&local, input, output.clone(), LEN);
+    scale_from(&local, &input, output.clone(), LEN);
 
     let actual = local.read_one(output).unwrap();
     let expected: Vec<f32> = values(LEN).iter().map(|v| v * 2.0).collect();
@@ -80,11 +137,28 @@ pub fn test_a_kernel_writes_a_peer_buffer<R: Runtime>() {
     let output = remote.share_with_peers(&output).unwrap();
     block_on(remote.sync()).unwrap();
 
-    scale(&local, input, output.clone(), LEN);
+    scale_to(&local, input, &output, LEN);
     // Nothing orders the kernel's writes before the owner's read.
     block_on(local.sync()).unwrap();
 
     let actual = remote.read_one(output).unwrap();
+    let expected: Vec<f32> = values(LEN).iter().map(|v| v * 2.0).collect();
+    assert_eq!(f32::from_bytes(&actual), expected);
+}
+
+/// The owner's own kernels take a shared buffer through a `Peer` parameter
+/// too: on its device it is an ordinary buffer.
+pub fn test_a_peer_parameter_binds_memory_of_its_own_device<R: Runtime>() {
+    let Some((local, _remote)) = peers::<R>() else {
+        return;
+    };
+    let input = local.create_from_slice(f32::as_bytes(&values(LEN)));
+    let input = local.share_with_peers(&input).unwrap();
+    let output = local.create_from_slice(f32::as_bytes(&vec![0.0; LEN]));
+
+    scale_from(&local, &input, output.clone(), LEN);
+
+    let actual = local.read_one(output).unwrap();
     let expected: Vec<f32> = values(LEN).iter().map(|v| v * 2.0).collect();
     assert_eq!(f32::from_bytes(&actual), expected);
 }
@@ -100,7 +174,7 @@ pub fn test_a_kernel_reads_a_slice_of_a_peer_buffer<R: Runtime>() {
     let output = local.create_from_slice(f32::as_bytes(&[0.0; LEN - SKIP]));
     block_on(remote.sync()).unwrap();
 
-    scale(&local, slice, output.clone(), LEN - SKIP);
+    scale_from(&local, &slice, output.clone(), LEN - SKIP);
 
     let actual = local.read_one(output).unwrap();
     let expected: Vec<f32> = values(LEN)[SKIP..].iter().map(|v| v * 2.0).collect();
@@ -118,7 +192,7 @@ pub fn test_a_peer_buffer_outlives_its_handles_while_bound<R: Runtime>() {
         let input = remote.create_from_slice(f32::as_bytes(&values(LEN)));
         let input = remote.share_with_peers(&input).unwrap();
         block_on(remote.sync()).unwrap();
-        scale(&local, input, output.clone(), LEN);
+        scale_from(&local, &input, output.clone(), LEN);
     }
     // The owner reuses freed memory first: a buffer of the same size filled
     // with something else lands where the input was, had it been freed.
@@ -138,9 +212,27 @@ pub fn test_an_unshared_foreign_handle_is_refused<R: Runtime>() {
     let input = remote.create_from_slice(f32::as_bytes(&values(LEN)));
     let output = local.create_from_slice(f32::as_bytes(&vec![0.0; LEN]));
     let launch = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        scale(&local, input, output, LEN)
+        scale_from(&local, &input, output, LEN)
     }));
     assert!(launch.is_err(), "a handle never shared must not bind");
+}
+
+/// Only a `Peer` parameter binds another device's memory: the kernel would
+/// otherwise make promises about it that another device breaks.
+pub fn test_a_shared_handle_in_a_plain_parameter_is_refused<R: Runtime>() {
+    let Some((local, remote)) = peers::<R>() else {
+        return;
+    };
+    let input = remote.create_from_slice(f32::as_bytes(&values(LEN)));
+    let input = remote.share_with_peers(&input).unwrap();
+    let output = local.create_from_slice(f32::as_bytes(&vec![0.0; LEN]));
+    let launch = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        scale(&local, input, output, LEN)
+    }));
+    assert!(
+        launch.is_err(),
+        "a buffer of another device must not bind through a plain slice"
+    );
 }
 
 /// Elements the handshake kernels exchange: several cubes' worth, so every cube of the producer
@@ -153,9 +245,9 @@ const HANDOFF_CUBES: u32 = (HANDOFF_LEN as u32) / HANDOFF_UNITS;
 const SPIN_LIMIT: u32 = 20_000_000;
 
 /// Write `token` everywhere in `data`, publish it at system scope, then raise `flag` once per
-/// cube. `data` and `flag` may live on another device.
+/// cube. The atomic on a `Peer` buffer synchronizes at system scope without being asked.
 #[cube(launch)]
-fn produce(data: &mut [u32], flag: &mut [Atomic<u32>], token: u32) {
+fn produce(data: &mut Peer<[u32]>, flag: &mut Peer<[Atomic<u32>]>, token: u32) {
     let i = ABSOLUTE_POS;
     if i < data.len() {
         data[i] = token;
@@ -163,7 +255,7 @@ fn produce(data: &mut [u32], flag: &mut [Atomic<u32>], token: u32) {
     // Release: what every unit of the cube wrote is visible to whoever acquires after the flag.
     sync_system();
     if UNIT_POS == 0 {
-        flag[0].fetch_add_at(1u32, comptime![SyncScope::System]);
+        flag[0].fetch_add(1u32);
     }
 }
 
@@ -171,8 +263,8 @@ fn produce(data: &mut [u32], flag: &mut [Atomic<u32>], token: u32) {
 /// saw in `seen`, so a consumer that gave up waiting tells apart from one that read stale data.
 #[cube(launch)]
 fn consume(
-    data: &mut [u32],
-    flag: &mut [Atomic<u32>],
+    data: &Peer<[u32]>,
+    flag: &mut Peer<[Atomic<u32>]>,
     out: &mut [u32],
     seen_by_cube: &mut [u32],
     arrivals: u32,
@@ -181,10 +273,10 @@ fn consume(
     let mut seen = Shared::<u32>::new();
     if UNIT_POS == 0 {
         let mut spins = 0u32;
-        let mut arrived = flag[0].load_at(comptime![SyncScope::System]);
+        let mut arrived = flag[0].load();
         while arrived < arrivals && spins < spin_limit {
             spins += 1u32;
-            arrived = flag[0].load_at(comptime![SyncScope::System]);
+            arrived = flag[0].load();
         }
         *seen = arrived;
         seen_by_cube[CUBE_POS] = arrived;
@@ -197,21 +289,17 @@ fn consume(
     }
 }
 
-fn zeros(client: &Client, len: usize) -> Handle {
-    client.create_from_slice(u32::as_bytes(&vec![0u32; len]))
-}
-
 /// Launch the consumer, returning the buffers it fills: the data it read, and the flag each
 /// cube saw.
-fn launch_consumer(client: &Client, data: Handle, flag: Handle) -> (Handle, Handle) {
+fn launch_consumer(client: &Client, data: &Handle, flag: &Handle) -> (Handle, Handle) {
     let out = zeros(client, HANDOFF_LEN);
     let seen = zeros(client, HANDOFF_CUBES as usize);
     consume::launch(
         client,
         CubeCount::Static(HANDOFF_CUBES, 1, 1),
         CubeDim::new_1d(HANDOFF_UNITS),
-        unsafe { BufferArg::from_raw_parts(data, HANDOFF_LEN) },
-        unsafe { BufferArg::from_raw_parts(flag, 1) },
+        peer_arg(data, HANDOFF_LEN),
+        peer_arg(flag, 1),
         unsafe { BufferArg::from_raw_parts(out.clone(), HANDOFF_LEN) },
         unsafe { BufferArg::from_raw_parts(seen.clone(), HANDOFF_CUBES as usize) },
         HANDOFF_CUBES,
@@ -240,13 +328,13 @@ fn assert_handed_off(consumer: &Client, out: Handle, seen: Handle, token: u32) {
     );
 }
 
-fn launch_producer(client: &Client, data: Handle, flag: Handle, token: u32) {
+fn launch_producer(client: &Client, data: &Handle, flag: &Handle, token: u32) {
     produce::launch(
         client,
         CubeCount::Static(HANDOFF_CUBES, 1, 1),
         CubeDim::new_1d(HANDOFF_UNITS),
-        unsafe { BufferArg::from_raw_parts(data, HANDOFF_LEN) },
-        unsafe { BufferArg::from_raw_parts(flag, 1) },
+        peer_arg(data, HANDOFF_LEN),
+        peer_arg(flag, 1),
         token,
     );
 }
@@ -264,8 +352,8 @@ pub fn test_a_kernel_pushes_data_to_a_waiting_peer_kernel<R: Runtime>() {
         let flag = consumer.share_with_peers(&zeros(&consumer, 1)).unwrap();
         block_on(consumer.sync()).unwrap();
 
-        let (out, seen) = launch_consumer(&consumer, data.clone(), flag.clone());
-        launch_producer(&producer, data, flag, token);
+        let (out, seen) = launch_consumer(&consumer, &data, &flag);
+        launch_producer(&producer, &data, &flag, token);
 
         assert_handed_off(&consumer, out, seen, token);
         block_on(producer.sync()).unwrap();
@@ -286,32 +374,32 @@ pub fn test_a_kernel_pulls_data_a_peer_kernel_published<R: Runtime>() {
         block_on(producer.sync()).unwrap();
         block_on(consumer.sync()).unwrap();
 
-        let (out, seen) = launch_consumer(&consumer, data.clone(), flag.clone());
-        launch_producer(&producer, data, flag, token);
+        let (out, seen) = launch_consumer(&consumer, &data, &flag);
+        launch_producer(&producer, &data, &flag, token);
 
         assert_handed_off(&consumer, out, seen, token);
         block_on(producer.sync()).unwrap();
     }
 }
 
-fn launch_rejected_into(client: &Client, out: Handle, reason: &str) {
+fn launch_rejected_into_peer(client: &Client, out: &Handle, reason: &str) {
     unsafe {
-        super::stream_errors::rejected::launch_unchecked(
+        rejected_into_peer::launch_unchecked(
             client,
             CubeCount::new_single(),
             CubeDim::new_1d(1),
-            BufferArg::from_raw_parts(out, 1),
+            peer_arg(out, 1),
             reason.into(),
         )
     };
 }
 
-fn launch_copy(client: &Client, input: Handle, out: Handle, len: usize) {
-    super::stream_errors::copy::launch(
+fn launch_copy_from_peer(client: &Client, input: &Handle, out: Handle, len: usize) {
+    copy_from_peer::launch(
         client,
         CubeCount::new_single(),
         CubeDim::new_1d(len as u32),
-        unsafe { BufferArg::from_raw_parts(input, len) },
+        peer_arg(input, len),
         unsafe { BufferArg::from_raw_parts(out, len) },
     );
 }
@@ -327,7 +415,7 @@ pub fn test_shared_memory_of_another_buffer_is_refused<R: Runtime>() {
     forged.peer = shared.peer.clone();
     let out = zeros(&local, 1);
     let launch = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        launch_copy(&local, forged, out, 1)
+        launch_copy_from_peer(&local, &forged, out, 1)
     }));
     assert!(
         launch.is_err(),
@@ -344,7 +432,7 @@ pub fn test_a_failed_peer_kernel_taints_the_memory_it_was_writing<R: Runtime>() 
     let output = remote.share_with_peers(&zeros(&remote, 1)).unwrap();
     block_on(remote.sync()).unwrap();
 
-    launch_rejected_into(&local, output.clone(), "peer writer");
+    launch_rejected_into_peer(&local, &output, "peer writer");
     block_on(local.sync()).unwrap();
 
     let err = remote
@@ -365,11 +453,19 @@ pub fn test_a_peer_kernel_does_not_run_on_a_failed_owner_write<R: Runtime>() {
         return;
     };
     let input = remote.share_with_peers(&zeros(&remote, 1)).unwrap();
-    launch_rejected_into(&remote, input.clone(), "owner writer");
+    unsafe {
+        super::stream_errors::rejected::launch_unchecked(
+            &remote,
+            CubeCount::new_single(),
+            CubeDim::new_1d(1),
+            BufferArg::from_raw_parts(input.clone(), 1),
+            "owner writer".into(),
+        )
+    };
     block_on(remote.sync()).unwrap();
 
     let out = zeros(&local, 1);
-    launch_copy(&local, input.clone(), out.clone(), 1);
+    launch_copy_from_peer(&local, &input, out.clone(), 1);
     let err = local
         .read_one(out)
         .expect_err("the peer kernel must not run on a failed input")
@@ -385,7 +481,7 @@ pub fn test_a_peer_kernel_does_not_run_on_a_failed_owner_write<R: Runtime>() {
     );
     block_on(remote.sync()).unwrap();
     let out = zeros(&local, 1);
-    launch_copy(&local, input, out.clone(), 1);
+    launch_copy_from_peer(&local, &input, out.clone(), 1);
     assert_eq!(u32::from_bytes(&local.read_one(out).unwrap()), [5]);
 }
 
@@ -457,6 +553,20 @@ macro_rules! testgen_peer {
             #[$crate::runtime_tests::test_log::test]
             fn test_a_peer_kernel_does_not_run_on_a_failed_owner_write() {
                 cubecl_core::runtime_tests::peer::test_a_peer_kernel_does_not_run_on_a_failed_owner_write::<
+                    TestRuntime,
+                >();
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_a_peer_parameter_binds_memory_of_its_own_device() {
+                cubecl_core::runtime_tests::peer::test_a_peer_parameter_binds_memory_of_its_own_device::<
+                    TestRuntime,
+                >();
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_a_shared_handle_in_a_plain_parameter_is_refused() {
+                cubecl_core::runtime_tests::peer::test_a_shared_handle_in_a_plain_parameter_is_refused::<
                     TestRuntime,
                 >();
             }

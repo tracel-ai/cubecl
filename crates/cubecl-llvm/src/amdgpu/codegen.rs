@@ -77,6 +77,8 @@ pub struct AmdGpuEntry {
     pub io: Vec<BufferIOAttr>,
     /// The global buffers the kernel's atomics read.
     pub atomic_reads: AtomicReads,
+    /// The bindings of buffers in memory shared with peers.
+    pub peers: Vec<usize>,
 }
 
 pub fn emit_code_object(
@@ -172,6 +174,7 @@ fn finalize(
         &entry_fn,
         &entry.io,
         &entry.atomic_reads,
+        &entry.peers,
         &[],
         METADATA_PARAMS,
     );
@@ -197,21 +200,20 @@ fn require_work_group_size(entry: &EntryFunction<'_>, cube_dim: Dim3) {
 /// when a kernel binds a buffer a peer shared, so no device-scope atomic has to stay correct
 /// against a concurrent host or peer access. Without saying so, the backend expands float
 /// atomics to CAS loops on the parts whose native instruction is not coherent for fine-grained
-/// memory (RDNA3, CDNA2). A kernel with a system-scope atomic or fence hands data to or from
-/// another device, so its buffers may be a peer's memory: none of its atomics makes the promise,
-/// whatever its own scope. An f32 add also ignores the
+/// memory (RDNA3, CDNA2). An atomic on a `Peer` buffer synchronizes at system scope, which is how
+/// one reaching another device's memory is told apart, so it makes no such promise. An f32 add
+/// also ignores the
 /// denormal mode, where the native instruction flushes, which is the trade NVRTC's
 /// `atomicAdd(float*)` makes and the NVPTX target makes too.
 const DEVICE_LOCAL_ATOMIC: [&str; 2] = ["amdgpu.no.fine.grained.memory", "amdgpu.no.remote.memory"];
 const DENORMAL_AGNOSTIC_ATOMIC: &str = "amdgpu.ignore.denormal.mode";
 
 fn mark_atomics_device_local(entry: &EntryFunction<'_>) {
-    let device_local = !entry.instructions().any(|inst| inst.is_system_scope());
     for inst in entry.instructions() {
         let Some(op) = inst.atomic_rmw_op() else {
             continue;
         };
-        if device_local {
+        if !inst.is_system_scope() {
             for kind in DEVICE_LOCAL_ATOMIC {
                 entry.set_flag_metadata(&inst, kind);
             }
@@ -619,6 +621,7 @@ entry:
             shared_memory_size: 0,
             io: io.to_vec(),
             atomic_reads,
+            peers: Vec::new(),
         };
         finalize(&module, entrypoint, arch, &entry)?;
         Ok(module.print())

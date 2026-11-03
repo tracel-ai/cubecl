@@ -78,6 +78,15 @@ atomic_numeric!(i8, i16, i32, i64, isize; AtomicIAddOp, AtomicISubOp, AtomicSMin
 atomic_numeric!(u8, u16, u32, u64, usize; AtomicIAddOp, AtomicISubOp, AtomicUMinOp, AtomicUMaxOp);
 atomic_numeric!(f16, bf16, f32, flex32, tf32, f64; AtomicFAddOp, AtomicFSubOp, AtomicFMinOp, AtomicFMaxOp);
 
+/// The scope an atomic on `ptr` synchronizes at: `sync`, or the system's when `ptr` points into a
+/// [`Peer`] buffer, which kernels on other devices reach while this one runs.
+fn reach(scope: &Scope, ptr: Value, sync: SyncScope) -> SyncScope {
+    match scope.is_peer_pointer(ptr) {
+        true => sync.max(SyncScope::System),
+        false => sync,
+    }
+}
+
 fn atomic_binary_expand<F, O>(
     scope: &Scope,
     ptr: ExpandValue,
@@ -89,7 +98,9 @@ where
     F: Fn(&mut Context, Value, Value) -> O,
     O: Op + OneResultInterface,
 {
-    let op = func(scope.ctx_mut(), ptr.value(scope), value.read_value(scope));
+    let ptr = ptr.value(scope);
+    let sync = reach(scope, ptr, sync);
+    let op = func(scope.ctx_mut(), ptr, value.read_value(scope));
     set_atomic_scope(scope.ctx_mut(), op.get_operation(), sync);
     scope.register_with_result(&op).into()
 }
@@ -133,49 +144,52 @@ impl<Inner: CubePrimitive<Scalar: AtomicNumeric>> Atomic<Inner> {
         self.fetch_min_at(value, comptime![SyncScope::Device])
     }
 
-    /// [`load`](Self::load), synchronizing at `sync`.
+    /// `load`, synchronizing at `sync`.
     ///
-    /// The plain operations synchronize at [`SyncScope::Device`]. [`SyncScope::System`] also
-    /// synchronizes with the host and with kernels on other devices that bind this memory, which
-    /// is what kernels on different devices signal each other through: publish with
-    /// [`sync_system`](crate::prelude::sync_system), then store a flag here at system scope; spin
-    /// on the flag at system scope, then [`sync_system`](crate::prelude::sync_system) before
-    /// reading what it guards.
+    /// The plain operations synchronize at `SyncScope::Device`, and at
+    /// `SyncScope::System` on a `Peer` buffer, whatever scope they name. The system scope
+    /// also synchronizes with the host and with kernels on other devices that bind this memory,
+    /// which is what kernels on different devices signal each other through: publish with
+    /// `sync_system()`, then store a flag; spin on the flag, then
+    /// `sync_system()` before reading what it guards.
     #[allow(unused_variables)]
     pub fn load_at(&self, #[comptime] sync: SyncScope) -> Inner {
         intrinsic!(|scope| {
             let ptr = self.value(scope);
             let op = AtomicLoadOp::new(scope.ctx_mut(), ptr);
+            let sync = reach(scope, ptr, sync);
             set_atomic_scope(scope.ctx_mut(), op.get_operation(), sync);
             scope.register_with_result(&op).into()
         })
     }
 
-    /// [`store`](Self::store), synchronizing at `sync` (see [`load_at`](Self::load_at)).
+    /// `store`, synchronizing at `sync` (see `load_at`).
     #[allow(unused_variables)]
     pub fn store_at(&self, value: Inner, #[comptime] sync: SyncScope) {
         intrinsic!(|scope| {
             let ptr = self.value(scope);
             let value = value.read_value(scope);
             let op = AtomicStoreOp::new(scope.ctx_mut(), ptr, value);
+            let sync = reach(scope, ptr, sync);
             set_atomic_scope(scope.ctx_mut(), op.get_operation(), sync);
             scope.register(&op);
         })
     }
 
-    /// [`exchange`](Self::exchange), synchronizing at `sync` (see [`load_at`](Self::load_at)).
+    /// `exchange`, synchronizing at `sync` (see `load_at`).
     #[allow(unused_variables)]
     pub fn exchange_at(&self, value: Inner, #[comptime] sync: SyncScope) -> Inner {
         intrinsic!(|scope| {
             let ptr = self.value(scope);
             let value = value.read_value(scope);
             let op = AtomicExchangeOp::new(scope.ctx_mut(), ptr, value);
+            let sync = reach(scope, ptr, sync);
             set_atomic_scope(scope.ctx_mut(), op.get_operation(), sync);
             scope.register_with_result(&op).into()
         })
     }
 
-    /// [`fetch_add`](Self::fetch_add), synchronizing at `sync` (see [`load_at`](Self::load_at)).
+    /// `fetch_add`, synchronizing at `sync` (see `load_at`).
     #[allow(unused_variables)]
     pub fn fetch_add_at(&self, value: Inner, #[comptime] sync: SyncScope) -> Inner {
         intrinsic!(|scope| Inner::Scalar::__expand_fetch_add(
@@ -187,7 +201,7 @@ impl<Inner: CubePrimitive<Scalar: AtomicNumeric>> Atomic<Inner> {
         .into())
     }
 
-    /// [`fetch_sub`](Self::fetch_sub), synchronizing at `sync` (see [`load_at`](Self::load_at)).
+    /// `fetch_sub`, synchronizing at `sync` (see `load_at`).
     #[allow(unused_variables)]
     pub fn fetch_sub_at(&self, value: Inner, #[comptime] sync: SyncScope) -> Inner {
         intrinsic!(|scope| Inner::Scalar::__expand_fetch_sub(
@@ -199,7 +213,7 @@ impl<Inner: CubePrimitive<Scalar: AtomicNumeric>> Atomic<Inner> {
         .into())
     }
 
-    /// [`fetch_max`](Self::fetch_max), synchronizing at `sync` (see [`load_at`](Self::load_at)).
+    /// `fetch_max`, synchronizing at `sync` (see `load_at`).
     #[allow(unused_variables)]
     pub fn fetch_max_at(&self, value: Inner, #[comptime] sync: SyncScope) -> Inner {
         intrinsic!(|scope| Inner::Scalar::__expand_fetch_max(
@@ -211,7 +225,7 @@ impl<Inner: CubePrimitive<Scalar: AtomicNumeric>> Atomic<Inner> {
         .into())
     }
 
-    /// [`fetch_min`](Self::fetch_min), synchronizing at `sync` (see [`load_at`](Self::load_at)).
+    /// `fetch_min`, synchronizing at `sync` (see `load_at`).
     #[allow(unused_variables)]
     pub fn fetch_min_at(&self, value: Inner, #[comptime] sync: SyncScope) -> Inner {
         intrinsic!(|scope| Inner::Scalar::__expand_fetch_min(
@@ -250,8 +264,8 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
         self.fetch_xor_at(value, comptime![SyncScope::Device])
     }
 
-    /// [`compare_exchange_weak`](Self::compare_exchange_weak), synchronizing at `sync` (see
-    /// [`load_at`](Self::load_at)).
+    /// `compare_exchange_weak`, synchronizing at `sync` (see
+    /// `load_at`).
     #[allow(unused_variables)]
     pub fn compare_exchange_weak_at(
         &self,
@@ -264,12 +278,13 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
             let cmp = cmp.read_value(scope);
             let value = value.read_value(scope);
             let op = AtomicCompareExchangeWeakOp::new(scope.ctx_mut(), ptr, cmp, value);
+            let sync = reach(scope, ptr, sync);
             set_atomic_scope(scope.ctx_mut(), op.get_operation(), sync);
             scope.register_with_result(&op).into()
         })
     }
 
-    /// [`fetch_and`](Self::fetch_and), synchronizing at `sync` (see [`load_at`](Self::load_at)).
+    /// `fetch_and`, synchronizing at `sync` (see `load_at`).
     #[allow(unused_variables)]
     pub fn fetch_and_at(&self, value: Inner, #[comptime] sync: SyncScope) -> Inner {
         intrinsic!(|scope| atomic_binary_expand(
@@ -282,7 +297,7 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
         .into())
     }
 
-    /// [`fetch_or`](Self::fetch_or), synchronizing at `sync` (see [`load_at`](Self::load_at)).
+    /// `fetch_or`, synchronizing at `sync` (see `load_at`).
     #[allow(unused_variables)]
     pub fn fetch_or_at(&self, value: Inner, #[comptime] sync: SyncScope) -> Inner {
         intrinsic!(|scope| atomic_binary_expand(
@@ -295,7 +310,7 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
         .into())
     }
 
-    /// [`fetch_xor`](Self::fetch_xor), synchronizing at `sync` (see [`load_at`](Self::load_at)).
+    /// `fetch_xor`, synchronizing at `sync` (see `load_at`).
     #[allow(unused_variables)]
     pub fn fetch_xor_at(&self, value: Inner, #[comptime] sync: SyncScope) -> Inner {
         intrinsic!(|scope| atomic_binary_expand(

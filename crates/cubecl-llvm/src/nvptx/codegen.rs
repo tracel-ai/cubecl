@@ -96,6 +96,8 @@ pub struct NvptxEntry {
     pub io: Vec<BufferIOAttr>,
     /// The global buffers the kernel's atomics read.
     pub atomic_reads: AtomicReads,
+    /// The bindings of buffers in memory shared with peers.
+    pub peers: Vec<usize>,
     /// Metadata parameter layout.
     pub metadata: MetadataParams,
     /// The parameters that are tensor maps.
@@ -230,6 +232,7 @@ fn finalize(
         &entry_fn,
         &entry.io,
         &entry.atomic_reads,
+        &entry.peers,
         entry.tensor_maps.bindings(),
         entry.metadata.count(),
     );

@@ -281,9 +281,10 @@ pub enum KernelResource {
     Buffer(BufferBinding),
     /// Tensor map resource for CUDA
     TensorMap(TensorMapBinding),
-    /// Memory of another device of the same runtime, bound at its address
-    /// there. The client turns a shared buffer of another device into this,
-    /// so a server never sees a foreign [`Buffer`](Self::Buffer).
+    /// Memory shared with the other devices of the runtime, passed to a `Peer`
+    /// parameter. The client binds it as a [`Buffer`](Self::Buffer) on the
+    /// device it lives on, so a server only ever sees memory of another device
+    /// here, bound at its address there.
     Peer(PeerBinding),
 }
 
