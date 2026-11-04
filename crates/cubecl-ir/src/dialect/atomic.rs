@@ -1,6 +1,43 @@
 use cubecl_macros_internal::{cube_op, op_traits};
 
-use crate::{CanMaterialize, HasSideEffects, dialect::ptr_value_ty, prelude::*};
+use crate::{
+    CanMaterialize, HasSideEffects,
+    dialect::{
+        ptr_value_ty,
+        synchronization::{SyncScope, SyncScopeAttr},
+    },
+    prelude::*,
+};
+use pliron::{context::Ptr, dict_key, operation::Operation};
+
+dict_key!(
+    /// Key of the scope an atomic synchronizes at, when it is not the device's.
+    ATTR_KEY_ATOMIC_SCOPE, "atomic_scope"
+);
+
+/// The scope the atomic `op` synchronizes at: [`SyncScope::Device`] unless
+/// [`set_atomic_scope`] set another.
+///
+/// A scope below the device's is a promise that only the units sharing it touch the memory, so
+/// a backend may honor it or keep the device's. [`SyncScope::System`] is not optional: the atomic
+/// also synchronizes with the host and with kernels on other devices that bind the memory.
+pub fn atomic_scope(ctx: &Context, op: Ptr<Operation>) -> SyncScope {
+    op.deref(ctx)
+        .attributes
+        .get::<SyncScopeAttr>(&ATTR_KEY_ATOMIC_SCOPE)
+        .map(|attr| attr.0)
+        .unwrap_or(SyncScope::Device)
+}
+
+/// Make the atomic `op` synchronize at `scope` (see [`atomic_scope`]).
+pub fn set_atomic_scope(ctx: &mut Context, op: Ptr<Operation>, scope: SyncScope) {
+    if scope == SyncScope::Device {
+        return;
+    }
+    op.deref_mut(ctx)
+        .attributes
+        .set(ATTR_KEY_ATOMIC_SCOPE.clone(), SyncScopeAttr(scope));
+}
 
 macro_rules! atomic_binop {
     ($name: literal, $ty: ident) => {

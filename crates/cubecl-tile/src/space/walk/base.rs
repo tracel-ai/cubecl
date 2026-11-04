@@ -444,6 +444,20 @@ impl Walk {
         unexpanded!()
     }
 
+    /// This walk, which steps `axis` alone and in order, over the run its operands are cut to
+    /// along it ([`Tile::within`](crate::Tile::within) from the walk's first region): every
+    /// region but the last lies inside the run, so a ring over it
+    /// ([`Stages::walk`](crate::Stages::walk)) fills those unchecked and bounds only the last, as
+    /// over a run an index places ([`Region::walk_within`](crate::Region::walk_within)). A
+    /// [`range`](Self::range) of it keeps the run.
+    ///
+    /// # Panics
+    ///
+    /// At expansion, where the walk's level steps another axis than `axis`, or steps it back.
+    pub fn over_run(self, _axis: Axis) -> Walk {
+        unexpanded!()
+    }
+
     /// This walk over the `steps` regions starting at flat step `base`.
     /// The caller must keep `base + steps` within [`total`](Walk::total); nothing checks it.
     pub fn range(self, _base: usize, _steps: usize) -> Walk {
@@ -459,6 +473,15 @@ impl Walk {
 impl WalkExpand {
     pub fn __expand_unrolled_method(mut self, _scope: &Scope) -> Self {
         self.unroll = true;
+        self
+    }
+
+    pub fn __expand_over_run_method(mut self, _scope: &Scope, axis: Axis) -> Self {
+        assert!(
+            self.level.axes() == [axis] && !self.level.is_reversed(axis),
+            "Walk::over_run: a walk over a run along {axis:?} steps that axis alone, in order"
+        );
+        self.run = Some(axis);
         self
     }
 

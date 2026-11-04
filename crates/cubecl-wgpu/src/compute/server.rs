@@ -211,6 +211,9 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                     resources.push(resource);
                 }
                 KernelResource::TensorMap(_) => panic!("Tensor map not supported in wgpu"),
+                KernelResource::Peer(_) => {
+                    unreachable!("wgpu shares no memory between devices, so no binding is a peer")
+                }
             }
         }
 
@@ -524,6 +527,9 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 }
                 KernelResource::TensorMap(_) => {
                     panic!("Tensor maps not supported in WGPU")
+                }
+                KernelResource::Peer(_) => {
+                    unreachable!("wgpu shares no memory between devices, so no binding is a peer")
                 }
             });
 

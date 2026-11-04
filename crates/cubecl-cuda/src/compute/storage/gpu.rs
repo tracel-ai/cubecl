@@ -1,16 +1,13 @@
 use crate::compute::uninit_vec;
 use cubecl_core::server::IoError;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_server::config::memory::CudaAllocator;
 use cubecl_server::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use cudarc::driver::DriverError;
 use std::collections::HashMap;
 
-/// Records the actual allocation path, which may differ from the configured
-/// [`CudaAllocator`] when asynchronous allocation falls back to synchronous.
+/// Whether an allocation has backing memory to free.
 #[derive(Debug, Clone, Copy)]
 enum AllocationKind {
-    Async,
     Sync,
     /// A zero-size buffer has no backing allocation.
     Empty,
@@ -26,9 +23,7 @@ pub struct GpuStorage {
     /// The bytes `memory` holds.
     allocated: u64,
     ptr_bindings: PtrBindings,
-    stream: cudarc::driver::sys::CUstream,
     mem_alignment: usize,
-    allocator: CudaAllocator,
 }
 
 /// A GPU memory resource allocated for CUDA using [`GpuStorage`].
@@ -50,26 +45,14 @@ impl GpuResource {
 }
 
 impl GpuStorage {
-    /// Creates storage using the selected allocator and CUDA stream.
-    ///
-    /// # Arguments
-    ///
-    /// * `mem_alignment` - The memory alignment requirement in bytes.
-    /// * `stream` - The stream used for asynchronous allocation and deallocation.
-    /// * `allocator` - How CUDA obtains backing memory for `CubeCL`'s pools.
-    pub fn new(
-        mem_alignment: usize,
-        stream: cudarc::driver::sys::CUstream,
-        allocator: CudaAllocator,
-    ) -> Self {
+    /// Creates storage whose allocations are aligned to `mem_alignment` bytes.
+    pub fn new(mem_alignment: usize) -> Self {
         Self {
             memory: HashMap::new(),
             deallocations: Vec::new(),
             allocated: 0,
             ptr_bindings: PtrBindings::new(),
             mem_alignment,
-            stream,
-            allocator,
         }
     }
 
@@ -87,7 +70,6 @@ impl GpuStorage {
                 let result = match kind {
                     AllocationKind::Empty => Ok(()),
                     AllocationKind::Sync => cudarc::driver::result::free_sync(ptr),
-                    AllocationKind::Async => cudarc::driver::result::free_async(ptr, self.stream),
                 };
                 if let Err(e) = result {
                     eprintln!("CUDA free error: {}", e);
@@ -186,28 +168,20 @@ impl ComputeStorage for GpuStorage {
     )]
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
-        // CubeCL pools these allocations itself. Sync avoids CUDA's additional
-        // pool; async preserves stream ordering and the existing sync fallback.
+        // CubeCL pools these allocations itself, so the synchronous allocator is
+        // the only one: CUDA's stream-ordered pool would be a second pool under
+        // it, and its memory is not reachable from peer devices without
+        // `cuMemPoolSetAccess`.
         let allocation = if size == 0 {
             // cuMemAlloc rejects zero bytes. Empty buffers still need a storage
             // entry for binding resolution, but no CUDA allocation or free.
             Ok((0, AllocationKind::Empty))
         } else {
-            // SAFETY: The context and stream are valid. Successful allocations
-            // remain owned by `self.memory` and are freed by their actual kind.
+            // SAFETY: The context is valid. Successful allocations remain owned
+            // by `self.memory` and are freed by `perform_deallocations`.
             unsafe {
-                match self.allocator {
-                    CudaAllocator::Sync => cudarc::driver::result::malloc_sync(size as usize)
-                        .map(|ptr| (ptr, AllocationKind::Sync)),
-                    CudaAllocator::Async => {
-                        cudarc::driver::result::malloc_async(self.stream, size as usize)
-                            .map(|ptr| (ptr, AllocationKind::Async))
-                            .or_else(|_| {
-                                cudarc::driver::result::malloc_sync(size as usize)
-                                    .map(|ptr| (ptr, AllocationKind::Sync))
-                            })
-                    }
-                }
+                cudarc::driver::result::malloc_sync(size as usize)
+                    .map(|ptr| (ptr, AllocationKind::Sync))
             }
         };
         let (ptr, kind) = match allocation {
@@ -261,21 +235,19 @@ mod tests {
         let context = cudarc::driver::CudaContext::new(0).unwrap();
         let stream = context.new_stream().unwrap();
 
-        for allocator in [CudaAllocator::Sync, CudaAllocator::Async] {
-            let mut storage = GpuStorage::new(512, stream.cu_stream(), allocator);
-            for size in [0, 16] {
-                let handle = storage.alloc(size).unwrap();
-                let resource = storage.get(&handle).unwrap();
-                assert_eq!(handle.size(), size);
-                assert_eq!(resource.size, size);
-                assert_eq!(resource.ptr == 0, size == 0);
-                assert_eq!(storage.bytes_allocated(), size);
+        let mut storage = GpuStorage::new(512);
+        for size in [0, 16] {
+            let handle = storage.alloc(size).unwrap();
+            let resource = storage.get(&handle).unwrap();
+            assert_eq!(handle.size(), size);
+            assert_eq!(resource.size, size);
+            assert_eq!(resource.ptr == 0, size == 0);
+            assert_eq!(storage.bytes_allocated(), size);
 
-                storage.dealloc(handle.id);
-                storage.flush();
-                stream.synchronize().unwrap();
-                assert_eq!(storage.bytes_allocated(), 0);
-            }
+            storage.dealloc(handle.id);
+            storage.flush();
+            stream.synchronize().unwrap();
+            assert_eq!(storage.bytes_allocated(), 0);
         }
     }
 }

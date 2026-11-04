@@ -8,8 +8,8 @@ use cubecl::prelude::*;
 
 #[derive_expand(CubeType)]
 pub struct Range<Idx: Scalar> {
-    start: Idx,
-    end: Idx,
+    pub(crate) start: Idx,
+    pub(crate) end: Idx,
 }
 
 impl<Idx: Scalar> RangeExpand<Idx> {
@@ -104,8 +104,8 @@ impl IntoSliceIndices for RangeFullExpand {
 
 #[derive_expand(CubeType)]
 pub struct RangeInclusive<Idx: Scalar> {
-    start: Idx,
-    last: Idx,
+    pub(crate) start: Idx,
+    pub(crate) last: Idx,
 }
 
 impl<Idx: Scalar> RangeInclusiveExpand<Idx> {

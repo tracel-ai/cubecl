@@ -221,6 +221,9 @@ impl MetalServer {
             .map(|resource| match resource {
                 KernelResource::Buffer(binding) => command.resource(binding),
                 KernelResource::TensorMap(_) => panic!("Tensor maps not supported on Metal"),
+                KernelResource::Peer(_) => {
+                    unreachable!("Metal shares no memory between devices, so no binding is a peer")
+                }
             })
             .collect::<Result<Vec<_>, _>>()?;
         let mut bindings = MetalBindings {

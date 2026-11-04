@@ -2,6 +2,7 @@ pub mod asm;
 pub mod barrier;
 pub mod branch;
 pub mod cmma;
+pub mod iter;
 mod pending;
 pub mod synchronization;
 pub mod wgmma;
@@ -41,6 +42,9 @@ pub use debug::*;
 pub use element::*;
 pub use harness::*;
 pub use indexation::*;
+pub use iter::{
+    IndexedIteratorExpand, IntoIteratorExpand, IntoNumericExpand, IterArg, IteratorExpand,
+};
 pub use list::*;
 pub use operation::*;
 pub use options::*;

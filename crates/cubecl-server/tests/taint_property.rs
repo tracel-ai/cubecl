@@ -611,7 +611,7 @@ fn a_skip_returns_the_pooled_write_set() {
     .execute(|_| -> Result<(), ServerError> {
         unreachable!("a skipped scope must not run its body")
     });
-    assert!(matches!(outcome, ScopedOutcome::Skipped));
+    assert!(matches!(outcome, ScopedOutcome::Skipped(_)));
 
     let returned = FailureStore::write_set(&mut harness.device);
     assert_eq!(
@@ -650,7 +650,7 @@ fn a_skipped_scope_claims_the_failure_its_input_carried_and_mints_none() {
     .execute(|_| -> Result<(), ServerError> {
         unreachable!("a skipped scope must not run its body")
     });
-    assert!(matches!(outcome, ScopedOutcome::Skipped));
+    assert!(matches!(outcome, ScopedOutcome::Skipped(_)));
 
     // No second failure was minted: the output names the original one.
     assert_eq!(
@@ -788,7 +788,7 @@ fn a_skipped_scope_dooms_the_recording_window() {
     .execute(|_| -> Result<(), ServerError> {
         unreachable!("a skipped scope must not run its body")
     });
-    assert!(matches!(outcome, ScopedOutcome::Skipped));
+    assert!(matches!(outcome, ScopedOutcome::Skipped(_)));
 
     harness.device.capture.end(StreamId::current()).unwrap();
     assert!(

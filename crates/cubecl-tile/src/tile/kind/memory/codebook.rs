@@ -24,7 +24,7 @@ impl CodebookRead for TileExpand {
 /// `table[index]`, the table read as the one-axis tile it is.
 ///
 /// Read untested: an index is a field as wide as the one the table was bound for, and a table
-/// holds an entry for every value such a field takes ([`TileArgLaunch::codebook`] refuses a
+/// holds an entry for every value such a field takes ([`TileTensorLaunch::codebook`] refuses a
 /// shorter one), so no index reads past it.
 #[cube]
 fn table_entry(table: &Tile, index: u32) -> f32 {

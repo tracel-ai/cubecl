@@ -31,6 +31,12 @@ dict_key!(
 );
 dict_key!(ATTR_BUFFER_BINDING, "buffer_binding");
 dict_key!(ATTR_TENSOR_MAP_BINDING, "tensor_map_binding");
+dict_key!(
+    /// Marks a buffer binding in memory shared with the other devices of the runtime: kernels
+    /// on them may read and write it while this one runs, so no promise about who writes it or
+    /// what it aliases holds, and an atomic on it synchronizes at system scope.
+    ATTR_PEER_BINDING, "peer_binding"
+);
 
 /// What a compiled kernel does with one buffer binding, stamped on the entry
 /// function's arguments by the visibility analysis and carried to the launch
@@ -244,6 +250,19 @@ pub trait FuncInterface: Op {
 /// pass never reached — the conservative direction for the launch path, since
 /// over-claiming costs a spurious loud failure and under-claiming costs a
 /// silent clean read of garbage.
+/// The binding positions of `func`'s buffers in memory shared with peers (see
+/// [`ATTR_PEER_BINDING`]).
+pub fn peer_buffer_positions(ctx: &Context, func: FuncOp) -> alloc::vec::Vec<usize> {
+    let num_args = func.get_entry_block(ctx).deref(ctx).get_num_arguments();
+    (0..num_args)
+        .filter(|arg| func.has_arg_attr(ctx, *arg, &ATTR_PEER_BINDING))
+        .filter_map(|arg| {
+            func.get_arg_attr::<BufferBindingAttr>(ctx, arg, &ATTR_BUFFER_BINDING)
+                .map(|binding| binding.buffer_pos)
+        })
+        .collect()
+}
+
 pub fn buffer_io_by_position(ctx: &Context, func: FuncOp) -> alloc::vec::Vec<BufferIOAttr> {
     let num_args = func.get_entry_block(ctx).deref(ctx).get_num_arguments();
     let mut io = alloc::vec::Vec::new();

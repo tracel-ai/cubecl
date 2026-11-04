@@ -20,7 +20,7 @@ use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{client::Client, prelude::*, zspace::Shape};
 use cubecl_tile::{
     Axis, Instruction, Levels, MmaOperands, Partitioning, RegisterBlock, Scratch, Semiring, Space,
-    StageStorage, Stages, Tile, TileArg, TileArgLaunch, TileSpec,
+    StageStorage, Stages, Tile, TileSpec, TileTensor, TileTensorLaunch,
     ops::{matmul::MmaIo, softmax::OnlineSoftmax},
     procedural::{Procedural, Reads, Recipe, RecipeCoords, RecipeExpand},
 };
@@ -63,10 +63,10 @@ impl Reads for AttendedExpand {
 #[cube(launch)]
 #[allow(clippy::too_many_arguments)]
 fn plane_attention<E: Float>(
-    q: &TileArg<'_>,
-    k: &TileArg<'_>,
-    v: &TileArg<'_>,
-    out: &TileArg<'_>,
+    q: &TileTensor<'_>,
+    k: &TileTensor<'_>,
+    v: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     keys: u32,
     queries: u32,
     scale: f32,
@@ -74,6 +74,7 @@ fn plane_attention<E: Float>(
     #[comptime] causal: bool,
     #[comptime] block_keys: usize,
     #[comptime] unbiased: bool,
+    #[comptime] over_run: bool,
     #[define(E)] _dtype: ElemType,
 ) {
     let q = q.tile(&space);
@@ -99,7 +100,11 @@ fn plane_attention<E: Float>(
             // attended keys.
             let origin = plane.origin(S);
             let reach = select(keys as usize > origin, keys as usize - origin, 0usize);
-            let keys_walk = plane.walk();
+            // Over the attended keys' run, every block but the last fills unchecked.
+            let keys_walk = match comptime!(over_run) {
+                true => plane.walk().over_run(S),
+                false => plane.walk(),
+            };
             let blocks = reach.div_ceil(block_keys).min(keys_walk.total());
             let walk = keys_walk.range(0, blocks);
             let score = Tile::scratch::<f32>(&walk, comptime!(vec![Q, S]), StageStorage::Strided);
@@ -156,10 +161,10 @@ fn plane_attention<E: Float>(
 #[cube(launch)]
 #[allow(clippy::too_many_arguments)]
 fn register_plane_attention<E: Float>(
-    q: &TileArg<'_>,
-    k: &TileArg<'_>,
-    v: &TileArg<'_>,
-    out: &TileArg<'_>,
+    q: &TileTensor<'_>,
+    k: &TileTensor<'_>,
+    v: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     max: &mut Tensor<f32>,
     sum: &mut Tensor<f32>,
     keys: u32,
@@ -265,10 +270,10 @@ fn register_plane_attention<E: Float>(
 #[cube(launch)]
 #[allow(clippy::too_many_arguments)]
 fn unit_attention(
-    q: &TileArg<'_>,
-    k: &TileArg<'_>,
-    v: &TileArg<'_>,
-    out: &TileArg<'_>,
+    q: &TileTensor<'_>,
+    k: &TileTensor<'_>,
+    v: &TileTensor<'_>,
+    out: &TileTensor<'_>,
     max: &mut Tensor<f32>,
     sum: &mut Tensor<f32>,
     keys: u32,
@@ -388,6 +393,9 @@ struct Case {
     /// Every block taken in as one no bias touches ([`OnlineSoftmax::step_unbiased`]), for a
     /// case that masks nothing.
     unbiased: bool,
+    /// The walk told it steps the attended keys' run ([`Walk::over_run`]): every block but the
+    /// last filled unchecked ([`plane_attention`] alone).
+    over_run: bool,
 }
 
 impl Case {
@@ -471,10 +479,10 @@ fn run<E: Float + CubeElement>(case: Case) {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(q_tensor, e_ty, 1, TileSpec::direct(&[Q, D])),
-        TileArgLaunch::new(k_tensor, e_ty, 1, TileSpec::direct(&[S, D])),
-        TileArgLaunch::new(v_tensor, e_ty, 1, TileSpec::direct(&[S, V])),
-        TileArgLaunch::new(out_tensor, f32_ty, 1, TileSpec::direct(&[Q, V])),
+        TileTensorLaunch::new(q_tensor, e_ty, 1, TileSpec::direct(&[Q, D])),
+        TileTensorLaunch::new(k_tensor, e_ty, 1, TileSpec::direct(&[S, D])),
+        TileTensorLaunch::new(v_tensor, e_ty, 1, TileSpec::direct(&[S, V])),
+        TileTensorLaunch::new(out_tensor, f32_ty, 1, TileSpec::direct(&[Q, V])),
         attended as u32,
         queries as u32,
         scale,
@@ -482,6 +490,7 @@ fn run<E: Float + CubeElement>(case: Case) {
         causal,
         edge * block,
         case.unbiased(),
+        case.over_run,
         e_ty,
     );
     let out = HostData::from_tensor_handle(&client, out_handle, HostDataType::F32);
@@ -567,25 +576,25 @@ fn run_registers<E: Float + CubeElement>(case: Case, ending: Ending, run: usize)
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             q_handle.binding().into_tensor_arg(),
             e_ty,
             1,
             TileSpec::direct(&[Q, D]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             k_handle.binding().into_tensor_arg(),
             e_ty,
             1,
             TileSpec::direct(&[S, D]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             v_handle.binding().into_tensor_arg(),
             e_ty,
             1,
             TileSpec::direct(&[S, V]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             out_handle.clone().binding().into_tensor_arg(),
             f32_ty,
             1,
@@ -900,26 +909,26 @@ fn run_units<E: Float + CubeElement>(case: UnitCase) {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             q_handle.binding().into_tensor_arg(),
             e_ty,
             1,
             TileSpec::direct(&[Q, D]),
         ),
         // The keys are stored transposed, so a step's rhs runs along the keys it scores.
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             k_handle.binding().into_tensor_arg(),
             e_ty,
             1,
             TileSpec::direct(&[D, S]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             v_handle.binding().into_tensor_arg(),
             e_ty,
             1,
             TileSpec::direct(&[S, V]),
         ),
-        TileArgLaunch::new(
+        TileTensorLaunch::new(
             out_handle.clone().binding().into_tensor_arg(),
             f32_ty,
             1,
@@ -967,6 +976,7 @@ const PREFILL: Case = Case {
     along: PlanesAlong::Queries,
     causal: false,
     unbiased: false,
+    over_run: false,
 };
 
 #[test]
@@ -1020,6 +1030,21 @@ fn plane_attention_steps_unbiased_blocks() {
     }
 }
 
+/// A walk over the attended keys' run fills every block but its last unchecked; the last, which
+/// runs past the attended keys into poisoned ones, still reads zero there.
+#[test]
+fn plane_attention_over_the_run_bounds_only_its_last_block() {
+    for causal in [false, true] {
+        run::<half::f16>(Case {
+            keys: 128,
+            attended: 100,
+            causal,
+            over_run: true,
+            ..WIDE_PREFILL
+        });
+    }
+}
+
 #[test]
 fn plane_attention_on_wide_fragments_masks_causally_from_the_bottom_right() {
     run::<half::f16>(Case {
@@ -1044,6 +1069,7 @@ const REGISTER_PREFILL: Case = Case {
     along: PlanesAlong::Queries,
     causal: false,
     unbiased: false,
+    over_run: false,
 };
 
 #[test]

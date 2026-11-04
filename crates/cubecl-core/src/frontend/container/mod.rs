@@ -2,6 +2,7 @@ mod array;
 pub mod buffer_len;
 mod cell;
 mod iter;
+mod peer;
 mod registry;
 mod sequence;
 mod shared_memory;
@@ -11,6 +12,7 @@ mod vector;
 
 pub use array::*;
 pub use cell::*;
+pub use peer::*;
 pub use registry::*;
 pub use sequence::*;
 pub use shared_memory::*;
