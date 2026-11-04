@@ -359,7 +359,7 @@ fn insert_spirv_module(ctx: &mut Context, module: ModuleOp) -> SpirvModuleOp {
         .insert_at_front(module_body, ctx);
     let vce = VerCapExtAttr::new(
         comp_opts.max_spirv_version,
-        vec![Capability::Shader, Capability::VariablePointers],
+        vec![Capability::Shader],
         vec![],
     );
     spirv_module.set_attr_spirv_module_vce(ctx, vce);
