@@ -283,7 +283,7 @@ test_binary_impl!(
 test_binary_impl!(
     test_atan2d,
     F,
-    Vector::atan2d,
+    atan2d,
     [
         {
             input_vectorization: 1,
