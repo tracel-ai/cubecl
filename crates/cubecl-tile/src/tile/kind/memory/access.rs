@@ -505,6 +505,25 @@ impl Memory {
         }
     }
 
+    /// The words a packed store's [`unpacked`](Memory::unpacked) read decodes, `WP` a load, read
+    /// through `layout` under the same mask, undecoded: what a unit holds in registers between a
+    /// fetch and the contraction that decodes them ([`unpack_line`]).
+    pub(crate) fn words<WP: Size, C: Coordinates + 'static, L: TileLayout<C>>(
+        &self,
+        layout: L,
+        #[comptime] guard: Guard,
+    ) -> Masked<'_, Vector<u32, WP>, C> {
+        comptime!(assert!(
+            matches!(self.store.packing, Packing::Packed { .. }),
+            "Memory::words: only a packed store holds words of fields"
+        ));
+        Masked::new(
+            self.window_view_storage::<u32, WP>(comptime!(Guard::Checked))
+                .view(layout),
+            comptime!(guard.checks() && self.access.overhang.masks()),
+        )
+    }
+
     /// [`unpacked`](Memory::unpacked) with the physical line taken from this store's [`Packing`].
     pub(crate) fn packed<T: Numeric, W: Size, C: Coordinates + 'static, L: TileLayout<C>>(
         &self,

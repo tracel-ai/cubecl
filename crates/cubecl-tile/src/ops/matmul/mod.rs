@@ -6,6 +6,7 @@ pub(crate) mod descent;
 pub(crate) mod instruction;
 pub(crate) mod leaf;
 pub(crate) mod mma_io;
+pub(crate) mod prefetched;
 pub(crate) mod register_block;
 
 pub(crate) use descent::Descent;
