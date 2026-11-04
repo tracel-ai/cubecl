@@ -364,27 +364,50 @@ fn powi_runtime<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> V
     result
 }
 
-/// Wrapping integer power, interpreting the exponent as `u32`.
+/// Integer power with a signed exponent.
+///
+/// A non-negative exponent gives the wrapping power, like [`powi_unsigned`]. A negative exponent
+/// gives `1 / base^|exp|` truncated toward zero: 1 for a base of 1, 1 or -1 by the exponent's
+/// parity for a base of -1, and 0 for any other base, including 0.
 #[cube]
 pub fn powi_int<T: Int, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vector<T, N> {
+    let one = Vector::<T, N>::one();
+    // Read as `u32`, a negative exponent keeps its parity, so the wrapping power is already the
+    // truncated one for a base of 1 or -1.
+    let power = powi_unsigned(base, Vector::<u32, N>::cast_from(exp));
+
+    // Only a signed base can be -1. For an unsigned one, `T::new(-1)` would be its maximum value.
+    let dtype = elem_type_of::<T>().comptime();
+    let unit_base = if comptime!(dtype.is_signed_int()) {
+        base.equal(&one).or(base.equal(&Vector::new(T::new(-1))))
+    } else {
+        base.equal(&one)
+    };
+    let truncated = select_many(unit_base, power, Vector::zero());
+
+    select_many(exp.less_than(&Vector::zero()), truncated, power)
+}
+
+/// Wrapping integer power with an unsigned exponent, like the primitive `wrapping_pow`.
+#[cube]
+pub fn powi_unsigned<T: Int, N: Size>(base: Vector<T, N>, exp: Vector<u32, N>) -> Vector<T, N> {
     // Use unsigned arithmetic so intermediate squares wrap on C++ backends too.
     // Narrow integers can use u32: truncating the final result preserves their low bits
     // and avoids C++ integer promotion turning multiplication into signed arithmetic.
     if T::size_bits().comptime() <= 32 {
-        Vector::cast_from(powi_int_unsigned::<u32, N>(Vector::cast_from(base), exp))
+        Vector::cast_from(powi_unsigned_wide::<u32, N>(Vector::cast_from(base), exp))
     } else {
-        Vector::cast_from(powi_int_unsigned::<u64, N>(Vector::cast_from(base), exp))
+        Vector::cast_from(powi_unsigned_wide::<u64, N>(Vector::cast_from(base), exp))
     }
 }
 
 // Only instantiate with u32 or u64 to keep multiplication unsigned on every backend.
 #[cube]
-fn powi_int_unsigned<T: Int, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vector<T, N> {
+fn powi_unsigned_wide<T: Int, N: Size>(base: Vector<T, N>, exp: Vector<u32, N>) -> Vector<T, N> {
     let one_u = Vector::<u32, N>::new(1);
     let one_t = Vector::<T, N>::new(T::from_int(1));
 
-    // Integer powers use an unsigned exponent, matching primitive integer `pow` semantics.
-    let mut exp = Vector::<u32, N>::cast_from(exp);
+    let mut exp = exp;
     let mut result = one_t;
     let mut factor = base;
 
