@@ -53,10 +53,12 @@ use cubecl_runtime::compiler::CompilationError;
 use pliron::{
     basic_block::BasicBlock,
     builtin::{
+        attributes::UnitAttr,
         op_interfaces::OneRegionInterface,
         ops::{ConstantOp, FuncOp, ModuleOp},
     },
     context::{Context, Ptr},
+    dict_key,
     ident,
     identifier::Identifier,
     irbuild::{
@@ -73,7 +75,10 @@ use pliron::{
 use pliron_spirv::{
     ToSpirvOp,
     attrs::VerCapExtAttr,
-    decorations::{DecoratableOp, set_decoration_uniform, set_decoration_uniform_id},
+    decorations::{
+        DecoratableOp, set_decoration_no_contraction, set_decoration_uniform,
+        set_decoration_uniform_id,
+    },
     ops::{EntryPointOp, ExecutionModeOp, GlobalVariableOp, SpirvModuleOp},
 };
 use rspirv::{
@@ -432,6 +437,27 @@ fn declare_entry_point(ctx: &mut Context, module: SpirvModuleOp, shared_args: Ve
             execution_mode.get_operation().insert_at_front(block, ctx);
         },
     );
+}
+
+dict_key!(
+    /// Marks a float operation whose rounding must stay as written: the driver may neither fuse it
+    /// with another operation nor reassociate it. Error-free transformations depend on this.
+    NO_CONTRACTION_ATTR,
+    "spirv_no_contraction"
+);
+
+/// Gives `to` the `NoContraction` decoration when `from`, the op it replaces, is marked with
+/// [`NO_CONTRACTION_ATTR`].
+pub(crate) fn decorate_no_contraction(ctx: &Context, from: Ptr<Operation>, to: Ptr<Operation>) {
+    if from
+        .get_attr::<UnitAttr>(ctx, &NO_CONTRACTION_ATTR)
+        .is_none()
+    {
+        return;
+    }
+    if let Some(decoratable) = op_cast::<dyn DecoratableOp>(&*to.dyn_op(ctx)) {
+        set_decoration_no_contraction(decoratable, ctx);
+    }
 }
 
 pub(crate) fn decorate_uniform(ctx: &Context, op: Ptr<Operation>, uniformity: Option<UniformAttr>) {
