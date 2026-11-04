@@ -326,9 +326,7 @@ impl SpirvCompiler {
         hoist_constants(ctx, spirv_module);
 
         // Make sure this is the last pass so it catches all ops
-        OpPass::<SpirvModuleOp, CollectVerCapExtPass>::default()
-            .run(spirv_module_op, ctx, &mut analyses)
-            .unwrap();
+        collect_requirements(ctx, spirv_module, &mut analyses);
 
         // Something weird with the validation rules, can't be bothered to debug for the MVP.
         // Try to figure this out later.
@@ -437,6 +435,54 @@ fn declare_entry_point(ctx: &mut Context, module: SpirvModuleOp, shared_args: Ve
             execution_mode.get_operation().insert_at_front(block, ctx);
         },
     );
+}
+
+/// Collects the version, capabilities and extensions the module needs.
+fn collect_requirements(ctx: &mut Context, module: SpirvModuleOp, analyses: &mut AnalysisManager) {
+    let op = module.get_operation();
+    let mut collect = OpPass::<SpirvModuleOp, CollectVerCapExtPass>::default();
+    collect.run(op, ctx, analyses).unwrap();
+    if preserve_f64_special_values(ctx, module) {
+        // The execution mode needs a capability of its own.
+        collect.run(op, ctx, analyses).unwrap();
+    }
+}
+
+/// A driver may assume that no signed zero, infinity or NaN reaches a float operation, and fold a
+/// NaN test away, unless the kernel declares `SignedZeroInfNanPreserve` for the width. The f64
+/// functions handle these values themselves, so a kernel that uses f64 declares it where the device
+/// can honor it. Returns whether the mode was added.
+fn preserve_f64_special_values(ctx: &mut Context, module: SpirvModuleOp) -> bool {
+    let supported = ctx
+        .aux_ty::<WgpuCompilationOptions>()
+        .vulkan
+        .supports_f64_signed_zero_inf_nan_preserve;
+    let uses_f64 = module
+        .get_vce(ctx)
+        .capabilities
+        .contains(&Capability::Float64);
+    if !(supported && uses_f64) {
+        return false;
+    }
+
+    let mut entry_points = vec![];
+    visit_all_ops_of_type::<FuncOp, _>(
+        ctx,
+        &mut entry_points,
+        module.get_operation(),
+        |ctx, names, func| {
+            if func.get_entrypoint_abi(ctx).is_some() {
+                names.push(func.get_symbol_name(ctx));
+            }
+        },
+    );
+    let block = module.get_body(ctx, 0);
+    for name in entry_points {
+        let mode =
+            ExecutionModeOp::new(ctx, name, ExecutionMode::SignedZeroInfNanPreserve, vec![64]);
+        mode.get_operation().insert_at_front(block, ctx);
+    }
+    true
 }
 
 dict_key!(
