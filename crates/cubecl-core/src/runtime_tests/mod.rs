@@ -26,6 +26,7 @@ pub mod enums;
 pub mod file;
 pub mod harness;
 pub mod index;
+pub mod iter;
 pub mod launch;
 pub mod metadata;
 pub mod minifloat;
@@ -175,6 +176,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_cluster!();
 
         cubecl_core::testgen_enums!();
+        cubecl_core::testgen_iter!();
         cubecl_core::testgen_harness!();
         cubecl_core::testgen_comparison!();
 
