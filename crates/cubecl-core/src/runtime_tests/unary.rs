@@ -659,7 +659,7 @@ test_unary_impl!(test_sqrt, F, Vector::sqrt, [
 ]);
 
 // Multiples of 90 are where `sin(to_radians(x))` misses 0 and ±1.
-test_unary_impl!(test_sind, F, Vector::sind, [
+test_unary_impl!(test_sind, F, sind, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -680,7 +680,7 @@ test_unary_impl!(test_sind, F, Vector::sind, [
     }
 ]);
 
-test_unary_impl!(test_cosd, F, Vector::cosd, [
+test_unary_impl!(test_cosd, F, cosd, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -701,7 +701,7 @@ test_unary_impl!(test_cosd, F, Vector::cosd, [
     }
 ]);
 
-test_unary_impl!(test_tand, F, Vector::tand, [
+test_unary_impl!(test_tand, F, tand, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -723,7 +723,7 @@ test_unary_impl!(test_tand, F, Vector::tand, [
 ]);
 
 // `f16` holds 180 to within 0.125, as in `test_degrees`.
-test_unary_impl!(test_asind, F, Vector::asind, [
+test_unary_impl!(test_asind, F, asind, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -744,7 +744,7 @@ test_unary_impl!(test_asind, F, Vector::asind, [
     }
 ], 0.3);
 
-test_unary_impl!(test_acosd, F, Vector::acosd, [
+test_unary_impl!(test_acosd, F, acosd, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -765,7 +765,7 @@ test_unary_impl!(test_acosd, F, Vector::acosd, [
     }
 ], 0.3);
 
-test_unary_impl!(test_atand, F, Vector::atand, [
+test_unary_impl!(test_atand, F, atand, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
