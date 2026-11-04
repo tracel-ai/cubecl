@@ -1,0 +1,116 @@
+name: GPU tests (simulated)
+
+# Optional, non-required check. The runners have no GPU, so this runs the
+# cubecl-cuda tests on a simulated NVIDIA H100
+# (https://github.com/pantheongpu/pantheonsim). A simulator cannot reproduce
+# hardware-specific behaviour or timing, so it complements real-GPU testing and
+# does not replace it.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "crates/cubecl-cuda/**"
+      - "crates/cubecl-llvm/**"
+      - "crates/cubecl-cpp/**"
+      - ".github/workflows/gpu-sim.yml"
+  pull_request:
+    types: [opened, synchronize]
+    branches:
+      - main
+    paths:
+      - "crates/cubecl-cuda/**"
+      - "crates/cubecl-llvm/**"
+      - "crates/cubecl-cpp/**"
+      - ".github/workflows/gpu-sim.yml"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # cudarc loads libcuda and NVRTC at runtime (fallback-dynamic-loading).
+  CUDARC_CUDA_VERSION: "13000"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cuda-tests:
+    name: cubecl-cuda tests on a simulated H100
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      # --------------------------------------------------------------------------------
+      - name: Set up the simulated GPU and CUDA toolkit
+        uses: pantheongpu/setup-pantheonsim@dda0c8df8d72627c295edbae525354ba2bcb1687 # v0.1.4
+        with:
+          gpu: nvidia/h100
+          cuda-toolkit: "13.0"
+      # --------------------------------------------------------------------------------
+      - name: Install Rust
+        uses: tracel-ai/github-actions/install-rust@v12
+        with:
+          rust-toolchain: stable
+          cache-key: stable-gpu-sim
+      # --------------------------------------------------------------------------------
+      # Default backend: kernels are lowered through LLVM to PTX.
+      - name: Build
+        run: cargo test -p cubecl-cuda --no-run
+      # --------------------------------------------------------------------------------
+      # Skipped:
+      # - shared_memory::write_from_i8x4 reads 16 bytes from a 4-byte shared
+      #   allocation (`Shared::new_slice(1)` of a 4-wide i8 vector, read at
+      #   `2 * UNIT_POS + 1`). The simulator reports the out-of-bounds access and
+      #   poisons the context, which fails every test that runs after it.
+      # - test_abs_int (i8): the simulator's `prmt` does not sign-extend with the
+      #   replicate selectors (0x8..0xf) that LLVM emits for 4-wide i8 `abs`.
+      # - bf16_ty powf, vector not-equal, cbrt, inverse_cbrt and is_nan return
+      #   wrong values (missing sign / NaN handling) on the simulated H100.
+      - name: Test
+        run: |
+          vgpu run cargo test -p cubecl-cuda --no-fail-fast -- \
+            --skip shared_memory::write_from_i8x4 \
+            --skip i8_ty::unary_int::test_abs_int \
+            --skip bf16_ty::binary::test_powf \
+            --skip bf16_ty::test_vector_not_equal \
+            --skip bf16_ty::unary::test_cbrt \
+            --skip bf16_ty::unary::test_inverse_cbrt \
+            --skip bf16_ty::unary::test_is_nan
+      # --------------------------------------------------------------------------------
+      # `cpp` backend: kernels are transpiled to CUDA C++ and compiled with NVRTC.
+      # The complex_math tests panic on the host ("Unexpanded Cube functions
+      # should not be called") whenever the `cpp` feature is on, with or without a GPU.
+      - name: Build (CUDA C++ / NVRTC backend)
+        run: cargo test -p cubecl-cuda --features cpp --no-run
+      # --------------------------------------------------------------------------------
+      # NVRTC targets sm_90 here, and the simulator's PTX parser rejects some of
+      # what it emits for the atomic float add/sub/min on f16 and bf16, the f32
+      # atomic load/store/swap, `elect` (plane_elect) and async barrier copies.
+      # The bf16 vector not-equal and is_nan tests return wrong values, as in the
+      # default backend.
+      - name: Test (CUDA C++ / NVRTC backend)
+        run: |
+          vgpu run cargo test -p cubecl-cuda --features cpp --no-fail-fast -- \
+            --skip shared_memory::write_from_i8x4 \
+            --skip complex_math:: \
+            --skip bf16_ty::test_atomic_add_float \
+            --skip bf16_ty::test_atomic_sub_float \
+            --skip bf16_ty::test_atomic_min_float \
+            --skip f16_ty::test_atomic_add_float \
+            --skip f16_ty::test_atomic_sub_float \
+            --skip f16_ty::test_atomic_min_float \
+            --skip f32_ty::test_atomic_load_float \
+            --skip f32_ty::test_atomic_store_float \
+            --skip f32_ty::test_atomic_swap_float \
+            --skip test_barrier_async_copy \
+            --skip test_plane_elect_vec1 \
+            --skip bf16_ty::test_vector_not_equal \
+            --skip bf16_ty::unary::test_is_nan
