@@ -669,68 +669,43 @@ fn test_powi_int_cases<I: Int + Powi<i32> + CubeElement + Display>(
     }
 }
 
+/// Wrapping non-negative powers and truncated negative powers share the signed-exponent API.
 pub fn test_powi_int<R: Runtime>(client: Client) {
-    test_powi_int_cases(&client, &[3i32, 2, -3, 7], &[2, 3, 3, 0], &[9, 8, -27, 1]);
-
-    // Exercise truncation, signed overflow, negative exponents, and unsigned bases.
     macro_rules! check {
-        ($ty:ty, $lhs:expr, $rhs:expr) => {{
-            let lhs: [$ty; 8] = $lhs;
-            let rhs: [i32; 8] = $rhs;
-            let expected: [$ty; 8] = core::array::from_fn(|i| match (lhs[i] as i128, rhs[i]) {
-                (_, exp @ 0..) => lhs[i].wrapping_pow(exp as u32),
-                // `1 / base^|exp|` truncates to 0 unless the base is 1 or -1.
-                (1, _) => 1,
-                (-1, exp) if exp % 2 == 0 => 1,
-                (-1, _) => lhs[i],
-                _ => 0,
-            });
-            test_powi_int_cases(&client, &lhs, &rhs, &expected);
+        ($ty:ty, $cases:expr) => {{
+            let cases: [($ty, i32, $ty); _] = $cases;
+            test_powi_int_cases(
+                &client,
+                &cases.map(|(base, _, _)| base),
+                &cases.map(|(_, exp, _)| exp),
+                &cases.map(|(_, _, expected)| expected),
+            );
         }};
     }
-    check!(
-        i8,
-        [-3, 127, -128, 0, 3, -1, 1, 7],
-        [3, 2, 1, 0, 7, -1, i32::MIN, 0]
-    );
-    check!(
-        u16,
-        [65535, 256, 3, 0, 1, 7, 2, 5],
-        [2, 2, 10, 0, -1, 0, 16, 3]
-    );
-    check!(
-        i32,
-        [i32::MAX, i32::MIN, -3, 0, 3, -1, 1, 7],
-        [2, 1, 3, 0, 20, -1, i32::MIN, 0]
-    );
-    check!(
-        u32,
-        [u32::MAX, 65536, 3, 0, 1, 7, 2, 5],
-        [2, 2, 20, 0, -1, 0, 32, 3]
-    );
-    check!(
-        i64,
-        [i64::MAX, i64::MIN, -3, 0, 3, -1, 3, 4294967297],
-        [2, 1, 3, 0, 40, -1, i32::MIN, 2]
-    );
-    check!(
-        u64,
-        [u64::MAX, 4294967297, 3, 0, 3, 7, 2, 5],
-        [2, 2, 40, 0, -1, 0, 64, 3]
-    );
-}
 
-pub fn test_powi_int_negative_exponent<R: Runtime>(client: Client) {
-    // A negative exponent gives `1 / base^|exp|` truncated toward zero: 1 for a base of 1,
-    // 1 or -1 by parity for a base of -1, and 0 otherwise, including for a base of 0.
-    let exp = [-1, -3, -1, -2, -1, -2, i32::MIN, -31];
+    // Keep positive and negative exponents in the same vector to exercise per-lane selection.
     macro_rules! signed {
         ($ty:ty) => {
-            test_powi_int_cases::<$ty>(
-                &client,
-                &[3, -3, 0, 1, -1, -1, -1, 2],
-                &exp,
-                &[0, 0, 0, 1, -1, 1, 1, 0],
+            check!(
+                $ty,
+                [
+                    (3, 2, 9),
+                    (3, -1, 0),
+                    (-3, 3, -27),
+                    (-3, -3, 0),
+                    (<$ty>::MAX, 2, 1),
+                    (<$ty>::MIN, 1, <$ty>::MIN),
+                    (0, 0, 1),
+                    (0, -1, 0),
+                    (3, 40, 12_157_665_459_056_928_801u64 as $ty),
+                    (2, <$ty>::BITS as i32, 0),
+                    (3, 7, 2187u16 as $ty),
+                    (1, i32::MIN, 1),
+                    (-1, -1, -1),
+                    (-1, -2, 1),
+                    (-1, i32::MIN, 1),
+                    (3, i32::MIN, 0),
+                ]
             );
         };
     }
@@ -739,14 +714,25 @@ pub fn test_powi_int_negative_exponent<R: Runtime>(client: Client) {
     signed!(i32);
     signed!(i64);
 
-    // An unsigned base has no -1, so its maximum value goes to 0 like any other base above 1.
+    // An unsigned maximum must not be mistaken for -1, for either exponent parity.
     macro_rules! unsigned {
         ($ty:ty) => {
-            test_powi_int_cases::<$ty>(
-                &client,
-                &[3, 0, 1, <$ty>::MAX, 2, 1, <$ty>::MAX, 7],
-                &exp,
-                &[0, 0, 1, 0, 0, 1, 0, 0],
+            check!(
+                $ty,
+                [
+                    (<$ty>::MAX, 2, 1),
+                    (<$ty>::MAX, -1, 0),
+                    (<$ty>::MAX, -2, 0),
+                    (<$ty>::MAX, i32::MIN, 0),
+                    (3, 40, 12_157_665_459_056_928_801u64 as $ty),
+                    (3, -1, 0),
+                    (2, <$ty>::BITS as i32, 0),
+                    (3, i32::MIN, 0),
+                    (0, 0, 1),
+                    (0, -1, 0),
+                    (1, -1, 1),
+                    (1, i32::MIN, 1),
+                ]
             );
         };
     }
@@ -771,11 +757,11 @@ pub fn test_powi_unsigned<R: Runtime>(client: Client) {
     use cubecl_ir::features::TypeUsage;
 
     // Exponents above `i32::MAX` stay powers, for signed and unsigned bases alike.
-    let rhs: [u32; 8] = [3_000_000_001, 1 << 31, u32::MAX, (1 << 31) + 1, 0, 1, 7, 40];
+    let rhs: [u32; 4] = [3_000_000_001, 1 << 31, u32::MAX, (1 << 31) + 1];
     macro_rules! check {
         ($ty:ty, $lhs:expr) => {{
-            let lhs: [$ty; 8] = $lhs;
-            let expected: [$ty; 8] = core::array::from_fn(|i| lhs[i].wrapping_pow(rhs[i]));
+            let lhs: [$ty; 4] = $lhs;
+            let expected: [$ty; 4] = core::array::from_fn(|i| lhs[i].wrapping_pow(rhs[i]));
 
             let uses = <$ty>::supported_uses(&client);
             if uses.contains(TypeUsage::Arithmetic) && uses.contains(TypeUsage::Buffer) {
@@ -799,14 +785,14 @@ pub fn test_powi_unsigned<R: Runtime>(client: Client) {
             }
         }};
     }
-    check!(i8, [3, -1, -1, -1, 0, -128, 2, -3]);
-    check!(u8, [3, 255, 5, 255, 0, 200, 2, 3]);
-    check!(i16, [3, -1, -1, -1, 0, i16::MIN, 2, -3]);
-    check!(u16, [3, u16::MAX, 5, u16::MAX, 0, 300, 2, 3]);
-    check!(i32, [3, -1, -1, -1, 0, i32::MIN, 2, -3]);
-    check!(u32, [3, u32::MAX, 5, u32::MAX, 0, 65536, 2, 3]);
-    check!(i64, [3, -1, -1, -1, 0, i64::MIN, 2, -3]);
-    check!(u64, [3, u64::MAX, 5, u64::MAX, 0, 4294967297, 2, 3]);
+    check!(i8, [3, -1, -3, -1]);
+    check!(u8, [3, u8::MAX, 5, u8::MAX]);
+    check!(i16, [3, -1, -3, -1]);
+    check!(u16, [3, u16::MAX, 5, u16::MAX]);
+    check!(i32, [3, -1, -3, -1]);
+    check!(u32, [3, u32::MAX, 5, u32::MAX]);
+    check!(i64, [3, -1, -3, -1]);
+    check!(u64, [3, u64::MAX, 5, u64::MAX]);
 }
 
 #[cube(launch_unchecked)]
@@ -1303,7 +1289,6 @@ macro_rules! testgen_binary_untyped {
             add_test!(test_mulhi);
             add_test!(test_dp4a);
             add_test!(test_powi_int);
-            add_test!(test_powi_int_negative_exponent);
             add_test!(test_powi_unsigned);
             add_test!(test_powi_negative_near_one);
             add_test!(test_signed_remainder);
