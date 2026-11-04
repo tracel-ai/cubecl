@@ -13,6 +13,9 @@ mod channel;
 mod placement;
 
 #[cfg(feature = "std")]
+pub use placement::ProcessCpus;
+
+#[cfg(feature = "std")]
 mod exit;
 
 #[allow(dead_code)]
