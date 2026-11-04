@@ -447,9 +447,29 @@ impl Walk {
     pub(crate) fn depth(&self) -> usize {
         self.parent.path.depth() + 1
     }
+
+    /// The one region this walk hands this instance: a walk whose level gives each instance a
+    /// single region, as a plane's units each take one leaf of a step.
+    ///
+    /// # Panics
+    ///
+    /// At expansion, where the walk hands an instance other than one region.
+    pub(crate) fn only(&self) -> Region {
+        unexpanded!()
+    }
 }
 
 impl WalkExpand {
+    pub(crate) fn __expand_only_method(&self, scope: &Scope) -> RegionExpand {
+        assert_eq!(
+            self.const_len(),
+            Some(1),
+            "Walk::only: this walk hands an instance other than one region"
+        );
+        let first = 0usize.into_expand(scope);
+        self.__expand_region_method(scope, first)
+    }
+
     pub fn __expand_unrolled_method(mut self, _scope: &Scope) -> Self {
         self.unroll = true;
         self

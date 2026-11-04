@@ -236,6 +236,18 @@ impl Tile {
         g.packed::<T, W, Coords2d, ProjectedMatrix>(layout, comptime!(Guard::Checked))
     }
 
+    /// The `i`-th batch matrix over `axes` of a packed tile, as the words its loads read,
+    /// undecoded: the loads [`matrix_packed`](Tile::matrix_packed) decodes, at the same positions.
+    pub(crate) fn matrix_words<WP: Size>(
+        &self,
+        #[comptime] axes: MatrixAxes,
+        i: usize,
+    ) -> MatrixView<'_, Vector<u32, WP>> {
+        let g = self.mem("matrix_words");
+        let layout = g.batch_matrix(&self.place.space, axes, i);
+        g.words::<WP, Coords2d, ProjectedMatrix>(layout, comptime!(Guard::Checked))
+    }
+
     /// The fragment's grouped matrix, unpacked if packed; `cols` is in scalars.
     pub(crate) fn fragment_matrix_packed<T: Numeric, W: Size>(
         &self,

@@ -1713,20 +1713,10 @@ impl Tile {
     fn value_in_line<S: Numeric>(&self, coords: &Coords<u32>, #[comptime] guard: Guard) -> S {
         let define!(Served) = self.element;
         let space = comptime!(self.place.space.clone());
-        let rank = space.rank();
         let load = self.vector_tile();
         let width = comptime!(load.values());
         let packing = self.packing();
-        let mut position = 0u32.runtime();
-        #[unroll]
-        for p in 0..rank {
-            let axis = space.axis_at(p);
-            let extent = comptime!(load.extent_along(axis) as u32);
-            if extent > 1 {
-                let step = comptime!(load.step_along(axis) as u32);
-                position += coords.at(p).remainder(extent).times(step);
-            }
-        }
+        let position = self.position_in_line(coords);
         match comptime!(packing) {
             Packing::Plain | Packing::Words { .. } => {
                 let size!(W) = width;
@@ -1740,13 +1730,70 @@ impl Tile {
                 };
                 S::cast_from(value)
             }
+            Packing::Packed { field: _ } => {
+                let size!(WP) = self.words_a_line();
+                let words = self.words_holding::<WP>(coords, guard);
+                self.value_in_words::<S, WP>(words, position)
+            }
+        }
+    }
+
+    /// The place, among the values of the load holding it, of the value at `coords`
+    /// ([`value_in_line`](Tile::value_in_line)).
+    pub(crate) fn position_in_line(&self, coords: &Coords<u32>) -> u32 {
+        let space = comptime!(self.place.space.clone());
+        let rank = comptime!(space.rank());
+        let load = self.vector_tile();
+        let mut position = 0u32.runtime();
+        #[unroll]
+        for p in 0..rank {
+            let axis = comptime!(space.axis_at(p));
+            let extent = comptime!(load.extent_along(axis) as u32);
+            if comptime!(extent > 1) {
+                let step = comptime!(load.step_along(axis) as u32);
+                position += coords.at(p).remainder(extent).times(step);
+            }
+        }
+        position
+    }
+
+    /// The words one load of this packed tile reads.
+    pub(crate) fn words_a_line(&self) -> comptime_type!(usize) {
+        let load = self.vector_tile();
+        let packing = self.packing();
+        comptime!(packing.physical(load.values()))
+    }
+
+    /// The load of this packed tile holding the value at `coords`, as the words it reads, `WP`
+    /// of them ([`words_a_line`](Tile::words_a_line)), undecoded: what a unit holds in registers
+    /// from the read until [`value_in_words`](Tile::value_in_words) decodes it.
+    pub(crate) fn words_holding<WP: Size>(
+        &self,
+        coords: &Coords<u32>,
+        #[comptime] guard: Guard,
+    ) -> Vector<u32, WP> {
+        let space = comptime!(self.place.space.clone());
+        let load = self.vector_tile();
+        self.nd_words::<WP>(guard).read(load.index(coords, &space))
+    }
+
+    /// The value at `position` of a load of this packed tile, read as `words`
+    /// ([`words_holding`](Tile::words_holding)), decoded alone.
+    pub(crate) fn value_in_words<S: Numeric, WP: Size>(
+        &self,
+        words: Vector<u32, WP>,
+        position: u32,
+    ) -> S {
+        let packing = self.packing();
+        match comptime!(packing) {
+            Packing::Plain | Packing::Words { .. } => {
+                panic!("Tile::value_in_words: only a packed tile's loads are words of fields")
+            }
             Packing::Packed { field } => {
                 let (bits, per_word) =
                     comptime!((field.size_bits() as u32, field.per_word() as u32));
-                let words_wide = comptime!(packing.physical(width));
-                let size!(WP) = words_wide;
-                let words = self.nd_words::<WP>(guard).read(load.index(coords, &space));
-                let word = if words_wide > 1 {
+                let words_wide = WP::value();
+                let word = if comptime!(words_wide > 1) {
                     words.extract_dynamic((position / per_word).cast::<usize>())
                 } else {
                     words.extract(0usize)
