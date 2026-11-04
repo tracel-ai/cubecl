@@ -144,6 +144,11 @@ impl Procedural {
         self.recipe.factorization()
     }
 
+    /// Whether this source is zero everywhere ([`zero`](Self::zero)).
+    pub(crate) fn is_zero(&self) -> comptime_type!(bool) {
+        self.recipe.is_zero()
+    }
+
     #[allow(dead_code)] // Reached through its expand, from [`Tile::factor_dependencies`].
     pub(crate) fn factor_reads(
         &self,
@@ -358,6 +363,17 @@ impl Procedural {
             space,
             ErasedRecipe::__expand_new::<T, R>(scope, recipe),
         )
+    }
+
+    /// A source over `space` that is zero everywhere, computing at `T`. It reads as zeros like a
+    /// [`Constant`] zero, and an op it is handed to may skip it: a bias of zeros
+    /// ([`OnlineSoftmax::step`]) is no bias.
+    pub fn zero<T: Numeric>(_space: Space) -> Self {
+        unexpanded!()
+    }
+
+    pub fn __expand_zero<T: Numeric>(scope: &Scope, space: Space) -> ProceduralExpand {
+        Self::__expand_erased(scope, space, ErasedRecipe::__expand_zero::<T>(scope))
     }
 
     /// [`new`](Self::new) keeping the recipe's factorization, one factor per contracted axis.
