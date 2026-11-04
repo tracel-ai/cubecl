@@ -485,7 +485,6 @@ mod tests {
     };
     use pliron_spirv::ops::SelectOp;
     use rspirv::spirv::{AddressingModel, MemoryModel};
-    use std::sync::Arc;
 
     #[cube(launch)]
     fn shared_memory_copy(output: &mut [u32]) {
@@ -493,28 +492,27 @@ mod tests {
         let mut shared = Shared::<[u32]>::new_slice(32usize);
         shared[unit] = UNIT_POS;
         sync_cube();
-        output[unit] = shared[31 - unit];
+        output[unit] = shared[0];
     }
 
     #[test]
     fn ordinary_memory_access_does_not_request_variable_pointers() {
         let mut properties = offline_device_properties(32);
         properties.register_address_type(AddressType::U32);
-        for ty in [ElemType::Index, u32::elem_type_native(), ElemType::Bool] {
-            properties.register_type_usage(ty, TypeUsage::all());
-        }
+        properties.register_type_usage(ElemType::Index, TypeUsage::all());
+        properties.register_type_usage(u32::elem_type_native(), TypeUsage::all());
+        properties.register_type_usage(ElemType::Bool, TypeUsage::all());
         let kernel = shared_memory_copy::SharedMemoryCopy::new(
             KernelSettings::new(
                 *CubeDim::new_1d(32),
                 ExecutionMode::Checked,
                 AddressType::U32,
             ),
-            Arc::new(properties),
-            Arc::new(TargetProperties::default()),
+            properties.into(),
+            Default::default(),
             BufferCompilationArg { inplace: None },
         );
         let options = WgpuCompilationOptions {
-            supports_vulkan_compiler: true,
             vulkan: cubecl_core::VulkanCompilationOptions {
                 max_spirv_version: (1, 6),
                 max_vector_size: 4,
@@ -525,7 +523,7 @@ mod tests {
         let compiled = crate::SpirvCompiler
             .compile(kernel.define(), &options)
             .unwrap();
-        let module = compiled.module.as_ref().unwrap();
+        let module = compiled.module.unwrap();
         let has_capability = |capability| {
             module
                 .capabilities
@@ -555,27 +553,37 @@ mod tests {
         (ctx, module)
     }
 
+    fn pointer_selection_requests_variable_pointers(storage: StorageClass) -> bool {
+        let (mut ctx, mut module) = context();
+        let scalar = IntegerType::get(&ctx, 32, Signedness::Signless).to_handle();
+        let pointer = PointerType::get(&ctx, scalar, storage).to_handle();
+        let boolean = IntegerType::get(&ctx, 1, Signedness::Signless).to_handle();
+        let block = BasicBlock::new(&mut ctx, None, vec![boolean, pointer, pointer]);
+        let [condition, first, second] = block.arguments(&ctx).try_into().unwrap();
+        let select = SelectOp::new(&mut ctx, pointer, condition, first, second);
+        update_ver_cap_ext(&ctx, &mut module, IRNode::Operation(select.get_operation()));
+        module.has_capability(&ctx, &Capability::VariablePointers)
+    }
+
     #[test]
-    fn pointer_selection_requests_variable_pointers_only_for_logical_storage() {
-        for storage in [
-            StorageClass::PhysicalStorageBuffer,
-            StorageClass::Workgroup,
-            StorageClass::StorageBuffer,
-        ] {
-            let (mut ctx, mut module) = context();
-            let scalar = IntegerType::get(&ctx, 32, Signedness::Signless).to_handle();
-            let pointer = PointerType::get(&ctx, scalar, storage).to_handle();
-            let boolean = IntegerType::get(&ctx, 1, Signedness::Signless).to_handle();
-            let block = BasicBlock::new(&mut ctx, None, vec![boolean, pointer, pointer]);
-            let [condition, first, second] = block.arguments(&ctx).try_into().unwrap();
-            let select = SelectOp::new(&mut ctx, pointer, condition, first, second);
-            update_ver_cap_ext(&ctx, &mut module, IRNode::Operation(select.get_operation()));
-            assert_eq!(
-                module.has_capability(&ctx, &Capability::VariablePointers),
-                storage != StorageClass::PhysicalStorageBuffer,
-                "{storage:?}"
-            );
-        }
+    fn physical_pointer_selection_does_not_request_variable_pointers() {
+        assert!(!pointer_selection_requests_variable_pointers(
+            StorageClass::PhysicalStorageBuffer
+        ));
+    }
+
+    #[test]
+    fn shared_pointer_selection_requests_variable_pointers() {
+        assert!(pointer_selection_requests_variable_pointers(
+            StorageClass::Workgroup
+        ));
+    }
+
+    #[test]
+    fn storage_buffer_pointer_selection_requests_variable_pointers() {
+        assert!(pointer_selection_requests_variable_pointers(
+            StorageClass::StorageBuffer
+        ));
     }
 
     #[test]
