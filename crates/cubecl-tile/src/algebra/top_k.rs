@@ -44,39 +44,57 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
         }
     }
 
-    /// This list with `value`, read at `index`, kept if it is among the `K` best: the one-item
-    /// combine, `K` steps where combining with a list of one is `K * K`. Its walk unrolls
-    /// within [`TOP_K_UNROLL_BUDGET`], as every walk of a `K`-by-`K` nest does.
+    /// `value`, read at `index`, kept in this list if it is among the `K` best: the one-item
+    /// combine, `K` steps where combining with a list of one is `K * K`. In place, since a
+    /// reduction inserts once a value read: a list returned anew is copied back slot by slot.
+    ///
+    /// A value the last kept slot beats on every lane changes nothing and skips the walk: over a
+    /// long row, almost every value. The test is the walk's own order, so a tie and a NaN go
+    /// where the walk would put them. The walk unrolls within [`TOP_K_UNROLL_BUDGET`].
     pub fn insert(
-        self,
+        &mut self,
         value: Vector<E, N>,
         index: Vector<u32, N>,
         #[comptime] monoid: Monoid,
-    ) -> Self {
+    ) {
         ordered_only(monoid);
         let k = K::value();
-        let mut values = Array::new(k);
-        let mut indices = Array::new(k);
-        let mut value = value;
-        let mut index = index;
-        #[unroll(k * k <= TOP_K_UNROLL_BUDGET)]
-        for j in 0..k {
-            let kept = Indexed::<E, N> {
-                value: self.values[j],
-                index: self.indices[j],
-            };
-            let keep = wins::<E, N>(kept, Indexed::<E, N> { value, index }, monoid);
-            values[j] = select_many(keep, kept.value, value);
-            indices[j] = select_many(keep, kept.index, index);
-            value = select_many(keep, value, kept.value);
-            index = select_many(keep, index, kept.index);
-        }
-        TopK::<E, N, K> {
-            values,
-            indices,
-            k: comptime!(PhantomData),
+        let unrolled = comptime!(k * k <= TOP_K_UNROLL_BUDGET);
+        let last = Indexed::<E, N> {
+            value: self.values[k - 1],
+            index: self.indices[k - 1],
+        };
+        let read = Indexed::<E, N> { value, index };
+        if any_lane::<N>(wins::<E, N>(read, last, monoid)) {
+            let mut value = value;
+            let mut index = index;
+            #[unroll(unrolled)]
+            for j in 0..k {
+                let kept = Indexed::<E, N> {
+                    value: self.values[j],
+                    index: self.indices[j],
+                };
+                let keep = wins::<E, N>(kept, Indexed::<E, N> { value, index }, monoid);
+                self.values[j] = select_many(keep, kept.value, value);
+                self.indices[j] = select_many(keep, kept.index, index);
+                value = select_many(keep, value, kept.value);
+                index = select_many(keep, index, kept.index);
+            }
         }
     }
+}
+
+/// Whether any lane of `lanes` is set.
+#[cube]
+fn any_lane<N: Size>(lanes: Vector<bool, N>) -> bool {
+    let mut any = false;
+    #[unroll]
+    for lane in 0..N::value() {
+        if lanes.extract(lane) {
+            any = true;
+        }
+    }
+    any
 }
 
 #[cube]
@@ -84,10 +102,11 @@ impl<E: Numeric, N: Size, K: Size> Carrier for TopK<E, N, K> {
     fn combine(lhs: Self, rhs: Self, #[comptime] monoid: Monoid) -> Self {
         ordered_only(monoid);
         let k = K::value();
+        let unrolled = comptime!(k * k <= TOP_K_UNROLL_BUDGET);
         let mut total = lhs;
-        #[unroll(k * k <= TOP_K_UNROLL_BUDGET)]
+        #[unroll(unrolled)]
         for j in 0..k {
-            total = total.insert(rhs.values[j], rhs.indices[j], monoid);
+            total.insert(rhs.values[j], rhs.indices[j], monoid);
         }
         total
     }
@@ -118,6 +137,7 @@ impl<E: Numeric, N: Size, K: Size> Carrier for TopK<E, N, K> {
             UnitShare::Repeated | UnitShare::Whole => value,
             UnitShare::Plane | UnitShare::Group { .. } => {
                 let k = K::value();
+                let unrolled = comptime!(k * k <= TOP_K_UNROLL_BUDGET);
                 let none = Indexed::<E, N>::identity(monoid);
                 let mut held_values = Array::new(k);
                 let mut held_indices = Array::new(k);
@@ -128,7 +148,7 @@ impl<E: Numeric, N: Size, K: Size> Carrier for TopK<E, N, K> {
                 }
                 let mut values = Array::new(k);
                 let mut indices = Array::new(k);
-                #[unroll(k * k <= TOP_K_UNROLL_BUDGET)]
+                #[unroll(unrolled)]
                 for round in 0..k {
                     let head = Indexed::<E, N> {
                         value: held_values[0],
@@ -138,7 +158,7 @@ impl<E: Numeric, N: Size, K: Size> Carrier for TopK<E, N, K> {
                     values[round] = best.value;
                     indices[round] = best.index;
                     let taken = held_indices[0].equal(&best.index);
-                    #[unroll(k * k <= TOP_K_UNROLL_BUDGET)]
+                    #[unroll(unrolled)]
                     for j in 0..comptime!(k - 1) {
                         held_values[j] = select_many(taken, held_values[j + 1], held_values[j]);
                         held_indices[j] = select_many(taken, held_indices[j + 1], held_indices[j]);

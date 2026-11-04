@@ -37,7 +37,7 @@ fn write(at: usize, best: Best, values: &mut [f32], indices: &mut [u32]) {
 fn fold_range(input: &[f32], start: usize, end: usize, #[comptime] monoid: Monoid) -> Best {
     let mut best = Best::identity(monoid);
     for i in start..end {
-        best = best.insert(lanes_of(input, i), Vector::new(i as u32), monoid);
+        best.insert(lanes_of(input, i), Vector::new(i as u32), monoid);
     }
     best
 }
@@ -64,8 +64,8 @@ fn across(
     #[comptime] monoid: Monoid,
 ) {
     let unit = UNIT_POS as usize;
-    let own =
-        Best::identity(monoid).insert(lanes_of(input, unit), Vector::new(unit as u32), monoid);
+    let mut own = Best::identity(monoid);
+    own.insert(lanes_of(input, unit), Vector::new(unit as u32), monoid);
     write(unit, share.reduce::<Best>(own, monoid), values, indices);
 }
 
