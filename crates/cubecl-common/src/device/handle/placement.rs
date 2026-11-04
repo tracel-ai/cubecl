@@ -28,28 +28,19 @@ pub(crate) fn current_cpu() -> u32 {
 /// What [`current_cpu`] answers where the system does not say.
 pub(crate) const UNKNOWN_CPU: u32 = u32::MAX;
 
-/// The CPUs the process may run on: how many threads it may run at once, and the last-level
-/// caches its CPUs group under. Read once, by the first thread to ask, before cubecl keeps any
-/// thread under one cache; a thread the application pinned itself and asks first reads its own.
+/// The CPUs the process may run on, read once before any thread is kept under one cache.
 ///
-/// A device server kept under one cache, near the thread issuing its launches, passes that
-/// cache's CPUs on to every thread it spawns, since a thread inherits its parent's affinity.
-/// Work the server hands to threads of its own, such as compiling a batch of kernels, issues no
-/// launches to stay near: each of those threads spreads back over every CPU
-/// ([`spread_current_thread`](Self::spread_current_thread)), and the batch is sized by
-/// [`parallelism`](Self::parallelism), not by the server's cache.
+/// Threads a device server spawns inherit its cache; those with no launches to stay near, such
+/// as compile workers, spread back over every CPU.
 pub struct ProcessCpus {
-    /// How many threads the process may run at once, which a cgroup quota may hold below the
-    /// CPUs it may run on.
     parallelism: usize,
-    /// The caches the CPUs group under; `None` where there is only one or the system does not
-    /// say, and no thread is ever kept under one.
+    /// `None` where there is only one cache, so no thread is ever kept under one.
     #[cfg(all(target_os = "linux", not(miri)))]
     domains: Option<linux::CacheDomains>,
 }
 
 impl ProcessCpus {
-    /// The CPUs the process may run on, read on the first call.
+    /// Read on the first call.
     pub fn get() -> &'static Self {
         static CPUS: std::sync::OnceLock<ProcessCpus> = std::sync::OnceLock::new();
         CPUS.get_or_init(|| Self {
@@ -59,13 +50,12 @@ impl ProcessCpus {
         })
     }
 
-    /// How many threads the process may run at once: at least one.
+    /// How many threads the process may run at once.
     pub fn parallelism(&self) -> usize {
         self.parallelism
     }
 
-    /// Lets the calling thread run on every CPU the process may run on, undoing the cache it
-    /// inherited from a server. A no-op where no thread is ever kept under one cache.
+    /// Lets the calling thread run on every CPU, undoing the cache it inherited from a server.
     pub fn spread_current_thread(&self) {
         #[cfg(all(target_os = "linux", not(miri)))]
         if let Some(domains) = &self.domains {
@@ -184,8 +174,7 @@ mod linux {
 
     impl CacheDomains {
         /// The domains of the CPUs the calling thread may run on; `None` where there is only
-        /// one or the system does not say. Every allowed CPU lies in a domain, so together the
-        /// domains are the CPUs the thread may run on.
+        /// one or the system does not say.
         pub(super) fn new() -> Option<Self> {
             let allowed = CpuSet::allowed()?;
             let mut of_cpu = Vec::new();
@@ -225,8 +214,7 @@ mod linux {
             }
         }
 
-        /// Lets the calling thread run on every domain's CPUs. A refusal leaves the thread
-        /// under the cache it inherited, which is correct, only slower.
+        /// Lets the calling thread run on every domain's CPUs.
         pub(super) fn spread_current_thread(&self) {
             let mut every = CpuSet::empty();
             for (cpu, domain) in self.of_cpu.iter().enumerate() {
@@ -346,8 +334,7 @@ mod linux {
             .unwrap();
         }
 
-        /// A thread a kept server spawns runs on every CPU, not on the server's cache: a compile
-        /// worker that kept it would compile a batch on one cache's cores.
+        /// A compile worker that kept the server's cache would compile on its cores only.
         #[test]
         fn a_thread_spawned_by_a_kept_server_spreads_over_every_cpu() {
             let cpus = super::super::ProcessCpus::get();
