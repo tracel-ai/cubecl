@@ -98,13 +98,14 @@ impl CompilationConfig {
     }
 
     /// How many threads compile at once: the configured count, or every core
-    /// the process may run on. Never zero, and one without threads — on wasm
+    /// the process may run on, counted as the process, not as a device server
+    /// kept under one cache, sees them. Never zero, and one without threads — on wasm
     /// too, whatever is configured, since it cannot spawn them.
     pub fn parallelism(&self) -> usize {
         #[cfg(all(feature = "std", not(target_family = "wasm")))]
         let threads = self
             .parallelism
-            .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |cores| cores.get()));
+            .unwrap_or_else(cubecl_common::device_handle::ProcessCpus::count);
         #[cfg(any(not(feature = "std"), target_family = "wasm"))]
         let threads = 1;
 

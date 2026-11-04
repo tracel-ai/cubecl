@@ -28,6 +28,43 @@ pub(crate) fn current_cpu() -> u32 {
 /// What [`current_cpu`] answers where the system does not say.
 pub(crate) const UNKNOWN_CPU: u32 = u32::MAX;
 
+/// The CPUs the process may run on, whatever cache a device server is kept under.
+///
+/// A device server kept under one last-level cache, near the thread issuing its launches, passes that cache's CPUs on to
+/// every thread it spawns, as threads inherit their parent's affinity. Work a server hands to
+/// threads of its own, such as compiling a batch of kernels, issues no launches it should stay
+/// near, so those threads take every CPU back ([`spread_current_thread`](Self::spread_current_thread))
+/// and count them from here ([`count`](Self::count)) instead of from the server's cache.
+pub struct ProcessCpus;
+
+impl ProcessCpus {
+    /// How many threads the process may run at once: [`available_parallelism`] as the process
+    /// saw it before any server was kept under one cache. At least one.
+    ///
+    /// [`available_parallelism`]: std::thread::available_parallelism
+    pub fn count() -> usize {
+        #[cfg(all(target_os = "linux", not(miri)))]
+        if let Some(domains) = linux::CacheDomains::get() {
+            return domains.parallelism();
+        }
+        available_parallelism()
+    }
+
+    /// Lets the calling thread run on every CPU the process may run on, undoing the placement
+    /// it inherited from a server. A no-op where no server is ever kept under one cache.
+    pub fn spread_current_thread() {
+        #[cfg(all(target_os = "linux", not(miri)))]
+        if let Some(domains) = linux::CacheDomains::get() {
+            domains.spread_current_thread();
+        }
+    }
+}
+
+/// [`std::thread::available_parallelism`], one where the system does not say.
+fn available_parallelism() -> usize {
+    std::thread::available_parallelism().map_or(1, |threads| threads.get())
+}
+
 /// Buffers in a row an issuer fills from one other last-level cache before the server moves
 /// there. Several threads may issue a device's launches from different caches, each now and
 /// then; moving on every buffer would chase each of them in turn, a migration every time.
@@ -134,6 +171,11 @@ mod linux {
         of_cpu: Vec<Option<usize>>,
         /// Each domain's CPUs.
         cpus: Vec<CpuSet>,
+        /// Every CPU the process may run on.
+        allowed: CpuSet,
+        /// How many threads the process may run at once, which a cgroup quota may hold below
+        /// the CPUs it is allowed.
+        parallelism: usize,
     }
 
     impl CacheDomains {
@@ -148,6 +190,7 @@ mod linux {
 
         fn read() -> Option<Self> {
             let allowed = CpuSet::allowed()?;
+            let parallelism = super::available_parallelism();
             let mut of_cpu = Vec::new();
             let mut cpus: Vec<CpuSet> = Vec::new();
             // Each domain's lowest CPU, which names it in sysfs's lists.
@@ -166,7 +209,12 @@ mod linux {
                 of_cpu.resize(of_cpu.len().max(cpu + 1), None);
                 of_cpu[cpu] = Some(domain);
             }
-            (cpus.len() > 1).then_some(Self { of_cpu, cpus })
+            (cpus.len() > 1).then_some(Self {
+                of_cpu,
+                cpus,
+                allowed,
+                parallelism,
+            })
         }
 
         /// The domain of `cpu`, if the process may run on it.
@@ -183,6 +231,22 @@ mod linux {
             if kept != 0 {
                 log::debug!("The device server stays where it is: sched_setaffinity refused");
             }
+        }
+
+        /// Lets the calling thread run on every CPU the process may run on. A refusal leaves
+        /// the thread under the cache it inherited, which is correct, only slower.
+        pub(super) fn spread_current_thread(&self) {
+            let set = &self.allowed.0;
+            // SAFETY: `set` is a valid `cpu_set_t` of the size passed.
+            let spread = unsafe { libc::sched_setaffinity(0, size_of::<libc::cpu_set_t>(), set) };
+            if spread != 0 {
+                log::debug!("The thread stays under its cache: sched_setaffinity refused");
+            }
+        }
+
+        /// How many threads the process may run at once, read with the domains.
+        pub(super) fn parallelism(&self) -> usize {
+            self.parallelism
         }
     }
 
@@ -284,6 +348,28 @@ mod linux {
                 for other in 0..libc::CPU_SETSIZE as usize {
                     assert_eq!(kept.contains(other), domains.cpus[domain].contains(other));
                 }
+            })
+            .join()
+            .unwrap();
+        }
+
+        #[test]
+        fn a_thread_spawned_by_a_kept_server_spreads_over_every_cpu() {
+            let Some(domains) = CacheDomains::get() else {
+                return;
+            };
+            std::thread::spawn(move || {
+                super::super::ServerPlacement::default().follow(super::super::current_cpu());
+                std::thread::spawn(move || {
+                    super::super::ProcessCpus::spread_current_thread();
+                    let spread = CpuSet::allowed().unwrap();
+                    for cpu in 0..libc::CPU_SETSIZE as usize {
+                        assert_eq!(spread.contains(cpu), domains.allowed.contains(cpu));
+                    }
+                })
+                .join()
+                .unwrap();
+                assert_eq!(super::super::ProcessCpus::count(), domains.parallelism);
             })
             .join()
             .unwrap();
