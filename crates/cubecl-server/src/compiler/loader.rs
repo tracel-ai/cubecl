@@ -798,10 +798,7 @@ fn for_each_at_once<J: Send>(jobs: &mut [J], parallelism: usize, work: impl Fn(&
             let workers: Vec<_> = (0..parallelism.min(slots.len()))
                 .map(|_| {
                     scope.spawn(|| {
-                        // The server is kept under one cache, near its issuer, and this
-                        // thread inherited that; compiling issues no launches, so it takes
-                        // every core the process may run on.
-                        cubecl_common::device_handle::ProcessCpus::spread_current_thread();
+                        cubecl_common::device_handle::ProcessCpus::get().spread_current_thread();
                         while let Some(slot) = slots.get(next.fetch_add(1, Ordering::Relaxed)) {
                             // Each slot is taken by exactly one thread, so the
                             // lock never waits; it only proves that to the

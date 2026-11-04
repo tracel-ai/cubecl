@@ -28,41 +28,50 @@ pub(crate) fn current_cpu() -> u32 {
 /// What [`current_cpu`] answers where the system does not say.
 pub(crate) const UNKNOWN_CPU: u32 = u32::MAX;
 
-/// The CPUs the process may run on, whatever cache a device server is kept under.
+/// The CPUs the process may run on: how many threads it may run at once, and the last-level
+/// caches its CPUs group under. Read once, by the first thread to ask, before cubecl keeps any
+/// thread under one cache; a thread the application pinned itself and asks first reads its own.
 ///
-/// A device server kept under one last-level cache, near the thread issuing its launches, passes that cache's CPUs on to
-/// every thread it spawns, as threads inherit their parent's affinity. Work a server hands to
-/// threads of its own, such as compiling a batch of kernels, issues no launches it should stay
-/// near, so those threads take every CPU back ([`spread_current_thread`](Self::spread_current_thread))
-/// and count them from here ([`count`](Self::count)) instead of from the server's cache.
-pub struct ProcessCpus;
+/// A device server kept under one cache, near the thread issuing its launches, passes that
+/// cache's CPUs on to every thread it spawns, since a thread inherits its parent's affinity.
+/// Work the server hands to threads of its own, such as compiling a batch of kernels, issues no
+/// launches to stay near: each of those threads spreads back over every CPU
+/// ([`spread_current_thread`](Self::spread_current_thread)), and the batch is sized by
+/// [`parallelism`](Self::parallelism), not by the server's cache.
+pub struct ProcessCpus {
+    /// How many threads the process may run at once, which a cgroup quota may hold below the
+    /// CPUs it may run on.
+    parallelism: usize,
+    /// The caches the CPUs group under; `None` where there is only one or the system does not
+    /// say, and no thread is ever kept under one.
+    #[cfg(all(target_os = "linux", not(miri)))]
+    domains: Option<linux::CacheDomains>,
+}
 
 impl ProcessCpus {
-    /// How many threads the process may run at once: [`available_parallelism`] as the process
-    /// saw it before any server was kept under one cache. At least one.
-    ///
-    /// [`available_parallelism`]: std::thread::available_parallelism
-    pub fn count() -> usize {
-        #[cfg(all(target_os = "linux", not(miri)))]
-        if let Some(domains) = linux::CacheDomains::get() {
-            return domains.parallelism();
-        }
-        available_parallelism()
+    /// The CPUs the process may run on, read on the first call.
+    pub fn get() -> &'static Self {
+        static CPUS: std::sync::OnceLock<ProcessCpus> = std::sync::OnceLock::new();
+        CPUS.get_or_init(|| Self {
+            parallelism: std::thread::available_parallelism().map_or(1, |threads| threads.get()),
+            #[cfg(all(target_os = "linux", not(miri)))]
+            domains: linux::CacheDomains::new(),
+        })
     }
 
-    /// Lets the calling thread run on every CPU the process may run on, undoing the placement
-    /// it inherited from a server. A no-op where no server is ever kept under one cache.
-    pub fn spread_current_thread() {
+    /// How many threads the process may run at once: at least one.
+    pub fn parallelism(&self) -> usize {
+        self.parallelism
+    }
+
+    /// Lets the calling thread run on every CPU the process may run on, undoing the cache it
+    /// inherited from a server. A no-op where no thread is ever kept under one cache.
+    pub fn spread_current_thread(&self) {
         #[cfg(all(target_os = "linux", not(miri)))]
-        if let Some(domains) = linux::CacheDomains::get() {
+        if let Some(domains) = &self.domains {
             domains.spread_current_thread();
         }
     }
-}
-
-/// [`std::thread::available_parallelism`], one where the system does not say.
-fn available_parallelism() -> usize {
-    std::thread::available_parallelism().map_or(1, |threads| threads.get())
 }
 
 /// Buffers in a row an issuer fills from one other last-level cache before the server moves
@@ -89,7 +98,7 @@ impl ServerPlacement {
     pub(crate) fn follow(&mut self, issuer_cpu: u32) {
         #[cfg(all(target_os = "linux", not(miri)))]
         {
-            let Some(domains) = linux::CacheDomains::get() else {
+            let Some(domains) = &ProcessCpus::get().domains else {
                 return;
             };
             if let Some(domain) = domains
@@ -163,7 +172,7 @@ mod tests {
 
 #[cfg(all(target_os = "linux", not(miri)))]
 mod linux {
-    use std::{fs, path::Path, string::String, sync::OnceLock, vec::Vec};
+    use std::{fs, path::Path, string::String, vec::Vec};
 
     /// The CPUs the process may run on, grouped by the last-level cache they share.
     pub(super) struct CacheDomains {
@@ -171,26 +180,14 @@ mod linux {
         of_cpu: Vec<Option<usize>>,
         /// Each domain's CPUs.
         cpus: Vec<CpuSet>,
-        /// Every CPU the process may run on.
-        allowed: CpuSet,
-        /// How many threads the process may run at once, which a cgroup quota may hold below
-        /// the CPUs it is allowed.
-        parallelism: usize,
     }
 
     impl CacheDomains {
-        /// The domains, read once; `None` where there is only one or the system does not say.
-        ///
-        /// Read on the first call, before any thread is moved: the allowed CPUs are the
-        /// process's, not those of a server already kept under one cache.
-        pub(super) fn get() -> Option<&'static Self> {
-            static DOMAINS: OnceLock<Option<CacheDomains>> = OnceLock::new();
-            DOMAINS.get_or_init(Self::read).as_ref()
-        }
-
-        fn read() -> Option<Self> {
+        /// The domains of the CPUs the calling thread may run on; `None` where there is only
+        /// one or the system does not say. Every allowed CPU lies in a domain, so together the
+        /// domains are the CPUs the thread may run on.
+        pub(super) fn new() -> Option<Self> {
             let allowed = CpuSet::allowed()?;
-            let parallelism = super::available_parallelism();
             let mut of_cpu = Vec::new();
             let mut cpus: Vec<CpuSet> = Vec::new();
             // Each domain's lowest CPU, which names it in sysfs's lists.
@@ -209,12 +206,7 @@ mod linux {
                 of_cpu.resize(of_cpu.len().max(cpu + 1), None);
                 of_cpu[cpu] = Some(domain);
             }
-            (cpus.len() > 1).then_some(Self {
-                of_cpu,
-                cpus,
-                allowed,
-                parallelism,
-            })
+            (cpus.len() > 1).then_some(Self { of_cpu, cpus })
         }
 
         /// The domain of `cpu`, if the process may run on it.
@@ -233,20 +225,21 @@ mod linux {
             }
         }
 
-        /// Lets the calling thread run on every CPU the process may run on. A refusal leaves
-        /// the thread under the cache it inherited, which is correct, only slower.
+        /// Lets the calling thread run on every domain's CPUs. A refusal leaves the thread
+        /// under the cache it inherited, which is correct, only slower.
         pub(super) fn spread_current_thread(&self) {
-            let set = &self.allowed.0;
-            // SAFETY: `set` is a valid `cpu_set_t` of the size passed.
-            let spread = unsafe { libc::sched_setaffinity(0, size_of::<libc::cpu_set_t>(), set) };
+            let mut every = CpuSet::empty();
+            for (cpu, domain) in self.of_cpu.iter().enumerate() {
+                if domain.is_some() {
+                    every.insert(cpu);
+                }
+            }
+            // SAFETY: `every` is a valid `cpu_set_t` of the size passed.
+            let spread =
+                unsafe { libc::sched_setaffinity(0, size_of::<libc::cpu_set_t>(), &every.0) };
             if spread != 0 {
                 log::debug!("The thread stays under its cache: sched_setaffinity refused");
             }
-        }
-
-        /// How many threads the process may run at once, read with the domains.
-        pub(super) fn parallelism(&self) -> usize {
-            self.parallelism
         }
     }
 
@@ -337,7 +330,7 @@ mod linux {
 
         #[test]
         fn a_server_that_follows_a_cpu_is_kept_under_its_cache() {
-            let Some(domains) = CacheDomains::get() else {
+            let Some(domains) = &super::super::ProcessCpus::get().domains else {
                 return;
             };
             std::thread::spawn(move || {
@@ -353,23 +346,26 @@ mod linux {
             .unwrap();
         }
 
+        /// A thread a kept server spawns runs on every CPU, not on the server's cache: a compile
+        /// worker that kept it would compile a batch on one cache's cores.
         #[test]
         fn a_thread_spawned_by_a_kept_server_spreads_over_every_cpu() {
-            let Some(domains) = CacheDomains::get() else {
+            let cpus = super::super::ProcessCpus::get();
+            let Some(domains) = &cpus.domains else {
                 return;
             };
             std::thread::spawn(move || {
                 super::super::ServerPlacement::default().follow(super::super::current_cpu());
                 std::thread::spawn(move || {
-                    super::super::ProcessCpus::spread_current_thread();
+                    cpus.spread_current_thread();
                     let spread = CpuSet::allowed().unwrap();
                     for cpu in 0..libc::CPU_SETSIZE as usize {
-                        assert_eq!(spread.contains(cpu), domains.allowed.contains(cpu));
+                        let in_a_domain = domains.of_cpu(cpu as u32).is_some();
+                        assert_eq!(spread.contains(cpu), in_a_domain);
                     }
                 })
                 .join()
                 .unwrap();
-                assert_eq!(super::super::ProcessCpus::count(), domains.parallelism);
             })
             .join()
             .unwrap();
@@ -377,7 +373,7 @@ mod linux {
 
         #[test]
         fn every_allowed_cpu_lies_in_its_own_domain() {
-            let Some(domains) = CacheDomains::get() else {
+            let Some(domains) = &super::super::ProcessCpus::get().domains else {
                 return;
             };
             let allowed = CpuSet::allowed().unwrap();
