@@ -14,7 +14,7 @@ use cubecl_ir::{
     dialect::BlockPtrExt,
 };
 use pliron::{
-    builtin::ops::FuncOp,
+    builtin::ops::{ConstantOp, FuncOp},
     graph::walkers::uninterruptible::immutable::walk_op,
     identifier::Identifier,
     irbuild::{inserter::Inserter, listener::DummyListener, match_rewrite::apply_match_rewrite},
@@ -24,7 +24,10 @@ use pliron::{
 use pliron_spirv::{
     decorations::{DecoratableOp, DecorationInfo},
     interfaces::{VerCapExtOpInterface, VerCapExtTypeInterface},
-    ops::{AddressOfOp, GlobalVariableOp, InBoundsAccessChainOp, LoadOp, SpirvModuleOp},
+    ops::{
+        AddressOfOp, CopyObjectOp, FunctionCallOp, GlobalVariableOp, InBoundsAccessChainOp, LoadOp,
+        PtrAccessChainOp, SelectOp, SpirvModuleOp,
+    },
     types::{ArrayType, PointerType, RuntimeArrayType, StructType},
 };
 use rspirv::{
@@ -356,12 +359,15 @@ fn update_ver_cap_ext(ctx: &Context, module: &mut SpirvModuleOp, node: IRNode) {
         }
         IRNode::Operation(op) => {
             let dyn_op = op.dyn_op(ctx);
-            // Object addresses do not require variable-pointer support.
-            // Access chains inherit any requirement from their base pointer.
-            if op.as_op::<GlobalVariableOp>(ctx).is_none()
-                && op.as_op::<AddressOfOp>(ctx).is_none()
-                && op.as_op::<pliron_spirv::ops::AccessChainOp>(ctx).is_none()
-                && op.as_op::<InBoundsAccessChainOp>(ctx).is_none()
+            // Variable-pointer producers from the SPIR-V specification.
+            // OpPhi is handled by block arguments above. Any ConstantOp returning a pointer
+            // can be assumed to be null, covering OpConstantNull.
+            if op.is_op::<SelectOp>(ctx)
+                || op.is_op::<FunctionCallOp>(ctx)
+                || op.is_op::<PtrAccessChainOp>(ctx)
+                || op.is_op::<CopyObjectOp>(ctx)
+                || op.is_op::<LoadOp>(ctx)
+                || op.is_op::<ConstantOp>(ctx)
             {
                 for result in op.results(ctx) {
                     require_variable_pointer(ctx, *module, result.get_type(ctx));
@@ -483,7 +489,6 @@ mod tests {
         basic_block::BasicBlock,
         builtin::types::{IntegerType, Signedness},
     };
-    use pliron_spirv::ops::SelectOp;
     use rspirv::spirv::{AddressingModel, MemoryModel};
 
     #[cube(launch)]
