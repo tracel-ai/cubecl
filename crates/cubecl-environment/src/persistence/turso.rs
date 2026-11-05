@@ -331,9 +331,15 @@ impl Database {
     }
 
     /// Replaces every entry with those of `source`, stored as
-    /// [`Origin::Imported`], or with nothing without one. It is one
-    /// transaction: a failure to read `source` or to write here leaves this
-    /// database as it was.
+    /// [`Origin::Imported`], or with nothing without one.
+    ///
+    /// The entries are emptied in one write and copied in batches of at most
+    /// [`COPY_BATCH_BYTES`], each its own write: a whole environment in one
+    /// would write about two log frames a page, which for one of 512 MiB is
+    /// the 262,144 frames turso indexes between processes, past which every
+    /// read of the file fails. So a failure partway leaves this database
+    /// emptied, or holding part of `source`: what it holds is right, and
+    /// replacing it again completes it.
     ///
     /// # Errors
     ///
@@ -342,34 +348,9 @@ impl Database {
     pub fn replace_with(&self, source: Option<&Database>) -> Result<(), String> {
         let mut connection = self.connection.lock();
         let source = source.map(|source| source.connection.lock());
-        let transaction =
-            drive(connection.transaction_with_behavior(write_transaction())).map_err(error)?;
-
-        let copied = (|| {
-            drive(transaction.execute(CLEAR, ()))?;
-            let Some(source) = &source else {
-                return Ok(());
-            };
-            let mut rows = drive(source.query(ENTRIES, ()))?;
-            while let Some(row) = drive(rows.next())? {
-                let namespace: String = row.get(0)?;
-                let key: Vec<u8> = row.get(1)?;
-                let value: Vec<u8> = row.get(2)?;
-                let params = (namespace, key, value, origin_code(Origin::Imported));
-                drive(transaction.execute(REPLACE, params))?;
-            }
-            Ok(())
-        })();
-
-        match copied {
-            Ok(()) => drive(transaction.commit()).map_err(error),
-            Err(err) => {
-                let _ = drive(transaction.rollback());
-                Err(error(err))
-            }
-        }
-        .inspect_err(|err| log::warn!("Unable to replace {}: {err}", self.location))?;
-
+        copy_in_batches(&mut connection, source.as_deref())
+            .map_err(error)
+            .inspect_err(|err| log::warn!("Unable to replace {}: {err}", self.location))?;
         restart_log(&connection, &self.location);
         Ok(())
     }
@@ -517,6 +498,53 @@ impl crate::bundle::Bundle for Database {
     fn describe(&self) -> String {
         self.location.clone()
     }
+}
+
+/// The most bytes of entries one write of a replacement copies: about 8,000
+/// log frames at two a 4 KiB page, a small part of what turso indexes.
+#[cfg(native_cache)]
+const COPY_BATCH_BYTES: usize = 16 * 1024 * 1024;
+
+/// Empties the database behind `connection`, then copies every entry of
+/// `source` into it as [`Origin::Imported`], [`COPY_BATCH_BYTES`] at a time.
+#[cfg(native_cache)]
+fn copy_in_batches(
+    connection: &mut turso::Connection,
+    source: Option<&turso::Connection>,
+) -> Result<(), turso::Error> {
+    drive(connection.execute(CLEAR, ()))?;
+    let Some(source) = source else {
+        return Ok(());
+    };
+    let mut rows = drive(source.query(ENTRIES, ()))?;
+    let mut next = drive(rows.next())?;
+    while next.is_some() {
+        let transaction = drive(connection.transaction_with_behavior(write_transaction()))?;
+        let copied = (|| {
+            let mut bytes = 0;
+            while let Some(row) = next.take() {
+                let namespace: String = row.get(0)?;
+                let key: Vec<u8> = row.get(1)?;
+                let value: Vec<u8> = row.get(2)?;
+                bytes += namespace.len() + key.len() + value.len();
+                let params = (namespace, key, value, origin_code(Origin::Imported));
+                drive(transaction.execute(REPLACE, params))?;
+                next = drive(rows.next())?;
+                if bytes >= COPY_BATCH_BYTES {
+                    break;
+                }
+            }
+            Ok(())
+        })();
+        match copied {
+            Ok(()) => drive(transaction.commit())?,
+            Err(err) => {
+                let _ = drive(transaction.rollback());
+                return Err(err);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// One insert on `connection`: the statement arbitrates, and only a declined
@@ -1605,5 +1633,56 @@ mod tests {
 
         assert_eq!(log_frames(&path), 0);
         assert_eq!(target.summary()[0].entries, 40 * 16);
+    }
+
+    /// The frames the log of the database at `path` holds since it last
+    /// restarted, as turso's index between processes counts them: the
+    /// `max_frame` of its `-tshm` header, 0 before there is one.
+    pub(super) fn indexed_frames(path: &std::path::Path) -> u64 {
+        use std::io::{Read, Seek, SeekFrom};
+
+        let mut tshm = std::ffi::OsString::from(path);
+        tshm.push("-tshm");
+        let mut header = [0u8; 8];
+        let read = std::fs::File::open(&tshm).and_then(|mut file| {
+            file.seek(SeekFrom::Start(56))?;
+            file.read_exact(&mut header)
+        });
+        read.map_or(0, |()| u64::from_le_bytes(header))
+    }
+
+    /// A replacement copies in batches, so the log never holds more than a
+    /// few of them: in one write, 256 MiB would be about 131,000 frames, half
+    /// of what turso indexes, and a Flash-Next environment past all of it.
+    #[test_log::test]
+    #[cfg_attr(miri, ignore)]
+    fn a_replacement_keeps_its_log_short_while_it_copies() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = Database::open_at(&dir.path().join("saved.db"), Access::ReadWrite).unwrap();
+        fill(&source, "kernels", 256);
+
+        let path = dir.path().join("building.db");
+        let target = Database::open_at(&path, Access::ReadWrite).unwrap();
+        let copying = std::sync::atomic::AtomicBool::new(true);
+        let most = std::thread::scope(|scope| {
+            let sampler = scope.spawn(|| {
+                let mut most = 0;
+                while copying.load(std::sync::atomic::Ordering::Relaxed) {
+                    most = most.max(indexed_frames(&path));
+                    std::thread::sleep(core::time::Duration::from_millis(2));
+                }
+                most
+            });
+            target.replace_with(Some(&source)).unwrap();
+            copying.store(false, std::sync::atomic::Ordering::Relaxed);
+            sampler.join().unwrap()
+        });
+
+        assert!(most > 0, "the sampler saw the copy");
+        assert!(
+            most <= 2 * (COPY_BATCH_BYTES as u64 / 4096) + 1_000,
+            "the log held {most} frames at once"
+        );
+        assert_eq!(target.summary()[0].entries, 256 * 16);
     }
 }
