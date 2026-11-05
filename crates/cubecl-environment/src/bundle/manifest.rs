@@ -52,7 +52,7 @@ impl core::fmt::Display for BundleError {
                 write!(
                     f,
                     "unsupported bundle database schema {schema} (this build reads {})",
-                    crate::persistence::turso::SCHEMA_VERSION
+                    crate::persistence::database::SCHEMA_VERSION
                 )
             }
             BundleError::TooLarge => write!(
@@ -185,7 +185,7 @@ impl BundleManifest {
     /// Reads and validates the manifest of a bundle database.
     #[cfg(native_cache)]
     pub(super) fn read(connection: &turso::Connection) -> Result<Self, BundleError> {
-        let content = crate::persistence::turso::meta_get(connection, MANIFEST_KEY)
+        let content = crate::persistence::database::meta_get(connection, MANIFEST_KEY)
             .map_err(super::sqlite::missing_meta)?
             .ok_or(BundleError::NotABundle)?;
 
@@ -198,7 +198,7 @@ impl BundleManifest {
         let content = serde_json::to_string_pretty(self)
             .map_err(|err| BundleError::InvalidManifest(err.to_string()))?;
 
-        crate::persistence::turso::meta_set(connection, MANIFEST_KEY, &content)
+        crate::persistence::database::meta_set(connection, MANIFEST_KEY, &content)
             .map_err(super::export::storage_error)
     }
 }

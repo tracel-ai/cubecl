@@ -5,7 +5,7 @@ use std::vec::Vec;
 
 use crate::bytes::Bytes;
 use crate::future::block_on;
-use crate::persistence::turso::{self as database, connect};
+use crate::persistence::database::{self, connect};
 
 use super::flat;
 use super::{

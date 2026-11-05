@@ -289,7 +289,7 @@ pub fn list() -> Vec<String> {
 /// Without a durable backend there is nothing to open.
 pub async fn open() {
     #[cfg(any(native_cache, browser_cache))]
-    if let Err(error) = crate::persistence::turso::open_ahead().await {
+    if let Err(error) = crate::persistence::database::open_ahead().await {
         log::warn!("Unable to open the Turso cache ahead of its use: {error}");
     }
 }
@@ -359,8 +359,8 @@ impl Bundle {
 /// and worth shipping.
 pub fn namespaces() -> Vec<crate::persistence::NamespaceSummary> {
     #[cfg(any(native_cache, browser_cache))]
-    if crate::persistence::turso::database().is_ok() {
-        return crate::persistence::turso::summary();
+    if crate::persistence::database::database().is_ok() {
+        return crate::persistence::database::summary();
     }
 
     // No database means nothing was ever written durably; whatever this

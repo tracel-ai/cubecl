@@ -24,13 +24,12 @@ mod store;
 pub use namespace::Namespace;
 pub use store::*;
 
-/// Turso persistence: the database file shared by every namespace of an
-/// environment.
+/// The database file shared by every namespace of an environment.
 #[cfg(any(native_cache, browser_cache))]
-pub(crate) mod turso;
+pub(crate) mod database;
 
 #[cfg(any(native_cache, browser_cache))]
-pub use turso::{Access, Database, TursoStorage};
+pub use database::{Access, Database, DatabaseStorage};
 
 #[cfg(browser_cache)]
 mod turso_browser;

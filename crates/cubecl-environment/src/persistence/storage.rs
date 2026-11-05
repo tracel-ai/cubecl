@@ -336,7 +336,7 @@ pub struct NamespaceSummary {
 pub fn namespaces() -> Vec<String> {
     cfg_if::cfg_if! {
         if #[cfg(any(native_cache, browser_cache))] {
-            super::turso::namespaces()
+            super::database::namespaces()
         } else {
             Vec::new()
         }
@@ -348,7 +348,7 @@ pub fn namespaces() -> Vec<String> {
 pub fn purge_range(namespaces: core::ops::Range<&str>) {
     cfg_if::cfg_if! {
         if #[cfg(any(native_cache, browser_cache))] {
-            super::turso::purge_range(namespaces)
+            super::database::purge_range(namespaces)
         } else {
             let _ = namespaces;
         }
@@ -364,7 +364,7 @@ pub fn purge_range(namespaces: core::ops::Range<&str>) {
 pub fn open(namespace: &str) -> Box<dyn Storage> {
     cfg_if::cfg_if! {
         if #[cfg(any(native_cache, browser_cache))] {
-            match super::turso::open(namespace) {
+            match super::database::open(namespace) {
                 Ok(storage) => storage,
                 // Isolate the memory fallback per environment, so a switch after
                 // the database failed to open doesn't serve the previous

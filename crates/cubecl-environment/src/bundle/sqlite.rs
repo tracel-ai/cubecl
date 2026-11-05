@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::bytes::Bytes;
 use crate::future::block_on;
 use crate::persistence::NamespaceSummary;
-use crate::persistence::turso::{self as database, SCHEMA_VERSION, SCHEMA_VERSION_KEY, connect};
+use crate::persistence::database::{self, SCHEMA_VERSION, SCHEMA_VERSION_KEY, connect};
 
 use super::export::storage_error;
 use super::{Bundle, BundleError, BundleManifest};

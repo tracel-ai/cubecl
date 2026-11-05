@@ -141,7 +141,7 @@ pub enum Access {
 /// environment's ([`open_active`](Self::open_active)), or any other
 /// ([`open_at`](Self::open_at)).
 ///
-/// A [`TursoStorage`] is this bound to one namespace. The records of a build
+/// A [`DatabaseStorage`] is this bound to one namespace. The records of a build
 /// ([`crate::records`]) span namespaces — the sessions', and one per record
 /// kind — and are read and written through this instead.
 pub struct Database {
@@ -627,22 +627,22 @@ fn describe(location: &str, namespace: &str) -> String {
 }
 
 /// One namespace of an environment's database file.
-pub struct TursoStorage {
+pub struct DatabaseStorage {
     database: Database,
     namespace: String,
 }
 
-impl core::fmt::Debug for TursoStorage {
+impl core::fmt::Debug for DatabaseStorage {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter
-            .debug_struct("TursoStorage")
+            .debug_struct("DatabaseStorage")
             .field("namespace", &self.namespace)
             .field("location", &self.database.location)
             .finish()
     }
 }
 
-impl TursoStorage {
+impl DatabaseStorage {
     /// Binds a storage to `namespace` in the active environment's database.
     pub fn open(namespace: String) -> Result<Self, String> {
         Ok(Self {
@@ -662,7 +662,7 @@ impl TursoStorage {
     }
 }
 
-impl Storage for TursoStorage {
+impl Storage for DatabaseStorage {
     fn get(&self, key: &[u8]) -> Option<Bytes> {
         self.database.get(&self.namespace, key)
     }
@@ -1595,7 +1595,8 @@ fn index_overflowed(location: &str) -> bool {
 
 /// The storage serving `namespace` in the active environment's database.
 pub fn open(namespace: &str) -> Result<Box<dyn Storage>, String> {
-    TursoStorage::open(namespace.to_string()).map(|storage| Box::new(storage) as Box<dyn Storage>)
+    DatabaseStorage::open(namespace.to_string())
+        .map(|storage| Box::new(storage) as Box<dyn Storage>)
 }
 
 #[cfg(all(test, native_cache))]
@@ -1654,7 +1655,7 @@ mod tests {
                 .unwrap();
         }
 
-        let storage = TursoStorage::open("old".to_string()).unwrap();
+        let storage = DatabaseStorage::open("old".to_string()).unwrap();
         assert_eq!(storage.get(b"\x01"), None, "stale rows are gone");
         // The rebuilt table must be usable, which an emptied one would not be.
         assert_eq!(
@@ -1790,7 +1791,7 @@ mod tests {
         drop(Database::open_at(&path, Access::ReadWrite).unwrap());
 
         let read = Database::open_at(&path, Access::ReadOnly).unwrap();
-        let storage = TursoStorage::open("kernels".to_string()).unwrap();
+        let storage = DatabaseStorage::open("kernels".to_string()).unwrap();
         assert_eq!(
             storage.insert(
                 b"while-read",
@@ -1801,11 +1802,13 @@ mod tests {
         );
         drop(read);
         assert_eq!(
-            TursoStorage::open("kernels".to_string()).unwrap().insert(
-                b"after",
-                Bytes::from_bytes_vec(b"2".to_vec()),
-                Origin::Local
-            ),
+            DatabaseStorage::open("kernels".to_string())
+                .unwrap()
+                .insert(
+                    b"after",
+                    Bytes::from_bytes_vec(b"2".to_vec()),
+                    Origin::Local
+                ),
             Insertion::Stored
         );
     }
@@ -1884,7 +1887,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let location = active_location(dir.path());
 
-        let storage = TursoStorage::open("kept".to_string()).unwrap();
+        let storage = DatabaseStorage::open("kept".to_string()).unwrap();
         assert_eq!(
             storage.insert(b"key", Bytes::from_bytes_vec(vec![7]), Origin::Local),
             Insertion::Stored
@@ -1895,7 +1898,7 @@ mod tests {
         let database = block_on(open_database(&location)).unwrap();
         migrate(&database).unwrap();
 
-        let reopened = TursoStorage::open("kept".to_string()).unwrap();
+        let reopened = DatabaseStorage::open("kept".to_string()).unwrap();
         assert_eq!(reopened.get(b"key"), Some(Bytes::from_bytes_vec(vec![7])));
     }
 
@@ -1949,8 +1952,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         active_location(dir.path());
 
-        let first = TursoStorage::open("namespace".to_string()).unwrap();
-        let second = TursoStorage::open("namespace".to_string()).unwrap();
+        let first = DatabaseStorage::open("namespace".to_string()).unwrap();
+        let second = DatabaseStorage::open("namespace".to_string()).unwrap();
 
         let bytes = |value: &[u8]| Bytes::from_bytes_vec(value.to_vec());
         assert_eq!(
@@ -2233,7 +2236,7 @@ mod tests {
         let mut child = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
-                "persistence::turso::tests::grow_a_log_until_killed",
+                "persistence::database::tests::grow_a_log_until_killed",
                 "--ignored",
                 "--nocapture",
                 "--test-threads=1",
