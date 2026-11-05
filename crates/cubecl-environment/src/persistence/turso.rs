@@ -368,7 +368,10 @@ impl Database {
                 Err(error(err))
             }
         }
-        .inspect_err(|err| log::warn!("Unable to replace {}: {err}", self.location))
+        .inspect_err(|err| log::warn!("Unable to replace {}: {err}", self.location))?;
+
+        restart_log(&connection, &self.location);
+        Ok(())
     }
 
     /// Visits every entry of `namespace`.
@@ -1046,6 +1049,31 @@ fn checkpoint(connection: &turso::Connection) -> Result<bool, turso::Error> {
     Ok(!incomplete)
 }
 
+/// Restarts the log of the database behind `connection`, at `location`,
+/// after a write that filled it: the frames it wrote are folded into the
+/// file and the log starts again from its first frame.
+///
+/// Turso's own checkpoint after a commit folds the frames in but never
+/// restarts the log, and it restarts on its own only at the start of a
+/// write whose connection saw every frame folded in. A connection reopened
+/// on the file as its only user forgets that it was, so a log nobody writes
+/// again after one large write keeps its frames for good, and the next large
+/// write adds to them past the frames turso's index holds between processes
+/// (262,144), after which every read of the file fails as `database is
+/// locked`. Restarting on the connection that wrote, before it is dropped,
+/// is what keeps that from happening.
+///
+/// Best-effort: a reader holding the log keeps it from restarting, which is
+/// logged, and the next write restarts it instead.
+#[cfg(native_cache)]
+fn restart_log(connection: &turso::Connection, location: &str) {
+    match checkpoint(connection) {
+        Ok(true) => {}
+        Ok(false) => log::debug!("cubecl cache: the log of {location} is in use; not restarted"),
+        Err(err) => log::warn!("cubecl cache: unable to restart the log of {location}: {err}"),
+    }
+}
+
 /// The two header bytes that say which journal mode wrote the file, and the
 /// legacy value: a rollback journal, which is what a reader expects of a file
 /// with no `-wal` beside it.
@@ -1537,5 +1565,45 @@ mod tests {
             database.namespaces(),
             vec!["a/x".to_string(), "b0".to_string(), "c/z".to_string()]
         );
+    }
+
+    /// The frames the log of the database at `path` holds since it last
+    /// restarted, or more: the log file is never shorter than what it holds.
+    pub(super) fn log_frames(path: &std::path::Path) -> u64 {
+        let mut wal = std::ffi::OsString::from(path);
+        wal.push("-wal");
+        let bytes = std::fs::metadata(&wal).map_or(0, |metadata| metadata.len());
+        bytes.saturating_sub(32) / (4096 + 24)
+    }
+
+    /// `database` filled with `megabytes` of 64 KiB values in `namespace`.
+    pub(super) fn fill(database: &Database, namespace: &str, megabytes: usize) {
+        let value = Bytes::from_bytes_vec(vec![7u8; 64 * 1024]);
+        let mut entries = (0..megabytes as u32 * 16).map(|index| {
+            (
+                Bytes::from_bytes_vec(index.to_le_bytes().to_vec()),
+                value.clone(),
+            )
+        });
+        let summary = database.insert_many(namespace, &mut entries, Origin::Local);
+        assert_eq!(summary.failed, 0, "{summary:?}");
+    }
+
+    /// A replacement leaves the log it filled restarted: the copy writes
+    /// about two frames a page, which turso folds into the file but never
+    /// restarts on its own once this connection is gone.
+    #[test_log::test]
+    #[cfg_attr(miri, ignore)]
+    fn a_replacement_leaves_its_log_restarted() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = Database::open_at(&dir.path().join("saved.db"), Access::ReadWrite).unwrap();
+        fill(&source, "kernels", 40);
+
+        let path = dir.path().join("building.db");
+        let target = Database::open_at(&path, Access::ReadWrite).unwrap();
+        target.replace_with(Some(&source)).unwrap();
+
+        assert_eq!(log_frames(&path), 0);
+        assert_eq!(target.summary()[0].entries, 40 * 16);
     }
 }
