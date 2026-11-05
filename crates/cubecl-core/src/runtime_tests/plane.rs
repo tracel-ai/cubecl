@@ -152,6 +152,16 @@ pub fn kernel_shuffle_xor<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>) 
     output[UNIT_POS as usize] = val2;
 }
 
+/// Each lane reads the lane across `mask`, a comptime bit of the plane, and keeps it.
+#[cube(launch)]
+pub fn kernel_shuffle_xor_at<F: Float, N: Size>(
+    output: &mut Tensor<Vector<F, N>>,
+    #[comptime] mask: u32,
+) {
+    let val = output[UNIT_POS as usize];
+    output[UNIT_POS as usize] = plane_shuffle_xor(val, mask);
+}
+
 #[cube(launch)]
 pub fn kernel_shuffle_up<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>) {
     let val = output[UNIT_POS as usize];
@@ -727,6 +737,44 @@ pub fn test_plane_shuffle_xor<
     });
 }
 
+/// A shuffle across every bit of the plane, the widest included: on a wave64 that runs as two
+/// halves, the highest bit is the one that crosses them.
+pub fn test_plane_shuffle_xor_every_bit<
+    TestRuntime: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
+    client: Client,
+    vectorization: VectorSize,
+) {
+    let plane_size = client.properties().hardware.plane_size_max;
+    let mut mask = 1;
+    while mask < plane_size {
+        let input: Vec<f64> = (0..plane_size * vectorization as u32)
+            .map(|x| x as f64)
+            .collect();
+        let mut expected = input.clone();
+        for lane in 0..plane_size as usize {
+            let partner = lane ^ mask as usize;
+            for v in 0..vectorization {
+                expected[lane * vectorization + v] = input[partner * vectorization + v];
+            }
+        }
+        let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
+        let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
+        test_plane_operation::<F, _>(&input, &expected, client.clone(), |cube_count, handle| {
+            kernel_shuffle_xor_at::launch::<F>(
+                &client,
+                cube_count,
+                CubeDim::new_1d(plane_size),
+                vectorization,
+                handle,
+                mask,
+            )
+        });
+        mask *= 2;
+    }
+}
+
 pub fn test_plane_shuffle_up<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
@@ -1082,6 +1130,22 @@ macro_rules! testgen_plane {
                 client.clone(),
                 vectorization,
             );
+        }
+        #[$crate::runtime_tests::test_log::test]
+        fn test_plane_shuffle_xor_every_bit_vec1() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::plane::test_plane_shuffle_xor_every_bit::<
+                TestRuntime,
+                FloatType,
+            >(client, 1);
+        }
+        #[$crate::runtime_tests::test_log::test]
+        fn test_plane_shuffle_xor_every_bit_vec4() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::plane::test_plane_shuffle_xor_every_bit::<
+                TestRuntime,
+                FloatType,
+            >(client, 4);
         }
         #[$crate::runtime_tests::test_log::test]
         fn test_plane_shuffle_xor_vec1() {

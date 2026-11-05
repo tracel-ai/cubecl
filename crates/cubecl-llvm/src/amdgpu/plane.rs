@@ -60,17 +60,23 @@ impl PlaneLowering for AmdGpuPlane {
             });
         }
 
-        // The source lies in the other half where its lane differs from this one in bit 5.
+        // The source lies in the other half where its lane differs from this one in bit 5. That
+        // half is read from the halves swapped, at the source's lane in the swapped wave: the
+        // hardware routes `ds_bpermute` by the lane's index within the half, while LLVM folds a
+        // `ds_bpermute` whose lanes it can prove into DPP or `permlane64` as if it routed across
+        // the whole wave, and both read the source there.
         let lane = self.lane_id(ctx, rw);
         let differs = xor(ctx, rw, lane, src_lane);
         let half = insert_i32_const(ctx, rw, 32);
         let half_bit = and(ctx, rw, differs, half);
         let zero = insert_i32_const(ctx, rw, 0);
         let crosses = icmp(ctx, rw, ICmpPredicateAttr::NE, half_bit, zero);
+        let swapped_lane = xor(ctx, rw, src_lane, half);
+        let swapped_addr = shl(ctx, rw, swapped_lane, two);
         route_words(ctx, rw, value, value_ty, |ctx, rw, word| {
             let same = call_intrinsic(ctx, rw, DS_BPERMUTE, i32_ty, vec![addr, word]);
             let swapped = call_intrinsic(ctx, rw, PERMLANE64, i32_ty, vec![word]);
-            let other = call_intrinsic(ctx, rw, DS_BPERMUTE, i32_ty, vec![addr, swapped]);
+            let other = call_intrinsic(ctx, rw, DS_BPERMUTE, i32_ty, vec![swapped_addr, swapped]);
             select(ctx, rw, crosses, other, same)
         })
     }
