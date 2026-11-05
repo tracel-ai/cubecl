@@ -1,7 +1,8 @@
 //! Real kernels compiled to PTX without a device, checked on the assembly.
 
 use crate::shared::offline_kernels::{
-    ProductA, Wait, bf16_math_kernel, keep_largest_kernel, nested_calls_kernel,
+    ProductA, Wait, bf16_math_kernel, carried_sum_around_walk_kernel, counted_walk_kernel,
+    keep_largest_kernel, keep_largest_rounds_kernel, mma_rounds_kernel, nested_calls_kernel,
     nested_calls_with_source_kernel, plane_moves_kernel, relay_kernel, scale_kernel,
     strided_walk_kernel, tally_kernel, tile_product_kernel,
 };
@@ -125,6 +126,53 @@ fn a_local_array_under_a_constant_loop_is_registers() {
     let ptx = ptx_of(keep_largest_kernel(64), 60);
     assert!(
         !ptx.contains("ld.local") && !ptx.contains("st.local"),
+        "the array is in local memory:\n{ptx}"
+    );
+}
+
+/// A constant loop around an array walk is not itself unrolled: its counter does not reach the
+/// index, so unrolling it would not make an index constant, and the walk inside is unrolled on
+/// its own.
+#[test]
+fn a_loop_around_an_array_walk_stays_a_loop() {
+    let ptx = ptx_of(keep_largest_rounds_kernel(64), 60);
+    assert!(
+        ptx.matches("ld.global").count() < 16,
+        "the rounds are unrolled:\n{ptx}"
+    );
+    assert!(
+        !ptx.contains("ld.local"),
+        "the array is in local memory:\n{ptx}"
+    );
+}
+
+/// A value the outer loop carries does not make the walk's counter vary with the outer loop, so
+/// only the inner walk is unrolled.
+#[test]
+fn a_carried_sum_does_not_unroll_the_loop_around_the_walk() {
+    let ptx = ptx_of(carried_sum_around_walk_kernel(), 60);
+    assert!(ptx.matches("add.f32").count() < 256, "{ptx}");
+}
+
+/// The registers of a manual `mma` are local arrays at constant indices, so a loop of many
+/// `mma` turns stays a loop with one instruction.
+#[test]
+fn a_loop_over_manual_mma_stays_a_loop() {
+    let ptx = ptx_of(mma_rounds_kernel(), 80);
+    assert!(ptx.matches("mma.sync").count() < 16, "{ptx}");
+    assert!(
+        !ptx.contains("ld.local"),
+        "the registers are in local memory:\n{ptx}"
+    );
+}
+
+/// A counter kept in a variable steps from turn to turn, so unrolling still makes the index a
+/// constant.
+#[test]
+fn a_counter_in_a_variable_still_unrolls() {
+    let ptx = ptx_of(counted_walk_kernel(), 60);
+    assert!(
+        !ptx.contains("ld.local"),
         "the array is in local memory:\n{ptx}"
     );
 }
