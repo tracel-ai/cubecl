@@ -144,6 +144,91 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
         self.indices[slot] = index;
     }
 
+    /// The `K` best of the units' lists, in `K` rounds: the holders' heads meet as an
+    /// [`Indexed`] does, the winner takes the round's slot, and the unit that held it moves its
+    /// list up one. For lists in registers, unrolled: a move is a select per slot.
+    fn across_by_shifts(
+        value: Self,
+        #[comptime] share: UnitShare,
+        #[comptime] monoid: Monoid,
+    ) -> Self {
+        let k = K::value();
+        let unrolled = comptime!(k * k <= TOP_K_UNROLL_BUDGET);
+        let none = Indexed::<E, N>::identity(monoid);
+        let mut held_values = Array::new(k);
+        let mut held_indices = Array::new(k);
+        #[unroll]
+        for j in 0..k {
+            held_values[j] = value.values[j];
+            held_indices[j] = value.indices[j];
+        }
+        let mut values = Array::new(k);
+        let mut indices = Array::new(k);
+        #[unroll(unrolled)]
+        for round in 0..k {
+            let head = Indexed::<E, N> {
+                value: held_values[0],
+                index: held_indices[0],
+            };
+            let best = Indexed::<E, N>::across(head, share, monoid);
+            values[round] = best.value;
+            indices[round] = best.index;
+            let taken = held_indices[0].equal(&best.index);
+            #[unroll(unrolled)]
+            for j in 0..comptime!(k - 1) {
+                held_values[j] = select_many(taken, held_values[j + 1], held_values[j]);
+                held_indices[j] = select_many(taken, held_indices[j + 1], held_indices[j]);
+            }
+            held_values[k - 1] = select_many(taken, none.value, held_values[k - 1]);
+            held_indices[k - 1] = select_many(taken, none.index, held_indices[k - 1]);
+        }
+        TopK::<E, N, K> {
+            values,
+            indices,
+            k: comptime!(PhantomData),
+        }
+    }
+
+    /// The `K` best of the units' one-lane lists, in `K` rounds as
+    /// [`across_by_shifts`](Self::across_by_shifts) does, but each unit keeps its head apart and
+    /// the unit that held the winner reads its next at a cursor: for lists too long to unroll,
+    /// which live in memory, where moving a whole list each round costs `K` loads and stores.
+    fn across_by_cursor(
+        value: Self,
+        #[comptime] share: UnitShare,
+        #[comptime] monoid: Monoid,
+    ) -> Self {
+        let k = K::value();
+        let mut values = Array::new(k);
+        let mut indices = Array::new(k);
+        let none = Indexed::<E, N>::identity(monoid);
+        let mut head = Indexed::<E, N> {
+            value: value.values[0],
+            index: value.indices[0],
+        };
+        let mut cursor = comptime!(0usize).runtime();
+        for round in 0..k {
+            let best = Indexed::<E, N>::across(head, share, monoid);
+            values[round] = best.value;
+            indices[round] = best.index;
+            if any_lane::<N>(head.index.equal(&best.index)) {
+                cursor += 1;
+                head = none;
+                if cursor < k {
+                    head = Indexed::<E, N> {
+                        value: value.values[cursor],
+                        index: value.indices[cursor],
+                    };
+                }
+            }
+        }
+        TopK::<E, N, K> {
+            values,
+            indices,
+            k: comptime!(PhantomData),
+        }
+    }
+
     /// `value`, read at `index`, kept in this list if it is among the `K` best, every step
     /// comparing in the full order (value, then the lower index, NaN first): for values that
     /// may be NaN, such as another list's. One walk, where [`insert`](Self::insert) has two,
@@ -263,46 +348,19 @@ impl<E: Numeric, N: Size, K: Size> Carrier for TopK<E, N, K> {
     }
 
     /// `K` rounds: the holders' heads meet as an [`Indexed`] does, the winner takes the round's
-    /// slot, and the unit that held it moves its list up one.
+    /// slot, and the unit that held it moves on to its next: by moving its list up one where the
+    /// list unrolls, by a cursor where a one-lane list is too long to.
     fn across(value: Self, #[comptime] share: UnitShare, #[comptime] monoid: Monoid) -> Self {
         ordered_only(monoid);
         match comptime!(share) {
             UnitShare::Repeated | UnitShare::Whole => value,
             UnitShare::Plane | UnitShare::Group { .. } => {
                 let k = K::value();
-                let unrolled = comptime!(k * k <= TOP_K_UNROLL_BUDGET);
-                let none = Indexed::<E, N>::identity(monoid);
-                let mut held_values = Array::new(k);
-                let mut held_indices = Array::new(k);
-                #[unroll]
-                for j in 0..k {
-                    held_values[j] = value.values[j];
-                    held_indices[j] = value.indices[j];
-                }
-                let mut values = Array::new(k);
-                let mut indices = Array::new(k);
-                #[unroll(unrolled)]
-                for round in 0..k {
-                    let head = Indexed::<E, N> {
-                        value: held_values[0],
-                        index: held_indices[0],
-                    };
-                    let best = Indexed::<E, N>::across(head, share, monoid);
-                    values[round] = best.value;
-                    indices[round] = best.index;
-                    let taken = held_indices[0].equal(&best.index);
-                    #[unroll(unrolled)]
-                    for j in 0..comptime!(k - 1) {
-                        held_values[j] = select_many(taken, held_values[j + 1], held_values[j]);
-                        held_indices[j] = select_many(taken, held_indices[j + 1], held_indices[j]);
-                    }
-                    held_values[k - 1] = select_many(taken, none.value, held_values[k - 1]);
-                    held_indices[k - 1] = select_many(taken, none.index, held_indices[k - 1]);
-                }
-                TopK::<E, N, K> {
-                    values,
-                    indices,
-                    k: comptime!(PhantomData),
+                let lanes = N::value();
+                if comptime!(k * k <= TOP_K_UNROLL_BUDGET || lanes > 1) {
+                    TopK::<E, N, K>::across_by_shifts(value, share, monoid)
+                } else {
+                    TopK::<E, N, K>::across_by_cursor(value, share, monoid)
                 }
             }
         }
