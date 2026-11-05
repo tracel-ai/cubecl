@@ -56,7 +56,7 @@ use cubecl_core::{
     prelude::*,
 };
 use cubecl_ir::{
-    dialect::{OperationPtrExt, math},
+    dialect::{OperationPtrExt, cmp, math},
     interfaces::TypedExt,
     prelude::*,
 };
@@ -69,7 +69,7 @@ use pliron::{
 };
 
 use crate::{
-    compiler::{NO_CONTRACTION_ATTR, decorate_uniform},
+    compiler::{STRICT_FLOAT_ATTR, decorate_uniform, is_float_arithmetic},
     lower::{LowerOp, lower_unop},
 };
 
@@ -279,7 +279,7 @@ macro_rules! lower_exact {
                 scope.register_value_type::<T, S>(op.operand(scope.ctx(), 0));
                 let value = $name::expand::<T, S>(scope, $(op.operand(scope.ctx(), $operand).into()),+)
                     .read_value(scope);
-                mark_no_contraction(&scope.ctx(), op, previous);
+                mark_strict_float(&scope.ctx(), op, previous);
                 if let DefiningEntity::Op(result) = value.defining_entity() {
                     decorate_uniform(&scope.ctx(), result, uniformity);
                 }
@@ -307,9 +307,8 @@ lower_exact!(math::Exp2Op, exp2_lanes, 0);
 lower_exact!(math::LogOp, log_lanes, 0);
 lower_exact!(SimplePowOp, pow_lanes, 0, 1);
 
-/// Marks the float additions, subtractions, multiplications, divisions and negations that a
-/// lowering inserted before `op`, after `previous`, nested ones included.
-fn mark_no_contraction(ctx: &Context, op: Ptr<Operation>, previous: Option<Ptr<Operation>>) {
+/// Marks the float arithmetic, comparisons and NaN or infinity tests that a lowering inserted before `op`, after `previous`, nested ones included.
+fn mark_strict_float(ctx: &Context, op: Ptr<Operation>, previous: Option<Ptr<Operation>>) {
     let mut next = match previous {
         Some(previous) => previous.deref(ctx).get_next(),
         None => op
@@ -327,9 +326,9 @@ fn mark_no_contraction(ctx: &Context, op: Ptr<Operation>, previous: Option<Ptr<O
             current,
             |ctx, (), node| {
                 if let IRNode::Operation(inner) = node
-                    && is_float_arithmetic(ctx, inner)
+                    && is_strict_float(ctx, inner)
                 {
-                    inner.set_attr(ctx, &NO_CONTRACTION_ATTR, UnitAttr::new());
+                    inner.set_attr(ctx, &STRICT_FLOAT_ATTR, UnitAttr::new());
                 }
             },
         );
@@ -337,12 +336,17 @@ fn mark_no_contraction(ctx: &Context, op: Ptr<Operation>, previous: Option<Ptr<O
     }
 }
 
-fn is_float_arithmetic(ctx: &Context, op: Ptr<Operation>) -> bool {
-    op.as_op::<math::FAddOp>(ctx).is_some()
-        || op.as_op::<math::FSubOp>(ctx).is_some()
-        || op.as_op::<math::FMulOp>(ctx).is_some()
-        || op.as_op::<math::FDivOp>(ctx).is_some()
-        || op.as_op::<math::FNegOp>(ctx).is_some()
+/// Float operations whose result depends on how the driver treats NaN, infinity or the rounding.
+fn is_strict_float(ctx: &Context, op: Ptr<Operation>) -> bool {
+    is_float_arithmetic(ctx, op)
+        || op.as_op::<cmp::FEqualOp>(ctx).is_some()
+        || op.as_op::<cmp::FNotEqualOp>(ctx).is_some()
+        || op.as_op::<cmp::FGreaterThanOp>(ctx).is_some()
+        || op.as_op::<cmp::FGreaterThanOrEqualOp>(ctx).is_some()
+        || op.as_op::<cmp::FLessThanOp>(ctx).is_some()
+        || op.as_op::<cmp::FLessThanOrEqualOp>(ctx).is_some()
+        || op.as_op::<math::IsNanOp>(ctx).is_some()
+        || op.as_op::<math::IsInfOp>(ctx).is_some()
 }
 
 // The conversion between degrees and radians is a multiplication, which f64 has.
