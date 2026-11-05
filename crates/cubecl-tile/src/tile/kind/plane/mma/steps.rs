@@ -18,7 +18,7 @@ use cubecl::{
     prelude::*,
 };
 
-use super::lane_runs::{E2M1_PER_WORD, instruction_depth, lays_out_lane_runs};
+use super::lane_runs::{E2M1_PER_WORD, LaneMap, instruction_depth, lane_map};
 use crate::*;
 
 /// `e4m3` block scales one word of them holds.
@@ -33,7 +33,7 @@ const E2M1_SCALE_BLOCK: usize = 16;
 /// load a step at a time; `None` where it can: a fragment deeper than its instruction over a plain
 /// window, each step read as a fragment of its own at its offset along `k`, whatever layout the
 /// target's registers take; or deeper than a 16-bit `m16n8k16` instruction, on a target that lays
-/// its registers out as [`lays_out_lane_runs`] reads them, over a `B` of `e2m1` codes along `k`
+/// its registers out as [`LaneMap::M16N8K16`] reads them, over a `B` of `e2m1` codes along `k`
 /// under one level of words of block scales, a whole number of words deep so every window starts
 /// on a word.
 #[cube]
@@ -45,7 +45,8 @@ pub(crate) fn steps_refusal<T: Numeric>(
 ) -> comptime_type!(Option<&'static str>) {
     let (m, n, k) = comptime!(shape);
     let depth = instruction_depth::<T>(m, n, k);
-    let laid_out = lays_out_lane_runs();
+    let map = lane_map();
+    let laid_out = comptime!(map == Some(LaneMap::M16N8K16));
     let bytes = T::size().comptime();
     let packing = src.packing();
     let levels = src.factor_levels();

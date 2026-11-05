@@ -6,6 +6,9 @@
 //! `e4m3` block scales, decoded and scaled in registers where the instruction reads them. The
 //! kernel names neither: the leaf's depth is the whole statement. Out of a stage in shared memory
 //! the same fragment loads a step at a time instead, each step in the instruction's own order.
+//!
+//! The fragments are the device's instruction: NVIDIA's `16 × 8 × 16`, or RDNA3's `16 × 16 × 16`,
+//! whose units each hold a whole row of `k`. Every shape below is read off the one it offers.
 
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{
@@ -85,6 +88,7 @@ fn lane_run_matmul(
     #[comptime] staged: Staged,
     #[comptime] decoded: ElemType,
     #[comptime] first: First,
+    #[comptime] edges: (usize, usize),
 ) {
     let instruction = comptime!(Instruction::Mma {
         io: MmaIo::manual(),
@@ -132,7 +136,7 @@ fn lane_run_matmul(
             let b = b.scales_kept_beside();
             let storage = comptime!(match staged {
                 Staged::BothKeptTiled(chunks) => StageStorage::Tiled {
-                    block: vec![(M, 16), (N, 8), (KB, 1), (KI, BLOCK)],
+                    block: vec![(M, edges.0), (N, edges.1), (KB, 1), (KI, BLOCK)],
                     chunks,
                 },
                 _ => StageStorage::Strided,
@@ -150,27 +154,47 @@ fn lane_run_matmul(
     c.dequantize_from(&acc.scaled(&b_factor));
 }
 
-/// Whether the device offers the 16-bit `16 × 8 × 16` instruction the lane runs are read off.
-fn offers_m16n8k16(client: &cubecl::client::Client) -> bool {
-    client
-        .properties()
-        .features
-        .matmul
-        .mma
-        .iter()
-        .any(|config| {
-            config.a_type == f16::elem_type_native()
-                && (config.m, config.n, config.k) == (16, 8, 16)
-        })
+/// The `m × n` of the 16-bit, 16-deep instruction the device lays lane runs out on: NVIDIA's
+/// `16 × 8`, every cell held once, or RDNA3's `16 × 16`, both halves of the plane holding the
+/// same cells of `A` and `B`. `None` where it offers neither.
+fn lane_run_instruction(client: &cubecl::client::Client) -> Option<(usize, usize)> {
+    let offers = |m: u32, n: u32| {
+        client
+            .properties()
+            .features
+            .matmul
+            .mma
+            .iter()
+            .any(|config| {
+                config.a_type == f16::elem_type_native()
+                    && (config.m, config.n, config.k) == (m, n, 16)
+            })
+    };
+    let mma = &client.target_properties().mma;
+    match (mma.register_duplication_a, mma.register_duplication_b) {
+        (1, 1) if offers(16, 8) => Some((16, 8)),
+        (2, 2) if offers(16, 16) => Some((16, 16)),
+        _ => None,
+    }
+}
+
+/// Whether the device's instruction is NVIDIA's `16 × 8 × 16`, the one layout an `e2m1` weight
+/// decodes into a step at a time (`steps_refusal`).
+fn decodes_steps(client: &cubecl::client::Client) -> bool {
+    lane_run_instruction(client) == Some((16, 8))
+}
+
+fn skip(why: &str) {
+    ValidationResult::Skipped(why.to_string()).enforce();
 }
 
 fn skip_without_instruction(client: &cubecl::client::Client) -> bool {
-    let offered = offers_m16n8k16(client);
+    let offered = lane_run_instruction(client).is_some();
     if !offered {
-        ValidationResult::Skipped(
-            "the device offers no 16-bit 16x8x16 manual-mma instruction".to_string(),
-        )
-        .enforce();
+        skip(
+            "the device offers no 16-bit instruction lane runs read: NVIDIA's 16x8x16 or \
+             RDNA3's 16x16x16",
+        );
     }
     !offered
 }
@@ -216,7 +240,7 @@ fn check_plain_handed(k: usize, width_a: usize, width_b: usize, first: First) {
     if skip_without_instruction(&client) {
         return;
     }
-    let (rows, cols) = fragment_edges(first);
+    let (rows, cols) = fragment_edges(&client, first);
     let launcher = implied(
         &client,
         Partitioning::new(
@@ -264,6 +288,7 @@ fn check_plain_handed(k: usize, width_a: usize, width_b: usize, first: First) {
         Staged::Nothing,
         f16::elem_type_native(),
         first,
+        fragment_edges(&client, First::Activation),
     );
     let got = HostData::from_tensor_handle(&client, c, HostDataType::F32);
     assert_product(
@@ -275,25 +300,34 @@ fn check_plain_handed(k: usize, width_a: usize, width_b: usize, first: First) {
     );
 }
 
-/// The product's rows and columns one `16 × 8` fragment covers, its sixteen rows along the
-/// free axis of the factor handed over first.
-fn fragment_edges(first: First) -> (usize, usize) {
+/// The product's rows and columns one fragment of the device's instruction covers, its `m` rows
+/// along the free axis of the factor handed over first.
+fn fragment_edges(client: &cubecl::client::Client, first: First) -> (usize, usize) {
+    let (m, n) = lane_run_instruction(client).expect("the test skips without the instruction");
     match first {
-        First::Activation => (16, 8),
-        First::Weight => (8, 16),
+        First::Activation => (m, n),
+        First::Weight => (n, m),
     }
+}
+
+/// The product's rows a whole fragment covers with `first` handed over first.
+fn whole_rows(first: First) -> usize {
+    let client = cubecl::test_device().client();
+    lane_run_instruction(&client).map_or(16, |_| fragment_edges(&client, first).0)
 }
 
 /// `a · (b ⊗ s)` with `b` NVFP4: `e2m1` codes eight to a word along `k`, `e4m3` scales four to a
 /// word, one every sixteen codes, the codes served `words` words a load. `k` is spelled as the
 /// two digits a block makes of it, `(KB, KI)`, so the scales are the operand omitting `KI`.
-/// `columns` fragments of eight columns share the plane, each contracting the one `a` it loads.
+/// `columns` fragments of the instruction's columns share the plane, each contracting the one
+/// `a` it loads.
 fn check_nvfp4(k: usize, width_a: usize, words: usize, columns: usize) {
     check_nvfp4_rows(16, k, width_a, words, columns, Staged::Nothing, None)
 }
 
 /// [`check_nvfp4`] at `rows` rows of the fragment's sixteen: a product of fewer rows overhangs
-/// the fragment, its rows past the edge read as zeros and drained nowhere. Operands read out of a
+/// the fragment, its units past the edge reading its last row again into accumulator rows the
+/// store drops. Operands read out of a
 /// stage in shared memory as `staged` says, a stage holding the product's rows alone. A staged
 /// weight's scales are words of four, which its stage keeps beside the codes. Where `global`
 /// is stated, the weight carries it as a per-tensor scale above its block scales.
@@ -315,12 +349,14 @@ fn check_nvfp4_rows(
         staged,
         global,
         First::Activation,
+        None,
     )
 }
 
 /// [`check_nvfp4_rows`] with the factors handed over as `first` says: the weight first decodes
-/// its codes into the instruction's `A`, two of its columns a unit, and its columns are the
-/// fragment's sixteen rows.
+/// its codes into the instruction's `A`, and its columns are the fragment's sixteen rows.
+/// `weight_rows`, where stated, is fewer of them than the fragments hold, which overhangs the
+/// weight's fragment as fewer rows of the activation overhang its own.
 #[allow(clippy::too_many_arguments)]
 fn check_nvfp4_handed(
     rows: usize,
@@ -331,14 +367,19 @@ fn check_nvfp4_handed(
     staged: Staged,
     global: Option<f32>,
     first: First,
+    weight_rows: Option<usize>,
 ) {
     let client = cubecl::test_device().client();
     if skip_without_instruction(&client) {
         return;
     }
+    if staged == Staged::Both && !decodes_steps(&client) {
+        skip("an e2m1 weight decodes a step at a time on NVIDIA's 16x8x16 alone");
+        return;
+    }
     let blocks = k / BLOCK;
-    let (fragment_rows, fragment_cols) = fragment_edges(first);
-    let n = fragment_cols * columns;
+    let (fragment_rows, fragment_cols) = fragment_edges(&client, first);
+    let n = weight_rows.unwrap_or(fragment_cols * columns);
     let leaf = Levels::leaf(&[
         (M, fragment_rows),
         (N, fragment_cols),
@@ -503,6 +544,7 @@ fn check_nvfp4_handed(
         staged,
         f16::elem_type_native(),
         first,
+        fragment_edges(&client, First::Activation),
     );
     let got = HostData::from_tensor_handle(&client, c, HostDataType::F32);
     let decoded = |code: u8| e2m1::from_bits(code).to_f32();
@@ -545,18 +587,19 @@ fn check_plain_split(k: usize, width: usize) {
     if skip_without_instruction(&client) {
         return;
     }
+    let (rows, cols) = fragment_edges(&client, First::Activation);
     let launcher = implied(
         &client,
         Partitioning::new(
-            Space::new(&[(M, 16), (N, 8), (KB, k / BLOCK), (KI, BLOCK)]),
-            Levels::leaf(&[(M, 16), (N, 8), (KB, WINDOW / BLOCK), (KI, BLOCK)])
+            Space::new(&[(M, rows), (N, cols), (KB, k / BLOCK), (KI, BLOCK)]),
+            Levels::leaf(&[(M, rows), (N, cols), (KB, WINDOW / BLOCK), (KI, BLOCK)])
                 .walk_every(&[M, N, KB, KI])
                 .build(),
         ),
         Form::Static,
     );
-    let a = activation(16, k);
-    let b: Vec<f32> = (0..8 * k)
+    let a = activation(rows, k);
+    let b: Vec<f32> = (0..cols * k)
         .map(|i| ((i * 5 + i / k) % 13) as f32 / 4.0 - 1.5)
         .collect();
     let half = |values: &[f32]| values.iter().map(|&v| f16::from_f32(v)).collect::<Vec<_>>();
@@ -578,18 +621,18 @@ fn check_plain_split(k: usize, width: usize) {
         )
     };
     let a_op = launcher
-        .arg(tensor(&a, 16), f16::elem_type_native())
+        .arg(tensor(&a, rows), f16::elem_type_native())
         .gathered(along_k(M))
         .vectorize(width)
         .build()
         .unwrap();
     let b_op = launcher
-        .arg(tensor(&b, 8), f16::elem_type_native())
+        .arg(tensor(&b, cols), f16::elem_type_native())
         .gathered(along_k(N))
         .vectorize(width)
         .build()
         .unwrap();
-    let c = TestInput::builder(client.clone(), Shape::from(vec![16, 8]))
+    let c = TestInput::builder(client.clone(), Shape::from(vec![rows, cols]))
         .zeros()
         .generate_without_host_data();
     let c_op = launcher
@@ -609,12 +652,13 @@ fn check_plain_split(k: usize, width: usize) {
         Staged::Nothing,
         f16::elem_type_native(),
         First::Activation,
+        (rows, cols),
     );
     let got = HostData::from_tensor_handle(&client, c, HostDataType::F32);
     assert_product(
         &got,
-        16,
-        8,
+        rows,
+        cols,
         |i, j| (0..k).map(|l| a[i * k + l] * b[j * k + l]).sum(),
         &format!("plain over (KB, KI), k = {k}, served {width} wide"),
     );
@@ -664,8 +708,8 @@ fn column_fragments_share_one_lane_run_of_a() {
     check_nvfp4(WINDOW, 8, 2, 4);
 }
 
-/// Fewer rows than a fragment's, one fragment and a grid of them: the rows past the product's
-/// read as zeros and drain nowhere.
+/// Fewer rows than a fragment's, one fragment and a grid of them: the units past the product's
+/// rows read its last row again, into accumulator rows that drain nowhere.
 #[test]
 fn a_product_of_fewer_rows_overhangs_its_fragments() {
     check_nvfp4_rows(3, 2 * WINDOW, 8, 2, 1, Staged::Nothing, None);
@@ -674,7 +718,7 @@ fn a_product_of_fewer_rows_overhangs_its_fragments() {
 }
 
 /// The activation out of a stage in shared memory, which holds the product's rows alone: the
-/// units covering rows past them read zeros rather than past the stage.
+/// units covering rows past them read its last row again rather than past the stage.
 #[test]
 fn a_staged_activation_of_fewer_rows_than_a_fragment_contracts_in_lane_runs() {
     check_nvfp4_rows(1, 2 * WINDOW, 8, 2, 1, Staged::Activation, None);
@@ -722,11 +766,16 @@ fn a_per_tensor_scale_above_lane_runs_scales_the_sum() {
 }
 
 /// Each unit's register `i` of instruction role `ident` holds the cells the lane-run map says it
-/// does, as `position_of_nth` places them: the run of the unit's quad along `k`, and the rows (an
+/// does, as `position_of_nth` places them: the run of the unit's part of `k`, and the rows (an
 /// `A`) or the column (a `B`) the unit holds. Written to `out` as `(row, k)` pairs per cell.
 #[cube(launch)]
-fn positions(out: &mut [u32], #[comptime] ident: MatrixIdent) {
-    let def = MmaDefinition::<f16, f16, f32>::new(16usize, 8usize, 16usize);
+fn positions(
+    out: &mut [u32],
+    #[comptime] ident: MatrixIdent,
+    #[comptime] n: usize,
+    #[comptime] depth: usize,
+) {
+    let def = MmaDefinition::<f16, f16, f32>::new(16usize, n, depth);
     let cells = def.elems_per_lane(ident);
     let unit = UNIT_POS_PLANE;
     #[unroll]
@@ -738,16 +787,42 @@ fn positions(out: &mut [u32], #[comptime] ident: MatrixIdent) {
     }
 }
 
-/// The layout the lane-run map is written for, against the device's own: unit `u` holds quad
-/// `u % 4` of `k`, cells `2q + 8p + e` for pair `p` and cell `e` of a register; an `A`'s register
-/// `i` row `u / 4 + 8 (i % 2)` and pair `i / 2`, a `B`'s pair `i` and column `u / 4`.
+/// The layout the lane-run map is written for, against the device's own. On `16 × 8 × 16` unit
+/// `u` holds quad `u % 4` of `k`, cells `2q + 8p + e` for pair `p` and cell `e` of a register; an
+/// `A`'s register `i` row `u / 4 + 8 (i % 2)` and pair `i / 2`, a `B`'s pair `i` and column
+/// `u / 4`. On RDNA3's `16 × 16`, sixteen or thirty-two deep, unit `u` holds cell `e` of `k` in
+/// order, along row `u % 16` of an `A` or that column of a `B`.
 #[test]
 fn the_lane_run_map_is_the_devices_layout() {
     let client = cubecl::test_device().client();
     if skip_without_instruction(&client) {
         return;
     }
-    for (ident, cells) in [(MatrixIdent::A, 8usize), (MatrixIdent::B, 4usize)] {
+    let (_, n) = fragment_edges(&client, First::Activation);
+    let quads = n == 8;
+    let offered = |depth: u32| {
+        client
+            .properties()
+            .features
+            .matmul
+            .mma
+            .iter()
+            .any(|config| {
+                config.a_type == f16::elem_type_native()
+                    && (config.m, config.n, config.k) == (16, n as u32, depth)
+            })
+    };
+    let depths: &[usize] = if quads { &[16] } else { &[16, 32] };
+    let cases = depths
+        .iter()
+        .filter(|&&depth| offered(depth as u32))
+        .flat_map(|&depth| [(MatrixIdent::A, depth), (MatrixIdent::B, depth)]);
+    for (ident, depth) in cases {
+        let cells = match (quads, ident) {
+            (true, MatrixIdent::A) => 8usize,
+            (true, _) => 4,
+            (false, _) => depth,
+        };
         let out = client.empty(32 * cells * 2 * 4);
         unsafe {
             positions::launch(
@@ -756,6 +831,8 @@ fn the_lane_run_map_is_the_devices_layout() {
                 CubeDim::new_1d(32),
                 BufferArg::from_raw_parts(out.clone(), 32 * cells * 2),
                 ident,
+                n,
+                depth,
             )
         };
         let bytes = client.read_one(out).unwrap();
@@ -766,17 +843,19 @@ fn the_lane_run_map_is_the_devices_layout() {
                 let (register, cell) = (e / 2, (e % 2) as u32);
                 let at = (unit as usize * cells + e) * 2;
                 let (row, col) = (got[at], got[at + 1]);
-                let (want_row, want_col) = match ident {
-                    MatrixIdent::A => (
+                let (want_row, want_col) = match (quads, ident) {
+                    (true, MatrixIdent::A) => (
                         g + 8 * (register as u32 % 2),
                         2 * q + 8 * (register as u32 / 2) + cell,
                     ),
-                    _ => (2 * q + 8 * register as u32 + cell, g),
+                    (true, _) => (2 * q + 8 * register as u32 + cell, g),
+                    (false, MatrixIdent::A) => (unit % 16, e as u32),
+                    (false, _) => (e as u32, unit % 16),
                 };
                 assert_eq!(
                     (row, col),
                     (want_row, want_col),
-                    "{ident:?}, unit {unit}, cell {e}"
+                    "{ident:?} {depth} deep, unit {unit}, cell {e}"
                 );
             }
         }
@@ -791,17 +870,90 @@ fn a_plain_weight_handed_first_contracts_in_lane_runs() {
     check_plain_handed(2 * WINDOW, 2, 4, First::Weight);
 }
 
-/// An NVFP4 weight handed over first decodes its codes into the instruction's `A`, two of its
-/// columns a unit, read straight, out of stages under byte scales kept beside the codes, and
-/// under a per-tensor scale; a product of fewer rows than the fragment's eight columns overhangs
-/// it. Scales staged as words decode a step at a time, which reads a `B` alone and refuses it.
+/// An NVFP4 weight handed over first decodes its codes into the instruction's `A`, read
+/// straight, out of stages under byte scales kept beside the codes, and under a per-tensor scale;
+/// a product of fewer rows than the fragment's columns overhangs it. Scales staged as words
+/// decode a step at a time, which reads a `B` alone and refuses it.
 #[test]
 fn an_nvfp4_weight_handed_first_decodes_into_the_left_operand() {
     let weight = First::Weight;
-    check_nvfp4_handed(8, 2 * WINDOW, 8, 2, 1, Staged::Nothing, None, weight);
-    check_nvfp4_handed(8, WINDOW, 8, 2, 2, Staged::Nothing, None, weight);
-    check_nvfp4_handed(3, 2 * WINDOW, 8, 2, 1, Staged::Nothing, None, weight);
-    check_nvfp4_handed(8, 2 * WINDOW, 8, 2, 1, Staged::Activation, None, weight);
-    check_nvfp4_handed(8, 2 * WINDOW, 8, 2, 2, Staged::BothKept, None, weight);
-    check_nvfp4_handed(8, WINDOW, 8, 2, 1, Staged::Nothing, Some(0.375), weight);
+    let whole = whole_rows(weight);
+    check_nvfp4_handed(
+        whole,
+        2 * WINDOW,
+        8,
+        2,
+        1,
+        Staged::Nothing,
+        None,
+        weight,
+        None,
+    );
+    check_nvfp4_handed(whole, WINDOW, 8, 2, 2, Staged::Nothing, None, weight, None);
+    check_nvfp4_handed(3, 2 * WINDOW, 8, 2, 1, Staged::Nothing, None, weight, None);
+    check_nvfp4_handed(
+        whole,
+        2 * WINDOW,
+        8,
+        2,
+        1,
+        Staged::Activation,
+        None,
+        weight,
+        None,
+    );
+    check_nvfp4_handed(
+        whole,
+        2 * WINDOW,
+        8,
+        2,
+        2,
+        Staged::BothKept,
+        None,
+        weight,
+        None,
+    );
+    check_nvfp4_handed(
+        whole,
+        WINDOW,
+        8,
+        2,
+        1,
+        Staged::Nothing,
+        Some(0.375),
+        weight,
+        None,
+    );
+}
+
+/// A weight of fewer rows than its fragment's sixteen, handed over first: the units past them
+/// read its last row's codes and scales again, as a short activation's do, read straight and out
+/// of stages under byte scales kept beside the codes.
+#[test]
+fn a_short_nvfp4_weight_handed_first_overhangs_the_left_operand() {
+    let weight = First::Weight;
+    let whole = whole_rows(weight);
+    check_nvfp4_handed(
+        whole,
+        2 * WINDOW,
+        8,
+        2,
+        1,
+        Staged::Nothing,
+        None,
+        weight,
+        Some(5),
+    );
+    check_nvfp4_handed(1, WINDOW, 8, 2, 1, Staged::Nothing, None, weight, Some(1));
+    check_nvfp4_handed(
+        3,
+        2 * WINDOW,
+        8,
+        2,
+        1,
+        Staged::BothKept,
+        None,
+        weight,
+        Some(11),
+    );
 }
