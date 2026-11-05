@@ -402,7 +402,9 @@ impl Database {
     /// environment copied in one write would write about two log frames a
     /// page, which for one of 512 MiB is the 262,144 frames turso indexes
     /// between processes, past which every read of the file fails. The file
-    /// holds both until the swap, so it needs room for `source` twice over.
+    /// holds both until the swap, and keeps that size after it: the pages the
+    /// old entries held are free for later writes, the next replacement's
+    /// among them, but not given back.
     ///
     /// # Errors
     ///
