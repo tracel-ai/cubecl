@@ -72,10 +72,22 @@ impl<E: Float> OnlineSoftmax<E> {
     /// anything summed against the earlier blocks is multiplied by ([`AxisSlices::mul`]).
     ///
     /// `bias` is a procedural tile windowed to the same region as `score`. A masked cell's bias is
-    /// `E::min_value()`; a slice whose every cell so far is masked holds zeros and a zero sum. On a
-    /// plane's window every unit of the plane calls it, and the caller meets the plane before it
-    /// and before the probabilities are read.
+    /// `E::min_value()`; a slice whose every cell so far is masked holds zeros and a zero sum. A
+    /// bias zero everywhere ([`Procedural::zero`]) is no bias: the max is then taken over the raw
+    /// scores and scaled once a slice, and each cell's `exp(score · scale − max)` is one
+    /// multiply-add and one exponential, `score · scale` never stored. On a plane's window every
+    /// unit of the plane calls it, and the caller meets the plane before it and before the
+    /// probabilities are read.
     pub fn step(&mut self, score: &Tile, bias: &Tile, scale: E) -> Array<E> {
+        let unbiased = bias.is_zero();
+        match comptime!(unbiased) {
+            true => self.step_unbiased(score, scale),
+            false => self.step_biased(score, bias, scale),
+        }
+    }
+
+    /// [`step`](OnlineSoftmax::step) with a bias read at each cell.
+    fn step_biased(&mut self, score: &Tile, bias: &Tile, scale: E) -> Array<E> {
         let mut slices = score.along(self.axis);
         slices.scale_add::<E>(scale, bias);
         let max = slices.maxima::<E>(&self.m);
@@ -83,11 +95,9 @@ impl<E: Float> OnlineSoftmax<E> {
         self.take_in(&slices, &max)
     }
 
-    /// [`step`](OnlineSoftmax::step) for a block no bias touches, one multiply-add and one exponential a
-    /// cell: the max is taken over the raw scores and scaled once a slice, and each cell's
-    /// `exp(score · scale − max)` is computed in place, `score · scale` never stored. `scale` is
-    /// positive, so the raw scores' max scales to the scaled scores' max.
-    pub fn step_unbiased(&mut self, score: &Tile, scale: E) -> Array<E> {
+    /// [`step`](OnlineSoftmax::step) with no bias. `scale` is positive, so the raw scores' max
+    /// scales to the scaled scores' max.
+    fn step_unbiased(&mut self, score: &Tile, scale: E) -> Array<E> {
         let mut slices = score.along(self.axis);
         let mut floor = Array::<E>::new(self.slices);
         #[unroll]

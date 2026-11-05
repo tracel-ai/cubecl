@@ -28,6 +28,42 @@ pub(crate) fn current_cpu() -> u32 {
 /// What [`current_cpu`] answers where the system does not say.
 pub(crate) const UNKNOWN_CPU: u32 = u32::MAX;
 
+/// The CPUs the process may run on, read once before any thread is kept under one cache.
+///
+/// Threads a device server spawns inherit its cache; those with no launches to stay near, such
+/// as compile workers, spread back over every CPU.
+pub struct ProcessCpus {
+    parallelism: usize,
+    /// `None` where there is only one cache, so no thread is ever kept under one.
+    #[cfg(all(target_os = "linux", not(miri)))]
+    domains: Option<linux::CacheDomains>,
+}
+
+impl ProcessCpus {
+    /// Read on the first call.
+    pub fn get() -> &'static Self {
+        static CPUS: std::sync::OnceLock<ProcessCpus> = std::sync::OnceLock::new();
+        CPUS.get_or_init(|| Self {
+            parallelism: std::thread::available_parallelism().map_or(1, |threads| threads.get()),
+            #[cfg(all(target_os = "linux", not(miri)))]
+            domains: linux::CacheDomains::new(),
+        })
+    }
+
+    /// How many threads the process may run at once.
+    pub fn parallelism(&self) -> usize {
+        self.parallelism
+    }
+
+    /// Lets the calling thread run on every CPU, undoing the cache it inherited from a server.
+    pub fn spread_current_thread(&self) {
+        #[cfg(all(target_os = "linux", not(miri)))]
+        if let Some(domains) = &self.domains {
+            domains.spread_current_thread();
+        }
+    }
+}
+
 /// Buffers in a row an issuer fills from one other last-level cache before the server moves
 /// there. Several threads may issue a device's launches from different caches, each now and
 /// then; moving on every buffer would chase each of them in turn, a migration every time.
@@ -52,7 +88,7 @@ impl ServerPlacement {
     pub(crate) fn follow(&mut self, issuer_cpu: u32) {
         #[cfg(all(target_os = "linux", not(miri)))]
         {
-            let Some(domains) = linux::CacheDomains::get() else {
+            let Some(domains) = &ProcessCpus::get().domains else {
                 return;
             };
             if let Some(domain) = domains
@@ -126,7 +162,7 @@ mod tests {
 
 #[cfg(all(target_os = "linux", not(miri)))]
 mod linux {
-    use std::{fs, path::Path, string::String, sync::OnceLock, vec::Vec};
+    use std::{fs, path::Path, string::String, vec::Vec};
 
     /// The CPUs the process may run on, grouped by the last-level cache they share.
     pub(super) struct CacheDomains {
@@ -137,16 +173,9 @@ mod linux {
     }
 
     impl CacheDomains {
-        /// The domains, read once; `None` where there is only one or the system does not say.
-        ///
-        /// Read on the first call, before any thread is moved: the allowed CPUs are the
-        /// process's, not those of a server already kept under one cache.
-        pub(super) fn get() -> Option<&'static Self> {
-            static DOMAINS: OnceLock<Option<CacheDomains>> = OnceLock::new();
-            DOMAINS.get_or_init(Self::read).as_ref()
-        }
-
-        fn read() -> Option<Self> {
+        /// The domains of the CPUs the calling thread may run on; `None` where there is only
+        /// one or the system does not say.
+        pub(super) fn new() -> Option<Self> {
             let allowed = CpuSet::allowed()?;
             let mut of_cpu = Vec::new();
             let mut cpus: Vec<CpuSet> = Vec::new();
@@ -182,6 +211,22 @@ mod linux {
             let kept = unsafe { libc::sched_setaffinity(0, size_of::<libc::cpu_set_t>(), set) };
             if kept != 0 {
                 log::debug!("The device server stays where it is: sched_setaffinity refused");
+            }
+        }
+
+        /// Lets the calling thread run on every domain's CPUs.
+        pub(super) fn spread_current_thread(&self) {
+            let mut every = CpuSet::empty();
+            for (cpu, domain) in self.of_cpu.iter().enumerate() {
+                if domain.is_some() {
+                    every.insert(cpu);
+                }
+            }
+            // SAFETY: `every` is a valid `cpu_set_t` of the size passed.
+            let spread =
+                unsafe { libc::sched_setaffinity(0, size_of::<libc::cpu_set_t>(), &every.0) };
+            if spread != 0 {
+                log::debug!("The thread stays under its cache: sched_setaffinity refused");
             }
         }
     }
@@ -273,7 +318,7 @@ mod linux {
 
         #[test]
         fn a_server_that_follows_a_cpu_is_kept_under_its_cache() {
-            let Some(domains) = CacheDomains::get() else {
+            let Some(domains) = &super::super::ProcessCpus::get().domains else {
                 return;
             };
             std::thread::spawn(move || {
@@ -289,9 +334,33 @@ mod linux {
             .unwrap();
         }
 
+        /// A compile worker that kept the server's cache would compile on its cores only.
+        #[test]
+        fn a_thread_spawned_by_a_kept_server_spreads_over_every_cpu() {
+            let cpus = super::super::ProcessCpus::get();
+            let Some(domains) = &cpus.domains else {
+                return;
+            };
+            std::thread::spawn(move || {
+                super::super::ServerPlacement::default().follow(super::super::current_cpu());
+                std::thread::spawn(move || {
+                    cpus.spread_current_thread();
+                    let spread = CpuSet::allowed().unwrap();
+                    for cpu in 0..libc::CPU_SETSIZE as usize {
+                        let in_a_domain = domains.of_cpu(cpu as u32).is_some();
+                        assert_eq!(spread.contains(cpu), in_a_domain);
+                    }
+                })
+                .join()
+                .unwrap();
+            })
+            .join()
+            .unwrap();
+        }
+
         #[test]
         fn every_allowed_cpu_lies_in_its_own_domain() {
-            let Some(domains) = CacheDomains::get() else {
+            let Some(domains) = &super::super::ProcessCpus::get().domains else {
                 return;
             };
             let allowed = CpuSet::allowed().unwrap();
