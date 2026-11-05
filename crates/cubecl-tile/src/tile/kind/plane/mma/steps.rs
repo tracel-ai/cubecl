@@ -18,7 +18,7 @@ use cubecl::{
     prelude::*,
 };
 
-use super::lane_runs::{E2M1_PER_WORD, instruction_depth, lays_out_lane_runs};
+use super::lane_runs::{E2M1_PER_WORD, LaneMap, instruction_depth};
 use crate::*;
 
 /// `e4m3` block scales one word of them holds.
@@ -26,14 +26,14 @@ const SCALES_PER_WORD: usize = 4;
 
 /// Values of `k` one `e4m3` scale of a word covers: the words this decodes are NVFP4's, four
 /// blocks of sixteen. Words of another field, or of another block, are refused
-/// ([`steps_refusal`]): a word read whole does not say its block.
+/// ([`steps_refusal()`]): a word read whole does not say its block.
 const E2M1_SCALE_BLOCK: usize = 16;
 
 /// Why `src`, a shared-memory window of an `m × n × k` fragment of `T` in role `ident`, cannot
 /// load a step at a time; `None` where it can: a fragment deeper than its instruction over a plain
 /// window, each step read as a fragment of its own at its offset along `k`, whatever layout the
 /// target's registers take; or deeper than a 16-bit `m16n8k16` instruction, on a target that lays
-/// its registers out as [`lays_out_lane_runs`] reads them, over a `B` of `e2m1` codes along `k`
+/// its registers out as [`LaneMap::NVIDIA_M16N8K16`] reads them, over a `B` of `e2m1` codes along `k`
 /// under one level of words of block scales, a whole number of words deep so every window starts
 /// on a word.
 #[cube]
@@ -45,7 +45,7 @@ pub(crate) fn steps_refusal<T: Numeric>(
 ) -> comptime_type!(Option<&'static str>) {
     let (m, n, k) = comptime!(shape);
     let depth = instruction_depth::<T>(m, n, k);
-    let laid_out = lays_out_lane_runs();
+    let map = LaneMap::new(m, n, depth);
     let bytes = T::size().comptime();
     let packing = src.packing();
     let levels = src.factor_levels();
@@ -59,7 +59,7 @@ pub(crate) fn steps_refusal<T: Numeric>(
         Some("the fragment is one instruction deep, which loads as one")
     } else if packing.as_stored() && levels == 0 {
         None
-    } else if (m, n, depth) != (16, 8, 16) || bytes != 2 || !laid_out {
+    } else if bytes != 2 || map != Some(LaneMap::NVIDIA_M16N8K16) {
         Some("a step's registers are read off the 16-bit m16n8k16 layout, which this is not")
     } else if !e2m1_weight || levels != 1 || word_field != Some(Field::Fp8(Fp8Format::E4M3)) {
         Some(
