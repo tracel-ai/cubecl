@@ -474,8 +474,7 @@ impl Database {
 
     /// Entry count and total size per namespace, for reporting.
     pub fn summary(&self) -> Vec<NamespaceSummary> {
-        self.run("summarize", "", |connection| summarize(connection))
-            .unwrap_or_default()
+        self.run("summarize", "", summarize).unwrap_or_default()
     }
 
     /// Whether the file was last left [standalone](Self::into_standalone): a
@@ -2138,7 +2137,8 @@ mod tests {
         let page = frame_bytes(&writer).unwrap();
         // Once the log is past the index every statement fails as busy: the
         // writer keeps trying, so that only the kill ends it.
-        for batch in 0u32.. {
+        let mut batch = 0u32;
+        loop {
             let committed = (|| {
                 let transaction = Transaction::new(&writer, write_transaction())?;
                 for index in 0..512u32 {
@@ -2152,6 +2152,7 @@ mod tests {
                 "frames {} {committed:?}",
                 super::log_frames(&location, page)
             );
+            batch += 1;
         }
     }
 
