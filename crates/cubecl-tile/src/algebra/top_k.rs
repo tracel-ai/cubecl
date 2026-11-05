@@ -51,8 +51,9 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
     /// A value that is no NaN on any lane, almost every value, walks with the compares numbers
     /// take: it moves into a slot it beats by value, or ties by value at a lower index, and a NaN
     /// slot, which compares false, stays ahead of it as the order wants. It skips the walk where
-    /// it beats the last kept slot on no lane: over a long row, almost every value. A value with
-    /// a NaN walks in the full order instead. The walks unroll within [`TOP_K_UNROLL_BUDGET`].
+    /// it beats the last kept slot on no lane: over a long row, almost every value. Its walk
+    /// unrolls within [`TOP_K_UNROLL_BUDGET`]. A value with a NaN, rare, walks in the full order,
+    /// and that walk stays a loop: unrolled beside the first, it would double the walks' code.
     pub fn insert(
         &mut self,
         value: Vector<E, N>,
@@ -68,7 +69,7 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
             nan = any_lane::<N>(nan_lanes::<E, N>(value));
         }
         if nan {
-            self.insert_in_full_order(value, index, monoid);
+            self.walk_in_full_order(value, index, monoid, false);
         } else {
             let enters = takes_the_slot::<E, N>(
                 self.values[k - 1],
@@ -108,27 +109,44 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
     ) {
         ordered_only(monoid);
         let k = K::value();
-        let unrolled = comptime!(k * k <= TOP_K_UNROLL_BUDGET);
         let last = Indexed::<E, N> {
             value: self.values[k - 1],
             index: self.indices[k - 1],
         };
         let read = Indexed::<E, N> { value, index };
         if any_lane::<N>(wins::<E, N>(read, last, monoid)) {
-            let mut value = value;
-            let mut index = index;
-            #[unroll(unrolled)]
-            for j in 0..k {
-                let kept = Indexed::<E, N> {
-                    value: self.values[j],
-                    index: self.indices[j],
-                };
-                let keep = wins::<E, N>(kept, Indexed::<E, N> { value, index }, monoid);
-                self.values[j] = select_many(keep, kept.value, value);
-                self.indices[j] = select_many(keep, kept.index, index);
-                value = select_many(keep, value, kept.value);
-                index = select_many(keep, index, kept.index);
-            }
+            self.walk_in_full_order(
+                value,
+                index,
+                monoid,
+                comptime!(k * k <= TOP_K_UNROLL_BUDGET),
+            );
+        }
+    }
+
+    /// `value`, read at `index`, walked down this list in the full order: each slot keeps the
+    /// better of what it holds and what comes down, and passes the other on.
+    fn walk_in_full_order(
+        &mut self,
+        value: Vector<E, N>,
+        index: Vector<u32, N>,
+        #[comptime] monoid: Monoid,
+        #[comptime] unrolled: bool,
+    ) {
+        let k = K::value();
+        let mut value = value;
+        let mut index = index;
+        #[unroll(unrolled)]
+        for j in 0..k {
+            let kept = Indexed::<E, N> {
+                value: self.values[j],
+                index: self.indices[j],
+            };
+            let keep = wins::<E, N>(kept, Indexed::<E, N> { value, index }, monoid);
+            self.values[j] = select_many(keep, kept.value, value);
+            self.indices[j] = select_many(keep, kept.index, index);
+            value = select_many(keep, value, kept.value);
+            index = select_many(keep, index, kept.index);
         }
     }
 }
