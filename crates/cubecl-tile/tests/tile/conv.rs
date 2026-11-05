@@ -613,6 +613,61 @@ fn conv1d_padded_underflow_masks_to_zero() {
     }
 }
 
+/// A data backward gathers `grad[o + 1 - r]`: the low taps of the first outputs and the high
+/// rows of the last ones fall outside, though the box's two logical corners land inside.
+#[test]
+fn conv_nd_backward_split_edge() {
+    let (oh, co, rh, ci, in_len) = (8, 4, 3, 2, 7);
+    let launcher = implied(
+        &cubecl::test_device().client(),
+        Partitioning::new(
+            Space::new(&[(OH, oh), (CO, co), (RH, rh), (CI, ci)]),
+            Levels::leaf(&[(OH, oh), (CO, co), (RH, rh), (CI, ci)])
+                .walk_every(&[OH, CO, RH, CI])
+                .build(),
+        ),
+        Form::Static,
+    );
+    let in_spec = TileSpec::new(Projection::new(
+        &[OH, RH, CI],
+        &[
+            PhysicalAxisMap::scaled(&[(OH, Scale::Static(1)), (RH, Scale::Static(-1))]).shifted(1),
+            PhysicalAxisMap::of(CI),
+        ],
+    ))
+    .boundary(BoundaryPolicy::Every(Boundary::Zero));
+    let (got, input, weight) = run(
+        shape![in_len, ci],
+        shape![rh, ci, co],
+        shape![oh, co],
+        in_spec,
+        &[RH, CI, CO],
+        TileSpec::direct(&[OH, CO]).boundary(BoundaryPolicy::Every(Boundary::Zero)),
+        launcher,
+        1,
+        RegisterBlock::new(64).split_edge(),
+        Stage::InPlace,
+    );
+    for o in 0..oh {
+        for c in 0..co {
+            let mut want = 0.0f32;
+            for r in 0..rh {
+                let h = (o + 1) as isize - r as isize;
+                if (0..in_len as isize).contains(&h) {
+                    for i in 0..ci {
+                        want += input[h as usize * ci + i] * weight[(r * ci + i) * co + c];
+                    }
+                }
+            }
+            assert_eq!(
+                got.get_f32(&[o, c]),
+                want,
+                "backward split edge: ({o}, {c})"
+            );
+        }
+    }
+}
+
 /// Padded 1-D convolution under `Boundary::Clamp`: taps that go past physical bounds read the
 /// edge cell instead of masking to zero.
 #[test]

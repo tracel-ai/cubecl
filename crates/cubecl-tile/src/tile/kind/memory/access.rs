@@ -459,6 +459,7 @@ impl Memory {
 
     /// Re-view this buffer as a flat 1-D [`FlatView`] over its [`Window`] extent.
     pub(crate) fn flat<T: Numeric, W: Size>(&self) -> FlatView<'_, Vector<T, W>> {
+        comptime!(self.projection.refuse_backward("Memory::flat"));
         FlatView::new(
             self.window_view::<T, W>(comptime!(Guard::Checked))
                 .view(FlatLayout::new(self.window.extent.clone())),
@@ -564,6 +565,7 @@ impl Memory {
     /// The identity step over this window's physical box, for callers that evaluate the map themselves.
     /// It masks against the physical box only: the caller owes in-range logical coordinates.
     pub(crate) fn physical_box(&self) -> CompactionStep {
+        comptime!(self.projection.refuse_backward("Memory::physical_box"));
         let rank = comptime!(self.projection.physical_rank());
         CompactionStep::new(self.window.extent.clone(), comptime!(vec![1; rank]))
     }
@@ -624,6 +626,7 @@ impl Memory {
 
     /// The mutable twin of [`flat`](Memory::flat).
     pub(crate) fn flat_mut<T: Numeric, W: Size>(&mut self) -> FlatViewMut<'_, Vector<T, W>> {
+        comptime!(self.projection.refuse_backward("Memory::flat_mut"));
         if comptime!(!self.store.packing.as_stored()) {
             panic!("Tile::flat_mut: writing a packed tile requires repacking")
         }
@@ -1114,7 +1117,7 @@ fn gathered_axis_descent(
     let lined = comptime!(pa == projection.physical_rank() - 1);
 
     let mut terms = Coords::<u32>::new();
-    // Receptive-field terms `(edge - 1) * scale`; each branch adds the leading `1`.
+    // Receptive-field terms `(edge - 1) * |scale|`; each branch adds the leading `1`.
     let mut spans = Coords::<u32>::new();
     #[unroll]
     for t in 0..n {
@@ -1122,6 +1125,7 @@ fn gathered_axis_descent(
         let edge = comptime!(cut.level.extent_in(&cut.space, term.axis).get());
         match comptime!(term.scale) {
             Scale::Static(s) => {
+                let s = comptime!(s.unsigned_abs());
                 let step = comptime!(if lined {
                     assert!(
                         (edge * s).is_multiple_of(vector_size)
@@ -1135,7 +1139,14 @@ fn gathered_axis_descent(
                 } else {
                     edge * s
                 });
-                terms.push(cut.coord(term.axis).times(step).cast::<u32>());
+                // A backward step wraps to its two's complement, so the sum subtracts it.
+                terms.push(if comptime!(term.scale.is_negative()) {
+                    cut.coord(term.axis)
+                        .cast::<u32>()
+                        .times(comptime!((step as u32).wrapping_neg()))
+                } else {
+                    cut.coord(term.axis).times(step).cast::<u32>()
+                });
                 spans.push(comptime!(((edge - 1) * s) as u32).runtime());
             }
             // No line division: `Projection::validate` keeps the innermost axis a static identity.

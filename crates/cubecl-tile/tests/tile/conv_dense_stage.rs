@@ -3,7 +3,7 @@
 
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{prelude::*, zspace::shape};
-use cubecl_tile::layout::PhysicalAxisMap;
+use cubecl_tile::layout::{PhysicalAxisMap, Scale};
 use cubecl_tile::ops::matmul::MmaIo;
 use cubecl_tile::stage::RowChunks;
 use cubecl_tile::*;
@@ -67,7 +67,7 @@ enum Unit {
 struct Case {
     oh: usize,
     stride: usize,
-    tap: usize,
+    tap: isize,
     offset: isize,
     in_len: usize,
 }
@@ -158,7 +158,11 @@ impl Case {
             .uniform(4242, 10., 100.)
             .generate_without_host_data();
 
-        let rows = PhysicalAxisMap::affine(&[(OH, stride), (RH, tap)]).shifted(offset);
+        let rows = PhysicalAxisMap::scaled(&[
+            (OH, Scale::Static(stride as isize)),
+            (RH, Scale::Static(tap)),
+        ])
+        .shifted(offset);
         let in_spec = TileSpec::new(Projection::new(
             &[OH, RH, CI],
             &[rows, PhysicalAxisMap::of(CI)],
@@ -195,7 +199,7 @@ impl Case {
             for c in 0..co {
                 let mut want = 0.0f32;
                 for r in 0..rh {
-                    let h = (o * stride + r * tap) as isize + offset;
+                    let h = (o * stride) as isize + r as isize * tap + offset;
                     if h < 0 || h as usize >= in_len {
                         continue;
                     }
@@ -227,4 +231,19 @@ fn conv_dense_stage_cmma() {
 #[test]
 fn conv_dense_stage_mma() {
     FORWARD.check(Unit::Mma);
+}
+
+/// The data of a convolution's backward: `grad[o + padding - r * dilation]`, whose rows reach
+/// below the gradient at the first outputs and past it at the last.
+#[test]
+fn conv_dense_stage_cmma_backward() {
+    Case {
+        oh: 16,
+        stride: 1,
+        tap: -2,
+        offset: 3,
+        in_len: 17,
+        ..FORWARD
+    }
+    .check(Unit::Cmma);
 }
