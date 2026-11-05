@@ -272,18 +272,23 @@ fn load_plain_run<T: Numeric, N: Size>(
     let view = src.fragment_matrix_packed::<T, W>(comptime!(run.rows), comptime!(run.k));
     let lines = comptime!(run.len / width);
     // A window of fewer rows than the units cover, a decode's rows staged as they are, holds no
-    // cells past them: those units read zeros rather than past its buffer.
+    // cells past them: those units read the last row again, rather than branch around the read,
+    // so the read stays in the block the contraction issues from. A row of the instruction meets
+    // only its own row of the accumulator, which lies past the window's rows too, so what they
+    // read reaches no cell anyone keeps.
     let short = comptime!(run.rows < run.covered_rows());
     #[unroll]
     for half in 0..comptime!(run.halves()) {
         let at = row + comptime!(half as u32) * HALF_ROWS;
+        let at = if comptime!(short) {
+            at.min(comptime!(run.rows as u32 - 1))
+        } else {
+            at
+        };
         let mut cells = Array::<Vector<T, W>>::new(lines);
         #[unroll]
         for l in 0..lines {
-            cells[l] = Vector::<T, W>::new(T::from_int(0));
-            if !short || at < comptime!(run.rows as u32) {
-                cells[l] = view.read((at, first / comptime!(width as u32) + comptime!(l as u32)));
-            }
+            cells[l] = view.read((at, first / comptime!(width as u32) + comptime!(l as u32)));
         }
         #[unroll]
         for p in 0..comptime!(run.len / SLOTS_PER_REGISTER) {
