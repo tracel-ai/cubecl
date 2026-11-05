@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 
 use cubecl::prelude::*;
 
-use crate::algebra::indexed::{ordered_only, wins};
+use crate::algebra::indexed::{nan_lanes, ordered_only, wins};
 use crate::space::UnitShare;
 use crate::{Carrier, Indexed, Monoid};
 
@@ -48,10 +48,59 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
     /// combine, `K` steps where combining with a list of one is `K * K`. In place, since a
     /// reduction inserts once a value read: a list returned anew is copied back slot by slot.
     ///
-    /// A value the last kept slot beats on every lane changes nothing and skips the walk: over a
-    /// long row, almost every value. The test is the walk's own order, so a tie and a NaN go
-    /// where the walk would put them. The walk unrolls within [`TOP_K_UNROLL_BUDGET`].
+    /// A value that is no NaN on any lane, almost every value, walks with the compares numbers
+    /// take: it moves into a slot it beats by value, or ties by value at a lower index, and a NaN
+    /// slot, which compares false, stays ahead of it as the order wants. It skips the walk where
+    /// it beats the last kept slot on no lane: over a long row, almost every value. A value with
+    /// a NaN walks in the full order instead. The walks unroll within [`TOP_K_UNROLL_BUDGET`].
     pub fn insert(
+        &mut self,
+        value: Vector<E, N>,
+        index: Vector<u32, N>,
+        #[comptime] monoid: Monoid,
+    ) {
+        ordered_only(monoid);
+        let k = K::value();
+        let unrolled = comptime!(k * k <= TOP_K_UNROLL_BUDGET);
+        let elem = elem_type_of::<E>();
+        let mut nan = false;
+        if comptime!(elem.is_float()) {
+            nan = any_lane::<N>(nan_lanes::<E, N>(value));
+        }
+        if nan {
+            self.insert_in_full_order(value, index, monoid);
+        } else {
+            let enters = takes_the_slot::<E, N>(
+                self.values[k - 1],
+                self.indices[k - 1],
+                value,
+                index,
+                monoid,
+            );
+            if any_lane::<N>(enters) {
+                let mut value = value;
+                let mut index = index;
+                #[unroll(unrolled)]
+                for j in 0..k {
+                    let kept_value = self.values[j];
+                    let kept_index = self.indices[j];
+                    let takes =
+                        takes_the_slot::<E, N>(kept_value, kept_index, value, index, monoid);
+                    self.values[j] = select_many(takes, value, kept_value);
+                    self.indices[j] = select_many(takes, index, kept_index);
+                    value = select_many(takes, kept_value, value);
+                    index = select_many(takes, kept_index, index);
+                }
+            }
+        }
+    }
+
+    /// `value`, read at `index`, kept in this list if it is among the `K` best, every step
+    /// comparing in the full order (value, then the lower index, NaN first): for values that
+    /// may be NaN, such as another list's. One walk, where [`insert`](Self::insert) has two,
+    /// so an unrolled combine stays half the size. A value the last kept slot beats on every
+    /// lane skips the walk.
+    pub fn insert_in_full_order(
         &mut self,
         value: Vector<E, N>,
         index: Vector<u32, N>,
@@ -84,6 +133,24 @@ impl<E: Numeric, N: Size, K: Size> TopK<E, N, K> {
     }
 }
 
+/// Where `value`, read at `index` and no NaN, takes the slot holding `kept` read at
+/// `kept_index`: it is better, or as good at a lower index. A NaN `kept` compares false both
+/// ways, so it keeps its slot.
+#[cube]
+fn takes_the_slot<E: Numeric, N: Size>(
+    kept: Vector<E, N>,
+    kept_index: Vector<u32, N>,
+    value: Vector<E, N>,
+    index: Vector<u32, N>,
+    #[comptime] monoid: Monoid,
+) -> Vector<bool, N> {
+    let better = match comptime!(monoid) {
+        Monoid::Max => kept.less_than(&value),
+        _ => kept.greater_than(&value),
+    };
+    select_many(kept.equal(&value), index.less_than(&kept_index), better)
+}
+
 /// Whether any lane of `lanes` is set.
 #[cube]
 fn any_lane<N: Size>(lanes: Vector<bool, N>) -> bool {
@@ -106,7 +173,7 @@ impl<E: Numeric, N: Size, K: Size> Carrier for TopK<E, N, K> {
         let mut total = lhs;
         #[unroll(unrolled)]
         for j in 0..k {
-            total.insert(rhs.values[j], rhs.indices[j], monoid);
+            total.insert_in_full_order(rhs.values[j], rhs.indices[j], monoid);
         }
         total
     }
