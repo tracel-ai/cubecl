@@ -58,8 +58,12 @@ enum Staged {
     /// (`Tile::scales_kept_beside`): the weight's fragments load in lane runs out of the stage.
     BothKept,
     /// [`BothKept`](Staged::BothKept) out of stages tiled as the 16-bit instruction reads them,
-    /// each tile one block of `K` deep, its rows' chunks laid as `RowChunks` says.
-    BothKeptTiled(RowChunks),
+    /// each tile `block`, one fragment's `(M, N)`, and one block of `K` deep, its rows' chunks
+    /// laid as `chunks` says.
+    BothKeptTiled {
+        chunks: RowChunks,
+        block: (usize, usize),
+    },
 }
 
 /// Which factor the accumulator is opened on first: the one filling the instruction's `A`,
@@ -88,7 +92,6 @@ fn lane_run_matmul(
     #[comptime] staged: Staged,
     #[comptime] decoded: ElemType,
     #[comptime] first: First,
-    #[comptime] edges: (usize, usize),
 ) {
     let instruction = comptime!(Instruction::Mma {
         io: MmaIo::manual(),
@@ -131,12 +134,12 @@ fn lane_run_matmul(
                 });
             });
         }
-        Staged::BothKept | Staged::BothKeptTiled(_) => {
+        Staged::BothKept | Staged::BothKeptTiled { .. } => {
             let walk = space.over(&level);
             let b = b.scales_kept_beside();
             let storage = comptime!(match staged {
-                Staged::BothKeptTiled(chunks) => StageStorage::Tiled {
-                    block: vec![(M, edges.0), (N, edges.1), (KB, 1), (KI, BLOCK)],
+                Staged::BothKeptTiled { chunks, block } => StageStorage::Tiled {
+                    block: vec![(M, block.0), (N, block.1), (KB, 1), (KI, BLOCK)],
                     chunks,
                 },
                 _ => StageStorage::Strided,
@@ -184,17 +187,15 @@ fn decodes_steps(client: &cubecl::client::Client) -> bool {
     lane_run_instruction(client) == Some((16, 8))
 }
 
-fn skip(why: &str) {
-    ValidationResult::Skipped(why.to_string()).enforce();
-}
-
 fn skip_without_instruction(client: &cubecl::client::Client) -> bool {
     let offered = lane_run_instruction(client).is_some();
     if !offered {
-        skip(
-            "the device offers no 16-bit instruction lane runs read: NVIDIA's 16x8x16 or \
-             RDNA3's 16x16x16",
-        );
+        ValidationResult::Skipped(
+            "the device offers no 16-bit instruction lane runs read: NVIDIA's 16x8x16 or RDNA3's \
+             16x16x16"
+                .to_string(),
+        )
+        .enforce();
     }
     !offered
 }
@@ -288,7 +289,6 @@ fn check_plain_handed(k: usize, width_a: usize, width_b: usize, first: First) {
         Staged::Nothing,
         f16::elem_type_native(),
         first,
-        fragment_edges(&client, First::Activation),
     );
     let got = HostData::from_tensor_handle(&client, c, HostDataType::F32);
     assert_product(
@@ -310,187 +310,237 @@ fn fragment_edges(client: &cubecl::client::Client, first: First) -> (usize, usiz
     }
 }
 
-/// The product's rows a whole fragment covers with `first` handed over first.
-fn whole_rows(first: First) -> usize {
-    let client = cubecl::test_device().client();
-    lane_run_instruction(&client).map_or(16, |_| fragment_edges(&client, first).0)
-}
-
 /// `a · (b ⊗ s)` with `b` NVFP4: `e2m1` codes eight to a word along `k`, `e4m3` scales four to a
-/// word, one every sixteen codes, the codes served `words` words a load. `k` is spelled as the
-/// two digits a block makes of it, `(KB, KI)`, so the scales are the operand omitting `KI`.
-/// `columns` fragments of the instruction's columns share the plane, each contracting the one
-/// `a` it loads.
-fn check_nvfp4(k: usize, width_a: usize, words: usize, columns: usize) {
-    check_nvfp4_rows(16, k, width_a, words, columns, Staged::Nothing, None)
-}
-
-/// [`check_nvfp4`] at `rows` rows of the fragment's sixteen: a product of fewer rows overhangs
-/// the fragment, its units past the edge reading its last row again into accumulator rows the
-/// store drops. Operands read out of a
-/// stage in shared memory as `staged` says, a stage holding the product's rows alone. A staged
-/// weight's scales are words of four, which its stage keeps beside the codes. Where `global`
-/// is stated, the weight carries it as a per-tensor scale above its block scales.
-fn check_nvfp4_rows(
-    rows: usize,
+/// word, one every sixteen codes. `k` is spelled as the two digits a block makes of it,
+/// `(KB, KI)`, so the scales are the operand omitting `KI`. [`Nvfp4::new`] is one window read
+/// straight by one column of fragments; each setter names what a case varies.
+#[derive(Clone, Copy, Debug)]
+struct Nvfp4 {
+    /// The product's rows; `None` is a whole fragment's. Fewer overhang the fragment, its units
+    /// past the edge reading its last row again into accumulator rows the store drops.
+    rows: Option<usize>,
+    /// The contraction's depth.
     k: usize,
+    /// Values of `a` one load serves.
     width_a: usize,
+    /// Words of codes one load serves.
     words: usize,
+    /// Fragments of the instruction's columns sharing the plane, each contracting the one `a` it
+    /// loads.
     columns: usize,
+    /// Operands read out of a stage in shared memory, a stage holding the product's rows alone.
     staged: Staged,
+    /// A per-tensor scale the weight carries above its block scales.
     global: Option<f32>,
-) {
-    check_nvfp4_handed(
-        rows,
-        k,
-        width_a,
-        words,
-        columns,
-        staged,
-        global,
-        First::Activation,
-        None,
-    )
-}
-
-/// [`check_nvfp4_rows`] with the factors handed over as `first` says: the weight first decodes
-/// its codes into the instruction's `A`, and its columns are the fragment's sixteen rows.
-/// `weight_rows`, where stated, is fewer of them than the fragments hold, which overhangs the
-/// weight's fragment as fewer rows of the activation overhang its own.
-#[allow(clippy::too_many_arguments)]
-fn check_nvfp4_handed(
-    rows: usize,
-    k: usize,
-    width_a: usize,
-    words: usize,
-    columns: usize,
-    staged: Staged,
-    global: Option<f32>,
+    /// The factor handed over first: the weight first decodes its codes into the instruction's
+    /// `A`, and its columns are the fragment's rows.
     first: First,
+    /// The weight's rows where fewer than its fragments hold, which overhangs the weight's
+    /// fragment as fewer rows of the activation overhang its own.
     weight_rows: Option<usize>,
-) {
-    let client = cubecl::test_device().client();
-    if skip_without_instruction(&client) {
-        return;
+}
+
+impl Nvfp4 {
+    fn new(k: usize) -> Self {
+        Self {
+            rows: None,
+            k,
+            width_a: 8,
+            words: 2,
+            columns: 1,
+            staged: Staged::Nothing,
+            global: None,
+            first: First::Activation,
+            weight_rows: None,
+        }
     }
-    if staged == Staged::Both && !decodes_steps(&client) {
-        skip("an e2m1 weight decodes a step at a time on NVIDIA's 16x8x16 alone");
-        return;
+
+    fn rows(self, rows: usize) -> Self {
+        Self {
+            rows: Some(rows),
+            ..self
+        }
     }
-    let blocks = k / BLOCK;
-    let (fragment_rows, fragment_cols) = fragment_edges(&client, first);
-    let n = weight_rows.unwrap_or(fragment_cols * columns);
-    let leaf = Levels::leaf(&[
-        (M, fragment_rows),
-        (N, fragment_cols),
-        (KB, WINDOW / BLOCK),
-        (KI, BLOCK),
-    ])
-    .walk_every(&[M]);
-    // More than one column of fragments: a level below the walk steps them, `k` held whole.
-    let leaf = match columns {
-        1 => leaf,
-        _ => leaf.walk(&[(N, columns)]),
-    };
-    let launcher = implied(
-        &client,
-        Partitioning::new(
-            Space::new(&[(M, rows), (N, n), (KB, blocks), (KI, BLOCK)]),
-            leaf.walk_every(&[N, KB, KI]).build(),
-        ),
-        Form::Static,
-    );
-    let a = activation(rows, k);
-    // Every code, varied by position so no column repeats another.
-    let codes: Vec<u8> = (0..n * k)
-        .map(|i| ((i * 5 + 3 * (i / k)) % 16) as u8)
-        .collect();
-    // Scales exact in `e4m3`: a power of two times one of its mantissas.
-    let scale_values: Vec<f32> = (0..n * blocks)
-        .map(|i| (1 + i % 8) as f32 * 2f32.powi((i % 5) as i32 - 3))
-        .collect();
-    let pack = |bytes: Vec<u8>, per_word: usize| -> Vec<u32> {
-        let bits = 32 / per_word;
-        bytes
-            .chunks(per_word)
-            .map(|word| {
-                word.iter()
-                    .enumerate()
-                    .fold(0u32, |acc, (j, &b)| acc | (b as u32) << (bits * j))
-            })
-            .collect()
-    };
-    let scale_bytes: Vec<u8> = scale_values
-        .iter()
-        .map(|&s| e4m3::from_f32(s).to_bits())
-        .collect();
-    let half: Vec<f16> = a.iter().map(|&v| f16::from_f32(v)).collect();
-    let tensor = |bytes: Bytes, shape: Vec<usize>, dtype: ElemType| {
-        TensorHandle::new_contiguous(shape, client.create(bytes), dtype).binding()
-    };
-    let along_k = |rows: Axis| {
-        Projection::new(
-            &[rows, KB, KI],
-            &[
-                PhysicalAxisMap::of(rows),
-                PhysicalAxisMap::disjoint(&[(KB, BLOCK), (KI, 1)]),
-            ],
-        )
-    };
-    let a_op = launcher
-        .arg(
-            tensor(
-                Bytes::from_elems(half),
-                vec![rows, blocks, BLOCK],
-                f16::elem_type_native(),
+
+    fn width_a(self, width_a: usize) -> Self {
+        Self { width_a, ..self }
+    }
+
+    fn words(self, words: usize) -> Self {
+        Self { words, ..self }
+    }
+
+    fn columns(self, columns: usize) -> Self {
+        Self { columns, ..self }
+    }
+
+    fn staged(self, staged: Staged) -> Self {
+        Self { staged, ..self }
+    }
+
+    fn global(self, global: f32) -> Self {
+        Self {
+            global: Some(global),
+            ..self
+        }
+    }
+
+    fn weight_first(self) -> Self {
+        Self {
+            first: First::Weight,
+            ..self
+        }
+    }
+
+    fn weight_rows(self, weight_rows: usize) -> Self {
+        Self {
+            weight_rows: Some(weight_rows),
+            ..self
+        }
+    }
+
+    /// Launch the product and compare every element with the reference. A staged weight's scales
+    /// are words of four, which its stage keeps beside the codes.
+    fn check(self) {
+        let Nvfp4 {
+            rows,
+            k,
+            width_a,
+            words,
+            columns,
+            staged,
+            global,
+            first,
+            weight_rows,
+        } = self;
+        let client = cubecl::test_device().client();
+        if skip_without_instruction(&client) {
+            return;
+        }
+        if staged == Staged::Both && !decodes_steps(&client) {
+            ValidationResult::Skipped(
+                "an e2m1 weight decodes a step at a time on NVIDIA's 16x8x16 alone".to_string(),
+            )
+            .enforce();
+            return;
+        }
+        let blocks = k / BLOCK;
+        let (fragment_rows, fragment_cols) = fragment_edges(&client, first);
+        let rows = rows.unwrap_or(fragment_rows);
+        let n = weight_rows.unwrap_or(fragment_cols * columns);
+        let leaf = Levels::leaf(&[
+            (M, fragment_rows),
+            (N, fragment_cols),
+            (KB, WINDOW / BLOCK),
+            (KI, BLOCK),
+        ])
+        .walk_every(&[M]);
+        // More than one column of fragments: a level below the walk steps them, `k` held whole.
+        let leaf = match columns {
+            1 => leaf,
+            _ => leaf.walk(&[(N, columns)]),
+        };
+        let launcher = implied(
+            &client,
+            Partitioning::new(
+                Space::new(&[(M, rows), (N, n), (KB, blocks), (KI, BLOCK)]),
+                leaf.walk_every(&[N, KB, KI]).build(),
             ),
-            f16::elem_type_native(),
-        )
-        // A dim a digit, as a product restates its activation: every axis an identity, so a
-        // fragment's rows past the product's are checked at the edge.
-        .axes(&[M, KB, KI])
-        .vectorize(width_a)
-        .build()
-        .unwrap();
-    let b_op = launcher
-        .arg(
-            tensor(
-                Bytes::from_elems(pack(codes.clone(), 8)),
-                vec![n, k],
-                u32::elem_type_native(),
-            ),
-            u32::elem_type_native(),
-        )
-        .gathered(along_k(N))
-        .packed(Field::Quant(QuantValue::E2M1).read_on(&client))
-        .vectorize(words * 8)
-        .build()
-        .unwrap();
-    // One scale per `(column, block of K)`: `KI` is carried and addressed by nothing. A staged
-    // weight's scales stay the words of four they are stored as; otherwise they are read as
-    // numbers.
-    let scale_words = Bytes::from_elems(pack(scale_bytes, SCALES_PER_WORD));
-    let s_op = match staged {
-        Staged::Both => launcher
+            Form::Static,
+        );
+        let a = activation(rows, k);
+        // Every code, varied by position so no column repeats another.
+        let codes: Vec<u8> = (0..n * k)
+            .map(|i| ((i * 5 + 3 * (i / k)) % 16) as u8)
+            .collect();
+        // Scales exact in `e4m3`: a power of two times one of its mantissas.
+        let scale_values: Vec<f32> = (0..n * blocks)
+            .map(|i| (1 + i % 8) as f32 * 2f32.powi((i % 5) as i32 - 3))
+            .collect();
+        let pack = |bytes: Vec<u8>, per_word: usize| -> Vec<u32> {
+            let bits = 32 / per_word;
+            bytes
+                .chunks(per_word)
+                .map(|word| {
+                    word.iter()
+                        .enumerate()
+                        .fold(0u32, |acc, (j, &b)| acc | (b as u32) << (bits * j))
+                })
+                .collect()
+        };
+        let scale_bytes: Vec<u8> = scale_values
+            .iter()
+            .map(|&s| e4m3::from_f32(s).to_bits())
+            .collect();
+        let half: Vec<f16> = a.iter().map(|&v| f16::from_f32(v)).collect();
+        let tensor = |bytes: Bytes, shape: Vec<usize>, dtype: ElemType| {
+            TensorHandle::new_contiguous(shape, client.create(bytes), dtype).binding()
+        };
+        let along_k = |rows: Axis| {
+            Projection::new(
+                &[rows, KB, KI],
+                &[
+                    PhysicalAxisMap::of(rows),
+                    PhysicalAxisMap::disjoint(&[(KB, BLOCK), (KI, 1)]),
+                ],
+            )
+        };
+        let a_op = launcher
             .arg(
                 tensor(
-                    scale_words,
-                    vec![n, blocks / SCALES_PER_WORD],
+                    Bytes::from_elems(half),
+                    vec![rows, blocks, BLOCK],
+                    f16::elem_type_native(),
+                ),
+                f16::elem_type_native(),
+            )
+            // A dim a digit, as a product restates its activation: every axis an identity, so a
+            // fragment's rows past the product's are checked at the edge.
+            .axes(&[M, KB, KI])
+            .vectorize(width_a)
+            .build()
+            .unwrap();
+        let b_op = launcher
+            .arg(
+                tensor(
+                    Bytes::from_elems(pack(codes.clone(), 8)),
+                    vec![n, k],
                     u32::elem_type_native(),
                 ),
                 u32::elem_type_native(),
             )
-            .gathered(Projection::new(
-                &[N, KB],
-                &[
-                    PhysicalAxisMap::of(N),
-                    PhysicalAxisMap::of(KB).over(SCALES_PER_WORD),
-                ],
-            ))
-            .words(Field::Fp8(Fp8Format::E4M3))
-            .build(),
-        Staged::Nothing | Staged::Activation | Staged::BothKept | Staged::BothKeptTiled(_) => {
-            launcher
+            .gathered(along_k(N))
+            .packed(Field::Quant(QuantValue::E2M1).read_on(&client))
+            .vectorize(words * 8)
+            .build()
+            .unwrap();
+        // One scale per `(column, block of K)`: `KI` is carried and addressed by nothing. A staged
+        // weight's scales stay the words of four they are stored as; otherwise they are read as
+        // numbers.
+        let scale_words = Bytes::from_elems(pack(scale_bytes, SCALES_PER_WORD));
+        let s_op = match staged {
+            Staged::Both => launcher
+                .arg(
+                    tensor(
+                        scale_words,
+                        vec![n, blocks / SCALES_PER_WORD],
+                        u32::elem_type_native(),
+                    ),
+                    u32::elem_type_native(),
+                )
+                .gathered(Projection::new(
+                    &[N, KB],
+                    &[
+                        PhysicalAxisMap::of(N),
+                        PhysicalAxisMap::of(KB).over(SCALES_PER_WORD),
+                    ],
+                ))
+                .words(Field::Fp8(Fp8Format::E4M3))
+                .build(),
+            Staged::Nothing
+            | Staged::Activation
+            | Staged::BothKept
+            | Staged::BothKeptTiled { .. } => launcher
                 .arg(
                     tensor(scale_words, vec![n, blocks], u32::elem_type_native()),
                     u32::elem_type_native(),
@@ -498,86 +548,88 @@ fn check_nvfp4_handed(
                 .axes(&[N, KB])
                 .packed(Field::Fp8(Fp8Format::E4M3))
                 .vectorize(SCALES_PER_WORD)
-                .build()
+                .build(),
         }
-    }
-    .unwrap();
-    let c = TestInput::builder(client.clone(), Shape::from(vec![rows, n]))
-        .zeros()
-        .generate_without_host_data();
-    let c_op = launcher
-        .arg(c.clone().binding(), c.dtype)
-        .axes(&[M, N])
-        .build()
         .unwrap();
-    lane_run_matmul::launch(
-        &client,
-        launcher.cube_count(),
-        launcher.cube_dim(),
-        a_op.arg(),
-        match global {
-            None => b_op.arg().scales(s_op.arg()),
-            Some(value) => {
-                // One `f32` over the whole weight, read as the word it is stored in.
-                let global = launcher
-                    .arg(
-                        tensor(
-                            Bytes::from_elems(vec![value.to_bits()]),
-                            vec![1],
-                            u32::elem_type_native(),
-                        ),
-                        u32::elem_type_native(),
-                    )
-                    .gathered(Projection::new(
-                        &[N, KB, KI],
-                        &[PhysicalAxisMap::broadcast()],
-                    ))
-                    .packed(Field::Float(FloatKind::F32))
-                    .build()
-                    .unwrap();
-                b_op.arg().scales(s_op.arg()).scales(global.arg())
-            }
-        },
-        c_op.arg(),
-        launcher.partitioning_arg(),
-        launcher.partitioning().level(0),
-        staged,
-        f16::elem_type_native(),
-        first,
-        fragment_edges(&client, First::Activation),
-    );
-    let got = HostData::from_tensor_handle(&client, c, HostDataType::F32);
-    let decoded = |code: u8| e2m1::from_bits(code).to_f32();
-    assert_product(
-        &got,
-        rows,
-        n,
-        |i, j| {
-            (0..k)
-                .map(|l| {
-                    a[i * k + l] * decoded(codes[j * k + l]) * scale_values[(j * k + l) / BLOCK]
-                })
-                .sum::<f32>()
-                * global.unwrap_or(1.0)
-        },
-        &format!(
-            "nvfp4, {rows} rows, k = {k}, a served {width_a} wide{}, codes {words} words a \
-             load, {columns} column fragments{}, {first:?} first",
-            match staged {
-                Staged::Nothing => "",
-                Staged::Activation => " out of a stage",
-                Staged::Both => ", both out of stages",
-                Staged::BothKept => ", both out of stages, byte scales kept beside",
-                Staged::BothKeptTiled(RowChunks::Swizzled) =>
-                    ", both out of swizzled tiled stages, byte scales kept beside",
-                Staged::BothKeptTiled(_) => ", both out of tiled stages, byte scales kept beside",
-            },
+        let c = TestInput::builder(client.clone(), Shape::from(vec![rows, n]))
+            .zeros()
+            .generate_without_host_data();
+        let c_op = launcher
+            .arg(c.clone().binding(), c.dtype)
+            .axes(&[M, N])
+            .build()
+            .unwrap();
+        lane_run_matmul::launch(
+            &client,
+            launcher.cube_count(),
+            launcher.cube_dim(),
+            a_op.arg(),
             match global {
-                None => "",
-                Some(_) => ", under a per-tensor scale",
-            }
-        ),
-    );
+                None => b_op.arg().scales(s_op.arg()),
+                Some(value) => {
+                    // One `f32` over the whole weight, read as the word it is stored in.
+                    let global = launcher
+                        .arg(
+                            tensor(
+                                Bytes::from_elems(vec![value.to_bits()]),
+                                vec![1],
+                                u32::elem_type_native(),
+                            ),
+                            u32::elem_type_native(),
+                        )
+                        .gathered(Projection::new(
+                            &[N, KB, KI],
+                            &[PhysicalAxisMap::broadcast()],
+                        ))
+                        .packed(Field::Float(FloatKind::F32))
+                        .build()
+                        .unwrap();
+                    b_op.arg().scales(s_op.arg()).scales(global.arg())
+                }
+            },
+            c_op.arg(),
+            launcher.partitioning_arg(),
+            launcher.partitioning().level(0),
+            staged,
+            f16::elem_type_native(),
+            first,
+        );
+        let got = HostData::from_tensor_handle(&client, c, HostDataType::F32);
+        let decoded = |code: u8| e2m1::from_bits(code).to_f32();
+        assert_product(
+            &got,
+            rows,
+            n,
+            |i, j| {
+                (0..k)
+                    .map(|l| {
+                        a[i * k + l] * decoded(codes[j * k + l]) * scale_values[(j * k + l) / BLOCK]
+                    })
+                    .sum::<f32>()
+                    * global.unwrap_or(1.0)
+            },
+            &format!(
+                "nvfp4, {rows} rows, k = {k}, a served {width_a} wide{}, codes {words} words a \
+                 load, {columns} column fragments{}, {first:?} first",
+                match staged {
+                    Staged::Nothing => "",
+                    Staged::Activation => " out of a stage",
+                    Staged::Both => ", both out of stages",
+                    Staged::BothKept => ", both out of stages, byte scales kept beside",
+                    Staged::BothKeptTiled {
+                        chunks: RowChunks::Swizzled,
+                        ..
+                    } => ", both out of swizzled tiled stages, byte scales kept beside",
+                    Staged::BothKeptTiled { .. } =>
+                        ", both out of tiled stages, byte scales kept beside",
+                },
+                match global {
+                    None => "",
+                    Some(_) => ", under a per-tensor scale",
+                }
+            ),
+        );
+    }
 }
 
 /// [`check_plain`] with `k` spelled as `(KB, KI)` on both operands, as a block-scaled operand's
@@ -652,7 +704,6 @@ fn check_plain_split(k: usize, width: usize) {
         Staged::Nothing,
         f16::elem_type_native(),
         First::Activation,
-        (rows, cols),
     );
     let got = HostData::from_tensor_handle(&client, c, HostDataType::F32);
     assert_product(
@@ -689,42 +740,52 @@ fn a_walk_of_plain_windows_contracts_in_lane_runs() {
 /// line holds no more than one block, since a block is a digit of `k` of its own.
 #[test]
 fn an_nvfp4_window_contracts_in_lane_runs() {
-    check_nvfp4(WINDOW, 8, 2, 1);
+    Nvfp4::new(WINDOW).check();
 }
 
 /// Several NVFP4 windows, and codes read a word a load.
 #[test]
 fn a_walk_of_nvfp4_windows_contracts_in_lane_runs() {
-    check_nvfp4(3 * WINDOW, 8, 2, 1);
-    check_nvfp4(WINDOW, 4, 1, 1);
-    check_nvfp4(2 * WINDOW, 1, 1, 1);
+    Nvfp4::new(3 * WINDOW).check();
+    Nvfp4::new(WINDOW).width_a(4).words(1).check();
+    Nvfp4::new(2 * WINDOW).width_a(1).words(1).check();
 }
 
 /// Two and four fragments of columns on one plane, each contracting the one `a` the plane loads
 /// for all of them.
 #[test]
 fn column_fragments_share_one_lane_run_of_a() {
-    check_nvfp4(2 * WINDOW, 8, 2, 2);
-    check_nvfp4(WINDOW, 8, 2, 4);
+    Nvfp4::new(2 * WINDOW).columns(2).check();
+    Nvfp4::new(WINDOW).columns(4).check();
 }
 
 /// Fewer rows than a fragment's, one fragment and a grid of them: the units past the product's
 /// rows read its last row again, into accumulator rows that drain nowhere.
 #[test]
 fn a_product_of_fewer_rows_overhangs_its_fragments() {
-    check_nvfp4_rows(3, 2 * WINDOW, 8, 2, 1, Staged::Nothing, None);
-    check_nvfp4_rows(3, 2 * WINDOW, 8, 2, 2, Staged::Nothing, None);
-    check_nvfp4_rows(9, WINDOW, 8, 2, 4, Staged::Nothing, None);
+    Nvfp4::new(2 * WINDOW).rows(3).check();
+    Nvfp4::new(2 * WINDOW).rows(3).columns(2).check();
+    Nvfp4::new(WINDOW).rows(9).columns(4).check();
 }
 
 /// The activation out of a stage in shared memory, which holds the product's rows alone: the
 /// units covering rows past them read its last row again rather than past the stage.
 #[test]
 fn a_staged_activation_of_fewer_rows_than_a_fragment_contracts_in_lane_runs() {
-    check_nvfp4_rows(1, 2 * WINDOW, 8, 2, 1, Staged::Activation, None);
-    check_nvfp4_rows(3, 2 * WINDOW, 8, 2, 2, Staged::Activation, None);
-    check_nvfp4_rows(9, WINDOW, 8, 2, 1, Staged::Activation, None);
-    check_nvfp4_rows(16, WINDOW, 8, 2, 1, Staged::Activation, None);
+    Nvfp4::new(2 * WINDOW)
+        .rows(1)
+        .staged(Staged::Activation)
+        .check();
+    Nvfp4::new(2 * WINDOW)
+        .rows(3)
+        .columns(2)
+        .staged(Staged::Activation)
+        .check();
+    Nvfp4::new(WINDOW)
+        .rows(9)
+        .staged(Staged::Activation)
+        .check();
+    Nvfp4::new(WINDOW).staged(Staged::Activation).check();
 }
 
 /// **A weight staged as it is stored decodes at the kernel's element a step at a time.** Out of
@@ -732,9 +793,13 @@ fn a_staged_activation_of_fewer_rows_than_a_fragment_contracts_in_lane_runs() {
 /// instruction's own order, decoding its codes under their scale words as it loads.
 #[test]
 fn a_staged_nvfp4_weight_dequantizes_a_step_at_a_time() {
-    check_nvfp4_rows(16, WINDOW, 8, 2, 1, Staged::Both, None);
-    check_nvfp4_rows(16, 3 * WINDOW, 8, 2, 1, Staged::Both, None);
-    check_nvfp4_rows(3, 2 * WINDOW, 8, 2, 2, Staged::Both, None);
+    Nvfp4::new(WINDOW).staged(Staged::Both).check();
+    Nvfp4::new(3 * WINDOW).staged(Staged::Both).check();
+    Nvfp4::new(2 * WINDOW)
+        .rows(3)
+        .columns(2)
+        .staged(Staged::Both)
+        .check();
 }
 
 /// **A weight staged with its byte scales kept beside it contracts in lane runs.** The stage
@@ -742,16 +807,29 @@ fn a_staged_nvfp4_weight_dequantizes_a_step_at_a_time() {
 /// both in lane runs, as they would straight from the tensor.
 #[test]
 fn a_staged_nvfp4_weight_under_kept_byte_scales_contracts_in_lane_runs() {
-    check_nvfp4_rows(16, WINDOW, 8, 2, 1, Staged::BothKept, None);
-    check_nvfp4_rows(16, 2 * WINDOW, 8, 2, 2, Staged::BothKept, None);
-    check_nvfp4_rows(3, 2 * WINDOW, 8, 2, 2, Staged::BothKept, None);
+    Nvfp4::new(WINDOW).staged(Staged::BothKept).check();
+    Nvfp4::new(2 * WINDOW)
+        .columns(2)
+        .staged(Staged::BothKept)
+        .check();
+    Nvfp4::new(2 * WINDOW)
+        .rows(3)
+        .columns(2)
+        .staged(Staged::BothKept)
+        .check();
 }
 
 #[test]
 fn a_tiled_stage_of_an_nvfp4_weight_under_kept_byte_scales_contracts_in_lane_runs() {
+    let client = cubecl::test_device().client();
+    if skip_without_instruction(&client) {
+        return;
+    }
+    let block = fragment_edges(&client, First::Activation);
     for chunks in [RowChunks::InOrder, RowChunks::Swizzled] {
-        check_nvfp4_rows(16, WINDOW, 8, 2, 1, Staged::BothKeptTiled(chunks), None);
-        check_nvfp4_rows(16, 2 * WINDOW, 8, 2, 2, Staged::BothKeptTiled(chunks), None);
+        let staged = Staged::BothKeptTiled { chunks, block };
+        Nvfp4::new(WINDOW).staged(staged).check();
+        Nvfp4::new(2 * WINDOW).columns(2).staged(staged).check();
     }
 }
 
@@ -760,9 +838,12 @@ fn a_tiled_stage_of_an_nvfp4_weight_under_kept_byte_scales_contracts_in_lane_run
 /// `Tile::factor` and multiplies the sum once, the weight read straight or out of a stage.
 #[test]
 fn a_per_tensor_scale_above_lane_runs_scales_the_sum() {
-    check_nvfp4_rows(16, 2 * WINDOW, 8, 2, 1, Staged::Nothing, Some(0.375));
-    check_nvfp4_rows(3, WINDOW, 8, 2, 2, Staged::Nothing, Some(1.5));
-    check_nvfp4_rows(16, WINDOW, 8, 2, 1, Staged::Both, Some(0.375));
+    Nvfp4::new(2 * WINDOW).global(0.375).check();
+    Nvfp4::new(WINDOW).rows(3).columns(2).global(1.5).check();
+    Nvfp4::new(WINDOW)
+        .staged(Staged::Both)
+        .global(0.375)
+        .check();
 }
 
 /// Each unit's register `i` of instruction role `ident` holds the cells the lane-run map says it
@@ -876,54 +957,13 @@ fn a_plain_weight_handed_first_contracts_in_lane_runs() {
 /// decode a step at a time, which reads a `B` alone and refuses it.
 #[test]
 fn an_nvfp4_weight_handed_first_decodes_into_the_left_operand() {
-    let weight = First::Weight;
-    let whole = whole_rows(weight);
-    check_nvfp4_handed(
-        whole,
-        2 * WINDOW,
-        8,
-        2,
-        1,
-        Staged::Nothing,
-        None,
-        weight,
-        None,
-    );
-    check_nvfp4_handed(whole, WINDOW, 8, 2, 2, Staged::Nothing, None, weight, None);
-    check_nvfp4_handed(3, 2 * WINDOW, 8, 2, 1, Staged::Nothing, None, weight, None);
-    check_nvfp4_handed(
-        whole,
-        2 * WINDOW,
-        8,
-        2,
-        1,
-        Staged::Activation,
-        None,
-        weight,
-        None,
-    );
-    check_nvfp4_handed(
-        whole,
-        2 * WINDOW,
-        8,
-        2,
-        2,
-        Staged::BothKept,
-        None,
-        weight,
-        None,
-    );
-    check_nvfp4_handed(
-        whole,
-        WINDOW,
-        8,
-        2,
-        1,
-        Staged::Nothing,
-        Some(0.375),
-        weight,
-        None,
-    );
+    let weight = Nvfp4::new(2 * WINDOW).weight_first();
+    weight.check();
+    Nvfp4::new(WINDOW).weight_first().columns(2).check();
+    weight.rows(3).check();
+    weight.staged(Staged::Activation).check();
+    weight.columns(2).staged(Staged::BothKept).check();
+    Nvfp4::new(WINDOW).weight_first().global(0.375).check();
 }
 
 /// A weight of fewer rows than its fragment's sixteen, handed over first: the units past them
@@ -931,29 +971,16 @@ fn an_nvfp4_weight_handed_first_decodes_into_the_left_operand() {
 /// of stages under byte scales kept beside the codes.
 #[test]
 fn a_short_nvfp4_weight_handed_first_overhangs_the_left_operand() {
-    let weight = First::Weight;
-    let whole = whole_rows(weight);
-    check_nvfp4_handed(
-        whole,
-        2 * WINDOW,
-        8,
-        2,
-        1,
-        Staged::Nothing,
-        None,
-        weight,
-        Some(5),
-    );
-    check_nvfp4_handed(1, WINDOW, 8, 2, 1, Staged::Nothing, None, weight, Some(1));
-    check_nvfp4_handed(
-        3,
-        2 * WINDOW,
-        8,
-        2,
-        1,
-        Staged::BothKept,
-        None,
-        weight,
-        Some(11),
-    );
+    Nvfp4::new(2 * WINDOW).weight_first().weight_rows(5).check();
+    Nvfp4::new(WINDOW)
+        .weight_first()
+        .rows(1)
+        .weight_rows(1)
+        .check();
+    Nvfp4::new(2 * WINDOW)
+        .weight_first()
+        .rows(3)
+        .weight_rows(11)
+        .staged(Staged::BothKept)
+        .check();
 }
