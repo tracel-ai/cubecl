@@ -254,7 +254,9 @@ impl Database {
         namespace: &str,
         operation: impl FnOnce(&mut turso::Connection) -> Result<T, turso::Error>,
     ) -> Result<T, String> {
-        operation(&mut self.connection.lock()).map_err(|err| self.failed(name, namespace, err))
+        let mut connection = self.connection.lock();
+        caught(|| operation(&mut connection))
+            .map_err(|fault| self.failed(name, namespace, fault.explain(&self.location)))
     }
 
     /// [`run`](Self::run) for a write: the log is first given room for it
@@ -268,17 +270,19 @@ impl Database {
         let mut connection = self.connection.lock();
         self.make_log_room(&connection)
             .map_err(|reason| self.failed(name, namespace, reason))?;
-        operation(&mut connection).map_err(|err| self.failed(name, namespace, err))
+        caught(|| operation(&mut connection))
+            .map_err(|fault| self.failed(name, namespace, fault.explain(&self.location)))
     }
 
-    /// `reason` logged as the failure to `name` `namespace`, and reported.
-    fn failed(&self, name: &str, namespace: &str, reason: impl ToString) -> String {
-        let reason = reason.to_string();
-        log::warn!(
-            "Unable to {name} {}: {reason}",
+    /// The failure to `name` `namespace` for `reason`, which names the file, the cause and
+    /// what to do: logged, and reported.
+    fn failed(&self, name: &str, namespace: &str, reason: String) -> String {
+        let failure = format!(
+            "unable to {name} {}: {reason}",
             describe(&self.location, namespace)
         );
-        reason
+        log::warn!("{failure}");
+        failure
     }
 
     /// [`make_log_room`] for this database's log.
@@ -1455,6 +1459,140 @@ fn error(error: turso::Error) -> String {
     error.to_string()
 }
 
+/// `operation`'s result, with a panic inside turso caught as a [`StorageFault`] rather than
+/// left to unwind through the thread that called it, which may be a device's runner thread
+/// a load is waiting on.
+fn caught<T>(operation: impl FnOnce() -> Result<T, turso::Error>) -> Result<T, StorageFault> {
+    match std::panic::catch_unwind(core::panic::AssertUnwindSafe(operation)) {
+        Ok(result) => result.map_err(StorageFault::Refused),
+        Err(payload) => Err(StorageFault::Panicked(panic_message(payload.as_ref()))),
+    }
+}
+
+/// The message a panic was raised with, when it is text.
+fn panic_message(payload: &(dyn core::any::Any + Send)) -> String {
+    match (
+        payload.downcast_ref::<&str>(),
+        payload.downcast_ref::<String>(),
+    ) {
+        (Some(message), _) => message.to_string(),
+        (_, Some(message)) => message.clone(),
+        _ => "a panic without a message".to_string(),
+    }
+}
+
+/// Why a call on an environment's database failed.
+enum StorageFault {
+    /// Turso refused the call.
+    Refused(turso::Error),
+    /// Turso panicked during the call, with this message.
+    Panicked(String),
+}
+
+/// The cause of a [`StorageFault`], named for what fixes it.
+enum FaultCause {
+    /// The log outgrew turso's shared frame index, so every read is refused as locked.
+    IndexOverflowed,
+    /// Another connection held the file past the busy timeout.
+    Locked,
+    /// The file is not a database, or is damaged.
+    Damaged,
+    /// The disk refused the write: full, or failing.
+    Disk,
+    /// The file was opened read-only.
+    ReadOnly,
+    /// Turso panicked.
+    Panicked,
+    /// Anything else, which the error's own words describe.
+    Other,
+}
+
+impl StorageFault {
+    fn cause(&self, location: &str) -> FaultCause {
+        match self {
+            Self::Refused(turso::Error::Busy(_) | turso::Error::BusySnapshot(_))
+                if index_overflowed(location) =>
+            {
+                FaultCause::IndexOverflowed
+            }
+            Self::Refused(turso::Error::Busy(_) | turso::Error::BusySnapshot(_)) => {
+                FaultCause::Locked
+            }
+            Self::Refused(turso::Error::Corrupt(_) | turso::Error::NotAdb(_)) => {
+                FaultCause::Damaged
+            }
+            Self::Refused(turso::Error::DatabaseFull(_) | turso::Error::IoError(..)) => {
+                FaultCause::Disk
+            }
+            Self::Refused(turso::Error::Readonly(_)) => FaultCause::ReadOnly,
+            Self::Panicked(_) => FaultCause::Panicked,
+            Self::Refused(_) => FaultCause::Other,
+        }
+    }
+
+    /// What failed in `location`, why, and what to do.
+    fn explain(&self, location: &str) -> String {
+        let said = match self {
+            Self::Refused(error) => error.to_string(),
+            Self::Panicked(message) => format!("turso panicked: {message}"),
+        };
+        let directory = std::path::Path::new(location)
+            .parent()
+            .map_or_else(|| location.to_string(), |dir| dir.display().to_string());
+        match self.cause(location) {
+            FaultCause::IndexOverflowed => format!(
+                "{said}: the log of {location} holds more frames than turso's shared index of \
+                 262,144, so every read of it is refused. Once no process uses it, the next \
+                 open restarts the log; until then, moving {directory} aside with no process \
+                 using it starts afresh"
+            ),
+            FaultCause::Locked => format!(
+                "{said}: another connection to {location}, of this process or another, held it \
+                 past the {BUSY_TIMEOUT:?} busy timeout. It succeeds once that one finishes; if \
+                 none is running, moving {directory} aside with no process using it starts \
+                 afresh"
+            ),
+            FaultCause::Damaged => format!(
+                "{said}: {location} is not a readable database. Moving {directory} aside with no \
+                 process using it starts afresh, rebuilding what it held"
+            ),
+            FaultCause::Disk => format!(
+                "{said}: the disk under {location} refused it. Free space there, or check the \
+                 disk"
+            ),
+            FaultCause::ReadOnly => format!("{said}: {location} is open read-only"),
+            FaultCause::Panicked => format!(
+                "{said}, while working on {location}. The file may be in a state turso does not \
+                 expect; moving {directory} aside with no process using it starts afresh"
+            ),
+            FaultCause::Other => format!("{said} ({location})"),
+        }
+    }
+}
+
+/// Whether the shared frame index of `location`'s log has overflowed: its flag in the
+/// `-tshm` header. Read from the file, since turso reports it only as a lock.
+fn index_overflowed(location: &str) -> bool {
+    #[cfg(native_cache)]
+    {
+        use std::io::{Read, Seek, SeekFrom};
+        const OVERFLOWED_AT: u64 = 44;
+
+        let mut flag = [0u8; 1];
+        std::fs::File::open(format!("{location}-tshm"))
+            .and_then(|mut file| {
+                file.seek(SeekFrom::Start(OVERFLOWED_AT))?;
+                file.read_exact(&mut flag)
+            })
+            .is_ok_and(|()| flag != [0])
+    }
+    #[cfg(not(native_cache))]
+    {
+        let _ = location;
+        false
+    }
+}
+
 /// The storage serving `namespace` in the active environment's database.
 pub fn open(namespace: &str) -> Result<Box<dyn Storage>, String> {
     TursoStorage::open(namespace.to_string()).map(|storage| Box::new(storage) as Box<dyn Storage>)
@@ -1977,6 +2115,61 @@ mod tests {
             Insertion::Stored
         );
         assert!(log_frames(&path) < 1_000, "{} frames", log_frames(&path));
+    }
+
+    /// A write another connection's lock keeps out fails naming the file, the lock and what to
+    /// do, rather than turso's bare "database is locked".
+    #[test]
+    fn a_locked_write_names_the_file_the_cause_and_the_fix() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("building.db");
+        let writer = Database::open_at(&path, Access::ReadWrite).unwrap();
+        let holder = Database::open_at(&path, Access::ReadWrite).unwrap();
+        holder.with_connection(|connection| {
+            drive(connection.execute("BEGIN IMMEDIATE", ())).unwrap();
+        });
+
+        match writer.insert("kernels", b"key", b"1", Origin::Local) {
+            Insertion::Failed(reason) => {
+                assert!(reason.contains("building.db"), "{reason}");
+                assert!(reason.contains("(kernels)"), "{reason}");
+                assert!(reason.contains("busy timeout"), "{reason}");
+                assert!(reason.contains("moving"), "{reason}");
+            }
+            other => panic!("the write landed while another connection held the lock: {other:?}"),
+        }
+        holder.with_connection(|connection| drive(connection.execute("ROLLBACK", ())).unwrap());
+    }
+
+    /// A lock turso reports over a log whose shared index overflowed is told as the overflow it
+    /// is.
+    #[test]
+    fn a_lock_over_an_overflowed_index_is_told_as_the_overflow() {
+        let dir = tempfile::tempdir().unwrap();
+        let location = dir.path().join("building.db").to_str().unwrap().to_string();
+        let locked = StorageFault::Refused(turso::Error::Busy("database is locked".into()));
+        assert!(matches!(locked.cause(&location), FaultCause::Locked));
+
+        let mut header = vec![0u8; 128];
+        header[44] = 1;
+        std::fs::write(format!("{location}-tshm"), header).unwrap();
+        assert!(matches!(
+            locked.cause(&location),
+            FaultCause::IndexOverflowed
+        ));
+        assert!(locked.explain(&location).contains("262,144"));
+    }
+
+    /// A panic inside turso becomes the call's failure, with its message.
+    #[test]
+    fn a_panic_inside_the_storage_is_a_failure() {
+        let fault = caught::<()>(|| panic!("reader slot released by non-owner")).unwrap_err();
+        let explained = fault.explain("/cache/building.db");
+        assert!(
+            explained.contains("turso panicked: reader slot released by non-owner"),
+            "{explained}"
+        );
+        assert!(explained.contains("/cache/building.db"), "{explained}");
     }
 
     /// Where [`grow_a_log_until_killed`] writes, when a test runs it as a
