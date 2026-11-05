@@ -81,6 +81,46 @@ impl PlaneLowering for AmdGpuPlane {
         })
     }
 
+    /// Where the wave runs as halves and the mask is known, the half it reads is known too, and
+    /// the shuffle is one `ds_bpermute`, of the halves swapped where the mask crosses them.
+    fn shuffle_xor(
+        &self,
+        ctx: &mut Context,
+        rw: &mut DialectConversionRewriter,
+        value: Value,
+        mask: Value,
+        value_ty: TypeHandle,
+    ) -> Value {
+        let lane = self.lane_id(ctx, rw);
+        let src = xor(ctx, rw, lane, mask);
+        let known = match ctx.halved_wave() {
+            true => constant_u32(ctx, mask),
+            false => None,
+        };
+        let Some(bits) = known else {
+            return self.shuffle(ctx, rw, value, src, value_ty);
+        };
+
+        let i32_ty = i32_ty(ctx);
+        let two = insert_i32_const(ctx, rw, 2);
+        let crosses = bits & 32 != 0;
+        let read_lane = match crosses {
+            true => {
+                let half = insert_i32_const(ctx, rw, 32);
+                xor(ctx, rw, src, half)
+            }
+            false => src,
+        };
+        let addr = shl(ctx, rw, read_lane, two);
+        route_words(ctx, rw, value, value_ty, |ctx, rw, word| {
+            let read = match crosses {
+                true => call_intrinsic(ctx, rw, PERMLANE64, i32_ty, vec![word]),
+                false => word,
+            };
+            call_intrinsic(ctx, rw, DS_BPERMUTE, i32_ty, vec![addr, read])
+        })
+    }
+
     fn ballot_mask(
         &self,
         ctx: &mut Context,
@@ -95,4 +135,13 @@ impl PlaneLowering for AmdGpuPlane {
 
 pub(crate) fn lane_id(ctx: &mut Context, rw: &mut DialectConversionRewriter) -> Value {
     AmdGpuPlane.lane_id(ctx, rw)
+}
+
+/// The value a constant defines, where `value` is an integer constant.
+fn constant_u32(ctx: &Context, value: Value) -> Option<u32> {
+    let def = value.defining_op()?;
+    let constant = Operation::get_op::<ConstantOp>(def, ctx)?;
+    let attr = constant.get_attr_builtin_constant_value(ctx)?;
+    attr.downcast_ref::<IntegerAttr>()
+        .map(|int| int.value().to_u64() as u32)
 }
