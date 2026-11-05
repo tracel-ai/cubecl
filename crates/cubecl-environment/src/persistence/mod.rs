@@ -1,7 +1,7 @@
 //! Key-value persistence.
 //!
 //! A [`Store`] is a typed in-memory map that syncs its content to an optional
-//! [`Storage`]: an embedded Turso database (feature `persistence`) on a file
+//! [`Storage`]: an embedded SQL database (feature `persistence`) on a file
 //! system natively and on OPFS in the browser, or nothing at all.
 //! [`CacheOption`] decides whether the whole namespace is ingested at open or
 //! entries are faulted in one key at a time.
@@ -31,12 +31,16 @@ pub(crate) mod database;
 #[cfg(any(native_cache, browser_cache))]
 pub use database::{Access, Database, DatabaseStorage};
 
+/// The SQL engine under the database.
+#[cfg(any(native_cache, browser_cache))]
+pub(crate) mod sql;
+
 #[cfg(browser_cache)]
 mod turso_browser;
 
 /// Cache root location selection.
 ///
-/// Available wherever there is a file system, not only when the Turso
+/// Available wherever there is a file system, not only when the database
 /// backend is compiled in: the root is what names an environment on disk, and
 /// [`crate::environment`] exposes it independently of how entries are stored.
 #[cfg(std_io)]

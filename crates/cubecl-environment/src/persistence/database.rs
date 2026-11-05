@@ -1,31 +1,24 @@
-//! Turso persistence: the database file shared by every namespace of an
-//! environment.
+//! The database file shared by every namespace of an environment, on the
+//! engine [`sql`] names.
 //!
-//! The engine's API is a set of futures, but its work is synchronous: a
-//! statement steps, asks its I/O for a page, and steps again once the I/O has
-//! answered. Natively the file system answers within the call, and the
-//! browser's files are synchronous access handles that do the same, so a
-//! statement never waits on anything an event loop would deliver. Every
-//! statement here is driven to completion on the spot ([`drive`]), and the
-//! [`Storage`] this module hands out is synchronous like every other.
-//!
-//! Opening is the exception: the browser reaches its files through promises.
-//! The database therefore opens through an `async` step ([`open_ahead`]),
-//! which a page awaits once before anything needs it; natively a storage
-//! opens the database itself on first use, blocking on the file system as a
-//! file read would.
+//! Every statement runs to completion on the spot, so the [`Storage`] this
+//! module hands out is synchronous like every other. Opening is the
+//! exception: the browser reaches its files through promises. The database
+//! therefore opens through an `async` step ([`open_ahead`]), which a page
+//! awaits once before anything needs it; natively a storage opens the
+//! database itself on first use, blocking on the file system as a file read
+//! would.
 
 use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::future::Future;
 use core::ops::Range;
 
 use hashbrown::HashMap;
-use turso::transaction::TransactionBehavior;
 
+use super::sql::{self, Behavior, Opening, SqlError, Transaction};
 use super::{InsertSummary, Insertion, NamespaceSummary, Origin, Storage};
 use crate::bytes::Bytes;
 use crate::sync::{LazyLock, Mutex};
@@ -84,10 +77,12 @@ const SELECT: &str = "SELECT value FROM entries WHERE namespace = ?1 AND key = ?
 
 const SCAN: &str = "SELECT key, value, origin FROM entries WHERE namespace = ?1";
 
+#[cfg(native_cache)]
 const ENTRIES: &str = "SELECT namespace, key, value FROM entries";
 
 const PURGE: &str = "DELETE FROM entries WHERE namespace = ?1";
 
+#[cfg(native_cache)]
 const CLEAR: &str = "DELETE FROM entries";
 
 const PURGE_KEY: &str = "DELETE FROM entries WHERE namespace = ?1 AND key = ?2";
@@ -99,11 +94,11 @@ const SUMMARY: &str = "SELECT namespace, COUNT(*), SUM(length(key) + length(valu
 
 const NAMESPACES: &str = "SELECT DISTINCT namespace FROM entries ORDER BY namespace";
 
-type DatabaseResult = Result<Arc<turso::Database>, String>;
+type DatabaseResult = Result<Arc<sql::Database>, String>;
 
 enum DatabaseState {
     Opening(Vec<async_channel::Sender<DatabaseResult>>),
-    Ready(Arc<turso::Database>),
+    Ready(Arc<sql::Database>),
 }
 
 /// The databases this process has opened, by location, so that every
@@ -147,7 +142,7 @@ pub enum Access {
 pub struct Database {
     /// The engine rejects concurrent use of a connection at runtime rather
     /// than serializing it, so each handle holds one and takes it in turn.
-    connection: Mutex<turso::Connection>,
+    connection: Mutex<sql::Connection>,
     location: String,
     /// Read by [`into_standalone`](Self::into_standalone), which only a file
     /// system has.
@@ -242,7 +237,7 @@ impl Database {
     /// Runs `operation` on the connection, for the table beside the entries
     /// (a bundle's manifest).
     #[cfg(native_cache)]
-    pub(crate) fn with_connection<T>(&self, operation: impl FnOnce(&turso::Connection) -> T) -> T {
+    pub(crate) fn with_connection<T>(&self, operation: impl FnOnce(&sql::Connection) -> T) -> T {
         operation(&self.connection.lock())
     }
 
@@ -252,10 +247,10 @@ impl Database {
         &self,
         name: &str,
         namespace: &str,
-        operation: impl FnOnce(&mut turso::Connection) -> Result<T, turso::Error>,
+        operation: impl FnOnce(&sql::Connection) -> Result<T, SqlError>,
     ) -> Result<T, String> {
-        let mut connection = self.connection.lock();
-        caught(|| operation(&mut connection))
+        let connection = self.connection.lock();
+        caught(|| operation(&connection))
             .map_err(|fault| self.failed(name, namespace, fault.explain(&self.location)))
     }
 
@@ -265,12 +260,12 @@ impl Database {
         &self,
         name: &str,
         namespace: &str,
-        operation: impl FnOnce(&mut turso::Connection) -> Result<T, turso::Error>,
+        operation: impl FnOnce(&sql::Connection) -> Result<T, SqlError>,
     ) -> Result<T, String> {
-        let mut connection = self.connection.lock();
+        let connection = self.connection.lock();
         self.make_log_room(&connection)
             .map_err(|reason| self.failed(name, namespace, reason))?;
-        caught(|| operation(&mut connection))
+        caught(|| operation(&connection))
             .map_err(|fault| self.failed(name, namespace, fault.explain(&self.location)))
     }
 
@@ -286,7 +281,7 @@ impl Database {
     }
 
     /// [`make_log_room`] for this database's log.
-    fn make_log_room(&self, connection: &turso::Connection) -> Result<(), String> {
+    fn make_log_room(&self, connection: &sql::Connection) -> Result<(), String> {
         #[cfg(native_cache)]
         {
             make_log_room(connection, &self.location, self.frame_bytes)
@@ -301,12 +296,7 @@ impl Database {
     /// The value stored under `key` in `namespace`.
     pub fn get(&self, namespace: &str, key: &[u8]) -> Option<Bytes> {
         self.run("read", namespace, |connection| {
-            let mut rows = drive(connection.query(SELECT, (namespace, key.to_vec())))?;
-            let Some(row) = drive(rows.next())? else {
-                return Ok(None);
-            };
-            let value: Vec<u8> = row.get(0)?;
-            Ok(Some(Bytes::from_bytes_vec(value)))
+            select_on(connection, namespace, key)
         })
         .unwrap_or_default()
     }
@@ -323,8 +313,13 @@ impl Database {
     /// Stores `value` under `key`, overwriting whatever is there.
     pub fn replace(&self, namespace: &str, key: &[u8], value: &[u8], origin: Origin) -> Insertion {
         self.write("replace", namespace, |connection| {
-            let params = (namespace, key.to_vec(), value.to_vec(), origin_code(origin));
-            drive(connection.execute(REPLACE, params))?;
+            let params = [
+                namespace.into(),
+                key.into(),
+                value.into(),
+                origin_code(origin).into(),
+            ];
+            connection.execute(REPLACE, &params)?;
             Ok(Insertion::Stored)
         })
         .unwrap_or_else(Insertion::Failed)
@@ -339,10 +334,10 @@ impl Database {
         entries: &mut dyn Iterator<Item = (Bytes, Bytes)>,
         origin: Origin,
     ) -> InsertSummary {
-        let mut connection = self.connection.lock();
-        let began = self.make_log_room(&connection).and_then(|()| {
-            drive(connection.transaction_with_behavior(write_transaction())).map_err(error)
-        });
+        let connection = self.connection.lock();
+        let began = self
+            .make_log_room(&connection)
+            .and_then(|()| Transaction::new(&connection, write_transaction()).map_err(error));
         let transaction = match began {
             Ok(transaction) => transaction,
             Err(err) => {
@@ -361,7 +356,7 @@ impl Database {
                 Err(_) => summary.failed += 1,
             }
         }
-        if let Err(err) = drive(transaction.commit()) {
+        if let Err(err) = transaction.commit() {
             log::warn!(
                 "Unable to commit a batch write to {}: {err}",
                 describe(&self.location, namespace)
@@ -388,12 +383,12 @@ impl Database {
     /// When `source` can't be read or this database can't be written.
     #[cfg(native_cache)]
     pub fn replace_with(&self, source: Option<&Database>) -> Result<(), String> {
-        let mut connection = self.connection.lock();
+        let connection = self.connection.lock();
         let source = source.map(|source| source.connection.lock());
-        let room = |connection: &turso::Connection| {
+        let room = |connection: &sql::Connection| {
             make_log_room(connection, &self.location, self.frame_bytes)
         };
-        copy_in_batches(&mut connection, source.as_deref(), &room)
+        copy_in_batches(&connection, source.as_deref(), &room)
             .inspect_err(|err| log::warn!("Unable to replace {}: {err}", self.location))?;
         restart_log(&connection, &self.location);
         Ok(())
@@ -408,7 +403,7 @@ impl Database {
     /// reporting it; see the [`Storage`] contract.
     pub fn purge(&self, namespace: &str) {
         let _ = self.write("purge", namespace, |connection| {
-            drive(connection.execute(PURGE, (namespace,))).map(|_| ())
+            connection.execute(PURGE, &[namespace.into()]).map(|_| ())
         });
     }
 
@@ -416,7 +411,9 @@ impl Database {
     /// contract as [`purge`](Self::purge).
     pub fn purge_key(&self, namespace: &str, key: &[u8]) {
         let _ = self.write("purge a key from", namespace, |connection| {
-            drive(connection.execute(PURGE_KEY, (namespace, key.to_vec()))).map(|_| ())
+            connection
+                .execute(PURGE_KEY, &[namespace.into(), key.into()])
+                .map(|_| ())
         });
     }
 
@@ -427,7 +424,11 @@ impl Database {
             "purge the namespaces from",
             namespaces.start,
             |connection| {
-                drive(connection.execute(PURGE_RANGE, (namespaces.start, namespaces.end)))
+                connection
+                    .execute(
+                        PURGE_RANGE,
+                        &[namespaces.start.into(), namespaces.end.into()],
+                    )
                     .map(|_| ())
             },
         );
@@ -437,14 +438,11 @@ impl Database {
     /// under: whether this environment computed it or imported it.
     pub fn scan_with_origin(&self, namespace: &str, visit: &mut OriginVisitor<'_>) {
         let _ = self.run("scan", namespace, |connection| {
-            let mut rows = drive(connection.query(SCAN, (namespace,)))?;
-            while let Some(row) = drive(rows.next())? {
-                let key: Vec<u8> = row.get(0)?;
-                let value: Vec<u8> = row.get(1)?;
-                let origin: i64 = row.get(2)?;
-                visit(&key, &value, origin_of(origin));
-            }
-            Ok(())
+            connection.query(SCAN, &[namespace.into()], &mut |row| {
+                let origin = origin_of(row.integer(2)?);
+                visit(&row.blob(0)?, &row.blob(1)?, origin);
+                Ok::<_, SqlError>(())
+            })
         });
     }
 
@@ -513,11 +511,11 @@ impl Database {
     /// The names of every namespace this database holds.
     pub fn namespaces(&self) -> Vec<String> {
         self.run("list the namespaces of", "", |connection| {
-            let mut rows = drive(connection.query(NAMESPACES, ()))?;
             let mut namespaces = Vec::new();
-            while let Some(row) = drive(rows.next())? {
-                namespaces.push(row.get(0)?);
-            }
+            connection.query(NAMESPACES, &[], &mut |row| {
+                namespaces.push(row.text(0)?);
+                Ok::<_, SqlError>(())
+            })?;
             Ok(namespaces)
         })
         .unwrap_or_default()
@@ -555,65 +553,71 @@ const COPY_BATCH_BYTES: usize = 16 * 1024 * 1024;
 /// `room` giving the log room before each write.
 #[cfg(native_cache)]
 fn copy_in_batches(
-    connection: &mut turso::Connection,
-    source: Option<&turso::Connection>,
-    room: &dyn Fn(&turso::Connection) -> Result<(), String>,
+    connection: &sql::Connection,
+    source: Option<&sql::Connection>,
+    room: &dyn Fn(&sql::Connection) -> Result<(), String>,
 ) -> Result<(), String> {
     room(connection)?;
-    drive(connection.execute(CLEAR, ())).map_err(error)?;
+    connection.execute(CLEAR, &[]).map_err(error)?;
     let Some(source) = source else {
         return Ok(());
     };
-    let mut rows = drive(source.query(ENTRIES, ())).map_err(error)?;
-    let mut next = drive(rows.next()).map_err(error)?;
-    while next.is_some() {
-        room(connection)?;
-        let transaction =
-            drive(connection.transaction_with_behavior(write_transaction())).map_err(error)?;
-        let copied = (|| {
-            let mut bytes = 0;
-            while let Some(row) = next.take() {
-                let namespace: String = row.get(0)?;
-                let key: Vec<u8> = row.get(1)?;
-                let value: Vec<u8> = row.get(2)?;
-                bytes += namespace.len() + key.len() + value.len();
-                let params = (namespace, key, value, origin_code(Origin::Imported));
-                drive(transaction.execute(REPLACE, params))?;
-                next = drive(rows.next())?;
-                if bytes >= COPY_BATCH_BYTES {
-                    break;
-                }
-            }
-            Ok(())
-        })();
-        match copied {
-            Ok(()) => drive(transaction.commit()).map_err(error)?,
-            Err(err) => {
-                let _ = drive(transaction.rollback());
-                return Err(error(err));
-            }
+    let mut batch: Option<(Transaction<'_>, usize)> = None;
+    source.query(ENTRIES, &[], &mut |row| {
+        if batch.is_none() {
+            room(connection)?;
+            let transaction = Transaction::new(connection, write_transaction()).map_err(error)?;
+            batch = Some((transaction, 0));
         }
+        let Some((transaction, bytes)) = batch.as_mut() else {
+            return Ok(());
+        };
+        let namespace = row.text(0).map_err(error)?;
+        let key = row.blob(1).map_err(error)?;
+        let value = row.blob(2).map_err(error)?;
+        *bytes += namespace.len() + key.len() + value.len();
+        let params = [
+            (&namespace).into(),
+            (&key).into(),
+            (&value).into(),
+            origin_code(Origin::Imported).into(),
+        ];
+        transaction.execute(REPLACE, &params).map_err(error)?;
+        if *bytes >= COPY_BATCH_BYTES
+            && let Some((transaction, _)) = batch.take()
+        {
+            transaction.commit().map_err(error)?;
+        }
+        Ok::<_, String>(())
+    })?;
+    // A batch that failed partway is rolled back as it drops.
+    match batch {
+        Some((transaction, _)) => transaction.commit().map_err(error),
+        None => Ok(()),
     }
-    Ok(())
 }
 
 /// One insert on `connection`: the statement arbitrates, and only a declined
 /// write costs a second one, to fetch the value that won.
 fn insert_on(
-    connection: &turso::Connection,
+    connection: &sql::Connection,
     namespace: &str,
     key: &[u8],
     value: &[u8],
     origin: Origin,
-) -> Result<Insertion, turso::Error> {
-    let params = (namespace, key.to_vec(), value.to_vec(), origin_code(origin));
-    if drive(connection.execute(INSERT, params))? == 1 {
+) -> Result<Insertion, SqlError> {
+    let params = [
+        namespace.into(),
+        key.into(),
+        value.into(),
+        origin_code(origin).into(),
+    ];
+    if connection.execute(INSERT, &params)? == 1 {
         return Ok(Insertion::Stored);
     }
 
-    let mut rows = drive(connection.query(SELECT, (namespace, key.to_vec())))?;
-    match drive(rows.next())? {
-        Some(row) => Ok(Insertion::Conflict(Bytes::from_bytes_vec(row.get(0)?))),
+    match select_on(connection, namespace, key)? {
+        Some(value) => Ok(Insertion::Conflict(value)),
         // Purged between the two statements: nothing to report as the
         // winner, and nothing stored.
         None => Ok(Insertion::Failed(
@@ -622,8 +626,22 @@ fn insert_on(
     }
 }
 
+/// The value stored under `key` in `namespace`, read on `connection`.
+fn select_on(
+    connection: &sql::Connection,
+    namespace: &str,
+    key: &[u8],
+) -> Result<Option<Bytes>, SqlError> {
+    let mut value = None;
+    connection.query(SELECT, &[namespace.into(), key.into()], &mut |row| {
+        value = Some(Bytes::from_bytes_vec(row.blob(0)?));
+        Ok::<_, SqlError>(())
+    })?;
+    Ok(value)
+}
+
 fn describe(location: &str, namespace: &str) -> String {
-    format!("Turso {location} ({namespace})")
+    format!("{} {location} ({namespace})", sql::ENGINE)
 }
 
 /// One namespace of an environment's database file.
@@ -697,36 +715,6 @@ impl Storage for DatabaseStorage {
 
     fn describe(&self) -> String {
         describe(&self.database.location, &self.namespace)
-    }
-}
-
-/// Runs one of the engine's futures to completion.
-///
-/// Natively this blocks the thread, as reading a file would. In the browser
-/// nothing can block, and nothing has to: an engine future is pending only
-/// between a step that asked for I/O and the next, and the browser's files
-/// ([`super::turso_browser`]) answer within the call, so the next poll
-/// finds the answer. Polling in a loop is therefore how it is driven — and
-/// why a future that awaits the event loop must never come through here.
-/// Opening the database does, and stays `async`.
-fn drive<T>(future: impl Future<Output = T>) -> T {
-    #[cfg(not(browser_cache))]
-    {
-        crate::future::block_on(future)
-    }
-
-    #[cfg(browser_cache)]
-    {
-        use core::pin::pin;
-        use core::task::{Context, Poll, Waker};
-
-        let mut future = pin!(future);
-        let mut context = Context::from_waker(Waker::noop());
-        loop {
-            if let Poll::Ready(output) = future.as_mut().poll(&mut context) {
-                return output;
-            }
-        }
     }
 }
 
@@ -808,7 +796,7 @@ async fn shared_database(location: &str) -> DatabaseResult {
         // it and cache nothing, so the next open tries the writable path
         // again rather than serving a read-only file for the rest of the
         // process.
-        Err(err @ (turso::Error::Busy(_) | turso::Error::BusySnapshot(_))) => Err(error(err)),
+        Err(err @ SqlError::Busy(_)) => Err(error(err)),
         // Served but not cached: a file is read-only here also while a
         // read-only handle from `Database::open_at` holds it, and caching
         // would keep it read-only for the rest of the process.
@@ -857,32 +845,24 @@ impl Drop for Opener<'_> {
     }
 }
 
+/// Opens `location` writable, shared with every other process using it.
 #[cfg(native_cache)]
-async fn open_database(location: &str) -> Result<turso::Database, turso::Error> {
+async fn open_database(location: &str) -> Result<sql::Database, SqlError> {
     if let Some(parent) = std::path::Path::new(location).parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|error| turso::Error::IoError(error.kind(), "creating the cache directory"))?;
+        std::fs::create_dir_all(parent).map_err(|error| {
+            SqlError::Io(format!(
+                "creating the cache directory {}: {error}",
+                parent.display()
+            ))
+        })?;
     }
-
-    // Windows' I/O backend never shares a WAL, so it isn't asked to: its
-    // refusal would only be recognized by its wording.
-    if cfg!(windows) {
-        log::info!("cubecl cache: opening {location} for this process alone");
-        return open_writable(location, false).await;
-    }
-
     recover_long_log(location).await;
-    match open_writable(location, true).await {
-        // Writable for this process alone is still a cache that outlives the
-        // run. Passed up, the refusal lands in the read-only fallback instead:
-        // a new file doesn't open there at all, and an existing one opens
-        // unable to take a single write.
-        Err(err) if multiprocess_wal_unsupported(&err) => {
-            log::info!("cubecl cache: {err}; opening {location} for this process alone");
-            open_writable(location, false).await
-        }
-        opened => opened,
-    }
+    sql::Database::open(location, Opening::Shared).await
+}
+
+#[cfg(browser_cache)]
+async fn open_database(location: &str) -> Result<sql::Database, SqlError> {
+    sql::Database::open(location, Opening::Shared).await
 }
 
 /// What [`recover_long_log`] found and did.
@@ -914,6 +894,9 @@ enum LogRecovery {
 /// A log that can't be folded in has the file set aside instead.
 #[cfg(native_cache)]
 async fn recover_long_log(location: &str) -> LogRecovery {
+    if sql::INDEXED_LOG_FRAMES.is_none() {
+        return LogRecovery::NotNeeded;
+    }
     let Some(page_size) = page_size_on_disk(location) else {
         return LogRecovery::NotNeeded;
     };
@@ -922,9 +905,9 @@ async fn recover_long_log(location: &str) -> LogRecovery {
         return LogRecovery::NotNeeded;
     }
 
-    let restarted = match open_writable(location, false).await {
-        Ok(database) => connect(&database).and_then(|connection| checkpoint(&connection)),
-        Err(err) if held_by_another_process(&err) => {
+    let restarted = match sql::Database::open(location, Opening::ProcessLocal).await {
+        Ok(database) => connect(&database).and_then(|connection| connection.checkpoint()),
+        Err(err @ SqlError::HeldByAnotherProcess(_)) => {
             log::debug!(
                 "cubecl cache: the log of {location} holds {frames} frames, and another process \
                  has the file open ({err}); leaving the log to it"
@@ -953,18 +936,6 @@ async fn recover_long_log(location: &str) -> LogRecovery {
             LogRecovery::SetAside
         }
     }
-}
-
-/// Whether `err` is the engine refusing to open a file for this process alone
-/// because another process has it open.
-///
-/// The engine reports it as a locking error, which reaches the SDK as a plain
-/// [`turso::Error::Error`] like most of its errors: the wording is what sets
-/// it apart, as for [`multiprocess_wal_unsupported`].
-#[cfg(native_cache)]
-fn held_by_another_process(err: &turso::Error) -> bool {
-    matches!(err, turso::Error::Error(message)
-        if message.contains("in another process") || message.contains("locked by another process"))
 }
 
 /// Moves the database at `location` and the files beside it to
@@ -1002,40 +973,6 @@ fn page_size_on_disk(location: &str) -> Option<u64> {
     })
 }
 
-/// Opens `location` writable, its WAL shared between processes when
-/// `multiprocess`.
-///
-/// Without it, the engine locks the file for the process that opened it. A
-/// second process sharing the cache root is refused a writable open and takes
-/// the read-only fallback, as it would for any file it can't write: it reads
-/// what the first one stored, but can't add to it.
-#[cfg(native_cache)]
-async fn open_writable(
-    location: &str,
-    multiprocess: bool,
-) -> Result<turso::Database, turso::Error> {
-    turso::Builder::new_local(location)
-        .experimental_multiprocess_wal(multiprocess)
-        .build()
-        .await
-}
-
-/// Whether `err` is the engine declining to share a file's WAL between
-/// processes.
-///
-/// It declines wherever it can't coordinate the WAL through shared memory:
-/// on Windows, whose I/O backend has no such coordination and which
-/// [`open_database`] therefore never asks; on network and cluster file
-/// systems (NFS, SMB, Lustre, Ceph, 9p, ...), whose shared memory isn't
-/// coherent between hosts; and for in-memory databases. Every one of
-/// them reaches the SDK as a plain [`turso::Error::Error`], the variant most
-/// engine errors map to, so the message is the only thing that sets them
-/// apart from a failure that single-process mode would hit just the same.
-#[cfg(native_cache)]
-fn multiprocess_wal_unsupported(err: &turso::Error) -> bool {
-    matches!(err, turso::Error::Error(message) if message.contains("multiprocess WAL is not supported"))
-}
-
 /// A database nobody may write, served as it is: a cache root in a container
 /// image layer, a Nix store path, a mounted bundle.
 ///
@@ -1043,10 +980,8 @@ fn multiprocess_wal_unsupported(err: &turso::Error) -> bool {
 /// need the rebuild [`migrate`] performs, which needs a writable file; the
 /// caller falls back to memory instead.
 #[cfg(native_cache)]
-async fn open_read_only(location: &str) -> Result<turso::Database, String> {
-    let database = turso::Builder::new_local(location)
-        .read_only(true)
-        .build()
+async fn open_read_only(location: &str) -> Result<sql::Database, String> {
+    let database = sql::Database::open(location, Opening::ReadOnly)
         .await
         .map_err(error)?;
     let connection = connect(&database).map_err(error)?;
@@ -1063,7 +998,7 @@ async fn open_read_only(location: &str) -> Result<turso::Database, String> {
 /// A database file opened with `access`, outside the registry: the file is not
 /// the active environment's.
 #[cfg(native_cache)]
-async fn open_at_path(location: &str, access: Access) -> Result<turso::Database, String> {
+async fn open_at_path(location: &str, access: Access) -> Result<sql::Database, String> {
     match access {
         Access::ReadOnly => open_read_only(location).await,
         Access::ReadWrite => {
@@ -1082,18 +1017,6 @@ pub fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
         (Ok(a), Ok(b)) => a == b,
         _ => a == b,
     }
-}
-
-#[cfg(browser_cache)]
-async fn open_database(location: &str) -> Result<turso::Database, turso::Error> {
-    let wal = format!("{location}-wal");
-    let io = super::turso_browser::BrowserIo::new(&[location, &wal])
-        .await
-        .map_err(turso::Error::Error)?;
-    turso::Builder::new_local(location)
-        .with_io_impl(Arc::new(io))
-        .build()
-        .await
 }
 
 #[cfg(native_cache)]
@@ -1115,14 +1038,14 @@ fn location() -> Result<String, String> {
 /// with nothing to wait for, and could not take one anyway: an immediate
 /// transaction opens the engine's temp database, whose clock has no
 /// implementation on wasm.
-fn write_transaction() -> TransactionBehavior {
+fn write_transaction() -> Behavior {
     #[cfg(browser_cache)]
     {
-        TransactionBehavior::Deferred
+        Behavior::Deferred
     }
     #[cfg(not(browser_cache))]
     {
-        TransactionBehavior::Immediate
+        Behavior::Immediate
     }
 }
 
@@ -1134,11 +1057,11 @@ fn write_transaction() -> TransactionBehavior {
 /// rebuilt under one write lock, so two processes opening the same file at
 /// once rebuild it once: the second waits, then reads the version the first
 /// wrote.
-pub(crate) fn migrate(database: &turso::Database) -> Result<(), turso::Error> {
-    let mut connection = connect(database)?;
-    drive(connection.execute(CREATE_META, ()))?;
+pub(crate) fn migrate(database: &sql::Database) -> Result<(), SqlError> {
+    let connection = connect(database)?;
+    connection.execute(CREATE_META, &[])?;
 
-    let transaction = drive(connection.transaction_with_behavior(write_transaction()))?;
+    let transaction = Transaction::new(&connection, write_transaction())?;
 
     let expected = SCHEMA_VERSION.to_string();
     let found = meta_get(&transaction, SCHEMA_VERSION_KEY)?;
@@ -1152,12 +1075,12 @@ pub(crate) fn migrate(database: &turso::Database) -> Result<(), turso::Error> {
             // whatever entries it holds cannot be trusted either.
             None => log::debug!("cubecl cache: initializing database schema {expected}"),
         }
-        drive(transaction.execute(DROP_ENTRIES, ()))?;
+        transaction.execute(DROP_ENTRIES, &[])?;
         meta_set(&transaction, SCHEMA_VERSION_KEY, &expected)?;
     }
 
-    drive(transaction.execute(CREATE_ENTRIES, ()))?;
-    drive(transaction.commit())
+    transaction.execute(CREATE_ENTRIES, &[])?;
+    transaction.commit()
 }
 
 /// Reads a `meta` row, or `None` when the key is absent.
@@ -1165,23 +1088,24 @@ pub(crate) fn migrate(database: &turso::Database) -> Result<(), turso::Error> {
 /// This module owns the table, so everything that touches it goes through
 /// here: the schema version, and a bundle's manifest.
 pub(crate) fn meta_get(
-    connection: &turso::Connection,
+    connection: &sql::Connection,
     key: &str,
-) -> Result<Option<String>, turso::Error> {
-    let mut rows = drive(connection.query(META_GET, (key,)))?;
-    match drive(rows.next())? {
-        Some(row) => Ok(Some(row.get(0)?)),
-        None => Ok(None),
-    }
+) -> Result<Option<String>, SqlError> {
+    let mut value = None;
+    connection.query(META_GET, &[key.into()], &mut |row| {
+        value = Some(row.text(0)?);
+        Ok::<_, SqlError>(())
+    })?;
+    Ok(value)
 }
 
 /// Writes a `meta` row, replacing the key's previous value.
 pub(crate) fn meta_set(
-    connection: &turso::Connection,
+    connection: &sql::Connection,
     key: &str,
     value: &str,
-) -> Result<(), turso::Error> {
-    drive(connection.execute(META_SET, (key, value)))?;
+) -> Result<(), SqlError> {
+    connection.execute(META_SET, &[key.into(), value.into()])?;
     Ok(())
 }
 
@@ -1211,38 +1135,17 @@ pub(crate) fn purge_range(namespaces: Range<&str>) {
 
 /// Entry count and total size per namespace of the database behind
 /// `connection`.
-pub(crate) fn summarize(
-    connection: &turso::Connection,
-) -> Result<Vec<NamespaceSummary>, turso::Error> {
-    let mut rows = drive(connection.query(SUMMARY, ()))?;
+pub(crate) fn summarize(connection: &sql::Connection) -> Result<Vec<NamespaceSummary>, SqlError> {
     let mut summaries = Vec::new();
-    while let Some(row) = drive(rows.next())? {
+    connection.query(SUMMARY, &[], &mut |row| {
         summaries.push(NamespaceSummary {
-            namespace: row.get(0)?,
-            entries: row.get::<i64>(1)? as u64,
-            bytes: row.get::<i64>(2)? as u64,
+            namespace: row.text(0)?,
+            entries: row.integer(1)? as u64,
+            bytes: row.integer(2)? as u64,
         });
-    }
+        Ok::<_, SqlError>(())
+    })?;
     Ok(summaries)
-}
-
-/// Folds the WAL into the main file and truncates it, so the file stands on
-/// its own. Turso never checkpoints on close: a database file copied without
-/// its `-wal` is a database missing every write since the last checkpoint.
-///
-/// Reports whether the checkpoint completed; it doesn't when another
-/// connection holds the WAL, and Turso folds every other cause into the same
-/// flag while logging the reason itself.
-#[cfg(native_cache)]
-fn checkpoint(connection: &turso::Connection) -> Result<bool, turso::Error> {
-    // The closure's error type is the SDK's, not this crate's; a row that
-    // doesn't decode is read as "did not complete" rather than converted.
-    let mut incomplete = false;
-    drive(connection.pragma_query("wal_checkpoint(TRUNCATE)", |row| {
-        incomplete |= row.get::<i64>(0).map_or(true, |busy| busy != 0);
-        Ok(())
-    }))?;
-    Ok(!incomplete)
 }
 
 /// Restarts the log of the database behind `connection`, at `location`,
@@ -1262,8 +1165,8 @@ fn checkpoint(connection: &turso::Connection) -> Result<bool, turso::Error> {
 /// Best-effort: a reader holding the log keeps it from restarting, which is
 /// logged, and the next write restarts it instead.
 #[cfg(native_cache)]
-fn restart_log(connection: &turso::Connection, location: &str) {
-    match checkpoint(connection) {
+fn restart_log(connection: &sql::Connection, location: &str) {
+    match connection.checkpoint() {
         Ok(true) => {}
         Ok(false) => log::debug!("cubecl cache: the log of {location} is in use; not restarted"),
         Err(err) => log::warn!("cubecl cache: unable to restart the log of {location}: {err}"),
@@ -1300,20 +1203,20 @@ const LOG_RESTART_WAIT: core::time::Duration = core::time::Duration::from_secs(5
 /// file fails.
 #[cfg(native_cache)]
 fn make_log_room(
-    connection: &turso::Connection,
+    connection: &sql::Connection,
     location: &str,
     frame_bytes: u64,
 ) -> Result<(), String> {
     let frames = log_frames(location, frame_bytes);
-    if frames < LOG_RESTART_FRAMES {
+    if sql::INDEXED_LOG_FRAMES.is_none() || frames < LOG_RESTART_FRAMES {
         return Ok(());
     }
 
     let started = std::time::Instant::now();
     let held = loop {
-        let held = match checkpoint(connection) {
+        let held = match connection.checkpoint() {
             Ok(true) => return Ok(()),
-            Ok(false) | Err(turso::Error::Busy(_) | turso::Error::BusySnapshot(_)) => None,
+            Ok(false) | Err(SqlError::Busy(_)) => None,
             Err(err) => Some(err.to_string()),
         };
         if started.elapsed() >= LOG_RESTART_WAIT {
@@ -1345,14 +1248,12 @@ fn log_frames(location: &str, frame_bytes: u64) -> u64 {
 
 /// The bytes one frame of the log takes: a page of the database behind
 /// `connection` and the frame's 24-byte header.
-fn frame_bytes(connection: &turso::Connection) -> Result<u64, turso::Error> {
-    // The closure's error type is the SDK's, as in `checkpoint`: a row that
-    // doesn't decode leaves the default page size.
+fn frame_bytes(connection: &sql::Connection) -> Result<u64, SqlError> {
+    // A row that doesn't decode leaves the default page size.
     let mut page_size = 4096;
-    drive(connection.pragma_query("page_size", |row| {
-        page_size = row.get::<i64>(0).unwrap_or(page_size);
-        Ok(())
-    }))?;
+    connection.pragma("page_size", &mut |row| {
+        page_size = row.integer(0).unwrap_or(page_size);
+    })?;
     Ok(page_size as u64 + 24)
 }
 
@@ -1377,10 +1278,10 @@ const LEGACY_JOURNAL: [u8; 2] = [1, 1];
 /// When the checkpoint does not complete, or the header can't be written.
 #[cfg(native_cache)]
 pub(crate) fn make_standalone(
-    connection: turso::Connection,
+    connection: sql::Connection,
     path: &std::path::Path,
 ) -> Result<(), String> {
-    if !checkpoint(&connection).map_err(error)? {
+    if !connection.checkpoint().map_err(error)? {
         return Err(format!(
             "the WAL checkpoint of {} did not complete",
             path.display()
@@ -1394,13 +1295,14 @@ pub(crate) fn make_standalone(
 /// which cannot write beside it can still open it.
 ///
 /// Turso is WAL-only: `PRAGMA journal_mode = DELETE` reports success and
-/// changes nothing, so a file just checkpointed still carries a WAL header.
+/// changes nothing, so a file just checkpointed still carries a WAL header,
+/// and `SQLite` keeps one too until its last connection closes.
 /// `SQLite` takes that header at its word and insists on building the `-shm`
 /// that WAL recovery needs — in a directory it may not write, the open fails
 /// with "attempt to write a readonly database", which is exactly where a
 /// shipped bundle lives.
 ///
-/// After [`checkpoint`] has folded and truncated the WAL, the file holds a
+/// After [`sql::Connection::checkpoint`] has folded and truncated the WAL, the file holds a
 /// complete database and no WAL frames, so these two bytes are the only thing
 /// distinguishing it from one a rollback-journal writer produced. Both
 /// engines read the result: Turso ignores the field and opens its own WAL as
@@ -1425,17 +1327,15 @@ const BUSY_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(5);
 
 /// A connection to `database`, with the busy timeout and `synchronous` set.
 ///
-/// `synchronous` is per-connection and Turso defaults it to `FULL`, which
-/// fsyncs on every commit. `NORMAL` may lose the last commits on a power
-/// cut, which for a cache costs a recompute — the same trade the rusqlite
-/// backend made. It is set on read-only connections too, where it is a no-op,
-/// so that every connection this module hands out is configured alike.
-pub(crate) fn connect(database: &turso::Database) -> Result<turso::Connection, turso::Error> {
+/// `synchronous` is per-connection and both engines default it to `FULL`,
+/// which fsyncs on every commit. `NORMAL` may lose the last commits on a
+/// power cut, which for a cache costs a recompute. It is set on read-only
+/// connections too, where it is a no-op, so that every connection this module
+/// hands out is configured alike.
+pub(crate) fn connect(database: &sql::Database) -> Result<sql::Connection, SqlError> {
     let connection = database.connect()?;
     connection.busy_timeout(BUSY_TIMEOUT)?;
-    // A `PRAGMA` that assigns answers with no rows, which `execute` reports as
-    // `Misuse`; `pragma_query` takes it either way.
-    drive(connection.pragma_query("synchronous = NORMAL", |_| Ok(())))?;
+    connection.pragma("synchronous = NORMAL", &mut |_| {})?;
     Ok(connection)
 }
 
@@ -1455,14 +1355,14 @@ fn origin_of(code: i64) -> Origin {
     }
 }
 
-fn error(error: turso::Error) -> String {
+fn error(error: SqlError) -> String {
     error.to_string()
 }
 
-/// `operation`'s result, with a panic inside turso caught as a [`StorageFault`] rather than
+/// `operation`'s result, with a panic inside the engine caught as a [`StorageFault`] rather than
 /// left to unwind through the thread that called it, which may be a device's runner thread
 /// a load is waiting on.
-fn caught<T>(operation: impl FnOnce() -> Result<T, turso::Error>) -> Result<T, StorageFault> {
+fn caught<T>(operation: impl FnOnce() -> Result<T, SqlError>) -> Result<T, StorageFault> {
     match std::panic::catch_unwind(core::panic::AssertUnwindSafe(operation)) {
         Ok(result) => result.map_err(StorageFault::Refused),
         Err(payload) => Err(StorageFault::Panicked(panic_message(payload.as_ref()))),
@@ -1483,15 +1383,15 @@ fn panic_message(payload: &(dyn core::any::Any + Send)) -> String {
 
 /// Why a call on an environment's database failed.
 enum StorageFault {
-    /// Turso refused the call.
-    Refused(turso::Error),
-    /// Turso panicked during the call, with this message.
+    /// The engine refused the call.
+    Refused(SqlError),
+    /// The engine panicked during the call, with this message.
     Panicked(String),
 }
 
 /// The cause of a [`StorageFault`], named for what fixes it.
 enum FaultCause {
-    /// The log outgrew turso's shared frame index, so every read is refused as locked.
+    /// The log outgrew the engine's shared frame index, so every read is refused as locked.
     IndexOverflowed,
     /// Another connection held the file past the busy timeout.
     Locked,
@@ -1501,7 +1401,7 @@ enum FaultCause {
     Disk,
     /// The file was opened read-only.
     ReadOnly,
-    /// Turso panicked.
+    /// The engine panicked.
     Panicked,
     /// Anything else, which the error's own words describe.
     Other,
@@ -1510,23 +1410,17 @@ enum FaultCause {
 impl StorageFault {
     fn cause(&self, location: &str) -> FaultCause {
         match self {
-            Self::Refused(turso::Error::Busy(_) | turso::Error::BusySnapshot(_))
-                if index_overflowed(location) =>
-            {
+            Self::Refused(SqlError::Busy(_)) if index_overflowed(location) => {
                 FaultCause::IndexOverflowed
             }
-            Self::Refused(turso::Error::Busy(_) | turso::Error::BusySnapshot(_)) => {
+            Self::Refused(SqlError::Busy(_) | SqlError::HeldByAnotherProcess(_)) => {
                 FaultCause::Locked
             }
-            Self::Refused(turso::Error::Corrupt(_) | turso::Error::NotAdb(_)) => {
-                FaultCause::Damaged
-            }
-            Self::Refused(turso::Error::DatabaseFull(_) | turso::Error::IoError(..)) => {
-                FaultCause::Disk
-            }
-            Self::Refused(turso::Error::Readonly(_)) => FaultCause::ReadOnly,
+            Self::Refused(SqlError::Corrupt(_) | SqlError::NotADatabase(_)) => FaultCause::Damaged,
+            Self::Refused(SqlError::Full(_) | SqlError::Io(_)) => FaultCause::Disk,
+            Self::Refused(SqlError::ReadOnly(_)) => FaultCause::ReadOnly,
             Self::Panicked(_) => FaultCause::Panicked,
-            Self::Refused(_) => FaultCause::Other,
+            Self::Refused(SqlError::Other(_)) => FaultCause::Other,
         }
     }
 
@@ -1534,14 +1428,14 @@ impl StorageFault {
     fn explain(&self, location: &str) -> String {
         let said = match self {
             Self::Refused(error) => error.to_string(),
-            Self::Panicked(message) => format!("turso panicked: {message}"),
+            Self::Panicked(message) => format!("{} panicked: {message}", sql::ENGINE),
         };
         let directory = std::path::Path::new(location)
             .parent()
             .map_or_else(|| location.to_string(), |dir| dir.display().to_string());
         match self.cause(location) {
             FaultCause::IndexOverflowed => format!(
-                "{said}: the log of {location} holds more frames than turso's shared index of \
+                "{said}: the log of {location} holds more frames than the engine's shared index of \
                  262,144, so every read of it is refused. Once no process uses it, the next \
                  open restarts the log; until then, moving {directory} aside with no process \
                  using it starts afresh"
@@ -1562,7 +1456,7 @@ impl StorageFault {
             ),
             FaultCause::ReadOnly => format!("{said}: {location} is open read-only"),
             FaultCause::Panicked => format!(
-                "{said}, while working on {location}. The file may be in a state turso does not \
+                "{said}, while working on {location}. The file may be in a state the engine does not \
                  expect; moving {directory} aside with no process using it starts afresh"
             ),
             FaultCause::Other => format!("{said} ({location})"),
@@ -1571,7 +1465,8 @@ impl StorageFault {
 }
 
 /// Whether the shared frame index of `location`'s log has overflowed: its flag in the
-/// `-tshm` header. Read from the file, since turso reports it only as a lock.
+/// `-tshm` header, which only Turso keeps. Read from the file, since Turso reports it only as
+/// a lock.
 fn index_overflowed(location: &str) -> bool {
     #[cfg(native_cache)]
     {
@@ -1609,16 +1504,17 @@ mod tests {
     fn tables(location: &str) -> Vec<String> {
         let database = block_on(open_database(location)).unwrap();
         let connection = connect(&database).unwrap();
-        let mut rows = drive(connection.query(
-            "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name",
-            (),
-        ))
-        .unwrap();
-
         let mut names = Vec::new();
-        while let Some(row) = drive(rows.next()).unwrap() {
-            names.push(row.get::<String>(0).unwrap());
-        }
+        connection
+            .query(
+                "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name",
+                &[],
+                &mut |row| {
+                    names.push(row.text(0)?);
+                    Ok::<_, SqlError>(())
+                },
+            )
+            .unwrap();
         names
     }
 
@@ -1643,15 +1539,17 @@ mod tests {
         {
             let database = block_on(open_database(&location)).unwrap();
             let connection = connect(&database).unwrap();
-            drive(connection.execute(CREATE_META, ())).unwrap();
-            drive(connection.execute(META_SET, (SCHEMA_VERSION_KEY, "999"))).unwrap();
-            drive(connection.execute(
-                "CREATE TABLE entries (store TEXT NOT NULL, key BLOB NOT NULL, \
-                 value BLOB NOT NULL, PRIMARY KEY (store, key))",
-                (),
-            ))
-            .unwrap();
-            drive(connection.execute("INSERT INTO entries VALUES ('old', X'01', X'02')", ()))
+            connection.execute(CREATE_META, &[]).unwrap();
+            meta_set(&connection, SCHEMA_VERSION_KEY, "999").unwrap();
+            connection
+                .execute(
+                    "CREATE TABLE entries (store TEXT NOT NULL, key BLOB NOT NULL, \
+                     value BLOB NOT NULL, PRIMARY KEY (store, key))",
+                    &[],
+                )
+                .unwrap();
+            connection
+                .execute("INSERT INTO entries VALUES ('old', X'01', X'02')", &[])
                 .unwrap();
         }
 
@@ -1759,8 +1657,8 @@ mod tests {
         {
             let database = block_on(open_database(other_schema.to_str().unwrap())).unwrap();
             let connection = connect(&database).unwrap();
-            drive(connection.execute(CREATE_META, ())).unwrap();
-            drive(connection.execute(META_SET, (SCHEMA_VERSION_KEY, "999"))).unwrap();
+            connection.execute(CREATE_META, &[]).unwrap();
+            meta_set(&connection, SCHEMA_VERSION_KEY, "999").unwrap();
         }
         assert!(Database::open_at(&other_schema, Access::ReadOnly).is_err());
 
@@ -1768,7 +1666,9 @@ mod tests {
         {
             let database = block_on(open_database(foreign.to_str().unwrap())).unwrap();
             let connection = connect(&database).unwrap();
-            drive(connection.execute("CREATE TABLE notes (body TEXT)", ())).unwrap();
+            connection
+                .execute("CREATE TABLE notes (body TEXT)", &[])
+                .unwrap();
         }
         assert!(Database::open_at(&foreign, Access::ReadOnly).is_err());
         assert_eq!(
@@ -1900,46 +1800,6 @@ mod tests {
 
         let reopened = DatabaseStorage::open("kept".to_string()).unwrap();
         assert_eq!(reopened.get(b"key"), Some(Bytes::from_bytes_vec(vec![7])));
-    }
-
-    /// Where the engine won't share a file's WAL between processes, the file
-    /// still opens writable, for this process alone, rather than failing into
-    /// the read-only fallback, which can't open a file that isn't an
-    /// environment yet.
-    ///
-    /// Windows and network file systems are where this matters, and CI runs on
-    /// neither. An in-memory location is declined by the same check, with the
-    /// same error, on every platform.
-    #[test_log::test]
-    #[cfg_attr(miri, ignore)]
-    fn a_location_without_a_shared_wal_opens_for_this_process() {
-        let database = block_on(open_database(":memory:")).unwrap();
-        migrate(&database).unwrap();
-
-        let connection = connect(&database).unwrap();
-        assert_eq!(
-            insert_on(&connection, "kernels", b"key", b"1", Origin::Local).unwrap(),
-            Insertion::Stored
-        );
-    }
-
-    /// The fallback keys on the engine's message, so it is pinned here: an
-    /// engine that rewords the refusal must fail this test, not quietly send
-    /// every such location back to the read-only fallback.
-    ///
-    /// Only where the engine coordinates WALs at all, 64-bit Unix and Windows;
-    /// elsewhere it ignores the request rather than refusing it.
-    #[test_log::test]
-    #[cfg_attr(miri, ignore)]
-    #[cfg(all(any(unix, windows), target_pointer_width = "64"))]
-    fn the_engine_declines_a_shared_wal_in_words_we_recognize() {
-        let Err(err) = block_on(open_writable(":memory:", true)) else {
-            panic!("an in-memory database must not get a shared WAL");
-        };
-        assert!(
-            multiprocess_wal_unsupported(&err),
-            "unrecognized refusal: {err}"
-        );
     }
 
     /// Two independent connections to one file, which is what two processes
@@ -2092,9 +1952,12 @@ mod tests {
 
         let reader = Database::open_at(&path, Access::ReadWrite).unwrap();
         reader.with_connection(|connection| {
-            drive(connection.execute("BEGIN", ())).unwrap();
-            let mut rows = drive(connection.query("SELECT count(*) FROM entries", ())).unwrap();
-            drive(rows.next()).unwrap();
+            connection.execute("BEGIN", &[]).unwrap();
+            connection
+                .query("SELECT count(*) FROM entries", &[], &mut |_| {
+                    Ok::<_, SqlError>(())
+                })
+                .unwrap();
         });
         // 128 MiB more: about 65,000 frames, more than a write may start on.
         fill(&writer, "programs", 128);
@@ -2112,7 +1975,7 @@ mod tests {
         }
         assert!(waited >= LOG_RESTART_WAIT, "refused after {waited:?}");
 
-        reader.with_connection(|connection| drive(connection.execute("COMMIT", ())).unwrap());
+        reader.with_connection(|connection| connection.execute("COMMIT", &[]).unwrap());
         assert_eq!(
             writer.insert("kernels", b"late", b"1", Origin::Local),
             Insertion::Stored
@@ -2129,7 +1992,7 @@ mod tests {
         let writer = Database::open_at(&path, Access::ReadWrite).unwrap();
         let holder = Database::open_at(&path, Access::ReadWrite).unwrap();
         holder.with_connection(|connection| {
-            drive(connection.execute("BEGIN IMMEDIATE", ())).unwrap();
+            connection.execute("BEGIN IMMEDIATE", &[]).unwrap();
         });
 
         match writer.insert("kernels", b"key", b"1", Origin::Local) {
@@ -2141,7 +2004,7 @@ mod tests {
             }
             other => panic!("the write landed while another connection held the lock: {other:?}"),
         }
-        holder.with_connection(|connection| drive(connection.execute("ROLLBACK", ())).unwrap());
+        holder.with_connection(|connection| connection.execute("ROLLBACK", &[]).unwrap());
     }
 
     /// A lock turso reports over a log whose shared index overflowed is told as the overflow it
@@ -2150,7 +2013,7 @@ mod tests {
     fn a_lock_over_an_overflowed_index_is_told_as_the_overflow() {
         let dir = tempfile::tempdir().unwrap();
         let location = dir.path().join("building.db").to_str().unwrap().to_string();
-        let locked = StorageFault::Refused(turso::Error::Busy("database is locked".into()));
+        let locked = StorageFault::Refused(SqlError::Busy("database is locked".into()));
         assert!(matches!(locked.cause(&location), FaultCause::Locked));
 
         let mut header = vec![0u8; 128];
@@ -2163,15 +2026,16 @@ mod tests {
         assert!(locked.explain(&location).contains("262,144"));
     }
 
-    /// A panic inside turso becomes the call's failure, with its message.
+    /// A panic inside the engine becomes the call's failure, with its message.
     #[test]
     fn a_panic_inside_the_storage_is_a_failure() {
         let fault = caught::<()>(|| panic!("reader slot released by non-owner")).unwrap_err();
         let explained = fault.explain("/cache/building.db");
-        assert!(
-            explained.contains("turso panicked: reader slot released by non-owner"),
-            "{explained}"
+        let panicked = format!(
+            "{} panicked: reader slot released by non-owner",
+            sql::ENGINE
         );
+        assert!(explained.contains(&panicked), "{explained}");
         assert!(explained.contains("/cache/building.db"), "{explained}");
     }
 
@@ -2192,27 +2056,37 @@ mod tests {
             return;
         };
         let location = location.into_string().unwrap();
-        let database = block_on(open_writable(&location, true)).unwrap();
+        let database = block_on(sql::Database::open(&location, Opening::Shared)).unwrap();
         migrate(&database).unwrap();
-        let mut writer = connect(&database).unwrap();
+        let writer = connect(&database).unwrap();
         let reader = connect(&database).unwrap();
         let value = vec![7u8; 64 * 1024];
-        drive(writer.execute(INSERT, ("seen", vec![0u8], value.clone(), 0))).unwrap();
-        drive(reader.execute("BEGIN", ())).unwrap();
-        let mut rows = drive(reader.query("SELECT count(*) FROM entries", ())).unwrap();
-        drive(rows.next()).unwrap();
+        let seen = [
+            "seen".into(),
+            b"\0".as_slice().into(),
+            (&value).into(),
+            0.into(),
+        ];
+        writer.execute(INSERT, &seen).unwrap();
+        reader.execute("BEGIN", &[]).unwrap();
+        reader
+            .query("SELECT count(*) FROM entries", &[], &mut |_| {
+                Ok::<_, SqlError>(())
+            })
+            .unwrap();
 
         let page = frame_bytes(&writer).unwrap();
         // Once the log is past the index every statement fails as busy: the
         // writer keeps trying, so that only the kill ends it.
         for batch in 0u32.. {
             let committed = (|| {
-                let transaction = drive(writer.transaction_with_behavior(write_transaction()))?;
+                let transaction = Transaction::new(&writer, write_transaction())?;
                 for index in 0..512u32 {
                     let key = [batch.to_le_bytes(), index.to_le_bytes()].concat();
-                    drive(transaction.execute(INSERT, ("kernels", key, value.clone(), 0)))?;
+                    let params = ["kernels".into(), (&key).into(), (&value).into(), 0.into()];
+                    transaction.execute(INSERT, &params)?;
                 }
-                drive(transaction.commit())
+                transaction.commit()
             })();
             std::println!(
                 "frames {} {committed:?}",

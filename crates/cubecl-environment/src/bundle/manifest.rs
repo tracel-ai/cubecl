@@ -82,6 +82,13 @@ impl From<std::io::Error> for BundleError {
     }
 }
 
+#[cfg(native_cache)]
+impl From<crate::persistence::sql::SqlError> for BundleError {
+    fn from(err: crate::persistence::sql::SqlError) -> Self {
+        Self::Storage(err.to_string())
+    }
+}
+
 /// The manifest of an environment bundle, stored as a row of the bundle
 /// database in [`BundleFormat::Sqlite`](super::BundleFormat::Sqlite) and as the
 /// metadata blob in [`BundleFormat::Flat`](super::BundleFormat::Flat).
@@ -184,7 +191,9 @@ impl BundleManifest {
 
     /// Reads and validates the manifest of a bundle database.
     #[cfg(native_cache)]
-    pub(super) fn read(connection: &turso::Connection) -> Result<Self, BundleError> {
+    pub(super) fn read(
+        connection: &crate::persistence::sql::Connection,
+    ) -> Result<Self, BundleError> {
         let content = crate::persistence::database::meta_get(connection, MANIFEST_KEY)
             .map_err(super::sqlite::missing_meta)?
             .ok_or(BundleError::NotABundle)?;
@@ -194,11 +203,14 @@ impl BundleManifest {
 
     /// Writes the manifest into a bundle database.
     #[cfg(native_cache)]
-    pub(super) fn write(&self, connection: &turso::Connection) -> Result<(), BundleError> {
+    pub(super) fn write(
+        &self,
+        connection: &crate::persistence::sql::Connection,
+    ) -> Result<(), BundleError> {
         let content = serde_json::to_string_pretty(self)
             .map_err(|err| BundleError::InvalidManifest(err.to_string()))?;
 
         crate::persistence::database::meta_set(connection, MANIFEST_KEY, &content)
-            .map_err(super::export::storage_error)
+            .map_err(BundleError::from)
     }
 }
