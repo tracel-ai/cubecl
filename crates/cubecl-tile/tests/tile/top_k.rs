@@ -1,6 +1,6 @@
 //! `Monoid::Max` and `Monoid::Min` over `TopK`, the top-k and bottom-k with their indices: the
 //! `K` best in `Indexed`'s order (value, then the lower index, NaN first), padded with the
-//! identity. By a unit inserting values one at a time, two halves folded apart and combined, a
+//! identity. By a unit inserting values one at a time, two halves reduced apart and combined, a
 //! plane's units at once and groups of four units, on two-lane vectors whose lanes reduce apart.
 
 use cubecl::prelude::*;
@@ -34,7 +34,7 @@ fn write(at: usize, best: Best, values: &mut [f32], indices: &mut [u32]) {
 
 /// Items `start..end` inserted one at a time.
 #[cube]
-fn fold_range(input: &[f32], start: usize, end: usize, #[comptime] monoid: Monoid) -> Best {
+fn insert_range(input: &[f32], start: usize, end: usize, #[comptime] monoid: Monoid) -> Best {
     let mut best = Best::identity(monoid);
     for i in start..end {
         best.insert(lanes_of(input, i), Vector::new(i as u32), monoid);
@@ -42,14 +42,19 @@ fn fold_range(input: &[f32], start: usize, end: usize, #[comptime] monoid: Monoi
     best
 }
 
-/// One unit inserts every item; a second folds each half apart and combines them.
+/// One unit inserts every item; a second reduces each half apart and combines them.
 #[cube(launch)]
-fn fold(input: &[f32], values: &mut [f32], indices: &mut [u32], #[comptime] monoid: Monoid) {
+fn insert_and_combine(
+    input: &[f32],
+    values: &mut [f32],
+    indices: &mut [u32],
+    #[comptime] monoid: Monoid,
+) {
     let n = input.len() / 2;
-    write(0, fold_range(input, 0, n, monoid), values, indices);
+    write(0, insert_range(input, 0, n, monoid), values, indices);
     let halves = monoid.combine::<Best>(
-        fold_range(input, n / 2, n, monoid),
-        fold_range(input, 0, n / 2, monoid),
+        insert_range(input, n / 2, n, monoid),
+        insert_range(input, 0, n / 2, monoid),
     );
     write(1, halves, values, indices);
 }
@@ -167,14 +172,14 @@ fn launch(
 
 /// Inserting one item at a time, and combining two halves, both keep the `K` best.
 #[test]
-fn a_fold_and_a_combine_keep_the_k_best() {
+fn inserts_and_a_combine_keep_the_k_best() {
     let client = cubecl::test_device().client();
     for monoid in [Monoid::Max, Monoid::Min] {
         for n in [2, 9] {
             for (name, a) in cases(n) {
                 let b: Vec<f32> = a.iter().rev().copied().collect();
                 let (values, indices) = launch(&client, &interleave(&a, &b), 2, |i, v, x| {
-                    fold::launch(
+                    insert_and_combine::launch(
                         &client,
                         CubeCount::new_single(),
                         CubeDim::new_1d(1),
