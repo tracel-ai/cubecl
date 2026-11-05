@@ -14,6 +14,8 @@ use cubecl_core::ir::dialect::{
     scf::{ForOp, IfOp, SwitchOp, WhileOp},
 };
 #[cfg(feature = "nvptx")]
+use cubecl_core::ir::interfaces::aliasing::PointerExt;
+#[cfg(feature = "nvptx")]
 use pliron::linked_list::ContainsLinkedList;
 use pliron::region::Region;
 #[cfg(feature = "nvptx")]
@@ -333,7 +335,7 @@ fn split_join_block(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LoopShape {
     /// A trip count known at compile time, and a body indexing a local array at an index that
-    /// changes each turn.
+    /// can differ between turns.
     ConstantOverLocalArray,
     Other,
 }
@@ -343,8 +345,8 @@ impl LoopShape {
     /// What this loop's target should be asked for, or `None` to leave it to LLVM's cost model.
     ///
     /// A loop of a constant trip count that steps through a local array is worth unrolling
-    /// completely on NVPTX, as NVVM does: only then is every index a constant, and a local array
-    /// indexed by constants alone becomes registers instead of local memory. LLVM's NVPTX cost
+    /// completely on NVPTX, as NVVM does: once the index is a constant, a local array indexed by
+    /// constants alone becomes registers instead of local memory. LLVM's NVPTX cost
     /// model stops short of that for a loop of more than a handful of steps (a top-k accumulator's
     /// 64, say), and the array it leaves in local memory costs several times the loop. AMDGPU's
     /// cost model already raises its threshold for a loop that touches a private array, so it needs
@@ -383,10 +385,10 @@ impl LoopShape {
     }
 }
 
-/// Whether the body of `lp` indexes a local array at an index that changes between its turns,
-/// stopping at the first that does.
+/// Whether the body of `looped` indexes a local array at an index that can differ between its
+/// turns, stopping at the first that does.
 #[cfg(feature = "nvptx")]
-fn steps_through_local_array(ctx: &Context, lp: Ptr<Operation>) -> bool {
+fn steps_through_local_array(ctx: &Context, looped: Ptr<Operation>) -> bool {
     use pliron::graph::walkers::{
         IRNode, WALKCONFIG_PREORDER_FORWARD,
         interruptible::{immutable::walk_op, walk_advance, walk_break},
@@ -394,20 +396,20 @@ fn steps_through_local_array(ctx: &Context, lp: Ptr<Operation>) -> bool {
 
     walk_op(
         ctx,
-        &mut (lp, HashSet::new()),
+        &mut (looped, HashSet::new()),
         &WALKCONFIG_PREORDER_FORWARD,
-        lp,
-        |ctx, (lp, seen), node| {
+        looped,
+        |ctx, (looped, seen), node| {
             let IRNode::Operation(op) = node else {
                 return walk_advance();
             };
             let steps = op.as_op::<IndexOp>(ctx).is_some_and(|index| {
                 index
                     .base(ctx)
-                    .defining_op()
+                    .get_root_defining_op(ctx)
                     .and_then(|def| Operation::get_op::<DeclareVariableOp>(def, ctx))
                     .is_some_and(|declare| declare.addr_space(ctx).0 == AddressSpace::Local)
-                    && varies_per_turn(ctx, index.index(ctx), *lp, seen)
+                    && varies_per_turn(ctx, index.index(ctx), *looped, seen)
             });
             if steps {
                 walk_break(())
@@ -419,37 +421,38 @@ fn steps_through_local_array(ctx: &Context, lp: Ptr<Operation>) -> bool {
     .is_break()
 }
 
-/// Whether `value` can differ between the turns of the loop `lp`. A load ends the search: unrolling
-/// does not make what memory holds a constant. A value defined by a structured op inside `lp`
-/// depends on everything that op reads or yields.
+/// Whether `value` can differ between the turns of the loop `looped`. A load ends the search:
+/// unrolling does not make what memory holds a constant. A nested loop's counter depends only on
+/// its bounds; any other value defined by a structured op inside `looped` depends on everything
+/// that op reads or yields.
 #[cfg(feature = "nvptx")]
 fn varies_per_turn(
     ctx: &Context,
     value: Value,
-    lp: Ptr<Operation>,
+    looped: Ptr<Operation>,
     seen: &mut HashSet<Value>,
 ) -> bool {
     if !seen.insert(value) {
         return false;
     }
-    let source = match value.defining_op() {
-        Some(op) => op,
-        None => {
-            let owner = value
-                .defining_block()
-                .and_then(|block| block.deref(ctx).get_parent_op(ctx));
-            match owner {
-                Some(owner) if owner == lp => return true,
-                Some(owner) => owner,
-                None => return false,
-            }
-        }
+    let Some(source) = value
+        .defining_op()
+        .or_else(|| value.defining_block()?.deref(ctx).get_parent_op(ctx))
+    else {
+        return false;
     };
-    if !lp.is_ancestor_of(ctx, source) {
+    if source == looped {
+        return true;
+    }
+    if !looped.is_ancestor_of(ctx, source) || source.is_op::<LoadOp>(ctx) {
         return false;
     }
-    if source.as_op::<LoadOp>(ctx).is_some() {
-        return false;
+    if let Some(nested) = source.as_op::<ForOp>(ctx)
+        && value == nested.iter_var(ctx)
+    {
+        return [nested.start(ctx), nested.end(ctx), nested.step(ctx)]
+            .into_iter()
+            .any(|bound| varies_per_turn(ctx, bound, looped, seen));
     }
     let yielded = source
         .regions(ctx)
@@ -461,7 +464,7 @@ fn varies_per_turn(
         .operands(ctx)
         .into_iter()
         .chain(yielded)
-        .any(|operand| varies_per_turn(ctx, operand, lp, seen))
+        .any(|operand| varies_per_turn(ctx, operand, looped, seen))
 }
 
 fn branch_to_yielded(

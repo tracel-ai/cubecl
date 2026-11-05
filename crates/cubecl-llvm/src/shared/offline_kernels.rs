@@ -150,6 +150,36 @@ fn walk_settings() -> KernelSettings {
     )
 }
 
+/// A sum carried through a loop of 256 turns around a walk of a local array: the outer loop
+/// carries a value its inner counter does not depend on.
+// Cube code indexes: it has no iterators to lower.
+#[allow(clippy::needless_range_loop)]
+#[cube(launch)]
+fn carried_sum_around_walk(input: &[f32], output: &mut [f32]) {
+    let mut values = Array::<f32>::new(64usize);
+    #[unroll]
+    for i in 0..64usize {
+        values[i] = input[i];
+    }
+    let mut sum = 0.0f32;
+    for _ in 0..256u32 {
+        for j in 0..64usize {
+            sum += values[j];
+        }
+    }
+    output[UNIT_POS as usize] = sum;
+}
+
+pub(crate) fn carried_sum_around_walk_kernel() -> impl CubeKernel {
+    carried_sum_around_walk::CarriedSumAroundWalk::new(
+        walk_settings(),
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 /// Fills a local array with a counter kept in a variable, so the index is carried from turn to
 /// turn rather than being the loop's own counter.
 #[cube(launch)]
